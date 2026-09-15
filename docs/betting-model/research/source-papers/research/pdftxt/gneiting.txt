@@ -1,0 +1,1436 @@
+                                        Strictly Proper Scoring Rules, Prediction,
+                                                                  and Estimation
+Tilmann G NEITING and Adrian E. R AFTERY
+
+           Scoring rules assess the quality of probabilistic forecasts, by assigning a numerical score based on the predictive distribution and on the
+           event or value that materializes. A scoring rule is proper if the forecaster maximizes the expected score for an observation drawn from the
+           distribution F if he or she issues the probabilistic forecast F, rather than G = F. It is strictly proper if the maximum is unique. In prediction
+           problems, proper scoring rules encourage the forecaster to make careful assessments and to be honest. In estimation problems, strictly proper
+           scoring rules provide attractive loss and utility functions that can be tailored to the problem at hand. This article reviews and develops the
+           theory of proper scoring rules on general probability spaces, and proposes and discusses examples thereof. Proper scoring rules derive from
+           convex functions and relate to information measures, entropy functions, and Bregman divergences. In the case of categorical variables, we
+           prove a rigorous version of the Savage representation. Examples of scoring rules for probabilistic forecasts in the form of predictive densities
+           include the logarithmic, spherical, pseudospherical, and quadratic scores. The continuous ranked probability score applies to probabilistic
+           forecasts that take the form of predictive cumulative distribution functions. It generalizes the absolute error and forms a special case of
+           a new and very general type of score, the energy score. Like many other scoring rules, the energy score admits a kernel representation
+           in terms of negative definite functions, with links to inequalities of Hoeffding type, in both univariate and multivariate settings. Proper
+           scoring rules for quantile and interval forecasts are also discussed. We relate proper scoring rules to Bayes factors and to cross-validation,
+           and propose a novel form of cross-validation known as random-fold cross-validation. A case study on probabilistic weather forecasts in
+           the North American Pacific Northwest illustrates the importance of propriety. We note optimum score approaches to point and quantile
+           estimation, and propose the intuitively appealing interval score as a utility function in interval estimation that addresses width as well as
+           coverage.
+           KEY WORDS: Bayes factor; Bregman divergence; Brier score; Coherent; Continuous ranked probability score; Cross-validation; Entropy;
+                      Kernel score; Loss function; Minimum contrast estimation; Negative definite function; Prediction interval; Predictive
+                      distribution; Quantile forecast; Scoring rule; Skill score; Strictly proper; Utility function.
+
+
+                         1. INTRODUCTION                                             forecasts and the observations, and is a joint property of the
+                                                                                     forecasts and the events or values that materialize. Sharpness
+   One major purpose of statistical analysis is to make fore-
+                                                                                     refers to the concentration of the predictive distributions and is
+casts for the future and provide suitable measures of the un-
+                                                                                     a property of the forecasts only.
+certainty associated with them. Consequently, forecasts should
+                                                                                        Scoring rules provide summary measures for the evaluation
+be probabilistic in nature, taking the form of probability distri-
+                                                                                     of probabilistic forecasts, by assigning a numerical score based
+butions over future quantities or events (Dawid 1984). Indeed,
+                                                                                     on the predictive distribution and on the event or value that ma-
+over the past two decades, probabilistic forecasting has become                      terializes. In terms of elicitation, the role of scoring rules is
+routine in such applications as weather and climate prediction                       to encourage the assessor to make careful assessments and to
+(Palmer 2002; Gneiting and Raftery 2005), computational fi-                          be honest (Garthwaite, Kadane, and O’Hagan 2005). In terms
+nance (Duffie and Pan 1997), and macroeconomic forecasting                           of evaluation, scoring rules measure the quality of the proba-
+(Garratt, Lee, Pesaran, and Shin 2003; Granger 2006). In the                         bilistic forecasts, reward probability assessors for forecasting
+statistical literature, advances in Markov chain Monte Carlo                         jobs, and rank competing forecast procedures. Meteorologists
+methodology (see, e.g., Besag, Green, Higdon, and Mengersen                          refer to this broad task as forecast verification, and much of the
+1995) have led to explosive growth in the use of predictive dis-                     underlying methodology has been developed by atmospheric
+tributions, mostly in the form of Monte Carlo samples from pos-                      scientists (Jolliffe and Stephenson 2003). In a Bayesian con-
+terior predictive distributions of quantities of interest. In ear-                   text, scores are frequently referred to as utilities, emphasizing
+lier work (Gneiting, Raftery, Balabdaoui, and Westveld 2003;                         the Bayesian principle of maximizing the expected utility of
+Gneiting, Balabdaoui, and Raftery 2006), we contended that the                       a predictive distribution (Bernardo and Smith 1994). We take
+goal of probabilistic forecasting is to maximize the sharpness                       scoring rules to be positively oriented rewards that a forecaster
+of the predictive distributions subject to calibration. Calibration                  wishes to maximize. Specifically, if the forecaster quotes the
+refers to the statistical consistency between the distributional                     predictive distribution P and the event x materializes, then his
+                                                                                     or her reward is S(P, x). The function S(P, · ) takes values in
+    Tilmann Gneiting is Associate Professor of Statistics (E-mail: tilmann@stat.     the real line R or in the extended real line R = [−∞, ∞], and
+washington.edu) and Adrian E. Raftery is Blumstein-Jordan Professor of Sta-          we write S(P, Q) for the expected value of S(P, · ) under Q.
+tistics and Sociology (E-mail: raftery@u.washington.edu), Department of Sta-         Suppose, then, that the forecaster’s best judgment is the distri-
+tistics, University of Washington, Seattle, WA 98195. This work was supported
+by the DoD Multidisciplinary University Research Initiative (MURI) program           butional forecast Q. The forecaster has no incentive to predict
+administered by the Office of Naval Research under grant N00014-01-10745             any P = Q and is encouraged to quote his or her true belief,
+and by the National Science Foundation under award 0134264. Part of Tilmann          P = Q, if S(Q, Q) ≥ S(P, Q) with equality if and only if P = Q.
+Gneiting’s work was performed on sabbatical leave at the Soil Physics Group,
+Universität Bayreuth, 95440 Bayreuth, Germany. The authors thank Mark Al-
+                                                                                     A scoring rule with this property is said to be strictly proper. If
+bright, Veronica J. Berrocal, William M. Briggs, Andreas Buja, Ignacio Cascos,       S(Q, Q) ≥ S(P, Q) for all P and Q, then the scoring rule is said
+Claudia Czado, A. Philip Dawid, Werner Ehm, Thomas Gerds, Eric P. Grimit,            to be proper. Propriety is essential in scientific and operational
+Susanne Gschlößl, Eliezer Gurarie, Mark S. Handcock, Leonhard Held, Pe-
+ter J. Huber, Nicholas A. Johnson, Ian T. Jolliffe, Hans Kuensch, Christian
+Lantuéjoul, Clifford F. Mass, Debashis Mondal, David B. Stephenson, Werner                                         © 2007 American Statistical Association
+Stuetzle, Gabor J. Székely, Olivier Talagrand, Jon A. Wellner, Lawrence J. Wil-                              Journal of the American Statistical Association
+son, Robert L. Winkler, and two anonymous reviewers for providing comments,                                    March 2007, Vol. 102, No. 477, Review Article
+preprints, references, and data.                                                                                           DOI 10.1198/016214506000001437
+
+                                                                                 359
+360                                                                              Journal of the American Statistical Association, March 2007
+
+forecast evaluation; and we present a case study that provides a       as a utility function that addresses width as well as coverage.
+striking example of the potential issues that result from the use      We close the article with a discussion of avenues for future
+of intuitively appealing but improper scoring rules.                   work in Section 10. Scoring rules show a superficial analogy
+   In estimation problems, strictly proper scoring rules provide       to statistical depth functions, which we hint at in an Appendix.
+attractive loss and utility functions that can be tailored to a sci-
+entific problem. To fix the idea, suppose that we wish to fit                   2. CHARACTERIZATIONS OF PROPER
+a parametric model Pθ based on a sample X1 , . . . , Xn . To es-                        SCORING RULES
+timate θ , we might measure the goodness-of-fit by the mean               In this section we introduce notation, provide characteriza-
+score                                                                  tions of proper scoring rules, and relate them to convex func-
+                               1                                      tions, information measures, and Bregman divergences. The
+                                  n
+                    Sn (θ ) =       S(Pθ , Xi ),                       discussion here is more technical than that in the remainder of
+                               n
+                                i=1                                    the article, and readers with more applied interests might skip
+where S is a strictly proper scoring rule. If θ0 denotes the           ahead to Section 2.3, in which we discuss skill scores, without
+true parameter value, then asymptotic arguments indicate that          significant loss of continuity.
+arg maxθ Sn (θ ) → θ0 as n → ∞. This suggests a general ap-            2.1 Proper Scoring Rules and Convex Functions
+proach to estimation: Choose a strictly proper scoring rule that
+is tailored to the problem at hand and use θ̂n = arg maxθ Sn (θ )         We consider probabilistic forecasts on a general sample
+as the optimum score estimator based on the scoring rule. Pfan-        space . Let A be a σ -algebra of subsets of , and let P
+zagl (1969) and Birgé and Massart (1993) studied this approach         be a convex class of probability measures on (, A). A func-
+under the heading of minimum contrast estimation. Maximum              tion defined on  and taking values in the extended real line,
+likelihood estimation forms a special case of optimum score es-        R = [−∞, ∞], is P-quasi-integrable if it is measurable with
+timation, and optimum score estimation forms a special case of         respect to A and is quasi-integrable with respect to all P ∈ P
+M-estimation (Huber 1964), in that the function to be optimized        (Bauer 2001, p. 64). A probabilistic forecast is any probabil-
+derives from a strictly proper scoring rule.                           ity measure P ∈ P. A scoring rule is any extended real-valued
+   This article reviews and develops the theory of proper scor-        function S : P ×  → R such that S(P, ·) is P-quasi-integrable
+ing rules on general probability spaces, proposes and discusses        for all P ∈ P. Thus if the forecast is P and ω materializes, the
+examples thereof, and presents case studies. The remainder of          forecaster’s reward is S(P, ω). We permit algebraic operations
+the article is organized as follows. In Section 2 we state a fun-      on the extended real line and deal with the respective integrals
+damental characterization theorem, review the links between            and expectations as described in section 2.1 of Mattner (1997)
+proper scoring rules, information measures, entropy functions,         and section 3.1 of Grünwald and Dawid (2004). The scoring
+and Bregman divergences, and introduce skill scores. In Sec-           rules used in practice are mostly real-valued, but there are ex-
+tion 3 we turn to scoring rules for categorical variables. We          ceptions, such as the logarithmic rule (Good 1952), that allow
+prove a rigorous version of the representation of Savage (1971)        for infinite scores.
+and relate to a more recent characterization of Schervish (1989)          We write
+                                                                                                    
+that applies to probability forecasts of a dichotomous event.                             S(P, Q) = S(P, ω) dQ(ω)
+Bremnes (2004, p. 346) noted that the literature on scoring rules
+for probabilistic forecasts of continuous variables is sparse. We      for the expected score under Q when the probabilistic forecast
+address this issue in Section 4, where we discuss the spherical,       is P. The scoring rule S is proper relative to P if
+pseudospherical, logarithmic, and quadratic scores. The contin-
+uous ranked probability score, which lately has attracted much                      S(Q, Q) ≥ S(P, Q)      for all P, Q ∈ P.            (1)
+attention, enjoys appealing properties and might serve as a stan-      It is strictly proper relative to P if (1) holds with equality if
+dard score in evaluating probabilistic forecasts of real-valued        and only if P = Q, thereby encouraging honest quotes by the
+variables. It forms a special case of a novel and very general         forecaster. If S is a proper scoring rule, c > 0 is a constant,
+type of scoring rule, the energy score. In Section 5 we introduce      and h is a P-integrable function, then
+an even more general construction, giving rise to kernel scores
+based on negative definite functions and inequalities of Hoeffd-                         S∗ (P, ω) = cS(P, ω) + h(ω)                    (2)
+ing type, with side results on expectation inequalities and pos-       is also a proper scoring rule. Similarly, if S is strictly proper,
+itive definite functions. In Section 6 we study scoring rules for      then S∗ is strictly proper as well. Following Dawid (1998), we
+quantile and interval forecasts. We show that the class of proper      say that S and S∗ are equivalent, and strongly equivalent if
+scoring rules for quantile forecasts is larger than conjectured        c = 1. The term proper was apparently coined by Winkler and
+by Cervera and Muñoz (1996) and discuss the interval score,            Murphy (1968, p. 754), whereas the general idea dates back at
+a scoring rule for prediction intervals that is proper and has in-     least to Brier (1950) and Good (1952, p. 112). In a parametric
+tuitive appeal. In Section 7 we relate proper scoring rules to         context, and with respect to estimators, Lehmann and Casella
+Bayes factors and to cross-validation, and propose a novel form        (1998, p. 157) refer to the defining property in (1) as risk unbi-
+of cross-validation known as random-fold cross-validation. In          asedness.
+Section 8 we present a case study on the use of scoring rules in          A function G : P → R is convex if
+the evaluation of probabilistic weather forecasts. In Section 9
+                                                                       G((1 − λ)P0 + λP1 ) ≤ (1 − λ)G(P0 ) + λG(P1 )
+we turn to optimum score estimation. We discuss point, quan-
+tile, and interval estimation and propose using the interval score                                   for all λ ∈ (0, 1), P0 , P1 ∈ P.   (3)
+Gneiting and Raftery: Proper Scoring Rules                                                                                              361
+
+It is strictly convex if (3) holds with equality if and only if P0 =    strictly proper, then d(P, Q) is strictly positive, unless P = Q.
+P1 . A function G∗ (P, ·) :  → R is a subtangent of G at the           If the sample space is finite and the entropy function is suffi-
+point P ∈ P if it is integrable with respect to P, quasi-integrable     ciently smooth, then the divergence function becomes the Breg-
+with respect to all Q ∈ P, and                                          man divergence (Bregman 1967), associated with the convex
+                                                                       function G. Bregman divergences play major roles in optimiza-
+             G(Q) ≥ G(P) + G∗ (P, ω) d(Q − P)(ω)                  (4)   tion and have recently attracted the attention of the machine
+                                                                        learning community (Collins, Schapire, and Singer 2002). The
+for all Q ∈ P. The following characterization theorem is more           term Bregman distance is also used, even though d(P, Q) is not
+general and considerably simpler than previous results of Mc-           necessarily the same as d(Q, P).
+Carthy (1956) and Hendrickson and Buehler (1971).                          An interesting problem is to find conditions under which a
+   Definition 1. A scoring rule S : P ×  → R is regular rel-           divergence function d is a score divergence, in the sense that
+ative to the class P if S(P, Q) is real-valued for all P, Q ∈ P,        it admits the representation (7) for a proper scoring rule S, and
+except possibly that S(P, Q) = −∞ if P = Q.                            to describe principled ways of finding such a scoring rule. The
+                                                                        landmark work by Savage (1971) provides a necessary condi-
+   Theorem 1. A regular scoring rule S : P ×  → R is proper
+                                                                        tion on a symmetric divergence function d to be a score di-
+relative to the class P if and only if there exists a convex, real-
+                                                                        vergence: If P and Q are concentrated on the same two mutu-
+valued function G on P such that
+                                                                       ally exclusive events and identified with the respective proba-
+       S(P, ω) = G(P) − G∗ (P, ω) dP(ω) + G∗ (P, ω)             (5)     bilities, p, q ∈ [0, 1], then d(P, Q) reduces to a linear function
+                                                                        of (p − q)2 . Dawid (1998) noted that if d is a score conver-
+for P ∈ P and ω ∈ , where G∗ (P, ·) :  → R is a subtangent            gence, then d(P, Q) − d(P , Q) is an affine function of Q for all
+of G at the point P ∈ P. The statement holds with proper re-            P, P ∈ P, and proved a partial converse.
+placed by strictly proper, and convex replaced by strictly con-            Friedman (1983) and Nau (1985) studied a looser type of re-
+vex.                                                                    lationship between proper scoring rules and distance measures
+                                                                        on classes of probability distributions. They restricted attention
+   Proof. If the scoring rule S is of the stated form, then the sub-    to metrics (i.e., distance measures that are symmetric and sat-
+tangent inequality (4) implies the defining inequality (1), that is,    isfy the triangle inequality) and called a scoring rule S effective
+propriety. Conversely, suppose that S is a regular proper scoring       with respect to a metric d if
+rule. Define G : P → R by G(P) = S(P, P) = supQ∈P S(Q, P),
+which is the pointwise supremum over a class of convex func-                 S(P1 , Q) ≥ S(P2 , Q)     ⇐⇒      d(P1 , Q) ≤ d(P2 , Q).
+tions and thus is convex on P. Furthermore, the subtangent in-
+                                                                        Nau (1985) called a metric co-effective if there is a proper scor-
+equality (4) holds with G∗ (P, ω) = S(P, ω). This implies the
+                                                                        ing rule that is effective with respect to it. His proposition 1
+representation (5) and proves the claim for propriety. By an ar-
+                                                                        implies that the l1 , l∞ , and Hellinger distances on spaces of ab-
+gument of Hendrickson and Buehler (1971), strict inequality in
+                                                                        solutely continuous probability measures are not co-effective.
+(1) is equivalent to no subtangent of G at P being a subtangent
+                                                                           Sections 3–5 provide numerous examples of proper scoring
+of G at Q, for P, Q ∈ P and P = Q, which is equivalent to G
+                                                                        rules on general sample spaces, along with the associated en-
+being strictly convex on P.
+                                                                        tropy and divergence functions. For example, the logarithmic
+   Expressed slightly differently, a regular scoring rule S is          score is linked to Shannon entropy and Kullback–Leibler diver-
+proper relative to the class P if and only if the expected score        gence. Dawid (1998, 2006), Grünwald and Dawid (2004), and
+function G(P) = S(P, P) is convex and S(P, ω) is a subtangent           Buja et al. (2005) have given further examples of proper scoring
+of G at the point P, for all P ∈ P.                                     rules, entropy, and divergence functions and have elaborated on
+                                                                        the connections to the Bregman divergence.
+2.2 Information Measures, Bregman Divergences,
+                                                                           Proper scoring rules occur naturally in statistical decision
+    and Decision Theory
+                                                                        problems (Dawid 1998). Given an outcome space and an action
+   Suppose that the scoring rule S is proper relative to the            space, let U(ω, a) be the utility for outcome ω and action a, and
+class P. Following Grünwald and Dawid (2004) and Buja,                  let P be a convex class of probability measures on the outcome
+Stuetzle, and Shen (2005), we call the expected score function          space. Let aP denote the Bayes act for P ∈ P. Then the scoring
+                                                                        rule
+                G(P) = sup S(Q, P),          P ∈ P,              (6)
+                         Q∈P
+                                                                                                S(P, ω) = U(ω, aP )
+the information measure or generalized entropy function asso-
+                                                                        is proper relative to the class P. Indeed,
+ciated with the scoring rule S. This is the maximally achievable
+                                                                                                
+utility; the term entropy function is used as well. If S is regular
+                                                                                   S(Q, Q) = U(ω, aQ ) dQ(ω)
+and proper, then we call
+                                                                                                
+         d(P, Q) = S(Q, Q) − S(P, Q),           P, Q ∈ P,        (7)
+                                                                                            ≥       U(ω, aP ) dQ(ω) = S(P, Q),
+the associated divergence function. Note the order of the ar-
+guments, which differs from previous practice in that the true          by the fact that the optimal Bayesian decision maximizes ex-
+distribution, Q, is preceded by an alternative probabilistic fore-      pected utility. Dawid (2006) has given details and discussed the
+cast, P. The divergence function is nonnegative, and if S is            generality of the construction.
+362                                                                             Journal of the American Statistical Association, March 2007
+
+2.3 Skill Scores                                                     3.1 Savage Representation
+  In practice, scores are aggregated, and competing forecast            We consider probabilistic forecasts of a categorical variable.
+procedures are ranked by the average score,                          Thus, the sample space  = {1, . . . , m} consists of a finite num-
+                                                                     ber m of mutually exclusive events, and a probabilistic forecast
+                             1
+                                   n
+                      Sn =      S(Pi , xi ),                         is a probability vector (p1 , . . . , pm ). Using the notation of Sec-
+                             n
+                                  i=1
+                                                                     tion 2, we consider the convex class P = Pm , where
+                                                                                                                                           
+over a fixed set of forecast situations. We give examples of          Pm = p = (p1 , . . . , pm ) : p1 , . . . , pm ≥ 0, p1 + · · · + pm = 1 .
+this in case studies in Sections 6 and 8. Recommendations for        A scoring rule S can then be identified with a collection of m
+choosing a scoring rule have been given by Winkler (1994,            functions,
+1996), by Buja et al. (2005), and throughout this article.
+   Scores for competing forecast procedures are directly com-                        S(·, i) : Pm → R,        i = 1, . . . , m.
+parable if they refer to exactly the same set of forecast situ-      In other words, if the forecaster quotes the probability vector p
+ations. If scores for distinct sets of situations are compared,      and the event i materializes, then his or her reward is S(p, i).
+then considerable care must be exercised to separate the con-        Theorem 2 is a special case of Theorem 1 and provides a rig-
+founding effects of intrinsic predictability and predictive per-     orous version of the Savage (1971) representation of proper
+formance. For instance, there is substantial spatial and tempo-      scoring rules on finite sample spaces. Our contributions lie in
+ral variability in the predictability of weather and climate el-     the notion of regularity, the rigorous treatment, and the intro-
+ements (Langland et al. 1999; Campbell and Diebold 2005).            duction of appropriate tools for convex analysis (Rockafellar
+Thus a score that is superior for a given location or season might   1970, sects. 23–25). Specifically, let G : Pm → R be a convex
+be inferior for another, or vice versa. To address this issue, at-   function. A vector G (p) = (G1 (p), . . . , Gm (p)) is a subgradi-
+mospheric scientists have put forth skill scores of the form         ent of G at the point p ∈ Pm if
+                                  Snfcst − Snref                                       G(q) ≥ G(p) + G (p), q − p                        (9)
+                      Snskill =    opt             ,          (8)
+                                  Sn − Snref                         for all q ∈ Pm , where ·, · denotes the standard scalar product.
+                                         opt                         If G is differentiable at an interior point p ∈ Pm , then G (p)
+where Snfcst is the forecaster’s score, Sn refers to a hypotheti-
+                                                                     is unique and equals the gradient of G at p. We assume that
+cal ideal or optimal forecast, and Sn is the score for a reference
+                                     ref
+                                                                     the components of G (p) are real-valued, except that we permit
+strategy (Murphy 1973; Potts 2003, p. 27; Briggs and Ruppert
+                                                                     Gi (p) = −∞ if pi = 0.
+2005; Wilks 2006, p. 259). Skill scores are standardized in that
+(8) takes the value 1 for an optimal forecast, which is typically      Definition 2. A scoring rule S for categorical forecasts is reg-
+understood as a point measure in the event or value that materi-     ular if S(·, i) is real-valued for i = 1, . . . , m, except possibly that
+alizes, and the value 0 for the reference forecast. Negative val-    S(p, i) = −∞ if pi = 0.
+ues of a skill score indicate forecasts that are of lesser quality
+                                                                       Regular scoring rules assign finite scores, except that a fore-
+than the reference. The reference forecast is typically a clima-
+                                                                     cast might receive a score of −∞ if an event claimed to be im-
+tological forecast, that is, an estimate of the marginal distribu-
+                                                                     possible is realized. The logarithmic scoring rule (Good 1952)
+tion of the predictand. For example, a climatological probabilis-
+                                                                     provides a prominent example of this.
+tic forecast for maximum temperature on Independence Day in
+Seattle, Washington might be a smoothed version of the local           Theorem 2 (McCarthy, Savage). A regular scoring rule S for
+historic record of July 4 maximum temperatures. Climatologi-         categorical forecasts is proper if and only if
+cal forecasts are independent of the forecast horizon; they are
+                                                                       S(p, i) = G(p) − G (p), p + Gi (p)        for i = 1, . . . , m, (10)
+calibrated by construction, but often lack sharpness.
+   Unfortunately, skill scores of the form (8) are generally im-     where G : Pm → R is a convex function and G (p) is a subgra-
+proper, even if the underlying scoring rule S is proper. Mur-        dient of G at the point p, for all p ∈ Pm . The statement holds
+phy (1973) studied hedging strategies in the case of the Brier       with proper replaced by strictly proper, and convex replaced by
+skill score for probability forecasts of a dichotomous event. He     strictly convex.
+showed that the Brier skill score is asymptotically proper, in
+                                                                        Phrased slightly differently, a regular scoring rule S is proper
+the sense that the benefits of hedging become negligible as the      if and only if the expected score function G(p) = S(p, p) is
+number of independent forecasts grows. Similar arguments may         convex on Pm , and the vector with components S(p, i) for
+apply to skill scores based on other proper scoring rules. Ma-       i = 1, . . . , m is a subgradient of G at the point p, for all p ∈ Pm .
+son’s (2004) claim of the propriety of the Brier skill score rests   In view of these results, every bounded convex function G on
+on unjustified approximations and generally is incorrect.            Pm generates a regular proper scoring rule. This function G
+                                                                     becomes the expected score function, information measure, or
+3. SCORING RULES FOR CATEGORICAL VARIABLES
+                                                                     entropy function (6) associated with the score. The divergence
+   We now review the representations of Savage (1971) and            function (7) is the respective Bregman distance.
+Schervish (1989) that characterize scoring rules for probabilis-        We now give a number of examples. The scoring rules in
+tic forecasts of categorical and binary variables, and give exam-    Examples 1–3 are strictly proper. The score in Example 4 is
+ples of proper scoring rules.                                        proper but not strictly proper.
+Gneiting and Raftery: Proper Scoring Rules                                                                                                363
+
+                                                      
+   Example 1 (Quadratic or Brier score). If G(p) = m    j=1 pj −
+                                                             2             The scoring rules in the foregoing examples are symmetric,
+1, then (10) yields the quadratic score or Brier score,                 in the sense that
+                       
+                       m                      
+                                              m                                    S((p1 , . . . , pm ), i) = S pπ1 , . . . , pπm , πi   (11)
+         S(p, i) = −     (δij − pj )2 = 2pi −   p2j − 1,
+                                                                        for all p ∈ Pm , for all permutations π on m elements and for all
+                       j=1                      j=1
+                                                                        events i = 1, . . . , m. Winkler (1994, 1996) argued that symmet-
+where δij = 1 if i = j and δij = 0 otherwise. The associ-               ric rules do not always appropriately reward forecasting skill
+ated Bregman                                                            and called for asymmetric ones, particularly in situations in
+            divergence2 is the squared Euclidean distance,
+d(p, q) = m  j=1 (pj − qj ) . This well-known scoring rule was
+                                                                        which skills scores traditionally have been used. Asymmetric
+proposed by Brier (1950). Selten (1998) gave an axiomatic               proper scoring rules can be generated by applying Theorem 2
+characterization.                                                       to convex functions G that are not invariant under coordinate
+                                                                        permutation.
+   Example 2 (Spherical score). Let α> 1 and consider the
+generalized entropy function G(p) = ( m     α 1/α . This cor-
+                                       j=1 pj )
+                                                                        3.2 Schervish Representation
+responds to the pseudospherical score                                      The classical case of a probability forecast for a dichotomous
+                                                                        event suggests further discussion. We follow Dawid (1986) in
+                                pα−1
+                  S(p, i) = m i α (α−1)/α ,                            considering the sample space  = {1, 0}. A probabilistic fore-
+                           ( j=1 pj )                                   cast is a quoted probability p ∈ [0, 1] for the event to occur.
+which reduces to the traditional spherical score when α = 2.            A scoring rule S can be identified with a pair of functions
+                                                                        S(·, 1) : [0, 1] → R and S(·, 0) : [0, 1] → R. Thus, S(p, 1) is the
+The associated Bregman divergence is
+                                                                        forecaster’s reward if he or she quotes p and the event mate-
+              m     1/α                 m      (α−1)/α
+                            
+                             m                                        rializes, and S(p, 0) is the reward if he or she quotes p and
+                                    α−1
+  d(p, q) =        α
+                  qj      −     pj qj           α
+                                               qj          .            the event does not materialize. Note the subtle change from
+                j=1             j=1              j=1                    the previous section, where we used the convex class P2 =
+                                                                        {(p1 , p2 ) ∈ R2 : p1 ∈ [0, 1], p2 = 1 − p1 } in place of the unit in-
+   Example
+          3 (Logarithmic score). Negative Shannon entropy,             terval, P = [0, 1], to represent probability measures on binary
+G(p) = m    j=1 pj log pj , corresponds to the logarithmic score,       sample spaces.
+S(p, i) = log pi . The associated Bregman
+                                         distance is the Kull-            A scoring rule for binary variables is regular if S(·, 1) and
+back–Leibler divergence, d(p, q) = m       j=1 qj log(qj /pj ). [Note   S(·, 0) are real-valued, except possibly that S(0, 1) = −∞ or
+the order of the arguments in the definition (7) of the divergence      S(1, 0) = −∞. A variant of Theorem 2 shows that every regular
+function.] This scoring rule dates back at least to Good (1952).        proper scoring rule is of the form
+Information-theoretic perspectives and interpretations in terms
+                                                                                         S(p, 1) = G(p) + (1 − p)G (p),
+of gambling returns have been given by Roulston and Smith                                                                                (12)
+(2002) and Daley and Vere-Jones (2004). Despite its popularity,                          S(p, 0) = G(p) − pG (p),
+the logarithmic score has been criticized for its unboundedness,
+with Selten (1998, p. 51) arguing that it entails value judgments       where G : [0, 1] → R is a convex function and G (p) is a sub-
+that are unacceptable. Feuerverger and Rahman (1992) noted a            gradient of G at the point p ∈ [0, 1], in the sense that
+connection to Neyman–Pearson theory and an ensuing optimal-                                G(q) ≥ G(p) + G (p)(q − p)
+ity property of the logarithmic score.
+                                                                        for all q ∈ [0, 1]. The statement holds with proper replaced by
+   Example 4 (Zero–one score). The zero–one scoring rule re-            strictly proper, and convex replaced by strictly convex. The sub-
+wards a probabilistic forecast if the mode of the predictive dis-       gradient G (p) is real-valued, except that we permit G (0) =
+tribution materializes. In case of multiple modes, the reward is        −∞ and G (1) = ∞. The function G is the expected score func-
+reduced proportionally, that is,                                        tion G(p) = pS(p, 1) + (1 − p)S(p, 0), and if G is differentiable
+                                                                        at an interior point p ∈ (0, 1), then G (p) is unique and equals
+                       1/#M(p)        if i belongs to M(p)              the derivative of G at p. Related but slightly less general results
+          S(p, i) =
+                       0              otherwise,                        were given by Shuford, Albert, and Massengil (1966). Figure 1
+                                                                        provides a geometric interpretation.
+where M(p) = {i : pi = maxj=1,...,m pj } denotes the set of modes
+                                                                           The Savage representation (12) implies various interesting
+of p. This is also known as the misclassification loss, and the
+                                                                        properties of regular proper scoring rules. For instance, we con-
+meteorological literature uses the term success rate to denote
+                                                                        clude from theorem 24.2 of Rockafellar (1970) that
+case-averaged zero–one scores (see, e.g., Toth, Zhu, and Mar-                                              1
+chok 2001). The associated expected score or generalized en-                       S(p, 1) = lim G(q) −       (G (q) − G (p)) dq    (13)
+tropy function (6) is G(p) = maxj=1,...,m pj , and the divergence                            q→1              p
+function (7) becomes
+                                                                        for p ∈ (0, 1), and because G (p) is increasing, S(p, 1) is in-
+                                       
+                                          j∈M(p) qj
+                                                                        creasing as well. Similarly, S(p, 0) is decreasing, as would be
+               d(p, q) = max qj −                   .                   intuitively expected. The statements hold with proper, increas-
+                         j=1,...,m       #M(p)
+                                                                        ing, and decreasing replaced by strictly proper, strictly increas-
+This does not define a Bregman divergence, because the entropy          ing, and strictly decreasing. Alternative proofs of these and
+function is neither differentiable nor strictly convex.                 other results have been given by Schervish (1989, the app.).
+364                                                                                        Journal of the American Statistical Association, March 2007
+
+
+
+
+   Figure 1. Schematic Illustration of the Relationships Between a Smooth Generalized Entropy Function G (solid convex curve) and the Associated
+Scoring Functions and Bregman Divergence. For any probability forecast p ∈ [0, 1], the expected score S(p, q) = qS(p, 1) + (1 − q)S(p, 0) equals the
+ordinate of the tangent to G at p [the solid line with slope G (p)], when evaluated at q ∈ [0, 1]. In particular, the scores S(p, 0) = G(p) − pG (p) and
+S(p, 1) = G(p) + (1 − p)G (p) can be read off the tangent when evaluated at q = 0 and q = 1. The Bregman divergence d(p, q) = S(q, q) − S(p, q)
+equals the difference between G and its tangent at p when evaluated at q. (For a similar interpretation see fig. 8 in Buja et al. 2005.)
+
+
+
+   Schervish (1989, p. 1861) suggested that his theorem 4.2                      A two-decision problem can be characterized by a cost–loss
+generalizes the Savage representation. Given Savage’s (1971,                  ratio c ∈ (0, 1) that reflects the relative costs of the two possible
+p. 793) assessment of his representation (9.15) as “figurative,”              types of inferior decision. The measure ν(dc) in Schervish’s
+the claim can well be justified. However, in its rigorous form                representation (14) assigns relevance to distinct cost–loss ratios.
+[eq. (12)], the Savage representation is perfectly general.                   This result also can be interpreted as a Choquet representation,
+   Hereinafter, we let 1{·} denote an indicator function that                 in that every left-continuous bounded scoring rule is equivalent
+takes value 1 if the event in brackets is true and 0 otherwise.               to a mixture of cost-weighted asymmetric zero–one scores,
+                                                                                 Sc (p, 1) = (1 − c)1{p > c},           Sc (p, 0) = c1{p ≤ c}, (15)
+   Theorem 3 (Schervish). Suppose that S is a regular scoring
+rule. Then S is proper and such that S(0, 1) = limp→0 S(p, 1),                with a nonnegative mixing measure ν(dc). Theorem 3 allows
+and S(0, 0) = limp→0 S(p, 0), and both S(p, 1) and S(p, 0) are                for unbounded scores, requiring a slightly more elaborate state-
+left continuous if and only if there exists a nonnegative mea-                ment. Full equivalence to the Savage representation (12) can
+sure ν on (0, 1) such that                                                    be achieved if the regularity conditions are relaxed (Schervish
+                                                                             1989; Buja et al. 2005).
+          S(p, 1) = S(1, 1) − (1 − c)1{p ≤ c}ν(dc),                              Table 1 shows the mixing measure ν(dc) for the quadratic
+                                                                              or Brier score, the spherical score, the logarithmic score, and
+                                                         (14)
+                                                                              the asymmetric zero–one score. If the expected score func-
+          S(p, 0) = S(0, 0) − c1{p > c}ν(dc),                                 tion, G, is smooth, then ν(dc) has Lebesgue density G (c)
+                                                                              (Buja et al. 2005). For instance, the logarithmic score derives
+for all p ∈ [0, 1]. The scoring rule is strictly proper if and only           from Shannon entropy, G(p) = p log p + (1 − p) log(1 − p),
+if ν assigns positive measure to every open interval.                         and corresponds to the infinite measure with Lebesgue density
+                                                                              (c(1 − c))−1 .
+  Sketch of Proof. Suppose that S satisfies the assumptions of                   Buja et al. (2005) introduced the beta family, a continuous
+the theorem. To prove that S(p, 1) is of the form (14), consider              two-parameter family of proper scoring rules that includes both
+the representation (13), identify the increasing function G (p)              symmetric and asymmetric members and derives from mixing
+with the left-continuous distribution function of a nonnegative               measures of beta type.
+measure ν on (0, 1), and apply the partial integration formula.
+The proof of the representation for S(p, 0) is analogous. For the               Example 5 (Beta family). Let α, β > −1 and consider the
+                                                                              two-parameter family
+proof of the converse, reverse the foregoing steps. The state-
+                                                                                                        1
+ment for strict propriety follows from well-known properties of
+                                                                                           S(p, 1) = −     cα−1 (1 − c)β dc,
+convex functions.                                                                                               p
+Gneiting and Raftery: Proper Scoring Rules                                                                                                 365
+
+   Table 1. Proper Scoring Rules for Probability Forecasts of a Dichotomous Event and the Respective Mixing Measure or Lebesgue Density
+                                                     in the Schervish Representation (14)
+
+Scoring rule                               S( p, 1)                                S( p, 0)                                      ν ( dc)
+                                                      2
+Brier                                     −(1 − p)                                  −p2                                         Uniform
+Spherical                            p(1 − 2p + 2p2 )−1/2                 (1 − p)(1 − 2p + 2p2 )−1/2                      (1 − 2c + 2c 2 )−3/2
+Logarithmic                                  log p                                log (1 − p)                                (c (1 − c ))−1
+Zero–one                               (1 − c ) 1{p > c }                         c 1{p ≤ c }                             Point measure in c
+
+
+
+                                p
+                S(p, 0) = −          cα (1 − c)β−1 dc,                4.1 Scoring Rules for Density Forecasts
+                                0
+                                                                        Let µ be a σ -finite measure on the measurable space (, A).
+which is of the form (14) for a mixing measure ν(dc) with             For α > 1, let Lα denote the class of probability measures on
+Lebesgue density cα−1 (1 − c)β−1 . This family includes the log-      (, A) that are absolutely continuous with respect to µ and
+arithmic score (α = β = 0), and versions of the Brier score (α =      have µ-density p such that
+β = 1), and the zero–one score (15) with c = 12 (α = β → ∞)                                                     1/α
+as special or limiting cases. Asymmetric members arise when                             p α=       p(ω)α µ(dω)
+α = β, with the scoring rule S(p, 1) = p − 1 and S(p, 0) =
+p + log(1 − p) being one such example (α = 0, β = 1).                 is finite. We identify a probabilistic forecast P ∈ Lα with
+   Winkler (1994) proposed a method for constructing asym-            its µ-density, p, and call p a predictive density or density
+metric scoring rules from symmetric scoring rules. Specifically,      forecast. Predictive densities are defined only up to a set of
+if S is a symmetric proper scoring rule and c ∈ (0, 1), then          µ-measure zero. Whenever appropriate, we follow Bernardo
+                                                                      (1979, p. 689) and use the unique version defined by p(ω) =
+                                S(p, 1) − S(c, 1)
+                  S∗ (p, 1) =                     ,                   limρ→0 P(Sρ (ω))/µ(Sρ (ω)), where Sρ (ω) is a sphere of ra-
+                                     T(c, p)                          dius ρ centered at ω.
+                                                              (16)       We begin by discussing scoring rules that correspond to Ex-
+                   ∗         S(p, 0) − S(c, 0)
+                  S (p, 0) =                   ,                      amples 1, 2, and 3. The quadratic score,
+                                  T(c, p)
+where T(c, p) = S(0, 0) − S(c, 0) if p ≤ c and T(c, p) =                                      QS(p, ω) = 2p(ω) − p 22 ,                    (18)
+S(1, 1) − S(c, 1) if p > c is also a proper scoring rule, stan-       is strictly proper relative to the class L2 . It has expected score or
+dardized in the sense that the expected score function attains        generalized entropy function G(p) = p 22 , and the associated
+a minimum value of 0 at p = c and a maximum value of 1 at             divergence function, d(p, q) = p − q 22 , is symmetric. Good
+p = 0 and p = 1.                                                      (1971) proposed the pseudospherical score,
+   Example 6 (Winkler’s score). Tetlock (2005) explored what                         PseudoS(p, ω) = p(ω)α−1 / p α−1
+                                                                                                                 α ,
+constitutes good judgment in predicting future political and
+economic events, and looked at why experts are often wrong in         that reduces to the spherical score when α = 2. He described
+their forecasts. In evaluating experts’ predictions, he adjusted      original and generalized versions of the score—a distinc-
+for the difficulty of the forecast task by using the special case     tion that in a measure-theoretic framework is obsolete. The
+of (16) that derives from the Brier score, that is,                   pseudospherical score is strictly proper relative to the class
+                                                                      Lα . The strict convexity of the associated entropy function,
+                               (1 − c)2 − (1 − p)2                    G(p) = p α , and the nonnegativity of the divergence function
+           S∗ (p, 1) =                                   ,
+                         c2 1{p ≤ c} + (1 − c)2 1{p > c}              are straightforward consequences of the Hölder and Minkowski
+                                                              (17)    inequalities.
+                                 c2 − p2
+           S∗ (p, 0) = 2                             ,                   The logarithmic score,
+                      c 1{p ≤ c} + (1 − c)2 1{p > c}
+                                                                                               LogS(p, ω) = log p(ω),                      (19)
+with the value of c ∈ (0, 1) adapted to reflect a baseline proba-
+bility. This was suggested by Winkler (1994, 1996) as an alter-       emerges as a limiting case (α → 1) of the pseudospherical
+native to using skill scores.                                         score when suitably scaled. This scoring rule was proposed
+                                                                      by Good (1952) and has been widely used since then, under
+  Figure 2 shows the expected score or generalized entropy            various names, including the predictive deviance (Knorr-Held
+function, G(p), and the scoring functions, S(p, 1) and S(p, 0),       and Rainer 2001) and the ignorance score (Roulston and Smith
+for the quadratic or Brier score and the logarithmic score (Ta-       2002). The logarithmic score is strictly proper relative to the
+ble 1), the asymmetric zero–one score (15) with c = .6, and           class L1 of the probability measures dominated by µ. The asso-
+Winkler’s standardized score (17) with c = .2.                        ciated expected score function or information measure is nega-
+                                                                      tive Shannon entropy, and the divergence function becomes the
+4. SCORING RULES FOR CONTINUOUS VARIABLES
+                                                                      classical Kullback–Leibler divergence.
+  Bremnes (2004, p. 346) noted that the literature on scor-              Bernardo (1979, p. 689) argued that “when assessing the
+ing rules for probabilistic forecasts of continuous variables is      worthiness of a scientist’s final conclusions, only the proba-
+sparse. We address this issue in the following.                       bility he attaches to a small interval containing the true value
+366                                                                                   Journal of the American Statistical Association, March 2007
+
+
+
+
+   Figure 2. The Expected Score or Generalized Entropy Function G(p) (top row) and the Scoring Functions S(p, 1) ( —) and S(p, 0) ( - - -) (bottom
+row), for the Brier Score and Logarithmic Score (Table 1), the Asymmetric Zero–One Score (15) With c = .6 and Winkler’s Standardized Score (17)
+With c = .2.
+
+
+
+should be taken into account.” This seems subject to debate,              ones; an interesting question is whether this can be done for
+and atmospheric scientists have argued otherwise, putting forth           the probability score, similar to the way in which the proper
+scoring rules that are sensitive to distance (Epstein 1969; Staël         quadratic score (18) derives from the linear score.
+von Holstein 1970). That said, Bernardo (1979) studied local                 If Lebesgue densities on the real line are used to predict dis-
+scoring rules S(p, ω) that depend on the predictive density p             crete observations, then the logarithmic score encourages the
+only through its value at the event ω that materializes. Assum-           placement of artificially high density ordinates on the target val-
+ing regularity conditions, he showed that every proper local              ues in question. This problem emerged in the Evaluating Pre-
+scoring rule is equivalent to the logarithmic score, in the sense         dictive Uncertainty Challenge at a recent PASCAL Challenges
+of (2). Consequently, the linear score, LinS(p, ω) = p(ω), is             Workshop (Kohonen and Suomela 2006; Quiñonero-Candela,
+not a proper scoring rule, despite its intuitive appeal. For in-          Rasmussen, Sinz, Bousquet, and Schölkopf 2006). It disappears
+stance, let ϕ and u denote the Lebesgue densities of a standard           if scores expressed in terms of predictive cumulative distribu-
+Gaussian                                                                  tion functions are used, or if the sample space is reduced to the
+       √ distribution and the uniform distribution on (− , ).             target values in question.
+If < log 2, then
+                                                                         4.2 Continuous Ranked Probability Score
+                               1     1
+                                            e−x /2 dx
+                                               2
+             LinS(u, ϕ) =        1/2
+                           (2π) 2 −                                          The restriction to predictive densities is often impractical.
+                             1                                            For instance, probabilistic quantitative precipitation forecasts
+                          >       = LinS(ϕ, ϕ),                           involve distributions with a point mass at zero (Krzysztofow-
+                           2π 1/2
+                                                                          icz and Sigrest 1999; Bremnes 2004), and predictive distribu-
+in violation of propriety. Essentially, the linear score encour-          tions are often expressed in terms of samples, possibly origi-
+ages overprediction at the modes of an assessor’s true predic-            nating from Markov chain Monte Carlo. Thus it seems more
+tive density (Winkler 1969). The probability score of Wilson,             compelling to define scoring rules directly in terms of predic-
+Burrows, and Lanzinger (1999) integrates the predictive den-              tive cumulative distribution functions. Furthermore, the afore-
+sity over a neighborhood of the observed, real-valued quantity.           mentioned scores are not sensitive to distance, meaning that no
+This resembles the linear score and is not a proper score either.         credit is given for assigning high probabilities to values near but
+Dawid (2006) constructed proper scoring rules from improper               not identical to the one materializing.
+Gneiting and Raftery: Proper Scoring Rules                                                                                           367
+
+   To address this situation, let P consist of the Borel proba-       which sheds new light on the score. In negative orientation, the
+bility measures on R. We identify a probabilistic forecast—           CRPS can be reported in the same unit as the observations, and
+a member of the class P—with its cumulative distribution func-        it generalizes the absolute error to which it reduces if F is a de-
+tion F, and use standard notation for the elements of the sample      terministic forecast—that is, a point measure. Thus the CRPS
+space R. The continuous ranked probability score (CRPS) is            provides a direct way to compare deterministic and probabilis-
+defined as                                                            tic forecasts.
+                             ∞
+          CRPS(F, x) = −         (F(y) − 1{y ≥ x})2 dy      (20)      4.3 Energy Score
+                              −∞                                        We introduce a generalization of the CRPS that draws on
+and corresponds to the integral of the Brier scores for the asso-     Székely’s (2003) statistical energy perspective. Let Pβ , β ∈
+ciated binary probability forecasts at all real-valued thresholds     (0, 2), denote the class of the Borel probability measures P on
+(Matheson and Winkler 1976; Hersbach 2000).                           Rm that are such that EP X β is finite, where · denotes the
+   Applications of the CRPS have been hampered by a lack of           Euclidean norm. We define the energy score,
+readily computable solutions to the integral in (20), and the use                            1
+of numerical quadrature rules has been proposed instead (Staël                  ES(P, x) = EP X − X β − EP X − x β ,                (22)
+                                                                                             2
+von Holstein 1977; Unger 1985). However, the integral often
+                                                                      where X and X are independent copies of a random vector
+can be evaluated in closed form. By lemma 2.2 of Baringhaus
+                                                                      with distribution P ∈ Pβ . This generalizes the CRPS, to which
+and Franz (2004) or identity (17) of Székely and Rizzo (2005),
+                                                                      (22) reduces when β = 1 and m = 1, by allowing for an index
+                       1                                              β ∈ (0, 2) and applying to distributional forecasts of a vector-
+           CRPS(F, x) = EF |X − X  | − EF |X − x|,           (21)
+                       2                                              valued quantity in Rm . Theorem 1 of Székely (2003) shows that
+                                                                      the energy score is strictly proper relative to the class Pβ . [For
+where X and X  are independent copies of a random variable
+                                                                      a different and more general argument, see Sec. 5.1.] In the lim-
+with distribution function F and finite first moment. If the pre-
+                                                                      iting case β = 2, the energy score (22) reduces to the negative
+dictive distribution is Gaussian with mean µ and variance σ 2 ,
+                                                                      squared error,
+then it follows that
+                                                                                         ES(P, x) = − µp − x 2 ,                   (23)
+                             1         x−µ
+CRPS(N (µ, σ 2 ), x) = σ √ − 2ϕ
+                              π           σ                           where µP denotes the mean vector of P. This scoring rule is
+                                                                     regular and proper, but not strictly proper, relative to the class
+                                   x−µ          x−µ                   P2 .
+                                −           2           −1 ,
+                                     σ            σ                      The energy score with index β ∈ (0, 2) applies to all Borel
+where ϕ and  denote the probability density function and the         probability measures on Rm , by defining
+cumulative distribution function of a standard Gaussian vari-                                              
+                                                                                        β2β−2 ( m2 + β2 )     |φP (y) − ei x,y |2
+able. If the predictive distribution takes the form of a sample of       ES(P, x) = −                                              dy,
+size n, then the right side of (20) can be evaluated in terms of                          π m/2 (1 − β2 ) Rm         y m+β
+                                                                                                                                     (24)
+the respective order statistics in a total of O(n log n) operations
+                                                                      where φP denotes the characteristic function of P. If P belongs
+(Hersbach 2000, sec. 4.b).
+                                                                      to Pβ , then theorem 1 of Székely (2003) implies the equality of
+   The CRPS is proper relative to the class P and strictly proper
+                                                                      the right sides in (22) and (24). Essentially, the score computes
+relative to the subclass P1 of the Borel probability measures
+                                                                      a weighted distance between the characteristic function of P
+that have finite first moment. The associated expected score
+                                                                      and the characteristic function of the point measure at the value
+function or information measure,                                      that materializes.
+                  ∞
+                                                1
+      G(F) = −         F(y)(1 − F(y)) dy = − EF |X − X  |,           4.4 Scoring Rules That Depend on First and
+                   −∞                           2                         Second Moments Only
+coincides with the negative selectivity function (Matheron               An interesting question is that for proper scoring rules that
+1984), and the respective divergence function,                        apply to the Borel probability measures on Rm and depend on
+                          ∞
+                                                                      the predictive distribution, P, only through its mean vector, µP ,
+              d(F, G) =       (F(y) − G(y))2 dy,                      and dispersion or covariance matrix,  P . Dawid (1998) and
+                            −∞
+                                                                      Dawid and Sebastiani (1999) studied proper scoring rules of
+is symmetric and of the Cramér–von Mises type.                        this type. A particularly appealing example is the scoring rule
+   The CRPS lately has attracted renewed interest in the at-
+mospheric sciences community (Hersbach 2000; Candille and                 S(P, x) = − log det  P − (x − µP )  −1
+                                                                                                                 P (x − µP ),       (25)
+Talagrand 2005; Gneiting, Raftery, Westveld, and Goldman              which is linked to the generalized entropy function
+2005; Grimit, Gneiting, Berrocal, and Johnson 2006; Wilks
+                                                                                         G(P) = − log det  P − m,
+2006, pp. 302–303). It is typically used in negative orientation,
+say CRPS∗ (F, x) = −CRPS(F, x). The representation (21) then          and to the divergence function
+can be written as                                                     d(P, Q) = tr( −1                  −1
+                                                                                     P  Q ) − log det( P  Q )
+                                      1
+           CRPS∗ (F, x) = EF |X − x| − EF |X − X  |,                                              + (µP − µQ )  −1
+                                      2                                                                            P (µP − µQ ) − m.
+368                                                                                     Journal of the American Statistical Association, March 2007
+
+[Note the order of the arguments in the definition (7) of the                   Theorem 4. Let  be a Hausdorff space and let g be a non-
+divergence function.] This scoring rule is proper but not strictly            negative, continuous negative definite kernel on  × . For a
+proper relative to the class P2 of the Borel probability measures             Borel probability measure P on , let X and X  be independent
+P for which EP X 2 is finite. It is strictly proper relative to any           random variables with distribution P. Then the scoring rule
+convex class of probability measures characterized by the first                                      1
+two moments, such as the Gaussian measures, for which (25) is                               S(P, x) = EP g(X, X  ) − EP g(X, x)              (28)
+                                                                                                     2
+equivalent to the logarithmic score (19). For other examples of
+scoring rules that depend on µP and  P only, see (23) and the                is proper relative to the class of the Borel probability mea-
+right column of table 1 of Dawid and Sebastiani (1999).                       sures P on  for which the expectation EP g(X, X  ) is finite.
+   The predictive model choice criterion of Laud and Ibrahim                    Proof. Let P and Q be Borel probability measures on , and
+(1995) and Gelfand and Ghosh (1998) has lately attracted the                  suppose that X, X  and Y, Y  are independent random variates
+attention of the statistical community. Suppose that we fit a pre-            with distribution P and Q. We need to show that
+dictive model to observed, real-valued data x1 , . . . , xn . The pre-
+                                                                                     1               1
+dictive model choice criterion (PMCC) assesses the model fit                        − EQ g(Y, Y  ) ≥ EP g(X, X  ) − EP,Q g(X, Y).           (29)
+through the quantity                                                                 2               2
+                                                                              If the expectation EP,Q g(X, Y) is infinite, then the inequality
+                             
+                             n               
+                                             n
+                 PMCC =        (xi − µi )2 +   σi2 ,                          is trivially satisfied; if it is finite, then theorem 2.1 of Berg
+                             i=1                  i=1                         et al. (1984, p. 235) implies (29).
+
+where µi and σi2 denote the expected value and the variance of                   Next we give examples of scoring rules that admit a kernel
+a replicate variable Xi , given the model and the observations.               representation. In each case, we equip the sample space with
+Within the framework of scoring rules, the PMCC corresponds                   the standard topology. Note that evaluating the kernel scores is
+to the positively oriented score                                              straightforward if P is discrete and has only a moderate number
+                                                                              of atoms.
+                    S(P, x) = −(x − µP )2 − σP2 ,                     (26)
+                                                                                Example 7 (Quadratic or Brier score). Let  = {1, 0} and
+where P has mean µP and variance σP2 . The scoring rule (26)                  suppose that g(0, 0) = g(1, 1) = 0 and g(0, 1) = g(1, 0) = 1.
+depends on the predictive distribution through its first two mo-              Then (28) recovers the quadratic or Brier score.
+ments only, but it is improper; if the forecaster’s true belief is P             Example 8 (CRPS). If  = R and g(x, x ) = |x − x | for
+and if he or she wishes to maximize the expected score, then                  x, x ∈ R in Theorem 4, we obtain the CRPS (21).
+he or she will quote the point measure at µP —that is, a de-
+terministic forecast—rather than the predictive distribution P.                 Example 9 (Energy score). If  = Rm , β ∈ (0, 2), and
+This suggests that the predictive model choice criterion should               g(x, x ) = x − x β for x, x ∈ Rm , where · denotes the
+be replaced by a criterion based on the scoring rule (25), which              Euclidean norm, then (28) recovers the energy score (22).
+reduces to
+                                                                                 Example 10 (CRPS for circular variables). We let  = S de-
+                             x − µP          2                                note the circle and write α(θ, θ  ) for the angular distance be-
+                 S(P, x) = −                     − log σP2            (27)    tween two points θ, θ  ∈ S. Let P be a Borel probability mea-
+                               σP
+                                                                              sure on S, and let  and  be independent random variates
+in the case in which m = 1 and the observations are real-valued.              with distribution P. By theorem 1 of Gneiting (1998), angular
+                                                                              distance is a negative definite kernel. Thus,
+   5. KERNEL SCORES, NEGATIVE AND POSITIVE
+     DEFINITE FUNCTIONS, AND INEQUALITIES                                                            1
+                                                                                           S(P, θ ) = EP α(,  ) − EP α(, θ )              (30)
+              OF HOEFFDING TYPE                                                                      2
+  In this section we use negative definite functions to construct             defines a proper scoring rule relative to the class of the Borel
+proper scoring rules and present expectation inequalities that                probability measures on the circle. Grimit et al. (2006) intro-
+are of independent interest.                                                  duced (30) as an analog of the CRPS (21) that applies to di-
+                                                                              rectional variables, and used Fourier analytic tools to prove the
+5.1 Kernel Scores                                                             propriety of the score.
+   Let  be a nonempty set. A real-valued function g on  ×                     We turn to a far-reaching generalization of the energy
+is said to be a   negative                                                   score. For x = (x1 , . . . , xm
+                                                                                                             ) ∈ Rm and α ∈ (0, ∞], define
+                             definite kernel if it is symmetric in its
+arguments and ni=1 nj=1 ai aj g(xi , xj ) ≤ 0 for all positive inte-          the vector norm x α = ( m        i=1 |xi | )
+                                                                                                                        α 1/α if α ∈ (0, ∞) and
+
+gers n, all a1 , . . . , an ∈ R that sum to 0, and all x1 , . . . , xn ∈ .    x α = max1≤i≤m |xi | if α = ∞. Schoenberg’s theorem (Berg
+Numerous examples of negative definite kernels have been                      et al. 1984, p. 74) and a strand of literature culminating in the
+given by Berg, Christensen, and Ressel (1984) and the refer-                  work of Koldobskiı̌ (1992) and Zastavnyi (1993) imply that if
+ences cited therein.                                                          α ∈ (0, ∞] and β > 0, then the kernel
+   We now give the key result of this section, which generalizes                           g(x, x ) = x − x βα ,      x, x ∈ Rm ,
+a kernel construction of Eaton (1982, p. 335). The term kernel
+score was coined by Dawid (2006).                                             is negative definite if and only if the following holds.
+Gneiting and Raftery: Proper Scoring Rules                                                                                                           369
+
+  Assumption 1. Suppose that (a) m = 1, α ∈ (0, ∞], and β ∈                and
+(0, 2]; (b) m ≥ 2, α ∈ (0, 2], and β ∈ (0, α]; or (c) m = 2, α ∈
+                                                                                                E X − X βα ≤ E X + X βα ,                         (34)
+(2, ∞], and β ∈ (0, 1].
+                                                                           thereby generalizing results of Buja, Logan, Reeds, and Shepp
+   Example 11 (Non-Euclidean energy score). Under Assump-
+                                                                           (1994), Székely (2003), and Baringhaus and Franz (2004).
+tion 1, the scoring rule
+                                                                              In the foregoing case in which  is a group and g satisfies
+                         1                                                 g(x, x ) = g(−x, −x ) for x, x ∈ , the argument leading to the-
+              S(P, x) = EP X − X βα − EP X − x βα
+                         2                                                 orem 2.3 of Buja et al. (1994) and theorem 4 of Ma (2003)
+is proper relative to the class of the Borel probability mea-              implies that
+sures P on Rm for which the expectation EP X − X α is fi-
+                                                           β
+                                                                                      h(x, x ) = g(x, −x ) − g(x, x ),         x, x ∈ ,        (35)
+nite. If m = 1 or α = 2, then we recover the energy score; if
+m ≥ 2 and α = 2, then we obtain non-Euclidean analogs. Mat-               is a positive definitekernel,  in the sense that h is symmetric in
+                                                                β          its arguments and ni=1 nj=1 ai aj h(xi , xj ) ≥ 0 for all positive
+tner (1997, sec. 5.2) showed that if α ≥ 1, then EP,Q X − Y α
+                              β             β                              integers n, all a1 , . . . , an ∈ R, and all x1 , . . . , xn ∈ . Specifi-
+is finite if and only if EP X α and EQ Y α are finite. In partic-          cally, under Assumption 1,
+ular, if α ≥ 1, then EP X − X α is finite if and only if EP X α
+                                 β                              β
+
+is finite.                                                                       h(x, x ) = x + x βα − x − x βα ,             x, x ∈ Rm ,       (36)
+
+   The following result sharpens Theorem 4 in the crucial case             is a positive definite kernel, a result that extends and completes
+of Euclidean sample spaces and spherically symmetric negative              the aforementioned theorem of Buja et al. (1994).
+definite functions. Recall that a function η on (0, ∞) is said             5.3 Constructions With Complex-Valued Kernels
+to be completely monotone if it has derivatives η(k) of all orders
+and (−1)k η(k) (t) ≥ 0 for all nonnegative integers k and all t > 0.          With suitable modifications, the foregoing results allow for
+                                                                           complex-valued kernels. A complex-valued function h on  ×
+  Theorem 5. Let ψ be a continuous function on [0, ∞) with                  is said to be a positive definite kernel
+−ψ  completely monotone and not constant. For a Borel prob-                                                            if itis Hermitian, that is,
+                                                                           h(x, x ) = h(x , x) for x, x ∈ , and ni=1 nj=1 ci cj h(xi , xj ) ≥ 0
+ability measure P on Rm , let X and X be independent random               for all positive integers n, all c1 , . . . , cn ∈ C, and all x1 , . . . , xn ∈
+vectors with distribution P. Then the scoring rule                         . The general idea (Dawid 1998, 2006) is that if h is continu-
+                   1                                                       ous and positive definite, then
+         S(P, x) = EP ψ( X − X 22 ) − EP ψ( X − x 22 )
+                   2                                                              S(P, x) = EP h(X, x) + EP h(x, X) − EP h(X, X  )                 (37)
+is strictly proper relative to the class of the Borel probability
+                                                                           defines a proper scoring rule. If h is positive definite, then g =
+measures P on Rm for which EP ψ( X − X 22 ) is finite.
+                                                                           −h is negative definite; thus, if h is real-valued and sufficiently
+   The proof of this result is immediate from theorem 2.2 of               regular, then the scoring rules (37) and (28) are equivalent.
+Mattner (1997). In particular, if ψ(t) = tβ/2 for β ∈ (0, 2), then           In the next example, we discuss scoring rules for Borel prob-
+Theorem 5 ensures the strict propriety of the energy score rela-           ability measures and observations on Euclidean spaces. How-
+tive to the class of the Borel probability measures P on Rm for            ever, the representation (37) allows for the construction of
+               β                                                           proper scoring rules in more general settings, such as prob-
+which EP X 2 is finite.
+                                                                           abilistic forecasts of structured data, including strings, se-
+5.2 Inequalities of Hoeffding Type and Positive                            quences, graphs, and sets, based on positive definite kernels
+    Definite Kernels                                                       defined on such structures (Hofmann, Schölkopf, and Smola
+                                                                           2005).
+   A number of side results seem to be of independent inter-
+est, even though they are easy consequences of previous work.                 Example 12. Let  = Rm and y ∈ Rm , and consider the pos-
+                                                                                                                   
+Briefly, if the expectations EP g(X, X  ) and EP g(Y, Y  ) are finite,   itive definite kernel h(x, x ) = ei x−x ,y − 1, where x, x ∈ Rm .
+then (29) can be written as a Hoeffding-type inequality,                   Then (37) reduces to
+                                                                                                                         2
+       2EP,Q g(X, Y) − EP g(X, X  ) − EQ g(Y, Y  ) ≥ 0.          (31)                      S(P, x) = −φP (y) − ei x,y  ,              (38)
+Theorem 1 of Székely and Rizzo (2005) provides a nearly iden-              that is, the negative squared distance between the characteristic
+tical result and a converse: If g is not negative definite, then           function of the predictive distribution, φP , and the characteris-
+there are counterexamples to (31), and the respective scoring              tic function of the point measures in the value that materializes,
+rule is improper. Furthermore, if  is a group and the negative            evaluated at y ∈ Rm . If we integrate with respect to a nonnega-
+definite function g satisfies g(x, x ) = g(−x, −x ) for x, x ∈ ,       tive measure µ(dy), then the scoring rule (38) generalizes to
+                                                                                                    
+then a special case of (31) can be stated as                                                                            
+                                                                                        S(P, x) = −     φP (y) − ei x,y 2 µ(dy).      (39)
+                    EP g(X, −X  ) ≥ EP g(X, X  ).                (32)                                   Rm
+
+In particular, if  = Rm and Assumption 1 holds, then inequal-             If the measure µ is finite and assigns positive mass to all inter-
+ities (31) and (32) apply and reduce to                                    vals, then this scoring rule is strictly proper relative to the class
+                                                                           of the Borel probability measures on Rm . Eaton, Giovagnoli,
+     2E X − Y βα − E X − X βα − E Y − Y βα ≥ 0                   (33)    and Sebastiani (1996) used the associated divergence function
+370                                                                                       Journal of the American Statistical Association, March 2007
+
+to define metrics for probability measures. If µ is the infinite              If s(x) = x and h(x) = −αx, then we obtain the scoring rule
+measure with Lebesgue density y −m−β , where β ∈ (0, 2),
+then the scoring rule (39) is equivalent to the Euclidean energy                                    S(r; x) = (x − r)(1{x ≤ r} − α),              (41)
+score (24).
+                                                                           which has been proposed by Koenker and Machado (1999),
+        6. SCORING RULES FOR QUANTILE AND                                  Taylor (1999), Giacomini and Komunjer (2005), Theis (2005,
+               INTERVAL FORECASTS                                          p. 232), and Friederichs and Hense (2006) for measuring in-
+                                                                           sample goodness of fit and out-of-sample forecast performance
+  Occasionally, full predictive distributions are difficult to             in meteorological and financial applications. In negative orien-
+specify, and the forecaster might quote predictive quantiles,              tation, the econometric literature refers to the scoring rule (41)
+such as value at risk in financial applications (Duffie and Pan            as the tick or check loss function.
+1997) or prediction intervals (Christoffersen 1998) only.
+                                                                             Corollary 1. If si is nondecreasing for i = 1, . . . , k and h is
+6.1 Proper Scoring Rules for Quantiles                                     arbitrary, then the scoring rule
+   We consider probabilistic forecasts of a continuous quantity
+                                                                           S(r1 , . . . , rk ; x)
+that take the form of predictive quantiles. Specifically, suppose
+that the quantiles at the levels α1 , . . . , αk ∈ (0, 1) are sought.                     
+                                                                                          k
+                                                                                                                                       
+If the forecaster quotes quantiles r1 , . . . , rk and x materializes,                =      αi si (ri ) + (si (x) − si (ri ))1{x ≤ ri } + h(x)   (42)
+then he or she will be rewarded by the score S(r1 , . . . , rk ; x). We                   i=1
+define                                                                     is proper for predicting the quantiles at levels α1 , . . . , αk ∈
+                                   
+                                                                           (0, 1).
+           S(r1 , . . . , rk ; P) = S(r1 , . . . , rk ; x) dP(x)
+                                                                              Cervera and Muñoz (1996, pp. 515 and 519) proved Corol-
+as the expected score under the probability measure P when                 lary 1 in the special case in which each si is linear. They asked
+the forecaster quotes the quantiles r1 , . . . , rk . To avoid technical   whether the resulting rules are the only proper ones for quan-
+complications, we suppose that P belongs to the convex class P             tiles. Our results give a negative answer; that is, the class of
+of Borel probability measures on R that have finite moments of             proper scoring rules for quantiles is considerably larger than
+all orders and whose distribution function is strictly increasing          anticipated by Cervera and Muñoz. We do not know whether
+on R. For P ∈ P, let q1 , . . . , qk denote the true P-quantiles at        or not (40) and (42) provide the general form of proper scoring
+levels α1 , . . . , αk . Following Cervera and Muñoz (1996), we say        rules for quantiles.
+that a scoring rule S is proper if
+                                                                           6.2 Interval Score
+                S(q1 , . . . , qk ; P) ≥ S(r1 , . . . , rk ; P)
+for all real numbers r1 , . . . , rk and for all probability measures         Interval forecasts form a crucial special case of quantile pre-
+P ∈ P. If S is proper, then the forecaster who wishes to maxi-             diction. We consider the classical case of the central (1 − α) ×
+mize the expected score is encouraged to be honest and to vol-             100% prediction interval, with lower and upper endpoints that
+unteer his or her true beliefs.                                            are the predictive quantiles at level α2 and 1 − α2 . We denote a
+   To avoid technical overhead, we tacitly assume P-integrabil-            scoring rule for the associated interval forecast by Sα (l, u; x),
+ity whenever appropriate. Essentially, we require that the func-           where l and u represent for the quoted α2 and 1 − α2 quantiles.
+tions s(x) and h(x) in (40) and (42) be P-measurable and grow              Thus, if the forecaster quotes the (1 − α) × 100% central predic-
+at most polynomially in x. Theorem 6 addresses the prediction              tion interval [l, u] and x materializes, then his or her score will
+of a single quantile; Corollary 1 turns to the general case.               be Sα (l, u; x). Putting α1 = α2 , α2 = 1 − α2 , s1 (x) = s2 (x) = 2 αx ,
+                                                                           and h(x) = −2 αx in (42), and reversing the sign of the scoring
+  Theorem 6. If s is nondecreasing and h is arbitrary, then the            rule, yields the negatively oriented interval score,
+scoring rule
+                                                                           Sαint (l, u; x)
+         S(r; x) = αs(r) + (s(x) − s(r))1{x ≤ r} + h(x)            (40)
+                                                                                                      2                  2
+is proper for predicting the quantile at level α ∈ (0, 1).                         = (u − l) +          (l − x)1{x < l} + (x − u)1{x > u}.        (43)
+                                                                                                      α                  α
+   Proof. Let q be the unique α-quantile of the probability mea-           This scoring rule has intuitive appeal and can be traced back
+sure P ∈ P. We identify P with the associated distribution func-           to Dunsmore (1968), Winkler (1972), and Winkler and Mur-
+tion so that P(q) = α. If r < q, then                                      phy (1979). The forecaster is rewarded for narrow prediction
+            S(q; P) − S(r; P)                                              intervals, and he or she incurs a penalty, the size of which de-
+                                                                          pends on α, if the observation misses the interval. In the case
+              =       s(x) dP(x) + s(r)P(r) − αs(r)                        α = 12 , Hamill and Wilks (1995, p. 622) used a scoring rule that
+                    (r,q)                                                  is equivalent to the interval score. They noted that “a strategy
+               ≥ s(r)(P(q) − P(r)) + s(r)P(r) − αs(r)                      for gaming [. . . ] was not obvious,” thereby conjecturing propri-
+                                                                           ety, which is confirmed by the foregoing. We anticipate novel
+               = 0,
+                                                                           applications, particularly for the evaluation of volatility fore-
+as desired. If r > q, then an analogous argument applies.                  casts in computational finance.
+Gneiting and Raftery: Proper Scoring Rules                                                                                                                       371
+
+                                                                          Table 2. Comparison of One-Step-Ahead 95% Interval Forecasts for
+6.3 Case Study: Interval Forecasts for a Conditionally
+                                                                                        the Stationary Bilinear Process (44)
+    Heteroscedastic Process
+                                                                      Interval                       Empirical               Average                   Average
+   This section illustrates the use of the interval score in a        forecast                       coverage                 width                 interval score
+time series context. Kabaila (1999) called for rigorous ways of       I             (45)              95.01%                    4.00                      4.77
+specifying prediction intervals for conditionally heteroscedastic     J             (46)              95.08%                    5.45                      8.04
+processes and proposed a relevance criterion in terms of con-         K             (47)              94.98%                    3.79                      5.32
+ditional coverage and width dependence. We contend that the           NOTE: The table shows the empirical coverage, the average width, and the average value of
+                                                                      the negatively oriented interval score (43) for the prediction intervals I , J , and K in 100,000
+notion of proper scoring rules provides an alternative and pos-       sequential forecasts in a sample path of length 100,001. See text for details.
+sibly simpler, more general, and more rigorous paradigm. The
+prediction intervals that we deem appropriate derive from the
+true conditional distribution, as implied by the data-generating      6.4 Scoring Rules for Distributional Forecasts
+mechanism, and optimize the expected value of all proper scor-
+ing rules.                                                               Specifying a predictive cumulative distribution function is
+   To fix the idea, consider the stationary bilinear process          equivalent to specifying all predictive quantiles; thus we can
+{Xt : t ∈ Z} defined by                                               build scoring rules for predictive distributions from scoring
+                                                                      rules for quantiles. Matheson and Winkler (1976) and Cervera
+                          1    1                                      and Muñoz (1996) suggested ways of doing this. Specifically,
+                    Xt+1 = Xt + Xt t + t ,                    (44)
+                          2    2                                      if Sα denotes a proper scoring rule for the quantile at level α
+where the t ’s are independent standard Gaussian random vari-         and ν is a Borel measure on (0, 1), then the scoring rule
+ates. Kabaila and He (2001) studied central one-step-ahead pre-                                 1
+diction intervals at the 95% level. The process is Markovian,                       S(F, x) =      Sα (F −1 (α); x)ν(dα)         (48)
+and the conditional distribution of Xt+1 given Xt , Xt−1 , . . . is                                          0
+
+Gaussian with mean 12 Xt and variance (1 + 12 Xt )2 , thereby sug-    is proper, subject to regularity and integrability constraints.
+gesting the prediction interval                                          Similarly, we can build scoring rules for predictive distrib-
+                                                                utions from scoring rules for binary probability forecasts. If S
+                1           1  1             1 
+          I = Xt − c1 + Xt , Xt + c1 + Xt  ,          (45)    denotes a proper scoring rule for probability forecasts and ν is
+                2            2    2             2
+                                                                      a Borel measure on R, then the scoring rule
+where c = −1 (.975). This interval satisfies the relevance prop-                              ∞
+erty of Kabaila (1999), and Kabaila and He (2001) adopted I                        S(F, x) =        S(F(y), 1{x ≤ y})ν(dy)           (49)
+                                                                                                          −∞
+as the standard prediction interval. We agree with this choice,
+but we prefer the aforementioned more direct justification; the       is proper, subject to integrability constraints (Matheson and
+prediction interval I is the standard interval because its lower      Winkler 1976; Gerds 2002). The CRPS (20) corresponds to the
+and upper endpoints are the 2.5% and 97.5% percentiles of the         special case in (49) in which S is the quadratic or Brier score
+true conditional distribution function. Kabaila and He consid-        and ν is the Lebesgue measure. If S is the Brier score and ν
+ered two alternative prediction intervals,                            is a sum of point measures, then the ranked probability score
+                                                                      (Epstein 1969) emerges.
+                  J = [F −1 (.025), F −1 (.975)],             (46)
+                                                                         The construction carries over to multivariate settings. If P
+where F denotes the unconditional, stationary distribution func-      denotes the class of the Borel probability measures on Rm , then
+tion of Xt , and                                                      we identify a probabilistic forecast P ∈ P with its cumulative
+                                                                distribution function F. A multivariate analog of the CRPS can
+          1           1  1                   1 
+   K = Xt − γ 1 + Xt  , Xt + γ 1 + Xt  , (47)                 be defined as
+          2            2       2                2                                               
+                                                                               CRPS(F, x) = −       (F(y) − 1{x ≤ y})2 ν(dy).
+where γ (y) = (2(log 7.36 − log y))1/2 y for y ≤ 7.36 and γ (y) =                                             Rm
+0 otherwise. This choice minimizes the expected width of the
+                                                                      This is a weighted integral of the Brier scores at all m-variate
+prediction interval under the constraint of nominal coverage.
+                                                                      thresholds. The Borel measure ν can be chosen to encourage
+However, the interval forecast K seems misguided, in that it
+                                                                      the forecaster to concentrate his or her efforts on the impor-
+collapses to a point forecast when the conditional predictive
+                                                                      tant ones. If ν is a finite measure that dominates the Lebesgue
+variance is highest.
+                                                                      measure, then this scoring rule is strictly proper relative to the
+   We generated a sample path {Xt : t = 1, . . . , 100,001} from
+                                                                      class P.
+the bilinear process (44) and considered sequential one-step-
+ahead interval forecasts for Xt+1 , where t = 1, . . . , 100,000.
+                                                                              7. SCORING RULES, BAYES FACTORS, AND
+Table 2 summarizes the results of this experiment. The inter-
+                                                                                 RANDOM–FOLD CROSS–VALIDATION
+val forecasts I, J, and K all showed close to nominal coverage,
+with the prediction interval K being sharpest on average. Nev-          We now relate proper scoring rules to Bayes factors and to
+ertheless, the classical prediction interval I performed best in      cross-validation and propose a novel form of cross-validation:
+terms of the interval score.                                          random-fold cross-validation.
+372                                                                                Journal of the American Statistical Association, March 2007
+
+7.1 Logarithmic Score and Bayes Factors                                 Dawid (1984) showed that Sk,B is asymptotically equivalent to
+                                                                        the plug-in maximum likelihood prequential score
+   Probabilistic forecasting rules are often generated by proba-
+bilistic models, and the standard Bayesian approach to compar-                                        
+                                                                                                      n
+ing probabilistic models is by Bayes factors. Suppose that we                             Sk,D =            log P(Xt |Xt−1 , θ̂kt−1 ),        (54)
+have a sample X = (X1 , . . . , Xn ) of values to be forecast. Sup-                                   t=1
+pose also that we have two forecasting rules, based on proba-
+                                                                        where θ̂kt−1 is the maximum likelihood estimator (MLE) of
+bilistic models H1 and H2 . So far in this article we have concen-
+trated on the situation where the forecasting rule is completely        θk based on the past observations, Xt−1 , in the sense that
+specified before any of the Xi ’s are observed; that is, there are      Sk,D /Sk,B → 1 as n → ∞. Initial terms for which θ̂kt−1 is pos-
+no parameters to be estimated from the data being forecast. In          sibly undefined can be ignored. Dawid also showed that Sk,B
+that situation, the Bayes factor for H1 against H2 is                   is asymptotically equivalent to the Bayes information criterion
+                                                                        (BIC) score,
+                                 P(X|H1 )
+                          B=              ,                     (50)                            
+                                                                                                n
+                                 P(X|H2 )                                                                                         dk
+                    n                                                             Sk,BIC =           log P(Xt |Xt−1 , θ̂kn ) −      log n,
+where P(X|Hk ) = i=1 P(Xi |Hk ) for k = 1, 2 (Jeffreys 1939;                                                                      2
+                                                                                                t=1
+Kass and Raftery 1995).
+                                                                        where dk = dim(θk ), in the same sense, namely Sk,BIC /Sk,B →
+   Thus, if the logarithmic score is used, then the log Bayes
+                                                                        1 as n → ∞. This justifies using the BIC for comparing fore-
+factor is the difference of the scores for the two models,
+                                                                        casting rules, extending the previous justification of Schwarz
+             log B = LogS(H1 , X) − LogS(H2 , X).               (51)    (1978), which related only to comparing models.
+This was pointed out by Good (1952), who called the log Bayes             These results have two limitations, however. First, they as-
+factor the weight of evidence. It establishes two connections:          sume that the data come in a particular order. Second, they use
+(1) the Bayes factor is equivalent to the logarithmic score in this     only the logarithmic score, not other scores that might be more
+no-parameter case, and (2) the Bayes factor applies more gener-         appropriate for the task at hand. We now briefly consider how
+ally than merely to the comparison of parametric probabilistic          these limitations might be addressed.
+models, but also to the comparison of probabilistic forecasting
+                                                                        7.2 Scoring Rules and Random-Fold Cross-Validation
+rules of any kind.
+   So far in this article we have taken probabilistic forecasts to        Suppose now that the data are unordered. We can replace (53)
+be fully specified, but often they are specified only up to un-         by
+known parameters estimated from the data. Now suppose that
+                                                                                                  
+                                                                                                  n
+                                                                                                                              
+the forecasting rules considered are specified only up to un-                             ∗
+                                                                                         Sk,B =         ED log p Xt |X(D) , Hk ,              (55)
+known parameters, θk for Hk , to be estimated from the data.                                      t=1
+Then the Bayes factor is still given by (50), but now P(X|Hk ) is
+the integrated likelihood,                                              where D is a random sample from {1, . . . , t − 1, t + 1, . . . , n},
+                                                                       the size of which is a random variable with a discrete uniform
+             P(X|Hk ) = p(X|θk , Hk )p(θk |Hk ) dθk ,                   distribution on {0, 1, . . . , n − 1}. Dawid’s results imply that this
+                                                                        is asymptotically equivalent to the plug-in maximum likelihood
+where p(X|θk , Hk ) is the (usual) likelihood under model Hk , and      version,
+p(θk |Hk ) is the prior distribution of the parameter θk .
+                                                                                                
+                                                                                                n
+                                                                                                                                  
+   Dawid (1984) showed that when the data come in a partic-                             ∗                                   (D)
+                                                                                       Sk,D =         ED log p Xt |X(D) , θ̂k , Hk ,          (56)
+ular order, such as time order, the integrated likelihood can be                                t=1
+reformulated in predictive terms,
+                                                                                 (D)
+                                
+                                n                                       where θ̂k is the MLE of θk based on X(D) . Terms for which
+                                                                                                       (D)
+                 P(X|Hk ) =           P(Xt |Xt−1 , Hk ),        (52)    the size of D is small and θ̂k is possibly undefined can be
+                                t=1                                     ignored.
+                                                                           The formulations (55) and (56) may be useful because they
+where Xt−1 = {X1 , . . . , Xt−1 } if t ≥ 1, X 0 is the empty set and
+P(Xt |Xt−1 , Hk ) is the predictive distribution of Xt given the past   turn a score that was a sum of nonidentically distributed terms
+values under Hk , namely                                                into one that is a sum of identically distributed exchangeable
+                                                                                                                               ∗        ∗
+                                                                       terms. This opens the possibility of evaluating Sk,B        or Sk,D
+      P(Xt |X , Hk ) = p(Xt |θk , Hk )P(θk |Xt−1 , Hk ) dθk ,
+             t−1                                                        by Monte Carlo, which would be a form of cross-validation.
+                                                                        In this cross-validation, the amount of data left out would be
+with P(θk |Xt−1 , Hk ) the posterior distribution of θk given the       random rather than fixed, leading us to call it random-fold
+past observations Xt−1 .                                                cross-validation. Smyth (2000) used the log-likelihood as the
+   We let Sk,B = log P(X|Hk ) denote the log-integrated likeli-         criterion function in cross-validation, as here, calling the result-
+hood, viewed now as a scoring rule. To view it as a scoring rule        ing method cross-validated likelihood, but used a fixed hold-
+it helps to rewrite it as                                               out sample size. This general approach can be traced back at
+                                                                        least to Geisser and Eddy (1979). One issue in cross-validation
+                          
+                          n
+                 Sk,B =         log P(Xt |Xt−1 , Hk ).          (53)    generally is how much data to leave out; different choices lead
+                          t=1
+                                                                        to different versions of cross-validation, such as leave-one-out,
+Gneiting and Raftery: Proper Scoring Rules                                                                                                                      373
+
+10-fold, and so on. Considering versions of cross-validation in        8.2 Evaluation of Density Forecasts
+the context of scoring rules may shed some light on this issue.
+                                                                          In the aforementioned approach, the predictive density is
+   We have seen by (51) that when there are no parameters being
+                                                                       Gaussian, say ϕµ,rσ ; its mean, µ, is the ensemble mean fore-
+estimated, the Bayes factor is equivalent to the difference in
+                                                                       cast, and its standard deviation, rσ , is the product of the in-
+the logarithmic score. Thus we could replace the logarithmic
+                                                                       flation factor, r, and the standard deviation of the five-member
+score by another proper score, and the difference in scores could
+                                                                       forecast ensemble, σ . We considered various scoring rules S
+be viewed as a kind of predictive Bayes factor with a different
+                                          ∗ , and S∗ , we could        and computed the average score,
+type of score. In Sk,B , Sk,D , Sk,BIC , Sk,B      k,D
+replace the terms in the sums (each of which has the form of a                                   1       16,015
+logarithmic score) by another proper scoring rule, such as the                      s(r) =              S ϕµi ,rσi , xi ,                      r > 0,          (57)
+                                                                                               16,015
+CRPS, and we conjecture that similar asymptotic equivalences                                                i=1
+would remain valid.                                                    as a function of the inflation factor r. The index i refers to the
+                                                                       ith record in the verification database, and xi denotes the value
+  8. CASE STUDY: PROBABILISTIC FORECASTS OF
+                                                                       that materialized. Given the underdispersive character of the en-
+     SEA–LEVEL PRESSURE OVER THE NORTH
+                                                                       semble system, we expect s(r) to be maximized at some r > 1,
+         AMERICAN PACIFIC NORTHWEST
+                                                                       possibly near the observed ratio, r0 = 1.55, of the root mean
+   Our goals in this case study are to illustrate the use and the      squared error of the ensemble mean forecast over the square
+properties of scoring rules and to demonstrate the importance          root of the average ensemble variance.
+of propriety.                                                             We computed the mean score (57) for inflation factors r ∈
+                                                                       (0, 5) and for the quadratic score (QS), spherical score (SphS),
+8.1 Probabilistic Weather Forecasting Using Ensembles                  logarithmic score (LogS), CRPS, linear score (LinS), and prob-
+   Operational probabilistic weather forecasts are based on en-        ability score (PS), as defined in Section 4. Briefly, if p denotes
+semble prediction systems. Ensemble systems typically gener-           the predictive density and x denotes the observed value, then
+                                                                                                            ∞
+ate a set of perturbations of the best estimate of the current state
+of the atmosphere, run each of them forward in time using a nu-                       QS(p, x) = 2p(x) −        p(y)2 dy,
+                                                                                                                             −∞
+merical weather prediction model, and use the resulting set of                                                           ∞
+forecasts as a sample from the predictive distribution of future                                                                              1/2
+                                                                                        SphS(p, x) = p(x)                       p(y)2 dy             ,
+weather quantities (Palmer 2002; Gneiting and Raftery 2005).                                                              −∞
+   Grimit and Mass (2002) described the University of Wash-
+                                                                                        LogS(p, x) = log p(x),
+ington ensemble prediction system over the Pacific Northwest,
+which covers Oregon, Washington, British Columbia, and parts                                         1
+                                                                                       CRPS(p, x) = Ep |X − X  | − Ep |X − x|,
+of the Pacific Ocean. This is a five-member ensemble com-                                            2
+prising distinct runs of the MM5 numerical weather prediction                           LinS(p, x) = p(x),
+model with initial conditions taken from distinct national and
+international weather centers. We consider 48-hour-ahead fore-         and
+                                                                                                                     x+1
+casts of sea-level pressure in January–June 2000, the same pe-
+                                                                                                   PS(p, x) =                p(y) dy.
+riod as that on which the work of Grimit and Mass was based.                                                          x−1
+The unit used is the millibar (mb). Our analysis builds on a ver-
+                                                                       Figure 3 and Table 3 summarize the results of this experiment.
+ification data base of 16,015 records scattered over the North
+                                                                       The scores shown in the figure are linearly transformed, so that
+American Pacific Northwest and the aforementioned 6-month
+                                                                       the graphs can be compared side by side, and the transforma-
+period. Each record consists of the five ensemble member fore-
+                                                                       tions are listed in the rightmost column of the table. In the case
+casts and the associated verifying observation. The root mean
+                                                                       of the quadratic score, for instance, we plotted 40 times the
+squared error of the ensemble mean forecast was 3.30 mb, and
+                                                                       value in (57) plus 6. Clearly, transformed and original scores
+the square root of the average variance of the five-member fore-
+                                                                       are equivalent in the sense of (2). The quadratic score, spherical
+cast ensemble was 2.13 mb, resulting in a ratio of r0 = 1.55.
+                                                                       score, logarithmic score and CRPS were maximized at values
+   This underdispersive behavior—that is, observed errors that
+                                                                       of r > 1, thereby confirming the underdispersive character of
+tend to be larger on average than suggested by the ensemble
+spread—is typical of ensemble systems and seems unavoidable,
+                                                                       Table 3. Probabilistic Forecasts of Sea-Level Pressure Over the North
+given that ensembles capture only some of the sources of uncer-
+                                                                                 American Pacific Northwest in January–July 2000
+tainty (Raftery, Gneiting, Balabdaoui, and Polakowski 2005).
+Thus, to obtain calibrated predictive distributions, it seems nec-                                              Argmax r s( r )          Linear transformation
+essary to carry out some form of statistical postprocessing. One       Score                                     in eq. (57)               plotted in Figure 3
+natural approach is to take the predictive distribution for sea-       Quadratic score (QS)                           2.18                       40s + 6
+level pressure at any given site as Gaussian, centered at the en-      Spherical score (SphS)                         1.84                      108s − 22
+                                                                       Logarithmic score (LogS)                       2.41                        s + 13
+semble mean forecast, and with predictive standard deviation           CRPS                                           1.62                       10s + 8
+equal to r times the standard deviation of the forecast ensemble.      Linear score (LinS)                             .05                      105s − 5
+Density forecasts of this type were proposed by Déqué, Royer,          Probability score (PS)                          .02                       60s − 5
+and Stroe (1994) and Wilks (2002). Following Wilks, we refer           NOTE: The predictive density is Gaussian, centered at the ensemble mean forecast, and with
+to r as an inflation factor.                                           predictive standard deviation equal to r times the standard deviation of the forecast ensemble.
+374                                                                                      Journal of the American Statistical Association, March 2007
+
+
+
+
+   Figure 3. Probabilistic Forecasts of Sea-Level Pressure Over the North American Pacific Northwest in January–July 2000. The scores are shown
+as a function of the inflation factor r , where the predictive density is Gaussian, centered at the ensemble mean forecast, and with predictive standard
+deviation equal to r times the standard deviation of the forecast ensemble. The scores were subject to linear transformations as detailed in Table 3.
+
+
+
+the ensemble. These scores are proper. The linear and proba-                 their dependence on the inflation factor r in two ways: by com-
+bility scores were maximized at r = .05 and r = .02, thereby                 puting the empirical coverage of the prediction intervals and by
+suggesting ignorable forecast uncertainty and essentially deter-             computing
+ministic forecasts. The latter two scores have intuitive appeal,
+and the probability score has been used to assess forecast en-                                 1       16,015
+                                                                                    sα (r) =          Sαint (li , ui ; xi ),        r > 0,         (58)
+sembles (Wilson et al. 1999). However, they are improper, and                                16,015
+                                                                                                         i=1
+their use may result in misguided scientific inferences, as in this
+experiment. A similar comment applies to the predictive model                where Sαint denotes the negatively oriented interval score (43).
+choice criterion given in Section 4.4.                                       This scoring rule assesses both calibration and sharpness, by
+   It is interesting to observe that the logarithmic score gave the          rewarding narrow prediction intervals and penalizing intervals
+highest maximizing value of r. The logarithmic score is strictly             missed by the observation. Figure 4(a) shows the empirical cov-
+proper but involves a harsh penalty for low probability events               erage of the interval forecasts. Clearly, the coverage increases
+and thus is highly sensitive to extreme cases. Our verification              with r. For α = .50 and α = .10, the nominal coverage was ob-
+database includes a number of low-spread cases for which the                 tained at r = 1.78 and r = 2.11, which confirms the underdis-
+ensemble variance implodes. The logarithmic score penalizes                  persive character of the ensemble. Figure 4(b) shows the inter-
+the resulting predictions unless the inflation factor r is large.            val score (58) as a function of the inflation factor r. For α = .50
+Weigend and Shi (2000, p. 382) noted similar concerns and                    and α = .10, the score was optimized at r = 1.56 and r = 1.72.
+considered the use of trimmed means when computing the log-
+arithmic score. In our experience, the CRPS is less sensitive to                           9. OPTIMUM SCORE ESTIMATION
+extreme cases or outliers and provides an attractive alternative.               Strictly proper scoring rules also are of interest in estimation
+                                                                             problems, where they provide attractive loss and utility func-
+8.3 Evaluation of Interval Forecasts                                         tions that can be adapted to the problem at hand.
+   The aforementioned predictive densities also provide interval
+                                                                             9.1 Point Estimation
+forecasts. We considered the central (1 − α) × 100% prediction
+interval where α = .50 and α = .10. The associated lower and                   We return to the generic estimation problem described in
+upper prediction bounds li and ui are the α2 and 1 − α2 quantiles            Section 1. Suppose that we wish to fit a parametric model Pθ
+of a Gaussian distribution with mean µi and standard deviation               based on a sample X1 , . . . , Xn of identically distributed obser-
+rσi , as described earlier. We assessed the interval forecasts in            vations. To estimate θ , we can measure the goodness of fit by
+Gneiting and Raftery: Proper Scoring Rules                                                                                                       375
+
+                                              (a)                                                        (b)
+
+
+
+
+   Figure 4. Interval Forecasts of Sea-Level Pressure Over the North American Pacific Northwest in January–July 2000. (a) Nominal and actual
+coverage and (b) the negatively oriented interval score (58), for the 50% central prediction interval (α = .50, - - -) and the 90% central prediction
+interval (α = .10, —; score scaled by a factor of .60). The predictive density is Gaussian, centered at the ensemble mean forecast, and with
+predictive standard deviation equal to r times the standard deviation of the forecast ensemble.
+
+
+
+the mean score                                                              a Gaussian population with known variance, for example, the
+                                      
+                                      n                                     optimum score estimator based on the CRPS amounts to an M-
+                                  1                                         estimator with a ψ-function of the form ψ(x) = 2( xc ) − 1,
+                      Sn (θ ) =             S(Pθ , Xi ),
+                                  n                                         where c is a positive constant and  denotes the standard
+                                      i=1
+                                                                            Gaussian cumulative. This provides a smooth version of the ψ -
+where S is a scoring rule that is strictly proper relative to a con-        function for Huber’s (1964) robust minimax estimator (see Hu-
+vex class of probability measures that contains the parametric              ber 1981, p. 208). Asymptotic results for M-estimators, such as
+model. If θ0 denotes the true parameter value, then asymptotic              the consistency theorems of Huber (1967) and Perlman (1972),
+arguments indicate that                                                     then apply to optimum scores estimators as well. Wald’s (1949)
+                                                                            classical proof of the consistency of MLEs relies heavily on the
+                arg maxθ Sn (θ ) → θ0           as n → ∞.          (59)
+                                                                            strict propriety of the logarithmic score, which is proved in his
+This suggests a general approach to estimation: Choose a                    lemma 1.
+strictly proper scoring rule tailored to the problem at hand and               The appeal of optimum score estimation lies in the potential
+take θ̂n = arg maxθ Sn (θ ) as the respective optimum score es-             adaption of the scoring rule to the problem at hand. Gneiting
+timator. The first four values of the arg max in Table 3, for               et al. (2005) estimated a predictive regression model using the
+instance, refer to the optimum score estimates of the infla-                optimum score estimator based on the CRPS—a choice mo-
+tion factor r based on the logarithmic score, spherical score,              tivated by the meteorological problem. They showed empiri-
+quadratic score, and CRPS. Pfanzagl (1969) and Birgé and                    cally that such an approach can yield better predictive results
+                                                                            than approaches using maximum likelihood plug-in estimates.
+Massart (1993) studied optimum score estimators under the
+                                                                            This agrees with the findings of Copas (1983) and Friedman
+heading of minimum contrast estimators. This class includes
+                                                                            (1989), who showed that the use of maximum likelihood and
+many of the most popular estimators in various situations, such
+                                                                            least squares plug-in estimates can be suboptimal in prediction
+as MLEs, least squares and other estimators of regression mod-              problems. Buja et al. (2005) argued that strictly proper scor-
+els, and estimators for mixture models or deconvolution. Pfan-              ing rules are the natural loss functions or fitting criteria in bi-
+zagl (1969) proved rigorous versions of the consistency result              nary class probability estimation, and proposed tailoring scor-
+(59), and Birgé and Massart (1993) related rates of convergence             ing rules in situations in which false positives and false nega-
+to the entropy structure of the parameter space. Maximum like-              tives have different cost implications.
+lihood estimation forms the special case of optimum score esti-
+mation based on the logarithmic score, and optimum score es-                9.2 Quantile Estimation
+timation forms a special case of M-estimation (Huber 1964),                    Koenker and Bassett (1978) proposed quantile regression us-
+in that the function to be optimized derives from a strictly                ing an optimum score estimator based on the proper scoring
+proper scoring rule. When estimating the location parameter in              rule (41).
+376                                                                               Journal of the American Statistical Association, March 2007
+
+9.3 Interval Estimation                                               Briggs (2005), Briggs and Ruppert (2005), and Jolliffe (2006)
+                                                                      have developed formal tests of forecast performance, skill, and
+   We now turn to interval estimation. Casella, Hwang, and
+                                                                      value. This is a promising avenue for future work, particu-
+Robert (1993, p. 141) pointed out that “the question of measur-
+                                                                      larly in concert with biomedical applications (Pepe 2003; Schu-
+ing optimality (either frequentist or Bayesian) of a set estimator
+against a loss criterion combining size and coverage does not         macher, Graf, and Gerds 2003). Proper scoring rules form key
+yet have a satisfactory answer.”                                      tools within the broader framework of diagnostic forecast eval-
+   Their work was motivated by an apparent paradox due to             uation (Murphy and Winkler 1992; Gneiting et al. 2006), and in
+J. O. Berger, which concerns interval estimators of the loca-         addition to hydrometeorological and biomedical uses, we see a
+tion parameter θ in a Gaussian population with unknown scale.         wealth of potential applications in computational finance.
+Under the loss function                                                  Guidelines for the selection of scoring rules are in strong de-
+                                                                      mand, both for the assessment of predictive performance and
+                   L(I; θ ) = cλ(I) − 1{θ ∈ I},               (60)    in optimum score approaches to estimation. The tailoring ap-
+where c is a positive constant and λ(I) denotes the Lebesgue          proach of Buja et al. (2005) applies to binary class probabil-
+measure of the interval estimate I, the classical t-interval is       ity estimation, and we wonder whether it can be generalized.
+dominated by a misguided interval estimate that shrinks to the        Last but not least, we anticipate novel applications of proper
+sample mean in the cases of the highest uncertainty. Casella          scoring rules in model selection and model diagnosis problems,
+et al. (1993, p. 145) commented that “we have a case where            particularly in prequential (Dawid 1984) and cross-validatory
+a disconcerting rule dominates a time honored procedure. The          frameworks, and including Bayesian posterior predictive distri-
+only reasonable conclusion is that there is a problem with the        butions and Markov chain Monte Carlo output (Gschlößl and
+loss function.” We concur, and propose using proper scoring           Czado 2005). More traditional approaches to model selection
+rules to assess interval estimators based on a loss criterion that    such as Bayes factors (Kass and Raftery 1995), the Akaike in-
+combines width and coverage.                                          formation criterion, the BIC, and the deviance information cri-
+   Specifically, we contend that a meaningful comparison of in-       terion (Spiegelhalter, Best, Carlin, and van der Linde 2002) are
+terval estimators requires either equal coverage or equal width.      likelihood-based and relate to the logarithmic scoring rule, as
+The loss function (60) applies to all set estimates, regardless       discussed in Section 7. We would like to know more about their
+of coverage and size, which seems unnecessarily ambitious.            relationships to cross-validatory approaches based directly on
+Instead, we focus attention on interval estimators with equal         proper scoring rules, including, but not limited to, the logarith-
+nominal coverage and use the negatively oriented interval score       mic rule.
+(43). This loss function can be written as
+                                                                           APPENDIX: STATISTICAL DEPTH FUNCTIONS
+                                       2
+                 Lα (I; θ ) = λ(I) +     inf |θ − η|          (61)
+                                       α η∈I                              Statistical depth functions (Zuo and Serfling 2000) provide useful
+                                                                      tools in nonparametric inference for multivariate data. In Section 1
+and applies to interval estimates with upper and lower ex-
+                                                                      we hinted at a superficial analogy to scoring rules. Specifically, if P
+ceedance probability α2 × 100%. This approach can again be
+                                                                      is a Borel probability measure on Rm , then a depth function D(P, x)
+traced back to Dunsmore (1968) and Winkler (1972) and avoids
+paradoxes, as a consequence of the propriety of the interval          gives a P-based center-outward ordering of points x ∈ Rm . Formally,
+score. Compared with (60), the loss function (61) provides a          this resembles a scoring rule S(P, x) that assigns a P-based numerical
+more flexible assessment of the coverage, by taking the distance      value to an event x ∈ Rm . Liu (1990) and Zuo and Serfling (2000) have
+between the interval estimate and the estimand into account.          listed desirable properties of depth functions, including maximality at
+                                                                      the center, monotonicity relative to the deepest point, affine invariance,
+           10. AVENUES FOR FUTURE WORK                                and vanishing at infinity. The latter two properties are not necessarily
+                                                                      defendable requirements for scoring rules; conversely, propriety is ir-
+   Our paper aimed to bring proper scoring rules to the atten-
+                                                                      relevant for depth functions.
+tion of a broad statistical and general scientific audience. Proper
+scoring rules lie at the heart of much statistical theory and prac-               [Received December 2005. Revised September 2006.]
+tice, and we have demonstrated ways in which they bear on pre-
+                                                                                                  REFERENCES
+diction and estimation. We close with a succinct, necessarily
+incomplete, and subjective discussion of directions for future        Baringhaus, L., and Franz, C. (2004), “On a New Multivariate Two-Sample
+                                                                       Test,” Journal of Multivariate Analysis, 88, 190–206.
+work.                                                                 Bauer, H. (2001), Measure and Integration Theory, Berlin: Walter de Gruijter.
+   Theoretically, the relationships between proper scoring rules      Berg, C., Christensen, J. P. R., and Ressel, P. (1984), Harmonic Analysis on
+and divergence functions are not fully understood. The Sav-            Semigroups, New York: Springer-Verlag.
+                                                                      Bernardo, J. M. (1979), “Expected Information as Expected Utility,” The An-
+age representation (10), Schervish’s Choquet-type representa-          nals of Statistics, 7, 686–690.
+tion (14), and the underlying geometric arguments surely allow        Bernardo, J. M., and Smith, A. F. M. (1994), Bayesian Theory, New York: Wi-
+generalizations, and the characterization of proper scoring rules      ley.
+                                                                      Besag, J., Green, P., Higdon, D., and Mengersen, K. (1995), “Bayesian Com-
+for quantiles remains open. Little is known about the propri-          puting and Stochastic Systems,” Statistical Science, 10, 3–66.
+ety of skill scores, despite Murphy’s (1973) pioneering work          Birgé, L., and Massart, P. (1993), “Rates of Convergence for Minimum Contrast
+and their ubiquitous use by meteorologists. Briggs and Ruppert         Estimators,” Probability Theory and Related Fields, 97, 113–150.
+(2005) have argued that skill score departures from propriety         Bregman, L. M. (1967), “The Relaxation Method of Finding the Common Point
+                                                                       of Convex Sets and Its Application to the Solution of Problems in Convex Pro-
+do little harm. Although we tend to agree, there is a need for         gramming,” USSR Computational Mathematics and Mathematical Physics, 7,
+follow-up studies. Diebold and Mariano (1995), Hamill (1999),          200–217.
+Gneiting and Raftery: Proper Scoring Rules                                                                                                                       377
+
+Bremnes, J. B. (2004), “Probabilistic Forecasts of Precipitation in Terms           Geisser, S., and Eddy, W. F. (1979), “A Predictive Approach to Model Selec-
+  of Quantiles Using NWP Model Output,” Monthly Weather Review, 132,                  tion,” Journal of the American Statistical Association, 74, 153–160.
+  338–347.                                                                          Gelfand, A. E., and Ghosh, S. K. (1998), “Model Choice: A Minimum Posterior
+Brier, G. W. (1950), “Verification of Forecasts Expressed in Terms of Probabil-       Predictive Loss Approach,” Biometrika, 85, 1–11.
+  ity,” Monthly Weather Review, 78, 1–3.                                            Gerds, T. (2002), “Nonparametric Efficient Estimation of Prediction Error
+Briggs, W. (2005), “A General Method of Incorporating Forecast Cost and Loss          for Incomplete Data Models,” unpublished doctoral dissertation, Albert-
+  in Value Scores,” Monthly Weather Review, 133, 3393–3397.                           Ludwigs-Universität Freiburg, Germany, Mathematische Fakultät.
+Briggs, W., and Ruppert, D. (2005), “Assessing the Skill of Yes/No Predic-          Giacomini, R., and Komunjer, I. (2005), “Evaluation and Combination of Con-
+  tions,” Biometrics, 61, 799–807.                                                    ditional Quantile Forecasts,” Journal of Business & Economic Statistics, 23,
+Buja, A., Logan, B. F., Reeds, J. A., and Shepp, L. A. (1994), “Inequalities          416–431.
+  and Positive-Definite Functions Arising From a Problem in Multidimensional        Gneiting, T. (1998), “Simple Tests for the Validity of Correlation Function
+  Scaling,” The Annals of Statistics, 22, 406–438.                                    Models on the Circle,” Statistics & Probability Letters, 39, 119–122.
+Buja, A., Stuetzle, W., and Shen, Y. (2005), “Loss Functions for Binary Class       Gneiting, T., Balabdaoui, F., and Raftery, A. E. (2006), “Probabilistic Forecasts,
+  Probability Estimation and Classification: Structure and Applications,” man-        Calibration and Sharpness,” Journal of the Royal Statistical Society, Ser. B,
+  uscript, available at www-stat.wharton.upenn.edu/~buja/.                            in press.
+Campbell, S. D., and Diebold, F. X. (2005), “Weather Forecasting for Weather        Gneiting, T., and Raftery, A. E. (2005), “Weather Forecasting With Ensemble
+  Derivatives,” Journal of the American Statistical Association, 100, 6–16.           Methods,” Science, 310, 248–249.
+Candille, G., and Talagrand, O. (2005), “Evaluation of Probabilistic Prediction     Gneiting, T., Raftery, A. E., Balabdaoui, F., and Westveld, A. (2003), “Ver-
+  Systems for a Scalar Variable,” Quarterly Journal of the Royal Meteorologi-         ifying Probabilistic Forecasts: Calibration and Sharpness,” presented at the
+  cal Society, 131, 2131–2150.                                                        Workshop on Ensemble Forecasting, Val-Morin, Québec.
+Casella, G., Hwang, J. T. G., and Robert, C. (1993), “A Paradox in Decision-        Gneiting, T., Raftery, A. E., Westveld, A., and Goldman, T. (2005), “Calibrated
+  Theoretic Interval Estimation,” Statistica Sinica, 3, 141–155.                      Probabilistic Forecasting Using Ensemble Model Output Statistics and Mini-
+Cervera, J. L., and Muñoz, J. (1996), “Proper Scoring Rules for Fractiles,” in        mum CRPS Estimation,” Monthly Weather Review, 133, 1098–1118.
+  Bayesian Statistics 5, eds. J. M. Bernardo, J. O. Berger, A. P. Dawid, and        Good, I. J. (1952), “Rational Decisions,” Journal of the Royal Statistical Soci-
+  A. F. M. Smith, Oxford, U.K.: Oxford University Press, pp. 513–519.                 ety, Ser. B, 14, 107–114.
+Christoffersen, P. F. (1998), “Evaluating Interval Forecasts,” International Eco-             (1971), Comment on “Measuring Information and Uncertainty,” by
+  nomic Review, 39, 841–862.                                                          R. J. Buehler, in Foundations of Statistical Inference, eds. V. P. Godambe
+Collins, M., Schapire, R. E., and Singer, J. (2002), “Logistic Regression,            and D. A. Sprott, Toronto: Holt, Rinehart and Winston, pp. 337–339.
+  AdaBoost and Bregman Distances,” Machine Learning, 48, 253–285.                   Granger, C. W. J. (2006), “Preface: Some Thoughts on the Future of Forecast-
+Copas, J. B. (1983), “Regression, Prediction and Shrinkage,” Journal of the           ing,” Oxford Bulletin of Economics and Statistics, 67S, 707–711.
+  Royal Statistical Society, Ser. B, 45, 311–354.                                   Grimit, E. P., Gneiting, T., Berrocal, V. J., and Johnson, N. A. (2006), “The
+Daley, D. J., and Vere-Jones, D. (2004), “Scoring Probability Forecasts for           Continuous Ranked Probability Score for Circular Variables and Its Applica-
+  Point Processes: The Entropy Score and Information Gain,” Journal of Ap-            tion to Mesoscale Forecast Ensemble Verification,” Quarterly Journal of the
+  plied Probability, 41A, 297–312.                                                    Royal Meteorological Society, in press.
+Dawid, A. P. (1984), “Statistical Theory: The Prequential Approach,” Journal        Grimit, E. P., and Mass, C. F. (2002), “Initial Results of a Mesoscale Short-
+  of the Royal Statistical Society, Ser. A, 147, 278–292.                             Range Ensemble System Over the Pacific Northwest,” Weather and Forecast-
+          (1986), “Probability Forecasting,” in Encyclopedia of Statistical Sci-
+                                                                                      ing, 17, 192–205.
+  ences, Vol. 7, eds. S. Kotz, N. L. Johnson, and C. B. Read, New York: Wiley,
+                                                                                    Grünwald, P. D., and Dawid, A. P. (2004), “Game Theory, Maximum Entropy,
+  pp. 210–218.
+                                                                                      Minimum Discrepancy and Robust Bayesian Decision Theory,” The Annals
+          (1998), “Coherent Measures of Discrepancy, Uncertainty and Depen-
+                                                                                      of Statistics, 32, 1367–1433.
+  dence, With Applications to Bayesian Predictive Experimental Design,” Re-
+                                                                                    Gschlößl, S., and Czado, C. (2005), “Spatial Modelling of Claim Frequency
+  search Report 139, University College London, Dept. of Statistical Science.
+                                                                                      and Claim Size in Insurance,” Discussion Paper 461, Ludwig-Maximilians-
+          (2006), “The Geometry of Proper Scoring Rules,” Research Report
+                                                                                      Universität, Munich, Germany, Sonderforschungsbereich 368.
+  268, University College London, Dept. of Statistical Science.
+                                                                                    Hamill, T. M. (1999), “Hypothesis Tests for Evaluating Numerical Precipitation
+Dawid, A. P., and Sebastiani, P. (1999), “Coherent Dispersion Criteria for Op-
+  timal Experimental Design,” The Annals of Statistics, 27, 65–81.                    Forecasts,” Weather and Forecasting, 14, 155–167.
+Déqué, M., Royer, J. T., and Stroe, R. (1994), “Formulation of Gaussian             Hamill, T. M., and Wilks, D. S. (1995), “A Probabilistic Forecast Contest and
+  Probability Forecasts Based on Model Extended-Range Integrations,” Tellus,          the Difficulty in Assessing Short-Range Forecast Uncertainty,” Weather and
+  Ser. A, 46, 52–65.                                                                  Forecasting, 10, 620–631.
+Diebold, F. X., and Mariano, R. S. (1995), “Comparing Predictive Accuracy,”         Hendrickson, A. D., and Buehler, R. J. (1971), “Proper Scores for Probability
+  Journal of Business & Economic Statistics, 13, 253–263.                             Forecasters,” The Annals of Mathematical Statistics, 42, 1916–1921.
+Duffie, D., and Pan, J. (1997), “An Overview of Value at Risk,” Journal of          Hersbach, H. (2000), “Decomposition of the Continuous Ranked Probabil-
+  Derivatives, 4, 7–49.                                                               ity Score for Ensemble Prediction Systems,” Weather and Forecasting, 15,
+Dunsmore, I. R. (1968), “A Bayesian Approach to Calibration,” Journal of the          559–570.
+  Royal Statistical Society, Ser. B, 30, 396–405.                                   Hofmann, T., Schölkopf, B., and Smola, A. (2005), “A Review of RKHS Meth-
+Eaton, M. L. (1982), “A Method for Evaluating Improper Prior Distributions,”          ods in Machine Learning,” preprint.
+  in Statistical Decision Theory and Related Topics III, eds. S. S. Gupta and       Huber, P. J. (1964), “Robust Estimation of a Location Parameter,” The Annals
+  J. O. Berger, New York: Academic Press, pp. 329–352.                                of Mathematical Statistics, 35, 73–101.
+Eaton, M. L., Giovagnoli, A., and Sebastiani, P. (1996), “A Predictive Approach               (1967), “The Behavior of Maximum Likelihood Estimates Under Non-
+  to the Bayesian Design Problem With Application to Normal Regression                Standard Conditions,” in Proceedings of the Fifth Berkeley Symposium on
+  Models,” Biometrika, 83, 111–125.                                                   Mathematical Statistics and Probability I, eds. L. M. Le Cam and J. Neyman,
+Epstein, E. S. (1969), “A Scoring System for Probability Forecasts of Ranked          Berkeley, CA: University of California Press, pp. 221–233.
+  Categories,” Journal of Applied Meteorology, 8, 985–987.                                    (1981), Robust Statistics, New York: Wiley.
+Feuerverger, A., and Rahman, S. (1992), “Some Aspects of Probabil-                  Jeffreys, H. (1939), Theory of Probability, Oxford, U.K.: Oxford University
+  ity Forecasting,” Communications in Statistics—Theory and Methods, 21,              Press.
+  1615–1632.                                                                        Jolliffe, I. T. (2006), “Uncertainty and Inference for Verification Measures,”
+Friederichs, P., and Hense, A. (2006), “Statistical Down-Scaling of Extreme           Weather and Forecasting, in press.
+  Precipitation Events Using Censored Quantile Regression,” Monthly Weather         Jolliffe, I. T., and Stephenson, D. B. (eds.) (2003), Forecast Verification:
+  Review, in press.                                                                   A Practicioner’s Guide in Atmospheric Science, Chichester, U.K.: Wiley.
+Friedman, D. (1983), “Effective Scoring Rules for Probabilistic Forecasts,”         Kabaila, P. (1999), “The Relevance Property for Prediction Intervals,” Journal
+  Management Science, 29, 447–454.                                                    of Time Series Analysis, 20, 655–662.
+Friedman, J. H. (1989), “Regularized Discriminant Analysis,” Journal of the         Kabaila, P., and He, Z. (2001), “On Prediction Intervals for Conditionally Het-
+  American Statistical Association, 84, 165–175.                                      eroscedastic Processes,” Journal of Time Series Analysis, 22, 725–731.
+Garratt, A., Lee, K., Pesaran, M. H., and Shin, Y. (2003), “Forecast Uncertain-     Kass, R. E., and Raftery, A. E. (1995), “Bayes Factors,” Journal of the American
+  ties in Macroeconomic Modelling: An Application to the U.K. Economy,”               Statistical Association, 90, 773–795.
+  Journal of the American Statistical Association, 98, 829–838.                     Knorr-Held, L., and Rainer, E. (2001), “Projections of Lung Cancer in West
+Garthwaite, P. H., Kadane, J. B., and O’Hagan, A. (2005), “Statistical Methods        Germany: A Case Study in Bayesian Prediction,” Biostatistics, 2, 109–129.
+  for Eliciting Probability Distributions,” Journal of the American Statistical     Koenker, R., and Bassett, G. (1978), “Regression Quantiles,” Econometrica, 46,
+  Association, 100, 680–700.                                                          33–50.
+378                                                                                            Journal of the American Statistical Association, March 2007
+
+Koenker, R., and Machado, J. A. F. (1999), “Goodness-of-Fit and Related Infer-     Savage, L. J. (1971), “Elicitation of Personal Probabilities and Expectations,”
+  ence Processes for Quantile Regression,” Journal of the American Statistical       Journal of the American Statistical Association, 66, 783–801.
+  Association, 94, 1296–1310.                                                      Schervish, M. J. (1989), “A General Method for Comparing Probability Asses-
+Kohonen, J., and Suomela, J. (2006), “Lessons Learned in the Challenge: Mak-         sors,” The Annals of Statistics, 17, 1856–1879.
+  ing Predictions and Scoring Them,” in Machine Learning Challenges: Eval-         Schumacher, M., Graf, E., and Gerds, T. (2003), “How to Assess Prognostic
+  uating Predictive Uncertainty, Visual Object Classification, and Recognizing       Models for Survival Data: A Case Study in Oncology,” Methods of Informa-
+  Textual Entailment, eds. J. Quiñonero-Candela, I. Dagan, B. Magnini, and          tion in Medicine, 42, 564–571.
+  F. d’Alché-Buc, Berlin: Springer-Verlag, pp. 95–116.                             Schwarz, G. (1978), “Estimating the Dimension of a Model,” The Annals of
+Koldobskiı̌, A. L. (1992), “Schoenberg’s Problem on Positive Definite Func-          Statistics, 6, 461–464.
+  tions,” St. Petersburg Mathematical Journal, 3, 563–570.                         Selten, R. (1998), “Axiomatic Characterization of the Quadratic Scoring Rule,”
+Krzysztofowicz, R., and Sigrest, A. A. (1999), “Comparative Verification of          Experimental Economics, 1, 43–62.
+  Guidance and Local Quantitative Precipitation Forecasts: Calibration Analy-      Shuford, E. H., Albert, A., and Massengil, H. E. (1966), “Admissible Probabil-
+  ses,” Weather and Forecasting, 14, 443–454.                                        ity Measurement Procedures,” Psychometrika, 31, 125–145.
+Langland, R. H., Toth, Z., Gelaro, R., Szunyogh, I., Shapiro, M. A., Majumdar,     Smyth, P. (2000), “Model Selection for Probabilistic Clustering Using Cross-
+  S. J., Morss, R. E., Rohaly, G. D., Velden, C., Bond, N., and Bishop,              Validated Likelihood,” Statistics and Computing, 10, 63–72.
+  C. H. (1999), “The North Pacific Experiment (NORPEX-98): Targeted Ob-            Spiegelhalter, D. J., Best, N. G., Carlin, B. R., and van der Linde, A. (2002),
+  servations for Improved North American Weather Forecasts,” Bulletin of the         “Bayesian Measures of Model Complexity and Fit” (with discussion and re-
+  American Meteorological Society, 90, 1363–1384.                                    joinder), Journal of the Royal Statistical Society, Ser. B, 64, 583–616.
+Laud, P. W., and Ibrahim, J. G. (1995), “Predictive Model Selection,” Journal      Staël von Holstein, C.-A. S. (1970), “A Family of Strictly Proper Scoring
+  of the Royal Statistical Society, Ser. B, 57, 247–262.                             Rules Which Are Sensitive to Distance,” Journal of Applied Meteorology,
+Lehmann, E., and Casella, G. (1998), Theory of Point Estimation (2nd ed.),           9, 360–364.
+  New York: Springer.                                                                        (1977), “The Continuous Ranked Probability Score in Practice,” in De-
+Liu, R. Y. (1990), “On a Notion of Data Depth Based on Random Simplices,”            cision Making and Change in Human Affairs, eds. H. Jungermann and G. de
+  The Annals of Statistics, 18, 405–414.                                             Zeeuw, Dordrecht: Reidel, pp. 263–273.
+Ma, C. (2003), “Nonstationary Covariance Functions That Model Space–Time           Székely, G. J. (2003), “E-Statistics: The Energy of Statistical Samples,” Tech-
+  Interactions,” Statistics & Probability Letters, 61, 411–419.                      nical Report 2003-16, Bowling Green State University, Dept. of Mathematics
+Mason, S. J. (2004), “On Using Climatology as a Reference Strategy in the            and Statistics.
+  Brier and Ranked Probability Skill Scores,” Monthly Weather Review, 132,         Székely, G. J., and Rizzo, M. L. (2005), “A New Test for Multivariate Normal-
+  1891–1895.                                                                         ity,” Journal of Multivariate Analysis, 93, 58–80.
+Matheron, G. (1984), “The Selectivity of the Distributions and the ‘Second         Taylor, J. W. (1999), “Evaluating Volatility and Interval Forecasts,” Journal of
+  Principle of Geostatistics,’ ” in Geostatistics for Natural Resources Charac-      Forecasting, 18, 111–128.
+  terization, eds. G. Verly, M. David, and A. G. Journel, Dordrecht: Reidel,       Tetlock, P. E. (2005), Political Expert Judgement, Princeton, NJ: Princeton Uni-
+  pp. 421–434.                                                                       versity Press.
+Matheson, J. E., and Winkler, R. L. (1976), “Scoring Rules for Continuous          Theis, S. (2005), “Deriving Probabilistic Short-Range Forecasts From a
+  Probability Distributions,” Management Science, 22, 1087–1096.                     Deterministic High-Resolution Model,” unpublished doctoral dissertation,
+Mattner, L. (1997), “Strict Definiteness via Complete Monotonicity of Inte-          Rheinische Friedrich-Wilhelms-Universität, Bonn, Germany, Mathematisch-
+  grals,” Transactions of the American Mathematical Society, 349, 3321–3342.         Naturwissenschaftliche Fakultät.
+McCarthy, J. (1956), “Measures of the Value of Information,” Proceedings of        Toth, Z., Zhu, Y., and Marchok, T. (2001), “The Use of Ensembles to Identify
+  the National Academy of Sciences, 42, 654–655.                                     Forecasts With Small and Large Uncertainty,” Weather and Forecasting, 16,
+Murphy, A. H. (1973), “Hedging and Skill Scores for Probability Forecasts,”          463–477.
+  Journal of Applied Meteorology, 12, 215–223.                                     Unger, D. A. (1985), “A Method to Estimate the Continuous Ranked Probabil-
+Murphy, A. H., and Winkler, R. L. (1992), “Diagnostic Verification of Proba-         ity Score,” in Preprints of the Ninth Conference on Probability and Statistics
+  bility Forecasts,” International Journal of Forecasting, 7, 435–455.               in Atmospheric Sciences, Virginia Beach, Virginia, Boston: American Mete-
+Nau, R. F. (1985), “Should Scoring Rules Be ‘Effective’?,” Management Sci-           orological Society, pp. 206–213.
+  ence, 31, 527–535.                                                               Wald, A. (1949), “Note on the Consistency of the Maximum Likelihood Esti-
+Palmer, T. N. (2002), “The Economic Value of Ensemble Forecasts as a Tool            mate,” The Annals of Mathematical Statistics, 20, 595–601.
+  for Risk Assessment: From Days to Decades,” Quarterly Journal of the Royal       Weigend, A. S., and Shi, S. (2000), “Predicting Daily Probability Distributions
+  Meteorological Society, 128, 747–774.                                              of S&P500 Returns,” Journal of Forecasting, 19, 375–392.
+Pepe, M. S. (2003), The Statistical Evaluation of Medical Tests for Classifica-    Wilks, D. S. (2002), “Smoothing Forecast Ensembles With Fitted Probability
+  tion and Prediction, Oxford, U.K.: Oxford University Press.                        Distributions,” Quarterly Journal of the Royal Meteorological Society, 128,
+Perlman, M. D. (1972), “On the Strong Consistency of Approximate Maximum             2821–2836.
+  Likelihood Estimators,” in Proceedings of the Sixth Berkeley Symposium on                  (2006), Statistical Methods in the Atmospheric Sciences (2nd ed.),
+  Mathematical Statistics and Probability I, eds. L. M. Le Cam, J. Neyman, and       Amsterdam: Elsevier.
+  E. L. Scott, Berkeley, CA: University of California Press, pp. 263–281.          Wilson, L. J., Burrows, W. R., and Lanzinger, A. (1999), “A Strategy for Verifi-
+Pfanzagl, J. (1969), “On the Measurability and Consistency of Minimum Con-           cation of Weather Element Forecasts From an Ensemble Prediction System,”
+  trast Estimates,” Metrika, 14, 249–272.                                            Monthly Weather Review, 127, 956–970.
+Potts, J. (2003), “Basic Concepts,” in Forecast Verification: A Practicioner’s     Winkler, R. L. (1969), “Scoring Rules and the Evaluation of Probability Asses-
+  Guide in Atmospheric Science, eds. I. T. Jolliffe and D. B. Stephenson, Chich-     sors,” Journal of the American Statistical Association, 64, 1073–1078.
+  ester, U.K.: Wiley, pp. 13–36.                                                             (1972), “A Decision-Theoretic Approach to Interval Estimation,” Jour-
+Quiñonero-Candela, J., Rasmussen, C. E., Sinz, F., Bousquet, O., and                 nal of the American Statistical Association, 67, 187–191.
+  Schölkopf, B. (2006), “Evaluating Predictive Uncertainty Challenge,” in Ma-                (1994), “Evaluating Probabilities: Asymmetric Scoring Rules,” Man-
+  chine Learning Challenges: Evaluating Predictive Uncertainty, Visual Ob-           agement Science, 40, 1395–1405.
+  ject Classification, and Recognizing Textual Entailment, eds. J. Quiñonero-               (1996), “Scoring Rules and the Evaluation of Probabilities” (with dis-
+  Candela, I. Dagan, B. Magnini, and F. d’Alché-Buc, Berlin: Springer,               cussion and reply), Test, 5, 1–60.
+  pp. 1–27.                                                                        Winkler, R. L., and Murphy, A. H. (1968), “‘Good’ Probability Assessors,”
+Raftery, A. E., Gneiting, T., Balabdaoui, F., and Polakowski, M. (2005), “Us-        Journal of Applied Meteorology, 7, 751–758.
+  ing Bayesian Model Averaging to Calibrate Forecast Ensembles,” Monthly                     (1979), “The Use of Probabilities in Forecasts of Maximum and Min-
+  Weather Review, 133, 1155–1174.                                                    imum Temperatures,” Meteorological Magazine, 108, 317–329.
+Rockafellar, R. T. (1970), Convex Analysis, Princeton, NJ: Princeton University    Zastavnyi, V. P. (1993), “Positive Definite Functions Depending on the Norm,”
+  Press.                                                                             Russian Journal of Mathematical Physics, 1, 511–522.
+Roulston, M. S., and Smith, L. A. (2002), “Evaluating Probabilistic Forecasts      Zuo, Y., and Serfling, R. (2000), “General Notions of Statistical Depth Func-
+  Using Information Theory,” Monthly Weather Review, 130, 1653–1660.                 tions,” The Annals of Statistics, 28, 461–482.
+

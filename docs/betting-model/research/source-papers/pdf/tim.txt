@@ -1,0 +1,2886 @@
+Forecast Combinations∗
+Marco Aiolfi
+Goldman Sachs Asset Management
+Carlos Capistrán
+Banco de México
+Allan Timmermann
+UCSD
+May 6, 2010
+Abstract
+We consider combinations of subjective survey forecasts and model-based forecasts from
+linear and non-linear univariate specifications as well as multivariate factor-augmented models.
+Empirical results suggest that a simple equal-weighted average of survey forecasts outperform
+the best model-based forecasts for a majority of macroeconomic variables and forecast horizons.
+Additional improvements can in some cases be gained by using a simple equal-weighted average
+of survey and model-based forecasts. We also provide an analysis of the importance of model
+instability for explaining gains from forecast combination. Analytical and simulation results
+uncover break scenarios where forecast combinations outperform the best individual forecasting
+model.
+1
+Introduction
+Since the seminal work of Bates and Granger (1969), forecast combinations have come to be viewed
+as a simple and eﬀective way to improve and robustify the forecasting performance over that oﬀered
+by individual models. As a result, forecast combinations are now in widespread use in central
+banks, among private sector forecasters and in academic studies. Challenges still remain, however,
+to our understanding of what types of forecasts benefit most from combination, which combination
+schemes are optimal in a given forecast situation and when to expect the greatest advantage from
+forecast combination.
+This article studies two issues in forecast combination. First, we consider ways to combine
+forecasts from surveys and time-series models. Second, we consider the possibility, advanced by
+Hendry and Clements (2004), that model instability can help explain the gains in forecasting
+performance resulting from combination. These two issues may in fact be closely related since
+survey participants can sometimes rapidly adjust their forecasts to shifts in the underlying data
+generating process. In contrast, constant parameter models will typically take longer to adjust to
+a change in the data generating process. Conversely, in a stable environment time-series models
+∗
+We thank Mike Clements and an anonymous referee for helpful and constructive comments. Christian Constandse
+and Gabriel López-Moctezuma provided excellent research assistance. Timmermann acknowledges support from
+CREATES, funded by the Danish National Research Foundation. The opinions in this paper are those of the authors
+and do not necessarily reflect the point of view of Banco de México.
+1
+may more eﬃciently summarize all available information than survey forecasts do. Survey forecasts
+may therefore serve as a hedge against breaks in the underlying data generating process when
+combined with time-series forecasts. Whether forecasts from time-series models, survey forecasts
+or some combination of the two performs best will depend on the degree of model instability, i.e.,
+the frequency and magnitude of model and parameter changes, as well as the ability of survey
+participants to adapt their forecasts to such changes. Ultimately, which type of forecasting method
+works best is an empirical issue.
+Forecast combinations require deciding both which forecasts to include and how to weight
+them. This is usually treated as a two-step process in which relatively little attention is paid to the
+first step (design of the model universe) compared with the second step (assigning weights to the
+included models). To the extent that the first step acquires much attention, this is often restricted
+to “trimming”, i.e., excluding the models with the worst forecasting performance (Granger and
+Jeon (2004)). However, often little explicit thought goes into designing the universe of forecasts
+used in the combination in the first place. Even so, conclusions about the performance of forecast
+combinations necessarily have limited validity without posing them in the context of the universe
+of models being combined. For example, the common finding that an equal-weighted forecast is
+surprisingly diﬃcult to beat−commonly known as the forecast combination “puzzle”−will cease to
+hold if a large number of poor forecasts dominates the universe of models being combined.
+A particularly interesting aspect of the design of the universe of forecasts is whether including
+both subjective survey forecasts and forecasts from time-series models helps improve forecasting
+performance. Existing work on forecast combinations most often focuses on either combining
+forecasts from time-series models or combining subjective forecasts from sources such as the Survey
+of Professional Forecasters.1 However, it is clearly of interest to see if combining these two types
+of forecasts leads to additional gains or whether one approach dominates the other. Forecasts from
+time-series models−whether linear or non-linear−are often closely correlated, but survey forecasts
+and time-series forecasts may be less so, opening the possibility of gains from combining these two
+types of forecasts. In particular, subjective forecasts can incorporate forward-looking information
+in a way that time-series forecasts cannot, e.g., as a result of a pre-announced or expected change in
+public policy. Conversely, there are issues related to the weighting of individual survey forecasts and
+changes in the composition of survey data due to entry and exit of survey participants (Engelberg et
+al. (2009) and Capistrán and Timmermann (2009)) that may put survey forecasts at a disadvantage.
+To consider whether survey forecasts and model-based forecasts should be combined, we explore
+empirically how standard combination schemes applied to diﬀerent classes of forecasting models
+and diﬀerent types of forecasts (model-based versus survey forecasts) perform as the universe of
+forecasting models is varied.2 We also study bias-adjustment of forecasts which take the form of
+1
+Although see Clements and Harvey (2010) for an application to subjective and model-based probability forecasts.
+Elliott and Timmermann (2005) also propose a time-varying combination scheme in which the weights on survey
+forecasts and time-series (ARIMA) forecasts are allowed to follow a regime-switching process driven by a first-order
+Markov chain. They find evidence of significant time-variations in the optimal combination weights, suggesting that
+neither the time-series forecasts, nor the survey forecasts encompass the other group at all points in time.
+2
+Under squared error loss, the value of an additional forecast can be measured through its correlation with the
+2
+regressions that augment the forecasts of interest, e.g., survey forecasts, with information such as
+current and past values of the predicted variable as well as common factors. In an empirical analysis
+that considers 14 U.S. macroeconomic variables, four horizons and a 17-year forecast evaluation
+sample, we find that the simple equal-weighted average of survey forecasts dominates the best
+forecast from any of the time-series models in around two-thirds of all cases. We also find that,
+for the most part, equal-weighted combinations of forecasts from time-series models and survey
+forecasts lead to improvements over using the time-series models alone but fail to systematically
+improve on using only the survey forecasts.
+Turning to the second issue, instability of individual forecasting models oﬀer an empirically
+plausible explanation for the good performance of forecast combinations. There is mounting evidence that the parameters of autoregressive models fitted to many economic time 
+series change
+over time. For example, Stock and Watson (1996) undertake a systematic study of a wide variety of
+economic time series and find that the majority of these are subject to change. Diebold and Pauly
+(1987), Clements and Hendry (1998, 1999, 2006), Pesaran and Timmermann (2005) and Timmermann (2006) view model instability as an important determinant of forecasting performance 
+and a
+potential reason for combining models. Little is known about how diﬀerent forms of model instability aﬀect forecast combinations, however. Thus, it is important to investigate the 
+influence of
+this particular form of model misspecification on forecasting performance and its ability to explain
+the superior performance of simple combination schemes.
+To address this issue, we evaluate the determinants of the performance of diﬀerent forecast
+combination schemes in the presence of occasional shifts to the parameters of the data generating
+process. In the context of a simple factor model with stochastic breaks we derive analytical results
+that reveal the determinants of whether forecast combinations can be expected to outperform
+forecasts from the best model. Our results show that the relative factor variance, as well as the
+frequency and size of breaks play a role in determining the performance of forecast combinations.
+Finally, we use simulations from dynamic factor models estimated on a range of US macroeconomic time series to investigate the extent to which factor models with and without 
+breaks are
+able to match empirical findings on the performance of standard forecast combination schemes. We
+consider three separate scenarios reflecting breaks in the factor loadings, breaks in the dynamics of
+the underlying factors and breaks in the covariance matrix of the factors. Our results suggest that
+stable factor models without breaks are unable to match the performance of the forecast combination schemes, whereas breaks in the factor model−particularly if they occur in the 
+factor loadings
+or in the factor dynamics−bring the results modestly closer to what is observed in the data. This
+suggests that parameter instability in dynamic factor models oﬀer a partial explanation for why
+simple combinations outperform the best individual forecasting models.
+The outline of the chapter is as follows. Section 2 discusses the design of the universe of forecasting models used in combining forecasts from time-series models and subjective 
+survey forecasts.
+forecast error from the existing forecasts and so the additional forecast should only be assigned a non-zero weight in
+the combination provided that it explains some of the errors from forecasts that are already included. This is related
+to the notion of forecast encompassing (Chong and Hendry (1986)).
+3
+Section 3 undertakes an empirical analysis using forecasts from univariate and multivariate linear
+models, non-linear models and survey forecasts. Section 4 provides analytical results that shed
+light on the performance of forecast combinations under model instability, while Section 5 presents
+empirical results on forecast combinations under breaks. Section 6 concludes.
+2
+Combinations of Survey and Time-series Forecasts
+Users of modern forecasting techniques in economics and finance are faced with an abundance
+of predictor variables and a plethora of methods for generating forecasts. An important issue is
+therefore, first, how to summarize and implement such information and, second, whether to adopt
+a forecasting strategy that seeks out a single best forecasting method or, alternatively, attempt to
+combine forecasts generated by diﬀerent models.
+As always, we have to consider whether to pool forecasts or pool information. For some types
+of forecasts, e.g., survey forecasts, we can only pool the forecasts since we do not have access
+to the individual forecasters’ information set. In contrast, when it comes to combining forecasts
+from surveys with information used by an econometric forecasting model, we have the option of
+either combining the forecasts or augmenting the survey forecast with information underlying the
+econometric model, and we will consider both strategies.
+Combinations of survey and time-series forecasts are particularly interesting because they represent fundamentally diﬀerent approaches to forecasting. Surveys reflect individual 
+forecasters’
+subjective judgement and may be able to adjust rapidly to changes in the data generating process
+to the extent that these can be monitored or even predicted by survey participants. Conversely,
+forecasts from time-series models can eﬃciently incorporate past regularities in the data, but may
+take longer to adapt to changes in the data generating process.
+To explore the performance of combinations of these types of forecasts, we consider a broad set
+of specifications which includes a variety of time-series models−univariate, multivariate, linear and
+non-linear−in addition to survey forecasts. First we describe the design of the experiments.
+Suppose that we are interested in forecasting a generic variable of interest, y, multiple periods
+ahead. Let t be the time of the forecast, let h ≥ 1 be the forecast horizon, so the object is to
+predict yt+h given information known at time t. Finally, let ŷj,t+h|t be the jth forecast which could
+be either a survey forecast or a forecast from a time-series model.
+ew , of the type
+For combinations of forecasts we shall focus on equal-weighted combinations, ŷt+h|t
+ew
+ŷt+h|t
+= N −1
+N
+X
+ŷj,t+h|t ,
+(1)
+j=1
+where N is the number of forecasts being combined. We focus on equal-weighted combinations
+because our sample is quite short and so estimating forecast combination weights is unlikely to lead
+to any improvements in forecasting performance (Smith and Wallis (2009)).
+Turning to the second approach, i.e. extending survey forecasts with information used by
+4
+the time-series models, we base forecasts on least squares estimates from a simple regression that
+includes information from subjective survey forecasts, ȳt+h|t , current and past values of the variable
+ˆ K
+of interest, {yt−l }L
+l=0 and economic factors, {fk,t }k=1 :
+yt+h = α + β ȳt+h|t +
+L
+X
+λl yt−l +
+l=0
+K
+X
+θk fˆk,t + εt+h .
+(2)
+k=1
+Here {fˆk,t }K
+k=1 comprise the first K principal components of a larger set of multivariate information,
+Xt , estimated recursively, i.e. using information only available at time t. The lag length, L, and
+the number of principal components, K, are selected by using the Schwartz information criterion
+(SIC). The h−step ahead ‘consensus’ survey forecast, ȳt+h|t , is given by:
+⎧
+⎪
+⎪
+⎨
+1 PN
+i=1 yi,t+h|t
+N
+i
+PN h
+PN
+−1
+−1
+y
+M
+SF
+E
+/
+M
+SF
+E
+ȳt+h|t =
+i,t+h|t
+i=1
+i=1
+i,t|t−h
+i,t|t−h i
+h
+⎪
+PN
+⎪
+⎩ PN y
+i,t+h|t exp(SICi,t|t−h )/
+i=1
+i=1 exp(SICi,t|t−h )
+equal-weighted forecast
+inverse MSFE-weights
+(3)
+SIC weights.
+Here M SF Ei,t|t−h is the mean squared forecast error of forecaster i at time t assuming an h−period
+forecast horizon, while SICi,t|t−h is the value of the Schwarz information criterion for forecaster i
+at time t, again assuming an h−period horizon. In both cases we base calculations on a common
+overlapping sample so that M SF Ei,t|t−h and SICi,t|t−h are comparable across forecasters. The SIC
+weights can be viewed as approximate Bayesian Model Averaging weights (Garratt et al. (2009)).
+Little is known about how forecasts generated by diﬀerent classes of econometric models, e.g.,
+univariate linear, multivariate linear, locally and globally approximating non-linear models, complement or substitute for one another in a particular forecasting experiment. To 
+explore this point,
+we further consider combinations based on forecasts from two non-linear univariate models:
+nl
++
+yt+h = α + β ŷt+h|t
+L
+X
+λl yt−l +
+l=0
+K
+X
+θk fˆk,t + εt+h ,
+(4)
+k=1
+nl
+, are estimated recursively so that no use is made
+Again the non-linear univariate forecasts, ŷt+h|t
+of information dated after period-t, for purposes of forecasting for period t + h. Following Swanson
+and White (1997) and Terasvirta (2006), we consider two types of non-linear univariate forecasts,
+a logistic smooth transition autoregressive (LSTAR) model and a neural network (NNET). The
+LSTAR model is
+⎛
+⎞
+⎛
+⎞
+L1
+L2
+X
+X
+λ1,l1 yt−l1 ⎠ + dt ⎝α2 +
+λ2,l2 yt−l2 ⎠ + εt+h ,
+(5)
+yt+h = ⎝α1 +
+l1 =0
+l2 =0
+with dt = 1/ (1 + exp (γyt−1 − c)) . L1 and L2 are chosen using the SIC. A linear regression is
+used to estimate the α’s and λ’s and then γ and c are estimated by minimizing the sum of squared
+residuals, repeating until convergence. The NNET is a single-layer feedforward model with J hidden
+5
+units:
+yt+h = β0 +
+J
+X
+j=1
+Ã
+βj g γ0j +
+L
+X
+l=0
+γl,j yt−l
+!
++ εt+h ,
+(6)
+where J and L are selected using the SIC, and g is the logistic function. Notice that in each case
+we consider direct forecasting models, i.e., period-t forecasts of yt+h based on information known
+at time t. Another approach would be to iterate on a one-period forecasting model, but we do not
+consider this approach here.
+An alternative interpretation of the “information pooling regressions” (2) and (4) is that they
+are bias-adjustment equations for the survey and non-linear forecasts, respectively. By regressing
+the actual value on the forecast as well as an intercept, current and past values of the variable of
+interest and economic factors, we orthogonalize the forecast error with respect to this additional
+information.
+Note that the various approaches diﬀer in terms of how many parameters they require estimating. This is an important issue. Elaborate combination schemes that require estimating 
+multiple
+parameters have often been found to underperform the equal-weighted combination scheme (Clemen
+(1989), Stock and Watson (2001)). This finding reflects a bias-variance trade-oﬀ: equal-weighted
+combinations can be expected to be more biased but also may have a lower estimation error than
+data-driven weighting schemes which makes up for the bias (Granger and Ramanathan (1984),
+Smith and Wallis (2009)). The ability to eﬃciently explore this bias-variance trade-oﬀ depends on
+how many forecasts are included. To keep the aggregation scheme limited, “blocking” forecasts is
+a simple procedure, i.e. forecasts from linear models is one block, forecasts from non-linear models
+another block, factor-based forecasts a separate block and survey forecasts form yet another block
+(Aiolfi and Timmermann (2006)).3
+We consider the following restricted universes of models:
+1. Individual time-series models (univariate (AR), multivariate factor-based (AR_FAC), LSTAR
+and NNET);
+2. Combinations of linear and non-linear time-series models;
+3. Subjective (survey) forecasts only;
+4. Combinations of survey forecasts and forecasts from time-series models.
+3
+Empirical Application
+This section provides an empirical analysis of how the universe of models being combined as well as
+the chosen combination or bias-adjustment method aﬀects the performance of various combination
+3
+This option may not be open if survey information is being combined since the underlying models and information
+sets are typically unknown. Survey forecasts will, in any case, also be aﬀected by forecasters’ subjective adjustments
+and priors and so it is not clear how to construct a ‘meta model’ that encompasses information contained in the
+individual forecasts.
+6
+schemes relative to the individual forecasting models.
+3.1
+Data
+To illustrate the empirical performance of the estimation and forecast combination methods, we
+study 14 variables that are covered by the Survey of Professional Forecasters (SPF) and have data
+from 1981Q3 through 2006Q4. The variables include the Real Gross Domestic Product (RGDP),
+the Unemployment Rate (UNEMP), the GDP Implicit Price Deflator (PGDP) and the Consumer
+Price Index (CPI). A brief description of these variables is provided in Table 1 (and in Table 2 of
+Capistrán and Timmermann (2009)). Actual values (i.e., the values that we forecast) are taken
+from the Federal Reserve Bank of Philadelphia’s real-time database. Following Corradi, Fernandez
+and Swanson (2009) we use first release data.
+Data on the subjective forecasts are taken from the SPF and contain one- through four-quarterahead forecasts. The data used to calculate common factors come from Stock and Watson 
+(2009).
+This data set consists of 144 quarterly time series for the United States, spanning the sample
+1959:Q1-2006Q4. The series are transformed as needed to eliminate trends by taking first or second
+diﬀerences, in many cases after taking logarithms. The variables, sources and transformations can
+be found in the appendix to Stock and Watson (2009).
+3.2
+Forecasting Performance of Individual models and surveys
+Columns one through four of Table 2 report the forecasting performance of individual time-series
+models. In each case we use real time data to estimate the model parameters. This provides a
+fairer comparison with the survey forecasts since final release data is not available until well after
+the date where the survey forecast is formed. The first column of table 2 presents the annualized
+root mean squared forecast error (RMSFE) of the benchmark autoregressive (AR) model, i.e., the
+autoregressive part of equation (2). Subsequent columns show RMSFE ratios, computed relative
+to the AR forecasts, of several forecasting models.
+To estimate the parameters of the initial AR models, we use the first 30 data points from 1981Q3
+to 1988Q4. This means that the forecast evaluation sample runs from 1989Q1 to 2006Q4. Parameter
+estimation and forecasting is always done recursively, using an expanding window. Lag lengths,
+L, are determined using SIC and an exhaustive search, with a maximum of eight autoregressive
+terms. We produce 68 pseudo-out-of-sample forecasts for each horizon (the first h − 1 forecasts are
+dropped in order to have the same number of forecasts for each horizon).4
+The factors used in the autoregressive factor model (AR_FAC) shown in the second column are
+extracted using principal components.5 The number of factors, K, is determined using SIC and an
+exhaustive search, from a maximum of five factors. For the LSTAR model (column 3), the number
+4
+The exception is the TBILL series which only has 66 out-of-sample forecasts because the data in the SPF starts
+in 1982Q1.
+5
+As in Stock and Watson (2009), the factor estimates are computed using a subset of 110 series that excludes
+higher level aggregates related by identities to the lower level subaggregates, instead of the full 144 series.
+7
+of lags, L1 and L2 , is chosen using SIC, and an exhaustive search from a maximum of 3 lags. For
+the NNET model (column 4), the number of hidden units, J, is chosen in the same way, from a
+maximum of 4 units.6 The remaining columns present the results using data from the SPF. The
+combinations are: equal weights (EW), inverse MSFE (IMSFE), and approximate BMA weights
+(ISIC). The last two combinations are based on the subset of forecasters that at the forecasting
+date have a minimum of 10 common contiguous observations. The ISIC calculates the SIC for
+each forecaster by projecting the actual values on a constant and the forecasts and then uses the
+weighting scheme in (3).
+For approximately two-thirds of the variables and forecast horizons (36 out of 56 cases), the simple equal-weighted average of survey forecasts−which appears to be the best 
+weighting scheme−performs
+better than any of the time-series models.7 At the shortest horizon, h =1 quarter, the LSTAR model
+is the best performer for 8 of the 14 variables. In contrast, the purely autoregressive model, the
+factor-augmented multivariate model and the neural net only generate the lowest RMSFE-values in
+one, five and two cases, respectively. Interestingly, the value of the survey forecasts is not entirely
+driven by the early 1980s, a period before the “Great Moderation”. When we repeat the exercise
+using a sample that starts in 1986Q1 instead of 1981Q3, we find that survey forecasts are better
+than time-series forecasts in 25 out of 56 cases. Hence, although not as dominant, survey forecasts
+are still the best performing group.
+3.3
+Combinations of model-based and subjective forecasts
+Table 3 shows results from the bias-adjusted combination equation (2) and subsets of it. We
+only present results using the equal-weighted SPF forecasts because it is generally the best way
+of weighting the survey forecasts and also because the results were very similar when we used
+the other combinations applied to data from the SPF. Both autoregressive terms and individual
+forecasts are selected using SIC. The results are reported as RMSFE ratios with respect to the
+best autoregressive model. Adding the equal-weighted survey forecast to the AR terms reduces
+the RMSFE for some variables, notably the CPI, PGDP, RGDP and RFEDGOV. By including
+autoregressive terms, the AR-EW combination accounts for any autocorrelation not picked up
+by the professional forecasters. However, the simple average of survey forecasts listed in Table
+2 generally outperforms combinations of the survey forecasts with the time series forecasts. For
+instance, AR_EW only outperforms the equal-weighted survey forecast in ten out of 56 cases.8
+We saw in Table 2 that the simple equal-weighted survey forecasts outperformed the best
+individual time-series forecasts roughly two-thirds of the time. Table 3 shows that bias-adjusting
+6
+For the forecasts produced with non-linear models, an “insanity filter” was used. It replaces a forecast more than
+six interquartile ranges away from the median with the previous observation. This filter replaces forecasts for less
+than 1% of the observations.
+7
+Ang, Bekaert and Wei (2007) also find that survey forecasts have superior information when it comes to predicting
+inflation.
+8
+Since we include a constant in the combination and allow for a non-zero weight on the SPF forecasts, this is
+related to the bias adjusted mean procedure proposed by Capistrán and Timmermann (2009). However, in contrast
+to the latter, here we also include autoregressive terms.
+8
+the equal-weighted survey forecast by adding either autoregressive or autoregressive and factor
+terms as in equation (2) generally does not lead to better forecasting performance. This is likely
+driven by the eﬀect of estimation error associated with having to estimate the weights on the equalweighted forecast in addition to any included autoregressive terms and factors. 
+This suspicion is
+confirmed by the finding that in 46 out of 56 cases the equal-weighted average of forecasts from the
+AR model, the factor-augmented model and the surveys, i.e. equation (1) shown in the last column
+of Table 3, outperform the corresponding combination regression, equation (2). Hence, any gains
+from combining subjective and model-based forecasts seems to come from the included models and
+not so much from the estimated weights (i.e., the bias-adjustment). This can be explained by the
+short samples used here to estimate combination weights and the resulting large estimation errors.
+Interestingly, forty percent of the time (i.e., 22 out of 56 cases) the equal-weighted average of
+forecasts from the autoregressive model, the factor-augmented model and the mean survey forecast
+improves upon the simple equal-weighted survey forecasts. This suggests that the survey forecasts
+are modestly biased and that in some cases this bias can be removed by augmenting the survey
+forecast with information from the time-series models. Moreover, the simple equal-weighted combination of survey forecasts and time-series forecasts, equation (1), almost never 
+produces very poor
+forecasts.
+3.4
+Combinations of linear and non-linear models
+Table 4 presents results for the combination of linear models, either univariate or multivariate,
+and non-linear models as in equations (1) and (4), once again based on recursive estimation and
+SIC selection using exhaustive search. The first two columns present the combinations of the nonlinear forecasts with information underlying the autoregressive model in equation 
+(4). For the
+AR_LSTAR specification, the RMSFE-values mostly fall between those obtained from the pure
+AR model and those generated by the LSTAR model and the combined forecasts only outperform
+both the AR forecasts and LSTAR forecasts in a few cases (7 out of 56). There is more room for
+improvement for the NNET forecasts extended to include information on current and past values
+of the predicted variable, in part because the NNET forecasts are relatively poor and so, ironically,
+the NNET forecasts may not be selected in (4) and so the forecast falls back on the autoregressive
+part.
+Empirically, gains in forecast precision again seem to be sensitive to the way in which we combine
+the AR and the non-linear models. For a given variable, forecast horizon, and time period, we select
+the weights attached to each of the eight lags and to the forecast from the non-linear model. Hence,
+the non-linear forecast is only selected when it reduces the SIC with respect to the selected AR
+model. This helps to alleviate the problem that non-linear models sometimes produce extreme
+predictions and is what explains the high RMSFE ratios for unemployment when the nonlinear
+models are used alone (see Table 2). This finding is consistent with the observation by Teräsvirta
+(2006) that “combining nonlinear forecasts with forecasts from a linear model may sometimes lead
+to a series of forecasts that are more robust (contain fewer extreme predictions) than forecasts from
+9
+the nonlinear model” (p. 438-439). Our results suggest that this conclusion is particularly true
+when inclusion of non-linear forecasts is dictated by a model selection criterion and the combination
+weights are estimated.
+The columns labeled AR_FAC_LSTAR and AR_FAC_NNET in Table 4 present the results
+corresponding to equations (1) and (4). The third and fourth columns use linear regression to
+estimate the weights, (4), whereas the fifth and sixth columns combine the same models, but using
+equal weights as in (1). In the vast majority of cases the equal-weighted combinations continue to
+outperform the combinations based on estimated weights. However, when we use an equal-weighted
+average to combine the non-linear forecasts with forecasts from the univariate and multivariate
+linear models, we find that the RMSFE is reduced, relative to the best of the underlying models’
+RMSFE-values, for less than half of all cases.
+3.5
+Combination of the full set of forecasts
+We finally combine the full set of forecasts under consideration. Again, we consider two combination
+schemes. One simply uses an equal-weighted average of the forecasts from the AR, AR_FAC,
+LSTAR and NNET models along with the mean survey forecasts in equation (1). The other
+scheme combines the forecasts from the two non-linear models and the surveys with up to eight
+autoregressive terms and five common factors. The results are presented in Table 5 both for cases
+with estimated weights and with equal weights. The latter is clearly easier to implement, since
+it only involves choosing the parameters for each block, i.e., the lags for the AR, the number
+of lags and factors for the AR_FAC, the number of lags in each regime of the LSTAR, etc. In
+contrast, model selection and parameter estimation is computationally intensive: for each variable,
+forecast horizon, and time period, 2ˆ (8 + 5 + 1 + 1 + 1) = 65, 536 models are estimated and one
+gets selected by the SIC.9
+The results indicate that extending the information set underlying the forecast combination
+often does not maintain the gains from combining only the survey forecasts. In fact only in 18
+out of 56 cases does the equal-weighted combination of time-series and survey forecasts lead to an
+improvement over using the survey forecast alone.
+Using equal weights dominates using estimated combination weights in roughly two-thirds of
+all cases (38 out of 56). However, the results vary a lot across the variables. For the unemployment series, estimating the weights dominates using equal weights, but for other 
+variables, such
+as CPROF, HOUSING, or RSLGOV using equal-weights dominates. Furthermore, for most variables the results vary across horizons. An example of the latter is PGDP, for which estimating
+the weights dominates at horizons 1 and 3 quarters, but in turn is dominated by equal weights for
+horizons of 2 and 4 quarters.
+We conclude from this analysis that using equal weights leads to better forecast performance
+than using estimated combination weights in roughly two-thirds of all cases where forecasts from
+9
+There are up to eight autoregressive terms, five factors, one LSTAR forecast, one NNET forecast and one equalweighted survey forecast.
+10
+time-series models and surveys are considered. Interestingly, even if they do not always deliver the
+most precise forecasts, forecast combinations, particularly equal-weighted ones, generally do not
+deliver poor performance and so from a “risk” perspective represent a relatively safe choice.
+4
+Model Instability
+Whether forecast combinations oﬀer a “safe pair of hands” depends, to some extent, on which
+sources of risk they help forecasters hedge against. In this section we address whether combinations
+improve forecasting performance in the presence of one particular type of risk, namely model
+instability.
+Hendry and Clements (2004) argue that forecast combinations can provide insurance against
+extraneous (deterministic) structural breaks when individual forecasting models are misspecified.
+Their analysis provides supporting evidence that simple combinations can work well under a single
+end-of-sample break in the process governing the dynamics of the predictor variables. They consider
+a wide array of designs for the break and find that combinations work particularly well when the
+predictors are shifted in opposite directions and are positively correlated.
+In support of the interpretation that model instability may explain the good average performance of forecast combination methods, the findings in Stock and Watson (2001) suggest 
+that the
+performance of combined forecasts tends to be more stable than that of the individual constituent
+forecasts entering in the combinations. Interestingly, however, gains from combination methods
+that attempt to build in time-variations in the combination weights (either by discounting past
+performance or by modeling time-variations in the weights) have generally proved elusive.
+We consider instability in the context of a simple common factor model. Factor models have
+played an important role in recent work on forecasting in the presence of large numbers of predictor
+variables and are widely used empirically to forecast macroeconomic and financial time series (Stock
+and Watson (2002), Bai and Ng (2002), Bovin and Ng (2006), Forni et al. (2000, 2005), Artis et
+al. (2005), and Marcellino (2004)). Furthermore, intuition can be gained in terms of distribution
+of factor loadings/exposures and variability of the individual factors.
+We consider forecasting a single variable, Y0t , by means of an array of state variables, Y1t , .., YNt
+for t = 1, ..., T, where T is the sample size. Our starting point is a factor model of the form
+Y = F · L + ε,
+(7)
+where Y is a T × (N + 1) data matrix, F is a T × m matrix that contains the m factors, L is an
+m × (N + 1) matrix of factor loadings, and ε is a T × (N + 1) matrix of innovations with covariance
+matrix E[εε0 ] = Ω.
+For a particular time period, 1 ≤ t ≤ T , we can write the model
+Yt = Ft · L + εt ,
+11
+t = 1, ..., T,
+(8)
+where Yt = (Y0t , Ŷ1t , ..., ŶN t ) is now a 1 × (N + 1) vector, Ft is a 1 × m vector of factors and εt are
+the innovations at time t. We use a zero subscript on the first element of Yt to indicate that this is
+the variable whose values are being predicted. The remaining terms, Ŷ1t , Ŷ2t , ..., ŶNt are forecasts
+as indicated by the hats. This is a highly stylized setup where individual forecasts have predictive
+content because of their correlation with future factor realizations.
+Factor dynamics is assumed to be driven by an autoregressive process,
+F0t = AF0t−1 + ε0F t ,
+E[εFt ε0Ft ] = Σ,
+(9)
+where E[ε0Ft εt ] = 0. Following common practice, we further assume that the factors are orthogonal.
+There are many ways of specifying breaks to this process. We will assume that breaks are tracked
+by a state indicator, St , that can take two possible values, namely St = 1 or St = 2.10 Breaks then
+take the form of a shift in some of the parameters of the model (8)-(9) as governed by a change
+in St . To this end we partition the factors into Ft = (F1t |F2t ), where F1t is 1 × m1 and F2t is
+1 × m2 with m1 + m2 = m and associated covariance matrices V ar(F1t ) = ΣF1 , V ar(F2t ) = ΣF2 ,
+Cov(F1t , F2t ) = ΣF12 . Further, suppose that the matrix of loading coeﬃcients can be partitioned
+as follows
+Ã
+Ã
+!
+!
+L1r
+l01
+, l0 =
+,
+L = (l0 Lr ) , Lr =
+L2r
+l02
+where the dimension of l0 is m × 1, Lr is m × N , L1r is m1 × N , L2r is m2 × N , l01 is m1 × 1 and
+l02 is m2 × 1.
+Suppose that breaks take the form of a shift in the loadings of the target variable, Y0t from the
+first m1 factors to the last m2 factors:
+Y0t = 1{St =1} F1t l01 + 1{St =2} F2t l02 + ε0t ,
+(10)
+where 1{St =1} is an indicator variable that equals one at time t if St = 1, otherwise is zero. Similarly
+1{St =2} is one at time t only if St = 2. Assuming that the unconditional state probabilities are
+given by Pr(St = 1) = p, Pr(St = 2) = 1 − p, the population value of the projection coeﬃcient of
+Y0t on Ŷit (i = 1, .., N ), βi , is given by
+βi = (l0i ΣF li + σε2i )−1 (pl001 ΣF1 li1 + (1 − p)l002 ΣF2 li2 ),
+(11)
+where ΣF = V ar(Ft ), ΣF j = V ar(Fjt ), (j = 1, 2), li is the ith m × 1 column vector of Lr , while
+li1 and li2 are m1 × 1 and m2 × 1 vectors formed as the ith columns of L1r and L2r , respectively.
+Following common practice, we assume that each forecasting model is based on a linear projection of the target variable, Y0t , on one of the forecasts, Ŷit , (i = 1, ..., N ). To 
+establish the
+10
+Our results can easily be generalized to the case where St takes an arbitrary number of discrete values.
+12
+properties of such forecasts, notice from (8) that the population projection of Y0t on Ŷit is
+Ŷ0t|i = βi Ft li + βi εit .
+The associated forecast error is eit = Y0t − Ŷ0t|i . Moments of the joint distribution of these forecast
+errors are characterized as follows. Conditional on St = 1, we have
+V ar(eit ) = (l01 − βi li1 )0 ΣF1 (l01 − βi li1 ) + βi2 l0i2 ΣF2 li2 + 2βi (l01 − βi li1 )0 ΣF12 li2 + σε20 + βi2 σε2i ,
+Cov(eit , ejt ) = (l01 − βi li1 )0 ΣF1 (l01 − βj lj1 ) + βi βj l0i2 ΣF2 lj2
++ βj (l01 − βi li1 )0 ΣF12 lj2 + βi (l01 − βj lj1 )0 ΣF12 li2 + σε20 .
+(12)
+Conditional on St = 2, we have
+V ar(eit ) = βi2 l0i1 ΣF 1 li1 + (l02 − βi li2 )0 ΣF2 (l02 − βi li2 ) + 2βi l0i1 ΣF12 (l02 − βi li2 ) + σε20 + βi2 σε2i ,
+Cov(eit , ejt ) = βi βj l0i2 ΣF1 lj1 + (l02 − βi li2 )0 ΣF2 (l02 − βj lj2 )
++ βj (l02 − βi li2 )0 Σ0F12 lj1 + βi (l02 − βj lj2 )0 Σ0F12 li1 + σε20 .
+(13)
+This means that the MSFE associated with the ith forecast error is
+©
+ª
+M SF E(eit ) = p (l01 − βi li1 )0 ΣF1 (l01 − βi li1 ) + βi2 l0i2 ΣF2 li2 + 2βi (l01 − βi li1 )0 ΣF12 li2
+ª
+©
++ (1 − p) βi2 l0i1 ΣF 1 li1 + (l02 − βi li2 )0 ΣF2 (l02 − βi li2 ) + 2βi l0i1 ΣF12 (l02 − βi li2 )0
++ σε20 + βi2 σε2i .
+Similarly, the MSFE associated with the average forecast Ȳt = N −1
+error, ēt = (Y0t − Ȳt ), is
+(
+M SF E(ēt ) = p (l01 −
+N
+X
+βi li1
+i=1
+N
+X
+N
+0
+) ΣF1 (l01 −
+N
+N
+X
+βi li1
+i=1
+)
+N
+)+
+PN
+i=1 Ŷit , and the corresponding
+ÃN
+!
+X βi l0
+i2
+i=1
+N
+ΣF2
+ÃN
+!
+X βi li2
+i=1
+N
+X βi li2
+βi li1 0
+) ΣF12
+N
+N
+i=1
+i=1
+(Ã N
+ÃN
+!
+!
+N
+N
+X βi l0
+X βi li1
+X
+X
+βi li2 0
+βi li2
+i1
+) ΣF2 (l02 −
+)
++ (1 − p)
+ΣF1
++ (l02 −
+N
+N
+N
+N
+i=1
+i=1
+i=1
+i=1
+)
+N
+N
+X
+X
+βi l0i1
+βi li2
++2
+ΣF12 (l02 −
+)
+N
+N
+i=1
+i=1
+ÃN
+!
+X βi2 σε2
+i
++ σε20 +
+.
+N
++2(l01 −
+i=1
+These expressions are quite general and diﬃcult to interpret so we simplify the model to the
+13
+case where m = N = 2 and L = I2 so each forecast tracks one factor only and is thus misspecified.11
+Assuming only a break in the factor loadings, l0 , and setting A = 0, we have
+Y0t = 1{St =1} F1t + 1{St =2} F2t + ε0t ,
+Ŷ1t = F1t + ε1t ,
+(14)
+Ŷ2t = F2t + ε2t .
+All variables are assumed to be Gaussian with F1t ∼ N (0, σF2 1 ), F2t ∼ N (0, σF2 2 ), ε0t ∼ N (0, σε20 ),
+ε1t ∼ N (0, σε21 ), ε2t ∼ N (0, σε22 ), while the innovations, ε, are mutually uncorrelated and uncorrelated with the factors and Cov(F1t , F2t ) = σF1 F2 .
+The linear projection of Yt on Y1t can be obtained through the least squares estimator (i = 1, 2)
+β̂i =
+Ã
+T
+1X 2
+Y
+T t=1 it
+!−1 Ã
+T
+1X
+Y0t Yit
+T t=1
+!
+with probability limits
+pσF2 1 + (1 − p)σF1 F2
+p lim(β̂1 ) =
+≡ β1 ,
+σF2 1 + σε21
+p lim(β̂2 ) =
+(1 − p)σF2 2 + pσF2 1 F2
+≡ β2 .
+σF2 2 + σε22
+This leads to the following joint distribution of the forecast errors eit = Y0t − βi Yit (i = 1, 2):
+Conditional on St = 1 :
+Ã
+e1t
+e2t
+!
+∼N
+ÃÃ
+0
+0
+! Ã
+,
+(1 − β 1 )σ 2F1 −(1 − β 1 )β 2 σF1 F2 +σ 2ε0
+(1 − β 1 )2 σF2 1 +β 21 σε21 +σ 2ε0
+(1 − β 1 )σ 2F1 −(1 − β 1 )β 2 σF1 F2 +σ 2ε0 σF2 1 +β 22 σF2 2 −2β 2 σF1 F2 +β 22 σε22 +σ 2ε0
+!!
+.
+!!
+.
+Conditional on St = 2 :
+Ã
+e1t
+e2t
+!
+∼N
+ÃÃ
+0
+0
+! Ã
+,
+β12 σF2 1 +σ 2F2 −2β 1 σF1 F2 +β 21 σε21 +σ 2ε0 (1 − β 2 )σ 2F2 −β 1 (1 − β 2 )σ F1 F2 +σ 2ε0
+(1 − β 2 )σ 2F2 −β 1 (1 − β 2 )σ F1 F2 +σ 2ε0
+(1 − β 2 )2 σF2 2 +β 22 σε22 +σ 2ε0
+11
+We could easily relax these assumptions and allow Y1t , Y2t to depend on both factors. However, these generalizations come with few additional insights at the cost of complicating 
+the arithmetic and interpretation of the
+results.
+14
+Integrating across states, we get the MSFE values
+£
+¤
+E[e21t ] = E ((St − β1 )F1t + (1 − St )F2t + ε0t − β1 ε1t )2
+¢
+¡
+= p(1 − β1 )2 + (1 − p)β12 σF2 1 + (1 − p)σF2 2 − 2(1 − p)β1 σF1 F2 + β12 σε21 + σε20 ;
+£
+¤
+E[e22t ] = E (St F1t + (1 − St − β2 )F2t + ε0t − β2 ε2t )2
+¡
+¢
+= pσF2 1 + pβ22 + (1 − p)(1 − β2 )2 σF2 2 − 2pβ2 σF1 F2 + β22 σε22 + σε20 .
+Similarly, the MSFE of the combined equal-weighted forecast Ŷtc = (Ŷ1t + Ŷ2t )/2 is
+£
+¤
+E[e2ct ] = E ((St − β1 /2)F1t + (1 − St − β2 /2)F2t + ε0t − 0.5β1 ε1t − 0.5β2 ε2t )2
+= (p(1 − β1 /2)2 + (1 − p)β12 /4)σF2 1 + (pβ22 /4 + (1 − p)(1 − β2 /2)2 )σF2 2 +
+2
+− (p(1 − β1 /2)β2 + (1 − p)β1 (1 − β2 /2)) σF1 F2 .
+β12 σε21 /4 + β22 σε22 /4 + σε0
+For simplicity suppose that the factors are uncorrelated so σF1 F2 = 0. Then E[e21t ] > E[e2ct ] if
+¶
+µ
+β1 2
+β12
+2
+2
+σF2 1
+p(1 − β1 ) + (1 − p)β1 − p(1 − ) − (1 − p)
+2
+4
+¶
+µ
+β2
+β2
+3
+1
++ (1 − p) − p 2 − (1 − p)(1 − )2 σF2 2 + β12 σε21 − β22 σε22 > 0.
+4
+2
+4
+4
+(15)
+This condition is satisfied provided that
+µ
+µ
+¶
+¶
+3 2
+1
+3
+1
+β1 − pβ1 σF2 1 + β2 (1 − p) − β22 σF2 2 + β12 σε21 − β22 σε22 > 0.
+4
+4
+4
+4
+Using the definition of β1 , β2 , this can be written
+σF2 2
+1
+>
+2
+3
+σF1
+µ
+p
+1−p
+¶2
+(1 + σε22 /σF2 2 )
+.
+(1 + σε21 /σF2 1 )
+(16)
+Hence it is more likely that the MSFE from model 1 exceeds that of the equal-weighted forecast
+provided that the second factor explains a large part of the variation in Y relative to the first factor
+(σF2 2 /σF2 1 is high); the second factor is in eﬀect more often (p/(1 − p) is low) and the second forecast
+has a low noise-to-signal ratio relative to that of model 1 (σε22 /σF2 2 is low relative to σε21 /σF2 1 ).
+By symmetry, the conditions for E[e22t ] > E[e2ct ] are
+σF2 2
+<3
+σF2 1
+µ
+p
+1−p
+¶2
+(1 + σε22 /σF2 2 )
+.
+(1 + σε21 /σF2 1 )
+(17)
+If both (16) and (17) hold, the average forecast will have a lower population MSFE than that
+of the individual models. We summarize this result in the following proposition.
+Proposition 1 Suppose (Yt , Ŷ1t , Ŷ2t ) is generated by the process (14) with mutually uncorrelated,
+Gaussian factors and innovations and that St = 1 with constant probability p while the probability
+15
+that St = 2 is (1 − p). Then the population MSFE of the equal-weighted combined forecast will be
+lower than the population MSFE of the best model provided that the following condition holds:
+1
+3
+µ
+p
+1−p
+¶2
+(1 + σε22 /σF2 2 )
+σF2 2
+<3
+<
+(1 + σε21 /σF2 1 )
+σF2 1
+µ
+p
+1−p
+¶2
+(1 + σε22 /σF2 2 )
+.
+(1 + σε21 /σF2 1 )
+Figure 1 shows the MSFE values from models 1, 2 and the combined forecast as a function of
+p under diﬀerent assumptions about relative factor variances and the variances of the error terms.
+In Panel 1 the two forecasts are of equal quality so the equal-weighted forecast is close to being
+optimal and always dominates the individual forecasts. In contrast, in Panels 2 and 3 it is only for
+low (Panel 2) and high (Panel 3) values of p that the combined forecast is best. Finally in Panel
+4 we show an example where the forecast combination dominates the individual forecasts provided
+that p lies between 0.2 and 0.8. Since the probability of a switch in the factor structure can be
+measured by p(1 − p), this is also the region where ‘breaks’ are most likely, suggesting that model
+instability can be one reason for the good performance of forecast combinations.
+An equivalent condition for E[e21t ] > E[e2ct ] is (letting k1 = (1/3)σF2 1 (p/(1 − p))2 )
+(σF2 1 + σε21 )σF4 2 − k1 σF2 1 σF2 2 − k1 σε22 σF2 1 > 0
+with real roots
+k1 σF2 1 ±
+q
+k12 σF4 1 + 4k1 σε22 σF2 1 (σF2 1 + σε21 )
+(18)
+.
+(19)
+(σF2 1 + σε21 )σF4 2 − k2 σF2 1 σF2 2 − k2 σε22 σF2 1 < 0,
+(20)
+2(σF2 1 + σε21 )
+Similarly, E[e22t ] > E[e2ct ] provided that
+where k2 = 3σF2 1 (p/(1 − p))2 . This has roots
+k2 σF2 1 ±
+q
+k22 σF4 1 + 4k2 σε22 σF2 1 (σF2 1 + σε21 )
+2(σF2 1 + σε21 )
+.
+(21)
+In both cases, one root will be negative while the other is positive. This means that the
+combined, equal-weighted forecast dominates both individual forecasts provided that σF2 2 lies in
+the interval
+q
+q
+⎤
+⎡
+k1 σF2 1 + k12 σF4 1 + 4k1 σε22 σF2 1 (σF2 1 + σε21 ) k2 σF2 1 + k22 σF4 1 + 4k2 σε22 σF2 1 (σF2 1 + σε21 )
+⎦.
+⎣
+;
+(22)
+2(σF2 1 + σε21 )
+2(σF2 1 + σε21 )
+Figure 2 plots the lower and upper bands of this range of values for σF2 2 . The lower band reflects the
+performance of the combination against the first model while the upper band reflects performance
+against the second model. As p gets higher, the likelihood that model 2 is the true model gets
+16
+lower so that, when this model is in fact valid, it must be better than model 1 by a larger margin,
+i.e. σF2 2 must rise. Conversely, the second model’s performance when it is valid cannot be too good
+relative to model 1 - otherwise a strategy of only using the forecast from model 2 would be the
+dominant strategy - which is the intuition for why the upper bound is needed. For values of σF2 2
+between the two bounds, the equal-weighted combination dominates the individual forecasts.
+The above conclusions are not altered by allowing for non-zero correlations across the two
+factors. After some algebra, we can modify equations (16) and (17) by adding a term
+¡
+¢
+2p 3 + 2(σε21 /σF2 1 + σε22 /σF2 2 )σF1 F2
+3(1 − p)(1 + σε22 /σF2 2 )σF2 1
+to the right hand side of (16) and subtracting (1/3) times this term from the right hand side of
+(17). As expected, this tends to narrow the range where the combined forecast works best.
+5
+Breaks and Empirical Forecasting Performance
+To illustrate the performance of a range of forecast combination methods in the presence of breaks,
+we finally conduct a Monte Carlo experiment in the context of a simple common factor model.
+5.1
+Setup
+The data set that we consider is the same as that used in Stock and Watson (2004). It consists
+of up to 43 quarterly time series for the US economy over the period 1959Q1 — 1999Q4, although
+some series are available only for a shorter period. The 43 series comprise a range of asset prices
+(including returns, interest rates and spreads), measures of real economic activity, wages and prices,
+and various measures of the money stock.12 To achieve stationarity, the series are transformed as
+needed to eliminate trends by taking first diﬀerences, in many cases after taking logarithms. We
+then standardize the transformed data so as they have sample mean equal to zero and unitary
+sample variance. Let yi,t , i = 1, ..., N denote the individual standardized transformed data series
+and assume the following factor structure for the transformed variables:
+Yt = ΛFt + t ,
+(23)
+where Yt = (y1,t , ..., yN,t )0 , E [ 0t t ] = R and the factor dynamics is assumed to be governed by a
+first-order autoregressive process:
+(24)
+Ft = AFt−1 + ut ,
+12
+Following Stock and Watson (2004) the variables are subject to the following transformations. First, in a few
+cases the series contain a large outlier−such as spikes associated with strikes−and these outliers are replaced by
+interpolated values. Second, series that show significant seasonal variation are seasonally adjusted using a linear
+approximation to X11 in order to avoid problems with non-linearities, see Ghysels, Granger and Siklos (1996). Third,
+data series available on a monthly basis are aggregated to get quarterly observations.
+17
+b and Fbt by principal components using a balanced panel subset
+where E [u0t ut ] = Ω. We estimate Λ
+of the full data set that includes 36 series. We focus on the first four factors which account for 65%
+b = bt 0 bt /(T − 1).
+ΛFbt and R
+of the variance of the panel. Given b
+Λ and Fbt we can estimate bt = Yt − b
+b and Ω.
+b Under a stable factor
+We then fit a VAR(1) model to the first four factors and estimate A
+setup, factors and data are simulated as follows:13
+m
+bFbt−1
++ um
+Fbtm = A
+t ,
+um
+t ∼ N (0, Ω̂)
+b Fbtm + ηtm ,
+Ybtm = Λ
+ηtm ∼ N (0, R̂),
+(25)
+where m = 1, ..., 100 refers to the particular Monte Carlo simulation. We allow for instability in the
+factor model by means of breaks in either the factor loadings, Λ, in the factor dynamics, A, or in
+the covariance matrix of the factors, Ω. Generalizing the setup from Section 4, breaks are generated
+through an indicator series Stm from a Markov Switching process that can take two possible values
+Stm = 1 or Stm = 2 with transition probabilities p11 = p22 = 0.8, where pij = prob(St = i|St−1 = j).
+We consider three breakpoint scenarios:
+1. Breaks in the factor loadings:
+m
+bFbt−1
++ um
+Fbtm = A
+t ,
+um
+t ∼ N (0, Ω̂)
+m
+m
+b 3:4 Fb3:4,t
++ 2 × 1{Stm =2} Λ
++ ηtm ,
+Ybtm = 2 × 1{Stm =1} b
+Λ1:2 Fb1:2,t
+ηtm ∼ N (0, R̂)
+2. Breaks in the dynamics of the factors:
+⎡
+1{Stm =1}
+⎢
+⎢
+1{Stm =1}
+Stm = ⎢
+⎢ 1 m
+⎣ {St =1}
+1{Stm =1}
+m
+bm
+b
+A
+t = St ¯ A
+1{Stm =1}
+1{Stm =1}
+1{Stm =1}
+1{Stm =1}
+m
+bm
+bm
+Fbtm = A
+t Ft−1 + ut ,
+b Fbtm + ηtm ,
+Ybtm = Λ
+1{Stm =2}
+1{Stm =2}
+1{Stm =2}
+1{Stm =2}
+⎤
+1{Stm =2}
+⎥
+1{Stm =2} ⎥
+⎥
+1{Stm =2} ⎥
+⎦
+1{Stm =2}
+um
+t ∼ N (0, Ω̂)
+ηtm ∼ N (0, R̂)
+13
+The recursion is initialized by setting Fe0m = N(0, Ω̂). We simulate time series with 200 observations and discard
+the first 65 observations to match the average length of the actual data.
+18
+3. Breaks in the covariance matrix of the factors:
+ψtm = 2 × 1{Stm =1} + 0.5 × 1{Stm =2}
+m
+m
+m
+m
+Ψm
+t = [ψt , ψt , 1/ψt , 1/ψt ]
+m
+b
+b
+Ωm
+t = Ψt ¯ Ω
+m
+bFbt−1
++ um
+Fbtm = A
+t ,
+m
+um
+t ∼ N (0, Ω̂t )
+b Fbtm + ηtm ,
+Ybtm = Λ
+ηtm ∼ N(0, R̂)
+Following the analysis of Stock and Watson (2001), we focus on linear forecasting models.
+Specifically, we consider simple autoregressions with lag lengths selected recursively using SIC with
+up to L = 4 lags:
+L
+X
+yi,t+1 = ci +
+λi,l yi,t−l + i,t+1 .
+(26)
+l=0
+We also consider all possible bivariate autoregressive models that include a single additional regressor, yj,t , drawn from the full set of transformed variables:
+yi,t+1 = ci +
+L1
+X
+λi,l1 yt−l1 +
+l1 =0
+L2
+X
+λi,j,l2 yj,t−l2 + i,t+1 .
+(27)
+l2 =0
+Lag lengths are again selected recursively using the SIC with between one and four lags of yj,t
+(L1 = 4) and between zero and four lags of yi,t (L2 = 4). Parameter estimation and forecasting
+are also done recursively, using an expanding window. To estimate the parameters of the initial
+AR models, we use the first 40 data points. For each of the simulated series we re-estimate the
+parameters of the linear forecasting models and use these to produce out-of-sample forecasts.14
+We next present the results of the Monte Carlo experiment. We also report the results obtained
+using actual data as a benchmark for the Monte Carlo experiment.
+5.2
+Empirical Results
+Table 6 presents results for the out-of-sample MSFE performance of a range of alternative forecast
+combination methods also considered by Aiolfi and Timmermann (2006) such as the mean forecast,
+triangular kernel weights (TK, which weights the forecasts by the inverse of their historical MSFE
+rank) and weights that are inversely proportional to the MSFE (IMSFE). Out-of-sample MSFE
+values are reported relative to the MSFE-values produced by the previous best (PB) forecasting
+model. Because the previous best model at a given point in time depends on the individual models’
+track record up to that point, the identity of the previous best model may change through time.
+14
+To avoid extreme values, forecasts greater than four recursive standard deviations of the target variable are
+replaced by the recursive mean of the dependent variable computed at the time of the forecast.
+19
+We first note that the performance of the equal-weighted forecast combination−i.e., the average
+forecast computed across the 37 univariate and bivariate models−generally (across all variables)
+is much better than the performance of the previous best model. Specifically, the ratio of out-ofsample MSFE-values of the average forecast (mean) over the previous best model is 
+0.844. The
+simulations with a stable factor structure (no break) in the second column generate a much higher
+value of 0.97, suggesting that the improvement oﬀered by the forecast combinations cannot be well
+explained in the context of a stable factor structure.
+Turning to the results for the factor models with breaks, the form of the break process appears
+to aﬀect the ability of the simulations to match the actual performance of the combinations. If
+the break occurs in the covariance matrix of the factor innovations, the performance of the mean
+forecast is slightly worse than under the stable factor structure (0.97). In contrast, if the break
+aﬀects the factor loadings, the relative performance of the equal-weighted forecast improves to
+around 0.93 which is more in line with the empirical data. Breaks in the coeﬃcients determining
+the factor dynamics also lead to some improvement in the performance of the forecast combinations
+relative to the single best model.
+Finally consider the disaggregate results by category of the economic variables. It is clear
+that breaks do not aﬀect all time series to the same extent. For example, breaks in the factor
+loadings bring the simulated results more closely in line with the data for the monetary aggregates.
+Such breaks do a far worse job for returns, interest rates and spreads although, in most cases, the
+relative MSFE performance under breaks is closer to the results for the data than in the absence of
+a break. Overall, the rather modest improvements in the performance of forecast combinations due
+to breaks suggest that model instability in the form considered here can only be part of the reason
+why forecast combinations perform better than a strategy of selecting the single best model.
+6
+Conclusion
+Forecast combinations are in widespread use, representing a pragmatic approach for dealing with
+the misspecification biases that aﬀect individual forecasting models. Since individual models may
+be biased in diﬀerent directions, it is important to consider which types of forecasts to combine, i.e.,
+forecasts from linear versus nonlinear models, forecasts from univariate versus multivariate models
+and combinations of time-series forecasts with subjective survey forecasts.
+Our empirical results suggest that the simple equal-weighted survey forecast dominates the
+best forecast from a time-series model around two-thirds of the time. However, there is some room
+for improvement by using a simple equal-weighted average of survey forecasts and forecasts from
+various time-series models and this approach rarely generates poor out-of-sample forecasts. Even if
+forecast combinations do not always deliver the most precise forecasts they generally do not deliver
+poor performance and so from a “risk” perspective represent a safe choice.
+We also present analytical and simulation results on the performance of a range of forecast
+combination schemes under instability in dynamic factor models characterizing the dependence
+20
+structure across variables. These results are modestly encouraging in that they suggest that the
+performance of forecast combinations gets closer to what is observed in actual data under a factor
+model that is subject to occasional breaks in parameters, particularly if they take the form of a
+change in the factor loadings or in the coeﬃcients determining the factor dynamics.
+References
+[1] Aiolfi, M. and A. Timmermann, 2006, Persistence in Forecasting Performance and Conditional
+Combination Strategies. Journal of Econometrics, 135, 31-53.
+[2] Ang, A., G. Bekaert, and M Wei, 2007, Do Macro Variables, Asset Markets or Surveys Forecast
+Inflation Better? Journal of Monetary Economics, 54, 1163-1212.
+[3] Artis, M., A. Banerjee and M. Marcellino, 2005, Factor Forecasts for the U.K. Journal of
+Forecasting, 24, 279-298.
+[4] Bai, J. and S. Ng, 2002, Determining the Number of Factors in Approximate Factor Models.
+Econometrica 70, 191-221.
+[5] Bates, J.M. and C.W.J. Granger, 1969, The Combination of Forecasts. Operations Research
+Quarterly 20, 451-468.
+[6] Bovin, J., and S. Ng, 2006, Are More Data Always Better for Factor Analysis? Journal of
+Econometrics, 132, 169-194.
+[7] Capistrán, C., and A. Timmermann, 2009, Forecast Combination with Entry and Exit of
+Experts. Journal of Business and Economic Statistics, 27(4), 428-440.
+[8] Chong, Y.Y, and D.F. Hendry, 1986, Econometric Evaluation of Linear macro-economic Models. Review of Economic Studies, 53, 671-690.
+[9] Clemen, R.T., 1989, Combining Forecasts: A Review and Annotated Bibliography. International Journal of Forecasting, 5, 559-581.
+[10] Clements, M.P. and D. I. Harvey, 2010, Forecast Encompassing Tests and Probability Forecasts. Forthcoming in Journal of Applied Econometrics.
+[11] Clements, M.P. and D.F. Hendry, 1998, Forecasting Economic Time Series. Cambridge University Press.
+[12] Clements, M.P. and D.F. Hendry, 1999, Forecasting Non-stationary Economic Time Series.
+The MIT Press.
+[13] Clements, M.P. and D.F. Hendry, 2006, Forecasting with Breaks. Pages 605-658 in Elliott,
+G., C.W.J. Granger and A. Timmermann (eds.), Handbook of Economic Forecasting vol. 1.
+North-Holland.
+[14] Corradi, V., A. Fernandez, and N.R. Swanson, 2009, Information in the Revision Process of
+Real-time Datasets. Journal of Business and Economic Statistics, 27(4), 455-467.
+21
+[15] Diebold, F.X. and P. Pauly, 1987, Structural Change and the Combination of Forecasts. Journal
+of Forecasting ,6, 21-40.
+[16] Elliott, G., and A. Timmermann, 2005, Optimal Forecast Combination under Regime Switching. International Economic Review, 46(4), 1081-1102.
+[17] Engelberg, J., C.F. Manski and J. Williams, 2009, Assessing the Temporal Variation of Macroeconomic Forecasts by a Panel of Changing Composition. Mimeo, Northwestern.
+[18] Forni, M., M. Hallin, M. Lippi, and L. Reichlin, 2000, The Generalized Factor Model: Identification and Estimation. The Review of Economics and Statistics, 82, 540-554.
+[19] Forni, M, M. Hallin, M. Lippi, and L. Reichlin, 2005, The Generalized Dynamic Factor Model:
+Forecasting and One Sided Estimation. Journal of the American Statistical Association, 100,
+830-840.
+[20] Garratt, A., G. Koop, E. Mise, and S.P. Vahey, 2009, Real-time Prediction with U.K. Monetary
+Aggregates in the Presence of Model Uncertainty. Journal of Business and Economic Statistics,
+27(4), 480-491.
+[21] Ghysels, E., C.W.J. Granger and P.L. Siklos, 1996, Is Seasonal Adjustment a Linear or Nonlinear Data Filtering Process? Journal of Business and Economic Statistics, 14, 
+374-86.
+[22] Granger, C.W.J. and R. Ramanathan, 1984, Improved Methods of Combining Forecasts. Journal of Forecasting, 3, 197-204.
+[23] Granger, C.W.J. and Y. Jeon, 2004, Thick Modeling, Economic Modelling, 21, 323-343.
+[24] Hendry, D.F. and M.P. Clements, 2004, Pooling of Forecasts. Econometrics Journal, 7, 1-31.
+[25] Marcellino, M., 2004, Forecast Pooling for Short Time Series of Macroeconomic Variables.
+Oxford Bulletin of Economic and Statistics, 66, 91-112.
+[26] Pesaran, M.H. and A. Timmermann, 2005, Small Sample Properties of Forecasts from Autoregressive Models under Structural Breaks. Journal of Econometrics, 129, 183-217.
+[27] Smith, J. and K.F. Wallis, 2009, A Simple Explanation of the Forecast Combination Puzzle.
+Oxford Bulletin of Economics and Statistics, 71(3), 331-355.
+[28] Stock, J.H. and M.W. Watson, 1996, Evidence on Structural Instability in Macroeconomic
+Time Series Relations. Journal of Business and Economic Statistics, 14, 11-30.
+[29] Stock, J.H. and M. Watson, 2001, A Comparison of Linear and Nonlinear Univariate Models
+for Forecasting Macroeconomic Time Series, in R.F. Engle and H. White, eds., Festschrift in
+Honour of Clive Granger. Cambridge University Press, 1-44.
+[30] Stock, J.H. and M.W. Watson 2002. Macroeconomic Forecasting Using Diﬀusion Indexes.
+Journal of Business and Economic Statistics, 20, 147-162.
+[31] Stock, J.H. and M. Watson, 2004, Combination Forecasts of Output Growth in a SevenCountry Data Set. Journal of Forecasting, 23, 405-430.
+[32] Stock, J.H., and M.W. Watson, 2009, Forecasting in Dynamic Factor Models Subject to Structural Instability. In J.L. Castle and N. Shephard (eds.), The Methodology and 
+Practice of
+Econometrics. A Festschrift in Honour of David Hendry. Oxford University Press, 173-205.
+22
+[33] Swanson, N.R. and H. White, 1997, Forecasting Economic Time Series Using Flexible Versus
+Fixed Specification and Linear versus Nonlinear Econometric Models. International Journal of
+Forecasting 13, 439—462.
+[34] Teräsvirta, T., 2006, Forecasting Economic Variables with Nonlinear Models. In Graham Elliott, Clive W.J. Granger and Allan Timmermann (eds.), Handbook of Economic Forecasting.
+Elsevier, 413—457.
+[35] Timmermann, A., 2006, Forecast Combinations. In Graham Elliott, Clive W.J. Granger and
+Allan Timmermann (eds.), Handbook of Economic Forecasting. Elsevier, 135—196.
+23
+Table 1. Variable description
+Name
+CPI
+CPROF
+HOUSING
+INDPROD
+NGDP
+PGDP
+RCBI
+RCONSUM
+RFEDGOV
+RGDP
+RRESINV
+RSLGOV
+TBILL
+UNEMP
+Description
+Forecasts for the CPI Inflation
+Rate. SA, annual rate,
+percentage points. Quarterly
+forecasts are annualized
+quarter-over-quarter percent
+changes.
+Forecasts for the quarterly level
+of nominal corporate profits
+after tax excluding IVA and
+CCAdj. SA, annual rate,
+billions of dollars.
+Forecasts for the quarterly
+average level of housing starts.
+SA, annual rate, millions.
+Forecasts for the quarterly
+average of the index of
+industrial production. SA,
+index, base year varies.
+Forecasts for the quarterly level
+of nominal GDP. SA, annual
+rate, billions of dollars.
+Forecasts for the quarterly level
+of the GDP price index. SA,
+index, base year varies.
+Forecasts for the quarterly level
+of real change in private
+inventories. SA, annual rate,
+base year varies.
+Forecasts for the quarterly level
+of real personal consumption
+expenditures. SA, annual rate,
+base year varies.
+Forecasts for the quarterly level
+of real federal government
+consumption and gross
+investment. SA, annual rate,
+base year varies.
+Forecasts for the quarterly level
+of real GDP. SA, annual rate,
+base year varies.
+Forecasts for the quarterly level
+of real residential fixed
+investment. SA, annual rate,
+base year varies.
+Forecasts for the quarterly level
+of real state and local
+government consumption and
+gross investment. SA, annual
+rate, base year varies.
+Forecasts for the quarterly
+average three-month Treasury
+bill rate. Percentage points.
+Forecasts for the quarterly
+average unemployment rate.
+SA, percentage points.
+Transformation
+Sample
+None
+1981q32006q4
+GR QoQ change, expressed in annualized
+percentage points:   CPROF t  h
+  400
+
+ln 
+CPROF
+ 
+t  h 1
+
+GR QoQ change, expressed in annualized
+percentage points:
+  HOUSING t  h
+  400
+ln 
+HOUSING t  h 1  
+GR QoQ change, expressed in annualized
+percentage points:
+  INDPROD t  h
+  400
+ln 
+INDPROD t  h 1  
+1981q32006q4
+1981q32006q4
+1981q32006q4
+GR QoQ change, expressed in annualized
+percentage points:   NGDPt  h
+
+1981q32006q4
+GR QoQ change, expressed in annualized
+percentage points:   PGDPt  h
+
+1981q32006q4
+ln
+ln 
+400
+NGDPt  h1 
+400
+PGDPt  h 1  
+1981q32006q4
+None
+GR QoQ change, expressed in annualized
+percentage points:
+  RCONSUM t  h
+  400
+ln 
+RCONSUM t  h 1  
+GR QoQ change, expressed in annualized
+percentage points:
+  RFEDGOV t  h
+  400
+ln 
+RFEDGOV t  h 1  
+GR QoQ change, expressed in annualized
+percentage points:   RGDPt  h
+
+ln 
+400
+RGDPt  h 1  
+GR QoQ change, expressed in annualized
+percentage points:
+  RRESINV t  h
+ 400
+ln
+RRESINV t  h 1 
+GR QoQ change, expressed in annualized
+percentage points:
+  RSLGOV t  h
+  400
+ln 
+RSLGOV t  h 1  
+1981q32006q4
+1981q32006q4
+1981q32006q4
+1981q32006q4
+1981q32006q4
+None
+1982q12006q4
+None
+1981q32006q4
+Notes: GR QoQ stands for Growth Rate, Quarter on Quarter.
+Table 2. Forecast performance of individual models and survey information
+RMSFE ratios with respect to AR
+RMSFE
+Horizon
+Time Series Models
+AR
+AR_FAC
+LSTAR
+Survey Forecasts
+NNET
+EW
+IMSE
+ISIC
+0.9574
+0.8903
+0.9008
+0.9030
+0.9663
+0.8986
+0.9182
+0.9047
+0.9881
+0.9529
+0.9507
+0.9271
+0.8872
+0.8595
+0.8662
+0.8935
+0.9044
+0.8916
+0.8787
+0.8916
+0.9091
+0.8981
+0.8883
+0.9036
+0.8918
+0.9459
+0.8761
+0.8939
+0.8919
+0.9457
+0.8771
+0.8949
+0.8905
+0.9417
+0.8759
+0.8996
+0.9649
+0.8996
+0.9404
+0.9837
+0.9639
+0.8984
+0.9338
+0.9657
+0.9623
+0.8935
+0.9278
+0.9619
+0.9707
+0.9799
+0.9392
+1.0360
+1.0214
+1.0117
+0.9550
+1.0255
+1.0507
+1.0258
+0.9662
+1.0504
+0.9260
+0.8473
+0.9218
+0.9521
+0.9080
+0.8002
+0.8418
+0.8752
+0.9126
+0.8033
+0.8411
+0.8696
+1.0957
+0.9339
+0.9385
+0.9673
+1.0931
+0.9335
+0.9266
+0.9487
+1.0902
+0.9263
+0.9144
+0.9406
+0.9549
+0.9768
+1.0436
+0.9773
+0.9695
+0.9877
+1.0425
+0.9970
+1.0161
+1.0308
+1.0840
+1.0324
+0.9222
+0.9363
+0.9432
+0.9556
+0.9252
+0.9415
+0.9488
+0.9625
+0.9304
+0.9457
+0.9528
+0.9646
+CPI
+h=1
+h=2
+h=3
+h=4
+1.4516
+1.5634
+1.5368
+1.5801
+0.9996
+0.9880
+1.0396
+1.0497
+0.6204
+1.0014
+1.0671
+1.0754
+1.0672
+1.1564
+1.2740
+1.3831
+CPROF
+h=1
+h=2
+h=3
+h=4
+20.4380
+20.3715
+20.4939
+20.8992
+0.9951
+1.0909
+1.0016
+1.0224
+0.9539
+0.9832
+1.0271
+1.0057
+0.9599
+0.9867
+1.0217
+0.9346
+HOUSING
+h=1
+h=2
+h=3
+h=4
+27.8404
+28.1350
+29.1552
+28.1420
+1.0101
+0.9823
+1.0490
+1.0621
+0.8981
+1.0728
+0.9222
+0.9795
+0.8631
+1.0349
+0.9431
+0.9791
+INDPROD
+h=1
+h=2
+h=3
+h=4
+3.6548
+4.2634
+4.3009
+4.1792
+0.8666
+1.0219
+1.0124
+1.0200
+0.6994
+1.0979
+0.9127
+1.1211
+1.2522
+1.0137
+1.0012
+1.0969
+NGDP
+h=1
+h=2
+h=3
+h=4
+2.1161
+2.1398
+2.3450
+2.1909
+1.1249
+1.1134
+0.9432
+1.0621
+0.8199
+1.2885
+0.9834
+1.2115
+1.1649
+1.2668
+1.1161
+1.3317
+PGDP
+h=1
+h=2
+h=3
+h=4
+0.9086
+1.0238
+1.0053
+1.0485
+1.0228
+0.9932
+1.0035
+1.3620
+0.7594
+0.9148
+0.9357
+1.1592
+1.4095
+1.2537
+1.4941
+1.3751
+RCBI
+h=1
+h=2
+h=3
+h=4
+28.1468
+36.6898
+39.4043
+39.8177
+0.9540
+0.9593
+0.8966
+0.9156
+0.4302
+0.9213
+1.0433
+0.9721
+0.8633
+0.9670
+0.9225
+0.9972
+RCONSUM
+h=1
+h=2
+h=3
+h=4
+1.9999
+1.9889
+2.0115
+2.0667
+1.0293
+1.2232
+1.0923
+1.0000
+0.9558
+1.0656
+0.9837
+1.1801
+1.1211
+1.1779
+1.1271
+1.1353
+RFEDGOV
+h=1
+h=2
+h=3
+h=4
+7.6616
+7.6475
+7.6041
+7.6318
+1.0252
+1.1370
+1.0647
+1.1248
+1.2773
+1.2568
+1.1681
+1.0534
+1.3405
+1.2912
+1.1850
+1.2538
+Table 2. Forecast performance of individual models and survey information (Cont.)
+RMSFE ratios with respect to AR
+RMSFE
+Horizon
+Time Series Models
+AR
+AR_FAC
+LSTAR
+Survey Forecasts
+NNET
+EW
+IMSE
+ISIC
+0.8715
+0.8968
+0.9208
+0.9577
+0.8753
+0.8988
+0.9325
+0.9656
+0.8912
+0.9093
+0.9253
+0.9636
+1.0027
+0.9312
+0.9206
+0.8655
+1.0045
+0.9305
+0.9190
+0.8677
+1.0078
+0.9309
+0.9352
+0.8699
+0.8473
+0.8757
+0.8876
+0.9315
+0.8610
+0.8742
+0.8927
+0.9381
+0.8707
+0.8842
+0.8947
+0.9384
+1.1575
+0.9629
+0.9102
+0.8760
+1.3457
+0.9653
+0.8725
+0.8007
+1.6660
+1.0713
+0.8884
+0.7985
+1.1009
+0.8901
+0.7877
+0.7666
+1.0412
+0.8352
+0.7629
+0.8509
+1.9799
+1.5993
+1.3319
+1.2629
+RGDP
+h=1
+h=2
+h=3
+h=4
+2.0670
+2.1139
+2.1729
+2.1054
+0.9352
+0.9507
+0.9289
+1.0655
+0.6811
+0.9241
+0.9924
+1.0153
+0.7594
+1.0509
+0.9729
+1.0723
+RRESINV
+h=1
+h=2
+h=3
+h=4
+9.9230
+11.3842
+11.7252
+12.6665
+0.9610
+1.1000
+1.1484
+0.9942
+0.7109
+1.0877
+0.9988
+0.8957
+0.8241
+0.9914
+1.0611
+0.9313
+RSLGOV
+h=1
+h=2
+h=3
+h=4
+2.7149
+2.6699
+2.6808
+2.6475
+1.0282
+1.0127
+1.0094
+1.0000
+0.9012
+1.0455
+1.0232
+1.0508
+0.8349
+1.1501
+0.9798
+1.0174
+TBILL
+h=1
+h=2
+h=3
+h=4
+0.3504
+0.7697
+1.1940
+1.6074
+1.0445
+1.1151
+1.1243
+1.0105
+0.6069
+0.9426
+1.0968
+1.0824
+5.0496
+2.1520
+2.0890
+1.7213
+UNEMP
+h=1
+h=2
+h=3
+h=4
+0.2159
+0.3771
+0.5835
+0.7487
+0.8624
+0.7867
+0.7581
+0.8431
+1.2367
+1.0102
+1.0636
+1.1129
+4.9265
+2.2240
+1.8224
+1.5891
+Notes: The root mean squared forecast error (RMSFE) is calculated with 68 out-of-sample forecasts, except for
+the T-bill rate which only uses 66 forecasts. AR forecasts are based on autoregressive models with up to eight
+lags and lag length selected by the SIC through an exhaustive search. AR_FAC is the AR model augmented with
+a maximum of five factors extracted from 110 underlying series. LSTAR is the Logistic Smooth Transition
+Autoregressive model. NNET is a Neural Network with one hidden layer. EW refers to the consensus of the
+Survey of Professional Forecasters (SPF) giving equal weights to each forecaster. IMSE and ISIC refer to the
+combinations of the SPF data with weights estimated by the inverse of the individual forecasters’ RMSFE or
+weights proportional to the SIC of each forecaster with at least 10 continuous forecasts.
+Table 3. Forecast performance of combinations of AR, factor and survey
+forecasts
+RMSFE ratios with respect to AR
+Horizon
+Equal Weights
+Regression
+AR_EW
+AR_FAC_EW AR_FAC_EW
+CPI
+h=1
+h=2
+h=3
+h=4
+0.9745
+0.9295
+0.9671
+0.9845
+1.0166
+0.9421
+1.0080
+1.0408
+0.9567
+0.9387
+0.9595
+0.9612
+CPROF
+h=1
+h=2
+h=3
+h=4
+0.9816
+1.0327
+1.0328
+1.0520
+1.0315
+1.1044
+1.0594
+1.1093
+0.9384
+0.9441
+0.9278
+0.9382
+HOUSING
+h=1
+h=2
+h=3
+h=4
+1.0331
+1.0471
+1.0341
+1.1200
+1.1000
+1.0314
+1.0490
+1.2472
+0.9370
+0.9452
+0.9417
+0.9591
+INDPROD
+h=1
+h=2
+h=3
+h=4
+1.0449
+1.0193
+1.0121
+1.0066
+0.8666
+1.0486
+1.0574
+1.0269
+0.8700
+0.9224
+0.9379
+0.9657
+NGDP
+h=1
+h=2
+h=3
+h=4
+1.0405
+1.0130
+1.0269
+1.0223
+1.0714
+1.1150
+1.0122
+1.2418
+0.9741
+0.9757
+0.9142
+0.9892
+PGDP
+h=1
+h=2
+h=3
+h=4
+0.8275
+0.9040
+0.9450
+0.9787
+0.8298
+0.9619
+0.9507
+1.5257
+0.8731
+0.9281
+0.9576
+1.0745
+RCBI
+h=1
+h=2
+h=3
+h=4
+1.0113
+1.0565
+1.0318
+1.0276
+0.9873
+0.9592
+0.9204
+0.9156
+0.9447
+0.9172
+0.9163
+0.9390
+RCONSUM
+h=1
+h=2
+h=3
+h=4
+0.9521
+1.0000
+1.0000
+1.0000
+1.0611
+1.2563
+1.2267
+1.0000
+0.9209
+1.0130
+1.0036
+0.9715
+Table 3. Forecast performance of combinations of AR, factor and survey
+forecasts (Cont.)
+RMSFE ratios with respect to AR
+Horizon
+Regression
+AR_EW
+Equal Weights
+AR_FAC_EW AR_FAC_EW
+RFEDGOV
+h=1
+h=2
+h=3
+h=4
+0.8686
+0.9883
+0.9669
+0.9457
+0.9268
+0.9967
+0.9456
+0.9457
+0.9645
+0.9733
+0.9658
+0.9686
+RGDP
+h=1
+h=2
+h=3
+h=4
+0.9138
+0.9986
+1.0268
+0.9999
+0.9304
+0.9607
+0.9185
+1.0655
+0.8801
+0.8910
+0.9075
+0.9817
+RRESINV
+h=1
+h=2
+h=3
+h=4
+0.9896
+0.9827
+1.0992
+1.0000
+0.9468
+1.0783
+1.2111
+0.9961
+0.9322
+0.9819
+0.9780
+0.9167
+RSLGOV
+h=1
+h=2
+h=3
+h=4
+0.9462
+1.0000
+1.0000
+1.0105
+1.0118
+1.0127
+1.0092
+1.0105
+0.9192
+0.9297
+0.9464
+0.9615
+TBILL
+h=1
+h=2
+h=3
+h=4
+1.0000
+1.0255
+1.0183
+1.0044
+1.0445
+1.1238
+1.1634
+1.0196
+1.0220
+0.9841
+0.9599
+0.8883
+UNEMP
+h=1
+h=2
+h=3
+h=4
+1.0237
+1.0283
+1.0005
+1.0087
+0.8624
+0.8161
+0.7920
+0.8543
+0.8985
+0.8253
+0.7922
+0.8143
+Notes: RMSFE is calculated with 68 out-of-sample forecasts, except for the TBILL rate which uses only 66
+forecasts. AR_EW refers to the AR model augmented with the equally-weighted survey (SPF) forecasts.
+AR_FAC_EW refers to the AR model augmented by a maximum number of five common factors as well as the
+equally-weighted survey (SPF) forecasts.
+Table 4. Forecast performance of combinations of AR, nonlinear and factor models
+RMSFE ratios with respect to AR
+Equal Weights
+Regression
+Horizon
+AR_LSTAR AR_NNET AR_FAC_ AR_FAC_ AR_FAC_ AR_FAC_
+LSTAR
+NNET
+LSTAR
+NNET
+CPI
+h=1
+h=2
+h=3
+h=4
+0.4000
+0.9994
+1.0000
+1.0059
+0.8869
+1.0000
+1.0000
+1.0000
+0.4072
+0.9892
+1.0396
+1.0582
+1.0149
+0.9880
+1.0194
+1.2052
+0.8355
+0.9539
+1.0042
+0.9870
+0.9203
+1.0046
+1.0480
+1.0386
+0.9636
+0.9996
+0.9774
+0.9768
+0.9646
+0.9997
+0.9776
+0.9524
+0.9366
+0.9781
+0.9609
+0.9782
+0.9366
+0.9789
+0.9689
+0.9818
+0.7868
+1.0188
+1.0124
+1.0200
+0.6616
+0.9415
+0.9441
+0.9978
+0.7962
+0.9464
+0.9378
+0.9892
+1.1249
+1.1454
+0.9432
+1.1252
+0.9366
+1.0538
+0.9284
+1.0487
+0.9754
+1.0437
+0.9645
+1.0713
+0.9293
+1.0169
+1.0259
+1.4949
+0.8195
+0.9405
+0.9427
+1.0863
+0.9613
+1.0197
+1.0846
+1.1750
+0.8096
+0.9844
+0.9242
+0.9156
+0.7280
+0.9219
+0.9465
+0.9412
+0.8622
+0.9307
+0.9102
+0.9512
+0.9215
+1.0125
+0.9620
+1.0187
+0.9682
+1.0348
+0.9707
+0.9815
+CPROF
+h=1
+h=2
+h=3
+h=4
+1.0000
+1.0000
+1.0000
+1.0147
+1.0000
+1.0000
+1.0000
+1.0000
+0.9951
+1.0909
+1.0016
+1.0345
+0.9951
+1.0909
+1.0016
+1.0224
+HOUSING
+h=1
+h=2
+h=3
+h=4
+1.0000
+0.9946
+1.0000
+0.9981
+0.9340
+1.0061
+1.0000
+0.9920
+1.0330
+0.9964
+1.0490
+1.0641
+0.9983
+0.9848
+1.0490
+1.1166
+INDPROD
+h=1
+h=2
+h=3
+h=4
+0.5642
+1.0000
+1.0000
+1.0000
+0.8945
+1.0025
+1.0005
+1.0000
+0.4813
+1.0205
+1.0124
+1.0200
+NGDP
+h=1
+h=2
+h=3
+h=4
+0.9158
+1.0476
+1.0000
+1.0000
+1.0000
+1.1034
+1.0000
+1.0170
+1.0220
+1.1301
+0.9432
+1.0627
+PGDP
+h=1
+h=2
+h=3
+h=4
+0.8925
+0.9717
+0.9760
+1.0485
+0.9086
+1.0238
+1.0053
+1.0745
+0.9104
+1.0305
+0.9806
+1.4506
+RCBI
+h=1
+h=2
+h=3
+h=4
+0.5329
+1.0000
+1.0052
+1.0000
+0.8484
+1.0000
+1.0111
+1.0000
+0.5449
+0.9593
+0.8966
+0.9156
+RCONSUM
+h=1
+h=2
+h=3
+h=4
+1.0000
+1.0000
+1.0000
+0.9982
+1.0000
+1.0000
+1.0000
+1.0000
+1.0293
+1.2584
+1.0923
+0.9982
+1.0293
+1.2507
+1.0923
+1.0000
+Table 4. Forecast performance of combinations of AR, nonlinear and factor
+models (Cont.)
+RMSFE ratios with respect to AR
+Horizon
+Regression
+Equal Weights
+AR_LSTAR AR_NNET AR_FAC_ AR_FAC_ AR_FAC_ AR_FAC_
+LSTAR
+NNET
+LSTAR
+NNET
+RFEDGOV
+h=1
+h=2
+h=3
+h=4
+1.1174
+1.0000
+1.0000
+1.0000
+1.0000
+1.0000
+1.0000
+1.0000
+1.1943
+1.3256
+1.0647
+1.1248
+1.0252
+1.1370
+1.0647
+1.1248
+1.0591
+1.0521
+1.0030
+0.9944
+1.0772
+1.0609
+1.0148
+1.0203
+0.8133
+0.9324
+0.9408
+1.1346
+0.8281
+0.9132
+0.9271
+0.9911
+0.8016
+0.9307
+0.9211
+1.0192
+0.7979
+1.0351
+1.0245
+0.9529
+0.7742
+0.9999
+1.0067
+0.9406
+1.0719
+1.0094
+1.0157
+1.0000
+0.9286
+0.9706
+0.9529
+0.9828
+0.8907
+1.0021
+0.9591
+0.9502
+1.1194
+1.1241
+1.1243
+1.0271
+0.5246
+0.9379
+1.0100
+0.9476
+1.9548
+1.2920
+1.2633
+1.1442
+0.4638
+0.8151
+0.8428
+0.8667
+1.7827
+1.0946
+0.9711
+0.9409
+RGDP
+h=1
+h=2
+h=3
+h=4
+0.9640
+0.9731
+0.9979
+1.0552
+0.8202
+1.0000
+1.0000
+1.0064
+0.9427
+0.8938
+0.9401
+1.0013
+RRESINV
+h=1
+h=2
+h=3
+h=4
+0.7517
+1.0050
+0.9979
+1.0006
+0.8026
+1.0000
+1.0000
+1.0072
+0.7522
+1.1908
+1.1776
+1.0013
+0.8186
+1.0466
+1.1398
+0.9935
+RSLGOV
+h=1
+h=2
+h=3
+h=4
+1.0000
+1.0000
+1.0000
+1.0000
+0.9553
+0.9951
+1.0072
+1.0000
+1.0275
+1.0142
+1.0094
+1.0000
+TBILL
+h=1
+h=2
+h=3
+h=4
+0.1887
+0.9390
+1.0000
+1.0454
+1.1402
+1.0223
+1.0000
+1.0027
+0.1884
+0.9034
+1.1181
+1.0165
+UNEMP
+h=1
+h=2
+h=3
+h=4
+0.4223
+1.0591
+1.0229
+1.0000
+1.0230
+1.0000
+1.0000
+1.0068
+0.4324
+0.7867
+0.7428
+0.7827
+0.8681
+0.7867
+0.7942
+0.8385
+Notes: RMSFE-values are calculated with 68 out-of-sample forecasts, except for the T-bill rate which
+only uses 66 forecasts. AR_LSTAR and AR_NNET refer to the AR model augmented with forecasts
+generated by the Logistic Smooth Transition Autoregressive models and the Neural Network models,
+respectively. AR_FAC_LSTAR and AR_FAC_NNET refer to the AR_FAC model augmented by the
+LSTAR and NNET forecasts, respectively.
+Table 5. Forecast performance of combinations of all models
+RMSFE ratios with respect to AR
+Horizon
+Regression
+Equal Weights
+Regression
+Equal Weights
+AR_FAC_EW_
+LSTAR_NNET
+AR_FAC_EW_
+LSTAR_NNET
+AR_FAC_EW_
+LSTAR_NNET
+AR_FAC_EW_
+LSTAR_NNET
+CPI
+h=1
+h=2
+h=3
+h=4
+0.4229
+0.9421
+0.9871
+1.2098
+RCONSUM
+0.8296
+0.9420
+0.9934
+0.9768
+1.0611
+1.2835
+1.2795
+0.9982
+RFEDGOV
+CPROF
+h=1
+h=2
+h=3
+h=4
+1.0315
+1.1035
+1.0594
+1.1465
+0.9341
+0.9477
+0.9380
+0.9221
+0.9842
+1.1972
+0.9456
+1.1267
+HOUSING
+h=1
+h=2
+h=3
+h=4
+1.1149
+0.9988
+1.0490
+1.3654
+0.8903
+0.9600
+0.9190
+0.9425
+0.4875
+1.0262
+1.0565
+1.0269
+0.8985
+0.8930
+0.9418
+1.2174
+0.6585
+0.9202
+0.9187
+0.9817
+1.0197
+1.1829
+0.9991
+1.2962
+0.6751
+1.1208
+1.2364
+1.0056
+0.9128
+1.0148
+0.9358
+1.0616
+0.9146
+0.9396
+0.9593
+1.4551
+1.0680
+1.0113
+1.0094
+1.0820
+0.5541
+0.9843
+0.9145
+0.9156
+0.8589
+0.9608
+0.9240
+0.9462
+TBILL
+0.9401
+0.9222
+0.9713
+1.0179
+0.1876
+0.9134
+1.1640
+1.0400
+RCBI
+h=1
+h=2
+h=3
+h=4
+0.7488
+0.9736
+0.9663
+0.8997
+RSLGOV
+PGDP
+h=1
+h=2
+h=3
+h=4
+0.7654
+0.8952
+0.9160
+0.9825
+RRESINV
+NGDP
+h=1
+h=2
+h=3
+h=4
+1.0540
+1.0431
+0.9924
+0.9828
+RGDP
+INDPROD
+h=1
+h=2
+h=3
+h=4
+0.9350
+0.9960
+0.9561
+0.9849
+1.2180
+1.0877
+1.1035
+1.0167
+UNEMP
+0.7745
+0.9057
+0.9230
+0.9416
+0.4356
+0.8161
+0.8158
+0.8228
+1.1121
+0.9032
+0.8957
+0.8937
+Notes: RMSFE-values are calculated with 68 out-of-sample forecasts, except for the T-bill rate
+which only uses 66 forecasts. AR_FAC_EW_LSTAR_NNET combines the AR, AR_FAC, EW,
+LSTAR and NNET forecasts.
+Table 6.Out-of-sample MSFE-relative to that of the previous best model using
+an expanding window – across variables
+Simulation
+Data
+No Breaks
+Breaks in the
+Breaks in the
+Breaks in the Covariance Matrix
+Factor Loadings Factor Dynamics
+of Factors
+Panel A: All Variables
+Mean
+TK
+PB
+IMSFE
+0.844
+0.837
+1.000
+0.853
+0.970
+0.958
+1.000
+0.970
+0.935
+0.931
+1.000
+0.935
+0.953
+0.951
+1.000
+0.953
+0.972
+0.960
+1.000
+0.972
+Panel B: Returns, Interest Rates and Spreads
+Mean
+TK
+PB
+IMSFE
+0.777
+0.783
+1.000
+0.777
+0.967
+0.957
+1.000
+0.966
+0.928
+0.926
+1.000
+0.929
+0.954
+0.952
+1.000
+0.954
+0.967
+0.958
+1.000
+0.968
+Panel C: Measures of Economic Activity
+Mean
+TK
+PB
+IMSFE
+0.990
+0.967
+1.000
+1.004
+0.983
+0.960
+1.000
+0.981
+0.947
+0.940
+1.000
+0.947
+0.949
+0.946
+1.000
+0.949
+0.990
+0.966
+1.000
+0.988
+0.953
+0.950
+1.000
+0.952
+0.969
+0.959
+1.000
+0.968
+0.956
+0.952
+1.000
+0.956
+0.975
+0.961
+1.000
+0.975
+Panel D: Prices and Wages
+Mean
+TK
+PB
+IMSFE
+0.814
+0.809
+1.000
+0.823
+0.965
+0.955
+1.000
+0.964
+0.937
+0.934
+1.000
+0.937
+Panel E: Monetary Aggregates
+Mean
+TK
+PB
+IMSFE
+0.918
+0.894
+1.000
+0.939
+0.975
+0.961
+1.000
+0.975
+0.937
+0.932
+1.000
+0.937
+Notes: Mean refers to the mean forecast, TK to the combination using triangular kernel weights
+(i.e., inverse of historical MSFE rank), PB stands for the previous best forecasts, and IMSFE is
+a combination with weights that are inversely proportional to the MSFE.
+Figure 1. MSFE from model 1, model 2 and equally combined models as a
+function of p, for different setups
+Notes: Panel 1: σ2F2/ σ2F1=1, σ2ε2/σ2ε0=1, σ2ε1/σ2 ε0=1; Panel 2: σ2F2/ σ2F1=0.1, σ2ε2/σ2ε0=1, σ2ε1/σ2 ε0=1;
+Panel 3: σ2F2/ σ2F1=10, σ2ε2/σ2ε0=1, σ2ε1/σ2 ε0=1; Panel 4: σ2F2/ σ2F1=1, σ2ε2/σ2ε0=0.1, σ2ε1/σ2 ε0=1.
+Figure 2. Equal-Weighted Forecast vs Best Model Forecast
+Notes: The bands describe the regions in which the population MSFE of the equal-weighted forecast
+is lower than the population MSFE of the best model as a function of the relative variance of the
+factors, for p=0.1, 0.5.
+

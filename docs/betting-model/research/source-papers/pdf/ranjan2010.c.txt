@@ -1,0 +1,1362 @@
+J. R. Statist. Soc. B (2010)
+72, Part 1, pp. 71–91
+Combining probability forecasts
+Roopesh Ranjan
+University of Washington, Seattle, USA
+and Tilmann Gneiting
+Universität Heidelberg, Germany
+[Received February 2009. Revised August 2009]
+Summary. Linear pooling is by far the most popular method for combining probability forecasts.
+However, any non-trivial weighted average of two or more distinct, calibrated probability forecasts is necessarily uncalibrated and lacks sharpness. In view of 
+this, linear pooling requires
+recalibration, even in the ideal case in which the individual forecasts are calibrated. Towards
+this end, we propose a beta-transformed linear opinion pool for the aggregation of probability
+forecasts from distinct, calibrated or uncalibrated sources. The method fits an optimal nonlinearly recalibrated forecast combination, by compositing a beta 
+transform and the traditional
+linear opinion pool. The technique is illustrated in a simulation example and in a case-study on
+statistical and National Weather Service probability of precipitation forecasts.
+Keywords: Calibration; Coherent combination formula; Forecast aggregation; Linear opinion
+pool; Model averaging; Probability forecasting; Reliability; Resolution; Sharpness
+1.
+Introduction
+Probabilistic forecasts take account of the uncertainty in a prediction, by taking the form of a
+predictive probability distribution for a future quantity or event. The simplest case is that of a
+future binary or dichotomous event, such as a recession versus no recession, or rain versus no
+rain. In the binary case, a predictive probability distribution is simply an ex ante probability
+for the event to happen. Although the roots of probability forecasting can be traced back to
+the 18th century, the transition to probability of precipitation forecasts by the US National
+Weather Service (NWS) in 1965 was perhaps the most inﬂuential and important event in their
+development (Murphy, 1998; Winkler and Jose, 2008). In economics, the Survey of Professional
+Forecasters has included probability variables since 1968 (Croushore, 1993). Of course, there
+are many other important applications of probability forecasts, including but not limited to
+medical diagnosis (Spiegelhalter, 1986), educational testing and political and socio-economic
+foresight (Tetlock, 2005). Arguably, a far-reaching transdisciplinary transition to distributional
+forecasting is well under way (Gneiting, 2008).
+In many instances, multiple probability forecasts for the same event are available. In surveys,
+economic experts might provide diverse probability assessments of a future recession. Distinct
+numerical and/or statistical models might provide a collection of probability of precipitation
+forecasts, and a group of physicians might assign individual survival probabilities. In this type of
+situation, there is strong empirical evidence that combined probability forecasts that draw on all
+Address for correspondence: Tilmann Gneiting, Institut für Angewandte Mathematik, Universität Heidelberg,
+Im Neuenheimer Feld 294, D-69120 Heidelberg, Germany.
+E-mail: t.gneiting@uni-heidelberg.de
+© 2010 Royal Statistical Society
+1369–7412/10/72071
+72
+R. Ranjan and T. Gneiting
+2.
+Some shortcomings of linearly combined probability forecasts
+The overarching message in this section is that linear opinion pools are generally uncalibrated,
+even in the ideal case in which each individual source is calibrated. We give a rigorous probabilistic version of this result in theorem 1, which is then 
+illustrated in a simulation study.
+2.1. Theoretical results
+We work within a probabilistic framework which considers the joint distribution of the random
+vector
+.Y , p1 , . . . , pk /,
+where Y ∈ {0, 1} is a binary or dichotomous event, and 0 ⩽ p1 , . . . , pk ⩽ 1 are probability forecasts
+that take values in the closed unit interval. This is akin to the setting in DeGroot and Fienberg
+(1982, 1983) and Murphy and Winkler (1987) but considers an arbitrary number k of individual
+probability forecasts, each of which is a random variable, with full generality in the joint depen-
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+the experts’ or models’ strengths result in improved predictive performance. This is very much
+in the spirit of model averaging, which has primarily been developed for statistical inference
+(Hoeting et al., 1999).
+Various ways of combining probability forecasts into a single aggregated forecast have been
+proposed. Genest and Zidek (1986), Wallsten et al. (1997), Clemen and Winkler (2007) and
+Primo et al. (2009) provide excellent reviews. In practice, most aggregation techniques rely on
+a weighted linear combination of the individual probability forecasts, which is often referred
+to as a linear opinion pool (Stone, 1961; Genest and McConway, 1990; DeGroot and Mortera, 1991). Substantial empirical evidence attests to the beneﬁts of linear 
+opinion pools, with
+successful applications ranging from meteorology (Sanders, 1963; Vislocky and Fritsch, 1995;
+Baars and Mass, 2005) to economics (Graham, 1996), psychology (Ariely et al., 2000) and
+medical diagnosis (Winkler and Poses, 1993), among other ﬁelds.
+The goal in probability forecasting is to maximize the sharpness of the forecast distributions
+subject to calibration (Murphy and Winkler, 1987; Gneiting et al., 2007; Pal, 2009). Calibration
+or reliability measures how close conditional event frequencies are to the forecast probabilities. Sharpness describes how far away the forecasts are from the 
+naive, climatological baseline
+forecast, i.e. the marginal event frequency (Gneiting et al., 2008; Winkler and Jose, 2008). The
+more extreme the forecast probabilities are, i.e. the closer to the most conﬁdent values of 0 or
+1, the sharper the forecast. Strictly proper scoring rules such as the Brier or quadratic score
+(Brier, 1950; Selten, 1998) and the logarithmic score (Good, 1952) provide summary measures
+of predictive performance that address calibration and sharpness simultaneously (Gneiting and
+Raftery, 2007).
+It is therefore critical that probability assessments are aggregated in ways that promote calibrated and sharp combined forecasts. In Section 2 we demonstrate 
+a striking result, in that
+any weighted linear combination of distinct, individually calibrated probability forecasts is
+necessarily uncalibrated and lacks sharpness. In this light, linear opinion pools are suboptimal, so in Section 3 we propose a non-linear generalization, the 
+beta-transformed linear pool
+(BLP). The BLP method ﬁts an optimally recalibrated forecast combination, by compositing
+a beta transform and the traditional linear opinion pool. Section 4 illustrates the BLP method
+in a case-study on statistical and NWS probability of precipitation forecasts at 29 major
+cities in continental USA. The BLP combined forecast is calibrated and sharp and outperforms
+the individual and linearly combined forecasts. The paper closes with a discussion in Section 5.
+Probability Forecasts
+73
+dence structure. In this framework a probability forecast is any random variable p that is measurable with respect to the σ-algebra that is generated by p1 , . 
+. . , pk , with the linear opinion pool,
+p = w1 p1 + . . . + wk pk ,
+w1 , . . . , wk ⩾ 0,
+w1 + . . . + wk = 1,
+.1/
+being one such example. The probability forecast p is calibrated for Y if
+P.Y = 1|p/ = E.Y |p/ = p
+almost surely:
+E.p/ = E{E.Y |p/} = E.Y/:
+This property can be thought of as a weak form of calibration, and we refer to it as marginal
+consistency. It resembles the notion of marginal calibration for probabilistic forecasts of continuous variables (Gneiting et al., 2007).
+A scoring rule assigns a numerical score S.x, y/ to the probability forecast x ∈ [0, 1] and the
+binary event y, where y = 1 if the event occurs and y = 0 otherwise. We consider scoring rules to
+be negatively oriented penalties, i.e. the smaller the better. A scoring rule is strictly proper if it
+encourages honest assessments, i.e. if
+x S.x, 1/ + .1 − x/ S.x, 0/ < x S.x , 1/ + .1 − x/ S.x , 0/
+for all 0 ⩽ x = x ⩽ 1:
+See Dawid (1986), Winkler (1996) and Gneiting and Raftery (2007) for reviews and discussion.
+We now can state our key result. The proof is deferred to Appendix A.
+Theorem 1. Suppose that p1 , . . . , pk are calibrated for the binary event Y and such that pi = pj
+with strictly positive probability for at least one pair i = j. Consider the linear opinion pool
+p = w 1 p1 + . . . + w k pk ,
+where w1 , . . . , wk > 0 and w1 + . . . + wk = 1. Let
+q = P.Y = 1|p/ = E.Y |p/
+denote the recalibrated version of p, i.e. the conditional probability of Y given p. Then the
+following results hold.
+(a) The linear opinion pool p lacks calibration, in that q = p with strictly positive probability.
+(b) The linear opinion pool p lacks sharpness, in that
+E.p − p0 /2 < E.q − p0 /2
+where p0 = E.p/ = E.q/ = E.Y/: In words, both p and q are marginally consistent, but
+on average p is closer to its expectation, the naive climatological forecast p0 , than its
+recalibrated version, q.
+(c) The recalibrated forecast q is calibrated, i.e. P.Y = 1|q/ = q almost surely, and it outperforms p, in that
+E{S.q, Y/} < E{S.p, Y/}
+for every strictly proper scoring rule S.
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+This deﬁnition is in accordance with the economic, meteorological, psychological and statistical
+forecasting literature and can be traced to Murphy and Winkler (1987) and Schervish (1989). It
+differs from the game theoretic approach to calibration that has been developed in a far-reaching
+related strand of literature (Dawid, 1982; Foster and Vohra, 1998; Lehrer, 2001; Sandroni
+et al., 2003; Vovk and Shafer, 2005). From the basic properties of conditional expectations, it
+is immediate that if p is a calibrated probability forecast then
+74
+R. Ranjan and T. Gneiting
+under some joint distribution of the random vector .Y , p1 , . . . , pk /. The conditional probability
+property (2) implies calibration. Thus, part (a) of theorem 1 shows, for any k ⩾ 2, that any nontrivial linear combination formula with non-negative coefﬁcients 
+is incoherent. This generalizes
+a result of Dawid et al. (1995), page 275, which applies in the case of k = 2 sources.
+Theorem 2 of Wallsten and Diederich (2001) considers the combination of expert probability
+judgements, assuming that the assessments are conditionally independent and that each expert’s
+expressed (overt) opinion is a monotone stochastic transform of a hidden (covert) opinion,
+which is calibrated. Then the arithmetic mean of the expert opinions becomes increasingly
+diagnostic of the future event as the number of experts grows to ∞, roughly in the sense that
+if the mean exceeds 21 the true conditional event probability converges to 1 and otherwise
+converges to 0. Consequently, the calibration curve for the arithmetic mean of the expert
+opinions becomes sigmoidal with a ﬁxed point at 21 . In contrast with our theorem 1, which is a
+ﬁnite sample result and does not make any assumptions on the dependence structure, Wallsten
+and Diederich (2001) relied critically on the asymptotic scenario and conditional independence.
+Another related result is theorem 4.1 of Genest and Schervish (1985), which adopts a Bayesian
+point of view and derives a formula for the posterior opinion of a decision maker. Similarly to
+Wallsten and Diederich’s (2001) ﬁndings, the true posterior opinion converges to 1, or 0, if
+the individual judgements lie above, or below, 21 . This result also depends on the conditional
+independence of the individual probability assessments.
+Despite theorem 1 being critical of the linear opinion tool, there is overwhelming empirical
+evidence that linearly combined probability forecasts outperform individual forecasts. This is
+not a contradiction and can readily be explained, by noting that linear opinion pools outperform
+individual forecasts, but are suboptimal themselves and can potentially be improved on by using
+non-linear recalibration methods.
+2.2. Simulation study
+We now illustrate our theoretical ﬁndings in a simulation study. First we describe a statistical
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+The statement about the lack of calibration of the linear opinion pool in part (a) is our key
+result. It is counter to a natural belief that linear pools of calibrated probability forecasts are
+calibrated, as recently expressed by Iversen et al. (2008), page 899. A similar result which applies
+to the case of multiple density forecasts for a continuous quantity was proved by Hora (2004).
+This uses a very different mode of calibration, and there is no apparent way of deducing our
+result from Hora’s, or vice versa.
+The result in part (a) is an immediate consequence of the stronger statement in part (b), since
+the latter implies that p cannot equal q with probability 1. Part (b) hints at the nature of the
+departure from the recalibrated forecast q and is expressed in terms of the expected squared
+deviation from the climatological baseline probability p0 . For a sharp forecast, the forecast
+probabilities are close to 0 or 1, so the larger this deviation the sharper the forecast (Murphy
+and Winkler, 1992; Gneiting et al., 2008; Winkler and Jose, 2008). As a result, the linear opinion
+pool is underconﬁdent. Part (c) demonstrates the superiority of the recalibrated forecast in
+terms of strictly proper scoring rules (Gneiting and Raftery, 2007) and is akin to theorem 6.3 of
+Schervish (1989). Proper scoring rules address calibration and sharpness simultaneously, so in
+view of parts (a) and (b) this is an unsurprising result.
+We proceed to discuss related results in the literature. Dawid et al. (1995) studied the problem
+of the coherent combination of probability forecasts. Brieﬂy, a coherent combination formula is
+a function f : [0, 1]k → [0, 1] such that
+f.p1 , . . . , pk / = P.Y = 1|p1 , . . . , pk /
+.2/
+Probability Forecasts
+75
+model that gives rise to a joint distribution for the binary event Y and probability forecasts p1
+and p2 , which represent forecasters with access to independent sources of information. Then
+we deﬁne linearly combined forecasts and assess calibration.
+Speciﬁcally, let
+p = Φ.a1 + a2 /,
+where a1 ∼ N .0, 1/ and a2 ∼ N .0, 2/ are independent random variables and Φ denotes the standard normal cumulative distribution function. Suppose that Y is a 
+Bernoulli random variable
+with conditional success probability
+Forecaster 1 has access to a1 only. This assessor’s probability forecast p1 is the conditional event
+probability
+√
+p1 = P.Y = 1|a1 / = E.Y |a1 / = E.p|a1 / = E{Φ.a1 + a2 /|a1 } = Φ.a1 = 3/:
+.3/
+The second forecaster has knowledge of source a2 only, whence probability forecast p2 becomes
+√
+p2 = P.Y = 1|a2 / = Φ.a2 = 2/:
+.4/
+√
+The ﬁnal equality stems from the fact that if X ∼ N .μ, σ 2 / then E{Φ.X/} = Φ{μ= .σ 2 + 1/},
+which is proved in Appendix A. Evidently, p, p1 and p2 are calibrated.
+We take p1 and p2 as the individual forecasts from which we form combinations, namely
+the equally weighted linear opinion pool (which we shall denote as the ELP), i.e. the equally
+weighted average of p1 and p2 , and an optimally weighted linear opinion pool (which we shall
+denote as the OLP). The OLP weights for p1 and p2 are estimated on a training sample of size
+10000, using the maximum likelihood method and the special case of the log-likelihood function
+(10) below, in which α = β = 1. Table 1 shows the OLP estimates and their standard errors. The
+second individual forecast p2 , which resolves events and non-events more successfully, obtains
+a substantially higher OLP weight w2 of about 43 .
+In the simulation experiment, we consider an independent test sample of size 10 000 from the
+joint distribution of Y , p1 and p2 and generate the combined ELP and OLP forecasts. Fig. 1
+shows empirical calibration curves or reliability diagrams (Sanders, 1963; Pocernich, 2009) for
+the four types of forecasts, which plot the conditional empirical event frequency against the
+forecast probability. The circles show the conditional empirical frequency; the broken curves
+give pointwise 95% lower and upper critical values under the null hypothesis of calibration,
+obtained with the bootstrap technique of Bröcker and Smith (2007). Signiﬁcant deviations from
+the diagonal suggest that a forecast is uncalibrated. The inset histograms show the frequency
+distribution of the forecast probabilities and can be used diagnostically to assess sharpness.
+Table 1. Maximum likelihood estimates of OLP and
+BLP parameters in the simulation example of Sections
+2.2 and 3.2, with standard errors in parentheses
+Method
+w1
+w2
+α
+OLP
+BLP
+0.246 (0.014)
+0.519 (0.005)
+0.754 (0.014)
+0.481 (0.005)
+9.55 (0.35)
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+P.Y = 1|p/ = E.Y |p/ = p:
+0.8
+0.6
+0.4
+Observed relative frequency
+0.0
+0.2
+0.8
+0.6
+0.4
+0.2
+0.0
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+0.8
+1.0
+0.0
+0.2
+1.0
+0.8
+1.0
+1.0
+0.8
+0.6
+0.4
+Observed relative frequency
+0.0
+0.2
+0.8
+0.6
+0.4
+0.2
+0.0
+Observed relative frequency
+0.8
+(b)
+1.0
+(a)
+0.4
+0.6
+Forecast probability
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+(c)
+0.8
+1.0
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+(d)
+Fig. 1. Calibration curves and 95% bootstrap intervals under the null hypothesis of calibration for the individual and linearly combined forecasts in the 
+simulation example of Section 2.2 (the histograms show the
+empirical distribution of the forecast values over the unit interval): (a) forecast p1 ; (b) forecast p2 ; (c) ELP;
+(d) OLP
+The calibration curves for the individual forecasts p1 and p2 show that they are empirically
+well calibrated, and the inset histograms conﬁrm that p2 is the sharper forecast, with forecast
+probabilities that are further away from the climatological event frequency, p0 = 21 . The linearly
+pooled ELP and OLP forecasts are empirically uncalibrated. The direction of departure is as
+expected, towards underconﬁdence, and the extent of the lack of calibration is startling, even
+for the optimally weighted OLP forecast.
+3.
+Recalibration
+We have seen that the linear opinion pool yields a suboptimal combined probability forecast,
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+Observed relative frequency
+1.0
+R. Ranjan and T. Gneiting
+1.0
+76
+Probability Forecasts
+77
+in that it is uncalibrated even in the ideal case in which the individual sources are calibrated.
+If the individual forecasts are uncalibrated, the need for recalibration typically is even more
+pronounced. Before proposing a method that addresses these issues, by applying a recalibration
+transform to the linear opinion pool, we digress to discuss a theoretically optimal approach to
+forecast aggregation.
+We have chosen to work in a probabilistic setting that considers the joint distribution of the
+binary event and the individual probability forecasts. In this framework, the theoretically
+optimal combined forecast p̂ is the conditional probability (CP), or conditional expectation
+of the binary event Y , given the individual forecasts p1 , . . . , pk , i.e.
+.5/
+By deﬁnition, this is the best approximation of the binary random variable Y in terms of the
+individual probability forecasts p1 , . . . , pk , in the sense that E.p̂ − Y/2 ⩽ E.p − Y/2 for all functions p that are measurable with respect to the σ-algebra 
+that is generated by p1 , . . . , pk . Hence,
+p̂ minimizes the expected Brier score and, indeed, the expectation of any strictly proper scoring
+rule S, in that
+E{S.p̂, Y/} = E[E{S.p̂, Y/|p1 , . . . , pk }]
+= E{p̂ S.p̂, 1/ + .1 − p̂/ S.p̂, 0/}
+⩽ E{p̂ S.p, 1/ + .1 − p̂/ S.p, 0/}
+= E[E{S.p, Y/|p1 , . . . , pk }]
+= E{S.p, Y/},
+with equality if and only if p = p̂ almost surely. Under the conditions of theorem 1, the conditional probability p̂ is a necessarily non-linear function of the 
+individual forecasts, except for
+some special cases in which it is linear with at least one coefﬁcient being negative (Dawid et al.,
+1995). In the simulation study of Section 2.2 there are two individual forecasts, p1 and p2 , and
+the conditional probability (5) equals
+p̂ = P.Y = 1|p1 , p2 /
+= P.Y = 1|a1 , a2 /
+= Φ.a1 + a2 /
+√
+√
+= Φ{Φ−1 .p1 / 3 + Φ−1 .p2 / 2}:
+.6/
+This is of the generalized linear form (24) of Dawid et al. (1995) with a normal quantile link
+function.
+3.1. The beta-transformed linear opinion pool
+In the practice of forecasting, the functional form of the conditional probability (5) is unknown
+and needs to be estimated from training data. Non-parametric approaches are feasible; however,
+we prefer parsimonious, yet ﬂexible parametric approximations. Speciﬁcally, our preferred
+approach to aggregating individual probability forecasts, p1 , . . . , pk , is ﬁrst to form a linear
+opinion pool, and then to apply a beta transform to achieve calibration. We call this the BLP,
+which takes the form
+ k
+
+
+.7/
+p = Hα,β
+wi p i ,
+i=1
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+p̂ = P.Y = 1|p1 , . . . , pk / = E.Y |p1 , . . . , pk /:
+78
+R. Ranjan and T. Gneiting
+where w1 , . . . , wk ⩾ 0 and w1 + . . .+ wk = 1, and
+ x
+Hα,β .x/ = B.α, β/−1
+t α−1 .1 − t/β−1 dt
+for x ∈ [0, 1]
+0
+Hα,β .x/ ⩽ x
+Hα,β .x/ ⩾ x
+for x ⩽ x0 ,
+.8/
+for x ⩾ x0
+for some x0 ∈ .0, 1/. This can be enforced by putting conditions on α and β. For example,
+if the individual forecasts are calibrated, theorem 1 suggests that the linear opinion pool is
+underconﬁdent, in the sense that its calibration curve lies under the diagonal for small forecast
+probabilities, and above the diagonal for high probabilities, with a ﬁxed point at some x0 ∈ .0, 1/.
+The aforementioned results of Wallsten and Diederich (2001) support the choice of x0 = 21 , under
+which condition (8) can be enforced by requiring that
+α = β ⩾ 1:
+.9/
+If we aim to address the hard–easy effect that has been described in the psychological literature
+(Lichtenstein et al. (1982) and Kynn (2008), page 253), the ﬁxed point in condition (8) can be
+taken to be x0 = 43 .
+We now describe how we go about parameter estimation for the BLP model (7). Suppose
+that y1 , . . . , yn are binary observations in the training set. Let pi1 , . . . , pin denote the respective
+individual probability forecasts, for sources i = 1, . . . , k. The aggregated BLP forecast then takes
+the form
+ k
+
+
+pt = Hα,β
+for t = 1, . . . , n,
+wi pit
+i=1
+where the index ranges over the instances in the training set. Assuming independence, the loglikelihood function for the BLP model (7) can be expressed as
+l.w1 , . . . , wk ; α, β/ =
+=
+n
+
+{yt log.pt / + .1 − yt / log.1 − pt /}
+t=1
+n
+
+t=1
+ k
+ n
+ k
+
+
+
+
+
+
+yt log Hα,β
+wi pit + .1 − yt / log 1 − Hα,β
+wi pit :
+i=1
+t=1
+i=1
+.10/
+We obtain maximum likelihood estimates of the weights w1 , . . . , wk and the recalibration parameters α and β by numerically optimizing the log-likelihood 
+function (10) under the constraints
+that w1 , . . . , wk ⩾ 0, w1 + . . . + wk = 1, α > 0 and β > 0. As noted above, it is often appropriate
+to enforce further constraints, with inequality (9) being one such example. The traditional,
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+is the cumulative distribution function of the beta density with shape parameters α > 0 and β > 0.
+Note that the BLP model nests the traditional linear opinion pool that arises in the special case
+when α = β = 1. If furthermore w1 = . . . = wk = 1=k we recover the ELP. Although the use of the
+beta transform for the purpose of calibration dates back at least to Graham (1996), the statistical
+model (7) that merges the linear opinion pool with a parametric recalibration transformation
+appears to be new. It applies very generally and can be used to aggregate calibrated as well as
+uncalibrated sources.
+In many cases, full generality in equation (7) may not be needed or desirable. For instance, it
+is often useful to assume that the recalibration transform Hα,β satisﬁes
+Probability Forecasts
+79
+non-transformed linear opinion pool arises when α = β = 1. Estimated standard errors can be
+obtained in the usual way, by inverting a numerical approximation to the Hessian of the
+log-likelihood function at the maximum likelihood estimates. The estimates can also be interpreted as optimum score estimates based on the logarithmic scoring 
+rule, in the sense
+described by Gneiting and Raftery (2007), page 375. The latter interpretation does not rely
+on any assumption of independence, and our results in concert with those of Wilks (1991)
+suggest robustness to non-independence.
+1.0
+0.8
+0.6
+0.4
+Observed relative frequency
+0.2
+0.0
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+0.8
+1.0
+Fig. 2. Calibration curve and 95% bootstrap intervals under the null hypothesis of calibration for the BLP
+forecast in the simulation example of Sections 2.2 and 3.2, for the same independent test sample as that
+used before (the histogram shows the empirical distribution of the forecast values over the unit interval)
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+3.2. Simulation study revisited
+We return to the simulation study in Section 2.2 and ﬁt the BLP to combine the individual probability forecasts p1 and p2 . Then we compare the result with the 
+theoretically optimal forecast,
+the CP forecast (5) which here has the closed form solution (6).
+Recall that both p1 and p2 are calibrated, so, as we explained in the previous section, we
+estimate the BLP model (7) under constraint (9), i.e. we assume that α = β⩾1. Table 1 shows
+maximum likelihood estimates for the BLP parameters and compares them with the respective
+OLP estimates. The individual forecasts p1 and p2 receive approximately equal BLP weights,
+which is much in contrast with the OLP model. The estimate for the BLP recalibration parameter α is far from the identity transform that arises when α = 1, 
+reﬂecting the striking lack of
+calibration of the traditional linear opinion pool.
+Have we succeeded in our goal of approximating the theoretically optimal CP forecast (6)
+by the estimated, non-linearly aggregated BLP model (7)? The empirical calibration curve for
+the BLP forecast in Fig. 2 does not show any systematic departure from the diagonal, and the
+inset histogram shows that it is much sharper than any of the individual or linearly combined
+forecasts. A more detailed analysis reveals that if 0 < p1 = p2 < 1 the maximal difference between
+the CP forecast and the ﬁtted BLP model is 0.0215.
+Table 2 shows the mean Brier or quadratic score and its reliability, resolution and uncertainty components for the various forecasts (Murphy, 1973; Dawid, 
+1986). Suppose that the
+80
+R. Ranjan and T. Gneiting
+Table 2. Out-of-sample mean Brier score BS
+and its reliability REL, resolution RES and uncertainty UNC components for the probability forecasts in the simulation example of Sections 2.2
+and 3.2
+Forecast
+REL
+RES
+UNC
+0.2094
+0.1657
+0.1563
+0.1531
+0.1137
+0.1126
+0.0002
+0.0004
+0.0418
+0.0120
+0.0005
+0.0003
+0.0408
+0.0847
+0.1354
+0.1088
+0.1368
+0.1377
+0.2500
+0.2500
+0.2500
+0.2500
+0.2500
+0.2500
+probability forecasts pt for the binary event yt , where t = 1, . . . , n, take discrete values fi ∈ [0, 1],
+where i = 1, . . . , I. Let ni be the number of times that the forecast value fi occurs, so that
+n = n1 + . . . + nI , and let qi be the respective empirical conditional event frequency, i.e. the
+ex post recalibrated forecast. Let
+I
+n
+1
+1
+q̄ =
+ni qi =
+yt
+n i=1
+n t=1
+denote the marginal event frequency. Then the mean Brier score,
+BS =
+
+1 n
+.pt − yt /2 ,
+n t=1
+decomposes as
+BS =
+I
+I
+1
+1
+ni .fi − qi /2 −
+ni .qi − q̄/2 + q̄.1 − q̄/ :
+
+n i=1
+n i=1
+
+
+UNC
+REL
+RES
+The reliability term REL quantiﬁes calibration and is negatively oriented, i.e. the smaller the
+better. The resolution component RES equals the variance of the ex post recalibrated forecast
+and is positively oriented. For a calibrated forecast, it quantiﬁes sharpness; for an uncalibrated
+forecast, it measures potential sharpness. As noted above, we generally seek a forecast which is
+as sharp as possible subject to its being calibrated (Murphy and Winkler, 1987; Gneiting et al.,
+2007). The uncertainty term UNC is computed from the observations alone and is independent
+of the forecast. If the probability forecast is a continuous variable, the decomposition depends
+on a binning of the forecast values and is approximate only. It can be made exact by considering
+two additional components in the decomposition, as proposed by Stephenson et al. (2008). In
+our case, the extra terms make very little difference, and we consider the classical decomposition
+only.
+From Table 2 we see that the linearly combined ELP and OLP forecasts have lower Brier score
+than any of the individual forecasts. In both cases, the improvement stems from the resolution
+component, which is high, because the ex post recalibrated forecast is sharp, even though the
+forecast itself is uncalibrated and lacks sharpness, as reﬂected in Fig. 1. The BLP forecast is
+much better calibrated, and simultaneously more successful in resolving events and non-events,
+than the ELP and OLP forecasts, resulting in a hugely improved Brier score. As expected the
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+p1
+p2
+ELP
+OLP
+BLP
+CP
+BS
+Probability Forecasts
+81
+theoretically optimal CP forecast shows the lowest Brier score. However, the BLP forecast is a
+very close competitor; it is nearly as well calibrated and nearly as sharp as the CP forecast.
+2
+2
+As illustrated in Fig. 3, the source p2Å is uncalibrated and its marginal distribution is skewed.
+Table 3 shows maximum likelihood estimates for OLP and BLP models which have been ﬁtted on the same training sample (i.e. by using the same random seed for a1 
+and a2 ) as in
+Sections 2.2 and 3.2. Note that we refer to the constrained BLP model (with α = β) as
+symmetric, and to the full model (with general parameters α > 0 and β > 0) as asymmetric.
+Table 3. Maximum likelihood estimates of OLP and BLP parameters in the
+simulation example of Section 3.3, with standard errors in parentheses
+w1
+w2
+α
+β
+0.265 (0.017)
+0.473 (0.005)
+0.454 (0.005)
+0.735 (0.017)
+0.527 (0.005)
+0.546 (0.005)
+10.11 (0.36)
+13.72 (0.49)
+10.11 (0.36)
+11.66 (0.42)
+Method
+0.8
+0.6
+0.4
+0.2
+0.0
+Observed relative frequency
+1.0
+OLP
+BLP (symmetric)
+BLP (asymmetric)
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+0.8
+1.0
+Fig. 3. Calibration curve and 95% bootstrap intervals under the null hypothesis of calibration for the uncalibrated source p2Å in the simulation example of 
+Section 3.3 (the histogram shows the empirical distribution of
+the forecast values over the unit interval)
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+3.3. Uncalibrated components
+In the above simulation experiment, each individual source was calibrated, and we ﬁtted the
+BLP model (7) under the constraint that α = β. However, the BLP approach is more general and
+applies equally in situations in which one or more of the component forecasts are uncalibrated.
+Furthermore, it can be beneﬁcial to allow for the full BLP model with general parameters α > 0
+and β > 0.
+In the remainder of the section, we give an example that covers
+√ these two types of situation.
+Speciﬁcally, we consider forecast combinations of p1 = Φ.a1 = 3/, deﬁned as previously, and of
+the probability forecast pÅ2 , which we take to be
+pÅ = Φ.1=5 + a =2/:
+.11/
+0.8
+0.6
+0.4
+Observed relative frequency
+0.0
+0.2
+0.8
+0.6
+0.4
+0.2
+0.0
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+(a)
+0.8
+1.0
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+(b)
+0.8
+1.0
+Fig. 4. Calibration curves and 95% bootstrap intervals under the null hypothesis of calibration for the BLP
+forecasts in the simulation example of Section 3.3 (the histograms show the empirical distribution of the
+forecast values over the unit interval): (a) symmetric BLP forecast; (b) asymmetric BLP forecast
+Table 4. Out-of-sample mean Brier score BS and its reliability REL,
+resolution RES and uncertainty UNC components for the probability
+forecasts in the simulation example of Section 3.3
+Forecast
+p1
+pÅ2
+ELP
+OLP
+BLP (symmetric)
+BLP (asymmetric)
+CP
+BS
+REL
+RES
+UNC
+0.2094
+0.1740
+0.1671
+0.1641
+0.1215
+0.1132
+0.1126
+0.0002
+0.0084
+0.0514
+0.0321
+0.0084
+0.0005
+0.0003
+0.0408
+0.0844
+0.1343
+0.1179
+0.1369
+0.1373
+0.1377
+0.2500
+0.2500
+0.2500
+0.2500
+0.2500
+0.2500
+0.2500
+Fig. 4 and Table 4 show performance results for the same independent test sample of size
+10000 as that used before. The calibration curves in Fig. 4 demonstrate that the symmetric BLP
+forecast is uncalibrated, whereas the asymmetric BLP forecast is empirically calibrated. The
+Brier scores in Table 4 conﬁrm that the linearly combined ELP and OLP forecasts outperform
+each of the individual sources p1 and p2Å . However, the non-linearly combined BLP forecasts
+show much better predictive performance. The asymmetric general version of the BLP forecast
+outperforms the symmetric version, which is uncalibrated, and performs nearly as well as the
+theoretically optimal CP forecast.
+4.
+Case-study: probability of precipitation forecasts
+We turn to a data example on statistical and NWS probability of precipitation forecasts in continental USA. With about a third of the US economy being weather 
+sensitive, and severe weather
+causing billions of dollars in damage and hundreds of deaths annually, there is a critical need
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+Observed relative frequency
+1.0
+R. Ranjan and T. Gneiting
+1.0
+82
+Probability Forecasts
+83
+1.0
+0.8
+0.6
+0.4
+Observed relative frequency
+0.0
+0.2
+1.0
+0.8
+0.6
+0.4
+Observed relative frequency
+0.2
+0.0
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+0.8
+1.0
+0.0
+0.2
+1.0
+0.8
+1.0
+1.0
+0.8
+0.6
+0.4
+0.0
+0.2
+Observed relative frequency
+0.8
+0.6
+0.4
+0.2
+0.0
+Observed relative frequency
+0.8
+(b)
+1.0
+(a)
+0.4
+0.6
+Forecast probability
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+(c)
+0.8
+1.0
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+(d)
+Fig. 5. Calibration curves and 95% bootstrap intervals under the null hypothesis of calibration for the four
+individual probability of precipitation forecasts in the test period (the histograms show the empirical distribution
+of the forecast values over the unit interval): (a) GMOS; (b) EMOS; (c) NMOS; (d) NWS
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+for calibrated and sharp probabilistic weather forecasts, to allow for optimal decision-making
+under inherent uncertainty (Dutton, 2002; Regnier, 2008).
+Baars and Mass (2005) considered probability of precipitation forecasts for 29 meteorological
+stations at major urban centres spread across continental USA. They compared the performance
+of individual and linearly combined model output statistics (MOS) and NWS forecasts and
+concluded that a linear opinion pool of the machine-generated MOS forecasts is competitive
+with or superior to the NWS forecast at nearly all locations. Here we consider the aggregate
+performance of individual and combined forecasts at all 29 stations, based on the automated
+‘GMOS’, ‘EMOS’ and ‘NMOS’ forecasts (Baars and Mass, 2005), and the human-generated,
+operational NWS forecast. The MOS probability forecasts are statistical forecasts that apply
+84
+R. Ranjan and T. Gneiting
+4.1. Combining statistical forecasts
+Following Baars and Mass (2005), we consider combined probability forecasts that use the three
+statistical probability forecasts, namely the GMOS, EMOS and NMOS forecasts. As previously,
+the ELP is obtained as the simple average of the three forecasts. Table 5 shows maximum likelihood estimates for the OLP and the BLP, which we ﬁt on the 
+training data. For both methods,
+the GMOS and EMOS weights are about equal and nearly reach 21 , with the NMOS weight
+being much smaller. This is unsurprising, because NMOS is the oldest system and is well known
+to be the least accurate of the forecasts considered. The maximum likelihood estimate of the
+BLP recalibration parameter α is 1.48.
+Reliability diagrams for the combined forecasts are shown in Fig. 6. The calibration curve for
+the OLP forecast deviates signiﬁcantly from the diagonal; the effect is stronger than for any of
+the individual forecasts, and the direction of the departure agrees with our theoretical results,
+in that the linearly combined forecast is underconﬁdent. The calibration curve for the ELP
+forecast is very similar and so it is not shown here. The non-linearly recalibrated BLP forecast
+is empirically well calibrated and sharper than the OLP forecast.
+Table 6 shows the Brier score and its reliability, resolution and uncertainty components for
+the individual and combined forecasts. The BLP forecast performs the best, both in terms of
+the Brier score, the reliability or calibration component and the resolution component. The
+Table 5. Combined probability forecasts in the precipitation example,
+using the statistical forecasts only†
+Method
+OLP
+BLP
+Estimates from the following forecasts:
+GMOS
+EMOS
+NMOS
+0.485 (0.026)
+0.462 (0.022)
+0.465 (0.027)
+0.447 (0.022)
+0.050 (0.020)
+0.091 (0.021)
+α
+1.48 (0.03)
+†Maximum likelihood estimates for the OLP and BLP parameters from the
+training period with standard errors in parentheses.
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+regression techniques to the output of a numerical weather prediction model and recent weather
+observations (Glahn and Lowry, 1972; Wilks, 2006). The MOS forecasts are recorded in multiples of a hundredth; the NWS forecasts come in multiples of 1/10th, 
+except that a forecast
+probability of 0.05 is issued occasionally.
+We consider the 2-days-ahead probability of precipitation forecasts for the 12-h term called
+period 2 by Baars and Mass (2005), with our data ranging from July 1st, 2003, to March 3rd,
+2008. This includes but is not limited to the 1-year record that was studied by Baars and Mass
+(2005). We use the ﬁrst two years (from July 1st, 2003, to June 30th, 2005) as training data, on
+which we ﬁt OLP and BLP models that apply at all stations simultaneously. The balance of the
+record (from July 1st, 2005, to March 3rd, 2008) is used as test data on which we evaluate the
+forecasts. All results are aggregated over the test period and the 29 stations.
+Fig. 5 shows calibration curves for the four individual forecasts over the test period. We are
+in the desirable situation in which the calibration curves show only minor deviations from the
+diagonal, and so we ﬁt the BLP model (7) under constraint (9). Hence, the BLP model has
+a single additional recalibration parameter, α ⩾ 1, when compared with the traditional linear
+opinion pool.
+1.0
+0.6
+0.4
+Observed relative frequency
+0.6
+0.4
+0.0
+0.2
+0.0
+0.8
+1.0
+0.4
+0.6
+Forecast probability
+0.2
+0.8
+1.0
+85
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+0.8
+1.0
+0.0
+0.2
+(a)
+0.8
+(b)
+Fig. 6. Calibration curves and 95% bootstrap intervals under the null hypothesis of calibration for the OLP
+and BLP probability of precipitation forecasts in the test period, using the statistical forecasts only (the
+histograms show the empirical distribution of the forecast values over the unit interval): (a) OLP; (b) BLP
+Table 6. Mean Brier score BS and its reliability
+REL, resolution RES and uncertainty UNC components for individual and combined probability of
+precipitation forecasts in the test period, using the
+statistical forecasts only
+Forecast
+BS
+REL
+RES
+UNC
+GMOS
+EMOS
+NMOS
+ELP
+OLP
+BLP
+0.0815
+0.0866
+0.0934
+0.0814
+0.0800
+0.0783
+0.0011
+0.0011
+0.0005
+0.0023
+0.0021
+0.0004
+0.0739
+0.0688
+0.0614
+0.0751
+0.0764
+0.0764
+0.1543
+0.1543
+0.1543
+0.1543
+0.1543
+0.1543
+improvement of the non-linear BLP method over the linear OLP forecast is about the same as
+that of the OLP forecast over the best individual source, the GMOS forecast.
+4.2. Combining statistical and National Weather Service forecasts
+We turn to combined probability forecasts that are based on all four individual sources, now
+including the NWS forecast, in addition to the GMOS, EMOS and NMOS forecasts. This possibility was not explored by Baars and Mass (2005), who aimed to compare 
+the automated MOS
+forecasts with the subjective, human-generated NWS forecast.
+Table 7 shows maximum likelihood estimates for the OLP and BLP models, which we ﬁt on the
+training data. For both methods, the GMOS and EMOS forecasts receive weights that are nearly
+equal, at about 0.37. The NWS forecast receives weights of 0.27 and 0.22 for the OLP and BLP
+methods respectively; the weights for the NMOS forecast are negligible. The maximum likelihood estimate of the BLP recalibration parameter α is 1.49.
+Calibration curves for the OLP and BLP forecasts are shown in Fig. 7. We see the now familiar
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+Observed relative frequency
+Probability Forecasts
+86
+R. Ranjan and T. Gneiting
+Table 7. Combined probability forecasts in the precipitation example, using all four
+individual forecasts, including the NWS forecast†
+Method
+OLP
+BLP
+α
+Estimates from the following forecasts:
+GMOS
+EMOS
+NMOS
+NWS
+0.362 (0.031)
+0.371 (0.024)
+0.368 (0.030)
+0.377 (0.023)
+0.000 (0.026)
+0.032 (0.022)
+0.270 (0.032)
+0.220 (0.024)
+1.49 (0.03)
+1.0
+0.8
+0.6
+0.4
+Observed relative frequency
+0.0
+0.2
+1.0
+0.8
+0.6
+0.4
+Observed relative frequency
+0.2
+0.0
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+0.8
+1.0
+0.0
+0.2
+0.4
+0.6
+Forecast probability
+(a)
+0.8
+1.0
+(b)
+Fig. 7. Calibration curves and 95% bootstrap intervals under the null hypothesis of calibration for the
+OLP and BLP probability of precipitation forecasts in the test period, using all four individual forecasts,
+including the NWS forecast: (a) OLP; (b) BLP
+Table 8. Mean Brier score BS and its reliability REL,
+resolution RES and uncertainty UNC components for
+individual and combined probability of precipitation
+forecasts in the test period, using all four individual
+forecasts, including the NWS forecast
+Forecast
+BS
+REL
+RES
+UNC
+GMOS
+EMOS
+NMOS
+NWS
+ELP
+OLP
+BLP
+0.0815
+0.0866
+0.0934
+0.0827
+0.0800
+0.0789
+0.0770
+0.0011
+0.0011
+0.0005
+0.0009
+0.0026
+0.0024
+0.0004
+0.0739
+0.0688
+0.0614
+0.0725
+0.0770
+0.0778
+0.0777
+0.1543
+0.1543
+0.1543
+0.1543
+0.1543
+0.1543
+0.1543
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+†Maximum likelihood estimates for the OLP and BLP parameters from the training period
+with standard errors in parentheses.
+Probability Forecasts
+87
+pattern, in that the linearly combined OLP forecast lacks calibration. The BLP forecast is
+empirically well calibrated, and considerably sharper than the OLP forecast. The Brier scores
+in Table 8 echo these results. The BLP forecast outperforms the OLP and ELP forecasts, which
+perform better than any of the individual forecasts. If we compare the results with Table 6, we
+see that the combined probability forecasts beneﬁt from the inclusion of the human-generated
+NWS forecast, with the improvement due to an increase in resolution.
+5.
+Discussion
+Acknowledgements
+This research was supported by the National Science Foundation under awards ATM-0724721
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+Our aim in this paper is to provide theoretical and applied guidance in combining probability
+forecasts from distinct, calibrated or uncalibrated sources. Historically, the linear opinion pool
+has been the preferred method for doing this. Indeed, there is overwhelming empirical evidence
+that linearly combined probability forecasts perform better than individual forecasts, and our
+results make no exception. That said, our paper demonstrates theoretically and empirically that
+the linear opinion pool is suboptimal, lacking both calibration and sharpness. To address these
+shortcomings, we propose the use of the non-linearly recalibrated BLP that nests the traditional,
+linearly combined probability forecast.
+Theorem 1 is our analytic key result; it shows that the linear opinion pool is uncalibrated,
+even in the desirable case in which the individual sources are calibrated. This is a ﬁnite sample
+result that does not make any restrictive assumptions about the joint dependence structure of
+the individual forecasts, and it complements the asymptotic results of Wallsten and Diederich
+(2001) that rely on an assumption of conditional independence. It would be of great interest
+to bridge the ﬁnite sample and asymptotic scenarios, and to establish a more general result,
+roughly to the extent that linearly combined probability forecasts are uncalibrated and underconﬁdent, resulting in probability statements that are closer to 
+the naive climatological forecast
+than necessary. A result of this type could perhaps be formulated for a general class of averaging
+operators and under a minimal assumption of marginal consistency, in lieu of calibration.
+Empirically, the shortcomings of the linear opinion pool have been well documented in an
+interdisciplinary strand of literature that includes the works of Clemen and Winkler (1987),
+Winkler and Poses (1993), Vislocky and Fritsch (1995), Ariely et al. (2000), Wallsten and Diederich (2001) and Johnson et al. (2001). Despite their ubiquity, 
+these issues have frequently been
+overlooked, with some of our own work (Sloughter et al., 2007) being one such example. Indeed,
+Fig. 7 of Sloughter et al. (2007) shows the typical S-shaped calibration curve for a linearly combined, underconﬁdent probability forecast, even though the 
+effect is comparably small.
+With a view towards applied forecasting problems, we recommend a transition from the
+traditional linear opinion pool to the non-linearly recalibrated BLP. The BLP model (7) has at
+most two, and typically only one, additional parameters when compared with the linear opinion pool, and it is easy to ﬁt, using the maximum likelihood method or 
+related optimum score
+techniques. More general and more complex, parametric or non-parametric approaches to the
+aggregation of probability forecasts can easily be envisioned, including but not limited to copula
+models (Jouini and Clemen, 1996), and might provide effective approximations to the hypothetical, ideally combined forecast, namely the CP forecast (5). 
+However, more complex statistical
+models bear the danger of overﬁtting, and the resulting gains in predictive performance, if any,
+are likely to be incremental.
+88
+R. Ranjan and T. Gneiting
+and DMS-0706745, and by the Joint Ensemble Forecasting System under subcontract S0647225 from the University Corporation for Atmospheric Research. Jeff Baars 
+and Cliff Mass
+(University of Washington Department of Atmospheric Sciences) kindly provided the precipitation forecasts and veriﬁcation data. We are grateful to Matt 
+Pocernich (National Center for
+Atmospheric Research, Boulder, Colorado) for providing R code, and to the Joint Editors,
+referees, Philip Dawid, Theo Eicher, Don Percival, Adrian Raftery and seminar attendees at
+the University of Washington for discussions and references.
+A.1. Proof of theorem 1
+From the basic properties of Bernoulli random variables and conditional expectations,
+P.Y = 1/ = E.Y 2 / = E.Y/ = E{E.Y |p/} = E.p/ = E.q/,
+which will be used repeatedly in what follows. We ﬁrst prove part (a). For a contradiction, suppose that p
+is calibrated, i.e. p = q almost surely. Then we can condition on p to see that
+E.Y − p/2 = E{p.1 − p/}:
+.12/
+We proceed to show that under the conditions of the theorem equality in expression (12) is violated. For
+this, note that
+k
+2
+
+wi .Y − pi /
+E.Y − p/2 = E
+i=1
+=
+=
+=
+=
+=
+k 
+k
+
+i=1 j=1
+k 
+k
+
+i=1 j=1
+k 
+k
+
+i=1 j=1
+k 
+k
+
+i=1 j=1
+k 
+k
+
+i=1 j=1
+wi wj E{.Y − pi /.Y − pj /}
+wi wj E.Y − pi Y − pj Y + pi pj /
+wi wj E{E.Y |pi / − E.pi Y |pi / − E.pj Y |pj / + pi pj }
+wi wj E.pi − p2i − p2j + pi pj /
+wi wj E{pi .1 − pj /} −
+and
+E{p.1 − p/} =
+k 
+k
+
+i=1 j=1
+k 
+k
+
+i=1 j=1
+wi wj E.pi − pj /2
+wi wj E{pi .1 − pj /},
+so that
+E.Y − p/2 = E{p.1 − p/} −
+k
+ k
+
+i=1 j=1
+wi wj E.pi − pj /2 :
+.13/
+The double sum on the right-hand side of equation (13) is strictly positive, whence equation (12) is violated,
+for the desired contradiction.
+We now prove part (b). From equation (13) we see that E.Y − p/2 < E{p.1 − p/}. A straightforward
+conditioning argument shows that
+E.Y − p/2 = E.Y − q/2 + E.q − p/2 > E{q.1 − q/}:
+Hence,
+E{q.1 − q/} < E.Y − p/2 < E{p.1 − p/},
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+Appendix A: Mathematical details
+Probability Forecasts
+89
+which implies that E.p2 / < E.q2 /. From this, part (b) follows.
+As for part (c),
+E{S.q, Y/} = E[E{S.q, Y/|p}]
+= E{q S.q, 1/ + .1 − q/ S.q, 0/}
+< E{q S.p, 1/ + .1 − q/ S.p, 0/}
+= E[E{S.p, Y/|p}]
+= E{S.p, Y/}
+A.2. Details for equations (3) and (4)
+The ﬁnal equality in equation (3) stems from the fact that if X ∼ N .μ, σ 2 / then
+
+
+ ∞
+x−μ
+1
+E{Φ.X/} =
+Φ.x/ φ
+dx
+σ
+σ
+−∞
+
+
+
+ ∞  x
+x−μ
+1
+φ
+dx
+φ.y/ dy
+=
+σ
+σ
+−∞
+−∞
+
+
+
+1
+x−μ
+φ.y/ φ
+dx dy
+=
+σ
+σ
+y⩽x
+
+
+μ
+= P.Y ⩽ X/ = P.Y − X ⩽ 0/ = Φ √ 2
+,
+.σ + 1/
+where φ denotes the standard normal density function and Y is standard normal and independent of X ,
+so that Y − X ∼ N .−μ, σ 2 + 1/. The conditional distribution of a1 + a2 given a1 is normal with mean a1
+and variance 2, whence
+√
+E{Φ.a1 + a2 /|a1 } = Φ.a1 = 3/:
+An almost identical calculation applies to equation (4).
+References
+Ariely, D., Au, W. T., Bender, R. H., Budescu, D. V., Dietz, C. B., Gu, H. B., Wallsten, T. S. and Zauberman, G.
+(2000) The effects of averaging subjective probability estimates between and within judges. J. Exptl Psychol.
+Appl., 6, 130–147.
+Baars, J. A. and Mass, C. F. (2005) Performance of National Weather Service forecasts compared to operational,
+consensus, and weighted model output statistics. Weath. Forecast., 20, 1034–1047.
+Brier, G. W. (1950) Veriﬁcation of forecasts expressed in terms of probability. Mnthly Weath. Rev., 78, 1–3.
+Bröcker, J. and Smith, L. A. (2007) Increasing the reliability of reliability diagrams. Weath. Forecast., 22, 651–661.
+Clemen, R. T. and Winkler, R. L. (1987) Calibrating and combining precipitation probability forecasts. In Probability and Bayesian Statistics (ed. R. Viertl), 
+pp. 97–110. New York: Plenum.
+Clemen, R. T. and Winkler, R. L. (2007) Aggregating probability distributions. In Advances in Decision Analysis:
+from Foundations to Applications (eds E. Ward, R. F. Miles and D. von Winterfeldt), pp. 154–176. Cambridge:
+Cambridge University Press.
+Croushore, D. (1993) Introducing: the Survey of Professional Forecasters. Fed. Resrv. Bank Phildelph. Bus. Rev.,
+Nov.–Dec., pp. 3–13.
+Dawid, A. P. (1982) The well-calibrated Bayesian. J. Am. Statist. Ass., 77, 605–610.
+Dawid, A. P. (1986) Probability forecasting. In Encyclopedia of Statistical Sciences, vol. 7 (eds S. Kotz, N. L.
+Johnson and C. B. Read), pp. 210–218. New York: Wiley.
+Dawid, A. P., DeGroot, M. H. and Mortera, J. (1995) Coherent combination of experts’ opinions (with discussion
+and rejoinder). Test, 4, 263–313.
+DeGroot, M. H. and Fienberg, S. E. (1982) Assessing probability assessors: calibration and reﬁnement. In Statistical Decision Theory and Related Topics III, 
+vol. 1 (eds S. S. Gupta and J. O. Berger), pp. 291–314. New York:
+Academic Press.
+DeGroot, M. H. and Fienberg, S. E. (1983) The comparison and evaluation of forecasters. Statistician, 32, 12–22.
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+with the inequality being strict, because S is a negatively oriented strictly proper scoring rule and q =
+E.Y |p/ = p with positive probability.
+90
+R. Ranjan and T. Gneiting
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+DeGroot, M. H. and Mortera, J. (1991) Optimal linear opinion pools. Mangmnt Sci., 32, 546–558.
+Dutton, J. A. (2002) Opportunities and priorities in a new era for weather and climate services. Bull. Am. Meteorol.
+Soc., 83, 1303–1311.
+Foster, D. P. and Vohra, R. V. (1998) Asymptotic calibration. Biometrika, 85, 379–390.
+Genest, C. and McConway, K. J. (1990) Allocating the weights in the linear opinion pool. J. Forecast., 9, 53–73.
+Genest, C. and Schervish, M. J. (1985) Modeling expert judgements for Bayesian updating. Ann. Statist., 13,
+1198–1212.
+Genest, C. and Zidek, J. (1986) Combining probability distributions: a critique and an annotated bibliography.
+Statist. Sci., 1, 114–135.
+Glahn, H. R. and Lowry, D. A. (1972) The use of model output statistics (MOS) in objective weather forecasting.
+J. Appl. Meteorol., 11, 1203–1211.
+Gneiting, T. (2008) Probabilistic forecasting. J. R. Statist. Soc. A, 171, 319–321.
+Gneiting, T., Balabdaoui, F. and Raftery, A. E. (2007) Probabilistic forecasts, calibration and sharpness. J. R.
+Statist. Soc. B, 69, 243–268.
+Gneiting, T. and Raftery, A. E. (2007) Strictly proper scoring rules, prediction, and estimation. J. Am. Statist.
+Ass., 102, 359–378.
+Gneiting, T., Stanberry, L. I., Grimit, E. P., Held, L. and Johnson, N. A. (2008) Rejoinder on ‘Assessing probabilistic forecasts of multivariate quantities, 
+with an application to ensemble predictions of surface winds’. Test,
+17, 256–264.
+Good, I. J. (1952) Rational decisions. J. R. Statist. Soc. B, 14, 107–114.
+Graham, J. R. (1996) Is a group of economists better than one?: than none? J. Bus., 69, 193–232.
+Hoeting, J. A., Madigan, D. M., Raftery, A. E. and Volinsky, C. T. (1999) Bayesian model averaging: a tutorial.
+Statist. Sci., 14, 382–401.
+Hora, S. C. (2004) Probability judgements for continuous quantities: linear combinations and calibration. Mangmnt Sci., 50, 597–604.
+Iversen, Jr, E. S., Parmigiani, G. and Chen, S. (2008) Multiple model evaluation absent the gold standard through
+model combination. J. Am. Statist. Ass., 103, 897–909.
+Johnson, T. R., Budescu, D. V. and Wallsten, T. S. (2001) Averaging probability judgements: Monte Carlo analyses
+of asymptotic diagnostic value. J. Behav. Decsn Makng, 14, 123–140.
+Jouini, M. N. and Clemen, R. T. (1996) Copula models for aggregating expert opinions. Ops Res., 44, 444–457.
+Kynn, M. (2008) The ‘heuristics and biases’ bias in expert elicitation. J. R. Statist. Soc. A, 171, 239–264.
+Lehrer, E. (2001) Every inspection is manipulable. Econometrica, 69, 1333–1347.
+Lichtenstein, S., Fischhoff, B. and Phillips, L. D. (1982) Calibration of probabilities: the state of the art to 1980.
+In Judgement under Uncertainty: Heuristics and Biases (eds D. Kahnemann, P. Slovic and A. Tversky), pp.
+306–334. Cambridge: Cambridge University Press.
+Murphy, A. H. (1973) A new vector partition of the probability score. J. Appl. Meteorol., 12, 595–600.
+Murphy, A. H. (1998) The early history of probability forecasts: some extensions and clariﬁcations. Weath.
+Forecast., 13, 5–15.
+Murphy, A. H. and Winkler, R. L. (1987) A general framework for forecast veriﬁcation. Mnthly Weath. Rev.,
+115, 1330–1338.
+Murphy, A. H. and Winkler, R. L. (1992) Diagnostic veriﬁcation of probability forecasts. Int. J. Forecast., 7,
+435–455.
+Pal, S. (2009) On a conjectured sharpness principle for probabilistic forecasting with calibration. Biometrika, to
+be published, doi 10.1093/biomet/asp054.
+Pocernich, M. (2009) Veriﬁcation: forecast veriﬁcation utilities. R Package, Version 1.30. (Available from http:
+//www.cran.r-project.org.)
+Primo, C., Ferro, C. A. T., Jolliffe, I. T. and Stephenson, D. B. (2009) Combination and calibration methods for
+probabilistic forecasts of binary events. Mnthly Weath. Rev., 137, 1142–1149.
+Regnier, E. (2008) Doing something about the weather. Omega, 36, 22–32.
+Sanders, F. (1963) On subjective probability forecasting. J. Appl. Meteorol., 2, 191–201.
+Sandroni, A., Smorodinsky, R. and Vohra, R. V. (2003) Calibration with many checking rules. Math. Ops Res.,
+28, 141–153.
+Schervish, M. J. (1989) A general method for comparing probability assessors. Ann. Statist., 17, 1856–1879.
+Selten, R. (1998) Axiomatic characterization of the quadratic scoring rule. Exptl Econ., 1, 43–62.
+Sloughter, J. M., Raftery, A. E., Gneiting, T. and Fraley, C. (2007) Probabilistic quantitative precipitation forecasting using Bayesian model averaging. 
+Mnthly Weath. Rev., 135, 3209–3220.
+Spiegelhalter, D. J. (1986) Probabilistic prediction in patient management and clinical trials. Statist. Med., 5,
+421–433.
+Stephenson, D. B., Coelho, C. and Jolliffe, I. T. (2008) Two extra components in the Brier score decomposition.
+Weath. Forecast., 23, 752–757.
+Stone, M. (1961) The linear pool. Ann. Math. Statist., 32, 1339–1342.
+Tetlock, P. E. (2005) Expert Political Judgement: how Good is It?; how can we Know? Princeton: Princeton University Press.
+Probability Forecasts
+91
+Downloaded from academic.oup.com/jrsssb/article/72/1/71/7076442 by guest on 12 September 2026
+Vislocky, R. L. and Fritsch, J. M. (1995) Improved model output statistics forecasts through model consensus.
+Bull. Am. Meteorol. Soc., 76, 1157–1164.
+Vovk, V. and Shafer, G. (2005) Good randomized sequential probability forecasting is always possible. J. R.
+Statist. Soc. B, 67, 747–763.
+Wallsten, T. S., Budescu, D. V., Erev, I. and Diederich, A. (1997) Evaluating and combining subjective probability
+estimates. J. Behav. Decsn Makng, 10, 243–268.
+Wallsten, T. S. and Diederich, A. (2001) Understanding pooled subjective probability estimates. Math. Socl Sci.,
+18, 1–18.
+Wilks, D. S. (1991) Representing serial correlation of meteorological events and forecasts in dynamic decisionanalytic models. Mnthly Weath. Rev., 119, 
+1640–1662.
+Wilks, D. S. (2006) Statistical Methods in the Atmospheric Sciences, 2nd edn. New York: Academic Press.
+Winkler, R. L. (1996) Scoring rules and the evaluation of probabilities (with discussion and rejoinder). Test, 5,
+1–60.
+Winkler, R. L. and Jose, V. R. R. (2008) Comments on ‘Assessing probabilistic forecasts of multivariate quantities,
+with an application to ensemble predictions of surface winds’ (by T. Gneiting, L. I. Stanberry, E. P. Grimit, L.
+Held and N. A. Johnson). Test, 17, 251–255.
+Winkler, R. L. and Poses, R. M. (1993) Evaluating and combining physicians’ probabilities of survival in an
+intensive care unit. Mangmnt Sci., 39, 1526–1543.
+

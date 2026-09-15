@@ -1,0 +1,1250 @@
+4. ACTIVE PORTFOLIO MANAGEMENT
+4.1 Basic Concepts and Terms
+4.2 MV Active Portfolios
+4.3 Value Added Active Management
+4.4 Fundamental Law of Active Management
+4.5 Numerical Active Optimization with Constraints
+4A.1 Minimum MSE Prediction
+4A.2 Minimum TEV Portfolios
+
+Reading in Chincarini and Kim (C&K):
+Chap. 1 (optional)
+Chap. 2: Focus mainly on Sections 2.5 and 2.6 but do read the other sections
+Chap. 9: Sections 9.8.1 and 9.8.4 (we will return to 9.8.2 and 9.8.3 later)
+
+ 6/5/2013                  Copyright R. Douglas Martin                   1
+References
+Bertrand, P. (2010). “Another Look at Portfolio Optimization under Tracking Error
+         Constraints”, Financial Analysts Journal, 66, 3.
+
+Grinold, R. C. and Kahn, R. N. (2000). Active Portfolio Management, 2nd edition,
+          McGraw-Hill. (the “bible” for years, but difficult to read)
+
+Jorion, P. (2003). “Portfolio Optimization with Tracking-Error Constraints”,
+          Financial Analysts Journal, Sept./Oct., 70-82.
+
+Lee, W. (2000). Theory and Methodology of Tactical Asset Allocation, Frank J.
+         Fabozzi Associates.
+
+Qian, E.E., Hua, R. H. and Sorensen, E.H. (2007). Quantitative Equity Portfolio
+        Management, Chapman and Hall.
+
+Roll, R. (1992). “A Mean-Variance Analysis of Tracking Error”, The Journal of
+          Portfolio Management, Summer 1992, 13-22.
+
+Scherer, B. (2007). Portfolio Construction and Risk Budgeting, 4th edition, Risk
+         Books
+
+  6/5/2013                    Copyright R. Douglas Martin                      2
+4.1 Basic Concepts and Terms
+           rB :     Benchmark portfolio returns, typically an index
+           rP :     Active manager’s portfolio returns
+
+
+           rA  rP  rB                Active Returns
+
+
+            2A  var(rA )            Tracking error variance (TEV)
+
+
+            A  var1/ 2 (rA )          Tracking error (TE)
+
+
+
+6/5/2013                         Copyright R. Douglas Martin          3
+   Example
+                 rB  .3  rMSFT  .7  rORCL
+                 rP  (1   )  rMSFT    rORCL
+
+                 rA  (.7   )  rMSFT  (  .7)  rORCL
+                     (  .7)  (rORCL  rMSFT )
+Active holding
+                                    A    .7  var1/ 2 (rORCL  rMSFT )
+
+
+
+
+                                                               .7
+                  -30% -20% -10%    0% 10% 20% 30%
+
+
+   6/5/2013                Copyright R. Douglas Martin                       4
+Active Portfolios
+
+              Benchmark weights:            wB
+Portfolio weights (active manager):         wP
+                   Active weights:         w A  wP  wB
+                    Self-financing:        1w A  0
+
+
+                   Active returns:            rA  rP  rB
+                                                  wP  r  wB  r
+                                                   wA  r
+
+
+
+6/5/2013                   Copyright R. Douglas Martin                 5
+    Active Portfolios
+
+           Expected active returns:             A  E ( rA )
+                                                        E ( wA  r )
+                                                        wA  μ
+
+     Tracking error variance (TEV):           A2  var( rA )
+                                                    var( wA  r )
+                                                    wA Σw A
+
+                     Alternatively:          A2  var( rP  rB )
+                                                    P2   B2  2 cov( rP , rB )
+
+6/5/2013                 Copyright R. Douglas Martin                             6
+Alphas and Residual Returns
+To better understand stock alphas, assume that for a benchmark B (that
+could be a market proxy) assume that portfolio returns are adequately
+modeled by a linear single factor model (SFM) without intercept:
+
+Alternative representations :
+
+         rP   P rB               where         E ( )   P            cov( rP , rB )
+                                                                    P 
+         rP   P   P rB          where        E ( )  0                   B2
+
+
+Either way:         P  E  rP    P   P B
+
+The active portfolio manager wants to maximize:                   P  0
+
+
+  6/5/2013                       Copyright R. Douglas Martin                          7
+Residuals are Uncorrelated with BM Returns
+It turns out that the residuals are uncorrelated with the benchmark
+returns:
+                          cov( , rB )  0
+
+                                                                 cov( rP , rB )
+This important property follows from the fact that        P                 .
+                                                                        2
+                                                                         B
+Proof: Easy exercise.
+
+
+NOTE: There is an important connection between “betas” of the above form
+and minimum mean-squared-error (MSE) prediction of one random variable
+with another random variable. For details see appendix 4A.1.
+
+
+
+
+6/5/2013                    Copyright R. Douglas Martin                           8
+ Active Beta
+The active beta is computed as the beta of the active portfolio
+with respect to the benchmark:
+
+
+                              cov(rA , rB )
+                     A 
+                                    B2
+                              cov(rP  rB , rB )
+                                                    ,
+                                          2
+                                           B
+
+                              cov(rP , rB )        cov(rB , rB )
+                                              
+                                      2
+                                       B                  B2
+                           P  1.
+
+
+  6/5/2013                   Copyright R. Douglas Martin           9
+Active Returns with Single Factor Model
+              rA  rP  rB
+                    P   P  rB   P  rB ,          E ( P )  0
+                    P   A  rB   P ,                 A  P  1
+ With the SFM the mean and variance of the active returns are:
+
+             A   P   A  B              A   P only when  A  0
+
+             A2   A2   B2   2P
+
+ Active risk (TE):   A           These are the same only when  A  0 ,
+                                  Equivalently  P  1 , and in that case
+ Residual risk:      P          they are the same as the TE  A .
+
+
+6/5/2013                   Copyright R. Douglas Martin                     10
+Active Managers Performance
+
+
+    Performance of portfolio manager is monitored with TEV (low = good)
+
+    TEV is minimized w.r.t. to    A by the choice  A  0   P  1
+    Active managers like  P  1 but often choose  P  1 in order to get
+     larger returns
+
+    Managers will be ranked by their information ratios, to be defined
+     next
+
+
+
+
+    6/5/2013                Copyright R. Douglas Martin              11
+The Information Ratio
+The most important performance measure of an active (benchmark
+tracking) portfolio manager is the Information Ratio:
+                               P E (rA )
+                         IR     
+                              A   A
+Goal of a portfolio manager is to maximize the information ratio.
+Example (Grinold, Kahn, p.113):
+                                                     P
+A new manager:          P  3.5%,  A  5.5%  IR      0.64%.
+                                                     A
+How good is her IR?
+
+Compare to others:      % Tile 90              75       50    25     10
+                        IR     1.0             0.5      0    -0.5   -1.0
+                                  hire                              fire
+
+ 6/5/2013                 Copyright R. Douglas Martin                      12
+Appraisal Ratio versus IR
+The term Appraisal Ratio is used to define a quantity very similar to
+the IR, namely:
+                                  E ( rA )
+                          AP 
+                                  P
+Where        2  var( P ) is the variance of the SFM residuals, and
+              P
+
+
+
+                         A2   A2   B2   2P
+
+So we have AP  IRP if and only if the active beta is zero, equivalently
+the portfolio beta is one.
+Since actively managed long-only portfolios often have a beta close to
+one there often is little difference between the appraisal ratio and IR.
+
+ 6/5/2013                   Copyright R. Douglas Martin              13
+The IR Estimate as Scaled t-Statistic
+                                   T t 1 A,t
+                                   1 T r
+                  rA 
+                IR
+                   ˆ A         1
+                                   
+                                     T
+                                        ( rA,t rA )2
+                               T 1 t 1
+
+
+For independent and identically distributed (i.i.d.) X 1 , X 2 ,, X n
+with mean  , the t-statistic for hypothesis tests and confidence
+intervals is:
+                           
+                       n  Xn           X n  sample mean
+                           ˆ n                   ˆ n  sample std. dev.
+                                              is a t-statistic:
+So the following quantity closely related to IR
+
+
+                               T   rA   
+                                   ˆ A
+
+6/5/2013                  Copyright R. Douglas Martin                       14
+For NIID (  ,  ) random variables the t-statistic has a t-distribution
+                      2
+
+with n-1 degrees of freedom (dof). So with that assumption about
+returns and with tT 1 ( ) the  -quantile of a t-distribution with T-1
+d.o.f., we have the following.
+
+ Level  t-test that mean of active returns is greater or equal to 0 :
+
+ If    rA  0  T 1/2ˆ A  tT 1 (1   )   reject null hypothesis that   0 ,
+ else accept the alternative hypothesis that   0. Note that for
+  0  0 , the test rejects and decides that IR is positive if:
+                                      t (1   )
+                                T  IR   T 1
+
+
+
+  Important point: Test may not be very reliable if the returns have a
+  fat-tailed and/or skewed non-normal distribution, or if there is serial
+  correlation!
+
+6/5/2013                         Copyright R. Douglas Martin                   15
+4.2 MV Optimal Active Portfolios
+Two approaches:
+
+1. Quadratic utility (QU) maximization
+    Will discuss this one next
+    It is useful for not only active portfolio management but also for
+     hedge fund long-short zero investment portfolios
+
+2. Minimize TEV
+    Roll (1992)
+    Jorion (2003)
+    Bertrand (2012)
+   These are mathematically tedious but they provide guidance on how to think
+   about the performance of active management, and intuition on what to do
+   when minimizing TEV with constraints that require numerical optimization.
+   Details are provided in appendix 4A.2
+
+6/5/2013                  Copyright R. Douglas Martin                  16
+    Maximum QU Active Portfolio
+                        1
+    Maximize      wAμ   wA Σw A              subject to:    wA 1  0
+                        2
+   N.B. This formulation applies not only to active portfolios but also to any
+   dollar neutral portfolio, e.g., a hedge fund long dollar neutral portfolio.
+
+
+                                (1 Σ 1
+                                         1) Σ 1
+                                                μ  (1 Σ 1
+                                                            μ ) Σ 1
+                                                                     1
+    Result:      w A,opt   1
+                                               1Σ 11
+
+   NOTE 1: The weights are independent of the benchmark weights!
+           This provides a basis for “portable alpha” .
+   NOTE 2: The above expression is the same as the second term in the two-
+           fund separation theorem of LSS-1 appendix 1A.1.
+
+    QHS 2.2.4: Uses a, f where we use w A , μ .
+
+6/5/2013                    Copyright R. Douglas Martin                     17
+   Warning about notation in QHS
+
+    They use     wAr which is a random variable not a fixed
+    unknown parameter. And this tendency persists throughout the
+    book, often causing confusion about what are the parameters to
+    be estimated and what are the data
+
+
+
+
+6/5/2013                Copyright R. Douglas Martin              18
+Equivalent Representation
+                                               1Σ1f
+           w A,opt   Σ (μ  l1)
+                    1   1
+                                            l
+                                               1Σ11
+Note that without the term involving l we have the standard non-active
+MVO weight vector expression. So what is the role of l aside from
+insuring that the active weights sum to one? Consider the following
+single factor model:
+                     μ  1    v, v  (0, Σ)
+                                          1Σ1μ
+The GLS estimate of  is:         ˆGLS         l
+                                          1Σ 1
+                                             1
+
+
+
+
+ So the adjustment is to remove the BLUE for a model in which all
+ asset mean returns are the same.
+
+6/5/2013                  Copyright R. Douglas Martin               19
+ Optimal Active Mean Return, TE and IR
+                                   (1Σ 11)μΣ 1μ  (1Σ 1μ) 2
+            A,opt  μw A,opt  1
+
+                                              1Σ 11
+
+                                       (1Σ 11)μΣ 1μ  (1Σ 1μ) 2
+ A,opt  wA,opt Σw A,opt     1
+
+                                                  1Σ 11
+
+ Take the ratio of the above to get the maximized information ratio;
+
+
+                       A,opt   (1Σ 11)(f Σ 1f )  (1Σ 1f ) 2
+              IRmax          
+                       A,opt                1Σ 11
+
+
+ NOTE:  A,opt   opt       in QHH (somewhat an abuse of term" alpha")
+
+6/5/2013                      Copyright R. Douglas Martin                 20
+Two Types of Efficient Frontiers
+  We see that the “efficient frontier” for the active portfolio is a
+  straight line with slope equal to the information ratio, as the
+  efficient frontier for full investment in risky assets is hyperbolic.
+  The following two slides compare the two efficient frontiers with
+  the following simple example of mean returns, volatilities and
+  correlation matrix (see QHH, pp. 33-37):
+
+
+                                                       1 .5 .5 
+           μ  (10%,0%,10%)
+                                              corr   .5 1 .5 
+                                                       .5 .5 1 
+           σ  (30%,30%,30%)                                   
+
+
+
+
+6/5/2013                  Copyright R. Douglas Martin                     21
+Two efronts for previous means & covariances
+
+
+
+
+ 6/5/2013       Copyright R. Douglas Martin   22
+The two efronts for 10% higher mean returns
+
+
+
+
+ 6/5/2013       Copyright R. Douglas Martin   23
+4.3 Value Added Active Management
+Expected excess (rate of) return on asset i :            i  E  Ri   1  rf
+
+               i   i   B   i                                     gross return
+
+
+                   i   B  i   B   i                   B     Benchmark
+                                                                        mean return
+
+                                                     Exceptional excess return
+
+ i   B     The risk premium: Very long-term benchmark returns,
+              e.g., 70+ years (??). 3% - 7% for most equity markets.
+
+ i   B    Benchmark timing: Difference between expected
+              benchmark return in the near future and in the long-term.
+              Long term average expected value of  B is 0.
+
+     i        Stock selection: Manager skill in picking stocks.
+
+  6/5/2013                 Copyright R. Douglas Martin                            24
+Portfolio Mean Returns Decomposition
+Follows Grinold and Kahn (2000). We have the usual representation
+
+                            rP   P rB   P
+
+The portfolio expected (excess) returns are
+
+                        P   P  B   P  (  PA  1)  B   P .
+We substitute
+                         B   B   B ,
+
+ where  B is the long-term average (consensus return) and  B is the
+ “local” variation of benchmark mean (benchmark timing), to get:
+
+                   P   B   PA  B   PA B   P
+
+6/5/2013                 Copyright R. Douglas Martin                   25
+   Portfolio Mean Returns Decomposition
+
+
+                     P   B   PA  B   PA B   P
+
+
+
+Actual benchmark
+expected excess                                                 Return due to stock
+return                                                          alphas and stock
+                                                                selection
+
+              Return due to active       Return due to active
+              management and             management and
+              consensus return           benchmark timing
+
+
+
+
+   6/5/2013                   Copyright R. Douglas Martin                     26
+ Portfolio Variance Decomposition
+
+             P2  (1   PA )2  B2   2
+                   B2  2 PA B2   PA
+                                        2
+                                           B2   2
+
+
+
+Actual                                                   Variance
+benchmark                                                due to stock
+variance                                                 selection
+
+            Covariance due to          Variance due to
+            active betas               active betas
+
+
+
+
+6/5/2013               Copyright R. Douglas Martin                      27
+  Now express quadratic utility for the portfolio P in terms of the
+  previous quantities, and generalize the risk aversion by using
+  different risk aversions for different components below:
+
+
+ P  T  P2   B  T  B2                       Forecast, no action    Can’t change
+                PA (  B  2T  B2 )            Curious small term      Ignore
+                PA ( B  BT  PA B2 ) Forecast + action
+                P  R    2                                          Value added
+                                                      Forecast + action
+
+
+
+Value added:        VA   PA ( B  BT  PA B2 )   P  R 2 
+
+Requires exceptional benchmark timing                               Focus on this!
+and active beta
+   6/5/2013                         Copyright R. Douglas Martin                 28
+4.4 Fundamental Law of Active Mgm’t.
+ A well-known “law” whose proofs are involved and often confusing, and whose
+ usefulness is somewhat questionable. None-the-less we need to know
+ something about. The basic idea is due to Richard Grinold and rationalized
+ and extended by others. See the book by Grinold and Kahn (2000) and the
+ some of the many papers:
+
+    Clarke, R., Silva, H. and Thorley, S. (2002). “Portfolio Constraints and the
+     Fundamental Law of Active Management.” Financial Analysts Journal, vol.
+     58, no. 5 (September/October):48–66.
+
+    Clarke, R., de Silva, H. and Thorley, S. (2006). “The Fundamental Law of
+     Active Management.” Journal of Investment Management, vol. 4, no. 3: 54–
+     72.
+
+    Grinold, R. C. (1989). “The Fundamental Law of Active Management.” The
+     Journal of Portfolio Management, vol. 15, no. 3 (Spring): 30–38.
+
+    Grinold, R. C. (1994). “Alpha is Volatility Times IC times Score.” The
+     Journal of Portfolio Management, vol. 20, no. 4 (Summer): 9–16.
+
+ 6/5/2013                    Copyright R. Douglas Martin                      29
+   Qian, E, and Hua, R. “Active Risk and Information Ratio.” The Journal of
+    nvestment Management, vol 2, no. 3 (2004), pp. 20-34.
+
+   Qian, E., Hua, R., and Sorensen, E.H. (2007). Quantitative Equity Portfolio
+    Management: Modern Techniques and Applications, London: CRC Press.
+
+   Sorensen, E. H., Hua, R., Qian, E. and Schoen, R. (2004). “Multiple Alpha
+    Sources and Active Management.” The Journal of Portfolio Management,
+    vol. 30, no. 2 pp. 39-45.
+
+   And other references to be added ……..
+
+
+
+
+6/5/2013                    Copyright R. Douglas Martin                    30
+   The Initial Grinold Version (1989)
+   The “information coefficient” IC is defined as the sample cross-
+   section correlation coefficient between a forecast of returns and
+   the returns them selves. As such is interpreted as a measures
+   of skill of the portfolio manager. Then assuming a quadratic
+   utility portfolio optimization with unconstrained weights except
+   for full investment, Grinold derives the following fundamental
+   law of active management (FLAM) formula for the information
+   ratio
+                       IR  BR  IC
+   where BR is defined as the number of independent forecast of
+   exceptional return the manager makes (per year). If there are N
+   assets in the portfolio and an independent forecast is made for
+   each return then the formula becomes
+
+                         IR  N  IC
+6/5/2013                 Copyright R. Douglas Martin                   31
+ Qian et. al. 2007 Extension
+  In a more thorough treatment the above authors use risk adjusted
+  forecasts and returns, and taking into account that the as a cross-section
+  correlation coefficient the IC is a random variable, derive the following
+  version of FLAM:
+                                    E ( IC )
+                             IR 
+                                     ( IC )
+  Since IC is a sample correlation coefficient ̂ one can use the
+  following result from statistics under normality:
+
+                                        (1   2 )
+                              ( ˆ ) 
+                                            N
+
+  Since in practice values of IC are small, e.g., .1 to .2, applying the above
+  approximation to IR gives:
+
+                             IR  N  E ( IC )
+
+6/5/2013                   Copyright R. Douglas Martin                     32
+ Clarke et. al. 2002 Extension
+  The Grinold original formula is limited by the assumption of no
+  constraints in the optimization except full-investment. This is not
+  realistic in practice, so Clarke et. al. (2002) extended the result to
+  the case of constrained optimization by introducing the a “transfer
+  coefficient” TC defined as the cross-section correlation between
+  the weights under a constrained optimization and the forecasts.
+  Then the FLAM becomes
+
+                      IR  N  IC  TC
+
+  Since TC is a correlation coefficient it is bounded above by one
+  and can be substantially smaller for constrained optimization.
+  Clarke et. al. give some interesting examples of the reduction in
+  IR that occurs for various types of constraints.
+
+
+6/5/2013                  Copyright R. Douglas Martin                 33
+ Some FLAM Theory Building Blocks
+ There are many papers on this topic and there does not yet exist a totally
+ clear and satisfactory derivation of the FLAM. None-the-less the next two
+ conceptual building blocks that are worth knowing about.
+
+ Active Return and Initial Simplistic IC
+ The key intuition is that if a portfolio manager has effective “signals” for
+ forecasting asset returns, these signals can be transformed to a specification
+ of portfolio weights. So let’s assume that with g the transformed signal we
+ have active weights:
+
+           w  cg           g  (g1 , g 2 ,, g N )        w1  cgw  0
+
+ Then we can express active returns rA as:
+
+               rA   i 1 wi ri                               rA   in QHS (bad choice!)
+                        N
+                                                  NOTE:
+
+                                                               1
+                    i 1 wi ( ri  rcs )                       
+                        N                                          N
+                                                       rcs            r
+                                                                   i 1 i
+                                                               N
+6/5/2013                      Copyright R. Douglas Martin                           34
+ Now substituting w  cg we have:
+
+
+                      rA  c   i 1 gi  ( ri  rcs )
+                                    N
+
+
+
+                                 1
+                                   
+                                     N
+                           cN          g ( r  rcs )
+                                     i 1 i i
+                                N
+                                  cs (g, r )
+                           cN  cov
+                                  cs (g, r )  ˆ  ˆ
+                           cN  corr             g ,cs r ,cs
+
+
+                                                                  cross-section sample
+         cross-section sample
+    IC  correlation coefficient                                  std. deviations
+
+
+           ˆ r ,cs  "opportunity" (cross-section volatility)
+
+           ˆ g ,cs  "conviction" (quality of forecast)
+
+
+6/5/2013                            Copyright R. Douglas Martin                          35
+ Alpha Equals IC Times Volatility Times Score (Grinold, 1994)
+
+ Appendix 4A.1 shows that among all linear predictors Yˆ  a  b  X      of the
+ random variable Y , the minimum MSE predictor is:
+
+                     cov( X , Y )
+           Yˆ  Y                X,     Y  E (Y ),  X2  var( X )
+                         X
+                          2
+
+
+
+
+ More general result that is fairly easy to prove: Among all non-linear
+ predictors Yˆ  h( X ) of Y , the minimum MSE predictor is the conditional
+ mean:
+                        Yˆ  E (Y | X )
+
+ This conditional mean is in general nonlinear. However for the special case of
+ bivariate normal random variables X and Y the conditional mean turns out
+ to be linear and is given by the minimum MSE linear predictor above.
+                                                 cov( X , Y )
+ Summarizing: In the case of normality Yˆ  Y                X  E (Y | X )     .
+                                                      2
+                                                             X
+
+6/5/2013                      Copyright R. Douglas Martin                   36
+ Now let Y  rA , X  g , with  A  E ( rA ),  g  E ( rg ) , and consider the
+ model:
+                rA  a  b  g   ,            E ( | g )  0
+
+                 A  a  b  g       a   A  b  g
+
+ Conditional expected value predictor of rA given g for the above model :
+
+                          rˆA  E ( rA | g )
+                              a  b g
+                               A  b  ( g  g )
+
+ Since this is a linear predictor we can plug in the optimal b that yields
+ minimum MSE to get:
+
+                                    cov( rA , g )
+                      rˆA   A                     ( g  g )
+                                           2
+                                            g
+
+
+6/5/2013                    Copyright R. Douglas Martin                      37
+ In active portfolio management one assumes that the unconditional mean is
+ zero:  A  0 (alpha generation is a zero-sum game). In that case:
+
+
+                     cov( rA , g )
+             rˆA                     ( g  g )
+                            2
+                             g
+
+                     cov( rA , g )            g  g
+                                     A                          A2  var( rA )
+                        A g                  g
+                   ( rA , g )   A  scoreg
+                  ICrA , g  volatilityrA  scoreg
+
+
+    Note that:       E  scoreg   0,           var  scoreg   1
+
+
+     N.B. In the above expression rˆA is fixed conditioned on g but since
+      g is a random variable that will vary with different market information
+     conditions used to construct rˆA is unconditionally a random variable.
+
+
+6/5/2013                             Copyright R. Douglas Martin                      38
+4.5 Numerical Active Optimization
+   Two Methods (as usual, see C&K Sections 9.8.1 and 9.8.4):
+
+    Active MVO (AMVO): Minimize tracking error subject to portfolio
+     mean return constraint and other constraints, or maximize portfolio
+     mean return subject to TE constraint and other constraints
+
+    Active Quadratic Utility (AQU)
+
+   AMVO Primal Method
+                     TEV   A2  var( rP  rB )                  TE   A
+
+                        A2   P2  2 cov( rP , rB )   B2
+
+   So just need to minimize:       P2  2 cov( rP , rB )
+
+6/5/2013                   Copyright R. Douglas Martin                   39
+           cov( rP , rB )   i 1 wP ,i  cov  ri , rB 
+                                N
+
+
+
+                            i 1 wi   i            i  cov  ri , rB 
+                                N
+
+
+                           wP γ
+
+    Thus we minimize TE subject to constraints by minimizing:
+
+                          wP Σw P  2  wP γ
+
+     subject to wPμ   P ,0   B   A,0 and other constraints (e.g., box, etc.)
+
+                                                   portfolio manager determines
+     AMVO Dual Method
+
+     Maximize wμ subject to TEV   A2 ( w )   02 and other constraints.
+     Usually don’t take this approach to achieve a desirable TEV, since must
+     check for feasibility of  0 . Just do primal problem for various 0 to
+                                2
+
+     achieve desired TEV .
+
+6/5/2013                            Copyright R. Douglas Martin                   40
+  Active Quadratic Utility Maximization Method
+   At first it may seem natural to formulate the active quadratic utility
+   maximization problem as:
+
+                                           
+   maximize         AQU ( w )  wAμ            wA Σw A
+                                            2
+
+   subject to wA1  0 and additional constraints on the portfolio
+   weights wP , such as long-only, box, etc.
+
+  Example: Portfolio long-only constraint
+
+           0  wP  wA  wB  1             wB  wA  1  wB
+
+  This works if you have the benchmark weights (can afford the
+  data subscription price). But if you don’t have the benchmark
+  weights, you can use an equivalent formulation described next.
+6/5/2013                    Copyright R. Douglas Martin                41
+  First note that:     wAμ  wPμ  wBμ
+  Note carefully that the benchmark weight vector w B may have a very large
+  dimension, e.g., for the R1000 benchmark it will be a 1,000 dimensional
+  vector, as will μ . On the other hand w P may have a relatively small
+  number of non-zero weights, e.g., 100 to 200.
+
+  Now recall from the previous slides that:
+
+                   A2  wP Σw P  2 wP γ   B2         where        i  cov  ri , rB 
+   Thus:
+                                                                  2
+           AQU ( w A )  wPμ    wP Σw P  2 wP γ    wBμ   B 
+                               2                                  2 
+   So subject to constraints we just maximize:                         a constant
+
+                                        
+               AQU ( w P )  wPμ            wP Σw P  2 wP γ 
+                                        2
+6/5/2013                     Copyright R. Douglas Martin                                42
+Collecting the linear terms in AQU ( w P ) on the previous slide into a
+single linear term gives the following, which you maximize subject to
+constraints:
+                                                    
+               AQU ( w P )  wP  μ   γ             wP Σw P
+                                                    2
+
+ As usual when   0 you are maximizing the portfolio mean return
+ subject to the constraints. But when    you are minimizing
+
+                        wP Σw P  2 wP γ
+ Setting the derivative of the above expression equal to zero and
+ solving for the optimal weights gives:
+
+                           w P  Σ 1 γ
+
+ Let’s examine the structure of γ .
+
+6/5/2013                  Copyright R. Douglas Martin                43
+ We know that γ has elements  i  cov  ri , rB  , i  1, , N where
+ ri , i  1,, N are the asset returns used to calculate the portfolio
+ returns rP . However the benchmark returns rB are given by
+
+               rB   i 1 wB ,i ri   j 1, j  any i wB , j rj
+                          N                 M
+
+
+
+
+ Where M is a number generally much larger than N. For example
+ an enhanced index portfolio might be constructed with N = 150 and
+ M = 1,000. However, even when we don’t have the weights we can
+ still compute an estimates of  i  cov  ri , rB  , i  1, , N and  B ,
+                                                                         2
+
+ and thereby estimate the tracking error TE   A by estimating the
+ tracking error variance:
+
+                   TEV   A2  wP Σw P  2 wP γ   B2
+
+  Note that when there are many more assets in the benchmark than in
+  your portfolio, you can not obtain TE = 0 as    . However, in
+  practice you can obtain very small values of TE with 100-200 assets.
+6/5/2013                       Copyright R. Douglas Martin              44
+In the very special (and unrealistic) case where the assets in your
+portfolio are the same as the assets in the benchmark, you will get
+TE = 0 as    . To see that this is the case, just note that in this
+special case
+                        γ  Σw B
+
+and so as    you have
+
+                      w P  Σ1γ
+                           Σ1Σw B
+                           wB
+
+and the tracking error will (obviously) be zero.
+
+
+
+
+6/5/2013                 Copyright R. Douglas Martin              45
+  AQU R-Code Example
+  library(xts)
+  library(quadprog)
+  load("C:/Doug/AMath Courses/AMATH 543/Data/crsp.short.Rdata")
+  ret = largecap.ts[,1:20]
+  p = ncol(ret)
+  ret.B = ret%*%rep(1/p,p)
+  #ret.B = largecap.ts[,"market"]
+
+  constraints = function(A,b,meq)
+  {
+      list(A=A,b=b,meq=meq)
+  }
+  # Long-Only Constraints
+  p = ncol(ret)
+  A = cbind(rep(1,p), diag(rep(1,p))) # Constraint matrix
+  b = c(1,rep(0,p))                   # Constraint bound
+  cset.lo = constraints(A,b,1)
+
+  # For back-test use default wts.only = T
+  # For efficient frontier use wts.only = F
+  # For printout of results use digits = 3 or 4
+  # Active Quadratic Utility Optimal Portfolio
+6/5/2013              Copyright R. Douglas Martin            46
+  aqu = function(ret,ret.B,cset=NULL,lambda,wts.only=T,digits =
+  NULL)
+  {
+      require(quadprog)
+      V = var(ret)
+      Vlambda = lambda*var(ret)
+      g = as.numeric(cov(ret,ret.B))
+      mu = apply(ret,2,mean)
+      p = ncol(ret)
+      d = mu + lambda*g
+      if(is.null(cset))
+      {A = cbind(rep(1,p))
+      b = 1
+      meq = 1}
+      else
+      {A = cset$A
+      b = cset$b
+      meq = cset$meq}
+      port.aqu = solve.QP(Vlambda,d,A,b,meq)
+      wts = port.aqu$solution      # Get optimal weights
+
+
+
+6/5/2013              Copyright R. Douglas Martin            47
+           mu = sum(wts*mu)
+           sigma.sq = as.numeric(t(wts)%*%V%*%wts)
+           sigma = sqrt(sigma.sq)
+           wts = as.numeric(wts)
+           if(!is.null(digits))
+           {wg = t(wts)%*%g
+           tev = as.numeric(sigma.sq - 2*wg + var(ret.B))
+           te = sqrt(tev)
+           mu.B = mean(ret.B)
+           sd.B = sqrt(var(as.numeric(ret.B)))
+           names(wts)= dimnames(ret)[[2]]
+           out = list(WTS = wts,MU.PORT = mu,SD.PORT = sigma,MU.BM =
+                      mu.B,SD.BM = sd.B,TE = te)
+           lapply(out,round,digits)}
+           else
+           {if(wts.only) wts else c(mu,sd,wts)}
+ }
+
+ # Test qu.constrained
+ cset = cset.lo
+ aqu(ret,ret.B,cset=cset,500,digits = 5)
+ aqu(ret,ret.B,cset=cset,.01,digits = 3)
+
+6/5/2013                    Copyright R. Douglas Martin           48
+ $WTS
+   AMAT AMGN CAT DD      G    GENZ    GM     HON      KR    LLTC
+ 0.10154 0.10177 0.10264 0.09617 0.09780 0.10181 0.09777 0.09992
+ 0.09992 0.10066
+ $MU.PORT
+ [1] 0.01964
+ $SD.PORT
+ [1] 0.06497
+ $MU.BM
+ [1] 0.01945
+ $SD.BM
+ [1] 0.06477
+ $TE
+ [1] 0.00062
+
+  Note that with   500 the tracking error is less than .1%. Run the
+  code yourself to see what you get with   .01 and try different 
+  values. Also see what you get with   500 and the market as
+  benchmark instead of the equal weighted large-cap portfolio.
+6/5/2013                 Copyright R. Douglas Martin              49
+  AQU R-Code Efficient Frontier Example
+
+
+   To be added in next version of slide deck
+
+
+
+
+6/5/2013               Copyright R. Douglas Martin   50
+4A.1 Minimum MSE Prediction
+1-D random variables only. Will treat vector case later.
+
+  You have random variables X and Y and wish to “predict”
+  Y with a linear (strictly speaking “affine”) function of X :
+
+                    Yˆ  a  b  X
+                    Intercept       Slope
+
+   and want to minimize the prediction mean-squared-error
+
+              MSE(a, b)  E (Y  a  b  X ) 2
+
+6/5/2013              Copyright R. Douglas Martin         51
+Take derivatives of MSE(a,b) with respect to a and b, and
+set equal to zero:
+         
+           MSE (a, b)  2  E (Y  a  b  X )  0
+        a
+
+             
+               MSE (a, b)  2  E  X  (Y  a  b  X )  0
+            b
+
+The solutions a and b are:
+
+   a  E (Y )  b  E ( X )         (generally non-zero!)
+
+    E  X  (Y  E (Y )) E  ( X  E ( X ))  (Y  E (Y )) cov( X , Y )
+  b                                                        
+     E  X  ( X  E ( X ))       E ( X  E ( X )) 2
+                                                               var( X )
+
+ 6/5/2013                       Copyright R. Douglas Martin              52
+So the MMSE predictor is:
+
+           Yˆ  a  b  X
+               E (Y )  b  E ( X )  b  X
+               E (Y )  b  ( X  E ( X ))
+                          cov( X , Y )
+               E (Y )                  ( X  E ( X ))
+                            var( X )
+
+It is easy to check that the minimum MSE is:
+
+            Y2ˆ  E (Y  Yˆ ) 2
+                 Y2  (1   X2 ,Y )
+6/5/2013               Copyright R. Douglas Martin         53
+  Prediction Error Properties
+
+                 ˆ  Y  Yˆ
+                    Y  (a  b  X )
+                    Y  E (Y )  b   X  E ( X )
+
+  Zero Mean:
+
+           E (ˆ )  E Y  E (Y )  b   X  E ( X ) 
+                  E Y  E (Y )  b  E  X  E ( X )
+                 0
+
+6/5/2013                   Copyright R. Douglas Martin         54
+ Errors are Orthogonal* to Predictor:
+
+                                                          
+                 E  X  ˆ   E X  (Y  a  b  X )  0
+
+  Errors are Uncorrelated with Predictor
+
+             cov  X , ˆ   E  X  ˆ   E ( X )  E (ˆ )  0
+
+
+  Model with Intercept in Error Term
+
+                 Y  b  X  ˆ0           where       ˆ0  a  ˆ
+  X and ˆ0 are uncorrelated, but in general E  ˆ0   0 !
+
+ * Two random variables X and Y are said to be orthogonal if E(XY) = 0
+                                                                        55
+6/5/2013                  Copyright R. Douglas Martin
+Model with Intercept in the Error Term (continued)
+
+                                           Optimal b for predictor with
+Let              ˆ*  Y  b  X          intercept, but dropping intercept a
+
+
+Then                               
+           cov  X , ˆ*   cov X  (Y  bX
+                                           )             
+                           cov( X , Y )  b  cov( X , X )
+                                                cov( X , Y )
+                           cov( X , Y )                        X2
+                                                         X2
+                          0
+
+ So X and ˆ are also uncorrelated !
+             *
+
+
+6/5/2013                  Copyright R. Douglas Martin                    56
+4A.2 TEV Optimal Portfolios
+The R. Roll (1992) Solution
+Assumption of unlimited short-selling allows for an analytic solution
+(R. Roll, 1992). Not of direct practical value, but interesting insights.
+
+
+Minimize           wA Σw A            A
+                                         2
+                                                          (Minimize TEV)
+
+
+Subject to        w A  μ   A        (  P   B )   (Expected active return)
+
+
+                   w A  1  0                            (Self-financing)
+
+
+
+
+6/5/2013                   Copyright R. Douglas Martin                   57
+ The solution is in terms of the weight vectors w 0 and w1 , and associated
+ portfolio means  0 , 1 and variances  0 ,  1 shown in the picture below.
+                                           2    2
+
+
+
+
+                 
+                                               Line connecting origin and point labeled “0”
+
+            1              1
+
+
+
+        0            0                                         NOTE: In this plot the horizontal
+                                                                 axis is variance, not the usual
+                                                                 standard deviation!
+
+                                                       2
+                      02    12
+Portfolio 0 is the familiar global minimum variance portfolio, and portfolio 1
+is the portfolio given in the two-fund separation theorem obtained by
+maximizing quadratic utility. The expressions for the weight vectors, means
+and variances are given on the next slide for convenience.
+
+ 6/5/2013                          Copyright R. Douglas Martin                                 58
+Recall the quantities:    a  1Σ-1μ, b  μΣ-1μ, c  1Σ-11
+
+
+ Portfolio 0:            w 0  Σ -1 1 / c
+                         0  a / c
+                          02  1 / c
+
+
+ Portfolio 1:            w1  Σ-1μ / a
+                         1  b / a
+                          12  b / a 2
+
+
+
+  6/5/2013                 Copyright R. Douglas Martin         59
+ Optimal Active Weights
+                          A
+                   wA 
+                        1  0
+                                 ( w1  w 0 )           A  P  B 
+
+The active weights do not depend upon the benchmark portfolio!
+All managers make the same alteration to the benchmark:
+
+                     wP  wB  w A
+
+ Optimal Tracking Error Variance
+                                           2
+                        A 
+               TEV  
+               2
+                               ( 2
+                                        2
+                                          0)
+                         
+               A                    1
+                                1      0
+
+
+
+ Note that  A  0   A  0 !
+
+6/5/2013                 Copyright R. Douglas Martin                 60
+Total Variance
+                                             2 A      2  B     
+                                  TEV 
+                                2         2
+                                                     0      1
+                                P         B
+                                            1  0         0 
+
+Note that  A  0   P   B
+
+                                                              A  02   B 
+Beta of Portfolio P (on B)                        P  1          2     1
+                                                           1  0  B  0 
+
+
+Note that       A  0   P  1 and  A  0   P  1 (assuming B  0 )
+Proofs of the Above Results
+Straightforward constrained quadratic minimization as in the efficient frontier with short-
+selling, plus straightforward (a little tedious) algebraic manipulations (see appendices
+in Roll, 1992)
+
+
+  6/5/2013                          Copyright R. Douglas Martin                         61
+      TEV Optimal Portfolios are Inefficient
+  
+                                                         Efficient frontier
+
+                                                          TEV frontier
+                       1
+                           
+                  P*           P
+                                                    TEV managed portfolio
+
+           B*          B
+                                     Constant horizontal distance
+       0 
+
+
+
+                                                     
+                                                                        See Roll (1992) for details
+
+                As P  B, TEV  0
+                                                                        on these properties
+       
+               Typically P has higher      P and  P than B
+       
+       
+                 B > 0         P > 1
+               It can be shown that all portfolio’s P  that dominate B with respect to
+                both mean and standard deviation have  P  < 1
+
+6/5/2013                            Copyright R. Douglas Martin                               62
+The Jorion (2003) TEV Constrained Solution
+
+Jorion (2003) cited the inefficiency of TEV optimal portfolios pointed
+out by R. Roll (1992), and proposed an alternate approach that is
+attractive, namely: Maximize active return subject to a constraint on
+tracking error variance as well as absolute variance, along with the
+usual self-financing condition on the active weights. That is:
+
+Maximize          w A  μ   A        (  P   B )
+
+Subject to         w A  1  0            (Self-financing)
+
+
+                wAΩw A   A2             (R.H.S. = TEV constraint)
+
+
+                wP Ωw P   P2            (R.H.S. = absolute variance constraint)
+
+
+6/5/2013                  Copyright R. Douglas Martin                      63
+Jorion (2003): Solution is ellipse in mean return versus absolute
+variance coordinates, a bit distorted in mean return versus absolute
+standard deviation coordinates.
+
+
+
+
+6/5/2013                Copyright R. Douglas Martin               64
+With TEV constraint of about 11.5% and total variance constraint
+set at benchmark variance (about 14% std. dev.) the return
+improvement is approximately 3+ %.
+
+
+
+
+6/5/2013                Copyright R. Douglas Martin                65
+

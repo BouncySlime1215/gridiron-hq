@@ -1,0 +1,332 @@
+{
+ "policy": {
+  "kind": "diagnostic_only",
+  "families_tested": [
+   "Context",
+   "Efficiency",
+   "Market",
+   "Rating systems",
+   "Roster availability"
+  ],
+  "models_per_family": {
+   "Roster availability": 2,
+   "Rating systems": 6,
+   "Efficiency": 17,
+   "Context": 4,
+   "Market": 2
+  },
+  "ablation_kind": "refit_leave_one_family_out",
+  "ablation_note": "Each configuration REFITS the ensemble over the remaining families rather than zeroing a trained input, so this is a true leave-one-family-out ablation and not a sensitivity test that pushes the model outside its training distribution (main plan section 8.6).",
+  "note": "Ablations explain contribution; this opened period cannot promote a tuned family set."
+ },
+ "results": [
+  {
+   "id": "all",
+   "overall": {
+    "bets": 204,
+    "wins": 99,
+    "losses": 101,
+    "win_rate": 0.495,
+    "units": -10.304,
+    "roi": -0.051,
+    "break_even_needed": 0.522,
+    "beat_vig": false,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 87,
+     "trials": 4000,
+     "win_rate_95": [
+      0.423,
+      0.566
+     ],
+     "roi_95": [
+      -0.187,
+      0.082
+     ],
+     "probability_roi_above_zero": 0.229,
+     "sample_warning": "Moderate sample: treat profitability as provisional until the interval clears zero."
+    }
+   }
+  },
+  {
+   "id": "only:Context",
+   "overall": {
+    "bets": 392,
+    "wins": 189,
+    "losses": 196,
+    "win_rate": 0.491,
+    "units": -21.091,
+    "roi": -0.054,
+    "break_even_needed": 0.52,
+    "beat_vig": false,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 106,
+     "trials": 4000,
+     "win_rate_95": [
+      0.438,
+      0.542
+     ],
+     "roi_95": [
+      -0.153,
+      0.043
+     ],
+     "probability_roi_above_zero": 0.138,
+     "sample_warning": "Moderate sample: treat profitability as provisional until the interval clears zero."
+    }
+   }
+  },
+  {
+   "id": "only:Efficiency",
+   "overall": {
+    "bets": 391,
+    "wins": 185,
+    "losses": 199,
+    "win_rate": 0.482,
+    "units": -28.093,
+    "roi": -0.072,
+    "break_even_needed": 0.52,
+    "beat_vig": false,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 101,
+     "trials": 4000,
+     "win_rate_95": [
+      0.43,
+      0.535
+     ],
+     "roi_95": [
+      -0.17,
+      0.031
+     ],
+     "probability_roi_above_zero": 0.082,
+     "sample_warning": "Moderate sample: treat profitability as provisional until the interval clears zero."
+    }
+   }
+  },
+  {
+   "id": "only:Market",
+   "overall": {
+    "bets": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": null,
+    "units": 0,
+    "roi": null,
+    "break_even_needed": null,
+    "beat_vig": null,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 0,
+     "trials": 0,
+     "win_rate_95": [
+      null,
+      null
+     ],
+     "roi_95": [
+      null,
+      null
+     ],
+     "probability_roi_above_zero": null,
+     "sample_warning": "Very small sample: results are dominated by variance."
+    }
+   }
+  },
+  {
+   "id": "only:Rating systems",
+   "overall": {
+    "bets": 432,
+    "wins": 229,
+    "losses": 198,
+    "win_rate": 0.536,
+    "units": 12.386,
+    "roi": 0.029,
+    "break_even_needed": 0.52,
+    "beat_vig": true,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 102,
+     "trials": 4000,
+     "win_rate_95": [
+      0.487,
+      0.584
+     ],
+     "roi_95": [
+      -0.066,
+      0.119
+     ],
+     "probability_roi_above_zero": 0.727,
+     "sample_warning": "Moderate sample: treat profitability as provisional until the interval clears zero."
+    }
+   }
+  },
+  {
+   "id": "only:Roster availability",
+   "overall": {
+    "bets": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": null,
+    "units": 0,
+    "roi": null,
+    "break_even_needed": null,
+    "beat_vig": null,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 0,
+     "trials": 0,
+     "win_rate_95": [
+      null,
+      null
+     ],
+     "roi_95": [
+      null,
+      null
+     ],
+     "probability_roi_above_zero": null,
+     "sample_warning": "Very small sample: results are dominated by variance."
+    }
+   }
+  },
+  {
+   "id": "without:Context",
+   "overall": {
+    "bets": 263,
+    "wins": 129,
+    "losses": 130,
+    "win_rate": 0.498,
+    "units": -11.58,
+    "roi": -0.044,
+    "break_even_needed": 0.521,
+    "beat_vig": false,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 94,
+     "trials": 4000,
+     "win_rate_95": [
+      0.433,
+      0.564
+     ],
+     "roi_95": [
+      -0.167,
+      0.08
+     ],
+     "probability_roi_above_zero": 0.244,
+     "sample_warning": "Moderate sample: treat profitability as provisional until the interval clears zero."
+    }
+   }
+  },
+  {
+   "id": "without:Efficiency",
+   "overall": {
+    "bets": 112,
+    "wins": 62,
+    "losses": 49,
+    "win_rate": 0.559,
+    "units": 8.057,
+    "roi": 0.072,
+    "break_even_needed": 0.521,
+    "beat_vig": true,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 72,
+     "trials": 4000,
+     "win_rate_95": [
+      0.465,
+      0.648
+     ],
+     "roi_95": [
+      -0.106,
+      0.243
+     ],
+     "probability_roi_above_zero": 0.794,
+     "sample_warning": "Moderate sample: treat profitability as provisional until the interval clears zero."
+    }
+   }
+  },
+  {
+   "id": "without:Market",
+   "overall": {
+    "bets": 292,
+    "wins": 145,
+    "losses": 140,
+    "win_rate": 0.509,
+    "units": -7.118,
+    "roi": -0.024,
+    "break_even_needed": 0.521,
+    "beat_vig": false,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 98,
+     "trials": 4000,
+     "win_rate_95": [
+      0.449,
+      0.569
+     ],
+     "roi_95": [
+      -0.138,
+      0.088
+     ],
+     "probability_roi_above_zero": 0.34,
+     "sample_warning": "Moderate sample: treat profitability as provisional until the interval clears zero."
+    }
+   }
+  },
+  {
+   "id": "without:Rating systems",
+   "overall": {
+    "bets": 169,
+    "wins": 83,
+    "losses": 83,
+    "win_rate": 0.5,
+    "units": -6.426,
+    "roi": -0.038,
+    "break_even_needed": 0.52,
+    "beat_vig": false,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 80,
+     "trials": 4000,
+     "win_rate_95": [
+      0.416,
+      0.584
+     ],
+     "roi_95": [
+      -0.198,
+      0.12
+     ],
+     "probability_roi_above_zero": 0.32,
+     "sample_warning": "Moderate sample: treat profitability as provisional until the interval clears zero."
+    }
+   }
+  },
+  {
+   "id": "without:Roster availability",
+   "overall": {
+    "bets": 202,
+    "wins": 97,
+    "losses": 101,
+    "win_rate": 0.49,
+    "units": -12.25,
+    "roi": -0.061,
+    "break_even_needed": 0.522,
+    "beat_vig": false,
+    "uncertainty": {
+     "method": "deterministic weekly-cluster bootstrap",
+     "clusters": 87,
+     "trials": 4000,
+     "win_rate_95": [
+      0.417,
+      0.562
+     ],
+     "roi_95": [
+      -0.198,
+      0.075
+     ],
+     "probability_roi_above_zero": 0.189,
+     "sample_warning": "Moderate sample: treat profitability as provisional until the interval clears zero."
+    }
+   }
+  }
+ ]
+}

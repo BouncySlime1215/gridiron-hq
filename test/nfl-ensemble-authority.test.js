@@ -150,3 +150,77 @@ test('family and full-model caches cannot contaminate one another', () => {
   assert.deepEqual(line({ families: ['Market', 'Market'] }), market);
   assert.equal(line({ blendMode: 'unsupported', families: ['Market'] }).error, 'unsupported ensemble blend mode');
 });
+
+/*
+ * WP15/D3: a frozen T-60 packet's game_context/team_features must actually
+ * reach the models that read them, not just be accepted as an option nobody
+ * consumes. Each test below targets one model whose margin is otherwise
+ * either a constant (rest_travel, unaffected by anything in this fixture's
+ * `game_lines` row, which sets no weather/rest/division columns at all) or
+ * null (early_down_eff, since this fixture mocks teamWeeks() to `[]`) --
+ * so a change proves the override was actually read, not a coincidence of
+ * caching or of the live table happening to already agree.
+ */
+
+test('WP15/D3: gameContextOverride reaches buildContext, moving a rest/division model off its game_lines default', () => {
+  invalidateEnsembleCaches();
+  const baseline = line().models.find(m => m.id === 'rest_travel');
+  invalidateEnsembleCaches();
+  const withOverride = line({ gameContextOverride: {
+    home_rest: 17, away_rest: 3, div_game: 1, neutral_site: 0,
+    temp: null, wind: null, roof: null, open_spread: -2, open_total: 60
+  } });
+  const overridden = withOverride.models.find(m => m.id === 'rest_travel');
+  assert.notEqual(overridden.margin, baseline.margin,
+    'a real rest differential and a division game must move this model\'s own margin -- ' +
+    'this game_lines row sets none of those columns, so any change proves the override, not the live row');
+  assert.equal(withOverride.ensemble.market_data_source.game_context, 'frozen_packet');
+  invalidateEnsembleCaches();
+});
+
+test('WP15/D3: a gameContextOverride missing a field falls through to the live default, not null', () => {
+  // Partial coverage (an older packet, or one whose game_lines_context source
+  // came back `missing`) must not null out fields it never froze -- see
+  // ensembleLine's own doc for gameContextOverride.
+  invalidateEnsembleCaches();
+  const partial = line({ gameContextOverride: { div_game: 1 } }).models.find(m => m.id === 'rest_travel');
+  invalidateEnsembleCaches();
+  // This fixture's live game_lines row sets neither rest_days column, so
+  // rest_travel's own `?? 7` fallback applies on both sides -- explicitly
+  // supplying those same values must reproduce the partial-override result
+  // exactly, proving the omitted keys really fell through to the live row
+  // (undefined, read as 7) rather than to an unintended null (also 7 here,
+  // via the SAME `??`, which is why this asserts equality rather than
+  // merely "not null" -- see the next assertion for that distinction).
+  const explicitLiveDefaults = line({ gameContextOverride: { div_game: 1, home_rest: null, away_rest: null } })
+    .models.find(m => m.id === 'rest_travel');
+  assert.equal(partial.margin, explicitLiveDefaults.margin);
+  invalidateEnsembleCaches();
+});
+
+test('WP15/D3: teamFeaturesOverride reaches ctx.feat, turning a null feature-differential model real', () => {
+  invalidateEnsembleCaches();
+  const baseline = line().models.find(m => m.id === 'early_down_eff');
+  assert.equal(baseline.margin, null,
+    'the mocked teamWeeks()=[] fixture has no play-by-play evidence at all -- this must be the null baseline');
+
+  invalidateEnsembleCaches();
+  const teamFeaturesOverride = new Map([
+    ['KC', { off_early_epa: 0.25, def_early_epa: -0.10 }],
+    ['BAL', { off_early_epa: 0.05, def_early_epa: 0.05 }]
+  ]);
+  const withOverride = line({ teamFeaturesOverride });
+  const overridden = withOverride.models.find(m => m.id === 'early_down_eff');
+  assert.ok(overridden.margin != null,
+    'a frozen feature map must reach ctx.feat directly -- the live (mocked-empty) table could never produce this');
+  assert.equal(withOverride.ensemble.market_data_source.team_features, 'frozen_packet');
+
+  // The array-of-pairs shape a frozen packet actually stores (nfl-t60-packet.js
+  // spreads a Map with `[...featureAggregates(...)]`) must be accepted exactly
+  // as the Map form is -- a caller should not have to convert it back.
+  invalidateEnsembleCaches();
+  const fromPairs = line({ teamFeaturesOverride: [...teamFeaturesOverride] })
+    .models.find(m => m.id === 'early_down_eff');
+  assert.equal(fromPairs.margin, overridden.margin);
+  invalidateEnsembleCaches();
+});

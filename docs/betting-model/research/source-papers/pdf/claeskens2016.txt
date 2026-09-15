@@ -1,0 +1,675 @@
+                                                       International Journal of Forecasting 32 (2016) 754–762
+
+
+
+                                                          Contents lists available at ScienceDirect
+
+
+                                           International Journal of Forecasting
+                                              journal homepage: www.elsevier.com/locate/ijforecast
+
+
+
+
+The forecast combination puzzle: A simple theoretical
+explanation
+Gerda Claeskens a , Jan R. Magnus b,c , Andrey L. Vasnev d,∗ , Wendun Wang e,c
+a
+    KU Leuven, Belgium
+b
+    Vrije Universiteit Amsterdam, The Netherlands
+c
+    Tinbergen Institute, The Netherlands
+d
+    University of Sydney, New South Wales, Australia
+e
+    Econometric Institute, Erasmus University Rotterdam, The Netherlands
+
+
+
+article                  info                             abstract
+Keywords:                                                 This paper offers a theoretical explanation for the stylized fact that forecast combinations
+Forecast combination
+                                                          with estimated optimal weights often perform poorly in applications. The properties of
+Optimal weights
+                                                          the forecast combination are typically derived under the assumption that the weights are
+                                                          fixed, while in practice they need to be estimated. If the fact that the weights are random
+                                                          rather than fixed is taken into account during the optimality derivation, then the forecast
+                                                          combination will be biased (even when the original forecasts are unbiased), and its variance
+                                                          will be larger than in the fixed-weight case. In particular, there is no guarantee that the
+                                                          ‘optimal’ forecast combination will be better than the equal-weight case, or even improve
+                                                          on the original forecasts. We provide the underlying theory, some special cases, and a
+                                                          numerical illustration.
+                                                            Crown Copyright © 2016 Published by Elsevier B.V. on behalf of International Institute of
+                                                                                                                       Forecasters. All rights reserved.
+
+
+
+
+1. Introduction                                                                      arithmetic mean often performs better. This empirical fact
+                                                                                     has become known as the ‘forecast combination puzzle’.
+   When several forecasts of the same event are avail-                                   The history of the puzzle is elegantly summarized by
+able, it is natural to try and find a (linear) combination                           Graefe, Armstrong, Jones, and Cuzán (2014, Section 4), and
+of these forecasts that is the ‘best’ in some sense. If we                           Smith and Wallis (2009) made a rigorous attempt to ex-
+define ‘best’ in terms of the mean squared error and the                             plain it, using simulations and an empirical example. They
+variances and covariances of the forecasts are known, then                           showed that the effect of the error on the estimation of the
+optimal weights can be derived. In practice, though, these                           weights can be large, thus providing an empirical explana-
+(co)variances are not known and need to be estimated. This                           tion of the forecast puzzle. Smith and Wallis (2009) use the
+leads to estimated optimal weights and an estimated opti-                            words ‘finite-sample’ error, which suggests that this error
+mal forecast combination. Empirical evidence and exten-                              may vanish asymptotically. However, it is not so easy to
+sive simulations show that the estimated optimal forecast                            find an asymptotic justification for ignoring the noise gen-
+combination typically does not perform well, and that the                            erated by estimating the weights. To begin with, it is not
+                                                                                     clear what ‘asymptotic’ means here. What goes to infinity?
+                                                                                     The number of forecasts? If so, then the number of weights
+ ∗ Correspondence to: Office 4160, Abercrombie Building (H70), The                   also goes to infinity. The number of observations underly-
+University of Sydney Business School, Sydney, NSW 2006, Australia.                   ing the total (but finite) set of forecasts? That would make
+   E-mail address: andrey.vasnev@sydney.edu.au (A.L. Vasnev).                        more sense, but it would be difficult to analyze.
+http://dx.doi.org/10.1016/j.ijforecast.2015.12.005
+0169-2070/Crown Copyright © 2016 Published by Elsevier B.V. on behalf of International Institute of Forecasters. All rights reserved.
+                                       G. Claeskens et al. / International Journal of Forecasting 32 (2016) 754–762                             755
+
+
+
+
+Fig. 1. Variance of forecast combination, in two dimensions: fixed               Fig. 2. Variance of forecast combination, in two dimensions: random
+weights (dashed line) and random weights under normality (solid line).           weights, general case.
+
+
+    In this paper, we provide a theoretical explanation for                      where (y1 , y2 , w) follows a trivariate normal distribution,
+the empirical and simulation results of Smith and Wal-                           the combination is biased even when the original forecasts
+lis (2009) and others. The key ingredient of our approach                        are unbiased, since
+is the specific acknowledgement that the optimal weights                         Eyc = µ + cov(w, y1 − y2 ),                                    (3)
+should be derived by taking the estimation step into ac-
+count explicitly. In other words, we view the derivation                         and the variance is given by
+and estimation of optimal weights as a joint effort, not                         var(yc ) = (Ew)2 σ12 + (1 − Ew)2 σ22
+as two separate efforts. This approach differs from (al-
+most) all previous research, not only the study by Bates                                      + 2(Ew)(1 − Ew)ρσ1 σ2
+and Granger (1969), but also later contributions, important                                   + var(w)var(y1 − y2 ) + (cov(w, y1 − y2 ))2 .
+and insightful though they may be, such as those of Elliott                                                                                     (4)
+(2011), Hansen (2008), Hsiao and Wan (2014), and Liang,
+Zou, Wan, and Zhang (2011). The separation of the mathe-                         In another special case where w is independent of (y1 , y2 ),
+matical derivation and statistical estimation can be quite                       the combination is unbiased and
+dangerous. However, even though the disadvantages of                             var(yc ) = (Ew)2 σ12 + (1 − Ew)2 σ22
+such separations have been highlighted, they are still quite
+common in econometrics, and specifically in the model-
+                                                                                              + 2(Ew)(1 − Ew)ρσ1 σ2
+averaging literature, which explicitly attempts to combine                                    + var(w)var(y1 − y2 ).                            (5)
+model selection and estimation, so that uncertainty in the
+                                                                                 In either case, the variance is shifted upwards, as is shown
+model selection procedure is not ignored when reporting
+                                                                                 in Fig. 1 (solid line). The solid line gives the variance as a
+properties of the estimates; see for example Magnus and
+                                                                                 function of Ew , and the optimum is reached at the same
+De Luca (2016).
+                                                                                 point w ∗ as before, but leading to a higher variance of
+    We highlight our main findings by first providing
+                                                                                 the forecast combination. We see that, while the equal-
+graphical illustrations of the cases of two forecasts, as                        weights point at w = 1/2 (point E) is not optimal with
+analyzed by Bates and Granger (1969). Thus, we linearly                          fixed weights, it has a variance which is smaller than the
+combine two forecasts of an event µ:                                             optimum with estimated weights (point R).
+yc = w y1 + (1 − w)y2 .                                              (1)             Eqs. (4) and (5) concern special cases (normality and
+                                                                                 independence, respectively). In general, when the weights
+If the weight w is considered to be fixed, then the forecast
+                                                                                 are estimated, the combined forecast will be biased, as
+combination is unbiased (Eyc = µ) if the original forecasts
+                                                                                 given in Eq. (3), with its variance given by
+are unbiased, and the variance of the combination will be
+                                                                                 var(yc ) = (Ew)2 σ12 + (1 − Ew)2 σ22
+var(yc ) = w 2 σ12 + (1 − w)2 σ22 + 2w(1 − w)ρσ1 σ2 ,                (2)
+                                                                                              + 2(Ew)(1 − Ew)ρσ1 σ2
+where σ12 and σ22 are the variances of y1 and y2 respectively,                                + E [(w − Ew)(y1 − y2 )
+and ρ = corr(y1 , y2 ) denotes the correlation.
+   The variance is a quadratic function of w , as plotted in
+                                                                                              × ((Ew)y1 + (1 − Ew)y2 − µ)]
+Fig. 1 (dashed line). At w = 0, we obtain σ22 ; at w = 1,                                     + E[(w − Ew)2 (y1 − y2 )2 ]
+we obtain σ12 ; and at w = 1/2, we obtain point E. The
+                                                                                              − (cov(w, y1 − y2 ))2 .                           (6)
+optimum F is reached at w = w ∗ , the optimal weight that
+gives the smallest variance of the forecast combination.                         There are now additional terms over and above those in
+   Now suppose that the weights are estimated, so that                           Eqs. (4) and (5), and these shift and distort the fixed-
+they are random rather than fixed. In the special case                           weights curve of Fig. 1, as is illustrated in Fig. 2. The optimal
+756                                G. Claeskens et al. / International Journal of Forecasting 32 (2016) 754–762
+
+
+weight is now given by w ∗∗ rather than w ∗ . Note that these                It is easy to show that the variance 
+                                                                                                                  is minimized (as a
+conclusions would remain the same if we plotted the mean                     function of w , under the constraint   j wj = 1) when
+squared error rather than the variance. The three curves                     w = w∗ , where
+in Figs. 1 and 2 provide the essence of our answer to the
+forecast combination puzzle. The underlying formulae will                             Σyy
+                                                                                       −1
+                                                                                          ı
+                                                                             w∗ =                                                          (8)
+be derived in m dimensions rather than two, but the story                            ı′ Σyy
+                                                                                         −1
+                                                                                            ı
+remains the same.
+                                                                             and ı denotes the vector of m ones. The optimal forecast is
+   The simplified setup presented above assumes that the
+                                                                             then y∗c = w ∗ ′ y and its variance is
+event µ is nonrandom and does not include a constant
+term w0 in the combined forecast. Both assumptions can                                          1
+                                                                             var(y∗c ) =               .                                   (9)
+be criticized, so we address them both briefly here. If µ is                               ı′ Σ −1 ı
+                                                                                                 yy
+random, we define the forecast errors e1 = y1 − µ and
+                                                                             These are well-established results; see Bates and Granger
+e2 = y2 − µ. Including a constant term in the combined
+                                                                             (1969) for the bivariate case and Elliott (2011) for its
+forecast gives
+                                                                             multivariate extension.
+yc = w0 + w y1 + (1 − w)y2 .                                                    Denote the diagonal elements of Σyy by σ12 , . . . , σm2 .
+                                                                             Then, for each j,
+The forecast error of yc is then
+ec = yc − µ = w0 + w e1 + (1 − w)e2 .                                        var(y∗c ) ≤ σj2 .                                            (10)
+                                                                                                                                   1/2
+Assume that the forecasts are unbiased, so that Ee1 =                        This follows by considering the vectors aj =         Σyy ej and
+                                                                                       −1/2
+Ee2 = 0. Then, in the case of fixed weights, we find                         b = Σyy ı, where ej denotes the m-dimensional vector
+Eec = w0 ,                                                                   with one in its jth position and zeros elsewhere. Then, by
+                                                                             Cauchy–Schwarz,
+var(ec ) = w 2 σ12 + (1 − w)2 σ22 + 2w(1 − w)ρσ1 σ2 ,
+                                                                             1 = (e′j ı)2 = (a′j b)2 ≤ (a′j aj )(b′ b)
+as in Eq. (2), except that σ12 and σ22 now denote the
+variances of e1 and e2 , and ρ = corr(e1 , e2 ). The mean                       = (e′j Σyy ej )(ı′ Σyy
+                                                                                                    −1
+                                                                                                       ı ) = σj2 /var(y∗c ).
+squared error of ec is minimized for w0 = 0 and w =                          Hence, the optimally combined forecast has a smaller
+w ∗ , so nothing changes. Now consider the case of random                    variance than each of the individual forecasts. Equality can
+weights. Then,                                                               occur for at most one of the individual forecasts, because
+                                                                             Σyy is assumed to remain positive definite. Equality for
+Eec = Ew0 + cov(w, y1 − y2 ),
+                                                                             the jth forecast occurs if and only if aj and b are linearly
+which vanishes for Ew0 = −cov(w, y1 − y2 ). Thus,                            dependent, that is, if and only if cov(yi , yj ) = var(yj ) for
+including an intercept absorbs the bias. Regarding var(ec ),                 i = 1, . . . , m.
+this will be an expression like Eq. (6), but more complicated                    We note that we imposed the restriction that the
+because the variance and covariances involving w0 need to                    weights add up to one, but not that each weight lies be-
+be included. Since the essence of the story is not affected,                 tween zero and one. If all of the covariances are zero so
+we shall continue to assume that the event µ is nonrandom                    that Σyy is diagonal, then the optimal weights are given by
+                                                                             (1/σj2 )/ i (1/σi2 ) (j = 1, . . . , m), and these clearly lie be-
+                                                                                        
+and that the combined forecast does not include a constant
+term. Only in our small Monte Carlo experiment in                            tween zero and one. However, this holds only if Σyy is a
+Section 6 do we assume that µ is random. However, we                         diagonal matrix. Even in the case where only one covari-
+shall work in m dimensions rather than in two.                               ance is not zero, say cov(yi , yj ) = cov(yj , yi ) ̸= 0 for some
+    The remainder of this paper is organized as follows. In                  i and j, the optimal weights wi∗ and wj∗ do not necessarily
+Section 2, we reiterate the classical forecast combination                   lie between zero and one; they do if and only if
+problem in a multivariate setting, assuming that the
+                                                                                                 min(σi , σj )
+weights are fixed. In Section 3, we analyze the properties                   corr(yi , yj ) <                       .
+of the forecast combination when the weights are random                                          max(σi , σj )
+and the estimation is taken into account explicitly. Some                    Apparently, the combination of a high positive correla-
+special cases are considered in Section 4. Our explanation                   tion with a high variation in reliability forces the optimal
+of the puzzle is summarized in Section 5. Section 6 provides                 weights outside the (0, 1) interval. Of course, it is possible
+a numerical illustration, and some concluding remarks are                    to choose a positive definite matrix, say V , such that the
+offered in Section 7.                                                        components of V −1 ı are all positive, for example the diag-
+                                                                             onal matrix V = diag(σ12 , . . . , σm2 ). An alternative set of
+2. Moments of the forecast combination: fixed weights                        weights can then be defined as
+
+   Thus motivated, let y = (y1 , . . . , ym )′ be a vector of                         V −1 ı
+                                                                             wĎ = ′            ,                                    (11)
+unbiased forecasts so that Eyj = µ for all j, and let w =                             ı V −1 ı
+(w1 , . . . , wm )′ be
+                    a vector of fixed (nonrandom) weights                   and these weights lie between zero and one, but, in general,
+                       j wj = 1. Assuming that y has a finite
+                                                                                                                               Ď      ′
+constrained by                                                               they are not optimal. The forecast combination yc = w Ď y
+variance Σyy , we obtain the mean and variance of the                        is still unbiased, but its variance is now
+forecast combination yc = w ′ y as
+                                                                                           ı′ V −1 Σyy V −1 ı
+Eyc = µ,      var(yc ) = w ′ Σyy w.                              (7)         var(yĎc ) =                        .                         (12)
+                                                                                                (ı′ V −1 ı)2
+                                              G. Claeskens et al. / International Journal of Forecasting 32 (2016) 754–762                                  757
+
+
+Letting x = V −1/2 ı and P = V −1/2 Σyy V −1/2 , we obtain                              Proposition 3.1. The mean, variance, and mean squared
+     Ď                                                                                  error of the forecast combination yc = w ′ y are given by
+var(yc )          ′
+                x Px          ′ −1
+                              xP      x
+            =             ·               ,                                             Eyc = µ + tr Σwy ,
+var(y∗c )         x′ x         x′ x
+                                                                                        var(yc ) = (Ew)′ Σyy (Ew) + 2(Ew)′ d + δ − (tr Σwy )2 ,
+and hence, by Kantorovich’s inequality (Abadir & Magnus,
+2005, Exercise 12.17),                                                                  and
+            Ď
+      var(yc )            (λ1 + λm )2                                                   MSE(yc ) = (Ew)′ Σyy (Ew) + 2(Ew)′ d + δ,
+1≤                    ≤               ,                                   (13)
+      var(y∗c )             4λ1 λm                                                      where the vector d and the scalar δ denote third- and fourth-
+                                                                                        order moments respectively, and are defined as
+where λ1 and λm denote the largest and smallest eigen-                                                                                                 2
+                                                                                        d = E (1y)(1y)′ (1w) ,                         δ = E (1w)′ (1y) .
+                                                                                                                                          
+values of P, respectively. This provides an estimate of the
+possible loss of precision that is caused by choosing w Ď in-
+stead of w ∗ . In the most common case, where we choose                                     We note the generality of this proposition. The only
+V = diag(σ12 , . . . , σm2 ), we note that P is the correlation                         two things assumed (apart from the existence of moments)
+matrix associated with Σyy . Although the issue of optimal                              are that each individual forecast is unbiased and that the
+weights that are outside the (0, 1) interval is important, it                           weights add up to one, and it is precisely the combination
+is not considered further in the current paper.                                         of these two assumptions that leads to the simplicity
+    When the weights are fixed, the optimal forecast                                    of the formulas. It is not assumed that the weights lie
+combination y∗c is an improvement over the individual                                   between zero and one. There is no difficulty in deriving the
+forecasts, because it remains unbiased and has a smaller                                counterpart of Proposition 3.1 for biased forecasts, but the
+variance. In applications, however, the weights will                                    formulae become cumbersome, and they are not needed
+typically be random, and we now turn to this more realistic                             for the story that we wish to tell.
+case.                                                                                       The distribution of the weights w is given by their
+                                                                                        location (Ew ) and shape (moments of 1w ). We can choose
+                                                                                        the location optimally by minimizing MSE(yc ) with respect
+3. Moments of the forecast combination: random
+                                                                                        to Ew under the restriction that the weights add up to one,
+weights
+                                                                                        and this leads to Ew = w ∗∗ , where
+                                                                                                                         
+   As in the previous section, let y = (y1 , . . . , ym )′ be a                                            1 + ı′ Σyy
+                                                                                                                   −1
+                                                                                                                      d
+vector of unbiased forecasts with Eyj = µ, and let w =
+                                                                                        w   ∗∗
+                                                                                                 =                            Σyy
+                                                                                                                               −1
+                                                                                                                                  ı − Σyy
+                                                                                                                                       −1
+                                                                                                                                          d.
+                                                                                                             ı′ Σyy
+                                                                                                                 −1
+                                                                                                                    ı
+(w1 ,
+   . . . , wm ) be a vector of weights that are constrained
+                ′
+
+by      w j =  1, but are now random rather than fixed. Let                             It is important to note that the ‘optimal’ weights w ∗ given
+      j
+1yj = yj − Eyj and 1y = (1y1 , . . . , 1ym )′ . Assuming                                in Eq. (8) are no longer optimal in the random-weights
+that y and w are jointly distributed with finite fourth-order                           case, unless d = 0, which occurs, for example, when
+moments, and writing                                                                    Σww = 0 (so that 1w = 0, the fixed-weights case), or if
+                                                                                        the joint distribution is not skewed (for example, symmet-
+                      Σyy          Σyw                                                  ric) so that third-order moments vanish. With Ew chosen
+                                    
+       y
+var         =                            ,
+      w               Σw y         Σww                                                  optimally as w ∗∗ , the variance of yc is given by
+
+we have                                                                                 var(yc )
+                                                                                                 1 + 2ı′ Σyy
+                                                                                                          −1
+                                                                                                             d − [(ı′ Σyy
+                                                                                                                       −1
+                                                                                                                          ı)(d′ Σyy
+                                                                                                                                 −1
+                                                                                                                                    d) − (ı′ Σyy d) ]
+                                                                                                                                              −1 2
+yc = w ′ y = µ + w ′ 1y,                                                                    =
+                                                                                                                                  ı′ Σyy
+                                                                                                                                      −1
+                                                                                                                                         ı
+and hence
+                                                                                                 + δ − (tr Σwy )2 .
+Eyc = µ + E(w ′ 1y) = µ + tr Σwy ,
+                                                                                            When the weights are random rather than fixed, the
+so that, in general, yc is a biased forecast. Also,                                     analysis and the conclusions are less straightforward. First,
+                                                                                        the forecast combination yc will generally have a larger
+var(yc ) = var(w ′ 1y),                                                                 variance when the weights are random, because of the ad-
+MSE(yc ) = var(w ′ 1y) + (tr Σwy )2 .                                                   ditional randomness in the weights; however, this is not
+                                                                                        always the case. Second, it is no longer true that the vari-
+This is not yet very informative. To gain more insight, we                              ance of yc is necessarily smaller than the variance of each
+let 1wj = wj − Ewj and 1w = (1w1 , . . . , 1wm )′ . Then,                               individual forecast, even when we choose the weights ‘op-
+w = Ew + 1w , and hence                                                                 timally’, say Ew = w ∗ or Ew = w ∗∗ . A discussion of some
+                                                                                        special cases will be instructive and will highlight these dif-
+w ′ 1y = (Ew)′ (1y) + (1w)′ (1y),
+                                                                                        ferences.
+so that
+                                                                                        4. Special cases
+var(w ′ 1y) = (Ew)′ Σyy (Ew) + 2(Ew)′
+                      × E[(1y)(1y)′ (1w)] + var[(1w)′ (1y)].                               We consider three special cases.
+                                                                                           No skewness. If the joint distribution of (y, w) is not
+This leads to the following proposition.                                                skewed, then the mean and variance of the forecast
+758                                   G. Claeskens et al. / International Journal of Forecasting 32 (2016) 754–762
+
+
+combination yc = w ′ y are given by
+Eyc = µ + tr Σwy
+and
+var(yc ) = (Ew)′ Σyy (Ew) + δ − (tr Σwy )2 .
+For example, no skewness occurs when the joint dis-
+tribution is symmetric, regardless of the definition of
+multivariate symmetry that one employs. If the joint
+distribution is not skewed,
+                         then the third-order moments
+d = E (1y)(1y)′ (1w) all vanish, so that w ∗ = w ∗∗ , and
+       
+hence,
+MSE(yc ) = (Ew)′ Σyy (Ew) + δ
+
+contains only two terms. In this case, the combined
+forecast does not necessarily have a smaller variance
+than the individual forecasts. The first term is smaller                        Fig. 3. Variance of forecast combination, in two dimensions: random
+than the individual variance σj2 , see Eq. (10), but δ =                        weights under normality with and without covariances.
+                2
+E (1w)′ (1y) is positive and, if it is large enough, then
+ 
+                                                                                5. Discussion
+MSE(yc ) > σj2 .
+   Normality. The variance of the weights Σww plays a key                          In their ‘simple explanation of the forecast puzzle’,
+role in the variance of the combination. This is why it may                     Smith and Wallis (2009) offer three main conclusions in
+be good to select an estimator with a small variation in                        terms of the mean squared error of the forecast (MSFE). We
+weights, even when it is not the optimal estimator. For                         now analyze these conclusions in the context of the theory
+example, the estimator based on w Ď may be ‘better’ than                        developed in Section 3. Their first conclusion is that
+the estimator based on w ∗ .
+                                                                                    ‘[. . . ] a simple average of competing forecasts is
+   The effect of Σww is brought out well in the case of
+                                                                                    expected to be more accurate, in terms of MSFE, than
+joint normality. The mean and variance of the forecast
+                                                                                    a combination based on estimated weights.’
+combination yc = w ′ y are then given by
+                                                                                This is the situation illustrated for two dimensions in Figs. 1
+Eyc = µ + tr Σwy
+                                                                                and 2. The combination with equal weights is unbiased,
+and                                                                             and its variance has only one component: ı′ Σyy ı/m2 . In
+                                                                                many situations, this leads to a smaller mean squared error
+var(yc ) = (Ew)′ Σyy (Ew) + tr (Σww Σyy ) + tr (Σwy Σyw ).                      than a biased combination with additional components d
+This follows from the fact that multivariate normality                          and δ , as given in Proposition 3.1, for the case where the
+implies no skewness, so that d = 0, and also, following                         weights are estimated.
+Anderson (1958, p. 39),                                                            The second conclusion is that
+                                                                                    ‘[. . . ] if estimated weights are to be used, then it is
+δij ≡ E[(1wi )(1yi )(1wj )(1yj )]
+                                                                                    better to neglect any covariances between forecast
+    = cov(wi , yi )cov(wj , yj ) + cov(wi , wj )cov(yi , yj )                       errors and base the estimates on inverse MSFEs alone,
+      + cov(wi , yj )cov(yi , wj ),                                                 than to use the optimal formula originally given by
+                                                                                    Bates and Granger for two forecasts, or its regression
+so that                                                                             generalization for many forecasts.’
+      
+δ=         δij = (tr Σwy )2 + tr (Σww Σyy ) + tr (Σwy Σyw ).                    Apart from the fact that including covariances may lead to
+      ij                                                                        negative weights, we have also seen that estimating the
+The result then follows from Proposition 3.1.                                   covariances increases the variance of the weights, as is also
+   Independence. One naturally expects the estimated                            shown by Figures 2 and 4 of Smith and Wallis (2009). For
+weights w and the forecasts y to be correlated, because                         fixed weights, the relationship between the two variances
+they are typically estimated from the same data set. In                         (with and without covariances) is given by Eq. (13), but the
+some cases, however, it may be possible to estimate                             additional terms from Proposition 3.1 are likely to be larger
+the weights independently of the forecasts. When this                           for the optimal weights based on estimated covariances.
+happens, that is, when y and w are independent with finite                      The special cases in Section 4 emphasize this point by
+second-order moments, then the forecast combination                             showing explicitly how the variance of the weights, Σww ,
+yc = w ′ y is unbiased,                                                         appears in the formulae.
+                                                                                   Fig. 3 provides a stylized illustration in two dimensions.
+Eyc = µ,                                                                        The figure is identical to Fig. 1, except that the middle
+                                                                                curve has been added and the minimum point F on the
+and its variance and mean squared error are given by
+                                                                                lowest curve has been removed. It gives the variance of
+var(yc ) = MSE(yc ) = (Ew)′ Σyy (Ew) + tr (Σww Σyy ).                           the forecast combination as a function of Ew . The bottom
+                                      G. Claeskens et al. / International Journal of Forecasting 32 (2016) 754–762                                          759
+
+
+curve plots the variance when the weights are nonrandom;                        and we are interested in the properties of various forecast
+the point E on the curve (not the minimum) gives the                            combinations yc = w y1 + (1 − w)y2 for different values of
+variance when w = 1/2: equal weights. The top curve                             φ1 and φ2 . We let T = 30 and use the thirty observations
+plots the variance according to Proposition 3.1, and the                        (z1 , . . . , zT ) to estimate the weight w .
+minimum of the curve is at R, representing the point where                          Since the forecasted zT +1 is random rather than fixed,
+the optimal choice for Ew is estimated to be. The middle                        we define e1t = zt − ρ1 zt −1 and e2t = zt − ρ1 zt −2 , and
+curve represents the restricted case without covariances,                       consider the forecast errors
+where Ew is an estimate of σ22 /(σ12 + σ22 ), as in Eq. (11).
+The minimum on the middle curve does not occur at RĎ ;                          e1 = e1,T +1 = zT +1 − y1 ,              e2 = e2,T +1 = zT +1 − y2 .
+however, RĎ is typically lower than R because the three
+variance curves move parallel to each other and fewer                           Their variances are
+parameters are required to estimate the variance in the
+middle curve than that in the top curve.                                        σ12 = var(e1 ) = σz2 (1 − ρ12 ),
+   The third conclusion of Smith and Wallis (2009) is:                          σ22 = var(e1 ) = σz2 (1 − ρ22 ),
+   ‘When the number of competing forecasts is large,
+   so that under equal weighting each has a very small                          and their correlation is given by ρ = cov(e1 , e1 )/(σ1 σ2 ),
+   weight, the simple average can gain in efficiency by                         where
+   trading off a small bias against a larger estimation vari-
+                                                                                cov(e1 , e2 ) = σz2 (1 − ρ2 )(1 − ρ12 + ρ2 ).
+   ance. Nevertheless, in an example from Stock and Wat-
+   son (2003), [. . . ] the forecast combination puzzle rests
+                                                                                Letting ē1 = (1/(T − 2))                                    = (1/(T − 2))
+                                                                                                                   T −1
+   on a gain in MSFE that has no practical significance.’                                                             t =2 e1,t +1 and ē2
+                                                                                 T −1
+                                                                                   t =2 e2,t +1 , we obtain unbiased estimates of the second-
+This statement is based on simulations and empirical                            order moments as
+findings, but can now be assessed in any situation by
+                                                                                    σ̂1       ρ̂ σ̂1 σ̂2
+                                                                                 2                      
+comparing the variance of the combination with equal                                                             1
+                                                                                                           =
+weights, ı′ Σyy ı/m2 , with the variance of the combination                      ρ̂ σ̂1 σ̂2       σ̂2
+                                                                                                    2
+                                                                                                              T −3
+with an estimated weight w Ď , given by the general formula                        T −1 
+                                                                                                    (e1,t +1 − ē1 )2        (e1,t +1 − ē1 )(e2,t +1 − ē2 )
+                                                                                                                                                             
+in Proposition 3.1.                                                             ×                                                                               .
+                                                                                   t =2
+                                                                                            (e1,t +1 − ē1 )(e2,t +1 − ē2 )        (e2,t +1 − ē2 ) 2
+
+
+6. Numerical illustration
+                                                                                    Three weights are considered: the arithmetic mean
+   Our Figs. 1–3 are stylized so as to provide a simple                         w = 1/2, the optimal weight
+explanation of the puzzle. In actual applications, the
+                                                                                              σ̂22 − ρ̂ σ̂1 σ̂2
+shift and distortion of the dashed curve in Fig. 1 will                         w∗ =
+vary according to our theoretical results in Eq. (6) (for                                σ̂12 + σ̂22 − 2ρ̂ σ̂1 σ̂2
+two dimensions) and Proposition 3.1 (for m dimensions).
+To support our theoretical results and obtain a better                          according to Eq. (8), and the simplified weight (with ρ = 0)
+understanding of these shifts and distortions, we now
+                                                                                            σ̂22
+present a simple simulation study.                                              wĎ =
+   We follow the experimental design of Smith and Wallis                                 σ̂ + σ̂22
+                                                                                           2
+                                                                                           1
+(2009, Section 3.1) closely, and in particular their case 2.
+                                                                                according to Eq. (11). When the weight is fixed at w =
+We draw a sequence of T + 1 observations from a strictly
+                                                                                1/2, we do not estimate it, but simply compute its exact
+stationary AR(2) process
+                                                                                variance as
+zt = φ1 zt −1 + φ2 zt −2 + ϵt ,   t = 1, . . . , T + 1,
+                                                                                                           σz2 
+                                                                                var[(e1 + e2 )/2] =                4 − 3ρ12 − 3ρ22 + 2ρ12 ρ2 .
+                                                                                                                                                   
+where the {ϵt } are independent and identically distributed
+standard-normal variates, and φ1 and φ2 are given                                                           4
+parameters that are subject to the stationarity conditions                      However, when the weights are either w ∗ or w Ď , we do
+φ1 + φ2 < 1, φ2 − φ1 < 1, and |φ2 | < 1. The variance of                        estimate them, because our purpose is to obtain a better
+the process is given by                                                         understanding of the uncertainty that is caused by the
+                             1 − φ2                                             estimation of weights. For the same reason, we do not
+σz2 = var(zt ) =                                   ,
+                   (1 + φ2 )[(1 − φ2 )2 − φ12 ]                                 estimate the parameters φ1 and φ2 ; these are set to their
+                                                                                true values. Thus, any uncertainty that is shown in the
+and the first two autocorrelation coefficients are
+                                                                                simulations is caused by weight estimation.
+                            φ1
+ρ1 = corr(zt , zt −1 ) =        ,                                                   This experiment is repeated 1,000,000 times, which
+                         1 − φ2                                                 suffices to control the simulation error. For given values of
+ρ2 = corr(zt , zt −2 ) = φ1 ρ1 + φ2 .                                           φ1 and φ2 , each run produces values of w and of the two
+                                                                                forecast errors e1 = zT +1 − y1 and e2 = zT +1 − y2 . Since the
+Our aim is to forecast the final observation zT +1 . Two
+                                                                                forecasted zT +1 is random rather than fixed, Eq. (6) needs to
+forecasts are available,
+                                                                                be written in terms of e1 and e2 , as was discussed at the end
+y1 = ρ1 zT   and    y2 = ρ2 zT −1 ,                                             of Section 1. The variance of the error ec = w e1 +(1 −w)e2
+760                                             G. Claeskens et al. / International Journal of Forecasting 32 (2016) 754–762
+
+
+Table 1
+Detailed numerical analysis of Eq. (14) for a fixed weight w = 1/2 and for estimated w Ď and w ∗ when φ1 = φ2 ∈ [−0.9, 0.4]. The simulation error is the
+difference between var(ec ) and the sum of terms 1–5.
+ φ1 = φ2             var(ec )           var(ec )     E(w)           E(ec )         Term 1        Term 2        Term 3          Term 4    Term 5   Simul err
+                     w = 1/2            w is estimated by wĎ
+ −0.9                4.1413             4.1914       0.5069          0.00009       1.3525        1.2796        1.5094           0.0199   0.0065    0.0236
+ −0.8                2.2840             2.3012       0.5051          0.00006       0.7088        0.6802        0.8950           0.0070   0.0042    0.0060
+ −0.7                1.6782             1.6856       0.5034         −0.00003       0.4968        0.4836        0.6978           0.0031   0.0027    0.0016
+ −0.6                1.3867             1.3905       0.5019         −0.00003       0.3936        0.3876        0.6055           0.0014   0.0016    0.0007
+ −0.5                1.2222             1.2235       0.5011         −0.00001       0.3348        0.3319        0.5556           0.0006   0.0009   −0.0002
+ −0.4                1.1224             1.1222       0.5005          0.00001       0.2982        0.2970        0.5272           0.0002   0.0004   −0.0008
+ −0.3                1.0609             1.0594       0.5002          0.00000       0.2749        0.2745        0.5114           0.0001   0.0002   −0.0017
+ −0.2                1.0243             1.0278       0.5001         −0.00001       0.2605        0.2604        0.5035           0.0000   0.0000    0.0034
+ −0.1                1.0055             1.0058       0.5001          0.00000       0.2526        0.2525        0.5005           0.0000   0.0000    0.0003
+      0.1            1.0045             1.0043       0.4999          0.00000       0.2524        0.2526        0.4994           0.0000   0.0000   −0.0002
+      0.2            1.0156             1.0179       0.4997         −0.00001       0.2601        0.2607        0.4948           0.0000   0.0001    0.0022
+      0.3            1.0283             1.0278       0.4997         −0.00005       0.2744        0.2751        0.4788           0.0000   0.0006   −0.0012
+      0.4            1.0317             1.0335       0.4996          0.00007       0.2971        0.2981        0.4365           0.0000   0.0028   −0.0010
+                     w = 1/2            w is estimated by w∗
+ −0.9                4.1413             4.2911       0.5176          0.00017       1.4100        1.2248        1.5078           0.0502   0.0444    0.0540
+ −0.8                2.2840             2.3681       0.5152          0.00015       0.7374        0.6527        0.8942           0.0217   0.0414    0.0207
+ −0.7                1.6782             1.7405       0.5106         −0.00010       0.5111        0.4697        0.6975           0.0120   0.0397    0.0103
+ −0.6                1.3867             1.4387       0.5040         −0.00009       0.3969        0.3844        0.6054           0.0069   0.0389    0.0061
+ −0.5                1.2222             1.2676       0.4963         −0.00007       0.3285        0.3382        0.5555           0.0040   0.0382    0.0031
+ −0.4                1.1224             1.1632       0.4853          0.00002       0.2804        0.3153        0.5268           0.0019   0.0380    0.0008
+ −0.3                1.0609             1.0993       0.4688          0.00002       0.2415        0.3101        0.5094           0.0011   0.0378   −0.0006
+ −0.2                1.0243             1.0651       0.4384         −0.00023       0.2002        0.3285        0.4958          −0.0003   0.0378    0.0029
+ −0.1                1.0055             1.0431       0.3571         −0.00006       0.1288        0.4175        0.4596          −0.0002   0.0374    0.0000
+      0.1            1.0045             1.0415       0.6676          0.00010       0.4503        0.1116        0.4433          −0.0006   0.0378   −0.0007
+      0.2            1.0156             1.0549       0.5845         −0.00016       0.3559        0.1798        0.4807          −0.0008   0.0380    0.0011
+      0.3            1.0283             1.0649       0.5546         −0.00039       0.3381        0.2180        0.4731          −0.0007   0.0384   −0.0023
+      0.4            1.0317             1.0674       0.5358          0.00026       0.3418        0.2565        0.4343          −0.0011   0.0381   −0.0019
+
+
+of the combined forecast is                                                               wĎ and w∗ than for the fixed weight. This is because, if the
+                                                                                          optimal weight deviates by much from one-half, the gain
+var(ec )
+                                                                                          from estimating the optimal weight is larger than the loss
+  = (Ew)2 σ12 + (1 − Ew)2 σ22 + 2(Ew)(1 − Ew)ρσ1 σ2                                       caused by estimation error; see Elliott (2011) for a detailed
+                                                                                          discussion of this issue. When w = w Ď , terms 4 and 5 are
+                                       
+            term 1             term 2                     term 3
+
+       + E [(w − Ew)(e1 − e2 ) ((Ew)e1 + (1 − Ew)e2 )]                                    close to zero, but when w = w ∗ , term 5 (the fourth-order
+                                                                                      moments) can be substantial.
+                                           term 4
+                                                                                             Graphs are particularly informative, as they show the
+       + E[(w − Ew) (e1 − e2 )2 ] − (cov(w, e1 − e2 ))2 , (14)
+                           2
+                                                                                          relative positions of the forecasts and the corresponding
+                                                                                          curves. We consider two special cases, one representing
+                                               
+                        term 5                             term 6
+                                                                                          each table. Fig. 4(a) shows the case where φ1 = φ2 = 0.4,
+which has six terms that can each be calculated from the                                  while Fig. 4(b) shows the case where φ1 = 0.5 and φ2 =
+simulations. We compute var(ec ) and its six components                                   −0.8. In Fig. 4(a), we have φ1 = φ2 , and hence ρ1 = ρ2
+for both w = w ∗ and w = w Ď , for various values of φ1 and
+                                                                                          and var(y1 ) = var(y2 ). This implies that σ12 and σ22 are
+φ2 .                                                                                      close, meaning that the expected values of the estimated
+     The results are presented in Tables 1 and 2. In Table 1,
+                                                                                          wĎ and w ∗ are both close to 1/2. Since the estimation of w Ď
+we let φ1 = φ2 for values ranging between −0.9 and 0.4. In
+                                                                                          hardly affects the properties of the forecast combination,
+Table 2, we fix φ1 = 0.5 and let φ2 range between −0.9 and
+                                                                                          the points E and RĎ (and the corresponding curves) are
+0.4. The first three terms of Eq. (14) are present regardless
+                                                                                          almost identical. On the other hand, the estimation of w ∗
+of whether randomness of w is taken into account or not.
+                                                                                          increases the variance of the combination, so point R is
+Terms 4 and 5 account for the randomness in w that is
+                                                                                          much higher, and its corresponding curve is shifted up by
+caused by the estimation. Term 6 represents the squared
+bias, which is negligible in all cases, and is therefore                                  terms 4 and 5, as reported in Table 1.
+omitted from the tables.                                                                     In Fig. 4(b), the original forecasts y1 and y2 have differ-
+     Our results are in general agreement with those of                                   ent variances, and hence σ12 and σ22 are not close. Again, the
+Smith and Wallis (2009). In Table 1, where φ1 = φ2 , the                                  estimation of w Ď hardly affects the corresponding curve,
+variance of ec is larger for the estimated weight w Ď than                                but the point RĎ slides along the curve, yielding a smaller
+for the fixed weight w = 1/2, but not much. However,                                      variance than the equal-weight combination E. The esti-
+the variance of ec is much larger (3%–4%) for the estimated                               mation of w ∗ distorts the corresponding curve, but the
+weight w ∗ than for the fixed weight. In Table 2, where φ1 ̸=                             minimum point R offsets this distortion and produces
+φ2 , the variance of ec is generally smaller, sometimes sub-                              a variance similar to that of point RĎ , as is reported in
+stantially so (up to about 15%), for the estimated weights                                Table 2.
+                                        G. Claeskens et al. / International Journal of Forecasting 32 (2016) 754–762                               761
+
+
+Table 2
+Detailed numerical analysis of Eq. (14) for a fixed weight w = 1/2 and for estimated w Ď and w ∗ when φ1 = 0.5 and φ2 ∈ [−0.9, 0.4]. The simulation
+error is the difference between var(ec ) and the sum of terms 1–5.
+ φ2          var(ec )       var(ec )     E(w)          E(ec )            Term 1        Term 2         Term 3           Term 4    Term 5    Simul err
+             w = 1/2        w is estimated by wĎ
+ −0.9        2.7064         2.3201       0.3235        −0.00017          0.5508        1.0599         0.7105           −0.0099   0.0169    −0.0082
+ −0.8        1.7724         1.6749       0.3857         0.00000          0.4132        0.6395         0.6201           −0.0026   0.0074    −0.0027
+ −0.7        1.4637         1.4408       0.4309         0.00005          0.3640        0.4827         0.5894           −0.0003   0.0035     0.0015
+ −0.6        1.3115         1.3095       0.4656        −0.00001          0.3387        0.3972         0.5705            0.0004   0.0017     0.0011
+ −0.5        1.2222         1.2243       0.4917         0.00001          0.3224        0.3444         0.5554            0.0005   0.0009     0.0007
+ −0.4        1.1645         1.1650       0.5117        −0.00002          0.3117        0.3094         0.5422            0.0004   0.0005     0.0007
+ −0.3        1.1251         1.1199       0.5264         0.00002          0.3045        0.2860         0.5302            0.0004   0.0003    −0.0014
+ −0.2        1.0972         1.0903       0.5366         0.00001          0.2999        0.2707         0.5189            0.0003   0.0002     0.0003
+ −0.1        1.0771         1.0676       0.5428         0.00000          0.2976        0.2618         0.5077            0.0003   0.0003    −0.0001
+   0.1       1.0516         1.0407       0.5444         0.00003          0.2994        0.2599         0.4821            0.0004   0.0006    −0.0018
+   0.2       1.0430         1.0378       0.5398        −0.00002          0.3035        0.2670         0.4645            0.0005   0.0011     0.0011
+   0.3       1.0345         1.0294       0.5311         0.00000          0.3099        0.2803         0.4394            0.0004   0.0022    −0.0030
+   0.4       1.0228         1.0276       0.5177        −0.00011          0.3190        0.3019         0.4003            0.0004   0.0045     0.0014
+             w = 1/2        w is estimated by w∗
+ −0.9        2.7064         2.2844       0.1868        −0.00025          0.1837        1.5314         0.4932            0.0110   0.0535     0.0114
+ −0.8        1.7724         1.6724       0.2252        −0.00007          0.1408        1.0173         0.4566            0.0055   0.0467     0.0055
+ −0.7        1.4637         1.4636       0.2733           0.00008        0.1465        0.7869         0.4774            0.0038   0.0434     0.0057
+ −0.6        1.3115         1.3494       0.3421        −0.00004          0.1829        0.6019         0.5161            0.0032   0.0415     0.0039
+ −0.5        1.2222         1.2692       0.4380           0.00002        0.2558        0.4211         0.5470            0.0033   0.0386     0.0035
+ −0.4        1.1645         1.2016       0.5706        −0.00016          0.3877        0.2392         0.5317            0.0039   0.0350     0.0040
+ −0.3        1.1251         1.1373       0.7314         0.00016          0.5879        0.0919         0.4178            0.0052   0.0311     0.0036
+ −0.2        1.0972         1.0841       0.8794         0.00014          0.8055        0.0183         0.2213            0.0047   0.0298     0.0046
+ −0.1        1.0771         1.0488       0.9520         0.00002          0.9154        0.0029         0.0935            0.0024   0.0321     0.0024
+   0.1       1.0516         1.0405       0.8437         0.00028          0.7191        0.0306         0.2563           −0.0010   0.0386    −0.0028
+   0.2       1.0430         1.0527       0.7420        −0.00012          0.5735        0.0839         0.3580           −0.0013   0.0390    −0.0005
+   0.3       1.0345         1.0542       0.6500        −0.00002          0.4642        0.1562         0.4015           −0.0014   0.0383    −0.0046
+   0.4       1.0228         1.0570       0.5764        −0.00032          0.3956        0.2328         0.3914           −0.0009   0.0379    −0.0002
+
+
+
+
+      (a) φ1 = φ2 = 0.4.                                                        (b) φ1 = 0.5, φ2 = −0.8.
+
+
+Fig. 4. Relative positions of the forecasts and the corresponding curves. The point E represents the combination with equal weights, point RĎ the
+combination with an estimated w Ď , and point R the combination with an estimated w ∗ . The original forecasts are labeled with their variances σ12 and
+σ22 .
+
+
+7. Concluding remarks                                                             These are the moments that scientists are typically
+                                                                                  interested in. Other (functions of) moments could also be
+   In analyzing the properties of a combined forecast, we                         analyzed similarly, such as the absolute percentage error,
+have followed an integrated approach where the estima-                            mean absolute deviation, or directional accuracy.
+tion of the weight is accounted for explicitly from the
+start. Weight estimation always affects the variance of the
+combination. This effect may be small in some situations,                         Acknowledgments
+but the influence is substantial in the case where the opti-
+mal weight is estimated. This is our explanation of the fore-                        The authors are grateful to the editor and two reviewers
+cast combination puzzle.                                                          for their constructive comments, and to Rob J. Hyndman
+   In this paper, we have concentrated on the bias,                               for stimulating conversations. Earlier versions of this
+variance, and mean squared error of the combined forecast.                        paper were presented at the Econometric Theory Research
+762                                        G. Claeskens et al. / International Journal of Forecasting 32 (2016) 754–762
+
+
+Seminar and the SERG meeting in Sydney (November                                     Magnus, J. R., & De Luca, G. (2016). Weighted-average least squares
+2013); and at Curtin University in Perth, the University of                              (WALS): A survey. Journal of Economic Surveys, 30, 117–148.
+                                                                                     Smith, J., & Wallis, K. F. (2009). A simple explanation of the forecast
+Tasmania, AMES2014 in Taipei, the Chinese Academy of                                     combination puzzle. Oxford Bulletin of Economics and Statistics, 71,
+Sciences in Beijing, ISF2014 in Rotterdam, and ESEM2014                                  331–355.
+in Toulouse, all in 2014. We thank the participants for their                        Stock, J. H., & Watson, M. W. (2003). How did leading indicator forecasts
+                                                                                         perform during the 2001 recession? Federal Reserve Bank of Richmond
+positive comments. Claeskens acknowledges support from                                   Economic Quarterly, 89, 71–90.
+the Fund for Scientific Research Flanders, KU Leuven Grant
+GOA/12/14, and the IAP Research Network P7/06 of the
+Belgian Science Policy.                                                              Gerda Claeskens is full professor at the research center ORSTAT
+                                                                                     (Operations Research and Business Statistics) and the Leuven Statistics
+                                                                                     Research Center of the KU Leuven, Belgium. She is the author of
+References                                                                           numerous papers, book chapters and the book ‘‘Model Selection and
+                                                                                     Model Averaging’’.
+Abadir, K. M., & Magnus, J. R. (2005). Matrix algebra. New York: Cambridge
+     University Press.
+                                                                                     Jan R. Magnus is extraordinary professor of Econometrics at the Vrije
+Anderson, T. W. (1958). An introduction to multivariate statistical analysis.
+                                                                                     Universiteit Amsterdam. Magnus is (co)author of eight books and over
+     New York: John Wiley & Sons.
+                                                                                     one hundred scientific papers. His current interests are mainly model
+Bates, J. M., & Granger, C. W. J. (1969). The combination of forecasts.
+                                                                                     averaging, sensitivity analysis, catastrophe, and sport statistics.
+     Operational Research Quarterly, 20, 451–468.
+Elliott, G. (2011). Averaging and the optimal combination of forecasts.
+     UCSD working paper,                                                             Andrey L. Vasnev graduated in Applied Mathematics from Moscow
+     http://econweb.ucsd.edu/~grelliott/AveragingOptimal.pdf.                        State University in 1998. In 2001 he completed his Master’s degree in
+Graefe, A., Armstrong, J. S., Jones, R. J., Jr., & Cuzán, A. G. (2014).              Economics in the New Economic School, Moscow. In 2006 he received
+     Combining forecasts: An application to elections. International Journal         Ph.D. degree in Economics from the Department of Econometrics and
+     of Forecasting, 30, 43–54.                                                      Operations Research at Tilburg University. He worked as a credit risk
+Hansen, B. E. (2008). Least-squares forecast averaging. Journal of                   analyst in ABN AMRO bank before joining the University of Sydney in
+     Econometrics, 146, 342–350.                                                     2008.
+Hsiao, C., & Wan, S. K. (2014). Is there an optimal forecast combination?
+     Journal of Econometrics, 178, 294–309.
+Liang, H., Zou, G., Wan, A. T. K., & Zhang, X. (2011). Optimal weight choice         Wendun Wang received Ph.D. degree from the University of Tilburg in
+     for frequentist model average estimators. Journal of the American               2013. He is currently an assistant professor at Econometric Institute,
+     Statistical Association, 106, 1053–1066.                                        Erasmus University Rotterdam (EUR).
+

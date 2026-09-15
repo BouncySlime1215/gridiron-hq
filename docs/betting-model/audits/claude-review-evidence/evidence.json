@@ -1,0 +1,203 @@
+{
+  "observed_at": "2026-09-15T13:26:32.038758+00:00",
+  "db_access": "read-only snapshot",
+  "head": "81a5ed61544b2a5b24982a77df31095e6595d0dc",
+  "queries": {
+    "team_feature_seasons": {
+      "sql": "SELECT season,count(*) n FROM nfl_team_week_features GROUP BY season ORDER BY season",
+      "rows": [
+        {
+          "season": 2016,
+          "n": 512
+        },
+        {
+          "season": 2017,
+          "n": 512
+        },
+        {
+          "season": 2018,
+          "n": 512
+        },
+        {
+          "season": 2019,
+          "n": 512
+        },
+        {
+          "season": 2020,
+          "n": 512
+        },
+        {
+          "season": 2021,
+          "n": 561
+        },
+        {
+          "season": 2022,
+          "n": 559
+        },
+        {
+          "season": 2023,
+          "n": 561
+        },
+        {
+          "season": 2024,
+          "n": 561
+        },
+        {
+          "season": 2025,
+          "n": 561
+        },
+        {
+          "season": 2026,
+          "n": 32
+        }
+      ]
+    },
+    "decision_events": {
+      "sql": "SELECT count(*) n FROM nfl_decision_events",
+      "rows": [
+        {
+          "n": 146
+        }
+      ]
+    },
+    "observation_states": {
+      "sql": "SELECT state,count(*) n FROM nfl_t60_observations GROUP BY state",
+      "rows": [
+        {
+          "state": "decided",
+          "n": 2
+        },
+        {
+          "state": "frozen",
+          "n": 13
+        }
+      ]
+    },
+    "unretryable_old_packets": {
+      "sql": "SELECT count(*) n FROM nfl_t60_observations WHERE state='frozen' AND packet_json IS NULL",
+      "rows": [
+        {
+          "n": 13
+        }
+      ]
+    },
+    "feature_revisions": {
+      "sql": "SELECT count(*) n FROM nfl_feature_revisions",
+      "rows": [
+        {
+          "n": 20
+        }
+      ]
+    },
+    "news_clock_formats": {
+      "sql": "SELECT CASE WHEN substr(created_at,11,1)=' ' THEN 'sqlite_space' ELSE 'other' END format,count(*) n FROM nfl_news_signals GROUP BY format",
+      "rows": [
+        {
+          "format": "sqlite_space",
+          "n": 642
+        }
+      ]
+    }
+  },
+  "stage3": {
+    "run_id": "20260915T095035Z-91d83232",
+    "rows_total_in_dataset": 7276,
+    "overall": {
+      "n_games": 6499,
+      "n_folds": 24,
+      "baseline_zero_info": {
+        "n": 6499,
+        "mae": 11.309347875698979,
+        "rmse": 14.604001724071006,
+        "bias": 0.3370102527550002
+      },
+      "baseline_market": {
+        "n": 6499,
+        "mae": 10.249192183412832,
+        "rmse": 13.192942773952097,
+        "bias": -0.06239421449453762
+      },
+      "ridge": {
+        "n": 6499,
+        "mae": 10.675177569915784,
+        "rmse": 13.725383401699082,
+        "bias": 0.34208989640136483
+      },
+      "lightgbm": {
+        "n": 6499,
+        "mae": 10.738325405619554,
+        "rmse": 13.805836928290947,
+        "bias": 0.299898224088543
+      }
+    },
+    "per_era": {
+      "pre_2016_no_pbp": {
+        "n_games": 3738,
+        "n_seasons": 14,
+        "baseline_zero_info": {
+          "n": 3738,
+          "mae": 11.557799218399147,
+          "rmse": 14.916182966035068,
+          "bias": 0.18926005925661554
+        },
+        "baseline_market": {
+          "n": 3738,
+          "mae": 10.597913322632424,
+          "rmse": 13.54745143347741,
+          "bias": -0.03290529695024077
+        },
+        "ridge": {
+          "n": 3738,
+          "mae": 10.972658943994315,
+          "rmse": 14.066393246621745,
+          "bias": 0.3895584816759944
+        },
+        "lightgbm": {
+          "n": 3738,
+          "mae": 11.042624295758719,
+          "rmse": 14.165826997668105,
+          "bias": 0.2732742250130869
+        }
+      },
+      "2016_plus_pbp_available": {
+        "n_games": 2761,
+        "n_seasons": 10,
+        "baseline_zero_info": {
+          "n": 2761,
+          "mae": 10.972980212166476,
+          "rmse": 14.170398518186609,
+          "bias": 0.5370429305155804
+        },
+        "baseline_market": {
+          "n": 2761,
+          "mae": 9.777073524085477,
+          "rmse": 12.697227108329306,
+          "bias": -0.10231800072437523
+        },
+        "ridge": {
+          "n": 2761,
+          "mae": 10.272430240576572,
+          "rmse": 13.2497275111487,
+          "bias": 0.2778242057977554
+        },
+        "lightgbm": {
+          "n": 2761,
+          "mae": 10.326348132406872,
+          "rmse": 13.302948488033282,
+          "bias": 0.33594331954093526
+        }
+      }
+    }
+  },
+  "worktree_status": " M server/services/nfl-team-card.js\n?? research/betting/nfl/artifacts/\n?? research/betting/nfl/model_artifact.py\n?? research/betting/nfl/test_model_artifact.py\n?? server/betting/nfl/forecast/\n?? test/nfl-team-card-injury-cutoff.test.js\n?? test/spread-family-adapters.test.js\n",
+  "reviewed_file_sha256": {
+    "server/services/nfl-news-signal.js": "56b680221975fc4c65115c9d6d8ee781cb472b8ecc9aed26778bb6a85bbc40f3",
+    "server/news/store.js": "65f057b0cb8d39709b1bdb2635c01271c3a914bb33e445e1ce991d21f4cbb469",
+    "server/betting/nfl/strategy/t60-runner.js": "ab64d33293c9b918c11be1dc859655d9d3f8e93213e5ab9c71adb2da07df9967",
+    "server/services/nfl-auto-picks.js": "65290e95506370c9f121682776205f00f340eb82d1427f67585f7dc002d3c0a4",
+    "server/services/staking.js": "a9ad379a550d1f1bbe3e1e36486fe78b0ab3232cb86410b5470289168c0a41b8",
+    "research/betting/nfl/model_artifact.py": "7c748d7621dc3615c12320587651bd2ca2d6128f20e630916b480e76eced2d40",
+    "server/betting/nfl/forecast/spread-family-adapters.js": "b359e0cfc2cf8ae34d96ac775ea0f65025536f0c1d4920e9650a071a4a57af8c",
+    "research/betting/nfl/stage3_team_strength.py": "91d832324a4dead84913e506df353205f5090c2bf44472c9843fbdd526248486"
+  }
+}

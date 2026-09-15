@@ -1,0 +1,69 @@
+{
+  "verified_claims": [
+    "Repo: nfl_feature_revisions exists with published_at, observed_at, valid_from, provenance, raw_hash, version (plus entity_season/entity_week from migration 050) and has 0 rows in the live DB (read-only sqlite3 query on server/data.sqlite, ~15GB not 13GB).",
+    "Repo: nfl_injuries has PRIMARY KEY (season, week, gsis_id) and only a modified_at column (server/db/schema/nfl-a-to-m.js:64). It is overwrite-in-place, not bitemporal, so the brief is wrong on this point.",
+    "Repo: game_lines is one mutable row per team-game. It mixes spread/open_spread, closing_spread/closing_total and team_score/opp_score. It has 15,096 rows for 1999-2026, about 7.5k games, with open_spread non-null on 7,418 rows.",
+    "Repo: migration 027 makes nfl_decision_events and nfl_decision_runs append-only with RAISE(ABORT) triggers. nfl_decision_events has 49 rows.",
+    "Repo: model_registry, model_experiments and model_production_pointer tables exist. stableJson and assertTimestampedObservation are in server/modeling/contracts.js. assertTimestampedObservation is called only from modeling/walk-forward.js (player_id-based, i.e. the fantasy pipeline) and routes/model.js.",
+    "Repo: migration 051 documents the frozen-fragment `mode` column bug. The live DB now has the column, so 051 has already fixed it.",
+    "Repo: nfl-bitemporal.js explicitly guards against new Date(null) turning into 1970.",
+    "Feast docs: by default the join only constrains event timestamp, and created_timestamp only dedups ties (highest wins). filter_by_created_timestamp adds created_timestamp <= entity_timestamp, is described as keeping backfilled values from leaking, and excludes NULL created timestamps. TTL is relative to each entity row timestamp. (https://docs.feast.dev/getting-started/concepts/point-in-time-joins)",
+    "Breck, Polyzotis, Roy, Whang, Zinkevich, 'Data Validation for Machine Learning', SysML 2019: defines feature skew (with 'time travel' from querying a non-static source), distribution skew, and scoring/serving skew. It uses d_inf = max|p_i - q_i|, and a chi-square test fired a needless alert 7 of 10 times after 0.01% contamination. (PDF read in full text)",
+    "Zinkevich Rules of ML: #29 log serving features and train on them, #31 joined tables may change, #32 reuse code between training and serving, #37 measure training/serving skew. (developers.google.com)",
+    "Chronon Online/Offline Consistency: compares logged online fetches with recomputed offline joins and reports mismatch rate, missing-in-online, extra-in-online and SMAPE for each feature. The Chronon repo is Apache-2.0 and not archived.",
+    "Kapoor & Narayanan, 'Leakage and the Reproducibility Crisis in ML-based Science': 8-type taxonomy across 17 fields. L1.2 is pre-processing on train+test and L3.1 is temporal leakage (arXiv 2207.07048 full text).",
+    "Cawley & Talbot, JMLR 11:2079-2107 (2010): over-fitting in model selection is 'often of comparable magnitude to differences in performance between learning algorithms'.",
+    "Tashman (2000), 'Out-of-sample tests of forecasting accuracy: an analysis and review', IJF 16(4):437-450. The citation exists (Crossref).",
+    "MLflow Model Registry: version numbers increment per registered model name, and aliases such as 'champion' can be reassigned.",
+    "nflverse schedule: PBP nightly after game days; NGS nightly 3-5am ET; PFR advanced stats daily 7AM UTC; depth charts daily 7AM UTC; snap counts at 0/6/12/18 UTC; injuries have no 2025 data because the source died after 2024.",
+    "node:sqlite docs: Stability 1.2 release candidate as of v25.7.0. backup(), database.function(), createSession(), session.changeset() and applyChangeset() all exist.",
+    "Feast postgres.py point-in-time template exists and uses DISTINCT ON ... ORDER BY entity, event_timestamp DESC with a TTL condition.",
+    "GF05 (prior research) records penaltyblog as MIT and sports-betting as MIT, both active."
+  ],
+  "refuted_or_unverifiable": [
+    {
+      "claim": "Key finding A2: 'd-infinity is a drift metric that suits small samples (Breck et al. 2019)'",
+      "problem": "This misreads the paper. Breck et al. picked d_inf because chi-square is too sensitive at very large n: the 7/10 false-alarm experiment used 100 MILLION points with 10 thousand replaced. The paper says nothing about small samples being suitable, and it needs Dirichlet priors to estimate d_inf soundly. At ~270 games a season, empirical-frequency d_inf has sampling noise of roughly 1/sqrt(n), about 6 percentage points, so the problem here is too little power, not false alarms. The report also leaves out the 100M sample size, which makes the 7/10 figure look like it applies to this app."
+    },
+    {
+      "claim": "Kapoor & Narayanan '294 papers' cited to https://arxiv.org/abs/2207.07048",
+      "problem": "The arXiv page and full text both say 329 papers. 294 may come from a different version (possibly the Patterns print), but I could not verify that. The cited URL does not support 294."
+    },
+    {
+      "claim": "nflverse injuries: quoted as 'not currently available for 2025'",
+      "problem": "This is not a verbatim quote. The page says the data source died after the 2024 season and there is no 2025 data with no ETA. The meaning is right but the quotation marks are wrong."
+    },
+    {
+      "claim": "Borrow Feast's dedup ordering: 'rank by event time descending, then created time descending' from postgres.py",
+      "problem": "Only partly verified. The docs confirm created_timestamp breaks ties, but the postgres.py ORDER BY I checked shows only event_timestamp DESC. The created-timestamp tiebreak may live in another CTE; I did not confirm it."
+    },
+    {
+      "claim": "Tashman (IJF 2000) 'recommends rolling-origin evaluation with recalibration'",
+      "problem": "The citation exists (Crossref metadata), but I could not retrieve the abstract or full text, so the exact recommendation is unverified. It is plausible from the paper's known content, but treat it as unverified."
+    },
+    {
+      "claim": "A live 'silent wiring break': 'The live DB never got the column, so the next weekly capture would have thrown'",
+      "problem": "This is out of date. The live DB's weekly_prediction_snapshots now has the `mode` column because migration 051 fixed it. It is fine as a historical example, but it is not a current break."
+    },
+    {
+      "claim": "Report says the DB is 13GB",
+      "problem": "server/data.sqlite is currently ~14.97GB. Minor."
+    },
+    {
+      "claim": "I4: re-running a training spec gives an identical artifact_hash (deterministic Cholesky, seeded)",
+      "problem": "No source is given, and bitwise float identity across Node/V8 versions and CPU architectures is not guaranteed; the app ships a cross-platform installer. Hash rounded or quantized coefficients, or accept a tolerance, otherwise this invariant will fail falsely."
+    }
+  ],
+  "recommendations_to_drop_or_change": [
+    "Change A2/L8 monitoring: do not present d-infinity as a small-sample drift metric. At ~270 games a season, use drift checks only as information, with bootstrap or Dirichlet-smoothed intervals, or check coarse bins pooled over several weeks. Keep the report's own advice that only parity (I3) blocks.",
+    "Closing line stored as a fact with knowable_at = kickoff and CHECK(max_input_knowable_at <= cutoff_at): for the 'close' decision point whose cutoff is kickoff, this lets the closing line into the feature vector used to bet at close (Kapoor L2, illegitimate feature). Use a strict inequality, or knowable_at = kickoff + a buffer, and exclude closing_* from every feature set used to grade CLV. The closing line should be the benchmark, never an input.",
+    "The walk-forward controls lambda inside each origin but not outer-loop selection. Picking the feature set version, feature definitions, window type or model family by rerunning the same 70-week walk-forward is Kapoor L1.3 (feature selection on test) and Cawley-Talbot selection bias. Add a trial registry (prior F06) that counts every fsv/config evaluated, and keep a locked holdout season never used for selection.",
+    "Recommendation B2 'p ~ 50-300, n ~ 7k games': n=7k holds only for features available back to 1999. NGS (2016+), PFR advanced (2018+), snaps and quote tape cover far fewer games, maybe 1.5-2.5k or less, and there is 25 years of rule and scoring non-stationarity. Size p to the feature-available window, keep p well below n_effective, and consider time-decay weighting instead of a plain expanding window. Report RMSE against the market benchmark (~13.55) per provenance.",
+    "Training on reconstructed backfill vectors while serving live vectors builds in backfill/live skew. Historical knowable_at and settled_at are policy guesses, so treat walk-forward results on reconstructed data as optimistic upper bounds, and do not use them to gate bets. Only captured live predictions should feed the continuous bet gate.",
+    "I4 reproducibility: hash quantized coefficients (e.g. rounded to 1e-10) rather than raw float bytes.",
+    "Recommendation (D5) to capture overwrites with createSession changesets: sessions only record changes made after the session starts, and only through code that uses that connection. A simpler, testable route is append-on-ingest: write every fetched row to revisions before any upsert. Mark changesets as untested.",
+    "Keep the Rule 32 point (one language for scoring) but go further: if numpy is ever used for fitting, the scoring parity test must compare predictions on the served vectors, not just coefficients."
+  ],
+  "corrected_summary": "Most of the report holds up. Its repo findings check out against the code and a read-only DB query:\n- nfl_feature_revisions has three clocks and 0 rows.\n- nfl_injuries overwrites in place (PK season/week/gsis_id plus modified_at), so the brief is wrong to call it bitemporal.\n- game_lines is one mutable row that mixes pre-game lines, closing lines and scores.\n- The migration-027 decision tape is append-only (triggers, 49 events).\n- The registry tables and contracts.js (stableJson, assertTimestampedObservation) exist, but only the fantasy pipeline and routes/model.js call the leakage assertion.\n- The migration-051 schema bug was real and is now fixed in the live DB.\n\nMost citations are accurate:\n- Feast: default event-time-only joins; filter_by_created_timestamp adds created <= entity time and drops NULLs.\n- Breck et al. SysML 2019: feature, distribution and scoring/serving skew; 'time travel'; d_inf over chi-square.\n- Zinkevich Rules 29/31/32/37.\n- Chronon: mismatch, missing/extra and SMAPE consistency metrics.\n- Kapoor & Narayanan: L1.2 and L3.1.\n- Cawley & Talbot 2010: selection bias comparable to differences between algorithms.\n- MLflow aliases.\n- nflverse release schedule, including no 2025 injury data.\n- node:sqlite at release-candidate stability 1.2 since v25.7.0, with backup, function, sessions and changesets.\n- Tashman 2000 exists, but its exact recommendation is unverified.\n\nCorrections:\n- Kapoor's arXiv version says 329 papers, not 294.\n- Breck's 7/10 chi-square false alarms came from 100M samples. d_inf was chosen for interpretability at huge n, not because it suits small samples. At ~270 games a season, drift checks are low-power and should stay informational.\n- The nflverse injuries 'quote' is a paraphrase.\n\nThe core design survives:\n- One buildVector(db, game_id, cutoff, fsv) path used by backfill, walk-forward and live.\n- asOf reads filtered on a stored knowable_at.\n- Labels kept separate from game_lines.\n- Hash-chained append-only predictions, decisions and grades.\n- The walk-forward is the retrain/predict jobs run in a loop, with lambda and scalers fitted inside each origin.\n- Nightly Chronon-style parity replay.\n- Invariants: the future-perturbation test, the schema contract and the static lint banning direct reads of labels, closing lines or injuries.\n- Filling nfl_feature_revisions and the ingest jobs is the first milestone.\n- Ridge or Bayesian linear models fitted in pure JS with a Cholesky solve, so nothing needs installing.\n\nChanges needed to avoid lookahead and overfitting:\n1. The closing line must never be a feature for any decision it grades. Use a strict < cutoff or a buffer after kickoff.\n2. Selecting the feature set or config by repeatedly rerunning the same walk-forward is outer-loop leakage (Kapoor L1.3). Log every trial in a registry and keep a locked holdout season.\n3. The effective n for NGS, PFR and quote-tape features is far below 7k games. Size p to the window where the features exist and consider time-decay weighting.\n4. Reconstructed backfill results are optimistic because historical knowable_at and settled_at are policy guesses. Only captured live predictions should feed the continuous bet gate.\n5. Hash quantized coefficients, not raw floats.\n6. Prefer append-on-ingest to untested session changesets for capturing overwrites.",
+  "reliability": "medium"
+}

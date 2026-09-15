@@ -24,6 +24,11 @@ mock.module('../server/services/nfl-ensemble.js', { namedExports: {
   // stage 1) calls ensembleLine directly; this fixture never exercises that
   // path, so the stub only needs to exist for the static import to resolve.
   ensembleLine: () => ({ error: 'ensembleLine is not faked in this fixture' }),
+  // WP15/D3: nfl-t60-packet.js now imports featureAggregates statically (to
+  // freeze it into a packet's team_features source) -- this fixture never
+  // freezes a packet either, so this stub exists only so that static import
+  // resolves against the mocked module, same reasoning as ensembleLine above.
+  featureAggregates: () => new Map(),
   ensembleWeek: (_s, _w, options) => [{
   home: 'KC', away: 'BAL', input_mode: options.includeChallengers ? 'all-inputs' : 'champion-inputs',
   reliability_controller: { version: 'fixture-controller' }, models: [

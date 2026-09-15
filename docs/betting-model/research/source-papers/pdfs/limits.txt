@@ -1,0 +1,1833 @@
+                                                     The limits of distribution-free conditional
+                                                                predictive inference
+
+
+
+
+arXiv:1903.04684v2 [math.ST] 15 Apr 2020
+                                                             Rina Foygel Barber∗, Emmanuel J. Candès†,
+                                                               Aaditya Ramdas‡§, Ryan J. Tibshirani‡§
+                                                                                  April 16, 2020
+
+
+                                                                                       Abstract
+                                                       We consider the problem of distribution-free predictive inference, with
+                                                   the goal of producing predictive coverage guarantees that hold conditionally
+                                                   rather than marginally. Existing methods such as conformal prediction of-
+                                                   fer marginal coverage guarantees, where predictive coverage holds on average
+                                                   over all possible test points, but this is not sufficient for many practical appli-
+                                                   cations where we would like to know that our predictions are valid for a given
+                                                   individual, not merely on average over a population. On the other hand, exact
+                                                   conditional inference guarantees are known to be impossible without imposing
+                                                   assumptions on the underlying distribution. In this work we aim to explore
+                                                   the space in between these two, and examine what types of relaxations of the
+                                                   conditional coverage property would alleviate some of the practical concerns
+                                                   with marginal coverage guarantees while still being possible to achieve in a
+                                                   distribution-free setting.
+
+
+                                           1       Introduction
+                                           Consider a training data set (X1 , Y1 ), . . . , (Xn , Yn ), and a test point (Xn+1 , Yn+1),
+                                           with the training and test data all drawn i.i.d. from the same distribution. Here
+                                           each Xi ∈ Rd is a feature vector, while Yi ∈ R is a response variable. The problem
+                                           of predictive inference is the following: if we observe the n training data points, and
+                                           are given the feature vector Xn+1 for a new test data point, we would like construct
+                                               ∗
+                                                 Department of Statistics, University of Chicago
+                                               †
+                                                 Departments of Statistics and Mathematics, Stanford University
+                                               ‡
+                                                 Department of Statistics and Data Science, Carnegie Mellon University
+                                               §
+                                                 Machine Learning Department, Carnegie Mellon University
+
+
+
+                                                                                           1
+a prediction interval for Yn+1 —that is, a subset of R that we believe is likely to
+contain the test point’s true response value Yn+1.
+     As a motivating example, suppose that each data point i corresponds to a patient,
+with Xi encoding relevant covariates (age, family history, current symptoms, etc.),
+while the response Yi measures a quantitative outcome (e.g., reduction in blood
+pressure after treatment with a drug). When a new patient arrives at the doctor’s
+office with covariate values Xn+1 , the doctor would like to be able to predict their
+eventual outcome Yn+1 with a range, making a statement along the lines of: “Based
+on your age, family history, and current symptoms, you can expect your blood
+pressure to go down by 10–15mmHg”. In this paper, we will study the problem of
+making accurate predictive statements of this sort.
+     To study such questions, throughout this paper we will write C        bn (x) ⊆ R to de-
+                                1
+note the prediction interval for Yn+1 given a feature vector Xn+1 = x. This interval
+is a function of both the test point x and the training data (X1 , Y1 ), . . . , (Xn , Yn ). We
+will write C bn (without specifying a test point x) to refer to the algorithm that maps
+the training data (X1 , Y1 ), . . . , (Xn , Yn ) to the resulting prediction intervals C  bn (x)
+                     d
+indexed by x ∈ R . (For convenience in writing our results, we assume that the Xi ’s
+lie in Rd , although our results hold more generally for any probability space.)
+     For the algorithm C  bn to be useful, we would like to be assured that the resulting
+prediction interval is indeed likely to contain the true response value, i.e., that
+Yn+1 ∈ C  bn (Xn+1 ) with fairly high probability. When this event succeeds, we say
+that the predictive interval C    bn (Xn+1 ) covers the true response value Yn+1 . Defining
+the coverage probability is not a trivial question—do we require that coverage holds
+with high probability on average over the test feature vector Xn+1 , pointwise at any
+value Xn+1 = x, or something in between? In order to be robust to distributional
+assumptions, we would also like to ensure that our algorithm C         bn has good coverage
+properties without making any assumptions about the underlying distribution P —a
+“distribution-free” guarantee.
+     To formalize these ideas, we will begin with a few definitions. Throughout, P
+will denote a joint distribution on (X, Y ) ∈ Rd × R, and we will write PX to denote
+the induced marginal on X, and PY |X for the conditional distribution of Y |X. We
+say that C  bn satisfies distribution-free marginal coverage at the level 1 − α, denoted
+by (1 − α)-MC, if2
+                   n                     o
+                               b
+                 P Yn+1 ∈ Cn (Xn+1 ) ≥ 1 − α for all distributions P .                       (1)
+                                     bn covers the true test value Yn+1 is at least
+In other words, the probability that C
+1 − α, on average over a random draw of the training and test data from any
+   1
+     Note that the set C  bn (x) ⊆ R is not required to be an interval—it may consist of a disjoint
+union of multiple intervals. For simplicity we still refer to the C     bn (x)’s as “prediction intervals”.
+   2
+     In these definitions, and throughout the remainder of the paper, all probabilities are taken with
+respect to training data (X1 , Y1 ), . . . , (Xn , Yn ) and test point (Xn+1 , Yn+1 ) all drawn i.i.d. from P ,
+unless specified otherwise.
+
+                                                      2
+                             bn satisfies distribution-free conditional coverage at the
+distribution P . We say that C
+level 1 − α, denoted by (1 − α)-CC, if
+         n                               o
+                  b
+        P Yn+1 ∈ Cn (Xn+1 ) Xn+1 = x ≥ 1 − α for all P and almost all x,            (2)
+
+where, fixing the distribution P , we write “almost all x” to mean that the set of
+points x ∈ Rd where the bound fails to hold must have measure zero under PX .
+This means that the probability that C    bn covers, at a fixed test point Xn+1 = x, is
+at least 1 − α.3
+    Now, how should we interpret the difference between marginal and conditional
+coverage? With α = 0.05, we expect that the doctor’s statement (“...you can expect
+your blood pressure to go down by 10–15mmHg”) should hold with 95% probability.
+For marginal coverage, the probability is taken over both Xn+1 and Yn+1, while for
+conditional coverage, Xn+1 is fixed and the probability is taken over Yn+1 only
+(and over all the training data in both situations). This means that for marginal
+coverage, the doctor’s statements have a 95% chance of being accurate on average
+over all possible patients that might arrive at the clinic (marginalizing over Xn+1 ),
+but might for example have 0% chance of being accurate for patients under the
+age of 25, as long as this is averaged out by a higher-than-95% chance of coverage
+for patients older than 25. The stronger definition of conditional coverage, on the
+other hand, removes this possibility, and requires that whatever statement the doctor
+makes (different for each patient) has a 95% chance of being true for every individual
+patient, regardless of the patient’s age, family history, etc.
+    For practical purposes, then, marginal coverage does not seem to be sufficient—
+each patient would reasonably hope that the information they receive is accurate for
+their specific circumstances, and is not comforted by knowing that the inaccurate
+information they might be receiving will be balanced out by some other patient’s
+highly precise prediction. On the other hand, the problem of conditional inference is
+statistically very challenging, and is known to be incompatible with the distribution-
+free setting (we will discuss this in more detail later on). Our goal in this paper is
+therefore to explore the middle ground between marginal and conditional inference,
+while working in the distribution-free setting in order to be robust to violations of
+any modeling assumptions.
+
+1.1      Summary of contributions
+As mentioned above, it is known to be impossible for any finite-length prediction
+interval to satisfy distribution-free conditional coverage in the sense of (2)—this is
+because, without assuming smoothness of the underlying distribution P , we cannot
+   3
+    Vovk [2012] also considers a notion of conditional coverage, where the guarantee is required
+to hold after conditioning on the training data (X1 , Y1 ), . . . , (Xn , Yn ) but without conditioning on
+the test point Xn+1 , and thus is very different from the type of conditioning that we consider here.
+
+                                                    3
+exclude the possibility that there is some sort of discontinuity at X = x that leads
+to a failure of coverage. (Background on this type of impossibility result is described
+more formally in Section 2.2.)
+    This impossibility motivates us to consider an approximate version of the condi-
+tional coverage property. We will say that Cbn satisfies distribution-free approximate
+conditional coverage at level 1 − α and tolerance δ > 0, denoted by (1 − α, δ)-CC, if
+    n                               o
+  P Yn+1 ∈ C   bn (Xn+1 ) Xn+1 ∈ X ≥ 1 − α for all distributions P
+
+                                                and all X ⊆ Rd with PX (X ) ≥ δ. (3)
+For example, at α = 0.05 and δ = 0.1, the coverage probability has to be at least 95%
+for any subgroup of patients that makes up at least 10% of the overall population.
+If δ > 0 is fairly small, then this approximate conditional coverage property is quite
+a bit stronger than marginal coverage, and may be sufficient for many applications.
+    However, we find that it is inherently impossible to find non-trivial algorithms
+that achieve even this relaxed notion of conditional coverage. Specifically, we com-
+pare against a trivial solution: we show with a simple argument that any method
+Cbn that satisfies (1 − αδ)-MC, will also satisfy (1 − α, δ)-CC. In this sense, we can
+trivially achieve approximate conditional coverage by way of marginal coverage, but
+this solution is not satisfactory since, for small δ, a (1 − αδ)-MC prediction interval
+will be extremely wide. However, the main result of this paper, Theorem 2 (see Sec-
+tion 3), proves that any (1 − α, δ)-CC method is essentially no better than this kind
+of trivial construction (in the sense of the expected length of the resulting intervals).
+    Perhaps, then, the definition (3) of approximate conditional coverage may be
+stronger than needed in practical applications. In a medical setting, for instance,
+a patient would typically want to know that coverage is accurate on average over
+a subgroup of patients similar to the individual, and would not be concerned about
+arbitrary subgroups consisting of highly dissimilar patients. This motivates us to
+consider alternatives to the approximate conditional coverage property (3)—in Sec-
+tion 4, we modify (3) to consider only a restricted class of sets X , for instance, only
+sets consisting of balls under some metric (to represent patients similar to the indi-
+vidual of interest, in our example). We construct an example of an algorithm that
+satisfies this type of property—a modification of the split conformal method—that
+we analyze in Theorem 3. We also establish lower (Theorem 4) and upper (The-
+orem 5) bounds on the efficiency of any predictive method satisfying this type of
+property, as a function of the complexity (VC dimension) of the class of sets over
+which coverage is required to hold.
+
+1.2    Notation
+Before proceeding, we establish some notation and terminology that will be used
+throughout the paper. All sets and functions are implicitly assumed to be measur-
+
+                                           4
+able (e.g., “for all X ⊆ Rd ” in (3) should be interpreted to mean all measurable
+subsets of Rd ). The function leb() denotes Lebesgue measure on R or on Rd . Pre-
+diction intervals are allowed to be either fixed or randomized. Specifically, a non-
+data-dependent prediction interval C = C(x) may either be fixed (i.e., a function
+mapping points x ∈ Rd to subsets C(x) ⊆ R) or random (i.e., a function mapping
+points x ∈ Rd to a random variable C(x) taking values in the set of subsets of R).
+Analogously, for a data-dependent prediction interval C        bn = C bn (x), fixing the train-
+                                                            d
+ing data (X1 , Y1 ), . . . , (Xn , Yn ) and the vector x ∈ R , this interval may be either a
+fixed or random subset of R.
+
+
+2     Background
+In this section, we give background on the split conformal prediction method, which
+achieves distribution-free marginal coverage, and review results in the literature
+establishing that distribution-free conditional coverage is not possible.
+
+2.1     Split conformal prediction
+The split conformal prediction algorithm, introduced in Papadopoulos et al. [2002],
+Vovk et al. [2005] (under the name “inductive conformal prediction”) and stud-
+ied further by Papadopoulos [2008], Vovk [2012], Lei et al. [2018], is a well known
+method that achieves distribution-free marginal coverage guarantees. This method
+makes no assumptions at all on the distribution of the data aside from requiring that
+the training data and the test point are exchangeable. (Of course, assuming that
+the training and test data are i.i.d. is simply a special case of the exchangeability
+assumption.)
+    The split conformal prediction method begins by partitioning the sample size n
+into two portions, n = n0 + n1 , e.g., split in half. We will use the first n0 many
+training points to fit an estimated regression function µ      bn0 (x), and the remaining n1 =
+n−n0 many training points to determine the width of the prediction interval around
+µ
+bn0 (x). The estimated model µ   bn0 can be fitted from (X1 , Y1 ), . . . , (Xn0 , Yn0 ) using
+any algorithm—for example, we might fit a linear model, µ            bn0 (x) = x⊤ βb where βb ∈
+Rd is fitted on the data points (X1 , Y1 ), . . . , (Xn0 , Yn0 ) using least squares regression
+or any other regression method.
+    Next, fix a desired predictive coverage level 1 − α, for instance 95%. We then
+compute residuals
+
+                                  bn0 (Xi ) for i = n0 + 1, . . . , n,
+                        Ri = Yi − µ
+
+
+
+
+                                              5
+and define4
+
+         qbn1 = the ⌈(1 − α)(n1 + 1)⌉-smallest value of the list Rn0 +1 , . . . , Rn .
+
+The predictive interval is then defined as
+                                                                 
+                        bn (x) = µ
+                        C          bn0 (x) − qbn1 , µ
+                                                    bn0 (x) + qbn1 .                              (4)
+
+This method can also be generalized to include a local variance/scale estimate, or to
+allow for an asymmetric construction treating the right and left tails of the residuals
+separately.
+    The split conformal algorithm is a variant of conformal prediction, which has a
+rich literature dating back many years (see, e.g., Vovk et al. [2005], Shafer and Vovk
+[2008] for background). Conformal prediction similarly relies on the exchangeability
+of the training and test data, but rather than splitting the training data to separate
+the tasks of model fitting and calibrating the quantiles, conformal prediction uses
+the full training sample for both tasks, thus paying a higher computational cost.
+Here, for simplicity, we do not describe conformal prediction, but focus on the split
+conformal algorithm, which we generalize in our own proposed methods later on.
+    Using the assumption that the data points are i.i.d., the proof that the split
+conformal prediction method satisfies (1−α)-MC is very intuitive. For completeness
+we state this known result here.
+
+Theorem 1 (Papadopoulos et al. [2002, Proposition 1]). The split conformal pre-
+diction method defined in (4) satisfies the (1 − α)-MC property (1).
+
+Importantly, the above guarantee holds irrespective of the regression algorithm
+used to fit µ
+            bn0 . Furthermore, Lei et al. [2018] show that, in some settings, this
+distribution-free construction may result in an interval that is asymptotically no
+wider than the best possible “oracle” interval—in other words, it is possible to
+provide marginal distribution-free prediction without incurring a cost in terms of
+overly wide intervals. (The intuition behind the proof of Theorem 1 will be discussed
+in Section 4.1 as a special case of our new results; Lei et al. [2018]’s guarantee of
+optimal length will be discussed in more detail in Section 4.2.3.)
+
+2.2     Impossibility of distribution-free conditional coverage
+While the split conformal method satisfies distribution-free marginal coverage (1), as
+mentioned earlier, this property may not be sufficient for practical prediction tasks,
+as it leaves open the possibility that entire regions of test points (e.g., subgroups of
+patients) are receiving inaccurate predictions. To avoid this problem, we may wish
+   4
+     Formally, when we write “the k-th smallest value of the list ...” for a list that has m elements,
+this will denote +∞ in the case that k > m.
+
+
+                                                  6
+to construct C  bn to guarantee coverage conditional on Xn+1 , rather than on average
+over Xn+1 . Is it possible to achieve distribution-free conditional coverage (2), while
+still constructing predictive intervals that are not too much larger than needed?
+     Unfortunately, it is well known that, if we do not place any assumptions on P ,
+then estimation and inference on various functionals of P are impossible to carry
+out; see, e.g., Bahadur and Savage [1956], Donoho [1988] for background. More
+specifically, for the current problem of distribution-free conditional prediction inter-
+vals, Vovk [2012], Lei and Wasserman [2014] prove that the (1 − α)-CC property (2)
+is impossible for any algorithm C   bn , unless C
+                                                bn has the property that it produces
+intervals with infinite expected length under any non-discrete distribution P , which
+is not a meaningful procedure.
+
+Proposition 1. [Rephrased from Vovk [2012], Lei and Wasserman [2014]] Suppose
+     bn satisfies (1 − α)-CC (2). Then for all distributions P , it holds that
+that C
+                                 h           i
+                               E leb(Cbn (x)) = ∞
+
+at almost all points x aside from the atoms of PX .
+
+In other words, at almost all nonatomic points x, the prediction interval has infinite
+expected length. This means that distribution-free conditional coverage in the sense
+of (2) is impossible to attain in any meaningful sense.
+
+Asymptotic conditional coverage. There is an extensive literature examining
+this problem in a setting where P is assumed to satisfy some type of smoothness
+condition, and conditional coverage can then be achieved asymptotically by letting
+the sample size n tend to infinity and using a vanishing bandwidth to compute
+local smoothed estimators of the conditional distribution of Y |X. Works in this line
+of the literature include Cai et al. [2014], Lei and Wasserman [2014], among many
+others. In this present work, however, we are interested in obtaining distribution-
+free guarantees that hold at any finite sample size n, and therefore we aim to avoid
+relying on assumptions such as smoothness of P or on asymptotic arguments.
+
+
+3     Approximate conditional coverage
+While the results of Vovk [2012] and Lei and Wasserman [2014] prove that distribution-
+free methods cannot achieve conditional predictive guarantees, in practice it may
+be sufficient to obtain “approximately conditional” inference. In our doctor/patient
+example, we would certainly want to make sure that there is no entire subgroup
+of patients that are all receiving poor predictions—as in our earlier example where
+the predictive intervals had poor coverage for all patients below the age of 25—but
+
+
+                                           7
+we may be willing to accept that some rare groups of patients might be receiving
+inaccurate information.
+    We therefore try to relax our requirement of conditional coverage to an approxi-
+mate version—recall from Section 1.1 that Cbn satisfies distribution-free approximate
+conditional coverage at level 1 − α and tolerance δ > 0, denoted by (1 − α, δ)-CC,
+if (3) holds. We can easily verify that approximate conditional coverage limits to
+conditional coverage by taking δ to zero:
+      bn satisfies (1 − α)-CC
+      C                          ⇐⇒     bn satisfies (1 − α, δ)-CC for all δ > 0.
+                                        C
+
+At the other extreme, marginal coverage is recovered by taking δ = 1:
+       bn satisfies (1 − α)-MC
+       C                          ⇐⇒      bn satisfies (1 − α, δ)-CC for δ = 1.
+                                          C
+
+    While we have seen that exact conditional coverage is impossible to meaningfully
+attain, does this relaxation allow us to move towards a meaningful solution? To
+answer this question, it is useful to first consider a simple solution obtained by way
+of a marginal coverage method.
+
+3.1    The inadequacy of reducing to marginal coverage
+The following lemma suggests that our approximate conditional coverage can be
+naively obtained via marginal coverage at a more stringent level.
+
+Lemma 1. Let C  bn be any method that attains distribution-free marginal coverage (1)
+                                                 bn satisfies the (1−αδ)-MC property.
+with miscoverage rate αδ in place of α, that is, C
+Then Cbn also satisfies (1 − α, δ)-CC.
+
+                        bn satisfies (1 − αδ)-MC, for any distribution P we have
+Proof of Lemma 1. Since C
+        n                  o   n                             o
+                 bn (Xn+1 ) ≥ P Yn+1 6∈ C
+  αδ ≥ P Yn+1 6∈ C                      bn (Xn+1 ), Xn+1 ∈ X
+                                            n                          o
+                                                      b
+                                    ≥ δ · P Yn+1 6∈ Cn (Xn+1 ) Xn+1 ∈ X ,
+
+where the last step holds for any X with P {Xn+1 ∈ X } = PX (X ) ≥ δ. Rearranging
+yields the lemma.
+To interpret this lemma, we might apply the split conformal prediction algorithm (4)
+at the miscoverage level αδ, which ensures marginal coverage at this level and,
+therefore, ensures (1 − α, δ)-CC. However, we would typically choose δ to be quite
+small, as we would like to be able to condition on small sets X (to ensure that there
+aren’t any large subgroups of patients all receiving poor information). This means
+that any prediction intervals satisfying (1 − αδ)-MC must generally be extremely
+wide, e.g., 99.5%-coverage intervals instead of 95%-coverage intervals when α = 0.05
+
+                                          8
+and δ = 0.1. Therefore, the naive solution of using marginal coverage to ensure
+approximate conditional coverage is not satisfactory.
+   Before moving on, we extend Lemma 1 to generalize the naive solution given by
+(1 − αδ)-MC:
+
+Lemma 2. Let C    bn be any method that satisfies (1−cαδ)-MC (1), for some c ∈ [0, 1].
+Let Cb′ be defined as follows: at a test point x, with probability 1−α , we define
+      n                                                              1−cα
+b ′
+Cn (x) = C  bn (x), or otherwise, we define C b′ (x) = ∅ (the empty set), where we
+                                                n
+assume that this decision is carried out independently of x and of the training data.
+Then C bn′ also satisfies (1 − α, δ)-CC.
+
+Proofs for this lemma and for all subsequent theoretical results are given in the
+Appendix.
+    To understand the role of the parameter c in this lemma, we can consider the two
+extremes—setting c = 1, we would simply output the interval C      bn (x) that satisfies
+(1−αδ)-MC, i.e., we return to the naive solution of Lemma 1. At the other extreme,
+if we set c = 0, at any test point Xn+1 = x the resulting prediction interval would be
+given by R with probability 1−α, or ∅ otherwise—this clearly satisfies (1−α, δ)-CC
+(and, in fact, (1 − α)-CC) but is of course meaningless as it reveals no information
+about the data.
+
+3.2    Hardness of approximate conditional coverage
+We now introduce our main result, which proves that, as in the exact conditional
+coverage setting, the relaxation to (1 − α, δ)-conditional coverage is still impossible
+to attain meaningfully. In particular, the naive solution—obtaining (1 −α, δ)-CC by
+way of marginal coverage, as in Lemmas 1 and 2—is in some sense the best possible
+method, in terms of the lengths of the resulting prediction intervals.
+    To quantify this, for any P and any marginal coverage level 1 − α, consider
+finding the prediction interval CP (x) with the shortest possible length, subject to
+requiring marginal coverage to be at least 1 − α under the distribution P . As the
+notation suggests, the coverage properties of CP (x) are specific to P and are not
+distribution-free in any sense. Formally, we define the set of intervals with marginal
+coverage under P as
+                                n                                 o
+                   CP (1 − α) = CP : PP {Y ∈ CP (X)} ≥ 1 − α ,
+
+where CP (x) may denote a fixed or random interval (that is, CP is a function
+mapping points x ∈ Rd to fixed or random subsets of R). We can then define the
+minimum possible length as
+                                        n                 o
+                 LP (1 − α) =     inf    EPX [leb(CP (X))] .               (5)
+                                  CP ∈CP (1−α)
+
+
+                                            9
+If CP is random rather than fixed, then we should interpret the expectation as
+being taken with respect to the random draw of X and the randomization in the
+construction of CP (X).
+    With these definitions in place, we present our main result, which proves a lower
+bound on the prediction interval width of any method that attains distribution-free
+approximate conditional coverage.
+
+Theorem 2. Suppose that C  bn satisfies (1 − α, δ)-CC (3). Then for all distributions
+P where the marginal distribution PX has no atoms,
+                h               i                                  
+                     b                         1−α
+              E leb(Cn (Xn+1 )) ≥ inf                 · LP (1 − cαδ) .
+                                     c∈[0,1]   1 − cα
+
+How should we interpret this lower bound? Based on Lemma 1, we can achieve
+(1−α, δ)-CC trivially by running split conformal prediction at the marginal coverage
+level 1−αδ. What would be the average width from such a procedure? As mentioned
+in Section 2.1, under certain assumptions on P , Lei et al. [2018] prove that the split
+conformal method run at coverage level 1−αδ with a consistent regression algorithm
+µ
+b will, with high probability, output a prediction interval with width that is only
+o(1) larger than the oracle interval, which has width LP (1 − αδ). More generally,
+for any c ∈ [0, 1], we can use the construction suggested in Lemma 2 combined with
+the split conformal method, now run at level 1 − cαδ, to instead produce expected
+           1−α
+length ≈ 1−cα   · LP (1 − cαδ).
+    Since Theorem 2 demonstrates that any method satisfying (1 − α, δ)-CC cannot
+beat this lower bound, this means that the (1 − α, δ)-CC property is impossible
+to attain beyond the trivial solution, i.e., by applying a method that guarantees
+(1 − αδ)-marginal coverage, which then yields (1 − α, δ)-CC as a byproduct (or
+choosing some c ∈ [0, 1] for the more general construction). Since typically we
+would choose δ to be a small constant, this lower bound is indeed a substantial
+issue, since LP (1 − αδ) will generally be much larger than the length we would need
+if the distribution P were known.
+
+
+4    Restricted conditional coverage
+Our main result, Theorem 2, shows that our definition of approximate conditional
+coverage in (3) is too strong; it is impossible to construct a meaningful procedure
+satisfying this definition. One way to weaken this condition is to restrict which sets
+X we consider, yielding a less stringent notion of approximate conditional coverage.
+    For example, we can require that the coverage guarantee holds “locally”, by con-
+ditioning only on any ball with sufficient probability δ, rather than on an arbitrary
+
+
+
+
+                                          10
+subset X ⊆ Rd . More concretely, we might require that
+   n                                o
+           bn (Xn+1 ) Xn+1 ∈ B(x, r) ≥ 1 − α for all distributions P
+  P Yn+1 ∈ C
+                             and all x ∈ Rd , r ≥ 0 with PPX {X ∈ B(x, r)} ≥ δ. (6)
+
+Here B(x, r) is the closed ℓ2 ball centered at x with radius r. In the doctor/patient
+example, we can think of this as requiring 95% predictive accuracy on average
+over the subgroup of population consisting of patients similar to a given patient x,
+where similarity is defined with the ℓ2 norm (of course, we can also generalize this
+to different metrics). As another example, Vovk [2012], Lei and Wasserman [2014]
+consider a version of conformal prediction that guarantees coverage within each one
+of a finite number of subgroups, i.e.
+   n                           o
+           b
+  P Yn+1 ∈ Cn (Xn+1 ) Xn+1 ∈ Xk ≥ 1 − α for all distributions P
+                                                       and for all k = 1, . . . , K, (7)
+
+for some fixed partition Rd = X1 ∪ · · · ∪ XK of the feature space. Here we may think
+of predefining subgroups of patients (males below age 25, males age 25–35, etc.) and
+requiring 95% predictive accuracy on average over each predefined subgroup.
+    More generally, suppose we are given a collection X of measurable subsets of Rd .
+We say that C bn satisfies distribution-free approximate conditional coverage at level
+1 − α and tolerance δ > 0 relative to the collection X, denoted by (1 − α, δ, X)-CC,
+if
+    n                                 o
+              b
+   P Yn+1 ∈ Cn (Xn+1 ) Xn+1 ∈ X ≥ 1 − α for all distributions P
+                                               and all X ∈ X with PX (X ) ≥ δ. (8)
+
+To avoid degenerate scenarios, we will assume that we always have Rd ∈ X, meaning
+that requiring (1 − α, δ, X)-CC is always at least as strong as requiring (1 − α)-MC.
+Of course, this definition yields the original (1 − α, δ)-CC condition if we take X to
+be the collection of all measurable sets. If the class X is too rich, then, our main
+result in Theorem 2 proves that (1 − α, δ, X)-CC is impossible to achieve beyond
+trivial solutions. We may ask then whether it’s possible to construct meaningful
+prediction intervals when X is sufficiently restricted.
+    In the following, we will first construct a concrete algorithm, based on the split
+conformal prediction method, that attains (1 − α, δ, X)-CC. Afterwards, we will
+attempt to determine how the complexity of the class X determines whether this
+algorithm provides meaningful prediction intervals (i.e., narrower intervals than the
+lower bound of Theorem 2), and indeed if this is possible to attain with any algo-
+rithm.
+
+
+                                         11
+4.1     Split conformal for restricted conditional coverage
+As a concrete example, we will construct a variant of the split conformal predic-
+tion method, and will generalize Lei et al. [2018]’s results on the efficiency of split
+conformal prediction to establish conditions under which the resulting prediction
+intervals are asymptotically efficient.
+    Let µ
+        bn0 (x) be some fitted regression function, which estimates the conditional
+mean of Y given X = x. As before, we require that µ              bn0 is fitted on the first n0
+training samples, (X1 , Y1 ), . . . , (Xn0 , Yn0 ). Next, define the residual
+
+                                    Ri = Yi − µ
+                                              bn0 (Xi )
+
+on the remaining training samples i = n0 + 1, . . . , n and on the test point i = n + 1.
+(As for the original split conformal method, this procedure can be generalized to
+include a local scale estimate, σ        bn0 (Xi ), or to allow for an asymmetric interval that
+treats the right and left tails of the residuals differently, but we do not include these
+generalizations here.)
+    The original split conformal method operates by observing that the test point
+residual, Rn+1 , is equally likely to occur anywhere in the ranked list of residuals
+Rn0 +1 , . . . , Rn , Rn+1 , i.e., the test residual is exchangeable with the n1 many residuals
+from the held-out portion of the training data. The split conformal prediction
+interval (4) is then constructed as
+                                                                           
+                                Cbn (x) = µ  bn0 (x) − qbn1 , µ
+                                                              bn0 (x) + qbn1 ,
+
+where qbn1 is the ⌈(1 − α)(n1 + 1)⌉-smallest value amongst Rn0 +1 , . . . , Rn . The width
+of this prediction interval is determined by this residual quantile qbn1 , which is calcu-
+lated by pooling all residuals from the holdout set i = n0 + 1, . . . , n and is therefore
+calibrated to give the appropriate coverage level on average over the distribution P .
+    We now need to modify this construction to guarantee a stronger notion of
+coverage—we need to ensure coverage on average over any X ∈ X with PX (X ) ≥ δ.
+We will need to modify the width of the prediction interval—for example, for a set
+X where residuals tend to be large (i.e., |Y − µ       bn0 (X)| is likely to be large if we
+condition on X ∈ X ), the split conformal interval constructed above is too narrow
+to achieve 1 − α coverage on average over this set. We will therefore construct a
+new interval,
+                      Cbn (x) = [b
+                                 µn0 (x) − qbn1 (x), µ
+                                                     bn0 (x) + qbn1 (x)] .               (9)
+The width of the interval is now defined locally by the quantity qbn1 (x), which we
+will address next. Intuitively, if x belongs to a set X within which residuals tend to
+be large, we will need qbn1 (x) to be large in order to achieve the right coverage level
+on average over X .
+
+
+
+                                              12
+   We now construct qbn1 (x). First, we will narrow down the class of subsets to
+consider. Define                      n
+                                      X
+                           b
+                          Nn1 (X ) =      1 {Xi ∈ X } ,
+                                           i=n0 +1
+
+the number of holdout points that lie in X . Next, let
+                                              s              
+                                                   2 log(n1 ) 
+          b                b
+          Xn1 = X ∈ X : Nn1 (X ) ≥ δn1 1 −                                 ⊆ X.
+                                                      δn1      
+
+This definition ensures that, if a given subset X has probability ≥ δ under P , then
+we will include X ∈ Xb n with high probability. Next let
+                        1
+
+                                                      
+                              1                         
+  qbn1 (X ) = the        1−α+            bn1 (X ) + 1
+                                       · N                 -th smallest value
+                              n1
+                                                             
+                                                          of Ri : n0 + 1 ≤ i ≤ n, Xi ∈ X .
+
+Finally, we set
+                              qbn1 (x) =      sup        qbn1 (X ).                    (10)
+                                              b n :x∈X
+                                           X ∈X  1
+
+
+(Recall that Rd ∈ X by assumption, and thus Rd ∈ X b n , so there is always at least
+                                                      1
+one set X in this supremum.)
+   Our next result proves that this construction achieves the desired approximate
+conditional coverage property.
+
+Theorem 3. For any class X of measurable subsets of Rd , the prediction interval
+defined in (9) satisfies (1 − α, δ, X)-CC (8).
+
+     Of course, the supremum defined in (10) may be impossible to compute efficiently—
+this will naturally depend on the structure of the class X. (We expect that for simple
+cases, such as taking X to be the set of all ℓ2 balls as for the “local” conditional
+coverage discussed earlier, we may be able to compute or approximate (10) more
+efficiently; we leave this as an open question for future work.) Furthermore, this
+guarantee does not yet establish that this method provides a meaningful prediction
+interval—it may be the case that the intervals are too wide. We will examine this
+question next.
+
+4.2    Characterizing hardness with the VC dimension
+For a class X of subsets of Rd , we write VC(X) to denote the Vapnik–Chervonenkis
+dimension of the class X. This measure of complexity is defined as follows. For any
+finite set A of points in Rd , we say that A is shattered by X if, for every subset of
+
+                                              13
+points B ⊆ A, there exists some X ∈ X with X ∩ A = B. The VC dimension is then
+defined as
+                    VC(X) = max {|A| : A is shattered by X} ,
+i.e., the largest cardinality of any set shattered by X. Well known examples include:
+
+   • If X is the set of all ℓ2 balls in Rd , then VC(X) = d + 1.
+
+   • If X is the set of all half-spaces in Rd , then VC(X) = d + 1.
+
+   • If X is the set of all intersections of k different half-spaces in Rd , then VC(X) =
+     O(kd log(k)) [Blumer et al., 1989, Lemma 3.2.3].
+
+    While a large VC dimension of X ensures that there is some set of points A that
+is shattered by X, we need a stronger formulation to establish a hardness result for
+restricted conditional coverage. We will consider an “almost everywhere” version of
+the VC dimension, defined as follows:
+                                                                               
+                                 the class of sets A = {a1 , . . . , am } ⊆ Rd 
+       VCa.e. (X) = max m ≥ 0 :       such that X does not shatter A,
+                                                                               
+                                    has Lebesgue measure zero in (Rd )m
+
+In other words, instead of searching for a single set A of size m that is shattered by
+X, we require that almost all sets A of size m are shattered by X. It is trivial that
+VC(X) ≥ VCa.e. (X), but in fact, the two may coincide—for example,
+
+   • If X is the set of all ℓ2 balls in Rd , then VCa.e. (X) = VC(X) = d + 1.
+
+   • If X is the set of all half-spaces in Rd , then VCa.e. (X) = VC(X) = d + 1.
+
+    In order to obtain a tight bound, we also need to define a slightly stronger notion
+of predictive coverage. Our previous definitions (for marginal, conditional, and ap-
+proximate conditional coverage) all calculated probabilities with respect to P n+1 for
+some distribution P , in other words, with the data points (X1 , Y1 ), . . . , (Xn+1 , Yn+1)
+drawn i.i.d. from an arbitrary distribution. A more general setting is where these
+n + 1 data points are instead assumed to be exchangeable (which includes i.i.d. as
+a special case). We thus define a notion of approximate conditional coverage un-
+der exchangeability, rather than the i.i.d. assumption. We say that a procedure
+Cbn satisfies (1 − α, δ, X)-conditional coverage under exchangeability, denoted by
+(1 − α, δ, X)-CCE, if
+     n                          o
+             bn (Xn+1 ) Xn+1 ∈ X ≥ 1 − α
+  PP̃ Yn+1 ∈ C
+          for all exchangeable distributions P̃ on (X1 , Y1), . . . , (Xn+1 , Yn+1)
+                                      and all X ∈ X with PP̃ {Xn+1 ∈ X } ≥ δ. (11)
+
+                                            14
+Clearly, a procedure C bn satisfying (1 − α, δ, X)-CCE will also satisfy (1 − α, δ, X)-CC
+by definition. It is worth noting that all proofs of predictive coverage guarantees
+for conformal and split conformal prediction methods do not require the i.i.d. as-
+sumption but rather only need to assume exchangeability—that is, results such as
+Theorem 3 continue to hold, meaning that our split conformal method proposed in
+Section 4.1 satisfies this stronger coverage property (11).
+    We will now see how the VC dimension relates to the conditional coverage prob-
+lem. We will show that:
+
+   • If VCa.e. (X) ≥ 2n + 2, then the (1 − α, δ, X)-CCE property cannot be obtained
+     beyond the trivial lower bound given in Theorem 2.
+
+   • On the other hand, if VC(X) ≪ δn/ log2 (n), then the split conformal method
+     described in Section 4.1, which is guaranteed to satisfy (1 − α, δ, X)-CCE,
+     produces prediction intervals of nearly optimal length under a location-family
+     model.
+
+An equivalent perspective is that with sufficiently many points n, the CCE property
+can be meaningfully attained. We now formalize these results.
+
+4.2.1   A lower bound
+First, we will examine the setting where VCa.e. (X) ≥ 2n + 2. In this setting, we will
+see that (1 − α, δ, X)-conditional coverage (in its stronger form, with exchangeable
+rather than i.i.d. data points) is incompatible with meaningful predictive intervals.
+
+Theorem 4. Suppose that C   bn satisfies (1 − α, δ, X)-CCE as defined in (11), where
+X satisfies VCa.e. (X) ≥ 2n + 2. Then for all distributions P where the marginal
+distribution PX is continuous with respect to Lebesgue measure, we have
+                  h               i                                 
+                       bn (Xn+1 )) ≥ inf        1 − α
+               E leb(C                                 · LP (1 − cαδ) .
+                                      c∈[0,1]   1 − cα
+
+In other words, if VCa.e. (X) ≥ 2n + 2, the lower bound proved here is identical to
+that of Theorem 2, which is the trivial lower bound that can be obtained by simply
+requiring marginal coverage at a far stricter level. (For example, if we take X to be
+the collection of all balls or all half-spaces in Rd for d ≥ 2n + 1, then this condition
+on VCa.e. (X) will hold.) We remark that it is possible to prove a similar result for
+the (1−α, δ, X)-CC condition (rather than the stronger (1−α, δ, X)-CCE condition),
+but in that case we are only able to show this result when VCa.e. (X) ≫ n2 .
+
+4.2.2   An upper bound
+Next, we prove that efficient prediction is possible when the VC dimension is low.
+
+                                           15
+    Since our construction given in (9) uses a symmetric interval around an initial
+model µbn0 , with the width of the interval selected to cover the worst-case scenario
+in terms of the choice of X , we can only hope for efficiency as compared to the best
+“oracle” interval of this form. For a fixed function µ : Rd → R and for any X ∈ X
+with nonzero probability under PX , define
+   ∗
+  qP,µ,α (X ) = the (1 − α)-quantile of |Y − µ(X)|,
+                          under the distribution (X, Y ) ∼ P conditional on X ∈ X.
+Next, for any x ∈ Rd , define
+                          ∗                                      ∗
+                         qP,µ,α,δ (x) =           sup           qP,µ,α (X ),
+                                          X ∈X:x∈X ,PX (X )≥δ
+
+the maximum quantile over any set X containing the point x. We will then consider
+the “oracle” prediction interval
+                ∗
+                                    ∗                       ∗
+                                                                           
+              CP,µ,α,δ                                         µn0 ,α,δ (x) .
+                                       µn0 ,α,δ (x), µ(x) + qP,b
+                       (x) = µ(x) − qP,b                                      (12)
+                           ∗
+We can easily verify that CP,µ,α,δ (x) satisfies
+                                  ∗
+                      PP Y ∈ CP,µ,α,δ    (X) X ∈ X                 ≥1−α
+for all X ∈ X with PX (X ) ≥ δ.
+    Our main result proves that, if the collection X has sufficiently small VC di-
+mension, then with high probability the prediction interval C bn constructed in (9)
+above is essentially the same as the “oracle” interval defined in (12), when con-
+structed around the pre-trained model µ = µ                                      bn
+                                           bn0 . To formalize this, we show that C
+is bounded above and below by oracle intervals with slightly perturbed values of α
+and δ.
+Theorem 5. Assume that VC(X) ≥ 1 and n1 ≥ 2. Then for every x ∈ Rd , if
+VC(X) ≤ c · logδn
+                2
+                   1
+                        , then the split conformal prediction interval C bn defined in (9)
+                  (n1 )
+satisfies
+              n                                                      o       1
+                     ∗                 b             ∗
+          PP n CP,bµn0 ,α+ ,δ+ (x) ⊆ Cn (Xn+1 ) ⊆ CP,bµn0 ,α− ,δ− (x) ≥ 1 − ,
+                                                                            n1
+where
+                         s                                           s
+                                          2
+                             VC(X) log (n1 )                             VC(X) log2 (n1 )
+          α+ = α + c α                       ,       α− = α − c α
+                                 δn1                                         δn1
+and                      s                                          s
+                             VC(X) log2 (n1 )                           VC(X) log2 (n1 )
+           δ+ = δ + cδ                        ,      δ− = δ − cδ
+                                  n1                                         n1
+where c, cα , cδ are universal constants.
+
+                                                16
+4.2.3   Special case: the location family with i.i.d. noise
+While the result given in Theorem 5 is quite general (we do not assume anything
+about the distribution P ), we can consider a special case where, given strong con-
+ditions on P , the prediction interval C   bn (Xn+1 ) nearly matches a much stronger
+oracle—namely, the narrowest possible valid prediction interval.
+    Our discussion for this setting will closely follow the work of Lei et al. [2018], for
+the split conformal method. We first describe their results. Their work assumes a
+location-family model:
+
+            The distribution of Y |X is given by Yi = µP (Xi ) + ǫi ,
+     where µP (x) is a fixed function, and the ǫi ’s are i.i.d. with density fǫ ,      (13)
+      where fǫ (t) is symmetric around t = 0, and nonincreasing for t ≥ 0.
+
+Lei et al. [2018] additionally assume that the estimator µ
+                                                         bn0 (x) of the true mean
+function µP (x) is consistent—Assumption A4 in their work requires that
+                                             
+                 P E (b  µn0 (X) − µP (X))2 µ
+                                            bn0 ≤ ηn0 ≥ 1 − ρn0 ,             (14)
+
+where we should think of the quantities ηn0 , ρn0 as small or vanishing. To interpret
+this assumption, the probability on the outside is taken with respect to the train-
+ing data (X1 , Y1 ), . . . , (Xn0 , Yn0 ) used to fit the model µbn0 , while the conditional
+expectation on the inside is taken with respect to a new draw X ∼ PX .
+    Under conditions (13) and (14), Lei et al. [2018] prove that the split conformal
+method (4) is asymptotically efficient as n0 , n1 → ∞, satisfying bounds of the form
+                                                           
+                              leb Cbn (Xn+1 ) △ C ∗ (Xn+1 ) = oP (1),                   (15)
+                                                 P
+
+where △ denotes the symmetric set difference, and where CP∗ (x) denotes the “oracle”
+prediction interval that we would build if we knew the distribution P —under the
+simple model (13) for P above, this interval has the form
+
+                                 CP∗ (x) = µP (x) ± qǫ,α
+                                                     ∗
+                                                         ,
+        ∗
+where qǫ,α  denotes the (1 − α/2) quantile of fǫ (i.e., the (1 − α)-quantile of the
+distribution of |ǫ|).
+    We now extend this result to the setting of approximate conditional coverage.
+Specifically, working under the same assumptions, we will prove that our proposed
+algorithm (9), which is constructed to satisfy the (1 − α, δ, X)-CC property, will also
+return an interval that is asymptotically equivalent to the oracle interval CP∗ as long
+as VC(X) is not too large.
+
+Corollary 1. Under the conditions of Theorem 5 together with assumptions (13)
+and (14), if VC(X) ≤ c · logδn
+                             2
+                                1                                                   bn
+                                     , then the split conformal prediction interval C
+                               (n1 )
+
+
+                                            17
+defined in (9) satisfies
+                                                            q        2
+                                                                            
+                                                     1/3
+                                           η
+                                              1/3
+                                              n
+                                                    ηn0 + VC(X)δnlog1 (n1 )
+         leb   bn (Xn+1 ) △ C (Xn+1 ) ≤ c 
+               C             ∗           ′      0
+                                                  +                         
+                             P                                ∗
+                                            δ 1/2        fǫ (qǫ,α/2 )
+
+                                            1/3
+with probability at least 1 − n11 − 2ρn0 − ηn0 , where c, c′ are universal constants.
+
+In other words, for a location-family model with a consistent estimate of the true
+mean function (ηn0 , ρn0 → 0), the interval C  bn defined in (9) is able to satisfy re-
+stricted conditional coverage in the distribution-free setting, while matching the best
+possible “oracle” prediction interval length asymptotically as n0 , n1 → ∞.
+
+
+5     Discussion
+In this work, we have explored the possible definitions of approximate conditional
+coverage for distribution-free predictive inference, with the goal of finding meaning-
+ful definitions that are strong enough to achieve some of the practical benefits of
+conditional coverage (i.e., patients feel assured that their personalized predictions
+have some level of accuracy), but weak enough to still allow for the possibility of
+meaningful distribution-free procedures. We find that requiring (1−α, δ)-conditional
+coverage to hold, i.e., coverage at level 1 −α over every subgroup with probability at
+least δ within the overall population, is too strong of a condition—our main result
+establishes a lower bound on the resulting prediction interval length, and demon-
+strates that meaningful procedures cannot be constructed with this property. By
+relaxing the desired property to (1 − α, δ, X)-conditional coverage, i.e., coverage at
+level 1 − α over every subgroup X ∈ X that has probability at least δ, we see that
+sufficiently restricting the class X does allow for nontrivial prediction intervals.
+    Many open questions remain after our preliminary findings. In particular, what
+types of classes X are most meaningful for defining this restricted form of approx-
+imate conditional coverage? Furthermore, for nearly any class X, computation for
+the split conformal method constructed in Section 4.1 may pose a serious challenge—
+how can we efficiently compute predictive intervals for this problem?
+    Another direction for relaxing (1 − α, δ)-CC property is to require it to hold
+only over some distributions P (rather than restricting to a class X of sets that we
+condition on). Is it possible to ensure that conditional coverage at level 1 − α holds,
+not at some uniform tolerance level δ, but at an adaptive tolerance level δ(P ) that is
+low for “well-behaved” distributions P but may be as large as 1 (i.e., only ensuring
+marginal coverage) for degenerate distributions P ? We leave these questions for
+future work.
+
+
+
+                                          18
+Acknowledgements
+The authors are grateful to the American Institute of Mathematics for supporting
+and hosting our collaboration. R.F.B. was partially supported by the National
+Science Foundation via grant DMS–1654076 and by an Alfred P. Sloan fellowship.
+E.J.C. was partially supported by the Office of Naval Research under grant N00014-
+16-1-2712, by the National Science Foundation via grant DMS–1712800, and by a
+generous gift from TwoSigma. R.F.B. thanks Chao Gao, Samir Khan, and Haoyang
+Liu for helpful suggestions on an early version of this work.
+
+
+A      Proof of main impossibility result (Theorem 2)
+A.1     A preliminary lemma
+In order to prove our main theorem, we rely on a key lemma:
+Lemma 3. Suppose that C    bn satisfies (1 − α, δ)-CC as defined in (3). Then for
+all distributions P where the marginal distribution PX has no atoms, and for all
+measurable sets B ⊆ Rd × R with P (B) ≥ δ, we have
+                   n                                    o
+                 P Yn+1 ∈ Cbn (Xn+1 ) (Xn+1 , Yn+1) ∈ B ≥ 1 − α.
+
+Comparing this lemma to the definition of (1 − α, δ)-CC, we see that the definition
+of approximate conditional coverage requires that the result of the lemma must hold
+for any set of the form B = X × R, i.e., conditioning on an event Xn+1 ∈ X (with
+probability at least δ). The lemma extends the property to condition also on events
+that are defined jointly in (X, Y ).
+     While this may initially appear to be a simple extension of the definition of
+(1 − α, δ)-CC, the proof is not trivial, and the implications of this result are very
+significant. To see why, suppose that we construct B to consist only of points
+(x, y) such that Yn+1 = y is in the extreme tail of its conditional distribution given
+Xn+1 = x—specifically, outside the range given by the δ/2 and 1 − δ/2 conditional
+quantiles (so that the overall probability of B is large enough, i.e., ≥ δ). The lemma
+claims that, even when (Xn+1 , Yn+1 ) lands in this set, i.e., Yn+1 is in the extreme
+tails of its conditional distribution given Xn+1 , this value Yn+1 is still quite likely to
+       bn (Xn+1 ). This implies that C
+lie in C                               bn (Xn+1 ) must indeed be very wide.
+     We will next formalize this intuition to prove our theorem.
+
+A.2     Proof of Theorem 2
+First, for each x ∈ Rd and each s ∈ [0, 1], define
+                                  n      n         o   o
+                                                b
+                        CP,s (x) = y : P y ∈ Cn (x) > s ,
+
+                                            19
+where the probability is taken with respect to the training data. Note that CP,s (x) is
+                                                                bn (x), not of the random
+fixed, since it is defined as a function of the distribution of C
+          b
+interval Cn (x) itself.
+    Next, for any fixed x, in expectation over the training data we have
+                             Z                  o  Z
+        h            i              n                             n            o
+      E leb C  bn (x) = E          1 y ∈ Cbn (x) dy =            P y∈C   bn (x) dy,
+                                  y∈R                         y∈R
+
+by Fubini’s theorem. Now, we can rewrite
+    n           o Z 1 n n                o o    Z 1
+           b
+   P y ∈ Cn (x) =       1 P y ∈ Cn (x) > s ds =
+                                   b                1 {y ∈ CP,s(x)} ds,
+                          s=0                                    s=0
+
+and so plugging this in and applying Fubini’s theorem again,
+       h               Z 1 Z                            Z 1
+                 i                                                      
+            b
+     E leb Cn (x) =             1 {y ∈ CP,s(x)} dy ds =      leb CP,s (x) ds.
+                            s=0    y∈R                              s=0
+
+    Next, plugging in the test point Xn+1 , and applying Fubini’s theorem an addi-
+tional time,
+                                                            Z 1                      
+    h             i       h h                     ii                            
+          b                        b
+  E leb Cn (Xn+1 ) = E E leb Cn (Xn+1 ) Xn+1 = E                  leb CP,s (Xn+1 ) ds
+                                                              s=0
+                  Z 1                            Z 1
+                                                                   
+                =      E leb CP,s (Xn+1 ) ds =        EPX leb CP,s (X) ds, (16)
+                    s=0                                 s=0
+
+where the last step holds since marginally Xn+1 ∼ PX .
+   Next we define
+                              αs = PP {Y 6∈ CP,s(X)} ,
+the marginal miscoverage rate of the sets CP,s (x) (that is, we think of CP,s (x) as a
+deterministic prediction interval). Then
+                                         
+                         EPX leb CP,s (X) ≥ LP (1 − αs )                          (17)
+by the definition of the minimal prediction interval length LP given in (5). Since
+s 7→ αs is nondecreasing and right-continuous, and satisfies α1 = 1, we can define
+                                s⋆ = min{s ∈ [0, 1] : αs ≥ δ}.
+
+Define also
+        n       n          o    o        n          n          o    o
+                     bn (x) ≤ s⋆ and B− = (x, y) : P y ∈ C
+ B+ = (x, y) : P y ∈ C                                   bn (x) < s⋆ .
+
+Then
+         PP {(X, Y ) ∈ B+ } = αs⋆ ≥ δ and PP {(X, Y ) ∈ B− } = sup αs ≤ δ.
+                                                                          s<s⋆
+
+
+                                             20
+Now, since P is assumed to have no atoms (inheriting this property from the
+marginal PX ), by Dudley and Norvaiša [2011, Proposition A.1] we can find a mea-
+surable set B such that
+
+                     B− ⊆ B ⊆ B+ and PP {(X, Y ) ∈ B} = δ.
+
+By definition of B, we have
+                                       n          o
+                                            b
+                        (x, y) ∈ B ⇒ P y ∈ Cn (x) ≤ s⋆ ,
+                                       n          o                             (18)
+                                            bn (x) ≥ s⋆ .
+                        (x, y) 6∈ B ⇒ P y ∈ C
+
+Next, we can calculate
+Z s⋆              Z s⋆
+     αs ds = s⋆ −      (1 − αs ) ds
+ s=0               s=0
+        Z s⋆
+= s⋆ −       PP {Y ∈ CP,s (X)} ds
+         s=0
+        Z s⋆    n n                     o      o
+= s⋆ −                     b
+             PP P Y ∈ Cn (X) X, Y > s ds
+         s=0
+        Z 1     n n                     o         o
+= s⋆ −       PP P Y ∈ C    bn (X) X, Y ∧ s⋆ > s ds
+         s=0
+            h n                     o    i
+= s⋆ − EP P Y ∈ C    bn (X) X, Y ∧ s⋆
+         h n                        o                 i                  
+= s⋆ − EP P Y ∈ Cn (X) X, Y · 1 {(X, Y ) ∈ B} + EP [s⋆ · 1 {(X, Y ) 6∈ B}]
+                       b
+          n                                     o
+= s⋆ − P Yn+1 ∈ C  bn (Xn+1 ), (Xn+1, Yn+1 ) ∈ B − s⋆ PP {(X, Y ) 6∈ B}
+            n                                     o
+= δ s⋆ − P Yn+1 ∈ C    bn (Xn+1 ) (Xn+1 , Yn+1) ∈ B ,
+
+where the last step holds since PP {(X, Y ) ∈ B} = P {(Xn+1 , Yn+1) ∈ B} = δ by
+construction. Next, by applying Lemma 3 to the set B, we have
+                  n                                   o
+                           b
+                P Yn+1 ∈ Cn (Xn+1 ) (Xn+1 , Yn+1 ) ∈ B ≥ 1 − α
+
+and therefore              Z s⋆
+                                    αs ds ≤ δ (s⋆ − (1 − α)) .                  (19)
+                              s=0
+In particular, since the left-hand side is nonnegative, this proves that we must have
+s⋆ ≥ 1 − α > 0 (we can assume that α < 1 since otherwise the theorem holds
+trivially).
+
+
+
+                                             21
+   Now, returning to (16) and (17), we have
+   h                  Z 1                      Z s⋆
+                  i
+        bn (Xn+1 ) ≥
+  E leb C                   LP (1 − αs ) ds ≥       LP (1 − αs ) ds
+                        s=0                     s=0
+                          Z s⋆                                  Z s⋆         
+                                1                                     1
+                     = s⋆         LP (1 − αs ) ds ≥ s⋆ LP 1 −            αs ds , (20)
+                           s=0 s⋆                                 s=0 s⋆
+
+where the last step uses Jensen’s inequality, together with the fact that α 7→ LP (1 −
+α) is convex. (To verify this, let CP ∈ CP (1 − α) and CP′ ∈ CP (1 − α′ ), and then
+define CP′′ (x) as the random interval that outputs CP (x) with probability (1 − t)
+and CP′ (x) with probability t. Then it is easy to verify that CP′′ ∈ CP (1 − α′′ )
+where α′′ = (1 − t)α + tα′ , and that EPX [leb(CP′′ (X))] = (1 − t)EPX [leb(CP (X))] +
+tEPX [leb(CP′′ (X))]. This is sufficient to establish convexity.)
+    Combining (19) and (20), we obtain
+                    h                                             
+                                     i                      1 −  α
+                  E leb C bn (Xn+1 ) ≥ s⋆ LP 1 − δ 1 −                 ,
+                                                               s⋆
+since LP is nondecreasing. Finally, define
+                                        1 1−α
+                                   c=     −      .
+                                        α   s⋆ α
+Since we have verified that 1 − α ≤ s⋆ ≤ 1, this means that c ∈ [0, 1], and plugging
+in this choice of c, we obtain
+                        h               i
+                      E leb C bn (Xn+1 ) ≥ 1 − α LP (1 − cαδ),
+                                           1 − cα
+which proves the theorem.
+
+A.3     Proof of Lemma 3
+Let δ ′ = PP {(X, Y ) ∈ B} ≥ δ. We will assume that δ ′ < 1 (since the case
+δ ′ = 1 is trivial). Fix a large integer M ≥ n + 1. First, draw M data points
+    (1)   (1)           (M )    (M )
+(X0 , Y0 ), . . . , (X0 , Y0 ) i.i.d. from (X, Y ) ∼ P conditional on (X, Y ) 6∈ B,
+                                          (1)   (1)       (M )  (M )
+and M additional data points (X1 , Y1 ), . . . , (X1 , Y1 ) i.i.d. from (X, Y ) ∼ P
+conditional on (X, Y ) ∈ B. Let L denote this draw of the 2M data points. Since
+                                                    (i)            (i)
+PX has no atoms, with probability 1 all the X0 ’s and X1 ’s are distinct, so from
+this point on we assume that this is true.
+     Next suppose that we draw indices m1 , . . . , mn+1 without replacement from the
+set {1, . . . , M}. Independently for each i = 1, . . . , n + 1, set
+                                (
+                                     (m )     (m )
+                                  (X0 i , Y0 i ), with probability 1 − δ ′ ,
+                   (Xi , Yi ) =      (m )     (m )                               (21)
+                                  (X1 i , Y1 i ), with probability δ ′ .
+
+                                          22
+We can clearly see that, after marginalizing over L, this is equivalent to drawing the
+data points (Xi , Yi ) i.i.d. from P . Therefore, we have
+   n                                      o
+            b
+  P Yn+1 6∈ Cn (Xn+1 ), (Xn+1 , Yn+1) ∈ B
+                                   h n                                                  oi
+                                            bn (Xn+1 ), (Xn+1, Yn+1 ) ∈ B
+                              = E P Yn+1 6∈ C                                       L        ,
+
+where, on the right-hand side, after conditioning on L, the data points (Xi , Yi ) are
+drawn according to (21).
+    Next consider an alternate distribution where we draw the n + 1 data points
+(Xi , Yi ) from L but now drawing with replacement. Specifically, fixing L, let Q(L)
+                                                           ′                        (m)  (m)
+be the discrete distribution that places probability 1−δ M
+                                                             on each point (X0 , Y0 ),
+                   δ′                      (m)   (m)
+and probability M      on each point (X1 , Y1 ), for m = 1, . . . , M. The product
+                      n+1
+distribution Q(L)          is therefore equivalent to sampling indices m1 , . . . , mn+1 with
+replacement from the set {1, . . . , M}, and then defining (Xi , Yi ) again according
+to (21).
+    Now, if M is very large relative to n, it is extremely unlikely that we would
+                                                                n+1
+have mi = mi′ for any i 6= i′ , when drawing from Q(L)              . Specifically, we can
+                                                      n2
+easily check that this probability is bounded by M , and so for any fixed L, the total
+variation distance between the distribution given in (21) (i.e., sampling without
+replacement) and the distribution (Q(L))n+1 (i.e., sampling with replacement) is
+                2
+bounded by nM . Therefore,
+   n                                         o
+            bn (Xn+1 ), (Xn+1 , Yn+1) ∈ B L
+  P Yn+1 6∈ C
+                                      n                                     o   2
+                         ≤ P(Q(L))n+1 Yn+1 6∈ Cbn (Xn+1 ), (Xn+1 , Yn+1) ∈ B + n ,
+                                                                               M
+where on the left-hand side, after conditioning on L, the data points (Xi , Yi ) are
+drawn according to (21).
+   Next, for any L, define the set
+                                             (1)       (M )
+                               X (L) = {X1 , . . . , X1       }.
+
+Note that, for (X, Y ) ∼ Q(L), by construction we have X ∈ X (L) if and only if
+                                                             (1)          (M ) (1)          (M )
+(X, Y ) ∈ B (since we have assumed that L is chosen so that X0 , . . . , X0 , X1 , . . . , X1
+are all distinct), and
+
+                  PQ(L) {X ∈ X (L)} = PQ(L) {(X, Y ) ∈ B} = δ ′ ≥ δ.
+                 bn satisfies (1 − α, δ)-CC with respect to any distribution, we must
+Therefore, since C
+
+
+
+                                             23
+have
+            n                                      o
+                     bn (Xn+1 ), (Xn+1, Yn+1 ) ∈ B
+  P(Q(L))n+1 Yn+1 6∈ C
+                                n                               o
+                                         b
+                   = P(Q(L))n+1 Yn+1 6∈ Cn (Xn+1 ), Xn+1 ∈ X (L)
+                                    n                                 o
+                        = P(Q(L))n+1 Yn+1 6∈ C bn (Xn+1 ) Xn+1 ∈ X (L) · δ ′ ≤ αδ ′
+
+                            (1)       (M )       (1)         (M )
+for every fixed L where X0 , . . . , X0      , X1 , . . . , X1      are distinct. Combining ev-
+erything, therefore,
+   n                                      o
+             b
+  P Yn+1 6∈ Cn (Xn+1 ), (Xn+1 , Yn+1) ∈ B
+                       n                                 o n2 
+                                  b                                      n2
+      ≤ E P(Q(L))n+1 Yn+1 6∈ Cn (Xn+1 ), (Xn+1 , Yn+1) ∈ B +     ≤ αδ ′ + ,
+                                                             M           M
+
+where the expectation is taken with respect to the random draw of L. Since M can
+be taken to be arbitrarily large, we therefore have
+      n                                     o
+    P Yn+1 6∈ Cbn (Xn+1 ), (Xn+1 , Yn+1) ∈ B ≤ αδ ′ = α · P {(Xn+1 , Yn+1) ∈ B} ,
+
+which concludes the proof of the lemma.
+
+
+B      Additional proofs
+B.1     Proof of Lemma 2
+                           
+Let A ∼ Bernoulli 1−cα 1−α                                                b′ (x) is
+                             be the Bernoulli variable indicating whether C n
+           bn (x) (if A = 1) or as the empty set (if A = 0). Then, for any X with
+defined as C
+PX (X ) ≥ δ, we have
+   n                            o    n                                  o
+           b ′                                    b
+  P Yn+1 ∈ Cn (Xn+1 ) Xn+1 ∈ X = P A = 1, Yn+1 ∈ Cn (Xn+1 ) Xn+1 ∈ X
+        1−α       n                          o  1−α
+     =                    b
+               · P Yn+1 ∈ Cn (Xn+1 ) Xn+1 ∈ X ≥        · (1 − cα) = 1 − α,
+       1 − cα                                   1 − cα
+                                 bn satisfies (1 − cα, δ)-CC by Lemma 1.
+where the inequality holds since C
+
+B.2     Proof of Theorem 3
+Fix any distribution P and any X ∈ X with PX (X ) ≥ δ. Let
+
+                              Rn+1 = Yn+1 − µ
+                                            bn0 (Xn+1 )
+
+                                              24
+be the residual of the test point. By definition of the procedure, we can see that
+   n                           o
+            bn (Xn+1 ) Xn+1 ∈ X = P {Rn+1 > qbn1 (Xn+1 ) | Xn+1 ∈ X }
+  P Yn+1 6∈ C
+                      n                o
+                          b n Xn+1 ∈ X + P {Rn+1 > qbn (X ) | Xn+1 ∈ X } .
+                 ≤ P X 6∈ X  1                             1
+
+
+
+The first probability depends only on the held-out portion of the training data, i.e.,
+data points i = n0 + 1, . . . , n. We have
+                                                          s            
+                               X n
+                                                             2 log(n1 ) 
+                  bn ⇒
+             X 6∈ X  1              1 {Xi ∈ X } < δn1 1 −                .
+                             i=n +1
+                                                                δn 1
+                              0
+
+
+
+Since each Xi has probability at least δ of lying in X , therefore this probability is
+bounded by
+                                             s             
+               
+                                                 2 log(n1 )      1
+              P Binomial(n1 , δ) < δn1 1 −                      ≤ ,
+                                                    δn1       n1
+
+where the inequality holds by the multiplicative Chernoff bound. Therefore, what
+we have so far is
+     n                             o
+    P Yn+1 6∈ Cbn (Xn+1 ) Xn+1 ∈ X ≤ 1 + P {Rn+1 > qbn (X ) | Xn+1 ∈ X } .
+                                                           1
+                                        n1
+
+Next let I = {i : n0 + 1 ≤ i ≤ n, Xi ∈ X }. Then |I| = N    bn1 (X ), and by defini-
+tion
+l of qbn1 (X), we see that
+                         m Rn+1 > qbn1 (X ) if and only if Rn+1 is not one of the
+            1
+   1 − α + n1 · (|I| + 1) smallest values of {Ri : i ∈ I ∪ {n + 1}}. Now, after
+conditioning on I and on the event Xn+1 ∈ X , by distribution of the data we see
+that these residuals are exchangeable. Therefore this event has probability exactly
+                          l                        m
+                             1 − α + n11 · (|I| + 1)        1
+                      1−                               ≤α−
+                                    |I| + 1                n1
+
+after conditioning on I and on the event that Xn+1 ∈ X . This bound is therefore
+true also after marginalizing over I, and so P {Rn+1 > qbn1 (X ) | Xn+1 ∈ X } ≤ α− n11 ,
+which concludes the proof.
+
+B.3     Proof of Theorem 4
+First, we need to show that Lemma 3 holds in this setting.
+
+
+                                          25
+Lemma 4. Suppose that C    bn satisfies (1 − α, δ, X)-CCE as defined in (11), where
+X satisfies VCa.e. (X) ≥ 2n + 2. Then for all distributions P where the marginal
+distribution PX is continuous with respect to Lebesgue measure, for all B ⊆ Rd × R
+with PP {(X, Y ) ∈ B} ≥ δ,
+                    n                                    o
+                 P Yn+1 ∈ C bn (Xn+1 ) (Xn+1 , Yn+1) ∈ B ≥ 1 − α.
+
+    With this lemma in place, the proof of Theorem 4 follows exactly as the proof
+of our initial result, Theorem 2. We now turn to proving the lemma.
+Proof of Lemma 4. The proof of this lemma is similar to that of Lemma 3, except
+that instead of taking M samples from B and from Bc for an arbitrarily large integer
+M, we only need to take n + 1 from each set.
+     Let δ ′ = PP {(X, Y ) ∈ B} ≥ δ. We can assume that δ ′ < 1 (otherwise, the bound
+                                                                  (1)   (1)       (n+1)     (n+1)
+claimed in the lemma is trivial). Draw n+1 data points (X0 , Y0 ), . . . , (X0          , Y0      )
+i.i.d. from (X, Y ) ∼ P conditional on (X, Y ) 6∈ B, and n + 1 additional data points
+    (1)   (1)          (n+1)     (n+1)
+(X1 , Y1 ), . . . , (X1      , Y1      ) i.i.d. from (X, Y ) ∼ P conditional on (X, Y ) ∈ B.
+Let L denote this draw of the 2n + 2 data points.
+     Next, we draw a permutation π of the set {1, . . . , n + 1} uniformly at random,
+                            iid
+and draw B1 , . . . , Bn+1 ∼ Bernoulli(δ ′ ) independently of all other random variables.
+Define                                  (
+                                               (π )  (π )
+                                           (X0 i , Y0 i ), if Bi = 0,
+                          (Xi , Yi ) =         (π )  (π )             .
+                                           (X1 i , Y1 i ), if Bi = 1.
+We can clearly see that, after marginalizing over L, this is equivalent to drawing the
+data points (Xi , Yi ) i.i.d. from P . Therefore, we have
+   n                                        o
+  P Yn+1 6∈ Cbn (Xn+1 ), (Xn+1 , Yn+1) ∈ B
+                                  h n                                        oi
+                              = E P Yn+1 6∈ C bn (Xn+1 ), (Xn+1 , Yn+1) ∈ B L , (22)
+
+where, on the right-hand side, after conditioning on L, the data points (Xi , Yi ) are
+defined by the permutation π and the Bernoulli variables B1 , . . . , Bn+1 .
+     Next consider the distribution of the data conditional on L, which we denote
+by P̃ (L). Since the permutation π is drawn uniformly at random, and the Bi ’s are
+i.i.d., it is clear that the n+1 data points (X1 , Y1 ), . . . , (Xn+1 , Yn+1) are exchangeable
+under the distribution P̃ (L). Therefore for any fixed L and for any set X ∈ X with
+PP̃ (L) {Xn+1 ∈ X } ≥ δ, the (1 − α, δ, X)-CCE property ensures that
+                              n                                   o
+                                      b
+                       PP̃ (L) Yn+1 ∈ Cn (Xn+1 ) Xn+1 ∈ X ≥ 1 − α.
+
+   Now, fixing L, define the set X (L) to be any element of X such that
+                             (1)        (n+1)                        (1)        (n+1)
+                 X (L) ∋ X1 , . . . , X1        ,        X (L) 6∋ X0 , . . . , X0       .
+
+                                                    26
+(Since we have assumed that VCa.e. (X) ≥ 2n + 2, and that PX is continuous with
+respect to Lebesgue measure, such a set X (L) ∈ X exists with probability one for any
+random draw of L.) Note that, under the distribution P̃ (L), we have Xn+1 ∈ X (L)
+if and only if (Xn+1 , Yn+1) ∈ B, and
+
+    PP̃ (L) {(Xn+1 , Yn+1 ) ∈ B} = PP̃ (L) {Xn+1 ∈ X (L)} = P {Bn+1 = 1} = δ ′ ≥ δ.
+
+Returning to the above, we therefore have
+        n                                     o
+                b
+ PP̃ (L) Yn+1 ∈ Cn (Xn+1 ), (Xn+1 , Yn+1) ∈ B
+                             n                                 o
+                    = PP̃ (L) Yn+1 ∈ C bn (Xn+1 ), Xn+1 ∈ X (L)
+                            n                                   o
+                   = PP̃ (L) Yn+1 ∈ C bn (Xn+1 ) Xn+1 ∈ X (L) · δ ′ ≥ (1 − α) · δ ′ .
+
+Then, returning to (22),
+   n                                       o
+ P Yn+1 ∈ C  bn (Xn+1 ), (Xn+1 , Yn+1) ∈ B
+                     h n                                              oi
+                                   b
+                 = E P Yn+1 ∈ Cn (Xn+1 ), (Xn+1 , Yn+1) ∈ B L
+                     h      n                                         oi
+                 = E PP̃ (L) Yn+1 ∈ C  bn (Xn+1 ), (Xn+1 , Yn+1 ) ∈ B
+
+                                                         ≥ E [(1 − α) · δ ′ ] = (1 − α) · δ ′ .
+
+Therefore,
+           n                                    o             ′
+                   bn (Xn+1 ) (Xn+1 , Yn+1 ) ∈ B ≥ (1 − α) · δ = 1 − α,
+          P Yn+1 ∈ C
+                                                       δ′
+which proves the lemma.
+
+B.4     Proof of Theorem 5
+Let µ = µbn0 . Throughout this proof, we will condition on the data (X1 , Y1), . . . , (Xn0 , Yn0 ),
+and will therefore treat this model as fixed—the probability bound will hold with
+respect to the distribution of the n1 holdout points (and therefore, the bound also
+holds after marginalizing over the initial n0 training points).
+    We will first see that it is sufficient to prove that, with high probability, the
+following two bounds hold:
+                                  Xx,+ ⊆ Xb n ⊆ Xx,− ,                                  (23)
+                                             1
+
+where we define Xx,+ = {X ∈ X : x ∈ X , PX (X ) ≥ δ+ } and Xx,− = {X ∈ X : x ∈
+X , PX (X ) ≥ δ− }, and
+                  ∗                          ∗
+                 qP,µ,α+
+                         (X ) ≤ qbn1 (X ) ≤ qP,µ,α−
+                                                    (X ) for all X ∈ Xx,− .                 (24)
+
+                                             27
+If these two statements hold, then we have
+        ∗                     ∗                  ∗
+       qP,µ,α+ ,δ+
+                   (x) = sup qP,µ,α+
+                                     (X ) ≤ sup qP,µ,α+
+                                                        (X ) ≤ sup qbn1 (X ) = qbn1 (x),
+                      X ∈Xx,+                 X ∈b
+                                                 Xn1                  X ∈b
+                                                                         Xn1
+
+
+and similarly
+        ∗                     ∗                  ∗
+       qP,µ,α− ,δ−
+                   (x) = sup qP,µ,α−
+                                     (X ) ≥ sup qP,µ,α−
+                                                        (X ) ≥ sup qbn1 (X ) = qbn1 (x).
+                      X ∈Xx,−                    bn
+                                              X ∈X                       bn
+                                                                      X ∈X
+                                                   1                       1
+
+
+
+By construction of the intervals, we therefore see that CP,µ,α ∗
+                                                                       (x) ⊆ C bn (x) ⊆
+                                                                 + ,δ+
+  ∗
+CP,µ,α− ,δ− (x), which is the claim in the theorem.
+    Now we verify that (23) and (24) both hold with high probability. First, by
+Koltchinskii [2011, Section 2.3 (Bousquet bound) + Theorem 3.9], we can verify the
+following concentration result:5
+               (                                               )
+                  bn1 (X )
+                  N                                                       1
+             P             − PX (X ) ≤ ∆conc (X ) for all X ∈ X ≥ 1 −        ,      (25)
+                    n1                                                   3n1
+
+where                                          s
+                                p                  VC(X) log2 (n1 ) c log(n1 )
+                  ∆conc (X ) = c PX (X ) ·                         +           ,
+                                                        n1              n1
+for a universal constant c.
+    Next, for any X ∈ X, define
+                 
+            X̃ = (x, y) ∈ Rd × R : x ∈ X and |y − µ(x)| > qP,µ,α
+                                                           ∗
+                                                                −
+                                                                  (X ) .
+
+Lemma 5 below will verify that
+                                     
+                       VC {X˜ : X ∈ X} ≤ VC(X) + 1.
+
+Therefore, again applying Koltchinskii [2011, Bousquet bound (Section 2.3) + The-
+orem 3.9] as above, if the universal constant c is chosen appropriately then it holds
+that
+    (
+       1 X n                    o       n             o
+            n
+  P             1 (Xi , Yi) ∈ X̃ − PP (X, Y ) ∈ X̃
+      n1 i=n +1
+            0
+                                                                     )
+                                                                                1
+                                           ≤ ∆conc (X ) ∀ X ∈ Xx,− ≥ 1 −           .
+                                                                               3n1
+   5
+    To obtain this bound, we need to apply Koltchinskii [2011, Theorems 2.5+3.9] O(log(n1 ))
+many times, once for each class Xj = {X ∈ X : PX (X ) ≤ 2−j }, for j = 1, . . . , O(log(n1 )) (i.e., a
+peeling argument).
+
+                                                 28
+Plugging in the definition of X˜ and of qP,µ,α
+                                         ∗
+                                              −
+                                                (X ), this means that
+      (         n
+          1 X 
+  P                 1 Xi ∈ X , |Yi − µ(Xi )| > qP,µ,α
+                                                ∗
+                                                       (X )
+          n1 i=n +1                                  −
+                0
+                                                                      )
+                                                                                  1
+                               ≤ α− PX (X ) + ∆conc (X ) ∀ X ∈ Xx,−       ≥ 1−       . (26)
+                                                                                 3n1
+
+An analogous argument can be used to prove that
+      (         n
+          1 X 
+  P                 1 Xi ∈ X , |Yi − µ(Xi )| ≥ qP,µ,α
+                                                ∗
+                                                       (X )
+          n1 i=n +1                                  +
+                0
+                                                                      )
+                                                                                  1
+                               ≥ α+ PX (X ) − ∆conc (X ) ∀ X ∈ Xx,−       ≥ 1−       . (27)
+                                                                                 3n1
+
+    Now from this point on, we will assume that the events in (25), (26), and (27)
+all hold, which will occur with probability at least 1 − n11 . We now need to verify
+that this implies (23) and (24).
+    First we verify (23). For any X ∈ X b n , by definition of X
+                                                               b n we have
+                                           1                      1
+
+               s             
+                                     X n
+                   2 log(n  )     1
+        δ 1 −
+                          1   ≤            1 {Xi ∈ X } ≤ PX (X ) + ∆conc (X ).
+                      δn1        n1 i=n +1
+                                           0
+
+
+
+Examining the definition of δ− , we see that this implies PX (X ) ≥ δ− when the uni-
+                                                             b n ⊆ Xx,− . Conversely,
+versal constant cδ is chosen appropriately. This proves that X  1
+for any X ∈ Xx,+ , again assuming cδ is chosen appropriately, we have
+        n
+  1 X
+            1 {Xi ∈ X } ≥ PX (X ) − ∆conc (X )
+  n1 i=n +1
+        0
+                           s                                    s            
+                                       2
+                             VC(X) log (n1 ) c log(n1 )            2 log(n1 ) 
+                  ≥ δ+ − c                     −        ≥ δ 1 −                ,
+                                    n1           n1                   δn1
+
+and so X ∈ X b n . This proves that X
+                                    b n ⊇ Xx,+ , and therefore, (23) holds whenever
+                1                      1
+the event in (25) occurs.
+
+
+
+
+                                               29
+   Next we verify (24). Fix any X ∈ Xx,− . By the events in (25) and (26), we have
+   n
+   X         
+            1 Xi ∈ X , |Yi − µ(Xi)| > qP,µ,α
+                                       ∗
+                                            −
+                                              (X )
+  i=n0 +1
+                                                                    !
+                                               bn1 (X )
+                                               N
+    ≤ n1 α− PX (X ) + n1 ∆conc (X ) ≤ n1 α−             + ∆conc (X ) + n1 ∆conc (X )
+                                                 n1
+                                           !                                       
+             b               2∆  conc (X )     b                    2∆conc (X )
+          ≤ Nn1 (X ) α− + 1                  ≤ Nn1 (X ) α− +                          .
+                                 b (X )
+                                 N                             PX (X ) − ∆conc (X )
+                              n1 n1
+
+Furthermore, by definition of α− , it holds that
+                                                                           
+                   2∆conc (X )                             1                   
+ b
+Nn1 (X ) α− +                             b
+                                       ≤ Nn1 (X ) −   1−α+        b
+                                                                · Nn1 (X ) + 1
+               PX (X ) − ∆conc (X )                        n1
+
+as long as the constants cα , cδ are chosen appropriately. Combining these calcula-
+tions, we see that
+  n
+  X                                                                             
+                                                              1                  
+          1 Xi ∈ X , |Yi − µ(Xi )| ≤ qP,µ,α
+                                      ∗
+                                             (X ) ≥       1−α+        b
+                                                                    · Nn1 (X ) + 1 .
+i=n0 +1
+                                           −
+                                                               n1
+                                              
+                                                   bn1 (X ) + 1)⌉-th smallest value in the
+Since qbn1 (X ) is defined as the ⌈ 1 − α + n11 · (N
+    
+list Ri : n0 + 1 ≤ i ≤ n, Xi ∈ X , the above bound immediately verifies that
+                                                ∗
+                                   qbn1 (X ) ≤ qP,µ,α−
+                                                       (X ).
+
+   We can similarly show that, if the events in (25) and (27) both hold, then
+   n
+   X         
+            1 Xi ∈ X , |Yi − µ(Xi)| ≥ qP,µ,α
+                                       ∗
+                                            +
+                                              (X )
+  i=n0 +1
+                                                                           
+                                bn1 (X ) α+ −            2∆conc (X )             bn1 (X ) · α,
+                               ≥N                                               >N
+                                                     PX (X ) − ∆conc (X )
+
+and by definition of qbn1 (X ) this is sufficient to establish that
+                                                ∗
+                                   qbn1 (X ) ≥ qP,µ,α+
+                                                       (X ).
+
+    Therefore, combining everything, we have shown that (23) and (24) both hold
+whenever the events in (25), (26), and (27) all hold, which occurs with probability
+at least 1 − n11 . This completes the proof of the theorem.
+
+
+                                              30
+B.4.1     Supporting lemma
+Lemma 5. Let X be any collection of measurable subsets of Rd , and let c : X → R
+be any function. Fix any function f : Rd × R → R, and for each X ∈ X define
+                    
+               X̃ = (x, y) ∈ Rd × R : x ∈ X and f (x, y) > c(X ) .
+Then                                      
+                                 ˜
+                             VC {X : X ∈ X} ≤ VC(X) + 1.
+
+Proof. To see this, suppose VC({X̃ : X ∈ X}) = m. If m = 1 then the result is
+trivial, so assume m ≥ 2. We can then find m points (xi , yi ) ∈ Rd × R, for i =
+1, . . . , m, which are shattered by {X̃ : X ∈ X}. Without loss of generality assume
+that f (xm , ym) = mini=1,...,m f (xi , yi ). We will now show that the set {x1 , . . . , xm−1 }
+is shattered by X. Fix any subset I ⊆ {1, . . . , m − 1}, and let I˜ = I ∪ {m}. Then
+since {X̃ : X ∈ X} shatters (x1 , y1), . . . , (xm , ym ), there must be some X ∈ X such
+that (xi , yi ) ∈ X̃ for i ∈ I˜ and (xi , yi ) 6∈ X̃ for i 6∈ I.
+                                                              ˜ In particular, taking i = m ∈ I,
+                                                                                              ˜
+we have
+       (xm , ym ) ∈ X˜   ⇒        f (xm , ym ) > c(X )      ⇒      f (xi , yi ) > c(X ) for all i.
+Now, for all i ∈ I,
+                         i ∈ I˜     ⇒     (xi , yi ) ∈ X˜   ⇒       xi ∈ X ,
+and for all i ∈ {1, . . . , m − 1}\I, we know that f (xi , yi ) > c(X ) and therefore
+                                      i 6∈ I˜   ⇒      xi 6∈ X .
+Since we can find such a set X for each subset I ⊆ {1, . . . , m − 1}, this means that
+X shatters {x1 , . . . , xm−1 }, and therefore VC(X) ≥ m − 1, completing the proof.
+
+B.5      Proof of Corollary 1
+Recall that the oracle interval is given by
+                                  CP∗ (Xn+1 ) = µP (Xn+1 ) ± qǫ,α
+                                                              ∗
+
+
+       ∗
+where qǫ,α is the (1 − α/2)-quantile of fǫ . By Theorem 5, for every x ∈ Rd we have
+                n                                                  o     1
+                    ∗                  b         ∗
+               P CP,bµn0 ,α+ ,δ+ (x) ⊆ Cn (x) ⊆ CP,bµn0 ,α− ,δ− (x) ≥ 1 − ,
+                                                                         n1
+where α+ , α− , δ+ , δ− are defined as in the statement of that theorem. Therefore, it
+must also hold that
+         n                                                                     o     1
+       P CP,b∗
+                            (X n+1 ) ⊆ b
+                                       C n (X n+1 ) ⊆ C ∗
+                                                                      (X n+1 )   ≥ 1− ,
+                µn0 ,α+ ,δ+                               µn0 ,α− ,δ−
+                                                        P,b
+                                                                                     n1
+
+                                                 31
+and so with probability at least 1 − n11 , we have
+                              
+      bn (Xn+1 ) △ CP∗ (Xn+1 ) ≤
+  leb C
+               ∗                      ∗
+                                                      ∗          ∗
+                                                                                       
+                                                                    µn0 ,α+ ,δ+ (Xn+1 ) .
+                 µn0 ,α− ,δ− (Xn+1 )\CP (Xn+1 ) + leb CP (Xn+1 )\CP,b
+          leb CP,b
+
+Now we bound these two terms. We can calculate deterministically that
+
+       ∗                      ∗
+                                       
+         µn0 ,α− ,δ− (Xn+1 )\CP (Xn+1 ) ≤
+  leb CP,b
+                                                         ∗                        ∗
+                      |b                                    µn0 ,α− ,δ− (Xn+1 ) − qǫ,α , 0
+                       µn0 (Xn+1 ) − µP (Xn+1 )| + 2 max qP,b
+
+and
+                                        
+  leb CP∗ (Xn+1 )\CP,b
+                   ∗
+                     µn0 ,α+ ,δ+ (Xn+1 ) ≤
+                                                        ∗      ∗
+                     |b
+                      µn0 (Xn+1 ) − µP (Xn+1 )| + 2 max qǫ,α      µn0 ,α+ ,δ+ (Xn+1 ), 0 .
+                                                             − qP,b
+
+Therefore, with probability at least 1 − n11 , we have
+                                
+      bn (Xn+1 ) △ C ∗ (Xn+1 ) ≤ 2|b
+  leb C                                 µn0 (Xn+1 ) − µP (Xn+1 )|
+                    P
+               ∗       ∗
+                                                           ∗                        ∗
+      + 2 max qǫ,α − qP,b µn0 ,α+ ,δ+ (Xn+1 ), 0 + 2 max qP,b µn0 ,α− ,δ− (Xn+1 ) − qǫ,α , 0 ,
+
+so we now need to bound these remaining terms with high probability.
+   First we bound |b µn0 (Xn+1 ) − µP (Xn+1 )|. Define
+                                                         
+                        ∆b n0 = E (bµn0 (X) − µP (X))2 µ
+                                                       bn0 ,
+                 n            o
+                   b
+which satisfies P ∆n0 ≤ ηn0 ≥ 1 − ρn0 by (14). We have
+
+                                                                                         
+    µn0 (Xn+1 ) − µP (Xn+1 )| > ηn1/3
+ P |b                                 = E P |b    µn0 (Xn+1 ) − µP (Xn+1 )| > ηn1/3   µ
+                                                                                      bn0
+   "     (                         0
+                                                      )#     "     (          )# 0
+
+               µn0 (Xn+1 ) − µP (Xn+1 ))2 | µ
+           E [(b                            bn0 ]                    b n0
+                                                                     ∆                     ηn0
+≤ E min                      2/3
+                                                  , 1    = E   min    2/3
+                                                                          , 1    ≤  ρn 0 +  2/3
+                                                                                                .
+                            ηn0                                      ηn0                   ηn0
+                                                                   1/3
+Therefore, with probability at least 1 − n11 − ρn0 − ηn0 , we have
+                               
+      bn (Xn+1 ) △ C ∗ (Xn+1 ) ≤ 2η 1/3
+  leb C             P                  n0
+               ∗       ∗
+                                                        ∗                        ∗
+                                                           µn0 ,α− ,δ− (Xn+1 ) − qǫ,α , 0 .
+      + 2 max qǫ,α − qP,bµn0 ,α+ ,δ+ (Xn+1 ), 0 + 2 max qP,b
+
+Next, by definition we have
+    ∗                                                     ∗                 ∗           d     ∗
+      µn0 ,α+ ,δ+ (Xn+1 ) =
+   qP,b                                sup                                    µn0 ,α+ (R ) ≥ qǫ,α+ ,
+                                                            µn0 ,α+ (X ) ≥ qP,b
+                                                         qP,b
+                              X ∈X:Xn+1 ∈X ,PX (X )≥δ+
+
+
+                                                  32
+where the last step uses the location family assumption (13). Therefore, with prob-
+                                  1/3
+ability at least 1 − n11 − ρn0 − ηn0 , we have
+                                                        
+      bn (Xn+1 ) △ CP∗ (Xn+1 ) ≤ 2ηn1/3 + 2 qǫ,α
+  leb C                                      ∗      ∗
+                                                 − qǫ,α
+                                     0                 +
+                                                        ∗                        ∗
+                                             + 2 max qP,b  µn0 ,α− ,δ− (Xn+1 ) − qǫ,α , 0 .
+
+We now address the last term. By definition we have
+  ∗                                                        ∗                                        ∗
+    µn0 ,α− ,δ− (Xn+1 ) =
+ qP,b                                   sup                  µn0 ,α− (X ) ≤
+                                                          qP,b                        sup             µn0 ,α− (X ).
+                                                                                                   qP,b
+                            X ∈X:Xn+1 ∈X ,PX (X )≥δ−                             X ∈X:PX (X )≥δ−
+
+
+By the location family assumption (13) we can see that, for any X ,
+                                                                                     
+ ∗                            ∗          the (1 − α′ )-quantile of |b
+                                                                    µn0 (X) − µP (X)|
+qP,bµn0 ,α− (X ) ≤ min       qǫ,α− −α′ +                                                .
+                  0<α′ <α−                   conditional on µ bn0 and on X ∈ X
+
+And, for any X with PX (X ) ≥ δ− , this last quantile is bounded by
+               r                                            s
+                      µn0 (X) − µP (X))2 | µ
+                  E [(b                     bn0 , X ∈ X ]     b n0
+                                                              ∆
+                                      ′
+                                                          ≤         .
+                                    α                         α′ δ−
+                                  1/3
+Therefore, choosing α′ = ηn0 ,
+                                                          s
+                                                               b n0
+                                                               ∆                                   −1/2
+           ∗                        ∗                                        ∗             1/3
+             µn0 ,α− ,δ− (Xn+1 ) ≤ qǫ,α −η1/3 +
+          qP,b                                                 1/3
+                                                                          ≤ qǫ,α −η
+                                                                                    1/3 + ηn0 δ−
+                                            −      n0
+                                                              ηn0 δ−             −   n0
+
+
+
+where the last bound holds with probability at least 1 − ρn0 by (14). Combining
+                                                        1/3
+everything, with probability at least 1 − n11 − 2ρn0 − ηn0 , we have
+                                                                              −1/2
+          bn (Xn+1 ) △ C ∗ (Xn+1 ) ≤ 2η 1/3 + 2 q ∗
+      leb C                                                    ∗
+                                                        1/3 − qǫ,α+   + 2ηn1/3 δ− .
+                        P              n0        ǫ,α −η               −     0
+                                                                            n0
+
+
+                                                                          ∗
+Finally, by our assumptions (13) on the density fǫ and the definition of qǫ,· , for any
+ ′     ′′
+α < α ∈ [0, 1] we have
+                                    Z q∗ ′
+                 1 ′′                     ǫ,α
+                                                                    ∗         ∗       ∗
+                                                                                           
+                   (α − α′ ) =                     fǫ (t) dt ≥ fǫ (qǫ,α′ ) · qǫ,α′ − qǫ,α′′ .
+                 2                         ∗
+                                        t=qǫ,α′′
+
+
+
+Therefore,
+                                                                  1/3 
+                              ∗            ∗      α+ − α− − ηn0
+                             qǫ,α −η1/3 − qǫ,α+ ≤                       ,
+                                 −  n0             2fǫ (q ∗     1/3 )
+                                                         ǫ,α− −ηn0
+
+which completes the proof for constants c, c′ chosen appropriately.
+
+                                                         33
+References
+Raghu R Bahadur and Leonard J Savage. The nonexistence of certain statistical
+  procedures in nonparametric problems. The Annals of Mathematical Statistics,
+  27(4):1115–1122, 1956.
+Anselm Blumer, Andrzej Ehrenfeucht, David Haussler, and Manfred K Warmuth.
+ Learnability and the Vapnik–Chervonenkis dimension. Journal of the ACM, 36
+ (4):929–965, 1989.
+T Tony Cai, Mark Low, and Zongming Ma. Adaptive confidence bands for nonpara-
+  metric regression functions. Journal of the American Statistical Association, 109
+  (507):1054–1070, 2014.
+David L Donoho. One-sided inference about functionals of a density. The Annals
+ of Statistics, 16(4):1390–1420, 1988.
+Richard M Dudley and Rimas Norvaiša. Concrete functional calculus. Springer,
+  2011.
+Vladimir Koltchinskii. Oracle Inequalities in Empirical Risk Minimization and
+  Sparse Recovery Problems: Ecole d’Eté de Probabilités de Saint-Flour XXXVIII-
+  2008, volume 2033. Springer Science & Business Media, 2011.
+Jing Lei and Larry Wasserman. Distribution-free prediction bands for non-
+  parametric regression. Journal of the Royal Statistical Society: Series B (Sta-
+  tistical Methodology), 76(1):71–96, 2014.
+Jing Lei, Max G’Sell, Alessandro Rinaldo, Ryan J Tibshirani, and Larry Wasser-
+  man. Distribution-free predictive inference for regression. Journal of the American
+  Statistical Association, 113(523):1094–1111, 2018.
+Harris Papadopoulos. Inductive conformal prediction: Theory and application to
+  neural networks. In Tools in artificial intelligence. InTech, 2008.
+Harris Papadopoulos, Kostas Proedrou, Volodya Vovk, and Alex Gammerman. In-
+  ductive confidence machines for regression. In European Conference on Machine
+  Learning, pages 345–356. Springer, 2002.
+Glenn Shafer and Vladimir Vovk. A tutorial on conformal prediction. Journal of
+  Machine Learning Research, 9(Mar):371–421, 2008.
+Vladimir Vovk. Conditional validity of inductive conformal predictors. In Asian
+  conference on machine learning, pages 475–490, 2012.
+Vladimir Vovk, Alex Gammerman, and Glenn Shafer. Algorithmic learning in a
+  random world. Springer Science & Business Media, 2005.
+
+                                         34
+

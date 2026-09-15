@@ -54,8 +54,11 @@ test('matches a book move inside the signal window and never touches one dated p
 });
 
 test('returns an honest empty result without querying the tape when there are no signals to match', () => {
-  run(`DELETE FROM nfl_news_signals`);
-  const result = bookLagDistribution({ sinceDays: 60, windowHours: 48 });
+  // nfl_news_signals is append-only (WP08/R1, migration 053) -- DELETE is no
+  // longer available to force an empty result, so this asks for a window
+  // (sinceDays: 0, i.e. "since right now") that structurally excludes the
+  // one seeded signal (published 2026-09-08) instead.
+  const result = bookLagDistribution({ sinceDays: 0, windowHours: 48 });
   assert.equal(result.observations, 0);
   assert.deepEqual(result.books, []);
 });

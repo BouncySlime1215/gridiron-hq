@@ -1,0 +1,11 @@
+{
+  "name": "Gridiron HQ",
+  "install": "npm ci && npm run build",
+  "terminals": [
+    {
+      "name": "server",
+      "command": "SCHEDULER_DISABLED=1 node --env-file-if-exists=.env server/index.js"
+    }
+  ],
+  "ports": [5177]
+}

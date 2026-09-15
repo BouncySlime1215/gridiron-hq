@@ -1,0 +1,853 @@
+                                        Graphical Abstract
+
+
+
+
+                                        Machine learning for sports betting: should model selection be based on accuracy or calibration?
+
+
+
+
+arXiv:2303.06021v4 [cs.LG] 1 Feb 2024
+                                        Conor Walsh, Alok Joshi
+Highlights
+
+
+Machine learning for sports betting: should model selection be based on accuracy or calibration?
+
+
+
+Conor Walsh, Alok Joshi
+
+
+
+
+  • Model calibration is more important than accuracy for
+    sports betting
+
+
+
+
+  • Sports bettors can increase their wealth by a third over a
+    single season
+
+
+
+
+  • Kelly betting only works with a well-calibrated model
+     Machine learning for sports betting: should model selection be based on accuracy or
+                                         calibration?
+
+                                                            Conor Walsha,, Alok Joshia
+                                            a Department of Computer Science, University of Bath, Somerset, UK
+
+
+
+
+Abstract
+Sports betting’s recent federal legalisation in the USA coincides with the golden age of machine learning. If bettors can leverage
+data to reliably predict the probability of an outcome, they can recognise when the bookmaker’s odds are in their favour. As sports
+betting is a multi-billion dollar industry in the USA alone, identifying such opportunities could be extremely lucrative. Many
+researchers have applied machine learning to the sports outcome prediction problem, generally using accuracy to evaluate the
+performance of predictive models. We hypothesise that for the sports betting problem, model calibration is more important than
+accuracy. To test this hypothesis, we train models on NBA data over several seasons and run betting experiments on a single season,
+using published odds. We show that using calibration, rather than accuracy, as the basis for model selection leads to greater returns,
+on average (return on investment of +34.69% versus -35.17%) and in the best case (+36.93% versus +5.56%). These findings
+suggest that for sports betting (or any probabilistic decision-making problem), calibration is a more important metric than accuracy.
+Sports bettors who wish to increase profits should therefore select their predictive model based on calibration, rather than accuracy.
+Keywords: Decision theory, Machine learning, Uncertainty, Calibration, Sports Betting
+
+
+1. Introduction                                                                the true probabilities, we hypothesise that calibration is a more
+                                                                               appropriate metric than accuracy for the sports betting problem,
+   Sports betting in the US is conservatively estimated to be a                and that basing model selection on calibration, rather than ac-
+$150 billion industry legalsportsbetting (2022). As a result of                curacy, leads to greater profit generation.
+the worldwide interest in US sports, an abundance of data is
+publicly available. Much research has been done on the use                        The simplest way to test this hypothesis is to consider the
+of machine learning (ML) for sports outcome prediction. The                    most straightforward form of a wager – the moneyline bet. To
+success of this research has turned this data into an invaluable               win a moneyline bet, the bettor must predict the winner of the
+commodity for sports bettors around the world. If a bettor can                 game Hubáček et al. (2019). If the bettor correctly predicts the
+leverage data to accurately estimate the true probability of a                 winner, they win back the wager (also called the stake) along
+sporting outcome, they can identify a bookmaker’s mispricing                   with the profit, otherwise, they lose the wager to the bookmaker
+of this outcome - and whether or not there is an opportunity to                Hubáček et al. (2019). The profit is a predetermined quantity
+make a profit. The development of a proficient predictive model                that corresponds to the odds. Decimal odds display the total re-
+could therefore prove extremely lucrative.                                     turn (stake plus profit) that a wager of a single unit could yield
+   The National Basketball Association (NBA) in North Amer-                    Cortis (2015, 2016). Taking the inverse of the odds results in
+ica is the world’s premier basketball league. This paper focuses               the implied probability of the outcome occurring Cortis (2015,
+on the development of a data-driven betting system in the case                 2016). Let us assume that πi represents the bookmaker’s im-
+of the NBA. ML for sports outcome prediction has been widely                   plied probability of outcome i. Then the odds are given as 1/πi .
+studied, however very little of this research extends to sports                   For fair odds, the implied probability represents the book-
+betting. In the bulk of this work, ML models are evaluated                     maker’s estimate of the probability of that outcome occurring
+on accuracy achieved. Accuracy is a suitable model evaluation                  Hubáček et al. (2019). In practice, the odds are never fair, as
+metric for the sports outcome prediction problem, as the goal                  the bookmaker wants to ensure they make a profit Wheatcroft
+is to correctly predict the winning team Bunker and Thabtah                    (2020). The odds deviate from the ’fair price’ by the book-
+(2019). However this is not necessarily true for the sports bet-               maker’s margin. This is the absolute difference between 1 and
+ting problem, where the goal is to estimate the true probability               the sum of the implied probabilities, and can be viewed as a
+of the sporting outcome to identify and profit from any mispric-               commission charged to bettors by the bookmaker Hubáček et al.
+ing of the odds offered on this outcome. As calibration is used                (2019). Unsurprisingly, each possible outcome of a coin flip is
+to estimate how close a model’s predicted probabilities are to                 equally likely, so the fair odds for each outcome should be 2.0.
+                                                                               A bookmaker might offer odds of 1.90 for each so the sum of
+   Email addresses: conorwalsh206@gmail.com (Conor Walsh),                     implied probabilities would be (1/1.90) + (1/1.90) ≈ 1.0526,
+aj2151@bath.ac.uk (Alok Joshi)                                                 which suggests that the bookmaker has factored in a margin of
+Preprint submitted to Machine Learning with Applications                                                                          February 2, 2024
+approximately 5%. When the true probability of an outcome                 while the bookmaker collects the margin. If the bookmaker
+occurring is greater than the probability implied by the book-            doesn’t get this right they risk having to reach into their own re-
+maker’s odds, the expected value of the bet is positive. We de-           serves to compensate the winners. A second approach involves
+fine such a bet as a value bet Edwards (1955). Value bets arise           the bookmaker being able to systematically outperform bettors
+when the bookmaker misprices the odds. To spot such opportu-              in game outcome prediction. This allows the bookmaker to set
+nities, bettors can compare their model’s predicted probability           the ’correct’ price. While the money wagered is not equalised
+to the bookmaker’s odds. We follow this approach and imple-               on any given game, this approach sees the bookmaker profit
+ment and evaluate betting systems which aim to identify value             off the margin on average over the course of the season Levitt
+bets and capitalise on them. We measure the success of a sys-             (2004). To increase profits, the bookmaker may combine the
+tem by the return on investment (ROI) achieved over the course            previous two approaches and set the ’wrong’ price on purpose
+of an NBA season.                                                         to exploit bettor preferences. However, if the odds deviate too
+   The predictive model is perhaps the most important part of a           much from the true price, shrewd bettors aware of the ’correct’
+sports betting system, and there are many algorithms available            price can capitalise on this, and make a profit Levitt (2004).
+to bettors Zdravevski and Kulakov (2010); Cao (2012); Zim-                Levitt found that bookmakers generally focus on outperforming
+mermann et al. (2013); Alonso and Babac (2022); Cheng et al.              the average bettor in outcome forecasting Levitt (2004). This
+(2016); Tran (2016); Pai et al. (2017). Prominent examples used           leaves bettors with an opportunity to generate positive returns
+in research include support vector machines (SVM), logistic re-           if they can identify when the bookmaker’s price is wrong.
+gression (LR), Naive-Bayes, K-nearest neighbours (kNN), de-                   In order to identify value bets, bettors must first possess a
+cision trees and neural networks Hamadani (2006); Miljković              reliable predictive model. As the aim of sports outcome pre-
+et al. (2010); Loeffelholz et al. (2009). Although many pre-              diction is to predict the outcome of a sporting event given a fi-
+dictive algorithms have already been explored, there has still            nite set of possibilities, it is usually addressed as a classification
+been a distinct lack of exploration of model evaluation metrics.          problem Horvat and Job (2020). To quantify the performance
+In the vast majority of this research, models have been evalu-            of classifiers in such settings, accuracy is generally used as the
+ated based on accuracy alone. As accuracy may not be the most             model evaluation metric, where accuracy refers to the propor-
+appropriate metric for the sports betting problem, the lack of al-        tion of correctly classified data Horvat and Job (2020); Yang
+ternative metrics to evaluate model performance is a key gap in           and Shami (2020). In their work, Bunker and Thabtah deemed
+the literature. Our hypothesis, that calibration is a more suitable       this appropriate, noting ’classification accuracy is a reasonable
+metric in this setting, addresses this gap in the literature. We          measure of evaluation’ for the sports outcome prediction prob-
+therefore design competing betting systems, basing model se-              lem Bunker and Thabtah (2019). Many different classifiers have
+lection on accuracy in one system, and calibration in the other.          been used to address this problem with neural networks among
+Comparing the returns achieved by each betting system, we can             the most widely used Horvat and Job (2020). Other classifiers
+determine whether using accuracy or calibration as the basis              commonly used for the sports outcome prediction problem in-
+for model selection leads to greater profit generation. One of            clude SVM and kNN, both of which are widespread in base-
+the interesting findings of our work is that, on average, and in          ball forecasting Zhang (2000); Horvat and Job (2020). When it
+the best case scenario, selecting the predictive model based on           comes to designing a robust sports prediction model, other key
+calibration, rather than accuracy, leads to greater profits.              considerations one must take into account include the features
+   The remainder of this paper is organised as follows. Related           to use, as well as methods of evaluating the model’s perfor-
+works are discussed in section 2. section 3 involves a statement          mance. A common approach for model evaluation is chrono-
+of the central hypothesis of the paper and explores the reasons           logical data segmentation, i.e. using a training set made up
+behind the authors’ arrival at this hypothesis. section 4 lays out        of seasons prior to those in the evaluation set Horvat and Job
+the design of an experiment to test this hypothesis. section 5            (2020, 2019). For sports prediction, it is critically important
+covers the novel feature engineering carried out ahead of the             to preserve the chronological order of the training data. This
+predictive modelling, which is covered in section 6. section              is done to ensure that upcoming matches are predicted based
+7 discusses the betting experiments and the algorithm used to             on data from past matches only. As cross-validation usually
+conduct the betting simulations in detail. In section 8, results of       involves shuffling the order of the instances, it is not recom-
+the experiments are examined. Finally, section 9 discusses the            mended in the sports prediction setting Bunker and Thabtah
+implications of our findings and concludes the paper.                     (2019); Horvat and Job (2020). In general, feature selection
+                                                                          and feature extraction are also employed to reduce the dimen-
+2. Related Work                                                           sionality and complexity of the classification problem Horvat
+                                                                          and Job (2020).
+   While analysing data from the National Football League                     Much of this work has focused on basketball, likely due
+(NFL) to understand bettor and bookmaker strategies, Levitt               to the abundance of publicly available data Sports-Reference-
+and colleagues identified various approaches used by bookmak-             LLC (2022); NBA (2023); databasketball (2023); basketball-
+ers to generate profits Levitt (2004). The first approach relies on       geek (2023). Researchers have made efforts to identify the
+the bookmaker’s ability to anticipate the price which equalises           most important features and best-performing classifiers. No-
+the quantity of money wagered on each side of the bet Levitt              tably, Ivankovic found the most important features to be, in or-
+(2004). If done successfully, the losers compensate the winners           der of diminishing importance, defensive rebounds, two-point
+                                                                      2
+and three-point shots, steals, turnovers, offensive rebounds,               given outcome
+free-throw shots, blocks and assists Ivanković et al. (2010).
+In terms of identifying the best performing classifiers, Cao             • p is the probability of the given outcome occurring
+and colleagues trained several models on NBA data from the
+2005/2006-2009/2010 seasons, and evaluated these models on               • b represents the potential winnings on a wager of 1 unit
+the 2010/2011 season Cao (2012). In this study, LR was found               i.e. odds − 1
+to be the best-performing model with an accuracy of 69.97%,
+                                                                         • q is the probability of the given outcome not occurring, i.e.
+outperforming multi-layer perceptron (MLP) and SVM models
+                                                                           q = 1 − p Dotan (2020)
+(which achieved accuracies of 68% and 67.7%, respectively)
+Cao (2012). In contrast, Torres found an MLP model to be                  Despite the criterion’s reputation as the optimal strategy for
+superior to LR in the same setting, with accuracies of 68.44%          resource allocation on a set of gambles repeated over time, re-
+and 67.98%, respectively Torres and Hu (2013). In a separate           lying on it to decide bet size has certain limitations Hsieh and
+study, Lin et al discovered that a team’s win/loss record is a         Barmish (2015). For instance, the criterion often suggests wa-
+crucial predictor of victory Lin et al. (2014). Leveraging the         gering a very large proportion of the overall bankroll on a single
+impressive predictive capability of neural networks, Hubáček         game, which is a recipe for disaster in a realm as unpredictable
+and colleagues constructed a neural network that used a con-           as the world of sport. The Kelly strategy in this form therefore
+volutional layer to summarise player-level features into team-         leads to almost sure ruin Hsieh and Barmish (2015). In contrast,
+level features. By considering only high-confidence predic-            the fractional Kelly is a less risky variation of the strategy. This
+tions, this classifier achieved an accuracy of 84.35%, compared        variation uses the same formula, but here k represents the pro-
+to an accuracy of 80% achieved by a neural network that only           portion of a fraction of the overall bankroll. Thus, implement-
+used team-level features. Despite the success researchers have         ing the quarter-Kelly would mean for k = 0.4, instead of wa-
+achieved, practical implementation of such forecasting systems         gering 40% of their bankroll, the bettor wagers 10%. Recently,
+poses several limitations, as pointed out by Ganguly and Frank,        Dotan illustrated the utility of the fractional kelly in NBA bet-
+including (i) lack of context, (ii) no measure of uncertainty of       ting markets. Notably, in a betting simulation spanning a single
+the prediction and (iii) lack of benchmark datasets to compare         season, the ’5th Kelly’ strategy earned an ROI of over 98%,
+results Ganguly and Frank (2018). Another common limita-               while its full-Kelly counterpart crashed to zero Dotan (2020).
+tion is that many predictive models do not take in-game events            Excluding accuracy, the lack of metrics used to evaluate the
+into account. Events such as the early injury of a star player         performance of sports prediction models is a noticeable gap in
+can have a significant influence on the outcome of a game Hor-         the literature Horvat and Job (2020). While it may be suitable
+vat and Job (2020). Despite this limitation, we focus on pre-          for the sports outcome prediction problem, accuracy alone is
+game betting based on the closing odds. Naturally, considering         not a sufficient model evaluation metric for the sports betting
+in-game events would require the ability to process streaming          problem. To compensate for this, Hubáček and colleagues de-
+data, whereas generating predictions for pre-game betting can          signed a loss function to penalise correlation with the book-
+be done using batch processing, and resources for batch pro-           maker’s odds Hubáček et al. (2019). One of the key findings
+cessing are much more readily available to the average bettor          of their work was that training models under this loss resulted
+Pfandzelter and Bermbach (2019).                                       in greater profits than optimising for accuracy Hubáček et al.
+   For a gambler seeking to maximise profits over a series of          (2019). Further, it has been observed that a highly accurate pre-
+successive bets (with the opportunity to reinvest the winnings),       dictive model is useless as long as it coincides with the book-
+the size of each bet can be determined using the Kelly criterion       maker’s model Hubáček et al. (2019).
+Kelly Jr (2011). The criterion identifies the optimal bet size            Combining these findings with the aforementioned gap in the
+by maximising the expected value of the logarithmic growth of          literature leads to the central hypothesis of this paper, which is
+wealth Hsieh and Barmish (2015). While its origins lie in the          discussed in the next section.
+analysis of long-distance telephone signal noise, the equation
+has found widespread application across many domains Dotan
+(2020); Rotando and Thorp (1992); Thorp (2008, 1975); Bar-             3. Central Hypothesis
+nett (2010). Sports bettors can use this criterion to calculate
+optimal bet size as a proportion of overall bankroll Jacot and            The purpose of a sports betting model is to predict the prob-
+Mochkovitch (2023). They simply require the bookmaker’s                ability of victory for each team in a given game, so that these
+odds, and the probability of victory according to their predic-        probabilities can be compared to the bookmaker’s odds to de-
+tive model. Mathematically, the Kelly criterion can be defined         termine if a value bet is on offer. The model may also play a
+as shown in (1):                                                       role in deciding how much to bet, e.g. if the bettor makes use
+                                                                       of the Kelly criterion to decide bet size. Therefore, for a betting
+                               pb − q                                  system to be successful, it is critically important that the prob-
+                          k=                                 (1)
+                                 b                                     ability of victory generated by the model is close to the true
+  where:                                                               probability of victory. This notion, that the probability a classi-
+                                                                       fier assigns to an event should reflect the true frequency of that
+  • k is the proportion of the bettor’s bankroll to wager on the       event, relates to the concept of calibration Kumar et al. (2019).
+                                                                   3
+In contrast to calibration, the fundamental problem with accu-                      class, and for each prediction, ignores calibration with respect
+racy in this setting is that it does not take into account the dis-                 to the K − 1 other classes Nixon et al. (2019). While the
+tance between the predicted probability of victory and the true                     classwise-ECE overcomes this, a concerning limitation still ex-
+probability of victory. Accuracy simply measures the propor-                        ists - one can obtain almost perfectly calibrated probabilities
+tion of correctly classified data. Instead of accuracy, we desire                   by predicting the overall class distribution for all instances Kull
+a metric that provides an indication of the distance between the                    et al. (2019). To avoid this scenario, we impose a constraint on
+predicted probabilities and the true probabilities.                                 model predictions - we require at least 80% of the bins (that the
+    To discuss calibration formally, let us consider the problem                    predicted probabilities are grouped into) to be non-empty. This
+of multiclass classification. Suppose we have input X ∈ X                           ensures that the distribution of predictions is not too highly con-
+and label Y ∈ Y = {1, ..., K} which are random variables with                       centrated around the mean.
+ground truth joint distribution π(X, Y) = π(Y|X)π(X). Then our                         Having introduced the concept of calibration, we arrive at
+classifier is of the form f (X) = (Ŷ, P̂), where Ŷ is the pre-                    the central hypothesis of this paper - for the sports betting prob-
+dicted label and P̂ is the probability associated with the pre-                     lem, it is more important for a classifier to be well-calibrated
+diction. The probabilistic classifier is said to be well-calibrated                 than highly accurate. Therefore, basing model selection on cal-
+if, among test instances assigned a predicted probability vector                    ibration, rather than accuracy, should allow for greater profit
+P̂, the class distribution is (approximately) distributed as P̂ Kull                generation. We design an experiment to test this hypothesis, as
+et al. (2019). Perfect calibration occurs if                                        discussed in the next section.
+
+                  P(Ŷ = Y|P̂ = p) = p, ∀p ∈ [0, 1]                       (2)       4. Experiment Design
+    with reference to the probability over the joint distribution
+                                                                                       A data-driven sports betting system that selects its predic-
+Guo et al. (2017).
+                                                                                    tive model on the basis of calibration should generate greater
+    Many methods have been proposed to measure calibration.
+                                                                                    profits than an identical system that selects its model based on
+We use the classwise expected calibration error (classwise-
+                                                                                    accuracy. This is the idea at the core of this paper. To test
+ECE), as this variation overcomes some of the limitations of
+                                                                                    this notion, we design an experiment in which two sports bet-
+the original ECE Kull et al. (2019). To calculate the classwise-
+                                                                                    ting systems compete, one basing model selection on accuracy,
+ECE, the interval [0, 1] is split into M bins of equal length so
+                                                                                    the other on calibration. In this experiment, the model selec-
+                                     M , M ). For a given class k,
+                                          m
+that the mth bin is the interval [ m−1
+                                                                                    tion paradigm extends beyond selection of the optimal learn-
+each prediction in the set is grouped into the bin its proba-
+                                                                                    ing algorithm, to include feature selection and selection of op-
+bility lies within, i.e. we associate P̂k (x) with the jth bin if
+                 j                                                                  timal hyperparameter values, due to the significant contribu-
+P̂k (x) ∈ [ j−1
+             M , M ). Let B j,k represent the j bin for predicted
+                                               th
+                                                                                    tions these processes make to model performance Binder et al.
+probabilities relating to class k. The classwise-ECE is defined
+                                                                                    (2020). We begin with a set of candidate learning algorithms
+as shown in (3):
+                                                                                    (logistic regression, random forest, support vector machines,
+                                                                                    multi-layer perceptron). Next, we construct a predictive mod-
+                                k    m                                              elling pipeline (see Fig. 1) that carries out feature selection
+                            1 X X |B j,i |
+    classwise − ECE =                      |yi (B j,i ) − p̄i (B j,i )|   (3)       and hyperparameter-optimisation, prior to selecting the best-
+                            k i=1 j=1 n
+                                                                                    performing model. This pipeline consists of two branches, one
+                                                                                    that evaluates performance based on accuracy, the other based
+    where k is the number of classes in the problem, m is the                       on calibration. Along the accuracy branch we aim to maximise
+number of bins used, n is the size of the dataset, |B j,i | is the size             accuracy, and along the calibration branch we aim to minimise
+of the bin (number of class i predictions associated with the jth                   the classwise-ECE (using 20 bins). Finally, the models are eval-
+bin), yi (B j,i ) is the actual rate of occurrence of class i in B j,i and          uated on a test set to select the best-performing model under
+p̄i (B j,i ) denotes the average probability of class i predictions in              each metric. The final output of the pipeline consists of a model
+B j,i Kull et al. (2019). This error is bounded between 0 and 1,                    from each branch - the most accurate model from the accuracy
+and can be thought of as the percentage by which the model’s                        branch, and the most well-calibrated model from the calibration
+predicted probability deviates from the true probability, on av-                    branch.
+erage. We note that for binary classification, classwise calibra-
+tion is equivalent to class-specific calibration focusing on the
+positive class, since the predicted probability of the negative
+class is determined by the predicted probability of the positive
+class Posocco and Bonnefoy (2021). We can equivalently state
+that class i’s contribution to the classwise-ECE is equal for both
+classes in the binary case (due to symmetry), and so we can
+simply calculate the error for just the positive class, as this is
+equivalent to the average error of the two classes.
+    One of the limitations of the original expected calibration er-
+ror is that it focuses only on the probability of the most likely
+                                                                                4
+Figure 1: Predictive Modelling Pipeline: Two branches of the pipeline are presented. The first branch employs model selection (including feature selection and
+hyperparameter optimisation) using accuracy as the evaluation criterion, prior to selecting the most accurate model. The second branch employs model selection
+based on calibration, selecting the most well-calibrated model. These branches take NBA data and a set of candidate learning algorithms as inputs. The output of
+each branch is the optimal predictive model under the given metric. Here the blue cylinders represent ML processes and the yellow rectangles represent inputs and
+outputs of these processes.
+
+
+  The two final models are used to generate predictions for                        profit generation? To answer this, we examine the ROI achieved
+each game in an NBA season. We then implement separate                             by each betting system, to determine whether or not basing
+betting systems for each set of predictions. Typically, a betting                  model selection on calibration leads to greater profits.
+system has two components: a strategy and a rule.                                    A crucial, preliminary step of the experiment is feature engi-
+                                                                                   neering.
+   • The betting strategy decides whether or not to place a bet
+
+   • The betting rule decides the size of the bet Dotan (2020)
+
+   For each game, these decisions are made by comparing the
+model’s predicted probabilities to the bookmaker’s odds. Ulti-
+mately, the betting systems are evaluated by their ROI, where
+the ROI is the percentage change in the bettor’s initial bankroll
+by the end of the season.
+   This experiment is designed to answer the following ques-
+tion: in a data-driven sports betting system, does model selec-
+tion based on calibration, rather than accuracy, allow for greater
+                                                                               5
+Figure 2: Betting Simulation Pipeline: Two branches of the pipeline are presented. The first branch represents the simulation for a bettor using a predictive model
+selected on the basis of accuracy, while the second branch represents the simulation for a bettor using a predictive model selected on the basis of calibration. These
+branches take as inputs a set of predictions, the bookmaker’s odds and the results of each game in the given NBA season. For a given combination of strategy and
+rule, the output of each branch is the return on investment achieved by the bettor. The meaning of each shape and colour is given in the caption of Fig. 1.
+
+
+5. Feature Engineering                                                                in each particular aspect of the sport, as these relative figures are
+                                                                                      less prone to shift Dutta et al. (2017). We then perform feature
+   NBA games cannot end in a draw - in the case of a tie, suc-                        extraction by taking the difference of the home and away teams’
+cessive overtime periods are played until there is a winner. This                     ’average out-performance values’ for each box score statistic, to
+makes predicting the outcome of NBA games a binary classi-                            reduce the dimensionality of the data. To demonstrate the con-
+fication problem where the aim is to predict the winning team.                        struction of such features, we provide a hypothetical calculation
+Many researchers have successfully applied supervised learn-                          using synthetic data in the supplementary document (see Tables
+ing to this problem, largely constructing their features using box                    4 and 5).
+score statistics. A comprehensive list of basic and advanced box
+score statistics is provided in the supplementary document (see                          Interestingly, Lin and colleagues found that box score statis-
+Tables 1 and 2).                                                                      tics alone may not provide enough information for accurate pre-
+   A common approach to construction of the feature set is to                         diction, and concluded that using a team’s win/loss record can
+use box score statistics averaged over the season to date as pre-                     improve accuracy Lin et al. (2014). Therefore, we include an-
+dictor variables for each game (e.g. average blocks per game)                         other feature in our model - each team’s regular season winning
+Hubáček et al. (2019). This approach considers how well a team                      percentage from the previous year. For each game, we take the
+performs on average in a particular aspect of the sport. How-                         difference between the home and away team’s winning percent-
+ever, considering absolute figures like this can leave the data                       ages from the previous season, and denote this feature ’Previous
+prone to shift, as the characteristics of the league may change                       Season Winning Percentage’. To ensure each prediction is suf-
+over time Dutta et al. (2017). Therefore, we average the dif-                         ficiently well-informed, we exclude the first 10 games of each
+ferences in team-total box score statistics versus previous op-                       team in each season from the training instances, and use them
+ponents over the season to date. This approach considers the                          only in the calculation of later games’ features Hubáček et al.
+amount by which a team outperforms their opponent on average                          (2019).
+                                                                                  6
+   Our final feature engineering step is feature standardisation.                sub-samples of the dataset, before fitting a decision tree to each
+For each feature, this involves subtracting the mean and divid-                  scikit learn (2022). To classify a sample, each tree evaluates
+ing by the standard deviation so that it is distributed with a mean              it individually, and the class which receives the most votes is
+of 0 and standard deviation of 1 Labayen et al. (2020). This is                  selected as the final classification result Salo et al. (2019).
+done to ensure all features are on the same scale, as models that                   This is followed by the SVM algorithm. SVMs are super-
+are smooth functions of the input are affected by the scale of                   vised learning models which can be used for classification and
+the input, and we do not want the range of a feature’s values                    regression Smola and Schölkopf (2004). They work by parti-
+to dictate the influence it has on the model Zheng and Casari                    tioning data points using hyperplanes as decision boundaries,
+(2018). Generally, both the training and test set features are                   and often map data into higher-dimensional space to make the
+scaled using the distribution of the training set. This approach                 points linearly separable Yang et al. (2018).
+assumes these distributions are approximately equal. If this is                     For a dataset of size n, the objective function is given by (6)
+not the case (a phenomenon known as covariate shift), it may                     Zhang et al. (2003).
+yield inaccurate results Sugiyama et al. (2007). To detect co-
+variate shift, we compare the distribution of each feature in a                                     ( X n                               )
+validation set to its distribution in an initial training set which                                  1
+                                                                                        L = argminw        max{0, 1 − yi f (xi )} + Cw w
+                                                                                                                                      T
+                                                                                                                                               (6)
+is composed of the seasons prior to the validation set. If these                                     n i=1
+are found to be different, the feature is dropped. To test if two
+samples are drawn from the same (unknown) distribution, the                         where w is a normalisation vector and C is a regularisation
+two-sample Kolmogorov-Smirnov test is used Pratt and Gib-                        hyperparameter. f (x) is a function which measures the similar-
+bons (2012). We carry out these tests at the 1% level of signif-                 ity between two points, known as the kernel. This function can
+icance, as strong evidence of covariate shift is necessary for a                 come in the form of a radial basis function (RBF), linear kernel,
+feature to be dropped. All remaining features are then standard-                 polynomial kernel, or sigmoid kernel.
+ised - using their own distribution for training sets, and using                    The final candidate is the MLP. This is a layered, feed-
+the distribution across all prior seasons for validation, test, or               forward neural network where each layer is composed of nodes
+betting simulation sets. With feature set constructed, we have                   with each node connected to every other node in the subsequent
+finalised the NBA data required by our predictive modelling                      layer Delashmit et al. (2005).
+pipeline. The pipeline is discussed in detail in the next section.                  Each of these models takes NBA data as input, and returns
+                                                                                 the predicted probability of each team winning, for a given
+                                                                                 game. To ensure reliable predicted probabilities, our features
+6. Predictive Modelling                                                          must be well-selected. We discuss the feature selection process
+                                                                                 below.
+   The final input component of the predictive modelling
+pipeline is the set of candidate predictive models. We explore                   6.2. Feature Selection
+these probabilistic classifiers in detail below.
+                                                                                    Feature selection (FS) refers to the detection of relevant fea-
+                                                                                 tures and removal of irrelevant, redundant, or noisy data Kumar
+6.1. Candidate predictive Models
+                                                                                 and Minz (2014). Various studies have shown the ability of
+   The first candidate predictive model is LR. Suppose we have                   FS to minimise the dimensionality of the problem, maximise
+a dataset with n samples D = {(X1 , y1 ), ..., (Xn , yn )}, where each           the accuracy of classification and prevent overfitting Wah et al.
+sample has d features i.e. Xi = (Xi1 , ..., Xid ) and a corresponding            (2018); Li et al. (2017); Kira and Rendell (1992). Of the many
+response yi . Given input Xi , LR gives the probability of the                   FS methods available, we make use of a filter method and a
+sample belonging to class C by (4).                                              wrapper method in our pipeline. (i) Filter methods are those
+                                                                                 used to evaluate the relevance of features that are independent
+                                               exp (Xi β)
+             P(Yi = C|Xi ) = f (Xi β) =                               (4)        of the learning algorithm, e.g. ranking of features based on
+                                             1 + exp (Xi β)                      correlation with the response variable Kumar and Minz (2014).
+   where β = (β0 , β1 , ..., βd ) are the model parameters to be es-             (ii) Wrapper methods are those which evaluate candidate fea-
+timated (with intercept β0 ) Liang et al. (2013).                                ture subsets (under the given evaluation criterion) using a learn-
+   The log-likelihood is shown in (5).                                           ing algorithm, and select the best-performing subset Kumar and
+                                                                                 Minz (2014).
+               n
+                                                                                    (i) Two features are considered highly correlated if their
+                                                                                 spearman correlation coefficient is greater than 0.7 Xiao et al.
+               X
+  L(β|D) = −          {yi log[ f (Xi β)] + (1 − Yi )log[1 − f (Xi β)]} (5)
+                i=1
+                                                                                 (2016). For a given group of highly correlated features, we con-
+                                                                                 sider all except the feature which is most correlated with the
+  LR learns β that minimises this.                                               target to be redundant, and so remove them. This initial step is
+  The next candidate is the random forest (RF) algorithm, an                     common to both branches of the predictive modelling pipeline
+ensemble learning method which makes use of bagging to com-                      (see Fig. 1), as filter methods are generally considered a pre-
+bine multiple decision trees (DT) Injadat et al. (2018). RF in-                  processing step Kotsiantis et al. (2006). The features remaining
+volves the use of bootstrapping to randomly generate various                     after application of the filter method are denoted as subset A.
+                                                                             7
+   (ii) Next, a wrapper method is applied. Sequential forward               For a specified predictive model, along with hyperparame-
+selection (SFS) is used with LR as the learning algorithm and            ters to be optimised, the search space for each hyperparameter,
+completion of search as the stopping criterion. This is imple-           training and validation data to train and evaluate the model, and
+mented as a separate process along each branch, and for each,            an objective function to be minimised, the algorithm identifies
+the input to the process is feature subset A. For the calibration        the optimal set of hyperparameter values (and returns the cor-
+branch, the feature subset under which the LR model achieves             responding score on the validation data). Due to the element
+the lowest classwise-ECE (fitted to an initial training set and          of inherent randomness in this process, we run the algorithm
+evaluated on a validation set) is considered the optimal feature         several times over different random seeds before selecting the
+subset for calibration and is denoted as subset B. This subset of        optimal set of hyperparameters. The full process is described
+features is used for all further modelling along the calibration         in the supplementary document. HPO is implemented sepa-
+branch. For the accuracy branch, the feature subset under which          rately along each branch of the predictive modelling pipeline
+the highest accuracy is achieved is considered optimal and is            (see Fig. 1). For the calibration branch, the objective function
+denoted as subset C. Subset C is used for all further modelling          is the classwise-ECE, while the negative of accuracy is used for
+along the accuracy branch.                                               the accuracy branch. The hyperparameter search space for each
+   Due to the limitation of the classwise-ECE discussed in sec-          model is given in the supplementary document (see Table 7).
+tion 3, we place a constraint on model predictions. After group-
+ing predictions into the corresponding bins, we look at the dis-         6.4. Model Selection
+tribution of the weights of each bin, where the weight of a bin             The final stage of the predictive modelling pipeline is model
+refers to the proportion of predictions associated with it. We           selection. We fit each model to an extended training set (con-
+want to ensure the predictions (for a given class) are not con-          sisting of the initial training data combined with the valida-
+centrated in a small number of bins. To prevent such scenarios,          tion data) under the optimal feature set and hyperparameter
+we impose the following constraint on model predictions: if the          values for the given branch, and generate predictions for the
+distribution of bin weights is such that less than 80% of the bins       test set. We then evaluate these predictions under the given
+are non-empty, we set the classwise-ECE to 1 (the maximum                metric. Along the calibration branch, the candidate predictive
+possible error). This is to ensure that we do not allow models           model that achieves the lowest classwise-ECE on the test set is
+to achieve a low classwise-ECE by generating predictions that            deemed to be the best calibration-driven model. Along the ac-
+are approximately equal to the overall class distribution for all        curacy branch, the model which achieves the highest accuracy
+instances. Without imposing this constraint, we could mistak-            on the test set is selected as the best accuracy-driven model.
+enly identify a sub-optimal feature set as the optimal feature           These two models are the final output of the predictive mod-
+set. This constraint is also applied to model predictions dur-           elling pipeline, and are used to generate predictions for each
+ing the hyperparameter optimisation and model selection pro-             game in an NBA season. These predictions (combined with the
+cesses. Naturally, this constraint does not apply to the accuracy        bookmaker’s odds) are the input of our betting experiments, as
+branch.                                                                  detailed in the next section.
+
+6.3. Hyperparameter Optimisation                                         7. Betting Experiments
+   Model performance is significantly influenced by the choice              We fit each model selected by the pipeline to a final training
+of hyperparameters, and automating the process of hyperparam-            set, and generate predictions for a betting simulation set. The
+eter tuning has become the focus of much research in recent              final training set comprises the extended training and test sets,
+years. Automated hyperparameter optimisation (HPO) has sev-              and the betting simulation set consists of a single NBA sea-
+eral important benefits, including reduction of human effort re-         son (details of each data set are discussed in section 8). These
+quired for applying ML, improvement in performance of ML                 two sets of predictions are used to implement competing betting
+models, and improvement in reproducibility and fairness of re-           systems, over the given season.
+search Hutter et al. (2019). Many optimisation problems are                 We carry out the betting simulation for a given system as fol-
+non-convex or non-differentiable, in which case traditional op-          lows. Beginning with an initial bankroll of $10,000, we iterate
+timisation techniques may result in a local rather than global           through each game in the betting simulation set in chronologi-
+optimum Luo (2016). Popular among the non-traditional opti-              cal order, and for each:
+misation techniques that have been used for HPO problems is an
+iterative algorithm known as bayesian optimisation (BO) Snoek             1. For each team, we compare the model’s predicted prob-
+et al. (2012). BO is considered more efficient than traditional              ability of victory to the probability implied by the book-
+HPO techniques like random search or grid search, because the                maker’s odds, to decide whether or not to place a bet. This
+algorithm decides which points in the hyperparameter search                  decision is determined by the betting strategy
+space to evaluate based on previously-obtained results, rather            2. If the decision is to bet, we determine the stake by the
+than letting the user specify the points Hazan et al. (2017). We             betting rule
+implement a form of BO known as BO-TPE, regarded as one of                3. We subtract the stake from the bankroll
+the most suitable HPO techniques for LR, RF, SVM, and MLP                 4. If the bet is successful, we add the stake and the winnings
+classifiers Yang and Shami (2020).                                           to the bankroll
+                                                                     8
+   Both strategy and rule are crucial elements of the betting
+                                                                                           Table 1: Betting simulation algorithm
+system. While many possibilities could be explored, this is                Bankroll = $10, 000
+outside of the scope of this paper. Our goal is to determine
+whether basing model selection on calibration, rather than ac-             For each game in the dataset:
+curacy, leads to greater returns, and we do not want differences
+                                                                              Ph = Predicted probability of victory for home team
+in ROI achieved by each system to be attributed to other factors              Oh = Bookmaker’s odds for home team victory
+such as strategy used, etc. Therefore, we use only the simplest               Pa = Predicted probability of victory for away team
+possible strategy and rules.                                                  Oa = Bookmaker’s odds for away team victory
+7.1. Strategy                                                                  If Ph > 1/Oh :
+  We implement the simplest possible strategy: bet on all value                    K = (Ph× Bankroll −(1 − Ph ))/Bankroll
+bets identified by the model (i.e. bet if a team’s predicted prob-                         1/8 × K × Bankroll, if Rule = Eighth-Kelly
+                                                                                           
+                                                                                   Stake = 
+                                                                                           
+ability of victory is greater than the probability implied by the                          $100,
+                                                                                                                  if Rule = Fixed Betting
+bookmaker’s odds).
+                                                                                   Bankroll = Bankroll - Stake
+                                                                                   If home team wins:
+7.2. Rules
+                                                                                       Winnings = (Stake ×Oh ) - Stake
+   We implement two simple rules. The first is fixed betting -                         Bankroll = Bankroll + Stake + Winnings
+each time we decide to bet, we set the stake to $100. The sec-
+ond involves the Kelly criterion - each time we decide to bet, we              Else If Pa > 1/Oa :
+determine the stake using the eighth-Kelly Hsieh and Barmish                      K = (Pa ×Bankroll −(1 − Pa ))/Bankroll
+(2015). As previously discussed, the full-Kelly is considered
+                                                                                           1/8 × K × Bankroll, if Rule = Eighth-Kelly
+                                                                                           
+                                                                                  Stake = 
+                                                                                           
+too aggressive, and leads to almost sure ruin Dotan (2020);                                $100,
+                                                                                                                  if Rule = Fixed Betting
+Hsieh and Barmish (2015). The eighth-Kelly is a conservative
+alternative, that recommends betting an eighth of the optimal                     Bankroll = Bankroll - Stake
+bet size. This represents a more realistic scenario than fixed bet-               If away team wins:
+ting, as both the odds offered and the bettor’s perceived prob-                        Winnings = (Stake ×Oa ) - Stake
+ability of the outcome generally influence the choice of stake                         Bankroll = Bankroll + Stake + Winnings
+Matej et al. (2021); Jacot and Mochkovitch (2023).
+   The algorithm used to conduct each betting simulation is                    Until end of dataset is reached
+shown in Table 1.
+   As discussed, each betting system consists of a strategy and
+a rule, in addition to a predictive model selected on the basis           set. A key requirement for the betting simulation was obtain-
+of either calibration or accuracy. Following the algorithm de-            ing authentic odds published by a bookmaker. To fulfill this
+scribed in Table 1, we simulate each betting system over a sin-           requirement, we obtained the publicly available closing mon-
+gle NBA season. Measuring the ROI achieved by each system,                eyline odds for the 2018/2019 NBA season, published by Las
+we compare the profitability of calibration-driven systems to             Vegas sportsbook Westgate sportsbookreviewsonline (2022).
+their accuracy-driven counterparts, to test our hypothesis. The               Certain features were dropped from the dataset prior to FS,
+results of this experiment are discussed in the next section.             as a result of showing signs of covariate shift, being a linear
+                                                                          combination of other features, or presenting only null values.
+                                                                          A list of these features is provided in the supplementary doc-
+8. Results
+                                                                          ument (see Table 3). Many more features were considered
+   To undertake this research, we obtained NBA data                       redundant by each of the FS methods employed. The sub-
+from the 2014/2015-2018/2019 seasons from basketball-                     sets generated by each of the FS methods, along with the fea-
+reference.com Sports-Reference-LLC (2022) We used the                     tures dropped and features selected by each method are pro-
+2014/2015-2015/2016 seasons as an initial training set. The               vided in (see Table 6). Subset B, the optimal feature subset
+models were fitted to this data during the FS and HPO pro-                for calibration-driven predictive modelling, consisted of the fol-
+cesses. The 2016/2017 season was used as a validation set                 lowing features: 3P, BLK, FT%, ORB, AST%, Previous Season
+to evaluate model performance during these processes. After               Winning Percentage. Subset C, the optimal feature subset for
+the FS and HPO processes were completed, the 2014/2015-                   accuracy-driven predictive modelling, consisted of the follow-
+2016/2017 seasons were used as an extended training set. The              ing features: STL%, eFG%, DRB, AST, DRtg, ORtg, 3P, Pre-
+predictive models were fitted to this data ahead of model se-             vious Season Winning Percentage.
+lection, during which they were evaluated on a test set con-                  Next, HPO was implemented along each branch using the
+sisting of the 2017/2018 season. The best-performing models               BO-TPE algorithm. The optimal hyperparameter values iden-
+were then fitted to a final training set spanning the 2014/2015-          tified for each model are provided in the supplementary doc-
+2017/2018 seasons and used to generate predictions for the                ument (see Tables 8 and 9). These values were used for all
+2018/2019 season - which comprised our betting simulation                 further modelling steps.
+                                                                      9
+   Using the optimal feature set and hyperparameter values                           25% of its initial budget, while its accuracy-driven counterpart
+identified for each branch, the models were evaluated on a test                      was down approximately 25% (see Fig. 3 circa game 550).
+set. Their scores are provided in Tables 2 and 3.                                    This suggests that there was a qualitative difference between
+                                                                                     the value bets identified by the models. The bets identified by
+                                                                                     the calibration-driven model were either successful more often,
+Table 2: Classwise-ECE achieved on the test set by each model along the cali-
+bration branch                                                                       more profitable, or both, compared to those identified by the
+    Model                                      Classwise-ECE                         accuracy-driven model. This difference disappeared in the sec-
+    Logistic Regression                        3.61%                                 ond half of the season, when the systems appeared to consis-
+    Random Forest                              4.39%                                 tently place almost identical bets. As a result, the curves re-
+    Support Vector Machine                     3.23%                                 semble mirror images of each other towards the end of the sea-
+    Multi-Layer Perceptron                     3.59%                                 son, and both systems generated positive returns. However, the
+                                                                                     difference over the first half of the season proved decisive, and
+   The SVM model was identified as the best calibration-driven                       the gap between the bankrolls remained significant by season’s
+model, achieving a classwise-ECE of 3.23% on the test set.                           end. The calibration-driven betting system ultimately achieved
+This was followed by MLP, with a classwise-ECE of 3.59%,                             a highly profitable ROI of 32.45%, while the accuracy-driven
+and LR and RF models, with respective classwise-ECEs of                              system achieved a respectable ROI of 5.56%.
+3.61% and 4.39% (see Table 2).
+                                                                                                   Table 4: Results of fixed betting simulations
+Table 3: Accuracy achieved on the test set by each model along the accuracy               Model                                 Final              ROI
+branch                                                                                                                          Bankroll
+    Model                                      Accuracy                                   Calibration-driven SVM                $13,244.51         32.45%
+    Logistic Regression                        65.69%                                     Accuracy-driven SVM                   $10,556.29         5.56%
+    Random Forest                              65.34%
+    Support Vector Machine                     66.55%
+    Multi-Layer Perceptron                     65.69%                                8.2. Kelly Betting
+                                                                                        Next, we tested a betting rule based on the Kelly criterion.
+   The most accurate model was the SVM model with a test                             In this simulation, for each bet identified by the model, the bet-
+set accuracy of 66.55%. The other candidate predictive models                        tor calculated the stake as a function of the predicted proba-
+achieved accuracies ranging from 65.34% to 65.69% (see Table                         bility and the odds offered. This was done using a conserva-
+3). As a result, SVM was identified as the best accuracy-driven                      tive variation of the Kelly criterion known as the eighth-Kelly.
+model.                                                                               Fig. 4 compares the performance of the calibration-driven and
+   These two final models (calibration-driven SVM and                                accuracy-driven betting systems under this rule.
+accuracy-driven SVM) were used to generate predictions for                              Once again, both systems identified several losing value bets
+the 2018/2019 NBA season. Taking as input these predictions                          early in the season (see Fig. 4 games 0-20). This was fol-
+along with the bookmaker’s odds, we implemented and evalu-                           lowed by several spikes and dips for each system. Compared
+ated our betting systems. Each system was defined by a strat-                        to the fixed betting systems, the bankrolls were much more
+egy and a rule. We tested one strategy (bet on all value bets)                       volatile. This is because the loss on a single bet was capped
+in combination with two different rules (fixed betting and Kelly                     at $100 in the fixed betting systems, and capped at 12.5% of
+betting), as described in section 7. Each simulation was carried                     the bankroll in the eighth-Kelly betting systems. This increase
+out according to the algorithm described in Table 1.                                 in volatility exacerbated the effect on the bankrolls of the qual-
+                                                                                     itative difference in bets identified by each system in the first
+8.1. Fixed Betting                                                                   half of the season. As a result, by the time the accuracy-
+   The first rule we tested was the fixed betting rule. In this                      driven system’s bankroll had approximately halved in size, the
+simulation, for each value bet identified by the model, the bet-                     calibration-driven system’s bankroll had increased by the same
+tor placed a bet of $100. We compare the performance of the                          amount. (see Fig. 4 circa game 500). Volatility continued to
+calibration-driven and accuracy-driven betting systems in Fig.                       be ever-present, and the calibration-driven system increased its
+3.                                                                                   bankroll by almost $15,000 (to reach a peak of approximately
+   In this simulation, both systems identified several losing                        $20,000) over the span of approximately 100 games (see Fig. 4
+value bets early in the season (see Fig. 3 games 0-20). These                        circa game 800). While the models identified almost the exact
+losses were not significant, as under the fixed betting rule, the                    same value bets over the second half of the season (as shown
+stake was restricted to $100 dollars. The systems frequently                         in Fig. 3), the curves look not at all similar towards the end of
+identified value bets throughout the season, rarely opting not                       the season. In a Kelly-based betting system, simply identifying
+to bet on a game. While the pattern of betting appears simi-                         the same bets is not enough to achieve similar outcomes. In
+lar between the two systems, the success enjoyed by each dif-                        these systems, the size of the bankroll, as well as the predicted
+fered significantly. By the halfway-point of the season, the                         probability and the odds offered on each outcome, are crucial
+calibration-driven system was in the money, up approximately                         factors affecting the returns achieved. This is reflected in Fig.
+                                                                                10
+4. The accuracy-driven system consistently diminished as the
+end of the season approached, ultimately achieving a negative
+ROI of -75.9%. The calibration-driven system continued to ex-
+perience high volatility, but mostly remained in the money, and
+concluded the season with an impressive ROI of 36.93%.
+
+             Table 5: Results of Kelly betting simulations
+    Model                                Final               ROI
+                                         Bankroll
+    Calibration-driven SVM               $13,692.86          36.93%
+    Accuracy-driven SVM                  $2,409.66           -75.9%
+
+
+8.3. Evaluation of Central Hypothesis
+   The experiment was designed to answer the question ”does
+selecting a sports betting model based on calibration, rather
+than accuracy, allow for greater profit generation?”. To answer
+this, we examine Table 6.
+   Both models frequently identified value bets, with
+calibration-driven systems betting on 87.55% of games,
+and accuracy-driven systems betting on 89.89% of games.
+Both models also had similar success rates, with the accuracy-
+driven systems winning 38.46% of bets placed, and the
+calibration-driven systems winning a slightly higher 38.8%
+of bets. Unsurprisingly, the accuracy-driven model was the
+more accurate of the two (accuracy of 64.62% versus 64.27%),
+while the calibration-driven model was more well-calibrated
+(classwise-ECE of 4.46% versus 5.03%). Ultimately, the
+metric of primary concern to bettors is ROI. Over the two rules
+(fixed betting and Kelly betting), the maximum ROI achieved
+by a calibration-driven betting system was 36.93% (achieved
+using the eighth-Kelly betting rule to determine the stake).
+The maximum ROI achieved by an accuracy-driven system
+was 5.56% (under the fixed betting rule). Calibration-driven
+betting systems were also more profitable on average, with a
+highly lucrative average ROI of 34.69%, compared to an ROI
+of -35.17% as achieved by accuracy-driven betting systems on
+average.
+   In the next section, we reflect on these results and discuss
+their implications.
+
+
+
+
+                                                                      11
+Figure 3: Bankrolls over the course of the 2018/2019 NBA season under the fixed betting rule. The blue curve represents the bankroll of the betting system using the
+calibration-driven predictive model, while the orange curve represents its accuracy-driven counterpart. The broken black line represents the initial bankroll. Curves
+which finish above this line earn a profit and are considered successful betting systems.
+
+
+
+
+Figure 4: Bankrolls over the course of the 2018/2019 NBA season under the Eighth-Kelly betting rule. The blue curve represents the bankroll of the betting system
+using the calibration-driven predictive model, while the orange curve represents its accuracy-driven counterpart. The broken black line represents the initial bankroll.
+Curves which finish above this line earn a profit and are considered successful betting systems.
+
+
+
+
+                                           Table 6: Comparison of calibration-driven and accuracy-driven betting systems
+  Model                            % Games Bet                % Bets Won                 Accuracy            Classwise-          Maximum           Average
+                                   On                                                                        ECE                 ROI               ROI
+  Calibration-driven               87.55%                     38.8%                      64.27%              4.46%               36.93%            34.69%
+  SVM
+  Accuracy-driven SVM              89.89%                     38.46%                     64.62%              5.03%               5.56%             -35.17%
+
+
+
+                                                                                  12
+9. Discussion                                                             favourable. This behaviour suggests the accuracy-driven model
+                                                                          may have been overconfident in its predictions, compared to the
+   In this paper, we aimed to devise a data-driven approach to            calibration-driven model. This is a well known issue for tradi-
+sports betting. Focusing on the NBA, we set out to show that it           tional classification models Kwok (2000). It has been shown
+is possible to leverage data to make a profit over a single sea-          that in circumstances where models should be uncertain about
+son. Identifying a gap in the literature, we hypothesised that            the label (such as in regions of sparse data), the tendency is to
+accuracy is not the most appropriate metric to evaluate the per-          output a more extreme, unrepresentative and overconfident pre-
+formance of the predictive model in a sports betting system, and          diction MacKay (1992). Examining the distribution of value
+that betting systems would be more profitable if calibration was          bets identified by each model, we see evidence of this. Fig. 5
+used instead.                                                             shows a scatter plot of the model’s predicted probability ver-
+   To test this hypothesis, we designed two competing betting             sus the probability implied by the bookmaker’s odds, for all
+systems, one equipped with a predictive model selected based              value bets identified by the calibration-driven SVM, and the
+on calibration, the other with a model selected based on accu-            accuracy-driven SVM, respectively.
+racy. Using these models to generate predictions for all games               We can see from Fig. 5 (a) that the value bets identified by
+in an NBA season, we ran betting simulations where the sys-               the calibration-driven model are approximately uniformly dis-
+tems identified value bets (betting opportunities where the pre-          tributed (ignoring the extreme ends of the probability range).
+dicted probability of victory was greater than the probability            In contrast, the value bets identified by the accuracy-driven
+implied by the bookmaker’s odds) and used either a fixed bet-             model are much more unevenly distributed (see Fig. 5 (b)).
+ting rule, or a variation of the Kelly criterion to determine the         The bulk of these points lie in one of two regions, forming
+size of each bet. Measuring the returns achieved by each betting          two clusters towards each end of the probability range, with
+system, we were able to compare the profitability of calibration-         much fewer value bets found in the middle region. Addition-
+driven systems and accuracy-driven systems. To the authors’               ally, this set of predictions exhibits greater variance than its
+knowledge, this work represents the first attempt to study the            calibration-driven counterpart (0.036 versus 0.034). We can
+effect on profit generation of selecting a sports betting model on        treat the implied probability as a proxy for the true probability
+the basis of calibration, as opposed to the traditional approach          Wheatcroft (2020). In this case, the accuracy-driven model’s
+of selecting the most accurate model. Another novelty of this             predictions appear further from the ground truth, compared to
+work comes in the form of the features used in the predictive             the calibration-driven model. Knowing this, the fact that the
+model. While a common approach for NBA game outcome pre-                  accuracy-driven betting systems lost a higher percentage of
+diction is to use box score statistics averaged over the season to        bets comes as no surprise, as poorly calibrated models tend to
+date, we show that averaging differences in box score statistics          be overconfident on incorrect predictions Krishnan and Tickoo
+versus opponents over the season to date can result in similar            (2020); Guo et al. (2017). This further emphasises the need for
+success.                                                                  a well-calibrated model.
+   Basing model selection on calibration led to profitable bet-              While the results are encouraging, a few critiques can be
+ting systems in all cases, with an average ROI of 34.69%,                 made. The most obvious is the use of a single season for the
+and an ROI of 36.93% in the most profitable system. In con-               betting experiments, as no guarantee can be made that systems
+trast, basing model selection on accuracy led to an ROI of -              which were successful in this particular season would have been
+35.17% on average and 5.56% in the best case, with the worst-             similarly profitable over other seasons. Further, the constraint
+performing system (which used the eighth-Kelly betting rule)              imposed on predictions along the calibration branch of the pre-
+losing over 75% of its wealth. This reiterates the danger of us-          dictive modelling pipeline (requiring at least 80% of the bins
+ing a Kelly-based betting system, especially when the model               to be non-empty) was somewhat arbitrary, and based on the au-
+is not well-calibrated. In the case of our best-performing bet-           thors’ domain knowledge. Perhaps a better solution could be
+ting system, we showed that bettors can increase their wealth             found to deal with the limitation of the classwise-ECE men-
+by more than a third over a single season. These exciting find-           tioned in section 3.
+ings support our conjecture that in a data-driven sports betting             This research also leaves room for future work. One could
+system, basing model selection on calibration, rather than ac-            experiment to find the optimal betting strategy and rule to max-
+curacy, leads to greater profit generation. This reiterates the           imise profits. Another interesting idea would be to investigate
+findings of Hubáček and colleagues, who showed that optimis-            the relationship between calibration and accuracy. Historically,
+ing for decorrelation with the bookmaker’s odds leads to greater          bookmakers’ accuracy in predicting NBA game winners is in
+returns than optimising for accuracy Hubáček et al. (2019).             the region of 69 ± 2.5% Hubáček et al. (2019). This begs the
+   Another interesting finding of our work relates to the differ-         question, is there a limit to the accuracy that one can consis-
+ence in the games identified as value bets by each final model.           tently achieve in predicting NBA game outcomes? If it exists,
+The accuracy-driven SVM identified more value bets than the               what is the limit that accuracy tends to, as the classwise-ECE
+calibration-driven SVM (betting on 89.89% of games com-                   tends to zero?
+pared to 87.55%) and had a lower success rate (38.46% ver-                   We have established a blueprint for developing a data-driven
+sus 38.8%). This could suggest a higher number of the value               sports betting system, and shown that when evaluating predic-
+bets identified by the accuracy-driven model were false posi-             tive models for the sports betting problem, calibration is a more
+tives, i.e. betting opportunities where the odds were not actually        useful metric than accuracy. Beyond the realm of sports betting,
+                                                                     13
+       (a) Scatter plot of predicted probability versus implied probability for (b) Scatter plot of predicted probability versus implied probability for
+       each game identified as a value bet by the calibration-driven SVM.       each game identified as a value bet by the accuracy-driven SVM.
+
+Figure 5: Comparison of scatter plots showing the predicted probability versus implied probability for each value bet identified by the predictive models (calibration-
+driven SVM, and accuracy-driven SVM, respectively). All points lie below the line y = x as a value bet is defined as one for which the model’s predicted probability
+is greater than the probability implied by the bookmaker’s odds (x > y).
+
+
+calibration may be a more important metric than accuracy in                           Barnett, T., 2010. Applying the kelly criterion to lawsuits. Law, Probability &
+any setting where the predicted probability is used for decision-                        Risk 9, 139–147.
+                                                                                      basketballgeek, 2023. Data. URL: http://www.basketballgeek.com/.
+making. This applies to many problems, such as weather fore-                          Binder, M., Moosbauer, J., Thomas, J., Bischl, B., 2020. Multi-objective hy-
+casting and diagnosis of disease. Modellers who spend count-                             perparameter tuning and feature selection using filter ensembles, in: Pro-
+less hours trying to increase the accuracy of probabilistic classi-                      ceedings of the 2020 genetic and evolutionary computation conference, pp.
+fiers may be focusing on the wrong metric, and could be better                           471–479.
+                                                                                      Bunker, R.P., Thabtah, F., 2019. A machine learning framework for sport result
+served by trying to minimise the classwise-ECE. Practical ap-                            prediction. Applied computing and informatics 15, 27–33.
+plications of our results are clear - sports bettors can adopt our                    Cao, C., 2012. Sports data mining technology used in basketball outcome pre-
+blueprint to increase their wealth. Finally, our findings can help                       diction .
+bookmakers too. Before setting the odds, the bookmaker gen-                           Cheng, G., Zhang, Z., Kyebambe, M.N., Kimbugwe, N., 2016. Predicting the
+                                                                                         outcome of nba playoffs based on the maximum entropy principle. Entropy
+erates their own predictions. They can use the classwise-ECE                             18, 450.
+to reveal how far from the true probability their predictions lie.                    Cortis, D., 2015. Expected values and variances in bookmaker payouts: A the-
+This could be an immensely valuable asset for their risk man-                            oretical approach towards setting limits on odds. The Journal of Prediction
+agement team.                                                                            Markets 9, 1–14.
+                                                                                      Cortis, D., 2016. Betting Markets: Defining odds restrictions, exploring market
+                                                                                         inefficiencies and measuring bookmaker solvency. Ph.D. thesis. University
+                                                                                         of Leicester.
+Acknowledgment                                                                        databasketball, 2023. Home. URL: https://databasketball.com/.
+                                                                                      Delashmit, W.H., Manry, M.T., et al., 2005. Recent developments in multilayer
+                                                                                         perceptron neural networks, in: Proceedings of the seventh Annual Memphis
+   This research builds upon work carried out as part of a dis-                          Area Engineering and Science Conference, MAESC.
+sertation for the degree of Master of Science in Data Science at                      Dotan, G., 2020. Beating the Book: A Machine Learning Approach to Identify-
+the University of Bath. The authors would like to extend thanks                          ing an Edge in NBA Betting Markets. University of California, Los Angeles.
+to Dr. Alessio Guglielmi from the University of Bath for his                          Dutta, S., Jacobson, S.H., Sauppe, J.J., 2017. Identifying ncaa tournament
+                                                                                         upsets using balance optimization subset selection. Journal of Quantitative
+support and guidance during this process. This research did not                          Analysis in Sports 13, 79–93.
+receive any specific grant from funding agencies in the public,                       Edwards, W., 1955. The prediction of decisions among bets. Journal of exper-
+commercial, or not-for-profit sectors. The authors would like                            imental psychology 50, 201.
+to thank Sports Reference LLC for making NBA data available                           Ganguly, S., Frank, N., 2018. The problem with win probability, in: 2018 MIT
+                                                                                         Sloan Sports Analytics Conference.
+to researchers and basketball fanatics alike, and the American                        Guo, C., Pleiss, G., Sun, Y., Weinberger, K.Q., 2017. On calibration of modern
+sportsbook Westgate for making their NBA odds data available                             neural networks, in: International conference on machine learning, PMLR.
+on the website sportsbookreviewsonline.com. Finally, the au-                             pp. 1321–1330.
+thors are grateful to Prof. KongFatt Wong-Lin from Ulster Uni-                        Hamadani, B., 2006. Predicting the outcome of nfl games using ma-
+                                                                                         chine learning. URL http://cs229. stanford. edu/proj2006/BabakHamadani-
+versity for his valuable comments and suggestions.                                       PredictingNFLGames. pdf .
+                                                                                      Hazan, E., Klivans, A., Yuan, Y., 2017. Hyperparameter optimization: A spec-
+                                                                                         tral approach. arXiv preprint arXiv:1706.00764 .
+References                                                                            Horvat, T., Job, J., 2019. Importance of the training dataset length in basket-
+                                                                                         ball game outcome prediction by using naive classification machine learn-
+                                                                                         ing methods. Elektrotehniški vestnik-Journal of Electrical Engineering and
+Alonso, R.P., Babac, M.B., 2022. Machine learning approach to predicting a
+                                                                                         Computer Science, sv 86, 197–202.
+   basketball game outcome. International Journal of Data Science 7, 60–77.
+
+                                                                                 14
+Horvat, T., Job, J., 2020. The use of machine learning in sport outcome predic-                tional symposium on intelligent systems and informatics, IEEE. pp. 309–
+    tion: A review. Wiley Interdisciplinary Reviews: Data Mining and Knowl-                    312.
+    edge Discovery 10, e1380.                                                               NBA, 2023. Stats. URL: https://www.nba.com/stats.
+Hsieh, C.H., Barmish, B.R., 2015. On kelly betting: Some limitations, in: 2015              Nixon, J., Dusenberry, M.W., Zhang, L., Jerfel, G., Tran, D., 2019. Measuring
+    53rd Annual Allerton Conference on Communication, Control, and Com-                        calibration in deep learning., in: CVPR Workshops.
+    puting (Allerton), pp. 165–172. doi:10.1109/ALLERTON.2015.7447000.                      Pai, P.F., ChangLiao, L.H., Lin, K.P., 2017. Analyzing basketball games by a
+Hubáček, O., Šourek, G., Železnỳ, F., 2019. Exploiting sports-betting market              support vector machines with decision tree model. Neural Computing and
+    using machine learning. International Journal of Forecasting 35, 783–796.                  Applications 28, 4159–4167.
+Hutter, F., Kotthoff, L., Vanschoren, J., 2019. Automated machine learning:                 Pfandzelter, T., Bermbach, D., 2019. Iot data processing in the fog: Functions,
+    methods, systems, challenges. Springer Nature.                                             streams, or batch processing?, in: 2019 IEEE International conference on
+Injadat, M., Salo, F., Nassif, A.B., Essex, A., Shami, A., 2018. Bayesian opti-                fog computing (ICFC), IEEE. pp. 201–206.
+    mization with machine learning algorithms towards anomaly detection, in:                Posocco, N., Bonnefoy, A., 2021. Estimating expected calibration errors, in:
+    2018 IEEE global communications conference (GLOBECOM), IEEE. pp.                           International Conference on Artificial Neural Networks, Springer. pp. 139–
+    1–6.                                                                                       150.
+Ivanković, Z., Racković, M., Markoski, B., Radosav, D., Ivković, M., 2010.               Pratt, J.W., Gibbons, J.D., 2012. Concepts of nonparametric theory. Springer
+    Analysis of basketball games using neural networks, in: 2010 11th Interna-                 Science & Business Media.
+    tional Symposium on Computational Intelligence and Informatics (CINTI),                 Rotando, L.M., Thorp, E.O., 1992. The kelly criterion and the stock market.
+    IEEE. pp. 251–256.                                                                         The American Mathematical Monthly 99, 922–931.
+Jacot, B.P., Mochkovitch, P.V., 2023. Kelly criterion and fractional kelly strat-           Salo, F., Injadat, M., Moubayed, A., Nassif, A.B., Essex, A., 2019. Cluster-
+    egy for non-mutually exclusive bets. Journal of Quantitative Analysis in                   ing enabled classification using ensemble feature selection for intrusion de-
+    Sports .                                                                                   tection, in: 2019 International Conference on Computing, Networking and
+Kelly Jr, J.L., 2011. A new interpretation of information rate, in: The Kelly                  Communications (ICNC), IEEE. pp. 276–281.
+    capital growth investment criterion: theory and practice. World Scientific,             Smola, A.J., Schölkopf, B., 2004. A tutorial on support vector regression.
+    pp. 25–34.                                                                                 Statistics and computing 14, 199–222.
+Kira, K., Rendell, L.A., 1992. A practical approach to feature selection, in:               Snoek, J., Larochelle, H., Adams, R.P., 2012. Practical bayesian optimization
+    Machine learning proceedings 1992. Elsevier, pp. 249–256.                                  of machine learning algorithms. Advances in neural information processing
+Kotsiantis, S.B., Kanellopoulos, D., Pintelas, P.E., 2006. Data preprocessing for              systems 25.
+    supervised leaning. International journal of computer science 1, 111–117.               Sports-Reference-LLC, 2022. Basketball statistics and history. URL: https:
+Krishnan, R., Tickoo, O., 2020. Improving model calibration with accuracy                      //www.basketball-reference.com/.
+    versus uncertainty optimization. Advances in Neural Information Processing              sportsbookreviewsonline,         2022.               NBA      Odds      Archives.
+    Systems 33, 18237–18248.                                                                   Https://www.sportsbookreviewsonline.com/scoresoddsarchives/nba.
+Kull, M., Perello Nieto, M., Kängsepp, M., Silva Filho, T., Song, H., Flach, P.,           Sugiyama, M., Krauledat, M., Müller, K.R., 2007. Covariate shift adaptation
+    2019. Beyond temperature scaling: Obtaining well-calibrated multi-class                    by importance weighted cross validation. Journal of Machine Learning Re-
+    probabilities with dirichlet calibration. Advances in neural information pro-              search 8.
+    cessing systems 32.                                                                     Thorp, E.O., 1975. Portfolio choice and the kelly criterion, in: Stochastic opti-
+Kumar, A., Liang, P.S., Ma, T., 2019. Verified uncertainty calibration. Ad-                    mization models in finance. Elsevier, pp. 599–619.
+    vances in Neural Information Processing Systems 32.                                     Thorp, E.O., 2008. The kelly criterion in blackjack sports betting, and the stock
+Kumar, V., Minz, S., 2014. Feature selection: a literature review. SmartCR 4,                  market, in: Handbook of asset and liability management. Elsevier, pp. 385–
+    211–229.                                                                                   428.
+Kwok, J.T.Y., 2000. The evidence framework applied to support vector ma-                    Torres, R.A., Hu, Y., 2013. Prediction of nba games based on machine learning
+    chines. IEEE Transactions on Neural Networks 11, 1162–1173.                                methods. University of Wisconsin, Madison .
+Labayen, V., Magaña, E., Morató, D., Izal, M., 2020. Online classification of             Tran, T., 2016. Predicting NBA games with matrix factorization. Ph.D. thesis.
+    user activities using machine learning on network traffic. Computer Net-                   Massachusetts Institute of Technology.
+    works 181, 107557.                                                                      Wah, Y.B., Ibrahim, N., Hamid, H.A., Abdul-Rahman, S., Fong, S., 2018. Fea-
+scikit learn, 2022. Randomforest classifier. URL: https://scikit-learn.                        ture selection methods: Case of filter and wrapper approaches for maximis-
+    org.                                                                                       ing classification accuracy. Pertanika Journal of Science & Technology 26.
+legalsportsbetting, 2022. How much money do americans bet on sports? URL:                   Wheatcroft, E., 2020. Profiting from overreaction in soccer betting odds. Jour-
+    https://www.legalsportsbetting.com.                                                        nal of Quantitative Analysis in Sports 16, 193–209.
+Levitt, S.D., 2004. Why are gambling markets organised so differently from                  Xiao, C., Ye, J., Esteves, R.M., Rong, C., 2016. Using spearman’s correlation
+    financial markets? The Economic Journal 114, 223–246.                                      coefficients for exploratory data analysis on big dataset. Concurrency and
+Li, J., Cheng, K., Wang, S., Morstatter, F., Trevino, R.P., Tang, J., Liu, H., 2017.           Computation: Practice and Experience 28, 3866–3878.
+    Feature selection: A data perspective. ACM computing surveys (CSUR) 50,                 Yang, L., Muresan, R., Al-Dweik, A., Hadjileontiadis, L.J., 2018. Image-based
+    1–45.                                                                                      visibility estimation algorithm for intelligent transportation systems. IEEE
+Liang, Y., Liu, C., Luan, X.Z., Leung, K.S., Chan, T.M., Xu, Z.B., Zhang, H.,                  Access 6, 76728–76740.
+    2013. Sparse logistic regression with a l1/2 penalty for gene selection in              Yang, L., Shami, A., 2020. On hyperparameter optimization of machine learn-
+    cancer classification. BMC bioinformatics 14, 1–12.                                        ing algorithms: Theory and practice. Neurocomputing 415, 295–316.
+Lin, J., Short, L., Sundaresan, V., 2014. Predicting national basketball associa-           Zdravevski, E., Kulakov, A., 2010. System for prediction of the winner in a
+    tion winners. CS 229 FINAL PROJECT , 1–5.                                                  sports game, in: ICT Innovations 2009, Springer. pp. 55–63.
+Loeffelholz, B., Bednar, E., Bauer, K.W., 2009. Predicting nba games using                  Zhang, G.P., 2000. Neural networks for classification: a survey. IEEE Transac-
+    neural networks. Journal of Quantitative Analysis in Sports 5.                             tions on Systems, Man, and Cybernetics, Part C (Applications and Reviews)
+Luo, G., 2016. A review of automatic selection methods for machine learn-                      30, 451–462.
+    ing algorithms and hyper-parameter values. Network Modeling Analysis in                 Zhang, J., Jin, R., Yang, Y., Hauptmann, A., 2003. Modified logistic regression:
+    Health Informatics and Bioinformatics 5, 1–16.                                             An approximation to svm and its applications in large-scale text categoriza-
+MacKay, D.J., 1992. The evidence framework applied to classification net-                      tion .
+    works. Neural computation 4, 720–736.                                                   Zheng, A., Casari, A., 2018. Feature engineering for machine learning: princi-
+Matej, U., Gustav, Š., Ondřej, H., Filip, Ž., 2021. Optimal sports betting                  ples and techniques for data scientists. ” O’Reilly Media, Inc.”.
+    strategies in practice: an experimental review. IMA Journal of Manage-                  Zimmermann, A., Moorthy, S., Shi, Z., 2013. Predicting college basket-
+    ment Mathematics 32, 465–489. URL: https://arxiv.org/abs/2107.                             ball match outcomes using machine learning techniques: some results and
+    08827, doi:10.1093/imaman/dpaa029.                                                         lessons learned. arXiv preprint arXiv:1310.3607 .
+Miljković, D., Gajić, L., Kovačević, A., Konjović, Z., 2010. The use of data
+    mining for basketball matches outcomes prediction, in: IEEE 8th interna-
+
+
+                                                                                       15
+

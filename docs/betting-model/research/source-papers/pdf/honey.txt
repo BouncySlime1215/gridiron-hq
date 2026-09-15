@@ -1,0 +1,946 @@
+     Honey, I Shrunk the Sample Covariance Matrix
+
+      Olivier Ledoit                                  Michael Wolf∗
+    Equities Division                     Department of Economics and Business
+Credit Suisse First Boston                      Universitat Pompeu Fabra
+   One Cabot Square                            Ramon Trias Fargas, 25–27
+  London E14 4QJ, UK                             08005 Barcelona, Spain
+    olivier@ledoit.net                            michael.wolf@upf.edu
+
+                                      November 2003
+
+
+
+                                           Abstract
+
+          The central message of this paper is that nobody should be using the sample
+      covariance matrix for the purpose of portfolio optimization. It contains estima-
+      tion error of the kind most likely to perturb a mean-variance optimizer. In its
+      place, we suggest using the matrix obtained from the sample covariance matrix
+      through a transformation called shrinkage. This tends to pull the most extreme
+      coefficients towards more central values, thereby systematically reducing estima-
+      tion error where it matters most. Statistically, the challenge is to know the optimal
+      shrinkage intensity, and we give the formula for that. Without changing any other
+      step in the portfolio optimization process, we show on actual stock market data
+      that shrinkage reduces tracking error relative to a benchmark index, and substan-
+      tially increases the realized information ratio of the active portfolio manager.
+
+
+
+
+∗
+    Phone: +34-93-542 2552, Fax: +34-93-542 1746
+
+
+
+                                               1
+1     Introduction
+
+Since the seminal work of Markowitz (1952), mean-variance optimization has been the
+most rigorous way to pick stocks in which to invest. The two fundamental ingredients
+are the expected (excess) return for each stock, which represents the portfolio manager’s
+ability to forecast future price movements, and the covariance matrix of stock returns,
+which represents risk control. To further specify the problem, in the real world most
+asset managers are forbidden from selling any stock short, and in the modern world they
+are typically measured against the benchmark of an equity market index with fixed (or
+infrequently rebalanced) weights. Fast and accurate quadratic optimization softwares
+exist that can solve this problem — provided they are fed the right inputs, that is.
+
+    Estimating the covariance matrix of stock returns has always been one of the stickiest
+points. The standard statistical method is to gather a history of past stock returns and
+compute their sample covariance matrix. Unfortunately this creates problems that are
+well documented (Jobson and Korkie, 1980). To put it as simply as possible, when
+the number of stocks under consideration is large, especially relative to the number of
+historical return observations available (which is the usual case), the sample covariance
+matrix is estimated with a lot of error. It implies that the most extreme coefficients in the
+matrix thus estimated tend to take on extreme values not because this is “the truth”,
+but because they contain an extreme amount of error. Invariably the mean-variance
+optimization software will latch onto them and place its biggest bets on those coefficients
+which are the most extremely unreliable. Michaud (1989) calls this phenomenon “error-
+maximization”. It implies that managers’ realized track records will underrepresent their
+true stock-picking abilities, which is clearly the last thing they want.
+
+    On the back of this, some companies such as APT and BARRA have proposed pro-
+prietary methods to generate covariance matrices that are advertized as better suited to
+mean-variance optimization than the sample covariance matrix. The drawbacks are that
+any manager using them establishes a costly and indefinite dependence on an external
+entity who does not share in any downside risk, and that their proprietary methods are
+not open for independent inspection and verification, so one can never be sure what is
+really going on behind the curtain.
+
+    This is why we propose a new formula for estimating the covariance matrix of stock
+returns that can beneficially replace the sample covariance matrix in any mean-variance
+optimization application, and is absolutely free of charge and open to everybody. The
+crux of the method is that those estimated coefficients in the sample covariance matrix
+that are extremely high tend to contain a lot of positive error and therefore need to be
+pulled downwards to compensate for that. Similarly, we compensate for the negative
+error that tends to be embedded inside extremely low estimated coefficients by pulling
+
+                                             2
+them upwards. We call this the shrinkage of the extremes towards the center. If properly
+implemented, this shrinkage would clearly fix the problem of the sample covariance
+matrix described above. The key questions are towards what target to shrink, and how
+intensely? Our contributions are: (1) to provide a rigorous statistical answer to both
+these questions; (2) to describe this below so the reader can decide for him or herself
+whether it makes sense; (3) to supply computer code that implements the resulting
+mathematical formula; and finally (4) to show that it yields significant improvements on
+actual stock return data.
+
+    Shrinkage is hardly a new and revolutionary concept in Statistics, although it cer-
+tainly was when first introduced by Professor Charles Stein of Stanford University in
+1955. An excellent non-technical primer on shrinkage using real-life examples of base-
+ball batting averages was written by Efron and Morris (1977). That this idea has not
+yet percolated to a field where it would be most useful, portfolio management, is a
+testimony that Chinese walls still exist between theoretical and applied disciplines who
+would benefit from talking to each other more. We endeavor to knock down these walls.
+Early attempts to use shrinkage in portfolio selection were made by Frost and Savarino
+(1986) and Jorion (1986), but their particular shrinkage techniques broke down when
+the number of stocks on the menu exceeds the number of historical return observations,
+which is very often the case in practice. Recently Jagannathan and Ma (2003) proved
+that mean-variance optimizers are already implicitly applying some form of shrinkage to
+the sample covariance matrix when short sales are ruled out, and that this is generally
+beneficial in terms of improving weights stability. All the more reason then to do it
+explicitly so that the optimal shrinkage intensity can be applied, as in our paper. Much
+of the foundations for the present work has been laid out by the authors in other papers
+(Ledoit and Wolf, 2003, 2004). Those were largely theoretical and general-interest ar-
+ticles, whereas the present one focuses specifically on how to employ the technology to
+add value to active portfolio management.
+
+   First we give a formal description of the portfolio optimization problem in order to
+provide a solid base for our later exposition. Having described our estimator, we then
+look at its out-of-sample performance, using historical stock return data.
+
+
+
+2    Formal Description of the Problem
+
+We study the most relevant case for equity portfolios. The benchmark is a weighted index
+of a large number N of individual stocks, such as a value-weighted index. The universe
+of stocks from which the portfolio manager selects includes all these stocks.1 Excess
+
+
+
+                                           3
+returns are defined relative to the chosen benchmark. Define the following notations:
+
+                wB = vector of benchmark weights for the universe of N stocks
+                  x = vector of active weights
+     wP = wB + x = vector of portfolio weights
+                  y = vector of stock returns
+          µ = E(y) = vector of expected stock returns
+              0
+     α = µ − wB µ = vector of expected stock excess returns
+                  Σ = covariance matrix of stock returns
+
+
+   We can write expected returns and variances in vector/matrix notation as:
+
+                           0
+                    µB = w B µ = expected return on benchmark
+                        0
+                 σB2 = wB ΣwB = variance of benchmark return
+                    µP = wP0 µ = expected return on portfolio
+                 σP2 = wP0 ΣwP = variance of portfolio return
+                      µE = x0 µ = expected excess return on portfolio
+                    σE2 = x0 Σx = tracking error variance
+
+
+    The portfolio selection problem is subject to the constraint that the portfolio be fully
+invested, that is, the portfolio weights wP have to add up to unity. With 1 denoting
+a conforming vector of ones, this can be written as wP0 1 = 1. Because the benchmark
+weights also add up to unity, the vector of portfolio deviations must up to zero, or
+x0 1 = 0. Therefore, the portfolio of the manager can be viewed as a position in the
+benchmark plus an active portfolio. The active portfolio is a long/short portfolio and
+expresses the views of the manager. Two immediate implications are:
+
+                               µP = µ B + µ E
+                                              0
+                                σP2 = σB2 + 2wB Σx + σE2
+
+
+    While positions of the active portfolio are both positive and negative, the manager
+does not have complete freedom. None of the portfolio weights wP can be negative, or
+wP ≥ 0, due to the long-only constraint. The resulting constraint x ≥ −wB expresses
+the limited freedom of the manager. Grinold and Kahn (2000, Chapter 15) illustrate how
+this limitation can negatively affect the performance of the managed portfolio, especially
+when the benchmark is a value-weighted index and when N is large. In addition, the
+manager often is faced with the constraint that the total position in any given stock
+
+                                             4
+cannot exceed a certain value, like 10%. If this upper bound is denoted by c, the
+resulting constraint on the weights of the active portfolio is x ≤ c1 − wB .
+
+   Having defined the various ingredients, we can now formalize the optimization prob-
+lem of the manager as follows:2
+
+                                Minimize:    x0 Σx                                     (1)
+                                such that:   x0 α ≥ g
+                                             x0 1 = 0
+                                             x ≥ −wB
+                                             x ≤ c1 − wB
+
+Here g is the manager’s target gain (i.e., expected excess return) relative to the bench-
+mark. A typical number is 300 basis points (annualized). The manager chooses g and
+the upper limit c and also knows the current vector of benchmark weights wB . She is
+now left to provide estimates for α, the vector of expected stock excess returns, and
+for Σ, the covariance matrix of stock returns. In a final step, all the inputs are fed into
+a quadratic optimization software that will compute x, the optimal weights of the active
+portfolio. It is our mission to provide the manager with a good estimator of Σ. We do
+not help with the problem of how to estimate α.
+
+
+
+3     Shrinkage Estimator of the Covariance Matrix
+
+3.1    Shrinkage Principle
+
+This section briefly describes the shrinkage estimator for Σ which we propose; for a more
+detailed exposition and relevant historical background the reader is referred to Ledoit
+and Wolf (2003). We start with the sample covariance matrix S. Its advantages are
+ease of computation and the property of being unbiased (i.e., its expected value is equal
+to the true covariance matrix). Its main disadvantage is the fact that it contains a lot
+of estimation error when the number of data points is of comparable or even smaller
+order than the number of individual stocks; this is the common situation in financial
+applications. Alternatively, one might consider an estimator with a lot of structure,
+as the single-factor model of Sharpe (1963). Such estimators contain relatively little
+estimation error but, on the other hand, tend to be misspecified and can be severely
+biased. In one way or another, all successful risk models find a compromise between the
+sample covariance matrix and a highly structured estimator.
+
+    The industry standard are multi-factor models. The idea is to incorporate multiple
+
+                                             5
+factors instead of just the single factor of Sharpe (1963). Thereby the models become
+more flexible and their bias is reduced. But the estimation error increases. Finding the
+optimal tradeoff by deciding on the nature and the number of the factors included in
+the model is as much an art as it is a science. One approach is to use a combination
+of industry factors and risk indices, with the total number of factors being on the order
+of 50. An example is BARRA’s U.S. Equity model. Another approach is to use statistical
+factors, such as principal components, with the total number of factors being on the order
+of 5. A commercial vendor offering risk models based on statistical factors is APT.
+
+    Our philosophy is different. Consider the sample covariance matrix S and a highly
+structured estimator, denoted by F . We find a compromise between the two by com-
+puting a convex linear combination δF + (1 − δ)S, where δ is a number between 0 and 1.
+This technique is called shrinkage, since the sample covariance matrix is ‘shrunk’ to-
+wards the structured estimator. The number δ is referred to as the shrinkage constant.3
+Intuitively, it measures the weight that is given to the structured estimator. Shrinkage
+estimators have a long and successful history in statistics. The beauty of the principle
+is that by properly combining two ‘extreme’ estimators one can obtain a ‘compromise’
+estimator that performs better than either extreme. To make a somewhat sloppy anal-
+ogy: most people would be prefer the ‘compromise’ of one bottle of Bordeaux and one
+steak to either ‘extreme’ of two bottles of Bordeaux (and no steak) or two steaks (and
+no Bordeaux).
+
+    Any shrinkage estimator has three ingredients: An estimator with no structure,
+an estimator with a lot of structure, and a shrinkage constant. The estimator without
+structure is generally quite obvious, given the context. For us it is the sample covariance
+matrix. Less obvious are the choice of the structured estimator, or shrinkage target, and
+the shrinkage constant.
+
+
+3.2    Shrinkage Target
+
+The shrinkage target should fulfill two requirements at the same time: it involves only a
+small number of free parameters (that is, a lot of structure) but it also reflects important
+characteristics of the unknown quantity being estimated. Ledoit and Wolf (2003) suggest
+the single-factor matrix of Sharpe (1963) as the shrinkage target. In this paper we make
+a different suggestion: the constant correlation model. In our experience, it gives com-
+parable performance but is easier to implement. The model says that all the (pairwise)
+correlations are identical.4 The estimation of the model is straightforward. The average
+of all the sample correlations is the estimator of the common constant correlation. This
+number together with the vector of sample variances implies our shrinkage target, de-
+noted by F in the remainder of the paper. A formal description of the shrinkage target
+
+                                             6
+is provided in Appendix A; in particular, see equation (3).
+
+
+3.3    Shrinkage Constant
+
+The obvious practical problem is which value to choose for the shrinkage constant. Any
+choice of δ strictly between 0 and 1 would yield a compromise between S and F . But
+this results in infinitely many possibilities. Intuitively, there is an ‘optimal’ shrinkage
+constant. It is the one that minimizes the expected distance between the shrinkage
+estimator and the true covariance matrix. Call this number δ ∗ . Appendix B derives
+a formula for estimating δ ∗ . The estimated optimal shrinkage constant is denoted δ̂ ∗ ;
+see equation (5) in Appendix B. Our operational shrinkage estimator of the covariance
+matrix Σ is now ready for use5 :
+
+                               Σ̂Shrink = δ̂ ∗ F + (1 − δ̂ ∗ )S                        (2)
+
+
+
+4     Empirical Study
+
+We now study the out-of-sample performance of our shrinkage estimator, using historical
+stock market data. DataStream provides monthly U.S. stock data. We use these data
+to construct several value-weighted indices to serve as our benchmarks. Starting in
+February 1983, the methodology is as follows. At the beginning of each month, we
+select the N largest stocks as measured by their market value. The market values of
+the stocks define their index weight. At the end of the month, we observe the (real)
+returns of the individual stocks and, given their weights, compute the return on the
+index. This prescription is repeated every month until the end of December 2002. Thus,
+the constituents list and the index weights are constantly updated.
+
+   As far as the benchmark size N is concerned, we employ N = 30, 50, 100, 225, 500.
+This range covers such important benchmarks as DJIA, Xetra DAX, DJ STOXX 50,
+FTSE 100, NASDAQ-100, NIKKEI 225, and S&P 500. Summary statistics of the various
+benchmark returns are provided in Table 1.
+
+    To mimic a skilled active manager, we first construct raw forecasts of the expected
+excess returns by adding random noise to the realized excess returns. In a second
+step, these raw forecasts are transformed into refined forecasts α̂ which are fed to the
+quadratic optimizer. This is done in a way such that the unconstrained annualized ex
+ante information ratio (IR) is approximately equal to 1.5, independently of the value of
+the benchmark size N . The unconstrained IR could be attained by a manager who did
+not face any lower or upper bound constraints on the weight vector x and who knew
+
+                                              7
+the exact nature of the covariance matrix Σ of stock returns. The details of the forecast
+construction are described in Appendix C.
+
+   A risk model is evaluated by its out-of-sample performance.
+
+Evaluation Algorithm:
+
+   • At the beginning of each month feed the following ingredients to the quadratic
+     optimizer: the benchmark weights wB , the forecasted expected excess returns α̂,
+     the estimated covariance matrix Σ̂, the desired gain g, and an upper bound of
+     c = 0.1 on the total weight of any stock.
+
+   • To compute an estimate Σ̂, we use the last T = 60 monthly returns of the current
+     constituents list of stocks.
+
+   • The quadratic optimizer computes a weight vector x.
+
+   • At the end of the month, the realized excess return is given by e = x0 y, where y is
+     the vector of stock returns for the month.
+
+   • The out-of-sample period ranges from 02/1983 until 12/2002, so a total of 239
+     monthly realized excess returns are obtained.
+
+   • From the excess returns we compute the (annualized) ex post information ratio as
+     √
+       12ē/se , where ē is the sample average of the excess returns and se is the sample
+     standard deviation of the excess returns.
+
+   • Since the results depend on the monthly forecasts α̂, which are random, we repeat
+     this process 50 times and then report mean-summary statistics.
+
+   • For the (annualized) gain, we use 300 basis points.
+
+    Apart from our shrinkage estimator, we include the sample covariance matrix, the
+shrinkage estimator of Ledoit and Wolf (2003), and a multi-factor risk model based on
+statistical factors in our study.
+
+   The sample covariance matrix is widely-known and very easy to compute. Based on
+the recent paper by Jagannathan and Ma (2003), a portfolio manager facing a long-only
+constraint might hope that it yields reasonable performance.
+
+   Ledoit and Wolf (2003) suggest the single-factor model of Sharpe (1963) as the shrink-
+age target, instead of the constant correlation covariance matrix as we do in this paper.
+
+  Multi-factor models are the industry standard for the estimation of the covariance
+matrix. Statistical factors, as opposed to macroeconomic and fundamental factors, have
+
+                                            8
+the advantage that they can be computed from past stock returns alone.6 The statistical
+factors we use are the first five principal components, as in Connor and Korajczyk (1993)
+and Connor (1995).
+
+   Mean-summary statistics for the realized excess returns are presented in Table 2.
+Comparing the shrinkage estimator proposed in this paper (Shrink-CC) to the sample
+covariance matrix (Sample), the results can be highlighted as follows.
+
+   • In all scenarios, the shrinkage estimator yields the highest (average) information
+     ratio.
+
+   • In most scenarios, the shrinkage estimator yields the highest (average) mean excess
+     return.
+
+   • In all scenarios, the shrinkage estimator yields the lowest (average) standard devi-
+     ation of excess return.
+
+   • The (average) information ratio decreases as the benchmark size N increases. 7
+
+    Figure 1 shows boxplots of the realized information ratios for the sample covariance
+matrix and the shrinkage estimator proposed in this paper over the 50 repetitions for the
+various scenarios. The message is identical to the one of Table 2: (i) shrinkage improves
+on the sample covariance matrix; (ii) realized information ratios tend to decrease as N
+increases. The plots also show considerable variation in the realized information ratios.
+In addition to having good forecasting skill and using a good risk model, the successful
+active manager can benefit from a bit of good luck.
+
+   Next, we compare the shrinkage estimator proposed in this paper (Shrink-CC) to the
+other methods included in the study. The single-factor shrinkage estimator proposed
+by Ledoit and Wolf (2003) is denoted by Shrink-SF and the 5 principal components
+covariance matrix estimator is denoted by PC-5. Shrink-CC does somewhat better than
+Shrink-SF for N ≤ 100 and is somewhat worse for N ≥ 225. Shrink-CC does somewhat
+better than PC-5 for N ≤ 50 and is comparable to PC-5 for N ≥ 100.
+
+    Table 3 presents mean-summary statistics on the average monthly turnover. Turnover
+is defined as the total turnover of Grinold and Kahn (2000, Chapter 16) Note that this
+definition corresponds to updating the entire portfolio, not just the active portfolio.
+A part of the turnover, therefore, is due to the constituents list of the benchmark and
+their weights, both of which change over time. In general, the turnover is too high to
+be attractive for an active manager. But no effort was made to limit turnover, and a
+constraint to this effect could be easily added to the quadratic optimization problem (1).
+The important message to take away from Table 3 is that the sample covariance matrix
+
+
+                                            9
+results in the highest turnover always. The other three methods are comparable to one
+another.
+
+    We finish this section with two remarks.
+
+Remark 1 Many active managers face further constraints, apart from the long-only
+constraint and an upper bound on the weight of any given stock. Examples are market-
+cap-neutral constraints, turnover constraints, and dividend-yield neutrality with respect
+to the benchmark. Adding further constraints generally reduces the ex post information
+ratio; see Clarke et al. (2002). Nevertheless, the manager will still benefit from using a
+superior risk model.
+
+Remark 2 It is by now well-understood that tracking-error efficient portfolios are not
+mean-variance efficient: The tracking-error efficient frontier is shifted below and to the
+right compared to the mean-variance efficient frontier. For example, see Roll (1992),
+Wilcox (1994), and Scherer (2002, Chapter 6). Jorion (2003) shows that adding a
+constraint on the total portfolio variance, σP2 = wP0 Σwp , to the quadratic optimization
+problem (1) improves the mean-variance efficiency of the managed portfolio.8 Obviously,
+the additional constraint requires an estimate of Σ in practice and therefore a superior
+risk model will again be beneficial to the manager.
+
+
+
+5     Conclusion
+
+This paper proposes a risk model that dominates the traditional one, the sample co-
+variance matrix, for the purpose of mean-variance optimization in the context of active
+portfolio management. We claim that, given the well-documented flaws of the sample
+covariance matrix, nobody should be using it anymore now that an enhanced alternative
+is available. Using the simple modification we propose substantially increases the real-
+ized information ratio of the portfolio manager. For example, when an annual expected
+excess return of 300 basis points over the benchmark is specified, a typical increase is on
+the order of 50%. Computer code in the Matlab programming language implementing
+this improved estimator is freely downloadable from http://www.ledoit.net. Portfolio
+management firms that are sophisticated enough to employ a mean-variance optimiza-
+tion software would have the expertise required to implement our simple formulas in
+any computer language. All types of portfolio optimization procedures, even advanced
+ones such as the resampled efficient frontier9 , would benefit from shrinking the sample
+covariance matrix. The intuitive justification for this statistical transformation is pru-
+dence: not betting the ranch on noisy coefficients that are too extreme. We hope that
+the profession can find value in our proposal.
+
+                                            10
+Notes
+   1
+    The problem can be generalized to the setting where the universe contains further
+stocks not contained in the benchmark. However, to keep transaction costs down, the
+more general setting is of limited practical interest.
+   2
+    Jorion (2003) considers the problem of maximizing x0 α subject to an upper bound
+on the tracking error variance x0 Σx. Grinold and Kahn (2000) consider the problem
+of maximizing x0 α − λ x0 Σx, where λ is a risk-aversion constant. These are equivalent
+problem formulations, leading to the same frontier in risk-return space.
+   3
+   Ledoit and Wolf (2003) denote the shrinkage constant by α. We switch to the
+symbol δ in this paper to avoid confusion with expected excess returns.
+   4
+     The constant correlation model would not be appropriate if the assets came from
+different asset classes, such as stocks and bonds. But in such cases more general models
+for the shrinkage target are available.
+   5
+     An additional advantage of our srhinkage estimator is that it is always positive defi-
+nite. When the size of the benchmark N exceeds the number of past returns used in the
+estimation process, the sample covariance matrix S is singular. This would imply that
+threre exist stock portfolios with zero risk. On the other hand, our shinkage estimator is
+a convex combination of an estimator that is positive definite (the shrinkage target F )
+and an estimator that is positive semi-definite (the sample covariance matrix S). It is
+therefore positive definite.
+   6
+    Nevertheless, multi-factor models based on statistical factors require more program-
+ming effort than our shrinkage estimator. First, one needs software to extract the factors,
+such as principal components, from the data. Second, various time series regressions have
+to be run to estimate the factor loadings, residual variances, etc.. Third, the various
+pieces have to be put together to arrive at the estimator of the covariance matrix.
+   7
+    Grinold and Kahn (2000, Chapter 15) explain why this happens. In case N is very
+large, a manager is probably ill-advised to actively invest in all the stocks making up
+the index. The realized information ration can be improved by, for example, focusing on
+the 50 or 100 largest stocks in the index and setting the weights of the remaining ones
+equal to zero.
+   8
+       A related idea already appears in Wilcox (1994).
+   9
+    Future research will focus on the effectiveness of resampling methods in the spirit
+of Michaud (1998), either by themselves or combined with shrinkage, compared to the
+shrinkage method proposed in this paper.
+
+
+
+                                            11
+A     Formula for Shrinkage Target
+
+Some notation is needed. Let yit , 1 ≤ i ≤ N, 1 ≤ t ≤ T , denote the return on stock i
+during period t. Our analysis assumes that stock returns are independent and identically
+distributed (iid) over time and have finite fourth moments. The sample average of the
+returns of stock i is given by ȳi· = T −1 Tt=1 yit . Let Σ denote the population (or true)
+                                          P
+
+covariance matrix and let S denote the sample covariance matrix. Typical entries of the
+matrices Σ and S are denoted by σij and sij , respectively.
+
+    The population and sample correlations between the returns on stocks i and j are
+given by
+                              σij                       sij
+                      %ij = √           and     rij = √
+                              σii σjj                   sii sjj
+The average population and sample correlations are given by
+                         N −1 XN                                     N −1 XN
+                    2    X                                      2    X
+           %̄ =                    %ij      and        r̄ =                    rij
+                (N − 1)N i=1 j=i+1                          (N − 1)N i=1 j=i+1
+
+Define the population constant correlation matrix Φ by means of the population vari-
+ances and the average population correlation:
+                                                            √
+                           φii = σii     and        φij = %̄ σii σjj
+
+Correspondingly, define the sample constant correlation matrix F by means of the sample
+variances and the average sample correlation:
+                                                            √
+                           fii = sii     and        fij = r̄ sii sjj                    (3)
+
+This matrix F is the shrinkage target introduced in Subsection 3.2.
+
+
+
+B     Formula for Shrinkage Intensity
+
+We have to choose the objective according to which the shrinkage intensity δ is optimal.
+All existing shrinkage estimators from finite-sample statistical decision theory and also
+the one of Frost and Savarino (1986) break down when N ≥ T because their loss functions
+involve the inverse of the covariance matrix. Instead, we propose a loss function that
+does not depend on this inverse and is very intuitive: it is a quadratic measure of distance
+between the true and the estimated covariance matrices based on the Frobenius norm.
+The Frobenius norm of the N × N symmetric matrix Z with entries (zij )i,j=1,...,N is
+
+
+                                               12
+defined by
+                                                N X
+                                                X N
+                                          2
+                                        kZk =             zij2
+                                                i=1 j=1
+
+By considering the Frobenius norm of the difference between the shrinkage estimator
+and the true covariance matrix, we arrive at the following quadratic loss function:
+
+                                 L(δ) = kδ F + (1 − δ) S − Σk2
+
+
+    The goal is to find the shrinkage constant δ which minimizes the expected value of
+this loss, that is, the risk:
+
+                          R(δ) = E(L(δ)) = E kδ F + (1 − δ) S − Σk2
+                                                                           
+                                                                                              (4)
+
+Under the assumption that N is fixed while T tends to infinity, Ledoit and Wolf (2003)
+prove that the optimal value δ ∗ asymptotically behaves like a constant over T (up to
+higher-order terms). This constant, called κ, can be written as
+
+                                                π−ρ
+                                          κ=
+                                                 γ
+
+Here, π denotes the sum of asymptotic variances ofh the i entries of the sample covari-
+                           √     PN PN                √
+ance matrix scaled by T : π = i=1 j=1 AsyVar T sij . Similarly, ρ denotes the
+sum of asymptotic covariances of the entries of the shrinkage target with
+                                                                       h√the entries   of
+                                        √           PN PN                        √     i
+the sample covariance matrix scaled by T : ρ = i=1 j=1 AsyCov             T fij , T sij .
+Finally, γ measures the misspecification of the (population) shrinkage target: γ =
+PN PN                   2
+  i=1   j=1 (φij − σij ) .
+
+   If κ were known, we could use κ/T as the shrinkage intensity in practice. Unfortu-
+nately, κ is unknown, so we find a consistent estimator for κ. This is done by finding
+consistent estimators for the three ingredients π, ρ, and γ.
+
+   First, a consistent estimator for π is
+                N X
+                  N                                  T
+                X                                1X
+         π̂ =             π̂ij   with     π̂ij =       {(yit − ȳi· )(yjt − ȳj· ) − sij }2
+                i=1 j=1
+                                                 T t=1
+
+This result is proven by Ledoit and Wolf (2003).
+
+   Second, a consistent estimator for ρ is a bit tedious to write down but quite straight-
+
+
+
+
+                                                13
+forward to implement. By definition
+                    N X
+                      N
+                    X                      h√                  √      i
+          ρ =                  AsyCov                T fij ,    T sij
+                     i=1 j=1
+                    N            h√       N N
+                    X                  i X  X        h√ √            √      i
+               =           AsyVar T sii +     AsyCov   T r̄ sii sjj , T sij
+                     i=1                                  i=1 j=1,j6=i
+
+
+On the diagonal, we know from Ledoit and Wolf (2003) again that
+
+                                    h√                                 T
+                                                 i            1 X                       2
+                       AsyVar            T sii       = π̂ii =       (yit − ȳi· )2 − sii
+                                                              T t=1
+
+On the off-diagonal, we have
+                                                        h√         √         √      i
+                                     AsyCov                    T r̄ sii sjj , T sij
+
+Since the estimation errorhin r̄ is asymptotically
+                                                 i negligible and by use of the delta-
+                           √ √             √
+method, any term AsyCov      T r̄ sii sjj , T sij can be consistently estimated by
+
+         r̄
+              r
+                   sjj        h√        √     i                    r
+                                                                       sii        h√        √      i   
+                       AsyCov    T sii , T sij +                           AsyCov    T sjj , T sij
+         2         sii                                                 sjj
+                                                                                         h√          √     i
+Standard theory implies that a consistent estimator for AsyCov                                T sii , T sij is given
+by
+                           T
+                        1 X
+              ϑ̂ii,ij =       (yit − ȳi· )2 − sii {(yit − ȳi· )(yjt − ȳj· ) − sij }
+                        T t=1
+                                                                  h√         √       i
+and that, analogously, a consistent estimator for AsyCov             T sjj , T sij is given by
+
+                                T
+                            1 X
+               ϑ̂jj,ij =          (yjt − ȳj·)2 − sjj {(yit − ȳi· )(yjt − ȳj· ) − sij }
+                            T t=1
+
+Collecting terms now yields a consistent estimator for ρ:
+                            N          N    N         r                             
+                                                   r̄    sjj             sii
+                            X         X    X                           r
+                      ρ̂ =     π̂ii +                        ϑ̂ii,ij +       ϑ̂jj,ij
+                           i=1        i=1 j=1,j6=i
+                                                   2     sii             sjj
+
+
+
+
+                                                                 14
+    Third, a consistent estimator for γ is
+                                          N X
+                                          X N
+                                   γ̂ =             (fij − sij )2
+                                          i=1 j=1
+
+
+This result follows from fij and sij being consistent estimators of φij and σij , respectively.
+
+    Putting the pieces together yields a consistent estimator for κ:
+
+                                                  π̂ − ρ̂
+                                           κ̂ =
+                                                     γ̂
+
+    Finally, the estimated shrinkage intensity we propose for use in practice is:
+                                                       
+                                 ∗                 κ̂
+                               δ̂ = max 0, min        ,1                                   (5)
+                                                   T
+
+The reason for this formula is the following. Although very unlikely, in principle it can
+happen in finite sample that κ̂/T < 0 or that κ̂/T > 1, in which case we simply truncate
+it at 0 or at 1, respectively.
+
+
+
+C      Forecasting Expected Excess Returns
+
+We want to mimic a skilled active manager. To do this, we rely on hindsight and
+the forecast principles laid out in Grinold and Kahn (2000, Chapters 6 and 10). Our
+description is necessarily brief and the reader is referred to this book for further details.
+
+   Let eit denote the excess return of stock i during period t, that is, the return on the
+stock minus the benchmark return. In a first step, we generate raw forecasts by adding
+noise to the realized excess returns:
+
+                                      rawit = eit + uit
+
+The noise terms uit are normally distributed with mean zero and are independent of each
+other both cross-sectionally and over time. For a given stock, the ex ante correlation
+between eit and uit over time is known as the information coefficient (IC). In principal,
+the IC could depend on i but, as is common, we choose a coefficient constant across
+stocks. Which is an appropriate value for IC? In the absence of constraints on the active
+manager (apart from being fully invested), the well-known Fundamental Law of Active
+Management states that the ex ante information ratio (IR) of the manager is determined
+
+
+
+                                                  15
+by the IC and the breadth of the strategy:
+                                              √
+                                  IR ≈ IC ·       Breadth
+
+The breadth term measures the number of independent active ‘bets’ the manager makes
+in one year. Since in our study the portfolio will be updated every month and, by
+construction, the forecasts are independent of each other, we have
+
+                                    Breadth = 12 · N
+
+Therefore, the IC is determined by the size of the benchmark, N , and the desired ex ante
+information ratio, IR, which we fix at 1.5. Putting the various pieces together yields
+                                            √
+                                   IC = 1.5/ 12 · N
+
+To give three examples, N = 30 yields IC = 0.0791, N = 100 yields IC = 0.0433, and
+N = 500 yields IC = 0.0194.
+
+   In a second step, the raw forecasts for each stock are converted to scores by subtract-
+ing their sample mean, rawi· , and dividing by their sample standard deviation, sraw,i .
+
+                                             rawit − raw i·
+                                 scoreit =
+                                                sraw,i
+
+    In a third and final step, the scores are transformed into refined forecasts using the
+relationship
+                              Alpha = Volatility · IC · Score
+
+Here, volatility refers to the excess return of a given stock. We estimate this by the
+sample standard deviation of the realized excess returns eit over time. Denoting this
+standard deviation by se,i , the formula for the final step is
+
+                                 α̂it = se,i · IC · scoreit
+
+
+    Note that the ex post information ratio of an active manager will in general not be
+equal to the ex ante value of 1.5. This is because (i) the manager is bound by constraints
+(such as a long-only constraint and upper limits on the portfolio weight of each stock);
+(ii) the manager has to estimate Σ in practice; (iii) due to the randomness of the uit ,
+the ex post correlation between between eit and uit over time will not be equal to IC.
+The first two facts have a negative effect on the ex post information ratio. The third
+fact can go either way. It is therefore possible in practice, though not very likely, that
+the ex post information ratio is higher than the ex ante value of 1.5. To smooth out the
+
+                                             16
+inherent randomness in the realized information ratios, we repeat the forecasting process
+50 times in our empirical study of Section 4 and then report mean-summaries.
+
+
+
+References
+Clarke, R., de Silva, H., and Thorley, S. (2002). Portfolio constraints and the funda-
+  mental law of active management. Financial Analysts Journal, 58(5):48–66.
+
+Connor, G. (1995). The three types of factor models: A comparison of their explanatory
+  power. Financial Analysts Journal, 51(3):42–46.
+
+Connor, G. and Korajczyk, R. A. (1993). A test for the number of factors in an approx-
+  imate factor model. Journal of Finance, 48:1263–1291.
+
+Efron, B. and Morris, C. (1977). Stein’s paradox in statistics. Scientific American,
+  236(5):119–127.
+
+Frost, P. A. and Savarino, J. E. (1986). An empirical Bayes approach to portfolio
+  selection. Journal of Financial and Quantitative Analysis, 21:293–305.
+
+Grinold, R. C. and Kahn, R. N. (2000). Active Portfolio Management. McGraw-Hill,
+  New York, second edition.
+
+Jagannathan, R. and Ma, T. (2003). Risk reduction in large portfolios: Why imposing
+  the wrong constraints helps. Journal of Finance, 54(4):1651–1684.
+
+Jobson, J. D. and Korkie, B. (1980). Estimation for Markowitz efficient portfolios.
+  Journal of the American Statistical Association, 75:544–554.
+
+Jorion, P. (1986). Bayes-Stein estimation for portfolio analysis. Journal of Financial
+  and Quantitative Analysis, 21:279–292.
+
+Jorion, P. (2003). Portfolio optimization with constraints on tracking error. Financial
+  Analysts Journal, 59(5):70–82.
+
+Ledoit, O. and Wolf, M. (2003). Improved estimation of the covariance matrix of stock
+  returns with an application to portfolio selection. Journal of Empirical Finance,
+  10(5):603–621.
+
+Ledoit, O. and Wolf, M. (2004). A well-conditioned estimator for large-dimensional
+  covariance matrices. Journal of Multivariate Analysis, 88(2):365–411.
+
+Markowitz, H. (1952). Portfolio selection. Journal of Finance, 7:77–91.
+
+
+                                           17
+Michaud, R. (1989). The Markowitz optimization enigma: Is optimized optimal? Fi-
+ nancial Analysts Journal, 45:31–42.
+
+Michaud, R. (1998). Efficient Assset Management: A Practial Guide to Stock Portfolio
+ Optimization. Oxford University Press.
+
+Roll, R. (1992). A mean/variance analysis of tracking error. Journal of Portfolio Man-
+  agement, 18(4):13–22.
+
+Scherer, B. (2002). Portolio Construction and Risk Budgeting. Risk Books, London.
+
+Sharpe, W. F. (1963). A simplified model for portfolio analysis. Management Science,
+  9(1):277–293.
+
+Stein, C. (1955). Inadmissibility of the usual estimator for the mean of a multivariate
+  normal distribution. In Proceedings of the Third Berkeley Symposium on Mathematical
+  Statistics and Probability, pages 197–206. University of California Press.
+
+Wilcox, J. (1994). EAFE is for wimps. Journal of Portfolio Management, 20:68–75.
+
+
+
+
+                                          18
+D     Tables and Figures
+
+
+
+
+Table 1: Summary Statistics of Benchmark Returns. This table presents summary
+statistics for monthly real returns of several value-weighted benchmark indices. The data
+range from 02/1983 until 12/2002, yielding 239 returns. The size of the benchmark is
+denoted by N . All numbers are annualized.
+
+
+                            N = 30     N = 50     N = 100    N = 225    N = 500
+
+     Mean                    13.63      13.50      13.29       13.45      13.42
+     Standard Deviation      15.12      15.02      14.76       14.56      14.52
+
+
+
+
+                                           19
+Table 2: Mean-Summary Statistics for Excess Returns with Gain = 300 bp
+This table presents ex post information ratios, means, and standard deviations of real-
+ized excess returns. The gain (i.e., the expected excess return) was fixed at 300 basis
+points. The out-of-sample period is 02/1983 until 12/2002, yielding 239 monthly excess
+returns. The size of the benchmark is denoted by N . ‘Sample’ denotes the sample covari-
+ance matrix; ‘Shrink-CC’ denotes our shrinkage estimator (2); ‘Shrink-SF’ denotes the
+shrinkage estimator of Ledoit and Wolf (2003); ‘PC-5’ denotes the estimator based on
+the first five principal components. The results are mean-summaries over 50 repetitions.
+All numbers are annualized.
+
+
+                                     IR        Mean      SD
+
+                                       N = 30
+                       Sample       0.97    2.18         2.26
+                       Shrink-CC    1.24    2.50         2.03
+                       Shrink-SF    1.18    2.39         2.04
+                       PC-5         1.17    2.45         2.10
+
+                                       N = 50
+                       Sample       0.79    1.92         2.44
+                       Shrink-CC    1.14    2.21         1.95
+                       Shrink-SF    1.08    2.13         1.98
+                       PC-5         1.11    2.18         1.96
+
+                                       N = 100
+                       Sample       0.59     1.71        2.93
+                       Shrink-CC    0.91     1.87        2.06
+                       Shrink-SF    0.89     1.86        2.10
+                       PC-5         0.91     1.87        2.07
+
+                                       N = 225
+                       Sample       0.37     2.37        6.45
+                       Shrink-CC    0.54     2.53        4.97
+                       Shrink-SF    0.57     2.37        4.30
+                       PC-5         0.55     2.42        4.46
+
+                                       N = 500
+                       Sample       0.20     1.92        8.53
+                       Shrink-CC    0.30     1.82        5.77
+                       Shrink-SF    0.33     1.74        5.13
+                       PC-5         0.31     1.59        5.05
+
+
+
+
+                                          20
+Table 3: Mean-Summary Statistics for Average Monthly Turnover This table
+presents average monthly turnovers for various strategies. The gain (i.e., the expected
+excess return) was fixed at 300 basis points. The out-of-sample period is 02/1983 until
+12/2002, yielding 239 monthly portfolio updates. The size of the benchmark is denoted
+by N . ‘Sample’ denotes the sample covariance matrix; ‘Shrink-CC’ denotes our shrinkage
+estimator (2); ‘Shrink-SF’ denotes the shrinkage estimator of Ledoit and Wolf (2003);
+‘PC-5’ denotes the estimator based on the first five principal components. The results
+are mean-summaries over 50 repetitions.
+
+
+                       N = 30     N = 50 N = 100 N = 225 N = 500
+             Sample     0.39       0.50   0.66    0.80    0.85
+             Shrink-CC 0.33        0.39   0.50    0.65    0.75
+             Shrink-SF 0.34        0.41   0.52    0.66    0.76
+             PC-5       0.33       0.39   0.50    0.64    0.73
+
+
+
+
+                                          21
+                                     Realized Information Ratios; Gain = 300bp
+
+
+
+
+    1.5
+
+
+
+
+    1.0
+
+
+
+
+    0.5
+
+
+
+
+    0.0
+
+
+
+
+    −0.5
+
+             N=30    N=30     N=50      N=50        N=100   N=100    N=225       N=225   N=500   N=500
+
+
+
+
+Figure 1: Boxplots of the realized information ratios with a gain of 300 basis points. For
+any given index size N , the first boxplot corresponds to the sample covariance matrix
+and the second one corresponds to the shrinkage estimator (2). The plots show the 50
+repetitions which gave rise to the mean-summaries in Table 2.
+
+
+
+
+                                               22
+

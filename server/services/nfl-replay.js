@@ -28,6 +28,7 @@ import { fitEnsemble, ensembleLine } from './nfl-ensemble.js';
 import { normalCdf, holm, weeklyClusterBootstrap } from './stats-util.js';
 import { NFL_PRODUCTION_POLICY, NFL_HISTORICAL_REPLAY_POLICY,
   applyNflPolicy, normalizeNflPolicy } from './nfl-policy.js';
+import { decisionRunsFor, decisionRun } from './nfl-decision-tape.js';
 import { shinNoVig } from './nfl-devig.js';
 import { availableLeaderboardKeys, teamStatBucket } from './nfl-rolling-leaders.js';
 import { availabilityDeficit } from './nfl-availability.js';
@@ -778,6 +779,157 @@ export function analyzeErrors(bets, { minBets = 25 } = {}) {
     note: weakest.length || strongest.length
       ? 'These segments cleared Holm-corrected significance AND a minimum real effect size AND held up leaving each season out one at a time. Still not a green light — validateAdjustment/proposeAdjustment must confirm on seasons none of this ran on before anything changes.'
       : 'Nothing here survives correction for testing ~20-30 segments at once plus a real minimum effect size. That is itself the honest finding, not a failure of the search.'
+  };
+}
+
+const MIN_FORECAST_SAMPLE = 20;
+
+/**
+ * The newest COMPLETE, non-invalidated run recorded for one (season, week,
+ * policy) — the one canonical record of what the model believed about every
+ * game that week. `decisionRunsFor` already orders newest-first; this just
+ * applies the same completeness/invalidation checks `recordDecisionRun`
+ * itself enforces before treating a run as authoritative, rather than
+ * re-deriving them.
+ */
+function latestValidDecisionRun(season, week, policyId) {
+  for (const summary of decisionRunsFor(season, week)) {
+    if (summary.policy_id !== policyId) continue;
+    const full = decisionRun(summary.id);
+    if (full.complete && !full.invalidated) return full;
+  }
+  return null;
+}
+
+/**
+ * WP14/C10: row-level forecast records sourced from the decision tape --
+ * `nfl_decision_runs`/`nfl_decision_events` (nfl-decision-tape.js) -- which
+ * already saves EVERY game's candidate each week, eligible or not, with its
+ * abstention reason and frozen `feature_snapshot_json` context
+ * (recordDecisionRun, called weekly by scheduler.js's refreshNflDecisionLedger
+ * and every other production decision path). The two existing error-analysis
+ * tools this WP was asked to connect did not read this: `analyzeErrors`
+ * above only ever sees settled BETS (a placed, priced, graded selection), and
+ * nfl-slice-diagnostic.js reads a completely different, older table
+ * (`nfl_weekly_expert_examples`) tied to the expert-council family, not the
+ * production ensemble's own decision record.
+ *
+ * A no-bet (abstained) game still carries a real forecast — the ensemble
+ * computed `projected_margin` before the policy decided there was no
+ * eligible edge to act on — and that forecast can be graded against the
+ * final score exactly like a bet's can, once one exists. This function is
+ * what "no-bet games are retained for forecast evaluation" (this WP's own
+ * acceptance) means concretely: it returns one row per game per season/week
+ * that has BOTH a recorded decision and a final score, WHETHER OR NOT the
+ * policy ever bet it. Games not yet played are structurally absent (there is
+ * no final score to grade against), not silently zeroed.
+ *
+ * Deliberately separate from `analyzeErrors`'s bet-shaped pipeline rather
+ * than forcing no-bet games through it: `analyzeErrors` measures the
+ * model's BETTING record (needs a price, a stake, a result) and this
+ * measures FORECAST accuracy (needs only a projected margin and a final
+ * score) -- conflating the two is exactly the R13/R23 mistake of treating
+ * different quantities as one number.
+ */
+export function decisionTapeForecastRecords({ seasons, policyId = NFL_PRODUCTION_POLICY.id, market = 'spread' } = {}) {
+  if (!Array.isArray(seasons) || !seasons.length) {
+    throw new TypeError('decisionTapeForecastRecords: seasons must be a non-empty array');
+  }
+  const weeks = rows(`SELECT DISTINCT season, week FROM nfl_decision_runs
+      WHERE policy_id=? AND season IN (${seasons.map(() => '?').join(',')})
+      ORDER BY season, week`, policyId, ...seasons);
+
+  const records = [];
+  for (const { season, week } of weeks) {
+    const decided = latestValidDecisionRun(season, week, policyId);
+    if (!decided) continue;
+    for (const e of decided.events.filter(ev => ev.market === market)) {
+      if (e.home_team == null || e.away_team == null) continue;
+      // Graded only: a game with no final score yet has nothing to evaluate
+      // the forecast against. Excluded from this list entirely, not counted
+      // as a miss and not counted as a hit.
+      const game = row(`SELECT team_score, opp_score FROM game_lines
+        WHERE season=? AND week=? AND team=? AND home=1`, season, week, e.home_team);
+      if (!game || game.team_score == null || game.opp_score == null) continue;
+      const actualMargin = game.team_score - game.opp_score;
+
+      let snap = {};
+      try { snap = JSON.parse(e.feature_snapshot_json ?? '{}'); } catch { /* malformed/legacy snapshot -- treat as absent */ }
+      const forecast = snap.raw_forecast ?? {};
+      const projectedMargin = Number.isFinite(forecast.projected_margin) ? forecast.projected_margin : null;
+      const marketMargin = Number.isFinite(forecast.market_margin) ? forecast.market_margin : null;
+
+      records.push({
+        season, week, run_id: decided.id, matchup: e.matchup,
+        home_team: e.home_team, away_team: e.away_team, market: e.market,
+        eligible: Boolean(e.eligible), abstention_reason: e.abstention_reason ?? null,
+        is_market_identity: Boolean(e.is_market_identity),
+        projected_margin: projectedMargin, market_margin: marketMargin, actual_margin: actualMargin,
+        forecast_error: projectedMargin != null ? Math.abs(actualMargin - projectedMargin) : null,
+        market_error: marketMargin != null ? Math.abs(actualMargin - marketMargin) : null,
+        model_probability: e.model_probability ?? null, implied_probability: e.implied_probability ?? null,
+        probability_difference: e.probability_difference ?? null
+      });
+    }
+  }
+  return records;
+}
+
+/**
+ * WP14/C09-C10: descriptive forecast-accuracy summary over
+ * `decisionTapeForecastRecords`' row-level output. This is deliberately NOT
+ * a significance test (that machinery -- Holm correction, bootstrapped ROI
+ * intervals, leave-one-season-out -- already exists in `analyzeErrors` above
+ * and in nfl-family-contribution.js for the economic/ablation questions;
+ * duplicating it here for a purely descriptive MAE comparison would be a
+ * second, divergent implementation of the same statistics). What this DOES
+ * enforce, per C09/R28: a cohort below `minGames` is `insufficient_data`,
+ * never a reported rate — and per this WP's own acceptance, "a one-season
+ * slice cannot pass a multi-season check" is upheld structurally by keeping
+ * `by_season` and the pooled `all` cohort clearly separate, never blended.
+ */
+export function forecastAccuracyReport(records, { minGames = MIN_FORECAST_SAMPLE } = {}) {
+  const cohortSummary = list => {
+    const comparable = list.filter(r => r.forecast_error != null && r.market_error != null);
+    const readable = comparable.length >= minGames;
+    const beatMarket = comparable.filter(r => r.forecast_error < r.market_error);
+    return {
+      games: list.length,
+      comparable_games: comparable.length,
+      status: readable ? 'estimable' : 'insufficient_data',
+      readable,
+      forecast_mae: readable ? r3(avg(comparable.map(r => r.forecast_error))) : null,
+      market_mae: readable ? r3(avg(comparable.map(r => r.market_error))) : null,
+      beat_market_rate: readable ? r3(beatMarket.length / comparable.length) : null
+    };
+  };
+
+  const bySeason = new Map();
+  for (const r of records) {
+    const list = bySeason.get(r.season) ?? [];
+    list.push(r); bySeason.set(r.season, list);
+  }
+
+  const eligible = records.filter(r => r.eligible);
+  const abstained = records.filter(r => !r.eligible);
+
+  return {
+    read_floor: minGames,
+    seasons: [...new Set(records.map(r => r.season))].sort((a, b) => a - b),
+    all: cohortSummary(records),
+    // Separate, not blended: betting record vs the SAME model's forecast on
+    // games it chose not to bet. A forecast can be accurate on abstained
+    // games (the policy correctly found no priceable edge, not that the
+    // model had no opinion) or it can be exactly as wrong there as anywhere
+    // else -- either answer is informative, and conflating the two cohorts
+    // would hide it.
+    eligible: cohortSummary(eligible),
+    abstained: cohortSummary(abstained),
+    by_season: [...bySeason.entries()].sort((a, b) => a[0] - b[0])
+      .map(([season, list]) => ({ season, ...cohortSummary(list) })),
+    note: 'Descriptive forecast accuracy only -- not a significance test. A `by_season` row passing this ' +
+      'read floor is a single-season slice and must not be read as a multi-season finding; use analyzeErrors ' +
+      '(bets) or nfl-family-contribution.js (ablations) for that question.'
   };
 }
 

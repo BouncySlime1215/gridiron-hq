@@ -96,3 +96,82 @@ test('teamNewsSignals with no `before` given (defaults to now) is unaffected', (
   assert.ok(result.claims.find(c => c.player_key === 'teamdefaultnow1'),
     'the default-to-now cutoff must not exclude a claim whose created_at is legitimately "now"');
 });
+
+/*
+ * R2 (2026-09-15): every test above hand-supplies created_at in ISO format
+ * ('...T...Z'), which sidesteps the actual bug -- the table's own
+ * `DEFAULT (datetime('now'))` writes SQLite's space-separated
+ * 'YYYY-MM-DD HH:MM:SS', with no 'T' and no 'Z'. A bare `created_at<=?`
+ * compared that TEXT against an ISO cutoff, and ' ' (0x20) sorts before 'T'
+ * (0x54) -- so for any two timestamps on the SAME calendar date, the
+ * space-formatted created_at compared as "earlier" REGARDLESS of the actual
+ * time of day. Confirmed empirically against node:sqlite (this project's own
+ * driver) before the fix: a row whose created_at was the literal current
+ * instant still compared <= a cutoff from an hour earlier. These two tests
+ * write created_at in that REAL format directly, so they actually exercise
+ * the bug nfl-news-signal.js's datetime()-wrapped comparison now fixes.
+ */
+
+test('R2 regression: a same-day created_at in the pipeline\'s own datetime(\'now\') format compares correctly against an ISO cutoff', () => {
+  seedNewsSignal({ news_id: 301, player_key: 'sameday1', team: 'XXX', status: 'out',
+    published_at: '2026-11-01T12:00:00Z',
+    // 18:00 the same calendar day as the cutoff below, in the REAL default
+    // format -- chronologically AFTER the 06:00 cutoff, so this claim was
+    // not yet extracted as of that cutoff and must be excluded.
+    created_at: '2026-11-02 18:00:00' });
+
+  const signal = playerNewsSignal('sameday1', { team: 'XXX', before: '2026-11-02T06:00:00.000Z', maxAgeDays: 30 });
+  assert.equal(signal, null,
+    'created_at (18:00) is genuinely AFTER the 06:00 cutoff on the same date -- a raw TEXT compare wrongly ' +
+    'includes it because the space in datetime(\'now\')\'s format sorts before the ISO cutoff\'s "T"');
+});
+
+test('R2 regression: the same-format claim IS visible once its own created_at has actually passed', () => {
+  seedNewsSignal({ news_id: 302, player_key: 'sameday2', team: 'XXX', status: 'out',
+    published_at: '2026-11-01T12:00:00Z', created_at: '2026-11-02 06:00:00' });
+
+  const signal = playerNewsSignal('sameday2', { team: 'XXX', before: '2026-11-02T18:00:00.000Z', maxAgeDays: 30 });
+  assert.ok(signal, 'created_at (06:00) is genuinely before the 18:00 cutoff on the same date -- must be visible, ' +
+    'proving the fix does not just exclude everything on a shared date');
+});
+
+/*
+ * WP08/R1 (2026-09-15): nfl_news_signals is append-only (migration 053) --
+ * several rows can now share (news_id,player_key,signal_type), one per
+ * version. These tests seed TWO versions of the same claim directly (same
+ * news_id/player_key/signal_type, different status/created_at) and check
+ * that a cutoff resolves to whichever version was actually current AT THAT
+ * CUTOFF, not always the newest -- the whole point of real versioning.
+ */
+
+test('WP08/R1: a cutoff between two versions sees the version that was actually current then, not a later correction', () => {
+  // Version 1 (lower id, inserted first): extracted well before either cutoff.
+  seedNewsSignal({ news_id: 401, player_key: 'versioned1', team: 'WWW', status: 'questionable',
+    published_at: '2026-11-01T12:00:00Z', created_at: '2026-11-01T13:00:00Z' });
+  // Version 2 (higher id): the SAME story, corrected -- not extracted until
+  // days later, after the "beforeCorrection" cutoff below.
+  seedNewsSignal({ news_id: 401, player_key: 'versioned1', team: 'WWW', status: 'out',
+    published_at: '2026-11-01T12:00:00Z', created_at: '2026-11-03T09:00:00Z' });
+
+  const beforeCorrection = playerNewsSignal('versioned1', { team: 'WWW', before: '2026-11-02T00:00:00Z', maxAgeDays: 30 });
+  assert.equal(beforeCorrection?.availability?.status, 'questionable',
+    'a decision made before the correction was even extracted must see the ORIGINAL version -- version 2 did ' +
+    'not exist yet as far as this cutoff is concerned');
+
+  const afterCorrection = playerNewsSignal('versioned1', { team: 'WWW', before: '2026-11-04T00:00:00Z', maxAgeDays: 30 });
+  assert.equal(afterCorrection?.availability?.status, 'out',
+    'a decision made after the correction lands sees the corrected version');
+});
+
+test('WP08/R1: teamNewsSignals also resolves to the version current as of its own cutoff, not always the newest', () => {
+  seedNewsSignal({ news_id: 402, player_key: 'teamversioned1', team: 'WWW', status: 'questionable',
+    published_at: '2026-11-01T12:00:00Z', created_at: '2026-11-01T13:00:00Z' });
+  seedNewsSignal({ news_id: 402, player_key: 'teamversioned1', team: 'WWW', status: 'out',
+    published_at: '2026-11-01T12:00:00Z', created_at: '2026-11-03T09:00:00Z' });
+
+  const before = teamNewsSignals('WWW', { before: '2026-11-02T00:00:00Z', maxAgeDays: 30 });
+  assert.equal(before.claims.find(c => c.player_key === 'teamversioned1')?.status, 'questionable');
+
+  const after = teamNewsSignals('WWW', { before: '2026-11-04T00:00:00Z', maxAgeDays: 30 });
+  assert.equal(after.claims.find(c => c.player_key === 'teamversioned1')?.status, 'out');
+});

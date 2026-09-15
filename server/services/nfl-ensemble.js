@@ -107,14 +107,29 @@ function awayRest() {
  *
  * A measured non-improvement is not a reason to ship the change silently at a
  * nonzero default, so the default is the old behaviour exactly. The estimator
- * stays because it is the correct closed form, it is now testable, and one
- * constant is all that stands between it and production if the same sweep ever
- * runs against real NFL history — which this branch could not do.
+ * stays because it is the correct closed form and it is now testable.
  *
- * Caveat worth carrying forward: the fixture schedules a near-balanced rotating
- * round-robin, which is the regime where opponent-aware shrinkage has least to
- * add. Real NFL schedules are genuinely unbalanced, so this measurement may
- * understate the ridge rather than overstate it.
+ * FIX#14 (2026-09-15): the fixture caveat above ("real NFL schedules are
+ * genuinely unbalanced, so this measurement may understate the ridge") was a
+ * hypothesis this branch could not check — no real-history sweep had been run.
+ * It has now been run, directly against this database's real game_lines
+ * (2015-2025, 3,028 games; same lambda grid; same walk-forward split, held out
+ * on 2021-2025 = 1,424 graded games): lambda = 50 is AGAIN the pooled optimum
+ * (13.8385 -> 13.7842 RMSE, a genuine but small 0.39% component improvement --
+ * real, not the synthetic fixture's artifact, but modest). The hypothesis was
+ * partly right: real data shows more improvement than the synthetic fixture's
+ * "no benefit at all" case. It is not enough to promote on, though -- broken
+ * down by season the win is not robust: 2022/2023/2024 improve, 2021/2025 get
+ * slightly WORSE, 3 of 5 seasons -- below the same "at least 2/3 of seasons
+ * must agree" bar this codebase applies elsewhere (nfl-replay.js's
+ * `robustAcrossSeasons`). An ensemble-level re-check (does the full blend move
+ * at all) was not run: there is no point re-fitting 20+ models' weights across
+ * a lambda grid to look for a benefit whose own component-level input already
+ * fails the season-robustness bar the synthetic run also failed at the
+ * ensemble level. Conclusion: keep lambda = 0. The real-data measurement
+ * confirms the synthetic one rather than overturning it -- one constant is
+ * still all that stands between this and production, and the numbers now
+ * exist from real history, not just a fixture, the next time this comes up.
  */
 const MASSEY_RIDGE_LAMBDA = 0;
 
@@ -385,9 +400,20 @@ export function predictiveDistribution(hist, { margin, total, homeSpread, market
   };
 }
 
-/** Per-team play-by-play feature averages before a given point. */
+/**
+ * Per-team play-by-play feature averages before a given point.
+ *
+ * Exported (WP15/D3) so a T-60 packet can freeze this exact map at freeze
+ * time and hand it back to `ensembleLine` via `teamFeaturesOverride` instead
+ * of this function being called again, live, at scoring time -- see that
+ * option's doc below for why re-calling it would defeat the freeze even
+ * though the function is itself deterministic over `nfl_team_week_features`'
+ * CURRENT contents (the table has no per-row receipt clock, so "current" and
+ * "as of the cutoff" are not the same claim; freezing the return value is
+ * what actually pins one of those two to the earlier moment).
+ */
 const _featureAggregateCache = new Map();
-function featureAggregates(season, week) {
+export function featureAggregates(season, week) {
   const cacheKey = `${season}|${week}`;
   if (_featureAggregateCache.has(cacheKey)) return _featureAggregateCache.get(cacheKey);
   // Early-season forecasts borrow the immediately previous season with a
@@ -1953,7 +1979,23 @@ export function ensembleLine(season, week, home, away, {
   // packet-sourced board. `source` is a label (e.g. 'frozen_packet') recorded
   // on the result so the caller can see, per field, where each number came
   // from -- see the `market_data_source` on the returned `ensemble` object.
-  marketOverride = null
+  marketOverride = null,
+  // WP15/D3: the same idea as marketOverride, for the two other live-table
+  // reads this function used to make unconditionally. `gameContextOverride`
+  // replaces the game_lines weather/rest/division/neutral-site/opener row;
+  // `teamFeaturesOverride` replaces the live `featureAggregates(season, week)`
+  // call every feature-differential model reads through `ctx.feat`. Both are
+  // `null` by default (read live, exactly as before); a caller scoring from a
+  // frozen T-60 packet supplies the packet's own frozen values instead so
+  // this function performs NO live re-read of either table -- the whole point
+  // of D3. As with marketOverride, this is a reproducibility guarantee (the
+  // decision cannot move under a live-table mutation after the freeze), not a
+  // claim promoted to a stronger bitemporal `received_by_cutoff` status --
+  // neither game_lines' context columns nor nfl_team_week_features carry a
+  // per-row receipt clock, and freezing today's un-evidenced value does not
+  // manufacture one (see nfl-t60-packet.js's PACKET_BOARD_INPUT_COVERAGE).
+  gameContextOverride = null,
+  teamFeaturesOverride = null
 } = {}) {
   const inputMode = includeChallengers ? 'all-inputs' : 'champion-inputs';
   const reliability = includeChallengers ? signalReliabilityFor(season, week)
@@ -1967,7 +2009,17 @@ export function ensembleLine(season, week, home, away, {
   // whichever ran first would silently answer for both.
   const overrideKey = marketOverride
     ? `override:${marketOverride.home_spread ?? 'null'},${marketOverride.total ?? 'null'}` : 'override:none';
-  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|reliability:${reliability.version}|exclude:${excludedKey}|families:${familyKey}|${includeEvidence ? 'evidence' : 'forecast'}|${overrideKey}`;
+  // Same reasoning as overrideKey above, for the two frozen-packet overrides
+  // added in WP15/D3: a live call and a packet-sourced call for the same game
+  // must never collide on one cached line just because neither field is part
+  // of overrideKey. Content, not just presence, is hashed in -- two different
+  // frozen packets for the identical game (e.g. a retry after a live-table
+  // change) must not share a cache entry either.
+  const gameContextKey = gameContextOverride ? `gctx:${JSON.stringify(gameContextOverride)}` : 'gctx:none';
+  const teamFeaturesKey = teamFeaturesOverride
+    ? `feat:${JSON.stringify(teamFeaturesOverride instanceof Map ? [...teamFeaturesOverride] : teamFeaturesOverride)}`
+    : 'feat:none';
+  const lineKey = `${season}|${week}|${home}|${away}|${weighting}|${blendMode}|${inputMode}|reliability:${reliability.version}|exclude:${excludedKey}|families:${familyKey}|${includeEvidence ? 'evidence' : 'forecast'}|${overrideKey}|${gameContextKey}|${teamFeaturesKey}`;
   // Every family ablation follows the same blend and distribution path as the
   // full model. Shared contexts and fitted artifacts remain cached below.
   if (_lineCache.has(lineKey)) return _lineCache.get(lineKey);
@@ -2004,7 +2056,8 @@ export function ensembleLine(season, week, home, away, {
   // are always this live game_lines row -- so `market_data_source` always
   // reports 'game_lines' for them, honestly, rather than only tracking the
   // two fields an override CAN reach and leaving the rest unstated.
-  const marketDataSource = { home_spread: 'game_lines', total: 'game_lines', game_context: 'game_lines' };
+  const marketDataSource = { home_spread: 'game_lines', total: 'game_lines',
+    game_context: 'game_lines', team_features: 'nfl_team_week_features' };
   if (marketOverride && 'home_spread' in marketOverride) {
     g.home_spread = marketOverride.home_spread;
     marketDataSource.home_spread = marketOverride.source ?? 'frozen_packet';
@@ -2013,8 +2066,41 @@ export function ensembleLine(season, week, home, away, {
     g.total = marketOverride.total;
     marketDataSource.total = marketOverride.source ?? 'frozen_packet';
   }
-  const ctx = { ...buildContext({ ...g, season, week, home, away }, hist, restMap),
+  // WP15/D3: a frozen packet's own game_context values replace this live
+  // game_lines row's weather/rest/division/neutral-site/opener fields. Every
+  // field gameContextOverride does NOT carry stays whatever the live row
+  // said -- a caller passes only what its packet actually froze, never a
+  // guessed full set, so a partially-old packet degrades to a partial
+  // override rather than nulling out fields it never touched.
+  let restMapForBuild = restMap;
+  if (gameContextOverride) {
+    for (const key of ['temp', 'wind', 'roof', 'div_game', 'neutral_site', 'home_rest', 'open_spread', 'open_total']) {
+      if (key in gameContextOverride) g[key] = gameContextOverride[key];
+    }
+    marketDataSource.game_context = gameContextOverride.source ?? 'frozen_packet';
+    // buildContext reads away rest from restMap, not from `g` -- a one-entry
+    // map for this call only, so the shared awayRest() cache is never mutated
+    // and a live call for a different game keeps reading the real table.
+    if ('away_rest' in gameContextOverride) {
+      restMapForBuild = new Map([[`${season}|${week}|${away}`, gameContextOverride.away_rest]]);
+    }
+  }
+  const ctx = { ...buildContext({ ...g, season, week, home, away }, hist, restMapForBuild),
     home, away, cal: fit.calibration };
+  // WP15/D3: a frozen packet's own league-wide feature-aggregate snapshot
+  // replaces the live `featureAggregates(season, week)` call `buildContext`
+  // made via `sharedContext` -- swapped in AFTER buildContext returns so the
+  // shared-context cache (keyed on season/week/hist.length, shared with every
+  // OTHER live call for this same week) is never itself overwritten with a
+  // frozen map; only this call's own context object gets the frozen `feat`.
+  if (teamFeaturesOverride) {
+    // Accepts a Map directly, or the JSON-safe array-of-[team, features]-pairs
+    // shape a frozen packet actually stores (nfl-t60-packet.js's
+    // `nfl_team_week_features` source values -- `[...featureAggregates(...)]`
+    // spread from the live Map into exactly this shape at freeze time).
+    ctx.feat = teamFeaturesOverride instanceof Map ? teamFeaturesOverride : new Map(teamFeaturesOverride);
+    marketDataSource.team_features = 'frozen_packet';
+  }
 
   const allowedFamilies = families?.length ? new Set(families) : null;
   const perModel = [];

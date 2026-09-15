@@ -1,0 +1,1226 @@
+[
+  {
+    "path": "gridiron-ml-ai-audit.md",
+    "sha256": "172f349ada9e3a471fa8039504abc84d9ed084f7fd92c32148da9d0ac00f6a9b"
+  },
+  {
+    "path": "gridiron-betting-continuation.md",
+    "sha256": "9521aaf2ecd6fea6906f8c9ea42f58209de229971b9ae693fd224a6734186079"
+  },
+  {
+    "path": "START-HERE-research-and-audits.md",
+    "sha256": "ed7257fced2207af4f8e87f81bead3f85e4cefaa57d613755111c11e19f24952"
+  },
+  {
+    "path": "recovered-evidence/why-worse-than-market.md",
+    "sha256": "2008d915a1447e12d3cda26ee7b6fbb8e6398ee8f0a49a6dff97bb75f3eaad75"
+  },
+  {
+    "path": "recovered-evidence/why-not-improving.md",
+    "sha256": "93b56d99cc93da53f0470b5ab38756ab344bba56ac45162d7d18332cd658d480"
+  },
+  {
+    "path": "recovered-evidence/INDEX.md",
+    "sha256": "f1ee6d6699654e5e9724ca07fd0770a3e44f8228ac21d8ef58249e41da6d05de"
+  },
+  {
+    "path": "recovered-evidence/MANIFEST.json",
+    "sha256": "764000f66117506545b9f4834536134e65569f174393868bd95a872d2950e4f4"
+  },
+  {
+    "path": "recovered-evidence/sept14/market-and-target.md",
+    "sha256": "a7e7357223b254f9e094e395657d663c674095518d33589bf46ec54fee17c991"
+  },
+  {
+    "path": "recovered-evidence/sept14/evidence-gates.md",
+    "sha256": "b35b4d7a760d4da29c53d214acdbf8e85b2ec3c9cb2e800a39be1d66e01fdceb"
+  },
+  {
+    "path": "recovered-evidence/sept14/data-inventory.md",
+    "sha256": "04b3fed264498e77fab056d40e064ab7c75c74737d2b10388896cd18a9ceebde"
+  },
+  {
+    "path": "recovered-evidence/sept14/existing-learners.md",
+    "sha256": "354ea2594622e4b6fbbe427c36326703d7b4fc42c76fe1c3d019bf8b0a53542c"
+  },
+  {
+    "path": "recovered-evidence/plans/GRIDIRON_GIANT_PLAN.md",
+    "sha256": "01af8040f56df79782e0b478815f7d4ca73c5c71ed5faa14732c43d321f11547"
+  },
+  {
+    "path": "recovered-evidence/plans/GRIDIRON_MASTER_PLAN_2026-09-12.md",
+    "sha256": "86f361848b1a10af3ea8df412b5b1a57786a2ac77ff14532f6f9d7ca95c282f9"
+  },
+  {
+    "path": "recovered-evidence/plans/GRIDIRON_MASTER_PLAN_V2_2026-09-12.md",
+    "sha256": "aec642ff13b9eab941f5c0305d8390b2f55cb5afc6132feedd0867939337db0a"
+  },
+  {
+    "path": "recovered-evidence/plans/WHAT_NEXT.md",
+    "sha256": "75aa2f68b709e81e8725edc1d11c04a706c2b8dca043e2b1db637c663cb2a970"
+  },
+  {
+    "path": "recovered-evidence/current-checks/ai-usage-checks.json",
+    "sha256": "244ae5c2e3843d4efce7023e886c6e8802129e2f3c808e01555ef80a82aaccf2"
+  },
+  {
+    "path": "recovered-evidence/current-checks/current-db-checks.json",
+    "sha256": "afbb59f7db579d41561e60aa972e11c4d1bc56c2cd1ab1add71082fa76637714"
+  },
+  {
+    "path": "recovered-evidence/workflow-results/why-worse-than-market.json",
+    "sha256": "c38dfe867eb184f1b46e66adc4787c69c5a3c34b4e4f7047f1a38877791a5f5d"
+  },
+  {
+    "path": "recovered-evidence/workflow-results/full-audit.json",
+    "sha256": "b5fbd45ae7a6ef426a97f40cc766c942440f42c9d145dad1bc4f249f41a4ab9d"
+  },
+  {
+    "path": "recovered-evidence/workflow-results/research-and-add.json",
+    "sha256": "b936f7fbb9372b7bedc64b3a9332437f2ef5459989b0007679ae173931c4fb7d"
+  },
+  {
+    "path": "recovered-evidence/workflow-results/audit-system.json",
+    "sha256": "a86ee66db1074f3b5b419759486c33f674491019b678512b8ef6a643502035db"
+  },
+  {
+    "path": "recovered-evidence/workflow-results/why-not-improving.json",
+    "sha256": "2a61259b9ca96237a0499a24a104e8870ffc530132ea31dd4ea7b5fcb56e57b8"
+  },
+  {
+    "path": "recovered-evidence/audit/G12-news-verify.md",
+    "sha256": "e27ad102f3b613602dbadcbf53d0a71f3ce233a75d54112970e02bc907514af9"
+  },
+  {
+    "path": "recovered-evidence/audit/G06-nfl-council-research-verify.md",
+    "sha256": "2f1edbc94b1afea4362188dbac98a43f5ee276a2171ac1c321d82493dbffc3ba"
+  },
+  {
+    "path": "recovered-evidence/audit/G10a-audit-evidence.md",
+    "sha256": "529c971f6b735a486609216abc1b12184b988f2d8aad88fe19e23565a78fa374"
+  },
+  {
+    "path": "recovered-evidence/audit/G13c-infra-misc-verify.md",
+    "sha256": "4ae539a8e3191d63dddc7190229446823d48586226850697283088dbef07a809"
+  },
+  {
+    "path": "recovered-evidence/audit/G15-verify.md",
+    "sha256": "8e5524a5c033f54292d0b53d754f1302fe351051ac3c2c23c5bffe04cebb1ecb"
+  },
+  {
+    "path": "recovered-evidence/audit/G17-tests-verify.md",
+    "sha256": "a0626f88c81ea3258ca22d1c94011ad3ea0f90df1ec4f70e247b926d42af700b"
+  },
+  {
+    "path": "recovered-evidence/audit/CLEANUP_PLAN.md",
+    "sha256": "94da05febac7b60cb9f5447d84bff395cebedd09145c6109032a2be78b131380"
+  },
+  {
+    "path": "recovered-evidence/audit/G16-client-betting.md",
+    "sha256": "22c598ab52bae5ec38668f81e9a2646dab1d93be8bece336eb908ba1f93a5fbe"
+  },
+  {
+    "path": "recovered-evidence/audit/G02-migrations-late-verify.md",
+    "sha256": "f2235a2ecc03b0e3e2906800a3a29a1c7b65df35c68e51675afc2b9d2f0c404b"
+  },
+  {
+    "path": "recovered-evidence/audit/G05-nfl-core-model.md",
+    "sha256": "af186c27ffbff572a1639311d83b72d0e8e7fb67072a1a12d506e806db615421"
+  },
+  {
+    "path": "recovered-evidence/audit/G10a-verify.md",
+    "sha256": "474585c2761849eb0a6546fb936b56ffcacd14fd7e71e04914133e67b13cee36"
+  },
+  {
+    "path": "recovered-evidence/audit/G06-verify.md",
+    "sha256": "afddf8d009ea2442519105de351e8ba53dcade05643dbd76b1c81bb1dddff735"
+  },
+  {
+    "path": "recovered-evidence/audit/G13b-player-models.md",
+    "sha256": "ec8b0a50f7ae1a23a3e3a92e21596bdf558f06a7d2e8011f9d87393454e21f1b"
+  },
+  {
+    "path": "recovered-evidence/audit/H04-chat-sep8.md",
+    "sha256": "6762a013aff7dbb873cad542807862d60ecb5a827b0856d9f1685395f0fbf56b"
+  },
+  {
+    "path": "recovered-evidence/audit/verifier-H06-data-layer.md",
+    "sha256": "8606c2dc59772aab1babb2f8278695fc91438da928aca4149eaf60073b089062"
+  },
+  {
+    "path": "recovered-evidence/audit/G02-migrations-late.md",
+    "sha256": "89d1f1d26541c3a3b5e50cb003362d99f53d3e2e000971479e0cb0a4ff56acd2"
+  },
+  {
+    "path": "recovered-evidence/audit/H06-data-layer-verify.md",
+    "sha256": "03795e8b8fbf8d5b6c09a32e5dac31b7b170160d4176f0d6e3a99730676864c1"
+  },
+  {
+    "path": "recovered-evidence/audit/G03-routes-betting.md",
+    "sha256": "480ba8019ceffc6724653b6816c8a28f083747d1de4a00faac43012bd12ab408"
+  },
+  {
+    "path": "recovered-evidence/audit/G10b-replay-learning.md",
+    "sha256": "00e7f216f371356741aaeeaf3fe9728432e1fc4905b93943a3422c3982a99f88"
+  },
+  {
+    "path": "recovered-evidence/audit/G04-routes-fantasy-verify.md",
+    "sha256": "5579403947c0cbe905a18283852a5d13a5eb72f638cb5929db4d65d619a9ea0e"
+  },
+  {
+    "path": "recovered-evidence/audit/G14-mlb-verify.md",
+    "sha256": "4870b7d37b080e769b096b9ddf1d7cbba9899c843086d49b62096598aa6e8412"
+  },
+  {
+    "path": "recovered-evidence/audit/G01-platform-db-verify.md",
+    "sha256": "cf67b286580cc094b582823d2a8529c91ab6075b70e96107383c7587f68d8b2d"
+  },
+  {
+    "path": "recovered-evidence/audit/H03-chat-sep10-brief.md",
+    "sha256": "7406076a324b98d796bb577d8e1a3b9b1a517d08b95797f1e07cd30db2139b0d"
+  },
+  {
+    "path": "recovered-evidence/audit/H06-data-layer.md",
+    "sha256": "704bf2d16e3ce6f13b075f75dafea7e6713c2045803bbe31619fe4fa398df43f"
+  },
+  {
+    "path": "recovered-evidence/audit/G10b-replay-learning-verify.md",
+    "sha256": "f855bd16cba03d1e3bf61ea5b2aa66257ffc4c495004eb836ee61824387450dc"
+  },
+  {
+    "path": "recovered-evidence/audit/H01-chat-sep11-codex-exec.md",
+    "sha256": "5eb58a04882a37782f2f8605e3652daf3eaa9dd8899ab19fc1eaa70fae18de58"
+  },
+  {
+    "path": "recovered-evidence/audit/G19-docs-plan-vs-code-verification.md",
+    "sha256": "146fd34b43cdea6495ee0d8f0e4f52f29e62b800d86ec152584b014c81dafe7b"
+  },
+  {
+    "path": "recovered-evidence/audit/G06-nfl-council-research.md",
+    "sha256": "f42be80b6878871f1b24219b6dfde3e785837d77653dff5b713a5aaee879731f"
+  },
+  {
+    "path": "recovered-evidence/audit/G19-docs-plan-vs-code.md",
+    "sha256": "f87395f3fbed1baadea59d966011b08d45e54ab50b44bb87c111cd7fe4f6e2b6"
+  },
+  {
+    "path": "recovered-evidence/audit/H02-chat-sep11-scraper.md",
+    "sha256": "8e5b6455311641f02cc16d3155985b90cedf3fadf779e777107d1d2e3048c58a"
+  },
+  {
+    "path": "recovered-evidence/audit/G09-market-data.md",
+    "sha256": "6afaf6aacc75ed2921c8db3af08b7689a9d5e5d5729c42489b7d4a9c7454986b"
+  },
+  {
+    "path": "recovered-evidence/audit/G16-client-betting-verify.md",
+    "sha256": "eae9094aa0a5aef7532c4acbf9837eac2d90c159af59fa295245930f6f3f0d66"
+  },
+  {
+    "path": "recovered-evidence/audit/G17-tests.md",
+    "sha256": "8ae6f8ef57531ae3fe1a31046464b85d0bf5e4b0b7152eff9b0f865fc19533ae"
+  },
+  {
+    "path": "recovered-evidence/audit/H03-chat-sep10-brief-verify.md",
+    "sha256": "eb6243abdec1da1a5c6cbe135e7784a618d1100c59e231f5650ccfb5ecb33547"
+  },
+  {
+    "path": "recovered-evidence/audit/G10a-audit-evidence-verify.md",
+    "sha256": "0652657c24b42c6363c36e17be28c06c9bbf1934b88e2469103f1e61ba5ba601"
+  },
+  {
+    "path": "recovered-evidence/audit/G17-verify.md",
+    "sha256": "6bcb5522be65a6d9ba86ab247a7d47d6770f53234f6802576e4b1ed02adcd9ff"
+  },
+  {
+    "path": "recovered-evidence/audit/G18-research-python-verify.md",
+    "sha256": "7a8a5b9f71457a9c1f27bba7b8a6066baab14362cb773e00eb8ad7f97142050b"
+  },
+  {
+    "path": "recovered-evidence/audit/G20-docs-evidence-verify.md",
+    "sha256": "2109857e5bd58d50fa1aaea300096152753dd66c322c4c4320198ba4d78cbd02"
+  },
+  {
+    "path": "recovered-evidence/audit/G08-nfl-execution.md",
+    "sha256": "408a72ee080c7f304a5909728d048c213f0ac1e8fe4c80b1eefbe54c3dba7ace"
+  },
+  {
+    "path": "recovered-evidence/audit/G13a-fantasy-draft-trade.md",
+    "sha256": "2a9bfe4ad1de6cedf1227f8e4a4f3338a390c96d178c4333209a83ea37ccbaee"
+  },
+  {
+    "path": "recovered-evidence/audit/G04-routes-fantasy.md",
+    "sha256": "a681ddb4551a995396dbe69772449dd919d9c0359b138179b32a724472cf07bb"
+  },
+  {
+    "path": "recovered-evidence/audit/G01-platform-db.md",
+    "sha256": "bb84cdc2e44998a4768e092d76281fcb04eae6e2be839a216e91f3de1cd7dd10"
+  },
+  {
+    "path": "recovered-evidence/audit/G13b-player-models-verify.md",
+    "sha256": "a97e540a900d37ce4b0c2ea240edd4ccb0942de3fb26b395d8baeba345ff4187"
+  },
+  {
+    "path": "recovered-evidence/audit/G07-nfl-sim-strategy.md",
+    "sha256": "dbdc33c9552b9c1639db3bb3b5f6f384b8a7420f65062107af5c43d7c7504376"
+  },
+  {
+    "path": "recovered-evidence/audit/G20-docs-evidence.md",
+    "sha256": "1b3a5acfb804c31f1a3fa38650c70b232af5ad8db3c8d51bf65cc27713ea9aff"
+  },
+  {
+    "path": "recovered-evidence/audit/G05-nfl-core-model-verify.md",
+    "sha256": "cc271d4dbb582b5f6ca5762d6c18f18f6ebf4e5bc5139c13bd932384aa2b3dee"
+  },
+  {
+    "path": "recovered-evidence/audit/G13c-infra-misc.md",
+    "sha256": "2be5bc2dd6ca52051db7c037e561c5dc50afb7c057fd453ef397086f779cf6d6"
+  },
+  {
+    "path": "recovered-evidence/audit/SYSTEM_AUDIT_2026_09_11.md",
+    "sha256": "e7a6df7615009b01b885e885cf4f305910b2ca3d33fbe70e5c7e2074ddc13c16"
+  },
+  {
+    "path": "recovered-evidence/audit/G11-props-players.md",
+    "sha256": "c8e7fd8120d10c904d616a5d5c8d506e099ce1158b496f8ce79cc61d8ab4732b"
+  },
+  {
+    "path": "recovered-evidence/audit/H05-git-and-codex.md",
+    "sha256": "22a606eca6b1072641ff14cee92b5ae3f907f6d6723e9201482e3a8e2d7347e3"
+  },
+  {
+    "path": "recovered-evidence/audit/G03-routes-betting-verify.md",
+    "sha256": "6e16f381e33545c4d6a7fe7f03a3216f9fcfe72464468bc870bf94278149d6df"
+  },
+  {
+    "path": "recovered-evidence/audit/G18-research-python.md",
+    "sha256": "1011fe77563b3372d3e4265ae2fd0be3843ce0f54e0eb69269ded78d0bd94ec7"
+  },
+  {
+    "path": "recovered-evidence/audit/G08-nfl-execution-verify.md",
+    "sha256": "7f2a0c728d202ae8fddc3733a780dc1913a9ec3b4adcf97c0bbc009688936246"
+  },
+  {
+    "path": "recovered-evidence/audit/COMPLETENESS-CRITIC.md",
+    "sha256": "e665d9ef0d2cee75849be4794ce7d2d1801b3d750ee92e57bddb81f3b3c0bea6"
+  },
+  {
+    "path": "recovered-evidence/audit/G09-market-data-verify.md",
+    "sha256": "45f1a8e96391931210dd99621fc3ad76fc80f9952c735161d64636150b9ea67a"
+  },
+  {
+    "path": "recovered-evidence/audit/G14-mlb.md",
+    "sha256": "04e6685bdf26e2744a7d18e19970acff0a1615e0f3ac335c0c2e905b23d63832"
+  },
+  {
+    "path": "recovered-evidence/audit/H01-chat-sep11-codex-exec-267-268.md",
+    "sha256": "095d9e218b889ea539ba9a37844b7a9222d5b09e53dd93c180f080504d151d94"
+  },
+  {
+    "path": "recovered-evidence/audit/G15-client-fantasy.md",
+    "sha256": "1bdcd47c5d813dbed475b9a89409ddf6087179d6dbe5840f55fb6d813dbc614d"
+  },
+  {
+    "path": "recovered-evidence/audit/G12-news.md",
+    "sha256": "9811dde31c7e96dea731491d468e2b7c8d689ec785212b8f1263164029feb623"
+  },
+  {
+    "path": "recovered-evidence/sweep/editor.md",
+    "sha256": "df7253bbe94e6bcc8ea29aa82460a6da79646f6403bc0ab4bec998d27baa54fa"
+  },
+  {
+    "path": "recovered-evidence/sweep/s5-github.md",
+    "sha256": "7b8d463baceff51ef64829ff596e7ae7ad192a30c7277207f865df2907f2dd9a"
+  },
+  {
+    "path": "recovered-evidence/sweep/s1-news.md",
+    "sha256": "ad73067af31dcb0204fcd8e7090ca4857a4e2db89015abcee52a833723a4a5a6"
+  },
+  {
+    "path": "recovered-evidence/sweep/s4-audits.md",
+    "sha256": "7fb4bba16079b7856d84b42203cca8efeba78d21e88513eb0af25d034be1fff3"
+  },
+  {
+    "path": "recovered-evidence/sweep/s3-research.md",
+    "sha256": "a3856de66d7cced8b7ba41652e9b94dbf19a2db50253556538b99d11a357ba92"
+  },
+  {
+    "path": "recovered-evidence/sweep/s2-models.md",
+    "sha256": "14d4e8f0ff7f277013570b4f2d3531656b05f01cc49196b36909d2274a7c3990"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk4-scoring.md",
+    "sha256": "45f40c7a90940916692acc05ada2c99e7cb3c8da03a65501e2b073174edf333e"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk11-scoring.md",
+    "sha256": "8cbc691404fb19740f963ef5e51ff4cfe6fa06e1894373b2036926124b0731bb"
+  },
+  {
+    "path": "recovered-evidence/research2/F16-dfp-devig-favorite-longshot.md",
+    "sha256": "6b53122841f4c1a0dffe683cb1096b6e5e768b0b8e13d368e4d4cdc3182a056e"
+  },
+  {
+    "path": "recovered-evidence/research2/GITHUB_BUILD_CATALOG.md",
+    "sha256": "ec4ea471eb0281069bbcd0d1884c539a7abaa83ffb4c6fd596b676de8df172e1"
+  },
+  {
+    "path": "recovered-evidence/research2/GN09-injury-network-code.md",
+    "sha256": "f77c5ad6b09ac7c80b458dd53761255f09f1a2e46ccc1c122fc472a8d84cc3f1"
+  },
+  {
+    "path": "recovered-evidence/research2/N09-generative-synthetic-augmentation.md",
+    "sha256": "30aab84b6379d298206422e7f000a0c84c85d9bc8e2f8b3725a28452b594f8a5"
+  },
+  {
+    "path": "recovered-evidence/research2/F08-bayesian-state-space-ratings.md",
+    "sha256": "b3ed4d2f28f4fe3dec6176fa5acd68b50989fcae6ce3666171a2f43608981572"
+  },
+  {
+    "path": "recovered-evidence/research2/F04-clv-unification.md",
+    "sha256": "266d3094d18abe710919002bd07b69c170c35abca4cf144afcec61a5b3431ad1"
+  },
+  {
+    "path": "recovered-evidence/research2/GF01-drive-simulators.md",
+    "sha256": "532a7fa0398f184b941e2fd3fb0ae27f180be3ad3d8de52ebd103f0ebe80f9e3"
+  },
+  {
+    "path": "recovered-evidence/research2/GN07-live-win-probability-code.md",
+    "sha256": "eb8bfe082d1d32d9f7efc50a29cb7eee4e1497c873dbcae0335007017021ac4e"
+  },
+  {
+    "path": "recovered-evidence/research2/GN02-gnn-sports-code.md",
+    "sha256": "0340bff2f5b88131cae168590396950d55294a58fbc67d1cd41f98f9450fbfac"
+  },
+  {
+    "path": "recovered-evidence/research2/GN10-aging-curve-survival-code.md",
+    "sha256": "cdd7c4749121254aa80d5646e25d2f6ec62cd2663166393b4e40b3247b43f045"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk9-scoring.md",
+    "sha256": "b4287625982c70bc1bb4d840a9d7b1c2ea1365f9bacf762132cdecf89904c043"
+  },
+  {
+    "path": "recovered-evidence/research2/N15-route-proxies-from-pbp.md",
+    "sha256": "a629236cfb83814966aa37dc5346a82b976e89bcd4ccb00f70ed65fd6e34aed3"
+  },
+  {
+    "path": "recovered-evidence/research2/GF06-copula-dependence-code.md",
+    "sha256": "2d99503d36007920c45756259c962d3ca1c3d3026786fcee5ccf7f8370cd8e24"
+  },
+  {
+    "path": "recovered-evidence/research2/GN03-transformer-pbp-code.md",
+    "sha256": "558ca3815f088767bc454d248b52e8d80040d2f05e4ab064cc3f3bde6f235f6c"
+  },
+  {
+    "path": "recovered-evidence/research2/F07-sequential-inference-fix.md",
+    "sha256": "f0981be0b8bf4ddcd0db035bb5c5b37958d679902902cc4095eeb7dcc039286c"
+  },
+  {
+    "path": "recovered-evidence/research2/N05-prediction-market-mining.md",
+    "sha256": "8e52f879dbde8eec94e7fb9f658df4ccc0190f10020bec440fee66f8f7ad721a"
+  },
+  {
+    "path": "recovered-evidence/research2/GN01-timeseries-foundation-code.md",
+    "sha256": "b8948b1fbc57cb0f9c163e5286ff31011441d4c6e92205c629499e2e333386ad"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk12-scoring-notes.md",
+    "sha256": "5bcc3d1efb2a76ea53b024cd5b304bd1dcff5769616b1e7194252596eeacb723"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk14-scoring.md",
+    "sha256": "382b97def5ec0429f6bffea559f1f4328097c4a05efbcbbca985baf6424af18c"
+  },
+  {
+    "path": "recovered-evidence/research2/F03-devig-methods.md",
+    "sha256": "57d892f1af4243d05496573e9bf027a6038033ad61e8c1df0a58fea43a827658"
+  },
+  {
+    "path": "recovered-evidence/research2/F09-hierarchical-prop-distributions.md",
+    "sha256": "efb60b2b4bc13d754f96512234bdd74383d9190661efa273406cfe72709968e4"
+  },
+  {
+    "path": "recovered-evidence/research2/N12-mixture-of-experts-council-redesign.md",
+    "sha256": "4115c4b59b436f9539aa9dced1d45b16fdc57e6bd7901d674d09cd9da2819805"
+  },
+  {
+    "path": "recovered-evidence/research2/N10-mixture-density-neural-forecasting.md",
+    "sha256": "08d2e7b92f01408be9603c696138ab6dea058ea4640dc1d086302890029a652b"
+  },
+  {
+    "path": "recovered-evidence/research2/GF10-trial-registry-preregistration-code.md",
+    "sha256": "7d0b5d6fe1daa07cdc2bd45961f676e22fd3aff00007d16a8eea54ea5cfa38ac"
+  },
+  {
+    "path": "recovered-evidence/research2/GF04-bayesian-sports-stan-pymc.md",
+    "sha256": "5c858d93f3e529f45d5b0fd8acacf89b97835046d6a6234e282f6c02d3799458"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk6-scoring.md",
+    "sha256": "7f6ec657d554c2701b5af226cdb0e0e73f2b62c6e5a51ebd30c25ea7b9be5a65"
+  },
+  {
+    "path": "recovered-evidence/research2/GN08-genetic-programming-code.md",
+    "sha256": "a65b02bf8631c851fb6a3200fd494f599ca4bbc6d71c291f6ef41907a59c2f65"
+  },
+  {
+    "path": "recovered-evidence/research2/F11-conformal-calibration.md",
+    "sha256": "3713f32a0ac818164eb1fe73a234283acbda298beccf4c00f69775fd012b48f9"
+  },
+  {
+    "path": "recovered-evidence/research2/N06-rl-for-drive-sim-and-staking.md",
+    "sha256": "75a40c14992fa73a234532d8fcd1abb2f5810c4985ae194a8fbf2c22aff07552"
+  },
+  {
+    "path": "recovered-evidence/research2/N16-dynasty-aging-curves-modern.md",
+    "sha256": "10c14f6972255712fe776762675acce9ad71d028330697df3ab138f405def060"
+  },
+  {
+    "path": "recovered-evidence/research2/F14-entity-resolution-game-keys.md",
+    "sha256": "915ec28d7b5f1e09801b66099c020c17c8fd8614508fbc6fa0790840daf3e3aa"
+  },
+  {
+    "path": "recovered-evidence/research2/F17-margin-distribution-lit.md",
+    "sha256": "b97bba52f43a25683e1c050eb89cd89031b9cb785cb3442c9f47f159e372982e"
+  },
+  {
+    "path": "recovered-evidence/research2/N08-dfs-lineup-optimization.md",
+    "sha256": "53d9416f7cacb9047724b3847f43a30d49a6094c9b8657a5e6fc74c41099fc53"
+  },
+  {
+    "path": "recovered-evidence/research2/N02-graph-neural-networks.md",
+    "sha256": "c5a4777440293f900efb1f64b0d5438846b85b88e149847616e56799ee9f1503"
+  },
+  {
+    "path": "recovered-evidence/research2/N04-llm-as-forecaster.md",
+    "sha256": "246a72c370e1b846ce7c91306de9ce7cf0c8c142a0c79313ab962d8649d113bf"
+  },
+  {
+    "path": "recovered-evidence/research2/F02-forecast-combination.md",
+    "sha256": "5d32fe1c8dcaa04816c068bad401563b07904df87300dba25fbecd57f420dbb7"
+  },
+  {
+    "path": "recovered-evidence/research2/GF02-nfl-ratings-elo.md",
+    "sha256": "79ba3e0ce749c7f2266f5d926e3390ddcd3612f18c047fdf0f2e47f22bd4af96"
+  },
+  {
+    "path": "recovered-evidence/research2/GN04-dfs-optimizer-code.md",
+    "sha256": "5ead928622d9cd139910e4a5322e81fba43dcd7b26d9c0cb024f36e94092d25a"
+  },
+  {
+    "path": "recovered-evidence/research2/F05-bitemporal-pit.md",
+    "sha256": "060a83ada832097adf71b512c71ac7593b34d5ad609f4a056a0af5c208285c87"
+  },
+  {
+    "path": "recovered-evidence/research2/GF07-entity-resolution-code.md",
+    "sha256": "f9a742cc94c1b3e24408cad55d8b8f7b3ca980f2f0ab7707b6fcaa453b78d9d6"
+  },
+  {
+    "path": "recovered-evidence/research2/GN05-prediction-market-client-code.md",
+    "sha256": "4e21b1dc8b10163e142b080a25502e94ff1bf1eb502f42422f2cee868751c617"
+  },
+  {
+    "path": "recovered-evidence/research2/GF03-devig-kelly-libraries.md",
+    "sha256": "90d365fa751740b378ddc1e9db8c7c2a530f1d0158cfa63ca49864ac9753d66d"
+  },
+  {
+    "path": "recovered-evidence/research2/F12-cold-start-transfer.md",
+    "sha256": "356db064a81dc47c8931239f4cbc130882ca6b2ea45f500bbbd7a693daf272d1"
+  },
+  {
+    "path": "recovered-evidence/research2/F01-drive-sim-mechanics.md",
+    "sha256": "c39db135b464edddb84266b403fa2c242752e6465a9635d8e62836aebe79be9e"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk5-scoring.md",
+    "sha256": "3693a235461c9a884d0f209fc54c39a37980b9f578503408130d70c679ce1552"
+  },
+  {
+    "path": "recovered-evidence/research2/N01-timeseries-foundation-models.md",
+    "sha256": "c39aba9300a6ecbe1e103638af1fb52bd76df42466a8678f1c8ebe30d19e1140"
+  },
+  {
+    "path": "recovered-evidence/research2/N11-automl-genetic-programming.md",
+    "sha256": "01f56329eaeb20539b8c1939e6077ca06421c404b3ab4d75d51f6e5e9ade1b24"
+  },
+  {
+    "path": "recovered-evidence/research2/F13-causal-news-impact.md",
+    "sha256": "be30c996f5a34b67f31fe4c331963e25ca05585a9974c104a236a6d945d6e1e4"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk8-scoring.md",
+    "sha256": "ecc8b2a559de0103c64f8b3f08b870bda565fd5b1e6e3116e62afa111ac6af8b"
+  },
+  {
+    "path": "recovered-evidence/research2/N18-social-and-market-sentiment.md",
+    "sha256": "5cfa04b92673a4fa38c188532443f74dd6786b1396f0d594844d6a04b118cd31"
+  },
+  {
+    "path": "recovered-evidence/research2/N07-in-game-live-product.md",
+    "sha256": "1fb49a24e7fb86ee5cd5167147d009a8c777d728f22ceff2cbdefd748f69c188"
+  },
+  {
+    "path": "recovered-evidence/research2/F10-copula-correlation.md",
+    "sha256": "0f2901f4e3fdeb9fde41147e4407b02488694e2f340353d05aae89de08b00db4"
+  },
+  {
+    "path": "recovered-evidence/research2/GN06-mixture-density-neural-code.md",
+    "sha256": "fa197989cb9c1535b147125d66f3722ce09e210ec92976135162d7b460f706bb"
+  },
+  {
+    "path": "recovered-evidence/research2/F15-team-strength-shrinkage.md",
+    "sha256": "d0032fb955540a91ce5fda4a4d78ea1d2b7071ea29f5afa85fd2b9a05c498662"
+  },
+  {
+    "path": "recovered-evidence/research2/GF05-backtesting-frameworks.md",
+    "sha256": "47d4de9986fbada79915a3b7da0e6a5f57dd99534de4906e64864db952f9d1e9"
+  },
+  {
+    "path": "recovered-evidence/research2/FIX_AND_ADD_ARCHITECTURE.md",
+    "sha256": "be3f3c2bdf54c7aaab8e5a3a971513d464c9e2d77df350ae2d6182c1def9f1b1"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk17-scoring.md",
+    "sha256": "1ce3ce9e8e5e76a70ccb03dcc5ddc0ca47c31c2b73ca3d08d272739fa3930e1b"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk2-scoring.md",
+    "sha256": "e74541987af5cf33cb489e70b56e1f6fae5b41e2f7a2e6e386c2691302b2ab49"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk20-scoring.md",
+    "sha256": "e07051f1bffde71699ec0b60e82518f86508900d6521d379ba04f87a4783f717"
+  },
+  {
+    "path": "recovered-evidence/research2/N14-alternative-market-arbitrage.md",
+    "sha256": "5d98d3760ab37753fa1a2a4d13cf416fd7bafc973f290079d99f8f363b61b9da"
+  },
+  {
+    "path": "recovered-evidence/research2/N03-transformers-play-sequences.md",
+    "sha256": "29a2e801f22719825849bf61de94217246154cf0aa1cabb6190d25a79fbf8746"
+  },
+  {
+    "path": "recovered-evidence/research2/N13-injury-network-propagation.md",
+    "sha256": "9f1e15b1c4daf97e14ad38e03722504272fe979a1a26ab033250d3928fe54e04"
+  },
+  {
+    "path": "recovered-evidence/research2/N17-weather-and-venue-causal.md",
+    "sha256": "c8bf793c0a8df8b4bd212628844d4935d12aa445cdfab29791b996f9428befb7"
+  },
+  {
+    "path": "recovered-evidence/research2/GF09-nflverse-ecosystem-code.md",
+    "sha256": "42bfdd3eadaa4512cd9e356cdc4f4cf22bd737d04b56f70c50ef40dd6b37e623"
+  },
+  {
+    "path": "recovered-evidence/research2/F18-audit-architecture-consolidation.md",
+    "sha256": "4ae87d3563d5e799492f03df51a48b7fe394b0ee93e10d5b8cf3908b6ef1c00b"
+  },
+  {
+    "path": "recovered-evidence/research2/chunk7-scoring.md",
+    "sha256": "0fa797513d0e54123ce409a8e9c1f1014dd059a976ee9a6965c09c92a00f3b97"
+  },
+  {
+    "path": "recovered-evidence/research2/GF08-conformal-prediction-code.md",
+    "sha256": "479b35e5b27b0f4f8dbc4f19f13837427b4996daf9668acbae502eebc585527b"
+  },
+  {
+    "path": "recovered-evidence/research2/F06-trial-registry-multiplicity.md",
+    "sha256": "39417cae8fcfcb36cff49a6569b938e28e10a9a22f4f53cd31f019a1c53c168b"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G08-verify-practice-truth.md",
+    "sha256": "1c12f1cab076ad3fd42d67091963cd5841a98fb50c91da80f3494559089590a7"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G03-materiality-verifier.md",
+    "sha256": "1faf5459247a2f21e4a1b488e00b5304ef2d5d2ce706cf6df388db9de2cc50fd"
+  },
+  {
+    "path": "recovered-evidence/audit-system/A04-packet-quotes-time.md",
+    "sha256": "11c7b37331e046cdf6f7f4dcf048db1715962eb36993068ee73756ae4f120206"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G01-forward-packet-price-blind.md",
+    "sha256": "b76185c0e826487b490d127b2e3666bf9dd0d971edc13848a4686f1c7c09edfb"
+  },
+  {
+    "path": "recovered-evidence/audit-system/verify-G09-G16.md",
+    "sha256": "753b28cc8c71260bec537ed9af05d544e6d14e774a548cb24a2c88ffab857bf9"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G25-G31-adversarial-verification.md",
+    "sha256": "56dd191adbcb1e87f40f7972e2277fa846d3177b7952057cf190a3a2894e4229"
+  },
+  {
+    "path": "recovered-evidence/audit-system/verify-ledger-batch-G09-G16.md",
+    "sha256": "b611ac80ce6a72856cc4335ebd29a4587c86cb99cc0a6407630214783f6cf7a1"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G01-verify-materiality.md",
+    "sha256": "7799ba197aa05feb7f2dc6ae02942b99064401fd12fae09eab85c764ea2f5cde"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G06-verify-stale-finding-abort.md",
+    "sha256": "550f456ca4e42cc1d055f979fc9ab8eaf820641ff9fa117ef7fb55f7883eb413"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G05-verify-code-truth.md",
+    "sha256": "198bed3d3b56566c1c4489f18f826d4170a789b763497c17777610e220fc6229"
+  },
+  {
+    "path": "recovered-evidence/audit-system/adversarial-verify-batch-G01-G08.md",
+    "sha256": "170c8e53500a355d2a511b87f0a93e457b562845a0b0574392e3f56a43d66e98"
+  },
+  {
+    "path": "recovered-evidence/audit-system/verify-P2-batch-G25-G31.md",
+    "sha256": "256ec801767cb82199a809c1986db5657f195847f35bd4507b9a336e90c5a661"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G07-verify-materiality.md",
+    "sha256": "040bd63211a0c2c690b54a2779615211c58d0f47f20d27a8611a51312defa8c0"
+  },
+  {
+    "path": "recovered-evidence/audit-system/A03-decision-tape-ledgers.md",
+    "sha256": "0ecb567994e6e61fa8477477aa1e664464ab4a337db36b92c55cbeea7be3ea2d"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G05-verify-practice-truth.md",
+    "sha256": "aaba61f089e46c4be65b8ed1c0e79781a84296625fc5247b647c2b43dcb4a527"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G05-verify-materiality.md",
+    "sha256": "32e754b5c2a99a7806b2ce267445dacb3eeaf92308b3142565373b039de10b73"
+  },
+  {
+    "path": "recovered-evidence/audit-system/verify-G25-G31.md",
+    "sha256": "cabde65bdb63f91ae02f7e4a05ccc6447cdcece0b23e015ab6edce21d54aa9da"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G03-practice-truth.md",
+    "sha256": "5e1fb63e2b6b0d6793947559808b3502c630f7243ca8f4a67ab40ce5802969bb"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G06-verifier-practice-truth.md",
+    "sha256": "0b51e62ec49ccad376f81124493d21d43e405e8f0de3276f5fce3c8e84d9cd0f"
+  },
+  {
+    "path": "recovered-evidence/audit-system/AUDIT_SYSTEM_REVIEW.md",
+    "sha256": "c23e14267c0f9683d6f0668dfac898b2fd3784336086f41b8bb1b22585ec5453"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G06-materiality-verifier.md",
+    "sha256": "d27baa37d41137f3276b21be6fe73aaaf4875ba698eff9f24eae4b62ef8d012d"
+  },
+  {
+    "path": "recovered-evidence/audit-system/verify-materiality-batch.md",
+    "sha256": "9bfc0f2113a3a92456b34ca6bd8cb47b5adebb01e4640a0ae0123b3f2f667a9b"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G09-verify-code-truth.md",
+    "sha256": "bd33441fc8f73790415df41695e0e8652b505804605ff20815bb3735342d9de4"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G08-verify-materiality.md",
+    "sha256": "91ece41f775f094c0960b7420673a24c66134c58c7bf7a2b079a2173330369e7"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G07-verify-practice-truth.md",
+    "sha256": "62291832b59b09328643f984e40237632b1a78d235e9ea3b41d731be2ace779d"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G03-verify.md",
+    "sha256": "af86339da9647c9e4bb64fd56977070a4d58f0be62a0eb060bf543b51fe8a457"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G02-materiality-verifier.md",
+    "sha256": "6eeef0520948bb22d9c400082bbfb441fac2680f88ed5d818b6f818a38d436c7"
+  },
+  {
+    "path": "recovered-evidence/audit-system/A05-replay-engines.md",
+    "sha256": "da68132d3e593943aaa5070cb3354c14538a66778489b4e16321764c5eeb4274"
+  },
+  {
+    "path": "recovered-evidence/audit-system/verify-batch-code-truth.md",
+    "sha256": "7b3c957055feb66983b098faf2ff9cfb7a586ff2e27d3692db3467d825c1ca6f"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G01-practice-truth.md",
+    "sha256": "8681149025f15b2f586eb09224739d3d07a263f427fcf6a5ea17c8f3ffc1038c"
+  },
+  {
+    "path": "recovered-evidence/audit-system/A02-diagnostics-findings.md",
+    "sha256": "00303a66748326577c12fcac82dbefb43989925b034cdafc79d2315eddbff746"
+  },
+  {
+    "path": "recovered-evidence/audit-system/verify-G17-G24.md",
+    "sha256": "be354076d82d48fb327f3a31ed1e346803902f1480f1b1cfc7b77769d34fe9f6"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G02-verify-practice-truth.md",
+    "sha256": "20fc3299c92d6362f8e648bc6bb5b73713cee273de6b1d568e1113757299f51d"
+  },
+  {
+    "path": "recovered-evidence/audit-system/A01-blind-audit-core.md",
+    "sha256": "bc5b7a278b480f8f38fedfbfddb3adf073df56a66677b18e0b0043d35bcc9680"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G04-practice-truth.md",
+    "sha256": "3ce84b7b6d5173018a231a228e1c568f4e39c9f4ac81088e9963b80e69db3cf8"
+  },
+  {
+    "path": "recovered-evidence/audit-system/verify-audit-gaps-G17-G24.md",
+    "sha256": "e3a0cd9c0706f83facbdc444570427dea650394482a87d455e05cf5d9480cd64"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G02-verify-code-truth.md",
+    "sha256": "dec93fd3179484c02e4cc8bc5ad3c313accf599ce1eef26107ec822a5d4dfeb2"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G07-verify-code-truth.md",
+    "sha256": "dac57655747fe8ab59a13d58b22b127cf33fba57c829f00142e9bf0d7c1e652f"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G04-materiality-verify.md",
+    "sha256": "ed3e8f2a81b73b2d6e24e27a35ee1e6ebb40618b6765fe0f3dae0604dc81deed"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G08-verify-code-truth.md",
+    "sha256": "ba754e0708035a359804655a39a2081e1e6123ee0fee8c8bab4e7d45f97cdcdb"
+  },
+  {
+    "path": "recovered-evidence/audit-system/G04-verify-shadow-ledger-post-kickoff.md",
+    "sha256": "afd6165a83fc189e0e22ad276672a4229da17f3e13a38b94b555e13aa10b57c5"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/glickman_2001_dpcmsv.pdf",
+    "sha256": "260a532da364877a2b3d4bff2bd00b50e44d30363d1530318305e747364b867d"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/koopman_lit_2012_dbp.txt",
+    "sha256": "8f3f6da36a70857aace9db6932faf466cf40795a07c71a00a24afe1d09bba7e6"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/koopman_lit_2012_dbp.pdf",
+    "sha256": "587d7aad05960194fc08d3a64b608b45f1a105f8a15369b74c456300f9c54c4a"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/glickman_2001_dpcmsv.txt",
+    "sha256": "b660f36201d7d600b19c4aa5fc672182103199f4b73aa9ba88c296dedceaa274"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/glickman_stern_1998.txt",
+    "sha256": "b7ee21069985b5fab8239393f2cf8143b1243175d9d8c6270f10a1512def1b3b"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/koopman_lit_2019_gas.pdf",
+    "sha256": "e6e8ae7643c198977c79c3d38001503f45b4c17c4ddd20b26e612c0f7bdcc0ed"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/szczecinski_tihon_2021_kf.txt",
+    "sha256": "4a050733328deb53a5f8488d4c2be2dba2cb5e67eabb0f68cfc44f5c6c69b178"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/lopez_matthews_baumer_2018.pdf",
+    "sha256": "265462196277343e7575b09916f09ba32bd5ebfc90dfc71fb362cde23f8417bb"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/koopman_lit_2019_gas.txt",
+    "sha256": "aadbbce1e2bce4545fca02bd52eea8de36f6986797151bf038d584cad3fc9c5a"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/szczecinski_tihon_2021_kf.pdf",
+    "sha256": "bc91f7280f7fd9fc64cc64f25091a8567bb9d9457746c21426e09ead2ea8d06e"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/glickman_stern_1998.pdf",
+    "sha256": "02639edb579b66ad431049d5a649438c8516756797e8b4534d64291c6785e630"
+  },
+  {
+    "path": "recovered-evidence/source-papers/papers/lopez_matthews_baumer_2018.txt",
+    "sha256": "cfb2b2aafb2cfe0bb439bab3c64c59ff9b8c5def086660fc3dfe5bc5da20ae15"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/qian_hua_2004.pdf",
+    "sha256": "4aa832f56f7ac6333f64a9198637b7bda4ef5b1515a8155ba2e2c684004aa2ff"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/honey.txt",
+    "sha256": "b546f42eb23a177efcca8b38d93ada44588159f2296c565cfa322c3a13e3dee4"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/frazier2023.c.txt",
+    "sha256": "83d98a709a677d75a86a069af75114e9e523ca2fa48f583fee2060dccde93399"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/frazier2023.txt",
+    "sha256": "24cf65467eea25591b451d810a5b93380cc74453de813da949d9944e2d9a61d3"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/timmermann2010.pdf",
+    "sha256": "c601070969beec05944062e791746e6de3735d71551b9f1c32d72f7e9114656c"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/martin_notes.txt",
+    "sha256": "f497d78fe3bc8361c33bfc37937f8f8d9f4d269e5d34b6980984a9f4ebfeee48"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/erc_slides.txt",
+    "sha256": "c99496ccebafca9935f6394419dba05e83d4d7c195c0db561e42c8e562e57fb4"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/claeskens2016.txt",
+    "sha256": "de55a8c644c88b964b7f10dd5676399c913044722a8343e207fda8ad4f1916d2"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/frazier2023.plain.txt",
+    "sha256": "37f658e733f8350ef638a028d01624cbaed6f5771aad332556a7e07a37753cfc"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/smithwallis2009.c.txt",
+    "sha256": "38499c497af67aa9754a8b09a154f19e75e1118b227f8bbfdf8f8e098800c250"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/wang2022review.plain.txt",
+    "sha256": "316c45bd1b29eb69eb3af9d392e35644ee934c265e3733293935c0155d6fcce1"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/tim.txt",
+    "sha256": "35a2b660251be5e221d682bc290bd8c533b81c9257e4379308027ef20849a94f"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/honey.pdf",
+    "sha256": "45aa32c6ced2108e60e4c2a6539944ac6eb4f7ebeef704357d8b82481f49172f"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/qian_hua_2004.txt",
+    "sha256": "28b35b852411662375d3d395cc5d66dba798614dfc2573eee7a112bd5c67c955"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/timmermann2010.plain.txt",
+    "sha256": "0a2024eebd2388d368ae2b363e1c17c55c2b831a07a768d77ec65329c2204eb6"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/frazier2023.pdf",
+    "sha256": "8a2321c37473ab58fd8c451a3c92fb476505c0bf7414d4fc2d1e03b795f9a043"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/erc_slides.pdf",
+    "sha256": "d7f11320a1674cb674234ff77b8f942f7b33e9707e347c85ee54c7f458b33890"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/martin_notes.pdf",
+    "sha256": "89a171f31fe15580885f5aff8b5cca79b69f20a4b6a0b8efe0d461bea340d60c"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/ranjan2010.plain.txt",
+    "sha256": "3f2a9c250a01c9f2e2042f244a6fc6f95d44e5c24e04fa7b5cf53bc28aff0ac5"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/claeskens2016.pdf",
+    "sha256": "c861da193a9cc3216b523484dade99750a9399d8417133b6c1037a19fbb40924"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/timmermann2010.c.txt",
+    "sha256": "be8a77a1270877c7790d78b5b10302a3d40d171871183cd42ab160ac21d6a759"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/indep_bets.pdf",
+    "sha256": "619b4ba86a6debf61823c1cfad4545bdfd8aa5a6d1665e0de3f4e47769a4b59e"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/yao2018.plain.txt",
+    "sha256": "bdcb2d669920a6a4872f4d7de6498727a7d36ebc5ccb6d74c098f54e090dcd92"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/flam_ft.txt",
+    "sha256": "92cc745c02304019597be549a6c24db191ceaa2b319e29a160d62ee746381fd1"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/smithwallis2009.pdf",
+    "sha256": "a382213620835e2ae4691c16447102e9e78a3cf5fcb5ec0b965e9b2e37dfaada"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/ranjan2010.pdf",
+    "sha256": "e12f4e5976b4129fcc504f5bb24cdb6672b0bce1be66f49a3fcc5f676ac499cb"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/wang2022review.pdf",
+    "sha256": "ff77bf7dbb9892c49650bdf89eedeeb21518591a63ee7a991d7cc91e393a4a75"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/roncalli_rpb.txt",
+    "sha256": "f270a06779a3bf0639d90c389f3bb3bcd2f9a9bfa449d612e2b9d845a9baaaf8"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/yao2018.pdf",
+    "sha256": "d7296a69864fd0e8d6891dac527e79107314179a8e4e0e010b2b6c7407aca5bf"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/flam_ft.pdf",
+    "sha256": "6f22b46f5e9e5086ca22995e6b3aabc855e2ef0636934406021eae9b2c87aa00"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/claeskens2016.c.txt",
+    "sha256": "53b9c0f973363956e1efa34b3da28690a3903a75fbcb0e65446a343cdc4a061f"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/wang2022review.c.txt",
+    "sha256": "91027ac5d61ebb5239735141b507f773fd288003a1ac89a84886bbb5160e60e6"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/ranjan2010.c.txt",
+    "sha256": "1bbaee2622e1d6a399601418f1e24b0c6b5940a4c7cfbad7169fb77ed68558c9"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/indep_bets.txt",
+    "sha256": "ca6d69c4bb96ced386ba4bbfa99f45f83c84b813754c51a594273928a25edfd9"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/fraz.txt",
+    "sha256": "5773b084a7c4dd24154d0ee3c2a70bb4389556f7bcad8e25574b347a7ee041b8"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/smithwallis2009.plain.txt",
+    "sha256": "9e2ad72935f0675cc3a45cf75a24b8dd475baffa24bf0523e0d7b04a607cf361"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/roncalli_rpb.pdf",
+    "sha256": "c8a82458ee90060f5976261becbb777ecede7b3ee5bb0201b50c28cb2f764884"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/claeskens2016.plain.txt",
+    "sha256": "085f1059cd130ac529232402cc82355ea2726098e2c8605d276fdd2e11b52220"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/wang.txt",
+    "sha256": "f52bfae5fab7268268aedd46de1bb74757b8dfc0c34c60f2814dd3679c0ddfe3"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/yao2018.txt",
+    "sha256": "7510f249d8ad09eb209c506cdbc7b972e327c28328c5605b7ee2d214b480ba1e"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/ranjan2010.txt",
+    "sha256": "61ea9a0c383154e865e80b6a4ee73e0d1003b03e98d880b8fa786ecc4e90a375"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/yao2018.c.txt",
+    "sha256": "12c901c8c0043144d81ebd09450b510a52b9bfd4e5c40a880e14eb2a59786cc0"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdf/wang2022review.txt",
+    "sha256": "964a26e0267ff32b17a3b9275c020ce25d5cd0ed12a5c7536707247451e109ca"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/lei.txt",
+    "sha256": "78ed0378412880260e341349282047f95ab8eef31271f816d17c9c85ab50718d"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/cqr.txt",
+    "sha256": "b754c948256dd520ba5ef545426e2ee03b64c2dd9a3309a4afbe5fa8da09f63e"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/cpd.txt",
+    "sha256": "7f708629ababba5680eb098124ba14b4c68b393b5b2f126e88053f94089173de"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/enbpi.txt",
+    "sha256": "31a887bcdfc27f719c8b25551847dc3adc5c1a54c1b9cc303a371a788729181c"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/gentle.txt",
+    "sha256": "43cf8a69c65d4c7aa31eb262be1e2020ea53f5e69a5031a8d7a2aa5783d7dc29"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/condguar.txt",
+    "sha256": "b305d4e8dd06464453a7b15bff3e0294e84bc8bb1c80596744fa577cfa697222"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/agaci.txt",
+    "sha256": "c1931164613dae9bd638f79274d4808cab027391b62eefafb830048c6da55db9"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/pid.txt",
+    "sha256": "949b9f3488f4f2e3273314636ca748d05dc9284aeeaaf90fac5fbcb52f849430"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/limits.txt",
+    "sha256": "f3c42ef49283533e47e0a8aea9a6ba3c0e97987070e8e65f3ae66f3d729fbf5c"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/nexcp.txt",
+    "sha256": "df70c3b7df60737cce86ac56f93cdef9c538bdf30194eece1ac0ccd3495ac3f0"
+  },
+  {
+    "path": "recovered-evidence/source-papers/pdfs/aci.txt",
+    "sha256": "e02f70732aef7e5d2f2de3eb67e5695121b3defb182028f4c75328ec36703525"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research2/yao-stacking-2018.pdf",
+    "sha256": "d7296a69864fd0e8d6891dac527e79107314179a8e4e0e010b2b6c7407aca5bf"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research2/beggy_kelly.pdf",
+    "sha256": "d48439cae4c843aadcd6900bf4dc37854d748ea6e973c8a548893cab8cb5de1e"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research2/zhang_zohren_rl_trading.pdf",
+    "sha256": "5738aaa632526b11be01178b7ef966986d3d0cbe1ea3f3620be06bfc96fc261c"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research2/giacomini-white-2006.pdf",
+    "sha256": "712ea4b631759231a36a7c6680131a4ce65d1500da5ebb7135e56989d85be2df"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research2/rl_trading_survey_2212.pdf",
+    "sha256": "6781e2dcbd1cb025879f8747725379ce9a5b65af45d69b4bb460736155521afd"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research2/dm-20yrs-later.pdf",
+    "sha256": "e586732ea4c3a195440dd5e4502e73f86f0d42240b9dd92c2b63c29669d947cc"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research2/mdpi_rl_survey.pdf",
+    "sha256": "92c8acbdbcbd602884d442b5f4eef8ed480dfc3d1780e21d9b14313824ebb12d"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research2/dm-1995.pdf",
+    "sha256": "e6c8b9f4fe062dfe35412624b5f36939166059c61256e651d6377f59db07002f"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research2/claeskens-puzzle-2016.pdf",
+    "sha256": "c861da193a9cc3216b523484dade99750a9399d8417133b6c1037a19fbb40924"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research/pdftxt/stephenson.txt",
+    "sha256": "50296c2407c42ef96576a791c3ef7b0db29c7f9cbbc832fc811d20455ed10793"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research/pdftxt/kull.txt",
+    "sha256": "6444c4c2eb52ececdeef2bfc0803b2cfe8cd855f3a14f34267a31663597fc59c"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research/pdftxt/walsh.txt",
+    "sha256": "14e00212c8eeaa9c5626b490c61e074ec89eaf357d5ba1857516c648273b42c7"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research/pdftxt/brocker.txt",
+    "sha256": "8a10e736d1907c076ed7735d78e03ecb73af89caab6bce7e2b6e0b563bef9371"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research/pdftxt/gneiting.txt",
+    "sha256": "80c52fd988b1a3639b75100dbf998f3943e73fc91177a1195627f2224060372e"
+  },
+  {
+    "path": "recovered-evidence/source-papers/research/pdftxt/dimitriadis.txt",
+    "sha256": "db4e611f149eb0aa33d90cc695ad39ddc527a4dd6d4ac747d4fdff50deac3d29"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-stacking-ratings-as-features.md",
+    "sha256": "d6a083e2295c7cfeeda989b6d2a2724ba968832b0ca1742d55ab96c54f78e0dd"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-js-vs-python-implementation.json",
+    "sha256": "8ea81e212d801d803693b6dacf3c62d6e6a29564c4bb5e8ab41b4710a201157d"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-online-learning-drift.json",
+    "sha256": "55f5c7274fbaac88abad098fe5c24b34a450ea07e2e554bcb02b955d7c931116"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-gbm-small-tabular.md",
+    "sha256": "95eeb3d781a5db2570472031a591306e698778514683f6de00b38098676e7d51"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-situational-weather-rest.json",
+    "sha256": "4400801b06e7495c460ec4a9f75f1ae4cf63685dd452ac04ca26d7829fe876aa"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-nfl-ml-spread-literature.md",
+    "sha256": "f4aa2be37e359ba0bab43f37b69de9e83e42338973bd262931402552c825099a"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-walk-forward-validation.json",
+    "sha256": "28edf7eb66529f1477ca7f2f9c90c8dd7a88c9c74af145c990de50b76157eac9"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-bet-authority-calibration.json",
+    "sha256": "35bc05131c6080a7a36a56db7cb132c33f1e035c6af9324a68ae274034a4d47a"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-stacking-ratings-as-features.json",
+    "sha256": "263159f8f2f07fc58e3255deb45c12764662cc05a0689b85bac39fd1802953df"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-market-information-features.json",
+    "sha256": "f29a79f1e51fb0dd5264a5c274372a104b37a1b642e2fe0f954c14bbf7775779"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-situational-weather-rest.md",
+    "sha256": "68665a2036bbef75d202f915b04fba0eb4abab0eb37d3d39080ebbf27f14505a"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-qb-injury-availability-value.json",
+    "sha256": "268f257d0ecb291e5d8dd39e1dec04051a45d3ab2c6b2153cff9b9f494843a3d"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-point-in-time-ml-architecture.json",
+    "sha256": "073843df07a4f61912702c08742cbaf40b0aa2230a6a9dab3b81b4d04bf515d0"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-nflverse-feature-engineering.md",
+    "sha256": "4c7a43995a249323a85bb3c1713009c539608073abef2cb43c3d79e1d62d1be3"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-gbm-small-tabular.json",
+    "sha256": "8c72713967988b315fd7c96e49cace57b2639089be5bb70e90fb52d1e3916f68"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-online-learning-drift.md",
+    "sha256": "3f26bba889c3f72d8a6365e480e000efdfe4d33704ff797315224ee6f2767b98"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-point-in-time-ml-architecture.md",
+    "sha256": "01986e3328b4d872d28c1bb9f2cf47511e1fd83ca0a5d17a287c5e37cbd4fce9"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-walk-forward-validation.md",
+    "sha256": "fa88fb9d119d455438ffcf6910968c8e3582b61771a7bdcf316c9c514d7fa02f"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-market-information-features.md",
+    "sha256": "bc5bcc1deaa1c346c2158e7a3ea6222a18be10dfba705e5da5d00af388f17223"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-nfl-ml-spread-literature.json",
+    "sha256": "710587e1b8bb08e775d98d601d9c37893d023edcb3287ddf72c32463312fe895"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-qb-injury-availability-value.md",
+    "sha256": "717b3a0a74f11c82c4d37be66df65716b270ad6a661efc8e383117fba3e98b67"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-totals-modeling.json",
+    "sha256": "c6861ca7fcfa175533d0d0ecdd0322e2add72f4a196cfa15e1b49660e407cae3"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/verify-nflverse-feature-engineering.json",
+    "sha256": "0e3f4550fa6f42afb2964857cbda34d867f50b11129fc3c51bffd46be065713b"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-bet-authority-calibration.md",
+    "sha256": "9cbec885bd1a8a9b8bfb395935e3c9ccc2f4b4b328a74eb1857dec4d6958474f"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-open-source-nfl-model-repos.md",
+    "sha256": "7e9ca70faec9e2d0e9c2ed424a757b88b7413c3502b52fe4c2f799243f84a1f9"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-js-vs-python-implementation.md",
+    "sha256": "654a0e45c7cddbbc9fd66d015ae74405cc8fa364cff7bf31fad989ebc3b4e1ac"
+  },
+  {
+    "path": "recovered-evidence/sept14/wf_65f8c9e5-bf5/research-totals-modeling.md",
+    "sha256": "c7a34f4c3d346de81305ddf15644e1d10bbb6d5abd7f24cddf72a286998fafe5"
+  }
+]

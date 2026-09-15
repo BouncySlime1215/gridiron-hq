@@ -1,0 +1,1026 @@
+          Equally-weighted Risk contributions:
+              a new method to build risk
+             balanced diversified portfolios
+
+                           Séminaire ???
+
+  Sébastien Maillard, Thierry Roncalli and Jérôme Teiletche∗
+
+                            September 2008†
+
+
+
+∗ Therespective affiliations are SGAM AI, University of Evry and SGAM AI, and
+University of Paris Dauphine and LODH.
+† Theseslides and the corresponding working paper may be downloaded from
+http://www.thierry-roncalli.com.
+                                          Agenda
+
+  • The asset allocation problem
+  • Heuristic solutions: minimum variance and 1/n portfolios
+  • A new method: the Equal Risk Contributions (ERC) portfolio
+  • Properties of the ERC portfolio
+  • Some practical applications
+
+
+
+
+Equally-weighted risk contributions portfolios                   1
+1       The asset allocation problem
+
+
+
+
+    • The classical mean-variance model
+    • Two heuristic solutions
+       • The minimum variance portfolio
+      • The 1/n portfolio
+
+
+
+
+Equally-weighted risk contributions portfolios
+The asset allocation problem                     1-1
+1.1 The limitations of the classical mean-variance
+        model
+
+
+
+The classical asset-allocation problem is:
+
+                         x? (φ)      =      arg min x>Σx − φx>µ
+                                                 x
+                                    u.c. 1>x = 1 and 0 ≤ x ≤ 1
+⇒ Main difficulty is the sensitivity of the solution to small changes in
+the inputs.
+
+
+
+
+Equally-weighted risk contributions portfolios
+The asset allocation problem                                          1-2
+An illustrative example
+
+(0) (µi, σi) are respectively equal to (8%, 12%), (7%, 10%),
+    (7.5%, 11%), (8.5%, 13%) and (8%, 12%). The correlation matrix
+    is C5 (ρ) with ρ = 60%.
+(a) ρ = 50%
+(b) µ2 = 8%
+(c) ρ = 50% and µ2 = 8%
+(d) µ3 = 10%
+
+⇒ We compute optimal portfolios x∗ such that σ (x∗) = 10% :
+
+                    Case      (0)          (a)    (b)     (c)      (d)
+                     x1      23.96       26.46   6.87    6.88    21.64
+                     x2       6.43        0.00   44.47   33.61    0.00
+                     x3      16.92        6.97   0.00    0.00    22.77
+                     x4      28.73       40.11   41.79   52.63   33.95
+                     x5      23.96       26.46   6.87    6.88    21.64
+
+Equally-weighted risk contributions portfolios
+The asset allocation problem                                             1-3
+Some equivalent portfolios
+
+Let us consider the case (0) and the optimal portfolio x∗ with
+(µ (x∗) , σ (x∗)) = (7.99%, 10%). Here are some portfolios which are
+closed to the optimal portfolio:
+  x1     23.96              5        5      35      35      50       5      5       10
+  x2      6.43     25               25      10      25      10      30              25
+  x3     16.92      5       40              10       5      15               45     10
+  x4     28.73     35       20      30       5      35      10      35       20     45
+  x5     23.96     35       35      40      40              15      30       30     10
+ µ (x)    7.99    7.90     7.90    7.90    7.88    7.90    7.88    7.88     7.88   7.93
+ σ (x)   10.00   10.07    10.06   10.07    10.01   10.07   10.03   10.00   10.03   10.10
+
+
+⇒ These portfolios have very different compositions, but lead to very
+close mean-variance features.
+
+⇒ Some of these portfolios appear more balanced and, in some
+sense, more diversified than the optimal potfolio.
+
+Equally-weighted risk contributions portfolios
+The asset allocation problem                                                               1-4
+Equally-weighted risk contributions portfolios
+The asset allocation problem                     1-5
+1.2 Some solutions
+  • Portfolio resampling (Michaud, 1989)
+  • Robust asset allocation (Tütüncü and Koenig, 2004)
+
+⇒ Market practice: many investors prefer more heuristic solutions,
+which are computationally simple to implement and appear robust as
+they are not dependent on expected returns.
+
+  • The minimum variance (mv) portfolio
+    It is obtained for φ = 0 in the mean-variance problem and does
+    not depend on the expected returns.
+  • The equally-weighted (ew or 1/n) portfolio
+    Another simple way is to attribute the same weight to all the
+    assets of the portfolio (Bernartzi and Thaler, 2001).
+
+
+
+Equally-weighted risk contributions portfolios
+The asset allocation problem                                         1-6
+The minimum variance portfolio
+
+In the previous example, the mv portfolio is x1 = 11.7%, x2 = 49.1%,
+x3 = 27.2%, x4 = 0.0% and x5 = 11.7%.
+
+⇒ This portfolio suffers from large concentration in the second asset
+whose volatility is the lowest.
+
+The 1/n portfolio
+
+In the previous example, the ew portfolio is
+x1 = x2 = x3 = x4 = x5 = 20%.
+
+⇒ This portfolio does not take into account volatilities and
+cross-correlations!
+
+
+   How to build a 1/n portfolio which takes into account risk?
+
+
+Equally-weighted risk contributions portfolios
+The asset allocation problem                                        1-7
+2       Theoretical aspects of the ERC portfolio
+
+
+
+
+    • Definition
+    • Mathematical link between the ew, mv and erc portfolios
+    • Some analytics
+    • σmv ≤ σerc ≤ σ1/n
+    • Numerical algorithm to compute the ERC portfolio
+    • The existence of the ERC portfolio
+
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                        2-1
+2.1 Definition
+                 p
+Let σ (x) = x>Σx be the risk of the portfolio x. The Euler
+decomposition gives us:
+                                     n
+                                     X             n
+                                                   X   ∂ σ (x)
+                         σ (x) =     σi (x) =     xi ×         .
+                                 i=1          i=1        ∂ x i
+with ∂xi σ (x) the marginal risk contribution and σi (x) = xi × ∂xi σ (x)
+the risk contribution of the ith asset.
+
+Starting from the definition of the risk contribution σi (x), the idea of
+the ERC strategy is to find a risk-balanced portfolio such that the
+risk contribution is the same for all assets of the portfolio:
+
+                                         σi (x) = σj (x)
+
+
+Remark: We restrict ourseleves to cases without short selling.
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                2-2
+An example
+
+Let us consider the previous case (0). We have:
+             σ (x) = 9.5%           xi           ∂xi σ (x)   xi × ∂xi σ (x)   ci (x)
+                   1              19.2%           0.099          0.019        20%
+                   2              23.0%           0.082          0.019        20%
+                   3              20.8%           0.091          0.019        20%
+                   4              17.7%           0.101          0.019        20%
+                   5              19.2%           0.099          0.019        20%
+
+
+ci (x) is the relative contribution of the asset i to the risk of the
+portfolio:
+
+                                  ci (x) = σi (x) /σ (x)
+                                           xi × ∂xi σ (x)
+                                         =
+                                                σ (x)
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                               2-3
+2.2 Mathematical comparison of the ew, mv and erc
+        portfolios
+
+  • ew
+                                                 xi = xj
+  • mv
+                                            ∂ σ (x)   ∂ σ (x)
+                                                    =
+                                              ∂ xi      ∂ xj
+  • erc
+                                            ∂ σ (x)      ∂ σ (x)
+                                       xi           = xj
+                                              ∂ xi         ∂ xj
+
+⇒ The ERC portfolio may be viewed as a portfolio “between”
+the 1/n portfolio and the minimum variance portfolio.
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                           2-4
+2.3 Some analytics
+
+The correlations are the same                           The solution is:
+                                                       σi−1
+                                        xi = Pn         −1
+                                                   j=1 σj
+The weight allocated to each component i is given by the ratio of the
+inverse of its volatility with the harmonic average of the volatilities.
+
+
+The volatilities are the same                        We have:
+                                                             −1
+                                                 n
+                                                 X
+                                     xi ∝             xk ρik 
+                                                 k=1
+The weight of the asset i is proportional to the inverse of the
+weighted average of correlations of component i with other
+components.
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                   2-5
+The general case                We have:
+
+                                             xi ∝ βi−1
+The weight of the asset i is proportional to the inverse of its beta.
+
+Remark 1 The solution for the two previous cases is endogeneous
+since xi is a function of itself directly and through the constraint that
+P
+   xi = 1.
+
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                2-6
+2.4 The main theorem (σmv ≤ σerc ≤ σ1/n)
+Consider the following optimization problem:
+                                                           q
+                              x? (c)     =             x>Σx
+                                                 arg min
+                                              P
+                                                 n
+                                             
+                                                i=1 ln xi ≥ c
+                                        u.c.   1>x = 1
+                                             
+                                             
+                                               0≤x≤1
+Notice that if c1 ≤ c2, we have σ (x? (c1)) ≤ σ (x? (c2)). Moreover, we
+have x? (−∞) = xmv and x? (−n ln n) = x1/n. The ERC portfolio
+corresponds to a particular value of c such that −∞ ≤ c ≤ −n ln n. We
+also obtain the following inequality:
+
+                                       σmv ≤ σerc ≤ σ1/n
+
+
+⇒ The ERC portfolio may be viewed as a form of
+variance-minimizing portfolio subject to a constraint of
+sufficient diversification in terms of component weights.
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                             2-7
+2.5 Another result
+
+
+
+Let us consider the minimum variance portfolio with a constant
+correlation matrix Cn (ρ). The solution is:
+                                                   Pn     ³   ´−1
+                                          −2
+                     − ((n − 1) ρ + 1) σi + ρ j=1 σiσj
+             xi = P    µ
+                                                      P     ³     ´−1¶
+                   n                           −2       n
+                   k=1   − (( n − 1) ρ + 1 ) σk   + ρ   j=1 σk σj
+
+The lower bound of Cn (ρ) is achieved for ρ = − (n − 1)−1. and we
+have:
+                           Pn    ³    ´−1
+                            j=1 σi σj             σi−1
+                  xi = P     P     ³     ´−1 = Pn      −1
+                                                          → erc
+                                                k=1 σk
+                         n     n
+                         k=1 j=1 σk σj
+
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                 2-8
+2.6 Numerical algorithm to compute the ERC portfolio
+The ERC portfolio is the solution of the following problem:
+                    n                                                               o
+             x? =     x∈[   0, 1 n : x>1 = 1, σ
+                                 ]                  i (x) = σj (x)   for all i, j
+If the ERC portfolio exists, there exists a constant c > 0 such that:
+
+                      x ¯ Σx = c1 u.c. 1>x = 1 and 0 ≤ x ≤ 1
+We may show that solving this problem is equivalent to solving the
+following non-linear optimisation problem:
+
+                            x?       =   arg min f (x)
+                                 u.c. 1>x = 1 and 0 ≤ x ≤ 1
+with:
+                                 n
+                                 X                   n
+                                                     X
+                  f (x) = n            x2     2
+                                        i (Σx)i −           xixj (Σx)i (Σx)j
+                                 i=1                i,j=1
+⇒ numerical solution may be obtained with a SQP algorithm.
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                                2-9
+2.7 An example
+
+We consider a universe of 4 risky assets. Volatilities are respectively
+10%, 20%, 30% and 40%.
+
+The case of the constant correlation matrix
+
+                                         ρ = C4 (50%)
+The 1/n portfolio
+
+            σ (x) = 20.2%            xi      ∂xi σ (x)   xi × ∂xi σ (x)    ci (x)
+                   1                25%       0.068          0.017        8.5%
+                   2                25%       0.149          0.037        18.5%
+                   3                25%       0.242          0.060        30.0%
+                   4                25%       0.347          0.087        43.1%
+
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                            2-10
+The minimum variance portfolio
+
+            σ (x) = 10.0%            xi          ∂xi σ (x)   xi × ∂xi σ (x)   ci (x)
+                   1               100%           0.100          0.100        100%
+                   2                0%            0.100          0.000         0%
+                   3                0%            0.150          0.000         0%
+                   4                0%            0.200          0.000         0%
+
+The ERC portfolio
+
+             σ (x) = 15.2%            xi         ∂xi σ (x)   xi × ∂xi σ (x)   ci (x)
+                    1                48%          0.079          0.038        25%
+                    2                24%          0.158          0.038        25%
+                    3                16%          0.237          0.038        25%
+                    4                12%          0.316          0.038        25%
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                               2-11
+The case of a general correlation matrix
+                                                                  
+                               1.00
+                              0.80 1.00            
+                                                   
+                           ρ=                      
+                              0.00 0.00 1.00       
+                               0.00 0.00 −0.50 1.00
+
+
+The 1/n portfolio
+
+            σ (x) = 11.5%             xi     ∂xi σ (x)   xi × ∂xi σ (x)    ci (x)
+                   1                 25%      0.056          0.014        12.3%
+                   2                 25%      0.122          0.030        26.4%
+                   3                 25%      0.065          0.016        14.1%
+                   4                 25%      0.217          0.054        47.2%
+
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                            2-12
+The minimum variance portfolio
+
+            σ (x) = 8.6%           xi            ∂xi σ (x)    xi × ∂xi σ (x)     ci (x)
+                  1              74.5%            0.086           0.064         74.5%
+                  2               0%              0.138           0.000           0%
+                  3              15.2%            0.086           0.013         15.2%
+                  4              10.3%            0.086           0.009         10.3%
+
+The ERC portfolio
+
+            σ (x) = 10.3%            xi           ∂xi σ (x)    xi × ∂xi σ (x)    ci (x)
+                   1               38.4%           0.067           0.026         25%
+                   2               19.2%           0.134           0.026         25%
+                   3               24.3%           0.106           0.026         25%
+                   4               18.2%           0.141           0.026         25%
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                                  2-13
+2.8 Existence of the ERC portfolio
+
+
+⇒ In the first version of the working paper, we found examples
+without numerical solution. These examples suggest us that the ERC
+portfolio may not exist in some cases.
+
+⇒ In the last version of the paper, we prove that the ERC portfolio
+always exists !
+
+⇒ When the optimization problem is tricky, we have to replace the
+constrained problem with another optimization problem without the
+           P
+constraint   xi = 1 and rescale the solution.
+
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                          2-14
+2.9 The impact of the cross-correlations
+
+In the case where the cross-correlations are the same, the ERC
+portfolio does not depend on the correlation matrix and may be
+computed analytically. The question is then the following∗:
+
+    How much the general ERC solution differ from the ERC
+         solution in the constant correlations case?
+
+Let us consider an example with (σ1, σ2, σ3) = (10%, 20%, 30%) and
+ρ = C3 (r). The solution is x1 = 54.54%, x2 = 27.27% and
+x3 = 18.18%. In the next Figure, we represent the ERC solutions
+when one cross-correlation ρi,j changes. In particular, x1 may be very
+small if the cross-correlation between the second and third assets is
+negative.
+
+
+∗ It was suggested by A. Steiner (http://www.andreassteiner.net/performanceanalysis/).
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                                        2-15
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio         2-16
+We consider now different examples with 3 or 4 assets and a general
+correlation matrix:
+                                                   
+                                           1
+                                   ρ     1          
+                                   1,2              
+                                ρ=                  
+                                   ρ1,3 ρ2,3  1     
+                                    ρ1,4 ρ2,4 ρ3,4 1
+
+(a) 3 assets with same volatilities σi = 20%.
+(b) 3 assets with (σ1, σ2, σ3) = (10%, 20%, 30%).
+(c) 4 assets with same volatilities σi = 20%.
+(d) 4 assets with (σ1, σ2, σ3, σ4) = (10%, 20%, 30%, 40%).
+
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                         2-17
+We simulate correlation matrices with ρi,j ∼ U[−1,1] and min λ (ρ) > 0.
+Then, we compute the ratios between the weights of the general
+ERC solution and the weights of the ERC solution with constant
+correlations (the ratio is equal to 1 if the two solutions are the same).
+
+In the next Figures, we report the box plots
+(min/25%/Median/75%/max) of the ratios for the four cases and we
+estimate the corresponding density.
+
+⇒ The difference between the two solutions may be very large (see in
+particular the ratio for the 4th asset in case (d)).
+
+
+
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                              2-18
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio         2-19
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio         2-20
+In the case of four assets, the ERC solution with constant
+correlations is:
+                                       
+                                   48%
+                                  24% 
+                              ∗        
+                             x =       
+                                  16% 
+                                   12%
+Now, with the following correlation matrix:
+                                                        
+                                  1
+                               0.20   1           
+                                                  
+                            ρ=                    
+                               0.20 −0.20   1     
+                                0.00 −0.60 −0.60 1
+we have:
+                                                    
+                                           10.55%
+                                          38.97% 
+                                       ∗         
+                                      x =        
+                                          25.98% 
+                                           24.50%
+⇒ The two solutions are very different!
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                     2-21
+What becomes of the previous result if we only consider
+correlation matrices that make sense in finance?
+
+⇒ The differences are reduced, but remain large (especially for high
+dimensions).
+
+
+
+
+              Box plot for the case (d) when all ρi,j are positive
+
+Equally-weighted risk contributions portfolios
+Theoretical aspects of the ERC portfolio                             2-22
+3       Applications
+
+
+
+
+    • Sector indices
+    • Agriculture commodity
+    • Global diversified portfolio
+    • BRIC
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                     3-1
+3.1 Sector indices
+
+  • FTSE-Datastream
+  • 10 sector indices.
+  • January 1973 / May 2008
+  • Rolling estimation of the covariance matrix with a 1Y window.
+
+ICB Classification
+                          ICB Code     Industry name        Sector mnemonic
+                      1   0001         Oil & Gas            OILGS
+                      2   1000         Basic Materials      BMATR
+                      3   2000         Industrials          INDUS
+                      4   3000         Consumer Goods       CNSMG
+                      5   4000         Healthcare           HLTHC
+                      6   5000         Consumer Services    CNSMS
+                      7   6000         Telecommunications   TELCM
+                      8   7000         Utilities            UTILS
+                      9   8000         Financials           FINAN
+                     10   9000         Technology           TECNO
+                                       All                  TOTMK
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                                  3-2
+Results
+                                             1/n       mv        erc
+                            Return         11.52%   10.37%    11.39%
+                           Volatility      15.05%   11.54%    14.23%
+                            Sharpe           0.77     0.90      0.80
+                          VaR 1D 1%       −2.41%    −1.90%    −2.28%
+                          VaR 1W 1%       −5.45%    −4.47%    −5.16%
+                          VaR 1M 1%       −11.18%   −9.37%    −10.42%
+                            DD 1D         −18.63%   −14.71%   −18.40%
+                            DD 1W         −25.19%   −17.71%   −24.73%
+                            DD 1M         −27.09%   −21.13%   −26.24%
+                           DD Max         −45.29%   −46.15%   −44.52%
+                              H̄w           0.00%   53.81%     0.89%
+                              Ḡw           0.00%   79.35%    13.50%
+                              T̄w           0.00%    5.13%     1.00%
+                              H̄rc          0.73%   53.81%     0.00%
+                              Ḡrc         13.37%   79.35%     0.00%
+
+
+Remark: G is the Gini Index, H is the Herfindahl index and T is the
+turnover statistic. In the previous table, we present the average
+values of these statistics for both the weights (H̄w , Ḡw and T̄w ) and
+the risk contributions (H̄rc and Ḡrc).
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                            3-3
+Box plot of the monthly weights
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                     3-4
+Box plot of the monthly risk contributions
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                     3-5
+3.2 Agriculture commodity
+
+
+  • Datastream
+  • Basket of light agricultural commodities
+  • January 1979 / December 2007
+  • Rolling estimation of the covariance matrix with a 1Y window.
+
+The basket
+                           Commodity Name        DS Code   Exchange Market
+                       1   Corn                    CC.          CBOT
+                       2   Live Cattle            CLC            CME
+                       3   Lean Hogs              CLH            CME
+                       4   Soybeans                CS.          CBOT
+                       5   Wheat                  CW.           CBOT
+                       6   Cotton                 NCT          NYBOT
+                       7   Coffee                 NKC          NYBOT
+                       8   Sugar                  NSB          NYBOT
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                                 3-6
+Results
+                                              1/n      mv       erc
+                              Return         10.2%   14.3%    12.1%
+                             Volatility      12.4%   10.0%    10.7%
+                              Sharpe          0.27    0.74     0.49
+                            VaR 1D 1%       −1.97%   −1.58%   −1.64%
+                            VaR 1W 1%       −4.05%   −3.53%   −3.72%
+                            VaR 1M 1%       −7.93%   −6.73%   −7.41%
+                              DD 1D         −5.02%   −4.40%   −3.93%
+                              DD 1W         −8.52%   −8.71%   −7.38%
+                              DD 1M         −11.8%   −15.1%   −12.3%
+                             DD Max         −44.1%   −30.8%   −36.9%
+                                H̄w          0.00%   14.7%    2.17%
+                                Ḡw          0.00%   48.1%    19.4%
+                                T̄w          0.00%   4.90%    1.86%
+                                H̄rc         6.32%   14.7%    0.00%
+                                Ḡrc         31.3%   48.1%    0.00%
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                           3-7
+Box plot of the monthly weights
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                     3-8
+Box plot of the monthly risk contributions
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                     3-9
+3.3 Global diversified portfolio
+  • Datastream
+  • Basket of major asset classes
+  • January 1995 / December 2007
+  • Rolling estimation of the covariance matrix with a 1Y window.
+
+The basket
+                            Code           Name
+                       1    SPX            S&P 500
+                       2    RTY            Russell 2000
+                       3    EUR            DJ Euro Stoxx 50 Index
+                       4    GBP            FTSE 100
+                       5    JPY            Topix
+                       6    MSCI-LA        MSCI Latin America
+                       7    MSCI-EME       MSCI Emerging Markets Europe
+                       8    ASIA           MSCI AC Asia ex Japan
+                       9    EUR-BND        JP Morgan Global Govt Bond Euro
+                       10   USD-BND        JP Morgan Govt Bond US
+                       11   USD-HY         ML US High Yield Master II
+                       12   EM-BND         JP Morgan EMBI Diversified
+                       13   GSCI           S&P GSCI
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                                 3-10
+Results
+                                              1/n      mv        erc
+                             Return          9.99%   7.08%     8.70%
+                            Volatility       9.09%   2.81%     4.67%
+                             Sharpe           0.62    0.97      0.93
+                           VaR 1D 1%       −1.61%    −0.51%   −0.74%
+                           VaR 1W 1%       −4.37%    −1.48%   −1.94%
+                           VaR 1M 1%       −8.96%    −3.20%   −3.87%
+                             DD 1D         −3.24%    −1.64%   −3.20%
+                             DD 1W         −6.44%    −3.03%   −3.64%
+                             DD 1M         −14.53%   −5.06%   −6.48%
+                            DD Max         −29.86%   −7.55%   −9.01%
+                               H̄w           0.00%   56.52%    8.44%
+                               Ḡw           0.00%   84.74%   44.65%
+                               T̄w           0.00%   3.93%     2.28%
+                               H̄rc          4.19%   56.52%    0.00%
+                               Ḡrc         38.36%   84.74%    0.00%
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                           3-11
+Box plot of the monthly weights
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                     3-12
+Box plot of the monthly risk contributions
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                     3-13
+3.4 Equity market neutral hedge funds
+
+
+
+⇒ EMN HF exhibits a beta against equity indices closed to zero.
+
+In general, EMN is a pure stock picking process: the strategy holds
+Long / short equity positions, with long positions hedged with short
+positions in the same and in related sectors, so that the equity
+market neutral investor should be little affected by sector-wide events.
+
+     How to calibrate the positions of the long / short bets ?
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                         3-14
+3.4.1 Market practice
+
+
+
+Let us denote by xi and yi the long and short positions of the ith bet.
+Let σ (xi + yi) be the volatility of this long / short position.
+
+⇒ One of the most popular practice is to assign a weight wi for the
+ith bet that is inversely proportional to its volatility:
+                                                  1
+                                        wi ∝
+                                             σ (xi + yi)
+The underlying idea is to have long /short positions that have the
+same risk contributions.
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                         3-15
+3.4.2 ERC applied to L/S strategy
+
+
+Let x = (x1, . . . , xn)> and y = (y1, . . . , yn)> be the vectors of weights
+for the long and short positions. The covariance matrix of the
+augmented
+     Ã      vector!of the returns is defined by the matrix
+        Σxx Σxy
+Σ=                     .
+        Σyx Σyy
+
+                                q
+If we define σ (x, y ) = x>Σxxx + y >Σyy y + 2x>Σxy y as the volatility
+of the EMN portfolio, the risk contribution of the ith bet is:
+                                            ∂ σ (x, y )      ∂ σ (x; y )
+                          σi (x, y ) = xi               + yi
+                                               ∂ xi             ∂ yi
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                                3-16
+(a) The first idea to calibrate the weights x and y is to solve the
+    following problem:
+                                      
+                                       σi (x, y ) = σj (x, y )
+                                      
+                                        xi > 0
+                                      
+                                       y <0
+                                         i
+     However, this problem is not well defined because it has several
+     solutions.
+(b) We may impose the exact matching yi = −xi between the long
+    and short positions:
+                                      
+                                      
+                                       σi (x, y ) = σj (x, y )
+                                      
+                                      
+                                        xi > 0
+                                      
+                                      
+                                      
+                                        xi + yi = 0
+                                      
+                                        σ (x, y ) = σ ∗
+     Moreover, in order to have a unique solution, we have to impose
+     a volatility target σ ∗ for the strategy. This is the right problem.
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                            3-17
+(c) Let wi = xi = −yi be the weight of the ith bet. The previous
+    problem is equivalent to solving:
+                                        
+                                         σi (w ) = σj (w )
+                                        
+                                          wi > 0
+                                        
+                                         σ w = σ∗
+                                            ( )
+     Note that the covariance matrix of the long /short bets is:
+
+                              Σww = AΣA>
+                                       = Σxx + Σyy − Σxy − Σyx
+                   ³              ´
+     with A =          In −In .
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                       3-18
+3.4.3 The right way to solve the ERC problem
+
+Since problems (b) and (c) are conceptually the same, (c) is preferred
+because it is numerically more easy to solve. Since the constraint
+σ (w) = σ ∗ is difficult to manage, a slight modification in introduced:
+                                      
+                                       σi (w ) = σj (w )
+                                      
+                                        wi > 0
+                                      
+                                       w =α
+                                          1
+Let us denote wα the solution of this problem when the first weight
+w1 is equal to α. Since σ (c × wα) = c × σ (wα), if we multiply all the
+weights by a constant c, the relationships σi (c × wα) = σj (c × wα)
+remain valid. Hence, if one would like to impose a target value, one
+can just scale the solution wα:
+                                              σ∗       α
+                                         w=          w
+                                            σ (w α )
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                          3-19
+3.4.4 Market practice = ERC solution?
+                     1                                                              w,w
+We know that wi ∝ σ(w     when the cross-correlations ρi,j                                between
+                       i)
+the L/S positions are the same. We have:
+                                x,x                 y,y y y       x,y      y     y,x y
+       w,w                     ρi,j σixσjx + ρi,j σi σj − ρi,j σixσj − ρi,j σi σjx
+      ρi,j = r³           ´2       ³        ´2                   r³      ´2  ³ ´2
+                                        y            x,y     y                 y     x,y     y
+                    σix        +       σi        − 2ρi,i σixσi         x
+                                                                      σj    + σj − 2ρj,j σjxσj
+We assume that the assets have the same volatilities. We have:
+                                   w,w            x,x    y,y      x,y      y,x
+                                 ρi,j ∝ ρi,j + ρi,j − ρi,j − ρi,j
+Moreover, assuming a risk model of S + 1 factors, with a general risk
+                                 x,x
+factor and S sectorial factors, ρi,j is equal to ρs if the two assets
+belong to the same factor s, otherwise it is equal to ρ∗. It follows
+that:
+                                       (
+                           w,w              ρs + ρs − ρs − ρs if i, j ∈ s
+                          ρi,j ∝
+                                            ρ∗ + ρ∗ − ρ∗ − ρ∗ otherwise
+                       w,w
+We verify that ρi,j = 0.
+
+Equally-weighted risk contributions portfolios
+Applications                                                                                        3-20
+The market practice corresponds to the ERC solution when:
+
+ 1. The long and short positions of each bet are taken in the same
+    sector.
+ 2. The volatilities of the assets are equal.
+ 3. We assume a risk model of S + 1 factors with one factor by
+    sector and a general risk factor.
+
+⇒ From a practical point of view, only the first and third conditions
+are important because even if the volatilities are not equal, we have
+ w,w
+ρi,j ≃ 0 because the covariance is very small compared to the
+product of the volatilities.
+
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                         3-21
+3.4.5 An example
+We have 4 sectors.
+
+The intra-sector correlations are respectively 50%, 30%, 20% and
+60% whereas the inter-sector correlation is 10%.
+
+We consider a portfolio with 5 L/S positions.
+
+The volatilities are respectively 10%, 40%, 30%, 10% and 30% for
+the long positions, and 20%, 20%, 20%, 50% and 20% for the short
+positions.
+
+The bets are done respectively in the 1st sector, 2nd, 3rd, 4th and
+4th sectors.
+
+The volatility target σ ∗ is 10%.
+
+Equally-weighted risk contributions portfolios
+Applications                                                          3-22
+Market Practice
+            σ (x) = 10%            xi        ∂xi σ (x)   xi × ∂xi σ (x)    ci (x)
+                  1              27.3%        0.080          0.022        21.9%
+                  2              12.2%        0.177          0.022        21.5%
+                  3              14.5%        0.151          0.022        22.0%
+                  4              10.6%        0.160          0.017        16.9%
+                  5              19.6%        0.090          0.018        17.6%
+
+
+ERC
+            σ (x) = 10%            xi        ∂xi σ (x)   xi × ∂xi σ (x)    ci (x)
+                  1              26.0%        0.077          0.020        20.0%
+                  2              11.7%        0.171          0.020        20.0%
+                  3              13.9%        0.144          0.020        20.0%
+                  4              11.5%        0.174          0.020        20.0%
+                  5              20.9%        0.095          0.020        20.0%
+
+
+
+Equally-weighted risk contributions portfolios
+Applications                                                                        3-23
+4       Conclusion
+
+
+
+Traditional asset allocation ⇒ concentrated portfolios
+
+ERC ⇒ Equal risk contributions of the various components
+⇒ a good compromise between minimum variance and 1/n portfolios
+
+The main application is the construction of indices.
+⇒ Risk indexation (like fundamental indexation) is an alternative to
+market-cap indexations.
+
+
+
+
+Equally-weighted risk contributions portfolios
+Conclusion                                                             4-1
+5       References
+ 1. Maillard S., Roncalli T. and Teiletche J. (2008), On the
+    Properties of Equally-Weighted Risk Contributions Portfolios,
+    Available at SSRN: http://ssrn.com/abstract=1271972
+ 2. Scherer B. (2007b), Portfolio Construction & Risk Budgeting,
+    Riskbooks, Third Edition.
+ 3. DeMiguel V., Garlappi L. and Uppal R. (2007), Optimal Versus
+    Naive Diversification: How Inefficient is the 1/N Portfolio
+    Strategy?, Review of Financial Studies, forthcoming.
+ 4. Michaud R. (1989), The Markowitz Optimization Enigma: Is
+    Optimized Optimal?, Financial Analysts Journal, 45, pp. 31-42.
+ 5. Benartzi S. and Thaler R.H. (2001), Naive Diversification
+    Strategies in Defined Contribution Saving Plans, American
+    Economic Review, 91(1), pp. 79-98.
+
+
+
+Equally-weighted risk contributions portfolios
+References                                                           5-1
+

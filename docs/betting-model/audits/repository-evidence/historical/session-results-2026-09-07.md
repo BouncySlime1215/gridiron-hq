@@ -1,0 +1,136 @@
+> **Historical evidence. Not a work queue.**
+>
+> Relocated 2026-09-10 from `docs/PLAN_2026_09_07.md` per the disposition table in
+> `docs/reference/architecture/FOLDER-REORGANIZATION.md`. The single active
+> work-order plan is **`docs/CLAUDE-NEXT-STEPS.md`** — nothing in this file
+> establishes task priority, spending, or model promotion, and any "next
+> steps", phase lists or ranked recommendations below are a record of what
+> was planned AT THE TIME, not instructions to execute now. Measured results,
+> source URLs, retrieval dates and frozen contracts here remain valid
+> evidence and are preserved verbatim.
+
+# Gridiron HQ — the plan, where it stands, and what's still missing (2026-09-07)
+
+Rewritten the day of the Matta–Kodsi draft (Mon Sep 7, 7:00 PM ET, 8-team PPR, slot 2),
+after a full day of parallel builds and research. Everything below carries the number
+that justifies it; anything without a number is labelled as such. This supersedes the
+morning version of this doc — every open item it listed is now either shipped, evaluated
+and declined with numbers, or explicitly re-scoped below.
+
+## The architecture (layers, bottom to top)
+
+1. **Data** — ESPN (league, players, ADP/injury/projections, Rotowire notes), nflverse
+   (play-by-play features, rosters, depth charts, PFR advanced, NGS, QBR, schedules with closing
+   lines, draft picks, contracts), FFC/Sleeper ADP, FantasyCalc, analyst takes (88 players,
+   dated/sourced). `off_player_season_features`: 66 columns, 2021–2026. `docs/OFFSEASON_DATA.md`.
+2. **Models** (each walk-forward validated, each with a declined list):
+   - Career record (`player-career.js`): season-by-season lines, finishes, streaks; points validated
+     vs ESPN r=0.9987.
+   - Preseason projection (`preseason-model.js`): **learned models do not beat the market.** Shipped
+     = calibrated rank→points curve + tier bands + drivers. The v2 charting block (NGS, RYOE, aDOT)
+     declined 0/3 seasons on Spearman and MAE — ships as evidence drivers only, gated on `has_*`
+     flags so an imputed median can never print as fact about a player. The live board's model-nudge
+     weight, re-tested on 3 held-out seasons instead of 1, moved from 0.4 to **0.2** — the only weight
+     beating w=0 on MAE in 2/3 seasons at both top-150 and top-200, halving 0.4's damage to QB/RB.
+     No weight is significant on any season (0/3 paired bootstrap). `docs/PRESEASON_MODEL.md`.
+   - Offseason changes (`offseason-model.js`): team change ×0.82, depth demotion ×0.71, 4+ games
+     missed ×0.92 shipped; "emptied room" falsified. v2 on the 66 features: 39 variables tested,
+     none improved the published multiplier held-out → v1 stays. `docs/OFFSEASON_MODEL.md`.
+   - Draft audit 2021–25 (`draft-audit-signals-2026.json`): RB over WR at overall 13–36 (t=3.4),
+     rookie-WR premium (t=3.4), realization multipliers by tier. `docs/DRAFT_AUDIT_2021_2025.md`.
+   - In-house season model (`projections.js`, 2025 held-out MAE 42.9 vs 47.0) — used as a relative
+     nudge on ESPN's line, weight now 0.2 (see above; imported from `preseason-model.js` so the two
+     files can't drift).
+   - **Betting-model integration — evaluated, blocked, both markets.** Built
+     `nfl-team-strength.js` (team-level aggregates from the preseason/offseason player engines:
+     projected offensive points, vacated opportunity, returning production, QB1 change/QBR/
+     projection deltas), registered as challenger feature contracts, walk-forward tested against
+     the market-consensus champion on 2211 games 2023–25. Spread: 0/3 seasons significant (pooled
+     +0.02 MAE, worse). Totals: 1/3 significant, sign reverses in 2025, pooled interval straddles
+     zero — fails the ≥2-of-3 bar. In 5 of 6 season-market cells the champion itself loses to a
+     zero-residual baseline: this reproduces the standing zero-edge-vs-closing-lines finding rather
+     than fixing it. Both contracts recorded `blocked` via `recordGateAudit`; champion untouched.
+     `docs/BETTING_PLAYER_ENGINES.md`.
+3. **Draft engine** (`draft-assist.js`, `draft-lookahead.js`): value over an *expected* replacement
+   (survival model), pair-aware horizons for slot 2's 15/18, 31/34, tier cliffs, handcuffs,
+   late-round ceiling bets, need-aware "gone by my turn" (fit on 280 real picks, LOO log-loss
+   0.166/0.159 vs 0.182/0.177), K/DEF only when a slot is open, Monte Carlo lookahead (200 sims ×
+   6 candidates, ~1 s).
+4. **Advisor** (Claude, `drafts.js` advice route): full season table per candidate, offseason
+   read, preseason drivers, ESPN/Rotowire note, analyst takes; instructed to lead with a number.
+   Same evidence layer now also feeds Trade Lab, Start/Sit, and League Brain
+   (`enrichWithEvidence`, `playerEvidence`/`playerRiskProfile`, `candidateEvidence`) — no longer
+   draft-only.
+5. **Floating page-explain chatbot — fixed.** The tool-use loop was never broken (7/7 tests, live
+   curl calls all correct); no fantasy page called `usePageExplain()`, so it always fell back to a
+   generic non-answer. Now wired into Lineup, League Brain, Live Draft, and Trade Lab, verified live
+   against the running server on each.
+6. **Live mirror**: ESPN's REST draft view is **frozen during a live draft** (confirmed by
+   independent projects and by an earlier live-league draft: 0/178 picks mirrored). Picks flow only
+   over the draft-room WebSocket — protocol confirmed against two independent open-source decoders.
+   Two capture paths, both built: an in-tab **bookmarklet** that taps the page's own socket, and a
+   **Chrome extension** (zero manual steps beyond a one-time load) that does the same via a content
+   script, auto-discovers the active draft (`GET /api/drafts/active`), mints its own ingest key, and
+   posts batches to `POST /api/drafts/:id/capture` → reconciler. REST polling pauses while either
+   feeds. `docs/DRAFT_CAPTURE.md`, `docs/DRAFT_CAPTURE_EXTENSION.md`.
+7. **Live Draft UI — redesigned.** Range bars for each candidate's p20–p80 band on a shared scale
+   (`SparkBar.tsx`'s new `RangeBar`), sticky header/season-column on the evidence table, a
+   color-flash on a newly-landed pick or a recommendation whose numbers just changed between polls,
+   and a scroll-snap card rail for "other options" on narrow screens. Additive only — the chatbot
+   wiring, lookahead call, and `/active` polling untouched.
+8. **Access**: phone via Cloudflare tunnel + one-time pairing code (documented as a *secondary,
+   read-only* viewer for someone else in the room — Nick's own draft-night path is the laptop, see
+   runbook below); always-on launcher service (launchd) that can start the app from a phone.
+
+## Draft-night runbook (tonight, 7:00 PM ET)
+
+1. Mac awake; launchd services already running (`com.gridironhq.launcher`,
+   `com.gridironhq.launcher-tunnel` — confirmed up, tunnel URL live).
+2. Confirm the Chrome extension is loaded: `chrome://extensions` → Developer mode → Load unpacked
+   → `chrome-extension/` folder. **Still required every browser restart** — there is no packaged
+   `.crx` or Web Store listing yet.
+3. Open Gridiron HQ → Live Draft for Matta-Kodsi in one tab; open ESPN's draft room in another.
+   The extension auto-discovers the active draft and starts mirroring — no bookmarklet click
+   needed unless the extension isn't loaded, in which case drag the bookmarklet to the bookmarks
+   bar and click it once in the ESPN tab as a fallback.
+4. Glance between the two tabs. This app never submits a pick to ESPN — draft in ESPN itself, read
+   advice and evidence here. Full sequence: `docs/DRAFT_ON_PHONE.md`.
+
+**Not yet done, and worth saying plainly:** neither the bookmarklet nor the extension has been
+observed against a real live ESPN draft room end-to-end — verification so far is code-level
+(protocol confirmed against real captured INIT payloads from other projects) plus a synthetic
+capture through the real running server. **Rehearse in an ESPN mock draft before 7 PM if one is
+available** — this is the single highest-value thing left to de-risk tonight.
+
+## What's still open (macro, honest about payoff)
+
+| Gap | Why it matters | Status |
+|---|---|---|
+| **Live-capture path unverified on a real ESPN room** | Whole mirror depends on it | Rehearse in a mock draft before 7 PM if time allows; both paths (extension, bookmarklet) are code-complete |
+| **Sleeper platform integration** | Researched today: no WebSocket exists anywhere for Sleeper's draft room, a 3–6s poll of `/v1/draft/{id}/picks` is the complete implementation, zero protocol risk | Not built — ~6–10h, a good next platform, not urgent for tonight (ESPN-only leagues) |
+| **Contracts data ends at 2022** | Contract-year / new-deal variables empty for 2026 | No licence-clean free replacement for OverTheCap found in today's sweep either — still a real gap |
+| **No OC / scheme history** | HC change is a null; OC change untestable | No free per-season feed found — still a real gap |
+| **Skewed/correlated Monte Carlo draws** | `draft-lookahead.js`'s 200 sims are presumably symmetric and independent; season totals are right-skewed and a QB correlates with his own WR1 — the one modelling idea from today's sweep that could change a *decision*, not just a point estimate | Not built — ~14h combined, gate by re-running the 2021-25 draft audit both ways before trusting it |
+| **Closed-world name enumeration in advisor prompts** | Today's LLM-assistant research: the single highest-leverage prompt-layer fix against hallucinated player names | Not built — ~1-2h, cheap and worth doing before the next big drafting push |
+| **DynastyProcess `db_playerids.csv` crosswalk (ktc_id, mfl_id, pff_id, sportradar_id)** | Would unblock future KTC/multi-platform joins | Deliberately not built — no feature in this app consumes those ids yet; adding the columns now would be infrastructure with no measurable payoff, contra this repo's own rule against speculative plumbing |
+| **PROE (pass rate over expected) at team level** | Cheap: `pbp` parquet already carries `xpass`/`pass_oe` as computed columns, 1–3 MB/season with column pruning (today's research corrected a 10x cost overestimate in `OFFSEASON_DATA.md`) | Not built — ~5h; honest expected impact is low, the market already prices pace |
+| **Neural models** | Asked for; not earned | Only after a tabular model beats the market — none has yet, on either the fantasy or betting side |
+| **Betting engine fed by player models** | Nick's stated goal, subordinate to fantasy | **Done — evaluated and blocked with numbers, see above.** Re-attempt only if the underlying player engines materially improve, not on a schedule |
+| **Drafting from the hub itself (submitting ESPN picks)** | Would remove the need to alt-tab | Not built — ToS exposure, and this app's whole design commits to advise-and-mirror, never submit; Nick's repeated instruction this session confirms that's the right call |
+
+## Verdicts, plainly
+
+- Live mirror: the old REST-polling design could never have worked live (ESPN freezes it). Fixed
+  in principle via a WebSocket tap, two independent implementations, still unproven against a real
+  live room.
+- Preseason "insane machine": the market is hard to beat, on three separate held-out tests now
+  (base model, charting block, blend weight). What ships is honest calibration, bands, and reasons
+  — plus a ranker that uses history the market doesn't (RB-over-WR 13–36, rookie WRs, tier
+  realization).
+- Offseason: three real effects, one popular myth killed, 39 more variables tried and declined.
+- Betting: no player-engine feature has beaten the closing line yet, on any market tested. The
+  standing "zero edge vs closing lines" finding survives every attempt to break it, including
+  today's.
+- Chatbot: was a UI wiring gap, not a model or backend bug — fixed and verified live on four pages.
+- Everything above is 790/790 tests passing except 1 pre-existing skip, typechecks clean, builds
+  clean, and is committed and pushed to `main`.

@@ -202,7 +202,7 @@ export function quoteReaction(claim, snapshots, alias, { index } = {}) {
 
 export function nflNewsMarketLatency({ limit = 500 } = {}) {
   const claims = rows(`SELECT news_id,player_name,team,signal_type,status,confidence,published_at,source,source_url
-    FROM nfl_news_signals WHERE verification_state='verified' AND team IS NOT NULL
+    FROM nfl_news_signals_current WHERE verification_state='verified' AND team IS NOT NULL
     ORDER BY published_at DESC LIMIT ?`, limit);
   const snapshots = rows(`SELECT captured_at,event_id,commence_time,home_team,away_team,book,market,side,line,price
     FROM nfl_line_snapshots ORDER BY captured_at`);

@@ -13,7 +13,7 @@ Inputs (all produced before this script was run):
 Outputs: docs/evidence/2026-09-16/model-lab/results.json, frozen-rules.json
 Usage: python3 scripts/model-lab/lab.py
 """
-import json, math, random, sqlite3, statistics as st
+import json, math, random, sqlite3, statistics as st, sys
 from collections import defaultdict
 from pathlib import Path
 import numpy as np
@@ -28,7 +28,9 @@ HOLDOUT = 2025
 TIER = {"availability": "in_week", "roster_strength": "in_week", "weather_total": "in_week",
         "nfelo_rating": "third_party_bulk", "nfelo_qb_adjustment": "third_party_bulk",
         "teamrankings_predictive": "third_party_bulk", "market_anchor": "opener", "market_regression": "opener",
-        "blend": "mixed", "blend_total": "mixed", "lineup_roster": "in_week"}
+        "blend": "mixed", "blend_total": "mixed", "lineup_roster": "in_week",
+        "wired_W5": "in_week", "wired_W5_total": "in_week", "wired_W6": "in_week", "wired_W6_total": "in_week"}
+WITH_WIRED = "--with-wired" in sys.argv
 CONTAMINATED = {"market_correction_research", "python_correction"}
 RNG = random.Random(20260916)
 
@@ -38,6 +40,7 @@ def load_table():
     key = lambda r: (r["season"], r["week"], r["home"])
     prov = {(g["season"], g["week"], g["home"]): g for g in json.load(open(EV / "opener-repair/repaired-openers.json"))["games"]}
     kal = {key(r): r for r in map(json.loads, open(LAB / "kalman-preds.jsonl"))}
+    wired = {key(r): r for r in map(json.loads, open(LAB / "wired-preds.jsonl"))} if WITH_WIRED else {}
     books = {key(r): r for r in map(json.loads, open(LAB / "books.jsonl"))}
     p2, p2b = {}, {}
     for s in range(2021, 2026):
@@ -78,6 +81,11 @@ def load_table():
             if kr:
                 f["kalman_score"], f["kalman_score_epa"], t["kalman_total"] = kr["kalman_score"], kr["kalman_score_epa"], kr["kalman_total"]
                 r["kalman_sd"] = kr["kalman_score_sd"]
+            for wk, wv in (wired.get(k) or {}).items():
+                if wk.endswith("_margin"):
+                    f[wk[:-len("_margin")]] = wv
+                elif wk.endswith("_total"):
+                    t[wk] = wv
             r["F"], r["T"], r["books"] = f, t, books.get(k)
             rows.append(r)
     return rows
@@ -394,7 +402,7 @@ def main():
             if cz["p"] is not None:
                 tests[key] = cz["p"]
         for n in names:
-            if n.startswith("kalman"):
+            if n.startswith("kalman") or n.startswith("wired_"):
                 strategies[f"{mname}|C|{n}"] = (lambda train, test, n=n, mk=mk: per_forecaster("C", n, mk, train, test)[0])
 
     # ----- H tests (spreads)
@@ -489,6 +497,8 @@ def main():
             tests[f"C2_stale_book|{mname}"] = cz["p"]
 
     # ----- Holm over the development family
+    if WITH_WIRED:
+        tests = {k: v for k, v in tests.items() if "wired_" in k or k.endswith("|pool")}
     res["holm_dev"] = holm(tests)
     res["dev_family_size"] = len(tests)
     res["dev_holm_passes"] = sorted(k for k, v in res["holm_dev"].items() if v["passes"])
@@ -497,7 +507,8 @@ def main():
     champs = {}
     for mname in markets:
         cands = {k: v for k, v in res["strategies"].items() if k.startswith(mname + "|") and
-                 (k.endswith("|pool") or (k.split("|")[1] == "C" and k.split("|")[2].startswith("kalman")))}
+                 (k.endswith("|pool") or (k.split("|")[1] == "C" and (k.split("|")[2].startswith("kalman") or
+                  (WITH_WIRED and k.split("|")[2].startswith("wired_") and tier(k.split("|")[2]) == "prior_week"))))}
         best = max((k for k in cands if cands[k]["z"] is not None), key=lambda k: cands[k]["z"])
         champs[mname] = best
     res["champions"] = champs
@@ -565,8 +576,9 @@ def main():
         else:
             _, spec = per_forecaster(method, name, mk2, allrows, [])
         frozen[mname] = dict(strategy=key, trained_on="2021-2025 (2021 only for score conversions)", spec=spec)
-    (LAB / "frozen-rules.json").write_text(json.dumps(dict(frozen_at="2026-09-16", rules=frozen), indent=1, default=float))
-    (LAB / "results.json").write_text(json.dumps(res, indent=1, default=float))
+    suffix = "-wired" if WITH_WIRED else ""
+    (LAB / f"frozen-rules{suffix}.json").write_text(json.dumps(dict(frozen_at="2026-09-16", rules=frozen), indent=1, default=float))
+    (LAB / f"results{suffix}.json").write_text(json.dumps(res, indent=1, default=float))
     print(json.dumps(dict(family=res["dev_family_size"], dev_holm_passes=res["dev_holm_passes"], champions=champs,
                           holdout=res["holdout_results"], holm_confirmatory=res["holm_confirmatory"],
                           confidence=res["confidence_verdicts"]), indent=1, default=float))

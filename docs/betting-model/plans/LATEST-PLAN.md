@@ -1,8 +1,9 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"PREREGISTERED — DATA WIRING" (search for that heading) is in progress:** six unwired
-datasets as new forecasters through the same lab. Results will follow it.
+**"RESULTS — DATA WIRING W1-W7" is in:** 50 tests, no survivors, nothing wired to
+production. **"PREREGISTERED — DATA WIRING, PART 2" (W8-W13, player / last-season /
+preseason / luck data) is in progress.**
 **"RESULTS — MODEL LAB" (search for that heading) is the NEWEST result.** 146
 preregistered tests across every forecaster: no model-based edge survives
 multiplicity correction, both champions fail the 2025 holdout, and all four
@@ -3677,6 +3678,56 @@ the 2026 forward test is where it gets another chance.
 
 **Also fixed in this pass, regardless of results:** the Rams `LA`/`LAR`
 duplicate rows in league-wide averages (production code, new fit version).
+
+### RESULTS — DATA WIRING W1-W7 (September 16, 2026, late night; `scripts/model-lab/wired.py`, `lab.py --with-wired`, evidence `model-lab/wired-preds.jsonl`, `results-wired.json`)
+
+All seven families built and scored as preregistered. The base lab reproduces
+exactly when rerun (146 tests, same survivor, same champions).
+
+| Family (walk-forward, 2022-25) | Games forecast | Margin MAE | Total MAE |
+|---|---|---|---|
+| W1 feature store (~2,670 features) | 658 | 10.34 | 10.57 |
+| W2 all 183 team-week stats | 953 | 10.20 | 10.53 |
+| W3 venue and travel | 953 | 11.03 | 10.70 |
+| W4 coaching | 876 | 11.11 | 10.66 |
+| W5 weather forecasts (in_week) | 953 | 11.00 | 10.86 |
+| W6 injury returns (in_week) | 953 | 10.97 | 10.70 |
+| W7 all prior-week families | 953 | 10.21 | 10.49 |
+
+For scale: K1 (scores-only Kalman) 10.01; the flagship blend 9.0-10.3 by season.
+W1 covers fewer games because feature vectors exist for only ~73% of team-weeks.
+
+**Wiring family: 50 tests, zero Holm survivors.** No wired family beat the
+existing champions (totals candidates topped out at W7 method C z 1.29 vs Kalman
+totals 1.66), so the 2025 confirmatory test is unchanged and still fails.
+Adding the families to the pools raised development z for spreads D (0.33 ->
+1.24) and totals D/E/F (-0.25 -> 1.03, -0.96 -> 1.64, 0.40 -> 1.42), none
+significant. The strongest single wired signals are again totals: W7 method A
++0.23 (z 2.69), W2 method A +0.19 (z 2.30) — within drift noise per the
+lab's failed sanity check.
+
+**A degenerate pattern to know about.** For weak forecasters, methods B and C
+reduce to their intercept, so they bet the same side every game: five
+different families produce the identical spread result (n 554, -0.14, z
+-2.11). Those rows are one drift bet counted five times, not five findings.
+
+Per the preregistration, nothing is wired into production as a challenger,
+because nothing passed.
+
+### PREREGISTERED — DATA WIRING, PART 2: player-level, last-season, preseason and luck data (September 16, 2026, late night; committed BEFORE W8-W13 were built or scored)
+
+Nick: "look for our 300 other stats, we have hella stats." A full stat-table
+inventory (2022-25 rows) showed the team-level stores are wired (W1, W2) but
+player-level, season-level and preseason tables are not. Same machinery,
+evaluation, family rules, champion rule and success criteria as part 1; this
+is its own Holm family (W8-W13 tests plus the pools re-run with them).
+
+- W8 player feature vectors (`nfl_player_feature_vectors`, 768 stats, built from earlier weeks only): mean per team per position group (QB, RB, WR, TE, all others), home minus away / home plus away. prior_week.
+- W9 weekly player tables rolled to team per week, then aggregated like W2 (earlier weeks + last season, 12-game half-life): `player_week_usage` team sums, `nfl_qbr_weekly` top-volume QB, `nfl_ffopportunity_weekly` team expected points, `nfl_ngs` weekly team means by kind. prior_week.
+- W10 last season only (season S-1): `off_team_season_stats`, `off_qbr_season` (top volume QB), `off_pfr_adv_season` and `off_ngs_season` team means by kind; plus from `off_team_season` for season S ONLY the preseason-safe fields (all `*_prior` fields, `hc_change`, `hc_tenure_years`, `draft_picks_r1_3`). Excluded as leaks: `implied_*`, `team_total_line_avg`, `team_spread_avg`, `opp_implied_points_avg` (full-season market averages) and `qb_*` starter fields (who started is known only after the season). prior_week.
+- W11 preseason talent: fantasy expert rank (`nfl_historical_adp`, scraped before each season's first game, verified) as team sum of max(0, 200 - rank)/200 over its players, overall and by position; draft capital from `off_draft_picks` for drafts S and S-1, pick value exp(-(pick-1)/40). prior_week.
+- W12 luck regression: `nfl_game_variance` per-game luck points (turnover short fields etc.), from each team's perspective, aggregated over earlier games like W2. prior_week.
+- W13 everything prior_week: W1-W4 plus W8-W12.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

@@ -1,8 +1,10 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"PREREGISTERED — OPENER LAB" (search for that heading) is in progress:** levels 1-2 on
-2022-25, level 3 (timing, Kalshi/Polymarket) forward on 2026.
+**"RESULTS — OPENER LAB" (search for that heading) is the NEWEST result.** A leak in the
+consensus-gap feature was found and corrected; at-open information predicts the
+direction of line moves but not expected value; Kelly weights fail; Kalshi appears to
+lead sportsbooks by 2-3 h (2026, descriptive until 150 games).
 **"CLV + KELLY SCORECARD" (search for that heading) is the NEWEST result and the
 standard grading for every future test.** 476 strategy-by-line rows: nothing is
 +EV at the standard opener; line shopping recovers ~4 points of EV; no model
@@ -3892,6 +3894,61 @@ Kalshi-implied margin differs from sportsbook consensus by >= 1 pt, how often
 consensus moves toward Kalshi within 24 h, and by how much. Week-1 numbers are
 descriptive only. **Forward success at season end (>= 150 games):** M3
 move-toward rate > 60% with binomial p < 0.01, then graded by the scorecard.
+
+### RESULTS — OPENER LAB (September 16, 2026, late night; `scripts/opener-lab/`, evidence `docs/evidence/2026-09-16/opener-lab/`)
+
+**A leak, found after the first scoring and corrected — read this first.** The
+preregistered "Pinnacle vs other-book median" and "book dispersion" features
+used every book posted within 48 h of Pinnacle's opener. Other books post a
+median 7-16 h AFTER Pinnacle, so those features contained information that did
+not exist when Pinnacle's opener could be bet. The first run looked spectacular
+(consensus gap predicting the move at z 5.6 spreads / 11.3 totals; totals
+dispersion confirmed in level 1). Rebuilt with only books posted at or before
+Pinnacle's opener (`*_pre` fields; 88-96% of games have >= 3 such books), the
+consensus gap predicts nothing (slope -0.007, z -0.17) and the level-1
+dispersion finding disappears. The leaky outputs are kept as `level1.json` /
+`level2.json`; the results below are the corrected `*-atopen.json`.
+
+**Level 1 — where openers move most (corrected).** Nothing clears the
+preregistered discovery Holm bar in either market. Repeated in both periods
+but not Holm-significant: spreads openers ON a key number (3/7) move less
+(0.93 vs 1.20 pts; 0.80 vs 1.13); near-pick'em openers (<= 2.5) move more
+(1.33 vs 1.06; 1.29 vs 0.98); divisional games move more (1.29 vs 1.04; 1.24 vs
+0.96).
+
+**Level 2 — the direction of the move is partly predictable at the open.**
+
+| Predictor (at open) | Spreads disc z / conf z | Totals disc z / conf z |
+|---|---|---|
+| Pinnacle opening price skew | +3.75 / +2.93 **Holm pass** | +2.23 / +2.04 |
+| Consensus gap, pre-open books only | -0.17 / -0.29 | -0.09 / +0.91 |
+| Kalman departure | +3.16 / +0.84 | +1.89 / +2.67 **Holm pass** |
+| Previous-game re-rating momentum | +2.31 / +2.16 | — |
+| Ridge of all, frozen on 2022-23 | conf +2.56 **pass** | conf +3.33 **pass** |
+
+Pinnacle shading its juice toward a side predicts the line moving toward that
+side. **But betting it does not pay:** at the reference opener, betting the
+predicted direction returns -3.7% (spreads) / -4.0% (totals) EV per bet — you
+pay the shaded price for the very move it predicts. At the best book line:
++0.0% / -0.7% all bets, +0.5% / +0.8% top quartile, none significant.
+
+**Confidence weights (Kelly): fail in both markets and both line variants.**
+Stakes from out-of-fold calibration produced 1-56 bets a season with expected
+growth between -1.1% and +0.3%.
+
+**Level 3 — timing, 2026 forward (DESCRIPTIVE ONLY; preregistered test needs
+>= 150 kicked-off games, 16 so far).**
+- M1: in the 15 finished games with a move, none of it happened in the first 72 h after the (May look-ahead) opener; 86% was done 72 h before kickoff and all of it 24 h before. Median 153 h to the first half-point move.
+- M2 Kalshi: hourly-change cross-correlation peaks at **+2 h (0.15) and +3 h (0.09)** with the prediction market moving first, against 0.00-0.02 at negative lags (36 games). Polymarket shows no clear lead (0.045 at -1 h vs 0.06 at +1 h; 58 games).
+- M3 Kalshi: when Kalshi's implied margin differed from consensus by >= 1 pt, consensus moved toward Kalshi in 33 of 47 episodes where it moved (70%, one-sided p 0.004), mean +0.10 pts per episode. Polymarket 22 of 35 (63%, p 0.09).
+- Caveats: Kalshi's implied margin runs +0.51 pts home-high against consensus (normal-conversion bias), which overlaps with books' own home drift; Kalshi is captured every ~10 min while sportsbook providers poll less often, so part of the "lead" can be collection latency; episodes in one week are not independent.
+
+**Verdict.** Line MOVEMENT at the open is partly predictable, but the part we
+can see at the open is already in Pinnacle's prices, so it does not become
+expected value. The one live lead is timing: Kalshi appears to move 2-3 hours
+before sportsbooks. That is a forward test, not a finding, until 150 games —
+and when it gets there it must be graded on the CLV + Kelly scorecard at the
+books' actual prices after Kalshi moves.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

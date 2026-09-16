@@ -1,15 +1,21 @@
 # Gridiron HQ betting model — RUNBOOK
 
-**September 16, 2026: session paused, usage-constrained.** Before resuming
-execution, read LATEST-PLAN.md's **"DATA INTEGRITY MASTER PLAN"** section —
-it has the prioritized roadmap (roadmap + the 23-row FINAL ORDER table) and the
-full data-gap inventory. **The gap analysis is DONE (September 16).** Execute from LATEST-PLAN.md's
-**"FINAL ORDER"** table (right after its prioritized roadmap) — that is the
-one authoritative sequence now; its #1-#4 are defect/guardrail fixes that
-come before any new signal. The lineage of every endpoint and table is in
-"DATA SOURCES, ENDPOINTS AND LINEAGE" beside it. This file's own master
-sequence (§9, bottom) is still current underneath that but the master plan
-is the up-to-date entry point.
+**September 16, 2026, EXECUTION IN PROGRESS.** Gap analysis is DONE. Execute
+from LATEST-PLAN.md's **"FINAL ORDER"** table (in its "DATA INTEGRITY
+MASTER PLAN" section) — the one authoritative sequence; `~~strikethrough~~`
+rows are done. **FINAL ORDER #1 is DONE** (recipe §10.1 below, real-history
+result in §3.3) — the joint residual fit was built, tested, and measured;
+it's a null result (does not beat the market), which is a valid, recorded
+completion, not a blocker. **#2 (drive-sim bugs, §10.2) is next**, no
+dependency blocks it. The dependency table right after FINAL ORDER in
+LATEST-PLAN.md says what blocks what for everything after #2. The lineage
+of every endpoint and table is in "DATA SOURCES, ENDPOINTS AND LINEAGE"
+beside FINAL ORDER. This file's own master sequence (§9, bottom) is
+historical background underneath that; the master plan is the entry point.
+
+Both suites green as of this pointer: Node 2,189/2,150/0/39, Python 127/127
+(exact commands in §0a rule 5 below). Everything through #1 is committed
+and pushed to `cursor/betting-model-audit-fixes-1c85`.
 
 **Start here.** This is the operational companion to `LATEST-PLAN.md`. The
 plan says *why* and *what*; this says *do this, then this*, with the exact
@@ -252,16 +258,45 @@ point difference without this is not a finding. `--b-run` refuses to join
 two runs that disagree on any game's outcome or fit week.
 
 **3.3 The JS joint fit on real history** (how a component is weighted beside
-all 32):
+all 35):
 ```bash
 GRIDIRON_DB_PATH=$SCRATCH/real.sqlite SCHEDULER_DISABLED=1 node --input-type=module -e "
 const {fitEnsemble}=await import('./server/services/nfl-ensemble.js');
 const fit=fitEnsemble({includeChallengers:true});
-for (const m of fit.models.filter(m=>m.family==='Market')) console.log(m.id, 'margin_weight',m.margin_weight,'residual_gate',m.residual_gate_passed,'rmse_gain',m.residual_rmse_gain,'dm_p',m.residual_dm_p);
-console.log('residual_gate_pass_count', fit.residual_gate_pass_count);"
+for (const m of fit.models.filter(m=>m.family==='Market')) console.log(m.id, 'margin_weight',m.margin_weight,'residual_gate(OLD, per-component)',m.residual_gate_passed,'rmse_gain',m.residual_rmse_gain,'dm_p',m.residual_dm_p,'residual_joint_weight(NEW, served)',m.residual_joint_weight);
+console.log('OLD residual_gate_pass_count (per-component, informational only)', fit.residual_gate_pass_count);
+console.log('NEW residual_joint (what ensembleLine actually reads)', fit.residual_joint);"
 ```
 *Done when:* every component you care about prints a `margin_weight` and a
-gate verdict. The gate is `residual_n ≥ 250 && rmse_gain ≥ 0.03 && dm_p ≤ 0.05`.
+gate verdict. The OLD per-component gate is
+`residual_n ≥ 250 && rmse_gain ≥ 0.03 && dm_p ≤ 0.05`, still computed and
+reported (RUNBOOK §0a rule 6: nothing measured is deleted) but no longer
+read by `ensembleLine`. **CORRECTED 2026-09-16 (FINAL ORDER #1):** the
+served `market_residual` line now reads `residual_joint_weight`, gated on
+`fit.residual_joint.gate_passed` -- the SAME three thresholds
+(n≥250/gain≥0.03/dm_p≤0.05) applied ONCE to the joint fit's own
+out-of-fold statistics, not once per component. See `jointResidualFit` in
+`nfl-ensemble.js` and its result:
+```
+Real-history result, /tmp/gridiron-extract/real.sqlite, includeChallengers:true,
+full history through the extract's cutoff, 2026-09-16:
+  residual_joint.gate_passed: false
+  residual_joint.n (out-of-fold score rows): 749
+  residual_joint.fit_n: 1761
+  residual_joint.rmse_gain: -0.008   (negative -- WORSE than the market, not just short of +0.03)
+  residual_joint.dm_p: 0.9415        (need <= 0.05; nowhere close)
+  nonzero_weight_component_count: 0
+  OLD per-component residual_gate_pass_count (for comparison): 0 (unchanged, same as pre-2026-09-16)
+```
+**Reading this honestly:** the joint fit was built specifically because a
+genuine joint regression can in principle capture correlation among
+components that 31 independent one-at-a-time slopes cannot -- and it still
+found nothing. This raises, not lowers, confidence in the "no independent
+residual skill on this data" finding: it is not an artifact of the
+one-at-a-time method being too weak to see real skill. Per RUNBOOK §0a rule
+3, a null result is a valid completion. FINAL ORDER #1 is DONE as
+code+tests+measurement; nothing here argues for searching for a
+configuration that wins.
 
 **3.4 Effective rank on real data — DONE, September 15, 2026.**
 ```bash

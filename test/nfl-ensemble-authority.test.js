@@ -74,29 +74,35 @@ test('v7 persisted weights cannot be reused after the authority repair', () => {
   // moved to v10; the model-integration merge moved it to v11 when the
   // residual gate changed instrument (paired t -> Diebold-Mariano); the raw
   // blend's weighting mechanism (exp(-0.7*RMSE) per component -> joint ridge
-  // regression, nfl-ensemble.js's `jointComponentWeights`) moved it to v12. An
-  // artifact fitted under any earlier version describes a different estimator
-  // and must not be reusable, which is exactly what this test checks -- only
-  // the version string it checks against moves.
-  assert.match(artifact.model_version, /^nfl-ensemble-fit-v12-/);
+  // regression, nfl-ensemble.js's `jointComponentWeights`) moved it to v12;
+  // the residual-correction path itself moved from a per-component slope fit
+  // to `jointResidualFit`'s single joint regression (FINAL ORDER #1,
+  // 2026-09-16) moved it to v13. An artifact fitted under any earlier
+  // version describes a different estimator and must not be reusable, which
+  // is exactly what this test checks -- only the version string it checks
+  // against moves.
+  assert.match(artifact.model_version, /^nfl-ensemble-fit-v13-/);
   const poisoned = JSON.parse(artifact.result_json);
-  poisoned.models.forEach(m => { m.residual_weight = m.challenger_only ? 1 : 0; });
+  poisoned.models.forEach(m => { m.residual_joint_weight = m.challenger_only ? 1 : 0; });
   run('UPDATE nfl_ensemble_fit_artifacts SET artifact_key=?, model_version=?, result_json=? WHERE artifact_key=?',
-    artifact.artifact_key.replace('v12-raw-blend-joint-ridge-regression', 'v8-challenger-authority'),
+    artifact.artifact_key.replace('v13-joint-residual-fit', 'v8-challenger-authority'),
     'nfl-ensemble-fit-v8-challenger-authority', JSON.stringify(poisoned), artifact.artifact_key);
   invalidateEnsembleCaches();
-  assert.equal(fitEnsemble(fitOptions).models.find(m => m.id === 'roster_strength').residual_weight, 0);
+  assert.equal(fitEnsemble(fitOptions).models.find(m => m.id === 'roster_strength').residual_joint_weight, 0);
 });
 
 test('serving refuses excluded challenger authority even if a loaded artifact has a nonzero weight', () => {
   const fit = fitEnsemble(fitOptions);
   const roster = fit.models.find(m => m.id === 'roster_strength');
   const saved = { ...roster };
-  roster.residual_weight = 100; roster.residual_slope = 10;
+  // FINAL ORDER #1: the served path now reads `residual_joint_weight`
+  // directly (a regression coefficient, not a weight paired with a slope --
+  // see `jointResidualFit`'s docstring), so that is the field a "loaded
+  // artifact" would need to poison to move the line.
+  roster.residual_joint_weight = 100;
   const forecast = line();
-  const allowed = forecast.models.filter(m => !m.challenger_only && m.margin != null && m.residual_weight > 0 && m.residual_slope != null);
-  const sum = allowed.reduce((s, m) => s + m.residual_weight, 0);
-  const expected = 2 + allowed.reduce((s, m) => s + m.residual_weight * m.residual_slope * (m.margin - 2), 0) / sum;
+  const allowed = forecast.models.filter(m => !m.challenger_only && m.margin != null && m.residual_joint_weight !== 0);
+  const expected = 2 + allowed.reduce((s, m) => s + m.residual_joint_weight * (m.margin - 2), 0);
   assert.equal(forecast.ensemble.projected_margin, +expected.toFixed(3));
   assert.equal(forecast.ensemble.residual_models_contributing, allowed.length);
   Object.assign(roster, saved);

@@ -1185,6 +1185,15 @@ const MIN_OPPONENTS_FOR_ADJUSTMENT = 3;
 
 const RESIDUAL_FIT_FRACTION = 0.7;
 
+// The residual promotion gate's three thresholds, named once and shared by
+// the per-component diagnostic (`residual_gate_passed` below) and the joint
+// fit's own gate (`jointResidualFit`, FINAL ORDER #1) so the two cannot drift
+// apart -- previously these were three literals typed at the per-component
+// gate site alone.
+const RESIDUAL_GATE_MIN_N = 250;
+const RESIDUAL_GATE_MIN_GAIN = 0.03;
+const RESIDUAL_GATE_MAX_P = 0.05;
+
 /**
  * Where to cut the residual sequence, on a COMPLETE-WEEK boundary.
  *
@@ -1766,6 +1775,128 @@ export function jointComponentWeights(rows, ids, { key, actualKey, lambdaGrid = 
 }
 
 /**
+ * FINAL ORDER #1 (2026-09-16, RUNBOOK §10.1): the served `market_residual`
+ * path's actual fit. Regresses `(actual_margin - market_margin)` jointly on
+ * every eligible component's own `(margin_i - market_margin)` departure,
+ * simultaneously -- replacing the one-at-a-time per-component slope fit
+ * below (`scored`'s `residual_slope`/`residual_rmse`/etc, still computed and
+ * still reported for diagnostics, never deleted) as what actually decides
+ * whether and how much a component moves the served line off the market.
+ *
+ * WHY A SEPARATE FUNCTION FROM `jointComponentWeights`, not a shared one.
+ * Three real differences: (1) `jointComponentWeights` fits its coefficients
+ * on the WHOLE window and only uses a chronological split to pick lambda;
+ * this function needs the coefficients THEMSELVES fit only on an earlier
+ * block and graded out-of-fold on a later one, mirroring the per-component
+ * slope's own fit/score discipline a few dozen lines below (same reasoning:
+ * a coefficient graded on the rows that chose it is optimistic by
+ * construction). (2) `jointComponentWeights`' output is a convex BLEND
+ * weight (clipped to >=0, renormalized to sum to 1) because it directly
+ * multiplies a point forecast in a weighted average; this function's output
+ * is a regression COEFFICIENT on a departure term, which has no such
+ * constraint -- a coefficient near zero correctly prunes a redundant
+ * component without needing a separate per-component threshold, and nothing
+ * here requires the coefficients to be non-negative or to sum to anything.
+ * (3) this function also returns the population-level gate diagnostics
+ * (n, rmse_gain, DM p) the caller needs to decide promotion for every
+ * component AT ONCE, since it is one joint fit, not `k` independent ones.
+ *
+ * NO INTERCEPT, same invariant as the per-component slope and
+ * `jointComponentWeights`: zero incremental signal from every component
+ * must reproduce the market exactly, which only holds if the fit passes
+ * through the origin.
+ *
+ * MEAN IMPUTATION uses FIT-BLOCK-ONLY means, not the whole window's means
+ * the way `jointComponentWeights` does -- deliberately stricter, because
+ * this function's whole purpose is grading the fit out-of-fold; letting the
+ * score block's own values leak into the imputation used to score it would
+ * quietly reopen the same "graded on rows that informed it" defect this
+ * function exists to close for the per-component slope.
+ *
+ * Returns `{ weights, n, fit_n, rmse_gain, dm_t, dm_p, dm_ok, dm_reason,
+ * gate_passed }`. `weights` is a `Map` from every id in `ids` to its fitted
+ * coefficient when the gate passes, or to 0 for every id when it does not
+ * (or when there were too few rows to fit at all) -- so a caller never has
+ * to branch on `gate_passed` separately from reading the weights.
+ */
+export function jointResidualFit(rows, ids) {
+  const zeroWeights = () => new Map(ids.map(id => [id, 0]));
+  const zeroResult = (reason) => ({
+    weights: zeroWeights(), n: 0, fit_n: 0, rmse_gain: null,
+    dm_t: null, dm_p: null, dm_ok: false, dm_reason: reason, gate_passed: false,
+  });
+  if (!ids.length) return zeroResult('no_eligible_components');
+
+  const usableIds = ids.filter(id => rows.some(r => Number.isFinite(r.margins?.[id])));
+  if (!usableIds.length) return zeroResult('no_component_ever_predicted');
+
+  const validRows = rows.filter(r => Number.isFinite(r.market_margin) && Number.isFinite(r.actual_margin));
+  const weekKeys = validRows.map(r => r.week_key);
+  const splitIdx = completeWeekSplit(weekKeys);
+  if (!splitIdx) return zeroResult('no_honest_chronological_split');
+
+  const fitRows = validRows.slice(0, splitIdx);
+  const scoreRows = validRows.slice(splitIdx);
+  if (fitRows.length < RAW_BLEND_MIN_ROWS || !scoreRows.length) return zeroResult('too_few_rows');
+
+  const fitMeans = new Map(usableIds.map(id => {
+    const vals = fitRows
+      .map(r => (Number.isFinite(r.margins?.[id]) ? r.margins[id] - r.market_margin : null))
+      .filter(Number.isFinite);
+    return [id, vals.length ? mean(vals) : 0];
+  }));
+  const departureFor = (r, id) => {
+    const v = r.margins?.[id];
+    return Number.isFinite(v) ? v - r.market_margin : fitMeans.get(id);
+  };
+
+  const fitX = fitRows.map(r => usableIds.map(id => departureFor(r, id)));
+  const fitY = fitRows.map(r => r.actual_margin - r.market_margin);
+  const fitWeekKeys = fitRows.map(r => r.week_key);
+
+  const lambda = chooseRawBlendLambda(fitX, fitY, fitWeekKeys, RAW_BLEND_RIDGE_GRID);
+  const { XtX, Xty } = jointNormalEquations(fitX, fitY);
+  const beta = jointRidgeCoefficients(XtX, Xty, lambda);
+  if (!beta.every(Number.isFinite)) return zeroResult('non_finite_fit');
+
+  const scoreX = scoreRows.map(r => usableIds.map(id => departureFor(r, id)));
+  const scoreY = scoreRows.map(r => r.actual_margin - r.market_margin);
+  const scoreWeekKeys = scoreRows.map(r => r.week_key);
+
+  const modelLoss = scoreY.map((y, i) => {
+    let pred = 0;
+    for (let j = 0; j < beta.length; j++) pred += scoreX[i][j] * beta[j];
+    return (y - pred) ** 2;
+  });
+  // The market's own "prediction" of the residual is exactly 0 by
+  // definition (marketMargin is what's being departed FROM) -- so the
+  // baseline loss is just the squared residual itself, the same baseline
+  // `baselineMse` computes for the per-component diagnostic below.
+  const marketLoss = scoreY.map((y) => y ** 2);
+  const dm = dieboldMariano(modelLoss, marketLoss, { horizon: 1, clusters: scoreWeekKeys });
+  const marketRmse = Math.sqrt(mean(marketLoss));
+  const modelRmse = Math.sqrt(mean(modelLoss));
+  const rmseGain = marketRmse - modelRmse;
+
+  const gatePassed = scoreY.length >= RESIDUAL_GATE_MIN_N
+    && rmseGain >= RESIDUAL_GATE_MIN_GAIN
+    && dm.ok === true && dm.pLess <= RESIDUAL_GATE_MAX_P;
+
+  const fittedWeights = zeroWeights();
+  usableIds.forEach((id, j) => fittedWeights.set(id, r2(beta[j]) ?? 0));
+
+  return {
+    weights: gatePassed ? fittedWeights : zeroWeights(),
+    n: scoreY.length, fit_n: fitRows.length,
+    rmse_gain: r2(rmseGain),
+    dm_t: dm.ok ? r2(dm.statistic) : null,
+    dm_p: dm.ok ? +dm.pLess.toFixed(4) : null,
+    dm_ok: dm.ok, dm_reason: dm.ok ? null : dm.reason,
+    gate_passed: gatePassed,
+  };
+}
+
+/**
  * Grades every model walk-forward and derives its weight.
  *
  * Context is rebuilt once per (season, week) rather than per game, since every
@@ -1819,12 +1950,24 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // for diagnostics and for the 'equal'/'inverse_mse' alternate weighting
   // modes) are drawn from.
   const rawWindowRows = [];
+  // FINAL ORDER #1 (2026-09-16, RUNBOOK §10.1): every game with a market
+  // quote, row-aligned across ALL components' own margins -- the design
+  // `jointResidualFit` below regresses on, the same way `rawWindowRows`
+  // above is what `jointComponentWeights` regresses on. Kept separate from
+  // `rawWindowRows` because the two have different eligibility gates
+  // (`inRawWindow` vs. "a market quote exists at all") and different
+  // purposes (blending point forecasts vs. explaining the market residual).
+  const residualWindowRows = [];
   for (const row of componentPredictionStream({ all, restMap, cal, beforeSeason, beforeWeek })) {
     const { actual_margin: actualMargin, actual_total: actualTotal,
       market_margin: marketMargin, week_key: key, in_raw_weight_window: inRawWindow } = row;
     if (inRawWindow) {
       rawWindowRows.push({ margins: row.margins, totals: row.totals,
         actual_margin: actualMargin, actual_total: actualTotal, week_key: key });
+    }
+    if (marketMargin != null && actualMargin != null) {
+      residualWindowRows.push({ margins: row.margins, market_margin: marketMargin,
+        actual_margin: actualMargin, week_key: key });
     }
     for (const m of MODELS) {
       const margin = row.margins[m.id] ?? null;
@@ -1959,6 +2102,22 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // old `rawWeight`'s first check, kept in one place instead of three.
   const blendEligible = m => includeChallengers || !m.challenger_only;
 
+  // FINAL ORDER #1 (2026-09-16, RUNBOOK §10.1): the joint residual fit,
+  // independent of `weighting` -- the raw-blend weighting scheme and the
+  // market-residual correction are two different questions the same fit
+  // pass answers, and this one does not vary with the other. See
+  // `jointResidualFit` above for the full rationale; `residual_joint_weight`
+  // below is what `ensembleLine` actually reads to move the served line off
+  // the market -- the existing `residual_weight`/`residual_slope`/
+  // `residual_gate_passed` fields computed in the loop below are UNCHANGED,
+  // kept exactly as before as the one-at-a-time diagnostic the report
+  // already relied on, not touched by this fit.
+  const residualEligibleIds = scored.filter(blendEligible).map(m => m.id);
+  const jointResidual = jointResidualFit(residualWindowRows, residualEligibleIds);
+  for (const m of scored) {
+    m.residual_joint_weight = blendEligible(m) ? (jointResidual.weights.get(m.id) ?? 0) : 0;
+  }
+
   if (weighting === 'equal' || weighting === 'inverse_mse') {
     // Harmless legacy paths, left exactly as they were: per-component
     // standalone weighting, still keyed only to that component's own RMSE.
@@ -2039,7 +2198,16 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // rather than something only visible by re-deriving it from 26k stored rows,
   // and `ensembleLine`'s `is_market_identity` (below) is the per-game flag
   // downstream code and audits actually branch on.
+  //
+  // CORRECTED 2026-09-16 (FINAL ORDER #1, RUNBOOK §10.1): this field and its
+  // `residual_gate_passed`/`residual_weight` inputs are the OLD one-at-a-time
+  // gate, kept exactly as computed above and NOT what decides the served
+  // line any more -- see `residual_joint_gate_passed` below for the number
+  // that now does. Left in place because 848 fit artifacts already cite it
+  // and nothing measured is deleted; a caller that still reads this field
+  // gets the honest one-at-a-time answer, not a silently repurposed one.
   const residualGatePassCount = scored.filter(m => m.residual_gate_passed).length;
+  const residualJointWeightCount = scored.filter(m => m.residual_joint_weight !== 0).length;
 
   const result = {
     models: scored,
@@ -2055,7 +2223,20 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     // the honest, queryable version of "market_residual has no independent
     // opinion here." Independent of blendMode: this describes what the fit
     // itself has to offer, not which blend a particular caller requested.
-    zero_residual_components_at_cutoff: residualGatePassCount === 0
+    zero_residual_components_at_cutoff: residualGatePassCount === 0,
+    // FINAL ORDER #1: the joint fit's own population-level diagnostics --
+    // ONE decision for every eligible component at this cutoff, not one per
+    // component. `residual_joint_gate_passed` is what `ensembleLine` below
+    // actually depends on (via each model's `residual_joint_weight`).
+    residual_joint: {
+      gate_passed: jointResidual.gate_passed,
+      n: jointResidual.n, fit_n: jointResidual.fit_n,
+      rmse_gain: jointResidual.rmse_gain, dm_t: jointResidual.dm_t,
+      dm_p: jointResidual.dm_p, dm_ok: jointResidual.dm_ok, dm_reason: jointResidual.dm_reason,
+      nonzero_weight_component_count: residualJointWeightCount,
+    },
+    residual_joint_gate_passed: jointResidual.gate_passed,
+    zero_residual_joint_components_at_cutoff: residualJointWeightCount === 0
   };
   _cache.set(cacheKey, result);
   if (_artifactPersistenceEnabled) {
@@ -2227,6 +2408,12 @@ export function ensembleLine(season, week, home, away, {
       margin_weight: (w.margin_weight ?? 0) * (reliability.multipliers[m.id] ?? 1),
       total_weight: w.total_weight ?? 0,
       residual_slope: w.residual_slope ?? null, residual_weight: w.residual_weight ?? 0,
+      // FINAL ORDER #1: the field `residualMargin` below actually reads.
+      // Unlike `residual_weight` (a normalized blend weight, paired with
+      // `residual_slope`) this is a regression coefficient in its own
+      // right -- see `jointResidualFit`'s docstring for why no further
+      // scaling or renormalization is applied to it here.
+      residual_joint_weight: w.residual_joint_weight ?? 0,
       margin_rmse: w.margin_rmse ?? null, total_rmse: w.total_rmse ?? null
     });
   }
@@ -2249,10 +2436,19 @@ export function ensembleLine(season, week, home, away, {
   const rawMargin = blend('margin', 'margin_weight');
   const total = blend('total', 'total_weight');
   const marketMargin = g.home_spread != null ? -g.home_spread : null;
-  const residualModels = perModel.filter(m => (includeChallengers || !m.challenger_only) && m.margin != null && m.residual_weight > 0 && m.residual_slope != null);
-  const residualWeight = residualModels.reduce((s, m) => s + m.residual_weight, 0);
-  const residualMargin = marketMargin != null && residualWeight > 0
-    ? marketMargin + residualModels.reduce((s, m) => s + m.residual_weight * m.residual_slope * (m.margin - marketMargin), 0) / residualWeight
+  // FINAL ORDER #1 (2026-09-16, RUNBOOK §10.1): the served path is now the
+  // joint fit (`jointResidualFit`, above `fitEnsemble`) -- `residual_weight`/
+  // `residual_slope` (the old per-component fit-then-exp(-0.7*rmse) path)
+  // are still computed and still reported on every model for the audit
+  // report, but no longer drive this number. `residual_joint_weight` is
+  // already a regression coefficient on `(margin - marketMargin)`, so the
+  // correction is a plain sum, not a weighted-average-then-renormalize --
+  // see the "WHY A SEPARATE FUNCTION" comment on `jointResidualFit` for why
+  // that differs from `rawMargin`'s blend just above.
+  const residualJointModels = perModel.filter(m => (includeChallengers || !m.challenger_only)
+    && m.margin != null && m.residual_joint_weight !== 0);
+  const residualMargin = marketMargin != null && residualJointModels.length > 0
+    ? marketMargin + residualJointModels.reduce((s, m) => s + m.residual_joint_weight * (m.margin - marketMargin), 0)
     : marketMargin;
   // Only permitted components may move this research forecast away from the
   // market. The in-sample residual diagnostic is not proof of independent skill.
@@ -2270,7 +2466,7 @@ export function ensembleLine(season, week, home, away, {
   // market. `raw` mode never falls back to the market this way, so it is
   // always false there even if a model's own output happens to match the line.
   const isMarketIdentity = blendMode === 'market_residual'
-    && marketMargin != null && residualWeight === 0;
+    && marketMargin != null && residualJointModels.length === 0;
   const disagreementMargin = sd(marginVals);
   const distribution = predictiveDistribution(hist, { margin, total, homeSpread: g.home_spread,
     marketTotal: g.total, disagreement: disagreementMargin });
@@ -2308,7 +2504,7 @@ export function ensembleLine(season, week, home, away, {
       // produced a real model opinion for this game or just the market line
       // with no independent view -- see the sweep note on `isMarketIdentity`.
       is_market_identity: isMarketIdentity,
-      residual_models_contributing: residualModels.length,
+      residual_models_contributing: residualJointModels.length,
       distribution,
       player_availability: playerAvailability
     },

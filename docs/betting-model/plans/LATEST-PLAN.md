@@ -1,17 +1,29 @@
 # Gridiron HQ — latest betting-model plan
 
-**September 16, 2026 update, usage-constrained — read this pointer first.**
-Session ran out of usage mid-execution. The durable record of where
-everything stands, what a football game does and doesn't have in this
-database, the honest ML-technique gap, overfitting guardrails built vs.
-still needed, and the prioritized resume-from-here roadmap is the
-**"DATA INTEGRITY MASTER PLAN — September 16, 2026"** section further down
-(search for that heading). **The gap analysis is DONE (September 16): read
-"FINAL ORDER" first — it is the one authoritative sequence — then "DATA
-SOURCES, ENDPOINTS AND LINEAGE" and "GAP ANALYSIS" right after the roadmap.
-Verdict: the plan stands, re-ordered, with four structural additions.** Both test
-suites were green at the point this was written (Node 2,173/2,134/0/39,
-Python 127/127) and nothing was left mid-edit.
+**September 16, 2026, EXECUTION IN PROGRESS — read this pointer first.**
+Gap analysis is DONE; **FINAL ORDER (in "DATA INTEGRITY MASTER PLAN" further
+down) is the one authoritative work queue — start there, not at the top of
+this file.** Its `~~strikethrough~~` rows are done; read a done row before
+skipping it, it names exactly what changed and where.
+
+**Currently done: FINAL ORDER #1** (joint residual fit — see row 1 in the
+table, RUNBOOK §10.1/§3.3 for the recipe and the measured real-history
+result). Code, 7 new unit tests + 2 re-verified integration tests + 1 new
+model-integrity assertion, and the real-history measurement are all
+complete; fit version bumped to v13. Result was a null (does not clear the
+gate) — that is a valid, recorded completion, not a blocker.
+**Next up: FINAL ORDER #2** (the three live drive-sim bugs, RUNBOOK §10.2)
+— track A, no dependency blocks starting it.
+
+Both test suites are green as of this pointer: **Node 2,189 total / 2,150
+pass / 0 fail / 39 skipped** (`npm test`), **Python 127/127**
+(`cd research/betting/nfl && ../../.venv/bin/python3 -m unittest discover -p "test_*.py"`).
+Everything through #1 is committed and pushed to
+`cursor/betting-model-audit-fixes-1c85` on GitHub — `git log --oneline -5`
+for the exact commits, each one's message states what it did and what suite
+counts it left green. Read RUNBOOK.md §0a (7 operating rules) before
+touching anything, then RUNBOOK's own top pointer for the same "what's
+done, what's next" summary in the how-to document.
 
 ## THE PLAN — read this first (September 15, 2026, end of day)
 
@@ -85,6 +97,15 @@ Known gaps, each with its disposition:
   cutoff ever shipped** — 0 of 848 fit artifacts ever passed the residual
   gate (`n ≥ 250`, `rmse_gain ≥ 0.03`, DM `p ≤ 0.05`). The gate is mild; the
   finding is that nothing has out-of-fold residual skill on these windows.
+  **CORRECTED/EXTENDED 2026-09-16 (FINAL ORDER #1, RUNBOOK §10.1/§3.3):**
+  this was the one-at-a-time per-component gate (31 separate single-covariate
+  fits). A genuine JOINT fit (`jointResidualFit`, regressing the market
+  residual on every eligible component's departure simultaneously, which can
+  in principle see correlation the one-at-a-time method cannot) was built
+  and measured against the same real history and ALSO does not clear the
+  gate — `rmse_gain: -0.008` (worse than the market), `dm_p: 0.9415`
+  (n=749 out-of-fold). This strengthens the finding rather than leaving it
+  open: it is not an artifact of the weaker one-at-a-time method.
 - **Measured dead** (from `gridiron-model.js`'s own evidence): drive-sim
   42.86% ATS, trend totals 43.81%, GBM-on-residual worse than zero.
   Specialists: "none of the twelve clears breakeven."
@@ -1888,7 +1909,9 @@ codebase, with real measurement, and all lost:**
 - **12 independently-built specialist models**, spanning different
   methodologies: **"none clears breakeven."**
 - The main regression/ensemble path itself: 0 of 848 fit artifacts ever
-  passed the residual gate.
+  passed the residual gate. **CORRECTED 2026-09-16 (FINAL ORDER #1):** the
+  joint version of this fit was built and also does not pass — see the
+  correction in Section B above.
 
 **This is stronger evidence than any single failure — five structurally
 different approaches, tried independently, all fail the same way. That
@@ -2407,7 +2430,7 @@ must follow are RUNBOOK.md §0a.**
 
 | # | Do this | Was | Why here |
 |---|---|---|---|
-| 1 | **Fix the production residual path's one-at-a-time fit.** `market_residual` computes `residual_slope`/`residual_weight` as 31 separate single-covariate OLS fits, never a joint fit (F02-1, verified) — the joint ridge exists for margin weights but the served residual path never got it. This is a defect in the one path that reaches a pick. | NEW (17) | Everything the residual gate has ever said (0/848) was said about a mis-fit path |
+| 1 | **DONE 2026-09-16.** ~~Fix the production residual path's one-at-a-time fit.~~ `market_residual` computed `residual_slope`/`residual_weight` as 31 separate single-covariate OLS fits, never a joint fit (F02-1, verified) — the joint ridge existed for margin weights but the served residual path never got it. Built `jointResidualFit` (RUNBOOK §10.1), served by `ensembleLine` in place of the old path, old path kept as diagnostic only, fit version bumped to v13. Measured: still does not clear the gate (`rmse_gain: -0.008`, `dm_p: 0.9415`, n=749 OOF) — a stronger, not weaker, null result. Both suites green. | NEW (17) | Everything the residual gate has ever said (0/848) was said about a mis-fit path — now said about the correctly-fit one too |
 | 2 | **Fix the drive-sim's three VERIFIED-LIVE bugs** (CORRECTED same day — the first draft of this row named FIX_AND_ADD #9-#11; the verifier found #9 away-WP sign and #11 timeout decrement are already FIXED in code, and the +7 HFA coin flip is gone, replaced by +1 per drive at `nfl-drive-sim.js:544` — still additive-on-score, structural critique stands, key-number-spike claim superseded). Live now, verified 2026-09-16: **F01-2** urgency divides a half-scoped clock by 3600 (`nfl-sim-policy.js:229,:441`); **F01-3** `kneelable = 40 + timeouts*40` uses the OPPONENT's timeouts with the wrong sign and consumes the whole clock (`nfl-sim-policy.js:317-319`, `nfl-drive-sim.js:277-279`); **F01-6** `simulateRemainder` has no halftime/OT transition and hardcodes `timeouts:3/oppTimeouts:3` (`nfl-drive-sim.js:819-870`). | NEW (18) | Hours each; the "measured dead 42.86% ATS" verdict was measured with these live — not clean until fixed and re-run |
 | 3 | **Extend the point-in-time leakage guard** (`contracts.js assertTimestampedObservation`) past the fantasy pipeline onto `nfl_team_week_features`/`nfl_play_by_play`/the blind-audit freeze path (F18-4). Five forecast-feeding tables carry no receipt clock of our own (see lineage section). | NEW (19) | Every result this session assumes point-in-time correctness on tables this guard has never touched |
 | 4 | Multiple-testing guardrail, as corrected above: declared-family Bonferroni/Šidák now; **plus** Holm on the per-component DM gate (F02-5) and Giacomini-White conditional test as the cheap extension F02 names; DSR input standardization as its own prerequisite; F07-3 persist `corrected_alpha_at_seal`/`prior_tests_at_seal`. | guardrail section + NEW (20) | Must precede the mining spree |
@@ -2614,7 +2637,13 @@ that it does not):**
    separate single-covariate OLS slopes, one model at a time. The joint ridge
    (`jointComponentWeights`) fixes margin weights only. Every statement this
    plan makes about "0 of 848 residual gate passes" describes that
-   one-at-a-time path. FINAL ORDER #1.
+   one-at-a-time path. FINAL ORDER #1. **DONE 2026-09-16:** built
+   (`jointResidualFit` in `nfl-ensemble.js`, RUNBOOK §10.1), tested (7 pure
+   unit tests + 2 existing integration tests re-verified + 1 new
+   model-integrity assertion, `test/nfl-ensemble-joint-residual.test.js`),
+   and measured against real history (RUNBOOK §3.3) — the joint fit also
+   does not clear the gate (`rmse_gain: -0.008`, `dm_p: 0.9415`). Fit
+   version bumped to v13 so no stale artifact is reused.
 3. **DM is being used as a model-adjudication and promotion mechanism;
    Diebold's own 2012 retrospective says DM-type tests are for comparing
    forecasts, not adjudicating between models, and Giacomini-White 2006

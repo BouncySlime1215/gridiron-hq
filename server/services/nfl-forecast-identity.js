@@ -69,7 +69,18 @@ import { createHash } from 'node:crypto';
 //
 // A weight, slope or calibration fitted under v9, v10 or v11 describes a
 // different estimator and may not be reused as though it reflected this one.
-export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v12-raw-blend-joint-ridge-regression';
+//
+// v13 (2026-09-16, FINAL ORDER #1, RUNBOOK §10.1): `market_residual`'s
+// served line no longer comes from each component's own one-at-a-time
+// residual slope fit (`residual_weight`/`residual_slope`, still computed
+// and still reported per component, but no longer read by `ensembleLine`)
+// -- it comes from `jointResidualFit`'s single joint ridge regression of
+// the realised market residual on every eligible component's own departure
+// from the market, simultaneously, gated on ONE population-level
+// out-of-fold DM test rather than one per component. An artifact fitted
+// under v12 or earlier has no `residual_joint_weight` field at all and
+// must not be reused as though it described this estimator.
+export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v13-joint-residual-fit';
 const CALIBRATION_VERSION = 'cover-logit-v3-graph-bound';
 const sorted = values => [...new Set(values ?? [])].sort();
 

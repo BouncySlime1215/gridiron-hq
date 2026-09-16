@@ -909,6 +909,14 @@ test('historical ensemble weights exclude the season being predicted and all fut
     + '(teamrankings_predictive, nfelo_rating, nfelo_qb_adjustment)');
   assert.ok(challengers.every(model => model.margin_weight === 0 && model.total_weight === 0),
     'newly proposed signals must be measured without silently changing the active blend');
+  // FINAL ORDER #1 (2026-09-16, RUNBOOK §10.1): `residual_joint_weight` is a
+  // THIRD, separate field from margin_weight/total_weight (the raw blend)
+  // -- it is what `ensembleLine`'s market_residual mode actually reads, so
+  // a challenger leaking nonzero weight here would be the exact defect the
+  // two assertions above already guard against, just on the correction path
+  // instead of the raw blend.
+  assert.ok(challengers.every(model => model.residual_joint_weight === 0),
+    'a challenger must never earn residual-correction weight on the champion (non-candidate) fit either');
   const allInputs = fitEnsemble({ includeChallengers: true });
   const candidateInputs = allInputs.models.filter(model => model.challenger_only);
   assert.equal(allInputs.input_mode, 'all-inputs');

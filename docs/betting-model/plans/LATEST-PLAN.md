@@ -1,7 +1,11 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"RESULTS — DATA WIRING PART 2, W8-W13" is the NEWEST result.** Every stat table we
+**"CLV + KELLY SCORECARD" (search for that heading) is the NEWEST result and the
+standard grading for every future test.** 476 strategy-by-line rows: nothing is
++EV at the standard opener; line shopping recovers ~4 points of EV; no model
+survives Holm or stays +EV in 2025; Kelly finds no growth.
+**"RESULTS — DATA WIRING PART 2, W8-W13" precedes it.** Every stat table we
 have, ~6,900 stats per game across 13 walk-forward families: 94 more tests, no
 survivors, both champions still fail 2025. Rams duplicate rows fixed (fit v16).
 "RESULTS — DATA WIRING W1-W7" precedes it.
@@ -3767,6 +3771,67 @@ signals v4, `test/nfl-pbp-team-code-dedupe.test.js`): each 2021-2025 Rams game
 is read once, as LAR. 84 of 85 duplicate pairs were identical; 2025 week 3 vs
 PHI differed in off_cpoe and off_adot, and the LAR version is kept, matching
 what game joins already used.
+
+### CLV + KELLY SCORECARD — the standard grading for every strategy (September 16, 2026, late night; `scripts/model-lab/clv_kelly.py`, evidence `model-lab/clv-kelly-scorecard.csv` / `.json`)
+
+**Standing rule from Nick:** "everything should be based on CLV and kelly. So
+when we run tests it should be based on that." Every future strategy test is
+graded with this scorecard first.
+
+**How it grades a bet.** Fair probability = Pinnacle's no-vig closing
+probability for that side, shifted by the key-number value of the points
+between our line and the close (2015-2021 residuals, pushes half). Expected
+value = that probability against the price we actually got. Kelly = quarter
+Kelly (production `DEFAULT_KELLY_FRACTION`), capped at 5% of bankroll, with the
+stake set ONLY from the strategy's own out-of-sample track record in earlier
+seasons (none for 2023, so Kelly starts betting in 2024). Growth is reported
+as expected (closing line as truth) and realized (actual results). Every
+strategy is graded at the reference opener (Pinnacle's price when valid, else
+-110) and at the best line and price across books posted within 48 h of
+Pinnacle's opener. Zero-skill baselines (always home / away / favorite /
+underdog / over / under) show what the vig alone costs.
+
+**Scope: 476 strategy-by-line rows.** Every lab method for every forecaster
+(including all 13 wired families and the Kalman models), the pools, the
+original composite with its filters, the confidence tiers, and stale books.
+
+**Sanity check passes.** Zero-skill baselines at the reference opener: expected
+value -3.6% to -5.5% per bet (the vig at roughly -110), and Kelly declines them
+(0-4 bets a season).
+
+**Result 1 — at the standard opener, nothing is +EV.** 0 of 225 model
+strategies have positive expected value in 2023-24. The best (composite with
+low disagreement) is -2.6%: it recovers about 2 points of the ~4.5-point vig,
+not all of it.
+
+**Result 2 — line shopping is worth more than any model.** Zero-skill
+baselines at the best available line: -1.4% to +0.4% in 2023-24. Shopping alone
+recovers roughly 4 points of expected value per bet. The best models at the
+best line reach +0.6% to +1.0% (Kalman totals line-move fit: +0.98%, z 2.15),
+but **none survives Holm across 464 comparisons, and every one of the top
+development strategies is negative in 2025** (Kalman totals -1.08%).
+
+**Result 3 — Kelly finds no bankroll growth.** Expected 2025 growth for the
+leaders is between -0.5% and +0.3% over roughly 200 bets; realized growth
+swings +/- a few percent, which is noise at that size.
+
+**Positive EV in BOTH 2023-24 and 2025 (best line only):** always-favorite
+(+0.14% / +0.25%, zero skill), nfelo_rating method B (+0.44 / +1.37),
+stack-magnitude top quartile (+0.59 / +0.93, n 134 / 79, z 0.64), Kalman-EPA
+method B (+0.07 / +1.14). Several track the always-home 2025 number (+1.37%)
+exactly — the degenerate one-side bets noted in the wiring results — so 2025's
+best-line spread numbers are mostly home-side line shopping, not skill.
+
+**Caveats.** Best-line figures are an upper bound: the archive shows when a
+book posted a line, not how long it stayed available or at what limit. The
+stale-book spread rows average a -91 price with a 45% win rate against +2.4%
+expected value; those quotes may pair lines and prices from different
+moments and are not trusted.
+
+**Plain verdict.** Graded on CLV and Kelly, no strategy we have is a bettable
+edge. The one lever that moves expected value by points rather than tenths
+is getting the best number across books; the models add at most about one
+point on top of it, and that did not hold in 2025.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

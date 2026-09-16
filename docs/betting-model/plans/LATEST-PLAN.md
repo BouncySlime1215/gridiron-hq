@@ -1,13 +1,22 @@
 # Gridiron HQ — latest betting-model plan
 
-**September 16, 2026, night — read this pointer first.**
-**"RECONCILED PLAN" (search for that heading, inside "DATA INTEGRITY MASTER
-PLAN" further down) is now the one authoritative work queue — not FINAL
-ORDER's own numbering, which it supersedes.** FINAL ORDER's items and
-table are kept as a reference catalog underneath it; every item was
-reclassified against two objectives (the old margin-accuracy target and
-the new opener-CLV target found tonight) and reassigned into six phases.
-Start at Phase 0. Gap analysis is DONE.
+**September 16, 2026, late night — read this pointer first.**
+**"SEVEN ATTACK-VECTOR TESTS" (search for that heading) has the latest
+results — read it before "RECONCILED PLAN" just below it.** Seven
+exploratory tests run against the opener-CLV composite, Holm-corrected
+across all 17 comparisons they produced: 7 survive. Headline: the edge is
+real on small/mid spreads and dead on big ones (>7 pts), stronger when the
+underlying components agree with each other than when they disagree, and
+—the one that broke a stated prediction—roughly DOUBLE in new-coach-season
+home games, the opposite of what was predicted going in. A selective-
+betting probability curve (fit on |lean|) failed its own calibration check;
+flat/Kelly staking loses money at real vig, as expected. Two of these are
+now preregistered filters for Phase 3.
+**"RECONCILED PLAN" is the authoritative work queue** — not FINAL ORDER's
+own numbering, which it supersedes. FINAL ORDER's items are kept as a
+reference catalog underneath it; every item was reclassified against two
+objectives (the old margin-accuracy target and the new opener-CLV target)
+and reassigned into six phases. Start at Phase 0. Gap analysis is DONE.
 
 **Currently done: FINAL ORDER #1 and #2.**
 - **#1** joint residual fit (RUNBOOK §10.1/§3.3). Built, tested, measured;
@@ -3079,6 +3088,129 @@ same "verify before repeating" discipline everything else tonight used.
 7, 10, 13 and 14** — not cross-referenced from here, actually written into
 the phases, so reading the phase list top to bottom is reading the whole
 plan.
+
+### SEVEN ATTACK-VECTOR TESTS — September 16, 2026, late night (results; `scripts/seven-attack-tests.py`, raw output in `docs/evidence/2026-09-16/opener-clv/seven-attack-tests-results.json`)
+
+Nick: run #11, #7, #8, #2, #3, #6, #5 from the eleven attack vectors, and
+use the model registry to find the right existing tool for each rather
+than building fresh. All seven ran against data already on disk from
+tonight's opener-CLV work (every one of the ~35 components' own per-game
+margin was already saved) plus three small read-only joins against the
+live database — no new ensemble fit. Two existing, already-built tools
+were reused rather than duplicated: `nfl-officials.js`'s `refereeTotals()`
+(same exact join and Šidák-corrected multiplicity discipline, ported to a
+direct read since that function needs the extract rebuilt to reach it) and
+`staking.js`'s `kellyFraction()`/`stakeFor()` math, including the
+`DEFAULT_KELLY_FRACTION=0.25` already used in production.
+
+**A real bug caught before results were trusted:** the consensus-line join
+(#11) initially matched the literal string `'home'` against `nfl_odds_archive.side`
+instead of the home team's own code, silently returning zero matches. Fixed
+and rerun before anything below was written down.
+
+**Multiplicity, applied the same way as everything else tonight:** these
+seven tests produced 17 individual comparisons across segments, the stress
+test, disagreement, and the two line-shopping variants. Holm across all 17
+— **seven survive.**
+
+| cell | mean adj. CLV | z | Holm p |
+|---|---|---|---|
+| Home team in a new-coach season | +0.431 | 4.37 | 0.0002 |
+| Excluding week 1 (structural, see below) | +0.215 | 3.77 | 0.0026 |
+| Games in the LOW half of internal component disagreement | +0.290 | 3.76 | 0.0026 |
+| Single-book (nflverse) close | +0.197 | 3.46 | 0.0075 |
+| Normal rest (not coming off a bye) | +0.198 | 3.27 | 0.0139 |
+| Median-of-books consensus close | +0.189 | 3.17 | 0.0186 |
+| Non-divisional games | +0.199 | 3.05 | 0.0250 |
+
+**#7 stress test — the hypothesis was stated wrong, and that's the finding.**
+Declared in advance: the edge should be flat-to-weaker exactly where recent
+form is least informative — new-coach seasons were named as one such case.
+**The opposite happened: new-coach-season home games show roughly DOUBLE
+the edge of the overall pool (+0.431 vs the ~+0.20 baseline), and it's the
+single strongest result of the night.** The falsification is being reported
+plainly, not explained away. A plausible alternative mechanism, offered
+honestly as unconfirmed: a market re-pricing a team around a new coaching
+staff is working from a weaker prior than usual, while a signal built from
+DIRECTLY MEASURED recent play has no such prior to be wrong about — the
+market may be slower here, not faster. Worth its own preregistered test,
+not assumed from one slice. Week 1 itself could not be tested at all —
+not a null result, a STRUCTURAL one: several of the four survivor
+components need in-season games played to compute anything, so the
+composite has literally no opinion in week 1 of any season. Bye-week games
+(n=56) showed no significant effect either direction — likely underpowered
+at that sample size, not yet a real finding.
+
+**#3 disagreement — the most actionable result of the batch.** When the
+~35 components' own predictions AGREE with each other (below-median spread
+across them), the edge is strong and clean. When they disagree, it
+vanishes (mean +0.08, not significant). Read plainly: **internal
+committee agreement is a better selectivity signal than the size of the
+composite's own disagreement with the market** — which is the opposite
+axis from what #2 tested, and #2 failed (next).
+
+**#2 cover-probability calibration — failed, and this matters.** Fit a
+simple out-of-sample logistic curve predicting cover probability from
+|lean| on an early split, checked its calibration on a later, disjoint
+split. The realized cover rate was NOT monotonic in the predicted
+probability, and the top confidence bin (lean ≥ 5) realized 41.3% covers
+against a PREDICTED 56.6% — badly miscalibrated, in the wrong direction.
+**This directly complicates the "bet only the loudest disagreements"
+idea floated earlier tonight** — bigger disagreement with the market does
+NOT reliably mean more confidence, at least not via this simple a curve.
+Contrast with #3: internal agreement among components is a real
+selectivity signal; the raw SIZE of disagreement with the market is not,
+or at least isn't yet, captured by anything this simple.
+
+**#8 Kelly/flat staking — loses money, exactly as the sub-vig math
+predicted, now in dollar terms.** Starting bankroll $100, standard −110
+pricing, on the same out-of-fold score split as #2 (whose flawed
+calibration curve this inherits, so treat the exact numbers as
+illustrative, not final): fractional Kelly (0.25×, the production
+multiplier) ended at **$75.97**; flat 1%-of-bankroll every game ended at
+**$79.47**. Both strategies lose money. Not a new finding — a concrete
+illustration of the ~51%-vs-52.4% gap already reported, made real.
+
+**#11 line shopping — a small, genuine surprise.** The consensus (median
+of 10-11 books) close performed marginally WEAKER than the single nflverse
+close (z 3.17 vs 3.46), not stronger. Both are solidly significant and the
+difference between them is well within noise — but the a-priori
+expectation ("a cleaner number should show a cleaner edge") did not
+clearly pan out. Does not contradict the earlier finding that price/spread
+SHOPPING (getting the best number across books, not averaging them) is
+worth pursuing — that is still untested and is a different question from
+this one.
+
+**#5 referee tendency — a clean, honest null.** 851 referee-games across 17
+crews with ≥25 games each, corrected for testing all 17 at once
+(Šidák α=0.003, z required 2.97). Zero crews clear it; the best (Clay
+Martin, 60% over) sits at z=1.41. No detectable individual-referee totals
+bias in this sample. This is `refereeTotals()`'s own existing test,
+unmodified — reused, not rebuilt, per Nick's ask to check the registry for
+the right tool first. A spread-side (CLV) version of the same join was not
+built tonight; the totals-only version is what already existed.
+
+**#6 segments — the clearest actionable filter of the night, and it isn't
+subtle.** Big spreads (>7 points): the edge is flatly zero (z=0.07,
+essentially noise). Small and mid spreads: where the whole measured edge
+actually lives. Read plainly: **this signal has something to say about
+close, competitively-priced games and nothing to say about games the
+market has already decided are lopsided** — which makes real football
+sense, since a shift in perceived team strength moves a close number more
+than it moves a blowout number. Season timing (early/mid/late) showed no
+meaningful difference either way.
+
+**What changes in the plan.** Two real, immediately actionable filters for
+the composite/selective-betting work already queued in Phase 3 (items
+8-9): restrict to spreads under roughly 7 points, and prefer games where
+the underlying components agree with each other. Both are now
+preregistered inputs to that phase's threshold search, not new ideas
+invented after seeing favorable numbers. The new-coach finding is
+preregistered as its own follow-up, explicitly because tonight's version
+of it was exploratory. The failed calibration (#2) is a reason for caution
+on the |lean|-based selective-betting hypothesis specifically — it is not
+dead, but it needs a better probability model than a one-variable logistic
+before anyone sizes a bet off it.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

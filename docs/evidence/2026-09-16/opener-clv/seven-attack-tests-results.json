@@ -1,0 +1,208 @@
+{
+ "6_segments": {
+  "divisional": {
+   "n": 275,
+   "mean": 0.19494637046559274,
+   "z": 1.7496850149002934,
+   "p": 0.08017268084933378
+  },
+  "non_divisional": {
+   "n": 513,
+   "mean": 0.19882211851128287,
+   "z": 3.051519810714823,
+   "p": 0.0022768602301902158
+  },
+  "small_spread_0_3": {
+   "n": 330,
+   "mean": 0.24033655713118815,
+   "z": 1.9867063251350376,
+   "p": 0.04695495048509933
+  },
+  "mid_spread_3_7": {
+   "n": 314,
+   "mean": 0.23847423661167888,
+   "z": 2.6679159536281296,
+   "p": 0.007632334805556052
+  },
+  "big_spread_7plus": {
+   "n": 144,
+   "mean": 0.00981961475671429,
+   "z": 0.0674789863393285,
+   "p": 0.9462003903616996
+  },
+  "early_season_wk1_6": {
+   "n": 240,
+   "mean": 0.2015393697525409,
+   "z": 2.597909541686988,
+   "p": 0.009379319878051979
+  },
+  "mid_season_wk7_12": {
+   "n": 246,
+   "mean": 0.2105617632899705,
+   "z": 2.1174742796296497,
+   "p": 0.03421961593370464
+  },
+  "late_season_wk13plus": {
+   "n": 302,
+   "mean": 0.1835707157761045,
+   "z": 1.7618481792740674,
+   "p": 0.0780949520272029
+  }
+ },
+ "7_stress_test": {
+  "week_1_only": null,
+  "week_2_plus": {
+   "n": 759,
+   "mean": 0.21495457078033112,
+   "z": 3.7676519196881384,
+   "p": 0.0001647902572472094
+  },
+  "off_bye_rest_ge_13": {
+   "n": 56,
+   "mean": 0.19283228647181364,
+   "z": 0.7438531904722042,
+   "p": 0.45696529683030773
+  },
+  "normal_rest_lt_13": {
+   "n": 732,
+   "mean": 0.1978243041419461,
+   "z": 3.2707775344530234,
+   "p": 0.0010725224522097907
+  },
+  "new_coach_season_home": {
+   "n": 193,
+   "mean": 0.430776040104497,
+   "z": 4.372054543925061,
+   "p": 1.2308276461611958e-05
+  },
+  "same_coach_home": {
+   "n": 595,
+   "mean": 0.12179197131791293,
+   "z": 1.838899168809077,
+   "p": 0.06593001809404712
+  }
+ },
+ "11_consensus_line": {
+  "games_with_3plus_books": 817,
+  "games_used": 817,
+  "vs_single_book_nflverse_close": {
+   "n": 788,
+   "mean": 0.19746954146488085,
+   "z": 3.4626218816113306,
+   "p": 0.0005349395725384649
+  },
+  "vs_consensus_close": {
+   "n": 788,
+   "mean": 0.18949369800206814,
+   "z": 3.1654037133965387,
+   "p": 0.0015486790925897773
+  }
+ },
+ "3_disagreement": {
+  "n_games": 817,
+  "median_disagreement_pts": 3.3944,
+  "low_disagreement_half": {
+   "n": 396,
+   "mean": 0.2904682338988908,
+   "z": 3.763984872732081,
+   "p": 0.00016722700414050005
+  },
+  "high_disagreement_half": {
+   "n": 392,
+   "mean": 0.08129244756293698,
+   "z": 0.9105247257442511,
+   "p": 0.3625458480463009
+  }
+ },
+ "5_referee": {
+  "referee_games_joined": 851,
+  "crews_examined": 17,
+  "min_games": 25,
+  "corrected_alpha": 0.003,
+  "z_required": 2.9664,
+  "significant_crews": [],
+  "top_5_by_over_rate": [
+   {
+    "referee": "Clay Martin",
+    "games": 51,
+    "graded": 50,
+    "over_rate": 0.6,
+    "z_vs_coinflip": 1.4142
+   },
+   {
+    "referee": "Adrian Hill",
+    "games": 50,
+    "graded": 50,
+    "over_rate": 0.56,
+    "z_vs_coinflip": 0.8485
+   },
+   {
+    "referee": "Alex Kemp",
+    "games": 51,
+    "graded": 49,
+    "over_rate": 0.551,
+    "z_vs_coinflip": 0.7143
+   },
+   {
+    "referee": "Tra Blake",
+    "games": 48,
+    "graded": 48,
+    "over_rate": 0.5417,
+    "z_vs_coinflip": 0.5774
+   },
+   {
+    "referee": "Land Clark",
+    "games": 49,
+    "graded": 49,
+    "over_rate": 0.5102,
+    "z_vs_coinflip": 0.1429
+   }
+  ]
+ },
+ "2_cover_calibration": {
+  "fit_n": 474,
+  "score_n": 316,
+  "logistic_b0": 0.0469,
+  "logistic_b1_per_point": 0.0292,
+  "calibration_bins": [
+   {
+    "bin": "[0,1)",
+    "n": 71,
+    "predicted_p_cover": 0.5152,
+    "realized_cover_rate": 0.5211
+   },
+   {
+    "bin": "[1,2)",
+    "n": 81,
+    "predicted_p_cover": 0.5227,
+    "realized_cover_rate": 0.4691
+   },
+   {
+    "bin": "[2,3)",
+    "n": 49,
+    "predicted_p_cover": 0.5294,
+    "realized_cover_rate": 0.4082
+   },
+   {
+    "bin": "[3,5)",
+    "n": 69,
+    "predicted_p_cover": 0.5396,
+    "realized_cover_rate": 0.5072
+   },
+   {
+    "bin": "[5,99)",
+    "n": 46,
+    "predicted_p_cover": 0.5656,
+    "realized_cover_rate": 0.413
+   }
+  ]
+ },
+ "8_kelly_growth": {
+  "games_in_score_split": 316,
+  "games_staked_fractional_kelly": 192,
+  "kelly_multiplier": 0.25,
+  "starting_bankroll": 100.0,
+  "ending_bankroll_fractional_kelly": 75.9736,
+  "ending_bankroll_flat_1pct_every_game": 79.4733
+ }
+}

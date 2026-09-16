@@ -3075,14 +3075,10 @@ accuracy pass is needed before its status column is trusted for anything
 beyond a starting point** — folded into Phase 1 below, since it's the
 same "verify before repeating" discipline everything else tonight used.
 
-**Folded into the phase order:** the future-snapshot CLV re-test (item 2
-above) slots into **Phase 3**, alongside the other cheap historical-data-
-only tests — it needs no new infrastructure, only a different join against
-data already on disk. The live-event-to-future-line connection (item 3)
-and the Polymarket cost comparison (item 1) both slot into **Phase 4**,
-after Phase 3's gate, since both need the forward-looking, live
-infrastructure that phase is already building. The registry accuracy pass
-joins **Phase 1**.
+**These four are now merged directly into the phase list below as items
+7, 10, 13 and 14** — not cross-referenced from here, actually written into
+the phases, so reading the phase list top to bottom is reading the whole
+plan.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 
@@ -3155,6 +3151,16 @@ that don't exist yet, before touching the roadmap itself.**
    into "we can cheaply check whether anything else has one too," and it
    is the bridge that lets #9-#19 below get re-asked under the objective
    that actually paid off today.
+7. **NEW: registry accuracy pass.** Three spot-checked rows in
+   `MODEL-REGISTRY.csv` were wrong before this was written down —
+   `market_correction_lookup` and `teamrankings_lookup` are both live and
+   directly imported in `nfl-ensemble.js`, and `preseason_blend`
+   (`blendedTeamRating()`) is live via `nfl-team-strength.js` and
+   `nfl-audit-overview.js`; all three were tagged `research_only`. One
+   check held up — `nfl_live_ledger` genuinely is dead code. Re-verify
+   every `research_only`/`shadow`/`stub`/`unenforced` row (the ~25 flagged
+   in the September 16 registry work) against an actual import/call site
+   before this document's own "what's unused" claims are trusted again.
 
 **Phase 2 — #24 devig completeness, promoted.** Any real bet needs a fair
 price, and `nfl-devig.js` still only has 2-outcome Shin. Do this before
@@ -3163,36 +3169,66 @@ Phase 3's shopping step needs to compare prices across books honestly.
 **Phase 3 — Cheap, historical-data-only tests of the profit roadmap's first
 three levers (report chapter X, steps 1-3), in the order they were listed
 there, now sequenced against the infra above:**
-7. Fitted (ridge, preregistered) composite of the four survivors, tested
+8. Fitted (ridge, preregistered) composite of the four survivors, tested
    against the equal-weight average from today on the same CLV harness.
-8. Selective-betting threshold test: does CLV rise with |lean|, as the
+9. Selective-betting threshold test: does CLV rise with |lean|, as the
    unconfirmed bins suggested? Preregister the thresholds tried before
    looking, log every one tried to the new `bet_attempts` ledger, correct
    with Holm across them.
-9. Retroactive price/spread shopping: replay the composite's historical
+10. Retroactive price/spread shopping: replay the composite's historical
    picks against the full 10-book archive already owned
    (`nfl_odds_archive`) and measure what shopping would have been worth,
    before building any live capture infrastructure. This is a pure
    measurement pass on data already on disk — cheapest possible validation
    of whether Phase 4 is worth building at all.
-   *Gate:* if steps 7-9 together do not move the double-adjusted,
-   Holm-corrected CLV meaningfully above where today's result left it, stop
-   here and say so plainly — do not proceed to build live infrastructure
-   for an edge that measurement says isn't there.
+11. **NEW: the future-snapshot CLV re-test.** `nfl_line_snapshots` already
+    holds lines captured from same-day out past 200 days before kickoff
+    (`book-feeds.js` polls "this week and next" by design; one batch of
+    Week 18 games was first captured in early August for a January
+    kickoff). Repeat the double-adjusted opener-CLV test, but grade
+    against the EARLIEST available snapshot per game instead of that
+    week's own opener, binned by days-early. **Prediction, stated before
+    running it:** the edge should be flat-to-larger as the snapshot gets
+    more stale, not smaller — if a price six days old already shows this
+    effect, a price posted before the season started should show it more,
+    not less. A result that shrinks or reverses with staleness is real
+    evidence against the mechanism, not something to explain away. No new
+    infrastructure — a different join against data already on disk.
+    *Gate:* if steps 8-11 together do not move the double-adjusted,
+    Holm-corrected CLV meaningfully above where today's result left it, stop
+    here and say so plainly — do not proceed to build live infrastructure
+    for an edge that measurement says isn't there.
 
-**Phase 4 — The expensive, slow levers (report chapter X, steps 4-5), only
-if Phase 3's gate passes.**
-10. Real-time opener-capture infrastructure — new engineering, not yet
+**Phase 4 — The expensive, slow levers (report chapter X, steps 4-5, plus
+two items found alongside the live betting model), only if Phase 3's gate
+passes.**
+12. Real-time opener-capture infrastructure — new engineering, not yet
     scoped in detail; scope it once Phase 3 says it's worth building.
-11. Forward paper-trade. This is the one step time cannot be saved on — it
+13. Forward paper-trade. This is the one step time cannot be saved on — it
     runs at the pace of the NFL schedule. Start it as early as Phase 3's
     gate allows, in parallel with anything below, because waiting for
     every other phase to finish first only delays the one truly honest
     out-of-sample test this project has never had.
+14. **NEW: connect `live-edge.js`'s live event stream to the already-
+    captured future-week lines.** A live-tracked event in one game (an
+    injury, a blowout revealing a real weakness, a QB change) is a named,
+    dated reason a specific FUTURE matchup's already-posted price might be
+    stale — checkable the moment it happens, not after a week passes. Not
+    yet built. Every flag it raises gets logged to the `bet_attempts`
+    ledger (Phase 1, item 4) whether or not it's acted on, or the first
+    time it works will look like magic instead of measurement.
+15. **NEW: test the opener-CLV edge against Polymarket/exchange pricing,
+    not only sportsbook spreads.** `live-edge.js`'s own validated
+    numbers put Polymarket's median cost at 2.53% against a sportsbook's
+    standard ~4.5% vig (−110). The entire reason the opener-CLV edge
+    doesn't clear break-even today is that it's a hair under the bar; a
+    materially lower bar is the single most direct way to close that gap,
+    and it was sitting in code already built for an unrelated purpose.
 
 **Phase 5 — Sizing and the ongoing discipline (report chapter X, steps 6-7).**
 Only after Phase 4 shows the edge survives contact with a live market.
-Fractional Kelly, sized off the same calibration auditor built in Phase 1.
+16. Fractional Kelly, sized off the same calibration auditor built in
+    Phase 1 (item 5).
 
 **Phase 6 — Revisit the deferred data-mining backlog, re-gated on the new
 harness, not abandoned.** FINAL ORDER #9-#16, #19: re-measure the three

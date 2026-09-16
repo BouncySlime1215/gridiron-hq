@@ -106,7 +106,7 @@ for (const season of seasons) {
   let n = 0;
   for (const g of games) {
     const actualMargin = g.team_score - g.opp_score;
-    let ens = null, ensErr = null, components = null;
+    let ens = null, ensErr = null, components = null, ensTotal = null, simExtra = null;
     try {
       const line = ensembleLine(season, g.week, g.home, g.away, {
         includeEvidence: false, blendMode: 'raw',
@@ -121,7 +121,8 @@ for (const season of seasons) {
         // so "which single model, if any, has opener edge" is answerable from
         // the same pass rather than a second multi-hour run. Challengers are
         // included and flagged -- they are exactly the ones never graded live.
-        components = line.models.map(m => ({ id: m.id, challenger: m.challenger_only === true, pred: m.margin }));
+        components = line.models.map(m => ({ id: m.id, challenger: m.challenger_only === true, pred: m.margin, total: m.total ?? null }));
+        ensTotal = line.ensemble.projected_total ?? null;
       }
     } catch (e) { ensErr = e.message; }
 
@@ -130,14 +131,19 @@ for (const season of seasons) {
       const s = simulateMatchup({ home: g.home, away: g.away, season: season - 1, week: null,
         trials, spread: g.open_spread, total: g.open_total, seed: 20260916 });
       if (s.error) simErr = s.error;
-      else sim = grade({ pred: s.projection?.margin, openSpread: g.open_spread,
-        closeSpread: g.spread, actualMargin });
+      else {
+        sim = grade({ pred: s.projection?.margin, openSpread: g.open_spread,
+          closeSpread: g.spread, actualMargin });
+        simExtra = { total: s.projection?.total ?? null, margin_sd: s.projection?.margin_sd ?? null,
+          total_sd: s.projection?.total_sd ?? null };
+      }
     } catch (e) { simErr = e.message; }
 
     fs.appendFileSync(file, JSON.stringify({
       season, week: g.week, home: g.home, away: g.away,
       open_spread: g.open_spread, close_spread: g.spread, actual_margin: actualMargin,
-      ensemble: ens, ensemble_error: ensErr, components, sim, sim_error: simErr
+      open_total: g.open_total, close_total: g.total, actual_total: g.team_score + g.opp_score,
+      ensemble: ens, ensemble_total: ensTotal, ensemble_error: ensErr, components, sim, sim_extra: simExtra, sim_error: simErr
     }) + '\n');
     n++;
     if (n % 25 === 0) console.error(`${season}: ${n}/${games.length} games, ${Math.round((Date.now() - started) / 1000)}s elapsed`);

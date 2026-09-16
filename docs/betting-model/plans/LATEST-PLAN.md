@@ -1,6 +1,9 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
+**"PREREGISTERED — MODEL LAB" (search for that heading) is the work in progress:** every
+forecaster x five methods + Kalman models + confidence and market tests, rules
+committed before scoring. Its RESULTS section will follow it.
 **"WALK-FORWARD POINT CONVERSION (fit v15)" (search for that heading) is the NEWEST
 result.** opp_adjusted was ~2x too large and every conversion was frozen at
 pre-2022; both fixed in v15. Rerun on repaired openers: 2022-24 composite
@@ -3460,6 +3463,86 @@ mismatch recorded above.
 2. Blend market signal trained on the close, fed the opener.
 3. Home teams beat predictions by ~1 pt in three of four seasons (unconfirmed).
 4. Migration 055 not yet applied to the live database.
+
+### PREREGISTERED — MODEL LAB: every forecaster, five methods plus new models (September 16, 2026, late night; committed BEFORE any method below was scored)
+
+Nick: "Do all for every model we have. Get creative too." Scripts will live in
+`scripts/model-lab/`; results go in a separate RESULTS section appended below
+this one, never edited into it.
+
+**Scope.** Every forecaster that predicts NFL games: all ensemble components
+(spread margin; totals where they produce one), the full blend, the drive sim,
+`python_football`, `python_unified`, `lineup_roster`, plus the new models
+below. Predictions come from walk-forward fit-v15 runs on repaired openers
+(`docs/evidence/2026-09-16/opener-clv-v15t/`, with totals) and the pass-2
+files. Out of scope and why: `python_correction` and
+`market_correction_research` read the close (contaminated); MLB and player-prop
+models are a different market; data pipelines are inputs, not forecasters.
+
+**Timing tiers** (reused unchanged from `INPUT_TIMING` in
+`opener-clv-summarize.mjs`). Only `prior_week` forecasters and the new models,
+which are prior_week by construction, are **eligible to be champion**.
+`in_week`, `third_party_bulk`, `mixed` (the blend) and `opener`
+(market_anchor/market_regression, the sanity check that must read ~0) are
+scored and reported, never promoted.
+
+**Data rules.** Suspect openers excluded. 2021 openers are invalid, so 2021 may
+train score-based conversions but never any opener- or close-based fit or
+score. Close = `game_lines.spread` / `game_lines.total`.
+
+**Evaluation.** Nested walk-forward by season. Development test seasons 2023
+and 2024; each is scored only by fits and selections made on clean seasons
+before it (2022; 2022-23). **2025 is the confirmatory holdout** for the two
+champions only. Primary metric: signed opener CLV minus the zero-skill drift
+baseline (4-bucket side x favourite/underdog for spreads, 2-bucket over/under
+for totals) **fit on training seasons only**, week-clustered z. Secondary: ATS
+/ over-under at the opener; MAE for conversions.
+
+**Methods, applied to every forecaster f, spreads and totals:**
+- A. Conversion only: fit actual ~ a + b*f on training; bet sign(pred - opener).
+- B. Market's mistake: fit (actual - opener) ~ a + b*(f - opener); bet sign.
+- C. Line move: fit (close - opener) ~ a + b*(f - opener); bet sign.
+
+**Combinations (eligible forecasters only):**
+- D. Stack-all: ridge of (close - opener) on every eligible departure (f - opener), lambda by week-block 5-fold CV inside training.
+- E. Select-then-stack: inside training only keep forecasters whose method-C slope has t > 2, then ridge as D.
+- F. Stack-all on market's mistake (actual - opener).
+- G. Flat average of E's selected set (the old composite, now with nested selection).
+
+**New models:**
+- K1. Kalman team ratings from final scores (read-only `game_lines`, 2015 on); hyperparameters (process noise, season carryover, observation noise, home field) by maximum likelihood on 2015-2021 only, then frozen; outputs margin and predictive sd per game.
+- K1b. K1 with a second observation per game: net EPA-per-play differential (`nfl_team_week_features`), its scale and noise also fit on 2015-2021.
+- K2. Kalman totals: team scoring and allowing levels, same fitting rules.
+Each enters methods A-C and the D-G pools as an eligible forecaster.
+
+**Confidence tests (Nick's "bet more when confident"),** thresholds set on training seasons:
+- H1. Kalman cover probability p = Phi((pred + opener)/sd): top quartile of |p - 0.5| vs rest; plus out-of-sample calibration slope of cover on logit(p).
+- H2. Magnitude of D's predicted line move: top quartile vs rest.
+- H3. Drive-sim |lean| / margin_sd: top quartile vs rest.
+- H4. Book dispersion (stdev of openers across books posted within 48 h of Pinnacle): does D's CLV concentrate in the top half?
+
+**Creative, model-free market tests** (read-only `nfl_odds_archive`):
+- C1. Line shopping: extra points and price from taking the best opener among books posted within 48 h of Pinnacle, for D's bets. Descriptive.
+- C2. Stale-book test: where a book posted at or after Pinnacle's opener and differs by >= 1 pt, take the better number; CLV vs Pinnacle close. Upper bound, because the archive stores no timestamp for how long that line stayed up.
+- C3. Key numbers: express the champions' CLV as cover probability using the 2015-2021 margin distribution, so a half point through 3 or 7 counts more than one through 4.
+
+**Multiplicity.** Development family = every A/B/C per forecaster per market,
+D-G per market, K1/K1b/K2 via A-C, H1-H4, C2 → one Holm correction across the
+whole family on pooled 2023-24. Confirmatory family = the two champions on 2025,
+Holm over 2.
+
+**Champion rule (deterministic).** Per market, the champion is the eligible
+strategy among D, E, F, G and the K models' method C with the largest pooled
+2023-24 z. It is then scored on 2025.
+
+**Success criteria.**
+- EDGE CONFIRMED: a champion's 2025 adjusted CLV > 0 with z > 1.96 after Holm over 2. Then freeze its rules, refit on 2022-25, and paper-trade 2026 with no money.
+- CONFIDENCE TIER: an H test passes development Holm AND its calibration slope is >= 0.5 (a magnitude floor, fixing the earlier "slope > 0" mistake) AND its top tier's 2025 CLV is > 0.
+- Otherwise a null, reported as one. No post-hoc rescue.
+
+**Forward holdout (#5).** Whatever the outcome, the frozen rules file and a
+grader for `games-2026.jsonl` from the same harness are committed, so 2026
+games test rules fixed today.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

@@ -1,0 +1,7 @@
+MULTIPLICITY {"family_size":32,"pass_count_raw":0,"pass_count_holm":0,"method":"holm","note":"Per-component diagnostic only. The SERVED line comes from the single joint fit (residual_joint), which is one test and needs no correction across components."}
+family size: 32
+   pythagorean raw p 0.3827 -> holm 1
+   opp_adjusted raw p 0.4189 -> holm 1
+   dynamic_state raw p 0.4365 -> holm 1
+   melo raw p 0.4438 -> holm 1
+   market_regression raw p 0.5435 -> holm 1

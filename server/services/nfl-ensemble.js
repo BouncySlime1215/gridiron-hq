@@ -28,7 +28,7 @@ import { teamrankingsRatingDiff } from './nfl-teamrankings-lookup.js';
 import { nfeloFeatures } from './nfelo.js';
 import { teamWeeks } from './nfl-pbp.js';
 import { weatherSplits, isIndoors, WINDY_MPH, COLD_F } from './nfl-weather-response.js';
-import { mean } from './stats-util.js';
+import { mean, holm } from './stats-util.js';
 import { dieboldMariano, naivePairedT } from './forecast-comparison.js';
 import { ENSEMBLE_FIT_VERSION } from './nfl-forecast-identity.js';
 import { gamePlayerAvailability } from './nfl-player-value.js';
@@ -2178,13 +2178,55 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
     //     complete weeks in the score block, zero variance) fails the gate.
     //     No statistic means no evidence, which is not the same as evidence of
     //     no skill, but it is equally not grounds for production weight.
-    m.residual_diagnostic_passed = m.residual_n >= 250
-      && m.residual_rmse_gain >= 0.03
-      && m.residual_dm_ok === true && m.residual_dm_p <= 0.05;
+    m.residual_diagnostic_passed = m.residual_n >= RESIDUAL_GATE_MIN_N
+      && m.residual_rmse_gain >= RESIDUAL_GATE_MIN_GAIN
+      && m.residual_dm_ok === true && m.residual_dm_p <= RESIDUAL_GATE_MAX_P;
     m.residual_gate_passed = (includeChallengers || !m.challenger_only)
       && m.residual_diagnostic_passed;
     m.residual_weight = m.residual_gate_passed ? Math.exp(-0.7 * m.residual_rmse) : 0;
   }
+
+  // FINAL ORDER #4 (2026-09-16, RUNBOOK §10.4): MULTIPLICITY.
+  //
+  // The per-component gate above asks each component, separately, "is your
+  // p-value below 0.05?" -- and it is asked of every eligible component at
+  // every cutoff. Roughly thirty independent tests at a 5% bar produce one
+  // or two passes by luck alone even when nothing has any skill, so a raw
+  // `residual_dm_p <= 0.05` is not evidence of anything once you know how
+  // many components were asked. Holm's step-down correction is applied here
+  // across the declared family -- the components actually tested at this
+  // cutoff -- and reported ALONGSIDE the raw verdict rather than replacing
+  // it, so an auditor can see both what the old gate said and what survives
+  // correction.
+  //
+  // Holm rather than Bonferroni: same family-wise error guarantee, uniformly
+  // more powerful, and it is what `stats-util.js`'s `holm` already
+  // implements. Routed through that one function deliberately -- this
+  // codebase already carries three independent Holm implementations
+  // (`stats-util.js`, `modeling/governed-comparison.js`,
+  // `player-head-validation.js`; all three checked 2026-09-16 and
+  // mathematically equivalent), and a fourth is exactly the duplicate-formula
+  // defect the data-integrity checklist exists to stop.
+  //
+  // NOTE ON SCOPE: since FINAL ORDER #1 the SERVED line comes from the single
+  // joint fit (`jointResidualFit`), which is ONE test and needs no correction
+  // across components. This correction governs the per-component diagnostics,
+  // which are what a reader would otherwise mistake for thirty independent
+  // promotion signals.
+  const residualFamily = scored.filter(m => (includeChallengers || !m.challenger_only)
+    && m.residual_dm_ok === true && Number.isFinite(m.residual_dm_p));
+  const holmAdjusted = holm(residualFamily.map(m => m.residual_dm_p));
+  for (const m of scored) {
+    m.residual_dm_p_holm = null;
+    m.residual_diagnostic_passed_holm = false;
+  }
+  residualFamily.forEach((m, i) => {
+    m.residual_dm_p_holm = +holmAdjusted[i].toFixed(4);
+    m.residual_diagnostic_passed_holm = m.residual_n >= RESIDUAL_GATE_MIN_N
+      && m.residual_rmse_gain >= RESIDUAL_GATE_MIN_GAIN
+      && m.residual_dm_p_holm <= RESIDUAL_GATE_MAX_P;
+  });
+  const residualFamilySize = residualFamily.length;
   const residualWeightSum = scored.reduce((s, m) => s + m.residual_weight, 0);
   for (const m of scored) m.residual_weight = residualWeightSum
     ? +(m.residual_weight / residualWeightSum).toFixed(4) : 0;
@@ -2207,6 +2249,7 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // and nothing measured is deleted; a caller that still reads this field
   // gets the honest one-at-a-time answer, not a silently repurposed one.
   const residualGatePassCount = scored.filter(m => m.residual_gate_passed).length;
+  const residualGatePassCountHolm = scored.filter(m => m.residual_diagnostic_passed_holm).length;
   const residualJointWeightCount = scored.filter(m => m.residual_joint_weight !== 0).length;
 
   const result = {
@@ -2236,7 +2279,19 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
       nonzero_weight_component_count: residualJointWeightCount,
     },
     residual_joint_gate_passed: jointResidual.gate_passed,
-    zero_residual_joint_components_at_cutoff: residualJointWeightCount === 0
+    zero_residual_joint_components_at_cutoff: residualJointWeightCount === 0,
+    // FINAL ORDER #4: the per-component diagnostic's pass count BEFORE and
+    // AFTER Holm, with the family size it was corrected across. Reporting
+    // both is the point -- the gap between them is exactly how much of the
+    // old gate's output was multiplicity.
+    residual_multiplicity: {
+      family_size: residualFamilySize,
+      pass_count_raw: residualGatePassCount,
+      pass_count_holm: residualGatePassCountHolm,
+      method: 'holm',
+      note: 'Per-component diagnostic only. The SERVED line comes from the single '
+        + 'joint fit (residual_joint), which is one test and needs no correction across components.'
+    }
   };
   _cache.set(cacheKey, result);
   if (_artifactPersistenceEnabled) {

@@ -9,7 +9,7 @@ is a null result — it does not beat the market either. #2 fixed the
 drive-sim's kneel sign, kneel clock and missing halftime/overtime, and the
 re-run backtest reads 52.14% ATS over 491 games rather than the long-cited
 42.86%, which has no recorded provenance. Both are valid recorded
-completions. **#3 (leakage guard, §10.3) is DONE** — built and tested, deliberately not enforced; see LATEST-PLAN's "FINAL ORDER #3" section for what strict admission would refuse and why that is Nick's call. **#4 (GW + Holm, §10.4) is next.**
+completions. **#3 (leakage guard, §10.3) is DONE** — built and tested, deliberately not enforced; see LATEST-PLAN's "FINAL ORDER #3" section for what strict admission would refuse and why that is Nick's call. **#4 (GW + Holm, §10.4) is DONE** — measured on real history it changed no verdict (best raw p 0.38 across 32 components), fit version now v14. **#5 (nfeloFeatures' unused fields, §10.5) is next.**
 Two #2 follow-ups are parked on a decision from Nick (kneel half-clock; HFA
 into per-play rates) — see FINAL ORDER row 2. The dependency table right after FINAL ORDER in
 LATEST-PLAN.md says what blocks what for everything after #2. The lineage
@@ -17,8 +17,8 @@ of every endpoint and table is in "DATA SOURCES, ENDPOINTS AND LINEAGE"
 beside FINAL ORDER. This file's own master sequence (§9, bottom) is
 historical background underneath that; the master plan is the entry point.
 
-Both suites green as of this pointer: Node 2,210/2,171/0/39, Python 127/127
-(exact commands in §0a rule 5 below). Everything through #3 is committed
+Both suites green as of this pointer: Node 2,223/2,184/0/39, Python 127/127
+(exact commands in §0a rule 5 below). Everything through #4 is committed
 and pushed to `cursor/betting-model-audit-fixes-1c85`.
 
 **Start here.** This is the operational companion to `LATEST-PLAN.md`. The

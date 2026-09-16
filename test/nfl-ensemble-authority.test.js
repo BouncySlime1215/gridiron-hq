@@ -77,15 +77,16 @@ test('v7 persisted weights cannot be reused after the authority repair', () => {
   // regression, nfl-ensemble.js's `jointComponentWeights`) moved it to v12;
   // the residual-correction path itself moved from a per-component slope fit
   // to `jointResidualFit`'s single joint regression (FINAL ORDER #1,
-  // 2026-09-16) moved it to v13. An artifact fitted under any earlier
+  // 2026-09-16) moved it to v13; adding the Holm multiplicity correction's
+  // fields to the fit result (FINAL ORDER #4) moved it to v14. An artifact fitted under any earlier
   // version describes a different estimator and must not be reusable, which
   // is exactly what this test checks -- only the version string it checks
   // against moves.
-  assert.match(artifact.model_version, /^nfl-ensemble-fit-v13-/);
+  assert.match(artifact.model_version, /^nfl-ensemble-fit-v14-/);
   const poisoned = JSON.parse(artifact.result_json);
   poisoned.models.forEach(m => { m.residual_joint_weight = m.challenger_only ? 1 : 0; });
   run('UPDATE nfl_ensemble_fit_artifacts SET artifact_key=?, model_version=?, result_json=? WHERE artifact_key=?',
-    artifact.artifact_key.replace('v13-joint-residual-fit', 'v8-challenger-authority'),
+    artifact.artifact_key.replace('v14-holm-corrected-residual-gate', 'v8-challenger-authority'),
     'nfl-ensemble-fit-v8-challenger-authority', JSON.stringify(poisoned), artifact.artifact_key);
   invalidateEnsembleCaches();
   assert.equal(fitEnsemble(fitOptions).models.find(m => m.id === 'roster_strength').residual_joint_weight, 0);

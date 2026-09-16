@@ -38,17 +38,29 @@ season-level ATS number.**
 
 **FINAL ORDER #3 is DONE** (point-in-time guard; see its own section
 below). Guard + 12 tests shipped in `server/modeling/contracts.js`, plus
-`scripts/point-in-time-admission-report.mjs`. **It is not enforced anywhere
-yet, deliberately: strict admission would refuse four of the five input
-tables for the current season (10,080 rows at a Week 5 cutoff), because
-nflverse stopped publishing `nfl_injuries.modified_at` in 2025 and three
-tables never had a clock at all. That is a decision about what the product
-may claim, and it is Nick's.**
+`scripts/point-in-time-admission-report.mjs`. It is built, tested and
+deliberately **not enforced**: strict admission would refuse four of five
+input tables for the current season (10,080 rows at a Week 5 cutoff).
 
-**Next up: FINAL ORDER #4** (GW conditional test + Holm on the DM gate,
-RUNBOOK §10.4) — track B.
+**PRIORITY, SET BY NICK September 16: get the model HISTORICALLY solid
+first; current-season serving comes after.** The #3 enforcement decision is
+explicitly deferred under that rule (see the note in its section below).
+Work the guardrail items that decide whether our own historical numbers can
+be believed — #4's multiple-comparison correction, the DSR/PBO input defect,
+the unreproducible 42.86% — before touching what the live path serves.
 
-Both test suites are green as of this pointer: **Node 2,210 total / 2,171
+**FINAL ORDER #4 is DONE** (Holm on the gate, Giacomini-White conditional
+test, corrected-alpha columns; see its own section below). Measured on real
+history it changed nothing — the best raw p across 32 components is 0.38
+against a 0.05 bar, so there were no passes to correct. Fit version bumped
+to **v14**.
+
+**Next up: FINAL ORDER #5** (wire the fields `nfeloFeatures()` already
+returns — `elo_diff`, `qbelo_diff`, betting splits; RUNBOOK §10.5). The
+cheapest real addition on the list: no new data, no new export, the function
+is already called at all three assembly sites.
+
+Both test suites are green as of this pointer: **Node 2,223 total / 2,184
 pass / 0 fail / 39 skipped** (`npm test`), **Python 127/127**
 (`cd research/betting/nfl && ../../.venv/bin/python3 -m unittest discover -p "test_*.py"`).
 Everything through #1 is committed and pushed to
@@ -1956,6 +1968,104 @@ on a human noticing again by accident:
    companion JSON-blob check (item in the "same pattern" section below)
    covers data; this one covers code.
 
+### FINAL ORDER #4 — multiplicity and conditional predictive ability (September 16, 2026)
+
+Three pieces, all shipped and tested.
+
+**(a) Holm across the residual gate's declared family.** The per-component
+gate asked ~30 components, separately, "is your p below 0.05?" — which
+produces one or two passes by luck alone even when nothing has skill. Holm's
+step-down correction is now applied across the components actually tested at
+each cutoff, and reported ALONGSIDE the raw verdict
+(`residual_dm_p_holm`, `residual_diagnostic_passed_holm`, and a
+`residual_multiplicity` block carrying family size and raw-vs-corrected pass
+counts) rather than replacing it, so an auditor sees both.
+
+Routed through `stats-util.js`'s existing `holm` deliberately. **This
+codebase already carried THREE independent Holm implementations** —
+`stats-util.js`, `modeling/governed-comparison.js`,
+`player-head-validation.js` — all three checked and mathematically
+equivalent, but a fourth would have been exactly the duplicate-formula defect
+the recurring checklist exists to stop.
+
+**Scope note that matters:** since FINAL ORDER #1 the SERVED line comes from
+one joint fit, which is a single test needing no correction across
+components. This correction governs the per-component DIAGNOSTICS, which are
+what a reader would otherwise mistake for thirty independent promotion
+signals.
+
+**(b) Giacomini-White conditional predictive ability**, in
+`forecast-comparison.js` beside `dieboldMariano`. DM asks "was A better on
+average"; GW asks "given what was knowable at the time, could you tell WHEN A
+would be better". The latter is the right question when models are refit at
+every walk-forward cutoff, which ours are — and Diebold's own 2012
+retrospective says DM was built to compare FORECASTS, not to adjudicate
+between MODELS, which is what the residual gate has been using it for. With
+the conditioning vector set to a constant alone it reduces to DM, which its
+test pins. Honest limit recorded in the code: the chi-squared reference is
+asymptotic with no small-sample correction, so on ~18-week samples a marginal
+p is no evidence rather than weak evidence.
+
+**(c) The correction is now auditable.** `runAudit()` had always tightened its
+bar for how many audits were sealed before it — a Šidák step — and then
+**discarded both inputs**. A sealed row recorded `significant` but not the
+alpha it cleared nor the prior-test count behind it, so a reader could not
+tell whether a result cleared 0.05 or 0.002, nor reproduce the decision
+without replaying the registry. Migration 054 adds
+`corrected_alpha_at_seal` and `prior_tests_at_seal`, and the seal writes
+them. Its test pins the behaviour that was previously invisible: **the bar
+genuinely tightens as the registry fills**, so a late audit is harder to pass
+than an early one.
+
+**Caught by the versioning, worth recording.** The fit result gained fields,
+and `fitEnsemble` reloads persisted artifacts verbatim — so a stale v13
+artifact returned `undefined` for every corrected number rather than erroring.
+That is precisely the silent staleness `ENSEMBLE_FIT_VERSION` exists to catch,
+and it caught it. Bumped to **v14**.
+
+**MEASURED on real history, same day** (`/tmp/gridiron-extract/real.sqlite`,
+`includeChallengers: true`; raw output in
+`docs/evidence/2026-09-16/residual-gate-holm-correction.txt`):
+
+```
+family_size: 32     pass_count_raw: 0     pass_count_holm: 0
+best five raw p-values, all corrected to 1.0:
+  pythagorean 0.3827   opp_adjusted 0.4189   dynamic_state 0.4365
+  melo 0.4438          market_regression 0.5435
+```
+
+**The correction changes nothing here, and that is worth stating plainly
+rather than dressing up.** Not one component was close: the best raw p across
+32 components is 0.38, where the uncorrected bar is 0.05. There was no
+multiplicity problem to fix at this cutoff because there were no passes to
+correct. The guardrail is still right to have — it costs nothing when there
+is nothing to catch, and it is exactly what would have been missing on the
+day something finally did clear 0.05 — but it did not change a single verdict
+today, and nobody should cite it as though it had.
+
+**Other methods, deliberately not chased (Nick, September 16: "I wonder if
+there are other methods and ways to do this but we can explore all that
+later").** Recorded so this is a real note rather than a vague intention:
+- **Benjamini-Hochberg FDR** instead of Holm's family-wise error. Less
+  conservative and arguably the better fit for a screening stage where the
+  cost of one false lead is low — Holm asks "is ANY of these a false
+  positive", BH asks "what fraction of my promotions are false". For picking
+  candidates to investigate, BH is usually the right question.
+- **Romano-Wolf stepdown**, which bootstraps the joint distribution of the
+  test statistics rather than assuming independence. Our components are
+  heavily correlated (that is the whole finding behind effective rank 2.56),
+  and both Holm and BH are conservative under that correlation — Romano-Wolf
+  would recover real power we are currently giving away.
+- **The DSR/PBO machinery already in this plan** (deflated Sharpe, probability
+  of backtest overfitting), which prices multiplicity in the
+  strategy-selection sense rather than the per-test sense. Note the plan's own
+  caveat: `run-purged-evaluation.mjs` currently feeds it non-standardised
+  mixed units, so that must be fixed before its numbers mean anything.
+- **Model confidence sets** (Hansen-Lunde-Nason), which return the SET of
+  models indistinguishable from the best rather than a pass/fail per model —
+  a better shape for this problem than a gate, and already cited in the
+  research corpus as done.
+
 ### FINAL ORDER #3 — the point-in-time guard, and what it refuses (September 16, 2026)
 
 Built per RUNBOOK §10.3. **The recipe's path was wrong** (`server/services/contracts.js`);
@@ -2028,6 +2138,27 @@ anything but depth charts. That is a decision about what the product may
 claim, not one a guard should make silently. The guard, its tests (12) and
 the report script are shipped; the enforcement decision is Nick's, and the
 number above is what it should be made against.
+
+> **DEFERRED BY NICK, September 16, 2026 — do not treat this as an open
+> question to re-litigate every session.** His call, verbatim in substance:
+> *not sure what to do — let's note this and come back; I'm concerned about
+> the model right now so that's the main priority; get the model
+> historically solid, then we can worry about the present.*
+>
+> So the ordering is settled: **historical trustworthiness first, current-season
+> serving second.** Concretely, that means the guardrail items that decide
+> whether our own historical numbers can be believed (FINAL ORDER #4's
+> multiple-comparison correction, the DSR/PBO input defect, the
+> unreproducible 42.86%) come BEFORE any change to what the live path is
+> allowed to serve.
+>
+> **What must be true before this decision is reopened:** (a) the historical
+> measurement chain is trustworthy end to end, and (b) someone has decided
+> what the product is allowed to claim when its inputs have no clock —
+> serve with a visible caveat, or abstain. Neither is a research question;
+> (b) is a product one. Until then the guard stays built, tested and
+> unenforced, which is a stable, honest state: nothing silently claims
+> point-in-time discipline it does not have, and nothing silently breaks.
 
 ### Why does the simulator's ATS rate fall across seasons? — investigated September 16, 2026
 

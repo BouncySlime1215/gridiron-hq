@@ -381,3 +381,185 @@ export function naivePairedT(lossA, lossB) {
 }
 
 export const __testables = { autocovariance, collapseClusters, logGamma };
+
+/* ------------------------------------------------------------------------
+ * FINAL ORDER #4 (2026-09-16, RUNBOOK §10.4): Giacomini-White conditional
+ * predictive ability.
+ *
+ * WHY THIS, WHEN DM IS ALREADY HERE. Diebold-Mariano answers "was A more
+ * accurate than B ON AVERAGE over this sample". That is an UNCONDITIONAL
+ * question, and it is the wrong one for how this repository actually
+ * forecasts. Our models are REFIT at every walk-forward cutoff, so the thing
+ * being compared is not a fixed pair of forecasts but a pair of METHODS whose
+ * parameters move. Giacomini-White (2006) is the test built for exactly that
+ * case, and it asks the sharper question: given what was knowable at the time,
+ * could you have predicted WHEN one method would beat the other? A method that
+ * is better on average but never predictably so is far less useful than the
+ * average suggests -- and a method with no average edge can still be
+ * conditionally valuable.
+ *
+ * Diebold's own 2012 retrospective makes the related point this codebase has
+ * been ignoring: DM was designed to compare FORECASTS, not to adjudicate
+ * between MODELS, which is what the residual gate has been using it for.
+ *
+ * THE TEST. With loss differential dL_t and a conditioning vector h_{t-1}
+ * containing only information available before t, the null of equal
+ * conditional predictive ability implies E[h_{t-1} * dL_t] = 0. Form
+ * Z_t = h_{t-1} * dL_t, and the Wald statistic
+ *
+ *     W = n * Zbar' * Omega^-1 * Zbar  ~  chi-squared(q)
+ *
+ * where q is the width of h and Omega is a HAC estimate of Z's long-run
+ * covariance. With h = [1] (the constant alone) this reduces to the squared
+ * unconditional t-statistic, i.e. to DM -- which is the property the test
+ * below pins.
+ *
+ * HONEST LIMITS. The chi-squared reference is asymptotic; GW has no
+ * Harvey-Leybourne-Newbold-style small-sample correction, so on the ~18-week
+ * samples this codebase usually has, treat a marginal p-value as no evidence
+ * rather than weak evidence. The default conditioning vector (constant plus
+ * one lag of dL) is the standard minimal choice, not a tuned one -- a
+ * conditioning set chosen after seeing results is a specification search, and
+ * the whole point of this test is to stop doing that.
+ * ---------------------------------------------------------------------- */
+
+/** Chi-squared survival function, via the regularized upper incomplete gamma. */
+function chiSquaredSf(x, df) {
+  if (!(x > 0)) return 1;
+  const a = df / 2, xx = x / 2;
+  // Series for the lower regularized gamma when x < a+1, continued fraction otherwise.
+  const lgamma = z => {
+    const g = 7, c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+      771.32342877765313, -176.61502916214059, 12.507343278686905,
+      -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+    if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lgamma(1 - z);
+    z -= 1; let x2 = c[0];
+    for (let i = 1; i < g + 2; i++) x2 += c[i] / (z + i);
+    const t = z + g + 0.5;
+    return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x2);
+  };
+  if (xx < a + 1) {
+    let sum = 1 / a, term = sum;
+    for (let n = 1; n < 500; n++) { term *= xx / (a + n); sum += term; if (Math.abs(term) < Math.abs(sum) * 1e-14) break; }
+    const lower = sum * Math.exp(-xx + a * Math.log(xx) - lgamma(a));
+    return Math.max(0, Math.min(1, 1 - lower));
+  }
+  let b = xx + 1 - a, c2 = 1e300, d = 1 / b, h = d;
+  for (let i = 1; i < 500; i++) {
+    const an = -i * (i - a);
+    b += 2; d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300;
+    c2 = b + an / c2; if (Math.abs(c2) < 1e-300) c2 = 1e-300;
+    d = 1 / d; const del = d * c2; h *= del;
+    if (Math.abs(del - 1) < 1e-14) break;
+  }
+  return Math.max(0, Math.min(1, h * Math.exp(-xx + a * Math.log(xx) - lgamma(a))));
+}
+
+/** Invert a small symmetric matrix by Gauss-Jordan; returns null if singular. */
+function invertSmall(matrix) {
+  const n = matrix.length;
+  const a = matrix.map((row, i) => [...row, ...Array.from({ length: n }, (_, j) => (i === j ? 1 : 0))]);
+  for (let col = 0; col < n; col++) {
+    let pivot = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(a[r][col]) > Math.abs(a[pivot][col])) pivot = r;
+    if (Math.abs(a[pivot][col]) < 1e-12) return null;
+    [a[col], a[pivot]] = [a[pivot], a[col]];
+    const p = a[col][col];
+    for (let j = 0; j < 2 * n; j++) a[col][j] /= p;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = a[r][col];
+      if (!f) continue;
+      for (let j = 0; j < 2 * n; j++) a[r][j] -= f * a[col][j];
+    }
+  }
+  return a.map(row => row.slice(n));
+}
+
+/**
+ * Giacomini-White test of equal CONDITIONAL predictive ability.
+ *
+ * @param {number[]} lossA      per-period loss of method A, chronological
+ * @param {number[]} lossB      per-period loss of method B, same periods/order
+ * @param {object}  [opts]
+ * @param {number[][]} [opts.h] conditioning vectors, one row per period, each
+ *                              row containing only information available
+ *                              BEFORE that period. Default: [1, lagged dL].
+ * @param {number}  [opts.lags] HAC lag truncation; default floor(n^(1/3)).
+ * @returns {object} `{ ok, statistic, df, p, ... }`, or `{ ok:false, reason }`
+ *                   when the sample cannot support the test.
+ */
+export function giacominiWhite(lossA, lossB, { h = null, lags = null } = {}) {
+  if (!Array.isArray(lossA) || !Array.isArray(lossB) || lossA.length !== lossB.length) {
+    return { ok: false, reason: 'loss arrays must be arrays of equal length' };
+  }
+  const dAll = lossA.map((a, i) => a - lossB[i]);
+  if (!dAll.every(Number.isFinite)) return { ok: false, reason: 'loss differential contains non-finite values' };
+
+  // Default conditioning set: constant + one lag of the differential, so the
+  // first observation is dropped (it has no lag). A caller-supplied `h` is
+  // used as given and must already be lagged.
+  let rows, d;
+  if (h == null) {
+    rows = []; d = [];
+    for (let t = 1; t < dAll.length; t++) { rows.push([1, dAll[t - 1]]); d.push(dAll[t]); }
+  } else {
+    if (h.length !== dAll.length) return { ok: false, reason: 'conditioning matrix must have one row per period' };
+    rows = h; d = dAll;
+  }
+  const n = d.length;
+  const q = rows[0]?.length ?? 0;
+  if (!q) return { ok: false, reason: 'conditioning vector is empty' };
+  if (n < 8 * q) return { ok: false, reason: `too few periods (${n}) for ${q} conditioning terms` };
+
+  // Z_t = h_{t-1} * dL_t, and its mean.
+  const Z = rows.map((hr, t) => hr.map(v => v * d[t]));
+  const zBar = Array.from({ length: q }, (_, j) => Z.reduce((s, zt) => s + zt[j], 0) / n);
+
+  // HAC (Newey-West, Bartlett) long-run covariance of Z.
+  const L = lags == null ? Math.max(1, Math.floor(Math.cbrt(n))) : Math.max(0, lags);
+  const omega = Array.from({ length: q }, () => new Array(q).fill(0));
+  const centered = Z.map(zt => zt.map((v, j) => v - zBar[j]));
+  for (let k = 0; k <= L; k++) {
+    const w = k === 0 ? 1 : 2 * (1 - k / (L + 1));
+    const gamma = Array.from({ length: q }, () => new Array(q).fill(0));
+    for (let t = k; t < n; t++) {
+      for (let i2 = 0; i2 < q; i2++) {
+        for (let j = 0; j < q; j++) gamma[i2][j] += centered[t][i2] * centered[t - k][j];
+      }
+    }
+    for (let i2 = 0; i2 < q; i2++) {
+      for (let j = 0; j < q; j++) {
+        // symmetrise the k>0 blocks, which is what makes Omega a valid covariance
+        omega[i2][j] += w * (k === 0 ? gamma[i2][j] / n : (gamma[i2][j] + gamma[j][i2]) / (2 * n));
+      }
+    }
+  }
+  const inv = invertSmall(omega);
+  if (!inv) return { ok: false, reason: 'conditioning terms are collinear or have no variance' };
+
+  let statistic = 0;
+  for (let i2 = 0; i2 < q; i2++) {
+    for (let j = 0; j < q; j++) statistic += zBar[i2] * inv[i2][j] * zBar[j];
+  }
+  statistic *= n;
+  if (!Number.isFinite(statistic) || statistic < 0) {
+    return { ok: false, reason: 'Wald statistic is not finite -- covariance is near-singular' };
+  }
+  const p = chiSquaredSf(statistic, q);
+  const meanD = d.reduce((a, b) => a + b, 0) / n;
+  return {
+    ok: true,
+    statistic: +statistic.toFixed(6),
+    df: q,
+    p: +p.toFixed(6),
+    periods: n,
+    hac_lags: L,
+    mean_loss_differential: +meanD.toFixed(6),
+    // Sign convention matches dieboldMariano's: negative favours A.
+    favours: meanD < 0 ? 'A' : meanD > 0 ? 'B' : 'neither',
+    note: 'Conditional equal predictive ability (Giacomini-White 2006). Asymptotic '
+      + 'chi-squared reference and no small-sample correction: on short samples treat a '
+      + 'marginal p as no evidence rather than weak evidence.'
+  };
+}

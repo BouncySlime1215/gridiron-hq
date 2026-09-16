@@ -80,7 +80,17 @@ import { createHash } from 'node:crypto';
 // out-of-fold DM test rather than one per component. An artifact fitted
 // under v12 or earlier has no `residual_joint_weight` field at all and
 // must not be reused as though it described this estimator.
-export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v13-joint-residual-fit';
+//
+// v14 (2026-09-16, FINAL ORDER #4, RUNBOOK §10.4): the fit result now carries
+// the multiplicity correction -- `residual_dm_p_holm` and
+// `residual_diagnostic_passed_holm` per component, plus a
+// `residual_multiplicity` block with the family size and the raw-vs-corrected
+// pass counts. A v13 artifact has none of those fields, and because
+// `fitEnsemble` reloads a persisted artifact verbatim, reusing one returns
+// `undefined` for every corrected number rather than an error. That is
+// exactly the silent-staleness this version string exists to prevent -- and
+// it caught this change in testing, which is the only reason it is here.
+export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v14-holm-corrected-residual-gate';
 const CALIBRATION_VERSION = 'cover-logit-v3-graph-bound';
 const sorted = values => [...new Set(values ?? [])].sort();
 

@@ -1,10 +1,13 @@
 # Gridiron HQ — latest betting-model plan
 
-**September 16, 2026, EXECUTION IN PROGRESS — read this pointer first.**
-Gap analysis is DONE; **FINAL ORDER (in "DATA INTEGRITY MASTER PLAN" further
-down) is the one authoritative work queue — start there, not at the top of
-this file.** Its `~~strikethrough~~` rows are done; read a done row before
-skipping it, it names exactly what changed and where.
+**September 16, 2026, night — read this pointer first.**
+**"RECONCILED PLAN" (search for that heading, inside "DATA INTEGRITY MASTER
+PLAN" further down) is now the one authoritative work queue — not FINAL
+ORDER's own numbering, which it supersedes.** FINAL ORDER's items and
+table are kept as a reference catalog underneath it; every item was
+reclassified against two objectives (the old margin-accuracy target and
+the new opener-CLV target found tonight) and reassigned into six phases.
+Start at Phase 0. Gap analysis is DONE.
 
 **Currently done: FINAL ORDER #1 and #2.**
 - **#1** joint residual fit (RUNBOOK §10.1/§3.3). Built, tested, measured;
@@ -18,10 +21,13 @@ skipping it, it names exactly what changed and where.
   "measured dead" this plan has cited everywhere — and that 42.86% turns out
   to have no recorded sample size anywhere in the repo. Still not
   profitable and still no detectable edge. Full treatment in Section B.**
-- **Two items from #2 need YOUR decision** before anyone folds them in, both
-  flagged in code and in row 2: kneelDecision's first branch reading a half
-  clock where it wants a game clock, and HFA being added to the score post
-  hoc rather than entering per-play rates.
+- **The two items that needed a decision are DONE.** Nick approved both
+  later the same day: kneelDecision's first branch now reads the game
+  clock (resolves the TODO open since 2026-09-12), and HFA is now a
+  per-play efficiency edge instead of points added to the score, calibrated
+  by `scripts/calibrate-home-field-rate.mjs`. See the commit
+  "Drive-sim: HFA as a per-play edge, exclude international games, add
+  backtest profileMode."
 
 **Also done September 16, at Nick's direction, after #2:** international /
 neutral-site games are excluded from the simulator's evaluation paths and no
@@ -2996,6 +3002,134 @@ this fast, there are very likely more.
     it needs the individual enrichments done first to have anything real to
     re-measure diversity on.
 
+### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
+
+Nick, after the opener-CLV result: *"figure out a new plan and what the best
+order to go in would be."* This section is that plan. It does three things:
+says honestly which of the 25 remaining FINAL ORDER items (#5-#27; #1-#4 are
+done) still matter now that the objective has partly shifted from "beat the
+closing line on margin" to "capture value at the opener," folds the new
+profit roadmap (from the opener-CLV report, chapter X) in at the right
+points rather than bolting it on the end, and gives ONE ordered list.
+
+**The one-sentence reason the old order needs revising, not scrapping.**
+FINAL ORDER's data-mining block (#10-#19) is gated on "does this raise
+effective rank / help the joint margin fit" — the OLD objective, the one
+that lost 30+ times. Nothing about that objective is wrong to keep
+measuring; margin accuracy still matters for the sim's distribution work
+and for totals. But re-running #10-#19 against that gate alone, before the
+CLV objective has its own permanent harness to gate against too, risks
+re-discovering the same "does not help margin" null result for data that
+might genuinely help TIMING instead — a different question nobody has
+asked of most of this backlog yet.
+
+**Reclassified, honestly, against two objectives (margin-MAE, the old one;
+opener-CLV, the new one):**
+
+| FINAL ORDER item | Still relevant to margin-MAE? | Relevant to opener-CLV? | Verdict |
+|---|---|---|---|
+| #7 small fixes (noVig, DEFAULT_CLOSING_BOOKS) | yes | yes — devig correctness feeds real bet pricing either way | **keep, near the front** |
+| #17 coefficient dump | yes | yes — same "see what the model does" purpose | **keep, cheap** |
+| #20 pymc/numpyro/mapie toolchain | yes | yes — conformal intervals apply to either target | **keep, cheap, unblocks later work** |
+| #21 data-integrity checklist | yes | yes — a bad table hurts every objective | **keep, now mechanized, make it recurring not phase-gated** |
+| #24 devig completeness | n/a | **yes, directly** — turns a signal into a real fair price | **promote — now on the critical path to placing a real bet** |
+| #25 bet_attempts ledger + trial registry | yes | **yes, directly** — required for honest multiplicity on which selective-betting thresholds get tried | **promote — build this before the selective-betting test, not after #4-era** |
+| #26 reliability-diagram auditor | yes | **yes** — checks whether the CLV signal's implied probabilities are calibrated, not just directionally right | **promote — build alongside the new harness** |
+| #6, #18, #22, #23 (James-Stein pooling, TSFM pilot, paradigm enrichment, gated ideas) | yes | untested, unlikely (all target margin specifically) | **defer — re-visit only if CLV mining (below) turns up nothing better to do with the time** |
+| #8 tree_lab cover head | yes | plausible — P(cover) directly is closer to a betting decision than margin is | **keep, but low urgency** |
+| #9 measure the 3 wired challengers | yes | should be re-measured on CLV too once the harness exists | **fold into the new harness's first real run** |
+| #10-#16, #19 (data mining: vector tables, player-week keys, raw JSON, cross-book dispersion, referee tendency, derived features, totals, nflreadr/charting) | yes | **unknown — never asked** | **defer until the CLV harness (Phase 2 below) exists, then re-gate on IT, not just margin rank** |
+| #27 entity-resolution confidence | no | no (its consumer, Polymarket matching, is unrelated to this) | **stays last** |
+
+**THE NEW ORDER. Six phases. Do not skip a phase's guardrail items to get to
+its main event — that is exactly the discipline that made today's result
+trustworthy instead of another false alarm.**
+
+**Phase 0 — Finish the cheap defect/guardrail items already in flight (old FINAL ORDER, unchanged).**
+Small, fast, needed regardless of which objective wins.
+1. #7 small fixes: `nfl-total-calibration.js` naive `noVig` → `shinNoVig`;
+   `nfl-execution-clv.js` `DEFAULT_CLOSING_BOOKS` real default, not `null`
+   (checked 2026-09-16 night: both still open). *Done when:* both suites green.
+2. #17 coefficient dump into every saved report.
+3. #20 install `pymc`/`numpyro`/`mapie` in `research/.venv`.
+
+**Phase 1 — Build the two pieces of infrastructure the profit roadmap needs
+that don't exist yet, before touching the roadmap itself.**
+4. **#25, pulled forward: `bet_attempts` ledger + trial registry.** Every
+   candidate a selective-betting threshold test considers, not just what
+   gets bet, needs a row — otherwise Phase 3's threshold search is exactly
+   the un-corrected multiplicity problem #4 just fixed for the residual
+   gate, recreated one level up.
+5. **#26, pulled forward: reliability-diagram auditor.** Apply it to
+   whatever probability the eventual bet-sizing step (Phase 5) will use —
+   built once, reused by both the old correction-head interval and the new
+   CLV-derived pick probabilities.
+6. **NEW: promote `scripts/opener-clv-*.mjs` from a one-off analysis to a
+   permanent, parameterized harness**, the same tier as `nfl-replay.js`/
+   `ensemble-rank-report.mjs` for margin. Needs: an `npm run` entry, a fixed
+   `--pool` default, and — this is the part that actually matters — the
+   ability to grade ANY candidate signal (not just the five from today)
+   without hand-editing the script. This is what turns "we found one edge"
+   into "we can cheaply check whether anything else has one too," and it
+   is the bridge that lets #9-#19 below get re-asked under the objective
+   that actually paid off today.
+
+**Phase 2 — #24 devig completeness, promoted.** Any real bet needs a fair
+price, and `nfl-devig.js` still only has 2-outcome Shin. Do this before
+Phase 3's shopping step needs to compare prices across books honestly.
+
+**Phase 3 — Cheap, historical-data-only tests of the profit roadmap's first
+three levers (report chapter X, steps 1-3), in the order they were listed
+there, now sequenced against the infra above:**
+7. Fitted (ridge, preregistered) composite of the four survivors, tested
+   against the equal-weight average from today on the same CLV harness.
+8. Selective-betting threshold test: does CLV rise with |lean|, as the
+   unconfirmed bins suggested? Preregister the thresholds tried before
+   looking, log every one tried to the new `bet_attempts` ledger, correct
+   with Holm across them.
+9. Retroactive price/spread shopping: replay the composite's historical
+   picks against the full 10-book archive already owned
+   (`nfl_odds_archive`) and measure what shopping would have been worth,
+   before building any live capture infrastructure. This is a pure
+   measurement pass on data already on disk — cheapest possible validation
+   of whether Phase 4 is worth building at all.
+   *Gate:* if steps 7-9 together do not move the double-adjusted,
+   Holm-corrected CLV meaningfully above where today's result left it, stop
+   here and say so plainly — do not proceed to build live infrastructure
+   for an edge that measurement says isn't there.
+
+**Phase 4 — The expensive, slow levers (report chapter X, steps 4-5), only
+if Phase 3's gate passes.**
+10. Real-time opener-capture infrastructure — new engineering, not yet
+    scoped in detail; scope it once Phase 3 says it's worth building.
+11. Forward paper-trade. This is the one step time cannot be saved on — it
+    runs at the pace of the NFL schedule. Start it as early as Phase 3's
+    gate allows, in parallel with anything below, because waiting for
+    every other phase to finish first only delays the one truly honest
+    out-of-sample test this project has never had.
+
+**Phase 5 — Sizing and the ongoing discipline (report chapter X, steps 6-7).**
+Only after Phase 4 shows the edge survives contact with a live market.
+Fractional Kelly, sized off the same calibration auditor built in Phase 1.
+
+**Phase 6 — Revisit the deferred data-mining backlog, re-gated on the new
+harness, not abandoned.** FINAL ORDER #9-#16, #19: re-measure the three
+already-wired challengers and then the mining items on OPENER-CLV using
+Phase 1's harness, not only on margin rank. Hunch worth recording before
+testing it: cross-book dispersion (#13) and referee tendency (#14) are
+about market microstructure and situational bias, not team strength — they
+plausibly have more to say about timing than about final-score accuracy,
+which is exactly the question nothing has asked them yet. #6, #8, #18,
+#22, #23 (margin-paradigm work) stay parked behind this phase; revisit only
+if Phase 6 comes up empty and margin accuracy becomes the more promising
+lane again. #27 stays last, unrelated to any of this.
+
+**What this deliberately does NOT change:** #3's enforcement decision stays
+Nick's and stays deferred (see its own section above) — nothing in this
+reconciliation reopens it. The historical-solidity priority Nick set
+earlier today stands: Phase 0-2 above ARE that priority, finished first,
+before Phase 3 touches anything that could become a real bet.
+
 ### FINAL ORDER — September 16, 2026 (supersedes the numbering above; original item numbers kept as references, nothing above is removed)
 
 Produced by the gap analysis below. Rule for the order: **first, fix the
@@ -3011,8 +3145,8 @@ must follow are RUNBOOK.md §0a.**
 |---|---|---|---|
 | 1 | **DONE 2026-09-16.** ~~Fix the production residual path's one-at-a-time fit.~~ `market_residual` computed `residual_slope`/`residual_weight` as 31 separate single-covariate OLS fits, never a joint fit (F02-1, verified) — the joint ridge existed for margin weights but the served residual path never got it. Built `jointResidualFit` (RUNBOOK §10.1), served by `ensembleLine` in place of the old path, old path kept as diagnostic only, fit version bumped to v13. Measured: still does not clear the gate (`rmse_gain: -0.008`, `dm_p: 0.9415`, n=749 OOF) — a stronger, not weaker, null result. Both suites green. | NEW (17) | Everything the residual gate has ever said (0/848) was said about a mis-fit path — now said about the correctly-fit one too |
 | 2 | **DONE 2026-09-16.** ~~Fix the drive-sim's three VERIFIED-LIVE bugs~~ — (a) was already fixed and is now pinned by a regression test; (b) kneel sign + kneel clock and (c) simulateRemainder halftime/timeouts/overtime are fixed, with `simulateOvertime` extracted and shared rather than copied. 9 new tests in `test/nfl-drive-sim-clock-rules.test.js`, verified to fail against the un-fixed code. Backtest re-run recorded in Section B. **Two items deliberately left for Nick's decision, both flagged in code:** kneelDecision's first branch still reads a HALF clock where it wants a game clock (would stop first-half kneel-downs the sim currently performs), and HFA is still added to the score post hoc rather than entering per-play rates. *(original row, preserved:)* ~~**Fix the drive-sim's three VERIFIED-LIVE bugs** (CORRECTED same day — the first draft of this row named FIX_AND_ADD #9-#11; the verifier found #9 away-WP sign and #11 timeout decrement are already FIXED in code, and the +7 HFA coin flip is gone, replaced by +1 per drive at `nfl-drive-sim.js:544` — still additive-on-score, structural critique stands, key-number-spike claim superseded). Live now, verified 2026-09-16: **F01-2** urgency divides a half-scoped clock by 3600 (`nfl-sim-policy.js:229,:441`); **F01-3** `kneelable = 40 + timeouts*40` uses the OPPONENT's timeouts with the wrong sign and consumes the whole clock (`nfl-sim-policy.js:317-319`, `nfl-drive-sim.js:277-279`); **F01-6** `simulateRemainder` has no halftime/OT transition and hardcodes `timeouts:3/oppTimeouts:3` (`nfl-drive-sim.js:819-870`).~~ | NEW (18) | Hours each; the "measured dead 42.86% ATS" verdict was measured with these live — not clean until fixed and re-run |
-| 3 | **Extend the point-in-time leakage guard** (`contracts.js assertTimestampedObservation`) past the fantasy pipeline onto `nfl_team_week_features`/`nfl_play_by_play`/the blind-audit freeze path (F18-4). Five forecast-feeding tables carry no receipt clock of our own (see lineage section). | NEW (19) | Every result this session assumes point-in-time correctness on tables this guard has never touched |
-| 4 | Multiple-testing guardrail, as corrected above: declared-family Bonferroni/Šidák now; **plus** Holm on the per-component DM gate (F02-5) and Giacomini-White conditional test as the cheap extension F02 names; DSR input standardization as its own prerequisite; F07-3 persist `corrected_alpha_at_seal`/`prior_tests_at_seal`. | guardrail section + NEW (20) | Must precede the mining spree |
+| 3 | **DONE 2026-09-16.** ~~Extend the point-in-time leakage guard (`contracts.js assertTimestampedObservation`) past the fantasy pipeline onto `nfl_team_week_features`/`nfl_play*`/etc.~~ Built in `server/modeling/contracts.js` (the file this row named, `server/services/contracts.js`, does not exist — corrected in RUNBOOK §10.3). Mapped all five raw tables' actual clocks; measured 10,080 rows refused at a 2025 Week-5 cutoff. **Not enforced anywhere — that decision is Nick's and is explicitly deferred (see the note in its own section below); do not re-raise it without new information.**
+| 4 | **DONE 2026-09-16.** ~~Multiple-testing guardrail, as corrected above: declared-family Bonferroni/Šidák now; plus Holm on the per-component DM gate (F02-5) and Giacomini-White conditional test as the cheap extension F02 names; DSR input standardization as its own prerequisite; F07-3 persist corrected_alpha_at_seal/prior_tests_at_seal.~~ Holm shipped on the residual gate (family 32, 0 raw passes, 0 corrected — a null result, changed no verdict); `giacominiWhite()` added beside `dieboldMariano`, reduces to it at h=[1]; migration 054 persists `corrected_alpha_at_seal`/`prior_tests_at_seal` on every sealed audit. DSR input standardization NOT done — still an open prerequisite, carried to the reconciled plan below. | guardrail section + NEW (20) | Must precede the mining spree |
 | 5 | Zero-new-code win: wire what `nfeloFeatures()` already returns (`elo_diff`, `qbelo_diff`, tickets/money splits). **Decision recorded (cat-08, Section E item 1):** nfelo's plain `elo_diff` IS the independent-Elo sanity floor the 538 `nfl-elo-game` port was for; that port is superseded unless `elo_diff` proves unusable when measured in #9. | 3 | Cheapest real addition; retires a separate build |
 | 6 | FIX #14, correctly targeted: cross-sectional James-Stein / method-of-moments EB pooling on `nfl-preseason-blend.js blendedTeamRating()` (F08-1 confirms it is not opponent-adjusted), gated behind `teamStrengthWalkForward`. Same technique on the correction-head coefficients. | 8 | The football input every downstream head stands on; the guardrail against V3-style creep |
 | 7 | Small cheap fixes surfaced by verification: `nfl-total-calibration.js:37` uses a naive local noVig instead of `shinNoVig` (F03-3); `nfl-execution-clv.js DEFAULT_CLOSING_BOOKS = null` (F04-3); `homeFieldPoints=1.6` hardcoded in the drive-sim while nfelo's `hfa_mod` is already synced (cat-07); stale `nfl-ensemble.js:2501` comment says "nine challenger-only" (now 21). | NEW (21) | Each is minutes-to-hours and each is a known-wrong number in a live path |

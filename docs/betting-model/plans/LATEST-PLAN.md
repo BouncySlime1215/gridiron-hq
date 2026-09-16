@@ -1,6 +1,8 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
+**"PREREGISTERED — DATA WIRING" (search for that heading) is in progress:** six unwired
+datasets as new forecasters through the same lab. Results will follow it.
 **"RESULTS — MODEL LAB" (search for that heading) is the NEWEST result.** 146
 preregistered tests across every forecaster: no model-based edge survives
 multiplicity correction, both champions fail the 2025 holdout, and all four
@@ -3641,6 +3643,40 @@ any season the harness produces. 2026 is the test.
 **Verdict.** No edge confirmed by the preregistered rules, and no confidence
 tier. The two leads worth carrying forward, with no money, are totals (Kalman
 totals and the broader totals lean) and line shopping across books.
+
+### PREREGISTERED — DATA WIRING: unwired datasets as new forecasters (September 16, 2026, late night; committed BEFORE any family below was scored)
+
+Nick: "we found a bunch of data that isn't wired so let's do that." Inventory
+by a research agent, re-verified against the live database. Scripts in
+`scripts/model-lab/wired.py`; results appended below this section.
+
+**Families.** Each becomes a margin forecaster and a total forecaster through
+a **weekly walk-forward ridge regression** fit to final scores (margin, total)
+on every earlier 2022+ game, lambda by week-block 5-fold CV inside each refit,
+standardized on the training rows only, missing values imputed to the training
+mean. A family starts forecasting once 150 earlier games exist.
+- W1 feature store: `nfl_team_feature_vectors` (built only from weeks before the game — verified in `nfl-weekly-feature-store.js`), home minus away for margin, home plus away for totals; keys present in >= 80% of training rows. Tier prior_week (vectors were built retroactively in bulk; noted).
+- W2 all 183 `nfl_team_week_features` keys, aggregated exactly like `featureAggregates` (earlier weeks this season plus last season, 12-game half-life), Rams `LA` duplicates dropped. Tier prior_week.
+- W3 venue and travel: away travel distance (haversine, team stadium to game stadium), time-zone shift, venue altitude, turf vs grass, dome vs outdoor, away team's home surface differs. Tier prior_week (static).
+- W4 coaching: new head coach home/away (differs from last season), coach tenure in consecutive seasons. Tier prior_week. The table has one coach per season, so midseason firings are invisible.
+- W5 weather forecasts: `nfl_game_weather_forecast_history` at the longest available lead (at most 5 days), wind, gust, precipitation, temperature. **Tier in_week** — reported, never promoted.
+- W6 injury return: players listed Out the previous week and not Out this week, per team, from `nfl_injuries`. **Tier in_week.**
+- W7 all prior_week families together (W1-W4).
+
+**Evaluation — identical to the model lab** (same code path, `lab.py`): methods
+A/B/C per family per market on development seasons 2023-24; the spread and
+total pools D-G re-run with the prior_week families added; champion per market
+by the same rule; 2025 confirmatory for the champions only, Holm over 2. The
+development family for this section is its own new tests (families x methods x
+markets, plus the eight pools), Holm-corrected together.
+
+**Success.** Same criteria as the model lab. A family that fails is still
+recorded, and every family is wired into production as a zero-weight
+challenger ONLY if it passes; otherwise it stays a research forecaster, and
+the 2026 forward test is where it gets another chance.
+
+**Also fixed in this pass, regardless of results:** the Rams `LA`/`LAR`
+duplicate rows in league-wide averages (production code, new fit version).
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

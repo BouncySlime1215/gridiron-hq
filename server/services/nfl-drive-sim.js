@@ -276,7 +276,16 @@ function simulateDrive(ctx, state, ep) {
   // Module 9: a state where snapping the ball at all is strictly negative.
   const kneel = P.kneelDecision({ lead, secondsLeft, timeouts: oppTimeouts, yard, isHalfEnd });
   if (kneel.call === 'kneel') {
-    return { points: 0, seconds: secondsLeft, endYard: yard, kneel: true, plays: 0, decisions: [kneel], tape: [] };
+    // CORRECTED 2026-09-16 (FINAL ORDER #2b, RUNBOOK §10.2): this used to
+    // return `seconds: secondsLeft`, i.e. one kneel decision consumed the
+    // ENTIRE remaining clock however much there was. A victory formation is
+    // three kneel-downs at roughly one 40-second play clock each; it cannot
+    // burn more than that, and if more time remains than the sequence can
+    // absorb, the opponent genuinely does get the ball back -- which the
+    // caller's loop now models, because the drive returns only what it spent.
+    const KNEEL_DOWNS = 3, SECONDS_PER_KNEEL = 40;
+    const burned = Math.min(secondsLeft, KNEEL_DOWNS * SECONDS_PER_KNEEL);
+    return { points: 0, seconds: burned, endYard: yard, kneel: true, plays: 0, decisions: [kneel], tape: [] };
   }
 
   // Modules 14 and 15, evaluated once per drive: measured game-script pass rate
@@ -458,6 +467,42 @@ function drawGameForm(ctx) {
   };
 }
 
+/**
+ * Overtime, shared by `simulateGame` and `simulateRemainder` (FINAL ORDER #2c,
+ * 2026-09-16, RUNBOOK §10.2). Both teams get a possession, then sudden death;
+ * a tie is still possible when neither scores inside the period, which is
+ * correct for regular-season NFL rules.
+ *
+ * Extracted rather than copied: `simulateRemainder` previously had no overtime
+ * at all, so a live simulation that reached 0:00 tied simply RETURNED a tie --
+ * inflating its reported tie probability and, worse, leaving every derived
+ * live win probability/cover number computed from finishes that real football
+ * would have played on. Porting a second copy of this loop was the obvious
+ * fix and the wrong one: two copies drift, and this one already encodes
+ * decisions (2 timeouts each, the `had >= 2` both-possessions rule, the 8-drive
+ * backstop) that must not silently differ between the pregame and live paths.
+ */
+export function simulateOvertime({ homeCtx, awayCtx, home, away, spread, ep }) {
+  let h = home, a = away;
+  let otClock = 600;
+  let otPossession = random() < 0.5 ? 'home' : 'away';
+  let had = 0;
+  while (otClock > 0 && had < 8) {
+    const off = otPossession === 'home' ? homeCtx : awayCtx;
+    const lead = otPossession === 'home' ? h - a : a - h;
+    const d = simulateDrive(off, { yard: 25, secondsLeft: otClock, lead, timeouts: 2,
+      oppTimeouts: 2, isHalfEnd: false, spread, isHome: otPossession === 'home' }, ep);
+    let pts = d.points;
+    if (d.touchdown) pts = 6 + (random() < 0.945 ? 1 : 0);
+    if (otPossession === 'home') h += Math.max(0, pts); else a += Math.max(0, pts);
+    otClock -= Math.max(15, d.seconds);
+    otPossession = otPossession === 'home' ? 'away' : 'home';
+    had++;
+    if (had >= 2 && h !== a) break;
+  }
+  return { home: h, away: a };
+}
+
 /** One full game: two halves, the two-minute warning, kickoffs, overtime. */
 function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, collectLog = false }) {
   // Each team's form for THIS game, drawn once and held for all four quarters —
@@ -585,22 +630,8 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
 
   // Overtime: both teams get a possession, then sudden death. Ties are possible.
   if (home === away) {
-    let otClock = 600;
-    let otPossession = random() < 0.5 ? 'home' : 'away';
-    let had = 0;
-    while (otClock > 0 && had < 8) {
-      const off = otPossession === 'home' ? homeCtx : awayCtx;
-      const lead = otPossession === 'home' ? home - away : away - home;
-      const d = simulateDrive(off, { yard: 25, secondsLeft: otClock, lead, timeouts: 2,
-        oppTimeouts: 2, isHalfEnd: false, spread, isHome: otPossession === 'home' }, ep);
-      let pts = d.points;
-      if (d.touchdown) pts = 6 + (random() < 0.945 ? 1 : 0);
-      if (otPossession === 'home') home += Math.max(0, pts); else away += Math.max(0, pts);
-      otClock -= Math.max(15, d.seconds);
-      otPossession = otPossession === 'home' ? 'away' : 'home';
-      had++;
-      if (had >= 2 && home !== away) break;
-    }
+    const ot = simulateOvertime({ homeCtx, awayCtx, home, away, spread, ep });
+    home = ot.home; away = ot.away;
   }
 
   // Home-field advantage is now applied continuously, per home possession,
@@ -842,18 +873,52 @@ export function simulateRemainder({
       // week-to-week uncertainty a pregame simulation does.
       const hc = drawGameForm(homeCtx), ac = drawGameForm(awayCtx);
       let h = startHome, a = startAway;
-      let clock = Math.max(0, s.secondsLeft ?? 900);
+      // FINAL ORDER #2c (2026-09-16, RUNBOOK §10.2). `state.secondsLeft` is
+      // GAME seconds remaining -- every caller derives it from a full-game
+      // clock (`nfl-espn-pbp.js` passes `clock_seconds`, which `nfl-live.js`'s
+      // `clockSeconds` computes from period + display clock; `nfl-live-ledger.js`
+      // passes the packet's `seconds_left`). This loop used to treat that
+      // number as a single undifferentiated countdown: no halftime (so
+      // timeouts never reset and possession never changed hands at the break),
+      // `isHalfEnd` computed off the GAME clock (so the end-of-half modules
+      // fired only in the last two minutes of the whole game, never at the end
+      // of the second quarter), and `timeouts: 3, oppTimeouts: 3` hardcoded on
+      // every drive regardless of what had been spent.
+      let gameClock = Math.max(0, s.secondsLeft ?? 900);
+      let half = gameClock > HALF ? 1 : 2;
+      let clock = half === 1 ? gameClock - HALF : gameClock;
       let possession = s.possession === 'away' ? 'away' : 'home';
+      // Whoever does NOT have the ball when the first half ends receives the
+      // second-half kickoff, the same alternation `simulateGame` models with
+      // `receivingSecondHalf`. Mid-game we know who has it now, so this is
+      // determined rather than drawn.
+      const timeouts = { home: clamp(Math.round(s.homeTimeouts ?? 3), 0, 3),
+        away: clamp(Math.round(s.awayTimeouts ?? 3), 0, 3) };
       let yard = clamp(s.yard ?? 25, 1, 99);
       let currentDown = clamp(Math.round(s.down ?? 1), 1, 4);
       let currentToGo = clamp(Number(s.toGo ?? 10), 0.5, Math.max(1, 100 - yard));
 
-      while (clock > 0) {
+      while (gameClock > 0) {
+        if (clock <= 0) {
+          // Halftime: the clock resets, both teams get their timeouts back,
+          // and the team that did not have the ball last receives.
+          if (half === 1) {
+            half = 2;
+            clock = HALF;
+            gameClock = HALF;
+            timeouts.home = 3; timeouts.away = 3;
+            possession = possession === 'home' ? 'away' : 'home';
+            yard = 25; currentDown = 1; currentToGo = 10;
+          } else break;
+        }
         const off = possession === 'home' ? hc : ac;
         const lead = possession === 'home' ? h - a : a - h;
         const d = simulateDrive(off, { yard, down: currentDown, toGo: currentToGo,
-          secondsLeft: clock, lead, timeouts: 3, oppTimeouts: 3,
-          isHalfEnd: clock < 120, spread, isHome: possession === 'home' }, ep);
+          secondsLeft: clock, lead,
+          timeouts: timeouts[possession],
+          oppTimeouts: timeouts[possession === 'home' ? 'away' : 'home'],
+          isHalfEnd: clock < 120, spread, isHome: possession === 'home',
+          gameSecondsLeft: gameClock }, ep);
         let pts = d.points;
         if (d.touchdown) {
           const leadAfter = possession === 'home' ? h + 6 - a : a + 6 - h;
@@ -866,10 +931,18 @@ export function simulateRemainder({
           if (possession === 'home') a += six; else h += six;
         }
         if (possession === 'home') h += Math.max(0, pts); else a += Math.max(0, pts);
-        clock -= Math.max(15, d.seconds);
+        const spent = Math.max(15, d.seconds);
+        clock -= spent; gameClock -= spent;
         possession = possession === 'home' ? 'away' : 'home';
         yard = (d.points > 0 || d.kneel) ? 25 : clamp(d.endYard, 1, 99);
         currentDown = 1; currentToGo = Math.min(10, 100 - yard);
+      }
+      // Regulation cannot end a tied NFL game -- overtime decides it (and may
+      // itself end tied, which `simulateOvertime` models). Without this, every
+      // trial that finished level was reported as a final tie.
+      if (h === a) {
+        const ot = simulateOvertime({ homeCtx: hc, awayCtx: ac, home: h, away: a, spread, ep });
+        h = ot.home; a = ot.away;
       }
       finalHome[i] = h; finalAway[i] = a;
     }

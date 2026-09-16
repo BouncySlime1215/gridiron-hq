@@ -303,23 +303,37 @@ export function paceProfile({ lead, secondsLeft, noHuddleRate, timeouts }) {
  * near your own goal line at the end of a half, a drive's small upside does not
  * pay for the chance of handing over a short field.
  */
-// TODO(a5-simulation, 2026-09-12): `secondsLeft` in the first branch below is
-// currently the caller's HALF clock, not the game clock — at the two-minute
-// mark of the FIRST half this can read as a "clock runs out before they get
-// the ball" victory formation, which is wrong (the opponent gets the ball
-// back at halftime). This is the same half-vs-full-clock bug fixed elsewhere
-// in this pass (nfl-drive-sim.js `gameSecondsLeft`) but is NOT applied here:
-// safety instructions for this build explicitly forbade changing this
-// function's sign/formula beyond wiring the timeout decrement, since an
-// adversarial trace already verified it. Feeding the first branch a real
-// game-remaining clock (leaving the second, isHalfEnd, branch on the half
-// clock as it correctly is today) needs a human's sign-off, not this pass's.
+// TODO(a5-simulation, 2026-09-12; STILL OPEN as of 2026-09-16): `secondsLeft`
+// in the first branch below is the caller's HALF clock, not the game clock —
+// at the two-minute mark of the FIRST half this can read as a "clock runs out
+// before they get the ball" victory formation, which is wrong (the opponent
+// gets the ball back at halftime). This is the same half-vs-full-clock bug
+// fixed elsewhere (nfl-drive-sim.js `gameSecondsLeft`) but is NOT applied
+// here. The original note said the sign/formula was off-limits to that pass;
+// FINAL ORDER #2b has since corrected the sign (see below), but this
+// remaining half-vs-game-clock question is a SEPARATE behaviour change —
+// it would stop first-half kneel-downs that the sim currently performs —
+// and is deliberately left for a human decision rather than folded in
+// silently. Fix, when signed off: give the first branch a real
+// game-remaining clock while leaving the second (`isHalfEnd`) branch on the
+// half clock, where it is correct today.
 export function kneelDecision({ lead, secondsLeft, timeouts, yard, isHalfEnd }) {
-  const kneelable = 40 + timeouts * 40;
+  // CORRECTED 2026-09-16 (FINAL ORDER #2b, RUNBOOK §10.2). `timeouts` here is
+  // the OPPONENT's remaining timeouts (`nfl-drive-sim.js` passes
+  // `timeouts: oppTimeouts`), and the sign was backwards: the old
+  // `40 + timeouts * 40` made victory formation look SAFER the more timeouts
+  // the opponent held, when each opponent timeout is precisely what stops the
+  // clock and DENIES the kneel-out. A team with three timeouts left can stop
+  // the clock after all three kneel-downs, so only about one play clock can
+  // actually be burned; with none, the offence can run roughly three full
+  // 40-second play clocks off. The window therefore shrinks, not grows, as
+  // the opponent keeps timeouts.
+  const oppTimeouts = clamp(Math.round(timeouts ?? 0), 0, 3);
+  const kneelable = 40 + (3 - oppTimeouts) * 40;
   if (lead > 0 && secondsLeft <= kneelable) {
     return { module: 'kneel_down', call: 'kneel',
-      reason: `Leading with ${secondsLeft}s and the opponent holding ${timeouts} timeouts — the clock ` +
-        `runs out before they get the ball. Every snap is downside only.` };
+      reason: `Leading with ${secondsLeft}s and the opponent holding ${oppTimeouts} timeouts — they ` +
+        `cannot stop the clock often enough to get it back. Every snap is downside only.` };
   }
   if (isHalfEnd && secondsLeft < 40 && yard < 35 && lead >= 0) {
     return { module: 'kneel_down', call: 'kneel',

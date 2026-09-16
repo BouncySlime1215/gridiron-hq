@@ -1,6 +1,8 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
+**"PREREGISTERED — OPENER LAB" (search for that heading) is in progress:** levels 1-2 on
+2022-25, level 3 (timing, Kalshi/Polymarket) forward on 2026.
 **"CLV + KELLY SCORECARD" (search for that heading) is the NEWEST result and the
 standard grading for every future test.** 476 strategy-by-line rows: nothing is
 +EV at the standard opener; line shopping recovers ~4 points of EV; no model
@@ -3832,6 +3834,64 @@ moments and are not trusted.
 edge. The one lever that moves expected value by points rather than tenths
 is getting the best number across books; the models add at most about one
 point on top of it, and that did not hold in 2025.
+
+### PREREGISTERED — OPENER LAB: where the opener is wrong, what predicts the move, when it moves (September 16, 2026, late night; committed BEFORE any level was built or scored)
+
+Nick: "We know it's opening line... let's do all 3. These could be our
+confidence weights. For when does the move happen we can use poly and Kalshi."
+Scripts: `scripts/opener-lab/`. Every betting result is graded with the CLV +
+Kelly scorecard. Data rules as in the model lab: repaired openers, suspect
+openers excluded, close = `game_lines`.
+
+**Data reality, measured before writing this.** 2022-2025 hold ONE Pinnacle
+snapshot per game at open and one at close — no intraday path. Intraday lines
+exist only from 2026 (~200 sportsbook snapshots per game, other providers;
+Pinnacle itself is sparse). Kalshi game-winner markets (every ~10 min) and
+Polymarket spread/total lines exist only from 2026-08-29. So levels 1-2 are
+tested on 2022-2025; level 3 is forward-only on 2026.
+
+**Level 1 — where is the opener most wrong (magnitude).** Unit: game x market
+(spread, total). Outcome: |close - open|. Conditions, all known at the open:
+spread-size buckets (<=2.5, 3, 3.5-6.5, 7, 7.5-9.5, >=10; totals <40, 40-43.5,
+44-47.5, >=48); opener on a key number (3/7; 41/44/47/51); week bucket (1-4,
+5-9, 10-14, 15-18, playoffs); posting lead before kickoff (quartiles fixed on
+discovery data); look-ahead opener (posted > 8 days out); book dispersion at
+open (terciles fixed on discovery); Pinnacle vs other-book median gap >= 0.5;
+Pinnacle price skew |no-vig p - 0.5| >= 0.02; divisional; primetime; short week
+(either team <= 5 rest days); home favourite. Test: each level's mean |move|
+vs its complement, week-cluster bootstrap. **Discover on 2022-23**; freeze
+levels with Holm p < 0.05 and a larger move; **confirm on 2024-25** with Holm
+over the frozen list, same direction.
+
+**Level 2 — what predicts the direction.** Target: signed move toward home
+(spreads) / over (totals). Predictors known at open: P1 Pinnacle opening price
+skew; P2 Pinnacle opener minus other-book median; P3 Kalman departure (K1 for
+spreads, K2 totals; hyperparameters fit 2016-2021); P4 re-rating momentum (the
+market's move toward each team in its previous game, home minus away). Discover
+on 2022-23: univariate week-clustered slopes plus one ridge model of all four;
+freeze. Confirm on 2024-25: Holm over the four slopes and the ridge
+correlation; then bet the predicted direction, all bets and the top quartile of
+|prediction| (threshold from discovery), graded by the scorecard at the
+reference and best-book lines.
+
+**Confidence weights (Kelly).** Per bet, predicted win-probability gain =
+calibrated from training seasons only: realized CLV probability regressed on
+the level-2 prediction and its interaction with a confirmed level-1
+large-move segment. p = no-vig opening probability + that gain; quarter Kelly,
+5% cap. Scored on 2024 (trained 2022-23) and 2025 (trained 2022-24).
+**Success:** positive expected Kelly growth in both 2024 and 2025 with dev EV
+Holm-significant; otherwise reported as a null.
+
+**Level 3 — when the move happens (2026 forward).** M1 move timing: consensus
+spread path from all sportsbook snapshots (median across books per hour);
+share of the open-to-kickoff move done by +1 h, +6 h, +24 h, +72 h; hours until
+the first >= 0.5 pt move. M2 lead-lag: Kalshi win probability -> implied home
+margin (13.45 x inverse-normal), and Polymarket's home spread, vs sportsbook
+consensus; hourly-change cross-correlation at lags -6..+6 h. M3 signal: when
+Kalshi-implied margin differs from sportsbook consensus by >= 1 pt, how often
+consensus moves toward Kalshi within 24 h, and by how much. Week-1 numbers are
+descriptive only. **Forward success at season end (>= 150 games):** M3
+move-toward rate > 60% with binomial p < 0.01, then graded by the scorecard.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

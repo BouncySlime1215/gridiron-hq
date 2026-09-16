@@ -9,7 +9,7 @@ is a null result — it does not beat the market either. #2 fixed the
 drive-sim's kneel sign, kneel clock and missing halftime/overtime, and the
 re-run backtest reads 52.14% ATS over 491 games rather than the long-cited
 42.86%, which has no recorded provenance. Both are valid recorded
-completions. **#3 (leakage guard, §10.3) is DONE** — built and tested, deliberately not enforced; see LATEST-PLAN's "FINAL ORDER #3" section for what strict admission would refuse and why that is Nick's call. **#4 (GW + Holm, §10.4) is DONE** — measured on real history it changed no verdict (best raw p 0.38 across 32 components), fit version now v14. **#5 (nfeloFeatures' unused fields, §10.5) is next.**
+completions. **#3 (leakage guard, §10.3) is DONE** — built and tested, deliberately not enforced; see LATEST-PLAN's "FINAL ORDER #3" section for what strict admission would refuse and why that is Nick's call. **#4 (GW + Holm, §10.4) is DONE**. **Then the opener-CLV measurement (LATEST-PLAN "RESULTS — the opener-CLV measurement") found the first real edge this project has measured — at the OPENING line, +0.2-0.27 pts, one signal, sub-vig as a flat bet. Read it before #5.** Scripts: `scripts/opener-clv-measurement.mjs`, `opener-clv-pass2.mjs`, `opener-clv-summarize.mjs --pool 2022,2023,2024` (run the summarizer with a scratch GRIDIRON_DB_PATH).
 Two #2 follow-ups are parked on a decision from Nick (kneel half-clock; HFA
 into per-play rates) — see FINAL ORDER row 2. The dependency table right after FINAL ORDER in
 LATEST-PLAN.md says what blocks what for everything after #2. The lineage

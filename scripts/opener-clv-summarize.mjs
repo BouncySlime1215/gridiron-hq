@@ -65,7 +65,7 @@ function arg(name, fallback) {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 const dir = arg('--dir', 'docs/evidence/2026-09-16/opener-clv');
-const POOL = [2022, 2023, 2024, 2025];
+const POOL = arg('--pool', '2022,2023,2024,2025').split(',').map(Number);   // e.g. --pool 2022,2023,2024 for the conservative table
 const SEPARATE = [2021];
 const CONTAMINATED = new Set(['python_correction', 'component:market_correction_research']);
 
@@ -165,6 +165,25 @@ for (const season of allSeasons) {
   }
 }
 
+// ---- statistics ----------------------------------------------------------
+const mean = xs => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+const sd = xs => {
+  if (xs.length < 2) return null;
+  const m = mean(xs);
+  return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1));
+};
+const normalSf2 = z => { // two-sided p from |z|
+  const t = 1 / (1 + 0.2316419 * Math.abs(z));
+  const d = 0.3989422804014327 * Math.exp(-z * z / 2);
+  const p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return Math.min(1, 2 * p);
+};
+const rate = (list, key) => {
+  const g = list.filter(r => r[key] != null);
+  const w = g.filter(r => r[key]).length;
+  return g.length ? { n: g.length, rate: r4(w / g.length), se: r4(Math.sqrt(0.25 / g.length)) } : { n: 0, rate: null, se: null };
+};
+
 // ---- home drift, adjusted CLV, and zero-information baselines -------------
 // MEASURED 2022-2025: the line moves toward the HOME team by ~+0.185 points
 // between open and close, so "always back home at the opener" earns CLV with
@@ -191,24 +210,6 @@ baseline('baseline:back_away', () => false);
 baseline('baseline:back_opener_favorite', g => (g.open_spread === 0 ? null : g.open_spread < 0));
 baseline('baseline:back_opener_underdog', g => (g.open_spread === 0 ? null : g.open_spread > 0));
 
-// ---- statistics ----------------------------------------------------------
-const mean = xs => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
-const sd = xs => {
-  if (xs.length < 2) return null;
-  const m = mean(xs);
-  return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1));
-};
-const normalSf2 = z => { // two-sided p from |z|
-  const t = 1 / (1 + 0.2316419 * Math.abs(z));
-  const d = 0.3989422804014327 * Math.exp(-z * z / 2);
-  const p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  return Math.min(1, 2 * p);
-};
-const rate = (list, key) => {
-  const g = list.filter(r => r[key] != null);
-  const w = g.filter(r => r[key]).length;
-  return g.length ? { n: g.length, rate: r4(w / g.length), se: r4(Math.sqrt(0.25 / g.length)) } : { n: 0, rate: null, se: null };
-};
 
 function stats(list) {
   const pts = list.map(r => r.clv_points).filter(Number.isFinite);
@@ -290,7 +291,8 @@ summary.multiplicity = { method: 'holm', family_size: family.length,
     && summary.forecasters[id].pooled_2022_2025.clv_home_adjusted.mean > 0),
   note: 'p-values and Holm are on clv_HOME_ADJUSTED (excess over always-back-this-side); baselines excluded from the family' };
 
-fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify(summary, null, 1));
+const suffix = POOL.join('-') === '2022-2023-2024-2025' ? '' : `-${POOL.join('-')}`;
+fs.writeFileSync(path.join(dir, `summary${suffix}.json`), JSON.stringify(summary, null, 1));
 
 // ---- markdown -------------------------------------------------------------
 const rowsMd = forecasters.map(id => {
@@ -303,7 +305,7 @@ const rowsMd = forecasters.map(id => {
   return zb - za;
 });
 const md = [
-  `# Opener CLV — every forecaster, pooled 2022-2025`,
+  `# Opener CLV — every forecaster, pooled ${POOL.join('-')}`,
   '', `Generated from ${dir}. 2021 is excluded from pooling (untrustworthy openers) and reported per-season in summary.json.`,
   '', `Holm family = EDGE-ELIGIBLE tier only (input_timing = prior_week; see INPUT_TIMING in the script): ${summary.multiplicity.family_size} forecasters. Raw p<0.05: ${summary.multiplicity.raw_passes_p05}. Holm p<0.05: ${summary.multiplicity.holm_passes_p05}. Positive mean AND Holm p<0.05: ${JSON.stringify(summary.multiplicity.positive_mean_and_holm_p05)}.`,
   '', `Break-even ATS at -110 is 0.5238. Sorted by week-clustered z on mean CLV points.`,
@@ -313,7 +315,7 @@ const md = [
   `|---|---|---|---|---|---|---|---|---|---|---|`,
   ...rowsMd, ''
 ].join('\n');
-fs.writeFileSync(path.join(dir, 'summary.md'), md);
+fs.writeFileSync(path.join(dir, `summary${suffix}.md`), md);
 console.log(md);
 console.log(JSON.stringify(summary.multiplicity, null, 1));
 console.log('coverage', JSON.stringify(coverage));

@@ -55,13 +55,18 @@ history it changed nothing — the best raw p across 32 components is 0.38
 against a 0.05 bar, so there were no passes to correct. Fit version bumped
 to **v14**.
 
-**IN PROGRESS (September 16, evening) — two things ahead of FINAL ORDER #5,
-both at Nick's direction:**
-1. **The opener-CLV measurement** — grading EVERY forecaster against the
-   opening line instead of the close (section "PREREGISTERED — the
-   opener-CLV measurement" below; declared before results). Pass 1 (ensemble
-   + 35 components + sim) is a multi-hour run; pass 2 (Python + lineup) is
-   done; results append below the declaration when the run finishes.
+**September 16, evening — the opener-CLV measurement is DONE and it is the
+most important result in this document.** Section "RESULTS — the opener-CLV
+measurement" below. Short form: **a small, real, one-signal edge at the
+OPENING line exists** (five prior-week efficiency components, +0.2-0.27
+points of closing-line value, positive every season 2022-2025, survives Holm,
+not explained by the +0.19-point home drift that "always back home" earns for
+free). **It is worth ~51% ATS — below the vig as a flat strategy.** The
+drive sim and the Python football model do NOT have it. Every prior "nothing
+beats the market" result in this plan was measured against the CLOSE; this
+is the first measured against the OPEN. The next measurement (selection +
+line shopping + timing) is preregistered at the end of that section.
+1. ~~The opener-CLV measurement~~ DONE (above).
 2. **The model registry** — one CSV row per model, component, expert, policy
    module, table, scheduler job and harness, in `docs/betting-model/registry/`
    (`SCHEMA.md` is the contract; `skeleton-*.csv` are exact mechanical
@@ -2088,6 +2093,100 @@ sim — hours), `scripts/opener-clv-pass2.mjs` (Python + lineup — minutes),
 `scripts/opener-clv-summarize.mjs`. Rows and summary land in
 `docs/evidence/2026-09-16/opener-clv/`. Results will be appended BELOW this
 line, dated, never edited into the declaration above.
+
+### RESULTS — the opener-CLV measurement (September 16, 2026, appended below the declaration; nothing above was edited)
+
+**Answer to the preregistered question: yes — a small, real, one-signal edge
+at the opener exists in the prior-week efficiency models. It is not
+explained by home drift or favourite drift, it is positive in every season
+2022-2025, and it survives Holm. It is also worth roughly a third of a point,
+which is not enough to beat the vig as a flat strategy.** Full tables:
+`docs/evidence/2026-09-16/opener-clv/summary.md` (2022-2025) and
+`summary-2022-2023-2024.md` (conservative). Raw rows: 2,740 games.
+
+**The conservative headline (2022-2024 only, home drift netted out, Holm
+across the 28-forecaster edge-eligible family):**
+
+| forecaster | n | adj CLV pts | z (wk-clustered) | p Holm | CLV when backing AWAY |
+|---|---|---|---|---|---|
+| component:second_half_eff | 817 | +0.270 | 3.71 | .0056 | +0.14 |
+| component:opp_adjusted | 817 | +0.223 | 3.58 | .0081 | +0.12 |
+| component:dynamic_state | 817 | +0.189 | 3.32 | .0234 | +0.07 |
+| component:epa_net | 817 | +0.195 | 3.17 | .0375 | +0.07 |
+| component:series_sustain | 817 | +0.203 | 3.11 | .0432 | +0.08 |
+
+Five survive. Nothing else does on 2022-2024 alone — **not the drive sim
+(+0.11, z 1.5) and not the Python football model (+0.11, z 1.75).**
+
+**Why the first read was wrong, and what killed the artifacts.** The raw
+table had 24 of 28 forecasters positive — the signature of a common factor.
+Two were tested through the same grader as zero-information baselines:
+- *Favourite drift*: backing the opener favourite earns 0.00 CLV pooled. Dead
+  (and it flips sign by season: −0.14 in 2022-24, positive in 2025).
+- *Home drift*: **the line moves +0.185 toward the home team between open and
+  close** (+0.126 on 2022-24). "Always back home at the opener" earns that
+  with zero skill, at 51.3% ATS. Many components add home-field, so they
+  inherit it. This is real market microstructure and is now a permanent
+  baseline row in the summary.
+The survivors are NOT the drift: they back home and away ~50/50, and every
+one earns positive CLV when backing the AWAY side against the drift (last
+column). `clv_home_adjusted` — excess over always-backing-that-side — is what
+the Holm p is computed on.
+
+**It is one finding, not five.** The five agree on which side to back 70% of
+the time pairwise (effective rank ≈ 2.5 across the whole ensemble, measured
+Sept 15). Read it as: *the opening line is slow to fully price last week's
+team efficiency; the close catches up.* Five representations of one signal.
+
+**What it is worth.** ~0.2-0.3 points of closing-line value. With a margin
+SD of ~13.5, a point of line is worth ~3 percentage points of cover
+probability, so this is ~+0.7-1.0 points of cover rate: ~51%, against a
+52.38% break-even at −110. The observed ATS-vs-opener of 0.49-0.52 matches
+that arithmetic exactly. **As a bet-every-game strategy it loses to the
+vig.** Where it could become money is a different, unmeasured claim (below).
+
+**2025 is real but inflated, and stays out of the headline.** Pooling 2025
+lifts the survivors to +0.33-0.39 and adds six more (11 total), and
+python_football enters. All five seasons come from the same nflverse file
+and the same two fetch batches, so this is not a live-capture artifact — but
+2025's openers move 1.84 points on average against 1.1-1.3 in other
+seasons, with week-level means of 4.1 (wk 2), 5.5 (wk 8) and 3.3 (wk 15):
+the same stale/look-ahead-line pattern that disqualified 2021, in patches.
+A stale opener is genuinely beatable by an informed model — but not
+tradeable at that size, because a look-ahead line is not a bettable line.
+Conservative headline stands.
+
+**Tiers, for anyone reading the full table.** `third_party_bulk` (nfelo:
++0.40 adj, z 4.3) is the strongest single row and is NOT cited as edge: its
+1,725 rows share one fetch timestamp, so its pre-game ratings cannot be
+proven pre-game by our clock. `in_week` (availability: +0.28) is line-move
+prediction, not edge at the open. `contaminated` (the correction head: +1.1)
+is the answer key. `opener` (market_regression) is ~0, as it must be — the
+sanity anchor the whole table hangs on.
+
+**What this changes in the plan.** (1) The promotion gate's objective is
+wrong for a betting operation — "beat the CLOSE on margin MAE" has said no
+30 times; "positive CLV at the OPEN" says yes, small, for one family. The
+gate should be rebuilt around CLV. (2) The drive sim has no opener edge; its
+remaining claim is the joint distribution (totals, live), not the spread.
+(3) FINAL ORDER #10-#15's data mining should be graded on adjusted opener
+CLV, not closing MAE, or it will keep "failing" tests that were never the
+right test.
+
+**NEXT MEASUREMENT — declared now, before it is run.** Turn ~0.25 points into
+money requires three things this measurement did not test, each with its own
+preregistered family: (a) *selection* — the `by_abs_lean` bins already in
+summary.json suggest CLV rises with |lean| (second_half_eff ≥5: +0.68;
+python_football ≥5: +0.90) but those bins were read after the fact and n is
+90-250, so they are a hypothesis, not a result; (b) *shopping* — a half-point
+better number across the 10 archived books is worth ~1.5 points of cover
+rate, more than the entire edge; (c) *timing* — the edge is at the OPENER,
+which means Sunday night/Monday, before the drift. The test: one composite
+prior-week efficiency signal (not five), selected at a preregistered |lean|
+threshold, priced at the best archived book at open, graded on adjusted CLV
+and ATS, 2022-2024, Holm across the (few) thresholds tried. If that clears
+break-even it is the first bettable edge this project has measured. If it
+does not, we know the edge is real but sub-vig, and stop.
 
 ### FINAL ORDER #4 — multiplicity and conditional predictive ability (September 16, 2026)
 

@@ -274,7 +274,7 @@ function simulateDrive(ctx, state, ep) {
   const preventMult = { yards: prevent.yards_allowed_multiplier, explosive: prevent.explosive_allowed_multiplier };
 
   // Module 9: a state where snapping the ball at all is strictly negative.
-  const kneel = P.kneelDecision({ lead, secondsLeft, timeouts: oppTimeouts, yard, isHalfEnd });
+  const kneel = P.kneelDecision({ lead, secondsLeft, timeouts: oppTimeouts, yard, isHalfEnd, gameSecondsLeft });
   if (kneel.call === 'kneel') {
     // CORRECTED 2026-09-16 (FINAL ORDER #2b, RUNBOOK §10.2): this used to
     // return `seconds: secondsLeft`, i.e. one kneel decision consumed the
@@ -503,11 +503,61 @@ export function simulateOvertime({ homeCtx, awayCtx, home, away, spread, ep }) {
   return { home: h, away: a };
 }
 
+/**
+ * Home-field advantage as a PER-PLAY efficiency edge rather than points
+ * handed to the scoreboard (FIX_AND_ADD #10's real point; folded in
+ * 2026-09-16 after Nick signed off).
+ *
+ * The previous shape added `homeFieldPoints` to the home SCORE — first as a
+ * single +7 coin flip, then (better) as +1 at rate `hfa/off_drives` per home
+ * possession. Both are cosmetic: points arrive without the home team having
+ * played any better, so nothing downstream of the play level can see the
+ * advantage. It could not change who wins in overtime, could not interact
+ * with the clock or with a trailing team's strategy, and could not shift the
+ * shape of the margin distribution — only its mean.
+ *
+ * Playing better is what home field actually is, so it scales the same
+ * efficiency inputs `drawGameForm` already scales with its form shock, in
+ * the same direction and with the same sign convention on mistakes: gains up,
+ * turnovers and sacks down. `HFA_RATE_PER_POINT` is CALIBRATED, not guessed —
+ * `scripts/calibrate-home-field-rate.mjs` solves for the value that makes the
+ * simulated mean margin shift equal `homeFieldPoints`, so the knob keeps the
+ * same units and the same checkable-against-reality property it had as a
+ * points nudge.
+ */
+// MEASURED, 2026-09-16, `scripts/calibrate-home-field-rate.mjs --season 2024
+// --trials 2000 --games 16`: mean margin with the edge off is -0.140, and
+// the knob delivers 1.094 / 0.931 / 0.964 points of shift per knob-unit at
+// knob values 1.0 / 1.6 / 2.5 — averaging 0.996 of target, i.e. the knob
+// still means what it says. Left at 0.0185 rather than nudged to make the
+// 1.6 row land exactly on 1.6: the three estimates straddle 1.0 and the
+// residual is inside this sample's Monte Carlo noise, so tuning to the
+// middle row alone would be fitting noise.
+const HFA_RATE_PER_POINT = 0.0185;
+export function applyHomeFieldEdge(ctx, homeFieldPoints) {
+  if (!(homeFieldPoints > 0)) return ctx;
+  const k = 1 + HFA_RATE_PER_POINT * homeFieldPoints;
+  return {
+    ...ctx,
+    ypa: ctx.ypa * k,
+    ypc: ctx.ypc * k,
+    explosivePass: clamp(ctx.explosivePass * k, 0.01, 0.4),
+    explosiveRush: clamp(ctx.explosiveRush * k, 0.01, 0.35),
+    redZoneTd: clamp(ctx.redZoneTd * k, 0.05, 0.9),
+    intRate: clamp(ctx.intRate / k, 0.002, 0.12),
+    fumbleRate: clamp(ctx.fumbleRate / k, 0.001, 0.08),
+    sackRate: clamp(ctx.sackRate / k, 0.005, 0.25)
+  };
+}
+
 /** One full game: two halves, the two-minute warning, kickoffs, overtime. */
 function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, collectLog = false }) {
   // Each team's form for THIS game, drawn once and held for all four quarters —
   // a team having a bad day has it for sixty minutes, not play by play.
-  const homeCtx = drawGameForm(homeCtxBase);
+  // Home field enters here, as a rate edge on the home side, BEFORE the form
+  // draw so the two compose the way they do in reality: a home team having a
+  // bad day is still at home.
+  const homeCtx = drawGameForm(applyHomeFieldEdge(homeCtxBase, homeFieldPoints));
   const awayCtx = drawGameForm(awayCtxBase);
   let home = 0, away = 0;
   const timeouts = { home: 3, away: 3 };
@@ -577,16 +627,15 @@ function simulateGame(homeCtxBase, awayCtxBase, ep, { homeFieldPoints, spread, c
         if (possession === 'home') away += six; else home += six;
       }
       if (possession === 'home') {
+        // SUPERSEDED 2026-09-16 (FINAL ORDER #2, structural item): home-field
+        // advantage used to be added to the score right here — first as a
+        // single +7 coin flip, then as +1 at rate `homeFieldPoints/off_drives`
+        // per home possession. Both handed the home team points it had not
+        // earned on the field. It is now an efficiency edge applied to the
+        // home context in `applyHomeFieldEdge` above, so the advantage is
+        // played out rather than awarded, and can therefore reach overtime,
+        // the clock, and the shape of the margin distribution.
         home += Math.max(0, scored);
-        // Home-field advantage, as a continuous per-drive nudge rather than a
-        // single end-of-game coin flip of a full touchdown. The old version
-        // put a discrete spike exactly at margin+7 in the simulated
-        // distribution — real margins don't have that spike. Spreading the
-        // same expected value (homeFieldPoints) across every one of the home
-        // team's own possessions removes the spike and keeps the total EV:
-        // RATE_SPEC.off_drives possessions x (homeFieldPoints/RATE_SPEC.off_drives)
-        // per possession averages back out to homeFieldPoints per game.
-        if (homeFieldPoints > 0 && random() < homeFieldPoints / RATE_SPEC.off_drives) home += 1;
       } else {
         away += Math.max(0, scored);
       }
@@ -749,6 +798,19 @@ export function simulateMatchup({
   homeFieldPoints = 1.6, seed = null, sampleDrives = false,
   targetMargin = null, targetTotal = null
 } = {}) {
+  // NEUTRAL-SITE / INTERNATIONAL GAMES GET NO HOME FIELD (2026-09-16, Nick's
+  // call). A game in London has a nominal 'home' team and no home field, so
+  // handing that team a home-field edge is simply wrong. `nfl-ensemble.js`
+  // has always got this right (`hfaFor` zeroes hfa on `neutral_site`); the
+  // simulator never did, on the live path OR in evaluation. Looked up here
+  // rather than pushed onto callers so every caller is fixed at once, and
+  // only when season/week/home identify a real scheduled game.
+  if (homeFieldPoints > 0 && season != null && week != null && home != null) {
+    const g = rows(`SELECT COALESCE(neutral_site, 0) AS neutral FROM game_lines
+                    WHERE season = ? AND week = ? AND team = ? AND home = 1 LIMIT 1`,
+      season, week, String(home).toUpperCase())[0];
+    if (g?.neutral) homeFieldPoints = 0;
+  }
   const prof = blendedProfiles({ season, throughWeek: week });
   const H = prof.teams.get(String(home ?? '').toUpperCase());
   const A = prof.teams.get(String(away ?? '').toUpperCase());
@@ -1174,18 +1236,53 @@ export function simulatorWalkForwardShape(options = {}) {
  * honest answer here is worth more than a good-looking one, and this codebase
  * has 21 previous models that failed exactly this test.
  */
-export function backtest({ season = 2025, trials = 300, maxGames = 100 } = {}) {
+export function backtest({ season = 2025, trials = 300, maxGames = 100,
+  profileMode = 'prior_season' } = {}) {
+  // `profileMode` (added 2026-09-16, investigating why the ATS rate falls
+  // across seasons) chooses WHICH cutoff-safe profiles the engine gets, which
+  // turns out to matter more than anything inside the simulator itself:
+  //   - 'prior_season' (default, and what every previous backtest measured):
+  //     the complete prior season, frozen. Obviously leak-free, but it throws
+  //     away everything that has happened in the current season -- and
+  //     year-over-year team-strength correlation has fallen from r=0.56
+  //     (predicting 2021) to r=0.31/0.35 (predicting 2024/2025), so a frozen
+  //     prior-season profile is increasingly attached to the wrong teams.
+  //   - 'within_season': the current season through the weeks STRICTLY BEFORE
+  //     this game (`learnedProfiles` filters `week < throughWeek`), falling
+  //     back to the prior season early in the year. Equally cutoff-safe, and
+  //     much closer to what the live path can actually see.
+  // Both are legitimate and answer different questions. Reporting one without
+  // naming which is how a backtest quietly measures the wrong configuration.
+  if (!['prior_season', 'within_season'].includes(profileMode)) {
+    return { error: `unknown profileMode '${profileMode}' -- use 'prior_season' or 'within_season'` };
+  }
+  // INTERNATIONAL / NEUTRAL-SITE GAMES ARE EXCLUDED (2026-09-16, Nick's call).
+  // `neutral_site` marks international and relocated games (nflverse reports
+  // them as 'Neutral' in `location`; see gamescript.js). The simulator applies
+  // a home-field edge to whichever team is nominally 'home', which for a game
+  // in London is simply false -- neither side is home. `nfl-ensemble.js`
+  // already got this right (`hfaFor` zeroes hfa when `neutral_site`); the
+  // simulator never did, so every one of these games was scored with a
+  // fictitious home advantage baked in. They are 4-8 games a season and
+  // growing (4 in 2021, 8 in 2025), so this is a small but strictly-wrong
+  // slice of every evaluation below.
   const games = rows(
     `SELECT season, week, team, opponent, spread, team_score, opp_score
      FROM game_lines
      WHERE home = 1 AND season = ? AND team_score IS NOT NULL AND opp_score IS NOT NULL
-       AND spread IS NOT NULL
+       AND spread IS NOT NULL AND COALESCE(neutral_site, 0) = 0
      ORDER BY week LIMIT ?`, season, maxGames);
   if (!games.length) return { error: `no completed games with lines for ${season}` };
 
-  // Profiles built strictly on prior seasons — the cutoff that makes this real.
-  const prof = blendedProfiles({ season: season - 1 });
-  const surface = epFor(prof.league);
+  // Profiles: either the frozen prior season, or the current season up to the
+  // week before each game. `blendedProfiles`/`learnedProfiles` cache on
+  // (season, throughWeek), so the within-season arm costs ~18 profile builds
+  // across a season rather than one per game.
+  const profileFor = week => (profileMode === 'prior_season'
+    ? blendedProfiles({ season: season - 1 })
+    : blendedProfiles({ season, throughWeek: week }));
+  const baseProf = profileFor(games[0].week);
+  const surface = epFor(baseProf.league);
   const ep = y => expectedPoints(surface, y);
 
   const simErr = [], mktErr = [];
@@ -1193,6 +1290,7 @@ export function backtest({ season = 2025, trials = 300, maxGames = 100 } = {}) {
 
   withRandomSeed(4242, () => {
     for (const g of games) {
+      const prof = profileFor(g.week);
       const H = prof.teams.get(g.team), A = prof.teams.get(g.opponent);
       if (!H || !A) continue;
       const hc = buildContext(H, A, prof.league), ac = buildContext(A, H, prof.league);
@@ -1216,13 +1314,14 @@ export function backtest({ season = 2025, trials = 300, maxGames = 100 } = {}) {
     }
   });
 
-  if (!simErr.length) return { error: 'no games could be simulated with prior-season profiles' };
+  if (!simErr.length) return { error: 'no games could be simulated with the requested profiles' };
   const simMae = mean(simErr), mktMae = mean(mktErr);
   const atsRate = graded ? simAts / graded : null;
 
   return {
     season, games_tested: simErr.length, trials_each: trials,
-    profiles_from_season: prof.season,
+    profile_mode: profileMode,
+    profiles_from_season: baseProf.season,
     simulator_mae: r2(simMae), market_mae: r2(mktMae), difference: r2(simMae - mktMae),
     beats_market: simMae < mktMae,
     ats: graded ? { record: `${simAts}-${graded - simAts}`, rate: r4(atsRate),
@@ -1261,11 +1360,21 @@ export function backtest({ season = 2025, trials = 300, maxGames = 100 } = {}) {
  * Walk-forward and cutoff-safe throughout.
  */
 export function edgeHunt({ season = 2025, trials = 300, maxGames = 140 } = {}) {
+  // INTERNATIONAL / NEUTRAL-SITE GAMES ARE EXCLUDED (2026-09-16, Nick's call).
+  // `neutral_site` marks international and relocated games (nflverse reports
+  // them as 'Neutral' in `location`; see gamescript.js). The simulator applies
+  // a home-field edge to whichever team is nominally 'home', which for a game
+  // in London is simply false -- neither side is home. `nfl-ensemble.js`
+  // already got this right (`hfaFor` zeroes hfa when `neutral_site`); the
+  // simulator never did, so every one of these games was scored with a
+  // fictitious home advantage baked in. They are 4-8 games a season and
+  // growing (4 in 2021, 8 in 2025), so this is a small but strictly-wrong
+  // slice of every evaluation below.
   const games = rows(
     `SELECT season, week, team, opponent, spread, total, team_score, opp_score
      FROM game_lines
      WHERE home = 1 AND season = ? AND team_score IS NOT NULL AND opp_score IS NOT NULL
-       AND spread IS NOT NULL AND total IS NOT NULL
+       AND spread IS NOT NULL AND total IS NOT NULL AND COALESCE(neutral_site, 0) = 0
      ORDER BY week LIMIT ?`, season, maxGames);
   if (!games.length) return { error: `no completed games with lines and totals for ${season}` };
 
@@ -1387,6 +1496,7 @@ export function clvReport({ season = 2021, trials = 300, maxGames = 300 } = {}) 
      FROM game_lines
      WHERE home = 1 AND season = ? AND open_spread IS NOT NULL AND spread IS NOT NULL
        AND team_score IS NOT NULL AND opp_score IS NOT NULL
+       AND COALESCE(neutral_site, 0) = 0
      ORDER BY week LIMIT ?`, season, maxGames);
   if (games.length < 20) {
     return { error: `only ${games.length} games with both opening and closing lines for ${season}`,

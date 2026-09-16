@@ -674,3 +674,24 @@ rating.
   date exact +4 / ±1 day +1 / miss −6), LOGGED alongside the existing binary
   result, no behavior change. Test: known aliases score above a fixed
   threshold; a wrong-team/wrong-date pair scores below it.
+
+**10.9 FINAL ORDER #21 (mechanized half) — `scripts/data-lineage-inventory.mjs`.**
+Built 2026-09-16. Table-level and JSON-blob-key-level reader detection, pure
+JS (no shell-out), so it runs the same under `node --test` as from the CLI.
+```bash
+node scripts/data-lineage-inventory.mjs \
+  --db /tmp/gridiron-extract/real.sqlite \
+  --out docs/evidence/2026-09-16/data-lineage-report.json
+```
+Writes both the JSON report and a `.md` summary alongside it. Pass `--prev
+<older-report.json>` to get a diff block (`newlyUnusedTables`,
+`newlyUnusedBlobKeys`) — run it before starting any FINAL ORDER item that
+touches a new data source (per #21's own text) and keep the report under
+`docs/evidence/<date>/` so the next run has something to diff against.
+Known blob columns are hand-maintained in `KNOWN_BLOB_COLUMNS` at the top of
+the script — add a table there when the recurring checklist (item 6 above)
+finds a new wide-JSON column, the same way `nfl_team_week_features`,
+`nfl_player_week_features`, and `nfl_pfr_adv` were added from the Sept 16
+find. Test: `test/data-lineage-inventory.test.js` builds a throwaway sqlite
+db + a throwaway source tree with one "used" and one "unused" name of each
+kind, and asserts the report classifies both correctly.

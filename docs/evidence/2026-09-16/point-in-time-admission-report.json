@@ -1,0 +1,235 @@
+{
+ "2021": {
+  "cutoff_at": "2021-10-10T17:00:00.000Z",
+  "tables": {
+   "nfl_injuries": {
+    "regime": "unmodified_since",
+    "rows": 1056,
+    "admitted": 1056,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_depth": {
+    "regime": "observed",
+    "rows": 6597,
+    "admitted": 6597,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_team_week_features": {
+    "regime": "none",
+    "rows": 132,
+    "admitted": 132,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_snaps": {
+    "regime": "none",
+    "rows": 5937,
+    "admitted": 5937,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_pfr_adv": {
+    "regime": "none",
+    "rows": 0,
+    "admitted": 0,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   }
+  }
+ },
+ "2022": {
+  "cutoff_at": "2022-10-09T17:00:00.000Z",
+  "tables": {
+   "nfl_injuries": {
+    "regime": "unmodified_since",
+    "rows": 1023,
+    "admitted": 1023,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_depth": {
+    "regime": "observed",
+    "rows": 6618,
+    "admitted": 6618,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_team_week_features": {
+    "regime": "none",
+    "rows": 132,
+    "admitted": 132,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_snaps": {
+    "regime": "none",
+    "rows": 5926,
+    "admitted": 5926,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_pfr_adv": {
+    "regime": "none",
+    "rows": 0,
+    "admitted": 0,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   }
+  }
+ },
+ "2023": {
+  "cutoff_at": "2023-10-08T17:00:00.000Z",
+  "tables": {
+   "nfl_injuries": {
+    "regime": "unmodified_since",
+    "rows": 934,
+    "admitted": 934,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_depth": {
+    "regime": "observed",
+    "rows": 6596,
+    "admitted": 6596,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_team_week_features": {
+    "regime": "none",
+    "rows": 132,
+    "admitted": 132,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_snaps": {
+    "regime": "none",
+    "rows": 5943,
+    "admitted": 5943,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_pfr_adv": {
+    "regime": "none",
+    "rows": 0,
+    "admitted": 0,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   }
+  }
+ },
+ "2024": {
+  "cutoff_at": "2024-10-06T17:00:00.000Z",
+  "tables": {
+   "nfl_injuries": {
+    "regime": "unmodified_since",
+    "rows": 1089,
+    "admitted": 1089,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_depth": {
+    "regime": "observed",
+    "rows": 6655,
+    "admitted": 6655,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_team_week_features": {
+    "regime": "none",
+    "rows": 132,
+    "admitted": 132,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_snaps": {
+    "regime": "none",
+    "rows": 5975,
+    "admitted": 5975,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_pfr_adv": {
+    "regime": "none",
+    "rows": 2932,
+    "admitted": 2932,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   }
+  }
+ },
+ "2025": {
+  "cutoff_at": "2025-10-12T17:00:00.000Z",
+  "tables": {
+   "nfl_injuries": {
+    "regime": "unmodified_since",
+    "rows": 1024,
+    "admitted": 0,
+    "refused": 1024,
+    "refused_pct": 100,
+    "refused_by": {
+     "nfl_injuries.modified_at is missing; refused for cutoffs at or after 2025-01-01": 1024
+    }
+   },
+   "nfl_depth": {
+    "regime": "observed",
+    "rows": 11004,
+    "admitted": 11004,
+    "refused": 0,
+    "refused_pct": 0,
+    "refused_by": {}
+   },
+   "nfl_team_week_features": {
+    "regime": "none",
+    "rows": 132,
+    "admitted": 0,
+    "refused": 132,
+    "refused_pct": 100,
+    "refused_by": {
+     "nfl_team_week_features has no publication clock; refused for cutoffs at or after 2025-01-01": 132
+    }
+   },
+   "nfl_snaps": {
+    "regime": "none",
+    "rows": 5971,
+    "admitted": 0,
+    "refused": 5971,
+    "refused_pct": 100,
+    "refused_by": {
+     "nfl_snaps has no publication clock; refused for cutoffs at or after 2025-01-01": 5971
+    }
+   },
+   "nfl_pfr_adv": {
+    "regime": "none",
+    "rows": 2953,
+    "admitted": 0,
+    "refused": 2953,
+    "refused_pct": 100,
+    "refused_by": {
+     "nfl_pfr_adv has no publication clock; refused for cutoffs at or after 2025-01-01": 2953
+    }
+   }
+  }
+ }
+}

@@ -36,10 +36,19 @@ resolving a trend that size needs ~323 graded games per season against an
 NFL season's ~285. Read that section before drawing any conclusion from a
 season-level ATS number.**
 
-**Next up: FINAL ORDER #3** (extend the point-in-time leakage guard,
-RUNBOOK §10.3) — track A, nothing blocks it.
+**FINAL ORDER #3 is DONE** (point-in-time guard; see its own section
+below). Guard + 12 tests shipped in `server/modeling/contracts.js`, plus
+`scripts/point-in-time-admission-report.mjs`. **It is not enforced anywhere
+yet, deliberately: strict admission would refuse four of the five input
+tables for the current season (10,080 rows at a Week 5 cutoff), because
+nflverse stopped publishing `nfl_injuries.modified_at` in 2025 and three
+tables never had a clock at all. That is a decision about what the product
+may claim, and it is Nick's.**
 
-Both test suites are green as of this pointer: **Node 2,198 total / 2,159
+**Next up: FINAL ORDER #4** (GW conditional test + Holm on the DM gate,
+RUNBOOK §10.4) — track B.
+
+Both test suites are green as of this pointer: **Node 2,210 total / 2,171
 pass / 0 fail / 39 skipped** (`npm test`), **Python 127/127**
 (`cd research/betting/nfl && ../../.venv/bin/python3 -m unittest discover -p "test_*.py"`).
 Everything through #1 is committed and pushed to
@@ -1946,6 +1955,79 @@ on a human noticing again by accident:
    through the one tested implementation before adding another. The
    companion JSON-blob check (item in the "same pattern" section below)
    covers data; this one covers code.
+
+### FINAL ORDER #3 — the point-in-time guard, and what it refuses (September 16, 2026)
+
+Built per RUNBOOK §10.3. **The recipe's path was wrong** (`server/services/contracts.js`);
+the guard actually lives in `server/modeling/contracts.js`, and §10.3 has
+been corrected in place.
+
+**What the five raw tables actually carry**, mapped against the real
+database rather than assumed:
+
+| table | clock column | regime |
+|---|---|---|
+| `nfl_injuries` | `modified_at` | `unmodified_since` |
+| `nfl_depth` | `captured` | `observed` (our own receipt clock) |
+| `nfl_team_week_features` | — none — | none |
+| `nfl_snaps` | — none — | none |
+| `nfl_pfr_adv` | — none — | none |
+
+The regimes mirror `research/betting/nfl/injury_admission.py` exactly so the
+JS and Python sides cannot drift.
+
+**Finding 1 — the injury clock died in 2025.** `nfl_injuries.modified_at` is
+populated for 100% of 2021-2022 rows, 97.4% of 2023, 95.8% of 2024, and
+**0% of 2025 (5,783 rows) and 2026 (182 rows)**. nflverse stopped publishing
+it. This confirms the earlier note in this plan and puts a number on it.
+
+**Finding 2 — what strict admission would refuse.** Asking only for rows a
+Week 5 prediction legitimately wants (that season, weeks 1-4), at a Week 5
+kickoff cutoff:
+
+| season | refused |
+|---|---|
+| 2021 | 0 |
+| 2022 | 0 |
+| 2023 | 0 |
+| 2024 | 0 |
+| **2025** | **10,080** — `nfl_injuries` 1,024/1,024, `nfl_snaps` 5,971/5,971, `nfl_pfr_adv` 2,953/2,953, `nfl_team_week_features` 132/132, all 100%. `nfl_depth` alone survives (11,004 admitted, 0 refused). |
+
+Reproduce with `scripts/point-in-time-admission-report.mjs`; raw output in
+`docs/evidence/2026-09-16/point-in-time-admission-report.json`.
+
+**The honest reading: for the CURRENT season, only depth charts carry
+evidence this codebase can defend as point-in-time.** Everything else is
+being read as "whatever the table says today." The historical seasons look
+clean only because three clockless tables are grandfathered before
+2025-01-01 — which is why nobody noticed. That grandfathering is a policy
+choice; the dead injury clock is not.
+
+**A live leak found while doing this, separate from the above.**
+`nfl-rookies.js` `depthRankFor()` selects `pos_rank` with
+`week <= ?` and no reference to `captured` at all — so it can read a depth
+chart captured during or after the week being predicted, and with 2025's
+duplicate snapshots it picks an arbitrary one of them. This is exactly the
+class of defect #3 exists to close, and it is not covered by the guard until
+a caller is changed to use it. **Not fixed in this pass** (it is in
+`nfl-rookies.js`, a fantasy-side consumer, not the NFL betting path #3
+scopes) — recorded here so it is not lost.
+
+**`nfl_depth` duplication, 2025 only.** 57,323 rows against 49,318 distinct
+`(season, week, team, gsis_id)` keys — 8,005 duplicates, where 2023 and 2024
+had exactly zero. The duplicates are distinct `captured` snapshots (193
+distinct capture times in 2025 vs ~63 before), so this is probably a
+deliberate move to retaining every snapshot rather than one per week — which
+is GOOD for point-in-time work and bad for any consumer that aggregates
+without deduping. Recurring-checklist item 3 caught this.
+
+**NOT ENFORCED ANYWHERE YET, and that is deliberate.** Turning strict
+admission on for the live path would refuse four of five input tables for
+the current season, i.e. stop the model serving 2025 predictions from
+anything but depth charts. That is a decision about what the product may
+claim, not one a guard should make silently. The guard, its tests (12) and
+the report script are shipped; the enforcement decision is Nick's, and the
+number above is what it should be made against.
 
 ### Why does the simulator's ATS rate fall across seasons? — investigated September 16, 2026
 

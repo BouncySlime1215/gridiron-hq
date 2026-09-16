@@ -9,7 +9,7 @@ is a null result — it does not beat the market either. #2 fixed the
 drive-sim's kneel sign, kneel clock and missing halftime/overtime, and the
 re-run backtest reads 52.14% ATS over 491 games rather than the long-cited
 42.86%, which has no recorded provenance. Both are valid recorded
-completions. **#3 (leakage guard, §10.3) is next**, no dependency blocks it.
+completions. **#3 (leakage guard, §10.3) is DONE** — built and tested, deliberately not enforced; see LATEST-PLAN's "FINAL ORDER #3" section for what strict admission would refuse and why that is Nick's call. **#4 (GW + Holm, §10.4) is next.**
 Two #2 follow-ups are parked on a decision from Nick (kneel half-clock; HFA
 into per-play rates) — see FINAL ORDER row 2. The dependency table right after FINAL ORDER in
 LATEST-PLAN.md says what blocks what for everything after #2. The lineage
@@ -17,8 +17,8 @@ of every endpoint and table is in "DATA SOURCES, ENDPOINTS AND LINEAGE"
 beside FINAL ORDER. This file's own master sequence (§9, bottom) is
 historical background underneath that; the master plan is the entry point.
 
-Both suites green as of this pointer: Node 2,198/2,159/0/39, Python 127/127
-(exact commands in §0a rule 5 below). Everything through #2 is committed
+Both suites green as of this pointer: Node 2,210/2,171/0/39, Python 127/127
+(exact commands in §0a rule 5 below). Everything through #3 is committed
 and pushed to `cursor/betting-model-audit-fixes-1c85`.
 
 **Start here.** This is the operational companion to `LATEST-PLAN.md`. The
@@ -628,7 +628,8 @@ recorded sample size or configuration anywhere in this repository** — see
 LATEST-PLAN Section B. Do not cite 42.86% again without re-deriving it.
 
 **10.3 FINAL ORDER #3 — extend the point-in-time leakage guard.**
-Files: `server/services/contracts.js` (`assertTimestampedObservation`, today
+Files: `server/modeling/contracts.js` (**CORRECTED 2026-09-16: the recipe said
+`server/services/contracts.js`, which does not exist**) (`assertTimestampedObservation`, today
 scoped to `PIPELINE_VERSION='gridiron-fantasy-walk-forward@1.0.0'`),
 `server/services/nfl-blind-audit.js` (weekly freeze), `research/betting/nfl/dataset.py`.
 - Do: make the guard callable with any pipeline id; call it on every row the

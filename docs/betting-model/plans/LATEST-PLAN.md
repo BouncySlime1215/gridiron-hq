@@ -1968,6 +1968,75 @@ on a human noticing again by accident:
    companion JSON-blob check (item in the "same pattern" section below)
    covers data; this one covers code.
 
+### PREREGISTERED — the opener-CLV measurement (September 16, 2026, written BEFORE results were seen)
+
+Nick's reframe, after four FINAL ORDER items each ended in "nothing beats the
+closing line": *we have been grading against the wrong exam.* Nobody bets
+into a closing line. The professional test of a bet is whether the line
+moved TOWARD you after you took it (closing-line value, CLV), and CLV is
+continuous, so it resolves in hundreds of games where win/loss needs
+thousands. This section declares the analysis before the numbers exist, per
+RUNBOOK §0a rule 4.
+
+**Question.** Do any of our existing forecasters, fed only what a bettor
+sees at bet time, capture positive CLV against the opening spread on
+2022-2025 — pooled, week-clustered, multiplicity-corrected?
+
+**Configuration (honest by construction; each line closes a leak):**
+- Ensemble: `ensembleLine(season, week, …)` fits at that game's own cutoff.
+- `blendMode: 'raw'`, never `market_residual` — the residual blend returns
+  the CLOSING market verbatim whenever the joint gate fails, which it does.
+- `marketOverride: {home_spread: open_spread, total: open_total}` — every
+  component that reads the market (market_anchor, market_regression) sees
+  the OPENER. Verified on the smoke test: `market_anchor` predicted 3.0 for a
+  game that opened −3 and closed −4.
+- Drive sim: prior-season profiles, `spread: open_spread`.
+- Neutral-site games excluded.
+
+**Forecasters in the family, and the inventory that produced it** (Nick:
+"make sure we are using all of our models"):
+
+| forecaster | source | honest vs opener? |
+|---|---|---|
+| ensemble_raw_blend | nfl-ensemble.js | yes |
+| ~35 individual components | `ensembleLine().models` | yes, except `market_correction_research` (below) |
+| drive_sim | nfl-drive-sim.js | yes |
+| python_football (Stage 3) | unified_margin_audit predictions.json, OOF | yes — stage3 states market_spread NEVER enters |
+| python_unified (football blend) | same file | yes — unified_model.py has no market reference |
+| lineup_roster | recomputed from teamRosterStrength + gamePlayerAvailability + gameInjuryCarryover | yes — the family's market term cancels algebraically |
+| ~~python_correction~~ / ~~component:market_correction_research~~ | market_correction.py | **NO — contaminated by construction.** Its features are `['football_prediction','market_spread','market_movement']`: it is handed the close and the opener-to-close move. Graded and shown struck through; excluded from the corrected family. |
+
+**Not gradable on 2021-2025, and why** (so nobody re-discovers this):
+expert council — `nfl_expert_forward_predictions` has 3,633 rows, all season
+2026; a forward-capture system with no historical record (its `game_replay`
+and `player_builder` experts are the drive sim and lineup model, graded
+directly). Online neural — a market-residual learner trained only on those
+same forward captures; cold-start for any historical game. Unified engine —
+ensembleLine(market_residual) + sim at the CLOSING spread; a combiner of
+things graded here, fed the answer key.
+
+**Data-integrity finding, recorded before it could flatter anything:** all
+openers come from nflverse `initial_lines.csv`, but **2021's are not
+trustworthy** — mean |open−close| 3.0-5.6 points in weeks 7-18 with maxima
+of 12-15 points, against 1.1-1.8 in every other season. A 15-point
+opener-to-close move is not a market move. **2021 is reported per-season and
+NEVER pooled.** Checklist item 2 (stale/batch clocks) caught it.
+
+**Metric and inference, declared:** primary = mean CLV points (clv-core's
+`signedClvPoints`, backed-side perspective), pooled 2022-2025, SE clustered
+by (season, week), two-sided p. Secondary = CLV direction rate, ATS vs the
+opener (break-even .5238), and all three binned by |lean| ∈ [0,1) [1,2) [2,3)
+[3,5) [5,∞) for the selective-bet question. **Family for Holm = every
+non-contaminated forecaster graded**, ~40 tests. **Nothing is cited from this
+measurement unless it is positive on mean CLV AND survives Holm.** A null is
+a valid completion.
+
+**Scripts:** `scripts/opener-clv-measurement.mjs` (pass 1: ensemble, components,
+sim — hours), `scripts/opener-clv-pass2.mjs` (Python + lineup — minutes),
+`scripts/opener-clv-summarize.mjs`. Rows and summary land in
+`docs/evidence/2026-09-16/opener-clv/`. Results will be appended BELOW this
+line, dated, never edited into the declaration above.
+
 ### FINAL ORDER #4 — multiplicity and conditional predictive ability (September 16, 2026)
 
 Three pieces, all shipped and tested.

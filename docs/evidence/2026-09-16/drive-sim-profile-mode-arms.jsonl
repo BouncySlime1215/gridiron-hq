@@ -1,0 +1,11 @@
+{"season":2021,"profileMode":"prior_season","n":100,"sim_mae":10.69,"mkt_mae":10.21,"gap":0.48,"ats":"58-42","rate":0.58}
+{"season":2021,"profileMode":"within_season","n":85,"sim_mae":11.57,"mkt_mae":10.15,"gap":1.42,"ats":"44-41","rate":0.5176}
+{"season":2022,"profileMode":"prior_season","n":100,"sim_mae":9.74,"mkt_mae":9.01,"gap":0.73,"ats":"49-48","rate":0.5052}
+{"season":2022,"profileMode":"within_season","n":84,"sim_mae":9.96,"mkt_mae":8.98,"gap":0.97,"ats":"42-39","rate":0.5185}
+{"season":2023,"profileMode":"prior_season","n":100,"sim_mae":10.71,"mkt_mae":10.81,"gap":-0.1,"ats":"54-41","rate":0.5684}
+{"season":2023,"profileMode":"within_season","n":100,"sim_mae":11.8,"mkt_mae":10.81,"gap":0.98,"ats":"50-45","rate":0.5263}
+{"season":2024,"profileMode":"prior_season","n":100,"sim_mae":11.37,"mkt_mae":10.4,"gap":0.96,"ats":"51-48","rate":0.5152}
+{"season":2024,"profileMode":"within_season","n":100,"sim_mae":11.44,"mkt_mae":10.4,"gap":1.03,"ats":"49-50","rate":0.4949}
+{"season":2025,"profileMode":"prior_season","n":100,"sim_mae":11.55,"mkt_mae":9.47,"gap":2.08,"ats":"42-58","rate":0.42}
+{"season":2025,"profileMode":"within_season","n":100,"sim_mae":9.89,"mkt_mae":9.47,"gap":0.42,"ats":"54-46","rate":0.54}
+DONE

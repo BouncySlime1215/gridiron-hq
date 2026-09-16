@@ -23,6 +23,19 @@ skipping it, it names exactly what changed and where.
   clock where it wants a game clock, and HFA being added to the score post
   hoc rather than entering per-play rates.
 
+**Also done September 16, at Nick's direction, after #2:** international /
+neutral-site games are excluded from the simulator's evaluation paths and no
+longer receive a home-field edge on the live path (the ensemble always got
+this right; the simulator never did); home field became a per-play
+efficiency edge instead of points added to the scoreboard, with its constant
+calibrated by `scripts/calibrate-home-field-rate.mjs`; and the kneel rule
+now reads the game clock. **Then: "Why does the simulator's ATS rate fall
+across seasons?" (section below) — the answer is that it does not. The
+pattern is noise, it reordered when those small changes landed, and
+resolving a trend that size needs ~323 graded games per season against an
+NFL season's ~285. Read that section before drawing any conclusion from a
+season-level ATS number.**
+
 **Next up: FINAL ORDER #3** (extend the point-in-time leakage guard,
 RUNBOOK §10.3) — track A, nothing blocks it.
 
@@ -143,6 +156,14 @@ Known gaps, each with its disposition:
   Per-season, showing the pooled number is carried by 2021: 2021 60.0%,
   2022 53.6%, 2023 51.6%, 2024 46.5%, 2025 49.0%. Raw run:
   `docs/evidence/2026-09-16/drive-sim-backtest-post-final-order-2.json`.
+  **(4) SUPERSEDED IN PART, same day.** Those per-season figures were taken
+  before international games were excluded and before home field became a
+  per-play edge; both changes moved them by ±5-7 points in both directions
+  (2023 .516→.568, 2024 .465→.515, 2025 .490→.420). Do not read the
+  season-by-season sequence as a trend — see "Why does the simulator's ATS
+  rate fall across seasons?" below, which concludes it is noise and that the
+  question is below the resolution of NFL-sized samples. The pooled
+  post-change figure is 254-237 = .5173, still under break-even.
   Specialists: "none of the twelve clears breakeven."
 - **Measured alive but gated:** the correction head — 16.2% weight in the
   joint margin fit (additive, not redundant with `market_regression` /
@@ -1925,6 +1946,92 @@ on a human noticing again by accident:
    through the one tested implementation before adding another. The
    companion JSON-blob check (item in the "same pattern" section below)
    covers data; this one covers code.
+
+### Why does the simulator's ATS rate fall across seasons? — investigated September 16, 2026
+
+Nick's question after the FINAL ORDER #2 re-measurement, which showed
+60.0% / 53.6% / 51.6% / 46.5% / 49.0% for 2021-2025. **Answer: the decline
+is not a real effect. It is noise, and the question is below the resolution
+of the available data.** Five things were checked; the last two are the
+ones that settle it.
+
+**1. Data coverage — ruled out.** `game_lines` has 285 home rows per season
+2021-2025 with zero null spreads and zero null scores;
+`nfl_team_week_features` has 561 rows, 33 teams, 18 weeks and a ~4,960-byte
+blob in every one of those seasons. Nothing thins out in the recent years.
+
+**2. A scoring-environment shift the simulator does not model — tested,
+not supported.** The hypothesis was the 2024/2025 kickoff changes moving
+drive starts (the engine hardcodes the 25-yard line in five places). If
+true, the sim should increasingly UNDER-predict scoring in exactly those
+seasons. Measured sim-minus-actual mean total by season: -2.05, +2.00,
+-2.64, +3.13, -1.51. It swings both directions with no trend. Rejected.
+(The hardcoded 25 is still worth fixing on its own merits; it just does not
+explain this.)
+
+**3. The market getting sharper — weak.** Market MAE by season is 10.67,
+8.78, 9.98, 9.70, 9.67: roughly flat, with no step change. The market did
+not suddenly get much better.
+
+**4. Year-over-year team persistence falling — the best mechanism, and it
+still fails.** How well last season's team margin predicts this season's,
+which is exactly what the backtest's prior-season profiles rely on:
+r = 0.564 / 0.331 / 0.458 / 0.311 / 0.346 for predicting 2021-2025. Across
+those five seasons that correlates **+0.83 with the ATS rate**, which looks
+compelling — and the mechanism is real football (teams reorder between
+seasons more than they used to; note that within-season spread of team
+strength has NOT narrowed, so this is churn, not parity). But:
+- The persistence decline is **itself not significant** (Fisher z, pooling
+  2019-21 targets vs 2022-25: z=1.33, p=0.185). With 32 teams a season,
+  r=0.56 and r=0.31 are not distinguishable.
+- Its predicted fix does not work. `backtest({profileMode:'within_season'})`
+  was added to test it — current-season form through the weeks strictly
+  before each game, equally cutoff-safe. If stale prior-season profiles were
+  the cause, this should help most in the low-persistence seasons. It was
+  WORSE in 2021, 2023 and 2024, better in 2022 and 2025. Pooled it is a wash
+  (.5196 vs .5173). Rejected as the explanation, though see the 2025 note
+  below.
+- n=5 seasons for that +0.83 correlation, found after looking at the data.
+
+**5. The pattern does not survive contact with small model changes — this
+is the decisive evidence.** Excluding international games and moving home
+field from post-hoc points to per-play rates are both small and principled.
+They reshuffled the per-season ATS rates by ±5-7 points *in both
+directions*:
+
+| season | before those changes | after | change |
+|---|---|---|---|
+| 2021 | .600 | .580 | -.020 |
+| 2022 | .536 | .505 | -.031 |
+| 2023 | .516 | .568 | **+.052** |
+| 2024 | .465 | .515 | **+.050** |
+| 2025 | .490 | .420 | **-.070** |
+
+The monotone decline Nick spotted (60/54/52/47/49) became 58/51/57/52/42 —
+not monotone at all. A real season-level effect does not reorder itself
+because ~5 neutral-site games were dropped and a 1.6-point knob changed
+shape. Formally: chi-square homogeneity across the five seasons gives
+p=0.374 on the old numbers and p=0.170 on the new — at no point is there
+evidence the seasons differ from one constant rate.
+
+**And the question cannot be answered with NFL data at this sample size.**
+To distinguish two seasons that truly differ by 11 points of ATS rate, at
+80% power and the 5% level, needs ~323 graded games *per season*. A full NFL
+season has ~285 games, and this backtest samples 100. An 8-point difference
+needs ~611 per season. **Season-over-season ATS trends in this range are
+below the resolution of the data, permanently — no amount of care in the
+backtest fixes that.** The correct instrument for "is the simulator getting
+worse" is a pooled multi-season test with a declared family correction, not
+a season-by-season read.
+
+**What to do with this.** Stop reading season-level ATS wiggles as signal;
+they are the same trap as the unreproducible 42.86%. The one genuinely
+interesting residue is that `within_season` profiles produced 54.0% ATS and
+9.89 MAE in 2025 against the market's 9.47 — the closest the simulator has
+come to the market on margin. On n=1 season that is a single good draw, not
+a finding, but it is the only cell in this whole exercise worth a
+preregistered follow-up. Raw arms:
+`docs/evidence/2026-09-16/drive-sim-profile-mode-arms.jsonl`.
 
 ### Does a different modeling PARADIGM change anything — checked against what's already been tried, September 16, 2026
 

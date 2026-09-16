@@ -41,7 +41,8 @@ const MIN_SEASON = 2015;   // far enough back for stable fits, recent enough to 
 const EVAL_FROM = 2022;    // frozen calibration boundary retained for the established ensemble
 const WEIGHT_FIT_FROM = 2018; // discovery history available before the opened 2021-2025 audit
 const FIT_ARTIFACT_VERSION = ENSEMBLE_FIT_VERSION;
-export const CHALLENGER_SIGNAL_VERSION = 'nfl-challenger-signals-v2';
+// v3 (2026-09-16): opp_adjusted fitted conversion; per-season calibration cutoffs.
+export const CHALLENGER_SIGNAL_VERSION = 'nfl-challenger-signals-v3';
 
 // nfl_ensemble_fit_artifacts comes from
 // server/migrations/000_legacy_schema.js.
@@ -927,37 +928,17 @@ const MODELS = [
       'team\'s opponents from that season\'s schedule and adjusts offense for the average quality of defenses faced (and defense for the average quality of offenses faced), a standard ' +
       'first-pass strength-of-schedule adjustment (not a fully iterative SRS solve). This is a genuine behavior change, not just a rename -- it has not yet been walk-forward validated as an ' +
       'improvement over the plain net-EPA component it replaces functionally; treat its ensemble weight like any other freshly-changed component until a dedicated comparison runs.',
+    // CORRECTED 2026-09-16: the x65 points multiplier was hand-picked and never
+    // fitted. Against real 2022-25 margins its predictions ran about twice too
+    // large (slope 0.41-0.58, 6-7 SE from 1.0). It now goes through the same
+    // fitted conversion as the other efficiency components; x65 remains only
+    // the fallback when too little history exists to fit one.
     predict: (c) => {
-      if (!c.feat.has(c.home) || !c.feat.has(c.away)) return { margin: null, total: null };
-      const league = avg([...c.feat.values()].map(f => f.off_epa).filter(v => v != null)) ?? 0;
-      const leagueDef = avg([...c.feat.values()].map(f => f.def_epa).filter(v => v != null)) ?? 0;
-      const opponentsOf = t => (c.schedule?.get(t) ?? []).filter(o => o !== t && c.feat.has(o));
-      // A team that faced tougher-than-average defenses (lower def_epa allowed
-      // = better defense) has its raw offensive EPA adjusted UP relative to a
-      // team with an easier schedule, and symmetrically for defense.
-      // Codex correction C04: below MIN_OPPONENTS_FOR_ADJUSTMENT the schedule is
-      // too thin to say anything about strength faced, and the component falls
-      // back to the league average -- which is the same as making no adjustment
-      // at all, stated explicitly rather than arrived at by averaging one game.
-      const adjOff = t => {
-        const f = c.feat.get(t); if (!f || f.off_epa == null) return null;
-        const opponents = opponentsOf(t).filter(o => c.feat.get(o).def_epa != null);
-        const avgOppDef = opponents.length >= MIN_OPPONENTS_FOR_ADJUSTMENT
-          ? avg(opponents.map(o => c.feat.get(o).def_epa)) : leagueDef;
-        return (f.off_epa - league) - (avgOppDef - leagueDef);
-      };
-      const adjDef = t => {
-        const f = c.feat.get(t); if (!f || f.def_epa == null) return null;
-        const opponents = opponentsOf(t).filter(o => c.feat.get(o).off_epa != null);
-        const avgOppOff = opponents.length >= MIN_OPPONENTS_FOR_ADJUSTMENT
-          ? avg(opponents.map(o => c.feat.get(o).off_epa)) : league;
-        return (f.def_epa - leagueDef) - (avgOppOff - league);
-      };
-      const homeOff = adjOff(c.home), homeDef = adjDef(c.home);
-      const awayOff = adjOff(c.away), awayDef = adjDef(c.away);
-      if (homeOff == null || homeDef == null || awayOff == null || awayDef == null) return { margin: null, total: null };
-      const homeNet = homeOff - homeDef, awayNet = awayOff - awayDef;
-      return { margin: (homeNet - awayNet) * 65 + c.hfa, total: null };
+      const raw = oppAdjustedRaw(c.feat, c.schedule, c.home, c.away);
+      if (raw == null) return { margin: null, total: null };
+      const cal = c.cal?.opp_adjusted;
+      if (cal) return { margin: cal.b0 + cal.b1 * raw, total: null };
+      return { margin: raw * 65 + c.hfa, total: null };
     }
   },
 
@@ -1147,6 +1128,38 @@ function marketRegression(hist) {
  * silently reducing to unadjusted net EPA the way it did before the Codex
  * audit's M13 finding.
  */
+/** Opponent-adjusted net EPA gap, home minus away, before conversion to points. */
+function oppAdjustedRaw(feat, schedule, home, away) {
+  if (!feat.has(home) || !feat.has(away)) return null;
+  const league = avg([...feat.values()].map(f => f.off_epa).filter(v => v != null)) ?? 0;
+  const leagueDef = avg([...feat.values()].map(f => f.def_epa).filter(v => v != null)) ?? 0;
+  const opponentsOf = t => (schedule?.get(t) ?? []).filter(o => o !== t && feat.has(o));
+  // A team that faced tougher-than-average defenses (lower def_epa allowed
+  // = better defense) has its raw offensive EPA adjusted UP relative to a
+  // team with an easier schedule, and symmetrically for defense.
+  // Codex correction C04: below MIN_OPPONENTS_FOR_ADJUSTMENT the schedule is
+  // too thin to say anything about strength faced, and the component falls
+  // back to the league average -- which is the same as making no adjustment.
+  const adjOff = t => {
+    const f = feat.get(t); if (!f || f.off_epa == null) return null;
+    const opponents = opponentsOf(t).filter(o => feat.get(o).def_epa != null);
+    const avgOppDef = opponents.length >= MIN_OPPONENTS_FOR_ADJUSTMENT
+      ? avg(opponents.map(o => feat.get(o).def_epa)) : leagueDef;
+    return (f.off_epa - league) - (avgOppDef - leagueDef);
+  };
+  const adjDef = t => {
+    const f = feat.get(t); if (!f || f.def_epa == null) return null;
+    const opponents = opponentsOf(t).filter(o => feat.get(o).off_epa != null);
+    const avgOppOff = opponents.length >= MIN_OPPONENTS_FOR_ADJUSTMENT
+      ? avg(opponents.map(o => feat.get(o).off_epa)) : league;
+    return (f.def_epa - leagueDef) - (avgOppOff - league);
+  };
+  const homeOff = adjOff(home), homeDef = adjDef(home);
+  const awayOff = adjOff(away), awayDef = adjDef(away);
+  if (homeOff == null || homeDef == null || awayOff == null || awayDef == null) return null;
+  return (homeOff - homeDef) - (awayOff - awayDef);
+}
+
 function scheduleFaced(hist, { season, week } = {}) {
   const m = new Map();
   const add = (t, opp) => { if (!m.has(t)) m.set(t, []); m.get(t).push(opp); };
@@ -1285,38 +1298,68 @@ function buildContext(g, hist, restMap) {
  * the pre-evaluation era, so no game used to fit a slope is ever also used to
  * grade it.
  */
+function calibrationWeekPairs(all, season, week, ids) {
+  const key = `${season}|${week}|${all.length}`;
+  if (_calibrationPairCache.has(key)) return _calibrationPairCache.get(key);
+  let out = null;
+  const hist = all.filter(g => g.season < season || (g.season === season && g.week < week));
+  const slate = all.filter(g => g.season === season && g.week === week);
+  const feat = hist.length >= 100 && slate.length ? featureAggregates(season, week) : null;
+  if (feat?.size) {   // play-by-play features do not reach back forever
+    out = { pairs: Object.fromEntries(ids.map(i => [i, []])), avail: [] };
+    const schedule = scheduleFaced(hist, { season, week });
+    const def = availabilityDeficit(season, week);
+    for (const g of slate) {
+      const actual = g.home_score - g.away_score;
+      const raw = { ...rawDifferentials(feat, g.home, g.away),
+        opp_adjusted: oppAdjustedRaw(feat, schedule, g.home, g.away) };
+      for (const id of ids) if (raw[id] != null) out.pairs[id].push([raw[id], actual]);
+      if (def.size) {
+        const hd = def.get(String(g.home).toUpperCase()) ?? 0;
+        const ad = def.get(String(g.away).toUpperCase()) ?? 0;
+        if (hd || ad) out.avail.push([ad - hd, actual]);
+      }
+    }
+  }
+  _calibrationPairCache.set(key, out);
+  return out;
+}
+
+/**
+ * Point-conversion fits for a game in `cutoffSeason`, trained only on seasons
+ * strictly before it. Replaced a single boundary frozen at EVAL_FROM (2022):
+ * that kept component errors in the weight window out of sample, but never
+ * learned from 2022 on and gave live 2026 games a pre-2022 conversion.
+ * Per-season cutoffs keep the out-of-sample property and keep learning.
+ */
+function calibrationAt(all, restMap, cutoffSeason) {
+  const key = `${cutoffSeason}|${all.length}`;
+  if (!_calibrationCache.has(key)) _calibrationCache.set(key, calibrate(all, restMap, cutoffSeason));
+  return _calibrationCache.get(key);
+}
+
+const latestSeason = all => all.reduce((m, g) => Math.max(m, g.season), -Infinity);
+
 function calibrate(all, restMap, evalFrom) {
   const train = all.filter(g => g.season < evalFrom);
   const ids = ['epa_net', 'epa_neutral', 'early_down_eff', 'pass_eff_matchup', 'rush_eff_matchup',
     'explosive_pass', 'pressure_response', 'series_sustain', 'field_position', 'second_half_eff',
-    'success_rate', 'explosive', 'drive_eff', 'situational', 'trenches'];
+    'success_rate', 'explosive', 'drive_eff', 'situational', 'trenches', 'opp_adjusted'];
   // Availability is calibrated separately because its raw differential comes
   // from the injury report rather than the play-by-play feature table, and it
   // is only available from 2023 on.
   const availPairs = [];
   const pairs = Object.fromEntries(ids.map(i => [i, []]));
 
+  // A week's (raw, actual) pairs depend only on games before that week, never
+  // on the cutoff, so they are built once and shared by every cutoff's fit.
   const weeks = [...new Set(train.map(g => `${g.season}|${g.week}`))];
   for (const key of weeks) {
     const [season, week] = key.split('|').map(Number);
-    const hist = train.filter(g => g.season < season || (g.season === season && g.week < week));
-    if (hist.length < 100) continue;
-    const slate = train.filter(g => g.season === season && g.week === week);
-    if (!slate.length) continue;
-    const feat = featureAggregates(season, week);
-    if (!feat.size) continue;   // play-by-play features do not reach back forever
-
-    for (const g of slate) {
-      const actual = g.home_score - g.away_score;
-      const raw = rawDifferentials(feat, g.home, g.away);
-      for (const id of ids) if (raw[id] != null) pairs[id].push([raw[id], actual]);
-      const def = availabilityDeficit(season, week);
-      if (def.size) {
-        const hd = def.get(String(g.home).toUpperCase()) ?? 0;
-        const ad = def.get(String(g.away).toUpperCase()) ?? 0;
-        if (hd || ad) availPairs.push([ad - hd, actual]);
-      }
-    }
+    const wp = calibrationWeekPairs(all, season, week, ids);
+    if (!wp) continue;
+    for (const id of ids) for (const pair of wp.pairs[id]) pairs[id].push(pair);
+    for (const pair of wp.avail) availPairs.push(pair);
   }
 
   const fitLine = p => {
@@ -1387,12 +1430,13 @@ function rawDifferentials(feat, home, away) {
 
 const _cache = new Map();
 const _calibrationCache = new Map();
+const _calibrationPairCache = new Map();
 const _lineCache = new Map();
 let _artifactPersistenceEnabled = true;
 export function clearEnsembleLineCache() { _lineCache.clear(); }
 /** Invalidate in-process fits after new games land while retaining the immutable fit ledger. */
 export function invalidateEnsembleCaches() {
-  _cache.clear(); _calibrationCache.clear(); _lineCache.clear();
+  _cache.clear(); _calibrationCache.clear(); _calibrationPairCache.clear(); _lineCache.clear();
   _featureAggregateCache.clear(); _sharedContextCache.clear();
   _weatherSensitivityCache.clear();
 }
@@ -1494,7 +1538,7 @@ function replayWindows({ all, beforeSeason = null, beforeWeek = null }) {
  * artifact it produces on a fixed fixture is byte-identical before and after,
  * which is what test/nfl-ensemble-rank.test.js pins.
  */
-export function* componentPredictionStream({ all, restMap, cal, beforeSeason = null, beforeWeek = null } = {}) {
+export function* componentPredictionStream({ all, restMap, cal, calFor = null, beforeSeason = null, beforeWeek = null } = {}) {
   const { rawWeightKeys, scoreGames, weeks } = replayWindows({ all, beforeSeason, beforeWeek });
 
   for (const key of weeks) {
@@ -1505,7 +1549,7 @@ export function* componentPredictionStream({ all, restMap, cal, beforeSeason = n
     if (!slate.length) continue;
 
     // One context per week; only the two team names differ between its games.
-    const base = { ...buildContext(slate[0], hist, restMap), cal };
+    const base = { ...buildContext(slate[0], hist, restMap), cal: calFor ? calFor(season) : cal };
     // CORRECTED 2026-09-12 sweep item 12: `base.hfa` is `slate[0]`'s OWN
     // per-game value (buildContext already zeroed it via hfaFor when
     // slate[0] itself is a neutral-site game), not the week's raw home-field
@@ -1561,16 +1605,14 @@ export function* componentPredictionStream({ all, restMap, cal, beforeSeason = n
  * `fitEnsemble` assembles them, so a diagnostic replays identical forecasts
  * without restating the cutoff and calibration rules.
  */
-export function ensembleReplayInputs({ evalFrom = EVAL_FROM, beforeSeason = null, minSeason = MIN_SEASON } = {}) {
+export function ensembleReplayInputs({ beforeSeason = null, minSeason = MIN_SEASON } = {}) {
   const all = games(minSeason);
   const restMap = awayRest();
-  // Calibration is part of the fitted model; its training era must end before
-  // the prediction, exactly as in fitEnsemble.
-  const calibrationCutoff = beforeSeason == null ? evalFrom : Math.min(evalFrom, beforeSeason);
-  const calibrationKey = `${calibrationCutoff}|${all.length}`;
-  const cal = _calibrationCache.get(calibrationKey) ?? calibrate(all, restMap, calibrationCutoff);
-  _calibrationCache.set(calibrationKey, cal);
-  return { all, restMap, cal };
+  // Calibration is part of the fitted model; each replayed game's conversion
+  // is trained only on seasons before its own, exactly as in fitEnsemble.
+  const calFor = season => calibrationAt(all, restMap, season);
+  const cal = calFor(beforeSeason ?? latestSeason(all));
+  return { all, restMap, cal, calFor };
 }
 
 /** The component catalog, so a diagnostic can label every column it measures. */
@@ -1925,14 +1967,12 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   if (all.length < 200) return { error: `only ${all.length} games available — sync game lines first` };
   const restMap = awayRest();
 
-  // Calibration is part of the fitted model. For a historical prediction its
-  // training era must end before the prediction, just like ensemble weights.
-  // `evalFrom` normally provides that earlier boundary; min() also makes custom
-  // early replays incapable of borrowing later calibration outcomes.
-  const calibrationCutoff = beforeSeason == null ? evalFrom : Math.min(evalFrom, beforeSeason);
-  const calibrationKey = `${calibrationCutoff}|${all.length}`;
-  const cal = _calibrationCache.get(calibrationKey) ?? calibrate(all, restMap, calibrationCutoff);
-  _calibrationCache.set(calibrationKey, cal);
+  // Calibration is part of the fitted model. Every graded game's conversion is
+  // trained only on seasons before its own (calibrationAt), so the component
+  // errors the weights are fit on stay out of sample; `cal` is the target
+  // season's conversion, carried to ensembleLine as `calibration`.
+  const calFor = season => calibrationAt(all, restMap, season);
+  const cal = calFor(beforeSeason ?? latestSeason(all));
   const errs = Object.fromEntries(MODELS.map(m => [m.id, { margin: [], total: [] }]));
   // Spread betting is not a raw-margin contest.  For every component we also
   // keep the only error that matters after a market quote exists: did its
@@ -1958,7 +1998,7 @@ export function fitEnsemble({ evalFrom = EVAL_FROM, beforeSeason = null, beforeW
   // (`inRawWindow` vs. "a market quote exists at all") and different
   // purposes (blending point forecasts vs. explaining the market residual).
   const residualWindowRows = [];
-  for (const row of componentPredictionStream({ all, restMap, cal, beforeSeason, beforeWeek })) {
+  for (const row of componentPredictionStream({ all, restMap, cal, calFor, beforeSeason, beforeWeek })) {
     const { actual_margin: actualMargin, actual_total: actualTotal,
       market_margin: marketMargin, week_key: key, in_raw_weight_window: inRawWindow } = row;
     if (inRawWindow) {
@@ -2604,10 +2644,7 @@ export function challengerSignalWeek(season, week) {
       temp,wind,roof,rest_days home_rest,div_game,neutral_site
     FROM game_lines WHERE season=? AND week=? AND home=1`, season, week);
   if (!slate.length) return { version: CHALLENGER_SIGNAL_VERSION, season, week, games: [] };
-  const calibrationCutoff = Math.min(EVAL_FROM, season);
-  const calibrationKey = `${calibrationCutoff}|${all.length}`;
-  const cal = _calibrationCache.get(calibrationKey) ?? calibrate(all, restMap, calibrationCutoff);
-  _calibrationCache.set(calibrationKey, cal);
+  const cal = calibrationAt(all, restMap, season);
   const base = { ...buildContext({ ...slate[0], season, week }, hist, restMap), cal };
   // See the matching comment in componentPredictionStream: `base.hfa` is
   // `slate[0]`'s own zeroed-if-neutral value, not the week's raw constant.

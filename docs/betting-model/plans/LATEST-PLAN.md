@@ -1,7 +1,13 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"OPENER PLACEHOLDER REPAIR" (search for that heading) is the NEWEST result and
+**"WALK-FORWARD POINT CONVERSION (fit v15)" (search for that heading) is the NEWEST
+result.** opp_adjusted was ~2x too large and every conversion was frozen at
+pre-2022; both fixed in v15. Rerun on repaired openers: 2022-24 composite
+edge +0.18 (z 3.5), 2025 holdout -0.07 — nothing for any forecaster — and
+still no confident tier. Next methodological fix: nested walk-forward
+signal selection.
+**"OPENER PLACEHOLDER REPAIR" (search for that heading) is the previous result and
 overrides numbers below it.** 127 of 2022-25's opening lines were Pinnacle
 placeholder openers (usually -1.0). On repaired openers the 2022-24 edge
 survives smaller (+0.159, z 3.18), 2025's "edge" vanishes (+0.05, z 0.58) in
@@ -3400,6 +3406,60 @@ games, so their saved predictions there need a rerun; `seven-attack-tests.py`
 and `confidence-meta-model.py` were graded on unrepaired openers and need a
 re-grade; migration 047's header claim that its Pinnacle source is verified
 correct should be read with this section.
+
+### WALK-FORWARD POINT CONVERSION (fit v15) — September 16, 2026, late night (`nfl-ensemble.js` `calibrationAt`/`calibrationWeekPairs`/`oppAdjustedRaw`, test `test/nfl-ensemble-point-conversion.test.js`, research check `scripts/walk-forward-recalibration.py`, rerun graded by `scripts/grade-opener-run.py`, evidence `docs/evidence/2026-09-16/opener-clv-v15/`)
+
+**Defects.** (1) `opp_adjusted` converted its EPA gap to points with a
+hand-picked x65; against real margins its predictions ran about twice too
+large every season (slope of actual on prediction 0.41 / 0.53 / 0.58 / 0.44,
+2022-25, 6-7 SE from 1.0). (2) `calibrate` was frozen at one boundary for every
+fit (seasons before EVAL_FROM=2022): no conversion learned from 2022 on, and
+live 2026 predictions used a pre-2022 conversion.
+
+**Fix.** Every graded game's conversion is fit only on seasons strictly before
+its own (`calibrationAt`), which keeps the component errors the blend's weights
+are fit on out of sample — the reason the boundary was frozen — while letting
+the conversion keep learning. Per-week (raw, actual) pairs are cutoff-
+independent and cached once. `opp_adjusted` now goes through the fitted
+conversion (x65 stays only as the thin-history fallback). Fit version v15,
+challenger signal version v3. Leak test: changing 2022 results moves the 2023
+conversion and never the 2022 one.
+
+**Research check first** (saved predictions, shrunk walk-forward line, rule
+fixed in the script header before results): `opp_adjusted` mean absolute error
+fell 0.5-1.1 pts in every season; the other three barely moved.
+
+**Walk-forward rerun on v15 code and repaired openers** (102 weekly refits, the
+same harness as the original opener run, ~13 minutes):
+
+| | 2022 | 2023 | 2024 | 2025 |
+|---|---|---|---|---|
+| opp_adjusted slope, v14 -> v15 | 0.41 -> 0.77 | 0.53 -> 1.06 | 0.58 -> 1.15 | 0.44 -> 0.82 |
+| opp_adjusted MAE, v14 -> v15 | 10.21 -> 9.20 | 10.99 -> 10.50 | 10.96 -> 10.29 | 11.65 -> 10.47 |
+
+| Double-adjusted opener CLV, repaired openers, v15 | 2022-24 | 2025 (holdout) |
+|---|---|---|
+| Four-signal composite | +0.183, z 3.50 | -0.070, z -0.52 |
+| Full blend | +0.142, z 2.57 | -0.014, z -0.11 |
+| Drive sim | +0.029, z 0.50 | -0.123, z -1.00 |
+
+Composite confident picks 2022-25 at the repaired opener: top 25% 52.3%,
+top 10% 52.9% (CI 43-62%), top 5% 46.2%; correlation of edge size with winning
+-0.004. Frozen top-10% rule from 2022-23: 43.2% in 2024, 45.5% in 2025.
+
+**Verdict.** The conversion is now correct and the model is more accurate, but
+the fix creates no edge and no confident tier. 2022-24 still shows a small
+edge; 2025, the one season none of these choices were made on, shows none for
+any forecaster. Blend CLV still carries the train-on-close / test-on-opener
+mismatch recorded above.
+
+**Remaining methodological gaps, in order of how much they can mislead:**
+1. Signal and filter selection happened on the same seasons that were then
+   scored. Fix: nested walk-forward — each season, choose signals using only
+   earlier seasons, so every reported season is out of sample.
+2. Blend market signal trained on the close, fed the opener.
+3. Home teams beat predictions by ~1 pt in three of four seasons (unconfirmed).
+4. Migration 055 not yet applied to the live database.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

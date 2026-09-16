@@ -90,7 +90,15 @@ import { createHash } from 'node:crypto';
 // `undefined` for every corrected number rather than an error. That is
 // exactly the silent-staleness this version string exists to prevent -- and
 // it caught this change in testing, which is the only reason it is here.
-export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v14-holm-corrected-residual-gate';
+//
+// v15 (2026-09-16): component point conversion. `calibrate` was frozen at one
+// boundary (seasons before 2022) for every fit, so no conversion ever learned
+// from 2022 on and live 2026 games used a pre-2022 one. Each graded game now
+// uses a conversion trained only on seasons before its own. `opp_adjusted`,
+// whose hand-picked x65 ran about twice too large in every 2022-25 season,
+// now gets a fitted conversion too. Component margins, and therefore weights
+// and the stored `calibration`, differ from v14.
+export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v15-walk-forward-point-conversion';
 const CALIBRATION_VERSION = 'cover-logit-v3-graph-bound';
 const sorted = values => [...new Set(values ?? [])].sort();
 

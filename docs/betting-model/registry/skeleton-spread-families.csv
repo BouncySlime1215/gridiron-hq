@@ -1,0 +1,6 @@
+id,wired,file
+"ensemble",true,"server/betting/nfl/forecast/spread-family-adapters.js"
+"simulation",true,"server/betting/nfl/forecast/spread-family-adapters.js"
+"lineup",true,"server/betting/nfl/forecast/spread-family-adapters.js"
+"direct_cover",true,"server/betting/nfl/forecast/spread-family-adapters.js"
+"trained_margin",false,"server/betting/nfl/forecast/spread-family-adapters.js"

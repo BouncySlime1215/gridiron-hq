@@ -55,10 +55,22 @@ history it changed nothing — the best raw p across 32 components is 0.38
 against a 0.05 bar, so there were no passes to correct. Fit version bumped
 to **v14**.
 
-**Next up: FINAL ORDER #5** (wire the fields `nfeloFeatures()` already
-returns — `elo_diff`, `qbelo_diff`, betting splits; RUNBOOK §10.5). The
-cheapest real addition on the list: no new data, no new export, the function
-is already called at all three assembly sites.
+**IN PROGRESS (September 16, evening) — two things ahead of FINAL ORDER #5,
+both at Nick's direction:**
+1. **The opener-CLV measurement** — grading EVERY forecaster against the
+   opening line instead of the close (section "PREREGISTERED — the
+   opener-CLV measurement" below; declared before results). Pass 1 (ensemble
+   + 35 components + sim) is a multi-hour run; pass 2 (Python + lineup) is
+   done; results append below the declaration when the run finishes.
+2. **The model registry** — one CSV row per model, component, expert, policy
+   module, table, scheduler job and harness, in `docs/betting-model/registry/`
+   (`SCHEMA.md` is the contract; `skeleton-*.csv` are exact mechanical
+   enumerations: 35 components, 19 experts, 20 sim modules, 5 families, 129
+   tables, 55 jobs). Three Sonnet agents are filling the judgment columns;
+   every agent row is spot-verified against code before merge.
+
+**Then FINAL ORDER #5** (wire the fields `nfeloFeatures()` already returns —
+`elo_diff`, `qbelo_diff`, betting splits; RUNBOOK §10.5).
 
 Both test suites are green as of this pointer: **Node 2,223 total / 2,184
 pass / 0 fail / 39 skipped** (`npm test`), **Python 127/127**

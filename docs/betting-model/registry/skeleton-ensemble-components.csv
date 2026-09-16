@@ -1,0 +1,36 @@
+id,name,family,status,file,note
+availability,Injury availability,Roster availability,challenger,server/services/nfl-ensemble.js,Weighted share of each team\
+roster_strength,Roster strength and depth,Roster availability,challenger,server/services/nfl-ensemble.js,"A preseason-first full depth-chart rating from prior snaps, player efficiency, rookies and optional licensed PFF grades that adapts weekly."
+massey,Massey least squares,Rating systems,challenger,server/services/nfl-ensemble.js,Solves for the ratings that best explain every observed margin at once.
+teamrankings_predictive,TeamRankings predictive rating,Rating systems,challenger,server/services/nfl-ensemble.js,"Free, independent power rating (already point-margin scale) from teamrankings.com, "
+nfelo_rating,nfelo pregame rating (nfelo.app),Rating systems,challenger,server/services/nfl-ensemble.js,"Third-party Elo-style team rating from nfelo.app (greerreNFL GitHub CSVs, synced live "
+nfelo_qb_adjustment,nfelo 538-schema QB value adjustment,Context,challenger,server/services/nfl-ensemble.js,"FiveThirtyEight-schema QB-value Elo adjustment (home minus away), carried forward by "
+colley,Colley (wins only),Rating systems,live,server/services/nfl-ensemble.js,"Ignores margin entirely, so it disagrees with Massey exactly when record and point differential tell different stories."
+pythagorean,Pythagenport expectation,Rating systems,challenger,server/services/nfl-ensemble.js,"Expected win rate from points scored and allowed, which regresses lucky records."
+point_diff,Raw point differential,Rating systems,challenger,server/services/nfl-ensemble.js,"The simplest honest baseline — average margin per game, differenced."
+melo,Margin-dependent Elo,Rating systems,live,server/services/nfl-ensemble.js,Elo where a blowout moves the rating more than a one-score win.
+dynamic_state,Dynamic offense / defense state,Rating systems,live,server/services/nfl-ensemble.js,"A chronological latent scoring state that adapts weekly, regresses between seasons and reports matchup-specific offense/defense strength."
+epa_net,Net EPA per play,Efficiency,challenger,server/services/nfl-ensemble.js,"Offensive efficiency minus defensive efficiency allowed, scaled to points."
+epa_neutral,"EPA, garbage time removed",Efficiency,live,server/services/nfl-ensemble.js,"Same idea, but only plays from competitive game states."
+early_down_eff,Early-down efficiency,Efficiency,challenger,server/services/nfl-ensemble.js,"First- and second-down EPA, before third-down conversion variance can dominate a small sample."
+pass_eff_matchup,Passing efficiency mismatch,Efficiency,challenger,server/services/nfl-ensemble.js,Passing EPA created versus passing EPA allowed; isolates the league’s highest-leverage play type.
+rush_eff_matchup,Rushing efficiency mismatch,Efficiency,challenger,server/services/nfl-ensemble.js,"Rushing EPA created versus allowed, kept separate so it cannot hide inside a net efficiency average."
+explosive_pass,Explosive-pass asymmetry,Efficiency,challenger,server/services/nfl-ensemble.js,Rate of explosive passes created minus allowed; measures one-play scoring and comeback capacity.
+pressure_response,Pressure response mismatch,Efficiency,challenger,server/services/nfl-ensemble.js,Offensive EPA under pressure against the opponent’s defensive pressure outcomes.
+series_sustain,Series sustain rate,Efficiency,challenger,server/services/nfl-ensemble.js,How consistently an offense earns another first down versus how consistently a defense ends a series.
+field_position,Starting field-position edge,Efficiency,challenger,server/services/nfl-ensemble.js,"Average offensive drive start versus field position conceded, capturing hidden special-teams and turnover value."
+second_half_eff,Second-half efficiency,Efficiency,challenger,server/services/nfl-ensemble.js,Prior-game second-half EPA created versus allowed; a candidate for adjustment and depth effects.
+success_rate,Success rate differential,Efficiency,live,server/services/nfl-ensemble.js,Consistency rather than explosiveness — how often a team stays on schedule.
+explosive,Explosive play differential,Efficiency,live,server/services/nfl-ensemble.js,Big plays created minus big plays allowed.
+drive_eff,Drive scoring differential,Efficiency,live,server/services/nfl-ensemble.js,"Possessions turned into points, both directions."
+situational,Third down and red zone,Efficiency,live,server/services/nfl-ensemble.js,The two situations that convert efficiency into actual points.
+trenches,Line of scrimmage,Efficiency,live,server/services/nfl-ensemble.js,"Pressure generated and allowed, plus defensive havoc."
+turnover_regressed,Turnover-regressed margin,Efficiency,challenger,server/services/nfl-ensemble.js,"Average margin with turnover luck faded, since takeaways barely persist week to week."
+opp_adjusted,Opponent-adjusted EPA,Efficiency,challenger,server/services/nfl-ensemble.js,"Efficiency corrected for the quality of defences and offences actually faced this season, using each team\"
+recent_form,Recent form (last 3),Context,live,server/services/nfl-ensemble.js,Weights the last three games heavily — catches teams that have changed.
+rest_travel,Rest and division familiarity,Context,challenger,server/services/nfl-ensemble.js,"Home field, rest differential (fitted, not assumed — replay analysis found short-week games were the single largest systematic error) and a fixed home-field red"
+pace_total,Pace and possessions,Context,live,server/services/nfl-ensemble.js,"How many plays and drives these two generate, which sets the ceiling on a total."
+weather_total,Weather-adjusted total,Context,live,server/services/nfl-ensemble.js,"Scoring environment adjusted for wind, cold and roof, plus how much each of these two offenses has actually moved in those conditions."
+market_anchor,Market anchor,Market,live,server/services/nfl-ensemble.js,Starts from the number the books opened and keeps it — the market is a strong prior.
+market_regression,Market regression,Market,live,server/services/nfl-ensemble.js,Fitted relationship between the closing line and the margin that actually happened.
+market_correction_research,Market-correction research head (Python),Market,challenger,server/services/nfl-ensemble.js,"Out-of-fold ridge correction to the closing line, fit in Python on a stacked "

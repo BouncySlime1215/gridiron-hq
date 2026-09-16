@@ -1,7 +1,17 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"SEVEN ATTACK-VECTOR TESTS" (search for that heading) has the latest
+**"CONFIDENCE META-MODEL" (search for that heading) is the NEWEST result: a
+preregistered null.** The system's own conviction does not predict whether
+it is right (r = −0.010 over 647 games), three candidate bugs were ruled
+out, and a supervised meta-model built on nine point-in-time features to
+learn when to trust the pick FAILED out of sample (AUC 0.489, CI [0.419,
+0.559]; no quartile clears z=1.96). Standing conclusion: **we have a
+measurable edge signal but no working sense of when to trust it.** That
+section also records that the `low_disagreement` filter reaches only z=1.24
+on held-out 2024 — direction consistent, not independently confirmed, so it
+must not be described as replicated.
+**"SEVEN ATTACK-VECTOR TESTS" (search for that heading) has the preceding
 results — read it before "RECONCILED PLAN" just below it.** Seven
 exploratory tests run against the opener-CLV composite, Holm-corrected
 across all 17 comparisons they produced: 7 survive. Headline: the edge is
@@ -3211,6 +3221,100 @@ of it was exploratory. The failed calibration (#2) is a reason for caution
 on the |lean|-based selective-betting hypothesis specifically — it is not
 dead, but it needs a better probability model than a one-variable logistic
 before anyone sizes a bet off it.
+
+### CONFIDENCE META-MODEL — September 16, 2026, late night (a preregistered NULL; `scripts/confidence-meta-model.py`, raw output in `docs/evidence/2026-09-16/opener-clv/confidence-meta-model.json`)
+
+**The question.** Earlier tonight we established that the ensemble's own
+conviction — how far its composite margin sits from the opening line —
+carries no information about whether the pick is right. Correlation between
+edge size and ATS correctness was **r = −0.010** across 647 games, and still
+−0.021 after stripping out early-season (weeks 1–3) and week-18 games. The
+most-confident decile won 48.4%; the least-confident decile won 65.6%. The
+direction is backwards and the magnitude is noise.
+
+Before treating that as a finding, three candidate bugs were checked and all
+three were ruled out:
+- **One broken component inflating the edge?** No. In 63 of the 64
+  most-confident games all four survivor signals agree on direction. The big
+  edges are genuine agreement, not one wild number dragging an average.
+- **Concentration in degenerate extreme-spread games?** No. Mean |opening
+  spread| in the top-confidence group is 3.41 vs 3.65 for the pool.
+- **Concentration in the noisiest weeks?** *Partly, and this part is real.*
+  Weeks 1–3 are **36%** of the most-confident bucket vs **17%** of the pool;
+  week 18 is **12%** vs **6%**. The model swings hardest exactly where its
+  own inputs are thinnest. But removing those games does not rescue the
+  result (r = −0.021, n = 502), so the skew is a genuine side finding, not
+  the cause.
+
+**What was built.** Nick's call: "yes build that" — a supervised meta-model
+that predicts *whether a pick will be right*, from features richer than edge
+size alone. Nine point-in-time-safe features: week, |opening spread|,
+|lean|, dispersion across all components, dispersion across the four
+survivors, direction-agreement fraction (all and survivors), whether the
+drive sim agrees, and component availability count.
+
+**Contamination guard.** Component `market_correction_research` is excluded
+by id from every feature. Per `opener-clv-pass2.mjs`'s header it is the
+Python `correction` model, whose feature list is `['football_prediction',
+'market_spread', 'market_movement']` — it is handed the closing spread and
+the opener-to-close move. Letting it into a dispersion or direction feature
+would leak the exact quantity the primary target measures.
+
+**Preregistered before any result was seen** (header of the script):
+- Fit on 2022+2023 (525 games), test on 2024 (263 games), strictly
+  chronological, no walk-forward re-fit, no hyperparameter search on test.
+- The 4-bucket zero-skill CLV baseline is computed on **fit seasons only**
+  and applied to test — a bettor in 2024 could only know 2022–23 drift.
+- PRIMARY passes if held-out top-quartile double-adjusted CLV > 0 with
+  week-clustered |z| > 1.96, Holm-surviving, and beating the bottom quartile.
+- SECONDARY passes if out-of-sample AUC > 0.55 with a bootstrap 95% CI
+  excluding 0.50.
+- Explicit commitment: **if PRIMARY fails, report the null and do not
+  feature-hunt to rescue it.**
+
+**Result — it failed, and not narrowly.**
+
+| Held-out 2024, quartiles by learned confidence | mean adj CLV | z | ATS |
+|---|---|---|---|
+| Q1 (model least confident) | +0.002 | +0.01 | 36.9% |
+| Q2 | +0.060 | +0.26 | 61.9% |
+| Q3 | +0.147 | +0.63 | 45.8% |
+| Q4 (model most confident) | +0.125 | +0.45 | 49.3% |
+
+Out-of-sample **AUC = 0.489**, bootstrap 95% CI [0.419, 0.559] — the learned
+model is, if anything, a hair *worse* than a coin flip at separating correct
+picks from incorrect ones. No quartile clears |z| > 1.96; none survives Holm
+across the 3-test family. The ATS column is non-monotonic noise (Q2's 61.9%
+sits between Q1's 36.9% and Q3's 45.8%; do not read it as signal).
+
+**PRIMARY: FAIL. SECONDARY: FAIL. CALIBRATION: "PASS" on a technicality that
+should be recorded as a criterion-design error on my part.** I preregistered
+"positive reliability slope" without a magnitude floor. The realized slope is
+**+0.005**, where 1.0 is perfect calibration — functionally flat. It cleared
+the letter of the bar and nothing else. The honest reading is three failures,
+not two; the criterion was too weak to mean anything and is noted here rather
+than quietly counted as a win.
+
+**A caveat that cuts the other way, stated so it is not buried.** The
+`low_disagreement` reference signal — the one confidence-ish signal that
+survived Holm earlier tonight at z=3.76 on the pooled 2022–24 set — reaches
+only **z=1.24 (p=0.215)** on held-out 2024 alone. Its *direction is
+consistent* (top quartile +0.248 pts adjusted CLV), and n=263 against ~817
+is exactly the power loss you would predict, so this is **not** a refutation.
+But it is also **not independent confirmation**, and it should stop anyone
+(me included) from describing that filter as replicated. It has been
+validated once, in-sample, on the pooled set. That is all.
+
+**What this changes.** Nothing gets promoted. The plan's Phase 3 filters stay
+exactly as preregistered — small/mid spreads and component agreement — and do
+**not** gain a learned confidence tier on top of them. The standing conclusion
+is now explicit and should not be re-litigated without new data: **this system
+has a measurable edge signal but no working sense of when to trust itself.**
+Selective betting by model conviction is a dead end at the current sample size
+and feature set; any future attempt needs genuinely new information (live
+market movement, injury-news timing, cross-book disagreement), not a
+recombination of what the components already say.
+
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

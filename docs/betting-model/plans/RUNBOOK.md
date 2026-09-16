@@ -3,18 +3,22 @@
 **September 16, 2026, EXECUTION IN PROGRESS.** Gap analysis is DONE. Execute
 from LATEST-PLAN.md's **"FINAL ORDER"** table (in its "DATA INTEGRITY
 MASTER PLAN" section) — the one authoritative sequence; `~~strikethrough~~`
-rows are done. **FINAL ORDER #1 is DONE** (recipe §10.1 below, real-history
-result in §3.3) — the joint residual fit was built, tested, and measured;
-it's a null result (does not beat the market), which is a valid, recorded
-completion, not a blocker. **#2 (drive-sim bugs, §10.2) is next**, no
-dependency blocks it. The dependency table right after FINAL ORDER in
+rows are done. **FINAL ORDER #1 and #2 are DONE** (recipes §10.1 and §10.2;
+measurements in §3.3 and in LATEST-PLAN Section B). #1's joint residual fit
+is a null result — it does not beat the market either. #2 fixed the
+drive-sim's kneel sign, kneel clock and missing halftime/overtime, and the
+re-run backtest reads 52.14% ATS over 491 games rather than the long-cited
+42.86%, which has no recorded provenance. Both are valid recorded
+completions. **#3 (leakage guard, §10.3) is next**, no dependency blocks it.
+Two #2 follow-ups are parked on a decision from Nick (kneel half-clock; HFA
+into per-play rates) — see FINAL ORDER row 2. The dependency table right after FINAL ORDER in
 LATEST-PLAN.md says what blocks what for everything after #2. The lineage
 of every endpoint and table is in "DATA SOURCES, ENDPOINTS AND LINEAGE"
 beside FINAL ORDER. This file's own master sequence (§9, bottom) is
 historical background underneath that; the master plan is the entry point.
 
-Both suites green as of this pointer: Node 2,189/2,150/0/39, Python 127/127
-(exact commands in §0a rule 5 below). Everything through #1 is committed
+Both suites green as of this pointer: Node 2,198/2,159/0/39, Python 127/127
+(exact commands in §0a rule 5 below). Everything through #2 is committed
 and pushed to `cursor/betting-model-audit-fixes-1c85`.
 
 **Start here.** This is the operational companion to `LATEST-PLAN.md`. The
@@ -87,7 +91,7 @@ Python research commands run from `research/betting/nfl/`.
 
 **The two test suites:**
 ```bash
-npm test                                                   # Node, 2,173 tests (2,134 pass, 0 fail, 39 skipped as of 2026-09-16)
+npm test                                                   # Node, 2,198 tests (2,159 pass, 0 fail, 39 skipped as of 2026-09-16)
 cd research/betting/nfl && ../../.venv/bin/python3 -m unittest discover -p "test_*.py"   # Python, 127 (as of 2026-09-16)
 ```
 
@@ -599,6 +603,29 @@ Files: `server/services/nfl-sim-policy.js`, `server/services/nfl-drive-sim.js`.
 - Then re-run `backtest({season, trials:300, maxGames})` for 2021-2025 and
   record simulator vs market MAE and ATS in LATEST-PLAN as **CORRECTED**
   beside the old 42.86% — whatever it says.
+  **DONE 2026-09-16.** Command:
+```bash
+GRIDIRON_DB_PATH=/tmp/gridiron-extract/real.sqlite SCHEDULER_DISABLED=1 \
+  node -e "const {backtest}=await import('./server/services/nfl-drive-sim.js'); \
+    for (const s of [2021,2022,2023,2024,2025]) console.log(s, JSON.stringify(backtest({season:s,trials:300,maxGames:100})))" \
+  --input-type=module
+```
+| season | sim MAE | market MAE | ATS | rate |
+|---|---|---|---|---|
+| 2021 | 10.55 | 10.11 | 60-40 | .600 |
+| 2022 | 9.67 | 8.87 | 52-45 | .536 |
+| 2023 | 10.83 | 10.76 | 49-46 | .516 |
+| 2024 | 11.31 | 10.06 | 46-53 | .465 |
+| 2025 | 11.05 | 9.21 | 49-51 | .490 |
+| **pooled** | **10.68** | **9.80** | **256-235** | **.5214** |
+
+Break-even is .5238, so this is NOT profitable, and one-sided
+P(ATS >= 256 | true rate = break-even) = 0.56 — indistinguishable from a
+break-even coin. Raw run saved at
+`docs/evidence/2026-09-16/drive-sim-backtest-post-final-order-2.json`.
+**The important finding is not the rate, it is that the old 42.86% has no
+recorded sample size or configuration anywhere in this repository** — see
+LATEST-PLAN Section B. Do not cite 42.86% again without re-deriving it.
 
 **10.3 FINAL ORDER #3 — extend the point-in-time leakage guard.**
 Files: `server/services/contracts.js` (`assertTimestampedObservation`, today

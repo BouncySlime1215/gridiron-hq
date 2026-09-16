@@ -1,0 +1,97 @@
+2021 {"season":2021,"games_tested":100,"trials_each":300,"profiles_from_season":2020,"simulator_mae":10.55,"market_mae":10.11,"difference":0.45,"beats_market":false,"ats":{"record":"60-40","rate":0.6,"break_even_at_minus_110":0.5238,"profitable":true},"verdict":"The simulator is 0.45 points WORSE than the closing line on margin. That is the expected outcome and not a failure of the build: the market is extremely hard to beat on a point estimate. The value here is the JOINT distribution — totals, key numbers, live states — not raw margin accuracy.","note":"Walk-forward and cutoff-safe: team profiles come from seasons strictly before the one being predicted, so the engine never sees its own test set."}
+2022 {"season":2022,"games_tested":100,"trials_each":300,"profiles_from_season":2021,"simulator_mae":9.67,"market_mae":8.87,"difference":0.81,"beats_market":false,"ats":{"record":"52-45","rate":0.5361,"break_even_at_minus_110":0.5238,"profitable":true},"verdict":"The simulator is 0.81 points WORSE than the closing line on margin. That is the expected outcome and not a failure of the build: the market is extremely hard to beat on a point estimate. The value here is the JOINT distribution — totals, key numbers, live states — not raw margin accuracy.","note":"Walk-forward and cutoff-safe: team profiles come from seasons strictly before the one being predicted, so the engine never sees its own test set."}
+2023 {"season":2023,"games_tested":100,"trials_each":300,"profiles_from_season":2022,"simulator_mae":10.83,"market_mae":10.76,"difference":0.07,"beats_market":false,"ats":{"record":"49-46","rate":0.5158,"break_even_at_minus_110":0.5238,"profitable":false},"verdict":"The simulator is 0.07 points WORSE than the closing line on margin. That is the expected outcome and not a failure of the build: the market is extremely hard to beat on a point estimate. The value here is the JOINT distribution — totals, key numbers, live states — not raw margin accuracy.","note":"Walk-forward and cutoff-safe: team profiles come from seasons strictly before the one being predicted, so the engine never sees its own test set."}
+2024 {"season":2024,"games_tested":100,"trials_each":300,"profiles_from_season":2023,"simulator_mae":11.31,"market_mae":10.06,"difference":1.24,"beats_market":false,"ats":{"record":"46-53","rate":0.4646,"break_even_at_minus_110":0.5238,"profitable":false},"verdict":"The simulator is 1.24 points WORSE than the closing line on margin. That is the expected outcome and not a failure of the build: the market is extremely hard to beat on a point estimate. The value here is the JOINT distribution — totals, key numbers, live states — not raw margin accuracy.","note":"Walk-forward and cutoff-safe: team profiles come from seasons strictly before the one being predicted, so the engine never sees its own test set."}
+2025 {"season":2025,"games_tested":100,"trials_each":300,"profiles_from_season":2024,"simulator_mae":11.05,"market_mae":9.21,"difference":1.84,"beats_market":false,"ats":{"record":"49-51","rate":0.49,"break_even_at_minus_110":0.5238,"profitable":false},"verdict":"The simulator is 1.84 points WORSE than the closing line on margin. That is the expected outcome and not a failure of the build: the market is extremely hard to beat on a point estimate. The value here is the JOINT distribution — totals, key numbers, live states — not raw margin accuracy.","note":"Walk-forward and cutoff-safe: team profiles come from seasons strictly before the one being predicted, so the engine never sees its own test set."}
+ALLDONE [
+ {
+  "season": 2021,
+  "games_tested": 100,
+  "trials_each": 300,
+  "profiles_from_season": 2020,
+  "simulator_mae": 10.55,
+  "market_mae": 10.11,
+  "difference": 0.45,
+  "beats_market": false,
+  "ats": {
+   "record": "60-40",
+   "rate": 0.6,
+   "break_even_at_minus_110": 0.5238,
+   "profitable": true
+  },
+  "verdict": "The simulator is 0.45 points WORSE than the closing line on margin. That is the expected outcome and not a failure of the build: the market is extremely hard to beat on a point estimate. The value here is the JOINT distribution — totals, key numbers, live states — not raw margin accuracy.",
+  "note": "Walk-forward and cutoff-safe: team profiles come from seasons strictly before the one being predicted, so the engine never sees its own test set."
+ },
+ {
+  "season": 2022,
+  "games_tested": 100,
+  "trials_each": 300,
+  "profiles_from_season": 2021,
+  "simulator_mae": 9.67,
+  "market_mae": 8.87,
+  "difference": 0.81,
+  "beats_market": false,
+  "ats": {
+   "record": "52-45",
+   "rate": 0.5361,
+   "break_even_at_minus_110": 0.5238,
+   "profitable": true
+  },
+  "verdict": "The simulator is 0.81 points WORSE than the closing line on margin. That is the expected outcome and not a failure of the build: the market is extremely hard to beat on a point estimate. The value here is the JOINT distribution — totals, key numbers, live states — not raw margin accuracy.",
+  "note": "Walk-forward and cutoff-safe: team profiles come from seasons strictly before the one being predicted, so the engine never sees its own test set."
+ },
+ {
+  "season": 2023,
+  "games_tested": 100,
+  "trials_each": 300,
+  "profiles_from_season": 2022,
+  "simulator_mae": 10.83,
+  "market_mae": 10.76,
+  "difference": 0.07,
+  "beats_market": false,
+  "ats": {
+   "record": "49-46",
+   "rate": 0.5158,
+   "break_even_at_minus_110": 0.5238,
+   "profitable": false
+  },
+  "verdict": "The simulator is 0.07 points WORSE than the closing line on margin. That is the expected outcome and not a failure of the build: the market is extremely hard to beat on a point estimate. The value here is the JOINT distribution — totals, key numbers, live states — not raw margin accuracy.",
+  "note": "Walk-forward and cutoff-safe: team profiles come from seasons strictly before the one being predicted, so the engine never sees its own test set."
+ },
+ {
+  "season": 2024,
+  "games_tested": 100,
+  "trials_each": 300,
+  "profiles_from_season": 2023,
+  "simulator_mae": 11.31,
+  "market_mae": 10.06,
+  "difference": 1.24,
+  "beats_market": false,
+  "ats": {
+   "record": "46-53",
+   "rate": 0.4646,
+   "break_even_at_minus_110": 0.5238,
+   "profitable": false
+  },
+  "verdict": "The simulator is 1.24 points WORSE than the closing line on margin. That is the expected outcome and not a failure of the build: the market is extremely hard to beat on a point estimate. The value here is the JOINT distribution — totals, key numbers, live states — not raw margin accuracy.",
+  "note": "Walk-forward and cutoff-safe: team profiles come from seasons strictly before the one being predicted, so the engine never sees its own test set."
+ },
+ {
+  "season": 2025,
+  "games_tested": 100,
+  "trials_each": 300,
+  "profiles_from_season": 2024,
+  "simulator_mae": 11.05,
+  "market_mae": 9.21,
+  "difference": 1.84,
+  "beats_market": false,
+  "ats": {
+   "record": "49-51",
+   "rate": 0.49,
+   "break_even_at_minus_110": 0.5238,
+   "profitable": false
+  },
+  "verdict": "The simulator is 1.84 points WORSE than the closing line on margin. That is the expected outcome and not a failure of the build: the market is extremely hard to beat on a point estimate. The value here is the JOINT distribution — totals, key numbers, live states — not raw margin accuracy.",
+  "note": "Walk-forward and cutoff-safe: team profiles come from seasons strictly before the one being predicted, so the engine never sees its own test set."
+ }
+]

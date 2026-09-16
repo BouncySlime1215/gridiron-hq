@@ -6,16 +6,27 @@ down) is the one authoritative work queue — start there, not at the top of
 this file.** Its `~~strikethrough~~` rows are done; read a done row before
 skipping it, it names exactly what changed and where.
 
-**Currently done: FINAL ORDER #1** (joint residual fit — see row 1 in the
-table, RUNBOOK §10.1/§3.3 for the recipe and the measured real-history
-result). Code, 7 new unit tests + 2 re-verified integration tests + 1 new
-model-integrity assertion, and the real-history measurement are all
-complete; fit version bumped to v13. Result was a null (does not clear the
-gate) — that is a valid, recorded completion, not a blocker.
-**Next up: FINAL ORDER #2** (the three live drive-sim bugs, RUNBOOK §10.2)
-— track A, no dependency blocks starting it.
+**Currently done: FINAL ORDER #1 and #2.**
+- **#1** joint residual fit (RUNBOOK §10.1/§3.3). Built, tested, measured;
+  fit version bumped to v13. Null result — the joint fit does not beat the
+  market either. A valid, recorded completion.
+- **#2** drive-sim clock/endgame bugs (RUNBOOK §10.2). Kneel-rule sign,
+  kneel clock consumption, and `simulateRemainder`'s missing
+  halftime/timeouts/overtime all fixed; item (a) was already fixed and is
+  now pinned by a regression test. **The re-measured backtest is the
+  headline: 52.14% ATS over 491 walk-forward games, not the 42.86%
+  "measured dead" this plan has cited everywhere — and that 42.86% turns out
+  to have no recorded sample size anywhere in the repo. Still not
+  profitable and still no detectable edge. Full treatment in Section B.**
+- **Two items from #2 need YOUR decision** before anyone folds them in, both
+  flagged in code and in row 2: kneelDecision's first branch reading a half
+  clock where it wants a game clock, and HFA being added to the score post
+  hoc rather than entering per-play rates.
 
-Both test suites are green as of this pointer: **Node 2,189 total / 2,150
+**Next up: FINAL ORDER #3** (extend the point-in-time leakage guard,
+RUNBOOK §10.3) — track A, nothing blocks it.
+
+Both test suites are green as of this pointer: **Node 2,198 total / 2,159
 pass / 0 fail / 39 skipped** (`npm test`), **Python 127/127**
 (`cd research/betting/nfl && ../../.venv/bin/python3 -m unittest discover -p "test_*.py"`).
 Everything through #1 is committed and pushed to
@@ -108,6 +119,30 @@ Known gaps, each with its disposition:
   open: it is not an artifact of the weaker one-at-a-time method.
 - **Measured dead** (from `gridiron-model.js`'s own evidence): drive-sim
   42.86% ATS, trend totals 43.81%, GBM-on-residual worse than zero.
+  **RE-MEASURED 2026-09-16 (FINAL ORDER #2, RUNBOOK §10.2) — the drive-sim
+  number does not reproduce.** After the kneel-sign/kneel-clock/halftime/OT
+  fixes, `backtest({trials:300, maxGames:100})` walk-forward over 2021-2025
+  (491 graded games, profiles strictly from prior seasons) gives **52.14%
+  ATS pooled (256-235)** against a 52.38% break-even, and simulator MAE
+  10.68 vs market 9.80. Read carefully, three ways:
+  (1) **Still not profitable and still no detectable edge** — one-sided
+  P(ATS >= 256 | true rate = break-even) = 0.56, i.e. exactly what a
+  break-even coin would produce. Nothing here argues for betting it.
+  (2) **But "42.86% measured dead" is not a number this repository can
+  currently defend.** No sample size, season set, or configuration for it is
+  recorded anywhere — not in `gridiron-model.js`'s comment that cites it,
+  not in the plan, not in `docs/evidence/`. 42.86% is exactly 3/7, so a very
+  small sample is plausible. A verdict that has driven real architectural
+  decisions ("six components measured dead", the do-not-combine rule) rests
+  on an unreproducible figure. That is a provenance defect worth its own
+  fix, independent of what the true rate is.
+  (3) **Attribution honesty:** several drive-sim defects (away-WP sign,
+  timeout decrement, the +7 HFA lump) were fixed by passes BEFORE today, so
+  the gap between 42.86% and 52.14% cannot be attributed to today's three
+  fixes alone — and, per (2), may not be a real gap at all.
+  Per-season, showing the pooled number is carried by 2021: 2021 60.0%,
+  2022 53.6%, 2023 51.6%, 2024 46.5%, 2025 49.0%. Raw run:
+  `docs/evidence/2026-09-16/drive-sim-backtest-post-final-order-2.json`.
   Specialists: "none of the twelve clears breakeven."
 - **Measured alive but gated:** the correction head — 16.2% weight in the
   joint margin fit (additive, not redundant with `market_regression` /
@@ -1903,7 +1938,11 @@ brainstorm would have been.
 codebase, with real measurement, and all lost:**
 - **Mechanistic play-by-play simulation** (`nfl-drive-sim.js` — plays the
   game thousands of times rather than regressing on aggregates): **42.86%
-  ATS vs. 52.38% breakeven.**
+  ATS vs. 52.38% breakeven.** **RE-MEASURED 2026-09-16 after FINAL ORDER #2:
+  52.14% ATS over 491 walk-forward games (2021-2025) — still below
+  break-even and with no detectable edge (p=0.56), but the 42.86% figure has
+  no recorded sample size and does not reproduce. See the full treatment in
+  Section B above; do not cite 42.86% again without re-deriving it.**
 - **Trend-following on totals**: **43.81% ATS.**
 - **Gradient boosting on the market residual**: **worse than zero.**
 - **12 independently-built specialist models**, spanning different
@@ -2431,7 +2470,7 @@ must follow are RUNBOOK.md §0a.**
 | # | Do this | Was | Why here |
 |---|---|---|---|
 | 1 | **DONE 2026-09-16.** ~~Fix the production residual path's one-at-a-time fit.~~ `market_residual` computed `residual_slope`/`residual_weight` as 31 separate single-covariate OLS fits, never a joint fit (F02-1, verified) — the joint ridge existed for margin weights but the served residual path never got it. Built `jointResidualFit` (RUNBOOK §10.1), served by `ensembleLine` in place of the old path, old path kept as diagnostic only, fit version bumped to v13. Measured: still does not clear the gate (`rmse_gain: -0.008`, `dm_p: 0.9415`, n=749 OOF) — a stronger, not weaker, null result. Both suites green. | NEW (17) | Everything the residual gate has ever said (0/848) was said about a mis-fit path — now said about the correctly-fit one too |
-| 2 | **Fix the drive-sim's three VERIFIED-LIVE bugs** (CORRECTED same day — the first draft of this row named FIX_AND_ADD #9-#11; the verifier found #9 away-WP sign and #11 timeout decrement are already FIXED in code, and the +7 HFA coin flip is gone, replaced by +1 per drive at `nfl-drive-sim.js:544` — still additive-on-score, structural critique stands, key-number-spike claim superseded). Live now, verified 2026-09-16: **F01-2** urgency divides a half-scoped clock by 3600 (`nfl-sim-policy.js:229,:441`); **F01-3** `kneelable = 40 + timeouts*40` uses the OPPONENT's timeouts with the wrong sign and consumes the whole clock (`nfl-sim-policy.js:317-319`, `nfl-drive-sim.js:277-279`); **F01-6** `simulateRemainder` has no halftime/OT transition and hardcodes `timeouts:3/oppTimeouts:3` (`nfl-drive-sim.js:819-870`). | NEW (18) | Hours each; the "measured dead 42.86% ATS" verdict was measured with these live — not clean until fixed and re-run |
+| 2 | **DONE 2026-09-16.** ~~Fix the drive-sim's three VERIFIED-LIVE bugs~~ — (a) was already fixed and is now pinned by a regression test; (b) kneel sign + kneel clock and (c) simulateRemainder halftime/timeouts/overtime are fixed, with `simulateOvertime` extracted and shared rather than copied. 9 new tests in `test/nfl-drive-sim-clock-rules.test.js`, verified to fail against the un-fixed code. Backtest re-run recorded in Section B. **Two items deliberately left for Nick's decision, both flagged in code:** kneelDecision's first branch still reads a HALF clock where it wants a game clock (would stop first-half kneel-downs the sim currently performs), and HFA is still added to the score post hoc rather than entering per-play rates. *(original row, preserved:)* ~~**Fix the drive-sim's three VERIFIED-LIVE bugs** (CORRECTED same day — the first draft of this row named FIX_AND_ADD #9-#11; the verifier found #9 away-WP sign and #11 timeout decrement are already FIXED in code, and the +7 HFA coin flip is gone, replaced by +1 per drive at `nfl-drive-sim.js:544` — still additive-on-score, structural critique stands, key-number-spike claim superseded). Live now, verified 2026-09-16: **F01-2** urgency divides a half-scoped clock by 3600 (`nfl-sim-policy.js:229,:441`); **F01-3** `kneelable = 40 + timeouts*40` uses the OPPONENT's timeouts with the wrong sign and consumes the whole clock (`nfl-sim-policy.js:317-319`, `nfl-drive-sim.js:277-279`); **F01-6** `simulateRemainder` has no halftime/OT transition and hardcodes `timeouts:3/oppTimeouts:3` (`nfl-drive-sim.js:819-870`).~~ | NEW (18) | Hours each; the "measured dead 42.86% ATS" verdict was measured with these live — not clean until fixed and re-run |
 | 3 | **Extend the point-in-time leakage guard** (`contracts.js assertTimestampedObservation`) past the fantasy pipeline onto `nfl_team_week_features`/`nfl_play_by_play`/the blind-audit freeze path (F18-4). Five forecast-feeding tables carry no receipt clock of our own (see lineage section). | NEW (19) | Every result this session assumes point-in-time correctness on tables this guard has never touched |
 | 4 | Multiple-testing guardrail, as corrected above: declared-family Bonferroni/Šidák now; **plus** Holm on the per-component DM gate (F02-5) and Giacomini-White conditional test as the cheap extension F02 names; DSR input standardization as its own prerequisite; F07-3 persist `corrected_alpha_at_seal`/`prior_tests_at_seal`. | guardrail section + NEW (20) | Must precede the mining spree |
 | 5 | Zero-new-code win: wire what `nfeloFeatures()` already returns (`elo_diff`, `qbelo_diff`, tickets/money splits). **Decision recorded (cat-08, Section E item 1):** nfelo's plain `elo_diff` IS the independent-Elo sanity floor the 538 `nfl-elo-game` port was for; that port is superseded unless `elo_diff` proves unusable when measured in #9. | 3 | Cheapest real addition; retires a separate build |
@@ -2795,7 +2834,7 @@ whether it can reach a pick:**
 | 1 | Ensemble | `nfl-ensemble.js` — 32 components (10 challenger-only) **(CORRECTED September 16: now 35 components, 21 challenger-only, 14 live — see lineage section)**, joint ridge fit | raw margin/total → `market_residual` mode | **Yes — the only path** | 0/848 residual gate passes; serves market verbatim |
 | 2 | Specialist/residual layer | `nfl-specialists.js` (12 + meta-model), `nfl-orthogonal-specialists.js`, `nfl-matchup-specialists.js` (4), `nfl-passing-specialists.js` (20) | market residual | No — feeds the council only | "none of the twelve clears breakeven" |
 | 3 | Expert council | `nfl-expert-council.js` — 19 experts | market residual (15), score distribution (1), other | No — a head in the UI orchestrator + the explain tool | weekly audited; consumes `ensembleLine` and the drive-sim |
-| 4 | Canonical orchestrator | `nfl-unified-engine.js` + `gridiron-model.js` (authority) + `nfl-drive-sim.js` (shape) | reconciled distribution | No — the `/nfl-betting` route only | simulator measured dead: 42.86% ATS vs 52.38% breakeven |
+| 4 | Canonical orchestrator | `nfl-unified-engine.js` + `gridiron-model.js` (authority) + `nfl-drive-sim.js` (shape) | reconciled distribution | No — the `/nfl-betting` route only | simulator ~~measured dead: 42.86% ATS~~ **re-measured 2026-09-16: 52.14% ATS / 491 games, still under the 52.38% breakeven and no detectable edge; the 42.86% has no recorded provenance (Section B)** |
 | 5 | Market model | `nfl-market.js` | win/cover/total probability vs no-vig | Via `betting.model_spread` → cover calibration | `normalCdf(margin/pooledSD)` — FIX #15/#16 still open |
 | 6 | Python research group | `stage3` → `unified_model.py` → `market_correction.py` → lookup → ensemble component | raw margin; residual | **Now yes, as challenger (gated)** | 16.2% margin weight, 0 residual weight |
 | 7 | Labs | `tree_lab.py` (cover/quantile/movement), `market_lab.py`, `book_lag_lab.py` | various | No | research only |

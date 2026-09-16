@@ -30,7 +30,9 @@ TIER = {"availability": "in_week", "roster_strength": "in_week", "weather_total"
         "teamrankings_predictive": "third_party_bulk", "market_anchor": "opener", "market_regression": "opener",
         "blend": "mixed", "blend_total": "mixed", "lineup_roster": "in_week",
         "wired_W5": "in_week", "wired_W5_total": "in_week", "wired_W6": "in_week", "wired_W6_total": "in_week"}
-WITH_WIRED = "--with-wired" in sys.argv
+WITH_WIRED2 = "--with-wired2" in sys.argv
+WITH_WIRED = "--with-wired" in sys.argv or WITH_WIRED2
+PART2 = ("wired_W8", "wired_W9", "wired_W10", "wired_W11", "wired_W12", "wired_W13")
 CONTAMINATED = {"market_correction_research", "python_correction"}
 RNG = random.Random(20260916)
 
@@ -41,6 +43,9 @@ def load_table():
     prov = {(g["season"], g["week"], g["home"]): g for g in json.load(open(EV / "opener-repair/repaired-openers.json"))["games"]}
     kal = {key(r): r for r in map(json.loads, open(LAB / "kalman-preds.jsonl"))}
     wired = {key(r): r for r in map(json.loads, open(LAB / "wired-preds.jsonl"))} if WITH_WIRED else {}
+    if WITH_WIRED2:
+        for r in map(json.loads, open(LAB / "wired2-preds.jsonl")):
+            wired.setdefault(key(r), {}).update(r)
     books = {key(r): r for r in map(json.loads, open(LAB / "books.jsonl"))}
     p2, p2b = {}, {}
     for s in range(2021, 2026):
@@ -498,7 +503,8 @@ def main():
 
     # ----- Holm over the development family
     if WITH_WIRED:
-        tests = {k: v for k, v in tests.items() if "wired_" in k or k.endswith("|pool")}
+        part2 = lambda k: any(f"|{p}" in k for p in PART2)
+        tests = {k: v for k, v in tests.items() if (part2(k) if WITH_WIRED2 else "wired_" in k) or k.endswith("|pool")}
     res["holm_dev"] = holm(tests)
     res["dev_family_size"] = len(tests)
     res["dev_holm_passes"] = sorted(k for k, v in res["holm_dev"].items() if v["passes"])
@@ -576,7 +582,7 @@ def main():
         else:
             _, spec = per_forecaster(method, name, mk2, allrows, [])
         frozen[mname] = dict(strategy=key, trained_on="2021-2025 (2021 only for score conversions)", spec=spec)
-    suffix = "-wired" if WITH_WIRED else ""
+    suffix = "-wired2" if WITH_WIRED2 else ("-wired" if WITH_WIRED else "")
     (LAB / f"frozen-rules{suffix}.json").write_text(json.dumps(dict(frozen_at="2026-09-16", rules=frozen), indent=1, default=float))
     (LAB / f"results{suffix}.json").write_text(json.dumps(res, indent=1, default=float))
     print(json.dumps(dict(family=res["dev_family_size"], dev_holm_passes=res["dev_holm_passes"], champions=champs,

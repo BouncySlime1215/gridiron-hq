@@ -98,7 +98,11 @@ import { createHash } from 'node:crypto';
 // whose hand-picked x65 ran about twice too large in every 2022-25 season,
 // now gets a fitted conversion too. Component margins, and therefore weights
 // and the stored `calibration`, differ from v14.
-export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v15-walk-forward-point-conversion';
+//
+// v16 (2026-09-16): teamWeeks() drops the duplicate 'LA' Rams rows stored
+// beside 'LAR' for 2021-2025, which had counted the Rams twice in league-wide
+// feature averages (e.g. opp_adjusted's league baseline).
+export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v16-rams-dedupe';
 const CALIBRATION_VERSION = 'cover-logit-v3-graph-bound';
 const sorted = values => [...new Set(values ?? [])].sort();
 

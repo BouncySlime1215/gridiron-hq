@@ -42,7 +42,8 @@ const EVAL_FROM = 2022;    // frozen calibration boundary retained for the estab
 const WEIGHT_FIT_FROM = 2018; // discovery history available before the opened 2021-2025 audit
 const FIT_ARTIFACT_VERSION = ENSEMBLE_FIT_VERSION;
 // v3 (2026-09-16): opp_adjusted fitted conversion; per-season calibration cutoffs.
-export const CHALLENGER_SIGNAL_VERSION = 'nfl-challenger-signals-v3';
+// v4 (2026-09-16): Rams 'LA' duplicate team-weeks no longer enter league averages.
+export const CHALLENGER_SIGNAL_VERSION = 'nfl-challenger-signals-v4';
 
 // nfl_ensemble_fit_artifacts comes from
 // server/migrations/000_legacy_schema.js.

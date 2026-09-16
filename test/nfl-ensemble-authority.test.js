@@ -83,11 +83,11 @@ test('v7 persisted weights cannot be reused after the authority repair', () => {
   // version describes a different estimator and must not be reusable, which
   // is exactly what this test checks -- only the version string it checks
   // against moves.
-  assert.match(artifact.model_version, /^nfl-ensemble-fit-v15-/);
+  assert.match(artifact.model_version, /^nfl-ensemble-fit-v16-/);
   const poisoned = JSON.parse(artifact.result_json);
   poisoned.models.forEach(m => { m.residual_joint_weight = m.challenger_only ? 1 : 0; });
   run('UPDATE nfl_ensemble_fit_artifacts SET artifact_key=?, model_version=?, result_json=? WHERE artifact_key=?',
-    artifact.artifact_key.replace('v15-walk-forward-point-conversion', 'v8-challenger-authority'),
+    artifact.artifact_key.replace('v16-rams-dedupe', 'v8-challenger-authority'),
     'nfl-ensemble-fit-v8-challenger-authority', JSON.stringify(poisoned), artifact.artifact_key);
   invalidateEnsembleCaches();
   assert.equal(fitEnsemble(fitOptions).models.find(m => m.id === 'roster_strength').residual_joint_weight, 0);

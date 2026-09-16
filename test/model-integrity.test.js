@@ -936,7 +936,7 @@ test('historical ensemble weights exclude the season being predicted and all fut
   assert.equal(candidateLine.input_mode, 'all-inputs');
   assert.equal(candidateLine.models.filter(model => model.challenger_only).length, 21);
   const shadowWeek = challengerSignalWeek(2026, 1);
-  assert.equal(shadowWeek.version, 'nfl-challenger-signals-v3');
+  assert.equal(shadowWeek.version, 'nfl-challenger-signals-v4');
   // Twenty-one challengers per game: the ten as of market_correction_research
   // (which abstains -- null margin -- on any game with no lookup entry, the
   // suite-wide default, but is still listed like any other abstaining

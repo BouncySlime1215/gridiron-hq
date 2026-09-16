@@ -1,9 +1,10 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"RESULTS — DATA WIRING W1-W7" is in:** 50 tests, no survivors, nothing wired to
-production. **"PREREGISTERED — DATA WIRING, PART 2" (W8-W13, player / last-season /
-preseason / luck data) is in progress.**
+**"RESULTS — DATA WIRING PART 2, W8-W13" is the NEWEST result.** Every stat table we
+have, ~6,900 stats per game across 13 walk-forward families: 94 more tests, no
+survivors, both champions still fail 2025. Rams duplicate rows fixed (fit v16).
+"RESULTS — DATA WIRING W1-W7" precedes it.
 **"RESULTS — MODEL LAB" (search for that heading) is the NEWEST result.** 146
 preregistered tests across every forecaster: no model-based edge survives
 multiplicity correction, both champions fail the 2025 holdout, and all four
@@ -3728,6 +3729,44 @@ is its own Holm family (W8-W13 tests plus the pools re-run with them).
 - W11 preseason talent: fantasy expert rank (`nfl_historical_adp`, scraped before each season's first game, verified) as team sum of max(0, 200 - rank)/200 over its players, overall and by position; draft capital from `off_draft_picks` for drafts S and S-1, pick value exp(-(pick-1)/40). prior_week.
 - W12 luck regression: `nfl_game_variance` per-game luck points (turnover short fields etc.), from each team's perspective, aggregated over earlier games like W2. prior_week.
 - W13 everything prior_week: W1-W4 plus W8-W12.
+
+### RESULTS — DATA WIRING PART 2, W8-W13 (September 16, 2026, late night; `scripts/model-lab/wired2.py`, `lab.py --with-wired2`, evidence `model-lab/wired2-preds.jsonl`, `results-wired2.json`)
+
+**Fix made before scoring.** The first build reported unmatched team codes:
+season tables use Pro-Football-Reference and fantasy-site abbreviations (GNB,
+KAN, NWE, NOR, SFO, TAM and variants), so those teams' rows were silently
+dropped; W11 covered 563 games instead of 953. Aliases added and rebuilt. Only
+multi-team (2TM/3TM), free-agent and blank codes remain unmatched, correctly.
+W10 used exactly these `off_team_season` fields: implied_points_prior,
+hc_change, hc_tenure_years, team_pass_rate_prior, team_plays_per_game_prior,
+team_pass_epa_prior, team_points_per_game_prior, draft_picks_r1_3.
+
+| Family (walk-forward, 2022-25) | Features | Games | Margin MAE | Total MAE |
+|---|---|---|---|---|
+| W8 player feature vectors by position | up to 3,906 | 658 | 10.45 | 10.62 |
+| W9 weekly player tables rolled to team | 55 | 953 | 10.33 | 10.51 |
+| W10 last-season tables + preseason fields | 57 | 953 | 10.74 | 10.83 |
+| W11 preseason talent (expert ranks, draft) | 8 | 953 | 10.67 | 10.74 |
+| W12 luck regression | 3 | 953 | 10.69 | 10.60 |
+| W13 everything prior-week | up to 6,864 | 953 | 10.20 | 10.46 |
+
+**Part-2 family: 44 tests, zero Holm survivors.** Best single rows are totals
+again (W9 method A +0.20, z 2.06; W12 +0.11, z 1.82). With all 13 families in
+the pools, the totals flat-average pool (z 1.67) edged out Kalman totals (1.66)
+as champion and scored **+0.11, z 0.69 on 2025 — fail**. Spreads champion
+unchanged and still fails.
+
+**What the wiring shows, plainly.** Adding about 6,900 stats per game —
+every team-level, player-level, last-season, preseason and luck table we have
+— gives a score model about as accurate as the ones we already had (W13 10.20
+vs scores-only Kalman 10.01), and no edge against the opener. More data did
+not help because the market already prices what these stats say.
+
+**Rams duplicate fix shipped** (`nfl-pbp.js` `teamWeeks`, fit v16, challenger
+signals v4, `test/nfl-pbp-team-code-dedupe.test.js`): each 2021-2025 Rams game
+is read once, as LAR. 84 of 85 duplicate pairs were identical; 2025 week 3 vs
+PHI differed in off_cpoe and off_adot, and the LAR version is kept, matching
+what game joins already used.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

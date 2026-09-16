@@ -1,0 +1,37 @@
+{
+ "frozen_at": "2026-09-16",
+ "rules": {
+  "spreads": {
+   "strategy": "spreads|G|pool",
+   "trained_on": "2021-2025 (2021 only for score conversions)",
+   "spec": {
+    "names": [
+     "dynamic_state",
+     "kalman_score",
+     "kalman_score_epa",
+     "second_half_eff",
+     "success_rate"
+    ]
+   }
+  },
+  "totals": {
+   "strategy": "totals|G|pool",
+   "trained_on": "2021-2025 (2021 only for score conversions)",
+   "spec": {
+    "names": [
+     "dynamic_state",
+     "kalman_total",
+     "pace_total",
+     "sim_total",
+     "wired_W10_total",
+     "wired_W13_total",
+     "wired_W2_total",
+     "wired_W3_total",
+     "wired_W7_total",
+     "wired_W8_total",
+     "wired_W9_total"
+    ]
+   }
+  }
+ }
+}

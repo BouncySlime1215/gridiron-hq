@@ -3392,6 +3392,8 @@ market line — verified in `nfl-ensemble.js` — so only their grading changes)
 4. **There is still no confident tier.** Nick's "bet more when it's confident"
    plan has no historical support on clean openers.
 
+**Blend train/test mismatch for opener tests (found after this section was written).** Inside `fitEnsemble`, `market_regression` reads each past game's CLOSING spread (`spread: g.home_spread`, nfl-ensemble.js ~1526) and earns the largest blend weight (0.35-0.52 across the 102 weekly v14 fits). In the opener measurement, `marketOverride` feeds it the OPENER at prediction time, so the blend applies close-trained trust to the opener. The blend's opener-CLV numbers are therefore not a fair test of the blend; the four survivors never read the market and are unaffected. Also verified: the opener run did happen (102 weekly v14 fit artifacts in the extract DB, created 17:20-17:33 UTC matching the JSONL files and log), and it took ~12 minutes, not hours.
+
 **Still contaminated, not yet redone:** the full ensemble blend and drive sim
 saw placeholder openers through `marketOverride`/`spread` for the 127 repaired
 games, so their saved predictions there need a rerun; `seven-attack-tests.py`

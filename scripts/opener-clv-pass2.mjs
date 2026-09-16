@@ -65,7 +65,10 @@ const seasons = arg('--seasons', '2022,2023,2024,2025,2021').split(',').map(Numb
 fs.mkdirSync(out, { recursive: true });
 
 // Python OOF predictions, keyed by season|week|HOME. Game key is
-// "2021-w01-ATL@PHI" = season-wWW-AWAY@HOME.
+// "2021-w01-ATL@PHI" = season-wWW-HOME@AWAY -- HOME FIRST. Verified against
+// the sample row: 2021 week 1 ATL@PHI has actual_margin -26, which is
+// Atlanta (home) losing 6-32 to Philadelphia. The first draft of this script
+// read it as AWAY@HOME and matched zero games.
 const latest = JSON.parse(fs.readFileSync(
   'docs/betting-model/research/experiment-results/unified_margin_audit/LATEST.json', 'utf8'));
 const preds = JSON.parse(fs.readFileSync(path.join(latest.run_dir, 'predictions.json'), 'utf8'));
@@ -73,7 +76,7 @@ const pyByKey = new Map();
 for (const p of (Array.isArray(preds) ? preds : preds.predictions ?? [])) {
   const m = /^(\d{4})-w(\d{2})-([A-Z]+)@([A-Z]+)$/.exec(p.game ?? '');
   if (!m) continue;
-  pyByKey.set(`${+m[1]}|${+m[2]}|${m[4]}`, p);
+  pyByKey.set(`${+m[1]}|${+m[2]}|${m[3]}`, p);
 }
 console.error(`python predictions loaded: ${pyByKey.size} games from run ${latest.run_id}`);
 

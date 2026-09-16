@@ -2043,6 +2043,22 @@ non-contaminated forecaster graded**, ~40 tests. **Nothing is cited from this
 measurement unless it is positive on mean CLV AND survives Holm.** A null is
 a valid completion.
 
+**AMENDMENT, same evening, before full results (dated so it cannot be
+mistaken for the original declaration):** opener-CLV has a timing subtlety
+the declaration above did not spell out. The opener is posted ~Sunday
+night/Monday; the close incorporates everything learned through kickoff. A
+forecaster whose inputs are IN-WEEK (Friday's injury report, verified news,
+the weather forecast) will show opener-CLV simply by knowing what the opener
+could not — and that is NOT a tradable edge at the opening number, because
+by the time that information is public the line has already moved. Only a
+forecaster whose inputs were knowable AT THE OPENER (prior-week ratings, EPA
+through week N-1, a pre-week Elo) can claim its opener-CLV as edge.
+Therefore every forecaster will be classified by input timing
+(prior_week / in_week / mixed) before results are read, and **only
+prior_week forecasters may be cited as edge**; in_week ones are reported as
+"line-move prediction", a different and less valuable thing. This
+classification is being done from code now, ahead of the numbers.
+
 **Scripts:** `scripts/opener-clv-measurement.mjs` (pass 1: ensemble, components,
 sim — hours), `scripts/opener-clv-pass2.mjs` (Python + lineup — minutes),
 `scripts/opener-clv-summarize.mjs`. Rows and summary land in

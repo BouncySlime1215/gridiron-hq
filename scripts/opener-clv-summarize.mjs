@@ -1,6 +1,7 @@
 /**
  * Summarize the opener-CLV measurement (passes 1 and 2) into one honest
- * table. Reads docs/evidence/2026-09-16/opener-clv/games-*.jsonl and
+ * table. RUN WITH A SCRATCH GRIDIRON_DB_PATH (see the guard below); it
+ * needs no data from any database. Reads docs/evidence/2026-09-16/opener-clv/games-*.jsonl and
  * games-pass2-*.jsonl, grades EVERY forecaster from its raw margin with one
  * shared grader, and writes summary.json + summary.md beside them.
  *
@@ -44,6 +45,18 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+// GUARD (added after this script's first run crashed with "no such column:
+// spec_hash"): clv-core.js imports server/db/index.js, which OPENS AND
+// MIGRATES whatever GRIDIRON_DB_PATH points at -- and when it is unset, that
+// is the app's own server/data.sqlite. A summarizer must never touch a
+// production database as a side effect of importing a 3-line formula.
+// Refuse to run without an explicit path; the README example uses a scratch
+// file. (RUNBOOK §0a rule 1 exists for exactly this.)
+if (!process.env.GRIDIRON_DB_PATH) {
+  console.error('refusing to run: set GRIDIRON_DB_PATH to a scratch path, e.g. '
+    + 'GRIDIRON_DB_PATH=$(mktemp -u /tmp/gridiron-summ-XXXXXX).sqlite SCHEDULER_DISABLED=1 node scripts/opener-clv-summarize.mjs');
+  process.exit(2);
+}
 import { signedClvPoints } from '../server/services/clv-core.js';
 import { holm } from '../server/services/stats-util.js';
 
@@ -55,6 +68,45 @@ const dir = arg('--dir', 'docs/evidence/2026-09-16/opener-clv');
 const POOL = [2022, 2023, 2024, 2025];
 const SEPARATE = [2021];
 const CONTAMINATED = new Set(['python_correction', 'component:market_correction_research']);
+
+/**
+ * INPUT TIMING (the amendment to the preregistration, 2026-09-16): what
+ * information a forecaster used, relative to the OPENER it is graded against.
+ * Classified from each component's inputs (server/services/nfl-ensemble.js
+ * MODELS, verified by reading predict()) BEFORE full results were seen.
+ *
+ *   prior_week      results / team features through week N-1, schedule, rest.
+ *                   Knowable when the opener was posted -> opener-CLV here IS
+ *                   a claim about mispricing at the open. EDGE-ELIGIBLE.
+ *   in_week         injury reports (nfl_injuries), depth charts captured
+ *                   during the week (nfl_depth), game-day temp/wind. The
+ *                   opener could not know these; the close did. Opener-CLV
+ *                   here is "line-move prediction", not edge at the open.
+ *   third_party_bulk a retroactive backfill of a third party's history whose
+ *                   every row shares ONE fetched_at (nfl_nfelo_games: 1,725
+ *                   rows, one timestamp, 2026-09-16; teamrankings likewise).
+ *                   The values are nominally pre-game but cannot be proven
+ *                   point-in-time by our own clock, and the provider's model
+ *                   parameters were fit on the full history. Reported in its
+ *                   own tier, never cited as edge without an independent
+ *                   as-of source.
+ *   opener          the opener itself (market_anchor/market_regression under
+ *                   the override). Zero lean by construction; graded for
+ *                   completeness only.
+ */
+const INPUT_TIMING = {
+  ensemble_raw_blend: 'mixed', drive_sim: 'prior_week',
+  python_football: 'prior_week', python_unified: 'prior_week', python_correction: 'contaminated',
+  lineup_roster: 'in_week',
+  'component:availability': 'in_week', 'component:roster_strength': 'in_week',
+  'component:weather_total': 'in_week',
+  'component:nfelo_rating': 'third_party_bulk', 'component:nfelo_qb_adjustment': 'third_party_bulk',
+  'component:teamrankings_predictive': 'third_party_bulk',
+  'component:market_anchor': 'opener', 'component:market_regression': 'opener',
+  'component:market_correction_research': 'contaminated'
+};
+const timingOf = id => INPUT_TIMING[id] ?? (id.startsWith('component:') ? 'prior_week' : 'unknown');
+const EDGE_ELIGIBLE = new Set(['prior_week']);
 const BINS = [[0, 1], [1, 2], [2, 3], [3, 5], [5, Infinity]];
 
 const r2 = v => (Number.isFinite(v) ? +v.toFixed(2) : null);
@@ -171,13 +223,18 @@ for (const id of forecasters) {
   const pooled = all.filter(r => POOL.includes(r.season));
   summary.forecasters[id] = {
     contaminated: CONTAMINATED.has(id),
+    input_timing: timingOf(id),
     pooled_2022_2025: { ...stats(pooled), by_abs_lean: byBins(pooled) },
     by_season: Object.fromEntries(allSeasons.map(s => [s, stats(all.filter(r => r.season === s))]))
   };
 }
 
 // ---- multiplicity across the honest family ------------------------------
+// The declared family for the EDGE claim is the edge-eligible tier only
+// (prior_week inputs, our own clock). Everything else is reported but is not
+// a candidate for "edge at the opener", so it is not in this family.
 const family = forecasters.filter(id => !CONTAMINATED.has(id)
+  && EDGE_ELIGIBLE.has(timingOf(id))
   && summary.forecasters[id].pooled_2022_2025.clv_points.p_clustered != null);
 const rawP = family.map(id => summary.forecasters[id].pooled_2022_2025.clv_points.p_clustered);
 const adj = holm(rawP);
@@ -194,18 +251,20 @@ fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify(summary, null, 1
 const rowsMd = forecasters.map(id => {
   const p = summary.forecasters[id].pooled_2022_2025;
   const c = p.clv_points;
-  return `| ${summary.forecasters[id].contaminated ? '~~' + id + '~~ (contaminated)' : id} | ${p.n} | ${c.mean ?? ''} | ${c.se_clustered ?? ''} | ${c.z_clustered ?? ''} | ${c.p_clustered ?? ''} | ${c.p_holm ?? '—'} | ${p.clv_direction.rate ?? ''} | ${p.ats_open.rate ?? ''} |`;
+  const t = summary.forecasters[id].input_timing;
+  return `| ${summary.forecasters[id].contaminated ? '~~' + id + '~~' : id} | ${t} | ${p.n} | ${c.mean ?? ''} | ${c.se_clustered ?? ''} | ${c.z_clustered ?? ''} | ${c.p_clustered ?? ''} | ${c.p_holm ?? '—'} | ${p.clv_direction.rate ?? ''} | ${p.ats_open.rate ?? ''} |`;
 }).sort((a, b) => {
-  const za = parseFloat(a.split('|')[5]) || -99, zb = parseFloat(b.split('|')[5]) || -99;
+  const za = parseFloat(a.split('|')[6]) || -99, zb = parseFloat(b.split('|')[6]) || -99;
   return zb - za;
 });
 const md = [
   `# Opener CLV — every forecaster, pooled 2022-2025`,
   '', `Generated from ${dir}. 2021 is excluded from pooling (untrustworthy openers) and reported per-season in summary.json.`,
-  '', `Honest family for Holm: ${summary.multiplicity.family_size} forecasters. Raw p<0.05: ${summary.multiplicity.raw_passes_p05}. Holm p<0.05: ${summary.multiplicity.holm_passes_p05}. Positive mean AND Holm p<0.05: ${JSON.stringify(summary.multiplicity.positive_mean_and_holm_p05)}.`,
+  '', `Holm family = EDGE-ELIGIBLE tier only (input_timing = prior_week; see INPUT_TIMING in the script): ${summary.multiplicity.family_size} forecasters. Raw p<0.05: ${summary.multiplicity.raw_passes_p05}. Holm p<0.05: ${summary.multiplicity.holm_passes_p05}. Positive mean AND Holm p<0.05: ${JSON.stringify(summary.multiplicity.positive_mean_and_holm_p05)}.`,
   '', `Break-even ATS at -110 is 0.5238. Sorted by week-clustered z on mean CLV points.`,
-  '', `| forecaster | n | mean CLV pts | SE (wk-clustered) | z | p | p (Holm) | CLV direction | ATS vs open |`,
-  `|---|---|---|---|---|---|---|---|---|`,
+  '', `Only prior_week rows may be read as edge at the opener. in_week = line-move prediction (opener could not know it). third_party_bulk = single-timestamp backfill, clock unverifiable. Struck-through = contaminated by the close.`,
+  '', `| forecaster | input timing | n | mean CLV pts | SE (wk-clustered) | z | p | p (Holm) | CLV direction | ATS vs open |`,
+  `|---|---|---|---|---|---|---|---|---|---|`,
   ...rowsMd, ''
 ].join('\n');
 fs.writeFileSync(path.join(dir, 'summary.md'), md);

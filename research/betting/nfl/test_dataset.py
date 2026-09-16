@@ -26,7 +26,8 @@ import dataset as shared  # noqa: E402
 def build_fixture(path):
     con = sqlite3.connect(path)
     con.execute('''CREATE TABLE game_lines (season INTEGER, week INTEGER, team TEXT, opponent TEXT,
-        home INTEGER, spread REAL, total REAL, team_score INTEGER, opp_score INTEGER,
+        home INTEGER, spread REAL, total REAL, open_spread REAL, open_total REAL,
+        team_score INTEGER, opp_score INTEGER,
         gameday TEXT, rest_days INTEGER, div_game INTEGER, roof TEXT)''')
     con.execute('''CREATE TABLE nfl_team_week_features (season INTEGER, week INTEGER,
         team TEXT, features TEXT)''')
@@ -124,20 +125,21 @@ class SharedChronologyTests(unittest.TestCase):
             db = str(Path(tmp.name) / 'quarantine.sqlite')
             con = sqlite3.connect(db)
             con.execute('''CREATE TABLE game_lines (season INTEGER, week INTEGER, team TEXT,
-                opponent TEXT, home INTEGER, spread REAL, total REAL, team_score INTEGER,
-                opp_score INTEGER, gameday TEXT, rest_days INTEGER, div_game INTEGER, roof TEXT)''')
+                opponent TEXT, home INTEGER, spread REAL, total REAL, open_spread REAL, open_total REAL,
+                team_score INTEGER, opp_score INTEGER, gameday TEXT, rest_days INTEGER,
+                div_game INTEGER, roof TEXT)''')
             con.execute('''CREATE TABLE nfl_team_week_features (season INTEGER, week INTEGER,
                 team TEXT, features TEXT)''')
             con.execute('''INSERT INTO game_lines VALUES
-                (2024,1,'KC','BAL',1,-3,44,27,20,'2024-09-05',7,0,'dome')''')
+                (2024,1,'KC','BAL',1,-3,44,NULL,NULL,27,20,'2024-09-05',7,0,'dome')''')
             con.execute('''INSERT INTO game_lines VALUES
-                (2024,1,'BAL','KC',0,3,44,20,27,'2024-09-05',7,0,'dome')''')
+                (2024,1,'BAL','KC',0,3,44,NULL,NULL,20,27,'2024-09-05',7,0,'dome')''')
             con.execute("INSERT INTO nfl_team_week_features VALUES (2024,1,'KC','{\"net_epa_per_play\": 0.05}')")
             # No final score -- must be quarantined, not silently dropped.
             con.execute('''INSERT INTO game_lines VALUES
-                (2024,2,'KC','SF',1,-1,44,NULL,NULL,'2024-09-12',7,0,'dome')''')
+                (2024,2,'KC','SF',1,-1,44,NULL,NULL,NULL,NULL,'2024-09-12',7,0,'dome')''')
             con.execute('''INSERT INTO game_lines VALUES
-                (2024,2,'SF','KC',0,1,44,NULL,NULL,'2024-09-12',7,0,'dome')''')
+                (2024,2,'SF','KC',0,1,44,NULL,NULL,NULL,NULL,'2024-09-12',7,0,'dome')''')
             # Unparseable JSON -- must be quarantined too.
             con.execute("INSERT INTO nfl_team_week_features VALUES (2024,1,'BAL','not-json')")
             con.commit()
@@ -242,7 +244,8 @@ def build_multi_season_fixture(path):
     pbp_available can be tested both ways without touching the real DB."""
     con = sqlite3.connect(path)
     con.execute('''CREATE TABLE game_lines (season INTEGER, week INTEGER, team TEXT, opponent TEXT,
-        home INTEGER, spread REAL, total REAL, team_score INTEGER, opp_score INTEGER,
+        home INTEGER, spread REAL, total REAL, open_spread REAL, open_total REAL,
+        team_score INTEGER, opp_score INTEGER,
         gameday TEXT, rest_days INTEGER, div_game INTEGER, roof TEXT)''')
     con.execute('''CREATE TABLE nfl_team_week_features (season INTEGER, week INTEGER,
         team TEXT, features TEXT)''')
@@ -335,7 +338,8 @@ def build_betting_fixture(path):
     exactly like the real table paired_quotes/build_betting_dataset read."""
     con = sqlite3.connect(path)
     con.execute('''CREATE TABLE game_lines (season INTEGER, week INTEGER, team TEXT, opponent TEXT,
-        home INTEGER, spread REAL, total REAL, team_score INTEGER, opp_score INTEGER,
+        home INTEGER, spread REAL, total REAL, open_spread REAL, open_total REAL,
+        team_score INTEGER, opp_score INTEGER,
         gameday TEXT, rest_days INTEGER, div_game INTEGER, roof TEXT)''')
     con.execute('''CREATE TABLE nfl_team_week_features (season INTEGER, week INTEGER,
         team TEXT, features TEXT)''')
@@ -343,9 +347,9 @@ def build_betting_fixture(path):
         home TEXT, away TEXT, commence_time TEXT, book TEXT, market TEXT, side TEXT, phase TEXT,
         line REAL, price INTEGER, book_updated_at TEXT, source TEXT, fetched_at TEXT)''')
     con.execute('''INSERT INTO game_lines VALUES
-        (2023,1,'KC','DET',1,-3,44,27,20,'2023-09-07',7,0,'dome')''')
+        (2023,1,'KC','DET',1,-3,44,NULL,NULL,27,20,'2023-09-07',7,0,'dome')''')
     con.execute('''INSERT INTO game_lines VALUES
-        (2023,1,'DET','KC',0,3,44,20,27,'2023-09-07',7,0,'dome')''')
+        (2023,1,'DET','KC',0,3,44,NULL,NULL,20,27,'2023-09-07',7,0,'dome')''')
     quotes = [
         ('e1', 2023, 1, 'KC', 'DET', '2023-09-07T20:20:00Z', 'spreads', 'KC', 'open', -3.0, -110, '2023-09-05T12:00:00Z'),
         ('e1', 2023, 1, 'KC', 'DET', '2023-09-07T20:20:00Z', 'spreads', 'DET', 'open', 3.0, -110, '2023-09-05T12:00:30Z'),

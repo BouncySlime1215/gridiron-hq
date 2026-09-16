@@ -1,7 +1,8 @@
 # Execution status snapshot — 2026-09-15
 
-Where the betting-model work stands, pushed to GitHub on branch
-`cursor/betting-model-audit-fixes-1c85` (PR #6).
+Where the betting-model work stands on branch
+`cursor/betting-model-audit-fixes-1c85` (PR #6). The September 15 Codex continuation
+below is locally implemented and verified; this update does not claim a remote push.
 
 ## Done and pushed
 - Live-code audit + §0.1 reconciliation to `main`: `docs/evidence/2026-09-15/BETTING-MODEL-AUDIT-AND-PROFIT-PLAN.md`.
@@ -162,11 +163,136 @@ result also failed at the ensemble level. **Decision: keep `lambda=0`.** The fin
 is now real-data-confirmed rather than a fixture-only hypothesis, and written into
 the code's own docstring so the numbers exist the next time this comes up.
 
+## WP12 — JS half DONE, Python half BLOCKED (2026-09-15)
+Most of WP12 was already built and was verified rather than rebuilt:
+`forecast-combination.js` already refits **weekly** by default (`refit: 'week'`,
+matching what `ensembleLine` actually does in production), already refits the
+component reduction on the training block only at every cutoff, already treats
+equal-weight and inverse-MSE as first-class candidates rather than straw men,
+and already gates every comparison on Diebold-Mariano with the
+Harvey-Leybourne-Newbold correction clustered by week. The acceptance criterion
+"a held-out outcome mutation does not change its model" already had tests at
+both season and week cadence.
+
+What was genuinely missing were WP12's two named lineage deliverables, now
+added: (1) **immutable split manifests** — every fitted cutoff records the
+content-addressed identity of its own train/test split (sha256 over the sorted
+row-id list, so reordering the same rows hashes identically and one row moving
+across the boundary does not), with full row-id lists behind
+`includeSplitRowIds` so the cheap "is this the split I recorded" check never
+needs the expensive payload; and (2) an **active same-game straddle guard** that
+refuses — throws, not filters — a cutoff with one game's rows on both sides,
+because silently dropping the row would hide that the fit and every score past
+it are contaminated.
+
+One design correction worth recording: the guard first derived game identity
+from `season|home|away`, which the module's own synthetic fixtures immediately
+falsified — they recycle sixteen matchups through a season, so a derived key
+reported every recycled matchup as a leak. Game identity is now **read, never
+inferred** (`game_id`), and when rows do not state one the manifest says
+`not_verifiable_no_game_id` rather than reporting a clean pass (R28).
+`componentPredictionStream` now states `game_id`, so the real production stream
+reports `verified_by_game_id`.
+
+**Python half: unblocked, but mind the interpreter.** This was briefly recorded
+as blocked because `python3` could not import `sklearn`. The cause was not a
+missing install but the WRONG INTERPRETER being first on `PATH`:
+
+- `/opt/homebrew/bin/python3` → Python **3.14**, no sklearn. This is what a bare
+  `python3` resolves to, and what made the research modules look broken.
+- `/Library/Frameworks/Python.framework/Versions/3.12/bin/python3` (also
+  `/usr/local/bin/python3`) → Python **3.12** with **sklearn 1.9.1, numpy
+  2.2.2, joblib** installed. This is the one that works.
+
+Verified with that interpreter: `market_lab` and `tree_lab` both import, and
+`python3 -m unittest test_tree_lab test_market_lab test_dataset` runs **42 tests,
+all passing**. `lightgbm` is NOT installed, and `tree_lab` imports fine without
+it (it uses sklearn's own `HistGradientBoostingRegressor`); anything that needs
+lightgbm specifically would still need it added.
+
+Worth pinning this interpreter explicitly (a venv, or an absolute path in the
+research entry points) before the bridge work — the failure mode is silent and
+looks exactly like "the library isn't installed."
+
+## WP13 — totals contract DONE, serving path still open (2026-09-15)
+Also mostly already built, and verified: `spread-probabilities.js` already owns
+push-aware win/push/loss triples, exact-price EV, key-number behaviour,
+opposite-side reconciliation and fail-don't-clip validation; calibration is
+already bound to `forecastIdentity` (R15); and `predictiveDistribution()`'s
+undefendable `1 + min(0.25, disagreement/30)` interval inflation has already
+been replaced by a **split-conformal, Mondrian-binned** interval, which is
+ADD#15/#18's actual content.
+
+The genuinely open item was C12 — totals were not a first-class contract at all,
+only a spread one. Added `server/betting/nfl/contracts/total-probabilities.js`:
+a complete Over/Push/Under path with its own semantics, explicitly NOT a renamed
+spread. The differences that a rename would have broken, and which the tests
+pin: a total line is the **same number for both sides** (the side picks the
+direction of comparison, not the number — unlike a spread handicap, which is
+side-relative and which the spread module converts by negating the margin); the
+push condition is `T = L`; the outcome variable is a **non-negative sum**, so a
+margin distribution handed to the totals path is refused outright rather than
+priced; and reconciliation happens at the same line, one level down, in each
+side's own win/push/loss frame (comparing two over/push/under triples would be
+vacuous, since that partition is side-neutral — caught by a failing test, not
+by inspection). Price arithmetic is imported from the spread module rather than
+re-derived, so there is still exactly one implementation of the economics.
+
+**Still open:** the totals contract is not yet wired into a serving path — a
+totals DECISION needs the WP15-17 board/settlement work, and this package
+deliberately stops at the contract rather than renaming the spread board.
+
 ## Immediate front (order)
 WP15/D3 (done) -> WP08 (done) -> WP14 (done) -> FIX#28 (done) -> FIX#14 (investigated,
-no change) -> WP12-13 walk-forward + conformal -> unity (family adapters -> gated
-comparison + tree_lab -> Node bridge). Each behind the gates, registered as a trial,
-no staking authority.
+no change) -> WP12 (JS done, Python imports/tests available; full weekly pipeline still open) -> WP13 (totals contract done,
+serving path open) -> **unity: family adapters -> gated comparison + tree_lab -> Node
+bridge — the single biggest remaining item, and the one that finally lets the ALREADY
+TRAINED Stage 3 model be scored by the app instead of sitting on the shelf.** Each
+behind the gates, registered as a trial, no staking authority.
+
+### Python runtime reconciliation — September 15 continuation
+The original research venv still exists and works, including LightGBM. The
+previous `pip install` blocker was caused by checking the wrong interpreter.
+The original venv has sklearn 1.7.2, numpy 2.5.3, joblib 1.6.0 and LightGBM 4.7.0,
+matching the saved ridge artifact's recorded dependencies. The newer framework
+Python is useful for new fits but does not match that artifact's sklearn/numpy
+versions. The new adapter uses an explicit `GRIDIRON_RESEARCH_PYTHON` or the
+project's `research/.venv` and refuses incompatible saved-model runtimes.
+
+### What unity will and will not buy
+It makes the trained model **servable and judgeable**. It does not make it profitable:
+Stage 3 already ran on 6,499 real games and lost to the close (market MAE 10.249 vs
+ridge 10.675 / LightGBM 10.738), and the corpus's own literature explains why
+(Lopez-Matthews-Baumer: the closing line already encodes team strength;
+Claeskens: more components make an estimated combination worse, not better). Unity is
+what turns "we think it loses" into "we measured it losing, forward, under gates."
+
+## Codex continuation — first Python scoring connection (September 15)
+
+Recovered Claude session `c174766b-2011-40dd-b469-744caef3a0e5` and its six
+unfinished WP12/WP13 files at base `ace62c8`. Its final background suite had
+finished successfully after the session limit. Preserved those edits and
+continued the next serving-boundary work.
+
+- **Implemented:** Node calls the original saved Stage 3 ridge pipeline through
+  `server/betting/nfl/forecast/python-artifact.js`, Python `score_artifact.py`,
+  `trainedMarginFamilyForecast` and `scripts/score-nfl-artifact.mjs`. Requests
+  retain actual features and exact model/metadata hashes. No model reimplementation.
+- **Verified:** exact Node/Python parity on the existing artifact for all 16
+  completed 2026 Week 1 games; maximum absolute difference 0. This is historical
+  reconstruction and engineering evidence, not prospective T-60 or profit evidence.
+- **Corrected:** adapter output no longer rounds a valid probability triple back
+  into an invalid sum. New training identities include actual feature/label contents,
+  package versions, target and preprocessing; corrected source rows cannot reuse
+  stale `_features`. Old artifacts are preserved unchanged.
+- **Remaining:** upcoming-game feature freeze and receipt lineage, weekly fitting,
+  calibrator/combiner identities, scheduled candidate scoring and all-game recording.
+  The separate `tree_lab` cover classifier remains unconnected. The served ridge
+  margin model has no cover-probability calibrator and receives no betting authority.
+- **Scope:** this first bridge deliberately accepts reconstructed research requests
+  only. WP15 and the complete learned shadow path are still **partial**.
+
+See [scoring instructions and limits](../../../research/betting/nfl/SCORING.md).
 
 ## Time / effort read
 - Engineering, full 20-WP scope: the corpus's own estimate is ~41-78 engineer-days of

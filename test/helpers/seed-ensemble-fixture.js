@@ -247,6 +247,18 @@ export function seedEnsembleFixture({ run, rows = null }, {
         for (let k = 0; k < latentFactors; k++) f[k] = f[k] * 0.985 + normal(rand, 0, 0.12);
       }
 
+      // Real, week-spaced calendar dates (not drawn from `rand`, so this does
+      // not affect the PRNG stream or the gaussian/football determinism pair
+      // above). Every consumer used to receive the same `${season}-09-01`
+      // string for all 17 weeks of a season, which is fine for diagnostics
+      // that only key off (season, week) — but it collapses every game in a
+      // season onto one instant for any consumer that filters by real
+      // elapsed time (e.g. a decision-publication-lag cutoff), making whole
+      // seasons either wholly eligible or wholly excluded together instead
+      // of week by week.
+      const weekGameday = new Date(Date.UTC(season, 8, 1) + (week - 1) * 7 * 86400000)
+        .toISOString().slice(0, 10);
+
       const order = teams.map((_, i) => (i + week * 3) % teams.length);
       for (let pair = 0; pair < teams.length / 2; pair++) {
         const home = teams[order[pair]];
@@ -302,13 +314,13 @@ export function seedEnsembleFixture({ run, rows = null }, {
               open_spread,open_total,temp,wind,roof,rest_days,div_game,neutral_site,gameday)
              VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,0,?)`,
         season, week, home, away, homeSpread, marketTotal, homeScore, awayScore,
-        openSpread, openTotal, temp, wind, roof, homeRest, div, `${season}-09-01`);
+        openSpread, openTotal, temp, wind, roof, homeRest, div, weekGameday);
         run(`INSERT OR REPLACE INTO game_lines
              (season,week,team,opponent,home,spread,total,team_score,opp_score,
               open_spread,open_total,temp,wind,roof,rest_days,div_game,neutral_site,gameday)
              VALUES (?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,?,0,?)`,
         season, week, away, home, -homeSpread, marketTotal, awayScore, homeScore,
-        -openSpread, openTotal, temp, wind, roof, awayRest, div, `${season}-09-01`);
+        -openSpread, openTotal, temp, wind, roof, awayRest, div, weekGameday);
         inserted++;
       }
 

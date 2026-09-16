@@ -1,0 +1,511 @@
+{
+  "schema": "nfl-unified-margin-audit-latest-pointer-v1",
+  "run_id": "20260916T001206Z-5279a3f3",
+  "run_dir": "/Users/nick_matta/Documents/GitHub/gridiron-hq/docs/betting-model/research/experiment-results/unified_margin_audit/20260916T001206Z-5279a3f3",
+  "completed_at": "2026-09-16T00:14:28.642318+00:00",
+  "db_path": "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite",
+  "dataset_version": "nfl-shared-dataset-v1-football",
+  "weeks_fitted": 111,
+  "weeks_abstained": 0,
+  "games_scored": 1440,
+  "overall_common_support": {
+    "n_games": 1440,
+    "n_weeks": 111,
+    "unified": {
+      "n": 1440,
+      "mae": 10.270908471824669,
+      "rmse": 13.277634712189704,
+      "bias": -0.35812086057294373
+    },
+    "market": {
+      "n": 1440,
+      "mae": 9.779166666666667,
+      "rmse": 12.6658031503906,
+      "bias": -0.5361111111111111
+    },
+    "zero_information": {
+      "n": 1440,
+      "mae": 10.981202967501881,
+      "rmse": 14.166626485727342,
+      "bias": 0.10626966131920391
+    }
+  },
+  "paired_comparison": {
+    "statistic": "unified_mae_minus_market_mae (negative favors the unified model)",
+    "point_estimate": 0.4917418051580018,
+    "unified_mae": 10.270908471824669,
+    "market_mae": 9.779166666666667,
+    "n_games": 1440,
+    "n_weeks": 111,
+    "interval_not_computed_here": "server/services/backtest-significance.js pairedBootstrapDiff with groups=fit_week, via scripts/unified-margin-audit-significance.mjs",
+    "cluster_key": "fit_week (games within one week are not independent draws)"
+  },
+  "diagnostic_groups": {
+    "divisional_game": {
+      "n_games": 497,
+      "n_weeks": 100,
+      "unified": {
+        "n": 497,
+        "mae": 10.36232431844326,
+        "rmse": 13.281950572606977,
+        "bias": -1.0186784865029037
+      },
+      "market": {
+        "n": 497,
+        "mae": 9.806841046277667,
+        "rmse": 12.575286357048519,
+        "bias": -0.7987927565392354
+      },
+      "zero_information": {
+        "n": 497,
+        "mae": 11.05264087507147,
+        "rmse": 14.22013252721585,
+        "bias": -0.29518545047849126
+      },
+      "inconclusive_small_sample": false
+    },
+    "indoor_roof": {
+      "n_games": 450,
+      "n_weeks": 102,
+      "unified": {
+        "n": 450,
+        "mae": 10.206876489095043,
+        "rmse": 13.464430573514363,
+        "bias": 0.10413249081423348
+      },
+      "market": {
+        "n": 450,
+        "mae": 9.796666666666667,
+        "rmse": 12.944947534334261,
+        "bias": -0.3477777777777778
+      },
+      "zero_information": {
+        "n": 450,
+        "mae": 11.027322893487868,
+        "rmse": 14.389374586397325,
+        "bias": 0.7368929733991735
+      },
+      "inconclusive_small_sample": false
+    },
+    "market_double_digit_favorite": {
+      "n_games": 176,
+      "n_weeks": 80,
+      "unified": {
+        "n": 176,
+        "mae": 11.257556781125457,
+        "rmse": 14.08329264833082,
+        "bias": -5.51711838813122
+      },
+      "market": {
+        "n": 176,
+        "mae": 10.471590909090908,
+        "rmse": 13.029359329815666,
+        "bias": -3.5454545454545454
+      },
+      "zero_information": {
+        "n": 176,
+        "mae": 14.530275242686285,
+        "rmse": 17.888957369155822,
+        "bias": -7.857197279307711
+      },
+      "inconclusive_small_sample": false
+    },
+    "market_near_pick_em_under_3": {
+      "n_games": 349,
+      "n_weeks": 103,
+      "unified": {
+        "n": 349,
+        "mae": 9.993085227998993,
+        "rmse": 12.810718365796,
+        "bias": 0.8313077667576754
+      },
+      "market": {
+        "n": 349,
+        "mae": 9.459885386819485,
+        "rmse": 12.326184071057096,
+        "bias": 0.01862464183381089
+      },
+      "zero_information": {
+        "n": 349,
+        "mae": 9.726228425867232,
+        "rmse": 12.471932481389189,
+        "bias": 2.2122203018199373
+      },
+      "inconclusive_small_sample": false
+    },
+    "postseason_weeks_19_plus": {
+      "n_games": 65,
+      "n_weeks": 20,
+      "unified": {
+        "n": 65,
+        "mae": 9.993823090908712,
+        "rmse": 13.46973734454897,
+        "bias": -2.611002668812396
+      },
+      "market": {
+        "n": 65,
+        "mae": 9.976923076923077,
+        "rmse": 13.134657619033348,
+        "bias": -2.669230769230769
+      },
+      "zero_information": {
+        "n": 65,
+        "mae": 10.5515948617299,
+        "rmse": 13.732013972545257,
+        "bias": -3.8247891550634723
+      },
+      "inconclusive_small_sample": true
+    },
+    "rest_advantage_3plus_days": {
+      "n_games": 301,
+      "n_weeks": 88,
+      "unified": {
+        "n": 301,
+        "mae": 9.317296993710974,
+        "rmse": 12.195726261491428,
+        "bias": -0.2612810290069649
+      },
+      "market": {
+        "n": 301,
+        "mae": 8.938538205980066,
+        "rmse": 11.70026407402813,
+        "bias": -0.07807308970099668
+      },
+      "zero_information": {
+        "n": 301,
+        "mae": 10.385438761696575,
+        "rmse": 13.414464732717276,
+        "bias": 0.03294924781569416
+      },
+      "inconclusive_small_sample": false
+    },
+    "season_phase_early_weeks_1_6": {
+      "n_games": 482,
+      "n_weeks": 31,
+      "unified": {
+        "n": 482,
+        "mae": 10.409298709271967,
+        "rmse": 13.50168164584171,
+        "bias": 0.5662744740853194
+      },
+      "market": {
+        "n": 482,
+        "mae": 9.825726141078839,
+        "rmse": 12.896129883616391,
+        "bias": 0.2053941908713693
+      },
+      "zero_information": {
+        "n": 482,
+        "mae": 10.805393691882134,
+        "rmse": 14.029817369429828,
+        "bias": 1.050261884074733
+      },
+      "inconclusive_small_sample": false
+    },
+    "season_phase_late_weeks_14_18": {
+      "n_games": 388,
+      "n_weeks": 25,
+      "unified": {
+        "n": 388,
+        "mae": 10.418779209865525,
+        "rmse": 13.24491570588517,
+        "bias": -1.4559776305502994
+      },
+      "market": {
+        "n": 388,
+        "mae": 9.88659793814433,
+        "rmse": 12.548051970223215,
+        "bias": -1.4768041237113403
+      },
+      "zero_information": {
+        "n": 388,
+        "mae": 11.407176773811715,
+        "rmse": 14.507627094009042,
+        "bias": -0.9462351810394324
+      },
+      "inconclusive_small_sample": false
+    },
+    "season_phase_mid_weeks_7_13": {
+      "n_games": 505,
+      "n_weeks": 35,
+      "unified": {
+        "n": 505,
+        "mae": 10.060874034102069,
+        "rmse": 13.060413479133512,
+        "bias": -0.10693830021354658
+      },
+      "market": {
+        "n": 505,
+        "mae": 9.626732673267327,
+        "rmse": 12.471055597774082,
+        "bias": -0.24653465346534653
+      },
+      "zero_information": {
+        "n": 505,
+        "mae": 10.877018335572535,
+        "rmse": 14.08627874826563,
+        "bias": 0.5199061970258572
+      },
+      "inconclusive_small_sample": false
+    }
+  },
+  "market_correction": {
+    "recipe_version": "market-correction-recipe-v1",
+    "availability_path": null,
+    "overall": {
+      "n_games": 1440,
+      "n_weeks": 111,
+      "correction": {
+        "n": 1440,
+        "mae": 9.913208378687067,
+        "rmse": 12.773238443648543,
+        "bias": -0.37439099707575446
+      },
+      "football_alone": {
+        "n": 1440,
+        "mae": 10.274788098207381,
+        "rmse": 13.283829202208032,
+        "bias": -0.4566547786126546
+      },
+      "market": {
+        "n": 1440,
+        "mae": 9.779166666666667,
+        "rmse": 12.6658031503906,
+        "bias": -0.5361111111111111
+      }
+    },
+    "vs_market": {
+      "statistic": "correction_mae_minus_market_mae (negative favors the correction head)",
+      "point_estimate": 0.13404171202039983,
+      "correction_mae": 9.913208378687067,
+      "market_mae": 9.779166666666667,
+      "n_games": 1440,
+      "n_weeks": 111,
+      "interval_not_computed_here": "server/services/backtest-significance.js pairedBootstrapDiff with groups=fit_week, via scripts/unified-margin-audit-significance.mjs",
+      "cluster_key": "fit_week (games within one week are not independent draws)"
+    },
+    "vs_football_alone": {
+      "statistic": "correction_mae_minus_football_alone_mae (negative favors the correction head)",
+      "point_estimate": -0.3615797195203143,
+      "correction_mae": 9.913208378687067,
+      "football_alone_mae": 10.274788098207381,
+      "n_games": 1440,
+      "n_weeks": 111,
+      "interval_not_computed_here": "server/services/backtest-significance.js pairedBootstrapDiff with groups=fit_week, via scripts/unified-margin-audit-significance.mjs",
+      "cluster_key": "fit_week (games within one week are not independent draws)"
+    },
+    "diagnostic_groups": {
+      "divisional_game": {
+        "n_games": 497,
+        "n_weeks": 100,
+        "correction": {
+          "n": 497,
+          "mae": 10.045032517259287,
+          "rmse": 12.769113279600013,
+          "bias": -0.745345189486014
+        },
+        "football_alone": {
+          "n": 497,
+          "mae": 10.345176693574382,
+          "rmse": 13.304939818157306,
+          "bias": -1.2864697942078682
+        },
+        "market": {
+          "n": 497,
+          "mae": 9.806841046277667,
+          "rmse": 12.575286357048519,
+          "bias": -0.7987927565392354
+        },
+        "inconclusive_small_sample": false
+      },
+      "indoor_roof": {
+        "n_games": 450,
+        "n_weeks": 102,
+        "correction": {
+          "n": 450,
+          "mae": 9.876764966248452,
+          "rmse": 12.99110529600026,
+          "bias": -0.19214945112542978
+        },
+        "football_alone": {
+          "n": 450,
+          "mae": 10.20669823161895,
+          "rmse": 13.467965030122773,
+          "bias": -0.0018035465026464534
+        },
+        "market": {
+          "n": 450,
+          "mae": 9.796666666666667,
+          "rmse": 12.944947534334261,
+          "bias": -0.3477777777777778
+        },
+        "inconclusive_small_sample": false
+      },
+      "market_double_digit_favorite": {
+        "n_games": 176,
+        "n_weeks": 80,
+        "correction": {
+          "n": 176,
+          "mae": 10.981023708751401,
+          "rmse": 13.369402063542259,
+          "bias": -3.738250668109396
+        },
+        "football_alone": {
+          "n": 176,
+          "mae": 11.15040662766688,
+          "rmse": 13.970466636962668,
+          "bias": -5.267602624244484
+        },
+        "market": {
+          "n": 176,
+          "mae": 10.471590909090908,
+          "rmse": 13.029359329815666,
+          "bias": -3.5454545454545454
+        },
+        "inconclusive_small_sample": false
+      },
+      "market_near_pick_em_under_3": {
+        "n_games": 349,
+        "n_weeks": 103,
+        "correction": {
+          "n": 349,
+          "mae": 9.41847766956479,
+          "rmse": 12.250446349951122,
+          "bias": 0.20757887302103065
+        },
+        "football_alone": {
+          "n": 349,
+          "mae": 10.0246655683966,
+          "rmse": 12.851570339079847,
+          "bias": 0.6863315238315596
+        },
+        "market": {
+          "n": 349,
+          "mae": 9.459885386819485,
+          "rmse": 12.326184071057096,
+          "bias": 0.01862464183381089
+        },
+        "inconclusive_small_sample": false
+      },
+      "postseason_weeks_19_plus": {
+        "n_games": 65,
+        "n_weeks": 20,
+        "correction": {
+          "n": 65,
+          "mae": 9.954612288033742,
+          "rmse": 13.057753365491251,
+          "bias": -2.3702542645300833
+        },
+        "football_alone": {
+          "n": 65,
+          "mae": 10.022078765674934,
+          "rmse": 13.473817834959673,
+          "bias": -2.360197012197779
+        },
+        "market": {
+          "n": 65,
+          "mae": 9.976923076923077,
+          "rmse": 13.134657619033348,
+          "bias": -2.669230769230769
+        },
+        "inconclusive_small_sample": true
+      },
+      "rest_advantage_3plus_days": {
+        "n_games": 301,
+        "n_weeks": 88,
+        "correction": {
+          "n": 301,
+          "mae": 9.32047101200703,
+          "rmse": 12.055500349043076,
+          "bias": 0.21771745204626908
+        },
+        "football_alone": {
+          "n": 301,
+          "mae": 9.33922916823877,
+          "rmse": 12.238631397825504,
+          "bias": -0.40200910001635365
+        },
+        "market": {
+          "n": 301,
+          "mae": 8.938538205980066,
+          "rmse": 11.70026407402813,
+          "bias": -0.07807308970099668
+        },
+        "inconclusive_small_sample": false
+      },
+      "season_phase_early_weeks_1_6": {
+        "n_games": 482,
+        "n_weeks": 31,
+        "correction": {
+          "n": 482,
+          "mae": 9.931317055067879,
+          "rmse": 12.999206823673092,
+          "bias": 0.2012231194072267
+        },
+        "football_alone": {
+          "n": 482,
+          "mae": 10.416805210997765,
+          "rmse": 13.473565396028125,
+          "bias": 0.4635782761078164
+        },
+        "market": {
+          "n": 482,
+          "mae": 9.825726141078839,
+          "rmse": 12.896129883616391,
+          "bias": 0.2053941908713693
+        },
+        "inconclusive_small_sample": false
+      },
+      "season_phase_late_weeks_14_18": {
+        "n_games": 388,
+        "n_weeks": 25,
+        "correction": {
+          "n": 388,
+          "mae": 10.1123274156786,
+          "rmse": 12.722101023457844,
+          "bias": -1.2915092531565537
+        },
+        "football_alone": {
+          "n": 388,
+          "mae": 10.403794775679307,
+          "rmse": 13.267687799840616,
+          "bias": -1.6047027368727398
+        },
+        "market": {
+          "n": 388,
+          "mae": 9.88659793814433,
+          "rmse": 12.548051970223215,
+          "bias": -1.4768041237113403
+        },
+        "inconclusive_small_sample": false
+      },
+      "season_phase_mid_weeks_7_13": {
+        "n_games": 505,
+        "n_weeks": 35,
+        "correction": {
+          "n": 505,
+          "mae": 9.737608730220137,
+          "rmse": 12.555988950141522,
+          "bias": 0.03774165955609632
+        },
+        "football_alone": {
+          "n": 505,
+          "mae": 10.072648033634188,
+          "rmse": 13.08775947126149,
+          "bias": -0.20790127244893356
+        },
+        "market": {
+          "n": 505,
+          "mae": 9.626732673267327,
+          "rmse": 12.471055597774082,
+          "bias": -0.24653465346534653
+        },
+        "inconclusive_small_sample": false
+      }
+    },
+    "weeks_correction_fitted": 111,
+    "weeks_correction_abstained": 0
+  },
+  "verdict": "Weekly refit over 111 weeks and 1440 games on common support with the market. Unified margin model: MAE 10.271 / RMSE 13.278 / bias -0.358. Market baseline: MAE 9.779 / RMSE 12.666 / bias -0.536. Zero-information baseline: MAE 10.981. The unified model's MAE is 0.492 points/game higher than the market's. Whether that difference survives week-clustered resampling is NOT decided here: run server/services/backtest-significance.js pairedBootstrapDiff with groups=fit_week, via scripts/unified-margin-audit-significance.mjs over predictions.json. A point difference without that interval is not a finding, in either direction. The nominal 80% interval covered 80.0% of outcomes (mean width 34.2 points). Coverage measured inside the audit window is not a guarantee on future dependent games. Market-correction head (Phase 1): over 1440 market-evidenced games, correction MAE 9.913, football-alone MAE 10.275, market MAE 9.779. Correction vs the market: 0.134 points/game higher (interval not computed here; see server/services/backtest-significance.js pairedBootstrapDiff with groups=fit_week, via scripts/unified-margin-audit-significance.mjs). Correction vs football-alone: 0.362 points/game lower (interval not computed here; see server/services/backtest-significance.js pairedBootstrapDiff with groups=fit_week, via scripts/unified-margin-audit-significance.mjs). Per Stage 3's own rule, the correction head must beat BOTH baselines on the same games to be anything more than a research candidate -- beating football-alone without beating the market proves nothing about betting.",
+  "authority": "research_only"
+}

@@ -1,0 +1,150 @@
+{
+  "schema": "nfl-unified-margin-audit-v1",
+  "question": "Does the unified_margin weekly-refit blend beat the market line on margin MAE, on the same games, under earlier-only training?",
+  "candidate": "unified_model.fit_unified (RECIPE below), refit once per test week",
+  "recipe": {
+    "version": "unified-margin-recipe-v1",
+    "families": [
+      "ridge",
+      "lightgbm"
+    ],
+    "ridge_alphas": [
+      1.0,
+      10.0,
+      100.0
+    ],
+    "lightgbm_configs": [
+      {
+        "name": "few_shallow",
+        "params": {
+          "n_estimators": 40,
+          "max_depth": 2,
+          "num_leaves": 4,
+          "min_child_samples": 40,
+          "learning_rate": 0.08
+        }
+      },
+      {
+        "name": "mid_shallow",
+        "params": {
+          "n_estimators": 80,
+          "max_depth": 3,
+          "num_leaves": 7,
+          "min_child_samples": 25,
+          "learning_rate": 0.05
+        }
+      },
+      {
+        "name": "many_shallow_slow",
+        "params": {
+          "n_estimators": 150,
+          "max_depth": 3,
+          "num_leaves": 8,
+          "min_child_samples": 15,
+          "learning_rate": 0.03
+        }
+      }
+    ],
+    "combination_weeks": 24,
+    "calibration_weeks": 12,
+    "combination_alpha": 10.0,
+    "minimum_base_rows": 200,
+    "minimum_combination_rows": 100,
+    "minimum_calibration_rows": 100,
+    "combination": "expert_selector_lab.simplex_ridge; nonnegative weights summing to one",
+    "calibration": "held-out residual distribution and split-conformal absolute-error interval",
+    "outer_results_used_for_selection": false,
+    "authority": "research_only"
+  },
+  "baselines": {
+    "market": "negated stored historical spread (-market_spread)",
+    "zero_information": "mean actual_margin of that week's own training set"
+  },
+  "scheme": {
+    "granularity": "one refit per (season, week)",
+    "cutoff": "weekly_training.weekly_origin(earliest decision_at in the test week) -- production's Wednesday-noon America/New_York fit slot",
+    "eligibility": "model_artifact.eligible_football_rows (decision_at + dataset.RESULT_PUBLICATION_LAG strictly before the cutoff)",
+    "test_week_exclusion": "the test week's own games can never satisfy that rule"
+  },
+  "secondary_candidate": {
+    "name": "market_correction.fit_market_correction (recipe below), refit on the same weekly training set, scored on the same test week, abstaining independently",
+    "recipe": {
+      "version": "market-correction-recipe-v1",
+      "football_family": "ridge (frozen 14-feature contract, stage3.FEATURE_NAMES)",
+      "correction_family": "ridge",
+      "correction_alpha_grid": [
+        1.0,
+        10.0,
+        30.0,
+        100.0
+      ],
+      "correction_feature_names": [
+        "football_prediction",
+        "market_spread",
+        "market_movement"
+      ],
+      "target": "market_residual = actual_margin - market_prediction (market_prediction = -market_spread)",
+      "combination_weeks": 24,
+      "calibration_weeks": 12,
+      "minimum_base_rows": 200,
+      "minimum_combination_rows": 100,
+      "minimum_calibration_rows": 100,
+      "outer_results_used_for_selection": false,
+      "authority": "research_only"
+    },
+    "availability_path": null,
+    "baselines": [
+      "market",
+      "football_alone (the correction head's own base model)"
+    ],
+    "decision_rule": "must beat BOTH baselines on the same games to be more than a research candidate; beating football-alone without beating the market proves nothing about betting"
+  },
+  "horizons": {
+    "model_weights": "fit at the Wednesday-noon slot; only outcomes published (gameday + RESULT_PUBLICATION_LAG) strictly before that slot",
+    "row_features": "as of that game's own kickoff, under the same publication lag (dataset.build_football_dataset: decision_at = gameday)",
+    "market_baseline_and_correction_features": "the stored CLOSING line (kickoff horizon). correction-vs-market is horizon-matched; correction-vs-football_alone is not (the correction head sees the close, football-alone does not)"
+  },
+  "primary_metric": "MAE of predicted margin vs actual_margin, on common support with the market",
+  "secondary_metrics": [
+    "RMSE",
+    "signed bias",
+    "empirical coverage of the nominal 80% interval"
+  ],
+  "uncertainty": "not computed in this module; server/services/backtest-significance.js pairedBootstrapDiff with groups=fit_week, via scripts/unified-margin-audit-significance.mjs",
+  "diagnostic_groups": [
+    "divisional_game",
+    "indoor_roof",
+    "market_double_digit_favorite",
+    "market_near_pick_em_under_3",
+    "postseason_weeks_19_plus",
+    "rest_advantage_3plus_days",
+    "season_phase_early_weeks_1_6",
+    "season_phase_late_weeks_14_18",
+    "season_phase_mid_weeks_7_13"
+  ],
+  "min_group_games_before_reading_a_group": 100,
+  "decision_rule": "Report the measured result. A result where the market wins is a valid completion and does not license further searching for a configuration that wins.",
+  "explicitly_not_claimed": [
+    "betting profitability (no verified decision-time executable quotes are used)",
+    "prospective validity (this history is development data)"
+  ],
+  "window": {
+    "min_test_season": 2021,
+    "through_season": 2026
+  },
+  "seed": 30717,
+  "authority": "research_only",
+  "run_id": "20260916T001206Z-5279a3f3",
+  "protocol_hash": "5279a3f3b3809d6f77f15d7990bd6c157624b158072b9c764610f7e5025d88bb",
+  "code_identity": {
+    "dataset.py": "f0fc9c9a60335f55222044ae4fd052dd412b6d41f103d698150d30994ae5c1ff",
+    "market_correction.py": "103ba9da79a3dfc4c9ba80d24d5ffe00924878ee156a24507a322ef4b545af24",
+    "model_artifact.py": "ffbe8e611ad7672ddcbb5d53490cc57bb6cb8c5e3999c02fc908db67e3649c1c",
+    "stage3_team_strength.py": "ed871120432ee4854671a1714cab428f1c550ceab0f15f0e14d23b525cc6a4a7",
+    "unified_margin_audit.py": "337ca971dd0c97fcd581bc5d624eb4a8e32b50b70b2a351540de8b0fb98d48f1",
+    "unified_model.py": "b103654967aa5b9d2f83a44200f52b7e5571d489cbdc1f57b87271c59d24e022",
+    "weekly_training.py": "b6591b082e3171a7bc098372b8fb348f7d20d85a8161cea8f57dc29d5b376f85"
+  },
+  "declared_at": "2026-09-16T00:12:06.645795+00:00",
+  "results_exist_yet": true
+}

@@ -1,0 +1,391 @@
+{
+ "family": "external-models-venue-coaching-weather",
+ "tables": [
+  {
+   "table": "nfl_nfelo_games",
+   "writer": "server/services/nfelo.js loadGames() :128-145 (INSERT ... ON CONFLICT(game_id) DO UPDATE) + loadHps() :159-160 (UPDATE merges home_line_pre_regression/market_regression_factor/market_implied_elo_dif); both called from syncNfelo() :235-249",
+   "external_source": "greerreNFL/nfelo GitHub raw CSVs (nfelo_games.csv + historic_projected_spreads.csv). Scheduler job `nfelo_sync` (scheduler.js:814-815, run=refreshNfelo :337-340, tier growth, maxAgeMinutes 360) -> registered via allSources() scheduled list (source-registry.js:280-282). Manual: POST /nfelo/sync (routes/nfl-market.js:120-121).",
+   "external_endpoint": "https://raw.githubusercontent.com/greerreNFL/nfelo/main/output_data/nfelo_games.csv (nfelo.js:40); https://raw.githubusercontent.com/greerreNFL/nfelo/main/output_data/historic_projected_spreads.csv (nfelo.js:41)",
+   "receipt_clock": "fetched_at (nfelo.js:236 one `fetchedAt` per syncNfelo run, written :145; the HPS UPDATE at :159 does not touch it)",
+   "readers": [
+    "server/services/nfelo.js:271 nfeloFeatures(), :300-307 nfeloStatus()",
+    "server/services/nfl-ensemble.js:1522,:2200,:2372 ctx `nfelo: nfeloFeatures(...)`; MODELS nfelo_rating :734-747 and nfelo_qb_adjustment :750-762 read c.nfelo",
+    "server/services/nfl-matchup-specialists.js:137-141 role nfelo_line (spread - nfelo_pre_line, qb_adj_diff)",
+    "server/services/nfl-expert-council.js:51 nfelo_line expert, :592 via matchupOpinion",
+    "server/services/beat-the-close.js:260 (shadow CLV decisions)",
+    "server/services/line-move-study.js:214 (line study)",
+    "server/services/nfl-blind-audit.js (audit)",
+    "server/routes/nfl-market.js:119 GET /nfelo/status"
+   ],
+   "reaches_forecast": true,
+   "reaches_live_pick": false,
+   "evidence": "reaches_forecast: nfl-ensemble.js:2200 `nfelo: nfeloFeatures(season, week, home, away)` in ensembleLine ctx; predict() at :744-746 `(n.nfelo_diff + (n.hfa_mod ?? 0)) / 25`; nfl-matchup-specialists.js:139. reaches_live_pick false: both consuming MODELS are `challengerOnly: true` (nfl-ensemble.js:735, :751); nfl-auto-picks.js:84-85 defaults includeChallengers=false and :164 filters `!m.challenger_only`; nfl-ensemble.js:2235-2252 blend filters `(includeChallengers || !m.challenger_only)`. grep 'c.nfelo' in nfl-ensemble.js hits only :744 and :759. sqlite: SELECT COUNT(*), MIN(season)||'-'||MAX(season), COUNT(DISTINCT fetched_at), MIN(fetched_at), MAX(fetched_at), SUM(home_line_pre_regression IS NOT NULL) FROM nfl_nfelo_games -> 1725|2020-2026|1|2026-09-16T00:07:45.840Z|2026-09-16T00:07:45.840Z|1439",
+   "row_count": 1725,
+   "seasons": "2020-2026"
+  },
+  {
+   "table": "nfl_nfelo_qb",
+   "writer": "server/services/nfelo.js loadQb() :109-115 (INSERT OR REPLACE), called from syncNfelo() :241",
+   "external_source": "greerreNFL/nfeloqb GitHub raw CSV qb_elos.csv (FiveThirtyEight-schema QB Elo). Same scheduler job `nfelo_sync` (scheduler.js:814, refreshNfelo :337-340) and POST /nfelo/sync (nfl-market.js:120).",
+   "external_endpoint": "https://raw.githubusercontent.com/greerreNFL/nfeloqb/main/qb_elos.csv (nfelo.js:39)",
+   "receipt_clock": "fetched_at (nfelo.js:236 single fetchedAt per run, written :115)",
+   "readers": [
+    "server/services/nfelo.js:274-279 nfeloFeatures() (elo_diff, qbelo_diff, qb_adj_diff fallback when nfl_nfelo_games lacks home/away_538_qb_adj), :304 nfeloStatus()",
+    "server/services/nfl-ensemble.js:1522,:2200,:2372 ctx; nfelo_qb_adjustment :758-762 reads c.nfelo.qb_adj_diff (elo_diff/qbelo_diff are not read by any MODEL)",
+    "server/services/nfl-matchup-specialists.js:141 (qb_adj_diff as second nfelo_line feature)",
+    "server/services/beat-the-close.js:260",
+    "server/services/line-move-study.js:214",
+    "server/routes/nfl-market.js:119"
+   ],
+   "reaches_forecast": true,
+   "reaches_live_pick": false,
+   "evidence": "nfelo.js:282 `qb_adj_diff: game ? diff(game.home_538_qb_adj, game.away_538_qb_adj) : qb ? oriented(qb.qb1_adj, qb.qb2_adj) : null` -> nfl-ensemble.js:761 `margin: n.qb_adj_diff / 25` (nfelo_qb_adjustment, challengerOnly :751). Live pick false for the same challengerOnly/includeChallengers=false reason as nfl_nfelo_games (nfl-auto-picks.js:84-85,:164). sqlite: SELECT COUNT(*), MIN(season)||'-'||MAX(season), COUNT(DISTINCT fetched_at), MIN(fetched_at), MAX(fetched_at) FROM nfl_nfelo_qb -> 1725|2020-2026|1|2026-09-16T00:07:45.840Z|2026-09-16T00:07:45.840Z",
+   "row_count": 1725,
+   "seasons": "2020-2026"
+  },
+  {
+   "table": "nfl_external_ratings (source=espn_fpi)",
+   "writer": "server/services/nfl-external-ratings.js writeRatings() :58-59 (INSERT OR REPLACE), called by syncFpi() :120",
+   "external_source": "ESPN Football Power Index JSON API (undocumented public endpoint, browser UA). Scheduler job `nfl_external_ratings` (scheduler.js:816-817, run=refreshExternalRatings :343-348, tier growth, maxAgeMinutes 1440) -> registered via allSources() scheduled list.",
+   "external_endpoint": "https://site.web.api.espn.com/apis/fitt/v3/sports/football/nfl/powerindex?region=us&lang=en (nfl-external-ratings.js:39; `&season=${season}` appended :110)",
+   "receipt_clock": "fetched_at (nfl-external-ratings.js:119 one timestamp per syncFpi run)",
+   "readers": [
+    "server/services/nfl-external-ratings.js:253-260 externalRatingsFeatures() computes fpi_diff; :264 externalRatings(); :270-273 externalRatingsStatus()",
+    "server/services/nfl-matchup-specialists.js:145 calls externalRatingsFeatures but :146-147 consume only ext.teamrankings_diff (fpi_diff unused)",
+    "server/services/beat-the-close.js:262 (shadow CLV)",
+    "server/services/line-move-study.js:225 (line study)",
+    "server/services/nfl-data-consistency.js:223 (coverage audit)",
+    "server/services/nfl-blind-audit.js (audit)",
+    "scripts/export-teamrankings-features.mjs:106 filters source='teamrankings_predictive' (FPI rows excluded)",
+    "server/routes/nfl-market.js:123 GET /external-ratings/status"
+   ],
+   "reaches_forecast": false,
+   "reaches_live_pick": false,
+   "evidence": "No MODEL/specialist/council/drive-sim/Python reader consumes fpi_diff: nfl-matchup-specialists.js:146 `if (spread == null || !Number.isFinite(ext.teamrankings_diff)) return null; return [ext.teamrankings_diff + spread]`; grep 'fpi' in nfl-ensemble.js, nfl-expert-council.js, nfl-drive-sim.js, research/betting/nfl/*.py -> no hits. File header :3-4 states 'Neither is a model input by default'. sqlite: SELECT source, COUNT(*), MIN(season)||'-'||MAX(season), COUNT(DISTINCT fetched_at), MIN(fetched_at), MAX(fetched_at), COUNT(DISTINCT season||'|'||week) FROM nfl_external_ratings GROUP BY source -> espn_fpi|64|2026-2026|2|2026-09-14T16:23:36.440Z|2026-09-15T16:30:17.906Z|2",
+   "row_count": 64,
+   "seasons": "2026-2026"
+  },
+  {
+   "table": "nfl_external_ratings (source=teamrankings_predictive)",
+   "writer": "server/services/nfl-external-ratings.js writeRatings() :58-59 (INSERT OR REPLACE), called by syncTeamRankings() :236 with detail.as_of/wednesday :235",
+   "external_source": "TeamRankings predictive-ratings HTML page scraped with `?date=YYYY-MM-DD` archive (1.5 s pause). Scheduler job `nfl_external_ratings` (scheduler.js:816, refreshExternalRatings :346 passes `{ seasons: [], current: true }` -> current week only). The 2022-2025 Wednesday backfill (seasons param) has no route/script/scheduler caller found in server/ scripts/ -> loaded by an unrecorded ad hoc call (unverified).",
+   "external_endpoint": "https://www.teamrankings.com/nfl/ranking/predictive-by-other/ (nfl-external-ratings.js:40; fetched as `${TEAMRANKINGS_URL}?date=${date}` :180)",
+   "receipt_clock": "fetched_at (nfl-external-ratings.js:236 `new Date().toISOString()` per week written); source's own date lives in detail_json.$.as_of (:235)",
+   "readers": [
+    "server/services/nfl-external-ratings.js:210-212 (skip already-snapshotted weeks), :253-260 externalRatingsFeatures() teamrankings_diff, :270-273 status",
+    "server/services/nfl-matchup-specialists.js:143-147 role teamrankings_line (EXTERNAL_LINE_ROLES :248)",
+    "server/services/nfl-expert-council.js:52 teamrankings_line expert, :592 via matchupOpinion",
+    "scripts/export-teamrankings-features.mjs:106 SELECT season, week, team, rating ... -> writes research/teamrankings-lookup.json (:62,:168)",
+    "server/services/nfl-teamrankings-lookup.js:35,:64 reads that JSON file (NOT the table) -> nfl-ensemble.js MODEL teamrankings_predictive :720-731",
+    "server/services/beat-the-close.js:262",
+    "server/services/line-move-study.js:225",
+    "server/services/nfl-data-consistency.js:223",
+    "server/services/nfl-blind-audit.js",
+    "server/routes/nfl-market.js:123"
+   ],
+   "reaches_forecast": true,
+   "reaches_live_pick": false,
+   "evidence": "reaches_forecast: nfl-matchup-specialists.js:145-147 `const ext = externalRatingsFeatures(...); return [ext.teamrankings_diff + spread]` (specialist file); nfl-expert-council.js:52 `{ id: 'teamrankings_line', kind: 'external_model' }`; nfl-ensemble.js:729 `teamrankingsRatingDiff(c.season, c.week, c.home)` reads the exported lookup. Live pick false: teamrankings_predictive is `challengerOnly: true` (nfl-ensemble.js:721) and nfl-auto-picks.js:84-85/:164 excludes challengers; the ensemble path reads research/teamrankings-lookup.json, not the table. sqlite (same GROUP BY query) -> teamrankings_predictive|2368|2022-2026|74|2026-09-02T22:29:08.470Z|2026-09-15T16:30:18.486Z|74 weeks",
+   "row_count": 2368,
+   "seasons": "2022-2026"
+  },
+  {
+   "table": "nfl_stadiums",
+   "writer": "server/services/nfelo.js upsertStadium() :199-203 (INSERT OR REPLACE), called from loadStadiums() :207-211 (stadiums.csv) AND loadTeamStadiums() :219 (team_stadiums.csv repeats venue columns, see :195)",
+   "external_source": "greerreNFL/Stadiums GitHub raw CSVs. Scheduler job `nfelo_sync` (scheduler.js:814, refreshNfelo :337-340) and POST /nfelo/sync (nfl-market.js:120).",
+   "external_endpoint": "https://raw.githubusercontent.com/greerreNFL/Stadiums/main/data/stadiums.csv (nfelo.js:43); https://raw.githubusercontent.com/greerreNFL/Stadiums/main/data/team_stadiums.csv (nfelo.js:44)",
+   "receipt_clock": "fetched_at (nfelo.js:236 single per syncNfelo run, written :203)",
+   "readers": [
+    "server/services/nfelo.js:305 nfeloStatus() row count only"
+   ],
+   "reaches_forecast": false,
+   "reaches_live_pick": false,
+   "evidence": "grep -rlw nfl_stadiums server/ scripts/ research/ -> only server/db/schema/mlb-model-misc.js:244 (CREATE) and server/services/nfelo.js. Weather code uses a hard-coded STADIUMS constant instead: nfl-weather.js:15 `export const STADIUMS = Object.freeze({`, nfl-weather-history.js:20,:94. No forecast/pick reader. sqlite: SELECT COUNT(*), COUNT(DISTINCT fetched_at), MIN(fetched_at), MAX(fetched_at) FROM nfl_stadiums -> 67|1|2026-09-16T00:07:45.840Z|2026-09-16T00:07:45.840Z (no season column)",
+   "row_count": 67,
+   "seasons": ""
+  },
+  {
+   "table": "nfl_team_stadiums",
+   "writer": "server/services/nfelo.js loadTeamStadiums() :220-221 (INSERT OR REPLACE), called from syncNfelo() :246",
+   "external_source": "greerreNFL/Stadiums team_stadiums.csv. Scheduler job `nfelo_sync` (scheduler.js:814) and POST /nfelo/sync (nfl-market.js:120).",
+   "external_endpoint": "https://raw.githubusercontent.com/greerreNFL/Stadiums/main/data/team_stadiums.csv (nfelo.js:44)",
+   "receipt_clock": "fetched_at (nfelo.js:236 single per run, written :221)",
+   "readers": [
+    "server/services/nfelo.js:305 nfeloStatus() row count only"
+   ],
+   "reaches_forecast": false,
+   "reaches_live_pick": false,
+   "evidence": "grep -rlw nfl_team_stadiums server/ scripts/ research/ -> only server/db/schema/mlb-model-misc.js:249 and server/services/nfelo.js. sqlite: SELECT COUNT(*), COUNT(DISTINCT fetched_at), MIN(fetched_at), MAX(fetched_at), SUM(is_current=1) FROM nfl_team_stadiums -> 59|1|2026-09-16T00:07:45.840Z|2026-09-16T00:07:45.840Z|32 (no season column)",
+   "row_count": 59,
+   "seasons": ""
+  },
+  {
+   "table": "nfl_team_coaches",
+   "writer": "server/services/nfl-coaches.js syncCoaches() :86-88 (INSERT ... ON CONFLICT(season,team) DO UPDATE), primary coach per team-season by games coached :85",
+   "external_source": "nflverse/nfldata games.csv (home_coach/away_coach columns). Scheduler job `nfl_coaches` (scheduler.js:1010-1011, run=refreshCoaches :559-562, tier growth, maxAgeMinutes 1440) -> registered via allSources(). Also POST /sync in routes/model.js:627 `out.coaches = await syncCoaches()`.",
+   "external_endpoint": "https://raw.githubusercontent.com/nflverse/nfldata/master/data/games.csv (nfl-coaches.js:31)",
+   "receipt_clock": "fetched_at (nfl-coaches.js:79 `const now = new Date().toISOString()` once per run, written :88)",
+   "readers": [
+    "server/services/nfl-coaches.js:97 coachFor(), :102-103 coachChanges(), :114-115 coachHistoryStatus()",
+    "server/services/nfl-roster-strength.js:16,:362 coachChanges(season).get(team) -> teamRosterStrength().preseason_context.coach_change (metadata; roster_score at :339-347 does not use it)",
+    "server/services/nfl-ensemble.js:36,:1247 sharedContext `roster: rosterStrengthWeek(...)` -> MODEL roster_strength :699-707 reads only roster_score",
+    "server/services/nfl-expert-council.js:24,:517-518 teamRosterStrength(...)",
+    "server/services/football-context.js:39,:222 coachFor() -> coach label only",
+    "server/services/boom-bust.js:209-210,:240,:259 coachChanges -> fantasy boom/bust feature",
+    "server/services/offseason-model.js:286-288 (fantasy offseason model)",
+    "server/services/nfl-team-card.js:129 (display)",
+    "server/services/nfl-blind-audit.js:46,:103 (audit)",
+    "server/routes/nfl-betting.js:1400 coachChanges/coachHistoryStatus (GET research/coaches per scheduler.js:551 comment)"
+   ],
+   "reaches_forecast": true,
+   "reaches_live_pick": false,
+   "evidence": "Reaches ctx assembly by the definition's ctx clause: nfl-ensemble.js:1247 `roster: rosterStrengthWeek(g.season, g.week)` -> nfl-roster-strength.js:370-374 -> teamRosterStrength :362 `coach_change: coachChanges(season).get(team) ?? null`; council :517-518. CAVEAT: the coach value is carried as preseason_context metadata only; no predict() number uses it (roster_strength predict :703-706 uses home.roster_score/away.roster_score, computed :339-347 from starterScore/depthScore). Live pick false: roster_strength `challengerOnly: true` (:700); football-context/boom-bust/offseason-model are fantasy/display. sqlite: SELECT COUNT(*), MIN(season)||'-'||MAX(season), COUNT(DISTINCT fetched_at), MIN(fetched_at), MAX(fetched_at) FROM nfl_team_coaches -> 384|2015-2026|1|2026-09-15T17:23:01.675Z|2026-09-15T17:23:01.675Z",
+   "row_count": 384,
+   "seasons": "2015-2026"
+  },
+  {
+   "table": "nfl_game_weather_forecast_history",
+   "writer": "server/services/nfl-weather-history.js syncForecastHistory() :87-89 prepared INSERT OR REPLACE, executed :106 per lead row",
+   "external_source": "Open-Meteo Previous Runs API (per-lead forecast for the kickoff hour), fallback Open-Meteo Historical Forecast API (lead 0 only). Scheduler job `nfl_forecast_history` (scheduler.js:818-819, run=refreshForecastHistory :351-355, tier 'heavy', maxAgeMinutes 1440) -> heavy tier runs ONLY when AUTO_HEAVY_SYNC=1 (scheduler.js:1189). Registered via allSources() scheduled list. No manual route calls syncForecastHistory (grep server/routes -> none).",
+   "external_endpoint": "https://previous-runs-api.open-meteo.com/v1/forecast (nfl-weather-history.js:25); fallback https://historical-forecast-api.open-meteo.com/v1/forecast (:26)",
+   "receipt_clock": "fetched_at (nfl-weather-history.js:89 `datetime('now')` evaluated per INSERT execution -> SQLite space-separated format, per-game batches)",
+   "readers": [
+    "server/services/nfl-weather-history.js:117 forecastHistoryFeatures(), :129-132 forecastHistoryStatus()",
+    "server/services/line-move-study.js:31,:206 forecastHistoryFeatures (beat-the-close Phase 1 line-move study)",
+    "server/services/nfl-t60-packet.js:450-462 receipt-clock coverage entry only (rowsByCutoff/receivedAt; forecast values not consumed)",
+    "server/services/nfl-data-consistency.js:219 tableCoverage (audit)",
+    "server/routes/nfl-market.js:124 GET /weather-history/status"
+   ],
+   "reaches_forecast": false,
+   "reaches_live_pick": false,
+   "evidence": "grep -rlw nfl_game_weather_forecast_history -> schema, nfl-weather-history.js, nfl-t60-packet.js, nfl-data-consistency.js; forecastHistoryFeatures callers -> only line-move-study.js:206 (not in the forecast set: not nfl-ensemble MODELS/ctx, specialists, council, drive-sim, or Python). nfl-t60-packet.js:457-462 stores `sourceEntry({ source: 'nfl_game_weather_forecast_history', rowsByCutoff..., receivedAt... })` with note 'never becomes real prospective capture'; nfl-auto-picks.js:17 imports only resolvePacketMarketQuote/PACKET_BOARD_INPUT_COVERAGE/t60PacketHash. sqlite: SELECT source, COUNT(*), MIN(season)||'-'||MAX(season), COUNT(DISTINCT fetched_at), MIN(fetched_at), MAX(fetched_at), COUNT(DISTINCT season||'|'||week||'|'||home) FROM nfl_game_weather_forecast_history GROUP BY source -> open-meteo-previous-runs|3810|2022-2026|288|2026-09-02 22:24:50|2026-09-15 17:23:04|762 (zero rows from the historical-forecast fallback)",
+   "row_count": 3810,
+   "seasons": "2022-2026"
+  },
+  {
+   "table": "nfl_rookie_evidence",
+   "writer": "server/services/nfl-rookies.js importRookieEvidence() :201-243 (INSERT ... ON CONFLICT(season,player_name,evidence_type,source_ref) DO UPDATE :203-210). Fed by TWO services: server/services/nfl-rookie-ingest.js:113 (draft, combine), :136 (preseason_role), :336 (college_production/opponent_strength); and server/services/nfl-rookies.js:233-246 syncDraftRookieEvidence() (ESPN player_accolades)",
+   "external_source": "nflverse-data GitHub release assets draft_picks.csv + combine.csv (CC-BY-4.0) via scheduler job `nfl_rookie_public` (scheduler.js:1004-1005, run=refreshNflRookiePublic :593-597, tier 'heavy' -> AUTO_HEAVY_SYNC=1 only :1189; recordSync('nfl_rookie_public') nfl-rookie-ingest.js:119) and POST /roster/rookies/sync (nfl-betting.js:640-641). SportsDataverse cfbfastR-data player_stats CSV via syncPublicCollegeEvidence (MANUAL_SOURCES `nfl_rookie_college` source-registry.js:40-46; recordSync :346; POST /roster/rookies/college-sync nfl-betting.js:648-649). Internal feeds: nfl_news_signals_current (preseason_role, nfl-rookie-ingest.js:129-135) and player_accolades (nfl-rookies.js:234-238, no registry entry).",
+   "external_endpoint": "https://github.com/nflverse/nflverse-data/releases/download/draft_picks/draft_picks.csv; https://github.com/nflverse/nflverse-data/releases/download/combine/combine.csv (nfl-rookie-ingest.js:14-16); https://raw.githubusercontent.com/sportsdataverse/cfbfastR-data/main/player_stats/csv/player_stats_${season}.csv (:17)",
+   "receipt_clock": "captured_at (nfl-rookies.js:202 `capturedAt = new Date().toISOString()` default per importRookieEvidence call -> one clock per batch, written :240); available_at is the source-side knowability stamp (:75,:110,:325)",
+   "readers": [
+    "server/services/nfl-rookies.js:60 measureRookiePriors(), :251 latestByType(), :304 fitRookieEvidenceModel()",
+    "server/services/nfl-roster-strength.js:169 rookieProfiles() -> rankPlayer -> roster_score",
+    "server/services/nfl-ensemble.js:1247 ctx roster -> MODEL roster_strength :699-707 (challengerOnly)",
+    "server/services/nfl-expert-council.js:24,:517-518 teamRosterStrength()",
+    "server/services/nfl-rookie-ingest.js:131 (JOIN for preseason_role), :250 (college candidates)",
+    "server/services/nfl-offseason-cycle.js:122 rookieEvidenceCoverage()",
+    "server/services/nfl-blind-audit.js:46,:103 (audit)"
+   ],
+   "reaches_forecast": true,
+   "reaches_live_pick": false,
+   "evidence": "nfl-roster-strength.js:166-170 `SELECT player_id,... FROM nfl_rookie_evidence WHERE season=? AND evidence_type='draft' AND verification_state='verified'` -> teamRosterStrength :323-324 rankPlayer(... rookieMap ...) -> roster_score :347 -> nfl-ensemble.js:1247 ctx `roster:` and predict :706 `margin: c.hfa + (home.roster_score - away.roster_score) * 0.32`; council :517. Live pick false: roster_strength `challengerOnly: true` (nfl-ensemble.js:700), excluded by nfl-auto-picks.js:84-85,:164. sqlite: SELECT COUNT(*), MIN(season)||'-'||MAX(season), COUNT(DISTINCT captured_at), MIN(captured_at), MAX(captured_at) FROM nfl_rookie_evidence -> 4814|2000-2026|6|2026-09-01T01:19:27.719Z|2026-09-01T01:22:49.814Z; GROUP BY evidence_type,source -> college_production|SportsDataverse cfbfastR player stats|278|2023-2026|4 clocks; combine|nflverse combine|2168|2000-2026|1 clock; draft|nflverse draft picks|2090|2000-2026|1 clock; opponent_strength|278|2023-2026|4; zero preseason_role rows; all 4814 verified",
+   "row_count": 4814,
+   "seasons": "2000-2026"
+  },
+  {
+   "table": "nfl_historical_adp",
+   "writer": "server/services/historical-adp.js syncHistoricalAdp() :186 (DELETE ... WHERE season=? AND source=?) then :187-192 prepared INSERT (last preseason 'ro' scrape per season/player)",
+   "external_source": "dynastyprocess/data GitHub db_fpecr.csv.gz (FantasyPros expert-consensus-rank scrapes, ecr_type='ro', page_type redraft-overall/offense). Registered as MANUAL_SOURCES `historical_adp` (source-registry.js:205-211); recordSync('historical_adp') historical-adp.js:181,:195,:198. No scheduler timer; only POST /sync in routes/model.js:626 `out.historical_adp = await syncHistoricalAdp()`.",
+   "external_endpoint": "https://github.com/dynastyprocess/data/raw/master/files/db_fpecr.csv.gz (historical-adp.js:43)",
+   "receipt_clock": "fetched_at (historical-adp.js:183 one timestamp per sync, written :192); scrape_date is the source's own scrape date, not receipt",
+   "readers": [
+    "server/services/historical-adp.js:62 historicalAdpFor(), :66-68 historicalAdpCoverage() (no callers found)",
+    "server/services/boom-bust.js:69,:233 historicalAdpFor(season) -> fantasy boom/bust classifier",
+    "server/services/preseason-model.js:329-331 marketBoard() -> fantasy preseason projection board",
+    "server/services/consensus-weights.js:46,:127 comment references only (no query)",
+    "server/services/historical-adp-scrapes.js:30-32 imports eachPreseasonRow/constants only"
+   ],
+   "reaches_forecast": false,
+   "reaches_live_pick": false,
+   "evidence": "All readers are fantasy-side (boom-bust.js, preseason-model.js); grep across nfl-ensemble.js, nfl-*specialist*.js, nfl-expert-council.js, nfl-drive-sim.js, research/betting/nfl/*.py for nfl_historical_adp -> no hits. sqlite: SELECT source, COUNT(*), MIN(season)||'-'||MAX(season), COUNT(DISTINCT fetched_at), MIN(fetched_at), MAX(fetched_at), COUNT(DISTINCT scrape_date) FROM nfl_historical_adp GROUP BY source -> dynastyprocess_fpecr|2914|2021-2025|1|2026-09-04T02:03:12.377Z|2026-09-04T02:03:12.377Z|44",
+   "row_count": 2914,
+   "seasons": "2021-2025"
+  },
+  {
+   "table": "nfl_historical_adp_scrape",
+   "writer": "server/services/historical-adp-scrapes.js syncHistoricalAdpScrapes() :84-85 (DELETE by season+source) then :87-92 prepared INSERT (every preseason scrape row)",
+   "external_source": "Same dynastyprocess db_fpecr.csv.gz stream via eachPreseasonRow (historical-adp.js:97-99). recordSync('historical_adp_scrapes') at :78,:95,:98 BUT the name is absent from MANUAL_SOURCES and JOBS (grep source-registry.js/scheduler.js -> none) -> UNREGISTERED. No caller of syncHistoricalAdpScrapes in server/ scripts/ research/ (only test/historical-adp-scrapes.test.js:47-95).",
+   "external_endpoint": "https://github.com/dynastyprocess/data/raw/master/files/db_fpecr.csv.gz (historical-adp.js:43)",
+   "receipt_clock": "fetched_at (historical-adp-scrapes.js:80 one timestamp per sync, written :92)",
+   "readers": [
+    "server/services/historical-adp-scrapes.js:36 adpScrapesFor(), :44-51 adpScrapeCoverage() -- neither has any caller in server/ scripts/ research/ (grep -> none)"
+   ],
+   "reaches_forecast": false,
+   "reaches_live_pick": false,
+   "evidence": "grep -rlw nfl_historical_adp_scrape server/ scripts/ research/ -> only server/db/schema/core-and-fantasy.js:704 and server/services/historical-adp-scrapes.js; grep adpScrapesFor|adpScrapeCoverage|syncHistoricalAdpScrapes outside that file -> test file only. sqlite: SELECT source, COUNT(*), MIN(season)||'-'||MAX(season), COUNT(DISTINCT fetched_at), MIN(fetched_at), MAX(fetched_at), COUNT(DISTINCT scrape_date) FROM nfl_historical_adp_scrape GROUP BY source -> dynastyprocess_fpecr|24273|2021-2025|1|2026-09-07T16:02:17.126Z|2026-09-07T16:02:17.126Z|47 (table was populated once by an ad hoc run despite having no wired caller)",
+   "row_count": 24273,
+   "seasons": "2021-2025"
+  },
+  {
+   "table": "nfl_tweet_line_watch",
+   "writer": "server/services/nfl-tweet-line-correlation.js watchTweetForLineMove() :60-65 (INSERT ... ON CONFLICT(news_id,event_id,market,side) DO NOTHING) and checkTweetLineMovement() :101-103 (UPDATE resolved/resolved_line/moved_points/ai_explanation)",
+   "external_source": "No direct external fetch. Derived: tweet rows in news_items (twitterapi.io via server/news/twitter-ingest.js:213-222, which calls watchTweetForLineMove) joined to nfl_line_snapshots (:51-53, Odds API multi-book capture); AI explanation via Anthropic callClaude :115 (feature nfl-tweet-line-explain). Runs inside scheduler jobs `twitter_insiders` (scheduler.js:998, refreshTwitterInsiders :481-492) and `nfl_line_snapshots` (:807, refreshNflLineSnapshots :281-282 calls checkTweetLineMovement). No source-registry entry of its own.",
+   "external_endpoint": "",
+   "receipt_clock": "created_at (nfl-tweet-line-correlation.js:58 `now` per watchTweetForLineMove call, written :65); baseline_captured_at/resolved_captured_at carry nfl_line_snapshots.captured_at",
+   "readers": [
+    "server/services/nfl-tweet-line-correlation.js:78 (open watches), :137,:141 tweetLineCorrelationSummary()",
+    "server/services/nfl-profitability.js:138-140 (watch/resolved counts)",
+    "server/routes/news.js:263-264 GET /twitter-status -> tweetLineCorrelationSummary()"
+   ],
+   "reaches_forecast": false,
+   "reaches_live_pick": false,
+   "evidence": "File header :25-28: 'Output has NO numeric authority over the model'. grep -rlw nfl_tweet_line_watch -> schema, nfl-profitability.js, nfl-tweet-line-correlation.js only. sqlite: SELECT COUNT(*), COUNT(DISTINCT created_at), MIN(created_at), MAX(created_at), SUM(resolved=1), SUM(moved_points IS NOT NULL) FROM nfl_tweet_line_watch -> 23408|1175|2026-08-27T18:45:41.088Z|2026-09-15T19:30:37.357Z|2926|2926 (no season column)",
+   "row_count": 23408,
+   "seasons": ""
+  },
+  {
+   "table": "news_items",
+   "writer": "MULTIPLE: (1) server/news/store.js upsertNormalizedNewsItem() :41-54 INSERT ... ON CONFLICT(duplicate_group_id) DO NOTHING RETURNING id, :68-82 UPDATE -- called by server/news/ingest.js:74 (RSS), server/news/twitter-ingest.js:213 (tweets), server/services/nfl-transactions.js:63 (ESPN transactions); (2) server/routes/espn.js:197 INSERT (ESPN site news API, dedup by exact headline :179) and :214 UPDATE entities_json/published_at; (3) server/routes/news.js:129 INSERT (manual POST /), :168 INSERT (POST /analyze, Claude-analyzed), :138 DELETE, :306 UPDATE ai_analysis",
+   "external_source": "ESPN RSS (news/ingest.js:12-13 RSS_SOURCES; job `rss_news` scheduler.js:971, refreshRssNews :495-505); ESPN site news API (routes/espn.js syncGeneralNews :246-255, syncTeamNewsFeed :230-243; job `espn_news` scheduler.js:973, refreshEspnNews :511-530; recordSync espn_news_general/espn_news_team :253/:241 registered in MANUAL_SOURCES source-registry.js:123-136; also POST /sync-news espn.js:260-264, routes/aggregates.js:279-283, routes/dev.js:94); twitterapi.io insider/beat/team handles (twitter-ingest.js:48-114; job `twitter_insiders` scheduler.js:998-999, metered, key-gated); ESPN transactions API (nfl-transactions.js:28; job `nfl_transactions` scheduler.js:1002); manual user/Claude entry via routes/news.js:129,:168 -- no registered source.",
+   "external_endpoint": "https://www.espn.com/espn/rss/nfl/news (news/ingest.js:13); https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?limit=50 (routes/espn.js:249); https://site.api.espn.com/apis/site/v2/sports/football/nfl/news?team=${espnId}&limit=20 (routes/espn.js:237); https://api.twitterapi.io (twitterapi-io.js:17, path appended :53); https://site.api.espn.com/apis/site/v2/sports/football/nfl/transactions (nfl-transactions.js:28)",
+   "receipt_clock": "ingested_at (server/news/normalize.js:57; store.js:57-66 advances it only when content changes) -- BUT NULL for rows written by routes/espn.js:197 and routes/news.js:129,:168, which get only created_at DEFAULT (datetime('now')) (schema core-and-fantasy.js:164; live DDL confirms)",
+   "readers": [
+    "server/services/nfl-specialists.js:362 `SELECT date, team_id, importance FROM news_items WHERE team_id IS NOT NULL` -> NEWS_FAMILY vector (specialist)",
+    "server/services/nfl-expert-council.js:248-250 newsFor() feedStories count (published_at & ingested_at <= cutoff) -> forecast :265",
+    "server/services/nfl-news-signal.js:227-230 syncStructuredNewsSignals, :395-398 coverage, :410-416 syncAiNewsSignals (-> nfl_news_signals)",
+    "server/services/nfl-news-events.js:127",
+    "server/services/nfl-player-state.js:60",
+    "server/services/player-availability.js:42",
+    "server/services/signal-latency.js (grep hit)",
+    "server/services/draft-assist.js:867 (fantasy)",
+    "server/services/trade-engine.js:1426 (fantasy)",
+    "server/services/nfl-diagnostic.js:25",
+    "server/services/nfl-blind-audit.js:45 (audit)",
+    "server/routes/news.js:61,94,108,118,231,276,321-323; routes/players.js:29; routes/teams.js:37; routes/analysis.js:22,109; routes/edge.js:271; routes/trades.js:449; routes/espn.js:179,213; routes/dev.js:17"
+   ],
+   "reaches_forecast": true,
+   "reaches_live_pick": false,
+   "evidence": "reaches_forecast: nfl-specialists.js:362 reads news_items into newsByTeamDate -> :379 `fam[NEWS_FAMILY] = newsVector(r, newsByTeamDate)` (specialist file); nfl-expert-council.js:248-250 `SELECT COUNT(*) n FROM news_items WHERE published_at<=? AND published_at>=? AND ingested_at<=? AND team_id IN (...)` -> :265 forecast. Live pick false: nfl-specialists.js is imported only by routes/nfl-betting.js and nfl-rookies.js; nfl-expert-council.js is imported by nfl-unified-engine/nfl-model-growth/evidence-daemon/scheduler etc., not by nfl-auto-picks.js (imports at nfl-auto-picks.js:8-17); ensembleLine ctx (nfl-ensemble.js:2075-2200) has no news_items read. sqlite: SELECT COUNT(*), MIN(date)||'-'||MAX(date), COUNT(DISTINCT ingested_at), SUM(ingested_at IS NULL), COUNT(DISTINCT created_at), SUM(created_at IS NULL) FROM news_items -> 4096|2022-11-02-2026-09-16|1783|2079|815|0; GROUP BY source_type -> (null) 2079 (all NULL ingested_at), social 1048, publisher 879, team_official 90",
+   "row_count": 4096,
+   "seasons": ""
+  },
+  {
+   "table": "nfl_news_signals",
+   "writer": "server/services/nfl-news-signal.js upsertVersionedSignal() :209-223 (INSERT :213-221, only when content differs from nfl_news_signals_current), called by syncStructuredNewsSignals() :247,:260 (regex rules) and syncAiNewsSignals() :458 (Claude extraction)",
+   "external_source": "Derived from news_items (no direct external fetch) plus Anthropic Claude typed extraction (callClaude :422, feature nfl-news-typed-extraction, verbatim evidence-span check :450). Scheduler job `nfl_news_signals` (scheduler.js:975-976, run=refreshNflNewsSignals :667-672, live tier, maxAgeMinutes 60; boot job :1170); also typed on the same cycle by rss_news :502, espn_news :527, twitter_insiders :488, nfl_transactions :587; POST /news/signals/sync (nfl-betting.js:325-326); routes/news.js:39.",
+   "external_endpoint": "",
+   "receipt_clock": "created_at (DEFAULT (datetime('now')), schema nfl-n-to-z.js:76 and live DDL; treated as the pipeline receipt clock in nfl-news-signal.js:283-302, :313)",
+   "readers": [
+    "server/services/nfl-news-signal.js:311-321 playerNewsSignal(), :355-380 teamNewsSignals(), :332-342 playerWeekNewsSignal(), :390-398 newsSignalCoverage(), :412 syncAiNewsSignals (NOT IN)",
+    "server/services/nfl-expert-council.js:16,:235 newsFor() -> burdenEdge forecast :262-265",
+    "server/services/nfl-unified-engine.js:16,:59-60 teamNewsSignals (heads/context)",
+    "server/services/nfl-online-neural.js:19,:147-156 teamNewsSignals -> neural features",
+    "server/services/nfl-reasoning.js:24,:166 (explanation)",
+    "server/services/nfl-replay.js:35,:550 (replay)",
+    "server/services/nfl-team-card.js:13,:145 (display)",
+    "server/services/player-week-engine.js:25,:244 playerWeekNewsSignal -> fantasy news_context",
+    "server/services/nfl-postgame-truth.js:13,:514,:544",
+    "server/services/nfl-rookie-ingest.js:129-135 (nfl_news_signals_current view -> preseason_role evidence)",
+    "server/services/signal-latency.js:121,:201,:299",
+    "server/services/report-cache.js:40",
+    "server/services/nfl-blind-audit.js:45,:133 (audit)",
+    "server/routes/nfl-betting.js:337-338 GET /news/signals; server/routes/news.js:222-231 GET /signals (view JOIN news_items)"
+   ],
+   "reaches_forecast": true,
+   "reaches_live_pick": false,
+   "evidence": "reaches_forecast: nfl-expert-council.js:235 `teamNewsSignals(line.home, { before: beforeIso })` -> :262 burdenEdge -> :265 `forecast = claims > 0 ? Math.max(-4, Math.min(4, burdenEdge * 0.75)) : ...`; nfl-online-neural.js:147-156 adds home/away_verified_news_burden features; nfl-unified-engine.js:59-60. Live pick false: not on nfl-auto-picks -> ensembleLine path (ensembleLine :2075-2200 has no news read). nfl-auto-picks.js:127-131 does call onlineNeuralPrediction(game) (reads teamNewsSignals) but substitutes its margin only when `modelOptions.includeChallengers || neural.production_eligible === true` (:128); eligibility requires promotion_sample, promotion_weeks and CI90 lower bound > 0 (nfl-online-neural.js:286-290) -- current runtime eligibility unverified. sqlite: SELECT COUNT(*), MIN(published_at)||' .. '||MAX(published_at), COUNT(DISTINCT created_at), SUM(created_at IS NULL), MIN(created_at), MAX(created_at), SUM(verification_state='verified'), COUNT(DISTINCT extractor_version) FROM nfl_news_signals -> 674|2026-08-16T12:00:00.000Z .. 2026-09-16T03:28:05.000Z|246|0|2026-08-27 17:36:35|2026-09-16 01:36:58|555|2",
+   "row_count": 674,
+   "seasons": ""
+  }
+ ],
+ "routes": [
+  {
+   "route": "GET /nfelo/status",
+   "file": "server/routes/nfl-market.js:119",
+   "calls": "nfeloStatus() (nfelo.js:298-312) reads nfl_nfelo_games/qb/lines/stadiums/team_stadiums counts",
+   "produces_pick": false
+  },
+  {
+   "route": "POST /nfelo/sync",
+   "file": "server/routes/nfl-market.js:120-121",
+   "calls": "syncNfelo() (nfelo.js:235) -> writes nfl_nfelo_qb, nfl_nfelo_games, nfl_nfelo_lines, nfl_stadiums, nfl_team_stadiums",
+   "produces_pick": false
+  },
+  {
+   "route": "GET /external-ratings/status",
+   "file": "server/routes/nfl-market.js:123",
+   "calls": "externalRatingsStatus() (nfl-external-ratings.js:268-275)",
+   "produces_pick": false
+  },
+  {
+   "route": "GET /weather-history/status",
+   "file": "server/routes/nfl-market.js:124",
+   "calls": "forecastHistoryStatus() (nfl-weather-history.js:127-133)",
+   "produces_pick": false
+  },
+  {
+   "route": "POST /roster/rookies/sync",
+   "file": "server/routes/nfl-betting.js:640-641",
+   "calls": "syncPublicRookieEvidence() (nfl-rookie-ingest.js:56) -> nfl_rookie_evidence",
+   "produces_pick": false
+  },
+  {
+   "route": "POST /roster/rookies/college-sync",
+   "file": "server/routes/nfl-betting.js:648-649",
+   "calls": "syncPublicCollegeEvidence() (nfl-rookie-ingest.js:340) -> nfl_rookie_evidence",
+   "produces_pick": false
+  },
+  {
+   "route": "POST /news/signals/sync",
+   "file": "server/routes/nfl-betting.js:325-326",
+   "calls": "syncStructuredNewsSignals() -> nfl_news_signals",
+   "produces_pick": false
+  },
+  {
+   "route": "GET /news/signals",
+   "file": "server/routes/nfl-betting.js:337-338",
+   "calls": "newsSignalCoverage(), teamNewsSignals(team)",
+   "produces_pick": false
+  },
+  {
+   "route": "GET research/coaches (path per scheduler.js:551 comment; handler at line 1400)",
+   "file": "server/routes/nfl-betting.js:1400",
+   "calls": "coachChanges(season), coachHistoryStatus() (nfl-coaches.js)",
+   "produces_pick": false
+  },
+  {
+   "route": "POST /sync (model)",
+   "file": "server/routes/model.js:626-627",
+   "calls": "syncHistoricalAdp() -> nfl_historical_adp; syncCoaches() -> nfl_team_coaches",
+   "produces_pick": false
+  },
+  {
+   "route": "POST /sync-news",
+   "file": "server/routes/espn.js:260-264",
+   "calls": "syncTeamNewsFeed(team) / syncGeneralNews() -> INSERT news_items (:197)",
+   "produces_pick": false
+  },
+  {
+   "route": "POST / (manual news entry)",
+   "file": "server/routes/news.js:122-134",
+   "calls": "INSERT news_items (:129) -- no ingested_at, no registered source",
+   "produces_pick": false
+  },
+  {
+   "route": "POST /analyze",
+   "file": "server/routes/news.js:141-175",
+   "calls": "callClaude (news-analyze) then INSERT news_items (:168)",
+   "produces_pick": false
+  },
+  {
+   "route": "news ingest handler (path not captured)",
+   "file": "server/routes/news.js:35-39",
+   "calls": "ingestAllSources() (RSS -> news_items) + syncStructuredNewsSignals()",
+   "produces_pick": false
+  },
+  {
+   "route": "GET /signals",
+   "file": "server/routes/news.js:222-231",
+   "calls": "SELECT from nfl_news_signals_current JOIN news_items",
+   "produces_pick": false
+  },
+  {
+   "route": "GET /twitter-status",
+   "file": "server/routes/news.js:260-264",
+   "calls": "tweetLineCorrelationSummary() reads nfl_tweet_line_watch",
+   "produces_pick": false
+  }
+ ],
+ "notes": "nfelo confirmation: NFELO_SOURCES at server/services/nfelo.js:38-45 = qb https://raw.githubusercontent.com/greerreNFL/nfeloqb/main/qb_elos.csv; games https://raw.githubusercontent.com/greerreNFL/nfelo/main/output_data/nfelo_games.csv; hps https://raw.githubusercontent.com/greerreNFL/nfelo/main/output_data/historic_projected_spreads.csv; lines https://raw.githubusercontent.com/greerreNFL/nfelomarket_data/main/Data/lines.csv (nfl_nfelo_lines, out of scope); stadiums https://raw.githubusercontent.com/greerreNFL/Stadiums/main/data/stadiums.csv; team_stadiums https://raw.githubusercontent.com/greerreNFL/Stadiums/main/data/team_stadiums.csv. syncNfelo runs from scheduler job `nfelo_sync` (scheduler.js:814-815; refreshNfelo :337-340; tier growth, maxAgeMinutes 360 -> background timer :1220) and POST /nfelo/sync (nfl-market.js:120-121).\n\nUNCLASSIFIED: none. Two judgment calls flagged inline: (a) nfl_team_coaches marked reaches_forecast=true only because nfl-ensemble.js:1247 ctx -> nfl-roster-strength.js:362 loads coachChanges; the value is preseason_context metadata and no predict() consumes it numerically. (b) nfl_external_ratings source=espn_fpi marked false: fpi_diff is computed (nfl-external-ratings.js:260) but no forecast reader consumes it (nfl-matchup-specialists.js:146-147 uses only teamrankings_diff).\n\nWRITERS WITH NO source-registry.js / scheduler JOBS ENTRY: (1) server/services/historical-adp-scrapes.js -> nfl_historical_adp_scrape: calls recordSync('historical_adp_scrapes') :78,:95,:98 but that name is in neither MANUAL_SOURCES nor JOBS; syncHistoricalAdpScrapes has NO caller in server/ scripts/ research/ (only test/historical-adp-scrapes.test.js), and adpScrapesFor/adpScrapeCoverage have no callers -- yet the live DB holds 24,273 rows fetched 2026-09-07T16:02:17.126Z (ad hoc run). (2) server/services/nfl-tweet-line-correlation.js -> nfl_tweet_line_watch: no own source; piggybacks on jobs twitter_insiders (twitter-ingest.js:221) and nfl_line_snapshots (scheduler.js:281-282). (3) server/routes/news.js:129,:168 manual/Claude-analyzed news_items inserts: no registered source, no ingested_at. (4) server/services/nfl-rookies.js:233-246 syncDraftRookieEvidence (player_accolades -> nfl_rookie_evidence): no registry entry. (5) TeamRankings 2022-2025 backfill: scheduler calls syncTeamRankings({ seasons: [] , current: true }) (scheduler.js:346); no route/script passes seasons, so the 74 historical week snapshots came from an unrecorded ad hoc call (unverified).\n\nSINGLE BATCH TIMESTAMP FOR THE WHOLE TABLE (COUNT(DISTINCT clock) = 1 vs COUNT(*)): nfl_nfelo_games 1/1725, nfl_nfelo_qb 1/1725, nfl_stadiums 1/67, nfl_team_stadiums 1/59 (all four share fetched_at=2026-09-16T00:07:45.840Z because nfelo.js:236 mints one fetchedAt per syncNfelo and INSERT OR REPLACE/ON CONFLICT overwrites it every run); nfl_team_coaches 1/384 (nfl-coaches.js:79); nfl_historical_adp 1/2914 (historical-adp.js:183); nfl_historical_adp_scrape 1/24273 (historical-adp-scrapes.js:80); nfl_rookie_evidence draft subset 1/2090 and combine subset 1/2168 (6 distinct captured_at across 4814 rows, all 2026-09-01). Implication: for every one of these, fetched_at cannot distinguish 2020-2025 rows from 2026 rows, so it is unusable as a per-row knowability clock (the ensemble's teamrankings_predictive note at nfl-ensemble.js:723-727 acknowledges the same problem for nfl_external_ratings' historical rows).\n\nTABLES WRITTEN BY TWO OR MORE SERVICES: news_items -- server/news/store.js (normalized path: RSS via news/ingest.js:74, tweets via news/twitter-ingest.js:213, ESPN transactions via nfl-transactions.js:63), server/routes/espn.js:197 (ESPN site news API, bypasses normalize/dedup, dedups by exact headline :179, sets no ingested_at), server/routes/news.js:129,:168 (manual). Live DB: 2079 of 4096 rows have NULL ingested_at (all source_type NULL), so the receipt clock is only reliable for the store.js path; fall back to created_at (DEFAULT datetime('now')) elsewhere. nfl_rookie_evidence -- single INSERT function (nfl-rookies.js:203) but fed by nfl-rookie-ingest.js (:113,:136,:336) and nfl-rookies.js syncDraftRookieEvidence (:246). nfl_stadiums -- one service (nfelo.js) but two loaders (loadStadiums :207 from stadiums.csv, loadTeamStadiums :219 from team_stadiums.csv) upsert it.\n\nLIVE DB SCHEMA DRIFT (observed read-only): data.sqlite's nfl_news_signals DDL is `PRIMARY KEY (news_id,player_key,signal_type)` with NO `id` column, and `SELECT type,name FROM sqlite_master WHERE name IN ('nfl_news_signals_current',...)` returns no such view -- i.e. migration 053 (surrogate id + nfl_news_signals_current view, server/migrations/053_nfl_news_signals_versioning.js:21,:60) has not been applied to that DB, while repo code depends on it (nfl-news-signal.js:210 SELECT FROM nfl_news_signals_current, :314-318 `s2.id>s.id`; routes/news.js:230; nfl-rookie-ingest.js:131; signal-latency.js:121,:201). Against that DB those reads would fail. Also nfl_news_signals.created_at and nfl_game_weather_forecast_history.fetched_at are SQLite `datetime('now')` space-format strings while every other clock in scope is JS ISO 'T...Z' (the code notes the comparison hazard at nfl-news-signal.js:290-302).\n\nSCHEDULER CAVEATS: nfl_forecast_history and nfl_rookie_public are tier 'heavy' (scheduler.js:818, :1004) and heavy jobs run only when AUTO_HEAVY_SYNC=1 (scheduler.js:1189); otherwise nfl_game_weather_forecast_history and nfl_rookie_evidence refresh only via manual routes (rookies: nfl-betting.js:640/648; forecast history: no manual route found). The weather-history table holds zero rows from the historical-forecast fallback source.\n\nPYTHON RESEARCH PIPELINE: grep of research/betting/nfl/{dataset,stage3_team_strength,unified_model,market_correction,weekly_training}.py for nfelo|fpi|teamrankings|coach|weather_forecast|forecast_history|news_items|news_signals|rookie_evidence|historical_adp|tweet_line|stadium -> no hits; none of the in-scope tables reach the Python pipeline. nfl-drive-sim.js likewise has no references. The only forecast-side reach for this family is via nfl-ensemble.js ctx/challenger MODELS, nfl-matchup-specialists.js, nfl-specialists.js, nfl-expert-council.js, nfl-unified-engine.js and nfl-online-neural.js; nothing in scope reaches a served pick through nfl-auto-picks.js -> ensembleLine() with the default includeChallengers=false."
+}

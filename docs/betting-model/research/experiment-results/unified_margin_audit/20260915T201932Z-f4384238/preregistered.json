@@ -1,0 +1,103 @@
+{
+  "schema": "nfl-unified-margin-audit-v1",
+  "question": "Does the unified_margin weekly-refit blend beat the market line on margin MAE, on the same games, under earlier-only training?",
+  "candidate": "unified_model.fit_unified (RECIPE below), refit once per test week",
+  "recipe": {
+    "version": "unified-margin-recipe-v1",
+    "families": [
+      "ridge",
+      "lightgbm"
+    ],
+    "ridge_alphas": [
+      1.0,
+      10.0,
+      100.0
+    ],
+    "lightgbm_configs": [
+      {
+        "name": "few_shallow",
+        "params": {
+          "n_estimators": 40,
+          "max_depth": 2,
+          "num_leaves": 4,
+          "min_child_samples": 40,
+          "learning_rate": 0.08
+        }
+      },
+      {
+        "name": "mid_shallow",
+        "params": {
+          "n_estimators": 80,
+          "max_depth": 3,
+          "num_leaves": 7,
+          "min_child_samples": 25,
+          "learning_rate": 0.05
+        }
+      },
+      {
+        "name": "many_shallow_slow",
+        "params": {
+          "n_estimators": 150,
+          "max_depth": 3,
+          "num_leaves": 8,
+          "min_child_samples": 15,
+          "learning_rate": 0.03
+        }
+      }
+    ],
+    "combination_weeks": 24,
+    "calibration_weeks": 12,
+    "combination_alpha": 10.0,
+    "minimum_base_rows": 200,
+    "minimum_combination_rows": 100,
+    "minimum_calibration_rows": 100,
+    "combination": "expert_selector_lab.simplex_ridge; nonnegative weights summing to one",
+    "calibration": "held-out residual distribution and split-conformal absolute-error interval",
+    "outer_results_used_for_selection": false,
+    "authority": "research_only"
+  },
+  "baselines": {
+    "market": "negated stored historical spread (-market_spread)",
+    "zero_information": "mean actual_margin of that week's own training set"
+  },
+  "scheme": {
+    "granularity": "one refit per (season, week)",
+    "cutoff": "weekly_training.weekly_origin(earliest decision_at in the test week) -- production's Wednesday-noon America/New_York fit slot",
+    "eligibility": "model_artifact.eligible_football_rows (decision_at + dataset.RESULT_PUBLICATION_LAG strictly before the cutoff)",
+    "test_week_exclusion": "the test week's own games can never satisfy that rule"
+  },
+  "primary_metric": "MAE of predicted margin vs actual_margin, on common support with the market",
+  "secondary_metrics": [
+    "RMSE",
+    "signed bias",
+    "empirical coverage of the nominal 80% interval"
+  ],
+  "uncertainty": "not computed in this module; server/services/backtest-significance.js pairedBootstrapDiff with groups=fit_week, via scripts/unified-margin-audit-significance.mjs",
+  "diagnostic_groups": [
+    "divisional_game",
+    "indoor_roof",
+    "market_double_digit_favorite",
+    "market_near_pick_em_under_3",
+    "postseason_weeks_19_plus",
+    "rest_advantage_3plus_days",
+    "season_phase_early_weeks_1_6",
+    "season_phase_late_weeks_14_18",
+    "season_phase_mid_weeks_7_13"
+  ],
+  "min_group_games_before_reading_a_group": 100,
+  "decision_rule": "Report the measured result. A result where the market wins is a valid completion and does not license further searching for a configuration that wins.",
+  "explicitly_not_claimed": [
+    "betting profitability (no verified decision-time executable quotes are used)",
+    "prospective validity (this history is development data)"
+  ],
+  "window": {
+    "min_test_season": 2021,
+    "through_season": 2026
+  },
+  "seed": 30717,
+  "authority": "research_only",
+  "run_id": "20260915T201932Z-f4384238",
+  "protocol_hash": "f438423809e6205d94c409733510b2321c646739d01f743530273428b586db38",
+  "declared_at": "2026-09-15T20:19:32.894677+00:00",
+  "results_exist_yet": true
+}

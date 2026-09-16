@@ -129,6 +129,15 @@ FEATURE_NAMES = [
     'pbp_available',
 ] + [f'pbp_diff_{k}' for k in PBP_FIELDS]
 
+# Availability (weighted injury deficit, `dataset.availability_features`) is
+# additive and NOT in `FEATURE_NAMES`: every existing baseline, including the
+# 10.678-MAE walk-forward audit, was measured on exactly the 14 names above,
+# and that reproduction must stay exact. A caller that wants the model to see
+# injuries passes `feature_names=EXTENDED_FEATURE_NAMES` explicitly.
+AVAILABILITY_FEATURE_NAMES = [
+    'home_availability_deficit', 'away_availability_deficit', 'availability_evidence']
+EXTENDED_FEATURE_NAMES = FEATURE_NAMES + AVAILABILITY_FEATURE_NAMES
+
 # --- Predeclared hyperparameter grids ---------------------------------------
 # Features are standardized (mean 0, unit variance) before Ridge sees them, so
 # alpha is directly comparable to the number of standardized-feature-units of
@@ -164,13 +173,25 @@ INNER_VALIDATION_FRACTION = 0.2
 PBP_ERA_SPLIT_SEASON = 2016  # first season nfl_team_week_features exists
 
 
-def row_features(row):
-    """The predeclared 14-feature vector for one dataset row, as a dict.
+def row_features(row, feature_names=None):
+    """The predeclared feature vector for one dataset row, as a dict.
 
     Missing values are `None` (not zero, not dropped) -- the caller decides
     how each candidate handles that (Ridge imputes per training fold;
     LightGBM's native missing-value handling consumes NaN directly).
+
+    `feature_names` scopes what's computed, defaulting to the frozen
+    `FEATURE_NAMES`. A key not requested is simply absent from the returned
+    dict -- calling this with the default produces an identically-shaped dict
+    to every prior version of this function, whether or not `row` itself
+    carries extra fields (e.g. availability, present only when the caller
+    opted into it upstream via `dataset.py`'s `availability_path`). This is
+    what keeps every existing baseline byte-reproducible: an unrequested
+    field cannot enter `_features`, so it cannot enter the training-data hash
+    or the artifact identity either.
     """
+    feature_names = FEATURE_NAMES if feature_names is None else feature_names
+    wants = set(feature_names)
     home_hist = row.get('home_prior_games') or []
     away_hist = row.get('away_prior_games') or []
 
@@ -201,13 +222,25 @@ def row_features(row):
                     and np.isfinite(hv) and np.isfinite(av):
                 value = float(hv) - float(av)
         feat[f'pbp_diff_{key}'] = value
+    if wants & set(AVAILABILITY_FEATURE_NAMES):
+        # `row.get(...)` rather than a required key: a row built without
+        # `availability_path` simply has none of these, and a missing value
+        # here means "no admissible evidence for this game", never zero.
+        feat['home_availability_deficit'] = row.get('home_availability_deficit')
+        feat['away_availability_deficit'] = row.get('away_availability_deficit')
+        feat['availability_evidence'] = 1.0 if row.get('availability_evidence') else 0.0
     return feat
 
 
-def feature_matrix(rows):
-    """rows (each must already carry `_features`) -> an (n, len(FEATURE_NAMES)) float array, NaN for missing."""
+def feature_matrix(rows, feature_names=None):
+    """rows (each must already carry `_features`) -> an (n, len(feature_names)) float array, NaN for missing.
+
+    `feature_names` defaults to the frozen `FEATURE_NAMES`, reproducing every
+    prior caller's behavior exactly.
+    """
+    feature_names = FEATURE_NAMES if feature_names is None else feature_names
     return np.array(
-        [[(r['_features'][name] if r['_features'][name] is not None else np.nan) for name in FEATURE_NAMES]
+        [[(r['_features'][name] if r['_features'][name] is not None else np.nan) for name in feature_names]
          for r in rows], dtype=float)
 
 

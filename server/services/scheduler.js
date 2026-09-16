@@ -861,6 +861,19 @@ export const JOBS = {
     },
     maxAgeMinutes: 5, tier: 'live',
     label: 'T-60 prospective capture: open, freeze and account for every scheduled game\'s cutoff' },
+  nfl_learned_shadow: {
+    run: async () => {
+      const [m, { currentNflWeek }] = await Promise.all([
+        import('../betting/nfl/strategy/learned-shadow-runner.js'), import('./weekly-learning.js')
+      ]);
+      const { season, week } = currentNflWeek();
+      if (!Number.isFinite(season) || !Number.isFinite(week)) return { skipped: 'no current NFL week resolved' };
+      const result = await m.runLearnedShadowPass({ season, week });
+      if (!result.ok) throw new Error(result.reason ?? 'learned shadow pass has failed observations');
+      return result;
+    },
+    maxAgeMinutes: 60, tier: 'growth', timeoutMs: 240_000,
+    label: 'Weekly trained margin model: frozen pregame shadow forecasts, zero stake' },
   // Polymarket's own published limits (Gamma ~400 req/s, CLOB ~900 req/s —
   // docs.polymarket.com/api-reference/rate-limits) leave enormous headroom
   // over a poll this infrequent; tightened from 15 to 3 minutes so a real

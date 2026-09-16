@@ -268,8 +268,8 @@ test('runTool never exposes a write/mutating action, even for an unknown or bet-
   // built — nothing shaped like placing a bet, sizing a stake, or overriding
   // a gate is even declared, so the model has no such tool to call.
   assert.deepEqual(TOOLS.map(t => t.name).sort(), [
-    'decay_watch_status', 'game_projection_breakdown', 'market_calibration_history',
-    'pick_watch_detail', 'variable_definition'
+    'decay_watch_status', 'game_projection_breakdown', 'learned_shadow_research_context',
+    'market_calibration_history', 'pick_watch_detail', 'variable_definition'
   ]);
   for (const name of ['place_bet', 'set_stake', 'override_gate', 'update_pick', 'delete_finding']) {
     const result = runTool(name, { season: 2026, week: 1, home_team: 'DAL', amount: 1000 });

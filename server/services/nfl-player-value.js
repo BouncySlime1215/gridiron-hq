@@ -18,8 +18,12 @@ import { nflEngineVersionFor } from './nfl-engine-registry.js';
 const r3 = n => n == null || !Number.isFinite(n) ? null : +n.toFixed(3);
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 const parse = value => { try { return JSON.parse(value); } catch { return {}; } };
-const normalize = value => String(value ?? '').toLowerCase().replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim();
-const nameSignature = value => {
+// Exported: this is the one place PFR/name matching should be implemented.
+// `nfl-availability.js` needs the identical rule for its own PFR lookup, and
+// a second hand-copied version is exactly the duplicated-normalization
+// failure pattern documented for PFR/CLV matching elsewhere in this codebase.
+export const normalize = value => String(value ?? '').toLowerCase().replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim();
+export const nameSignature = value => {
   const tokens = String(value ?? '').toLowerCase().replace(/[^a-z]+/g, ' ').trim().split(/\s+/).filter(Boolean);
   return tokens.length >= 2 ? `${tokens[0][0]}${tokens.at(-1)}` : tokens[0] ?? '';
 };

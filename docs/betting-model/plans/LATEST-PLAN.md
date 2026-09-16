@@ -1,5 +1,2940 @@
 # Gridiron HQ — latest betting-model plan
 
+**September 16, 2026 update, usage-constrained — read this pointer first.**
+Session ran out of usage mid-execution. The durable record of where
+everything stands, what a football game does and doesn't have in this
+database, the honest ML-technique gap, overfitting guardrails built vs.
+still needed, and the prioritized resume-from-here roadmap is the
+**"DATA INTEGRITY MASTER PLAN — September 16, 2026"** section further down
+(search for that heading). **The gap analysis is DONE (September 16): read
+"FINAL ORDER" first — it is the one authoritative sequence — then "DATA
+SOURCES, ENDPOINTS AND LINEAGE" and "GAP ANALYSIS" right after the roadmap.
+Verdict: the plan stands, re-ordered, with four structural additions.** Both test
+suites were green at the point this was written (Node 2,173/2,134/0/39,
+Python 127/127) and nothing was left mid-edit.
+
+## THE PLAN — read this first (September 15, 2026, end of day)
+
+**For the step-by-step version with exact commands per layer — "start here,
+do this, then this" — see [`RUNBOOK.md`](RUNBOOK.md).** This section is the
+what and why; the runbook is the how.
+
+Everything below this section is history and evidence; this section is the
+order of operations. It covers organize, data, model sharpness, ML / neural /
+AI / quant, research + GitHub, and ends with what "run today's updates" means.
+Detailed inventory, correction of my own earlier wrong claims, and the target
+architecture live in **MODEL INVENTORY AND ORGANIZATION** further down —
+referenced, not repeated.
+
+**How improvement is measured — fixed, not negotiable per experiment.**
+Two harnesses, one significance tool, three baselines:
+- `research/betting/nfl/unified_margin_audit.py` — weekly refit, out-of-fold,
+  every game scored or explicitly abstained (Python signals).
+- `server/services/nfl-replay.js` + `fitEnsemble` — the incumbent JS
+  walk-forward and joint fit (JS signals and the ensemble as a whole).
+- `scripts/unified-margin-audit-significance.mjs --a X --b Y` — the one
+  week-clustered block bootstrap (`pairedBootstrapDiff`), because games in a
+  week are not independent draws.
+- Baselines on identical games: the market (`-market_spread`), the
+  candidate's own base model, zero-information. **Nothing is "better" unless
+  it beats the market AND its own base, out-of-fold, with the interval
+  excluding zero.** Today's numbers, 2021-2026, 1,440 games: market MAE
+  **9.779**; football-only blend 10.271 (+0.49, sig.); market-correction head
+  **9.913** (−0.36 vs its football base, sig.; +0.13 vs market, sig.) — 73% of
+  the gap closed, not all of it. Nominal-80% intervals cover 80.0-80.3%.
+
+### A. Data — is it all good? Verified today, and what to verify next
+
+Verified (measured, not assumed):
+- One point-in-time chronology (`dataset.py`; `RESULT_PUBLICATION_LAG` 3d).
+  Market: closing spread 100%, open+close 98.2%, 2.46M line snapshots.
+  Injuries: 75.2% of 2021-2026 games with admissible evidence. Snaps:
+  `defense_pct` 100% populated and now actually read.
+- Leakage is pinned by mutation tests, not prose: walk-forward (later week
+  cannot change earlier prediction), correction head (combination-week
+  outcome cannot change the base-only football model), feature wiring
+  (opted-out rows byte-identical), availability (post-kickoff revisions
+  refused).
+- **New today — test isolation.** The real market-correction export shares
+  1,278 of 3,044 keys with the synthetic ensemble fixture; every fixture-based
+  ensemble test was silently reading real research values for one column.
+  Fixed: `GRIDIRON_MARKET_CORRECTION_LOOKUP` override, defaulted to nowhere in
+  `test/offline-guard.mjs`; tests point at scratch files. 126/126 on the
+  affected files. This is the same discipline as `GRIDIRON_DB_PATH`.
+
+Known gaps, each with its disposition:
+1. **Monday-night lag.** 42 of 42 prior-week MNF games (and ~3% of Sunday)
+   are excluded from the next Wednesday fit by the 3-day proxy. Decision
+   needed: keep conservative, or split the *score* label (known in hours)
+   from *derived* features (days). Measured, documented, not changed.
+2. **2025-2026 injuries lack `modified_at`** (nflverse dropped the column
+   upstream; our writer is correct). `nfl_feature_revisions` is the forward
+   fix and holds 20 rows — verify it accumulates weekly; recovers nothing
+   backward.
+3. **Defensive player quality is 0%** and cannot be derived from our PBP
+   (ESPN feed, no player identity). Free path: `nfl_pfr_adv` weekly
+   defensive stats already ingested (7.6k rows/season, 2024+). Optional:
+   import nflfastR PBP with player ids for on/off value. No PFF; its season
+   granularity would leak anyway.
+4. **Lookup refresh.** The correction export is a one-time file (237 weeks);
+   it needs a re-export job after `weekly_training`'s Wednesday slot.
+
+### B. Models — are they sharp? What is measured, dead, gated
+
+- The **served spread forecast has been the market line verbatim at every
+  cutoff ever shipped** — 0 of 848 fit artifacts ever passed the residual
+  gate (`n ≥ 250`, `rmse_gain ≥ 0.03`, DM `p ≤ 0.05`). The gate is mild; the
+  finding is that nothing has out-of-fold residual skill on these windows.
+- **Measured dead** (from `gridiron-model.js`'s own evidence): drive-sim
+  42.86% ATS, trend totals 43.81%, GBM-on-residual worse than zero.
+  Specialists: "none of the twelve clears breakeven."
+- **Measured alive but gated:** the correction head — 16.2% weight in the
+  joint margin fit (additive, not redundant with `market_regression` /
+  `market_anchor`), 0 residual weight. `challengerOnly`; proven byte-identical
+  live output with or without its data.
+- **Sharpness rule, kept:** promotion requires clearing the residual gate on
+  a genuinely new window *and* a canary/shadow-serve period (ADD #19) before
+  the `gridiron-model.js` AUTHORITY ladder moves it. No engineering pass
+  changes stake.
+
+### C. Organize — the quant stack, in the order the moves are safe
+
+The target (one owner per layer) is in the inventory section. The order:
+- **C1** Rename `unified_model.py` → `football_blend.py` (two unrelated
+  things are named "unified"). Cheap; do first.
+- **C2** Signal registry contract on `nfl-engine-registry.js` +
+  `model-signal-quality.js`: every component/expert/specialist/lab head
+  registers `{id, target, cutoff, out-of-fold predictions, evidence_id}`.
+- **C3 = Phase 1.5:** measure ensemble effective rank on real data. One
+  command now (venv + slim-extract recipe exist). **Gates C4.**
+- **C4** One combiner (`forecast-combination.js`, the DM-gated one) replaces
+  the six — only if C3 shows independent signal to combine; otherwise prune.
+- **C5** One evaluation harness: Python signals export into the registry;
+  `nfl-replay.js` grades everything. `unified_margin_audit.py` becomes an
+  exporter, `weekly-walkforward.js` and `stage3` folds retire to reports.
+- **C6** One promotion ladder: the residual gate, the cover-calibration
+  forward gate, and the staking width gate become named rungs on
+  `gridiron-model.js` AUTHORITY with evidence ids.
+- **C7** Registry consolidation (FIX #32 / #36 — 37 content-addressing
+  copies; audit layer onto `ModelRegistry`).
+- No production module is merged or deleted without a written same-engine
+  argument (`walk-forward.js` sets the standard) and a real-data measurement.
+
+### D. ML, neural, AI, quant — what each is here, honestly
+
+- **ML (tabular).** Ridge + LightGBM blend, the 3-feature correction head,
+  `tree_lab` (LightGBM/XGBoost/CatBoost cover, quantile, movement).
+  Next: `tree_lab`'s cover head as an L1 signal; injuries + PFR defensive
+  features fed to the **correction head**, not the football model — that is
+  where the remaining 0.13 lives.
+- **Neural.** `nfl-online-neural.js` (`deep_residual` council expert)
+  exists and is audited. NGBoost / MDN distribution heads (catalog #4/#5)
+  only after C3 shows room; normalizing flows last. No new neural net before
+  a shallow head has a measured, gated win.
+- **AI (Claude).** `nfl-ai-replay.js` is a risk *gate* on a packet with
+  outcomes withheld; page-explain and the new learned-shadow explain tool are
+  explain-only. **Zero numeric authority** — unchanged, and correct.
+- **Quant.** The pipeline is signal → combine → gate → evaluate → execute.
+  Already present: DM+HLN, week-clustered bootstrap, `effective_n_trials` /
+  DSR / PBO, consolidated CLV, execution replay, T-60 frozen packets.
+  Missing: C3 (rank), the canary window (ADD #19), MAPIE cross-check
+  (#26 — `pip install mapie` into the venv that now exists).
+
+### E. Research + GitHub — what to pull, where it plugs in
+
+From `GITHUB_BUILD_CATALOG.md`, nothing new invented. In pull order:
+1. `fivethirtyeight/nfl-elo-game` → independent L1 baseline signal (hours).
+2. `greerreNFL/nfelosrs` `BayesianRankings.py` → recursive weekly rating
+   update for `nfl-team-strength.js` (its most-repeated gap).
+3. `ryurko/nflWAR` method → empirical replacement level for injury
+   weighting (replaces the hand-typed position table).
+4. `scikit-learn-contrib/MAPIE` → conformal cross-check in the research venv.
+5. `georgedouzas/sports-betting` complementary-events constraint → same-game
+   guard in L2.
+6. NGBoost / MDN → distribution heads, gated on C3.
+Explicitly not: PFF scraping (paid; season-level leaks), lag-llama, EnbPI
+(subsumed), anything requiring tracking data we do not have.
+
+**Checked and deferred — Kalshi / Polymarket as a signal, September 15, 2026.**
+Nick asked why not pull in prediction-market data (Kalshi, Polymarket) to
+influence picks. Scoped the actual APIs before committing plan space:
+
+- **Access is clean and free.** Kalshi (CFTC-regulated exchange) publishes
+  `/historical/markets`, `/historical/markets/{ticker}/candlesticks`,
+  `/historical/trades` — settled markets are retained, not deleted, split
+  into a rolling 3-month "live" window and an older "historical" bucket.
+  Polymarket's Gamma (market discovery) and CLOB `/prices-history` read
+  endpoints are unauthenticated and free. Reading either is public
+  market-price data, not a wagering action — no gambling-law exposure for a
+  read-only research pipeline (the active state litigation against Kalshi,
+  e.g. the Massachusetts injunction, is about letting users trade in-state,
+  not about third parties reading published prices).
+- **The blocker is depth, not access.** Kalshi's individual NFL game
+  contracts effectively launched around September 2025 (same-game parlays
+  Sept 29, 2025); Polymarket's CFTC-regulated US arm — the legally clean
+  path for a US-based pipeline — stood up in **late 2025** too. As of today,
+  neither platform has more than **one completed NFL season** of real,
+  liquid game-market history.
+- **One season can't clear our own recipe's minimums.** `UNIFIED_RECIPE`
+  needs 24 combination weeks + 12 calibration weeks = 36 weeks of history
+  before a single test week can fit out-of-sample (`chronological_blocks`).
+  An 18-week season has zero weeks left over for genuine out-of-sample
+  testing — any "audit" run on this today would be in-sample curve-fitting,
+  the exact failure mode the whole audit discipline exists to prevent.
+- **Even with enough history, this is the same signal category we already
+  measured, not a new one.** It's another market's consensus price — the
+  correction head already showed that seeing the *sportsbook's* own market
+  and movement only closes 73% of the gap to that same market. A second,
+  much-less-liquid market is more likely a laggier echo of the sportsbook
+  line than an independent edge; that's an empirical question for whenever
+  there's enough data to ask it, not a given.
+- **The one genuinely distinct use, independent of liquidity:** a real-time
+  price jump on Kalshi/Polymarket is an independently-timestamped signal
+  that "the market just learned something" — useful for reconstructing real
+  injury-news arrival times, which we already can't get from
+  `nfl_injuries.modified_at` (NULL for every 2025-26 row). That's a
+  supporting signal for the injury work already queued (RUNBOOK §2.1, §4.1),
+  not a new prediction input.
+
+**Checked and rejected — `nfl_verified_events` as an injury-timing fix,
+September 16, 2026.** Investigated as the possible fix for RECIPE_V2's
+43%-coverage ceiling. Verified directly against the live DB (both by an
+agent and independently re-checked): `official_injury_report` events are a
+byte-for-byte copy of `nfl_injuries` (`available_at == occurred_at ==
+nfl_injuries.modified_at` on every row sampled), sourced uniformly from
+`'nflverse_injuries'`, batch-written in a single 2026-09-01/02 job — the
+same single-batch-timestamp problem already flagged for
+`nfl_feature_revisions`. Zero rows for 2025 or 2026, the exact seasons
+`nfl_injuries.modified_at` is null and coverage is needed most. 2022-2024
+rows are silently double-counted under two `archive_version` tags per
+event (confirmed: 2022 has 10,898 raw rows, only 5,449 distinct
+season/week/team/player records) — a real trap for a future query that
+doesn't dedupe by `archive_version`. No code changed; this is a clean
+negative result, not a partial win. **New lead, not yet investigated:** the
+same table's `weekly_roster_status_change` event type has genuine 2025 rows
+(real ACT/INA/RES/DEV transitions) — a different signal than injury-report
+severity, worth a dedicated look later, not assumed to share this table's
+problems.
+
+**Decision: deferred, not rejected.** Revisit once ~2 full seasons of
+Kalshi/Polymarket NFL history exist (around the start of the 2027 season) —
+enough to clear the recipe's own 36-week minimum. If it's worth building
+then, the ingestion is cheap (both APIs are free, public, unauthenticated
+for reads); there's no reason to build it before there's data to validate
+it against. If built at all, it goes through the identical governance as
+`market_correction.py` — never inside the frozen 14-feature football
+contract, its own separately-audited candidate, gated on beating both the
+market and its own base out-of-fold, week-clustered, before it can touch a
+live pick.
+
+Sources: [Kalshi historical data docs](https://docs.kalshi.com/getting_started/historical_data),
+[Polymarket API guide (Gamma/CLOB/Data)](https://dev.to/will_c38674673aba82fa4cbe/polymarket-api-guide-2026-clob-gamma-websockets-rate-limits-and-the-ip-gate-51mp),
+[Kalshi NFL parlay launch, Sept 2025](https://www.covers.com/industry/kalshi-launches-same-game-parlays-for-sports-contracts-sept-30-2025),
+[Polymarket US NFL volume growth, late 2025 launch](https://cryptobriefing.com/polymarket-nfl-college-football-volume-surge/),
+[Third Circuit CFTC jurisdiction ruling, April 2026](https://www.hklaw.com/en/insights/publications/2026/04/federal-appeals-court-cftc-jurisdiction-over-sports-event-contracts).
+
+### F. Step by step — the sequence, each with its "done when"
+
+1. **Commit today's work** (Nick). 50+ files uncommitted. *Done when:* one
+   commit on `cursor/betting-model-audit-fixes-1c85`.
+2. **First real shadow observation.** The scheduler job now runs (venv
+   built, fallback verified 8/8). *Done when:* a `nfl_decision_events` row
+   with `experiment_id = nfl-unified-margin-shadow-v1` exists for a real
+   upcoming game and the explain tool returns `available: true` for it.
+3. **Lookup refresh job** after the weekly slot. *Done when:* the export's
+   `through` week advances without a manual run.
+4. **C3 / Phase 1.5 — rank on real data.** *Done when:* participation
+   ratio, entropy rank and PCs-for-90/95/99% are reported in both
+   `raw_margin` and `market_residual`, and C4's go/no-go is recorded.
+5. **Phase 3 A/B — injuries + PFR defense through the correction head,**
+   via the ensemble-component path. *Done when:* both intervals (vs market,
+   vs base) are reported on identical games against 9.913.
+6. **`tree_lab` cover head as an L1 signal** through the joint fit.
+7. **Elo baseline + nfelosrs weekly update** as L1 signals.
+8. **C1, C2** (rename; registry contract).
+9. **C4-C7** consolidation, only after step 4.
+10. **R3 fix (P1)**, 24-pt width gate justification, 2024 wk1-4 pilot.
+11. **Promotion** of any component that clears the residual gate on a new
+    window and a canary period → AUTHORITY rung. Not before.
+
+### G. "Run today's updates" — what has run, and what it showed
+
+Today's updates **have been run**, twice, against real history:
+- Python harness, 2021-2026: correction head **9.913** vs market 9.779 vs
+  football base 10.275. Beats its base decisively; does not beat the market.
+- JS joint fit, 2015-2026 extract, 3,044 games: the same head earns **16.2%**
+  margin weight beside the two existing market components; **0** residual
+  weight, like every component ever fit.
+
+That is the honest result: a measurable, significant narrowing of the gap
+to the market (0.49 → 0.13 points/game), correctly gated, changing no pick.
+The next run that can show *more* improvement is step 5, and it is a
+one-command A/B now that the wiring and the venv exist.
+
+Verification state at time of writing: Python **119/119** (116 + 3 new audit
+provenance/accounting tests, see "Audit system validity" below); the five
+test files touched by the isolation fix 126/126; full Node suite
+(deployed-server configuration, no env override) — **confirmation pending in
+the line below.**
+
+> Full Node suite: **2,156 tests — 2,117 pass, 0 fail, 39 skipped** — run with
+> no `GRIDIRON_RESEARCH_PYTHON` override (the venv fallback a deployed server
+> uses) and the lookup-isolation preload active. Confirmed 2026-09-15.
+
+---
+
+## Active continuation checkpoint — September 15, 2026
+
+**User direction:** continue the hard model/data/training/serving integration, reuse the
+advanced research, investigate historical injuries, and finish the major wiring before
+running the large historical walk-forward audit. Keep this checkpoint current for Claude.
+
+**Working checkout:** `/Users/nick_matta/Documents/GitHub/gridiron-hq`, branch
+`cursor/betting-model-audit-fixes-1c85`, recovered base `ace62c8`. Changes listed below
+are in the working tree unless a newer commit is explicitly recorded. Do not reset or
+replace them. Source session: Claude `c174766b-2011-40dd-b469-744caef3a0e5`.
+
+### Completed and verified before the latest extension
+
+- Preserved Claude's unfinished WP12 split manifests and WP13 totals contract.
+- Built `score_artifact.py`, Node `python-artifact.js`, `trainedMarginFamilyForecast`
+  and `scripts/score-nfl-artifact.mjs`: exact pinned artifact/feature/runtime scoring.
+- Corrected probability output precision and model identity for changed training values
+  and dependency versions. Existing saved artifacts remain unchanged.
+- Saved artifact parity: all 16 completed 2026 Week 1 games matched direct Python exactly.
+- Validation at this stage: 72 focused Node tests passed; full Node suite 2,093 passed,
+  39 skipped, zero failures; Python suite 63 passed after the feature re-date check.
+  Typecheck and JavaScript syntax checks passed. These do not certify newer edits below.
+
+### In progress now — MUST finish and test, not mark done
+
+1. `research/betting/nfl/weekly_training.py`: Wednesday noon New York fit-slot policy,
+   immutable source snapshots, actual delayed-fit cutoff, previous eligible artifact
+   fallback, and upcoming-game requests. Presently ridge only. Needs dedicated schedule,
+   failure/restart, freshness and mutation tests.
+2. `dataset.football_feature_row`: extracted the historical feature builder for reuse by
+   upcoming-game capture. Existing Python suite passed after extraction; add consumer
+   parity/future-data tests. Scoring now accepts observed pregame research snapshots with
+   retained raw feature inputs. Do not call these exact T-60 forecasts.
+3. `learned-shadow-runner.js`: registered `nfl_learned_shadow` in the existing scheduler;
+   saves requests/results before linking unqualified candidate decisions to the EXISTING
+   decision tape. Needs actual integration tests, including failed tape links/restarts,
+   missing Python/model, no-price abstentions, and no changes to production authority.
+4. `injury_admission.py`: historical versus actual-receipt admission and missingness;
+   requires tests and real pilot report. It is not yet connected to trained features.
+5. New inner-fit guard in `model_artifact.py`: exclude labels unavailable at the first
+   validation cutoff and retain inner row IDs. Retest before any research run.
+
+### Injury evidence found (do not repeat the blind backfill)
+
+The original live DB already has 2024: 6,213, 2025: 5,783, 2026: 182 injury rows.
+All 2025 rows have NULL modified_at. nflverse documentation still says its injury feed
+stopped after 2024, but direct HEAD requests on September 15 returned 200 for both 2025
+and 2026 CSV files. Inspect actual files; do not treat the stale documentation or local
+row counts as proof of usable historical timestamps.
+
+A 2024 Weeks 1–4 pilot was downloaded and retained under this Codex task's
+`work/injury-pilot/`: 1,089 rows, final season-file SHA256
+`498bce8e13cb64b2ab9bb0ad6cb81d0a63c2ddb24016c9fc90c2de2126fae449`.
+This file was received September 15, 2026; its HTTP Last-Modified is February 13, 2025.
+It is a final archive, not proof of which exact version existed at every historical
+cutoff. Most row updates are after the Wednesday fit time. Team aliases must be normalized
+before reporting coverage. Keep unknown/missing injury evidence distinct from healthy.
+
+### Environment and continuation commands
+
+The matching, already installed Python is
+`/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/research/.venv/bin/python`
+(sklearn 1.7.2, numpy 2.5.3, joblib 1.6.0, LightGBM 4.7.0). Bare python3 points elsewhere.
+Set GRIDIRON_RESEARCH_PYTHON explicitly for Node integration tests. Never run tests
+against either real server/data.sqlite. All prior checks used disposable DBs.
+
+Current task evidence/scratch:
+`/Users/nick_matta/Documents/Codex/2026-09-15/claude-was-doing-some-work-find/`.
+Original unfinished files were backed up in `work/recovered-edits/`.
+
+**Next:** finish/test scheduled trained-candidate capture, add the already specified
+shallow LightGBM artifact/serving path and justified earlier-only calibration/combination
+work, finish injury admission/coverage evidence, then run the same weekly pipeline in
+historical walk-forward. Do not substitute another annual lab run or a huge model search.
+No live stakes, promotion, or profitability claim is authorized by an engineering pass.
+
+### RESUMED and fixed — September 15, 2026 (later same day)
+
+The STOP section below this one records the halt point; this section records what
+happened after Nick said to resume. **Both verified bugs from STOP are now fixed, plus
+two more the fix surfaced. Full suite is green: 2,094 passed, 0 failed, 39 skipped**
+(`GRIDIRON_RESEARCH_PYTHON=/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/research/.venv/bin/python3 npm test`).
+Nothing has been committed — this is still all working-tree state.
+
+1. **`unified_model.chronological_blocks` minimum-row failure — fixture bug, not a
+   production bug.** The 100-row calibration / 100-row combination / 200-row base
+   minimums are legitimate guards sized for real weekly volume (~16 games/week). The
+   reused stage3 fixture (`_synthetic_multiseason_rows`) generates exactly **one** game
+   per synthetic "week," which caps the fixed 12-week calibration block at 12 rows no
+   matter how many seasons are added — structurally unable to clear a 100-row minimum.
+   Fix: added `_synthetic_shadow_rows()` directly in `test_weekly_training.py` — real
+   multi-game weeks (10 games/week), real 7-day calendar spacing so the 3-day
+   `RESULT_PUBLICATION_LAG` never collides with a block boundary. Also fixed
+   `test_only_completed_earlier_fits_within_staleness_limit_are_selected`'s fixture,
+   which was missing the `algorithm: 'unified_margin'` field `choose_artifact` now
+   filters on (added this session) — it was silently returning `None` for every fit.
+   `test_weekly_training.py`: 5/5 green.
+2. **`GRIDIRON_RESEARCH_PYTHON` pinned** to
+   `/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/research/.venv/bin/python3`
+   (sklearn 1.7.2, numpy 2.5.3, joblib 1.6.0, LightGBM 4.7.0) for every command below.
+   The bare `python3` on PATH is Homebrew 3.14 with no LightGBM — same trap as before.
+3. **Two more bugs found once real integration ran under the correct interpreter:**
+   - `test/learned-shadow-runner.test.js`'s end-to-end test failed with `insufficient
+     base rows: 0 < 200`. Root cause: `test/helpers/seed-ensemble-fixture.js` (a
+     shared fixture used by 4 test files + 4 scripts) wrote the **same** `gameday`
+     string (`${season}-09-01`) for all 17 weeks of a season — fine for its original
+     consumers, which only key off `(season, week)`, but it collapses every game in a
+     season onto one instant for anything that filters by real elapsed time (the
+     `RESULT_PUBLICATION_LAG` cutoff), making whole seasons wholly eligible or wholly
+     excluded together instead of week by week. Fixed by computing a real, 7-day-spaced
+     `weekGameday` per week (not drawn from the PRNG, so this does not change any
+     documented determinism guarantee). Also bumped `learned-shadow-runner.test.js`'s
+     own fixture call to 4 seasons and 18 teams (9 games/week — the original 16-team/8
+     games/week fixture caps the fixed 12-week calibration block at 96, permanently
+     under the 100 minimum regardless of season count) — kept the original 16 teams,
+     including KC/BAL/SF/SEA, so their historical form features are unaffected.
+     **Now genuinely passes the real weekly-training-to-shadow-decision-tape path
+     end to end** (not mocked) — this is the first time that has happened.
+   - `test/python-artifact.test.js` failed with `no such column: spec_hash` — it
+     dynamically imports `spread-family-adapters.js`, which opens/migrates the
+     database on import, and this file (unlike `spread-family-adapters.test.js`) never
+     set `GRIDIRON_DB_PATH` first. It fell through to the real default
+     (`server/data.sqlite`), which is on an older, unmigrated schema. **No real data
+     was touched** (mtime unchanged, migration errored before any commit) but this was
+     a genuine test-isolation gap that could have written to production data with a
+     newer/different schema drift. Fixed by giving it the same scratch-DB guard
+     `spread-family-adapters.test.js` already has.
+
+**Files touched this pass (all uncommitted):**
+`research/betting/nfl/test_weekly_training.py`, `test/helpers/seed-ensemble-fixture.js`,
+`test/learned-shadow-runner.test.js`, `test/python-artifact.test.js`.
+
+**Next (unchanged from before, still valid):** finish items 2-5 from "In progress now"
+above (`dataset.football_feature_row` consumer/future-data tests, `learned-shadow-
+runner.js` failure-mode integration tests, wire `injury_admission.py` into trained
+features, retest the inner-fit guard), then run the historical walk-forward audit
+through this now-working weekly path. See "Where we go from here" below for the fuller
+roadmap past that point.
+
+---
+
+### STOP — September 15, 2026: work halted here on explicit instruction (historical — see RESUMED above)
+
+Nick told this session to stop building and hand off. **No process is running** (checked:
+only the unrelated long-lived dev server/vite/tunnel processes were alive). The working
+tree is exactly as the previous session left it; **nothing here has been committed.**
+Everything below was verified by actually running it just now — it is not carried over
+from an earlier claim, and it supersedes anything above that conflicts with it.
+
+**Verified broken, not just "in progress":**
+
+- `weekly_training.fit_week` requests `algorithm='unified_margin'`, which
+  `model_artifact.fit_and_save` dispatches to `unified_model.fit_unified` via the new
+  `ALGORITHM_FITTERS['unified_margin']` entry (added this session). Under the framework
+  Python (no LightGBM) it fails immediately: `RuntimeError: unified recipe requires the
+  already specified LightGBM dependency`. Re-running under the venv that actually has
+  LightGBM (`/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/research/.venv/bin/python3`,
+  LightGBM 4.7.0) clears that error but exposes a second, real bug: `unified_model.
+  chronological_blocks` requires >=100 rows in its "combination" block, and `test_weekly_
+  training.py`'s synthetic fixtures only produce 21 rows — the test fixtures were never
+  updated for this new minimum-row guard. Result: `test_weekly_training.py` fails 3 of 5
+  tests (`test_interrupted_fit_reuses_frozen_training_values_on_retry`, `test_only_
+  completed_earlier_fits_within_staleness_limit_are_selected`, `test_same_slot_reuses_
+  snapshot_and_fit_despite_later_source_changes`). Whether the 100-row minimum itself is
+  right for real weekly volume, or the fixtures are simply wrong, has not been decided.
+- Everything else new is fine as far as its own tests go: `learned-shadow-runner.test.js`,
+  `python-artifact.test.js` and `total-probabilities.test.js` pass 20/22 (2 intentionally
+  skipped pending `GRIDIRON_RESEARCH_PYTHON`). `injury_admission.py` and `score_artifact.py`
+  were not re-verified in this pass — treat as unverified, not as passing, until rerun.
+- The "In progress now" list above (items 1-5) is accurate on scope but was written before
+  this verification. Item 1 in particular is not close to done: the default training path
+  it describes does not currently run end-to-end.
+
+---
+
+### RESULT — the walk-forward audit ran, September 15, 2026
+
+**The market beats the unified model, decisively, and it is not noise.**
+
+Run: `docs/betting-model/research/experiment-results/unified_margin_audit/20260915T193513Z-89562259`.
+523 weeks refit, 50 weeks abstained (too little history for the recipe's blocks),
+6,661 games scored on common support with the market.
+
+| Forecast | MAE | RMSE | bias |
+|---|---:|---:|---:|
+| Market (`-market_spread`) | **10.247** | 13.186 | −0.050 |
+| Unified margin (weekly refit) | 10.678 | 13.726 | +0.339 |
+| Zero-information | 11.306 | — | — |
+
+Week-clustered block bootstrap (`pairedBootstrapDiff`, groups=`fit_week`, 4,000
+iterations): mean difference **+0.432** points/game against the model, 90% CI
+**[0.365, 0.500]**, excludes zero, `significant: true`, and the model was better in
+**0 of 4,000** resamples. This is not a sample-size problem.
+
+Two things worth reading carefully:
+
+- **Weekly refitting and the learned blend bought essentially nothing.** Stage 3's
+  annual-fold ridge was MAE 10.675; this weekly-refit learned combination of ridge
+  and LightGBM is 10.678. Refitting 523 times instead of 24, and learning blend
+  weights, moved the third decimal. The gap to the market (0.43) is ~40% of the
+  entire gap between the market and knowing nothing at all (1.06).
+- **The uncertainty estimate is genuinely good.** The nominal 80% interval covered
+  **80.3%** of outcomes. The model does not know the margin, but it honestly knows
+  how much it does not know — mean width 35.8 points, which is the real message:
+  an NFL margin is that uncertain, and the market prices it better than we do.
+
+This is a valid completion under the predeclared decision rule, not a prompt to
+search for a configuration that wins. It is also margin prediction only — no
+verified decision-time executable quote was used, so it is not a betting result.
+
+### Injury / player-value data audit — September 15, 2026
+
+Measured, not assumed. Everything below is from the live research database,
+read-only.
+
+**Injury evidence coverage: 1,083 of 7,292 games (14.9%).** The 6,209-game gap
+is three different problems, and only one is ours:
+
+| Gap | Games | Recoverable? |
+|---|---:|---|
+| Pre-2021 — `nfl_injuries` has no rows at all that far back | 5,852 | Not from this database. Needs a historical injury archive. |
+| 2025-2026 — rows exist (5,965) but `modified_at` is NULL | 301 | **Not our bug**: `nfl-advanced.js` writes `r.date_modified` faithfully; nflverse dropped the column upstream. Forward fix only. |
+| 2021-2024 — no admissible row for that specific game | 56 | Already at 94.7-95.4% coverage in these seasons. |
+
+The 2025/2026 hole is the one that bites: **that is the era we actually serve.**
+`nfl_feature_revisions` is the right forward mechanism (it records `observed_at`,
+our own receipt clock, which supports the `observed` admission regime) but holds
+only **20** `injury_report` rows today, so it recovers nothing retroactively. It
+accumulates from here.
+
+**Player weighting — what exists and what does not:**
+
+- **Offence: real, rich, usable.** `nfl_player_week_features` carries 52,544
+  player-weeks, 2016-2026, with genuine EPA (`pass_epa_per_att`, `cpoe`,
+  `rush_epa_per_carry`, usage shares). Keyed on `player_id`, which joins
+  cleanly to `nfl_injuries.gsis_id` — no fragile name match needed. This is
+  enough to build empirical value-above-replacement (the nflWAR method, which
+  is the GitHub catalog's own item #1) instead of hand-typed constants.
+- **Defence: playing time only.** That same table holds just **136** rows
+  across all defensive positions, and they are incidental (a defender who
+  touched the ball). There is no per-player defensive production anywhere:
+  `player_gamelog` and `player_season_stats` are fantasy points. So a star edge
+  rusher and a replacement-level one at the same snap share are currently
+  indistinguishable to the model. Team-level defensive EPA does exist
+  (`nfl_team_week_features`, 5,395 rows) — player-level does not.
+- **PFF: zero rows.** `nfl_external_player_grades`, `draft_grades` and
+  `nfl_clv_grades` are all empty. The normalisation path is written; there is
+  no licensed data behind it. PFF is the one source that would close the
+  defensive gap, because it grades every player on the field rather than only
+  those who touch the ball.
+
+**Two defects fixed while measuring this:**
+
+1. `availabilityDeficit` selected `offense_pct` alone, so every defender —
+   about half of each roster — matched nothing and fell through to a flat 0.15
+   default, valued by position only. `defense_pct` is fully populated (25,271
+   of 25,271 rows in 2021 and every season since) and is now read.
+2. It admitted week-W injury rows regardless of when they were last written.
+   `nfl_injuries` is current-state with no version history, so a row revised
+   after kickoff cannot stand in for the pre-game report. It now takes an
+   optional `cutoffAt` that admits only rows untouched since before it; live
+   callers are unchanged, and the cutoff is part of the cache key.
+
+`availabilityDeficit` had **no direct test** before this — every reference
+either mocked it away or checked only the null case. It now has eight.
+
+### The separate labs, and the reason the audit lost — September 15, 2026
+
+**The ML model has never been allowed to see the market.**
+`stage3_team_strength.py` states it outright at line 58: "`market_spread` /
+`market_total` NEVER appear as a candidate INPUT feature." The 14-feature
+vector is rest, division, recent form and play-by-play differentials. Nothing
+else.
+
+So the walk-forward audit compared a *pure football model* against *the
+market* and found the market better by 0.432 points. That is the expected
+result, not a surprising one: the market prices injuries, weather, sharp money
+and public information, and the candidate was forbidden all of it. The result
+is honest and worth keeping, but it does not say "our ML is weak" — it says a
+football-only forecast does not beat a market forecast, which the corpus's own
+literature (Lopez-Matthews-Baumer) already predicted.
+
+What the plan actually asks for and what does not exist: Stage 3 specifies a
+betting head that "learn[s] the correction to the decision-time market" with
+"chronological football-model predictions as features." **There is no such
+head.** That is the single largest structural gap, and it is larger than the
+injury gap — because market coverage is near-total where injury coverage is
+not (see below).
+
+**Every lab in the tree, and whether it reaches a decision:**
+
+| Lab | Size | Predicts | Wired into the unified decision? |
+|---|---:|---|---|
+| `stage3_team_strength.py` | 27KB | football margin, annual folds | **Yes** — it is the base family |
+| `unified_model.py` | 9KB | learned ridge+LightGBM blend | **Yes** — it is the group |
+| `expert_selector_lab.py` | 51KB | simplex ridge, family clustering | **Partly** — only `simplex_ridge` / `cluster_families` are imported |
+| `tree_lab.py` | 63KB | opening-to-closing movement, **cover/over classification**, quantile regression of the market residual (LightGBM/XGBoost/CatBoost) | **No** |
+| `book_lag_lab.py` | 56KB | which book moves first; `lead_lag_matrix.json` | **No** — and it reads a frozen evidence dataset, not `data.sqlite` |
+| `market_lab.py` | 20KB | opening-to-closing movement (superseded by `tree_lab`, kept for comparison) | **No** |
+| `drift.py` / `model_discipline.py` / `leakage.py` | 75KB | drift scans, observation-to-parameter checks, leakage checks | Support, called by the labs that use them |
+
+So ~139KB of modelling — and the only three targets that are actually *about
+betting* (cover, market residual, line movement) — sit outside the decision
+path entirely.
+
+**Coverage for the 2021-2026 window, which is the window that matters:**
+
+| Evidence | Coverage 2021-2026 |
+|---|---|
+| Closing spread | **100%** (285/285 every season) |
+| Opening spread | 95-100%; both open+close on 1,666 of 1,696 games (**98.2%**) |
+| Archived quotes | 135,930 odds-archive rows, 2,459,617 line snapshots |
+| Injury evidence | **75.2%** (1,083 of 1,440 completed games) |
+| Per-player defensive quality | **0%** — see below |
+
+Restricting to 2021-2026 moves injury coverage from 14.9% to 75.2%, which is
+what makes the injury experiment viable at all.
+
+**PFF and defensive value are genuinely blocked, not merely unbuilt.**
+`nfl_external_player_grades`, `draft_grades` and `nfl_clv_grades` are all
+empty. Per-player defensive production does not exist anywhere:
+`nfl_player_week_features` holds 136 defensive rows out of 52,544, and they are
+incidental. `nfl_play_by_play` carries **no player identity at all** — only
+`offense`/`defense` team codes — so on/off-field defensive value cannot be
+derived from it either. A defender can therefore be weighted by how much he
+plays (`defense_pct`, now actually read) but never by how well. Closing that
+needs a grading source (PFF) or participation data; it is not a coding task.
+
+### BUILD PLAN — September 15, 2026, scoped to 2021-2026
+
+Ordered by expected value against measured coverage, not by novelty. Each
+phase is a registered experiment: predeclare, then run, then keep the verdict
+whichever way it falls. The baseline every phase is measured against is the
+one already on record — **unified margin MAE 10.678 vs market 10.247**,
+6,661 games, run `20260915T193513Z-89562259`.
+
+#### Phase 0 — DONE, September 15, 2026 (later same day)
+
+Implemented and verified. `stage3.FEATURE_NAMES` stays the frozen 14;
+`stage3.EXTENDED_FEATURE_NAMES` adds `home_availability_deficit`,
+`away_availability_deficit`, `availability_evidence`. `feature_names` now
+threads through `row_features` → `feature_matrix` → `fit_ridge_artifact` →
+`fit_unified` → `fit_and_save` → `save_artifact`, and is part of the artifact
+identity (`compute_config_hash` already read `meta['feature_names']`; the
+only real bug was `fit_and_save` hardcoding `stage3.FEATURE_NAMES` into
+`save_artifact` regardless of what the fitter actually used — fixed
+alongside the wiring, since it would have mislabeled any future extended
+fit's own metadata).
+
+Nine new tests (`test_feature_wiring.py`) prove both halves: rows carrying
+availability fields produce a **byte-identical** `config_content_hash`/`run_id`
+under the default set (three separate proofs — `row_features`, the ridge
+training hash, and the full `fit_and_save` artifact identity), and the
+**same** rows produce a **different** hash under
+`feature_names=stage3.EXTENDED_FEATURE_NAMES`, at every layer including
+`fit_unified`. Full suite: 102/102. Also re-verified directly against real
+data: `fit_unified()` on the exact training window from the original 10.678
+run reproduces its exact learned weights (`[0.4536, 0.5464]`) and declares
+`feature_names` as the frozen 14 — the baseline is provably untouched.
+
+Old text below, retained for what it specified rather than re-litigated:
+
+<details><summary>original Phase 0 spec</summary>
+
+#### Phase 0 — close the wiring gap that makes any of this measurable (prerequisite)
+
+Injury/availability features currently reach the dataset row but **not the
+model**: `stage3.row_features()` emits exactly the predeclared 14 and
+`feature_matrix()` selects by `FEATURE_NAMES`, so anything else is silently
+dropped. Until this is fixed, every experiment below would measure nothing and
+report success.
+
+- Keep `FEATURE_NAMES` as the frozen 14 so the existing baseline stays
+  reproducible; add a named, opt-in extended set alongside it.
+- Thread the chosen feature list through `feature_matrix` →
+  `fit_ridge_artifact` → `fit_unified` → `model_artifact.fit_and_save`, and
+  put it in the artifact identity so a model fitted on a different feature set
+  cannot silently reuse another's ID.
+- **Done when** a fit with the extended set produces a different artifact ID,
+  and a fit with the default set reproduces the current baseline exactly.
+
+</details>
+
+#### Phase 1 — BUILT, September 15, 2026 (audit result pending below)
+
+Implemented as `research/betting/nfl/market_correction.py` (`fit_market_correction` /
+`MarketCorrectionModel`), following Stage 3's own instruction exactly: a
+football model fit on strictly earlier weeks feeds a correction head that
+learns `market_residual = actual_margin - (-market_spread)`, using three
+features — `football_prediction`, `market_spread`, `market_movement`
+(closing minus opening).
+
+**`dataset.py` gained `open_spread`/`open_total`/`market_movement`** (all
+gated behind `include_labels`, matching where `market_spread` already lived
+— not a new ungated path in). Verified on real 2024 data: e.g. ATL/PIT
+week 1, spread moved -3.0 → -4.0, `market_movement` correctly reports +1.0
+(toward the home team).
+
+**Out-of-fold discipline, proven not asserted.** Reuses
+`unified_model.chronological_blocks` unmodified: football model fits on
+`base`, scores `combination` out-of-fold to train the correction head, then
+refits on `base+combination` for `calibration` — mirroring `fit_unified`'s
+own final-refit step exactly. Two mutation tests confirm it: changing a
+combination week's outcome cannot change the base-only football model's
+prediction on that same row, and changing a calibration outcome cannot
+change the final football refit's predictions on an earlier row. 8/8 tests
+in `test_market_correction.py`.
+
+**Wired into the SAME audit script, not a sixth one.** `unified_margin_audit.py`'s
+`run_walk_forward` now also fits and scores the correction head on the
+identical weekly training set the unified model just used — one refit loop,
+two independently-abstaining candidates (the correction head needs
+market-evidenced rows the unified model doesn't, so a week can fit one and
+abstain the other, both recorded honestly). Added `correction_metric_block`,
+`correction_paired_difference` (against both `market` and `football_alone`
+— Stage 3's own rule that beating football-alone alone proves nothing about
+betting), and `correction_group_table`. 6 new tests in
+`test_unified_margin_audit.py`, including one proving the correction fit
+never changes the unified model's own numbers. Full Python suite: 116/116.
+Full Node suite (unrelated but re-verified after the dataset.py schema
+change): 2,108/0.
+
+**Deliberately NOT done:** not wired into `weekly_training.py` or the
+learned-shadow production path. Stage 3's own baselines-first discipline —
+this stays a measured research candidate until it beats both the market and
+the football-alone baseline on the same games, per the real run below.
+
+### RESULT — Phase 1 ran, September 15, 2026: closes most of the gap, doesn't fully close it
+
+Run `20260915T203201Z-f4384238`, 2021-2026, same 111 weeks / 1,440 games as
+the unified-model audit. `scripts/unified-margin-audit-significance.mjs`
+generalized to accept `--a`/`--b` field names rather than write a second
+significance script for this comparison. (Superseded by
+`20260915T223534Z-08903ca1` below — same numbers, fixed provenance; cite
+the newer run_id going forward.)
+
+| Forecast | MAE | vs market (90% CI, week-clustered) |
+|---|---:|---|
+| Market | 9.779 | — |
+| Unified model (football-only) | 10.271 | +0.493 worse, significant |
+| **Market-correction head** | **9.913** | **+0.134 worse, significant** [0.064, 0.209] |
+| Football-alone (the correction's own base model) | 10.275 | +0.496 worse, significant |
+
+**The hypothesis behind Phase 1 is confirmed: the market carries real
+information the football model doesn't.** Correction vs football-alone:
+**−0.362 points/game, 90% CI [−0.502, −0.222], significant** — letting the
+model see `market_spread` and `market_movement` measurably improved it, and
+by a wide, non-marginal margin. This is exactly why the original 0.493-point
+gap existed: a model forbidden the market was never going to close it.
+
+**But per Stage 3's own predeclared rule, this does not clear the bar for
+promotion.** Correction vs market is still significant IN THE MARKET'S
+FAVOR — 0.134 points/game, CI excludes zero. Three plain, narrow features
+(a stacked football prediction, the spread, the movement) recovered most of
+the gap (0.493 → 0.134, a 73% reduction) but not all of it. That is not a
+failure of the experiment — a naive regression onto the market number
+closing 73% of the gap to the market itself, without ever seeing an injury
+report or a play-by-play differential adjustment for the correction step,
+is a real, informative result. It says the next-highest-value work is
+richer correction-head features (the injury/availability wiring from
+Phase 3, run through THIS head, not just the football model), not a bigger
+model on the same three inputs.
+
+**Status per protocol: remains an unwired research candidate.** Neither
+baseline beaten cleanly; `weekly_training.py` is untouched. Nothing here
+changes betting authority.
+
+### Audit system validity — September 15, 2026
+
+Nick asked for a validity pass on the audit itself before trusting its
+numbers. Checked every guarantee in `unified_margin_audit.py`'s own
+docstring against the code, not just the prose; found three real gaps in
+the harness's own bookkeeping (not in the science) and fixed them:
+
+1. **Code fingerprint was taken at the wrong time.** `code_identity()` hashed
+   the model files *after* scoring finished, so an edit made mid-run (an
+   8-minute window) would be silently recorded as the run's provenance
+   instead of flagged. Also omitted `market_correction.py` itself, despite
+   the report carrying its numbers. Fixed: hashed once at process start
+   (right after import, before the first game is scored) into
+   `preregistered.json['code_identity']` and `report.json['code_identity']`;
+   `market_correction.py` added to the hashed set (now 7 files). A second
+   hash taken at the end diffs against the start hash into
+   `report.json['code_files_modified_during_run']` — non-empty means
+   don't trust that run's numbers, re-run first.
+2. **The correction head wasn't preregistered.** `protocol()` (written to
+   disk before a single game is scored) declared only the unified model's
+   recipe; the correction head's recipe, and the fact that its market
+   features are the stored *closing* line while the football model's own
+   features and fit slot use the publication-lag horizon, were undeclared.
+   Fixed: `protocol()` now includes `secondary_candidate` (the correction
+   head's full recipe and decision rule) and `horizons` (spelling out which
+   three things run on which clock: model weights at the Wednesday slot,
+   row features at kickoff, market baseline/correction features at close).
+3. **"Every game accounted for" was asserted in prose, not enforced.** Added
+   `check_accounting()`: raises unless
+   `games_scored + games_in_abstained_weeks == rows in the evaluation window`,
+   and unless no game was scored twice. Called at the end of `run()`;
+   `report.json['rows_in_evaluation_window']` now carries the number the
+   invariant was checked against.
+
+3 new tests (`ProvenanceAndAccountingTests` in `test_unified_margin_audit.py`)
+cover all three, plus the existing no-look-ahead mutation test and the
+existing accounting test were re-verified unchanged. Full Python suite:
+**119/119.**
+
+**Re-ran the real 2021-2026 audit end to end with the fix** — new run
+`20260915T223534Z-08903ca1` (supersedes `20260915T203201Z-f4384238`, same
+data, same protocol content plus the newly-declared fields, different
+`protocol_hash` because the preregistered spec text itself changed).
+Numbers are **byte-identical** to the pre-fix run: unified 10.271 vs market
+9.779 (+0.493, CI [0.357, 0.626]); correction 9.913 (+0.134 vs market, CI
+[0.064, 0.209], sig.; −0.362 vs football-alone, CI [−0.502, −0.222], sig.).
+`report.json` shows `rows_in_evaluation_window: 1440` (matches
+`games_scored`, `games_in_abstained_weeks: 0`) and
+`code_files_modified_during_run: []`. The fixes changed the harness's
+bookkeeping, not the result — which is exactly what should happen when a
+provenance/accounting gap is closed on a run that was already correct.
+
+**What was already solid, verified rather than re-derived:**
+- No-look-ahead: `week_cutoff` uses production's own `weekly_origin`;
+  `eligible_football_rows` uses production's own lag rule; a structural
+  `AssertionError` fires if any test-week game ever entered its own training
+  set (never triggered on the real run).
+- Preregistration-before-results: `preregistered.json` is written with
+  `results_exist_yet: false` before `build_football_dataset` runs, and
+  rewritten with `results_exist_yet: true` only after `report.json` exists.
+  `LATEST.json` — the pointer the explain-pick tool reads — is written last,
+  only on a clean exit; an exception anywhere above never reaches that line,
+  so a failed or interrupted run cannot change what upcoming-game
+  explanations cite.
+- Significance: one path only, `pairedBootstrapDiff(..., {groups: fit_week})`
+  via `scripts/unified-margin-audit-significance.mjs`; the audit module
+  itself deliberately computes no interval, so there is no second,
+  divergent bootstrap to drift out of sync.
+- Empty-dataset / all-abstained / zero-weeks all raise loudly instead of
+  writing a "nothing to report" file that could be mistaken for a genuine
+  null result.
+
+**Known, already-documented limits that remain true and are not bugs:**
+`market_spread` is a stored closing line, not a verified T-60 executable
+quote (no result here is a betting/profitability finding); this is
+development data, inspected repeatedly, so a prospective frozen window is
+still required before any forward claim; interval coverage (80.0%) is
+measured inside the audit window and is not a guarantee on future dependent
+games; the correction-vs-football_alone comparison is not horizon-matched
+(the correction head sees the close, football-alone doesn't) — now stated
+explicitly in `report.json['limitations']` rather than left implicit.
+
+**Bottom line: the audit is valid.** The three gaps were about the audit
+*proving what it claims*, not about the numbers being wrong — and the
+re-run confirms that by reproducing them exactly. Nothing here changes the
+verdict: unified model loses to market, correction head recovers 73% of the
+gap but not all of it, and the correction head still has no betting
+authority.
+
+<details><summary>original Phase 1 spec</summary>
+
+#### Phase 1 — the market-correction head (the actual reason the audit lost)
+
+98.2% of 2021-2026 games have both opening and closing spreads; 2.46M line
+snapshots exist. The model is currently forbidden all of it.
+
+- New target: the **market residual** (`actual_margin - (-market_spread)`),
+  not raw margin. This is Stage 3's own instruction: "learn the correction to
+  the decision-time market," with chronological football-model predictions as
+  an input feature.
+- Features: the football model's own out-of-fold prediction (fitted strictly
+  earlier), the quote itself, opening-to-closing movement, and the existing 14.
+- The football prediction must come from a model that never saw the game being
+  scored — stacked chronologically, or it is leakage dressed as improvement.
+- **Baselines that must be beaten to claim anything:** the market alone
+  (residual = 0) and the football model alone. Beating only the football model
+  proves nothing about betting.
+- **Done when** the same weekly walk-forward reports market-residual MAE for
+  the correction head against those two baselines on identical games, with the
+  week-clustered interval from `pairedBootstrapDiff`.
+
+</details>
+
+#### Phase 1.5 — measure the ensemble's effective rank on REAL data, before adding any family
+
+This phase exists because the original ordering was wrong. Phase 2 adds a
+family to the blend; whether that can help at all depends on how many
+independent directions the blend already has, and **that has never been
+measured on real football.**
+
+`server/services/nfl-ensemble-rank.js` is built, validated against
+known-answer fixtures (3-factor and 8-factor synthetic leagues), and has never
+been run against real history — the session that wrote it was barred from
+opening the live database, and its own evidence file says so: "the effective
+rank of the production ensemble on real NFL history was not measured, and no
+number in this document should be read as that measurement."
+
+Two independent audits claim ~31 components carry ~2-3 independent signals,
+and the section-8.6 family ablation found **2 of 31** conclusively
+contributing. If that is true in the `market_residual` space — the only space
+that can carry an edge, since the market already prices the obvious — then the
+blend is saturated and the correct move is **pruning, not adding**, and
+Phase 2 would buy nothing.
+
+- Run it against a read-only copy, never the live file:
+  `GRIDIRON_DB_PATH=<copy> node scripts/ensemble-rank-report.mjs --before-season 2025`
+- Report participation ratio, entropy rank and PCs-for-90/95/99% in BOTH
+  `raw_margin` and `market_residual`. A low raw-margin rank is expected and is
+  not a finding; the residual-space number is the one that decides.
+- **Done when** there is a measured effective rank on real games, and a
+  decision recorded: add families (Phase 2) or prune first.
+
+#### Phase 2 — fold in `tree_lab`'s cover target (gated on Phase 1.5)
+
+`tree_lab.py` (63KB) already implements cover/over classification and
+quantile regression of the market residual across LightGBM/XGBoost/CatBoost,
+with a genuine market-only baseline in every comparison. It is price-gated to
+2022+, which fits this window.
+
+- Do not re-implement it. Expose its cover probability as a family the
+  unified combination can weight, exactly as ridge and LightGBM are today.
+- A cover probability is the quantity the gates actually consume, so this is
+  the first phase whose output could reach a decision rather than a report.
+- **Done when** the cover head is a registered family inside `unified_model`'s
+  learned blend, with its own calibrator identity, and the blend's weights are
+  fitted on earlier-only data like every other component.
+
+#### Phase 3 — injuries and defensive value, at 75% coverage
+
+Injury evidence covers 1,083 of 1,440 completed 2021-2026 games.
+
+- Weighted availability deficit is already exported per game at its own cutoff
+  (`scripts/export-availability-features.mjs`) and read by `dataset.py`.
+- Run it as an A/B against the Phase 1/2 model on identical games. A feature
+  present on 75% of rows must be shown to help, not assumed to.
+
+**Solving the defensive-quality gap without paying for PFF.** PFF is not
+needed, and its API would not work for this anyway: its grades are
+**per season**, so using a 2023 grade to weight a week-3 2023 injury reads the
+future — the exact leakage class the September review's R1-R3 findings were
+about. The free replacement is already ingested and unused:
+
+`nfl_pfr_adv` (kind `def`) holds **7,626 rows for 2024 and 7,544 for 2025**,
+per player **per week**, from the nflverse PFR advanced release we already
+pull: `def_pressures`, `def_times_hurried`, `def_sacks`,
+`def_passer_rating_allowed`, `def_completion_pct`, `def_yards_allowed_per_tgt`,
+`def_targets`, `def_missed_tackles`, `def_tackles_combined`. That is coverage
+quality, pass rush and tackling — most of what a PFF defensive grade is built
+from — and because it is weekly it can be used point-in-time from strictly
+earlier weeks.
+
+- Build defensive value-above-replacement from those fields, prior weeks only,
+  mirroring the offensive EPA method (`nfl_player_week_features`, 52,544
+  player-weeks, 2016-2026, keyed on `player_id` which joins to
+  `nfl_injuries.gsis_id`).
+- Join caveat: `nfl_pfr_adv` keys on `player_name`, so it needs a full-name
+  match to the injury table with an explicit unmatched count, never a silent
+  drop.
+- Coverage caveat: the PFR weekly release **begins in 2024**, so 2021-2023
+  defenders carry no quality signal and must stay missing rather than
+  defaulting to a positional constant.
+- **Do not scrape PFF.** It is a paid product; the season granularity makes it
+  unusable for historical weighting regardless, and the free weekly data above
+  is better suited to the question.
+
+#### Phase 4 — the review findings this plan did NOT originally cover
+
+Added after checking the plan against the September 15 review rather than
+against itself. These are open, and two are P1.
+
+- **R3 is still unresolved.** `t60-runner.js` still calls
+  `autoPickDecisionBoardForPacket(packet, ...)` on the frozen-decision retry,
+  and the review reproduced that this recomputes from mutable game context,
+  team features, total market and calibration state while recording
+  `dataIdentityStatus: 'frozen_packet'`. The fix the review asked for —
+  persist the computed forecast and complete input/artifact identity BEFORE
+  linking, and recover the stored result rather than recomputing — has not
+  been implemented. Nothing downstream that claims a prospectively available
+  forecast is trustworthy until it is.
+- **The gates have never been empirically justified.** The review was explicit
+  that "a gate rejecting everything is not sufficient evidence that its design
+  is right": `staking.js` rejects an 80% margin interval wider than 24 points
+  while observed widths run 32-34, so the rule rejects essentially everything.
+  Our own audit now measures that interval at **35.8 points mean width with
+  80.3% coverage** — i.e. the interval is honest and the threshold is simply
+  unreachable. Audit each gate's purpose, inputs, information regime and
+  attainable passing example. Do not loosen production stake authority to make
+  picks appear.
+- **The bounded 2024 weeks 1-4 news/injury pilot** (master plan item 6) is
+  still not done.
+- **The "independent simulation" family is still ensemble-anchored** — it is
+  handed ensemble `targetMargin`/`targetTotal`, so it cannot serve as an
+  independent mean forecast in any comparison.
+
+#### Phase 5 — the two model groups, which is the real "pull the solo models in" question
+
+"Pull the solo models into the big group" assumes one big group. **There are
+two, and they never meet** (verified: zero references between them).
+
+| Group | Members | Where it goes |
+|---|---|---|
+| JavaScript | `nfl-ensemble.js` — 31 components, 22 in the production blend — through `forecast-combination.js` | Production picks |
+| Python | `unified_model.py` — 2 families (ridge, LightGBM) | Shadow decision tape only |
+
+The Python group is what the weekly audit measured. The JS group is what
+actually prices production. They share no features, no calibrator, no
+combination step, and no identity. A "unified decision made as one unit"
+cannot be claimed while both exist unjoined.
+
+This needs an explicit decision, not a drift: either converge them behind one
+combination step, or document why they stay separate with the specificity
+`server/modeling/walk-forward.js` used when it declined to merge with
+`weekly-walkforward.js`. Until that decision is recorded, `book_lag_lab`
+(56KB), `market_lab` (20KB) and the unused 49KB of `expert_selector_lab` have
+no defined destination either — which is why they have stayed solo.
+
+### Audit timing → explain-pick wiring — September 15, 2026
+
+Built the connective tissue Nick asked for: the audit's timing made explicit,
+and its findings reachable from the existing "explain this pick" UI feature
+for upcoming games.
+
+**Timing, decided explicitly.** The full walk-forward audit does not run
+weekly and must not — it refits ~111-523 times and is a measurement pass, not
+a serving path; running it on a cadence tied to live decisions would let the
+model implicitly peek at whichever window looks best, which is exactly the
+anytime-monitoring problem the master plan's Stage 5/6 process exists to
+prevent. So: **the audit runs at deliberate checkpoints** (after a real
+model/feature change, or on a predeclared review schedule), and on
+completion it atomically writes one pointer —
+`docs/betting-model/research/experiment-results/unified_margin_audit/LATEST.json`
+— containing the run id, the measured overall/paired-comparison numbers, and
+every diagnostic group's stats. Nothing reads or regenerates this
+continuously; it changes exactly once, when an audit finishes, and stays
+fixed until the next one does.
+
+**What "applies it to current picks" means, concretely — and what it does
+NOT mean.** The audit does not, and must not, automatically change a gate,
+threshold, or which model is live: the learned-shadow model has zero betting
+authority regardless of what any audit finds (unchanged — see
+`learned-shadow-runner.js`'s own tape note, "Unqualified trained margin
+candidate; zero stake"). What "applies" means here is narrower and honest:
+a new module, `server/services/nfl-learned-shadow-explain.js`, looks up the
+frozen shadow forecast for one specific game (components, learned weights,
+80% interval, calibration status — all of which were already being computed
+by `UnifiedMarginModel.describe()` and saved to the decision tape, just never
+read back out anywhere) and pairs it with the latest completed audit's
+measured MAE for whichever of four schedule/venue/rest diagnostic groups
+that game falls into (divisional, indoor, rest advantage, season phase —
+deliberately NOT the five market-based groups, since this model never sees
+the market at all, and faking that context from a live quote it was never
+given would misrepresent what it actually knows).
+
+**Wired into the existing explain-pick assistant**, not a new one:
+`learned_shadow_research_context` is now a sixth read-only tool in
+`page-explain-tools.js`'s existing tool-use loop (`nfl-page-explain.js`),
+which already enforces "explain, never decide/place/resize/override" as a
+system-prompt-level rule applying automatically to every tool including this
+one. 6 tests (`test/nfl-learned-shadow-explain.test.js`) plus the pre-existing
+14 explain-assistant tests, all passing, including the one that asserts the
+declared tool set contains nothing shaped like a write.
+
+**Verified for real, with one deliberate stop.** Re-ran the audit scoped to
+2021-2026 (Nick's stated window): 111 weeks, 1,440 games, same finding as the
+full-history run — market MAE 9.779 vs unified 10.271, week-clustered 90% CI
+[0.357, 0.626], significant. `LATEST.json` now points at a real run with real
+diagnostic-group stats (e.g. divisional_game n=497, indoor_roof n=450).
+
+**What is NOT done, on purpose:** no real shadow observation exists yet for
+any actual upcoming 2026 game — the shadow runner has only ever executed
+against synthetic test fixtures and a scratch export DB, never the live
+database. Running it for real would write rows into the live
+`nfl_decision_events`/`nfl_decision_runs` tables, which is a production write
+and needs Nick's go-ahead first, even though the row would be correctly
+labeled zero-stake/research-only. Once that first real run happens (a
+one-line command), the explain tool has something live to show; until then
+it will honestly answer `available: false` for every current game.
+
+### Research corpus reconciliation — September 15, 2026
+
+Checked against `FIX_AND_ADD_ARCHITECTURE.md`, the September 12 synthesis of
+all 56 F/GF/N/GN research notes (42 ranked FIX items, 22 ranked ADD items).
+That document predates this session and predates the unified-model work
+entirely, so its own "wire it all in" status was unknown going in.
+
+**On PFF: no recalculation needed.** Confirmed by direct search — nothing in
+the codebase currently computes a number that assumes PFF is present.
+`nfl-roster-strength.js` already treats PFF as fully optional (`WHERE
+provider='pff'`, joined against `nfl_external_player_grades`, comment reads
+"always true today, since no PFF connector is configured") and is
+`challengerOnly` — it has never been in the production blend. The 10.678
+walk-forward baseline used none of this. There is nothing to rewire because
+nothing was ever wired to PFF in the first place; today's decision (free
+`nfl_pfr_adv` weekly defensive stats instead) is additive, not a correction.
+
+**Verified against live code this pass** (8 of the highest-ranked items;
+the other ~56 are catalogued but not individually re-verified — see below):
+
+| # | Item | Status |
+|---|---|---|
+| FIX #28 | Consolidate 4 disagreeing CLV calculators into one | **Done.** `clv-core.js` exports the shared signed-points/fair-probability functions; 6 callers (`nfl-execution-clv.js`, `beat-the-close.js`, `forward-ledger.js`, `nfl-sharp.js`, `shadow-ledger.js`, `sharp-lag.js`) now use it. `nfl-prop-clv.js` stays separate, correctly — it stores a probability-delta, a genuinely different unit. |
+| FIX #42 | `book-feeds.js` receipt-clock bug (every live capture mislabeled `legacy_request_time_only`) | **Done.** `receivedAt: at, receiptClockSource: 'response_completion'` is now passed correctly. |
+| FIX #15/#18 | Split-conformal replacing the `disagreement/30` inflation hack | **Done** — confirmed earlier this session (`test/conformal-calibration.test.js`), and it is what WP13 built on. |
+| FIX #25 | Wire the already-computed `wind_epa_delta` into `weather_total` instead of a flat `-2.4` | **Done.** Computed in `nfl-features.js`, read in `nfl-ensemble.js`. |
+| ADD #2 | Transparency fields (`raw_value`, `age_source`, `curve_source`) on `dynastyAgeAdjustment()` | **Done.** All present in `dynasty-age-curve.js`. |
+| FIX #14 | Closed-form ridge fix for team-strength opponent-blindness (flagged "single cheapest, highest-confidence item in the entire betting-model bucket") | **Open — and the September 15 check above looked in the wrong file.** CORRECTED September 16 after reading F15 in full and verifying by grep: the function FIX #14 targets, `blendedTeamRating()`, lives in `server/services/nfl-preseason-blend.js` (line 256), not `nfl-team-strength.js` — the latter only *calls* it (it is the GBM-feature aggregator, gated `blocked` behind `model-governance.js`, never significant on its own `recordTeamStrengthGate`). The correct diagnosis is not "no ridge logic": `nfl-preseason-blend.js` already implements the textbook single-unit normal-normal shrinkage (verified algebraically in F15, with a dated 2026-09-10 bug-fix history), but shrinks each team only toward *its own prior season* — it is missing the **cross-sectional half** (pooling toward a jointly-estimated grand mean across all 32 teams in the current season), which is precisely the mechanism that produces the James-Stein gain. NFL-specific evidence for that gain: Ragain/Peysakhovich/Ugander 2018, real 2016 NFL data, 256 games — empirical-Bayes pooling cut out-of-sample MSE **16.8%** vs MLE, and the gain was largest exactly where the who-played-whom graph is sparse (division-heavy schedule, few cross-conference games — ours). F08/F15 were already cited as sources for this in three older sections of this plan (data-sources table, advanced backlog, R07) — this is the first time they have been read and the target scoped. Fix is gated behind the pipeline's own existing `teamStrengthWalkForward` promotion test; not urgent for live serving (the pipeline is already blocked), but it is the foundation the correction head's football input stands on. |
+| FIX #26 | Stand up MAPIE as an independent Python conformal cross-check | **Open.** Not installed in `research/.venv`. |
+| FIX #36 | Wire `audit-registry.js`/blind-audit onto the existing tested `ModelRegistry` (migration 005) instead of a second, worse copy | **Open.** No reference found. |
+| ADD #1 | One-time nflverse historical player-season import (prerequisite for the aging-curve and replacement-level items) | **Open.** `player_season_stats` holds 931 distinct players — still scoped to rostered players, not the full multi-decade population the item calls for. |
+
+**Not individually reconciled this pass:** the remaining ~56 FIX/ADD items,
+covering simulation (drive-sim sign flips, HFA, kneel/OT), audit-method
+(trial registry DDL, entity-resolution blocking, Šidák correction ordering),
+and new-capability infrastructure (GAS dynamic Poisson scoring, depth/fill-
+aware execution, canary-serve gating). The source document itself estimates
+the full FIX+ADD list at weeks of engineering, sequenced fantasy → simulation
+→ betting-model → audit-method. A full line-by-line reconciliation against
+current code is worth doing as its own pass — the 4-of-8 hit rate just
+measured says real progress has landed since September 12, but not
+comprehensively, and the only way to know which of the other 56 remain open
+is to check each one the way the 8 above were just checked, not to assume.
+
+**Where this intersects the build plan above:** FIX #14 (team-strength
+opponent-adjustment) directly strengthens the football-prediction input to
+Phase 1's market-correction head and should be sequenced into Phase 0/1, not
+treated as separate. FIX #36 (registry wiring) and FIX #26 (MAPIE) both
+support Phase 1.5's rank measurement — an independent Python cross-check on
+whatever conformal/registry numbers that measurement produces is exactly what
+#26 was for.
+
+**One more F15 finding, recorded here so it is not lost (September 16):**
+the same research note grep-confirmed **at least six independently
+hand-rolled shrink-toward-prior formulas** with unfitted, hardcoded `k`
+constants outside `shrinkage-fit.js`'s fitted-k infrastructure —
+`nfl-context-heads.js:39`, `nfl-opponent.js:31`, `nfl-expert-council.js:117`
+(k=30), `nfl-rookies.js:364` (k=80), `nfl-props-replay.js:127` (k=4),
+`draft-assist.js:995` — none routing through `stats-util.js`'s canonical
+`shrink`/`shrinkRate`. This is the same disease as the 5 CLV calculators and
+37 content-addressing hashers, in a fourth place. The older problem register
+below already records it in one line ("Multiple controllers currently apply
+overlapping shrinkage or authority rules"); this is the file-and-line
+version. It also found `nfl-roster-strength.js`'s eight blend constants
+(`0.5/0.23/0.17/0.10`, `0.84^i`/`0.82^i`, `0.88/0.12`, `0.78/0.22`) are all
+chosen by feel, none fit — lower priority than it sounds, because
+`roster_strength` was already retired from the live blend this session
+(R²=0.994 redundant with `availability`), so those constants currently
+influence no pick. Added as a sweep item to the data-integrity checklist
+further down.
+
+### Combining the model groups — September 15, 2026: wired, measured, not promoted
+
+Answered the "why don't we combine all these models" question with code, not
+argument. Checked first whether it would even be additive: `nfl-ensemble.js`
+already has two Market-family components (`market_anchor`,
+`market_regression` — a 1-feature regression on the closing line alone). The
+file's own header explains WHY they were historically double-counted before
+a joint ridge fit replaced per-component isolated weighting (~1.2-1.4 RMSE
+points worse than the market across two real audits) — exactly the
+"scattered, unjoined" failure mode this session set out to fix.
+
+**What was built:**
+- `research/betting/nfl/export_market_correction_lookup.py` — reuses
+  `unified_margin_audit.run_walk_forward`'s existing out-of-fold discipline
+  (no second implementation) to precompute the correction head's prediction
+  for every 2015-2026 game, matching `nfl-ensemble.js`'s own `MIN_SEASON`.
+  Real run: **237 weeks, 3,044 games, 0 abstained.**
+- `server/services/nfl-market-correction-lookup.js` — loads that export into
+  a plain lookup Map. Missing/corrupt file abstains everywhere rather than
+  throwing.
+- A new `market_correction_research` entry in `nfl-ensemble.js`'s `MODELS`,
+  `challengerOnly: true`, family `'Market'`, reading the precomputed value
+  (never calling Python live — `componentPredictionStream`'s replay loop has
+  no `await` in it, so a live subprocess call there would turn one joint fit
+  into thousands of process spawns).
+
+**Safety verified structurally, not asserted.** `blendEligible = m =>
+includeChallengers || !m.challenger_only` gates every point the live blend
+is assembled. Proved directly: a live `ensembleLine()` call for the same
+game produces a **byte-identical result** whether the lookup holds real data
+or is empty — even seeded with a deliberately absurd value (99) to make any
+leak obvious. 6/6 new tests pass
+(`test/nfl-market-correction-lookup.test.js`,
+`test/nfl-ensemble-market-correction-component.test.js`).
+
+**RESULT — run through the real joint fit on a 2015-2026 extract (174
+margin-evaluated weeks, 3,044 games):**
+
+| Component | margin_weight | residual_gate_passed |
+|---|---:|---|
+| market_regression (existing, 1-feature) | 0.3141 | false |
+| **market_correction_research (new)** | **0.1623** | false |
+| market_anchor (existing) | 0.0855 | false |
+
+**The new component earned real, non-trivial weight (16.2%) in the joint
+margin fit alongside the two existing market components — the joint ridge
+did NOT zero it out as redundant.** That answers the actual question: this
+is additive information, not a repackaged copy of what `market_regression`
+already contributes. Consistent with the standalone Python audit's finding
+that correction beats football-alone significantly.
+
+**It also did not pass the stricter `residual_gate` — but neither did either
+existing market component on this same replay window.** All three show
+`residual_gate_passed: false` here, so this is not a defect specific to the
+new component; it says the promotion bar for reaching live-blend residual
+weight is strict on this window generally, which is itself worth noting but
+is a pre-existing property of the gate, not introduced by Phase 1.
+
+**Status: wired, measured, honestly gated — NOT promoted.**
+`challengerOnly: true` remains. No live pick is affected; `blendEligible`
+excludes it from every real `ensembleLine()` call by construction, verified
+above. Promotion is a separate, explicit decision for later, gated on the
+residual criteria the other two market components also haven't cleared here.
+
+### Effective rank result — the §5 gate, September 15, 2026
+
+RUNBOOK §3.4 ("NOT YET EXECUTED") run for real: `scripts/ensemble-rank-report.mjs
+--before-season 2025`, 1,039 complete games across 29 measured components
+(the 3 market-family components, including `market_correction_research`
+above, tracked separately).
+
+| Space | participation ratio | entropy rank | PCs for 90/95/99% |
+|---|---:|---:|---|
+| raw_margin | 3.127 | 6.4 | 10 / 13 / 19 |
+| **market_residual** | **2.564** | **4.729** | **6 / 10 / 18** |
+
+*(Numbers here are the RE-RUN after fixing a real bug found while validating step 6, below: the JS-side read-only extract was inserting `nfl_snaps` positionally, and that table's column order doesn't match between the live DB and the migrated schema — defensive snap PERCENTAGE and defensive snap COUNT were swapped, so every defender's snap share was read as ~100x too large. The conclusion is unchanged (rank moved 2.518→2.564, still in the "≈2-3" prune band) but the exact figures moved slightly and the `availability`/`market_correction_research` weights below reflect the fix.)*
+
+**Independent confirmation of the same finding as the audit, from a
+completely different diagnostic.** The rank tool also regresses the joint
+blend against the market in residual space: `blend = 0 + 1×market, R²=1,
+mean |departure| = 0`. Not "close to the market" — the blend IS the market,
+exactly, to machine precision, on this window. Same conclusion the Python
+audit reached (0/848 fits ever passed the residual gate), reached here by a
+completely different piece of code measuring a completely different thing.
+
+**This resolves RUNBOOK §5's predeclared gate.** `market_residual` effective
+rank **2.518** falls in the "≈2-3" band the plan committed to *before*
+running this — the rule that fires is **prune, don't combine**, not "build
+`forecast-combination.js` as a new combiner." Building a combiner now would
+have been solving a problem the data says doesn't exist: with true effective
+rank around 2.5, a 29-component ensemble is mostly the same handful of
+signals wearing different names, and a fancier combiner has nothing extra to
+combine.
+
+**12 of 29 components carry redundancy R² > 0.95** against the rest of the
+catalog (from `spaces.market_residual.redundancy` in
+`server/data/nfl-ensemble-rank.json`) — retirement candidates, not signals:
+
+| Component | R² vs. rest | Closest partner |
+|---|---:|---|
+| point_diff | 0.999 | turnover_regressed (r=0.997) |
+| availability | 0.999 | field_position (r=0.999) |
+| pythagorean | 0.998 | point_diff (r=0.982) |
+| field_position | 0.998 | availability (r=0.999) |
+| turnover_regressed | 0.997 | point_diff (r=0.997) |
+| massey | 0.996 | point_diff (r=0.996) |
+| rest_travel | 0.994 | availability (r=0.997) |
+| roster_strength | 0.994 | availability (r=0.996) |
+| epa_net | 0.990 | pass_eff_matchup (r=0.908) |
+| rush_eff_matchup | 0.977 | field_position (r=0.913) |
+| pass_eff_matchup | 0.975 | epa_net (r=0.908) |
+| opp_adjusted | 0.958 | melo (r=0.655) |
+
+The genuinely distinct signals — the ones actually carrying the ensemble's
+real rank — are the bottom of the list: `market_regression` (R²=0.35,
+closest partner `availability` at r=−0.50), `market_anchor` (R²=0.43),
+`recent_form` (R²=0.33), and mid-pack survivors like `melo`, `success_rate`,
+`dynamic_state`, `drive_eff` (all R²≈0.84-0.87). This is the concrete
+"unorganized, duplicate models" list asked for earlier — not a guess, a
+measured redundancy matrix.
+
+**Status: measured and gated, retirement NOT yet executed.** Actually
+demoting the 12 to reports-only is a real change to live ensemble
+composition and needs Nick's go-ahead given everything else still
+uncommitted this session — RUNBOOK §5 records the "done when" (fixture
+parity within 1e-6 before deleting any old path, then a §3.5 replay showing
+no regression). The combiner-build branch of the old plan is struck, not
+executed — rank didn't clear the bar for it.
+
+### Data already in the house that no forecast reads — September 15, 2026
+
+Nick asked whether to build more models beyond the 32. The rank result
+above says no: effective rank ~2.5 means more models on the same inputs are
+more copies. What is missing is *information*, so this pass inventoried
+every `nfl_*` table in the live research database (read-only) and checked,
+by grep, which ones reach anything that produces a forecast number
+(`nfl-ensemble.js`, the specialist/council files, or the Python
+`dataset.py` → `stage3` → `market_correction.py` path).
+
+**Twelve tables of real, timestamped data reach none of them.** Each is
+consumed somewhere (display routes, audit/registry code, player-value
+packets) but never enters a prediction. Coverage measured, not assumed:
+
+| Table | Seasons | Coverage | Point-in-time clock | What it is | Where it belongs |
+|---|---|---|---|---|---|
+| `nfl_qbr_weekly` | 2016-2026 | ~530 team-weeks/season (full) | `fetched_at` | ESPN QBR per QB per week | Football model or correction head: **starting-QB quality** |
+| `nfl_depth` | 2021-2026 | ~570 team-weeks/season (full) | `captured` on every row | Depth chart: who starts, by slot | With QBR: **who is the QB this week** — the one injury effect a flat 4.5 weight cannot express |
+| `nfl_nfelo_lines` | 2020-2026 | tickets%/money% only **2024+** (~600 games) | `home_spread_pct_timestamp` | Public betting splits (tickets vs money) | Correction head: the classic sharp-vs-public divergence signal |
+| `nfl_external_ratings` | 2022-2026 | `teamrankings_predictive` 2,368 rows (full weekly); `espn_fpi` 2026 only | `fetched_at` | External power ratings | Independent L1 baseline (what RUNBOOK §4.3 wanted from Elo — already ingested) |
+| `nfl_game_weather_forecast_history` | 2022-2026 | ~190 games/season (~70%), mean lead 2.2 days | `fetched_at`, `lead_days` | Pregame weather **forecasts**, not observed weather | Totals; honest replacement for `game_lines.temp/wind` (observed at kickoff) |
+| `nfl_officials` | 2015-2026 | full | crew announced pregame | Referee crew per game | Totals/pace (documented crew effects) |
+| `nfl_ffopportunity_weekly` | 2022-2026 | 22,867 player-weeks | `source_release` | Expected fantasy points per player | Offense-side player value for availability weighting (what PFR now does for defense; RUNBOOK §4.5) |
+| `nfl_ngs` | 2021-2026 | 11,991 | — | Next Gen Stats per player | Player value packets (already used for display) |
+| `nfl_play_charting` | 2022-2025 | 185k plays | — | Motion, play-action, RPO, box counts per play | Team-week tendency roll-ups; aggregation work first |
+| `nfl_play_formations` | 2022-2023 | 96k plays | — | Personnel/formation per play | Same; thin seasons |
+| `nfl_odds_archive` | 2022-2026 | 136k | `book_updated_at` | Multi-book lines | Correction head: cross-book dispersion as a market-uncertainty feature |
+| `nfl_pregame_snapshot_history` | 2026 | 4,298 | `captured_at`, `data_cutoff` | Full pregame snapshots | Forward-only; the receipt-clock source for everything above going forward |
+
+**The two with the best ratio of new information to work, in order:**
+
+1. **Starting QB × QBR (`nfl_depth` + `nfl_qbr_weekly`), 2021+ at full
+   coverage.** The availability deficit charges a QB absence at 4.5 × snap
+   share whoever the replacement is; the frozen 14 carry team EPA, which
+   embeds last month's QB, not this week's. A "starting QB's prior-weeks QBR
+   minus the team's season QBR" feature is the one injury effect that
+   actually moves a spread by multiple points, it is point-in-time by
+   construction (`captured`, `fetched_at`), and it is the natural RECIPE_V3
+   for the correction head after v2's result below is read.
+2. **Betting splits (`nfl_nfelo_lines`), 2024+ only.** Real, timestamped,
+   and exactly the kind of market-side signal the correction head exists
+   for — but ~600 games is thin, and 2021-2023 would be NaN. Additive, not
+   a v3 on its own.
+
+Then `teamrankings_predictive` as an independent L1 baseline (replaces the
+plan to port Elo — it is already here, 2022+), and weather forecasts for the
+totals head. Everything else on the list is real but lower ratio.
+
+### RESULT — injuries + PFR defense through the correction head, September 15-16, 2026: no improvement, honestly measured
+
+RUNBOOK §4.1 (step 6), executed. Built RECIPE_V2 (adds `home_availability_deficit`,
+`away_availability_deficit` to the correction head, on top of RECIPE_V1's
+three), wired `--availability`/`--correction-recipe` into
+`unified_margin_audit.py`, and had a subagent do §2.3 (per-player PFR
+defensive production replacing the flat positional weight for defenders in
+`nfl-availability.js` — a productive charted defender now costs more than a
+replacement-level one at the same snap share; verified its diff, re-ran its
+tests myself rather than trusting the report).
+
+**Found and fixed a real bug before trusting any of this.** The first real
+run produced corrections of +2,000 to +3,000 points on several 2021 games —
+obviously broken. Traced it to two compounding causes, both fixed:
+1. The read-only JS extract (RUNBOOK §1.3) inserted `nfl_snaps` positionally.
+   The live table's column order and the migrated schema's don't match —
+   defensive snap *percentage* and defensive snap *count* were swapped, so
+   `defense_pct` held raw counts (up to 100) instead of a 0-1 share. Fixed by
+   inserting every extract table by column NAME, and RUNBOOK §1.3 now says so
+   and verifies it (`MAX(defense_pct)` must read 1.0, not 100).
+2. **New rule added to `market_correction.py`**: a correction-head feature
+   with too few non-missing values in a given week's combination block (early
+   2021 weeks train mostly on 2020, before any injury row exists — as few as
+   ~14 real values among ~350 rows) is dropped from THAT week's fit rather
+   than handed to the imputer/scaler, which was silently turning a
+   near-constant, near-zero-variance column into an exploding coefficient.
+   `RECIPE_V2['minimum_feature_support'] = 100`; dropped features are
+   recorded per week (`correction_features_dropped_insufficient_support`),
+   never silent. 2 new tests in `test_market_correction.py` (one for the
+   drop-and-degrade-to-v1 path, one confirming v1's three features are never
+   affected). Python suite: 123/123. Node suite (agent's PFR wiring +
+   my significance-script change): 2,158/2,119/0/39.
+
+**RESULT on the real, corrected data — 2021-2026, 111 weeks, 1,440 games:**
+
+| Correction head | MAE | vs market (9.779) |
+|---|---:|---|
+| RECIPE_V1 (football + market spread + movement) | 9.9132 | +0.134, significant |
+| **RECIPE_V2 (+ home/away availability deficit)** | **9.9428** | +0.164, significant |
+| V2 vs V1, same games, week-clustered 90% CI | **+0.030 [-0.006, 0.071]** | **not significant** |
+
+**Injuries and PFR defensive production, wired through the correction head
+exactly as designed, made no measurable difference — slightly worse on the
+point estimate, and the interval crosses zero.** This is a valid, honestly
+measured result under the same predeclared rule as everything else in this
+plan, not a failure to report around.
+
+**Why, most likely — the coverage ceiling, not the wiring.** Only **43%** of
+games (1,083 of 2,499 in the training window) have admissible availability
+evidence at all, and only **92 of 111 test weeks** had enough non-missing
+values to use the new features (19 early weeks fell back to V1's three —
+2021 weeks train on 2020, before any injury row exists at all). A feature
+missing on 57% of its potential rows, and absent from every training set in
+the first third of the window, does not get a fair chance to show a real
+effect even if one exists. This is the same coverage number flagged earlier
+this session (75.2% *within* 2021-2026 for games that have SOME evidence;
+43% here is lower because this window also includes 2020 training-only rows
+with none at all) — it was always the predictable limit, now it's measured
+against the actual outcome instead of assumed.
+
+**What this changes:** nothing live — RECIPE_V2 stays research-only,
+gated exactly like V1, correctly not promoted. What it argues for: the
+"starting QB × QBR" feature identified above (full 2021+ coverage, not 43%)
+is a better next candidate than iterating further on injury coverage that
+is capped by the source data, not by this wiring.
+
+### RESULT — starting-QB-quality through the correction head (RECIPE_V3), September 16, 2026: also no improvement, and the full stack is measurably worse than doing nothing
+
+RECIPE_V3 built (agent-built, verified: `server/services/nfl-qb-quality.js`,
+`scripts/export-qb-quality-features.mjs`, threaded through
+`market_correction.py`/`unified_margin_audit.py` exactly like V2). Export
+against real 2018-2026 data: **56.5% coverage** (1,413 of 2,499 games) —
+real signal, well above injury's 43%, confirming the coverage argument
+above. (One bug caught before trusting this: my own scratch extract never
+included `nfl_depth`/`nfl_qbr_weekly`, so the first export came back at 0%
+coverage — fixed by adding those two tables to the extract, same
+named-column-insert discipline as the earlier `nfl_snaps` fix.)
+
+**Real 2021-2026 result, 111 weeks, 1,440 games:**
+
+| Correction head | MAE | vs its immediate predecessor |
+|---|---:|---|
+| V1 (football + market spread + movement) | 9.9132 | — |
+| V2 (+ availability deficit) | 9.9428 | +0.030 vs V1, CI [-0.006, 0.071], **not significant** |
+| **V3 (+ starting QB QBR)** | **9.9583** | +0.016 vs V2, CI [-0.011, 0.043], **not significant** |
+| **V3 vs V1 directly (same games)** | | **+0.046, CI [0.0005, 0.0968], significant** |
+
+**CORRECTION, September 16, 2026 (later the same day):** the "significant"
+verdict below did not apply the multiple-comparisons correction this
+project's own tooling (`trial-statistics.js`) exists for. Three comparisons
+were run on these recipes this session (V2 vs V1, V3 vs V2, V3 vs V1);
+Bonferroni for 3 tests needs the equivalent of a ~98.3% CI, not 90%. V3 vs
+V1's 90% CI barely excludes zero (0.0005 to 0.097) and does not survive
+widening to that level. **Corrected conclusion: V1, V2, and V3 are not
+statistically distinguishable from each other once corrected for the
+number of comparisons already made.** The feature-creep *explanation*
+(the exploding `away_availability_deficit` coefficient) is still real and
+still the right read on why V3 didn't help — that finding doesn't depend on
+this significance test — but the claim "V3 is significantly worse than V1"
+specifically should be treated as unconfirmed, not established. See "The
+multiple-testing guardrail" section below for the fix going forward.
+
+**Neither addition individually proved harmful, but the full stack is.**
+Each step (V1→V2, V2→V3) is, on its own, statistically indistinguishable
+from noise — that's the same "no evidence of improvement" honest-null
+result as before. But comparing the endpoints directly, V3 is significantly
+worse than the plain three-feature V1 (barely — the interval's lower bound
+is 0.0005, a hair above zero, but it's real). **This is the signature of
+correction-head feature creep, not of either feature being individually
+bad**: the combination block's sample size hasn't grown as its column count
+has, so a 5-feature ridge on the same weekly data has more room to fit
+noise than a 3-feature one did, even with the `minimum_feature_support`
+guard (which protects against too-few-values-per-column, not against
+too-many-columns-per-row-count generally).
+
+**What this argues for, concretely:** stop stacking more columns onto ONE
+correction-head ridge. The three data sources identified in "Data already
+in the house" above (`nfl_nfelo_games`/`nfl_nfelo_qb`, `nfl_external_ratings`,
+and the `nfl_verified_events` injury-timing investigation) are being wired
+as **separate, independently-audited JS ensemble challenger components**
+instead — each measured on its own against the market and its own base, the
+way `market_correction_research` was, not folded into this same ridge as a
+sixth, seventh, eighth feature. Status: build in progress, September 16,
+2026 — see the next entry for results once measured.
+
+**Status per protocol: RECIPE_V3 remains an unwired research candidate,
+same as V1 and V2.** No betting authority, nothing live changes.
+
+**Rule that applies to all of it:** same as `market_correction.py` — a new
+source is a new *feature on the correction head* or a new *challenger-only
+component*, never a new entry in the frozen 14 without a fresh
+`feature_names` contract, measured by RUNBOOK §3.1/§3.2 against the market
+and its own base, week-clustered, before it touches anything live. Coverage
+numbers above are the denominators those measurements will report.
+
+## DATA INTEGRITY MASTER PLAN — September 16, 2026
+
+**Why this section exists.** Nick's own words: "Most of this project should
+be data integrity — your agents need to find the weaknesses and attack
+them," and, usage-constrained for this session, asked for a durable plan
+rather than more live execution. This section is that plan: where things
+stand (verified), what a football game actually has and doesn't have in
+this database, the honest ML-technique assessment, the overfitting
+guardrails already built vs. still needed, and a prioritized, resumable
+roadmap. Everything below is either already measured this session or
+explicitly marked as not yet done — nothing here is aspirational dressed up
+as fact.
+
+### Where things stand right now — verified, both suites green
+
+Node: **2,173 tests / 2,134 pass / 0 fail / 39 skipped.** Python: **127/127.**
+Catalog **35** components, **21** challengers, **14 live** (the live count
+is unchanged through all of today's pruning and additions — every
+component added today is a challenger, and every one retired today became
+a challenger; only the composition of "measured but not live" changed).
+
+| What | Result |
+|---|---|
+| Correction head V1 (football+market+movement) | MAE 9.913 vs market 9.779 (+0.134, significant loss) |
+| V2 (+availability/PFR defense) | 9.943, +0.030 vs V1 — **not significant** |
+| V3 (+starting QB QBR) | 9.958, +0.016 vs V2 — **not significant**; but **+0.046 vs V1 directly — significant** (feature-creep, diagnosed at the coefficient level: `away_availability_deficit` got a bigger standardized weight, 2.62, than the market line itself, off 310 combination rows) |
+| Effective rank (32-model catalog, market-residual space) | 2.518 → 2.564 after fixing a corrupted extract; 12 of 29 measured components >95% redundant |
+| Pruning | 8 of the 12 redundant components retired from live blend (4 already were); live-blend sanity re-verified on real data post-prune (weights renormalize to ~1, no NaN, sane forecast on a real game) |
+| `nfl_verified_events` (injury timing) | Investigated, **rejected** — verified independently to be a duplicate of `nfl_injuries` with the same broken 2025-26 timestamps, plus a silent 2x duplication bug via `archive_version` |
+| `nfelo_rating` / `nfelo_qb_adjustment` | Built, wired as live-DB reads (`nfelo.js`'s existing `nfeloFeatures()`, already synced into this app's own schema — no external DB dependency), verified real values on real 2025 data (1.81 / -0.021) |
+| `teamrankings_predictive` | Built, wired via a precomputed lookup, verified real values on real 2025 data |
+| All three new signals | Registered as **challengers only** — computed and graded, structurally excluded from every live pick until they clear RUNBOOK §6's promotion gate. None promoted. None have been measured against the market yet — that's the very next step, not done. |
+
+### NEXT MAJOR TASK — the full research + GitHub gap analysis — **DONE September 16, 2026.** Results: "DATA SOURCES, ENDPOINTS AND LINEAGE", "GAP ANALYSIS", and "FINAL ORDER" sections below the roadmap. The text under this heading is kept as the record of what was asked.
+
+Nick's instruction, verbatim in intent: we have not yet actually looked at
+the GitHub repos. When usage returns, before the mining spree in the
+roadmap below starts, do one deliberate pass that reads the research corpus
+in full and compares it against the current model as it actually stands —
+a gap analysis that decides whether this plan needs total restructuring or
+only the incremental updates it has been getting. Tonight's plan is the
+contract; execution follows it; the gap analysis is what confirms the
+contract is the right one before weeks of work go into it.
+
+**What has and hasn't been read so far — honest count:**
+- Read in full this session: `FIX_AND_ADD_ARCHITECTURE.md` (the 59 KB
+  master synthesis of all 56 notes) and `F15-team-strength-shrinkage.md`.
+  Both produced concrete corrections to this plan (FIX #14's file location,
+  the shrinkage variant, the GAS model, the DSR input-standardization
+  caveat) — evidence that the rest of the corpus will too.
+- Referenced but NOT yet read in full: `GITHUB_BUILD_CATALOG.md` (47 KB —
+  every repo, split fix/new, with a "build from this now" shortlist and an
+  avoid list), the 10 `GF` code catalogs, the 10 `GN` code catalogs, the 18
+  `N` new-capability notes, the other 17 `F` notes, and the actual source
+  papers (Glickman/Stern, Koopman & Lit ×2, Szczecinski-Tihon Kalman,
+  Lopez/Matthews/Baumer, the Diebold-Mariano trio, the conformal set, the
+  RL-trading surveys). Section E near the top of this plan lists six GitHub
+  repos "in pull order" — that list was compiled from the catalog's summary
+  lines, not from reading the catalog or the repos.
+
+**What the gap analysis must do, specifically:**
+1. Read `GITHUB_BUILD_CATALOG.md` end to end; for every repo on its
+   "build from this now" shortlist, check whether the equivalent capability
+   already exists in this codebase (this session found three cases —
+   `nfelo.js`, the feature-vector tables, the player-week engine — where
+   something was already built and simply not connected; the catalog's
+   shortlist will almost certainly contain more of those), and whether the
+   catalog's "avoid" list contradicts anything currently on the roadmap.
+2. Read the 17 unread `F` notes the same way `F15` was read: each one
+   names live files and line numbers; verify each claim by grep against
+   the current tree (the tree has moved since September 12 — this session
+   alone found one file-location error and four "already done" items in the
+   8 it checked), and record done / open / wrong-file for every item, the
+   way the reconciliation table above does for 8 of ~64.
+3. Read the `N`/`GN` notes against the "not worth doing at this data
+   volume" verdict in `FIX_AND_ADD_ARCHITECTURE.md` §(a) — that verdict
+   matches this session's own V3 evidence exactly, but the notes may name
+   specific small pilots (the doc mentions a Chronos/TimesFM zero-shot
+   cold-start job as "the cheapest candidate in the whole N01 chunk") that
+   are cheap enough to test without violating it.
+4. Read the sports-betting-model-architecture material — the
+   `FIX_AND_ADD_ARCHITECTURE.md` §(f) diagram, `F18-audit-architecture-
+   consolidation.md`, `F02-forecast-combination.md`, and the source papers
+   on rating systems and forecast comparison — and lay it next to the
+   current model as documented in "MODEL INVENTORY AND ORGANIZATION" and
+   "Where things stand right now" above. The question is structural: is the
+   current shape (frozen-14 football model → ridge correction head → JS
+   ensemble joint fit → market_residual gate → market verbatim) the shape
+   the research says a betting model should have, or is it five disagreeing
+   copies of one idea with a good audit on top? Answer it with file names.
+5. Deliverable: a dated section in this plan titled "Gap analysis —
+   research vs. current model" with (a) every research item marked done /
+   open / wrong / superseded, (b) an explicit verdict on whether the roadmap
+   below stands, gets re-ordered, or gets replaced, and (c) any corrections
+   to earlier sections of this plan, made in place with the same
+   "CORRECTED <date>" convention used throughout. Nothing in the data
+   inventory, the audit-validity findings, or the RESULT sections gets
+   removed by this pass — those are measured facts; the gap analysis
+   revises what to do about them, not whether they happened.
+
+This is a reading-and-verification pass over ~70 documents plus a live
+tree, with a synthesis at the end — a reasonable candidate for a
+multi-agent workflow (parallel readers, one per note family, each
+verifying by grep, then one synthesis) once usage allows, with the
+synthesis and the in-place plan corrections done by the main session,
+not delegated.
+
+### What a football game HAS in this database right now
+
+Point-in-time safe (decision_at / cutoff-respecting): closing + opening
+market spread and total (100% / 98.2%, 2021-2026), team-level EPA/efficiency
+(`nfl_team_week_features`, 2016+), player-level offensive EPA/usage
+(`nfl_player_week_features`, 52,544 rows, 2016-2026), player-level defensive
+production (`nfl_pfr_adv`, 2024+ only, now wired), snap shares (`nfl_snaps`,
+2021+), injury report severity (`nfl_injuries`, 75% coverage 2021-2024, 43%
+extended, unreliable 2025-26 timestamps), starting-QB identity + QBR history
+(`nfl_depth`+`nfl_qbr_weekly`, 56.5% coverage, now wired), an independent
+Elo rating + QB adjustment (`nfelo_games`/`nfelo_qb`, 100% populated
+2020-2026, now wired), an independent power rating
+(`teamrankings_predictive`, full 2022+, now wired), rest days and division
+familiarity, observed kickoff weather (`game_lines.temp/wind`), referee
+crew identity (`nfl_officials`, full 2015-2026, **not yet turned into a
+feature**), 10-11 sportsbooks' worth of line history and cross-book
+dispersion (`nfl_odds_archive`/`nfl_line_snapshots`/`nfl_quote_tape`, full
+tick-by-tick, **captured for bet-execution/CLV purposes only — 0% reaches
+forecasting**), and pregame weather forecasts (not observed — a genuinely
+different, untried signal, `nfl_game_weather_forecast_history`, ~70%
+coverage 2022+).
+
+### What a football game does NOT have — the real gaps, not assumed
+
+- **No cross-book market structure in any forecast.** Every number the
+  correction head or audit has ever seen is one closing spread and one
+  opening spread from `game_lines`. The 10-11-book dispersion, and the full
+  line-movement trajectory (not just two points), have never been computed
+  as a feature. This is the single largest untapped, already-owned dataset
+  identified this session.
+- **No totals-specific signal of any kind.** Every experiment this entire
+  session — correction head, availability, QB quality, nfelo, teamrankings
+  — is margin-only. The over/under side of this system has had zero
+  dedicated attention. Weather forecasts and referee tendencies (below)
+  would both land here.
+- **No player-level defensive production before 2024.** `nfl_pfr_adv` starts
+  2024; 2021-2023 defenders are still valued by flat positional weight only.
+  Not fixable without a paid source (PFF) or accepting the era split.
+  Documented, not solved.
+- **No genuine point-in-time injury severity for 2025-2026.** `nfl_injuries.
+  modified_at` is null for the entire current era; `nfl_verified_events` was
+  checked and confirmed NOT a fix (see above). This is an upstream nflverse
+  gap, not something more engineering here can close.
+- **No referee-crew tendency feature**, despite having the raw data
+  (`nfl_officials` names every crew, every game, full history). This needs
+  feature engineering (crew-level historical ATS/total rates from our own
+  `game_lines`), not new data — an internal derivation task, cheap.
+- **No rookie-specific evaluation signal.** `nfl_rookie_evidence` exists but
+  is thin; combine/draft-pick data (`nflreadr::load_combine()`/
+  `load_draft_picks()`, confirmed free, not yet ingested) would directly
+  feed it. A rookie starter is currently valued identically to a
+  10-year veteran at the same position.
+- **Correction to an earlier claim in this section:** `nfl_ffopportunity_weekly`
+  is NOT fully unused as stated above — `player-week-engine.js` reads it via
+  `priorFfOpportunity` for player props/fantasy. It is unused by the
+  margin/injury pipeline specifically, not system-wide.
+- **The player-props engine's per-player value estimate never reaches
+  availability weighting — the biggest real cross-wiring opportunity found
+  this session, and it needs zero new data.** `player-week-engine.js`
+  already runs a structural volume×efficiency simulator per player-week,
+  updated by a frozen Bayesian ensemble on real outcomes, with role-
+  changepoint detection and news signals — a genuinely sophisticated,
+  already-built per-player value model. `nfl-availability.js`'s injury
+  weighting, meanwhile, still uses a flat snap-share × position-weight
+  formula (the same one PFR data upgraded for defenders this session).
+  Rather than building the roadmap's planned "empirical replacement level"
+  model from scratch (nflWAR method, RUNBOOK.md §4.5), reuse this existing
+  engine's own player-value output as the weight instead. Two fully-built
+  systems that don't talk to each other; connecting them is integration
+  work, not a new model or new ingestion. **Concrete step-by-step plan
+  written: RUNBOOK.md §4.1b.**
+- **No roster-investment/cap-allocation signal.** `nflreadr::load_contracts()`
+  (confirmed free, not yet ingested) — a proxy for roster quality/depth
+  independent of on-field stats seen elsewhere.
+- **No play-calling-tendency team-week rollup**, despite owning the raw
+  data. `nfl_play_charting` (FTN data via nflverse, 2022-2025, motion/PA/RPO/
+  box counts per PLAY) has never been aggregated to a team-week feature —
+  this is an aggregation task on data already in the house, not a new source.
+- **No player tracking/positional data at all.** The NFL's own Big Data Bowl
+  releases real tracking data (free, via Kaggle) but only for specific
+  weeks/seasons per competition year (2023-2024 in the current release) —
+  real signal, genuinely low coverage, a longer-term research item, not a
+  quick win.
+- **No permanent visibility into what any fitted model actually learned.**
+  Fixed once, by hand, this session (the correction-head coefficient dump
+  that found the feature-creep bug) — not yet made a standard part of any
+  saved report. Real, cheap fix, not yet built.
+
+### Is the ML technique the problem? Honest answer: no, evidence says the constraint is data volume per fit, not algorithm sophistication
+
+Measured, not asserted: LightGBM (materially more expressive than ridge)
+barely beat plain ridge on identical features — 10.678 vs 10.675. That is a
+direct test of "does a fancier fitting algorithm help," run on real data,
+answered no. The correction head's own exploding coefficient
+(`away_availability_deficit` at 2.62 standardized weight, larger than the
+market line itself, fit on 310 rows) is the same story from a different
+angle: more expressive models and more parameters both fail for the same
+reason — not enough weekly data per parameter to estimate it reliably. A
+neural network would very likely do the same or worse on this data volume;
+that is not a hunch, it is the same bias-variance arithmetic that produced
+the numbers above.
+
+**The one ML technique gap that IS well-targeted, not tried — CORRECTED
+September 16 after reading F15 in full.** The earlier version of this
+paragraph recommended "hierarchical/Bayesian shrinkage" generically. The
+research is more specific, and the generic version is the wrong one: Brown
+2008 (real MLB data, six methods head-to-head) found the naive single-unit
+normal-normal empirical-Bayes update — the class `nfl-preseason-blend.js`
+already implements, and what "add a Bayesian prior" would naively mean —
+was among the **worst**-performing shrinkage methods tested, barely beating
+a crude group mean (error ratio 0.902 vs naive 1.0), while James-Stein
+(0.525) and method-of-moments EB (0.593) roughly halved the error. What
+works is **multi-unit, cross-sectional shrinkage toward a jointly-estimated
+grand mean** — Stein's theorem needs N≥4 units pooled together, and the
+gain comes from the pooling, not from the prior. NFL-specific: Ragain et
+al. 2018, real 2016 NFL data, 16.8% out-of-sample MSE reduction, largest
+where the schedule graph is sparse — ours. Two places this applies:
+- **Team strength (`nfl-preseason-blend.js`'s `blendedTeamRating`)** — the
+  correct single-unit math is already there; add the cross-sectional
+  pooling across all 32 teams in the current season. This is FIX #14's real
+  target (see the corrected reconciliation row above) and the foundation the
+  correction head's football input stands on.
+- **The correction head's own coefficients** — the diagnosed failure
+  (`away_availability_deficit` at 2.62 standardized weight off 310 rows) is
+  a small-sample instability that method-of-moments EB / James-Stein-style
+  shrinkage of the coefficient vector addresses directly; plain ridge with
+  `alpha=1.0` (the weakest grid value, chosen by inner-CV on 310 rows)
+  failed to. Same technique, second target. Not yet built in either place.
+Also from F15: `shrinkage-fit.js` already implements the correct
+method-of-moments fitted-k machinery for the fantasy side — reuse it, do not
+add a seventh hand-rolled formula (see the six already found, in the
+reconciliation section above).
+
+**Also not tried, lower priority given the above:** a distribution/quantile
+head (NGBoost/MDN, `GN06-mixture-density-neural-code.md`) for the interval
+estimate instead of split-conformal; and for the totals side, the
+score-driven (GAS) dynamic bivariate Poisson/Skellam joint-scoring model —
+see the paradigm section below, where it is scoped properly, and the older
+"Advanced research backlog" table further down, whose "Discrete joint score
+model" row is the same idea under a different name.
+
+### The multiple-testing guardrail the mining spree needs BEFORE it starts, not after — September 16, 2026
+
+Nick's own question ("does this make beating MAE easier") surfaced a real
+gap: this session's roadmap now queues dozens of new candidate signals
+(travel, surface, coaching, PFR pass/rec, ~2,670 vector-table features,
+reverse line movement, key-number distance, and more). **Testing more
+candidates increases the rate of false positives, not just the odds of a
+real find** — if 20 things are tested independently at the usual p<0.05
+bar, roughly 1 will look "significant" from chance alone. Every signal
+this session has been tested correctly ONE AT A TIME against that bar; the
+gap is that nothing yet corrects for the GROWING NUMBER of tests taken as
+a whole.
+
+**CORRECTED September 16 after cross-checking against the plan's own older
+sections.** The first draft of this paragraph said the fix was to wire up
+`server/services/trial-statistics.js` (`effectiveTrialCount`,
+`deflatedSharpeRatio`, `probabilityOfBacktestOverfitting`) as the guardrail.
+That contradicts a decision this plan already made and I had not yet read:
+the "A newly confirmed audit issue" section far below documents that the
+pipeline currently feeding that module (`scripts/run-purged-evaluation.mjs`)
+mixes ROI, probability errors and point errors into one sequence without
+standardizing them to comparable units, and never establishes the
+dependence among competing forecasts on the same games — so its
+`effective_n_trials` and the DSR built on it are **not trustworthy as they
+stand**, and the plan's standing decision is: "do not use the discounted
+trial count or reconstructed returns to justify promotion... use a
+conservative declared-family correction until a better justified
+dependence-aware procedure is ready." That decision holds. So:
+
+- **The guardrail for the mining spree, now:** a plain declared-family
+  correction (Bonferroni/Šidák over the number of comparisons actually run
+  on a given candidate family), applied by hand, exactly as was done once
+  today to walk back the V3-vs-V1 "significant" claim. Keep a written count
+  of comparisons per family as they are run — the count is the input, and it
+  cannot be reconstructed afterwards.
+- **DSR/PBO input standardization** is its own separate, still-open
+  prerequisite — aligned per-game/per-week losses in one unit, plus a real
+  dependence estimate across candidates on the same games — before that
+  module can be trusted for anything beyond a diagnostic. Not a wiring task;
+  a fix to what it is fed.
+- **The end state the research (F06/GF10, FIX_AND_ADD #30-#31) specifies,
+  which this plan's WP11 already points at:** one append-only,
+  content-addressed trial registry (`research_studies` /
+  `research_trials` / `research_trial_corrections`), a DB-enforced
+  `scored_at >= declared_at` rule via BEFORE UPDATE/DELETE triggers (so a
+  rerun can never overwrite an unfavorable earlier result), and
+  `dsr_method`/`multiplicity_method` as explicit enum columns so two
+  disagreeing formulas cannot silently coexist. The five ad hoc
+  `preregistered.json`/`report.json` labs (including the unified-margin
+  audit built this session) are the inputs that registry would unify.
+
+**This should be applied as candidates from the roadmap above start getting
+tested — not retrofitted after several have already been declared
+winners.**
+
+**Two more real audit gaps, found by checking the audit's own methodology
+rather than just its results:**
+
+- **The correction head's own prediction interval has never been checked
+  for calibration.** `report.json['interval_coverage']` is computed from
+  `UnifiedMarginModel.describe()`'s interval (the football-only model),
+  measured at 80.0-80.3% against its nominal 80% — genuinely checked. The
+  correction head has its own `describe()`-generated `interval_80`
+  (`market_correction.py`), and nothing in `unified_margin_audit.py`
+  currently measures whether THAT interval is honest. We have verified MAE
+  for V1/V2/V3's point predictions and never once checked their stated
+  uncertainty. Fix: add a correction-head-specific coverage check to
+  `run()`, the same shape as the existing one, before trusting any
+  future correction-head recipe's calibration claim.
+- **No diagnostic group exists for any of the new hypotheses.**
+  `DIAGNOSTIC_GROUPS` (season phase, divisional, dome, rest advantage,
+  market-level) predates this session's new signals. A real travel effect,
+  averaged over every game including the 90%+ that involve no meaningful
+  travel, can wash out to nothing in the aggregate MAE even if it's genuinely
+  working on the games it should matter for. Before testing travel/coaching-
+  change/surface signals, add matching diagnostic groups (e.g.
+  `cross_country_travel`, `new_head_coach_first_season`,
+  `surface_change_from_prior_home_game`) so a real, narrow effect has a
+  chance to show up instead of being diluted into the headline number.
+
+**Distinct from the above, restated because it matters more than any single
+technique: even a real, correctly-significant MAE improvement is not
+profit.** Every audit result this session carries, and will keep carrying,
+the same limitation: `market_spread` is a stored closing line, not a
+verified decision-time executable quote (`authority: research_only`
+everywhere, deliberately). Beating MAE with statistical rigor is a
+necessary condition for eventually mattering; it is not sufficient. Closing
+that gap needs a real executable-quote capture at decision time, a vig-
+adjusted profitability calculation (not just MAE), and survival of the edge
+once a book can react to it — none of which is what the current roadmap
+builds, and none of which should be implied by a good MAE number alone.
+
+### Overfitting guardrails — what's already enforced, and what's still needed
+
+**Already built and proven this session, not just claimed:**
+- Out-of-fold stacking discipline (the correction head's football prediction
+  never sees the game it corrects; proven by mutation tests, not asserted).
+- Week-clustered block bootstrap for every significance claim, one
+  implementation only (`pairedBootstrapDiff`), never a second one to drift.
+- Preregistration before results exist, code-identity hashed at process
+  start, an enforced accounting invariant (`check_accounting`) — all added
+  this session after finding the audit itself had gaps.
+- `minimum_feature_support` — a feature with too few non-missing values in a
+  week's combination block is dropped from that week's fit and recorded,
+  never silently imputed into an exploding coefficient. Built this session
+  after it caused a real +2,000-point blowup.
+- Effective-rank monitoring (participation ratio, entropy rank) as a
+  standing check against ensemble bloat, not a one-time measurement.
+- The challenger/live gate itself: nothing new touches a real pick without
+  clearing RUNBOOK §6, structurally enforced (`blendEligible`), proven by
+  byte-identical-output tests, not by convention.
+
+**Still needed, concretely:**
+1. **A feature-to-sample-size ratio gate**, generalizing
+   `minimum_feature_support`: today it guards one column at a time; it does
+   not stop a recipe with many columns individually well-supported but
+   collectively too many for the row count (the actual V3 failure mode).
+   Concretely: refuse to add a correction-head feature if
+   `combination_rows / feature_count` falls below some floor (a reasoned
+   starting point: 30-50 rows per parameter, a common rule of thumb for
+   linear models — pin an exact number before implementing, don't guess one
+   into the code silently).
+2. **The hierarchical-shrinkage prior above** — this is itself an overfitting
+   guardrail, not just an accuracy experiment.
+3. **A standing pre-promotion checklist**, written down once rather than
+   re-derived per signal: out-of-fold proof, week-clustered CI excluding
+   zero vs both the market and the signal's own base, byte-identical
+   live-exclusion test, minimum sample size met. Every signal this session
+   already does this ad hoc; formalize it as a template new signals copy.
+
+### The recurring data-integrity audit — turning this session's bug list into a standing agent checklist
+
+Every real bug found this session had a specific, recognizable shape. Turn
+each into a checklist item a dispatched agent runs periodically against the
+live database (read-only) and the extraction pipeline, rather than relying
+on a human noticing again by accident:
+
+1. **Schema drift / column-order mismatch.** The exact bug that corrupted
+   `nfl_snaps` this session (live table's column order ≠ migrated schema's
+   order, positional INSERT silently swapped two columns). Checklist: for
+   every table an extract or ETL touches, insert by column NAME, never `*`,
+   and diff `PRAGMA table_info` between source and destination before
+   trusting a fresh extract.
+2. **Single-batch-timestamp detection.** Caught twice this session
+   (`nfl_feature_revisions`' 20 rows sharing one timestamp; `nfl_verified_events`'
+   `created_at` showing a two-day bulk write). Checklist: for any table whose
+   value depends on a "when did we learn this" claim, check
+   `COUNT(DISTINCT <timestamp column>)` against row count — a ratio near
+   zero means the timestamp is a write-time artifact, not a receipt clock.
+3. **Silent duplication via a version/archive tag.** Caught in
+   `nfl_verified_events` (`archive_version` doubling every 2022-2024 row).
+   Checklist: for every table with more than one row per natural key
+   (season/week/team/player), check for a tag column and confirm dedup
+   before counting or joining.
+4. **Coverage-over-time regression.** Checklist: re-measure every signal's
+   coverage percentage on a schedule; a source that used to update and
+   stopped (like `nfl_injuries.modified_at` after nflverse dropped it) looks
+   identical to a healthy source until someone checks the trend, not just
+   the current snapshot.
+5. **Unused-table sweep.** This session's single biggest source of new
+   ideas was literally listing every `nfl_*` table and checking who reads
+   it. Re-run that sweep periodically — new tables get ingested for one
+   purpose (display, audit, execution) and then sit unused by forecasting
+   for months, exactly as `nfelo.js`, `nfl_pfr_adv`, and `nfl_depth` all did
+   before this session.
+6. **Duplicate-formula sweep (added September 16 from F15).** The same
+   computation re-implemented in several places with disagreeing math is
+   this codebase's most-repeated structural defect — 5 CLV calculators
+   (fixed), 37 content-addressing hashers (open, FIX #32), and now **6+
+   hand-rolled shrink-toward-prior formulas** with hardcoded unfitted `k`
+   (`nfl-context-heads.js:39`, `nfl-opponent.js:31`, `nfl-expert-council.js:117`
+   k=30, `nfl-rookies.js:364` k=80, `nfl-props-replay.js:127` k=4,
+   `draft-assist.js:995`), none routed through `stats-util.js`'s canonical
+   `shrink`/`shrinkRate` or `shrinkage-fit.js`'s fitted k. Checklist: for
+   any named statistical operation (shrink, hash, CLV, devig, key match),
+   grep for every independent definition, count them, and route all of them
+   through the one tested implementation before adding another. The
+   companion JSON-blob check (item in the "same pattern" section below)
+   covers data; this one covers code.
+
+### Does a different modeling PARADIGM change anything — checked against what's already been tried, September 16, 2026
+
+Nick's question: is there a fundamentally different way to attack the
+spread question, not just more features on the same regression? Checked
+against the actual inventory (`MODEL INVENTORY AND ORGANIZATION` below)
+before answering — the honest picture is more informative than a fresh
+brainstorm would have been.
+
+**Five genuinely different paradigms have already been tried in this
+codebase, with real measurement, and all lost:**
+- **Mechanistic play-by-play simulation** (`nfl-drive-sim.js` — plays the
+  game thousands of times rather than regressing on aggregates): **42.86%
+  ATS vs. 52.38% breakeven.**
+- **Trend-following on totals**: **43.81% ATS.**
+- **Gradient boosting on the market residual**: **worse than zero.**
+- **12 independently-built specialist models**, spanning different
+  methodologies: **"none clears breakeven."**
+- The main regression/ensemble path itself: 0 of 848 fit artifacts ever
+  passed the residual gate.
+
+**This is stronger evidence than any single failure — five structurally
+different approaches, tried independently, all fail the same way. That
+points at the constraint being informational, not paradigmatic.** A sixth
+different way of processing the same information is unlikely to succeed
+where five already failed on it. This tempers "try a different fundamental
+approach" as a strategy on its own, separate from feeding it genuinely new
+information.
+
+**What has NOT been tried this way — the honest exception:** `tree_lab.py`'s
+cover/quantile-probability approach predicts P(cover) or a quantile
+directly — classification/probability, not point-margin regression. It sits
+in "research only," untested with this project's own audit rigor, already
+queued and never executed (RUNBOOK §4.2). This is the one genuinely
+different framing on the list that hasn't been measured — not a new idea,
+an old one nobody finished.
+
+**Two more real, narrow, untested angles within what already exists:**
+- The drive-sim's own docstring is explicit that its value claim is NOT
+  margin/ATS accuracy — it's the joint margin+total distribution, correctly
+  correlated scores, and real key-number reproduction. That is a
+  **totals-specific** claim, and totals has had zero dedicated attention
+  all session. Nobody has isolated and tested that specific claim with the
+  same rigor as everything else.
+- **Bottom-up player aggregation**: build team margin from the player-props
+  engine's already-built Bayesian per-player projections (see the
+  cross-wiring finding above, RUNBOOK §4.1b) rather than either team-history
+  regression or mechanistic simulation. Different from both, untested.
+- **Score-driven (GAS) dynamic bivariate Poisson/Skellam joint-scoring
+  model — added September 16 from the research corpus.** Koopman & Lit
+  (2019, `source-papers/papers/koopman_lit_2019_gas.pdf`, read in full by
+  the F08/F17 researchers): a score-driven dynamic model of both teams'
+  scores beat a static model AND a full parameter-driven state-space model
+  head-to-head, at roughly 1/360th the compute. `FIX_AND_ADD_ARCHITECTURE.md`
+  calls it "the strongest single number in this whole research batch" (ADD
+  #15). What it offers that nothing else on this list does: a joint
+  distribution over both scores — so margin AND total come from one
+  coherent model, correctly correlated, with real discrete key-number mass —
+  the exact thing the drive-sim's docstring claims as its value, without
+  simulating plays. It is soccer-goal Poisson ported to NFL scoring
+  dynamics, so the admission test is the same as the older "Discrete joint
+  score model" row in the Advanced research backlog table below: validate
+  NFL score support and key margins (Stern 1991, F17) first, then a
+  walk-forward CRPS/log-loss gate against the current champion before it
+  touches anything. Untested here; the paper's own evidence is the reason to
+  test it.
+
+**Bottom line to carry forward:** the realistic path is still what the rest
+of this plan already emphasizes — new information, tested rigorously —
+not a new way of processing the same information. Two exceptions worth
+actually executing: finishing `tree_lab`'s cover head (RUNBOOK §4.2),
+because it's the one paradigm shift on the list that was never finished,
+not one that was tried and failed; and the GAS joint-scoring model above,
+because it is the one with published head-to-head evidence behind it and
+it is the only candidate that gives the totals side a model at all.
+
+### The "enrich every paradigm, then let diversity decide" plan — September 16, 2026
+
+Nick's proposal: backfill ALL the different modeling paradigms with the new
+data found this session, let each produce its answer using its own native
+technique, then use a meta-learner to combine them — "a bunch of misfits
+made to work together." Checked against what's already built and measured
+before writing this up: most of the machinery already exists; the genuinely
+new part is real, staged work, not a single build.
+
+**Why this is the right next move, not a repeat of what already failed:**
+the 32-35 component ensemble already IS "diverse models combined via ML" —
+measured effective rank ~2.5 (see "Effective rank result" above). Combining
+only helps when the inputs are genuinely diverse, and today they mostly
+aren't. Every enrichment this session went into ONE paradigm (the
+correction head, V1→V2→V3). Nobody has yet enriched the *other* paradigms
+(the simulator, the specialists, `tree_lab`'s quantile head) with the same
+new data and re-asked the diversity question. That is a real, unexecuted
+experiment, not a rerun of one that already lost.
+
+**The four stages, in order, using machinery that mostly already exists:**
+
+1. **Enrich each paradigm separately, in its own native form** — this is
+   real, separate integration work per paradigm, not one build that fans
+   out for free:
+   - `nfl-drive-sim.js` takes measurable team RATES, not fitted
+     coefficients (per its own docstring) — enrichment means deriving new
+     rate parameters from the new data (e.g. pressure-conditioned EPA,
+     pace, red-zone rates from the 183-key/vector-table findings above),
+     not adding a regression column.
+   - `tree_lab.py`'s cover/quantile head (roadmap item 6b) — finish this
+     first with the CURRENT frozen contract, then re-attempt with the
+     richer feature set once the base version is measured.
+   - The correction head already has V1/V2/V3 done, plus RECIPE_V4+ from
+     items 1-5 on the roadmap above.
+   - The specialist layer (`nfl-specialists.js` + orthogonal/matchup/passing
+     variants, 12+20+4 models) — currently all measured "none clears
+     breakeven" on the old data; worth one retest pass with the new data
+     before writing this family off permanently, since it was never
+     retested after this session's discoveries.
+2. **Re-run the existing rank/redundancy measurement**
+   (`scripts/ensemble-rank-report.mjs`, already built, already run twice
+   this session) on the enriched catalog. This is the honest diversity
+   check — not a guess, a number, the same one already computed at 2.518
+   and 2.564 for the pre-enrichment catalog.
+3. **Apply RUNBOOK §5's existing decision rule to the new number** — it
+   already says what to do in both directions: rank ≈2-3 still, prune
+   further; rank materially higher, build the combiner. Don't skip straight
+   to combining because the effort was significant — let the same
+   measurement decide, the way it decided the first time.
+4. **If combining is justified, use `forecast-combination.js`** — already
+   built, already documented as the most rigorous of six combination
+   attempts (DM-gated, week-clustered), sitting unused because rank never
+   justified it before now. This is the "ML/AI to figure out how to
+   combine them" piece — it exists, it just hasn't had a reason to run yet.
+
+**Guardrail this needs before starting, not after:** the multiple-testing
+correction flagged above. Stage 1 alone could mean dozens of new
+paradigm/data-source combinations tested. Apply `effectiveTrialCount`/a
+Bonferroni-style correction to whatever comes out of this, the same
+correction that just walked back the V3-vs-V1 finding earlier today —
+don't let this become the same mistake at a larger scale.
+
+**Honest expectation, stated plainly so this isn't oversold:** five
+structurally different paradigms already failed on the OLD data (see "Does
+a different modeling PARADIGM change anything" above). This plan tests
+whether richer data changes that verdict — it does not guarantee it will.
+The value of doing it properly, staged, and measured is that either outcome
+is a real answer: either the ensemble becomes genuinely more diverse and
+combining finally earns its place, or it doesn't and that's one more
+honestly-measured "no" narrowing where the real edge could possibly be —
+which, per this whole session's own discipline, is exactly as valuable a
+result as a "yes."
+
+### THE feature-store discovery — September 16, 2026: 301 variables computed, 3 reach the model
+
+Nick's own recollection ("we have 300 some variables") sent this check, and
+it's real, not misremembered — bigger than any other finding this session.
+`nfl_feature_dictionary` (3,795 rows) catalogs **301 distinct underlying
+metrics** (93 player-level, 208 team-level — confirmed:
+`COUNT(DISTINCT source_family||'|'||source_metric)`), each computed across
+up to **13 rolling-window transforms** (`latest, mean_3, mean_6, mean_12,
+ewma_6, slope_6, sd_6, min_6, max_6, delta_1, coverage_12, missing,
+z_latest`) by `server/services/nfl-weekly-feature-store.js`, stored into
+`nfl_team_week_features`/player features. 301 × up to 13 ≈ the 3,795 catalog
+rows.
+
+**Verified exactly how much of it the actual football model uses: 3 metrics,
+1 transform each.** `stage3.FEATURE_NAMES` (the frozen 14) is 11 simple
+fields (rest days, division game, rolling win/margin "form" stats computed
+separately from raw game history, NOT from this store) plus exactly three
+`pbp_diff_{k}` fields for `k in ['off_epa_per_play', 'def_epa_per_play',
+'off_success_rate']` (`stage3_team_strength.py:123`) — and
+`dataset.features_before()` (`dataset.py:221`) pulls only the single
+**"latest"** value for each, never `mean_3`/`mean_6`/`ewma_6`/`slope_6`/`sd_6`
+or any other transform. Of ~3,795 computed values, the model reads 3.
+**298 metrics, and every trend/momentum/volatility transform of the 3 it
+does use, are computed and stored and reach nothing.**
+
+**Why this isn't "just add them all" — the correction-head V3 result
+already proved what happens.** 5-7 features on ~310 weekly training rows
+already produced an exploding, noise-fitting coefficient. The frozen 14
+itself is that size specifically to avoid this on the football model's own
+larger-but-still-weekly-limited training set. Feeding all ~3,795 columns
+into anything refit weekly would be catastrophic overfitting, not progress
+— this is a SELECTION problem, not a "wire it all in" problem: which of the
+298 unused metrics (and which transforms — `slope_6`/`ewma_6` in particular
+encode trend/momentum information `latest` structurally cannot) carry real,
+testable signal, added one or a few at a time, each measured against the
+market and the model's own base out-of-fold, exactly like every other
+signal this session — never all at once.
+
+**This moves to the top of the roadmap below, ahead of the cross-book
+market-data item — same opportunity size, already computed and sitting in
+the database with zero ingestion work required, just selection and
+testing.**
+
+### THE actual biggest finding — a finished, ready-to-use feature contract exists and is connected to nothing, September 16, 2026
+
+Found while sweeping tables not yet individually checked. This supersedes
+the "mine the raw 183-key JSON" framing below — there is a faster, cleaner
+path that was apparently built for exactly this purpose and never
+connected.
+
+**`nfl_team_feature_vectors` and `nfl_player_feature_vectors` are not raw
+data — they are a finished, versioned, point-in-time-safe feature contract,
+already fully assembled, per team-week and per player-week.** Verified
+directly:
+- Team side: **~2,670-2,680 features per team-week** (98.8-99.1% coverage
+  of the full metric×transform space — essentially the complete 208-metric
+  ×13-transform warehouse, already flattened into one vector), 2022-2026.
+  Every row carries an explicit `cutoff` field matching the real game
+  kickoff timestamp (e.g. `2022-10-09T20:25:00.000Z` for a real ARI game)
+  and an `evidence_hash` for reproducibility — i.e. point-in-time safety
+  and provenance are already solved, per row, not something a consumer
+  would need to build.
+- Player side: **~700-800 features per player-week** (89-92% coverage),
+  same seasons, same discipline.
+- Built by the same store as the 183-key JSON (`nfl-weekly-feature-store-v1`),
+  registered internally under the ids `frozen_team_state`/`frozen_player_state`
+  (`nfl-model-growth.js`) — the naming states outright this was built to BE
+  a frozen, model-ready contract.
+- **Confirmed zero references anywhere in the audited research pipeline**
+  (`grep -rl` across `research/betting/nfl/*.py` returns nothing). The only
+  two files that touch either table are `nfl-model-growth.js` (counts rows
+  to check the pipeline hasn't gone stale) and `nfl-blind-audit.js` (watches
+  them for mutations as part of its input-table list). **Neither reads the
+  actual vector content. Nobody has ever consumed what's inside either
+  table.**
+
+**Why this changes the plan:** the frozen 14 pulls its 3 team-level metrics
+from the raw, un-versioned `nfl_team_week_features.features` column
+directly, with no explicit cutoff field on that row and no evidence hash —
+a messier path than the one that already exists and was seemingly built to
+replace it. Rather than hand-picking individual metrics out of the 183-key
+raw JSON one at a time (the plan below), the faster and more correct route
+is very likely: **wire `stage3_team_strength.py` (or a new, explicitly-
+versioned successor contract) to read from `nfl_team_feature_vectors`
+directly**, then run PRINCIPLED dimensionality reduction / feature
+selection on the ~2,670-wide vector (PCA, or a sparsity-inducing
+regularizer, or a small hand-audited subset chosen by measured
+correlation with the target) — never all 2,670 raw columns into a
+weekly-refit ridge, which the V3 result already proved fails catastrophically
+at 5-7 columns on a few hundred rows, let alone thousands. This is now
+**the new #1 roadmap item**, ahead of the raw-JSON-mining framing, which
+becomes its fallback if the vector tables turn out to have a coverage or
+quality problem on closer inspection (not yet checked: whether the ~1%
+missing cells per row are randomly distributed or systematically clustered
+on specific metrics/transforms).
+
+**Same pattern, found once more while checking:** `nfl_ngs` (real Next Gen
+Stats tracking data — `avg_time_to_throw`, `completion_percentage_above_expectation`,
+`aggressiveness`, genuinely different metrics than anything in the EPA
+warehouse) is used by several files (`nfl-player-value.js`, `nfl-advanced.js`,
+`nfl-weekly-feature-store.js` among them) — but, same correction as
+`nfl_ffopportunity_weekly` earlier, that means props/player-value and
+feature-store bookkeeping, not the margin/correction pipeline specifically.
+Likely already flows INTO the `nfl_player_feature_vectors` contract above
+given `nfl-weekly-feature-store.js` is in both tables' builder list — worth
+confirming when that table is wired, not a separate ingestion task.
+
+### Creative sweep — travel/altitude, coaching, field surface, and the FULL depth of the team-EPA warehouse, September 16, 2026
+
+Nick asked for a genuinely creative pass over what a football game has that
+we've left out, not just the tables already found. Checked every idea
+against the real database before writing it down — verified facts and
+clearly-labeled derived-feature ideas, not speculation.
+
+**The team-EPA warehouse is deeper than first measured — 183 keys per
+team-week, not the ~150 estimated when this was first found, confirmed by
+direct count.** Sampled in full, it contains things the frozen 14 has never
+seen at all, several of them well-documented, high-value signals in
+football analytics specifically:
+- **Pressure-conditioned EPA**: `off_pressure_epa` vs `off_clean_pocket_epa`
+  (and the delta) — literally "how good is this offense when the QB is and
+  isn't under pressure," a materially different and more specific signal
+  than aggregate EPA.
+- **Situational splits**: `leading_pass_rate`/`trailing_pass_rate` (game-
+  script dependent tendency), `first_half_epa`/`second_half_epa` (and their
+  delta — a team that fades), `epa_q4_close` (clutch performance
+  specifically), EPA by field zone (`epa_own_territory`/`epa_midfield`/
+  `epa_opp_territory`).
+- **`off_garbage_time_share`** — already computed. Garbage-time filtering
+  (down-weighting or excluding plays after a game is decided) is a
+  standard, well-documented cleaning step in football analytics because
+  those plays inflate/deflate rate stats in a way that isn't predictive of
+  a close, competitive game — and the flag needed to do it is sitting
+  unused in the same JSON blob every other frozen-14 field is pulled from.
+- **Pace/tempo**: `plays_per_drive`, `seconds_per_drive`, `no_huddle_rate`,
+  `shotgun_rate` — none of it reaches the model, despite pace mattering for
+  both margin variance and totals specifically.
+- **Full situational efficiency**: third-down rate AND distance-to-go,
+  red-zone/goal-to-go TD rate, drive-outcome rates (TD/FG/punt/turnover per
+  drive), havoc rate, TFL rate — a complete situational profile per team
+  per week, computed, stored, unused.
+
+Of 183 keys, 3 reach the model (`off_epa_per_play`→`pbp_diff_off_epa_per_play`,
+same for `def_epa_per_play`, `off_success_rate`), each as `latest` only.
+This is the same finding as before, just measured to its real depth — this
+is now item 1 on the roadmap below, upgraded from "298 of 301 team+player
+metrics" to "180 of 183 keys in the team table alone, before even counting
+the separate player-level and PFR gaps already found."
+
+**Verified real, currently unused: true travel, altitude, and timezone.**
+`nfl_stadiums` (`stadium_id, name, lat, lon, altitude, roof_type,
+surface_type, tz, city, state`) has real lat/lon/altitude/timezone for
+every stadium. The `rest_travel` component (renamed earlier this session
+specifically because "despite its name, this component has never measured
+travel... at all — only rest days") can now actually be fixed: haversine
+distance between the away team's home stadium and the game's stadium, and
+a timezone-crossing count, are both directly computable from data already
+in the house. Altitude specifically matters at exactly one stadium (Denver)
+but is a real, documented effect (kicking distance, opponent stamina) —
+cheap to include given the data is already there.
+
+**Verified real, currently unused: field surface.** `game_lines.surface`
+is populated for 2021-2026 (only 88 of ~2,900+ rows blank) with real values
+— `grass`, `fieldturf`, `astroturf`, `sportturf`, `matrixturf` — though the
+raw values need normalizing first (`grass` and `grass ` with a trailing
+space are currently distinct strings; `a_turf` vs `astroturf` likely
+duplicate the same real category under two spellings). A genuinely
+standard, well-documented factor (turf increases injury rate and favors
+speed; surface changes mid-network are rare but real), sitting fully
+populated and completely unused.
+
+**Verified real, currently unused: coaching continuity.** `nfl_team_coaches`
+(`season, team, coach, games`) has full coverage, 2015-2026, 384 rows (12
+seasons × 32 teams). Enables, with zero new ingestion: coaching tenure
+(seasons with current team, a proxy for scheme stability), and first-season-
+with-a-new-coach detection (a real, documented adjustment-period effect).
+Limit: head coach only — no offensive/defensive coordinator identity in
+this table, so scheme-specific continuity (the more specific, arguably more
+predictive version of this idea) would need a genuinely new source, not
+just a derivation from what's here.
+
+**Creative derived features needing ZERO new data — feature-engineering
+ideas, not data gaps:**
+- **Distance to the nearest key number** (3, 7, 10 — NFL margins cluster at
+  these values more than a continuous distribution would predict; a
+  well-documented market-efficiency fact). A market-spread-derived feature,
+  computable today from `game_lines.spread` alone, never built.
+- **Reverse line movement** — distinct from the betting-splits divergence
+  already flagged: RLM specifically means the LINE moves opposite the
+  majority of ticket counts (classic sharp-money tell), which needs
+  `nfl_nfelo_lines`' tickets/money split MATCHED AGAINST the actual line
+  movement direction from `game_lines.open_spread`→`spread`, not just the
+  tickets-vs-money gap alone.
+- **Return-from-injury rust window.** `nfl_injuries` has weekly status per
+  player; a player who was `Out`/`Doubtful` last week and is unlisted or
+  `Questionable` this week is a genuinely different case from a player who
+  has been healthy all season — sports-science literature documents a
+  measurable short-term performance dip right after return. This is a
+  derived signal from data already in `nfl_injuries` (status TRANSITIONS
+  across consecutive weeks, not just current-week status), never
+  constructed.
+- **Weather × play-style interaction, not just a main effect.** If wind/cold
+  ever becomes a feature, a 20mph wind matters far more to a offense with
+  `off_pass_rate` 0.65 than one at 0.45 — an interaction term, not an
+  additive one, and the pass-rate side of that interaction is already
+  sitting in the same 183-key JSON above.
+- **Playoff-clinch / lame-duck motivation.** A team that has already
+  clinched its seed, or is mathematically eliminated, is documented to
+  perform differently (rested starters, "sandbagging" incentives) —
+  derivable purely from standings (win-loss records already in `game_lines`
+  history), no new data needed, just a situational flag nobody has built.
+
+**Genuinely NOT derivable from what we own — real gaps needing new data,
+distinct from what's on the earlier list:**
+- Offensive-line-specific advanced stats (pass-block/run-block win rate) —
+  `nfl_pfr_adv` has no `kind='line'` or equivalent; this would need a new
+  source, unlike the pass/rec PFR gap which is free data we already have.
+- Coordinator-level (not head-coach) continuity, as noted above.
+- Any genuine market EXECUTABILITY signal (a verified T-60 quote) —
+  already flagged repeatedly this session as the boundary between
+  "prediction accuracy" and "betting profitability," restated here because
+  it's the one gap no amount of creative feature engineering closes.
+
+### The same pattern, found twice more in five more minutes of looking
+
+The feature-store discovery above is not a one-off — it's a repeatable
+pattern (a JSON-blob column gets a small hand-picked slice destructured out
+once, and nobody revisits it as more gets added upstream), and checking for
+it elsewhere immediately found two more real cases:
+
+- **`nfl_pfr_adv` kind='pass'/'rec' — 0% used, confirmed by grep (zero
+  references anywhere in server/ or research/).** We built the `kind='def'`
+  defensive-weighting path this session; the passing-pressure (`times_pressured_pct`,
+  `times_hurried`, `times_hit`, `passing_bad_throw_pct`) and receiving-quality
+  (`receiving_broken_tackles`, `receiving_drop_pct`, `receiving_rat`)
+  categories are the same free, already-ingested table, same JSON shape,
+  completely untouched. Even the `def` kind we DID wire only uses 4 of its
+  14 stat keys — `def_passer_rating_allowed` (a well-known coverage-quality
+  metric), `def_ints`, `def_completion_pct`, `def_adot`, `def_times_blitzed`
+  are unused in the same blob we already parse.
+- **`nfl_player_week_features.features` — ~68 keys per player-week; our own
+  code reads 6** (`pass_epa_per_att`, `cpoe`, `carry_share`, `target_share`,
+  `opportunity_share`, `wopr`, confirmed via `nfl-player-value.js`), a more
+  extreme ratio than the 301-metric team store above. Unused, every player,
+  every week, since 2016: explosive-play rates (`explosive_rush_rate`,
+  `explosive_rec_rate`, `explosive_play_rate`), red-zone/goal-line usage
+  share, third-down/two-minute situational usage, and `wpa_total` (win
+  probability added) — none of it reaches injury/availability weighting or
+  anything else.
+- **`nfeloFeatures()` itself** (wired this session for `nfelo_rating`/
+  `nfelo_qb_adjustment`) returns more than was used: plain `elo_diff`/
+  `qbelo_diff` (a third independent rating, no 538 QB adjustment folded in)
+  and — no new wiring needed at all, already in the same return object —
+  `tickets_pct_home`/`money_pct_home`/`tickets_pct_total_over`/
+  `money_pct_total_over`, the exact sharp-vs-public betting-splits signal
+  flagged earlier as a separate future item. It was already being read.
+
+**New standing checklist item (added to the recurring data-integrity audit
+above): for every JSON-blob column this codebase reads, diff the full key
+set against what's actually destructured out, the same way the 301-metric
+feature store and these two were just found.** Given three real hits found
+this fast, there are very likely more.
+
+### Prioritized roadmap for when execution resumes
+
+1. **Wire `nfl_team_feature_vectors`/`nfl_player_feature_vectors` — the
+   already-built, versioned, cutoff-safe, ~2,670/~750-feature contract that
+   currently feeds nothing.** First: check whether the ~1-11% missing cells
+   per row are randomly scattered or clustered on specific metrics (a
+   systematic gap would need handling before trusting the vector wholesale).
+   Then: principled dimensionality reduction on top (PCA, sparsity-inducing
+   regularization, or a small hand-audited subset by measured target
+   correlation) — never all ~2,670 raw columns into a weekly-refit model,
+   which the V3 result already proved fails at 5-7 columns on a few hundred
+   rows. This supersedes item-by-item metric mining below as the primary
+   path; fall back to hand-picking individual metrics from the raw 183-key
+   JSON only if the vector tables turn out to have a real quality problem.
+2. **Mine the raw 183-key team-week JSON / 298-unused-metric feature store
+   directly** (fallback to item 1, or useful in parallel for metrics the
+   vector tables don't cover) — start with the trend/volatility transforms
+   (`slope_6`, `ewma_6`, `sd_6`) of metrics ALREADY partially used
+   (`off_epa_per_play`, `def_epa_per_play`, `off_success_rate`), since those
+   are the cheapest to justify (same underlying metric, richer transform).
+   One or a few at a time, each measured out-of-fold against the market and
+   the model's own base, week-clustered, before being added to any frozen
+   contract — never a bulk import.
+3. **Zero-new-code win: wire up what `nfeloFeatures()` already returns.**
+   `elo_diff`/`qbelo_diff` (a third independent rating) and
+   `tickets_pct_home`/`money_pct_home`/`*_total_over` (betting splits) need
+   no new export, no new data — the function is already imported and called
+   at all 3 ctx-assembly sites in `nfl-ensemble.js`; this is purely adding
+   `challengerOnly` MODELS entries that read fields already on `c.nfelo`.
+   Do this before anything else on this list — it's the cheapest possible
+   next step.
+4. **Mine `nfl_player_week_features`'s ~62 unused keys** (of ~68 total) —
+   explosive-play rates, red-zone/goal-line share, third-down/two-minute
+   usage, `wpa_total` — for the injury/availability-weighting work
+   (mirrors what PFR defensive data already did for defenders; this is the
+   same fix for offense) and for player-value generally.
+5. **Wire `nfl_pfr_adv` kind='pass'/'rec'** (0% used) alongside the
+   remaining unused `def` keys (`def_passer_rating_allowed` especially) —
+   same table, same free data, already-proven ingestion path.
+6. Measure the 3 newly-wired challengers (`nfelo_rating`,
+   `nfelo_qb_adjustment`, `teamrankings_predictive`) against the market via
+   the JS joint fit and rank report — they are wired and verified but NOT
+   yet graded for promotion.
+6b. **Finish `tree_lab.py`'s cover/quantile head (RUNBOOK §4.2) — the one
+   genuinely different modeling paradigm on the whole inventory that was
+   never finished, as opposed to the five that were tried and measured
+   dead (drive-sim, trend totals, GBM-on-residual, 12 specialists, the main
+   regression path itself).** Predicts P(cover) directly rather than a
+   point margin. Export its out-of-fold probability the same way
+   `export_market_correction_lookup.py` does, wire it as a `cover_research`
+   challenger, measure with the same rigor as everything else. Worth
+   prioritizing near the top of this list specifically because it's the one
+   item where "we haven't tried this" is literally true, not "we tried it
+   and it lost."
+7. Build the cross-book dispersion feature from `nfl_odds_archive` (10-11
+   books, 2022-2026).
+8. **Cross-sectional James-Stein / method-of-moments EB shrinkage — two
+   targets, one technique (CORRECTED September 16; was "hierarchical
+   Bayesian prior," which F15/Brown 2008 show is the wrong variant).**
+   (a) FIX #14's real target: add pooling across all 32 current-season teams
+   to `nfl-preseason-blend.js`'s `blendedTeamRating()` (the single-unit half
+   is already there and correct), gated behind its existing
+   `teamStrengthWalkForward`; NFL evidence 16.8% MSE reduction (Ragain et
+   al. 2018). (b) The correction head's coefficient vector, so the V3
+   feature-creep failure cannot recur as items 1-5 add columns. Reuse
+   `shrinkage-fit.js`'s fitted-k machinery — do not add a seventh
+   hand-rolled formula. Build (b) before mining items 1-5 too aggressively;
+   promote to the top if more than a couple of mined signals are being
+   tested at once.
+9. Build the referee-tendency feature from `nfl_officials` + our own
+   `game_lines` history — internal derivation, no new data needed.
+10. **Batch of zero-new-data derived features, all cheap, all verified real:**
+    fix `rest_travel` to compute genuine haversine distance + timezone
+    crossings from `nfl_stadiums` (it has never measured travel despite its
+    name); normalize and wire `game_lines.surface` (turf/grass, needs string
+    cleanup first — `grass`/`grass `, `a_turf`/`astroturf` are likely
+    duplicates); coaching tenure + new-coach-season flag from
+    `nfl_team_coaches` (2015-2026, full coverage); distance-to-nearest-
+    key-number (3/7/10) from the market spread alone; reverse line movement
+    (line direction vs. `nfl_nfelo_lines` ticket/money split, distinct from
+    the plain divergence in item 6); playoff-clinch/lame-duck flag from
+    standings already in `game_lines` history; return-from-injury rust
+    window from `nfl_injuries` status transitions across consecutive weeks.
+    Each measured individually against the market before being kept, same
+    discipline as everything else — this is a batch of candidates to try,
+    not a batch to assume works.
+11. Start on totals — the over/under side has had zero attention all
+    session. Two entries, in order: (a) the GAS dynamic bivariate
+    Poisson/Skellam joint-scoring model (paradigm section above; the only
+    candidate that gives totals a real model, with published head-to-head
+    evidence — admission test: NFL score support/key margins first, then a
+    walk-forward CRPS/log-loss gate); (b) pregame weather forecasts
+    (`nfl_game_weather_forecast_history`) as a totals feature, with the
+    weather×pass-rate interaction term from item 10's sweep — an
+    interaction, not a plain additive weather feature.
+12. Make the correction-head coefficient dump a permanent part of the saved
+    audit report, not a one-off manual script.
+13. Ingest `nflreadr::load_combine()`/`load_draft_picks()`/`load_contracts()`
+    (confirmed free) for the rookie-evaluation and roster-investment gaps.
+14. Aggregate `nfl_play_charting` (already owned, unused) to a team-week
+    tendency feature.
+15. Run the recurring data-integrity checklist (including the new
+    JSON-blob-key-diff item above) as its own dispatched pass, independent
+    of any specific feature build.
+16. **After items 1-9 and 6b have each been individually measured: run "the
+    enrich every paradigm, then let diversity decide" plan** (its own
+    section above) — enrich the drive-sim, specialists, and `tree_lab` with
+    the new data in each one's native form, re-run the rank measurement,
+    and let RUNBOOK §5's existing decision rule (already exercised once)
+    decide prune vs. combine on the new number. This is deliberately last:
+    it needs the individual enrichments done first to have anything real to
+    re-measure diversity on.
+
+### FINAL ORDER — September 16, 2026 (supersedes the numbering above; original item numbers kept as references, nothing above is removed)
+
+Produced by the gap analysis below. Rule for the order: **first, fix the
+things that make our own measurements untrustworthy; second, the
+guardrails; third, the zero-code and cheap wins; fourth, data mining; last,
+new paradigms.** Items 17-24 are NEW from the research verification; the
+rest are the roadmap items above in their final sequence. **Step-by-step
+execution recipes for #1-#7 (files, verified line numbers, tests to add,
+done-when) are in RUNBOOK.md §10; the operating rules any executing model
+must follow are RUNBOOK.md §0a.**
+
+| # | Do this | Was | Why here |
+|---|---|---|---|
+| 1 | **Fix the production residual path's one-at-a-time fit.** `market_residual` computes `residual_slope`/`residual_weight` as 31 separate single-covariate OLS fits, never a joint fit (F02-1, verified) — the joint ridge exists for margin weights but the served residual path never got it. This is a defect in the one path that reaches a pick. | NEW (17) | Everything the residual gate has ever said (0/848) was said about a mis-fit path |
+| 2 | **Fix the drive-sim's three VERIFIED-LIVE bugs** (CORRECTED same day — the first draft of this row named FIX_AND_ADD #9-#11; the verifier found #9 away-WP sign and #11 timeout decrement are already FIXED in code, and the +7 HFA coin flip is gone, replaced by +1 per drive at `nfl-drive-sim.js:544` — still additive-on-score, structural critique stands, key-number-spike claim superseded). Live now, verified 2026-09-16: **F01-2** urgency divides a half-scoped clock by 3600 (`nfl-sim-policy.js:229,:441`); **F01-3** `kneelable = 40 + timeouts*40` uses the OPPONENT's timeouts with the wrong sign and consumes the whole clock (`nfl-sim-policy.js:317-319`, `nfl-drive-sim.js:277-279`); **F01-6** `simulateRemainder` has no halftime/OT transition and hardcodes `timeouts:3/oppTimeouts:3` (`nfl-drive-sim.js:819-870`). | NEW (18) | Hours each; the "measured dead 42.86% ATS" verdict was measured with these live — not clean until fixed and re-run |
+| 3 | **Extend the point-in-time leakage guard** (`contracts.js assertTimestampedObservation`) past the fantasy pipeline onto `nfl_team_week_features`/`nfl_play_by_play`/the blind-audit freeze path (F18-4). Five forecast-feeding tables carry no receipt clock of our own (see lineage section). | NEW (19) | Every result this session assumes point-in-time correctness on tables this guard has never touched |
+| 4 | Multiple-testing guardrail, as corrected above: declared-family Bonferroni/Šidák now; **plus** Holm on the per-component DM gate (F02-5) and Giacomini-White conditional test as the cheap extension F02 names; DSR input standardization as its own prerequisite; F07-3 persist `corrected_alpha_at_seal`/`prior_tests_at_seal`. | guardrail section + NEW (20) | Must precede the mining spree |
+| 5 | Zero-new-code win: wire what `nfeloFeatures()` already returns (`elo_diff`, `qbelo_diff`, tickets/money splits). **Decision recorded (cat-08, Section E item 1):** nfelo's plain `elo_diff` IS the independent-Elo sanity floor the 538 `nfl-elo-game` port was for; that port is superseded unless `elo_diff` proves unusable when measured in #9. | 3 | Cheapest real addition; retires a separate build |
+| 6 | FIX #14, correctly targeted: cross-sectional James-Stein / method-of-moments EB pooling on `nfl-preseason-blend.js blendedTeamRating()` (F08-1 confirms it is not opponent-adjusted), gated behind `teamStrengthWalkForward`. Same technique on the correction-head coefficients. | 8 | The football input every downstream head stands on; the guardrail against V3-style creep |
+| 7 | Small cheap fixes surfaced by verification: `nfl-total-calibration.js:37` uses a naive local noVig instead of `shinNoVig` (F03-3); `nfl-execution-clv.js DEFAULT_CLOSING_BOOKS = null` (F04-3); `homeFieldPoints=1.6` hardcoded in the drive-sim while nfelo's `hfa_mod` is already synced (cat-07); stale `nfl-ensemble.js:2501` comment says "nine challenger-only" (now 21). | NEW (21) | Each is minutes-to-hours and each is a known-wrong number in a live path |
+| 8 | Finish `tree_lab`'s cover/quantile head. | 6b | The one paradigm never finished |
+| 9 | Measure the 3 wired challengers (nfelo_rating, nfelo_qb_adjustment, teamrankings_predictive). | 6 | Wired, unverified |
+| 10 | Wire `nfl_team_feature_vectors`/`nfl_player_feature_vectors` with PCA/sparsity on top. | 1 | Largest already-built unused asset |
+| 11 | `nfl_player_week_features` unused keys; `nfl_pfr_adv` pass/rec + remaining def keys. | 4, 5 | Same free-data shape |
+| 12 | Raw 183-key team JSON mining (fallback to 10). | 2 | — |
+| 13 | Cross-book dispersion from `nfl_odds_archive` (10-11 books). | 7 | — |
+| 14 | Referee tendency from `nfl_officials` + `game_lines`. | 9 | — |
+| 15 | The zero-new-data derived-feature batch (travel via `nfl_stadiums`, surface, coaching tenure, key-number distance, RLM, clinch flag, return-from-injury rust). | 10 | — |
+| 16 | Totals: **(a)** GAS dynamic bivariate Poisson/Skellam — with the footBayes (Stan MCMC) full state-space model recorded as the heavier COMPARISON, not the first build (GF04 contradiction, resolved: GAS first on Koopman-Lit's own head-to-head evidence); **(b)** weather forecasts × pass-rate interaction. | 11 | Totals has had no model |
+| 17 | Correction-head coefficient dump into every saved report. | 12 | Permanent "double click" |
+| 18 | Chronos-2/TimesFM zero-shot cold-start pilot on the team-strength blend (N01-2/GN01-1) — the one N-item the research itself calls hours-scale and cheap; sequence strictly after #6. | NEW (22) | Cheap, gated, honest exception to the "no big ML" verdict |
+| 19 | `nflreadr` combine/draft/contracts; `nfl_play_charting` aggregation (check FTN ingestion stores all 29 fields first — N15-3 unverified). | 13, 14 | — |
+| 20 | `pymc`/`numpyro` **and `mapie`** (FIX #26, gf08 — the independent conformal cross-check, still not installed) in `research/.venv` (F09-3) — prerequisite for hierarchical props/dispersion work, footBayes, and for cross-checking every conformal number this plan reports. | NEW (23) | Infrastructure, not a model |
+| 21 | Recurring data-integrity checklist (schema drift, batch timestamps, dup tags, coverage trend, unused tables, JSON-blob keys, duplicate formulas) as its own pass. | 15 | Standing |
+| 22 | "Enrich every paradigm, then let diversity decide" — with N06's nuance recorded: classical value-iteration over the drive-sim's OWN transition model is not data-starved the way a learned policy is, so it is an admissible experiment inside this item, unlike neural RL. | 16 | Last, needs 5-15 done |
+| 23 | Low-priority, gated, recorded so it is not lost: the one small drive-outcome transformer FIX_AND_ADD §(e) gives a qualified go-ahead to (N03/GN03); a jointly-fit continuous gate for the expert coordinator (N12-4) as an alternative to folding it into `forecast-combination.js`; NGBoost/MDN distribution head (N10/GN06) once a real distributional-shape weakness is shown. | NEW (24) | Real ideas with real evidence, all behind measured gates |
+| 24 | **Devig completeness** (cat-09, cat-18, gf03): `nfl-devig.js` has 2-outcome Shin only. Add `powerDevig()` and N-outcome Shin, then port `penaltyblog`'s 7-method dispatcher and run our own historical closing lines through all 7 to pick one WITH evidence, not by default. Slot: with FINAL ORDER #7 (it is the same file family as the `nfl-total-calibration.js` noVig fix). | NEW (25, catalog) | Every cover/total probability the pick path emits passes through devig; a second method is the only way to know the first is right |
+| 25 | **Multiplicity needs a record of everything tried** (gf05 `bet_attempts` ledger; gf10 full `research_studies`/`research_trials`/`research_trial_corrections` schema with the DB-enforced `scored_at >= declared_at` trigger). Slot: part of #4 — Holm over "what was placed" is not Holm over "what was tried." | NEW (26, catalog) | The correction is only as honest as its denominator |
+| 26 | **Reliability-diagram auditor** (cat-19, ~30 lines from NFLWin's KDE pattern) applied to the correction head's own `interval_80` AND to `calibratedCoverProbability`. Slot: with #17 (coefficient dump) — same "see what the model actually does" purpose. | NEW (27, catalog) | Directly closes the "correction-head interval never checked" gap found on Sept 16 |
+| 27 | **Entity-resolution confidence score** (cat-14 splink, gf07): `eventKey()`/`contractKey()` are binary exact-or-fail-closed. Add a hand-tuned Fellegi-Sunter log2(m/u) score (team exact/fuzzy/miss, date exact/off-by-one/miss) as a LOGGED layer, no behavior change until measured. Slot: track E, after #21's first run — its main consumer (Polymarket-tape matching) is deferred, so this is robustness, not signal. | NEW (28, catalog) | Silent `unresolved_team` failures become countable |
+
+**Dependencies — do not start X until Y is done (added same day at Nick's request).**
+Numbers are FINAL ORDER numbers. "Build" and "trust the result" are
+separated on purpose: several items can be *built* early but their numbers
+must not be *read as final* until the guardrails land.
+
+| Item | Do not START until | Do not TRUST its numbers until | Parallel track |
+|---|---|---|---|
+| 1 joint residual fit | — (start now) | 4 (Holm/GW) — the gate verdict is provisional before that | A defects |
+| 2 drive-sim live bugs | — (start now) | all three fixes + the HFA structural fix are in, then ONE re-run of `backtest()` — never re-run after each partial fix | A defects |
+| 3 leakage guard extension | — (start now) | — (it is the thing that makes other numbers trustworthy) | A defects |
+| 7 small fixes | — (start now) | — | A defects |
+| 4 multiple-testing (Holm, GW, persisted alpha) | — (start now) | — | B guardrails |
+| 17 coefficient dump | — | — | B guardrails |
+| 21 data-integrity checklist (first run) | — | — | B guardrails |
+| 5 nfeloFeatures unused fields | — (build now) | 4 | C cheap wins |
+| 6 FIX #14 James-Stein pooling | 3 (guard covers `nfl_team_week_features`) | 4, and `teamStrengthWalkForward` ≥2/3 seasons | C cheap wins |
+| 8 tree_lab cover head | 3, 4 | 4 | C cheap wins |
+| 9 measure the 3 wired challengers | 3, 4 | 4, and the rank report re-run (§3.4) | C cheap wins |
+| 10 vector tables + PCA/sparsity | 3, 4, 6, 17, 21 (first run) | rank report re-run showing effective rank actually rose | D mining |
+| 11 player_week keys; PFR pass/rec + def keys | 4, 17 | rank report re-run | D mining |
+| 12 raw 183-key JSON mining | only if 10 fails its quality check | rank report re-run | D mining |
+| 13 cross-book dispersion | 1, 4 (it is a residual-side feature) | rank report re-run | D mining |
+| 14 referee tendency | 4 | rank report re-run | D mining |
+| 15 derived-feature batch | 4 | rank report re-run | D mining |
+| 18 TSFM zero-shot pilot | 6 | 4 | D mining |
+| 19 nflreadr ingest; charting aggregation | 4; N15-3 field-count check before aggregating | rank report re-run | D mining |
+| 16a GAS joint-scoring (totals) | 3, 4 | walk-forward CRPS/log-loss gate vs champion | E paradigm/infra |
+| 16b weather×pass-rate for totals | 4 | same gate as 16a | E paradigm/infra |
+| 20 pymc/numpyro toolchain | — | — | E paradigm/infra |
+| 16 footBayes comparison | 16a measured, 20 | CRPS/log-loss vs 16a | E paradigm/infra |
+| 22 enrich every paradigm | 5-15 individually measured, rank re-run | RUNBOOK §5 rule on the NEW rank number | E paradigm/infra |
+| 23 gated ideas (transformer, MoE gate, MDN head) | 22's rank result | their own gates | E paradigm/infra |
+| 24 devig completeness | — (build with 7) | historical-closing-line comparison across all methods | A defects |
+| 25 bet_attempts ledger + registry schema | — (build with 4) | — | B guardrails |
+| 26 reliability-diagram auditor | — (build with 17) | — | B guardrails |
+| 27 entity-resolution confidence score | 21 first run | measured false-positive rate on a held-out slate | E paradigm/infra |
+
+**Hard rules that the table encodes:** nothing enters the live blend on a
+per-component test alone (F02) — only after the rank report re-run shows it
+raised effective rank AND §6 passes on a new window; no accuracy number
+produced before 3 and 4 land is cited as final; the drive-sim is re-measured
+once, after all its fixes, not incrementally; tracks A and B run first and
+in parallel, C starts as soon as 3 and 4 are in, D after C's rank re-run, E
+last.
+
+### DATA SOURCES, ENDPOINTS AND LINEAGE — verified September 16, 2026
+
+Built by six read-only mapping agents (two results taken from the earlier
+run as ground truth per Nick; four from the completed run), every claim
+grep- or sqlite-verified. Full per-table detail (writer, external source,
+receipt clock, every reader, row counts) is in the run output at
+`/private/tmp/claude-501/-Users-nick-matta-Claude/d6558473-2a7e-474b-9143-33f11accc626/tasks/wntbutrvx.output`
+(656 KB; copy it into `docs/betting-model/research/experiment-results/`
+before the scratch directory is cleared). What matters, condensed:
+
+**The live pick path, exact (cited in the run):** `routes/nfl-market.js:450`
+`autoPickDecisionBoard(season, week)` (also `scheduler.js:751` job
+`nfl_decision_ledger`) → `nfl-auto-picks.js:83-95` (`blendMode:
+'market_residual'`, `includeChallengers` undefined → champion mode) →
+`computeDecisionBoard` `:97-112` (prices from `game_lines`) →
+`ensembleWeek` → `ensembleLine` `nfl-ensemble.js:2075-2319`
+(`includeChallengers=false` `:2077`; `fitEnsemble` `:2139` from
+`nfl_ensemble_fit_artifacts` or recompute; ctx from `game_lines`,
+`nfl_team_week_features` via `featureAggregates :419`, `availabilityDeficit
+:1244` [`nfl_injuries`/`nfl_snaps`/`nfl_pfr_adv`], `rosterStrengthWeek :1247`
+[`nfl_depth`], `marketCorrectionMargin :2199` [json lookup], `nfeloFeatures
+:2200` [`nfl_nfelo_games`/`lines`/`qb`]) → `blend() :2234-2250` →
+`residualMargin :2252-2256` = market verbatim when no residual weight →
+`nfl-auto-picks.js buildCandidate :125-253` (`shinNoVig`,
+`calibratedCoverProbability`, `promotedFindingVeto`) → `applyNflPolicy` →
+`ensurePicksFor :42-51` → `INSERT INTO nfl_auto_picks`. **35 MODELS entries:
+14 live** (colley, melo, dynamic_state, epa_neutral, success_rate, explosive,
+drive_eff, situational, trenches, recent_form, pace_total, weather_total,
+market_anchor, market_regression), **21 challenger-only.** Comment at
+`nfl-ensemble.js:2502` still says "nine challenger-only" — stale, fix.
+
+**Outbound endpoints this app pulls from (verified literals):**
+- nflverse GitHub: `github.com/nflverse/nfldata/raw/master/data/games.csv`
+  (`gamescript.js:23`, historical `game_lines`), per-season releases for
+  play-by-play (`nfl-pbp.js`), injuries/snaps/pfr_advstats/depth_charts
+  (`nfl-advanced.js`), QBR `espn_data/qbr_week_level.csv` (`nfl-qbr.js`),
+  ffopportunity (`ffopportunity.js`), draft/combine (`nfl-rookie-ingest.js`),
+  FTN charting `ftn_charting_{season}.csv` (`nfl-formations.js:97`).
+- ESPN: `site.api.espn.com/.../scoreboard` (`gamescript.js:24`, current
+  spread/total/open/moneyline into `game_lines`), summary API (PBP), FPI JSON
+  (`nfl-external-ratings.js`), transactions, news, rosters.
+- Market: The Odds API `api.the-odds-api.com/v4` (`odds-api.js:17`,
+  metered); SportsGameOdds `api.sportsgameodds.com/v2` (`sportsgameodds.js:31`);
+  direct scrapes — Oddstrader odds-v2 (`book-feeds.js:353`), Pinnacle guest
+  API (`:358-359`), Kambi/BetRivers (`:364`), Bovada (`:366`), FanDuel
+  (`:346`), Rotowire (`book-feeds-extra.js:206`), SportsbookReview (`:210`);
+  Oddstrader archive scrape (`odds-archive.js`); Action Network + Underdog
+  (props, `prop-feeds.js`); Kalshi trade API (`prediction-markets.js`,
+  588k rows); Polymarket Gamma/CLOB (`polymarket.js`, 22.3M rows).
+- greerreNFL GitHub CSVs (`nfelo.js:38-45`): nfeloqb `qb_elos.csv`, nfelo
+  `output_data/nfelo_games.csv`, `historic_projected_spreads.csv`,
+  nfelomarket_data `Data/lines.csv`, Stadiums `stadiums.csv`/`team_stadiums.csv`.
+- TeamRankings predictive-ratings HTML (`nfl-external-ratings.js`);
+  Open-Meteo previous-runs API (`nfl-weather-history.js`); dynastyprocess
+  `db_fpecr.csv.gz` (ADP); RSS + ESPN news + TwitterAPI.io (news); YouTube
+  via yt-dlp (press conferences); CollegeFootballData API (key-gated, 0 rows).
+
+**Scheduler jobs (`scheduler.js`): ~55.** Feeding the live pick path
+directly (`reaches_live_pick`): `nfl_lines` (ESPN → `game_lines`),
+`nfelo_sync`, `nfl_injuries`, `nfl_offseason_depth_injury`, `nfl_coaches`,
+`espn_rosters`, `nfl_t60_runner`, `nfl_decision_ledger`. Feeding forecasts
+but not the served pick: `nfl_line_snapshots`, `nfl_sgo_snapshot`,
+`nfl_book_feeds_fast/slow/extra`, `nfl_learned_shadow`. Captured and
+consumed by nothing that forecasts: `prediction_markets` (Kalshi, 588k),
+`polymarket` (22.3M), `polymarket_line_watch`, `espn_line_watch`,
+`beat_the_close`, `nfl_prop_capture`/`nfl_prop_clv_free`, `press_conferences`,
+`twitter_insiders`, `nfl_forecast_history` (weather), `ffopportunity`,
+`nfl_external_ratings` (espn_fpi half). Inbound HTTP: **528 route handlers
+in 28 files; 18 serve an NFL pick/forecast** (all in `nfl-market.js`,
+`nfl-betting.js`, `betting-hub.js`); 57 trigger a sync/capture; the rest are
+CRUD/audit/admin.
+
+**Anomalies the map found (all verified):**
+- `game_lines` has **two writers**: `gamescript.js` (primary) and
+  `odds-archive.js:149,153` backfilling `open_spread`/`open_total` from a
+  Pinnacle-derived Oddstrader median — a path that had a sign-corruption bug
+  for 2022-2025 rows (migration `047_backfill_open_spread_pinnacle_2022_2025.js`).
+  `market_movement` in the research pipeline is built from these columns.
+- `nfl_line_snapshots` has **five writers** with different `provider`
+  labels and a receipt clock (`received_at`) that migration 052 documents as
+  a *constant* for archive-sourced rows.
+- **No receipt clock of our own** on `nfl_team_week_features`, `nfl_snaps`,
+  `nfl_pfr_adv`, `nfl_depth`, `nfl_injuries` (only nflverse's `modified_at`,
+  null for 2025-26) — the five tables the frozen 14 and the availability
+  signal are built from. This is why FINAL ORDER #3 is where it is.
+- `nfl_external_ratings` `espn_fpi`: `fpi_diff` is computed
+  (`nfl-external-ratings.js:260`) and consumed by nothing.
+- `nfl_team_coaches` reaches the ensemble ctx (`nfl-roster-strength.js:362`)
+  as metadata only — no `predict()` reads it numerically.
+- `historical-adp-scrapes.js` writes `nfl_historical_adp_scrape` under a
+  `recordSync` name that is in neither `MANUAL_SOURCES` nor `JOBS`.
+- `nfl_prop_quote_snapshots` is 100% `underdog` in the live DB — the Odds
+  API and Action Network prop paths currently write zero rows.
+
+### GAP ANALYSIS — research vs. current model vs. this plan, September 16, 2026
+
+Inputs: the lineage map above; 246 research claims across 6 note families
+and the primary papers, each grep-verified against the live tree (status:
+109 open, 99 done, 14 superseded, 9 wrong_file, 7 not_applicable, 8
+unverified); the two documents read in full by the main session
+(`FIX_AND_ADD_ARCHITECTURE.md`, `F15`). Nothing below removes a measured
+result from this plan; it revises what to do about them.
+
+**Verdict on the plan: it stands, re-ordered, with four structural
+additions — not a restructure.** The shape (frozen-14 football model →
+ridge correction head → JS ensemble joint fit → market_residual gate →
+market verbatim) is defensible and the research's own recommended
+architecture (`FIX_AND_ADD` §(f)) matches its bones: one point-in-time data
+layer, one signal registry, one combiner chosen by a correlation/PCA
+reduction step first, one promotion ladder, one evaluation harness. Where
+the research disagrees with the plan, it is about *what owns team strength*
+and *how the served residual is fit*, not about the layering.
+
+**The structural findings (what the research says the model should have
+that it does not):**
+
+1. **No dynamic state-space owner for team strength.** Glickman-Stern 1998,
+   Glickman 2001, Szczecinski-Tihon 2021 all prescribe that ratings come from
+   a formal dynamic paired-comparison process with explicit week-to-week and
+   season-to-season variance and derived update rules. This plan's inventory
+   classifies every rating source (`nfelo.js`, `nfl-team-strength.js`,
+   `nfl-external-ratings.js`) as "inputs to 1 and 3, not stacks" and has no
+   L-layer owner for the rating process itself. Resolution: FINAL ORDER #6
+   (James-Stein/EB pooling on `blendedTeamRating`) is the cheap, evidenced
+   first step the research itself ranks first (FIX #14, "cheapest,
+   highest-confidence"); the full state-space model (footBayes Stan port,
+   GF04; Kalman per Szczecinski-Tihon) is the later comparison. **Record in
+   the L1 row of the target-architecture table that "rating process" needs
+   one owner** — done below in place.
+2. **The served residual path is not the joint fit the plan describes.**
+   F02-1, verified: `market_residual` builds `residualMargin` from 31
+   separate single-covariate OLS slopes, one model at a time. The joint ridge
+   (`jointComponentWeights`) fixes margin weights only. Every statement this
+   plan makes about "0 of 848 residual gate passes" describes that
+   one-at-a-time path. FINAL ORDER #1.
+3. **DM is being used as a model-adjudication and promotion mechanism;
+   Diebold's own 2012 retrospective says DM-type tests are for comparing
+   forecasts, not adjudicating between models, and Giacomini-White 2006
+   prescribes testing *conditional* predictive ability of the method
+   (model + estimation window). F02 already names the cheap extension
+   ("swap scalar ΔL for h_t·ΔL_t, proper HAC Ω̂"). Resolution: keep DM as a
+   *comparison*, add GW conditional as the promotion test, and apply Holm
+   across the ~31 components (F02-5). FINAL ORDER #4.
+4. **F02's do-not-do — "do not add more models to the ensemble... adding
+   models without addressing collinearity makes the simplex QP more
+   degenerate" — versus this plan's roadmap wiring several new challenger
+   components.** Not a real conflict, but it needs stating: the plan adds
+   signals as `challengerOnly` (excluded from the blend by construction) and
+   measures rank before combining; F02's warning is exactly why FINAL ORDER
+   keeps rank measurement and pruning ahead of any combining, and why the
+   feature-vector work (#10) is PCA/sparsity first. The rule to write down:
+   **a new component enters the live blend only after the rank report shows
+   it raised effective rank, never by clearing a per-component test alone.**
+
+**Contradictions between research notes and this plan, and how each is
+resolved (12 recorded by the verifiers; 11 unique):**
+- GF02/catalog #12 (port nfelosrs single-unit conjugate update) vs. this
+  plan's Sept 16 correction (cross-sectional James-Stein) → **plan wins**;
+  F15's Brown 2008 evidence is the reason; catalog item marked superseded.
+- GF04 (footBayes full MCMC as PRIMARY port) vs. plan's GAS choice → **GAS
+  first** on Koopman-Lit 2019's own head-to-head (1/360th compute), footBayes
+  recorded as the heavier comparison in FINAL ORDER #16 and #20 (pymc).
+- N06 (tabular value-iteration over the drive-sim's own transition model is
+  NOT data-starved) vs. `FIX_AND_ADD` §(a)'s blanket RL verdict → **nuance
+  accepted**; recorded inside FINAL ORDER #22.
+- N03/GN03 (one small drive-outcome transformer, qualified go-ahead) absent
+  from roadmap → **added, low priority, gated** (FINAL ORDER #23).
+- N10/GN06 (distributional head is near-term) vs. plan ranking it lower →
+  **plan ordering kept**, but the underlying fact is recorded as a real open
+  defect: `predictiveDistribution()` (`nfl-ensemble.js:336-401`) is a
+  resampled residual cohort that self-labels `research_distribution_only`,
+  not a model. FINAL ORDER #23.
+- N13 F3 (Kalman update triggered by validated injury shocks on
+  `blendedTeamRating`) vs. plan's James-Stein on the same function →
+  **compatible, sequenced**: pooling first (#6), shock-triggered dynamics
+  belong to the state-space item.
+- N12 (jointly-fit continuous gate for the expert coordinator) vs. plan's
+  "fold coordinator into `forecast-combination.js`" → **both recorded**;
+  rank says prune first; N12's gate is the alternative if the specialist
+  layer is retested with new data and survives (FINAL ORDER #22/#23).
+- dm-20yrs-later / giacomini-white → structural finding 3 above.
+- Glickman/Stern/Szczecinski → structural finding 1 above.
+- F02 do-not-do → structural finding 4 above.
+
+**Errors found and corrected (the "issues like FIX #14" question):**
+- 9 `wrong_file` flags; **2 are true wrong-file errors**: F17-4 (state-space
+  fix aimed at `nfl-team-strength.js`, which `nfl-ensemble.js` never imports
+  — real target is `nfl-market.js fitModel()/simulate()` and
+  `nfl-preseason-blend.js`) and N13-1 (functions attributed to
+  `player-availability.js` live in `contingency.js`). The other 7 are
+  line-number drift from ~1,000 lines of growth since Sept 12; substance
+  intact.
+- **N13-1 resolved, and it does not contradict tonight's injury null:**
+  `contingency.js:93-112` documents MAE 4.748 → 3.71-3.66 on 326
+  Questionable player-weeks — that is a *fantasy weekly-opportunity* target
+  (consumers: `player-week-engine.js`, `trade-engine.js`, `season-sim.js`,
+  `role-scenario-*`), not game margin. Different target, no conflict; but it
+  is a validated availability discount the game-side `availabilityDeficit`
+  does not reuse — recorded under RUNBOOK §4.1b's cross-wiring item.
+- 14 `superseded`: code moved past the note; no action.
+- **The 8 `unverified` items: none matter to the spread model now.** All
+  low relevance. Two worth a one-line note when their area is touched:
+  N15-3 (FTN charting ingestion may store 12 of 29 available fields — check
+  before FINAL ORDER #19 aggregates it) and N17-7 (the weather-sensitivity
+  significance test at `nfl-ensemble.js:596-611` is a between-team spread vs
+  noise test, not week-clustered — real but low stakes because the component
+  falls back to the flat constant unless significant). The rest are
+  licensing (TimesFM 3.0), line drift, fantasy transparency, and Polymarket
+  table locations.
+
+**What the research confirms the plan already got right (recorded so it is
+not re-litigated):** prune-not-combine after rank ≈2.5 (F02: "correlation/
+PCA reduction before any weight optimization"); no GP/MoE/deep-generative/
+neural-RL at this data volume (five independent researchers, matches V3's
+own evidence); Kalshi/Polymarket deferral (N14: best real-world number is
+$210-560 total across an NBA month; 588k Kalshi + 22.3M Polymarket rows are
+captured and consumed by nothing — leave them); split-conformal over the
+`disagreement/30` hack (done, FIX #15/#18); CLV consolidation (done, FIX #28);
+the challengerOnly discipline; the audit's preregistration/accounting
+fixes this session.
+
+**Avoid-list check (GITHUB_BUILD_CATALOG): clean.** The verifier confirmed
+nothing on this roadmap proposes an avoid-listed repo (lag-llama, EnbPI,
+soccer-physics engines, garbage-time-excluded samples, no-OT engines). It also
+found six MORE "already fixed since Sept 12" cases beyond the three known
+(turnover field-position flip, half-vs-game clock split via `gameSecondsLeft`,
+HFA as per-drive nudge, away `posteamSpread`, deterministic kneel outcome,
+Polymarket join key routed through `eventKey()`) — the drive-sim has moved
+further than any note records.
+
+**Status of the 99 "done" items:** real progress since Sept 12 — the
+research's fix list is roughly 40% landed. The 109 "open" items are
+backlog, not errors; the 44 marked high-relevance are folded into FINAL
+ORDER above (by item id, all traceable in the run output).
+
+### MODEL INVENTORY AND ORGANIZATION — September 15, 2026 (evening)
+
+Built by reading every prediction-shaped module in the tree, not by trusting
+names. Two corrections to this document's own earlier claims come first.
+
+**Correction 1 — "no betting head exists" was wrong.** Earlier in this
+document (Phase 1 and "The separate labs") I wrote that nothing learns the
+correction to the market. I had searched the Python side and
+`nfl-ensemble.js`, not the specialist layer. `nfl-specialists.js` (619
+lines) predicts the market residual with a meta-model; `nfl-orthogonal-
+specialists.js` orthogonalizes families against market + earlier families
+with chronological shrinkage; `nfl-matchup-specialists.js` adds four
+residual ridge regressions; `nfl-expert-council.js` (893 lines) audits 19
+experts weekly, 15 of them scoring `market_residual`, including
+`boosted_tree`, `deep_residual` (`nfl-online-neural.js`), `line_movement`,
+`nfelo_line`. So Phase 1's `market_correction.py` is the **fourth**
+implementation of "predict the market residual," not the first. It is
+narrower (three features) and lives in a different language. It stays
+useful for one reason: it is the only one wired into the path that reaches a
+pick (see below). But it is a duplicate at the concept level and this
+document must say so.
+
+**Correction 2 — the gate question has a measured answer.** The residual
+gate is `residual_n >= 250 && residual_rmse_gain >= 0.03 && DM p <= 0.05`,
+fit on an earlier block and scored on a later ~59-week block. Those
+thresholds are mild. The Sept 12 sweep recorded, and I re-derived on today's
+extract, that across **848 persisted fit artifacts / 26,288 component-cutoff
+rows, `residual_gate_passed` has never once been true** — all three Market
+components fail on `rmse_gain` (0, 0, −0.051): none reduces the market's
+residual RMSE out-of-fold at all. The gate is not the problem. Nothing has
+residual skill on these windows. That matches the Python audit (correction
+MAE 9.913 vs market 9.779) and `nfl-specialist-audit.js`'s own title, "Why
+none of the twelve clears breakeven." The 24-point interval-width gate in
+`staking.js` remains separately unjustified.
+
+**The one decision path, confirmed by import graph.**
+`nfl-auto-picks.js` → `ensembleLine(blendMode:'market_residual')` → residual
+gate (0/848 pass) → **returns `marketMargin` verbatim** (`is_market_identity`
+= true) → `calibratedCoverProbability` → `nfl-execution-edge` gates → pick.
+Every other prediction stack below is a displayed head, a research artifact,
+or an input. The served spread forecast has been the market line by
+arithmetic at every cutoff that ever shipped.
+
+**Inventory — every NFL-betting prediction stack, what it targets, and
+whether it can reach a pick:**
+
+| # | Stack | Files | Target | Reaches a pick? | Measured status |
+|---|---|---|---|---|---|
+| 1 | Ensemble | `nfl-ensemble.js` — 32 components (10 challenger-only) **(CORRECTED September 16: now 35 components, 21 challenger-only, 14 live — see lineage section)**, joint ridge fit | raw margin/total → `market_residual` mode | **Yes — the only path** | 0/848 residual gate passes; serves market verbatim |
+| 2 | Specialist/residual layer | `nfl-specialists.js` (12 + meta-model), `nfl-orthogonal-specialists.js`, `nfl-matchup-specialists.js` (4), `nfl-passing-specialists.js` (20) | market residual | No — feeds the council only | "none of the twelve clears breakeven" |
+| 3 | Expert council | `nfl-expert-council.js` — 19 experts | market residual (15), score distribution (1), other | No — a head in the UI orchestrator + the explain tool | weekly audited; consumes `ensembleLine` and the drive-sim |
+| 4 | Canonical orchestrator | `nfl-unified-engine.js` + `gridiron-model.js` (authority) + `nfl-drive-sim.js` (shape) | reconciled distribution | No — the `/nfl-betting` route only | simulator measured dead: 42.86% ATS vs 52.38% breakeven |
+| 5 | Market model | `nfl-market.js` | win/cover/total probability vs no-vig | Via `betting.model_spread` → cover calibration | `normalCdf(margin/pooledSD)` — FIX #15/#16 still open |
+| 6 | Python research group | `stage3` → `unified_model.py` → `market_correction.py` → lookup → ensemble component | raw margin; residual | **Now yes, as challenger (gated)** | 16.2% margin weight, 0 residual weight |
+| 7 | Labs | `tree_lab.py` (cover/quantile/movement), `market_lab.py`, `book_lag_lab.py` | various | No | research only |
+| 8 | Rating inputs | `nfelo.js`, `nfl-team-strength.js`, `nfl-external-ratings.js` | ratings | Inputs to 1 and 3, not stacks | — |
+| 8b | **(CORRECTED September 16, gap analysis)** Rating *process* | none today — `blendedTeamRating()` in `nfl-preseason-blend.js` is the closest thing (single-unit shrinkage, not opponent-adjusted, F08-1) | dynamic team strength | No | Research (Glickman-Stern, Glickman 2001, Szczecinski-Tihon) says this needs one formal owner; FINAL ORDER #6 first, state-space later |
+
+**Duplications, ranked by what they cost:**
+
+- **D1 — four residual predictors** (ensemble Market family / specialists +
+  orthogonal / council experts / Python head). One reaches the pick and it
+  serves the market. The other three are graded, audited, and displayed, and
+  cannot influence a number. This is the core disorganization.
+- **D2 — six combiners:** `jointComponentWeights` (ensemble),
+  `forecast-combination.js` (1,164 lines, DM-gated, week-clustered — the most
+  rigorous, and **fixture-only**: every stored result is
+  `forecast-combination-fixture-*.json`), the specialist meta-model, the
+  council coordinator, `unified_model.py`'s simplex blend,
+  `gridiron-model.js`'s inverse-variance `consensus()`.
+- **D3 — four forecast walk-forwards** that "refit chronologically and grade
+  margin": `nfl-replay.js` (1,494 lines, the incumbent training loop),
+  `weekly-walkforward.js` (football-first, ATS), `unified_margin_audit.py`,
+  `stage3.run_expanding_folds`. (`nfl-execution-replay`, `nfl-ai-replay`,
+  `nfl-props-replay`, `purged-walk-forward`, `modeling/walk-forward` are
+  legitimately distinct — execution fills, Claude gate, props, purge rule,
+  fantasy — and stay.)
+- **D4 — eight registry/identity modules** (`nfl-engine-registry`,
+  `modeling/registry`, `model-governance`, `nfl-forecast-identity`,
+  `model-intelligence`, `model-signal-quality`, `nfl-model-growth`,
+  `nfl-model-watch`). FIX #32/#36 already flagged the 37-file
+  content-addressing sprawl and the audit layer never using `ModelRegistry`.
+- **D5 — two things named "unified"** (`nfl-unified-engine.js`,
+  `unified_model.py`) that are unrelated. Rename the Python one.
+- **Not duplicates, keep:** the five calibration files (`cover`, `total`,
+  `prop`, `sim`, `sim-shape`) calibrate five different quantities.
+
+**Target architecture — the standard quant stack, mapped onto modules that
+already exist.** The rule: one module per layer, everything else either
+becomes an input to that layer or is retired into a report.
+
+| Layer | One owner | What folds into it | What retires |
+|---|---|---|---|
+| L0 Point-in-time data | `dataset.py` + `nfl-bitemporal.js` + `nfl_feature_revisions` + T-60 packets | (already one chronology) | — |
+| L1 Signal registry (+ one owner for the rating PROCESS — added September 16, see gap analysis structural finding 1) | `nfl-engine-registry.js` + `model-signal-quality.js`, extended so every signal has `{id, target: residual\|margin\|prob, cutoff, out-of-fold predictions, evidence_id}` | all 32 components, 19 experts, 12 specialists, `tree_lab` cover head, Python heads, nfelo/team-strength/external ratings — same contract | `modeling/registry.js` for betting; `nfl-model-growth`/`model-watch` become jobs over the registry |
+| L2 Combination | `forecast-combination.js` (the rigorous one), fed by L1 | `jointComponentWeights`, specialist meta-model, council coordinator, `unified_model.py` blend, `consensus()` | — (after L1 exists; this is the largest single change and must be measured on real data first — Phase 1.5) |
+| L3 Gate / promotion | `gridiron-model.js` `AUTHORITY` ladder — it is well-designed and evidence-derived; keep it as the source of truth | the residual gate, `nfl-cover-calibration`'s forward gate, and the staking width gate all become named rungs on that ladder with their evidence ids | ad hoc per-file gates |
+| L4 Evaluation | `nfl-replay.js` for JS signals; Python signals **export into L1** so the same harness grades them | `unified_margin_audit.py` becomes a Python-side exporter (its walk-forward stays, its report duplicates `nfl-replay`'s) | `weekly-walkforward.js` and `stage3` folds → frozen reports |
+| L5 Execution | `nfl-execution-*` + `clv-core.js` + `execution-slate-reasoning` | (FIX #28 already consolidated CLV) | — |
+| Risk / portfolio | `nfl-risk-lab.js`, slate allocation | — | — |
+
+**GitHub code to bring in, mapped to those layers** (all from the
+`GITHUB_BUILD_CATALOG` already in the corpus; nothing new invented):
+- **L1:** `fivethirtyeight/nfl-elo-game` — an independent, decades-validated
+  baseline signal (hours; catalog #8). `greerreNFL/nfelosrs`
+  `BayesianRankings.py` — the recursive weekly rating update
+  `nfl-team-strength.js` lacks (#12). The already-ingested PFR weekly
+  defensive stats as a defensive-value signal (the free PFF replacement).
+  `ryurko/nflWAR`'s replacement-level method (#1).
+- **L2:** `georgedouzas/sports-betting`'s complementary-events constraint as
+  the same-game guard. `ceweiss/ForecastComb` only as the reference that
+  equal/inverse-MSE are the right benchmarks (already in
+  `forecast-combination.js`).
+- **L3:** `purgedcv` `effective_n_trials` (already in `trial-statistics.js`);
+  `MAPIE` as the independent conformal cross-check (#26 — `pip install mapie`
+  into the venv that now exists).
+- **L4:** `aangelopoulos/conformal-time-series` ACI correction (#27), only
+  after a base interval is tracked live.
+- **Distribution heads (later, gated on Phase 1.5):** NGBoost / MDN (#4/#5).
+
+**Disposition of the eleven open items:**
+1. Python interpreter — **CLOSED.** `research/.venv` now exists inside
+   `gridiron-hq` (python 3.12.4, sklearn 1.7.2, numpy 2.5.3, joblib 1.6.0,
+   lightgbm 4.7.0, scipy 1.18.1 — the exact versions the saved artifact
+   pins). `resolveResearchPython()` finds it with **no env var set**, and
+   `python-artifact` + `learned-shadow-runner` integration tests pass 8/8
+   that way. The scheduler job will now run instead of throwing hourly.
+2. Nothing committed — 50+ files. Nick's call; recommend one commit now.
+3. Lookup refresh — add a scheduled re-export after `weekly_training`'s
+   slot. Small; not done.
+4. First real shadow observation — fires automatically via the scheduler
+   now that (1) is closed. Nothing more to build; Nick decides when the app
+   runs with the scheduler on.
+5. Phase 1.5 rank on real data — still open; the venv and the slim-extract
+   recipe make it a one-command run. **Do this before any L2 change.**
+6. Phase 2 (cover target) — reframed: `tree_lab`'s cover head registers as
+   an L1 signal, not a bolt-on to `unified_model.py`.
+7. Phase 3 injuries A/B — open; run it as an ensemble-component
+   comparison (the only path that reaches a pick), not Python-only.
+8. Defensive/PFF — open; the PFR weekly defensive stats are the free path.
+9. R3 frozen-decision retry — open, P1, untouched.
+10. Gate justification — **residual gate answered** (not broken; no skill).
+    24-point width gate still open.
+11. Promotion process — the L3 row above is the proposal.
+
+**What I did NOT do, on purpose.** No production module was merged, renamed
+or deleted. `walk-forward.js`'s own header sets the standard: a merge needs a
+written reason the two engines are the same, and the L2 consolidation in
+particular must be measured on real data before it replaces the live joint
+fit. Today's changes to production files are additive and challenger-gated
+only.
+
+### Where we go from here — September 15, 2026
+
+Cross-checked today's actual code against `research/advanced-methods-and-github/
+GITHUB_BUILD_CATALOG.md`'s 22-item "build from this now" list (real repos, read at the
+source-file level, not by README) and the F/N/GF/GN research notes. This is the honest
+gap list, not a wishlist — each line below was checked against the live code, not assumed.
+
+**Already done (verify before re-adopting; do not re-port these):**
+- Diebold-Mariano + Harvey-Leybourne-Newbold correction (`test/diebold-mariano.test.js`,
+  wired into `forecast-combination.js`'s gated comparisons) — catalog item 10.
+- Split-conformal, Mondrian-binned intervals (`test/conformal-calibration.test.js`,
+  replaced the `disagreement/30` hack per WP13) — catalog item 11 (crepes port).
+- Effective trial count (Geyer autocorrelation time), deflated Sharpe ratio, and PBO
+  (`server/services/trial-statistics.js`) — catalog items 16/17 (purgedcv, quantskills).
+- Shin devig (`server/services/nfl-devig.js`) alongside proportional — catalog item 18
+  partially (martineastwood's 7-method dispatcher is not fully ported; only 2 of 7).
+
+**Missing and worth doing next, ordered by dependency on today's work rather than
+by the catalog's own order (engineering-path items first, since Stage 3-4 depend on
+them; research/model items after):**
+
+1. **Finish the unified-model integration** (unchanged from "In progress now" above) —
+   this blocks everything below it. Includes the bounded 2024 injury pilot and wiring
+   `injury_admission.py`'s output into trained features, which none of the research
+   catalog substitutes for.
+2. **Run the historical walk-forward audit end to end, once, before adding anything
+   new.** This has never happened yet on the unified model — only Stage 3's separate
+   ridge/LightGBM annual-fold study (market MAE 10.249 vs ridge 10.675 / LightGBM
+   10.738) and today's 16-game Week 1 scoring-parity check exist. Per the master plan's
+   own Stage 6 process, no new feature or model family should be picked before this
+   report exists — it is what tells you which weakness is real.
+3. **`fivethirtyeight/nfl-elo-game` baseline** (catalog item 8, MIT, hours of work) —
+   there is currently no model-independent sanity check on `nfl-ensemble.js`/
+   `nfl-team-strength.js`. This is cheap and directly addresses "is our ensemble even
+   beating the simplest possible rating system," which nothing in the repo currently
+   answers on its own.
+4. **Recursive per-team-per-week state-space rating update** (`greerreNFL/nfelosrs`
+   `BayesianRankings.py` — Gaussian-conjugate precision-weighted update, catalog item
+   12) — `nfl-team-strength.js` has no state-space update today (grepped: no
+   kalman/bayesian/conjugate/glicko anywhere in it); this is the most-repeated gap
+   across the F15 research note, the master plan, and this catalog, and nothing built
+   today touches it. Directly relevant to `unified_model.py`'s "base" family — a
+   drifting per-week team rating is a stronger `stage3` input than what exists now.
+5. **A second, distribution-shaped margin head** (`stanfordmlgroup/ngboost` NGBoost or
+   `tonyduan/mixture-density-network`, catalog items 4/5) — `UnifiedMarginModel.describe`
+   today builds its margin distribution from resampled calibration residuals, not a
+   closed-form distribution; both are explicitly flagged research-only until compared
+   against that resampling approach on the same held-out games. Do this only after
+   item 2's audit shows a distributional-shape weakness, not before.
+6. **`powerDevig`** (`neeljshah/shin-devig`, catalog item 9, hours) — closes the
+   remaining gap in `nfl-devig.js`'s method coverage; small and independent of
+   everything else on this list.
+7. **Injury-network propagation** (N13/GN09) — genuinely open research territory
+   per the catalog itself (no adoptable OSS repo does this; `lzumeta/injurytools` was
+   checked and rejected as a propagation model). `injury_admission.py`'s admission/
+   missingness work (item 1 above) is a prerequisite, not a substitute, for this.
+
+**Nothing MAJOR is structurally missing from the architecture** — the plan's own Stage
+1-6 shape, the frozen-packet/artifact-identity boundary, and today's working unified
+weekly-training-to-shadow-decision path already cover data integrity, training,
+serving, and evaluation as a connected pipeline. The real gap is sequencing: items 3-7
+are all genuine, catalog-backed opportunities, but running the walk-forward audit
+(item 2) first is what the master plan's own Stage 6 process requires before picking
+among them — measured weakness selects the next investment, not novelty or
+availability of a matching GitHub repo.
+
+---
+
 **Current consolidated edition: September 15, 2026.** This is the starting point for the betting-model work on this branch. It preserves the full detailed master specification below and adds the latest implementation/review priorities here. Historical findings in the original specification remain dated observations, not automatically open defects.
 
 ## Current execution order

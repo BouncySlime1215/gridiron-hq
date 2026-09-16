@@ -23,6 +23,9 @@
  */
 import { rows, run } from '../db/index.js';
 import { availabilityDeficit } from './nfl-availability.js';
+import { marketCorrectionMargin } from './nfl-market-correction-lookup.js';
+import { teamrankingsRatingDiff } from './nfl-teamrankings-lookup.js';
+import { nfeloFeatures } from './nfelo.js';
 import { teamWeeks } from './nfl-pbp.js';
 import { weatherSplits, isIndoors, WINDY_MPH, COLD_F } from './nfl-weather-response.js';
 import { mean } from './stats-util.js';
@@ -669,6 +672,14 @@ const MODELS = [
   /* ---- availability ---- */
   {
     id: 'availability', name: 'Injury availability', family: 'Roster availability',
+    // RETIRED FROM THE LIVE BLEND 2026-09-16 (RUNBOOK Sec5, effective-rank gate):
+    // measured redundancy R^2=0.999 against field_position in market_residual
+    // space (server/data/nfl-ensemble-rank.json) -- 99.9% of this component's
+    // variance is already explained by another component in the blend. Still
+    // computed and reported (diagnostics, the correction-head research path)
+    // -- see LATEST-PLAN.md "Effective rank result" -- just structurally
+    // excluded from every live pick like every other challengerOnly entry.
+    challengerOnly: true,
     note: 'Weighted share of each team\'s playing time that is unavailable, from the official ' +
       'injury report. The first model here to read the injury table at all.',
     predict: (c) => {
@@ -698,8 +709,57 @@ const MODELS = [
   /* ---- rating systems ---- */
   {
     id: 'massey', name: 'Massey least squares', family: 'Rating systems',
+    // RETIRED FROM THE LIVE BLEND 2026-09-16 (RUNBOOK Sec5): R^2=0.996 vs
+    // point_diff in market_residual space -- see the `availability` entry
+    // above for the full note this one shares.
+    challengerOnly: true,
     note: 'Solves for the ratings that best explain every observed margin at once.',
     predict: (c) => ({ margin: (c.massey.get(c.home) ?? 0) - (c.massey.get(c.away) ?? 0) + c.hfa, total: null })
+  },
+  {
+    id: 'teamrankings_predictive', name: 'TeamRankings predictive rating', family: 'Rating systems',
+    challengerOnly: true,
+    note: 'Free, independent power rating (already point-margin scale) from teamrankings.com, '
+      + 'precomputed offline into a lookup keyed by season|week|home '
+      + '(scripts/export-teamrankings-features.mjs) -- each team\'s rating is the most recent '
+      + 'week strictly before the game\'s own week, since this database\'s fetched_at timestamps '
+      + 'are a bulk historical backfill and cannot confirm a week\'s own rating predates that '
+      + 'week\'s games.',
+    predict: (c) => {
+      const diff = teamrankingsRatingDiff(c.season, c.week, c.home);
+      return { margin: diff == null ? null : diff + c.hfa, total: null };
+    }
+  },
+  {
+    id: 'nfelo_rating', name: 'nfelo pregame rating (nfelo.app)', family: 'Rating systems',
+    challengerOnly: true,
+    note: 'Third-party Elo-style team rating from nfelo.app (greerreNFL GitHub CSVs, synced live '
+      + 'into this app\'s own nfl_nfelo_games/nfl_nfelo_qb tables by nfelo.js\'s syncNfelo() -- no '
+      + 'dependency on the external research database). Elo-to-points scaling (/25) matches the '
+      + 'existing documented constant in line-move-study.js (25 Elo ~= 1 point, the 538 convention). '
+      + 'Already includes nfelo\'s own home-field number (hfa_mod) folded in, so this predict() '
+      + 'intentionally does NOT also add c.hfa the way massey/colley/melo do -- doing so would '
+      + 'double-count home-field advantage on top of nfelo\'s own.',
+    predict: (c) => {
+      const n = c.nfelo;
+      if (!n || n.nfelo_diff == null) return { margin: null, total: null };
+      return { margin: (n.nfelo_diff + (n.hfa_mod ?? 0)) / 25, total: null };
+    }
+  },
+  {
+    id: 'nfelo_qb_adjustment', name: 'nfelo 538-schema QB value adjustment', family: 'Context',
+    challengerOnly: true,
+    note: 'FiveThirtyEight-schema QB-value Elo adjustment (home minus away), carried forward by '
+      + 'nfelo.app past 538\'s own shutdown, same /25 Elo-to-points scaling as nfelo_rating. '
+      + 'Isolated from nfelo_rating so the ensemble can weight raw team strength and QB-specific '
+      + 'value separately rather than as one bundled number. \'Context\' rather than a new family: '
+      + 'FAMILY_CONTRACTS is a fixed dict over five existing family strings, looked up '
+      + 'unconditionally -- an invented family name would silently resolve to an undefined contract.',
+    predict: (c) => {
+      const n = c.nfelo;
+      if (!n || n.qb_adj_diff == null) return { margin: null, total: null };
+      return { margin: n.qb_adj_diff / 25, total: null };
+    }
   },
   {
     id: 'colley', name: 'Colley (wins only)', family: 'Rating systems',
@@ -708,6 +768,10 @@ const MODELS = [
   },
   {
     id: 'pythagorean', name: 'Pythagenport expectation', family: 'Rating systems',
+    // RETIRED FROM THE LIVE BLEND 2026-09-16 (RUNBOOK Sec5): R^2=0.998 vs
+    // point_diff in market_residual space -- see the `availability` entry
+    // above for the full note this one shares.
+    challengerOnly: true,
     note: 'Expected win rate from points scored and allowed, which regresses lucky records.',
     predict: (c) => {
       const p = t => {
@@ -721,6 +785,10 @@ const MODELS = [
   },
   {
     id: 'point_diff', name: 'Raw point differential', family: 'Rating systems',
+    // RETIRED FROM THE LIVE BLEND 2026-09-16 (RUNBOOK Sec5): R^2=0.999 vs
+    // turnover_regressed in market_residual space -- see the `availability`
+    // entry above for the full note this one shares.
+    challengerOnly: true,
     note: 'The simplest honest baseline — average margin per game, differenced.',
     predict: (c) => {
       const d = t => { const a = c.agg.get(t); return a && a.g ? (a.pf - a.pa) / a.g : 0; };
@@ -747,6 +815,10 @@ const MODELS = [
   /* ---- play-level efficiency ---- */
   {
     id: 'epa_net', name: 'Net EPA per play', family: 'Efficiency',
+    // RETIRED FROM THE LIVE BLEND 2026-09-16 (RUNBOOK Sec5): R^2=0.990 vs
+    // pass_eff_matchup in market_residual space -- see the `availability`
+    // entry above for the full note this one shares.
+    challengerOnly: true,
     note: 'Offensive efficiency minus defensive efficiency allowed, scaled to points.',
     predict: (c) => diffModel(c, f => f.net_epa, 65, 'epa_net')
   },
@@ -827,6 +899,10 @@ const MODELS = [
   },
   {
     id: 'turnover_regressed', name: 'Turnover-regressed margin', family: 'Efficiency',
+    // RETIRED FROM THE LIVE BLEND 2026-09-16 (RUNBOOK Sec5): R^2=0.997 vs
+    // point_diff in market_residual space -- see the `availability` entry
+    // above for the full note this one shares.
+    challengerOnly: true,
     note: 'Average margin with turnover luck faded, since takeaways barely persist week to week.',
     predict: (c) => {
       const d = t => {
@@ -841,6 +917,10 @@ const MODELS = [
   },
   {
     id: 'opp_adjusted', name: 'Opponent-adjusted EPA', family: 'Efficiency',
+    // RETIRED FROM THE LIVE BLEND 2026-09-16 (RUNBOOK Sec5): R^2=0.958 vs
+    // melo in market_residual space -- see the `availability` entry above
+    // for the full note this one shares.
+    challengerOnly: true,
     note: 'Efficiency corrected for the quality of defences and offences actually faced this season, using each team\'s real schedule (`c.schedule`, from games strictly earlier than the decision). ' +
       'CORRECTED 2026-09-10 (Codex audit finding M13): the previous version computed ((off_epa - league) - (def_epa - league)), which algebraically cancels to plain off_epa - def_epa -- ' +
       'mathematically identical to the unadjusted `epa_net` component elsewhere in this file, despite its name and note claiming a real opponent adjustment. It now actually looks up each ' +
@@ -895,6 +975,10 @@ const MODELS = [
   },
   {
     id: 'rest_travel', name: 'Rest and division familiarity', family: 'Context',
+    // RETIRED FROM THE LIVE BLEND 2026-09-16 (RUNBOOK Sec5): R^2=0.994 vs
+    // availability in market_residual space -- see the `availability` entry
+    // above for the full note this one shares.
+    challengerOnly: true,
     note: 'Home field, rest differential (fitted, not assumed — replay analysis found short-week games were the single largest systematic error) and a fixed home-field reduction in division games. ' +
       'RENAMED 2026-09-10 (Codex audit finding M13): despite its previous "rest and travel" name, this component has never measured travel (distance, time zones, direction) at all — only rest ' +
       'days and a division-game indicator. The id is kept stable (persisted weight/provenance history is keyed by it) but the name and this note now describe only what it actually computes.',
@@ -956,6 +1040,21 @@ const MODELS = [
       margin: c.spread == null ? null : c.reg ? c.reg.b0 + c.reg.b1 * (-c.spread) : -c.spread,
       total: c.total ?? null
     })
+  },
+  {
+    id: 'market_correction_research', name: 'Market-correction research head (Python)', family: 'Market',
+    challengerOnly: true,
+    note: 'Out-of-fold ridge correction to the closing line, fit in Python on a stacked '
+      + 'football-only prediction, the closing spread, and opening-to-closing movement '
+      + '(research/betting/nfl/market_correction.py). Precomputed offline and read from a '
+      + 'lookup here -- this component never calls Python live. Walk-forward audit '
+      + '(2021-2026, 1,440 games): MAE 9.913 vs market 9.779 (still significantly behind, '
+      + 'p<0.05) but significantly ahead of its own football-alone base (MAE 10.275) -- '
+      + 'proof the market carries information the football-only models lack, not yet proof '
+      + 'this specific correction adds anything market_regression/market_anchor don\'t '
+      + 'already contribute once jointly fit. That question is what this component, run '
+      + 'through the same joint fit as every other one, actually measures.',
+    predict: (c) => ({ margin: c.marketCorrectionMargin ?? null, total: null })
   }
 ];
 
@@ -1418,7 +1517,9 @@ export function* componentPredictionStream({ all, restMap, cal, beforeSeason = n
         spread: g.home_spread, total: g.total,
         openSpread: g.open_spread, openTotal: g.open_total,
         temp: g.temp, wind: g.wind, roof: g.roof, div: g.div_game,
-        homeRest: g.home_rest, awayRest: restMap.get(`${g.season}|${g.week}|${g.away}`) };
+        homeRest: g.home_rest, awayRest: restMap.get(`${g.season}|${g.week}|${g.away}`),
+        marketCorrectionMargin: marketCorrectionMargin(season, week, g.home),
+        nfelo: nfeloFeatures(g.season, g.week, g.home, g.away) };
       const margins = {}, totals = {};
       for (const m of MODELS) {
         let p; try { p = m.predict(ctx); } catch { continue; }
@@ -1427,6 +1528,14 @@ export function* componentPredictionStream({ all, restMap, cal, beforeSeason = n
       }
       yield {
         season, week, week_key: key, home: g.home, away: g.away,
+        // WP12: the game this row belongs to, stated rather than left to be
+        // inferred downstream. This stream is one row per game, so the
+        // same-game straddle check in forecast-combination.js is trivially
+        // satisfied here -- but stating it is what lets that check report
+        // `verified_by_game_id` instead of `not_verifiable`, and it is what
+        // keeps the check meaningful if this stream ever grows to several
+        // rows per game (per-player, per-book, per-horizon).
+        game_id: `${season}|${week}|${g.home}`,
         market_margin: g.home_spread == null ? null : -g.home_spread,
         market_total: g.total ?? null,
         actual_margin: g.home_score - g.away_score,
@@ -2086,7 +2195,9 @@ export function ensembleLine(season, week, home, away, {
     }
   }
   const ctx = { ...buildContext({ ...g, season, week, home, away }, hist, restMapForBuild),
-    home, away, cal: fit.calibration };
+    home, away, cal: fit.calibration,
+    marketCorrectionMargin: marketCorrectionMargin(season, week, home),
+    nfelo: nfeloFeatures(season, week, home, away) };
   // WP15/D3: a frozen packet's own league-wide feature-aggregate snapshot
   // replaces the live `featureAggregates(season, week)` call `buildContext`
   // made via `sharedContext` -- swapped in AFTER buildContext returns so the
@@ -2256,7 +2367,9 @@ export function challengerSignalWeek(season, week) {
       hfa: game.neutral_site ? 0 : rawHfa, neutral: Boolean(game.neutral_site),
       spread: game.spread, total: game.total, openSpread: game.open_spread, openTotal: game.open_total,
       temp: game.temp, wind: game.wind, roof: game.roof, div: game.div_game,
-      homeRest: game.home_rest, awayRest: restMap.get(`${season}|${week}|${game.away}`) };
+      homeRest: game.home_rest, awayRest: restMap.get(`${season}|${week}|${game.away}`),
+      marketCorrectionMargin: marketCorrectionMargin(season, week, game.home),
+      nfelo: nfeloFeatures(season, week, game.home, game.away) };
     return { home: game.home, away: game.away, market_margin: game.spread == null ? null : -Number(game.spread),
       signals: challengers.map(model => {
         let prediction; try { prediction = model.predict(ctx); } catch { prediction = null; }

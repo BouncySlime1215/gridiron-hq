@@ -310,12 +310,10 @@ class IdempotencyTests(TempArtifactRootMixin, unittest.TestCase):
        so fitting-and-saving twice with identical inputs returns the SAME
        directory the second time (a no-op), rather than two directories
        that happen to have matching content. This is the guarantee
-       `fit_and_save` callers should actually rely on -- it holds even if
-       (1) ever stopped holding in some future environment, because
-       `config_content_hash` deliberately excludes `model_content_hash`
-       from its own inputs (see `compute_config_hash`), so a same-config
-       re-fit is still detected as the same logical artifact even in the
-       hypothetical case its model bytes drifted by a floating-point ULP.
+       `fit_and_save` callers should rely on when inputs and model bytes
+       match. Package or training-data changes get a new identity. If the
+       same identity produces different bytes, saving refuses to overwrite
+       the existing artifact rather than silently returning the old model.
     """
 
     def test_repeated_fit_produces_byte_identical_model_bytes(self):
@@ -361,26 +359,14 @@ class IdempotencyTests(TempArtifactRootMixin, unittest.TestCase):
         training_row_ids = [f"{r['season']}-w{r['week']:02d}" for r in rows]
         training_cutoff = {'through_season_arg': 2003, 'fit_through_instant': '2003-01-01T00:00:00+00:00'}
 
-        # Compute what run_id this save will use, then pre-create it with junk content.
-        import io as _io
-        buf = _io.BytesIO()
-        import joblib as _joblib
-        _joblib.dump(model, buf)
-        model_hash = __import__('hashlib').sha256(buf.getvalue()).hexdigest()
-        code_hash = ma.compute_code_hash(ma._default_code_files())
-        probe_meta = {
-            'code_hash': code_hash, 'feature_names': list(stage3.FEATURE_NAMES),
-            'algorithm': model_meta['algorithm'], 'hyperparameters': model_meta['hyperparameters'],
-            'training_cutoff': training_cutoff, 'dataset_version': 'test-dataset-v1',
-            'seed': model_meta['seed'], 'min_season': 2000, 'through_season_query_cap': 2003,
-            'n_training_rows': len(training_row_ids), 'training_row_ids': training_row_ids,
-        }
-        config_hash = ma.compute_config_hash(probe_meta)
-        run_id = f"ridge-{ma._cutoff_tag(training_cutoff)}-{config_hash[:12]}"
-        collide_dir = self._tmp / run_id
-        collide_dir.mkdir(parents=True)
+        # Corrupt a real saved directory rather than mirroring the identity
+        # formula in the test. A repeat save must refuse to overwrite it.
+        collide_dir, _ = ma.save_artifact(
+            self._tmp, model=model, model_meta=model_meta,
+            feature_names=stage3.FEATURE_NAMES, dataset_version='test-dataset-v1',
+            training_cutoff=training_cutoff, training_row_ids=training_row_ids,
+            min_season=2000, through_season_query_cap=2003)
         (collide_dir / 'model.joblib').write_bytes(b'not a real model')
-        (collide_dir / 'metadata.json').write_text(json.dumps({'config_content_hash': 'different-hash'}))
 
         with self.assertRaises(FileExistsError):
             ma.save_artifact(
@@ -403,6 +389,30 @@ class IdempotencyTests(TempArtifactRootMixin, unittest.TestCase):
 
 
 class FitAndSaveEntryPointTests(TempArtifactRootMixin, unittest.TestCase):
+    def test_revised_training_values_get_a_new_identity_without_overwriting(self):
+        rows = _synthetic_multiseason_rows()
+        first, before = ma.fit_and_save(None, through_season=2003, min_season=2000,
+                                       output_root=self._tmp, rows=rows)
+        old_bytes = (first / 'model.joblib').read_bytes()
+        # Same game IDs and cutoff, different labels/features. The fitter must
+        # also ignore stale _features left on reused rows by an earlier fit.
+        for r in rows:
+            r['actual_margin'] += 1
+            r['home_rest'] = (r.get('home_rest') or 0) + 2
+        second, after = ma.fit_and_save(None, through_season=2003, min_season=2000,
+                                       output_root=self._tmp, rows=rows)
+        self.assertEqual(before['training_row_ids'], after['training_row_ids'])
+        self.assertNotEqual(before['training_data_hash'], after['training_data_hash'])
+        self.assertNotEqual(first, second)
+        self.assertEqual((first / 'model.joblib').read_bytes(), old_bytes)
+
+    def test_runtime_packages_change_artifact_identity(self):
+        _, meta = ma.fit_and_save(None, through_season=2003, min_season=2000,
+                                 output_root=self._tmp, rows=_synthetic_multiseason_rows())
+        baseline = ma.compute_config_hash(meta)
+        meta['packages'] = {**meta['packages'], 'scikit-learn': 'different-version'}
+        self.assertNotEqual(ma.compute_config_hash(meta), baseline)
+
     def test_unsupported_algorithm_raises_not_implemented(self):
         rows = _synthetic_multiseason_rows(n_seasons=2, games_per_season=4)
         with self.assertRaises(NotImplementedError):

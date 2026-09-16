@@ -3002,6 +3002,88 @@ this fast, there are very likely more.
     it needs the individual enrichments done first to have anything real to
     re-measure diversity on.
 
+### THREE THINGS FOUND WHILE ANSWERING "ARE WE USING EVERYTHING" (September 16, 2026, late night)
+
+Nick asked three things at once: find the live betting model if one exists,
+check whether we already capture next week's lines early (he suspected we
+might), and audit the registry for anything sitting unused. All three
+turned up something real, checked against code and the live database, not
+assumed.
+
+**1. There IS a live betting model, already wired in, already validated.**
+`server/services/live-edge.js`, served from `server/routes/betting-hub.js`
+and `nfl-betting.js`. Its own header states the fact plainly: of 22
+forecasting components audited in this project, this is the ONE that
+passed — Brier 0.1708 against a 0.25 base rate, skill score 0.317,
+calibration error 0.047, graded on 2,196 real in-game states. It reads
+free live state from ESPN and prices it against Polymarket, a real
+exchange with a median cost of 2.53% — meaningfully cheaper than a
+sportsbook's standard vig. **This matters directly for the profit
+roadmap's "lower the bar" lever (chapter X, section 2 of the opener-CLV
+report): if Polymarket's effective cost is roughly half of −110's, an
+edge that is currently sub-vig at a sportsbook may not be sub-vig there.**
+Not yet tested against the opener-CLV finding — a real next step, not a
+conclusion.
+
+**2. We already capture lines well before kickoff — much further out than
+"next week."** Checked directly against `nfl_line_snapshots` in the live
+database (real `captured_at` vs. real `commence_time`, not assumed):
+`book-feeds.js` already polls "this week and next" by design, and the
+distribution of how early a line first appears runs from same-day out
+past 200 days, with real, non-trivial clusters at every distance in
+between — one batch of Week 18 games was first captured in early August
+for a January kickoff, roughly five months ahead. **This is a stronger
+version of the exact mechanism tonight's finding already proved real**:
+if the market is slow to fully price a team's last SIX DAYS of form (the
+opener-CLV result), it should be far slower to have priced a team's
+current form into a number posted before the season even started.
+**Preregistered here, before it's run:** repeat the opener-CLV test, but
+instead of grading against each week's own opener, grade the SAME
+double-adjusted method against the earliest available snapshot for each
+game, binned by how many days early that snapshot was captured. Prediction
+being tested, stated in advance: the edge should be flat-to-larger as the
+snapshot gets more stale, not smaller — if it shrinks or reverses instead,
+that is real evidence against the mechanism, not a result to explain away.
+
+**3. The combined idea Nick proposed — using LIVE in-game information to
+front-run a mispriced FUTURE matchup — is not yet built, and is a genuine
+new avenue, not a restatement of #2.** #2 says a stale price exists to be
+exploited; it says nothing about WHAT should move it. A live-tracked event
+during one game (an injury, a blowout that reveals a real weakness, a QB
+change) is a named, dated, explainable reason a specific future matchup's
+already-posted price might be wrong — closer to reading a real signal than
+the general "form lags the price" story, and it can be checked the moment
+it happens rather than waiting for a week to pass. **Scoped as new work,
+not yet built:** connect `live-edge.js`'s live state stream to the
+already-captured future-week lines in `nfl_line_snapshots`, flag when a
+live event plausibly touches a team with an already-posted future game,
+and log every flag to the `bet_attempts` ledger (Phase 1) whether or not
+it's acted on — this is exactly the kind of thing that needs the honest
+multiplicity record from the start, or it will look like magic the first
+time it works and nobody will be able to tell if it's real.
+
+**Registry accuracy correction, found by spot-checking three "unused"
+rows before repeating them as fact:** `market_correction_lookup` and
+`teamrankings_lookup` are both live, imported and called directly in
+`nfl-ensemble.js` (`marketCorrectionMargin`, `teamrankingsRatingDiff`) —
+the registry's `research_only` tag on both is wrong. `preseason_blend`
+(`blendedTeamRating()`) is also live, called from `nfl-team-strength.js`
+and `nfl-audit-overview.js` — also mistagged. One check held up:
+`nfl_live_ledger` really is dead — built, schema exists, genuinely never
+called from anywhere outside its own file. **New item: a registry
+accuracy pass is needed before its status column is trusted for anything
+beyond a starting point** — folded into Phase 1 below, since it's the
+same "verify before repeating" discipline everything else tonight used.
+
+**Folded into the phase order:** the future-snapshot CLV re-test (item 2
+above) slots into **Phase 3**, alongside the other cheap historical-data-
+only tests — it needs no new infrastructure, only a different join against
+data already on disk. The live-event-to-future-line connection (item 3)
+and the Polymarket cost comparison (item 1) both slot into **Phase 4**,
+after Phase 3's gate, since both need the forward-looking, live
+infrastructure that phase is already building. The registry accuracy pass
+joins **Phase 1**.
+
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 
 Nick, after the opener-CLV result: *"figure out a new plan and what the best

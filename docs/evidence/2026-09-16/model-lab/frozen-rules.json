@@ -1,0 +1,28 @@
+{
+ "frozen_at": "2026-09-16",
+ "rules": {
+  "spreads": {
+   "strategy": "spreads|G|pool",
+   "trained_on": "2021-2025 (2021 only for score conversions)",
+   "spec": {
+    "names": [
+     "dynamic_state",
+     "kalman_score",
+     "kalman_score_epa",
+     "second_half_eff",
+     "success_rate"
+    ]
+   }
+  },
+  "totals": {
+   "strategy": "totals|C|kalman_total",
+   "trained_on": "2021-2025 (2021 only for score conversions)",
+   "spec": {
+    "a": -0.23024403856042208,
+    "b": 0.0904410440635192,
+    "t": 4.6173320827332045,
+    "n": 1094
+   }
+  }
+ }
+}

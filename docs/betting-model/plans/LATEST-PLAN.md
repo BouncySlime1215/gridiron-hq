@@ -1,9 +1,11 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"PREREGISTERED — MODEL LAB" (search for that heading) is the work in progress:** every
-forecaster x five methods + Kalman models + confidence and market tests, rules
-committed before scoring. Its RESULTS section will follow it.
+**"RESULTS — MODEL LAB" (search for that heading) is the NEWEST result.** 146
+preregistered tests across every forecaster: no model-based edge survives
+multiplicity correction, both champions fail the 2025 holdout, and all four
+confidence-tier tests fail. Stale-book lines give real CLV but lose money
+after vig. Leads for a no-money 2026 forward test: totals and line shopping.
 **"WALK-FORWARD POINT CONVERSION (fit v15)" (search for that heading) is the NEWEST
 result.** opp_adjusted was ~2x too large and every conversion was frozen at
 pre-2022; both fixed in v15. Rerun on repaired openers: 2022-24 composite
@@ -3543,6 +3545,102 @@ strategy among D, E, F, G and the K models' method C with the largest pooled
 **Forward holdout (#5).** Whatever the outcome, the frozen rules file and a
 grader for `games-2026.jsonl` from the same harness are committed, so 2026
 games test rules fixed today.
+
+### RESULTS — MODEL LAB (September 16, 2026, late night; `scripts/model-lab/`, evidence `docs/evidence/2026-09-16/model-lab/`)
+
+Executed as preregistered in the section above. Inputs: fit-v15 walk-forward
+predictions on repaired openers with totals (`opener-clv-v15t/`), pass-2 Python
+and lineup predictions, three new Kalman models, and a sportsbook opener table.
+
+**Deviations from the preregistration, both made before scoring:**
+1. K1b's first version treated a game's score and EPA as independent
+   observations. They correlate at 0.93, so the fit switched the EPA channel
+   off (its home term landed at -25 points). Refit with correlated noise and a
+   joint update; the fitted noise correlation is 0.99, so EPA adds almost
+   nothing to a scores-based rating (K1 and K1b both miss by 10.01 pts on
+   2022-25, with honest uncertainty: standardized error sd 0.97).
+2. The stale-book 2025 check below was not preregistered (only champions were);
+   it is labeled post-hoc.
+
+**Sanity check failed, and it matters for reading everything else.** The
+opener-tier strategies (market_anchor / market_regression through method A),
+which carry no football information, scored z = -2.4 and -2.1. The zero-skill
+drift baseline, fit on only one or two earlier seasons, does not transfer
+cleanly to the next season. **Any single strategy at |z| of about 2-3 here is
+within what drift noise alone produces; only Holm survivors count.**
+
+**Development family: 146 tests, one Holm survivor** — `C2_stale_book|totals`
+(model-free). Nothing model-based survives.
+
+| Combination (dev 2023-24, adjusted CLV, z) | Spreads | Totals |
+|---|---|---|
+| D stack-all on line move | +0.02, 0.33 | -0.02, -0.25 |
+| E nested select-then-stack | -0.10, -1.40 | -0.08, -0.96 |
+| F stack-all on market's mistake | -0.16, -2.31 | +0.03, 0.40 |
+| G flat average of nested selection | +0.09, 1.41 | +0.21, 1.59 |
+
+Fitted stacking did not help. With 250-550 training games and 30+ correlated
+signals, the fitted weights are noise; the flat average of a nested-selected
+set did best in both markets, and not significantly.
+
+**Champions and the 2025 confirmatory test (Holm over 2):**
+
+| Market | Champion | 2025 adjusted CLV | z | Result |
+|---|---|---|---|---|
+| Spreads | G: flat average of nested-selected signals | -0.16 | -1.17 | FAIL |
+| Totals | K2 Kalman totals, line-move fit | +0.22 | +1.48 (p 0.14) | FAIL (needs z > 2.24) |
+
+In win-probability terms with key numbers (C3): spreads champion -0.35 pp in
+2025; totals champion +0.82 pp in 2025 and +0.77 pp in development. Positive
+and repeating, but below the vig and not significant.
+
+**Confidence tiers (H1-H4): all four fail development.** H1: Kalman cover
+probability top quartile +0.10 vs rest +0.09 (p 0.92); calibration slope
+**-0.26 +/- 0.24** against the 0.5 floor. H2 stack magnitude p 0.41; H3 drive-sim
+lean over its own sd p 0.47; H4 book dispersion p 0.37. **There is still no
+confident tier, now tested five ways.**
+
+**Totals keep showing up.** The largest development z-scores are all totals:
+blend_total (mixed tier) +3.23, weather_total (in_week) +2.92, dynamic_state
++2.65, pace_total +2.21, Kalman totals +2.19, sim_total +1.95. None survives
+Holm and the sanity check says |z| near 2-3 is within drift noise, but it is
+the one market where many unrelated models lean the same way. Worth the
+forward test; not worth money.
+
+**Stale books (C2) — real CLV, no profit** (`stale_books_check.py`): take a
+book's opener when it posted at or after Pinnacle's and differs by >= 1 pt.
+
+| | Adjusted CLV | z | Win prob gain | Won | Break-even at its prices | ROI |
+|---|---|---|---|---|---|---|
+| Totals, dev 2023-24 | +0.49 | 5.00 | +1.37 pp | 48.6% of 296 | 52.2% | -6.8% |
+| Totals, 2025 (post-hoc) | +0.39 | 2.36 | +1.23 pp | 54.1% of 122 | 53.4% | +1.2% |
+| Spreads, dev 2023-24 | +0.70 | 3.04 | +2.22 pp | 45.4% of 174 | 51.8% | -11.7% |
+| Spreads, 2025 (post-hoc) | +0.34 | 2.13 | +1.28 pp | 47.9% of 94 | 52.8% | -9.3% |
+
+Stale lines really are worse than the market, by about 1.2-1.4 pp of win
+probability, but that is less than the 2-3 pp the vig costs. And the archive
+cannot show how long a stale line stayed up, so even this is an upper bound.
+
+**Line shopping (C1).** On the champions' 2025 bets, the best opener among
+books posted within 48 h of Pinnacle beats the reference opener by +0.64 pts
+(spreads) and +0.51 pts (totals); totals CLV goes from +0.29 to +0.79 raw.
+Upper bound for the same reason. Combined with a model, this is the most
+concrete lever found tonight.
+
+**Data bug found in passing.** `nfl_team_week_features` stores every Rams game
+twice, under `LA` and `LAR`, identical rows, 2021-2025. Game joins use `LAR`,
+so most paths are unaffected, but league-wide averages (e.g. `oppAdjustedRaw`)
+count the Rams twice. Fix with the data-wiring work, under a new fit version.
+
+**Forward holdout (#5), done.** `frozen-rules.json` holds both champions refit
+on all clean seasons: spreads = flat average of {dynamic_state, kalman_score,
+kalman_score_epa, second_half_eff, success_rate}; totals = line move ~ -0.230 +
+0.0904 x (Kalman total - opener). `grade_forward.py` applies them unchanged to
+any season the harness produces. 2026 is the test.
+
+**Verdict.** No edge confirmed by the preregistered rules, and no confidence
+tier. The two leads worth carrying forward, with no money, are totals (Kalman
+totals and the broader totals lean) and line shopping across books.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

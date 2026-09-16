@@ -1,7 +1,13 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"CONFIDENCE META-MODEL" (search for that heading) is the NEWEST result: a
+**"OPENER PLACEHOLDER REPAIR" (search for that heading) is the NEWEST result and
+overrides numbers below it.** 127 of 2022-25's opening lines were Pinnacle
+placeholder openers (usually -1.0). On repaired openers the 2022-24 edge
+survives smaller (+0.159, z 3.18), 2025's "edge" vanishes (+0.05, z 0.58) in
+what is now a true holdout season, and the 60% confident-pick tier falls to
+52.9%. The bad data made the model look better than it is.
+**"CONFIDENCE META-MODEL" (search for that heading) is the previous result: a
 preregistered null.** The system's own conviction does not predict whether
 it is right (r = −0.010 over 647 games), three candidate bugs were ruled
 out, and a supervised meta-model built on nine point-in-time features to
@@ -2170,6 +2176,8 @@ probability, so this is ~+0.7-1.0 points of cover rate: ~51%, against a
 that arithmetic exactly. **As a bet-every-game strategy it loses to the
 vig.** Where it could become money is a different, unmeasured claim (below).
 
+**[CORRECTED 2026-09-16, late night — the diagnosis in this paragraph is wrong; see "OPENER PLACEHOLDER REPAIR". The openers are not nflverse stale/look-ahead lines: for 2022-2025 they are Pinnacle archive openers written by migration 047, and the patches are Pinnacle PLACEHOLDER openers (usually home -1.0). 2025's pooled edge was entirely that artifact: on repaired openers 2025 reads +0.05 pts, z=0.58. Original text kept below.]**
+
 **2025 is real but inflated, and stays out of the headline.** Pooling 2025
 lifts the survivors to +0.33-0.39 and adds six more (11 total), and
 python_football enters. All five seasons come from the same nflverse file
@@ -3224,6 +3232,8 @@ before anyone sizes a bet off it.
 
 ### CONFIDENCE META-MODEL — September 16, 2026, late night (a preregistered NULL; `scripts/confidence-meta-model.py`, raw output in `docs/evidence/2026-09-16/opener-clv/confidence-meta-model.json`)
 
+**[NOTE added after "OPENER PLACEHOLDER REPAIR" below: this section was graded on unrepaired openers, including 22 placeholder openers in its 2024 test season. The repaired re-grade only strengthens the null: the composite's top-10% picks fall from 60.4% to 52.9% ATS and the frozen rule loses in both 2024 and 2025.]**
+
 **The question.** Earlier tonight we established that the ensemble's own
 conviction — how far its composite margin sits from the opening line —
 carries no information about whether the pick is right. Correlation between
@@ -3315,6 +3325,79 @@ and feature set; any future attempt needs genuinely new information (live
 market movement, injury-news timing, cross-book disagreement), not a
 recombination of what the components already say.
 
+
+### OPENER PLACEHOLDER REPAIR — September 16, 2026, late night (migration `055_repair_pinnacle_placeholder_openers.js`, test `test/opener-placeholder-repair-migration.test.js`, re-grade `scripts/regrade-repaired-openers.py`, evidence in `docs/evidence/2026-09-16/opener-repair/`)
+
+**What was wrong.** Nick asked to fix 2025's opening lines. The problem was
+not 2025, and it was not nflverse. For 2022-2025, `game_lines.open_spread` is
+Pinnacle's archived opener, written by migration 047 (2026-09-12) to escape a
+sign bug in the old many-book median. Pinnacle often posts a **placeholder
+opener, almost always home -1.0**, before real betting opens, and the archive
+recorded it as the open. Examples: 2025 wk 2 BAL v CLE, Pinnacle -2.5, nine
+other books -12.5 to -13, close -13; 2025 wk 17 NYJ v NE, Pinnacle -1.0,
+repaired +13.5. Measured by season, Pinnacle openers >= 1.5 pts from the other
+books' median: 84 / 39 / 23 / 64 (2022-25), 44 of 2025's exactly -1.0.
+
+**Why a blanket "use the consensus" fix would be wrong.** In 2022-23 most
+disagreements are the other way round: the other books' "opens" were posted
+days earlier (median 108 h / 43 h) and are stale; the close sides with
+Pinnacle 74% / 69% of the time. In 2024-25 the books posted together and the
+close sides with the other books 83% / 78% of the time.
+
+**The rule (uses only what was known at the open, never the close).** Keep
+Pinnacle's opener unless >= 3 other books posted within 48 h of it and their
+median differs by >= 1.5 pts; then use that median rounded to a half point.
+An exact -1.0 that differs from all other books but has no peers in the window
+keeps its value and is labeled `suspect_pinnacle_placeholder_unresolved_2022_2025`
+for exclusion. The close was used only to choose among 12/24/48 h windows and
+to validate: the close lands nearer the repaired value in 58/61 repaired 2025
+games and 19/22 in 2024, and 2025's mean open-to-close move falls from 1.87 to
+1.20 (other seasons 1.0-1.2). Totals get the same rule, with a new
+`open_total_source` column.
+
+Applied to a scratch copy of the real 2022-25 `game_lines` + `nfl_odds_archive`:
+**127 spread openers repaired (26 / 18 / 22 / 61), 15 labeled suspect, 155
+totals repaired, zero home/away sign mismatches.** 10 unit tests pass. **Not
+applied to the live database** (repo SAFETY rules): the app applies it on its
+next start against that DB, as it did 047.
+
+**Re-grade (market-free forecasters only; the four survivors never read the
+market line — verified in `nfl-ensemble.js` — so only their grading changes).**
+
+| Double-adjusted opener CLV | original | repaired |
+|---|---|---|
+| Composite, 2022-24 (the headline) | +0.197, z 3.46 | **+0.159, z 3.18** |
+| opp_adjusted, 2022-24 | +0.231, z 4.08 | +0.175, z 3.23 |
+| Composite, **2025** | +0.820, z 2.80 | **+0.053, z 0.58** |
+| Composite, 2022-25 pooled | +0.367, z 4.07 | +0.134, z 3.03 |
+
+| Composite's confident picks, ATS at the open, 2022-25 | original | repaired |
+|---|---|---|
+| Top 10% | 60.4% (64/106) | **52.9% (55/104)** |
+| Top 5% | 58.5% | 44.2% |
+| Frozen top-10% rule from 2022-23, in 2024 / 2025 | 42.9% / 63.3% | **46.0% / 44.2%** |
+| Correlation, edge size vs win | +0.032 | -0.015 |
+
+**What this means, plainly.**
+1. **The bad data flattered the model; it did not hide a good one.** A
+   placeholder opener fakes a big move toward the side the real market liked,
+   so a forecaster that merely agrees with the market looks like it beat the
+   open. That is where 2025's +0.82 and the 60% confident-pick tier came from.
+2. **The 2022-24 headline survives, about 20% smaller** (+0.159, z 3.18).
+   Individual-signal Holm corrections have NOT been re-run on repaired openers.
+3. **2025 is now a genuine holdout for the four survivors** — they were
+   selected on 2022-24 — **and the edge did not show up** (+0.05, z 0.58).
+   Its interval still contains the 2022-24 estimate, so this is "not
+   confirmed", not "refuted". It is the most important number in this section.
+4. **There is still no confident tier.** Nick's "bet more when it's confident"
+   plan has no historical support on clean openers.
+
+**Still contaminated, not yet redone:** the full ensemble blend and drive sim
+saw placeholder openers through `marketOverride`/`spread` for the 127 repaired
+games, so their saved predictions there need a rerun; `seven-attack-tests.py`
+and `confidence-meta-model.py` were graded on unrepaired openers and need a
+re-grade; migration 047's header claim that its Pinnacle source is verified
+correct should be read with this section.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

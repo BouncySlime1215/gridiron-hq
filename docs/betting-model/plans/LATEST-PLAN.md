@@ -1980,6 +1980,30 @@ on a human noticing again by accident:
    companion JSON-blob check (item in the "same pattern" section below)
    covers data; this one covers code.
 
+### LEAK FOUND while classifying inputs for the opener-CLV test (September 16, 2026): `weather_total` reads post-game weather
+
+`nfl-ensemble.js`'s `weather_total` component adjusts its total using
+`c.temp`/`c.wind`/`c.roof`, which `buildContext` reads from
+`game_lines.temp/wind/roof` (nfl-ensemble.js:67). Those columns are written
+by `gamescript.js` from nflverse `games.csv` (gamescript.js:23, :91) — and
+nflverse's `temp`/`wind` are the **observed conditions at kickoff, populated
+after the game**. So a pre-game total forecast is being adjusted with the
+weather that actually happened. That is a look-ahead leak in a LIVE
+component, not a timing subtlety, and it flatters every historical
+evaluation `weather_total` took part in.
+
+The repository already owns the correct input:
+`nfl_game_weather_forecast_history` (pre-game forecasts with their own
+capture times), which the roadmap's FINAL ORDER #16(b) planned to use for a
+weather×pass-rate interaction. The fix is to feed `weather_total` the latest
+forecast captured before the game's cutoff and refuse (not default) when
+none exists, then re-measure the totals path. **Recorded here, not fixed in
+this pass** — it is a totals component and does not touch the spread
+measurement in flight; it belongs at the front of the totals work in FINAL
+ORDER #16. Registry `known_failures` for `component:weather_total` carries
+this. Recurring-checklist class: content clock mistaken for a receipt clock
+(the same defect migration 052 fixed for `nfl_line_snapshots`).
+
 ### PREREGISTERED — the opener-CLV measurement (September 16, 2026, written BEFORE results were seen)
 
 Nick's reframe, after four FINAL ORDER items each ended in "nothing beats the

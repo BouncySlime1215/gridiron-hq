@@ -105,7 +105,7 @@ const INPUT_TIMING = {
   'component:market_anchor': 'opener', 'component:market_regression': 'opener',
   'component:market_correction_research': 'contaminated'
 };
-const timingOf = id => INPUT_TIMING[id] ?? (id.startsWith('component:') ? 'prior_week' : 'unknown');
+const timingOf = id => INPUT_TIMING[id] ?? (id.startsWith('baseline:') ? 'baseline' : id.startsWith('component:') ? 'prior_week' : 'unknown');
 const EDGE_ELIGIBLE = new Set(['prior_week']);
 const BINS = [[0, 1], [1, 2], [2, 3], [3, 5], [5, Infinity]];
 
@@ -130,7 +130,7 @@ function grade({ pred, openSpread, closeSpread, actualMargin }) {
   const lineMove = closeMargin - openMargin;
   const push = actualMargin + openSpread === 0;
   return {
-    abs_lean: Math.abs(lean),
+    abs_lean: Math.abs(lean), back_home: backHome,
     clv_points: signedClvPoints({ market: 'spread', ourLine, closeLine }),
     clv_direction: Math.abs(lineMove) < 0.5 ? null : (Math.sign(lean) === Math.sign(lineMove)),
     ats_open: push ? null : (backHome === (actualMargin + openSpread > 0))
@@ -164,6 +164,32 @@ for (const season of allSeasons) {
     for (const [id, pred] of Object.entries(row.models ?? {})) add(id, season, row.week, grade({ pred, ...base }));
   }
 }
+
+// ---- home drift, adjusted CLV, and zero-information baselines -------------
+// MEASURED 2022-2025: the line moves toward the HOME team by ~+0.185 points
+// between open and close, so "always back home at the opener" earns CLV with
+// zero skill. clv_home_adjusted = CLV minus the drift the backed SIDE would
+// have earned anyway (+mu if home, -mu if away) -- the excess over "always
+// back this side". Backing the opener favourite/underdog earns ~0, so there
+// is no favourite drift to net out. Both are reported as baseline rows.
+const pooledGames = [];
+for (const season of POOL) for (const row of readJsonl(path.join(dir, `games-${season}.jsonl`))) pooledGames.push({ season, ...row });
+const MU_HOME = mean(pooledGames.map(g => (-g.close_spread) - (-g.open_spread))) ?? 0;
+for (const list of graded.values()) for (const r of list) {
+  if (POOL.includes(r.season) && Number.isFinite(r.clv_points)) r.clv_home_adjusted = r.clv_points - (r.back_home ? MU_HOME : -MU_HOME);
+}
+const baseline = (id, chooseHome) => {
+  for (const g of pooledGames) {
+    const bh = chooseHome(g); if (bh == null) continue;
+    const pred = bh ? (-g.open_spread) + 1 : (-g.open_spread) - 1;   // a forced 1-point lean to the chosen side
+    add(id, g.season, g.week, grade({ pred, openSpread: g.open_spread, closeSpread: g.close_spread, actualMargin: g.actual_margin }));
+  }
+  for (const r of graded.get(id) ?? []) r.clv_home_adjusted = r.clv_points - (r.back_home ? MU_HOME : -MU_HOME);
+};
+baseline('baseline:back_home', () => true);
+baseline('baseline:back_away', () => false);
+baseline('baseline:back_opener_favorite', g => (g.open_spread === 0 ? null : g.open_spread < 0));
+baseline('baseline:back_opener_underdog', g => (g.open_spread === 0 ? null : g.open_spread > 0));
 
 // ---- statistics ----------------------------------------------------------
 const mean = xs => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -199,10 +225,27 @@ function stats(list) {
   const cm = [...clusters.values()].map(mean);
   const seCl = cm.length > 1 ? sd(cm) / Math.sqrt(cm.length) : null;
   const zCl = seCl ? m / seCl : null;
+  const adjClusters = new Map();
+  const adjPts = list.map(r => r.clv_home_adjusted).filter(Number.isFinite);
+  for (const r of list) {
+    if (!Number.isFinite(r.clv_home_adjusted)) continue;
+    const k = `${r.season}|${r.week}`;
+    if (!adjClusters.has(k)) adjClusters.set(k, []);
+    adjClusters.get(k).push(r.clv_home_adjusted);
+  }
+  const acm = [...adjClusters.values()].map(mean);
+  const aSe = acm.length > 1 ? sd(acm) / Math.sqrt(acm.length) : null;
+  const aM = mean(adjPts), aZ = aSe ? aM / aSe : null;
+  const homeBacked = list.filter(r => r.back_home === true && Number.isFinite(r.clv_points)).map(r => r.clv_points);
+  const awayBacked = list.filter(r => r.back_home === false && Number.isFinite(r.clv_points)).map(r => r.clv_points);
   return {
     n: pts.length, weeks: cm.length,
     clv_points: { mean: r3(m), se_naive: r3(seNaive), se_clustered: r3(seCl),
       z_clustered: r2(zCl), p_clustered: zCl == null ? null : r4(normalSf2(zCl)) },
+    clv_home_adjusted: { mean: r3(aM), se_clustered: r3(aSe), z_clustered: r2(aZ),
+      p_clustered: aZ == null ? null : r4(normalSf2(aZ)) },
+    side_split: { home_share: r3(homeBacked.length / Math.max(1, homeBacked.length + awayBacked.length)),
+      clv_when_backing_home: r3(mean(homeBacked)), clv_when_backing_away: r3(mean(awayBacked)) },
     clv_direction: rate(list, 'clv_direction'),
     ats_open: rate(list, 'ats_open')
   };
@@ -236,14 +279,16 @@ for (const id of forecasters) {
 const family = forecasters.filter(id => !CONTAMINATED.has(id)
   && EDGE_ELIGIBLE.has(timingOf(id))
   && summary.forecasters[id].pooled_2022_2025.clv_points.p_clustered != null);
-const rawP = family.map(id => summary.forecasters[id].pooled_2022_2025.clv_points.p_clustered);
+const rawP = family.map(id => summary.forecasters[id].pooled_2022_2025.clv_home_adjusted.p_clustered);
 const adj = holm(rawP);
-family.forEach((id, i) => { summary.forecasters[id].pooled_2022_2025.clv_points.p_holm = r4(adj[i]); });
+family.forEach((id, i) => { summary.forecasters[id].pooled_2022_2025.clv_home_adjusted.p_holm = r4(adj[i]); });
+summary.home_drift_points_open_to_close = r3(MU_HOME);
 summary.multiplicity = { method: 'holm', family_size: family.length,
   raw_passes_p05: rawP.filter(p => p < 0.05).length,
   holm_passes_p05: adj.filter(p => p < 0.05).length,
   positive_mean_and_holm_p05: family.filter((id, i) => adj[i] < 0.05
-    && summary.forecasters[id].pooled_2022_2025.clv_points.mean > 0) };
+    && summary.forecasters[id].pooled_2022_2025.clv_home_adjusted.mean > 0),
+  note: 'p-values and Holm are on clv_HOME_ADJUSTED (excess over always-back-this-side); baselines excluded from the family' };
 
 fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify(summary, null, 1));
 
@@ -251,8 +296,8 @@ fs.writeFileSync(path.join(dir, 'summary.json'), JSON.stringify(summary, null, 1
 const rowsMd = forecasters.map(id => {
   const p = summary.forecasters[id].pooled_2022_2025;
   const c = p.clv_points;
-  const t = summary.forecasters[id].input_timing;
-  return `| ${summary.forecasters[id].contaminated ? '~~' + id + '~~' : id} | ${t} | ${p.n} | ${c.mean ?? ''} | ${c.se_clustered ?? ''} | ${c.z_clustered ?? ''} | ${c.p_clustered ?? ''} | ${c.p_holm ?? '—'} | ${p.clv_direction.rate ?? ''} | ${p.ats_open.rate ?? ''} |`;
+  const t = summary.forecasters[id].input_timing, a = p.clv_home_adjusted, ss = p.side_split;
+  return `| ${summary.forecasters[id].contaminated ? '~~' + id + '~~' : id} | ${t} | ${p.n} | ${c.mean ?? ''} | ${a.mean ?? ''} | ${a.se_clustered ?? ''} | ${a.z_clustered ?? ''} | ${a.p_holm ?? '—'} | ${ss.home_share ?? ''} | ${ss.clv_when_backing_away ?? ''} | ${p.ats_open.rate ?? ''} |`;
 }).sort((a, b) => {
   const za = parseFloat(a.split('|')[6]) || -99, zb = parseFloat(b.split('|')[6]) || -99;
   return zb - za;
@@ -263,8 +308,9 @@ const md = [
   '', `Holm family = EDGE-ELIGIBLE tier only (input_timing = prior_week; see INPUT_TIMING in the script): ${summary.multiplicity.family_size} forecasters. Raw p<0.05: ${summary.multiplicity.raw_passes_p05}. Holm p<0.05: ${summary.multiplicity.holm_passes_p05}. Positive mean AND Holm p<0.05: ${JSON.stringify(summary.multiplicity.positive_mean_and_holm_p05)}.`,
   '', `Break-even ATS at -110 is 0.5238. Sorted by week-clustered z on mean CLV points.`,
   '', `Only prior_week rows may be read as edge at the opener. in_week = line-move prediction (opener could not know it). third_party_bulk = single-timestamp backfill, clock unverifiable. Struck-through = contaminated by the close.`,
-  '', `| forecaster | input timing | n | mean CLV pts | SE (wk-clustered) | z | p | p (Holm) | CLV direction | ATS vs open |`,
-  `|---|---|---|---|---|---|---|---|---|---|`,
+  '', `Home drift (mean open->close move toward home) = ${summary.home_drift_points_open_to_close} pts. "adj CLV" nets out what always-backing-that-side would have earned. "away CLV" is the acid test: positive means the model beats a drift that runs against it.`,
+  '', `| forecaster | input timing | n | raw CLV | adj CLV | SE | z (adj) | p Holm (adj) | home share | away CLV | ATS vs open |`,
+  `|---|---|---|---|---|---|---|---|---|---|---|`,
   ...rowsMd, ''
 ].join('\n');
 fs.writeFileSync(path.join(dir, 'summary.md'), md);

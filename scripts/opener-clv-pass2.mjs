@@ -62,6 +62,14 @@ function arg(name, fallback) {
 }
 const out = arg('--out', 'docs/evidence/2026-09-16/opener-clv');
 const seasons = arg('--seasons', '2022,2023,2024,2025,2021').split(',').map(Number);
+// --models python|lineup|all. The Python rows are an in-memory lookup and take
+// seconds; the lineup model calls teamRosterStrength/gamePlayerAvailability/
+// gameInjuryCarryover per game at ~3 s each, i.e. hours for five seasons. Run
+// them separately so the fast half is not held hostage by the slow half.
+// --suffix lets the lineup run write games-pass2b-*.jsonl beside the python
+// games-pass2-*.jsonl; the summarizer reads both.
+const which = arg('--models', 'all');
+const suffix = arg('--suffix', '');
 fs.mkdirSync(out, { recursive: true });
 
 // Python OOF predictions, keyed by season|week|HOME. Game key is
@@ -108,23 +116,27 @@ for (const season of seasons) {
     WHERE home = 1 AND season = ? AND team_score IS NOT NULL AND opp_score IS NOT NULL
       AND spread IS NOT NULL AND open_spread IS NOT NULL AND COALESCE(neutral_site, 0) = 0
     ORDER BY week, team`, season);
-  const file = path.join(out, `games-pass2-${season}.jsonl`);
+  const file = path.join(out, `games-pass2${suffix}-${season}.jsonl`);
   fs.writeFileSync(file, '');
   let n = 0, pyHit = 0, lineupHit = 0;
   for (const g of games) {
-    const py = pyByKey.get(`${season}|${g.week}|${g.home}`) ?? null;
+    const py = which === 'lineup' ? null : (pyByKey.get(`${season}|${g.week}|${g.home}`) ?? null);
     if (py) pyHit++;
-    let lineup = { pred: null, reason: 'error' };
-    try { lineup = lineupRosterForecast(season, g.week, g.home, g.away); } catch (e) { lineup = { pred: null, reason: e.message }; }
+    let lineup = { pred: null, reason: which === 'python' ? 'skipped (--models python)' : 'error' };
+    if (which !== 'python') {
+      try { lineup = lineupRosterForecast(season, g.week, g.home, g.away); } catch (e) { lineup = { pred: null, reason: e.message }; }
+    }
     if (Number.isFinite(lineup.pred)) lineupHit++;
     fs.appendFileSync(file, JSON.stringify({
       season, week: g.week, home: g.home, away: g.away,
       open_spread: g.open_spread, close_spread: g.spread, actual_margin: g.team_score - g.opp_score,
       models: {
-        python_football: py ? r2(py.football_alone) : null,
-        python_unified: py ? r2(py.unified) : null,
-        python_correction: py ? r2(py.correction) : null,   // CONTAMINATED -- see header
-        lineup_roster: r2(lineup.pred)
+        ...(which !== 'lineup' ? {
+          python_football: py ? r2(py.football_alone) : null,
+          python_unified: py ? r2(py.unified) : null,
+          python_correction: py ? r2(py.correction) : null   // CONTAMINATED -- see header
+        } : {}),
+        ...(which !== 'python' ? { lineup_roster: r2(lineup.pred) } : {})
       },
       lineup_detail: Number.isFinite(lineup.pred) ? { structural: lineup.structural, availability: lineup.availability } : { reason: lineup.reason },
       python_run: py ? latest.run_id : null

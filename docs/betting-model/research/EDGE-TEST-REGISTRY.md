@@ -1407,3 +1407,20 @@ the same 18 GB file; two workflows are 8–10 concurrent full-table scans on 8 c
 strictly faster at that level of oversubscription, and the machine stays usable for Nick. Resume
 order: orthogonal-data (order-flow, OI) → unasked-questions (six market-process questions).
 
+
+## V. A journal with all its results is not a finished workflow
+
+The player-level workflow returned all 6 scheduled results to its journal and I treated it as
+done. It was not: the workflow process was still alive, and an agent inside it kept launching
+`placebo.py` in `analysis/lineup_ml` — a fresh one appeared within two seconds of each kill,
+at 60–98% CPU. Killing children was whack-a-mole; `TaskStop` on the workflow ended it.
+
+**The tell:** a completed workflow sends a task-notification. This one never did. Two of tonight's
+seven workflows completed by notification (rebuild-audit, profit-hunt); the other five were stopped
+explicitly. Journal result count is not a completion signal.
+
+**Rule:** before declaring a workflow done — (1) confirm the completion notification, not the
+journal count; (2) if absent, `TaskStop` it; (3) then scan `ps -eo pcpu,args | grep
+Python.framework`, attribute by cwd, and kill residue; (4) re-check three seconds later for
+respawn. In that order — kill-then-stop respawns, stop-then-kill sticks.
+

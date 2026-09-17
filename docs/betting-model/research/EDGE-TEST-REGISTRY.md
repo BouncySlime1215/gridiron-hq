@@ -1598,3 +1598,59 @@ to exploit, and much of the measured "movement" was an artifact of how the tape 
 **Operational rule added: any line-movement study must fix the book.** A mixed-book series has
 ~2x the hourly variance of a single-book series and half its variance ratio.
 
+
+## AA. THE TEASER PRICE — the blocker is gone, and at +106 the strategy clears
+
+Nick read the price off the DraftKings slip: **2-team 6-point teaser on two underdogs, +106.**
+That single number, missing all session, resolves a strategy measured to four decimals everywhere
+else. `nfl_teaser_price_ledger` now has its first row and `teaser-scan.js` is unblocked.
+
+### At +106 it clears, and not marginally
+```
+break-even at +106            69.673% per leg
+pooled Wong leg rate          73.77%  (n=2,882)   →  +4.09pp,  5.00 SE
+dogs only                     73.72%  (n=1,967)   →  +4.04pp,  4.07 SE
+modern dogs (2020+)           74.76%  (n=523)     →  +5.09pp,  2.68 SE
+
+EV on a 2-leg ticket, rho = -0.044 (measured):    +10.34%,  t = +4.10
+adverse rho = +0.05:                              +14.09%
+```
+
+### Why the price is credible rather than a typo
+```
+Pinnacle's devigged price for a RANDOM teased leg:  69.13%
+Break-even at +106:                                 69.67%
+```
+**Identical.** The book prices the teaser at fair value for the population that buys it — people
+who tease whatever games they like, whose legs run ~69%. The edge is not a generous price. It is
+that legs crossing BOTH 3 and 7 run 73.8%, and that window is structural (it is the set of lines
+from which +6 crosses both key numbers), not fitted after the fact.
+
+This is the same correlated-product mispricing the whole session pointed at. It survived a night
+in which every forecasting approach died **because it is not a forecast.**
+
+### A selection error of mine, caught before it reached a stake
+The first scanner ranked pairs by the PER-LINE historical rate, which picks +1.5 — the best of
+eight lines on the smallest sample (n=197) — and reported **+24.33% EV**. That is choosing the
+best of eight after seeing all eight: the same multiplicity trap that makes a 5,940-test harness
+produce fake winners, and which I had flagged an hour earlier. Pricing with the POOLED rate gives
+**+10.35%**. The scanner now defaults to pooled; `--per-line-rates` is opt-in and documented as
+biased. It also deduped by (game, side) — the same bet at two books is one opportunity — and
+limited the horizon to the current slate, which cut 12,874 phantom "pairs" to 27 real ones.
+
+### The scanner
+`scripts/model-lab/wong_scanner.py`. **No sportsbook scraper was needed**: the repo already
+ingests The Odds API, which carries DraftKings (589k rows) and FanDuel (83k) plus nine other US
+books, continuously. That beats scraping — no ToS exposure, no breakage on markup changes, and it
+is already historical. What no odds feed exposes is the teaser price itself, which is a bet-slip
+computation; hence the ledger.
+
+Current slate: 8 qualifying legs, 27 distinct pairs, quarter-Kelly **2.44%** of bankroll.
+
+### What would falsify it
+1. Push rule is not `stake_back` — `graded_loss` moves break-even to about −116.8 equivalent.
+2. The +106 does not apply to these specific lines (books vary teaser pricing by spread).
+3. 2025-26 ran **69.08% on n=152**, the weakest of five eras. If the modern rate is truly ~69%,
+   the edge at +106 is zero. This is the live statistical risk and it is worth tracking per ticket.
+4. Limits: teaser maxima are typically low, so this is a small-stakes line, not a business.
+

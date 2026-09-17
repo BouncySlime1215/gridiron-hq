@@ -445,6 +445,22 @@ More offerings (Nick: "those are good but we need more"):
 - **Who needs what:** league-wide needs map from `partners` — positions, byes, injuries per roster.
 - **Sell-high timing:** my players whose public sentiment (Phase 7) is above our projection — sell into hype.
 
+### Phase 11 — Accounts, per-user data, and the 24/7 host (last; after everything above) (2–3 days)
+
+Nick, 2026-09-17: *"we would need to create an account login and saved data for different users if we do this — add to the last item on the plan, after all the trade analyzer stuff."* Hosting is deferred to here on purpose: the engine gets built and proven on the Mac first.
+
+**What exists:** `local-auth.js` (single-user pairing login, loopback vs remote detection), `req.auth.userId`, `league_memberships(user_id, league_id, role)` — the leagues route already filters by user. What is missing is real sign-up/sign-in and per-user isolation for everything added in Phases 4–8.
+
+**Work**
+1. **Accounts:** email + password (argon2) or magic-link sign-in; sessions in the DB; Nick is the admin; invite-only sign-up (no open registration).
+2. **Per-user data:** every user-owned row carries `user_id` — leagues and their ESPN cookies (encrypted at rest), `manager_profiles`, `manager_notes`, `entity_map`, `coach_threads`, `tactic_exposure_log`, chat labels and profiles. A user sees only their leagues and only the counterparty data derived from *their* chats and *their* leagues' transactions. Shared, non-personal data (projections, NFL stats, news, injuries) stays global.
+3. **Chat data stays personal:** the iMessage extractor runs only on the owning user's Mac and uploads labeled rows tagged with their `user_id`; no cross-user joins, ever. Nick's private DB never becomes someone else's feature.
+4. **24/7 host (Fly.io Machines, Nick's account):** `fly launch` with a persistent volume for the SQLite files, secrets for the Anthropic/gateway keys, the refresh loop as a second process, HTTPS on the Fly URL, invite-only login on top. The Mac keeps only the chat relay (Phase 8b). Cut-over = copy `server/data.sqlite` + `data/derived/player_value.sqlite`, verify a full refresh tick on the host, point Nick's phone at the URL.
+5. **Spend guardrails per user:** Explain/Coach/synthesis calls metered per user per day; Jev and Anthropic budgets are Nick's, so a second user's calls are capped or need their own keys.
+
+**Acceptance:** two accounts (Nick + one invited friend) each see only their own leagues, cookies, profiles, and chat-derived data; a full refresh tick runs on the host in < 2 min; the Mac can be closed and the app still answers from a phone.
+**If it doesn't go great:** volume I/O too slow for the 635 MB DB → move the read-heavy NFL tables to a read replica or LiteFS; friend's ESPN cookies fail → their leagues show `needs_reconnect`, never Nick's data.
+
 ### Where Jev fits (Nick: "we have Jev so that could help MASSIVELY")
 1. League-chat labels (4c) — running.
 2. Presser corpus — fantasy questions over the 10,670 pressers: role expansion, committee, target-share promises; `coach_hedging` already labeled.
@@ -468,8 +484,9 @@ Budget: each run ≤ $1 without asking; check `GET https://ai-gateway.vercel.sh/
 | 8 Coach | 1 | 4, 7 |
 | 9 Backtest | 1–2 | 6 |
 | 10 UI | 1–2 | 6–9 |
+| 11 Accounts + host | 2–3 | 10 (last) |
 
-Sequential: **14.5–22 working days.** With Phase 4 in parallel with 1–3 and agents on separate phases: **~12–15 working days, about three calendar weeks.** First visible change (Phase 0 + 1a) inside one day of the go.
+Sequential: **16.5–25 working days** (Phase 11 added). With Phase 4 in parallel with 1–3 and agents on separate phases: **~12–15 working days, about three calendar weeks.** First visible change (Phase 0 + 1a) inside one day of the go.
 
 ---
 
@@ -543,7 +560,7 @@ From the Coach playbook — **answered 2026-09-17:**
 9. Conditional picks / side deals: **no** → contingent-contract tactic (T16) disabled in every league.
 10. Concession ladder: **live, step by step** — "people are unpredictable." The ladder's floor is still fixed before message 1 (so the Coach can never concede below it), but each step is chosen from the counterparty's actual reply. **This requires the live chat monitor (Phase 8b).**
 Decided without asking: `coach_threads` and `tactic_exposure_log` live in the private `league_chat.sqlite`, never the main DB.
-11. **Hosting for 24/7 access** — pick one and create the account yourself (I cannot create accounts or enter payment details): (a) **Fly.io** — stable `https://<app>.fly.dev` URL, no domain, built-in HTTPS, ~$5–7/mo for a small VM + 3 GB volume; (b) **Hetzner CX22 + Tailscale** — ~€4/mo, private (only your phone on the VPN can reach it), no public URL. Recommended: (a) for simplicity. I prepare the Dockerfile/systemd unit, data upload, secrets list, and the cut-over; you run the two login commands.
+11. **Hosting for 24/7 access** — deferred by Nick to Phase 11 ("ill do it later"); when ready, pick one and create the account yourself (I cannot create accounts or enter payment details): (a) **Fly.io** — stable `https://<app>.fly.dev` URL, no domain, built-in HTTPS, ~$5–7/mo for a small VM + 3 GB volume; (b) **Hetzner CX22 + Tailscale** — ~€4/mo, private (only your phone on the VPN can reach it), no public URL. Recommended: (a) for simplicity. I prepare the Dockerfile/systemd unit, data upload, secrets list, and the cut-over; you run the two login commands.
 
 ---
 

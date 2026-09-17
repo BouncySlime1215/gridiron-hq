@@ -39,6 +39,22 @@ const loopSeconds = loopIdx > -1 ? Number(args[loopIdx + 1]) || 900 : 0;
 const force = args.includes('--force');
 
 const { JOBS, runIfStale } = await import('../server/services/scheduler.js');
+const { spawnSync } = await import('node:child_process');
+const path = await import('node:path');
+const ROOT = path.resolve(new URL('..', import.meta.url).pathname);
+
+// League-chat backfill (Nick, 2026-09-17: "have it backfill chats when the laptop
+// is on — and then rediagnose the new ones and add it to our database of player
+// profiles"). Incremental, idempotent; classifies only new rows; rebuilds the
+// per-manager profile tables. Reads ONLY the league group + member DMs.
+function chatBackfill() {
+  const t0 = Date.now();
+  const r = spawnSync('python3', ['scripts/chat/extract_league_chat.py', '--classify', '--rollup'],
+    { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 20 * 60 * 1000 });
+  const lines = `${r.stdout ?? ''}${r.stderr ?? ''}`.split('\n').filter(Boolean);
+  const summary = lines.filter(l => /^(extract|classify|rollup):/.test(l)).join(' | ') || lines.at(-1) || `exit ${r.status}`;
+  console.log(`${stamp()} ${'league_chat'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${summary.slice(0, 200)} (${Date.now() - t0} ms)`);
+}
 
 const stamp = () => new Date().toISOString().slice(11, 19);
 
@@ -57,6 +73,7 @@ async function tick() {
       console.log(`${stamp()} ${name.padEnd(18)} THREW ${String(e?.message ?? e).slice(0, 160)}`);
     }
   }
+  try { chatBackfill(); } catch (e) { console.log(`${stamp()} league_chat        THREW ${String(e?.message ?? e).slice(0, 160)}`); }
   console.log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);
 }
 

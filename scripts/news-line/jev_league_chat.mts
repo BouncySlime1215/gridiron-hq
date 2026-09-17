@@ -20,6 +20,7 @@
  */
 import { experimental_evaluate as evaluate } from 'ai';
 import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const REPO = path.resolve(import.meta.dirname, '../..');
@@ -104,17 +105,57 @@ chat.exec(`CREATE TABLE IF NOT EXISTS jev_chat_signals (
   question TEXT NOT NULL, probability REAL, evaluated_at TEXT NOT NULL, PRIMARY KEY (msg_id, question))`);
 chat.exec(`CREATE TABLE IF NOT EXISTS jev_chat_done (msg_id INTEGER PRIMARY KEY, evaluated_at TEXT, input_tokens INTEGER, ok INTEGER, error TEXT)`);
 
-// Player names for mention pre-extraction: full names plus distinctive last names (>=5 chars).
+// Player names for mention pre-extraction.
+//
+// Three rules, all learned from the first full run (2026-09-17), where "still",
+// "early" and "price" were matched to Bryan Still, Quinn Early and Taylor Price
+// dozens of times each:
+//   1. the pool is players with any usage in the last two seasons, not the whole
+//      8,640-row table;
+//   2. a bare last name counts only if it is NOT an English word
+//      (/usr/share/dict/words) and is >= 5 characters;
+//   3. a bare last name counts only if exactly ONE player in the pool has it —
+//      "taylor" alone names nobody.
+// Full names always count.
 const app = new DatabaseSync(APP_DB, { readOnly: true });
-const players = app.prepare(`SELECT DISTINCT name FROM players WHERE position IN ('QB','RB','WR','TE') AND name IS NOT NULL`).all() as { name: string }[];
+const players = app.prepare(`SELECT DISTINCT p.name FROM players p
+  WHERE p.position IN ('QB','RB','WR','TE') AND p.name IS NOT NULL
+    AND EXISTS (SELECT 1 FROM player_week_usage u WHERE u.player_id = p.id AND u.season >= 2025)`).all() as { name: string }[];
 const fullNames = players.map(p => p.name);
+let englishWords = new Set<string>();
+try { englishWords = new Set(readFileSync('/usr/share/dict/words', 'utf8').split('\n').map(w => w.trim().toLowerCase()).filter(Boolean)); } catch { /* no dictionary: rule 2 is skipped */ }
+const lastCount = new Map<string, number>();
+for (const n of fullNames) { const last = (n.split(' ').pop() ?? '').toLowerCase(); lastCount.set(last, (lastCount.get(last) ?? 0) + 1); }
 const lastNames = new Map<string, string>();
-for (const n of fullNames) { const last = n.split(' ').pop() ?? ''; if (last.length >= 5) lastNames.set(last.toLowerCase(), n); }
+for (const n of fullNames) {
+  const last = (n.split(' ').pop() ?? '').toLowerCase();
+  if (last.length >= 5 && lastCount.get(last) === 1 && !englishWords.has(last)) lastNames.set(last, n);
+}
+const lastNameRe = new Map([...lastNames].map(([last, full]) => [new RegExp(`\\b${last.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`), full] as const));
 function mentioned(text: string): string | null {
   const t = text.toLowerCase();
   for (const n of fullNames) if (t.includes(n.toLowerCase())) return n;
-  for (const [last, full] of lastNames) if (new RegExp(`\\b${last}\\b`).test(t)) return full;
+  for (const [re, full] of lastNameRe) if (re.test(t)) return full;
   return null;
+}
+
+// --recheck-mentions: recompute the mention for every labeled message; where it
+// differs from what the label was produced with, drop that message's rows so
+// the normal run re-labels it with the corrected MENTIONED PLAYER line.
+if (process.argv.includes('--recheck-mentions')) {
+  const labeled = chat.prepare(`SELECT d.msg_id, m.text, (SELECT mentioned_player FROM jev_chat_signals s WHERE s.msg_id = d.msg_id LIMIT 1) AS was
+    FROM jev_chat_done d JOIN messages m ON m.msg_id = d.msg_id WHERE d.ok = 1`).all() as any[];
+  const del1 = chat.prepare('DELETE FROM jev_chat_signals WHERE msg_id = ?');
+  const del2 = chat.prepare('DELETE FROM jev_chat_done WHERE msg_id = ?');
+  let changed = 0, cleared = 0, gained = 0;
+  for (const r of labeled) {
+    const now = mentioned(String(r.text ?? ''));
+    if ((now ?? null) === (r.was ?? null)) continue;
+    changed++; if (now && !r.was) gained++; if (!now && r.was) cleared++;
+    del1.run(r.msg_id); del2.run(r.msg_id);
+  }
+  console.log(`recheck-mentions: ${labeled.length} labeled, ${changed} changed (${cleared} false mentions cleared, ${gained} mentions gained) — rows dropped for re-labeling; pool ${fullNames.length} players, ${lastNames.size} usable last names`);
+  process.exit(0);
 }
 
 const limitArg = process.argv.indexOf('--limit');

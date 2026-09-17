@@ -1093,3 +1093,85 @@ A 1-SD move in the residual shifts margin **+0.129 pts** against ~1.5 needed —
 any public-data signal, and injuries are the most-watched public data in the sport. The
 information gates pass; the money gate fails; the market is the thing that already asked.
 
+
+## P. THE ORACLE TEST — perfect lineup knowledge is worth zero against the closing line
+
+The headline result of the session. The player-level workflow built a genuinely working player
+value model, then the lineup-adjusted model came back `no_edge` — and the agent ran the one test
+that settles the personnel question permanently rather than leaving it to "maybe with better data."
+
+### The player value model works (this is not the failure)
+Regularised APM from 487k plays + 479k participation rows, per-player per-week, out of sample
+2022–2025 against a 200-draw role-preserving placebo:
+
+```
+pass  r=0.416   placebo 0.102 ± 0.068   p<0.001   n=147 QB-seasons
+rec   r=0.202   placebo 0.017           p<0.001   n=707
+rush  r=0.174   placebo 0.001           p=0.005   n=275
+def   r=0.129   placebo 0.010           p<0.001   n=2,114
+```
+
+Honest failures stated: **defence is a team rating in disguise** (prior-season team defence
+predicts a defender's next season at r=0.134, as well as his own value at r=0.129 — the top-8
+defenders of 2025 week 1 are seven Eagles). Credited skill players reproduce only 48% of team
+offensive EPA variance; the other 52% is O-line, scheme and coach, none of which get a column.
+
+### The lineup model: NO EDGE
+22 lineup/player features + 13 team controls, pre-kickoff projected lineup gated by the
+timestamped injury report, target = residual vs the close, season-blocked walk-forward ridge.
+
+```
+                 train R²    test R² vs close     gap
+total            +0.0359        −0.0126          +0.0485
+spread           +0.0262        −0.0078          +0.0340
+CLV +0.165pp   EV −4.651%   n_test 1,399   moneyline CLV t = −4.27
+placebo: real sits at the 40th–50th percentile of 20 shuffled refits
+```
+
+Adding the lineup block **doubles** the train/test gap without improving test. Strictly worse
+than betting nothing.
+
+### THE ORACLE — the result that matters
+Re-run with look-ahead **deliberately on**: the projected lineup replaced by the **actual week-t
+snap counts**. Perfect foreknowledge of who played and how much.
+
+```
+                 test R² vs close    slope       t
+total               −0.0025         −1.339    −1.56
+spread              +0.0004         +0.442    +1.13
++ team aggregates   −0.0094 / +0.0005
+```
+
+**A perfect lineup forecast buys nothing against the closing line.** This is a ceiling argument:
+it is not that our projection is bad, it is that the best possible projection is worth zero. It
+kills the obvious next iteration in advance — better injury scraping, depth charts, beat-reporter
+feeds, faster news — because the ceiling with perfect information is already flat.
+
+### Why: the market already prices personnel
+```
+corr(personnel sum, closing TOTAL)          +0.544
+corr(personnel differential, closing SPREAD) −0.228
+personnel → OUTCOME RESIDUAL               t=+0.28 (total), t=+1.45 (spread)
+```
+The line moves with personnel. What is left after the line does not.
+
+### Two other things the run established
+- **Totals are 90.9% efficiency, 4.6% pace.** var(log pts/play) dominates; plays/game has sd 9.0
+  on a mean of 124.6 and correlates 0.344 with the total vs 0.968 for points-per-play. The entire
+  "lineup-adjusted pace" idea aimed at 4.6% of the variance. It cannot move the total.
+- The model was **least bad on the spread** (+0.150% ± 2.547) and **worst on the moneyline**
+  (−5.056% ± 3.490) — the opposite of the "softer target" prior.
+
+### What this closes
+Every injury/personnel finding of the session, now under one roof:
+
+| Signal | Real? | Persists? | Market prices it? |
+|---|---|---|---|
+| Questionable designation by team | 34-pt spread | r=+0.40 | yes |
+| Practice pattern under the tag | 35-pt spread | 8/10 seasons | yes |
+| Official transactions | monotone | — | yes |
+| **Perfect week-t lineup (oracle)** | **by definition** | — | **yes, R²≈0** |
+
+The personnel axis was the last untested source of team-strength information. It is now tested
+to its ceiling. **The market prices who plays. Completely.**
+

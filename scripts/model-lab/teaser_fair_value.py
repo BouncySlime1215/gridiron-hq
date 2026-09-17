@@ -49,6 +49,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 ARCHIVE = REPO / "data/line-history/line_history.sqlite"
 
+# Kept identical to server/betting/nfl/strategy/teaser-leg-rates.js. A 6-point teaser moves a leg
+# through BOTH key numbers only from these eight lines.
+CROSS_BOTH_LINES = [-8.5, -8.0, -7.5, -7.0, 1.5, 2.0, 2.5, 3.0]
+
 
 def breakeven(price, legs=2):
     """p such that p^legs * b == (1 - p^legs), i.e. the per-leg rate a teaser must clear."""
@@ -145,7 +149,11 @@ def main():
         for side in ("home", "away"):
             line = main_pts if side == "home" else -main_pts
             teased = line + a.points
-            wong = (-8.5 <= line <= -7.5) or (1.5 <= line <= 2.5)
+            # The window is the module's own CROSS_BOTH_LINES, not a range guess. An earlier
+            # version used (-8.5..-7.5) or (1.5..2.5), which silently DROPS -7 and +3 -- and +3
+            # alone is 39% of all Wong legs in the historical family. That narrow check is why this
+            # script reported "0 in the Wong window" on a board that actually contained several.
+            wong = line in CROSS_BOTH_LINES
             # express the teased line back in HOME points, which is what the curve is indexed on
             want = teased if side == "home" else -teased
             p_home = interp(pm, want)

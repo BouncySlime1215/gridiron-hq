@@ -39,31 +39,77 @@ const MAX_CHARS = 12_000;
  * (a) is this about availability at all, (b) which way does it cut, (c) how firm is the coach.
  */
 const QUESTIONS = {
-  availability_news: {
-    type: 'boolean' as const,
-    instructions: 'Does the coach reveal information about whether a specific player will or will not be available for the next game?',
+  // ONE Choice, not two booleans. availability and its direction are a SINGLE latent variable with
+  // mutually exclusive states, and asking it as separate booleans (starter_doubtful,
+  // starter_returning) let Jev return 0.7 doubtful AND 0.6 returning on the same transcript --
+  // incoherent, and unusable as a feature. A Choice returns one distribution over one variable.
+  // It also gives "not_discussed" a state of its own. As two booleans, a presser with no injury
+  // news and a presser where the coach confirms everyone is healthy BOTH scored near zero, and
+  // those are opposite signals to a market. That conflation was the real defect.
+  availability_state: {
+    type: 'choice' as const,
+    instructions:
+      'What does the coach convey about the availability of a starting or clearly important ' +
+      'player for the next game? Choose the single best description.',
+    criteria: {
+      not_discussed: 'No specific player availability or injury is discussed at all.',
+      confirmed_out: 'A player is ruled out, will miss the game, or is on injured reserve.',
+      doubtful: 'A player is described as doubtful or unlikely to play.',
+      questionable: 'A player is genuinely uncertain, limited, or a game-time decision.',
+      probable: 'A player is expected to play but with some minor qualification.',
+      confirmed_playing: 'A player is confirmed healthy, cleared, or definitely playing.',
+    },
   },
-  starter_doubtful: {
-    type: 'boolean' as const,
-    instructions: 'Is a starting or clearly important player described as injured, doubtful, questionable, limited, or unlikely to play?',
+
+  // A Score, not a boolean. "Does this make the team weaker" is a MAGNITUDE question, and the
+  // market prices magnitude: a backup guard being questionable and a starting quarterback being
+  // ruled out are not the same event, but a boolean records both as "yes".
+  team_impact: {
+    type: 'score' as const,
+    instructions:
+      'Relative to what a well-informed reader would have assumed before this press conference, ' +
+      'how much does this news change the team s strength for its next game?',
+    // A score's criteria is an ORDERED ARRAY, indexed from zero -- not a named map like choice.
+    // The answer comes back as a fractional `score` in [0, levels-1] plus a distribution keyed by
+    // zero-based index STRINGS, so the ordering here defines the scale: 0 = much worse for the
+    // team, 4 = much better. SCORE_LEVELS below maps those indices back to names on write.
+    criteria: [
+      'A key starter is newly ruled out or seriously injured.',
+      'A contributor is newly doubtful, or an injury is worse than expected.',
+      'No meaningful change, or the news was already priced in.',
+      'A contributor is returning sooner or healthier than expected.',
+      'A key starter is newly cleared after being in real doubt.',
+    ],
   },
-  starter_returning: {
-    type: 'boolean' as const,
-    instructions: 'Is a starting or clearly important player described as healthy, returning, cleared, or definitely playing?',
+
+  // Positional importance drives how much of the spread the news is worth. Quarterback news moves
+  // a line by multiple points; a nickel corner does not.
+  position_group: {
+    type: 'choice' as const,
+    instructions: 'Which position group does the most significant availability news concern?',
+    criteria: {
+      none: 'No specific player availability news.',
+      quarterback: 'The quarterback.',
+      skill: 'Running back, wide receiver or tight end.',
+      offensive_line: 'Offensive line.',
+      defense: 'Any defensive player.',
+      special_teams: 'Kicker, punter or returner.',
+    },
   },
-  quarterback_involved: {
-    type: 'boolean' as const,
-    instructions: 'Does the availability or injury discussion involve the quarterback specifically?',
-  },
+
+  // Kept as a boolean because it genuinely IS binary and it is the one that carries the alpha:
+  // how firm the coach is. A hedge is the market s uncertainty, and the probability -- not the
+  // label -- is the feature.
   coach_hedging: {
     type: 'boolean' as const,
-    instructions: 'Is the coach evasive or non-committal about availability, rather than giving a clear yes or no?',
-  },
-  net_negative_for_team: {
-    type: 'boolean' as const,
-    instructions: 'Taken as a whole, does this news make the team WEAKER for its next game than a reader would have assumed beforehand?',
+    instructions:
+      'Is the coach evasive or non-committal about availability, rather than giving a clear ' +
+      'yes or no?',
   },
 };
+
+// Zero-based level index -> name, matching team_impact.criteria order above.
+const SCORE_LEVELS = ['much_worse', 'worse', 'neutral', 'better', 'much_better'];
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS jev_presser_signals (
@@ -108,6 +154,7 @@ const rows = db
   .all() as Array<{ video_id: string; team: string; published_at: string; transcript: string }>;
 
 console.log(`${rows.length} transcripts to evaluate`);
+let consecutiveRateLimits = 0;
 
 const insSignal = db.prepare(
   `INSERT OR REPLACE INTO jev_presser_signals VALUES (?,?,?,?,?,?)`,
@@ -137,13 +184,44 @@ for (const [i, r] of rows.entries()) {
         state: r.transcript.slice(0, MAX_CHARS),
         questions: QUESTIONS,
       });
-      for (const [q, a] of Object.entries(result.answers as Record<string, { probability?: number }>)) {
-        insSignal.run(r.video_id, q, a?.probability ?? null, r.team, r.published_at, now);
+      // Boolean answers carry a scalar probability; choice and score answers carry a
+      // DISTRIBUTION over their options. Storing only `.probability` would silently drop every
+      // choice/score answer as NULL -- the whole point of the rewrite. One row per outcome, so a
+      // choice question lands as several rows and the feature join can use the full distribution.
+      // The three answer shapes are genuinely different and only `boolean` carries a bare
+      // `.probability`. Reading that field alone -- as this script originally did -- would store
+      // NULL for every choice and score answer, silently discarding the rewrite's whole point.
+      //   boolean -> { probability }                    P(true)
+      //   choice  -> { choice, probabilities? }         distribution over named options
+      //   score   -> { score, probabilities? }          fractional mean + distribution keyed by
+      //                                                 zero-based level index STRINGS
+      for (const [q, a] of Object.entries(result.answers as Record<string, any>)) {
+        if (!a) {
+          insSignal.run(r.video_id, q, null, r.team, r.published_at, now);
+          continue;
+        }
+        if (a.type === 'boolean') {
+          insSignal.run(r.video_id, q, a.probability ?? null, r.team, r.published_at, now);
+          continue;
+        }
+        if (a.type === 'score') {
+          // Store the scalar too: it is the probability-weighted mean and is the single most
+          // useful column for a regression against line movement.
+          insSignal.run(r.video_id, `${q}.mean`, a.score ?? null, r.team, r.published_at, now);
+        }
+        if (a.type === 'choice' && typeof a.choice === 'string') {
+          insSignal.run(r.video_id, `${q}.argmax:${a.choice}`, 1, r.team, r.published_at, now);
+        }
+        for (const [k, pr] of Object.entries((a.probabilities ?? {}) as Record<string, number>)) {
+          const name = a.type === 'score' ? (SCORE_LEVELS[Number(k)] ?? k) : k;
+          insSignal.run(r.video_id, `${q}.${name}`, pr as number, r.team, r.published_at, now);
+        }
       }
       const used = (result as any).usage?.inputTokens ?? 0;
       tokens += used;
       insDone.run(r.video_id, now, used, 1, null);
       ok++;
+      consecutiveRateLimits = 0;
       done = true;
     } catch (err: any) {
       const msg = String(err?.message ?? err);
@@ -153,6 +231,20 @@ for (const [i, r] of rows.entries()) {
         failed++;
         done = true;
         break;
+      }
+      // An exhausted FREE TIER does not recover on a timescale backoff can bridge: the previous
+      // run spent hours cycling 5s/10s/.../120s waits across 845 transcripts and still logged
+      // 513 failures against 62 successes. Nine attempts at up to 120s is ~10 minutes burned per
+      // transcript to learn the same thing each time. Give up on the RUN, not just the row, so
+      // the operator sees the real problem immediately.
+      consecutiveRateLimits++;
+      if (consecutiveRateLimits >= 12) {
+        console.log(
+          '\nSTOPPING: the free tier is exhausted, not momentarily busy -- ' +
+            `${consecutiveRateLimits} rate limits in a row. Nothing was lost; rows already done ` +
+            'are recorded and a rerun resumes from here. Add paid credits to continue.',
+        );
+        process.exit(0);
       }
       const wait = Math.min(5000 * 2 ** attempt, 120_000);
       if (attempt === 0 || attempt % 3 === 0) {

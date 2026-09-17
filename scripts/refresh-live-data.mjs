@@ -47,6 +47,16 @@ const ROOT = path.resolve(new URL('..', import.meta.url).pathname);
 // is on — and then rediagnose the new ones and add it to our database of player
 // profiles"). Incremental, idempotent; classifies only new rows; rebuilds the
 // per-manager profile tables. Reads ONLY the league group + member DMs.
+// ESPN transactions with proposal/accept/decline timestamps. ESPN only answers
+// with the last ~3 days, so this must run every tick or the proposals are lost.
+function transactionsCapture() {
+  const t0 = Date.now();
+  const r = spawnSync(process.execPath, ['--env-file-if-exists=.env', 'scripts/collect-league-transactions.mjs'],
+    { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 5 * 60 * 1000 });
+  const last = `${r.stdout ?? ''}${r.stderr ?? ''}`.split('\n').filter(Boolean).filter(l => !/espn_s2|SWID/.test(l)).at(-1) ?? `exit ${r.status}`;
+  console.log(`${stamp()} ${'league_tx'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${last.slice(0, 160)} (${Date.now() - t0} ms)`);
+}
+
 function chatBackfill() {
   const t0 = Date.now();
   const r = spawnSync('python3', ['scripts/chat/extract_league_chat.py', '--classify', '--rollup'],
@@ -73,6 +83,7 @@ async function tick() {
       console.log(`${stamp()} ${name.padEnd(18)} THREW ${String(e?.message ?? e).slice(0, 160)}`);
     }
   }
+  try { transactionsCapture(); } catch (e) { console.log(`${stamp()} league_tx          THREW ${String(e?.message ?? e).slice(0, 160)}`); }
   try { chatBackfill(); } catch (e) { console.log(`${stamp()} league_chat        THREW ${String(e?.message ?? e).slice(0, 160)}`); }
   console.log(`${stamp()} tick done in ${Math.round((Date.now() - started) / 1000)} s`);
 }

@@ -66,3 +66,14 @@ undefined
 *.pre-migration-*.bak-journal
 *.pre-migration-*.bak-wal
 *.pre-migration-*.bak-shm
+
+# 2026-09-17 workflow artifacts. Agent scratch and derived data, all reproducible from the
+# scripts + the archive. Kept on disk (nothing is deleted -- Nick's rule), but never tracked:
+# analysis/ is per-workflow scratch code; the sqlite files are model outputs and tapes.
+# The two worth knowing about are recorded in EDGE-TEST-REGISTRY.md section W.
+analysis/
+data/derived/
+data/live-tape/
+data/grading_panel.sqlite
+data/grading_panel.sqlite-shm
+data/grading_panel.sqlite-wal

@@ -59,11 +59,84 @@ METHOD, in order
 5. PLACEBO. The whole validation is re-run with player identity permuted within
    role and play-count stratum.
 
+RESULTS, 2026-09-17 (tuned on 2018-2021, reported on 2022-2025, never re-tuned)
+------------------------------------------------------------------------------
+(d) DOES A PLAYER'S VALUE FROM SEASONS 1..t-1 PREDICT HIS EPA IN SEASON t?
+    Within-position, play-weighted correlation on 2022-2025, with a 200-draw
+    permutation placebo that preserves role and play-count stratum:
+
+      role  n(player-seasons)   r     placebo mean(sd)   p     vs raw   vs team
+      pass        147         0.416    0.102 (0.068)   0.000   0.383    0.272
+      rush        275         0.174    0.001 (0.059)   0.005   0.166    0.136
+      rec         707         0.202    0.017 (0.038)   0.000   0.180    0.154
+      def       2,114         0.129    0.010 (0.021)   0.000   0.101    0.134
+
+    It beats the positional mean, and it beats the unshrunk raw prior mean, for
+    every role. MSE against the positional-mean baseline: pass -16.1%, rec -4.5%,
+    def -2.3%, rush -1.5%.
+    Two things are NOT wins. The quarterback placebo is 0.10, not 0.00: about a
+    quarter of the raw correlation is nothing more than "starters take more
+    snaps". And for DEFENDERS the prior-season TEAM defence (r=0.134) predicts a
+    defender's next season as well as his own player value does (r=0.129) -- the
+    defensive half of this model is a team rating redistributed over a roster, and
+    the top-8 defenders list for 2025 week 1 is seven Philadelphia Eagles, which
+    is what that failure looks like from the outside.
+
+    Beyond the team aggregate (player-season level, player-clustered t):
+      pass  incremental R2 +0.103, t=3.72 | rush +0.022, t=1.84
+      rec   incremental R2 +0.033, t=4.40 | def  +0.009, t=4.56
+
+    Does it travel with the player? Split by whether he changed team:
+      pass movers r=0.303 (n=58) vs stayers 0.452  <- the QB value is his own
+      rec  movers r=0.162 (n=245) vs stayers 0.191
+      def  movers r=0.132 (n=861) vs stayers 0.126
+      rush movers r=0.046 (n=87)  vs stayers 0.216 <- a running back's value is
+                                                      his offence, not himself
+
+(b) SHRINKAGE, FITTED. Method-of-moments lambda = sigma2_within/sigma2_between,
+    times a multiplier chosen on 2018-2021 only. The roles disagree violently and
+    that disagreement is itself the finding: passers and rushers want HALF the
+    method-of-moments penalty, receivers and defenders want SIXTY-FOUR TIMES it
+    (lambda ~= 15,000 and ~= 60,000 respectively against play counts in the low
+    thousands). A receiver's or defender's own average is nearly worthless; what
+    survives is close to a volume-weighted total. Half-life 26 weeks.
+
+(a) WHAT THE ATTRIBUTION COSTS, measured:
+    - The credited skill players reproduce only 48% of the variance in team-season
+      offensive EPA (r=0.693). 52% of an offence lives in the five linemen, the
+      scheme and the coach, none of which get a column here.
+    - 8.7% of pass plays have no listed receiver (every sack, plus throwaways), so
+      the passer is charged 100% of that play.
+    - Knowing who was on the field adds 0.32pp of play-level R2 IN SAMPLE and
+      0.09pp OUT OF SAMPLE (mean of 2022-2025, positive in all four). ~30%
+      retention. Play EPA variance is 1.92 and the model explains 8.1% of it from
+      situation alone; personnel is a rounding error on top of that, by design --
+      a single play is almost all noise.
+
+WHAT THIS IS WORTH IN POINTS, and the caveat that governs it:
+    Summing the frozen pre-season values over a game's actual plays, 2022-2025,
+    n=1,139 games: the personnel sum has sd 4.30 EPA-points of game margin,
+    correlates 0.267 with the realised EPA margin, and regresses on it with slope
+    ~1.06 -- i.e. the values are correctly SCALED, not just correctly ordered.
+    Net of a prior-season team-strength differential it is worth 4.57 points of
+    margin sd, t=9.13, incremental R2 +0.061, while the team-strength term goes to
+    zero (t=-0.02). Personnel correlates only 0.39 with team strength: this is NOT
+    the 35-hats number again.
+    THE CAVEAT: this uses the game's ACTUAL plays and lineups. It assumes perfect
+    foreknowledge of who played and how often, so it is a CEILING. A live model
+    must forecast usage, and the team-strength baseline beaten here is a weak one
+    (single-lag raw prior-season EPA, no regression to the mean).
+    NOTHING HERE IS GRADED AGAINST A MARKET. No bet, no price, no CLV. The market
+    has known the starting quarterback since Wednesday. Whether any of these 4.57
+    points survives contact with the closing line is the next component's problem,
+    and it is the only question that matters.
+
 Usage:
   python3 scripts/player-value-model.py extract      # cache plays -> npz
   python3 scripts/player-value-model.py tune         # pick lambda mult + half-life on 2018-2021
   python3 scripts/player-value-model.py validate     # locked OOS report 2022-2025 + placebo
   python3 scripts/player-value-model.py emit         # write weekly table
+  python3 scripts/player-value-model.py diagnose     # placebo, train/test gap, margin value
   python3 scripts/player-value-model.py all
 """
 import os, sys, json, math, sqlite3, time
@@ -622,7 +695,7 @@ def _wmean_by(key, y, w, keys_all):
 def validate():
     """The locked out-of-sample report. Hyper-parameters come from TUNE_SEASONS and
     are not touched here. Every baseline is the POSITIONAL mean, per the brief."""
-    tuned = json.load(open(TUNED))
+    tuned = json.load(open(TUNED)) if os.path.exists(TUNED) else None
     hl = LOCKED_HALFLIFE
     mult = LOCKED_MULT
     D = Data()
@@ -928,6 +1001,136 @@ def emit():
     print(f"[emit] {total:,} rows -> {OUT_DB} in {time.time()-t0:.0f}s")
 
 
+
+# ------------------------------------------------------------- diagnose ------
+def diagnose():
+    """Everything that grades the model rather than fitting it. Run after `emit`.
+    (1) 200-draw placebo, (2) play-level train/test gap, (3) what the personnel
+    sum is worth in points of game margin, net of a team-strength baseline."""
+    D = Data()
+    hl, mult = LOCKED_HALFLIFE, LOCKED_MULT
+    npg = len(POSGROUPS)
+    out = {}
+
+    fits, pool = [], {r: [] for r in range(4)}
+    for t in REPORT_SEASONS:
+        ev, lam, rvar, neff, bb, gg = season_eval(D, t, mult, hl)
+        fits.append((t, bb, neff))
+        for r, d in ev.items():
+            pool[r].append(d)
+
+    # ---- (1) placebo: permute player identity within role and play-count stratum
+    rng = np.random.default_rng(31337)
+    NDRAW = 200
+    plac = {}
+    for r in range(4):
+        if not pool[r]:
+            continue
+        cat = lambda k: np.concatenate([d[k] for d in pool[r]])
+        y, w, cols = cat('y'), cat('w'), cat('cols')
+        pos = D.col_grp[cols] % npg
+        dem = lambda x: x - _wmean_by(pos, x, w, pos)[0]
+        yd = dem(y)
+        real = wcorr(dem(cat('value')), yd, w)
+        draws = []
+        for _ in range(NDRAW):
+            vals = []
+            for (t, bb, neff), d in zip(fits, pool[r]):
+                b2 = bb.copy()
+                idx = np.where(D.col_role == r)[0]
+                order = idx[np.argsort(neff[idx])]
+                for chunk in np.array_split(order, 10):
+                    b2[chunk] = b2[chunk][rng.permutation(len(chunk))]
+                vals.append(b2[d['cols']])
+            draws.append(wcorr(dem(np.concatenate(vals)), yd, w))
+        draws = np.array(draws)
+        plac[ROLES[r]] = dict(real_r=round(float(real), 4),
+                              placebo_mean=round(float(draws.mean()), 4),
+                              placebo_sd=round(float(draws.std()), 4),
+                              placebo_p95=round(float(np.percentile(draws, 95)), 4),
+                              p_value=round(float((draws >= real).mean()), 4), n_draws=NDRAW)
+        print(json.dumps({ROLES[r]: plac[ROLES[r]]}), flush=True)
+    out['placebo'] = plac
+
+    # ---- (2) play-level train/test gap and (3) margin value
+    gap, marg = [], dict(pred=[], act=[], team=[])
+    for t in REPORT_SEASONS:
+        ctx = season_context(D, t, hl)
+        hi, g0 = ctx['hi'], ctx['g0']
+        lam = {r: ctx['lam0'][r] * mult[r] for r in range(4)}
+        gg, bb, rvar, neff, _, _ = solve(D, 0, hi, lam, hl, ctx['cut'])
+        lo_t = D.sw_start[ctx['cut']]
+        hi_t = D.sw_end[max(v for v in D.sw_start if v // 100 == t)]
+
+        def parts(lo, hi_):
+            n = hi_ - lo
+            e0 = int(np.searchsorted(D.ri, lo, 'left')); e1 = int(np.searchsorted(D.ri, hi_, 'left'))
+            ri = D.ri[e0:e1] - lo; ci = D.ci[e0:e1]; vi = D.vi[e0:e1]
+            return D.epa[lo:hi_], np.bincount(ri, weights=vi * bb[ci], minlength=n)
+
+        def r2(lo, hi_, with_players):
+            y, contrib = parts(lo, hi_)
+            pred = D.Z[lo:hi_] @ (gg if with_players else g0) + (contrib if with_players else 0.0)
+            pred = pred - pred.mean() + y.mean()     # level shifts are not signal
+            return 1 - ((y - pred) ** 2).mean() / ((y - y.mean()) ** 2).mean()
+
+        row = dict(season=t,
+                   train_gain_pp=round(100 * (r2(0, hi, True) - r2(0, hi, False)), 4),
+                   test_gain_pp=round(100 * (r2(lo_t, hi_t, True) - r2(lo_t, hi_t, False)), 4))
+        row['retained_pct'] = round(100 * row['test_gain_pp'] / max(row['train_gain_pp'], 1e-9), 1)
+        gap.append(row); print(json.dumps(row), flush=True)
+
+        y, contrib = parts(lo_t, hi_t)
+        sgn = np.where(D.home_off[lo_t:hi_t] == 1, 1.0, -1.0)
+        _, inv = np.unique(D.game_idx[lo_t:hi_t].astype(np.int64), return_inverse=True)
+        tp = (ctx['off_tp'][D.off_team[lo_t:hi_t].astype(np.int64)] +
+              ctx['def_tp'][D.def_team[lo_t:hi_t].astype(np.int64)]) * sgn
+        marg['pred'].append(np.bincount(inv, weights=contrib * sgn))
+        marg['act'].append(np.bincount(inv, weights=y * sgn))
+        marg['team'].append(np.bincount(inv, weights=tp))
+    out['play_level_gap'] = gap
+    out['play_level_gap_mean'] = dict(
+        train_gain_pp=round(float(np.mean([g['train_gain_pp'] for g in gap])), 4),
+        test_gain_pp=round(float(np.mean([g['test_gain_pp'] for g in gap])), 4))
+
+    a = np.concatenate(marg['act']); pr = np.concatenate(marg['pred']); tm = np.concatenate(marg['team'])
+    z = lambda x: (x - x.mean()) / x.std()
+
+    def ols(X):
+        b = np.linalg.lstsq(X, a, rcond=None)[0]
+        res = a - X @ b
+        r2 = 1 - (res ** 2).sum() / ((a - a.mean()) ** 2).sum()
+        Xi = np.linalg.inv(X.T @ X)
+        V = Xi @ (X.T @ (X * (res ** 2)[:, None])) @ Xi
+        return b, r2, np.sqrt(np.diag(V))
+    _, r2_team, _ = ols(np.column_stack([np.ones_like(a), z(tm)]))
+    b2, r2_both, se2 = ols(np.column_stack([np.ones_like(a), z(tm), z(pr)]))
+    out['margin'] = dict(
+        n_games=int(len(a)),
+        sd_personnel_pred_epa_margin=round(float(pr.std()), 3),
+        sd_actual_epa_margin=round(float(a.std()), 3),
+        corr_personnel_vs_actual=round(float(np.corrcoef(pr, a)[0, 1]), 4),
+        corr_personnel_vs_team_strength=round(float(np.corrcoef(pr, tm)[0, 1]), 4),
+        r2_team_only=round(float(r2_team), 4), r2_team_plus_personnel=round(float(r2_both), 4),
+        incremental_r2=round(float(r2_both - r2_team), 4),
+        beta_personnel_points=round(float(b2[2]), 3),
+        t_personnel=round(float(b2[2] / se2[2]), 2),
+        beta_team_points=round(float(b2[1]), 3), t_team=round(float(b2[1] / se2[1]), 2),
+        CEILING_CAVEAT="uses the game's ACTUAL plays and lineups, i.e. perfect foreknowledge "
+                       "of snap counts; a live model must forecast usage and will get less",
+    )
+    print(json.dumps(out['margin']), flush=True)
+    json.dump(out, open(os.path.splitext(CACHE)[0] + "_diagnostics.json", 'w'), indent=1)
+    try:
+        o = sqlite3.connect(OUT_DB)
+        o.executemany("insert or replace into player_value_meta values (?,?)",
+                      [(f"diag_{k}", json.dumps(v)) for k, v in out.items()])
+        o.commit()
+    except Exception as e:
+        print("could not write diagnostics to db:", e)
+    return out
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "all"
     if cmd in ("extract", "all"):
@@ -938,3 +1141,5 @@ if __name__ == "__main__":
         validate()
     if cmd in ("emit", "all"):
         emit()
+    if cmd in ("diagnose", "all"):
+        diagnose()

@@ -1424,3 +1424,21 @@ journal count; (2) if absent, `TaskStop` it; (3) then scan `ps -eo pcpu,args | g
 Python.framework`, attribute by cwd, and kill residue; (4) re-check three seconds later for
 respawn. In that order — kill-then-stop respawns, stop-then-kill sticks.
 
+
+## W. Reusable artifacts from tonight, and where they live
+
+Untracked (gitignored) but kept on disk. Reproducible from the scripts, expensive to rebuild.
+
+| Artifact | Path | What it is |
+|---|---|---|
+| Player value table | `data/derived/player_value.sqlite` → `player_value_weekly` | Regularised APM per (season, week, player_id): `value`, `se`, `value_epa` (rescaled for lineup sums). QB r=0.416 OOS. Defence is a team rating in disguise — treat `def` as near-worthless alone. |
+| Grading panel | `data/grading_panel.sqlite` → `grading_panel`, `panel_book_quotes` | Per game: opener, strictly-pre-kickoff close, best-of-4 price, outcome. **Bet-everything control passes** (spread −4.185% vs theory −4.245%). Built by `research/betting/nfl/audit_grading_panel.py`. |
+| Live tape | `data/live-tape/live_tape.sqlite` | Kalshi minute candles mapped to ESPN events. The premise it served is dead (feed synchronous within 15s) but the mapping is done. |
+| Labelled plays | `data/line-history/jev_live_plays.sqlite` → `jev_play_labels` | 68,413 plays × event_class/injury_severity/star/surprise. $3.26. |
+| Labelled transactions | `line_history.sqlite` → `jev_transaction_signals` | 10,519 in-season roster moves, 2019–26. $0.39. |
+| Triaged titles | `data/line-history/jev_yt_triage.sqlite` | 39,163 YouTube titles by content type / injury relevance. $1.25. |
+| Agent scratch | `analysis/{availability,lineup,lineup_delta,lineup_ml,totals-lineup}/` | Per-workflow working code. Ignored, not deleted. |
+
+`scripts/player-value-model.py` now carries its validated RESULTS in its own docstring — the
+model that works, documented where it lives.
+

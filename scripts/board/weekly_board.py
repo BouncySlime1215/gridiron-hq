@@ -88,6 +88,8 @@ for k, g in sorted(slate.items(), key=lambda kv: (kv[1]["gameday"], kv[1]["gamet
     hs = [v["line"] for (b, m, s), v in quotes.items() if m == "spreads" and s == "home"]
     tt = [v["line"] for (b, m, s), v in quotes.items() if m == "totals" and s == "over"]
     cons_spread = st.median(hs) if hs else None; cons_total = st.median(tt) if tt else None
+    # a quote more than 3 pts from the consensus is a mislabeled or dead line, not a bettable one
+    quotes = {kk: v for kk, v in quotes.items() if abs(v["line"] - ((cons_spread if kk[2] == "home" else -cons_spread) if kk[1] == "spreads" else cons_total)) <= 3}
     # ---- totals
     if k in km and tt:
         f = fitA["kmulti_full_total"]; pred = f["a"] + f["b"] * km[k]["kmulti_full_total"]

@@ -48,3 +48,9 @@ while true; do
 
   sleep 600
 done
+
+# Storage: the WAL reached 8.3 GB on 2026-09-17 because long analysis reads block checkpointing
+# while collectors keep appending. Checkpoint anything over 512 MB. Non-destructive; a checkpoint
+# that cannot run reports busy and does nothing.
+"$(dirname "$0")/storage_watch.sh" 512 >> /tmp/gridiron_storage.log 2>&1
+

@@ -18,6 +18,8 @@ server/data.sqlite*.bak
 
 # secrets
 .env
+.env.local
+.env.*.local
 
 # build output
 client/dist/

@@ -44,7 +44,7 @@ import { execFileSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 
 const REAL_DB_PATH = process.env.GRIDIRON_REAL_DB_PATH
-  || '/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite';
+  || new URL('../server/data.sqlite', import.meta.url).pathname;
 
 function readReal(fn) {
   const db = new DatabaseSync(REAL_DB_PATH, { readOnly: true });

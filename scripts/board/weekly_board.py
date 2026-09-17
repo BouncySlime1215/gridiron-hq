@@ -105,6 +105,12 @@ for k, g in sorted(slate.items(), key=lambda kv: (kv[1]["gameday"], kv[1]["gamet
         bets.append(dict(market="total", game=row["game"], kickoff=g["ko"], pick=f"{side} {v['line']}", book=b, price=v["price"], model=round(pred, 1), consensus=cons_total,
                          in_rule=MID[0] <= v["line"] <= MID[1], p=round(100 * p, 1), ev_pct=round(100 * ev, 2), kelly_pct=round(100 * f_k, 2)))
     # ---- spreads (model gain measured at zero; shown for shopping only)
+    # NOTE ON THE COLUMN LABELS. `consensus` below is -cons_spread: a projected home MARGIN
+    # (positive = home expected to win by that much), while `pick` prints a betting LINE in
+    # standard notation. Two conventions in one row. Printed under a bare "Consensus" heading this
+    # reads as a contradiction -- "ATL +2.5" beside "-2.5" -- and it cost real time on 2026-09-16,
+    # when it was mistaken for a mislabeled side and a filter was written to suppress a row that
+    # was correct all along. The spreads header now says "Cons. margin" for that reason.
     if k in km and hs:
         f = fitA["kmulti_full"]; pred = f["a"] + f["b"] * km[k]["kmulti_full_margin"]; k1 = ka.get(k, {}).get("kalman_score")
         home = pred > -cons_spread
@@ -131,7 +137,8 @@ json.dump(out, open(REPO / f"docs/board/{season}-week{week}.json", "w"), indent=
 L = [f"# Gridiron HQ board — {season} week {week}", f"Generated {now}. Quotes captured within {FRESH_H} h of {latest_cap[:16]}Z. Confidence = 50% at the consensus line + key-number value of the best line vs consensus + measured model gain only; the price paid enters EV.",
      f"Measured model gains (2023-25, nested, at the reference opener): totals mid-range {gains['totals_mid']['gain_pp']:+.2f} pp (n {gains['totals_mid']['n']}), totals all {gains['totals_all']['gain_pp']:+.2f} pp, spreads {gains['spreads']['gain_pp']:+.2f} pp (spreads gain applied as 0).", ""]
 for mkt, title in (("total", "Totals"), ("spread", "Spreads (no measured model edge; shopping only)")):
-    L += [f"## {title}", "| Game | Kick | Pick | Book | Price | Model | Consensus | In rule | Win % | EV % | Kelly % |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+    hdr = "Cons. margin" if mkt == "spread" else "Consensus"
+    L += [f"## {title}", f"| Game | Kick | Pick | Book | Price | Model | {hdr} | In rule | Win % | EV % | Kelly % |", "|---|---|---|---|---|---|---|---|---|---|---|"]
     for b in sorted([b for b in bets if b["market"] == mkt], key=lambda b: -b["ev_pct"]):
         L.append(f"| {b['game']} | {b['kickoff'][5:16]} | {b['pick']} | {b['book']} | {b['price']:+d} | {b['model']} | {b['consensus']} | {'yes' if b['in_rule'] else ''} | {b['p']} | {b['ev_pct']:+.2f} | {b['kelly_pct']:.2f} |")
     L.append("")

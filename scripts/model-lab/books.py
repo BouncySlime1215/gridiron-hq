@@ -17,13 +17,14 @@ Per game, per market:
                   >= 1 pt from the reference opener: [{book, line, price}]
 Usage: python3 scripts/model-lab/books.py
 """
+import os
 import json, sqlite3, statistics as st
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-LIVE = "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite"
+LIVE = os.environ.get("GRIDIRON_DB") or str(Path(__file__).resolve().parents[2] / "server/data.sqlite")
 EV = REPO / "docs/evidence/2026-09-16"
 WINDOW_H = 48
 

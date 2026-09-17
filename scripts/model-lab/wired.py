@@ -15,6 +15,7 @@ the Kalman models and W1-W4, W7.
 Output: docs/evidence/2026-09-16/model-lab/wired-preds.jsonl
 Usage: python3 scripts/model-lab/wired.py
 """
+import os
 import json, math, sqlite3
 from collections import defaultdict
 from datetime import datetime
@@ -23,7 +24,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[2]
-LIVE = "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite"
+LIVE = os.environ.get("GRIDIRON_DB") or str(Path(__file__).resolve().parents[2] / "server/data.sqlite")
 OUT = REPO / "docs/evidence/2026-09-16/model-lab/wired-preds.jsonl"
 MIN_TRAIN = 150
 LAMBDAS = (1, 10, 100, 1000, 10000, 100000)

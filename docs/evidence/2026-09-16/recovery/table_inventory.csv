@@ -1,0 +1,222 @@
+table,source,live_rows,repo_copy_rows,extract_rows,writers
+ai_usage,derived/app,,0,0,server/services/claude.js
+app_settings,ESPN,,3,0,server/betting/nfl/strategy/teaser-season.js;server/routes/espn-connect.js;server/services/claude.js
+audit_registry,model audit (derived),15,,0,server/services/audit-registry.js
+below,no writer found in repo (legacy/unused or written by deleted code),,,,
+cfbd_player_season,derived/app,,,0,server/services/cfbd.js
+correlation_estimates,derived/app,,0,0,server/services/correlation.js
+db_health_checks,no writer found in repo (legacy/unused or written by deleted code),,1,1,
+decay_watch_runs,derived/app,,,0,server/services/decay-watch.js
+decision_basis,decision tape (derived),,0,0,server/services/decision-basis.js
+draft_advice,fantasy draft (app),,0,0,server/routes/drafts.js
+draft_capture_events,fantasy draft (app),,,0,server/services/draft-ingest.js
+draft_capture_sessions,fantasy draft (app),,,0,server/services/draft-ingest.js
+draft_grades,no writer found in repo (legacy/unused or written by deleted code),,0,0,
+draft_pick_corrections,fantasy draft (app),,0,0,server/services/draft-reconcile.js
+draft_pick_quarantine,fantasy draft (app),,0,0,server/services/draft-reconcile.js
+draft_picks,fantasy draft (app),,352,0,server/draft/store.js;server/services/draft-reconcile.js
+drafts,ESPN,,6,0,server/routes/drafts.js;server/services/espn-draft.js
+dynasty_values,derived/app,,396,0,server/routes/aggregates.js
+espn_cache,no writer found in repo (legacy/unused or written by deleted code),,0,0,
+espn_line_moves,ESPN,149,17,0,server/services/nfl-espn-line-watch.js
+espn_player_market,ESPN,,,0,server/services/espn-market.js
+espn_settings,no writer found in repo (legacy/unused or written by deleted code),,0,0,
+evidence_capture_windows,derived/app,,726,0,server/services/evidence-daemon.js
+evidence_daemon_runs,derived/app,,57,0,server/services/evidence-daemon.js
+fantasy_coordinator_fits,derived/app,,2,0,server/services/fantasy-coordinator.js
+forward_picks,derived/app,0,0,0,server/services/forward-ledger.js
+game_lines,derived/app,15096,15096,9270,server/services/gamescript.js
+gamescript_model,derived/app,,0,0,server/services/gamescript.js
+leagues,ESPN,,5,0,server/routes/espn-connect.js;server/routes/leagues.js
+mlb_batter_games,MLB sources,,41689,0,server/services/mlb.js
+mlb_boxscore_sync,MLB sources,,15,0,server/services/mlb.js
+mlb_first_party_picks,MLB sources,,5,0,server/services/mlb-auto-picks.js
+mlb_games,MLB sources,,2430,0,server/services/mlb.js
+mlb_market_quotes,MLB sources,,0,0,server/services/mlb-pregame.js
+mlb_model_experiments,MLB sources,,0,0,server/services/mlb-experiments.js
+mlb_pick_decisions,MLB sources,,0,0,server/services/mlb-auto-picks.js
+mlb_pitcher_games,MLB sources,,16608,0,server/services/mlb.js
+mlb_pregame_snapshots,MLB sources,,777,0,server/services/mlb-pregame.js
+mlb_probability_calibrations,MLB sources,,0,0,server/services/mlb-calibration.js
+mlb_probable_starters,MLB sources,,201,0,server/services/mlb.js
+model_evidence_manifests,model registry (derived),,199,0,server/services/model-governance.js
+model_feature_contracts,model registry (derived),,23,32,server/services/model-governance.js
+model_gate_audits,model registry (derived),,0,0,server/services/model-governance.js
+model_registry,model registry (derived),,9,11,server/services/model-governance.js
+model_registry_history,model registry (derived),,0,0,server/services/model-governance.js
+news_items,ESPN,4223,438,0,server/news/store.js;server/routes/espn.js;server/routes/news.js
+news_source_validation,derived/app,108,,0,server/services/source-validation.js
+nfl_ai_replay_candidate_cache,replay/backtest (derived),,0,0,server/services/nfl-ai-replay.js
+nfl_ai_replay_reviews,replay/backtest (derived),,0,0,server/services/nfl-ai-replay.js
+nfl_ai_replay_runs,replay/backtest (derived),,0,0,server/services/nfl-ai-replay.js
+nfl_auto_picks,derived/app,,0,0,server/services/nfl-auto-picks.js
+nfl_bet_log,derived/app,0,0,0,server/services/clv-core.js
+nfl_blind_audit_retries,model audit (derived),,0,0,server/services/nfl-blind-audit.js
+nfl_blind_audit_runs,model audit (derived),,0,0,server/services/nfl-blind-audit.js
+nfl_blind_audit_week_performance,model audit (derived),,0,0,server/services/nfl-blind-audit.js
+nfl_blind_audit_weeks,model audit (derived),,0,0,server/services/nfl-blind-audit.js
+nfl_blind_input_mutations,news feeds (ESPN/RSS/Twitter),,516271,375794,server/migrations/053_nfl_news_signals_versioning.js
+nfl_cached_reports,derived/app,,7,0,server/services/report-cache.js
+nfl_candidate_input_audits,replay/backtest (derived),,0,0,server/services/nfl-replay.js
+nfl_candidate_robustness_audits,derived/app,,0,0,server/services/nfl-candidate-analysis.js
+nfl_cover_calibrations,derived/app,,0,0,server/services/nfl-cover-calibration.js
+nfl_decision_events,no writer found in repo (legacy/unused or written by deleted code),0,,,
+nfl_depth,derived/app,179325,171240,179325,server/services/nfl-advanced.js
+nfl_engine_artifacts,derived/app,,0,0,server/services/nfl-engine-registry.js
+nfl_engine_backfill_checkpoints,derived/app,,0,0,server/services/nfl-engine-backfill.js
+nfl_engine_backfill_runs,derived/app,,0,0,server/services/nfl-engine-backfill.js
+nfl_ensemble_fit_artifacts,ensemble fits (derived),848,182,105,server/services/nfl-ensemble.js
+nfl_execution_log,execution/bet ledger (app),0,0,0,server/services/nfl-execution.js
+nfl_execution_opportunities,no writer found in repo (legacy/unused or written by deleted code),0,,,
+nfl_expert_forward_predictions,derived/app,,0,0,server/services/nfl-expert-council.js
+nfl_expert_forward_settlements,derived/app,,0,0,server/services/nfl-expert-council.js
+nfl_external_player_grades,derived/app,,0,0,server/services/nfl-roster-strength.js
+nfl_external_ratings,Next Gen Stats,,64,2432,server/services/nfl-external-ratings.js
+nfl_feature_ablation_audits,derived/app,,0,0,server/services/nfl-research.js
+nfl_feature_coverage_snapshots,features (derived),,0,0,server/services/nfl-feature-coverage.js
+nfl_feature_dictionary,features (derived),,0,0,server/services/nfl-weekly-feature-store.js
+nfl_feature_revisions,derived/app,,,0,server/services/nfl-bitemporal.js
+nfl_ffopportunity_weekly,ffopportunity (nflverse),,0,0,server/services/ffopportunity.js
+nfl_game_variance,derived/app,,0,0,server/services/nfl-postgame-truth.js
+nfl_game_weather,Open-Meteo weather,,193,0,server/services/nfl-weather.js
+nfl_game_weather_forecast_history,Open-Meteo weather,3810,0,0,server/services/nfl-weather-history.js
+nfl_historical_adp,derived/app,2914,2914,0,server/services/historical-adp.js
+nfl_historical_adp_scrape,derived/app,24273,,0,server/services/historical-adp-scrapes.js
+nfl_historical_engine_replay,derived/app,16,0,0,server/services/nfl-engine-backfill.js
+nfl_historical_ffc_adp,derived/app,1024,,0,server/services/consensus-weights.js
+nfl_historical_signal_replay,derived/app,8520,0,0,server/services/nfl-engine-backfill.js
+nfl_injuries,derived/app,28585,27983,28574,server/services/nfl-advanced.js
+nfl_learning_epochs,derived/app,,1,1,server/services/nfl-engine-registry.js
+nfl_line_snapshots,The Odds API,2664081,10263,0,server/services/book-feeds-extra.js;server/services/book-feeds.js;server/services/line-shopping.js;server/services/odds-archive.js;server/services/sportsgameodds.js
+nfl_live_possession_predictions,derived/app,,,0,server/services/nfl-live-ledger.js
+nfl_live_possession_settlements,derived/app,,,0,server/services/nfl-live-ledger.js
+nfl_model_experiments,derived/app,,0,0,server/services/nfl-experiments.js
+nfl_model_growth_runs,model registry (derived),,1,0,server/services/nfl-model-growth.js
+nfl_model_watch_runs,model registry (derived),,,0,server/services/nfl-model-watch.js
+nfl_neural_replay_audits,replay/backtest (derived),,0,0,server/services/nfl-replay.js
+nfl_news_event_extraction_cache,no writer found in repo (legacy/unused or written by deleted code),44,,,
+nfl_news_events,no writer found in repo (legacy/unused or written by deleted code),30,,,
+nfl_news_extraction_attempts,news feeds (ESPN/RSS/Twitter),416,0,0,server/services/nfl-news-signal.js
+nfl_news_signals,news feeds (ESPN/RSS/Twitter),704,26,0,server/services/nfl-news-signal.js
+nfl_nfelo_games,nfelo (third-party ratings),,1709,1725,server/services/nfelo.js
+nfl_nfelo_lines,nfelo (third-party ratings),,1709,0,server/services/nfelo.js
+nfl_nfelo_qb,nfelo (third-party ratings),,1709,1725,server/services/nfelo.js
+nfl_ngs,derived/app,,11860,0,server/services/nfl-advanced.js
+nfl_odds_archive,The Odds API,135930,0,0,server/services/odds-archive.js
+nfl_officials,derived/app,,,0,server/services/nfl-officials.js
+nfl_online_neural_artifacts,derived/app,,0,0,server/services/nfl-online-neural.js
+nfl_online_neural_examples,derived/app,,0,0,server/services/nfl-online-neural.js
+nfl_orthogonal_specialist_artifacts,derived/app,,0,0,server/services/nfl-orthogonal-specialists.js
+nfl_page_explain_audits,model audit (derived),,,0,server/services/nfl-page-explain-audit.js
+nfl_pfr_adv,derived/app,,25058,25147,server/services/nfl-advanced.js
+nfl_pick_decisions,decision tape (derived),16,16,0,server/services/nfl-decision-tape.js
+nfl_pick_explanation_audits,model audit (derived),,0,0,server/services/nfl-pick-explanation-audit.js
+nfl_pick_watch_log,derived/app,,,0,server/services/nfl-pick-watch.js
+nfl_play_by_play,ESPN,,0,0,server/services/nfl-espn-pbp.js
+nfl_play_charting,derived/app,,0,0,server/services/nfl-formations.js
+nfl_play_formations,derived/app,,0,0,server/services/nfl-formations.js
+nfl_player_feature_vectors,features (derived),,0,0,server/services/nfl-weekly-feature-store.js
+nfl_player_roster_events,derived/app,74,21,0,server/services/nfl-player-state.js
+nfl_player_state_quarantine,derived/app,,113,0,server/services/nfl-player-state.js
+nfl_player_week_features,derived/app,,52231,0,server/services/nfl-pbp.js
+nfl_policy_audits,replay/backtest (derived),,0,0,server/services/nfl-replay.js
+nfl_postgame_truth_packets,derived/app,,0,0,server/services/nfl-postgame-truth.js
+nfl_pregame_snapshot_history,derived/app,4554,32,0,server/services/nfl-pregame.js
+nfl_prop_calibration_fits,derived/app,,0,0,server/services/nfl-prop-calibration.js
+nfl_prop_clv,derived/app,101820,2539,0,server/services/nfl-prop-clv.js
+nfl_prop_policy_archive,derived/app,,1,0,server/services/nfl-prop-clv.js
+nfl_prop_quote_snapshots,prop feeds (Odds API / SGO),,2539,0,server/services/nfl-props.js;server/services/prop-feeds.js
+nfl_qbr_weekly,ESPN QBR,,540,5844,server/services/nfl-qbr.js
+nfl_quote_batches,The Odds API,,3,0,server/services/nfl-quote-tape.js
+nfl_quote_tape,The Odds API,2402198,4080,0,server/services/nfl-quote-tape.js
+nfl_replay_bets,replay/backtest (derived),0,0,0,server/services/nfl-replay.js
+nfl_replay_runs,replay/backtest (derived),,0,0,server/services/nfl-replay.js
+nfl_residual_audits,derived/app,,1,0,server/services/nfl-research.js
+nfl_risk_lab_artifacts,derived/app,,0,0,server/services/nfl-risk-lab.js
+nfl_risk_lab_predictions,derived/app,,0,0,server/services/nfl-risk-lab.js
+nfl_rookie_evidence,derived/app,,0,0,server/services/nfl-rookies.js
+nfl_roster_snapshots,derived/app,,9726,0,server/services/nfl-player-state.js
+nfl_rule_state,derived/app,,0,0,server/services/beat-the-close.js
+nfl_signal_reliability_artifacts,signals (derived),,0,0,server/services/nfl-signal-reliability.js
+nfl_signal_snapshots,derived/app,,544,0,server/services/beat-the-close.js
+nfl_sim_calibration_artifacts,drive sim (derived),,0,0,server/services/nfl-sim-calibration.js
+nfl_snaps,derived/app,127958,126561,127958,server/services/nfl-advanced.js
+nfl_source_registry,derived/app,,7,0,server/services/nfl-evidence.js
+nfl_stadiums,nfelo (third-party ratings),,67,0,server/services/nfelo.js
+nfl_team_cards,derived/app,,0,0,server/services/nfl-team-card.js
+nfl_team_coaches,derived/app,384,0,0,server/services/nfl-coaches.js
+nfl_team_feature_vectors,features (derived),,0,0,server/services/nfl-weekly-feature-store.js
+nfl_team_stadiums,nfelo (third-party ratings),,59,0,server/services/nfelo.js
+nfl_team_week_features,derived/app,,5278,5395,server/services/nfl-pbp.js
+nfl_teams,no writer found in repo (legacy/unused or written by deleted code),,32,0,
+nfl_teaser_executions,no writer found in repo (legacy/unused or written by deleted code),1,,,
+nfl_teaser_price_ledger,derived/app,,0,0,server/services/nfl-profitability.js
+nfl_top100,derived/app,,100,0,server/routes/accolades.js
+nfl_total_calibrations,derived/app,,,0,server/services/nfl-total-calibration.js
+nfl_total_picks,derived/app,,0,0,server/services/nfl-props.js
+nfl_tweet_line_watch,Twitter,23900,0,0,server/services/nfl-tweet-line-correlation.js
+nfl_user_bets,app users,,0,0,server/services/nfl-user-bets.js
+nfl_validation_windows,derived/app,,2,0,server/services/nfl-evidence.js
+nfl_verified_events,derived/app,119639,0,0,server/services/nfl-event-archive.js
+nfl_weekly_expert_examples,derived/app,,0,0,server/services/nfl-expert-council.js
+nflverse_player_positions,nflverse,,25065,0,server/services/nflverse.js
+odds_cache,The Odds API,,91,0,server/services/odds-api.js
+odds_usage,The Odds API,1,0,0,server/services/odds-api.js
+off_contracts,derived/app,,,0,server/services/offseason-data.js
+off_depth_chart,derived/app,,,0,server/services/offseason-data.js
+off_draft_picks,derived/app,,,0,server/services/offseason-data.js
+off_ngs_season,derived/app,,,0,server/services/offseason-data.js
+off_pfr_adv_season,derived/app,,,0,server/services/offseason-data.js
+off_player_season_features,derived/app,,,0,server/services/offseason-data.js
+off_qbr_season,derived/app,,,0,server/services/offseason-data.js
+off_rosters,derived/app,,,0,server/services/offseason-data.js
+off_schedule_games,derived/app,,,0,server/services/offseason-data.js
+off_sleeper_players,derived/app,,,0,server/services/offseason-data.js
+off_team_season,derived/app,,,0,server/services/offseason-data.js
+off_team_season_stats,derived/app,,,0,server/services/offseason-data.js
+parlay_cache,derived/app,,,0,server/services/parlay-api.js
+parlay_usage,derived/app,,,0,server/services/parlay-api.js
+pick_values,derived/app,,0,0,server/routes/aggregates.js
+player_accolades,derived/app,,0,0,server/routes/accolades.js
+player_analysis,derived/app,,0,0,server/routes/players.js
+player_gamelog,derived/app,,0,0,server/routes/edge.js
+player_head_audits,derived/app,,0,0,server/services/player-head-validation.js
+player_identity_repairs,no writer found in repo (legacy/unused or written by deleted code),,0,0,
+player_metrics,derived/app,,0,0,server/routes/aggregates.js
+player_season_stats,derived/app,,1291,0,server/routes/stats.js
+player_team_changes,ESPN,,29,0,server/routes/espn.js
+player_week_snaps,nflverse,43461,0,0,server/services/nflverse.js
+player_week_usage,nflverse,43771,41572,0,server/services/nflverse.js
+players,nflverse,,8640,0,server/routes/espn.js;server/services/espn-draft.js;server/services/nflverse.js
+polymarket_line_moves,Polymarket API,,90,0,server/services/polymarket-lines.js
+polymarket_markets,Polymarket API,,6475,0,server/services/polymarket.js
+polymarket_price_history,Polymarket API,29758,0,0,server/services/polymarket.js
+polymarket_quotes,Polymarket API,22909561,69655,0,server/services/polymarket.js
+prediction_market_flow,Kalshi/Polymarket,,3200,0,server/services/prediction-markets.js
+prediction_market_quotes,Kalshi/Polymarket,,1024,0,server/services/prediction-markets.js
+press_availability,YouTube press conferences,171,,0,server/services/press-conference.js
+press_conferences,YouTube press conferences,2455,,0,server/services/press-conference.js
+prop_correlation_estimates,derived/app,,0,0,server/services/nfl-prop-correlation.js
+prop_head_audits,derived/app,,,0,server/services/nfl-prop-head-validation.js
+props_auto_picks,derived/app,,0,0,server/routes/props.js
+ranking_entries,Next Gen Stats,,105,0,server/routes/aggregates.js;server/routes/rankings.js
+ranking_sets,Next Gen Stats,,1,0,server/routes/aggregates.js;server/routes/rankings.js
+research_hypotheses,model registry (derived),,4,0,server/services/model-intelligence.js
+roster_players,derived/app,,2421,0,server/routes/nfldata.js
+schedule_games,derived/app,,544,0,server/routes/nfldata.js
+schema_migrations,no writer found in repo (legacy/unused or written by deleted code),,16,53,
+schema_preflight,no writer found in repo (legacy/unused or written by deleted code),,,,
+scout_reports,derived/app,,0,0,server/routes/edge.js
+sgo_usage,SportsGameOdds API,,0,0,server/services/sportsgameodds.js
+shadow_decisions,derived/app,189,56,0,server/services/beat-the-close.js;server/services/shadow-ledger.js
+shrinkage_fits,derived/app,,0,0,server/services/shrinkage-fit.js
+shrinkage_k,derived/app,,0,0,server/services/shrinkage-fit.js
+slot_weakness,derived/app,,0,0,server/routes/accolades.js
+sync_log,derived/app,,44,0,server/services/scheduler.js
+team_cap,derived/app,,32,0,server/routes/nfldata.js
+trend_findings,derived/app,,0,0,server/services/trend-watch.js
+trending_players,derived/app,,0,0,server/routes/tradelab.js
+twitterapi_io_usage,derived/app,,0,0,server/services/twitterapi-io.js
+weekly_ensemble_fits,derived/app,,0,0,server/services/weekly-weight-store.js
+weekly_prediction_snapshots,derived/app,,0,0,server/services/weekly-learning.js
+yt_channels,YouTube press conferences,,,0,server/services/press-conference.js

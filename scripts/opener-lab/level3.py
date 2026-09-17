@@ -15,6 +15,7 @@ lags -6..+6 h (positive lag = the prediction market moved FIRST), M3 when
 24 h (first hour of each non-overlapping 24 h episode per game).
 Read-only. Output: docs/evidence/2026-09-16/opener-lab/level3.json
 """
+import os
 import json, math, sqlite3, statistics as st
 from bisect import bisect_right
 from collections import defaultdict
@@ -23,7 +24,7 @@ from pathlib import Path
 from statistics import NormalDist
 
 REPO = Path(__file__).resolve().parents[2]
-LIVE = "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite"
+LIVE = os.environ.get("GRIDIRON_DB") or str(Path(__file__).resolve().parents[2] / "server/data.sqlite")
 import sys
 TOTALS = "--totals" in sys.argv
 OUT = REPO / ("docs/evidence/2026-09-16/opener-lab/level3-totals.json" if TOTALS else "docs/evidence/2026-09-16/opener-lab/level3.json")

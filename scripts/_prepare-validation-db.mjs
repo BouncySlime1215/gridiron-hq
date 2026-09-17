@@ -33,7 +33,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 const REAL_DB_PATH = process.env.GRIDIRON_REAL_DB_PATH
-  ?? '/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite';
+  ?? new URL('../server/data.sqlite', import.meta.url).pathname;
 const DEST = process.argv[2];
 if (!DEST) { console.error('usage: node scripts/_prepare-validation-db.mjs <dest-sqlite-path>'); process.exit(1); }
 if (path.resolve(DEST) === path.resolve(REAL_DB_PATH) || DEST.includes('fantasy-football-dashboard/server/data.sqlite')) {

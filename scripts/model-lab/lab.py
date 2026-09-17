@@ -13,6 +13,7 @@ Inputs (all produced before this script was run):
 Outputs: docs/evidence/2026-09-16/model-lab/results.json, frozen-rules.json
 Usage: python3 scripts/model-lab/lab.py
 """
+import os
 import json, math, random, sqlite3, statistics as st, sys
 from collections import defaultdict
 from pathlib import Path
@@ -21,7 +22,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[2]
 EV = REPO / "docs/evidence/2026-09-16"
 LAB = EV / "model-lab"
-LIVE = "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite"
+LIVE = os.environ.get("GRIDIRON_DB") or str(Path(__file__).resolve().parents[2] / "server/data.sqlite")
 SUSPECT = "suspect_pinnacle_placeholder_unresolved_2022_2025"
 DEV = (2023, 2024)
 HOLDOUT = 2025
@@ -33,7 +34,6 @@ TIER = {"availability": "in_week", "roster_strength": "in_week", "weather_total"
 WITH_WIRED2 = "--with-wired2" in sys.argv
 WITH_WIRED = "--with-wired" in sys.argv or WITH_WIRED2
 PART2 = ("wired_W8", "wired_W9", "wired_W10", "wired_W11", "wired_W12", "wired_W13")
-import os
 EXTRA_PREDS = [x for x in os.environ.get("EXTRA_PREDS", "").split(",") if x]   # extra jsonl files with <name>_margin/_total keys
 EXTRA_FAMILY = os.environ.get("EXTRA_FAMILY")                                     # prefix: only these tests form the Holm family
 CONTAMINATED = {"market_correction_research", "python_correction"}

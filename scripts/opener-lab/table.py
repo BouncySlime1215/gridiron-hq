@@ -12,6 +12,7 @@ kalman_dep Kalman forecast minus the opener, toward home/over
 momentum   market move toward each team in its previous clean game this season, home minus away
 Output: docs/evidence/2026-09-16/opener-lab/table.jsonl
 """
+import os
 import json, sqlite3, statistics as st
 from collections import defaultdict
 from datetime import datetime, date
@@ -19,7 +20,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 EV = REPO / "docs/evidence/2026-09-16"
-LIVE = "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite"
+LIVE = os.environ.get("GRIDIRON_DB") or str(Path(__file__).resolve().parents[2] / "server/data.sqlite")
 SUSPECT = "suspect_pinnacle_placeholder_unresolved_2022_2025"
 
 

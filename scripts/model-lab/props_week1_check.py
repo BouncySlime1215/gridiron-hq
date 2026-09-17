@@ -1,9 +1,11 @@
+import os
+from pathlib import Path
 #!/usr/bin/env python3
 """First real-market check of the prop model: nfl_prop_clv, 2026 week 1, Underdog lines.
 One row per unique bet (last capture before kickoff), modeled rows only. Output: model-lab/props-week1-check.json"""
 import json, sqlite3, statistics as st
 from collections import defaultdict
-LIVE = "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite"
+LIVE = os.environ.get("GRIDIRON_DB") or str(Path(__file__).resolve().parents[2] / "server/data.sqlite")
 con = sqlite3.connect(f"file:{LIVE}?mode=ro", uri=True)
 rows = con.execute("""SELECT event_id, player, market, side, line, american_price, model_probability, implied_probability, edge,
     clv_probability, settled, won, captured_at, commence_time FROM nfl_prop_clv WHERE season=2026 AND week=1 AND model_match_status='modeled' ORDER BY captured_at""").fetchall()

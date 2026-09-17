@@ -1,0 +1,1699 @@
+{
+ "generated": "2026-09-17T06:09:18+00:00",
+ "totals": {
+  "line_history": {
+   "tables": 40,
+   "rows": 50016945,
+   "bytes": 9742536704
+  },
+  "nflverse": {
+   "tables": 56,
+   "rows": 4894910,
+   "bytes": 2164424704
+  },
+  "extract": {
+   "tables": 18,
+   "rows": 763393,
+   "bytes": 103985152
+  },
+  "repo": {
+   "tables": 94,
+   "rows": 1332043,
+   "bytes": 493424640
+  }
+ },
+ "tables": {
+  "line_history": [
+   {
+    "table": "adv_team_week",
+    "rows": 11108,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 59
+   },
+   {
+    "table": "an_games",
+    "rows": 32,
+    "time_col": "start_time",
+    "first": "2026-09-10T00:20:00",
+    "last": "2026-09-22T00:15:00",
+    "cols": 10
+   },
+   {
+    "table": "an_line_history",
+    "rows": 36078,
+    "time_col": "updated_at",
+    "first": "2026-05-12T15:48:15",
+    "last": "2026-09-17T01:19:35",
+    "cols": 11
+   },
+   {
+    "table": "an_public_splits",
+    "rows": 7924,
+    "time_col": "captured_at",
+    "first": "2026-09-17T03:07:22",
+    "last": "2026-09-17T03:19:58",
+    "cols": 36
+   },
+   {
+    "table": "covers_games",
+    "rows": 2529,
+    "time_col": "fetched_at",
+    "first": "2026-09-17T01:25:16",
+    "last": "2026-09-17T02:22:30",
+    "cols": 12
+   },
+   {
+    "table": "covers_line_history",
+    "rows": 1914688,
+    "time_col": "ts_utc",
+    "first": "2019-04-18T01:09",
+    "last": "2026-09-16T03:56",
+    "cols": 14
+   },
+   {
+    "table": "covers_week_index",
+    "rows": 240,
+    "time_col": "fetched_at",
+    "first": "2026-09-17T01:23:49",
+    "last": "2026-09-17T02:03:44",
+    "cols": 4
+   },
+   {
+    "table": "espn_events",
+    "rows": 1801,
+    "time_col": "date",
+    "first": "2016-08-11T23:00Z",
+    "last": "2027-02-14T23:30Z",
+    "cols": 10
+   },
+   {
+    "table": "espn_extras_done",
+    "rows": 496,
+    "time_col": "fetched_at",
+    "first": "2026-09-17T03:32:54",
+    "last": "2026-09-17T03:39:46",
+    "cols": 2
+   },
+   {
+    "table": "espn_fpi",
+    "rows": 25600,
+    "time_col": "season",
+    "first": "2002",
+    "last": "2026",
+    "cols": 6
+   },
+   {
+    "table": "espn_odds",
+    "rows": 5612,
+    "time_col": "fetched_at",
+    "first": "2026-09-17T03:32:53",
+    "last": "2026-09-17T03:39:46",
+    "cols": 12
+   },
+   {
+    "table": "espn_plays",
+    "rows": 265399,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 16
+   },
+   {
+    "table": "espn_predictor",
+    "rows": 366,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 8
+   },
+   {
+    "table": "espn_probabilities",
+    "rows": 263179,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 8
+   },
+   {
+    "table": "espn_stats_done",
+    "rows": 1600,
+    "time_col": "fetched_at",
+    "first": "2026-09-17T04:07:17",
+    "last": "2026-09-17T04:28:03",
+    "cols": 3
+   },
+   {
+    "table": "espn_team_stats",
+    "rows": 312544,
+    "time_col": "season",
+    "first": "2002",
+    "last": "2026",
+    "cols": 9
+   },
+   {
+    "table": "espn_transactions",
+    "rows": 24873,
+    "time_col": "date",
+    "first": "2016-03-01T08:00Z",
+    "last": "2026-09-16T07:00Z",
+    "cols": 3
+   },
+   {
+    "table": "jev_presser_done",
+    "rows": 40,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 5
+   },
+   {
+    "table": "jev_presser_signals",
+    "rows": 240,
+    "time_col": "published_at",
+    "first": "2026-08-22",
+    "last": "2026-09-16",
+    "cols": 6
+   },
+   {
+    "table": "kalshi_candles",
+    "rows": 4003489,
+    "time_col": "ts",
+    "first": "2026-05-15 18:00",
+    "last": "2026-09-17 04:03",
+    "cols": 18
+   },
+   {
+    "table": "kalshi_candles_done",
+    "rows": 3827,
+    "time_col": "fetched_at",
+    "first": "2026-09-17T03:57:44",
+    "last": "2026-09-17T05:00:17",
+    "cols": 4
+   },
+   {
+    "table": "kalshi_markets",
+    "rows": 3827,
+    "time_col": "close_time",
+    "first": "2026-08-07T01:13:19",
+    "last": "2026-10-01T00:15:00",
+    "cols": 16
+   },
+   {
+    "table": "kalshi_trades",
+    "rows": 4572987,
+    "time_col": "created_time",
+    "first": "2026-07-11T00:35:04",
+    "last": "2026-09-13T20:27:56",
+    "cols": 7
+   },
+   {
+    "table": "oddsapi_calls",
+    "rows": 1456,
+    "time_col": "snapshot_at",
+    "first": "2026-09-01T23:55:39",
+    "last": "2026-09-17T03:40:36",
+    "cols": 11
+   },
+   {
+    "table": "oddsapi_snapshots",
+    "rows": 1910098,
+    "time_col": "snapshot_at",
+    "first": "2026-09-01T23:55:39",
+    "last": "2026-09-17T03:40:36",
+    "cols": 11
+   },
+   {
+    "table": "pinnacle_matchups",
+    "rows": 587,
+    "time_col": "start_time",
+    "first": "2026-09-11T00:20:00",
+    "last": "2026-09-22T00:15:00",
+    "cols": 9
+   },
+   {
+    "table": "pinnacle_quotes",
+    "rows": 2010,
+    "time_col": "captured_at",
+    "first": "2026-09-17T03:18:24",
+    "last": "2026-09-17T06:04:52",
+    "cols": 18
+   },
+   {
+    "table": "pm_events",
+    "rows": 984,
+    "time_col": "created_at",
+    "first": "2024-07-30T01:45:33",
+    "last": "2026-09-16T02:13:01",
+    "cols": 10
+   },
+   {
+    "table": "pm_markets",
+    "rows": 33415,
+    "time_col": "created_at",
+    "first": "2024-07-30T01:45:34",
+    "last": "2026-09-16T02:13:05",
+    "cols": 17
+   },
+   {
+    "table": "pm_price_history",
+    "rows": 28906853,
+    "time_col": "t",
+    "first": "2024-07-30 01:55",
+    "last": "2026-08-29 17:20",
+    "cols": 3
+   },
+   {
+    "table": "pm_trades",
+    "rows": 1059927,
+    "time_col": "ts",
+    "first": "2024-07-30 03:27",
+    "last": "2025-12-08 00:57",
+    "cols": 9
+   },
+   {
+    "table": "pm_trades_done",
+    "rows": 2520,
+    "time_col": "fetched_at",
+    "first": "2026-09-17T04:10:58",
+    "last": "2026-09-17T06:08:50",
+    "cols": 4
+   },
+   {
+    "table": "press_conferences_raw",
+    "rows": 1420,
+    "time_col": "published_at",
+    "first": "2021-05-08",
+    "last": "2026-09-16",
+    "cols": 10
+   },
+   {
+    "table": "stadiums",
+    "rows": 62,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 10
+   },
+   {
+    "table": "wayback_pages",
+    "rows": 661,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 3
+   },
+   {
+    "table": "wayback_snapshots",
+    "rows": 18239,
+    "time_col": "captured_at",
+    "first": "2019-01-01T01:35:17",
+    "last": "2026-09-17T00:33:46",
+    "cols": 10
+   },
+   {
+    "table": "weather_forecast_hourly",
+    "rows": 3833280,
+    "time_col": "ts_utc",
+    "first": "2022-08-01T00:00",
+    "last": "2026-09-15T23:00",
+    "cols": 7
+   },
+   {
+    "table": "weather_hourly",
+    "rows": 2773104,
+    "time_col": "ts_utc",
+    "first": "2016-08-01T00:00",
+    "last": "2026-09-15T23:00",
+    "cols": 12
+   },
+   {
+    "table": "weather_manifest",
+    "rows": 992,
+    "time_col": "fetched_at",
+    "first": "2026-09-17T04:11:08",
+    "last": "2026-09-17T06:05:50",
+    "cols": 5
+   },
+   {
+    "table": "yt_channel_index",
+    "rows": 12858,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 6
+   }
+  ],
+  "nflverse": [
+   {
+    "table": "advstats_season_def",
+    "rows": 7537,
+    "time_col": "season",
+    "first": "2018",
+    "last": "2025",
+    "cols": 32
+   },
+   {
+    "table": "advstats_season_pass",
+    "rows": 848,
+    "time_col": "season",
+    "first": "2018",
+    "last": "2025",
+    "cols": 39
+   },
+   {
+    "table": "advstats_season_rec",
+    "rows": 4130,
+    "time_col": "season",
+    "first": "2018",
+    "last": "2025",
+    "cols": 27
+   },
+   {
+    "table": "advstats_season_rush",
+    "rows": 2820,
+    "time_col": "season",
+    "first": "2018",
+    "last": "2025",
+    "cols": 21
+   },
+   {
+    "table": "advstats_week_def",
+    "rows": 62764,
+    "time_col": "season",
+    "first": "2018",
+    "last": "2026",
+    "cols": 31
+   },
+   {
+    "table": "advstats_week_pass",
+    "rows": 5459,
+    "time_col": "season",
+    "first": "2018",
+    "last": "2026",
+    "cols": 26
+   },
+   {
+    "table": "advstats_week_rec",
+    "rows": 35961,
+    "time_col": "season",
+    "first": "2018",
+    "last": "2026",
+    "cols": 19
+   },
+   {
+    "table": "advstats_week_rush",
+    "rows": 18578,
+    "time_col": "season",
+    "first": "2018",
+    "last": "2026",
+    "cols": 18
+   },
+   {
+    "table": "closing_lines_1979_2018",
+    "rows": 9528,
+    "time_col": "date",
+    "first": "Aug 31, 1997",
+    "last": "Sep 9, 2018",
+    "cols": 15
+   },
+   {
+    "table": "combine",
+    "rows": 8968,
+    "time_col": "season",
+    "first": "2000",
+    "last": "2026",
+    "cols": 20
+   },
+   {
+    "table": "depth_charts",
+    "rows": 1409371,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2024",
+    "cols": 28
+   },
+   {
+    "table": "draft_picks",
+    "rows": 12927,
+    "time_col": "season",
+    "first": "1980",
+    "last": "2026",
+    "cols": 38
+   },
+   {
+    "table": "espn_draft_player_probs",
+    "rows": 9435,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 15
+   },
+   {
+    "table": "espn_draft_position_probs",
+    "rows": 7126,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 15
+   },
+   {
+    "table": "ftn_charting",
+    "rows": 187890,
+    "time_col": "season",
+    "first": "2022",
+    "last": "2026",
+    "cols": 31
+   },
+   {
+    "table": "games",
+    "rows": 7548,
+    "time_col": "gameday",
+    "first": "1999-09-12",
+    "last": "2027-01-10",
+    "cols": 48
+   },
+   {
+    "table": "historical_contracts",
+    "rows": 31893,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 26
+   },
+   {
+    "table": "injuries",
+    "rows": 55749,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 19
+   },
+   {
+    "table": "multiple_lateral_yards",
+    "rows": 192,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 10
+   },
+   {
+    "table": "nfldata_games",
+    "rows": 7548,
+    "time_col": "gameday",
+    "first": "1999-09-12",
+    "last": "2027-01-10",
+    "cols": 48
+   },
+   {
+    "table": "nfldata_initial_lines",
+    "rows": 1088,
+    "time_col": "season",
+    "first": "2021",
+    "last": "2021",
+    "cols": 8
+   },
+   {
+    "table": "nfldata_sc_lines",
+    "rows": 4092,
+    "time_col": "season",
+    "first": "2013",
+    "last": "2020",
+    "cols": 9
+   },
+   {
+    "table": "nfldata_standings",
+    "rows": 800,
+    "time_col": "season",
+    "first": "2002",
+    "last": "2026",
+    "cols": 18
+   },
+   {
+    "table": "nflverse_manifest",
+    "rows": 319,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 8
+   },
+   {
+    "table": "ngs_passing",
+    "rows": 10715,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 31
+   },
+   {
+    "table": "ngs_receiving",
+    "rows": 26778,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 25
+   },
+   {
+    "table": "ngs_rushing",
+    "rows": 10941,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 24
+   },
+   {
+    "table": "officials",
+    "rows": 22012,
+    "time_col": "season",
+    "first": "2015",
+    "last": "2026",
+    "cols": 11
+   },
+   {
+    "table": "pbp_participation",
+    "rows": 478989,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 28
+   },
+   {
+    "table": "pbp_participation_old",
+    "rows": 47160,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 22
+   },
+   {
+    "table": "pbp_patch_ids",
+    "rows": 138864,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 7
+   },
+   {
+    "table": "pfr_rosters",
+    "rows": 49518,
+    "time_col": "season",
+    "first": "2002",
+    "last": "2022",
+    "cols": 20
+   },
+   {
+    "table": "play_by_play",
+    "rows": 487010,
+    "time_col": "game_date",
+    "first": "2016-09-08",
+    "last": "2026-09-14",
+    "cols": 374
+   },
+   {
+    "table": "player_stats",
+    "rows": 183631,
+    "time_col": "season",
+    "first": "1999",
+    "last": "2024",
+    "cols": 55
+   },
+   {
+    "table": "player_stats_def",
+    "rows": 326386,
+    "time_col": "season",
+    "first": "1999",
+    "last": "2024",
+    "cols": 34
+   },
+   {
+    "table": "player_stats_def_season",
+    "rows": 111677,
+    "time_col": "season",
+    "first": "1999",
+    "last": "2024",
+    "cols": 34
+   },
+   {
+    "table": "player_stats_kicking",
+    "rows": 18203,
+    "time_col": "season",
+    "first": "1999",
+    "last": "2024",
+    "cols": 46
+   },
+   {
+    "table": "player_stats_kicking_season",
+    "rows": 3487,
+    "time_col": "season",
+    "first": "1999",
+    "last": "2024",
+    "cols": 46
+   },
+   {
+    "table": "player_stats_season",
+    "rows": 45934,
+    "time_col": "season",
+    "first": "1999",
+    "last": "2024",
+    "cols": 54
+   },
+   {
+    "table": "players",
+    "rows": 24824,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 41
+   },
+   {
+    "table": "qbr_season_level",
+    "rows": 1560,
+    "time_col": "season",
+    "first": "2006",
+    "last": "2026",
+    "cols": 25
+   },
+   {
+    "table": "qbr_week_level",
+    "rows": 10741,
+    "time_col": "season",
+    "first": "2006",
+    "last": "2026",
+    "cols": 32
+   },
+   {
+    "table": "roster",
+    "rows": 33973,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 38
+   },
+   {
+    "table": "roster_weekly",
+    "rows": 471747,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 38
+   },
+   {
+    "table": "scraped_games_snapcounts",
+    "rows": 2689,
+    "time_col": "season",
+    "first": "2012",
+    "last": "2021",
+    "cols": 6
+   },
+   {
+    "table": "snap_counts",
+    "rows": 254598,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 18
+   },
+   {
+    "table": "stats_player_post",
+    "rows": 4779,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2025",
+    "cols": 150
+   },
+   {
+    "table": "stats_player_reg",
+    "rows": 20649,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 150
+   },
+   {
+    "table": "stats_player_regpost",
+    "rows": 20700,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 150
+   },
+   {
+    "table": "stats_player_week",
+    "rows": 183373,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 152
+   },
+   {
+    "table": "stats_team_post",
+    "rows": 132,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2025",
+    "cols": 138
+   },
+   {
+    "table": "stats_team_reg",
+    "rows": 352,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 138
+   },
+   {
+    "table": "stats_team_regpost",
+    "rows": 352,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 138
+   },
+   {
+    "table": "stats_team_week",
+    "rows": 5554,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 140
+   },
+   {
+    "table": "teams_colors_logos",
+    "rows": 36,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 18
+   },
+   {
+    "table": "trades",
+    "rows": 4975,
+    "time_col": "season",
+    "first": "2002",
+    "last": "2026",
+    "cols": 13
+   }
+  ],
+  "extract": [
+   {
+    "table": "db_health_checks",
+    "rows": 1,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 4
+   },
+   {
+    "table": "game_lines",
+    "rows": 9270,
+    "time_col": "fetched_at",
+    "first": "2026-07-31 01:34:10",
+    "last": "2026-09-15 22:13:34",
+    "cols": 31
+   },
+   {
+    "table": "model_feature_contracts",
+    "rows": 32,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 12
+   },
+   {
+    "table": "model_registry",
+    "rows": 11,
+    "time_col": "updated_at",
+    "first": "2026-09-16 00:18:58",
+    "last": "2026-09-16 00:18:58",
+    "cols": 9
+   },
+   {
+    "table": "nfl_blind_input_mutations",
+    "rows": 375794,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 4
+   },
+   {
+    "table": "nfl_depth",
+    "rows": 179325,
+    "time_col": "season",
+    "first": "2021",
+    "last": "2026",
+    "cols": 9
+   },
+   {
+    "table": "nfl_ensemble_fit_artifacts",
+    "rows": 105,
+    "time_col": "created_at",
+    "first": "2026-09-16 01:37:08",
+    "last": "2026-09-16 17:33:20",
+    "cols": 7
+   },
+   {
+    "table": "nfl_ensemble_rank_reports",
+    "rows": 1,
+    "time_col": "created_at",
+    "first": "2026-09-16 00:21:11",
+    "last": "2026-09-16 00:21:11",
+    "cols": 5
+   },
+   {
+    "table": "nfl_external_ratings",
+    "rows": 2432,
+    "time_col": "fetched_at",
+    "first": "2026-09-02T22:29:08",
+    "last": "2026-09-15T16:30:18",
+    "cols": 7
+   },
+   {
+    "table": "nfl_injuries",
+    "rows": 28574,
+    "time_col": "season",
+    "first": "2021",
+    "last": "2026",
+    "cols": 10
+   },
+   {
+    "table": "nfl_learning_epochs",
+    "rows": 1,
+    "time_col": "created_at",
+    "first": "2026-09-16T00:18:58",
+    "last": "2026-09-16T00:18:58",
+    "cols": 7
+   },
+   {
+    "table": "nfl_nfelo_games",
+    "rows": 1725,
+    "time_col": "fetched_at",
+    "first": "2026-09-16T00:07:45",
+    "last": "2026-09-16T00:07:45",
+    "cols": 21
+   },
+   {
+    "table": "nfl_nfelo_qb",
+    "rows": 1725,
+    "time_col": "fetched_at",
+    "first": "2026-09-16T00:07:45",
+    "last": "2026-09-16T00:07:45",
+    "cols": 18
+   },
+   {
+    "table": "nfl_pfr_adv",
+    "rows": 25147,
+    "time_col": "season",
+    "first": "2024",
+    "last": "2026",
+    "cols": 7
+   },
+   {
+    "table": "nfl_qbr_weekly",
+    "rows": 5844,
+    "time_col": "fetched_at",
+    "first": "2026-09-02 16:15:37",
+    "last": "2026-09-15 16:30:20",
+    "cols": 14
+   },
+   {
+    "table": "nfl_snaps",
+    "rows": 127958,
+    "time_col": "season",
+    "first": "2021",
+    "last": "2026",
+    "cols": 10
+   },
+   {
+    "table": "nfl_team_week_features",
+    "rows": 5395,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 6
+   },
+   {
+    "table": "schema_migrations",
+    "rows": 53,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 2
+   }
+  ],
+  "repo": [
+   {
+    "table": "app_settings",
+    "rows": 3,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 2
+   },
+   {
+    "table": "audit_log",
+    "rows": 27,
+    "time_col": "created_at",
+    "first": "2026-09-03 19:06:43",
+    "last": "2026-09-03 19:19:29",
+    "cols": 8
+   },
+   {
+    "table": "auth_sessions",
+    "rows": 34,
+    "time_col": "created_at",
+    "first": "2026-09-03 18:12:46",
+    "last": "2026-09-04 00:00:36",
+    "cols": 6
+   },
+   {
+    "table": "db_health_checks",
+    "rows": 1,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 4
+   },
+   {
+    "table": "draft_events",
+    "rows": 192,
+    "time_col": "created_at",
+    "first": "2026-09-03 19:14:59",
+    "last": "2026-09-03 19:15:01",
+    "cols": 8
+   },
+   {
+    "table": "draft_picks",
+    "rows": 352,
+    "time_col": "created_at",
+    "first": "2026-09-03 19:14:59",
+    "last": "2026-09-03 19:15:36",
+    "cols": 11
+   },
+   {
+    "table": "draft_team_ownership",
+    "rows": 5,
+    "time_col": "created_at",
+    "first": "2026-09-03 19:06:43",
+    "last": "2026-09-03 19:15:36",
+    "cols": 4
+   },
+   {
+    "table": "drafts",
+    "rows": 6,
+    "time_col": "created_at",
+    "first": "2026-09-03 19:03:53",
+    "last": "2026-09-03 19:15:36",
+    "cols": 27
+   },
+   {
+    "table": "dynasty_values",
+    "rows": 396,
+    "time_col": "fetched_at",
+    "first": "2026-09-03 18:38:23",
+    "last": "2026-09-03 18:38:24",
+    "cols": 8
+   },
+   {
+    "table": "espn_line_moves",
+    "rows": 17,
+    "time_col": "commence_time",
+    "first": "2026-09-10T00:20Z",
+    "last": "2026-09-15T00:15Z",
+    "cols": 16
+   },
+   {
+    "table": "evidence_capture_windows",
+    "rows": 726,
+    "time_col": "captured_at",
+    "first": "2026-09-03T21:05:43",
+    "last": "2026-09-04T00:02:24",
+    "cols": 11
+   },
+   {
+    "table": "evidence_daemon_runs",
+    "rows": 57,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 5
+   },
+   {
+    "table": "fantasy_coordinator_fits",
+    "rows": 2,
+    "time_col": "created_at",
+    "first": "2026-09-04 00:00:08",
+    "last": "2026-09-04 01:26:49",
+    "cols": 6
+   },
+   {
+    "table": "game_lines",
+    "rows": 15096,
+    "time_col": "fetched_at",
+    "first": "2026-07-31 01:34:10",
+    "last": "2026-09-03 23:03:56",
+    "cols": 30
+   },
+   {
+    "table": "league_memberships",
+    "rows": 5,
+    "time_col": "created_at",
+    "first": "2026-09-03 18:16:46",
+    "last": "2026-09-03 18:34:28",
+    "cols": 4
+   },
+   {
+    "table": "leagues",
+    "rows": 5,
+    "time_col": "fetched_at",
+    "first": "2026-09-03 18:13:18",
+    "last": "2026-09-03 18:38:22",
+    "cols": 17
+   },
+   {
+    "table": "mlb_batter_games",
+    "rows": 41689,
+    "time_col": "date",
+    "first": "2026-03-25",
+    "last": "2026-09-02",
+    "cols": 14
+   },
+   {
+    "table": "mlb_boxscore_sync",
+    "rows": 15,
+    "time_col": "fetched_at",
+    "first": "2026-09-03T23:54:54",
+    "last": "2026-09-03T23:54:54",
+    "cols": 4
+   },
+   {
+    "table": "mlb_first_party_picks",
+    "rows": 5,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 22
+   },
+   {
+    "table": "mlb_games",
+    "rows": 2430,
+    "time_col": "date",
+    "first": "2026-03-25",
+    "last": "2026-09-27",
+    "cols": 13
+   },
+   {
+    "table": "mlb_pitcher_games",
+    "rows": 16608,
+    "time_col": "date",
+    "first": "2026-03-25",
+    "last": "2026-09-02",
+    "cols": 13
+   },
+   {
+    "table": "mlb_pregame_snapshots",
+    "rows": 777,
+    "time_col": "captured_at",
+    "first": "2026-09-03T18:13:16",
+    "last": "2026-09-04T00:02:24",
+    "cols": 10
+   },
+   {
+    "table": "mlb_probable_starters",
+    "rows": 201,
+    "time_col": "fetched_at",
+    "first": "2026-08-23T21:35:43",
+    "last": "2026-09-04T00:02:24",
+    "cols": 7
+   },
+   {
+    "table": "model_evidence_manifests",
+    "rows": 199,
+    "time_col": "captured_at",
+    "first": "2026-09-03 18:13:17",
+    "last": "2026-09-04 00:02:24",
+    "cols": 8
+   },
+   {
+    "table": "model_feature_contracts",
+    "rows": 23,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 12
+   },
+   {
+    "table": "model_permissions",
+    "rows": 1,
+    "time_col": "created_at",
+    "first": "2026-09-03 18:12:46",
+    "last": "2026-09-03 18:12:46",
+    "cols": 3
+   },
+   {
+    "table": "model_registry",
+    "rows": 9,
+    "time_col": "updated_at",
+    "first": "2026-09-03 18:12:02",
+    "last": "2026-09-03 18:12:02",
+    "cols": 9
+   },
+   {
+    "table": "news_items",
+    "rows": 438,
+    "time_col": "created_at",
+    "first": "2026-09-03 18:12:23",
+    "last": "2026-09-03 23:30:54",
+    "cols": 26
+   },
+   {
+    "table": "nfl_blind_input_mutations",
+    "rows": 520626,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 4
+   },
+   {
+    "table": "nfl_cached_reports",
+    "rows": 7,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 6
+   },
+   {
+    "table": "nfl_capture_triggers",
+    "rows": 31,
+    "time_col": "snapshot_at",
+    "first": null,
+    "last": null,
+    "cols": 12
+   },
+   {
+    "table": "nfl_depth",
+    "rows": 171240,
+    "time_col": "season",
+    "first": "2021",
+    "last": "2025",
+    "cols": 9
+   },
+   {
+    "table": "nfl_ensemble_fit_artifacts",
+    "rows": 182,
+    "time_col": "created_at",
+    "first": "2026-09-03 18:51:56",
+    "last": "2026-09-03 21:05:02",
+    "cols": 7
+   },
+   {
+    "table": "nfl_external_ratings",
+    "rows": 2432,
+    "time_col": "fetched_at",
+    "first": "2026-09-02T22:29:08",
+    "last": "2026-09-15T16:30:18",
+    "cols": 7
+   },
+   {
+    "table": "nfl_feature_dictionary",
+    "rows": 2511,
+    "time_col": "created_at",
+    "first": "2026-09-17T04:36:55",
+    "last": "2026-09-17T04:36:55",
+    "cols": 8
+   },
+   {
+    "table": "nfl_game_weather",
+    "rows": 193,
+    "time_col": "fetched_at",
+    "first": "2026-09-03 21:06:17",
+    "last": "2026-09-03 21:07:29",
+    "cols": 10
+   },
+   {
+    "table": "nfl_game_weather_forecast_history",
+    "rows": 1488,
+    "time_col": "fetched_at",
+    "first": "2026-09-17T04:39:12",
+    "last": "2026-09-17T04:39:12",
+    "cols": 11
+   },
+   {
+    "table": "nfl_historical_adp",
+    "rows": 2914,
+    "time_col": "fetched_at",
+    "first": "2026-09-04T00:02:45",
+    "last": "2026-09-04T00:02:45",
+    "cols": 10
+   },
+   {
+    "table": "nfl_injuries",
+    "rows": 27983,
+    "time_col": "season",
+    "first": "2021",
+    "last": "2025",
+    "cols": 10
+   },
+   {
+    "table": "nfl_learning_epochs",
+    "rows": 1,
+    "time_col": "created_at",
+    "first": "2026-09-03T18:12:02",
+    "last": "2026-09-03T18:12:02",
+    "cols": 7
+   },
+   {
+    "table": "nfl_line_snapshots",
+    "rows": 10377,
+    "time_col": "captured_at",
+    "first": "2026-08-05T00:09:04",
+    "last": "2026-09-17T05:34:16",
+    "cols": 12
+   },
+   {
+    "table": "nfl_model_growth_runs",
+    "rows": 1,
+    "time_col": "season",
+    "first": "2026",
+    "last": "2026",
+    "cols": 9
+   },
+   {
+    "table": "nfl_news_signals",
+    "rows": 26,
+    "time_col": "created_at",
+    "first": "2026-09-03 18:27:41",
+    "last": "2026-09-03 21:47:42",
+    "cols": 19
+   },
+   {
+    "table": "nfl_nfelo_games",
+    "rows": 1709,
+    "time_col": "fetched_at",
+    "first": "2026-09-03T21:06:12",
+    "last": "2026-09-03T21:06:12",
+    "cols": 21
+   },
+   {
+    "table": "nfl_nfelo_lines",
+    "rows": 1709,
+    "time_col": "fetched_at",
+    "first": "2026-09-03T21:06:12",
+    "last": "2026-09-03T21:06:12",
+    "cols": 20
+   },
+   {
+    "table": "nfl_nfelo_qb",
+    "rows": 1709,
+    "time_col": "fetched_at",
+    "first": "2026-09-03T21:06:12",
+    "last": "2026-09-03T21:06:12",
+    "cols": 18
+   },
+   {
+    "table": "nfl_ngs",
+    "rows": 11860,
+    "time_col": "season",
+    "first": "2021",
+    "last": "2025",
+    "cols": 8
+   },
+   {
+    "table": "nfl_odds_archive",
+    "rows": 102288,
+    "time_col": "commence_time",
+    "first": "2019-08-01T8:00 PM",
+    "last": "2027-01-04T8:15 PM",
+    "cols": 15
+   },
+   {
+    "table": "nfl_pfr_adv",
+    "rows": 25058,
+    "time_col": "season",
+    "first": "2024",
+    "last": "2025",
+    "cols": 7
+   },
+   {
+    "table": "nfl_pick_decisions",
+    "rows": 16,
+    "time_col": "season",
+    "first": "2026",
+    "last": "2026",
+    "cols": 19
+   },
+   {
+    "table": "nfl_player_roster_events",
+    "rows": 21,
+    "time_col": "captured_at",
+    "first": "2026-09-03 18:16:25",
+    "last": "2026-09-03 19:51:01",
+    "cols": 18
+   },
+   {
+    "table": "nfl_player_state_quarantine",
+    "rows": 113,
+    "time_col": "captured_at",
+    "first": "2026-09-03 18:16:25",
+    "last": "2026-09-03 21:55:23",
+    "cols": 4
+   },
+   {
+    "table": "nfl_player_week_features",
+    "rows": 52544,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 8
+   },
+   {
+    "table": "nfl_pregame_snapshot_history",
+    "rows": 32,
+    "time_col": "captured_at",
+    "first": "2026-09-03T21:07:29",
+    "last": "2026-09-03T21:07:29",
+    "cols": 10
+   },
+   {
+    "table": "nfl_prop_clv",
+    "rows": 2539,
+    "time_col": "captured_at",
+    "first": "2026-09-03T21:01:37",
+    "last": "2026-09-03T23:03:56",
+    "cols": 29
+   },
+   {
+    "table": "nfl_prop_policy_archive",
+    "rows": 1,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 4
+   },
+   {
+    "table": "nfl_prop_quote_snapshots",
+    "rows": 2539,
+    "time_col": "captured_at",
+    "first": "2026-09-03T21:01:37",
+    "last": "2026-09-03T23:03:56",
+    "cols": 15
+   },
+   {
+    "table": "nfl_qbr_weekly",
+    "rows": 540,
+    "time_col": "fetched_at",
+    "first": "2026-09-03 21:06:16",
+    "last": "2026-09-03 21:06:16",
+    "cols": 14
+   },
+   {
+    "table": "nfl_quote_batches",
+    "rows": 3,
+    "time_col": "snapshot_at",
+    "first": "2026-09-03T21:01:35",
+    "last": "2026-09-03T23:04:24",
+    "cols": 14
+   },
+   {
+    "table": "nfl_quote_tape",
+    "rows": 4080,
+    "time_col": "snapshot_at",
+    "first": "2026-09-03T21:01:35",
+    "last": "2026-09-03T23:04:24",
+    "cols": 21
+   },
+   {
+    "table": "nfl_residual_audits",
+    "rows": 1,
+    "time_col": "created_at",
+    "first": "2026-09-03 21:04:34",
+    "last": "2026-09-03 21:04:34",
+    "cols": 4
+   },
+   {
+    "table": "nfl_roster_snapshots",
+    "rows": 9726,
+    "time_col": "captured_at",
+    "first": "2026-09-03 18:24:32",
+    "last": "2026-09-04 05:16:08",
+    "cols": 11
+   },
+   {
+    "table": "nfl_signal_snapshots",
+    "rows": 720,
+    "time_col": "captured_at",
+    "first": "2026-09-03T21:01:57",
+    "last": "2026-09-17T05:36:49",
+    "cols": 12
+   },
+   {
+    "table": "nfl_snaps",
+    "rows": 126561,
+    "time_col": "season",
+    "first": "2021",
+    "last": "2025",
+    "cols": 10
+   },
+   {
+    "table": "nfl_source_registry",
+    "rows": 7,
+    "time_col": "updated_at",
+    "first": "2026-09-03 21:04:00",
+    "last": "2026-09-03 21:04:00",
+    "cols": 10
+   },
+   {
+    "table": "nfl_stadiums",
+    "rows": 67,
+    "time_col": "fetched_at",
+    "first": "2026-09-03T21:06:12",
+    "last": "2026-09-03T21:06:12",
+    "cols": 13
+   },
+   {
+    "table": "nfl_team_coaches",
+    "rows": 893,
+    "time_col": "fetched_at",
+    "first": "2026-09-17T04:23:21",
+    "last": "2026-09-17T04:23:21",
+    "cols": 5
+   },
+   {
+    "table": "nfl_team_feature_vectors",
+    "rows": 2078,
+    "time_col": "created_at",
+    "first": "2026-09-17T04:36:55",
+    "last": "2026-09-17T04:38:05",
+    "cols": 11
+   },
+   {
+    "table": "nfl_team_stadiums",
+    "rows": 59,
+    "time_col": "fetched_at",
+    "first": "2026-09-03T21:06:12",
+    "last": "2026-09-03T21:06:12",
+    "cols": 6
+   },
+   {
+    "table": "nfl_team_week_features",
+    "rows": 5310,
+    "time_col": "season",
+    "first": "2016",
+    "last": "2026",
+    "cols": 6
+   },
+   {
+    "table": "nfl_teams",
+    "rows": 32,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 22
+   },
+   {
+    "table": "nfl_top100",
+    "rows": 100,
+    "time_col": "fetched_at",
+    "first": "2026-09-03 18:51:18",
+    "last": "2026-09-03 18:51:18",
+    "cols": 5
+   },
+   {
+    "table": "nfl_validation_windows",
+    "rows": 2,
+    "time_col": "created_at",
+    "first": "2026-09-03 18:12:02",
+    "last": "2026-09-03 18:12:02",
+    "cols": 7
+   },
+   {
+    "table": "nflverse_player_positions",
+    "rows": 25065,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 9
+   },
+   {
+    "table": "odds_cache",
+    "rows": 91,
+    "time_col": "fetched_at",
+    "first": "2026-08-03T17:18:57",
+    "last": "2026-08-30T15:38:38",
+    "cols": 3
+   },
+   {
+    "table": "player_season_stats",
+    "rows": 1291,
+    "time_col": "fetched_at",
+    "first": "2026-09-03 18:51:17",
+    "last": "2026-09-03 18:51:17",
+    "cols": 7
+   },
+   {
+    "table": "player_team_changes",
+    "rows": 29,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 6
+   },
+   {
+    "table": "player_week_usage",
+    "rows": 41572,
+    "time_col": "season",
+    "first": "2021",
+    "last": "2025",
+    "cols": 30
+   },
+   {
+    "table": "players",
+    "rows": 8640,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 13
+   },
+   {
+    "table": "polymarket_line_moves",
+    "rows": 90,
+    "time_col": "captured_at",
+    "first": "2026-09-03T18:16:06",
+    "last": "2026-09-03T23:59:24",
+    "cols": 19
+   },
+   {
+    "table": "polymarket_markets",
+    "rows": 6475,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 11
+   },
+   {
+    "table": "polymarket_quotes",
+    "rows": 69655,
+    "time_col": "captured_at",
+    "first": "2026-09-03T18:16:06",
+    "last": "2026-09-03T23:59:24",
+    "cols": 10
+   },
+   {
+    "table": "prediction_market_flow",
+    "rows": 3200,
+    "time_col": "fetched_at",
+    "first": "2026-09-03T18:15:58",
+    "last": "2026-09-03T23:53:24",
+    "cols": 11
+   },
+   {
+    "table": "prediction_market_quotes",
+    "rows": 1024,
+    "time_col": "captured_at",
+    "first": "2026-09-03T18:15:57",
+    "last": "2026-09-03T23:53:24",
+    "cols": 11
+   },
+   {
+    "table": "ranking_entries",
+    "rows": 105,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 6
+   },
+   {
+    "table": "ranking_sets",
+    "rows": 1,
+    "time_col": "created_at",
+    "first": "2026-08-23 19:44:16",
+    "last": "2026-08-23 19:44:16",
+    "cols": 4
+   },
+   {
+    "table": "research_hypotheses",
+    "rows": 4,
+    "time_col": "created_at",
+    "first": "2026-09-03 18:12:02",
+    "last": "2026-09-03 18:12:02",
+    "cols": 8
+   },
+   {
+    "table": "roster_players",
+    "rows": 2421,
+    "time_col": "fetched_at",
+    "first": "2026-09-04 05:16:07",
+    "last": "2026-09-04 05:16:08",
+    "cols": 15
+   },
+   {
+    "table": "schedule_games",
+    "rows": 544,
+    "time_col": "date",
+    "first": "2026-09-10",
+    "last": "2027-01-10",
+    "cols": 7
+   },
+   {
+    "table": "schema_migrations",
+    "rows": 17,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 2
+   },
+   {
+    "table": "shadow_decisions",
+    "rows": 94,
+    "time_col": "captured_at",
+    "first": "2026-09-03T21:01:58",
+    "last": "2026-09-17T05:36:50",
+    "cols": 25
+   },
+   {
+    "table": "sync_log",
+    "rows": 44,
+    "time_col": null,
+    "first": null,
+    "last": null,
+    "cols": 5
+   },
+   {
+    "table": "team_cap",
+    "rows": 32,
+    "time_col": "fetched_at",
+    "first": "2026-09-03 18:51:13",
+    "last": "2026-09-03 18:51:13",
+    "cols": 8
+   },
+   {
+    "table": "users",
+    "rows": 1,
+    "time_col": "created_at",
+    "first": "2026-09-03 18:12:46",
+    "last": "2026-09-03 18:12:46",
+    "cols": 5
+   }
+  ]
+ }
+}

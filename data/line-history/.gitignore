@@ -1,0 +1,4 @@
+*.sqlite
+*.sqlite-*
+*.log
+*.log[0-9]

@@ -28,13 +28,14 @@ and then frozen for every later season. Reads the live database read-only.
 
 Usage: python3 scripts/model-lab/kalman.py [--db path] [--out path]
 """
+import os
 import json, math, sqlite3, sys
 from collections import defaultdict
 from pathlib import Path
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[2]
-LIVE = "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite"
+LIVE = os.environ.get("GRIDIRON_DB") or str(Path(__file__).resolve().parents[2] / "server/data.sqlite")
 FIT_FROM, FIT_TO, START = 2016, 2021, 2015
 LOG2PI = math.log(2 * math.pi)
 

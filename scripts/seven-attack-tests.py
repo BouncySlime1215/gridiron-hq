@@ -25,12 +25,13 @@ adjustment for home-field and favorite/underdog drift.
 Read-only against the live 16GB database via mode=ro, per RUNBOOK Sec0a
 rule 1. Writes nothing to any database.
 """
+import os
 import json, math, statistics as st, sqlite3, sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 D = REPO / "docs/evidence/2026-09-16/opener-clv"
-LIVE_DB = "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite"
+LIVE_DB = os.environ.get("GRIDIRON_DB") or str(Path(__file__).resolve().parents[1] / "server/data.sqlite")
 POOL = (2022, 2023, 2024)
 SURVIVORS = ["second_half_eff", "opp_adjusted", "dynamic_state", "epa_net"]
 

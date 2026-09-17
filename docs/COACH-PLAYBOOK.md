@@ -1,6 +1,7 @@
 # Coach Playbook — behavioural rules for Phase 8
 
 **Status:** plan-ready companion to `FANTASY-ENGINE-MASTER-PLAN.md` Phase 8. Written 2026-09-17.
+**Nick's rulings (2026-09-17):** (7) neutral reference = ESPN, cited only as a closing move (gap < 10 %, ≥ 2 counters) and only when it is at or above Nick's floor — never when it favours them; (8) no A/B — measure by predicted-vs-realised acceptance instead; (9) no conditional picks in any league → T16 off; (10) concession ladder is decided **live**, step by step from the counterparty's actual reply, with only the floor fixed in advance → requires the live chat monitor (plan Phase 8b).
 **Scope:** the rules the Coach applies when it turns `{targetRosterId, package, draft}` into `{message, anchor, send_at, dont_say[], predicted_response, p_accept}`. It does not re-specify the profile (4b), the chat labels (4c), `their_value` (4d), or the ask/fair/floor ladder and negotiation sim (5); it consumes them. Section 7 lists what the profile must add.
 
 ## 0. Evidence key, precedence, and the standing constraint

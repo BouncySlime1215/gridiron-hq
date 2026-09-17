@@ -366,6 +366,11 @@ Prompt rule: argue only from the blocks; cite the block; never invent a number. 
 `POST /:leagueId/coach` with `{targetRosterId, package, draft}` → `{message, anchor, send_at, dont_say[], predicted_response, p_accept}`. Inputs: dossier, timing stats, recent thread, package numbers, anchoring ladder. Output tuned to the person (numbers-forward vs casual; length from their reply style). Reposition Nick's draft rather than replace it.
 **Acceptance:** Nick rates ≥ 8/10 of coached messages as "I'd send that" in a first pass.
 
+**8b. Live chat monitor (Nick, 2026-09-17: "do it live — people are unpredictable — this requires monitoring of the chat 24/7").** A watcher on the Mac polls `~/Library/Messages/chat.db` every 20–30 s for new rows in the Transfer-league group and the nine member DMs only, decodes them (same extractor as the one-off pull), classifies each new message (Jev, same questions as 4c; ≤ $0.001 each), updates `coach_threads` (last_msg_class, counter_n, idle_time, ultimatum_n…), and when a watched thread moves it (a) recomputes the next ladder step and (b) pushes a notification to Nick's phone with the suggested reply and the one-line reason. Nick's own sent messages are read the same way, so the thread state stays true even when he ignores the suggestion.
+**Constraint that cannot be engineered away:** iMessage history lives only on the Mac (and the phone); a hosted server cannot read it. So the monitor runs on the Mac and relays to the hosted app. When the Mac is asleep or off, the Coach degrades to "paste the thread" mode in the UI and says so. Keeping the laptop plugged in with sleep disabled — or a Mac mini — is what makes it 24/7.
+**Acceptance:** new league messages appear in `coach_threads` within 60 s of arrival; notification within 90 s; zero messages from non-league chats ever read.
+**If it doesn't go great:** polling misses (chat.db WAL lag) → fall back to 2-minute polls with a 5-minute lookback; notifications too noisy → notify only on `last_msg_class ∈ {counter, reject-with-reason, accept, ultimatum, valuation-claim}`.
+
 ### Phase 9 — Trade-engine backtest (1–2 days)
 
 Using `league_roster_history` (4a): for each week of 2024 and 2025, reconstruct every roster, run `findTrades` with the Phase-5 objective, take the top deal per partner, apply it in `tradeImpact` under the *then-current* projections, and record the title-odds delta and the realised end-of-season outcome. Placebo: random plausible trades. Drift baseline: "no trade."
@@ -486,11 +491,11 @@ Everything ≈ 0?
 5. **Haiden Bonczek = ESPN roster 7 ("Aiden Smith")** — **confirmed 2026-09-17.**
 6. **Go on Phase 0 and Phase 1a.** *Phase 0 started 2026-09-17 (refresh loop live, news signals live, roster-sync bug fixed). 1a still pending explicit go — it changes live recommendations.*
 
-From the Coach playbook (answer when convenient; defaults in brackets):
-7. Which neutral reference should the Coach cite per manager — ESPN value, FantasyCalc, or the league's own comparable trades? [ESPN, since every league is on ESPN]
-8. Willing to run a coached/uncoached A/B — alternating partners by week — so the Coach's effect can be measured? [yes, from week 5]
-9. Do any leagues allow conditional picks or commissioner-logged side agreements? [no → contingent-contract tactic disabled]
-10. Should the Coach plan the whole concession ladder before message 1 (recommended) or only the next step each call? [whole ladder, stored per thread]
+From the Coach playbook — **answered 2026-09-17:**
+7. Neutral reference: Nick asked whether pointing at one loses leverage. Resolved: the Coach cites an outside number (ESPN) **only as a closing move** — gap < 10 % after ≥ 2 counters — and **only when that number is at or above Nick's floor**. If the referee number favours them, it is never introduced. Pointing early, or at a number against you, is what loses leverage; pointing late at a number on your side is what ends a stall.
+8. A/B test: **no** — Nick prefers to trust it. Measurement falls back to predicted-vs-realised acceptance (is P(accept) calibrated on coached threads?) and season-over-season acceptance rate, both confounded but honest about it.
+9. Conditional picks / side deals: **no** → contingent-contract tactic (T16) disabled in every league.
+10. Concession ladder: **live, step by step** — "people are unpredictable." The ladder's floor is still fixed before message 1 (so the Coach can never concede below it), but each step is chosen from the counterparty's actual reply. **This requires the live chat monitor (Phase 8b).**
 Decided without asking: `coach_threads` and `tactic_exposure_log` live in the private `league_chat.sqlite`, never the main DB.
 11. **Hosting for 24/7 access** — pick one and create the account yourself (I cannot create accounts or enter payment details): (a) **Fly.io** — stable `https://<app>.fly.dev` URL, no domain, built-in HTTPS, ~$5–7/mo for a small VM + 3 GB volume; (b) **Hetzner CX22 + Tailscale** — ~€4/mo, private (only your phone on the VPN can reach it), no public URL. Recommended: (a) for simplicity. I prepare the Dockerfile/systemd unit, data upload, secrets list, and the cut-over; you run the two login commands.
 

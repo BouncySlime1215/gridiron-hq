@@ -4034,6 +4034,14 @@ preregistered 2026 forward rule, nothing more.
 - **Money:** +0.3 pts of totals CLV is about +1 pp of win probability, under the ~2.4 pp vig at -110; roughly break-even-plus at the best book. Not bettable on this evidence.
 - **Timing (2026, 10 finished games):** totals move later than spreads (median 49 h to first half-point move vs 153 h; 62% done 72 h out vs 86%) — weather. Polymarket totals show no lead over sportsbooks (cross-correlation ~0; 22/37 episodes toward, p 0.16). No Kalshi totals markets exist.
 
+**Deep dive 2 (`totals_deepdive2.py`, `model-lab/totals-deepdive2.json`), still exploratory:**
+- The signal is line-move prediction only. Against the CLOSE the model wins 51-54% and the slope of (actual - close) on (pred - close) is NEGATIVE (-0.10 to -0.43): when the model disagrees with the close, results go the market's way. Value exists at the open and is gone by kickoff.
+- Redundant across channels: full minus any one channel stays +0.30 to +0.39 in both periods. Scores-only K2 is the most robust single channel in 2025 (+0.33, z 2.5); pass EPA and success rate led development and faded.
+- Whole-number openers +0.40 / +0.53 (z 4.4 in 2025) vs hooks +0.30 / +0.00 — secondary hypothesis for preregistration, not a filter to stack now.
+- Bigger lean = more CLV in development (0.25 / 0.33 / 0.57) but not in 2025, and win rate never follows lean.
+- Early-season: development openers ran high and fell (-0.47 by close); 2025 openers were ~1 pt higher and held, and the model flipped to 58% unders. The mid-range x weeks 1-4 cut held anyway (+0.44 / +0.43, n 59 / 43).
+- Rule scorecard: reference -2.9% / -2.8% EV; best book +0.40% dev, -1.33% 2025; flat ROI +3.9% both periods (54.5% / 54.7% wins) is realized noise, expected Kelly growth ~0. Best line most often at betanysports, largest gains at unibet (+1.1) and lowvig (+0.9).
+
 **Proposed forward rule for 2026 (to preregister before week 3 lines):** kmulti
 full totals, method A, only openers 42-46.5, best available book, quarter
 Kelly from the 2022-25 track record, no money until 100 graded bets.

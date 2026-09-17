@@ -1,0 +1,512 @@
+{
+ "side": {
+  "over bets": {
+   "dev": {
+    "n": 138,
+    "adj": 0.306,
+    "z": 2.35,
+    "win": 48.1
+   },
+   "holdout": {
+    "n": 57,
+    "adj": 0.394,
+    "z": 1.8,
+    "win": 54.4
+   }
+  },
+  "under bets": {
+   "dev": {
+    "n": 104,
+    "adj": 0.417,
+    "z": 2.15,
+    "win": 53.4
+   },
+   "holdout": {
+    "n": 73,
+    "adj": 0.237,
+    "z": 1.19,
+    "win": 52.8
+   }
+  },
+  "lean < 1 pt": {
+   "dev": {
+    "n": 105,
+    "adj": 0.25,
+    "z": 1.54,
+    "win": 54.5
+   },
+   "holdout": {
+    "n": 59,
+    "adj": 0.121,
+    "z": 0.41,
+    "win": 51.7
+   }
+  },
+  "lean 1-2 pts": {
+   "dev": {
+    "n": 80,
+    "adj": 0.333,
+    "z": 2.46,
+    "win": 50.6
+   },
+   "holdout": {
+    "n": 37,
+    "adj": 0.571,
+    "z": 1.95,
+    "win": 62.2
+   }
+  },
+  "lean >= 2 pts": {
+   "dev": {
+    "n": 57,
+    "adj": 0.574,
+    "z": 2.79,
+    "win": 42.9
+   },
+   "holdout": {
+    "n": 34,
+    "adj": 0.337,
+    "z": 1.13,
+    "win": 47.1
+   }
+  },
+  "opener on .5 (hook)": {
+   "dev": {
+    "n": 112,
+    "adj": 0.301,
+    "z": 1.7,
+    "win": 51.8
+   },
+   "holdout": {
+    "n": 55,
+    "adj": 0.001,
+    "z": 0.01,
+    "win": 50.9
+   }
+  },
+  "opener whole number": {
+   "dev": {
+    "n": 130,
+    "adj": 0.399,
+    "z": 2.77,
+    "win": 49.2
+   },
+   "holdout": {
+    "n": 75,
+    "adj": 0.528,
+    "z": 4.4,
+    "win": 55.4
+   }
+  },
+  "mid AND weeks 1-4": {
+   "dev": {
+    "n": 59,
+    "adj": 0.443,
+    "z": 3.58,
+    "win": 43.1
+   },
+   "holdout": {
+    "n": 43,
+    "adj": 0.431,
+    "z": 3.57,
+    "win": 53.5
+   }
+  },
+  "mid AND weeks 5+": {
+   "dev": {
+    "n": 183,
+    "adj": 0.325,
+    "z": 2.87,
+    "win": 52.8
+   },
+   "holdout": {
+    "n": 87,
+    "adj": 0.244,
+    "z": 1.78,
+    "win": 53.5
+   }
+  }
+ },
+ "close|all totals|dev": {
+  "n": 557,
+  "win_vs_close": 0.5099818511796733,
+  "slope": -0.1446102288881559
+ },
+ "close|all totals|2025": {
+  "n": 277,
+  "win_vs_close": 0.5234657039711191,
+  "slope": -0.13706326572014982
+ },
+ "close|mid-range|dev": {
+  "n": 242,
+  "win_vs_close": 0.5104602510460251,
+  "slope": -0.10078999237816308
+ },
+ "close|mid-range|2025": {
+  "n": 130,
+  "win_vs_close": 0.5384615384615384,
+  "slope": -0.4326809490800115
+ },
+ "ablation_mid": {
+  "kmulti_drives_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.162,
+    "z": 1.74,
+    "win": 48.7
+   },
+   "holdout": {
+    "n": 130,
+    "adj": -0.031,
+    "z": -0.22,
+    "win": 55.8
+   }
+  },
+  "kmulti_tempo_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.148,
+    "z": 1.61,
+    "win": 50.0
+   },
+   "holdout": {
+    "n": 130,
+    "adj": -0.003,
+    "z": -0.02,
+    "win": 55.0
+   }
+  },
+  "kmulti_drive_scoring_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.173,
+    "z": 2.03,
+    "win": 48.7
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.003,
+    "z": 0.02,
+    "win": 49.6
+   }
+  },
+  "kmulti_pass_epa_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.357,
+    "z": 3.96,
+    "win": 50.0
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.195,
+    "z": 1.24,
+    "win": 56.6
+   }
+  },
+  "kmulti_rush_epa_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.111,
+    "z": 1.19,
+    "win": 49.6
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.172,
+    "z": 1.38,
+    "win": 55.8
+   }
+  },
+  "kmulti_explosive_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.056,
+    "z": 0.58,
+    "win": 47.4
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.008,
+    "z": 0.05,
+    "win": 59.7
+   }
+  },
+  "kmulti_success_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.305,
+    "z": 3.37,
+    "win": 47.4
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.064,
+    "z": 0.45,
+    "win": 59.7
+   }
+  },
+  "kmulti_turnover_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.145,
+    "z": 1.75,
+    "win": 50.4
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.164,
+    "z": 1.22,
+    "win": 51.2
+   }
+  },
+  "kmulti_field_position_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.112,
+    "z": 1.29,
+    "win": 49.1
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.088,
+    "z": 0.63,
+    "win": 51.2
+   }
+  },
+  "kmulti_k2_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.185,
+    "z": 2.34,
+    "win": 50.0
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.325,
+    "z": 2.52,
+    "win": 51.9
+   }
+  },
+  "kmulti_minus_drives_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.354,
+    "z": 3.76,
+    "win": 50.4
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.305,
+    "z": 2.74,
+    "win": 53.5
+   }
+  },
+  "kmulti_minus_tempo_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.375,
+    "z": 4.08,
+    "win": 50.4
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.305,
+    "z": 2.74,
+    "win": 53.5
+   }
+  },
+  "kmulti_minus_drive_scoring_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.364,
+    "z": 3.84,
+    "win": 50.9
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.323,
+    "z": 2.64,
+    "win": 51.2
+   }
+  },
+  "kmulti_minus_pass_epa_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.336,
+    "z": 3.51,
+    "win": 48.3
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.339,
+    "z": 2.14,
+    "win": 55.0
+   }
+  },
+  "kmulti_minus_rush_epa_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.353,
+    "z": 4.12,
+    "win": 52.1
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.309,
+    "z": 2.19,
+    "win": 58.1
+   }
+  },
+  "kmulti_minus_explosive_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.393,
+    "z": 4.75,
+    "win": 50.0
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.302,
+    "z": 2.0,
+    "win": 54.3
+   }
+  },
+  "kmulti_minus_success_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.314,
+    "z": 3.35,
+    "win": 51.3
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.376,
+    "z": 2.63,
+    "win": 55.0
+   }
+  },
+  "kmulti_minus_turnover_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.375,
+    "z": 3.95,
+    "win": 51.7
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.315,
+    "z": 2.84,
+    "win": 53.5
+   }
+  },
+  "kmulti_minus_field_position_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.3,
+    "z": 2.99,
+    "win": 49.1
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.233,
+    "z": 1.47,
+    "win": 54.3
+   }
+  },
+  "kmulti_minus_k2_total": {
+   "dev": {
+    "n": 242,
+    "adj": 0.331,
+    "z": 3.52,
+    "win": 50.9
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.333,
+    "z": 2.18,
+    "win": 55.0
+   }
+  }
+ },
+ "rule|reference": {
+  "dev": {
+   "n": 242,
+   "clv": 0.3243801652892562,
+   "clv_prob_pp": 0.9126346967436543,
+   "ev_pct": -2.910084699196007,
+   "win_pct": 50.427350427350426,
+   "flat_roi_pct": -3.5797313613358446,
+   "ev_z": -6.278189620770317
+  },
+  "holdout": {
+   "n": 130,
+   "clv": 0.3269230769230769,
+   "clv_prob_pp": 0.8888504296127397,
+   "ev_pct": -2.7980748165820652,
+   "win_pct": 53.48837209302326,
+   "flat_roi_pct": 2.2834147967754443,
+   "ev_z": -4.574836664060472
+  },
+  "kelly": {
+   "2023": {
+    "track_gain_pp": null,
+    "kelly_bets": 0,
+    "expected_growth_pct": 0.0,
+    "realized_growth_pct": 0.0
+   },
+   "2024": {
+    "track_gain_pp": 1.05971413446268,
+    "kelly_bets": 0,
+    "expected_growth_pct": 0.0,
+    "realized_growth_pct": 0.0
+   },
+   "2025": {
+    "track_gain_pp": 0.9126346967436543,
+    "kelly_bets": 0,
+    "expected_growth_pct": 0.0,
+    "realized_growth_pct": 0.0
+   }
+  }
+ },
+ "rule|best_book": {
+  "dev": {
+   "n": 242,
+   "clv": 0.9152892561983471,
+   "clv_prob_pp": 2.5816602426400794,
+   "ev_pct": 0.40182599839794314,
+   "win_pct": 54.46808510638298,
+   "flat_roi_pct": 3.8875641185865173,
+   "ev_z": 0.7869155318197231
+  },
+  "holdout": {
+   "n": 130,
+   "clv": 0.7230769230769231,
+   "clv_prob_pp": 2.015107708596328,
+   "ev_pct": -1.331921844993239,
+   "win_pct": 54.6875,
+   "flat_roi_pct": 3.9495214197065955,
+   "ev_z": -2.3159647081780195
+  },
+  "kelly": {
+   "2023": {
+    "track_gain_pp": null,
+    "kelly_bets": 0,
+    "expected_growth_pct": 0.0,
+    "realized_growth_pct": 0.0
+   },
+   "2024": {
+    "track_gain_pp": 2.9337215457914256,
+    "kelly_bets": 108,
+    "expected_growth_pct": -0.0774311783026782,
+    "realized_growth_pct": 8.448439558468657
+   },
+   "2025": {
+    "track_gain_pp": 2.5816602426400794,
+    "kelly_bets": 102,
+    "expected_growth_pct": -0.1639898398420936,
+    "realized_growth_pct": 2.814955954026921
+   }
+  }
+ }
+}

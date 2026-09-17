@@ -1380,3 +1380,30 @@ workflow had returned all 6 results; killed. Load had reached **41.87**.
 Rule: after any workflow completes or is stopped, scan `ps -eo pid,pcpu,args | grep
 Python.framework` and attribute by cwd before assuming the machine is free.
 
+
+## U. Load 234 — diagnosis, and a rule I have now broken twice
+
+1-minute load average reached **234.75** on 8 cores (5-min 88, 15-min 42). Diagnosed rather than
+guessed: 496 total processes (normal), **3** Python.framework processes, no fork tree. It was three
+things landing in one minute, none of them a steady-state agent:
+
+- The order-flow agent's **multiprocessing pool** spun up a burst of short-lived parquet workers
+  (`build.py NN plNN.parquet` per week) that finished inside the window. The load average counts
+  runnable processes; thirty workers for twenty seconds blows the 1-minute figure.
+- **ChatGPT's Sparkle auto-updater** (`com.openai.codex`) at 44.7% — external, not ours.
+- **`corespotlightd` at 14.7%** — Spotlight re-indexing 18 GB of SQLite because the WAL checkpoint
+  had just moved 7.5 GB through the file. Self-inflicted and recurring on every checkpoint.
+
+**Fixes:** `.metadata_never_index` in `data/line-history/` (corespotlightd → 1.5%). The
+multiprocessing burst is legitimate and brief; nothing to fix, but it means a 1-minute load spike
+during a parquet build is expected and is not a reason to stop the workflow. I stopped the
+orthogonal-data workflow at 2/4 on the spike before diagnosing it — order-flow and OI, the two
+highest-value hunts, were lost mid-run and must be re-run. Diagnose first; the spawner can wait
+sixty seconds.
+
+**The rule, stated because I have violated it twice tonight: ONE WORKFLOW AT A TIME.** Load 34 the
+first time, 41 the second, both from stacking a second workflow on a running one. Each agent scans
+the same 18 GB file; two workflows are 8–10 concurrent full-table scans on 8 cores. Serializing is
+strictly faster at that level of oversubscription, and the machine stays usable for Nick. Resume
+order: orthogonal-data (order-flow, OI) → unasked-questions (six market-process questions).
+

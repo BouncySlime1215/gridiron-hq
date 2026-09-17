@@ -1,0 +1,67 @@
+{
+ "frozen_at": "2026-09-16",
+ "rules": {
+  "spreads": {
+   "strategy": "spreads|G|pool",
+   "trained_on": "2021-2025 (2021 only for score conversions)",
+   "spec": {
+    "names": [
+     "dynamic_state",
+     "kalman_score",
+     "kalman_score_epa",
+     "kmulti_drive_scoring",
+     "kmulti_explosive",
+     "kmulti_full",
+     "kmulti_k1",
+     "kmulti_minus_drive_scoring",
+     "kmulti_minus_drives",
+     "kmulti_minus_explosive",
+     "kmulti_minus_field_position",
+     "kmulti_minus_k1",
+     "kmulti_minus_pass_epa",
+     "kmulti_minus_qb",
+     "kmulti_minus_rush_epa",
+     "kmulti_minus_success",
+     "kmulti_minus_tempo",
+     "kmulti_minus_turnover",
+     "kmulti_pass_epa",
+     "kmulti_success",
+     "second_half_eff",
+     "success_rate"
+    ]
+   }
+  },
+  "totals": {
+   "strategy": "totals|G|pool",
+   "trained_on": "2021-2025 (2021 only for score conversions)",
+   "spec": {
+    "names": [
+     "dynamic_state",
+     "kalman_total",
+     "kmulti_drive_scoring_total",
+     "kmulti_drives_total",
+     "kmulti_explosive_total",
+     "kmulti_field_position_total",
+     "kmulti_full_total",
+     "kmulti_k2_total",
+     "kmulti_minus_drive_scoring_total",
+     "kmulti_minus_drives_total",
+     "kmulti_minus_explosive_total",
+     "kmulti_minus_field_position_total",
+     "kmulti_minus_k2_total",
+     "kmulti_minus_pass_epa_total",
+     "kmulti_minus_rush_epa_total",
+     "kmulti_minus_success_total",
+     "kmulti_minus_tempo_total",
+     "kmulti_minus_turnover_total",
+     "kmulti_pass_epa_total",
+     "kmulti_success_total",
+     "kmulti_tempo_total",
+     "kmulti_turnover_total",
+     "pace_total",
+     "sim_total"
+    ]
+   }
+  }
+ }
+}

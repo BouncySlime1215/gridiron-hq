@@ -1,7 +1,9 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"PREREGISTERED — MULTI-CHANNEL KALMAN" is in progress.** **"RESULTS — OPENER LAB" (search for that heading) is the NEWEST result.** A leak in the
+**"RESULTS — MULTI-CHANNEL KALMAN" (search for that heading) is the NEWEST result:** the
+strongest development signal of the day (totals z 4.26, Holm-surviving) reads +0.01
+on the 2025 holdout and fails the CLV + Kelly scorecard. **"RESULTS — OPENER LAB" precedes it.** A leak in the
 consensus-gap feature was found and corrected; at-open information predicts the
 direction of line moves but not expected value; Kelly weights fail; Kalshi appears to
 lead sportsbooks by 2-3 h (2026, descriptive until 150 games).
@@ -3979,6 +3981,44 @@ nested), 2025 holdout for the full model only, Holm across the family; then
 the CLV + Kelly scorecard at reference and best-book lines. Success = the
 scorecard's: positive expected Kelly growth in both 2024 and 2025 with Holm-
 significant dev EV. MAE vs K1/K2 is reported but is not success.
+
+### RESULTS — MULTI-CHANNEL KALMAN (September 16, 2026, late night; `scripts/model-lab/kalman_multi.py`, `kmulti_holdout.py`, evidence `model-lab/kmulti-*.json*`, `clv-kelly-scorecard-kmulti.json`)
+
+Built as preregistered: nine matchup-adjusted channel filters + a per-player QB
+filter + K1/K2, readouts frozen on 2016-2021, profiles written for the drive sim.
+
+**Fit facts worth keeping.** The turnover channel fitted to zero week-to-week
+and season-to-season drift with rho ~1: turnover rate has no persistent team
+component in this data, i.e. it really is luck. Score accuracy did not improve
+(margin MAE 10.05 vs K1 10.01; total 10.60 vs K2 10.57).
+
+**Development (2023-24, nested): the strongest model signal of the day.**
+Totals full model, market's-mistake fit (method B): +0.331 pts adjusted opener
+CLV, z 4.26, 53.8% over/under; 11 totals rows survive Holm over 140 (the full
+model and most leave-one-out variants — the signal is spread across channels,
+pass EPA and success rate strongest alone). Spreads: nothing.
+
+**2025 holdout (full model only, Holm over 6): FAIL.**
+
+| Full model, 2025 | adj CLV | z | ATS |
+|---|---|---|---|
+| totals B (the dev star) | +0.014 | 0.19 | 46.5% |
+| totals A | +0.157 | 2.49 (p 0.013, needs 0.008) | 52.7% |
+| totals C | +0.079 | 0.71 | 50.5% |
+| spreads A/B/C | +0.06 to +0.18 | 0.6 to 1.8 | 45-51% |
+
+**CLV + Kelly scorecard: FAIL.** Reference opener: every variant -2.6% to
+-4.1% EV. Best book: totals +0.35% to +0.93% dev EV (z <= 1.94, no Holm pass),
+all NEGATIVE in 2025 (-1.4% to -2.8%); Kelly 2025 expected growth -1.1% to
++0.1% over ~200 bets.
+
+**Reading.** Adding channels made the development signal sharper, not the
+out-of-sample edge. A z of 4.3 on two seasons that then reads +0.01 on the
+third is the clearest demonstration yet that this market absorbs what these
+stats say. Method A's direction did persist in 2025 at a modest level, which
+keeps totals as the lead market; it earns a place in the 2026 forward test
+(`frozen-rules` + `grade_forward.py` should add kmulti_full_total method A),
+not a bankroll. Drive-sim wiring of the profiles remains a later step.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

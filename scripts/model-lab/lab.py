@@ -33,6 +33,9 @@ TIER = {"availability": "in_week", "roster_strength": "in_week", "weather_total"
 WITH_WIRED2 = "--with-wired2" in sys.argv
 WITH_WIRED = "--with-wired" in sys.argv or WITH_WIRED2
 PART2 = ("wired_W8", "wired_W9", "wired_W10", "wired_W11", "wired_W12", "wired_W13")
+import os
+EXTRA_PREDS = [x for x in os.environ.get("EXTRA_PREDS", "").split(",") if x]   # extra jsonl files with <name>_margin/_total keys
+EXTRA_FAMILY = os.environ.get("EXTRA_FAMILY")                                     # prefix: only these tests form the Holm family
 CONTAMINATED = {"market_correction_research", "python_correction"}
 RNG = random.Random(20260916)
 
@@ -46,6 +49,9 @@ def load_table():
     if WITH_WIRED2:
         for r in map(json.loads, open(LAB / "wired2-preds.jsonl")):
             wired.setdefault(key(r), {}).update(r)
+    for path in EXTRA_PREDS:
+        for r in map(json.loads, open(path)):
+            wired.setdefault(key(r), {}).update({k: v for k, v in r.items() if k.endswith(("_margin", "_total"))})
     books = {key(r): r for r in map(json.loads, open(LAB / "books.jsonl"))}
     p2, p2b = {}, {}
     for s in range(2021, 2026):
@@ -407,7 +413,7 @@ def main():
             if cz["p"] is not None:
                 tests[key] = cz["p"]
         for n in names:
-            if n.startswith("kalman") or n.startswith("wired_"):
+            if n.startswith("kalman") or n.startswith("wired_") or (EXTRA_FAMILY and n.startswith(EXTRA_FAMILY)):
                 strategies[f"{mname}|C|{n}"] = (lambda train, test, n=n, mk=mk: per_forecaster("C", n, mk, train, test)[0])
 
     # ----- H tests (spreads)
@@ -502,7 +508,9 @@ def main():
             tests[f"C2_stale_book|{mname}"] = cz["p"]
 
     # ----- Holm over the development family
-    if WITH_WIRED:
+    if EXTRA_FAMILY:
+        tests = {k: v for k, v in tests.items() if f"|{EXTRA_FAMILY}" in k or k.endswith("|pool")}
+    elif WITH_WIRED:
         part2 = lambda k: any(f"|{p}" in k for p in PART2)
         tests = {k: v for k, v in tests.items() if (part2(k) if WITH_WIRED2 else "wired_" in k) or k.endswith("|pool")}
     res["holm_dev"] = holm(tests)
@@ -514,7 +522,8 @@ def main():
     for mname in markets:
         cands = {k: v for k, v in res["strategies"].items() if k.startswith(mname + "|") and
                  (k.endswith("|pool") or (k.split("|")[1] == "C" and (k.split("|")[2].startswith("kalman") or
-                  (WITH_WIRED and k.split("|")[2].startswith("wired_") and tier(k.split("|")[2]) == "prior_week"))))}
+                  (WITH_WIRED and k.split("|")[2].startswith("wired_") and tier(k.split("|")[2]) == "prior_week")
+                  or (EXTRA_FAMILY and k.split("|")[2].startswith(EXTRA_FAMILY)))))}
         best = max((k for k in cands if cands[k]["z"] is not None), key=lambda k: cands[k]["z"])
         champs[mname] = best
     res["champions"] = champs
@@ -582,7 +591,7 @@ def main():
         else:
             _, spec = per_forecaster(method, name, mk2, allrows, [])
         frozen[mname] = dict(strategy=key, trained_on="2021-2025 (2021 only for score conversions)", spec=spec)
-    suffix = "-wired2" if WITH_WIRED2 else ("-wired" if WITH_WIRED else "")
+    suffix = f"-{EXTRA_FAMILY.rstrip('_')}" if EXTRA_FAMILY else ("-wired2" if WITH_WIRED2 else ("-wired" if WITH_WIRED else ""))
     (LAB / f"frozen-rules{suffix}.json").write_text(json.dumps(dict(frozen_at="2026-09-16", rules=frozen), indent=1, default=float))
     (LAB / f"results{suffix}.json").write_text(json.dumps(res, indent=1, default=float))
     print(json.dumps(dict(family=res["dev_family_size"], dev_holm_passes=res["dev_holm_passes"], champions=champs,

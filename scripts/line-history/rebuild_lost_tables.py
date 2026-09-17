@@ -42,6 +42,35 @@ def fix(t):
     return TEAM_FIX.get(t, t)
 
 
+def commence_iso(gdate, kickoff_et):
+    """Covers stores kickoff as 12-hour Eastern text ("1:00 PM"); emit ISO UTC.
+
+    A first version of this rebuild concatenated the raw string, producing commence_time values
+    like "2022-08-21T8:00 PM" on ALL 102,288 rows. They look plausible in a table and blow up the
+    moment anything parses them -- scripts/opener-lab/table.py died on exactly that. Eastern is
+    converted properly here rather than by assuming a fixed offset, because the season spans the
+    November DST change.
+    """
+    from zoneinfo import ZoneInfo
+    if not gdate:
+        return None
+    txt = (kickoff_et or "1:00 PM").strip()
+    for fmt in ("%I:%M %p", "%I:%M%p", "%H:%M"):
+        try:
+            t = dt.datetime.strptime(txt, fmt).time()
+            break
+        except ValueError:
+            t = None
+    if t is None:
+        t = dt.time(13, 0)
+    try:
+        local = dt.datetime.combine(dt.date.fromisoformat(gdate), t,
+                                    tzinfo=ZoneInfo("America/New_York"))
+    except Exception:
+        return None
+    return local.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def rebuild_coaches(live, dry):
     src = sqlite3.connect(f"file:{NFLVERSE}?mode=ro", uri=True)
     counts = defaultdict(int)
@@ -114,7 +143,7 @@ def rebuild_odds(live, dry):
             mk = MARKET.get(market)
             if not mk:
                 continue
-            commence = f"{gdate}T{(ko or '13:00')}"
+            commence = commence_iso(gdate, ko)
             week = wk.get((season, home, away)) or wk_by_date.get((season, home, gdate))
             base = (gid, season, week, home, away, commence, book, mk)
             if mk == "spreads":

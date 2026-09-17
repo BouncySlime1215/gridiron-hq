@@ -13,8 +13,9 @@ Reads the live DB READ-ONLY. Writes:
 
 Run:  research/.venv/bin/python scripts/news-line/availability_model.py
 """
-import os
 from __future__ import annotations
+
+import os
 
 import json
 import re

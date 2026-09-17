@@ -1442,3 +1442,59 @@ Untracked (gitignored) but kept on disk. Reproducible from the scripts, expensiv
 `scripts/player-value-model.py` now carries its validated RESULTS in its own docstring — the
 model that works, documented where it lives.
 
+
+## X. Q26 — the key-number atoms HAVE drifted, and it does not rescue the teaser
+
+Run directly (not delegated), regular-season games 1999–2026, `scripts/model-lab/atom_drift.py`
+and `scripts/model-lab/teaser_era_reprice.py`.
+
+### The atoms are not stationary — 8 BH survivors of 30 tests
+```
+  k    chi2   p_homog  trend z  p_trend   pooled  modern   delta
+  5   11.47    0.0216    +2.80   0.0051    3.57%   4.54%   +0.97pp
+  6   14.26    0.0067    +2.56   0.0106    5.96%   6.81%   +0.85pp
+  8    5.16    0.2706    +2.04   0.0415    3.79%   4.54%   +0.74pp
+  7    6.90    0.1399    -1.50   0.1326    9.09%   7.66%   -1.43pp
+ 10    6.96    0.1366    -2.26   0.0237    5.58%   4.97%   -0.62pp
+ 13   14.69    0.0056    -3.04   0.0024    2.75%   1.84%   -0.91pp
+  3    4.89    0.2984    -1.27   0.2054   14.99%  14.53%   -0.46pp   ← STABLE
+nominal p<0.05: 10 (expected 1.5) | BH q=0.10: 8 survivors | Bonferroni: 0
+```
+
+**The mechanism is the 2015 extra-point move**, and the data matches the mechanical prediction:
+mass moved **off 7 and onto 6 and 8**. A 33-yard XP is missed often enough, and two-point tries
+taken often enough, that games which used to land on a 7-point margin now land on 6 or 8. 13 and
+10 shrank; 2 and 5 grew. **The atom at 3 is stable** (z=−1.27, p=0.21) — which is the one that
+matters most.
+
+### It does NOT move the teaser, and the reason is geometric
+A 6-point tease on a −7.5 favourite converts a loss to a win exactly when |margin| ∈ {2..7}.
+```
+window mass P(|margin| 2..7)   pooled 42.62%   modern 43.65%   +1.04pp, z=+0.97, p=0.3336
+ACTUAL Wong leg rate           pooled 73.77%   modern 73.53%   −0.24pp, z=−0.17, p=0.8630
+                               (n=2,882 pooled / 748 modern decided legs)
+```
+Losing 7 (−1.43, **inside** the window) is cancelled by gaining 6 (+0.85, inside); the gain at
+8 (+0.74) falls **outside** the window entirely. Statistically real drift, economically inert here.
+
+### Break-even, re-derived on modern data — confirms −120.2 independently
+```
+  price   need/leg        pooled              modern
+  -110     72.37%    +1.39pp (+1.70 SE)   +1.15pp (+0.72 SE)
+  -115     73.14%    +0.63pp (+0.77 SE)   +0.39pp (+0.24 SE)
+  -120     73.85%    -0.09pp (-0.11 SE)   -0.33pp (-0.20 SE)
+  -125     74.54%    -0.77pp (-0.94 SE)   -1.01pp (-0.62 SE)
+```
+Per era: 2015–19 **75.93%**, 2020–24 **74.66%**, 2025–26 **69.08%** (n=152, wide).
+
+### Not a finding, but worth knowing
+Per line, pooled: **+3 supplies 1,109 of 2,882 legs (38%) and returns 72.77%** — barely over the
+−110 break-even of 72.37%. The headline is carried by +1.5 (78.17%, n=197) and −7 (75.05%,
+n=457). Selecting the best of 8 lines after seeing them is the multiplicity trap, so this is
+recorded as a caution about uniformity, **not** as a narrower strategy.
+
+**Verdict: a genuinely new question, rigorously answered, and the answer is no.** The pooled model
+is fitted to an era that is partly over, but the correction does not move the product that depends
+on it. Teaser verdict unchanged: needs −110 to −115; dead at −120. Still blocked on a price nobody
+has recorded.
+

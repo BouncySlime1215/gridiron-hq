@@ -19,6 +19,8 @@
  */
 import { rows } from '../db/index.js';
 import { managerSignalsFor, sentimentMultiplier } from './manager-signals.js';
+import { talkReads } from './talk-vs-model.js';
+import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 
 /** Hard ceiling on how far chat can move a package's perceived value. */
 export const PERCEPTION_CAP = 0.15;
@@ -43,8 +45,13 @@ function percentile(xs, x) {
  * anyway: it is choosing between these ten people, not against an abstract
  * baseline.
  */
-export function counterpartyLayer(leagueId) {
+export function counterpartyLayer(leagueId, { season, week } = {}) {
   const signals = managerSignalsFor(leagueId);
+  // Talk crossed with the model, and whether this person's word has held. Both
+  // are loaded once for the league: the first decides the SIGN of a sentiment
+  // adjustment, the second decides whether a refusal is real.
+  const reads = talkReads(leagueId, season, week);
+  const credibility = declarationCredibility();
   const tiers = new Map(rows('SELECT roster_id, tradeability FROM manager_profiles WHERE league_id = ?', leagueId)
     .map(r => [String(r.roster_id), r.tradeability]));
 
@@ -87,6 +94,8 @@ export function counterpartyLayer(leagueId) {
       open_to_trade_pct: +openP.toFixed(2), trade_talk_pct: +talkP.toFixed(2),
       accept_rate: m.tx_accept_rate ?? null, accept_rate_n: s.samples.tx_accept_rate ?? 0,
       players: s.players ?? new Map(),
+      reads: reads.get(id) ?? new Map(),
+      stance: untouchableStance(leagueId, id, credibility),
       priors: Object.fromEntries(Object.entries(m).filter(([k]) => k.startsWith('prior_'))),
       untouchable_rate: m.chat_own_untouchable ?? null,
     });
@@ -105,20 +114,31 @@ export function counterpartyLayer(leagueId) {
  */
 export function perceivedValue(players, managerProfile) {
   const total = players.reduce((s, p) => s + (p.value ?? 0), 0);
-  if (!managerProfile?.players?.size || total <= 0) {
+  // Either source is enough on its own: a talk-vs-model read can exist for a
+  // player nobody has a raw sentiment row for, and vice versa.
+  if (total <= 0 || (!managerProfile?.players?.size && !managerProfile?.reads?.size)) {
     return { value: total, multiplier: 1, reasons: [] };
   }
   let adjusted = 0;
   const reasons = [];
   for (const p of players) {
-    const view = managerProfile.players.get(String(p.name ?? '').toLowerCase());
-    const mult = view?.multiplier ?? 1;
+    const key = String(p.name ?? '').toLowerCase();
+    const view = managerProfile.players.get(key);
+    // The talk-vs-model read wins wherever it exists, because raw sentiment has
+    // the wrong SIGN for the one case that costs real money: a manager talking
+    // up a player he is quietly shopping. Sentiment alone reads that as
+    // attachment and charges us a premium for exactly the guy he wants gone.
+    const read = managerProfile.reads?.get(key) ?? null;
+    const mult = read?.multiplier ?? view?.multiplier ?? 1;
     adjusted += (p.value ?? 0) * mult;
-    if (view && Math.abs(mult - 1) >= 0.02) {
+    if (Math.abs(mult - 1) >= 0.02) {
       reasons.push({
-        player: p.name, sentiment: view.sentiment, mentions: view.n,
-        last_mention: view.last, multiplier: +mult.toFixed(3),
-        reading: view.sentiment > 2.2 ? 'he rates him' : view.sentiment < 1.8 ? 'he is down on him' : 'neutral',
+        player: p.name, sentiment: view?.sentiment ?? read?.sentiment,
+        mentions: view?.n ?? read?.mentions, last_mention: view?.last,
+        multiplier: +mult.toFixed(3),
+        verdict: read?.verdict ?? null,
+        reading: read?.why ?? (view?.sentiment > 2.2 ? 'he rates him'
+          : view?.sentiment < 1.8 ? 'he is down on him' : 'neutral'),
       });
     }
   }
@@ -148,6 +168,8 @@ export function readDeal({ theirGive, theirGet, managerProfile }) {
       ...get.reasons.map(r => ({ ...r, side: 'they_get' }))],
     chat_msgs: managerProfile?.chat_msgs ?? 0,
     accept_rate: managerProfile?.accept_rate ?? null,
+    word_credibility: managerProfile?.stance?.credibility?.credibility ?? null,
+    word_note: managerProfile?.stance?.note ?? null,
   };
 }
 

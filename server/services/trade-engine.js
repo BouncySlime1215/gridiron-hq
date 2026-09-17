@@ -40,7 +40,7 @@ import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
-import { counterpartyLayer, readDeal, untouchablesFor } from './counterparty-pricing.js';
+import { counterpartyLayer, readDeal } from './counterparty-pricing.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -857,7 +857,11 @@ function findTradesUncached(lg, {
   // about trades, what he has said about these specific players, and how he has
   // actually behaved. Loaded once for the whole search; empty maps are the
   // normal case for a league with no chat corpus and cost nothing.
-  const counterparties = useCounterparty ? counterpartyLayer(lg.id) : new Map();
+  // NB: `target` in this function is the target PLAYER, not the week context.
+  const weekNow = tradeWeekContext();
+  const counterparties = useCounterparty
+    ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
+    : new Map();
 
   const myPool = candidates(me, slots, 11, excludeIds);
   const deals = [];
@@ -867,11 +871,14 @@ function findTradesUncached(lg, {
     if (blockedManagers.has(String(them.roster_id))) continue;
     const theirCtx = context.get(String(them.roster_id));
     const cp = counterparties.get(String(them.roster_id)) ?? null;
-    // Players he has repeatedly called untouchable in the last month are removed
-    // from the search, not ranked down. Asking for one is the cheapest possible
-    // way to look like you do not read the chat, and no amount of surplus value
-    // makes that a suggestion worth sending.
-    const offLimits = useCounterparty ? untouchablesFor(lg.id, them.roster_id) : new Set();
+    // Whether "he's untouchable" is a fact or an opening price. For a manager
+    // whose declarations have held, the player is removed from the search
+    // entirely — asking is the cheapest way to look like you do not read the
+    // chat. For one who has walked his refusals back (Raj: 5 of 5; Lars: 5 of 6)
+    // removing the player would just be folding to an opening price, so he stays
+    // in and the deal is flagged as a real ask instead.
+    const offLimits = useCounterparty ? (cp?.stance?.respect ?? new Set()) : new Set();
+    const mustProbe = useCounterparty ? (cp?.stance?.probe ?? new Set()) : new Set();
     let theirPool = candidates(them, slots)
       .filter(p => !offLimits.has(String(p.name ?? '').toLowerCase()));
     if (target) {
@@ -950,7 +957,15 @@ function findTradesUncached(lg, {
           // one where I surrender less market value is strictly better — without this
           // term the ranking is indifferent to throwing in a free asset.
           manager_tradeability: managerProfiles.get(String(them.roster_id)) ?? 'fair',
-          counterparty,
+          counterparty: {
+            ...counterparty,
+            // He has called one of these players untouchable, but his word has
+            // not held often enough to take it literally. Worth asking, with the
+            // expectation that the first answer is no.
+            asking_for_declared: get.filter(p => mustProbe.has(String(p.name ?? '').toLowerCase()))
+              .map(p => p.name),
+            word_stance: cp?.stance?.stance ?? null,
+          },
           score: +(managerFactor * fairnessFactor * perceptionFactor
             * (ev.me.ppg_delta + 0.2 * ev.joint_ppg)).toFixed(3)
         });

@@ -108,15 +108,26 @@ export function declarationCredibility({ windowDays = BLUFF_WINDOW_DAYS } = {}) 
       const gap = daysBetween(d.ts_utc, ts);
       return gap > 0 && gap <= windowDays;
     });
-    const reversed = selfHedge || later.length > 0;
-    const rec = per.get(d.name) ?? { declarations: 0, reversals: 0, players: new Map() };
-    rec.declarations++; if (reversed) rec.reversals++;
-    const pv = rec.players.get(d.player) ?? { declarations: 0, reversals: 0, last: null };
-    pv.declarations++; if (reversed) pv.reversals++; pv.last = d.ts_utc;
+    // These are two different things and must not be summed as if they were one.
+    // A HARD reversal is "not moving him" on Monday and shopping him on
+    // Wednesday: he closed the door and reopened it. A HEDGE is a refusal that
+    // was never closed ("he's not going anywhere unless someone blows me away"),
+    // which says the door was always ajar. Both mean do not take the refusal
+    // literally, but only the first is evidence that his stated positions MOVE,
+    // so a hedge counts half. Conflating them would have reported Raj as 5-of-5
+    // reversals when four of those were hedges he never walked back at all.
+    const hard = later.length > 0;
+    const hedge = !hard && selfHedge;
+    const rec = per.get(d.name) ?? { declarations: 0, hard: 0, hedged: 0, players: new Map() };
+    rec.declarations++; if (hard) rec.hard++; if (hedge) rec.hedged++;
+    const pv = rec.players.get(d.player) ?? { declarations: 0, hard: 0, hedged: 0, last: null };
+    pv.declarations++; if (hard) pv.hard++; if (hedge) pv.hedged++; pv.last = d.ts_utc;
     rec.players.set(d.player, pv);
     per.set(d.name, rec);
-    events.push({ name: d.name, player: d.player, at: d.ts_utc, reversed,
-      how: selfHedge ? 'hedged in the same breath' : later.length ? `opened the door ${Math.round(daysBetween(d.ts_utc, later[0]))}d later` : null });
+    events.push({ name: d.name, player: d.player, at: d.ts_utc,
+      kind: hard ? 'hard_reversal' : hedge ? 'hedged' : 'held',
+      how: hard ? `opened the door ${Math.round(daysBetween(d.ts_utc, later[0]))}d later`
+        : hedge ? 'hedged in the same message' : 'stood' });
   }
 
   const out = new Map();
@@ -124,11 +135,16 @@ export function declarationCredibility({ windowDays = BLUFF_WINDOW_DAYS } = {}) 
     // Shrink toward the league prior: two declarations cannot establish that
     // someone always bluffs, and presenting 2-of-2 as 100% would be the kind of
     // confident-and-wrong number that makes a whole feature untrustworthy.
-    const bluffRate = (r.reversals + PRIOR_BLUFF_RATE * PRIOR_WEIGHT) / (r.declarations + PRIOR_WEIGHT);
+    const soft = r.hard + 0.5 * r.hedged;
+    const bluffRate = (soft + PRIOR_BLUFF_RATE * PRIOR_WEIGHT) / (r.declarations + PRIOR_WEIGHT);
     out.set(name, {
-      name, declarations: r.declarations, reversals: r.reversals,
+      name, declarations: r.declarations, hard_reversals: r.hard, hedged: r.hedged,
+      held: r.declarations - r.hard - r.hedged,
       bluff_rate: +bluffRate.toFixed(3), credibility: +(1 - bluffRate).toFixed(3),
-      confidence: r.declarations >= 5 ? 'measured' : r.declarations >= 2 ? 'thin' : 'prior-dominated',
+      // "measured" requires hard reversals, not a pile of hedges: hedging is a
+      // speech habit, reversing is a revealed preference.
+      confidence: r.declarations >= 5 && r.hard >= 2 ? 'measured'
+        : r.declarations >= 3 ? 'thin' : 'prior-dominated',
       players: Object.fromEntries([...r.players].map(([p, v]) => [p, v])),
     });
   }
@@ -167,7 +183,8 @@ export function untouchableStance(leagueId, rosterId, credibility) {
     stance: c >= 0.7 ? 'respect' : c >= 0.45 ? 'probe' : 'ignore',
     respect, probe, credibility: cred ?? null,
     note: cred
-      ? `${cred.name} has walked back ${cred.reversals} of ${cred.declarations} declarations (${cred.confidence})`
+      ? `${cred.name}: ${cred.declarations} declarations — ${cred.hard_reversals} reversed outright, `
+        + `${cred.hedged} hedged in the same message, ${cred.held} held (${cred.confidence})`
       : 'no declaration history — treating his word as good by default',
   };
 }

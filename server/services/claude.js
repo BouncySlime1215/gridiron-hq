@@ -97,7 +97,7 @@ let anthropicClientKey = null;
  * records token usage, and returns the raw message.
  */
 export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt, messages,
-  tools = undefined, toolChoice = undefined, system = GROUNDING_SYSTEM, temperature = 0 }) {
+  tools = undefined, toolChoice = undefined, system = GROUNDING_SYSTEM, temperature = null }) {
   const key = getApiKey();
   if (!key) {
     const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
@@ -116,7 +116,12 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
   }
   try {
     const msg = await anthropicClient.messages.create({
-      model, max_tokens: maxTokens, temperature, system,
+      model, max_tokens: maxTokens, system,
+      // Newer models reject `temperature` outright ("deprecated for this
+      // model"), so it is sent only when a caller explicitly asks for one.
+      // Every existing caller relied on the old default of 0, which is also
+      // what these models do by default, so nothing changes for them.
+      ...(temperature == null ? {} : { temperature }),
       // `messages` (a full multi-turn history, used by the page-explain
       // tool-use loop to append assistant tool_use + user tool_result turns)
       // takes precedence; every other caller still just passes a single

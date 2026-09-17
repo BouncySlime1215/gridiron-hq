@@ -1498,3 +1498,51 @@ is fitted to an era that is partly over, but the correction does not move the pr
 on it. Teaser verdict unchanged: needs −110 to −115; dead at −120. Still blocked on a price nobody
 has recorded.
 
+
+## Y. Q33/Q36 — the favourite drift is real, seven-sigma, and NOT tradeable
+
+Run directly. `scripts/model-lab/favourite_drift.py`. covers spread tape, strictly pre-kickoff,
+game-clustered.
+
+### The drift is real and large in t, tiny in points
+Measured as the change in `|home_line|`, which is sign-convention-proof: whoever is favoured, a
+bigger `|line|` means the market moved further toward them.
+```
+horizon    n       d|line|      t
+  168h   2,090     +0.3103   +7.99
+   24h   2,498     +0.1005   +5.37
+    6h   2,502     +0.0522   +3.30
+home-favoured +0.0944 (t=+4.06) | away-favoured +0.1101 (t=+3.50)
+```
+Holds on both sides and every horizon. Independently confirms the lineup agent's control.
+
+### It does not convert
+```
+bet the favourite at T-24h, real posted prices:  ROI -6.830% +/- 2.322,  win 48.99%
+control, both sides at close:                    ROI -5.603% +/- 0.093
+```
+Within half an SE of the control — i.e. you pay the vig and nothing else.
+
+**THE CONVERSION, which is the transferable lesson.** Points of CLV are not percent of EV. The
+factor is the local density of the margin residual, ~0.035/point:
+```
++0.1005 pts x 0.035/pt = +0.35pp of cover probability
+-110 needs                +2.2pp
+                          -> 6x short
+```
+**A seven-sigma property of the market is worth a third of a percentage point.** The drift moves
+the NUMBER YOU GET without moving the PROBABILITY YOU WIN, so it shows up in CLV and vanishes in
+ROI. This is why rule 3 exists, and it generalises: any future CLV claim must be multiplied by
+0.035/point before being compared to a vig measured in percent.
+
+### Two errors of mine, recorded because both are instructive
+1. **False FAIL on the control.** I hardcoded a −5.5% to −3.0% band, which assumes best-of-4
+   shopping. This script does not shop — it takes the last quote from whichever book — so the
+   right comparison is the SINGLE-BOOK vig (grading panel: −5.564% ± 0.087 vs theory −5.491%).
+   Measured −5.603% ± 0.093: a match. **Match the control band to the grading, not to an
+   assumption.**
+2. **Sign-and-magnitude bug in the drift calculation.** Branching on `fav_is_home` and
+   differencing signed lines returned −0.018 where `|close| − |early|` on the *identical* 2,498
+   games returns +0.1005. Caught by a direct raw-data sanity check, not by the script. **Prefer
+   `abs()` formulations that cannot express a sign error.**
+

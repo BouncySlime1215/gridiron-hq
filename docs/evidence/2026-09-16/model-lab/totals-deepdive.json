@@ -1,0 +1,524 @@
+{
+ "drift_2022": -0.2076923076923077,
+ "drift_2023": -0.2078853046594982,
+ "drift_2024": -0.10971223021582734,
+ "drift_2025": -0.1263537906137184,
+ "agreement": {
+  ">= 3 of 5 agree": {
+   "dev": {
+    "n": 474,
+    "adj": 0.28,
+    "z": 2.91,
+    "win": 52.0,
+    "under_share": 45
+   },
+   "holdout": {
+    "n": 220,
+    "adj": 0.237,
+    "z": 1.7,
+    "win": 52.7,
+    "under_share": 53
+   }
+  },
+  ">= 4 of 5 agree": {
+   "dev": {
+    "n": 419,
+    "adj": 0.299,
+    "z": 2.63,
+    "win": 52.2,
+    "under_share": 44
+   },
+   "holdout": {
+    "n": 191,
+    "adj": 0.241,
+    "z": 1.62,
+    "win": 51.3,
+    "under_share": 49
+   }
+  },
+  ">= 5 of 5 agree": {
+   "dev": {
+    "n": 312,
+    "adj": 0.315,
+    "z": 2.55,
+    "win": 52.8,
+    "under_share": 47
+   },
+   "holdout": {
+    "n": 123,
+    "adj": 0.188,
+    "z": 0.98,
+    "win": 52.8,
+    "under_share": 41
+   }
+  }
+ },
+ "seg_kmulti": {
+  "total < 42": {
+   "dev": {
+    "n": 164,
+    "adj": 0.209,
+    "z": 1.2,
+    "win": 49.4,
+    "under_share": 5
+   },
+   "holdout": {
+    "n": 54,
+    "adj": 0.024,
+    "z": 0.1,
+    "win": 50.9,
+    "under_share": 17
+   }
+  },
+  "total 42-46.5": {
+   "dev": {
+    "n": 242,
+    "adj": 0.354,
+    "z": 3.76,
+    "win": 50.4,
+    "under_share": 43
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.305,
+    "z": 2.74,
+    "win": 53.5,
+    "under_share": 56
+   }
+  },
+  "total >= 47": {
+   "dev": {
+    "n": 151,
+    "adj": 0.119,
+    "z": 0.67,
+    "win": 51.0,
+    "under_share": 91
+   },
+   "holdout": {
+    "n": 93,
+    "adj": 0.026,
+    "z": 0.15,
+    "win": 52.7,
+    "under_share": 94
+   }
+  },
+  "opener on key (41/44/47/51)": {
+   "dev": {
+    "n": 107,
+    "adj": 0.249,
+    "z": 1.15,
+    "win": 44.0,
+    "under_share": 49
+   },
+   "holdout": {
+    "n": 39,
+    "adj": 0.101,
+    "z": 0.44,
+    "win": 57.9,
+    "under_share": 62
+   }
+  },
+  "weeks 1-4": {
+   "dev": {
+    "n": 126,
+    "adj": 0.415,
+    "z": 3.65,
+    "win": 43.2,
+    "under_share": 48
+   },
+   "holdout": {
+    "n": 62,
+    "adj": 0.254,
+    "z": 2.2,
+    "win": 51.6,
+    "under_share": 58
+   }
+  },
+  "weeks 5-13": {
+   "dev": {
+    "n": 252,
+    "adj": 0.273,
+    "z": 2.61,
+    "win": 52.9,
+    "under_share": 45
+   },
+   "holdout": {
+    "n": 125,
+    "adj": 0.118,
+    "z": 1.29,
+    "win": 54.8,
+    "under_share": 63
+   }
+  },
+  "weeks 14+": {
+   "dev": {
+    "n": 179,
+    "adj": 0.093,
+    "z": 0.66,
+    "win": 51.7,
+    "under_share": 42
+   },
+   "holdout": {
+    "n": 90,
+    "adj": 0.143,
+    "z": 1.16,
+    "win": 50.6,
+    "under_share": 60
+   }
+  },
+  "divisional": {
+   "dev": {
+    "n": 194,
+    "adj": 0.203,
+    "z": 1.71,
+    "win": 49.7,
+    "under_share": 43
+   },
+   "holdout": {
+    "n": 98,
+    "adj": 0.254,
+    "z": 1.4,
+    "win": 53.6,
+    "under_share": 56
+   }
+  },
+  "primetime": {
+   "dev": {
+    "n": 130,
+    "adj": 0.315,
+    "z": 2.0,
+    "win": 57.0,
+    "under_share": 54
+   },
+   "holdout": {
+    "n": 67,
+    "adj": 0.092,
+    "z": 0.64,
+    "win": 56.7,
+    "under_share": 64
+   }
+  },
+  "dome/closed roof": {
+   "dev": {
+    "n": 181,
+    "adj": 0.204,
+    "z": 1.36,
+    "win": 52.8,
+    "under_share": 44
+   },
+   "holdout": {
+    "n": 90,
+    "adj": 0.203,
+    "z": 1.29,
+    "win": 51.7,
+    "under_share": 56
+   }
+  },
+  "outdoors": {
+   "dev": {
+    "n": 376,
+    "adj": 0.268,
+    "z": 2.88,
+    "win": 49.0,
+    "under_share": 45
+   },
+   "holdout": {
+    "n": 187,
+    "adj": 0.134,
+    "z": 1.71,
+    "win": 53.2,
+    "under_share": 64
+   }
+  },
+  "wind fcst >= 20 km/h (IN-WEEK info)": {
+   "dev": {
+    "n": 27
+   },
+   "holdout": {
+    "n": 24
+   }
+  },
+  "|lean| top quartile": {
+   "dev": {
+    "n": 140,
+    "adj": 0.388,
+    "z": 2.51,
+    "win": 48.9,
+    "under_share": 36
+   },
+   "holdout": {
+    "n": 59,
+    "adj": 0.268,
+    "z": 1.58,
+    "win": 46.6,
+    "under_share": 73
+   }
+  },
+  "|lean| bottom half": {
+   "dev": {
+    "n": 278,
+    "adj": 0.074,
+    "z": 0.78,
+    "win": 51.1,
+    "under_share": 51
+   },
+   "holdout": {
+    "n": 148,
+    "adj": 0.153,
+    "z": 1.79,
+    "win": 58.5,
+    "under_share": 57
+   }
+  },
+  "pre-open book dispersion top third": {
+   "dev": {
+    "n": 104,
+    "adj": 0.175,
+    "z": 0.83,
+    "win": 49.5,
+    "under_share": 47
+   },
+   "holdout": {
+    "n": 32,
+    "adj": 0.12,
+    "z": 0.41,
+    "win": 65.6,
+    "under_share": 47
+   }
+  }
+ },
+ "seg_k2": {
+  "total < 42": {
+   "dev": {
+    "n": 164,
+    "adj": 0.237,
+    "z": 1.36,
+    "win": 50.6,
+    "under_share": 2
+   },
+   "holdout": {
+    "n": 54,
+    "adj": 0.008,
+    "z": 0.03,
+    "win": 47.2,
+    "under_share": 0
+   }
+  },
+  "total 42-46.5": {
+   "dev": {
+    "n": 242,
+    "adj": 0.185,
+    "z": 2.34,
+    "win": 50.0,
+    "under_share": 44
+   },
+   "holdout": {
+    "n": 130,
+    "adj": 0.325,
+    "z": 2.52,
+    "win": 51.9,
+    "under_share": 31
+   }
+  },
+  "total >= 47": {
+   "dev": {
+    "n": 151,
+    "adj": 0.098,
+    "z": 0.56,
+    "win": 51.7,
+    "under_share": 86
+   },
+   "holdout": {
+    "n": 93,
+    "adj": 0.237,
+    "z": 1.0,
+    "win": 51.6,
+    "under_share": 73
+   }
+  },
+  "opener on key (41/44/47/51)": {
+   "dev": {
+    "n": 107,
+    "adj": 0.006,
+    "z": 0.02,
+    "win": 43.0,
+    "under_share": 49
+   },
+   "holdout": {
+    "n": 39,
+    "adj": 0.293,
+    "z": 1.12,
+    "win": 55.3,
+    "under_share": 36
+   }
+  },
+  "weeks 1-4": {
+   "dev": {
+    "n": 126,
+    "adj": 0.411,
+    "z": 2.46,
+    "win": 48.8,
+    "under_share": 52
+   },
+   "holdout": {
+    "n": 62,
+    "adj": 0.348,
+    "z": 2.22,
+    "win": 50.0,
+    "under_share": 40
+   }
+  },
+  "weeks 5-13": {
+   "dev": {
+    "n": 252,
+    "adj": 0.201,
+    "z": 2.53,
+    "win": 52.9,
+    "under_share": 44
+   },
+   "holdout": {
+    "n": 125,
+    "adj": 0.177,
+    "z": 0.72,
+    "win": 52.4,
+    "under_share": 44
+   }
+  },
+  "weeks 14+": {
+   "dev": {
+    "n": 179,
+    "adj": -0.022,
+    "z": -0.14,
+    "win": 48.9,
+    "under_share": 35
+   },
+   "holdout": {
+    "n": 90,
+    "adj": 0.233,
+    "z": 0.7,
+    "win": 49.4,
+    "under_share": 31
+   }
+  },
+  "divisional": {
+   "dev": {
+    "n": 194,
+    "adj": 0.119,
+    "z": 0.88,
+    "win": 52.4,
+    "under_share": 41
+   },
+   "holdout": {
+    "n": 98,
+    "adj": 0.298,
+    "z": 1.59,
+    "win": 44.3,
+    "under_share": 38
+   }
+  },
+  "primetime": {
+   "dev": {
+    "n": 130,
+    "adj": 0.121,
+    "z": 0.94,
+    "win": 54.7,
+    "under_share": 56
+   },
+   "holdout": {
+    "n": 67,
+    "adj": 0.184,
+    "z": 0.98,
+    "win": 58.2,
+    "under_share": 51
+   }
+  },
+  "dome/closed roof": {
+   "dev": {
+    "n": 181,
+    "adj": 0.159,
+    "z": 1.18,
+    "win": 53.9,
+    "under_share": 54
+   },
+   "holdout": {
+    "n": 90,
+    "adj": 0.379,
+    "z": 1.94,
+    "win": 49.4,
+    "under_share": 43
+   }
+  },
+  "outdoors": {
+   "dev": {
+    "n": 376,
+    "adj": 0.185,
+    "z": 1.96,
+    "win": 49.0,
+    "under_share": 38
+   },
+   "holdout": {
+    "n": 187,
+    "adj": 0.163,
+    "z": 0.96,
+    "win": 51.6,
+    "under_share": 37
+   }
+  },
+  "wind fcst >= 20 km/h (IN-WEEK info)": {
+   "dev": {
+    "n": 27
+   },
+   "holdout": {
+    "n": 24
+   }
+  },
+  "|lean| top quartile": {
+   "dev": {
+    "n": 140,
+    "adj": 0.26,
+    "z": 1.41,
+    "win": 48.6,
+    "under_share": 32
+   },
+   "holdout": {
+    "n": 68,
+    "adj": 0.257,
+    "z": 1.06,
+    "win": 45.6,
+    "under_share": 21
+   }
+  },
+  "|lean| bottom half": {
+   "dev": {
+    "n": 278,
+    "adj": 0.116,
+    "z": 1.22,
+    "win": 50.4,
+    "under_share": 47
+   },
+   "holdout": {
+    "n": 135,
+    "adj": 0.199,
+    "z": 1.11,
+    "win": 53.7,
+    "under_share": 50
+   }
+  },
+  "pre-open book dispersion top third": {
+   "dev": {
+    "n": 104,
+    "adj": 0.169,
+    "z": 0.82,
+    "win": 50.5,
+    "under_share": 39
+   },
+   "holdout": {
+    "n": 32,
+    "adj": 0.206,
+    "z": 0.69,
+    "win": 50.0,
+    "under_share": 31
+   }
+  }
+ }
+}

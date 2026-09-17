@@ -24,7 +24,9 @@ from statistics import NormalDist
 
 REPO = Path(__file__).resolve().parents[2]
 LIVE = "/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite"
-OUT = REPO / "docs/evidence/2026-09-16/opener-lab/level3.json"
+import sys
+TOTALS = "--totals" in sys.argv
+OUT = REPO / ("docs/evidence/2026-09-16/opener-lab/level3-totals.json" if TOTALS else "docs/evidence/2026-09-16/opener-lab/level3.json")
 SD = 13.45
 CODE = {"Arizona Cardinals": "ARI", "Atlanta Falcons": "ATL", "Baltimore Ravens": "BAL", "Buffalo Bills": "BUF", "Carolina Panthers": "CAR",
         "Chicago Bears": "CHI", "Cincinnati Bengals": "CIN", "Cleveland Browns": "CLE", "Dallas Cowboys": "DAL", "Denver Broncos": "DEN",
@@ -60,12 +62,14 @@ def main():
     kick = {}
     for cap, ko, home, away, book, side, line in con.execute(
             """SELECT captured_at, commence_time, home_team, away_team, book, side, line FROM nfl_line_snapshots
-               WHERE market='spreads' AND commence_time >= '2026-09-01' AND line IS NOT NULL AND side = home_team"""):
+               WHERE market=? AND commence_time >= '2026-09-01' AND line IS NOT NULL AND side = ?""", ("totals", "Over") if TOTALS else ("spreads", None)) if False else con.execute(
+            f"""SELECT captured_at, commence_time, home_team, away_team, book, side, line FROM nfl_line_snapshots
+               WHERE market='{'totals' if TOTALS else 'spreads'}' AND commence_time >= '2026-09-01' AND line IS NOT NULL AND side = {"'Over'" if TOTALS else 'home_team'}"""):
         if home not in CODE or away not in CODE:
             continue
         k = (CODE[home], CODE[away], ko[:13])
         kick[k] = ts(ko)
-        books[k][book].append((ts(cap), -line))
+        books[k][book].append((ts(cap), line if TOTALS else -line))
     games = {}
     for k in books:
         per_book = {b: sorted(v) for b, v in books[k].items()}
@@ -86,8 +90,9 @@ def main():
         p = min(max(p, 0.02), 0.98)
         kal[(home, away, ticker.split("-")[1][:7])].append((ts(cap), SD * NormalDist().inv_cdf(p)))
     poly = defaultdict(list)
-    for cap, home, away, ko, hs in con.execute("SELECT captured_at, home_team, away_team, commence_time, home_spread FROM polymarket_line_moves WHERE home_spread IS NOT NULL"):
-        poly[(home, away, ko[:13])].append((ts(cap), -hs))
+    col = "total" if TOTALS else "home_spread"
+    for cap, home, away, ko, v in con.execute(f"SELECT captured_at, home_team, away_team, commence_time, {col} FROM polymarket_line_moves WHERE {col} IS NOT NULL"):
+        poly[(home, away, ko[:13])].append((ts(cap), v if TOTALS else -v))
 
     def kalshi_for(k):
         home, away, ko = k
@@ -126,7 +131,7 @@ def main():
                         median_hours_until_first_half_point_move=st.median(first_move) if first_move else None)
 
     # ---- M2 lead-lag, M3 follow-the-prediction-market
-    for name, source in (("kalshi", kalshi_for), ("polymarket", lambda k: sorted(poly.get(k, [])) or None)):
+    for name, source in ([("polymarket", lambda k: sorted(poly.get(k, [])) or None)] if TOTALS else [("kalshi", kalshi_for), ("polymarket", lambda k: sorted(poly.get(k, [])) or None)]):
         pairs, diffs, episodes = defaultdict(list), [], []
         matched = 0
         for k, g in games.items():

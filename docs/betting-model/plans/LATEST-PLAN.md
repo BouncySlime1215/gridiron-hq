@@ -1,7 +1,7 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"RESULTS — MULTI-CHANNEL KALMAN" (search for that heading) is the NEWEST result:** the
+**"TOTALS DEEP DIVE" (exploratory) follows the newest result.** **"RESULTS — MULTI-CHANNEL KALMAN" (search for that heading) is the NEWEST result:** the
 strongest development signal of the day (totals z 4.26, Holm-surviving) reads +0.01
 on the 2025 holdout and fails the CLV + Kelly scorecard. **"RESULTS — OPENER LAB" precedes it.** A leak in the
 consensus-gap feature was found and corrected; at-open information predicts the
@@ -4019,6 +4019,24 @@ stats say. Method A's direction did persist in 2025 at a modest level, which
 keeps totals as the lead market; it earns a place in the 2026 forward test
 (`frozen-rules` + `grade_forward.py` should add kmulti_full_total method A),
 not a bankroll. Drive-sim wiring of the profiles remains a later step.
+
+### TOTALS DEEP DIVE — EXPLORATORY, NOT PREREGISTERED (September 16, 2026, late night; `scripts/model-lab/totals_deepdive.py`, `scripts/opener-lab/level3.py --totals`, evidence `model-lab/totals-deepdive.json`, `opener-lab/level3-totals.json`)
+
+Many cuts were looked at, so nothing here is a finding; the two cuts that
+repeat across independent models AND in 2025 are candidates for a
+preregistered 2026 forward rule, nothing more.
+
+- **Drift.** Totals fall from open to close every season (-0.11 to -0.21 pts). All adjusted CLV below removes that. The models bet OVER 53-57% of the time and their over bets carry positive adjusted CLV, so the totals signal is not the under drift in disguise.
+- **2025 by model (method A, adjusted CLV):** kmulti +0.16 (z 2.5), dynamic_state +0.25 (1.6), K2 +0.23 (1.4) kept direction; blend, pace, weather, sim faded to ~0. Cross-model agreement adds nothing (+0.28 vs +0.25).
+- **Mid-range totals 42-46.5 is where all of it lives:** kmulti +0.35 (z 3.8) dev, +0.31 (z 2.7) in 2025; K2 +0.19 / +0.33. Low (<42) and high (>=47) totals: ~0 in both periods.
+- **Weeks 1-4:** kmulti +0.42 / +0.25, K2 +0.41 / +0.35. Plausible mechanism (market's priors are thinnest early), still exploratory.
+- Primetime, divisional, dome, key numbers, lean size, book dispersion: inconsistent between periods.
+- **Money:** +0.3 pts of totals CLV is about +1 pp of win probability, under the ~2.4 pp vig at -110; roughly break-even-plus at the best book. Not bettable on this evidence.
+- **Timing (2026, 10 finished games):** totals move later than spreads (median 49 h to first half-point move vs 153 h; 62% done 72 h out vs 86%) — weather. Polymarket totals show no lead over sportsbooks (cross-correlation ~0; 22/37 episodes toward, p 0.16). No Kalshi totals markets exist.
+
+**Proposed forward rule for 2026 (to preregister before week 3 lines):** kmulti
+full totals, method A, only openers 42-46.5, best available book, quarter
+Kelly from the 2022-25 track record, no money until 100 graded bets.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

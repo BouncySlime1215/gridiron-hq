@@ -56,7 +56,11 @@ def list_channel(handle, since):
 def captions(video_id):
     with tempfile.TemporaryDirectory() as td:
         code, out, err = ytdlp(["--skip-download", "--no-simulate", "--write-auto-sub", "--write-sub", "--sub-langs", "en", "--sub-format", "vtt",
-                                "--print", "%(upload_date)s|%(duration)s|%(title)s", "-o", f"{td}/%(id)s.%(ext)s",
+                                # %(timestamp)s is the full Unix epoch of publication; %(upload_date)s is YYYYMMDD only.
+                                # Storing just the date collapsed 503 in-window pressers onto 44 distinct
+                                # days (11.4 sharing each stamp) and made news-vs-market lead-lag
+                                # unanswerable by construction against a per-minute Kalshi chain.
+                                "--print", "%(timestamp)s|%(upload_date)s|%(duration)s|%(title)s", "-o", f"{td}/%(id)s.%(ext)s",
                                 f"https://www.youtube.com/watch?v={video_id}"], timeout=300)
         meta = out.strip().splitlines()[-1] if out.strip() else "||"
         vtt = next(iter(Path(td).glob("*.vtt")), None)
@@ -104,9 +108,17 @@ def main():
             except Exception as e:  # noqa: BLE001
                 log(f"  {team} {v['video_id']} failed: {str(e)[:80]}")
                 continue
-            up, dur, title = (meta.split("|", 2) + ["", "", ""])[:3]
-            pub = f"{up[:4]}-{up[4:6]}-{up[6:8]}" if len(up) == 8 else (v["upload_date"] or "")
-            if pub and pub < a.since:
+            epoch, up, dur, title = (meta.split("|", 3) + ["", "", "", ""])[:4]
+            # Prefer the full timestamp; fall back to the date when YouTube omits it.
+            pub = ""
+            if epoch and epoch not in ("NA", "None"):
+                try:
+                    pub = dt.datetime.fromtimestamp(int(float(epoch)), dt.timezone.utc).isoformat(timespec="seconds")
+                except (ValueError, OSError, OverflowError):
+                    pub = ""
+            if not pub:
+                pub = f"{up[:4]}-{up[4:6]}-{up[6:8]}" if len(up) == 8 else (v["upload_date"] or "")
+            if pub and pub[:10] < a.since:
                 too_old += 1
                 if too_old >= 8:
                     log(f"  {team}: reached videos older than {a.since}, stopping this channel")

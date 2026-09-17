@@ -712,3 +712,133 @@ deleted database held the model's side selection (`model_probability`) and the U
 lines (`closing_line`); both are empty in the surviving copy, and 442 of the 443 surviving props
 carry both Over and Under, so re-settling them returns ~50% mechanically regardless of skill.
 The conclusion stands as recorded, but it is no longer checkable against data.
+
+---
+
+# Session 2026-09-17 — Polymarket coherence, structural profit hunt, Jev
+
+Every test run this session, positive or null. Recorded so nothing is retested by accident.
+
+## A. Polymarket option-chain coherence — BOTH FINDINGS WITHDRAWN
+
+Tested whether Polymarket's NFL chain contradicts itself, which needs no forecasting model:
+monotonicity (`P(over L)` must fall with `L` — a violation is a riskless box) and additivity
+(`E[1H]+E[2H] = E[game]` by linearity of expectation, no independence assumed).
+
+| Test | Unfiltered | After volume gate |
+|---|---|---|
+| Monotonicity violations | 23.3% of adjacent pairs, median 11c, max 43c | **0 of 29 pairs** |
+| 1H+2H vs GAME additivity | −2.73 pts, t=−4.55 | untestable |
+
+**Both were artifacts.** 85% of NFL total markets on Polymarket have traded **exactly zero
+dollars**; median volume $0, p90 $28, and the median game has no strike above $5k. The "boxes"
+were resting market-maker quotes parked at 0.500 sitting beside real quotes. The additivity gap
+has the same cause with a sign: untraded quotes drift toward 0.50, which drags the survival
+integral toward the ladder centre, and the quarter/half ladders are precisely the illiquid ones —
+so "the parts" were biased low by construction.
+
+Gated on >$5k volume the chain is **perfectly monotone**. Polymarket's 70.1M price points are
+~169 liquid markets wrapped in ~5,000 untraded quotes that look like depth.
+
+**Rule added: check volume BEFORE coherence. An untraded resting quote is not a price.**
+Script: `scripts/model-lab/polymarket_ladder_coherence.py`
+
+## B. Structural profit hunt — 6 hunts, 0 survivors after 3 refuters each
+
+Premise: prediction is dead, so look for money that exists because of how a product is *priced or
+settled*, not because we forecast better.
+
+| Hunt | Result | The number that kills it |
+|---|---|---|
+| Wong teasers | **blocked** | Break-even −120.2 (CI −132.6/−109.4). EV +4.16% at −110, t=1.82. Pinnacle's own implied price for the teased leg is **72.30%** vs a 72.37% break-even. Blocked on a price never recorded. |
+| Cross-book middles | dead | +0.562% ROI, t=0.41. Needs 9,820 bets; 7 seasons give 2,883. True arb: 22 of 2,224,042 pairs (0.00099%). |
+| Exchange vs book | dead | Routing to Kalshi costs **−1.362pp ± 0.161** MORE than best-of-11 books. At p=0.5 Kalshi takes 2.41c vs 2.08c. Fees kill 619 of 623 raw cross-venue locks. |
+| Correlated products | dead | Pinnacle's alternate TOTAL ladder is genuinely mispriced by 1.76pp/rung, but overround is 4.34% so you need 2.17pp. Correction < toll. Placebo p=0.114. |
+| Graveyard revival | dead | **The headline number of the whole project:** revivable signal across everything ever killed = **+0.64%/bet (t=2.84)** — real and significant — against a **5.66%** cost to extract. |
+| Promo conversion | refuted 3/3 | Mechanism survives (arithmetic), magnitudes do not. See below. |
+
+### Promo conversion — corrected numbers
+A free bet is a credit in **one** book, so its leg cannot be shopped; only the hedge can.
+The original `h=3.05%` was the both-sides-shopped overround, unobtainable by any free-bet ticket.
+
+- Executable `h` = **4.11–5.33%** → `c* = (1−√h)² = 60.9%`, not 68.1%
+- Best-of-slate conversion **60.0% median**, not 65.2%; optimal strike ≈ **+300 to +400**
+- Line-shopping gain in conversion = +1.51pp, and **exactly 0.00pp when only two books quote**
+- **Boosts are book-locked**: +18.4% was graded at a best-of-4-books price the token can never
+  reach. At the issuing book: **+12.7% ± 8.0, t=1.59**, fails Bonferroni over its own 32-cell family.
+- **Recommendation was inverted.** Realized book-locked κ=1.33: favourite +4.8%, **+100–200 +17.5%**,
+  +200–400 +12.7%. Boost EV is **non-monotone**, peaking ~+180–260 — not on the longest price.
+- Correction to a premise I asserted: a −110 → +100 boost on a true 50% event is EV **exactly 0.00%**,
+  not a large gain. It refunds the vig. A boost is only +EV once the boosted price beats fair.
+- Supply, not EV, is the real limit: **n\* = 347 tokens** to be 2σ from zero; realistic supply
+  60–100/yr → P(profit) 80–86%, never statistically clean in a season.
+
+## C. Presser event study — can Jev help? Tested BEFORE paying for Jev
+
+Text classification can only add value if pressers mark abnormal line movement at all. Ran the
+event study with **no text**: every presser an event at time T, placebo at the same game, same
+weekday and hour, one week earlier.
+
+```
+after-window |move|   presser 1.438 pts  vs  placebo 1.259 pts
+                      diff +0.179,  t = +1.10   NOT SIGNIFICANT
+before/after ratio    1.13  → symmetric, no event signature
+```
+
+**Underpowered, not a kill**: 482 of 10,670 rows timestamped; at the same effect size the full
+corpus reaches t≈4.9. **Hard ceiling found**: YouTube stops exposing exact timestamps past ~6 weeks
+(2026-09: 156 fixed / 0 failed; 2026-08: 326/21; 2026-07: **0/59**). yt-dlp cannot go further —
+unblocking needs a YouTube Data API v3 key (~214 quota units of a 10,000/day free allowance).
+
+Script: `scripts/model-lab/presser_event_study.py`
+
+## D. Infrastructure defects fixed
+
+- `backfill_presser_timestamps.py` recorded **transient DNS failures as permanent** in its resume
+  table. One network blip would have burned all 10,670 rows into do-not-retry while reporting
+  success. Now distinguishes transient from final and aborts the run, not the row.
+- `teaser_fair_value.py` hardcoded a narrow Wong window and silently dropped **−7 and +3**; +3 alone
+  is 39% of historical Wong legs. Now uses the module's own `CROSS_BOTH_LINES`.
+- Jev questions were **six booleans**. `starter_doubtful` and `starter_returning` are mutually
+  exclusive states of one variable asked independently (Jev could return 0.7 and 0.6 on the same
+  transcript); `net_negative_for_team` was a magnitude as a yes/no; and nothing separated
+  "not discussed" from "no" — opposite market signals scoring identically. Now one `choice` over
+  six states plus a `score`. Schema corrected against SDK types: `choice` takes `criteria` as a
+  name→description map, `score` takes an **ordered array**, and only `boolean` answers carry a bare
+  `.probability` — the old writer would have stored NULL for every choice and score answer.
+- `npx tsx` does **not** load `.env.local`: 8,475 rows failed with "No authentication provided" and
+  zero tokens. Run as `set -a; . ./.env.local; set +a; npx tsx …`.
+- Type bug: `strftime('%s',…)` returns a **string**, `kalshi_candles.ts` is an **integer** — SQLite
+  type ordering made a BETWEEN silently always-false, reporting "0 of 482 pressers overlap" when
+  the true answer is 482 of 482.
+
+## E. Jev — live and paid
+
+Smoke test discriminates correctly on the same transcript: `qb_hedged` 0.96, `qb_plays` 0.17,
+`lt_plays` 0.93. Cost $0.042/1M input tokens, output free.
+
+**Best target found: `espn_transactions`, not pressers.**
+
+| | Pressers | ESPN transactions |
+|---|---|---|
+| Usable events | 482 | **12,268 in-season** |
+| Span | ~6 weeks | **2016–2026** |
+| Teams | 20 | **32** |
+| Content | hedged coach-speak | hard dated facts |
+| Cost | $1.00 | **$0.025** |
+
+Label quality verified by hand — "Placed G Landon Dickerson on IR" → impact 0.41 / starter 0.80;
+"Released WR from the practice squad" → impact 1.13 / starter 0.18. Scale and gradient both correct.
+Scripts: `scripts/news-line/jev_transactions.mts`, `scripts/news-line/jev_presser_signals.mts`
+
+## F. Running at time of writing
+
+1. **Player-level model** — lineup-adjusted strength from 487k plays / 479k participation / 255k
+   snap counts. Every feature ever tested here was a team-week aggregate; effective rank was ~2.5.
+   Key diagnostic: does the player-level matrix have materially higher rank?
+2. **Live in-game Jev** — 586k play texts classified for event class, injury severity and
+   **surprise**, against 3.27M one-minute Kalshi candles with real bid/ask and per-play ESPN win
+   probability as referee. Two hard gates checked first: play-feed lag, and median in-game spread.
+3. **Ten unique Jev tests** — luck-vs-skill, garbage time, play-call aggression, narrative salience,
+   corpus triage, research auditor, absence duration, weather, officiating crews, market structure.
+

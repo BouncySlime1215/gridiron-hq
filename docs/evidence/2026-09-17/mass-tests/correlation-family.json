@@ -1,0 +1,4010 @@
+{
+ "family_size": 5940,
+ "q": 0.1,
+ "bh_critical": 0.0,
+ "bonferroni": 8.417508417508419e-06,
+ "nominal_hits": 393,
+ "survivors": 0,
+ "tests": [
+  {
+   "feature": "matchup_redzone_epa",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.1962290493542434,
+   "p": 7.003969837438007e-05,
+   "n": 403
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.1489316576678298,
+   "p": 7.452018438769414e-05,
+   "n": 700
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.1464091640785386,
+   "p": 0.00011891783985262805,
+   "n": 684
+  },
+  {
+   "feature": "matchup_wpa_play",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.14192176619798397,
+   "p": 0.00016174530871060355,
+   "n": 700
+  },
+  {
+   "feature": "matchup_third_down_success",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.14276871873580255,
+   "p": 0.00017590828227276312,
+   "n": 684
+  },
+  {
+   "feature": "def_diff_success_rate",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.1417076113081788,
+   "p": 0.00019682713933577567,
+   "n": 684
+  },
+  {
+   "feature": "def_diff_success_rate",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.1394699537337374,
+   "p": 0.00021033434629624814,
+   "n": 700
+  },
+  {
+   "feature": "matchup_wpa_play",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.17943968131579505,
+   "p": 0.0002233577937904574,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.08829058689522827,
+   "p": 0.0003330864912132192,
+   "n": 1646
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_error",
+   "split": "all",
+   "r": -0.1353841456762027,
+   "p": 0.00035994535471139955,
+   "n": 689
+  },
+  {
+   "feature": "def_diff_early_down_success",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.13111527507256168,
+   "p": 0.0004984540974923846,
+   "n": 700
+  },
+  {
+   "feature": "matchup_redzone_success",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.1717950937604816,
+   "p": 0.0005198478294734521,
+   "n": 403
+  },
+  {
+   "feature": "matchup_wpa_play",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.1693877857326581,
+   "p": 0.0005594922061611385,
+   "n": 410
+  },
+  {
+   "feature": "matchup_series_success",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.1307634573877412,
+   "p": 0.0005990331597187648,
+   "n": 684
+  },
+  {
+   "feature": "matchup_epa_play",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.13065081928895514,
+   "p": 0.0006056727264953654,
+   "n": 684
+  },
+  {
+   "feature": "matchup_wpa_play",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.12837009917374864,
+   "p": 0.0007557063011018883,
+   "n": 684
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_over",
+   "split": "late season",
+   "r": -0.19033516398982492,
+   "p": 0.0008627584439286906,
+   "n": 302
+  },
+  {
+   "feature": "matchup_series_success",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.16141014199600845,
+   "p": 0.0009223952093366794,
+   "n": 417
+  },
+  {
+   "feature": "matchup_series_success",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.1600972161564483,
+   "p": 0.0011225303360309358,
+   "n": 410
+  },
+  {
+   "feature": "matchup_ftn_plays",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": 0.1994343281628559,
+   "p": 0.0011666794324538543,
+   "n": 261
+  },
+  {
+   "feature": "def_diff_epa_play",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.12364203666222873,
+   "p": 0.0011821427989717748,
+   "n": 684
+  },
+  {
+   "feature": "matchup_third_down_dist",
+   "target": "total_error",
+   "split": "fav>7",
+   "r": 0.15702198385970054,
+   "p": 0.0012748672528717364,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_early_down_success",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.12255750085386845,
+   "p": 0.0013070990715284836,
+   "n": 684
+  },
+  {
+   "feature": "matchup_cpoe",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.15508275580827263,
+   "p": 0.001466988787253598,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_time_to_throw",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": -0.12585753882792658,
+   "p": 0.001468303834621043,
+   "n": 635
+  },
+  {
+   "feature": "matchup_drives",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": 0.15556377965923382,
+   "p": 0.0015557850443506105,
+   "n": 410
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_over",
+   "split": "all",
+   "r": -0.12064792246411177,
+   "p": 0.0015570436376246555,
+   "n": 684
+  },
+  {
+   "feature": "matchup_dropback_epa",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.12049563659613637,
+   "p": 0.0015787552442241282,
+   "n": 684
+  },
+  {
+   "feature": "matchup_third_down_success",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.15392382739518848,
+   "p": 0.0017470210566561395,
+   "n": 410
+  },
+  {
+   "feature": "matchup_cover3_rate",
+   "target": "total_error",
+   "split": "all",
+   "r": -0.08486020068248956,
+   "p": 0.0019281930198824515,
+   "n": 1332
+  },
+  {
+   "feature": "matchup_epa_play",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.1166633121741987,
+   "p": 0.0019741870656699856,
+   "n": 700
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_error",
+   "split": "late season",
+   "r": -0.17481861266301787,
+   "p": 0.002256100560133145,
+   "n": 302
+  },
+  {
+   "feature": "matchup_series_success",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.11503723836881088,
+   "p": 0.0022840383907469786,
+   "n": 700
+  },
+  {
+   "feature": "matchup_epa_play",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.1494420757314078,
+   "p": 0.002384467015777103,
+   "n": 410
+  },
+  {
+   "feature": "def_diff_redzone_epa",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.14882585313252128,
+   "p": 0.0025177767690385267,
+   "n": 409
+  },
+  {
+   "feature": "def_diff_sack_rate",
+   "target": "total_error",
+   "split": "early season",
+   "r": 0.13000064977511205,
+   "p": 0.0026381220544000605,
+   "n": 532
+  },
+  {
+   "feature": "off_diff_rpo_rate",
+   "target": "total_over",
+   "split": "fav>7",
+   "r": -0.2360648366339528,
+   "p": 0.002740150287988685,
+   "n": 158
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.07465226056318021,
+   "p": 0.0027493152562891865,
+   "n": 1606
+  },
+  {
+   "feature": "def_diff_early_down_epa",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.11271581919414314,
+   "p": 0.0028036677480733907,
+   "n": 700
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": -0.15705313803593624,
+   "p": 0.0028080638672918212,
+   "n": 359
+  },
+  {
+   "feature": "matchup_third_down_success",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.14508837470513575,
+   "p": 0.0029481612245501054,
+   "n": 417
+  },
+  {
+   "feature": "matchup_success_rate",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.11290311222836184,
+   "p": 0.0030870658470831813,
+   "n": 684
+  },
+  {
+   "feature": "matchup_epa_play",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.14427338155666078,
+   "p": 0.0031150075956625223,
+   "n": 417
+  },
+  {
+   "feature": "matchup_time_to_throw",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": -0.11505206994633665,
+   "p": 0.0036698499538878604,
+   "n": 635
+  },
+  {
+   "feature": "def_diff_series_success",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.11015527341899657,
+   "p": 0.0038977333613132714,
+   "n": 684
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.17681928352979948,
+   "p": 0.003959015792011522,
+   "n": 263
+  },
+  {
+   "feature": "matchup_dropback_epa",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.14107903077056883,
+   "p": 0.004166488379990341,
+   "n": 410
+  },
+  {
+   "feature": "matchup_cpoe",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.10761671339891926,
+   "p": 0.00434167101608951,
+   "n": 700
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_error",
+   "split": "total<=44",
+   "r": -0.1492247394948625,
+   "p": 0.004501026981652778,
+   "n": 360
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.13516137030772607,
+   "p": 0.004609767283477284,
+   "n": 437
+  },
+  {
+   "feature": "matchup_time_to_throw",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": -0.13371536659095593,
+   "p": 0.004635360644738462,
+   "n": 446
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.10648231019910338,
+   "p": 0.004773834978691216,
+   "n": 700
+  },
+  {
+   "feature": "matchup_early_down_epa",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.10612138837383153,
+   "p": 0.0049192581999029095,
+   "n": 700
+  },
+  {
+   "feature": "matchup_success_rate",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.10558026644492953,
+   "p": 0.005144780841568997,
+   "n": 700
+  },
+  {
+   "feature": "off_diff_proe",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": -0.13177434872146124,
+   "p": 0.005274839896697747,
+   "n": 446
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.11633903080363349,
+   "p": 0.00534797249380925,
+   "n": 571
+  },
+  {
+   "feature": "matchup_third_down_dist",
+   "target": "total_over",
+   "split": "fav>7",
+   "r": 0.13591315921530547,
+   "p": 0.005619972005604712,
+   "n": 413
+  },
+  {
+   "feature": "matchup_explosive_pass_rate",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.10974483351585687,
+   "p": 0.005641758076884162,
+   "n": 634
+  },
+  {
+   "feature": "matchup_dropback_epa",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.1351659212212884,
+   "p": 0.005654797563912073,
+   "n": 417
+  },
+  {
+   "feature": "off_diff_cover3_rate",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": -0.11488234919641924,
+   "p": 0.005827071810653006,
+   "n": 574
+  },
+  {
+   "feature": "matchup_ftn_plays",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": 0.1691693246041476,
+   "p": 0.005882664709783381,
+   "n": 263
+  },
+  {
+   "feature": "matchup_cover3_rate",
+   "target": "total_over",
+   "split": "all",
+   "r": -0.07576250801513908,
+   "p": 0.005930520503834469,
+   "n": 1317
+  },
+  {
+   "feature": "matchup_wpa_play",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.10212511694675601,
+   "p": 0.0059963501712139156,
+   "n": 722
+  },
+  {
+   "feature": "matchup_dropback_epa",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.10369994664032732,
+   "p": 0.006002686207962515,
+   "n": 700
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.08272219708043708,
+   "p": 0.0060767318868317766,
+   "n": 1098
+  },
+  {
+   "feature": "def_diff_shotgun_rate",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.10466564775122045,
+   "p": 0.006117941834468343,
+   "n": 684
+  },
+  {
+   "feature": "def_diff_epa_play",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.10329227668775343,
+   "p": 0.006204843098135848,
+   "n": 700
+  },
+  {
+   "feature": "off_diff_no_huddle_rate",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.06816776107052504,
+   "p": 0.006266419993444794,
+   "n": 1606
+  },
+  {
+   "feature": "def_diff_dropback_epa",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.10381358831265185,
+   "p": 0.0065496894114582815,
+   "n": 684
+  },
+  {
+   "feature": "matchup_part_plays",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.12840045708667427,
+   "p": 0.00657736772797568,
+   "n": 446
+  },
+  {
+   "feature": "matchup_plays",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.12840045708667427,
+   "p": 0.00657736772797568,
+   "n": 446
+  },
+  {
+   "feature": "off_diff_cpoe",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.13207802534007476,
+   "p": 0.0068678984386045805,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.10004054092485835,
+   "p": 0.007112986380402919,
+   "n": 722
+  },
+  {
+   "feature": "off_diff_ftn_box",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": 0.23485223537429295,
+   "p": 0.007223802469523921,
+   "n": 129
+  },
+  {
+   "feature": "matchup_adot",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.1023860736138684,
+   "p": 0.007334549134218271,
+   "n": 684
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": -0.16534402855811392,
+   "p": 0.0073528645419829175,
+   "n": 261
+  },
+  {
+   "feature": "matchup_success_rate",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.13173817200426793,
+   "p": 0.00751192168434045,
+   "n": 410
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "margin_error",
+   "split": "early season",
+   "r": -0.13932546248902114,
+   "p": 0.0075426379704461866,
+   "n": 366
+  },
+  {
+   "feature": "matchup_cover3_rate",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": -0.11127676724496292,
+   "p": 0.007583244649053356,
+   "n": 574
+  },
+  {
+   "feature": "matchup_time_to_throw",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.10578635571602077,
+   "p": 0.0076462813003213,
+   "n": 634
+  },
+  {
+   "feature": "def_diff_explosive_pass_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.10568565363898401,
+   "p": 0.007656469948636779,
+   "n": 635
+  },
+  {
+   "feature": "matchup_redzone_epa",
+   "target": "total_over",
+   "split": "fav<=3",
+   "r": 0.11392108168071227,
+   "p": 0.007671305795358796,
+   "n": 546
+  },
+  {
+   "feature": "matchup_ftn_box",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": 0.23285860872750283,
+   "p": 0.007752249141933287,
+   "n": 129
+  },
+  {
+   "feature": "off_diff_rpo_rate",
+   "target": "total_over",
+   "split": "divisional",
+   "r": -0.164548407914208,
+   "p": 0.007765151366270429,
+   "n": 260
+  },
+  {
+   "feature": "off_diff_drives",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": 0.13118809022765845,
+   "p": 0.007768666185221651,
+   "n": 410
+  },
+  {
+   "feature": "off_diff_shotgun_rate",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.09883644632833105,
+   "p": 0.007839659660913156,
+   "n": 722
+  },
+  {
+   "feature": "off_diff_time_to_throw",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.10478140838911841,
+   "p": 0.008247268767108018,
+   "n": 634
+  },
+  {
+   "feature": "off_diff_trick_rate",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": 0.23092168486984166,
+   "p": 0.008298031525783456,
+   "n": 129
+  },
+  {
+   "feature": "def_diff_early_down_success",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.10426977313955332,
+   "p": 0.008569141008058168,
+   "n": 634
+  },
+  {
+   "feature": "off_diff_no_huddle_rate",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.09907814388538357,
+   "p": 0.008633649147425482,
+   "n": 701
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.07803802856322535,
+   "p": 0.008750729515886846,
+   "n": 1127
+  },
+  {
+   "feature": "off_diff_int_worthy_rate",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.15036906001930114,
+   "p": 0.008793199548853492,
+   "n": 302
+  },
+  {
+   "feature": "off_diff_contested_rate",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": -0.228975331542157,
+   "p": 0.008880281453722993,
+   "n": 129
+  },
+  {
+   "feature": "matchup_third_down_success",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.09852374941945793,
+   "p": 0.009065683322123652,
+   "n": 700
+  },
+  {
+   "feature": "off_diff_pers_2rb_rate",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": 0.10379640007849424,
+   "p": 0.00915069574442895,
+   "n": 629
+  },
+  {
+   "feature": "off_diff_early_down_pass_rate",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.06405030878775295,
+   "p": 0.009328621300854323,
+   "n": 1646
+  },
+  {
+   "feature": "off_diff_rpo_rate",
+   "target": "total_error",
+   "split": "divisional",
+   "r": -0.15940094652147885,
+   "p": 0.009670890204614757,
+   "n": 262
+  },
+  {
+   "feature": "matchup_rush_epa",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.10342273510763872,
+   "p": 0.009753546156650472,
+   "n": 623
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.10581043536226069,
+   "p": 0.009823857681666937,
+   "n": 594
+  },
+  {
+   "feature": "def_diff_series_success",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.09695620377560846,
+   "p": 0.01023510122532345,
+   "n": 700
+  },
+  {
+   "feature": "off_diff_pers_12_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.10167564240384644,
+   "p": 0.010319088950269117,
+   "n": 635
+  },
+  {
+   "feature": "off_diff_man_rate",
+   "target": "margin_error",
+   "split": "early season",
+   "r": -0.12307113158012183,
+   "p": 0.010494705492499534,
+   "n": 431
+  },
+  {
+   "feature": "off_diff_zone_rate",
+   "target": "margin_error",
+   "split": "early season",
+   "r": 0.1230711315801218,
+   "p": 0.010494705492499534,
+   "n": 431
+  },
+  {
+   "feature": "def_diff_redzone_epa",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.06437947429435802,
+   "p": 0.010660284585873425,
+   "n": 1572
+  },
+  {
+   "feature": "matchup_redzone_epa",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.1280754068223277,
+   "p": 0.010679430953478786,
+   "n": 396
+  },
+  {
+   "feature": "off_diff_success_rate",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.1256493855740193,
+   "p": 0.010823418364851234,
+   "n": 410
+  },
+  {
+   "feature": "def_diff_early_down_epa",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.09732146306540883,
+   "p": 0.01084161801582173,
+   "n": 684
+  },
+  {
+   "feature": "matchup_part_plays",
+   "target": "ats_cover",
+   "split": "total>=48",
+   "r": -0.12168650021814578,
+   "p": 0.01084420952442633,
+   "n": 437
+  },
+  {
+   "feature": "matchup_plays",
+   "target": "ats_cover",
+   "split": "total>=48",
+   "r": -0.12168650021814578,
+   "p": 0.01084420952442633,
+   "n": 437
+  },
+  {
+   "feature": "matchup_redzone_epa",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.09939584224187378,
+   "p": 0.010883717389535086,
+   "n": 655
+  },
+  {
+   "feature": "off_diff_play_action_rate",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.15682471769907866,
+   "p": 0.010932271063541998,
+   "n": 262
+  },
+  {
+   "feature": "def_diff_redzone_success",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.0984867095820879,
+   "p": 0.011136129356431379,
+   "n": 663
+  },
+  {
+   "feature": "off_diff_no_huddle_rate",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.06251500554304014,
+   "p": 0.011171498951225267,
+   "n": 1646
+  },
+  {
+   "feature": "off_diff_proe",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.12493651319389622,
+   "p": 0.011285313790093232,
+   "n": 410
+  },
+  {
+   "feature": "matchup_redzone_success",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.127060258950121,
+   "p": 0.011323315823904556,
+   "n": 396
+  },
+  {
+   "feature": "matchup_wpa_play",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.06222283465637521,
+   "p": 0.01155670038095602,
+   "n": 1646
+  },
+  {
+   "feature": "def_diff_time_to_throw",
+   "target": "ats_cover",
+   "split": "fav 3.5-7",
+   "r": -0.10074508807706818,
+   "p": 0.011697932698592428,
+   "n": 625
+  },
+  {
+   "feature": "off_diff_series_success",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.12411748323744062,
+   "p": 0.011837420465839799,
+   "n": 410
+  },
+  {
+   "feature": "off_diff_part_plays",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.10307213869655392,
+   "p": 0.011914557574507878,
+   "n": 594
+  },
+  {
+   "feature": "off_diff_plays",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.10307213869655392,
+   "p": 0.011914557574507878,
+   "n": 594
+  },
+  {
+   "feature": "def_diff_play_action_rate",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.1535290712676925,
+   "p": 0.011922363813754666,
+   "n": 267
+  },
+  {
+   "feature": "matchup_rush_epa",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.09950679109883978,
+   "p": 0.012145742975491647,
+   "n": 634
+  },
+  {
+   "feature": "def_diff_pressure_rate",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": -0.10957680215687182,
+   "p": 0.012196908114111116,
+   "n": 522
+  },
+  {
+   "feature": "def_diff_success_rate",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.06200248821830928,
+   "p": 0.012932889955498128,
+   "n": 1606
+  },
+  {
+   "feature": "off_diff_throwaway_rate",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": -0.15257591057409675,
+   "p": 0.013153922266038176,
+   "n": 263
+  },
+  {
+   "feature": "off_diff_ftn_no_huddle_rate",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.1324746028859929,
+   "p": 0.01318478303627213,
+   "n": 349
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": -0.130711972244469,
+   "p": 0.01325015550126274,
+   "n": 358
+  },
+  {
+   "feature": "matchup_redzone_success",
+   "target": "total_over",
+   "split": "fav<=3",
+   "r": 0.10559087424532736,
+   "p": 0.013521781440460234,
+   "n": 546
+  },
+  {
+   "feature": "def_diff_throwaway_rate",
+   "target": "total_over",
+   "split": "fav<=3",
+   "r": -0.15139341550179222,
+   "p": 0.013530194962015907,
+   "n": 265
+  },
+  {
+   "feature": "off_diff_pers_2rb_rate",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": 0.11725219814095512,
+   "p": 0.013799907714983739,
+   "n": 440
+  },
+  {
+   "feature": "def_diff_early_down_success",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.06137807339633097,
+   "p": 0.013873721016518292,
+   "n": 1606
+  },
+  {
+   "feature": "def_diff_early_down_epa",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.06057348589880466,
+   "p": 0.013959985664564467,
+   "n": 1646
+  },
+  {
+   "feature": "def_diff_explosive_rush_rate",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.061085688180864815,
+   "p": 0.01433465294949321,
+   "n": 1606
+  },
+  {
+   "feature": "def_diff_drives",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.11560678650693185,
+   "p": 0.014518616852456478,
+   "n": 446
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "ats_cover",
+   "split": "fav 3.5-7",
+   "r": -0.11893709264545076,
+   "p": 0.014674467436268879,
+   "n": 420
+  },
+  {
+   "feature": "def_diff_success_rate",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.060121222730671886,
+   "p": 0.014691638329478618,
+   "n": 1646
+  },
+  {
+   "feature": "def_diff_explosive_pass_rate",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": -0.09712131767661636,
+   "p": 0.014782735585803897,
+   "n": 629
+  },
+  {
+   "feature": "matchup_wpa_play",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.09185781368467669,
+   "p": 0.01494473581326794,
+   "n": 701
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": -0.10620319743917199,
+   "p": 0.015155810189333652,
+   "n": 522
+  },
+  {
+   "feature": "def_diff_epa_play",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.06056943043330938,
+   "p": 0.015181522506077405,
+   "n": 1606
+  },
+  {
+   "feature": "matchup_cpoe",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.119748700224672,
+   "p": 0.015203830423777376,
+   "n": 410
+  },
+  {
+   "feature": "matchup_early_down_pass_rate",
+   "target": "total_error",
+   "split": "early season",
+   "r": -0.10477955442447144,
+   "p": 0.015571471815313043,
+   "n": 532
+  },
+  {
+   "feature": "def_diff_success_rate",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.11903526570582079,
+   "p": 0.01582677331279525,
+   "n": 410
+  },
+  {
+   "feature": "off_diff_pass_rushers",
+   "target": "total_over",
+   "split": "early season",
+   "r": 0.10500411257634217,
+   "p": 0.01584149362921128,
+   "n": 527
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.09207649791687327,
+   "p": 0.015967771604437964,
+   "n": 684
+  },
+  {
+   "feature": "off_diff_early_down_pass_rate",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.09866653891389757,
+   "p": 0.016107902874441526,
+   "n": 594
+  },
+  {
+   "feature": "def_diff_redzone_epa",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.09339196429766607,
+   "p": 0.016115232411744618,
+   "n": 663
+  },
+  {
+   "feature": "off_diff_ftn_no_huddle_rate",
+   "target": "ats_cover",
+   "split": "fav 3.5-7",
+   "r": -0.148312132529944,
+   "p": 0.016397453872872392,
+   "n": 261
+  },
+  {
+   "feature": "def_diff_early_down_success",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.058949765854758,
+   "p": 0.016745901658582696,
+   "n": 1646
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "ats_cover",
+   "split": "total>=48",
+   "r": -0.1142924636482798,
+   "p": 0.01678122099779711,
+   "n": 437
+  },
+  {
+   "feature": "off_diff_cover3_rate",
+   "target": "total_over",
+   "split": "all",
+   "r": -0.06586319657010127,
+   "p": 0.016805052710029633,
+   "n": 1317
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "ats_cover",
+   "split": "total>=48",
+   "r": -0.1289055238973066,
+   "p": 0.016839263558692474,
+   "n": 343
+  },
+  {
+   "feature": "matchup_pers_11_rate",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": -0.11381496178692538,
+   "p": 0.01686654503839291,
+   "n": 440
+  },
+  {
+   "feature": "off_diff_cpoe",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.11785364431986498,
+   "p": 0.01690771640845412,
+   "n": 410
+  },
+  {
+   "feature": "matchup_cover3_rate",
+   "target": "total_error",
+   "split": "total<=44",
+   "r": -0.0991689909783848,
+   "p": 0.016944750827913024,
+   "n": 579
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.09476850003716049,
+   "p": 0.016953120658906418,
+   "n": 634
+  },
+  {
+   "feature": "off_diff_cover2_rate",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.1235594074060545,
+   "p": 0.017047148789265165,
+   "n": 372
+  },
+  {
+   "feature": "off_diff_contested_rate",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": 0.2090654129909515,
+   "p": 0.01722497784742405,
+   "n": 129
+  },
+  {
+   "feature": "matchup_drives",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": 0.09094407462172677,
+   "p": 0.017319682186078822,
+   "n": 684
+  },
+  {
+   "feature": "matchup_third_down_success",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.0593579955062496,
+   "p": 0.017343587313759512,
+   "n": 1606
+  },
+  {
+   "feature": "off_diff_ftn_no_huddle_rate",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.1252603529550603,
+   "p": 0.017349288767569693,
+   "n": 360
+  },
+  {
+   "feature": "off_diff_part_plays",
+   "target": "total_over",
+   "split": "fav>7",
+   "r": -0.11678356022220085,
+   "p": 0.017523963315432933,
+   "n": 413
+  },
+  {
+   "feature": "off_diff_throwaway_rate",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.13651079339928535,
+   "p": 0.017533685459661053,
+   "n": 302
+  },
+  {
+   "feature": "off_diff_ftn_no_huddle_rate",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.0902272028391239,
+   "p": 0.017805443966173673,
+   "n": 689
+  },
+  {
+   "feature": "def_diff_cover3_rate",
+   "target": "total_error",
+   "split": "early season",
+   "r": -0.11393312407508831,
+   "p": 0.017916183573846833,
+   "n": 431
+  },
+  {
+   "feature": "off_diff_plays",
+   "target": "total_over",
+   "split": "fav>7",
+   "r": -0.11637565650442767,
+   "p": 0.017925536959701782,
+   "n": 413
+  },
+  {
+   "feature": "def_diff_pers_12_rate",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.08796488795152194,
+   "p": 0.018038929380257862,
+   "n": 722
+  },
+  {
+   "feature": "off_diff_cover2_rate",
+   "target": "ats_cover",
+   "split": "total>=48",
+   "r": -0.12370681707887418,
+   "p": 0.018150639532144686,
+   "n": 364
+  },
+  {
+   "feature": "def_diff_redzone_success",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.11660053106865403,
+   "p": 0.018266527502535768,
+   "n": 409
+  },
+  {
+   "feature": "def_diff_early_down_epa",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.058842994919754435,
+   "p": 0.018341537233393934,
+   "n": 1606
+  },
+  {
+   "feature": "matchup_screen_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.1450165405944944,
+   "p": 0.018526548453719816,
+   "n": 263
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": -0.20755020856378859,
+   "p": 0.01853814604207482,
+   "n": 128
+  },
+  {
+   "feature": "off_diff_int_worthy_rate",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.13688596184523938,
+   "p": 0.018578371985447095,
+   "n": 295
+  },
+  {
+   "feature": "matchup_dropback_epa",
+   "target": "total_over",
+   "split": "late season",
+   "r": 0.08908460898655629,
+   "p": 0.0187896008359969,
+   "n": 695
+  },
+  {
+   "feature": "def_diff_series_success",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.11495195375422158,
+   "p": 0.018808197059106746,
+   "n": 417
+  },
+  {
+   "feature": "matchup_xpass",
+   "target": "margin_error",
+   "split": "late season",
+   "r": 0.0885483327347431,
+   "p": 0.019084213135309724,
+   "n": 700
+  },
+  {
+   "feature": "matchup_redzone_epa",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.0902410286562141,
+   "p": 0.01935073706270618,
+   "n": 671
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.05754597556992891,
+   "p": 0.019535855798979762,
+   "n": 1646
+  },
+  {
+   "feature": "def_diff_early_down_success",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.09337898645479059,
+   "p": 0.019705339454309634,
+   "n": 623
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": -0.2046546963356206,
+   "p": 0.019798414541346787,
+   "n": 129
+  },
+  {
+   "feature": "matchup_cover3_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.10302297853993439,
+   "p": 0.020034767526378783,
+   "n": 509
+  },
+  {
+   "feature": "matchup_pass_rushers",
+   "target": "total_error",
+   "split": "total<=44",
+   "r": -0.08650347359431422,
+   "p": 0.0200542698224504,
+   "n": 722
+  },
+  {
+   "feature": "off_diff_third_down_success",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.11471796332186432,
+   "p": 0.020094364978087365,
+   "n": 410
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_error",
+   "split": "fav<=3",
+   "r": -0.14193136299528547,
+   "p": 0.02024442090259071,
+   "n": 267
+  },
+  {
+   "feature": "def_diff_trick_rate",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.13346220274009143,
+   "p": 0.02025299016205917,
+   "n": 302
+  },
+  {
+   "feature": "matchup_ftn_box",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": 0.20397858439365485,
+   "p": 0.020723029297119,
+   "n": 128
+  },
+  {
+   "feature": "def_diff_success_rate",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.09179911675042386,
+   "p": 0.020751357765717682,
+   "n": 634
+  },
+  {
+   "feature": "def_diff_explosive_rush_rate",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.08728733124214727,
+   "p": 0.02077834921828159,
+   "n": 701
+  },
+  {
+   "feature": "off_diff_man_rate",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": -0.11181470081144759,
+   "p": 0.021076343729895974,
+   "n": 425
+  },
+  {
+   "feature": "off_diff_zone_rate",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": 0.11181470081144758,
+   "p": 0.021076343729895974,
+   "n": 425
+  },
+  {
+   "feature": "off_diff_wpa_play",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.11372632788514093,
+   "p": 0.021205177838893308,
+   "n": 410
+  },
+  {
+   "feature": "def_diff_cover1_rate",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": 0.11920400912017176,
+   "p": 0.02140443530803471,
+   "n": 372
+  },
+  {
+   "feature": "def_diff_xpass",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": 0.08587558847000194,
+   "p": 0.021429620976970876,
+   "n": 717
+  },
+  {
+   "feature": "matchup_success_rate",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.11237490025072155,
+   "p": 0.02166506304421123,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_ftn_plays",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.14245795039055206,
+   "p": 0.02173674559518446,
+   "n": 259
+  },
+  {
+   "feature": "matchup_adot",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.09189388830491729,
+   "p": 0.02175531728226643,
+   "n": 623
+  },
+  {
+   "feature": "off_diff_early_down_pass_rate",
+   "target": "margin_error",
+   "split": "early season",
+   "r": -0.09931752678777284,
+   "p": 0.021913801004893152,
+   "n": 532
+  },
+  {
+   "feature": "def_diff_third_down_success",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.08757669704166772,
+   "p": 0.021947846500397272,
+   "n": 684
+  },
+  {
+   "feature": "off_diff_no_huddle_rate",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.08500599968317502,
+   "p": 0.022319867615506084,
+   "n": 722
+  },
+  {
+   "feature": "off_diff_early_down_pass_rate",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.08498398625119626,
+   "p": 0.022354764012111783,
+   "n": 722
+  },
+  {
+   "feature": "def_diff_series_success",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.11266331565501815,
+   "p": 0.022454681778856234,
+   "n": 410
+  },
+  {
+   "feature": "off_diff_cover3_rate",
+   "target": "total_error",
+   "split": "all",
+   "r": -0.06252743160702334,
+   "p": 0.02246317274428833,
+   "n": 1332
+  },
+  {
+   "feature": "matchup_adot",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.08616326493503042,
+   "p": 0.02258219380660842,
+   "n": 700
+  },
+  {
+   "feature": "def_diff_dropback_epa",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.05688282735060677,
+   "p": 0.022613244917219166,
+   "n": 1606
+  },
+  {
+   "feature": "matchup_out_of_pocket_rate",
+   "target": "total_over",
+   "split": "divisional",
+   "r": -0.14106678344780085,
+   "p": 0.022806820748815237,
+   "n": 260
+  },
+  {
+   "feature": "off_diff_ftn_no_huddle_rate",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": -0.1399411206708514,
+   "p": 0.023123484331135424,
+   "n": 263
+  },
+  {
+   "feature": "matchup_play_action_rate",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": 0.13981987293670176,
+   "p": 0.023244365544289103,
+   "n": 263
+  },
+  {
+   "feature": "off_diff_redzone_epa",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.11302926903275644,
+   "p": 0.023889189821944434,
+   "n": 399
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.09248665709576392,
+   "p": 0.024143375779965393,
+   "n": 594
+  },
+  {
+   "feature": "matchup_screen_rate",
+   "target": "margin_error",
+   "split": "late season",
+   "r": 0.12957081154477618,
+   "p": 0.024249388194498955,
+   "n": 302
+  },
+  {
+   "feature": "matchup_epa_play",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.09424395477269092,
+   "p": 0.024273137012265744,
+   "n": 571
+  },
+  {
+   "feature": "def_diff_ftn_plays",
+   "target": "total_over",
+   "split": "all",
+   "r": 0.0861124807292092,
+   "p": 0.024273736186591233,
+   "n": 684
+  },
+  {
+   "feature": "matchup_explosive_pass_rate",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.0901303737149489,
+   "p": 0.024427688779379952,
+   "n": 623
+  },
+  {
+   "feature": "matchup_dropback_epa",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.09413295437370245,
+   "p": 0.024442021701690075,
+   "n": 571
+  },
+  {
+   "feature": "matchup_early_down_epa",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.08897365569981155,
+   "p": 0.025031352487624448,
+   "n": 634
+  },
+  {
+   "feature": "off_diff_third_down_dist",
+   "target": "ats_cover",
+   "split": "fav 3.5-7",
+   "r": 0.08955826468192811,
+   "p": 0.025118386600071485,
+   "n": 625
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.10807168944827353,
+   "p": 0.025135109278962453,
+   "n": 429
+  },
+  {
+   "feature": "def_diff_drives",
+   "target": "ats_cover",
+   "split": "total>=48",
+   "r": -0.10705449010248055,
+   "p": 0.025168310568372432,
+   "n": 437
+  },
+  {
+   "feature": "matchup_redzone_epa",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.08764104773569108,
+   "p": 0.025192341858064182,
+   "n": 652
+  },
+  {
+   "feature": "matchup_screen_rate",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": 0.13771772239245592,
+   "p": 0.025428349690765017,
+   "n": 263
+  },
+  {
+   "feature": "matchup_cover1_rate",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": -0.0994388678941878,
+   "p": 0.02554083156269349,
+   "n": 504
+  },
+  {
+   "feature": "off_diff_drives",
+   "target": "total_over",
+   "split": "fav>7",
+   "r": -0.10973270046679863,
+   "p": 0.02568768330675164,
+   "n": 413
+  },
+  {
+   "feature": "matchup_early_down_epa",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.09141416738824804,
+   "p": 0.025844201489881424,
+   "n": 594
+  },
+  {
+   "feature": "matchup_pressure_rate",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": -0.08840169031807327,
+   "p": 0.02586714527119205,
+   "n": 635
+  },
+  {
+   "feature": "matchup_adot",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.08842734044628607,
+   "p": 0.02594149843733451,
+   "n": 634
+  },
+  {
+   "feature": "off_diff_ftn_no_huddle_rate",
+   "target": "total_over",
+   "split": "all",
+   "r": 0.0850798213136916,
+   "p": 0.026039541463142468,
+   "n": 684
+  },
+  {
+   "feature": "def_diff_redzone_epa",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.08739809452124431,
+   "p": 0.026060175150787845,
+   "n": 648
+  },
+  {
+   "feature": "matchup_time_to_throw",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.05481639759049695,
+   "p": 0.026138091372335026,
+   "n": 1646
+  },
+  {
+   "feature": "def_diff_success_rate",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.10883429053924198,
+   "p": 0.02619852913238918,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_dropback_epa",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.08394871779761923,
+   "p": 0.02631452560204184,
+   "n": 700
+  },
+  {
+   "feature": "matchup_cover3_rate",
+   "target": "total_over",
+   "split": "divisional",
+   "r": -0.09861835259573316,
+   "p": 0.026637815313616198,
+   "n": 505
+  },
+  {
+   "feature": "off_diff_trick_rate",
+   "target": "margin_error",
+   "split": "all",
+   "r": 0.08436564772285599,
+   "p": 0.026764427674551783,
+   "n": 689
+  },
+  {
+   "feature": "off_diff_redzone_success",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.08472382222738072,
+   "p": 0.026785049122035165,
+   "n": 683
+  },
+  {
+   "feature": "off_diff_cpoe",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.10482003317017459,
+   "p": 0.02680538466860205,
+   "n": 446
+  },
+  {
+   "feature": "off_diff_time_to_throw",
+   "target": "total_error",
+   "split": "fav<=3",
+   "r": -0.09058638192979646,
+   "p": 0.027226643267701744,
+   "n": 594
+  },
+  {
+   "feature": "def_diff_epa_play",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.05436928186791233,
+   "p": 0.027385654598847342,
+   "n": 1646
+  },
+  {
+   "feature": "matchup_cpoe",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.08429041180320437,
+   "p": 0.02746305448907549,
+   "n": 684
+  },
+  {
+   "feature": "def_diff_pers_11_rate",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": 0.08227897171174793,
+   "p": 0.027556731282893265,
+   "n": 717
+  },
+  {
+   "feature": "def_diff_rush_epa",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.08412853757541795,
+   "p": 0.027763085502399587,
+   "n": 684
+  },
+  {
+   "feature": "matchup_dropback_epa",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.05483405336966539,
+   "p": 0.027976068307627333,
+   "n": 1606
+  },
+  {
+   "feature": "matchup_blitz_rate",
+   "target": "total_error",
+   "split": "total<=44",
+   "r": -0.08174980480218279,
+   "p": 0.028023555712400672,
+   "n": 722
+  },
+  {
+   "feature": "off_diff_ftn_no_huddle_rate",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.12607998204325352,
+   "p": 0.028394672012780786,
+   "n": 302
+  },
+  {
+   "feature": "off_diff_pers_2rb_rate",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": -0.0868984734251999,
+   "p": 0.02851570404442949,
+   "n": 635
+  },
+  {
+   "feature": "def_diff_explosive_rush_rate",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.08363675635070805,
+   "p": 0.028691939844102565,
+   "n": 684
+  },
+  {
+   "feature": "def_diff_early_down_success",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.10782449955196163,
+   "p": 0.028979391890455952,
+   "n": 410
+  },
+  {
+   "feature": "matchup_motion_rate",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": 0.17305409208551054,
+   "p": 0.029005049256015436,
+   "n": 159
+  },
+  {
+   "feature": "def_diff_pers_2rb_rate",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": -0.08148948049738514,
+   "p": 0.029087289354046586,
+   "n": 717
+  },
+  {
+   "feature": "def_diff_early_down_epa",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.08947470003042535,
+   "p": 0.029182928674648778,
+   "n": 594
+  },
+  {
+   "feature": "def_diff_ftn_plays",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": 0.1349464239569812,
+   "p": 0.0291935018183489,
+   "n": 261
+  },
+  {
+   "feature": "def_diff_time_to_throw",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.054264874382908855,
+   "p": 0.029647709095461883,
+   "n": 1606
+  },
+  {
+   "feature": "off_diff_third_down_success",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.08307050737405221,
+   "p": 0.029794376426363733,
+   "n": 684
+  },
+  {
+   "feature": "matchup_trick_rate",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": 0.191139855637931,
+   "p": 0.029836328699558656,
+   "n": 129
+  },
+  {
+   "feature": "matchup_drives",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.10281166616021571,
+   "p": 0.029885212474749956,
+   "n": 446
+  },
+  {
+   "feature": "matchup_rpo_rate",
+   "target": "total_error",
+   "split": "late season",
+   "r": -0.12488778751338867,
+   "p": 0.02994287235691706,
+   "n": 302
+  },
+  {
+   "feature": "def_diff_scramble_rate",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": -0.10274600917312883,
+   "p": 0.0299908097189987,
+   "n": 446
+  },
+  {
+   "feature": "off_diff_trick_rate",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": 0.13393305481672788,
+   "p": 0.030122394807030606,
+   "n": 262
+  },
+  {
+   "feature": "off_diff_plays",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.05407573091242955,
+   "p": 0.030221880382396593,
+   "n": 1606
+  },
+  {
+   "feature": "off_diff_part_plays",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.054073956137175805,
+   "p": 0.030227312835632292,
+   "n": 1606
+  },
+  {
+   "feature": "def_diff_yac",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.08599197149157635,
+   "p": 0.030353869297015112,
+   "n": 634
+  },
+  {
+   "feature": "off_diff_pers_2rb_rate",
+   "target": "total_over",
+   "split": "all",
+   "r": 0.05356908144900316,
+   "p": 0.030553670076368222,
+   "n": 1630
+  },
+  {
+   "feature": "matchup_early_down_epa",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.0866084892705319,
+   "p": 0.03062199449714753,
+   "n": 623
+  },
+  {
+   "feature": "matchup_yac",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": 0.1029438053305316,
+   "p": 0.030800241279249185,
+   "n": 440
+  },
+  {
+   "feature": "off_diff_early_down_pass_rate",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.09028400534775313,
+   "p": 0.030959621840422002,
+   "n": 571
+  },
+  {
+   "feature": "def_diff_qb_hit_rate",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": 0.09021892305542076,
+   "p": 0.03108152019706223,
+   "n": 571
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.10260421562681592,
+   "p": 0.031360416629303334,
+   "n": 440
+  },
+  {
+   "feature": "def_diff_early_down_epa",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.08615093309990494,
+   "p": 0.03151791738013987,
+   "n": 623
+  },
+  {
+   "feature": "def_diff_explosive_rush_rate",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.08093681047600809,
+   "p": 0.03223555789262722,
+   "n": 700
+  },
+  {
+   "feature": "matchup_yac",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.08504171601249086,
+   "p": 0.032242134738785344,
+   "n": 634
+  },
+  {
+   "feature": "matchup_drives",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": 0.10475527028438793,
+   "p": 0.03241115345407364,
+   "n": 417
+  },
+  {
+   "feature": "off_diff_cover3_rate",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": 0.09787890558194678,
+   "p": 0.03253142744195969,
+   "n": 477
+  },
+  {
+   "feature": "def_diff_sack_rate",
+   "target": "total_over",
+   "split": "early season",
+   "r": 0.09307387915506936,
+   "p": 0.032618915606274834,
+   "n": 527
+  },
+  {
+   "feature": "matchup_time_to_throw",
+   "target": "ats_cover",
+   "split": "total>=48",
+   "r": -0.10216889257740965,
+   "p": 0.03268730917072027,
+   "n": 437
+  },
+  {
+   "feature": "matchup_redzone_epa",
+   "target": "total_over",
+   "split": "late season",
+   "r": 0.08366572516267973,
+   "p": 0.03277963094385106,
+   "n": 651
+  },
+  {
+   "feature": "off_diff_dropback_epa",
+   "target": "total_error",
+   "split": "early season",
+   "r": -0.09251069814420243,
+   "p": 0.03285528006344163,
+   "n": 532
+  },
+  {
+   "feature": "matchup_wpa_play",
+   "target": "total_over",
+   "split": "late season",
+   "r": 0.0809357429332889,
+   "p": 0.032862901073591466,
+   "n": 695
+  },
+  {
+   "feature": "def_diff_sack_rate",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": 0.08145439104338353,
+   "p": 0.03314258371740442,
+   "n": 684
+  },
+  {
+   "feature": "matchup_contested_rate",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": 0.11255108696985254,
+   "p": 0.033200671656560266,
+   "n": 358
+  },
+  {
+   "feature": "def_diff_ftn_plays",
+   "target": "total_error",
+   "split": "divisional",
+   "r": 0.13141750168416835,
+   "p": 0.033397837096530214,
+   "n": 262
+  },
+  {
+   "feature": "off_diff_rpo_rate",
+   "target": "total_error",
+   "split": "fav>7",
+   "r": -0.1686782854578615,
+   "p": 0.03341008342191998,
+   "n": 159
+  },
+  {
+   "feature": "matchup_third_down_success",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": -0.10071547696013557,
+   "p": 0.03341783715800095,
+   "n": 446
+  },
+  {
+   "feature": "matchup_epa_play",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.052969635677342336,
+   "p": 0.03377416299977498,
+   "n": 1606
+  },
+  {
+   "feature": "off_diff_pers_2rb_rate",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": 0.1046253530584288,
+   "p": 0.03413361012440341,
+   "n": 410
+  },
+  {
+   "feature": "matchup_plays",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.052067127636633806,
+   "p": 0.03465250519383378,
+   "n": 1646
+  },
+  {
+   "feature": "matchup_adot",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.05205687314092016,
+   "p": 0.034688239476115657,
+   "n": 1646
+  },
+  {
+   "feature": "matchup_early_down_success",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.07975640001100538,
+   "p": 0.0348487793575758,
+   "n": 700
+  },
+  {
+   "feature": "matchup_screen_rate",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": -0.13061737855873504,
+   "p": 0.03485139612364163,
+   "n": 261
+  },
+  {
+   "feature": "matchup_part_plays",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.05192526134663041,
+   "p": 0.035149670643744635,
+   "n": 1646
+  },
+  {
+   "feature": "def_diff_epa_play",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.10403543945340427,
+   "p": 0.03516460968941626,
+   "n": 410
+  },
+  {
+   "feature": "def_diff_third_down_success",
+   "target": "total_error",
+   "split": "fav<=3",
+   "r": -0.08634219884393247,
+   "p": 0.03535570319799253,
+   "n": 594
+  },
+  {
+   "feature": "matchup_contested_rate",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": 0.18526320406898145,
+   "p": 0.03538990702927536,
+   "n": 129
+  },
+  {
+   "feature": "off_diff_contested_rate",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": 0.13017263175849583,
+   "p": 0.03548207092433664,
+   "n": 261
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": 0.10008945582752055,
+   "p": 0.0357857305008531,
+   "n": 440
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.10269592151128286,
+   "p": 0.03599839930653714,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_pers_12_rate",
+   "target": "margin_error",
+   "split": "early season",
+   "r": -0.09085057461599672,
+   "p": 0.0361407062323138,
+   "n": 532
+  },
+  {
+   "feature": "matchup_explosive_pass_rate",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.07914330962708688,
+   "p": 0.03627581087612475,
+   "n": 700
+  },
+  {
+   "feature": "off_diff_pers_12_rate",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": -0.08347950482412331,
+   "p": 0.036301979395521045,
+   "n": 629
+  },
+  {
+   "feature": "def_diff_contested_rate",
+   "target": "total_over",
+   "split": "late season",
+   "r": 0.12038871053154594,
+   "p": 0.036450964625404314,
+   "n": 302
+  },
+  {
+   "feature": "def_diff_drives",
+   "target": "total_error",
+   "split": "fav<=3",
+   "r": 0.0858209663635206,
+   "p": 0.036483733101783544,
+   "n": 594
+  },
+  {
+   "feature": "off_diff_part_plays",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.08733909338674288,
+   "p": 0.03690188518424309,
+   "n": 571
+  },
+  {
+   "feature": "off_diff_plays",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.08733909338674288,
+   "p": 0.03690188518424309,
+   "n": 571
+  },
+  {
+   "feature": "def_diff_yac",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": -0.07791346908566632,
+   "p": 0.036966241848848336,
+   "n": 717
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.09725658511339659,
+   "p": 0.03700570696954575,
+   "n": 460
+  },
+  {
+   "feature": "matchup_series_success",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.05202434704980394,
+   "p": 0.03708690423918659,
+   "n": 1606
+  },
+  {
+   "feature": "def_diff_cover2_rate",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.08840713936603828,
+   "p": 0.03712198936915012,
+   "n": 556
+  },
+  {
+   "feature": "off_diff_shotgun_rate",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.051377377766564335,
+   "p": 0.03712719337447634,
+   "n": 1646
+  },
+  {
+   "feature": "matchup_int_worthy_rate",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": 0.18351935816187548,
+   "p": 0.03719610733536416,
+   "n": 129
+  },
+  {
+   "feature": "def_diff_early_down_epa",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.07752361825067579,
+   "p": 0.03725930881522266,
+   "n": 722
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.05194895879911419,
+   "p": 0.03736260861259022,
+   "n": 1606
+  },
+  {
+   "feature": "def_diff_cover3_rate",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": 0.11274759891348397,
+   "p": 0.037938151202685955,
+   "n": 339
+  },
+  {
+   "feature": "matchup_dropback_epa",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.07839566889690766,
+   "p": 0.03794502884360895,
+   "n": 701
+  },
+  {
+   "feature": "def_diff_redzone_epa",
+   "target": "total_over",
+   "split": "fav<=3",
+   "r": 0.08826720620176844,
+   "p": 0.03811990496025186,
+   "n": 552
+  },
+  {
+   "feature": "off_diff_early_down_success",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.10242022902002586,
+   "p": 0.03812380740706134,
+   "n": 410
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.09546875019793695,
+   "p": 0.03830145580362032,
+   "n": 471
+  },
+  {
+   "feature": "def_diff_dropback_epa",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.05105889916030349,
+   "p": 0.038319610559262696,
+   "n": 1646
+  },
+  {
+   "feature": "def_diff_shotgun_rate",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.08296719625055686,
+   "p": 0.038393725893162145,
+   "n": 623
+  },
+  {
+   "feature": "off_diff_series_success",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.10125134253972735,
+   "p": 0.03871118567350229,
+   "n": 417
+  },
+  {
+   "feature": "matchup_part_plays",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": 0.08237457620185945,
+   "p": 0.03885756902890658,
+   "n": 629
+  },
+  {
+   "feature": "matchup_plays",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": 0.08237457620185945,
+   "p": 0.03885756902890658,
+   "n": 629
+  },
+  {
+   "feature": "matchup_proe",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.1011536627757316,
+   "p": 0.038900698731344496,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_play_action_rate",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": 0.1629155383855376,
+   "p": 0.04006200916775038,
+   "n": 159
+  },
+  {
+   "feature": "matchup_drives",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": 0.07753855835105745,
+   "p": 0.040105082779249956,
+   "n": 701
+  },
+  {
+   "feature": "def_diff_qb_hit_rate",
+   "target": "ats_cover",
+   "split": "all",
+   "r": 0.05121760412056811,
+   "p": 0.04012887724359526,
+   "n": 1606
+  },
+  {
+   "feature": "def_diff_cover3_rate",
+   "target": "total_error",
+   "split": "all",
+   "r": -0.05623944684168408,
+   "p": 0.04013079224987237,
+   "n": 1332
+  },
+  {
+   "feature": "def_diff_ftn_plays",
+   "target": "total_over",
+   "split": "divisional",
+   "r": 0.12730469814141399,
+   "p": 0.040171311910765395,
+   "n": 260
+  },
+  {
+   "feature": "def_diff_rush_epa",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.07747942980834527,
+   "p": 0.04040117874179705,
+   "n": 700
+  },
+  {
+   "feature": "def_diff_cover1_rate",
+   "target": "total_error",
+   "split": "fav>7",
+   "r": 0.11018076872352307,
+   "p": 0.04047243587565941,
+   "n": 346
+  },
+  {
+   "feature": "def_diff_play_action_rate",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.12795957120340218,
+   "p": 0.04070321701360147,
+   "n": 256
+  },
+  {
+   "feature": "off_diff_throwaway_rate",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": -0.18017025180674442,
+   "p": 0.04088190451989471,
+   "n": 129
+  },
+  {
+   "feature": "matchup_redzone_epa",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.08089008365960562,
+   "p": 0.0409103799538868,
+   "n": 639
+  },
+  {
+   "feature": "off_diff_contested_rate",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": 0.1078725650627767,
+   "p": 0.04130910982528091,
+   "n": 358
+  },
+  {
+   "feature": "def_diff_cover3_rate",
+   "target": "total_over",
+   "split": "early season",
+   "r": -0.09877789139359516,
+   "p": 0.04152917251150878,
+   "n": 426
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.09652816546617368,
+   "p": 0.04154707640134969,
+   "n": 446
+  },
+  {
+   "feature": "def_diff_sack_rate",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": 0.08529088712368296,
+   "p": 0.04158323775566641,
+   "n": 571
+  },
+  {
+   "feature": "matchup_epa_play",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.08163747934481194,
+   "p": 0.041620901513075736,
+   "n": 623
+  },
+  {
+   "feature": "def_diff_drives",
+   "target": "total_over",
+   "split": "fav<=3",
+   "r": 0.08401325778455636,
+   "p": 0.041669009621450925,
+   "n": 588
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.07693366782832145,
+   "p": 0.041691343055476615,
+   "n": 701
+  },
+  {
+   "feature": "def_diff_pressure_rate",
+   "target": "margin_error",
+   "split": "early season",
+   "r": -0.08825993455381967,
+   "p": 0.04182327839439526,
+   "n": 532
+  },
+  {
+   "feature": "matchup_proe",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.10052731638808253,
+   "p": 0.041857340849045466,
+   "n": 410
+  },
+  {
+   "feature": "matchup_cover3_rate",
+   "target": "total_error",
+   "split": "late season",
+   "r": -0.08510820671015866,
+   "p": 0.042024093535064866,
+   "n": 571
+  },
+  {
+   "feature": "matchup_xpass",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": 0.0777126244718167,
+   "p": 0.0421451323455968,
+   "n": 684
+  },
+  {
+   "feature": "matchup_explosive_rush_rate",
+   "target": "total_error",
+   "split": "early season",
+   "r": 0.08810409965363802,
+   "p": 0.042187882357778594,
+   "n": 532
+  },
+  {
+   "feature": "def_diff_cpoe",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": 0.08894121190677111,
+   "p": 0.042195289956838966,
+   "n": 522
+  },
+  {
+   "feature": "matchup_time_to_throw",
+   "target": "ats_cover",
+   "split": "fav 3.5-7",
+   "r": -0.081260681732599,
+   "p": 0.04224341927945763,
+   "n": 625
+  },
+  {
+   "feature": "off_diff_ftn_no_huddle_rate",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.078254532921331,
+   "p": 0.042385178937591306,
+   "n": 673
+  },
+  {
+   "feature": "def_diff_time_to_throw",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.05000907036868949,
+   "p": 0.04248306217248987,
+   "n": 1646
+  },
+  {
+   "feature": "def_diff_time_to_throw",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.08057183716672502,
+   "p": 0.04252573430432416,
+   "n": 634
+  },
+  {
+   "feature": "off_diff_shotgun_rate",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": -0.080402267460144,
+   "p": 0.04280023567454361,
+   "n": 635
+  },
+  {
+   "feature": "def_diff_cover3_rate",
+   "target": "total_over",
+   "split": "fav<=3",
+   "r": -0.09328270745991504,
+   "p": 0.042980686987371675,
+   "n": 471
+  },
+  {
+   "feature": "def_diff_redzone_success",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.07939599214706614,
+   "p": 0.04331485137303881,
+   "n": 648
+  },
+  {
+   "feature": "matchup_motion_rate",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": -0.1362960951653049,
+   "p": 0.043348152660118044,
+   "n": 220
+  },
+  {
+   "feature": "off_diff_proe",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.09893575937273562,
+   "p": 0.04341951461710036,
+   "n": 417
+  },
+  {
+   "feature": "off_diff_throwaway_rate",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.10645888726155771,
+   "p": 0.04347344157574562,
+   "n": 360
+  },
+  {
+   "feature": "matchup_time_to_throw",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.09562334074523765,
+   "p": 0.0435073063948197,
+   "n": 446
+  },
+  {
+   "feature": "matchup_wpa_play",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.08006481766131147,
+   "p": 0.043850255125158055,
+   "n": 634
+  },
+  {
+   "feature": "def_diff_time_to_throw",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": 0.0803195849136432,
+   "p": 0.044016501619567716,
+   "n": 629
+  },
+  {
+   "feature": "def_diff_third_down_success",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": -0.0953837120069448,
+   "p": 0.04403928042492522,
+   "n": 446
+  },
+  {
+   "feature": "matchup_pressure_rate",
+   "target": "ats_cover",
+   "split": "fav 3.5-7",
+   "r": -0.08045743736288638,
+   "p": 0.04433079921366523,
+   "n": 625
+  },
+  {
+   "feature": "matchup_adot",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": -0.07981181668336072,
+   "p": 0.04435561063466187,
+   "n": 635
+  },
+  {
+   "feature": "def_diff_redzone_success",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.05069797913645045,
+   "p": 0.04444168955248129,
+   "n": 1572
+  },
+  {
+   "feature": "matchup_cover3_rate",
+   "target": "total_error",
+   "split": "early season",
+   "r": -0.09681033881634124,
+   "p": 0.044524379312900875,
+   "n": 431
+  },
+  {
+   "feature": "off_diff_trick_rate",
+   "target": "ats_cover",
+   "split": "all",
+   "r": 0.07744911587905068,
+   "p": 0.04456434335380033,
+   "n": 673
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.102054318757396,
+   "p": 0.04476727423964011,
+   "n": 387
+  },
+  {
+   "feature": "def_diff_scramble_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.07947876501619193,
+   "p": 0.04525372679664308,
+   "n": 635
+  },
+  {
+   "feature": "off_diff_pers_11_rate",
+   "target": "margin_error",
+   "split": "early season",
+   "r": -0.08673584857878838,
+   "p": 0.04550567428583108,
+   "n": 532
+  },
+  {
+   "feature": "off_diff_pass_rushers",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.07557211444485984,
+   "p": 0.045611344707410684,
+   "n": 700
+  },
+  {
+   "feature": "off_diff_cover1_rate",
+   "target": "margin_error",
+   "split": "early season",
+   "r": -0.0962101263777302,
+   "p": 0.045870148377046505,
+   "n": 431
+  },
+  {
+   "feature": "def_diff_xpass",
+   "target": "total_error",
+   "split": "all",
+   "r": 0.049164525405143426,
+   "p": 0.04610401959398058,
+   "n": 1646
+  },
+  {
+   "feature": "off_diff_epa_play",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.09837087504761938,
+   "p": 0.046481263735506984,
+   "n": 410
+  },
+  {
+   "feature": "def_diff_epa_play",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.08331645332988762,
+   "p": 0.04656075425755546,
+   "n": 571
+  },
+  {
+   "feature": "off_diff_pers_2rb_rate",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": 0.09426863296362133,
+   "p": 0.046587179906909526,
+   "n": 446
+  },
+  {
+   "feature": "def_diff_play_action_rate",
+   "target": "total_over",
+   "split": "fav<=3",
+   "r": -0.12232673349991001,
+   "p": 0.046591257959538,
+   "n": 265
+  },
+  {
+   "feature": "off_diff_pers_12_rate",
+   "target": "margin_error",
+   "split": "early season",
+   "r": 0.086291100795736,
+   "p": 0.046630214062965525,
+   "n": 532
+  },
+  {
+   "feature": "matchup_explosive_pass_rate",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.049012069520043354,
+   "p": 0.04678458124097418,
+   "n": 1646
+  },
+  {
+   "feature": "off_diff_pers_11_rate",
+   "target": "total_over",
+   "split": "fav>7",
+   "r": -0.09783467905856902,
+   "p": 0.04688270740844924,
+   "n": 413
+  },
+  {
+   "feature": "off_diff_early_down_epa",
+   "target": "total_error",
+   "split": "late season",
+   "r": -0.07508407195265993,
+   "p": 0.04703175413579541,
+   "n": 700
+  },
+  {
+   "feature": "def_diff_early_down_success",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.08149054780509239,
+   "p": 0.04709130661476735,
+   "n": 594
+  },
+  {
+   "feature": "matchup_early_down_success",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.07588961824086315,
+   "p": 0.04723034043362162,
+   "n": 684
+  },
+  {
+   "feature": "def_diff_part_plays",
+   "target": "total_over",
+   "split": "all",
+   "r": 0.049150928097129655,
+   "p": 0.04723856585188124,
+   "n": 1630
+  },
+  {
+   "feature": "matchup_drives",
+   "target": "margin_error",
+   "split": "late season",
+   "r": 0.07501002378198587,
+   "p": 0.04725047390861992,
+   "n": 700
+  },
+  {
+   "feature": "off_diff_pass_rushers",
+   "target": "total_error",
+   "split": "early season",
+   "r": 0.08600554021770672,
+   "p": 0.0473644630266401,
+   "n": 532
+  },
+  {
+   "feature": "off_diff_ftn_no_huddle_rate",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.11537459095222934,
+   "p": 0.04766530893780274,
+   "n": 295
+  },
+  {
+   "feature": "def_diff_plays",
+   "target": "total_over",
+   "split": "all",
+   "r": 0.04905230433219706,
+   "p": 0.04768473668907203,
+   "n": 1630
+  },
+  {
+   "feature": "def_diff_pers_11_rate",
+   "target": "margin_error",
+   "split": "early season",
+   "r": 0.0858611980825161,
+   "p": 0.047739273394531656,
+   "n": 532
+  },
+  {
+   "feature": "def_diff_epa_play",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.09646249329092207,
+   "p": 0.04897108683170748,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_adot",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.07884402903899229,
+   "p": 0.049150509440031964,
+   "n": 623
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.09812915585772947,
+   "p": 0.04924589894540765,
+   "n": 402
+  },
+  {
+   "feature": "def_diff_shotgun_rate",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.04907467427049081,
+   "p": 0.049251730330412524,
+   "n": 1606
+  },
+  {
+   "feature": "matchup_ngs_air_yards",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.09161671066496335,
+   "p": 0.049524399098657135,
+   "n": 460
+  },
+  {
+   "feature": "matchup_cover3_rate",
+   "target": "total_error",
+   "split": "divisional",
+   "r": -0.08682225008124547,
+   "p": 0.04978419741135598,
+   "n": 511
+  },
+  {
+   "feature": "def_diff_explosive_rush_rate",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.04834554053411798,
+   "p": 0.04985990003756191,
+   "n": 1646
+  },
+  {
+   "feature": "matchup_man_rate",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": -0.09514052776520367,
+   "p": 0.049952942899423425,
+   "n": 425
+  },
+  {
+   "feature": "matchup_zone_rate",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": 0.09514052776520364,
+   "p": 0.04995294289942365,
+   "n": 425
+  },
+  {
+   "feature": "off_diff_contested_rate",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": 0.1571664049714341,
+   "p": 0.04996198214024128,
+   "n": 156
+  },
+  {
+   "feature": "matchup_rush_epa",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.07405328879436004,
+   "p": 0.05015396404931716,
+   "n": 700
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "ats_cover",
+   "split": "fav 3.5-7",
+   "r": -0.07836038496441756,
+   "p": 0.050192806020313174,
+   "n": 625
+  },
+  {
+   "feature": "off_diff_explosive_pass_rate",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.09274058734677386,
+   "p": 0.05027828560236047,
+   "n": 446
+  },
+  {
+   "feature": "def_diff_rpo_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.12080192782197906,
+   "p": 0.050296750368254095,
+   "n": 263
+  },
+  {
+   "feature": "off_diff_drives",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.09272498305509841,
+   "p": 0.05031720230077097,
+   "n": 446
+  },
+  {
+   "feature": "off_diff_motion_rate",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": 0.15536941988523742,
+   "p": 0.05041706179296135,
+   "n": 159
+  },
+  {
+   "feature": "off_diff_shotgun_rate",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.0781306489118022,
+   "p": 0.05124640890487586,
+   "n": 623
+  },
+  {
+   "feature": "matchup_contested_rate",
+   "target": "total_error",
+   "split": "total<=44",
+   "r": 0.10277160966659535,
+   "p": 0.05133215612303399,
+   "n": 360
+  },
+  {
+   "feature": "def_diff_ftn_no_huddle_rate",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.15605700460377264,
+   "p": 0.05162810619480207,
+   "n": 156
+  },
+  {
+   "feature": "off_diff_explosive_pass_rate",
+   "target": "total_error",
+   "split": "early season",
+   "r": -0.08435685042709337,
+   "p": 0.05179549837939135,
+   "n": 532
+  },
+  {
+   "feature": "def_diff_explosive_rush_rate",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.0723530489465053,
+   "p": 0.051957773798690265,
+   "n": 722
+  },
+  {
+   "feature": "off_diff_early_down_success",
+   "target": "total_error",
+   "split": "divisional",
+   "r": -0.07714029746990944,
+   "p": 0.05218559906839548,
+   "n": 634
+  },
+  {
+   "feature": "off_diff_dropback_epa",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.09585190365033558,
+   "p": 0.05241684057946716,
+   "n": 410
+  },
+  {
+   "feature": "matchup_adot",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.04838509479224481,
+   "p": 0.05253407000895849,
+   "n": 1606
+  },
+  {
+   "feature": "off_diff_shotgun_rate",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.0731819031998442,
+   "p": 0.05275684962170635,
+   "n": 701
+  },
+  {
+   "feature": "def_diff_ftn_plays",
+   "target": "total_over",
+   "split": "fav>7",
+   "r": 0.15433166288129407,
+   "p": 0.0527587414901729,
+   "n": 158
+  },
+  {
+   "feature": "matchup_early_down_epa",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.09483506974350907,
+   "p": 0.05293823811337561,
+   "n": 417
+  },
+  {
+   "feature": "matchup_throwaway_rate",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": -0.1713778934537151,
+   "p": 0.05297075489302783,
+   "n": 128
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.10330706425180922,
+   "p": 0.053104726324817,
+   "n": 351
+  },
+  {
+   "feature": "def_diff_shotgun_rate",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.09554073966684044,
+   "p": 0.05319200267172697,
+   "n": 410
+  },
+  {
+   "feature": "def_diff_ftn_no_huddle_rate",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.15354243479113688,
+   "p": 0.053232295286190334,
+   "n": 159
+  },
+  {
+   "feature": "off_diff_wpa_play",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.09471647175925443,
+   "p": 0.05323750227388735,
+   "n": 417
+  },
+  {
+   "feature": "matchup_epa_play",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.07301599484810078,
+   "p": 0.05329793489877144,
+   "n": 701
+  },
+  {
+   "feature": "off_diff_redzone_epa",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.07388914777380554,
+   "p": 0.053568280016973446,
+   "n": 683
+  },
+  {
+   "feature": "matchup_adot",
+   "target": "ats_cover",
+   "split": "fav 3.5-7",
+   "r": -0.0772034467155069,
+   "p": 0.053695169352450556,
+   "n": 625
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.08065170455921475,
+   "p": 0.05406243655058529,
+   "n": 571
+  },
+  {
+   "feature": "off_diff_cover3_rate",
+   "target": "margin_error",
+   "split": "all",
+   "r": 0.052789465983618854,
+   "p": 0.0540726031439267,
+   "n": 1332
+  },
+  {
+   "feature": "off_diff_ngs_air_yards",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.09065481855376106,
+   "p": 0.05407571703641745,
+   "n": 452
+  },
+  {
+   "feature": "def_diff_wpa_play",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.09514074983621322,
+   "p": 0.05420242019566901,
+   "n": 410
+  },
+  {
+   "feature": "def_diff_yac",
+   "target": "total_over",
+   "split": "all",
+   "r": -0.04764685866146896,
+   "p": 0.05443683175557412,
+   "n": 1630
+  },
+  {
+   "feature": "matchup_dropback_epa",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.0472483300520835,
+   "p": 0.055290312122721064,
+   "n": 1646
+  },
+  {
+   "feature": "off_diff_qb_hit_rate",
+   "target": "ats_cover",
+   "split": "fav<=3",
+   "r": -0.08024309647507748,
+   "p": 0.05529712377348539,
+   "n": 571
+  },
+  {
+   "feature": "def_diff_pers_2rb_rate",
+   "target": "total_over",
+   "split": "fav>7",
+   "r": -0.09436710845530506,
+   "p": 0.05530265754960384,
+   "n": 413
+  },
+  {
+   "feature": "off_diff_blitz_rate",
+   "target": "total_error",
+   "split": "late season",
+   "r": -0.07246112755592453,
+   "p": 0.055315798131877036,
+   "n": 700
+  },
+  {
+   "feature": "matchup_early_down_epa",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.07329872604701841,
+   "p": 0.05533473582548143,
+   "n": 684
+  },
+  {
+   "feature": "matchup_dropback_epa",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.0713162801914193,
+   "p": 0.05542378208758825,
+   "n": 722
+  },
+  {
+   "feature": "def_diff_contested_rate",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": 0.1180092882910846,
+   "p": 0.055908233852064004,
+   "n": 263
+  },
+  {
+   "feature": "off_diff_ftn_no_huddle_rate",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": 0.11836097465477126,
+   "p": 0.056118778360224164,
+   "n": 261
+  },
+  {
+   "feature": "def_diff_proe",
+   "target": "total_over",
+   "split": "divisional",
+   "r": -0.0762309440945779,
+   "p": 0.05620044286541881,
+   "n": 628
+  },
+  {
+   "feature": "off_diff_dropback_epa",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.09354055239926153,
+   "p": 0.056281560628112404,
+   "n": 417
+  },
+  {
+   "feature": "off_diff_third_down_success",
+   "target": "margin_error",
+   "split": "total>=48",
+   "r": -0.09042677822521651,
+   "p": 0.056329622366962706,
+   "n": 446
+  },
+  {
+   "feature": "matchup_scramble_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.07571284015730055,
+   "p": 0.056515295283824596,
+   "n": 635
+  },
+  {
+   "feature": "off_diff_drives",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": 0.0729062916989033,
+   "p": 0.056657654228428056,
+   "n": 684
+  },
+  {
+   "feature": "matchup_early_down_epa",
+   "target": "margin_error",
+   "split": "total<=44",
+   "r": -0.07095547668919366,
+   "p": 0.05667417451351486,
+   "n": 722
+  },
+  {
+   "feature": "def_diff_xpass",
+   "target": "total_error",
+   "split": "late season",
+   "r": 0.07203289639130972,
+   "p": 0.0567771472658718,
+   "n": 700
+  },
+  {
+   "feature": "def_diff_early_down_epa",
+   "target": "margin_error",
+   "split": "divisional",
+   "r": -0.07565737545525683,
+   "p": 0.05689322248477224,
+   "n": 634
+  },
+  {
+   "feature": "off_diff_shotgun_rate",
+   "target": "total_error",
+   "split": "fav>7",
+   "r": -0.09329401901249941,
+   "p": 0.056937705145870154,
+   "n": 417
+  },
+  {
+   "feature": "off_diff_pers_2rb_rate",
+   "target": "total_over",
+   "split": "late season",
+   "r": 0.07221204210857658,
+   "p": 0.057051704086595656,
+   "n": 695
+  },
+  {
+   "feature": "def_diff_explosive_pass_rate",
+   "target": "total_error",
+   "split": "all",
+   "r": -0.04690859862245593,
+   "p": 0.0570683945771977,
+   "n": 1646
+  },
+  {
+   "feature": "off_diff_int_worthy_rate",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": -0.1173026866573872,
+   "p": 0.057407308595797124,
+   "n": 263
+  },
+  {
+   "feature": "matchup_third_down_success",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.07175739391466769,
+   "p": 0.05755499916256146,
+   "n": 701
+  },
+  {
+   "feature": "def_diff_time_to_throw",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.07611778531705529,
+   "p": 0.05756568756947966,
+   "n": 623
+  },
+  {
+   "feature": "matchup_pressure_rate",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": -0.08993670159932303,
+   "p": 0.057685903007296035,
+   "n": 446
+  },
+  {
+   "feature": "off_diff_box_count",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": 0.08979641403142932,
+   "p": 0.058079085130123165,
+   "n": 446
+  },
+  {
+   "feature": "def_diff_yac",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": -0.07559567745627949,
+   "p": 0.0580899390905536,
+   "n": 629
+  },
+  {
+   "feature": "def_diff_plays",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.09275421099849424,
+   "p": 0.05839652770993031,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_part_plays",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.09265737453770186,
+   "p": 0.058661467620372054,
+   "n": 417
+  },
+  {
+   "feature": "off_diff_no_huddle_rate",
+   "target": "ats_cover",
+   "split": "fav 3.5-7",
+   "r": -0.07560498880439362,
+   "p": 0.05886663238607337,
+   "n": 625
+  },
+  {
+   "feature": "matchup_early_down_epa",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.09333873701170664,
+   "p": 0.058954115883824265,
+   "n": 410
+  },
+  {
+   "feature": "matchup_redzone_epa",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.04841289078682398,
+   "p": 0.05898069637930048,
+   "n": 1522
+  },
+  {
+   "feature": "matchup_early_down_success",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.0932137372194874,
+   "p": 0.05929610706744093,
+   "n": 410
+  },
+  {
+   "feature": "off_diff_pers_11_rate",
+   "target": "margin_error",
+   "split": "fav<=3",
+   "r": -0.07732201028447777,
+   "p": 0.05963322254039949,
+   "n": 594
+  },
+  {
+   "feature": "off_diff_contested_rate",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": 0.12710638779171615,
+   "p": 0.059757798848153465,
+   "n": 220
+  },
+  {
+   "feature": "matchup_cover1_rate",
+   "target": "ats_cover",
+   "split": "early season",
+   "r": -0.09136970219190643,
+   "p": 0.0598055608941801,
+   "n": 425
+  },
+  {
+   "feature": "off_diff_early_down_pass_rate",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.046935980339954664,
+   "p": 0.060029038401386625,
+   "n": 1606
+  },
+  {
+   "feature": "matchup_early_down_epa",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.0463405476336322,
+   "p": 0.06014746086147982,
+   "n": 1646
+  },
+  {
+   "feature": "off_diff_rpo_rate",
+   "target": "total_error",
+   "split": "late season",
+   "r": -0.10820313806491783,
+   "p": 0.0603318301026432,
+   "n": 302
+  },
+  {
+   "feature": "matchup_blitz_rate",
+   "target": "margin_error",
+   "split": "late season",
+   "r": -0.07102330796863153,
+   "p": 0.060349499691445985,
+   "n": 700
+  },
+  {
+   "feature": "matchup_pers_12_rate",
+   "target": "total_over",
+   "split": "divisional",
+   "r": 0.07495264616381644,
+   "p": 0.060471920189601125,
+   "n": 628
+  },
+  {
+   "feature": "def_diff_success_rate",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.07522886942239636,
+   "p": 0.060555180288272004,
+   "n": 623
+  },
+  {
+   "feature": "off_diff_contested_rate",
+   "target": "total_error",
+   "split": "total<=44",
+   "r": 0.098975148308693,
+   "p": 0.06062466638152708,
+   "n": 360
+  },
+  {
+   "feature": "def_diff_redzone_epa",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.04788441897120373,
+   "p": 0.060700942150676784,
+   "n": 1535
+  },
+  {
+   "feature": "def_diff_shotgun_rate",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": 0.08867965815196845,
+   "p": 0.0612887105360258,
+   "n": 446
+  },
+  {
+   "feature": "off_diff_plays",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.046119166099204335,
+   "p": 0.061384119753509214,
+   "n": 1646
+  },
+  {
+   "feature": "def_diff_play_action_rate",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": 0.11548656776275558,
+   "p": 0.06141296116939632,
+   "n": 263
+  },
+  {
+   "feature": "def_diff_early_down_epa",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": -0.09244821499288575,
+   "p": 0.06142643645420831,
+   "n": 410
+  },
+  {
+   "feature": "matchup_screen_rate",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": 0.1089981063352852,
+   "p": 0.0614852632915841,
+   "n": 295
+  },
+  {
+   "feature": "matchup_box_count",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": 0.08919916507763515,
+   "p": 0.06153422892502958,
+   "n": 440
+  },
+  {
+   "feature": "off_diff_pers_11_rate",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": -0.08919096894518375,
+   "p": 0.06155823279848094,
+   "n": 440
+  },
+  {
+   "feature": "off_diff_part_plays",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.04608469456338412,
+   "p": 0.06157856016910257,
+   "n": 1646
+  },
+  {
+   "feature": "off_diff_out_of_pocket_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.11532843261225156,
+   "p": 0.061772355413390656,
+   "n": 263
+  },
+  {
+   "feature": "off_diff_adot",
+   "target": "margin_error",
+   "split": "early season",
+   "r": -0.08094395821221406,
+   "p": 0.062070328173677414,
+   "n": 532
+  },
+  {
+   "feature": "matchup_wpa_play",
+   "target": "ats_cover",
+   "split": "all",
+   "r": -0.04654648571962366,
+   "p": 0.06218816959003637,
+   "n": 1606
+  },
+  {
+   "feature": "matchup_series_success",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.07046136039076625,
+   "p": 0.062229462061610175,
+   "n": 701
+  },
+  {
+   "feature": "def_diff_trick_rate",
+   "target": "total_over",
+   "split": "fav 3.5-7",
+   "r": 0.11542158141560882,
+   "p": 0.06256864910253035,
+   "n": 261
+  },
+  {
+   "feature": "matchup_explosive_rush_rate",
+   "target": "total_over",
+   "split": "early season",
+   "r": 0.08115998600442748,
+   "p": 0.06261262652245647,
+   "n": 527
+  },
+  {
+   "feature": "def_diff_early_down_epa",
+   "target": "total_over",
+   "split": "fav<=3",
+   "r": 0.07677852724909333,
+   "p": 0.06278841790950285,
+   "n": 588
+  },
+  {
+   "feature": "off_diff_third_down_dist",
+   "target": "margin_error",
+   "split": "fav 3.5-7",
+   "r": 0.07383859641046323,
+   "p": 0.06293390479859862,
+   "n": 635
+  },
+  {
+   "feature": "off_diff_blitz_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.07380675347402546,
+   "p": 0.06304794120903501,
+   "n": 635
+  },
+  {
+   "feature": "off_diff_cover3_rate",
+   "target": "total_over",
+   "split": "divisional",
+   "r": -0.08276214333864036,
+   "p": 0.06308859967200187,
+   "n": 505
+  },
+  {
+   "feature": "matchup_int_worthy_rate",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": -0.09831454236088506,
+   "p": 0.0631135086807364,
+   "n": 358
+  },
+  {
+   "feature": "off_diff_yac",
+   "target": "ats_cover",
+   "split": "fav 3.5-7",
+   "r": 0.07437265454210752,
+   "p": 0.06312927176933192,
+   "n": 625
+  },
+  {
+   "feature": "off_diff_xpass",
+   "target": "total_over",
+   "split": "total<=44",
+   "r": -0.06938142769643366,
+   "p": 0.06332407674120244,
+   "n": 717
+  },
+  {
+   "feature": "def_diff_screen_rate",
+   "target": "total_error",
+   "split": "total<=44",
+   "r": -0.0979595361026159,
+   "p": 0.06333311225269678,
+   "n": 360
+  },
+  {
+   "feature": "off_diff_epa_play",
+   "target": "margin_error",
+   "split": "fav>7",
+   "r": -0.09099046363150948,
+   "p": 0.06337991050160041,
+   "n": 417
+  },
+  {
+   "feature": "def_diff_cover3_rate",
+   "target": "total_error",
+   "split": "fav 3.5-7",
+   "r": -0.08231211711404501,
+   "p": 0.06348720424066867,
+   "n": 509
+  },
+  {
+   "feature": "off_diff_proe",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": -0.08849216971993469,
+   "p": 0.06363334975469437,
+   "n": 440
+  },
+  {
+   "feature": "def_diff_epa_play",
+   "target": "ats_cover",
+   "split": "divisional",
+   "r": -0.07433443869536906,
+   "p": 0.06369152173979442,
+   "n": 623
+  },
+  {
+   "feature": "off_diff_ftn_box",
+   "target": "ats_cover",
+   "split": "total<=44",
+   "r": -0.09925084587898987,
+   "p": 0.06398697753888305,
+   "n": 349
+  },
+  {
+   "feature": "def_diff_ftn_box",
+   "target": "total_over",
+   "split": "total>=48",
+   "r": 0.16414924418069327,
+   "p": 0.06402587928001413,
+   "n": 128
+  },
+  {
+   "feature": "off_diff_pressure_rate",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": 0.09136549235375542,
+   "p": 0.06454678496441191,
+   "n": 410
+  },
+  {
+   "feature": "matchup_epa_play",
+   "target": "total_over",
+   "split": "late season",
+   "r": 0.07013849667340023,
+   "p": 0.0645892851891372,
+   "n": 695
+  },
+  {
+   "feature": "def_diff_drives",
+   "target": "ats_cover",
+   "split": "fav>7",
+   "r": 0.09134895004348591,
+   "p": 0.06459545028817693,
+   "n": 410
+  },
+  {
+   "feature": "def_diff_series_success",
+   "target": "margin_error",
+   "split": "all",
+   "r": -0.04555600691125468,
+   "p": 0.0646250146321874,
+   "n": 1646
+  },
+  {
+   "feature": "matchup_rush_epa",
+   "target": "ats_cover",
+   "split": "late season",
+   "r": -0.07067074025120244,
+   "p": 0.06470346198429011,
+   "n": 684
+  },
+  {
+   "feature": "off_diff_proe",
+   "target": "total_error",
+   "split": "fav<=3",
+   "r": -0.0757536224349397,
+   "p": 0.06501677799358196,
+   "n": 594
+  },
+  {
+   "feature": "matchup_yac",
+   "target": "total_error",
+   "split": "total>=48",
+   "r": 0.08743753554998147,
+   "p": 0.06502897440446387,
+   "n": 446
+  }
+ ]
+}

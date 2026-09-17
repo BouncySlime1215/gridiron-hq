@@ -606,7 +606,65 @@ failures it is a property of the venue rather than a forecast.
 
 ---
 
-## Standing after 24 tests
+### Tests 25+ — a REGISTERED FAMILY of 5,940 correlation tests with FDR control
+
+`scripts/model-lab/mass_test_harness.py`. 165 lagged features (advanced team-week differentials,
+off/def/matchup) × 4 targets (ATS cover, total over, margin error, total error) × 9 splits, on
+1,646 games 2016–2025. Enumerated mechanically in advance so nothing could be dropped for being
+inconvenient; every test recorded.
+
+```
+family size                5,940
+nominal p<0.05               393   (expected under a pure null: 297)
+Bonferroni threshold      8.42e-06 -> survivors 0
+Benjamini-Hochberg q=0.10          -> survivors 0
+```
+
+**Zero survivors.** Strongest single result was `matchup_redzone_epa -> margin_error [fav>7]` at
+r=−0.196, p=7.0e−05 — still 8× short of the Bonferroni bar.
+
+#### But the FAMILY carries a signal the individual tests do not
+
+The nominal hits are overwhelmingly **negative**, and a sign test is far more powerful than any one
+correlation. Run on the `all` split only (the nine splits are nine views of the same games and are
+heavily dependent; the 84 features are not — measured effective rank **39.7 entropy / 24.5
+participation**, mean |r| between features just 0.104):
+
+| target | negative | binomial p | mean r |
+|---|---|---|---:|
+| `margin_error` | 123/165 (74.5%) | **4.7e−10** | **−0.0170** |
+| `ats_cover` | 113/165 (68.5%) | **3.0e−06** | −0.0144 |
+| `total_over` | 69/165 (41.8%) | 0.043 | +0.0016 |
+| `total_error` | 91/165 (55.2%) | 0.21 | −0.0041 |
+
+**Teams that look stronger on recent advanced metrics systematically underperform the closing
+spread** — the market prices recent form and overshoots slightly. Overwhelming on spreads, absent
+on totals. This is a real property of the market, not a fluke.
+
+#### And it is still not bettable — three checks killed it
+
+1. **Magnitude.** Mean r = −0.017. A 1-SD feature move shifts cover probability under 1pp against
+   the 2.38pp needed at −110.
+2. **Asymmetry.** A walk-forward composite (signs and scaling fitted on prior seasons only, 1,150
+   games 2019–2025) gave top-quintile→HOME 54.78% but bottom-quintile→AWAY only 49.57%. A real
+   signal works in both tails. Home base rate in this sample is 49.83%, so the excess is +4.95pp at
+   SE 3.30pp — about 1.5 SE.
+3. **Monotonicity — decisive.** Cover rate across composite quintiles: **50.43 / 42.17 / 52.61 /
+   49.13 / 54.78**. Not monotonic; Q2 is the worst bucket by eight points. If the composite ordered
+   games by expected cover that is impossible. The Q5 spike is noise.
+
+**Verdict: a real directional property of the market that does not produce a usable ordering.**
+Worth knowing — it says recent-form features are priced and slightly over-priced — and worth not
+betting.
+
+**Correction to a prior belief recorded here:** the audit's "effective rank ≈2.5" applies to the
+ensemble's 35 *forecast signals* (predictions of one target, collinear by construction), NOT to raw
+descriptive features, which measure ~40 independent directions out of 84. Those are different
+claims and were being conflated.
+
+---
+
+## Standing after 24 hypotheses + a 5,940-test registered family
 
 **Zero edges found.** Twenty-four hypotheses, out of sample, graded on CLV and Kelly, with adversarial
 refutation on anything positive. The only positives were: the preregistered shadow tape at +0.94pp

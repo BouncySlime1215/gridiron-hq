@@ -842,3 +842,82 @@ Scripts: `scripts/news-line/jev_transactions.mts`, `scripts/news-line/jev_presse
 3. **Ten unique Jev tests** — luck-vs-skill, garbage time, play-call aggression, narrative salience,
    corpus triage, research auditor, absence duration, weather, officiating crews, market structure.
 
+
+## G. Transaction event study — NULL, and it fails the same way pressers did
+
+10,519 in-season roster moves (2019–2026, all 32 teams) Jev-scored for availability impact,
+event-studied against the covers spread tape. Panel: 7,699 transaction-game pairs, 1,473 games.
+
+```
+CONTROL   mean delta over ALL transactions  +0.0035 pts, SE 0.0133, t=+0.26     PASS
+
+impact bucket          n    mean delta       t
+starter out (<1)     738      +0.0718     +1.14
+depth out           1094      +0.0347     +0.75
+neutral              897      +0.0078     +0.16
+depth in            2890      +0.0003     +0.01
+starter in (>3)     2080      -0.0346     -1.17
+correlation(impact, delta) = -0.0215
+```
+
+The bucket ordering is **perfectly monotone** in the predicted direction — a real signature in
+shape. By position, only quarterback separates: **+0.66 pts, t=1.82**, roughly 20× every other
+group, and nowhere near the Bonferroni bar of |t|>2.81 across 7 positions.
+
+**PLACEBO KILLS IT.** Reassigning each transaction to a random team: band [−0.118, +0.114].
+The real starter-out effect of +0.0718 is **inside** it. No event signal.
+
+### The structural lesson, which matters more than the null
+Both news-based event studies now fail the same way:
+
+| Study | Result | Timestamp used |
+|---|---|---|
+| Pressers | t=+1.10 vs placebo | YouTube **upload** time |
+| Transactions | inside placebo band | **official transaction** date |
+
+Each timestamps the *official record*, which lags the information. An injury is reported Sunday;
+the IR paperwork posts Tuesday. We are measuring the echo, not the event. This is a structural
+ceiling on news-based work in this repo, not a bug — and no amount of better classification fixes
+a clock that is already late. Script: `scripts/model-lab/transaction_event_study.py`
+
+## H. "Questionable" is thirty-two dialects — GATES 1 AND 2 PASS
+
+The first test in this project to pass a persistence gate. Makes no claim about which team is
+better; claims the market mis-reads an institutional signal.
+
+```
+GATE 1 DISPERSION   chi-square 343.9 on 31 df, p = 1.1e-48
+   TB   382/473  80.76%  [76.97, 84.06]   +16.70pp vs league
+   NYJ  384/496  77.42%  [73.54, 80.88]   +13.35pp
+   HOU  230/461  49.89%  [45.35, 54.44]   -14.17pp
+   PIT  100/213  46.95%  [40.36, 53.65]   -17.12pp
+   -> 34-point spread, Wilson intervals nowhere near overlapping
+
+GATE 2 PERSISTENCE  cross-season r = +0.4018 (p<0.0001)
+   split-half reliability ceiling (odd vs even weeks, same season) r = +0.5652
+   -> captures 71% of achievable signal. The dialect REPEATS.
+```
+
+Join validated by the ranking itself: P(play|Out) 0.02%, Doubtful 0.83%, Questionable 64.06%
+(n=26,871). Ground truth is snap_counts, so "active but zero snaps" counts as did-not-play — the
+right definition for a market question.
+
+NE lists 63.3% of its injury-report entries as Questionable against 40.5% for the next team, which
+is the documented information-suppression practice showing up in data.
+
+**GATE 3 — does the closing line price the team-specific rate or a league average? — is untested
+and is the one that decides whether this is money.** Script: `scripts/model-lab/questionable_dialect.py`
+
+## I. Operational
+
+- **Storage**: `line_history.sqlite-wal` reached 8.3 GB against an 18 GB database (repo 33 GB).
+  Long analysis reads block WAL checkpointing while collectors append. PASSIVE+TRUNCATE checkpoint
+  reclaimed **9 GB** (repo → 24 GB, free 57 → 65 GB). `scripts/line-history/storage_watch.sh` now
+  runs from the maintenance loop for any WAL over 512 MB.
+- **Concurrency**: three simultaneous workflows drove load average to **34 on 8 cores** (4.25×
+  oversubscribed), slowing everything including the UI. Jev was NOT the cause — it is network-bound
+  at 70–500ms per call. The expensive resource is CPU against the 18 GB file, not Jev tokens.
+  Workflows must be serialized, not stacked.
+- **Jev spend**: $0.63 of $10 for 10,519 transactions + 2,276 pressers. Classification is
+  effectively free; analysis on top of it is not.
+

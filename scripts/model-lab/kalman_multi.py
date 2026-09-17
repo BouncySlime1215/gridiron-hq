@@ -47,7 +47,7 @@ def load_stats():
     return stats, starters
 
 
-def run_pair(games, obs, p, record=False):
+def run_pair(games, obs, p, record=False, future=None):
     """Pair filter on a per-team stat. obs(g, team) -> value or None."""
     q_week, q_season, rho, sigma, hb, p0, q_mu = p
     o, d = defaultdict(float), defaultdict(float)
@@ -87,6 +87,16 @@ def run_pair(games, obs, p, record=False):
                 inn = y - m
                 mu += Pmu / S * inn; o[ot] += Po[ot] / S * inn; d[dt] += Pd[dt] / S * inn
                 Pmu *= 1 - Pmu / S; Po[ot] *= 1 - Po[ot] / S; Pd[dt] *= 1 - Pd[dt] / S
+    if record and future:
+        for g in future:
+            if g["season"] != season:
+                for t in list(Po):
+                    o[t] *= rho; d[t] *= rho; Po[t] = rho * rho * Po[t] + q_season; Pd[t] = rho * rho * Pd[t] + q_season
+                season = g["season"]
+            b = 0.0 if g["neutral"] else hb
+            out.append((g["season"], g["week"], g["home"], mu + o[g["home"]] + d[g["away"]] + b, mu + o[g["away"]] + d[g["home"]] - b))
+            for t in (g["home"], g["away"]):
+                states[(g["season"], g["week"], t)] = (o[t], d[t])
     return nll, out, states
 
 
@@ -97,7 +107,7 @@ def fit_channel(games, obs, scale):
     return tp(x), v
 
 
-def run_qb(games, starters, p, record=False):
+def run_qb(games, starters, p, record=False, future=None):
     """Per-player filter on qbr_raw; predicted value for a game uses last game's starter."""
     q_week, q_season, rho, sigma, p0 = p
     r, P = {}, {}
@@ -132,6 +142,11 @@ def run_qb(games, starters, p, record=False):
                 S = P[pid] + sigma ** 2
                 r[pid] += P[pid] / S * (y - r[pid]); P[pid] *= 1 - P[pid] / S
                 last_starter[t] = pid
+    if record and future:
+        for g in future:
+            for t in (g["home"], g["away"]):
+                pid = last_starter.get(t)
+                out[(g["season"], g["week"], t)] = r.get(pid, mu) if pid else mu
     return nll, out
 
 
@@ -152,6 +167,7 @@ def apply(model, X):
 def main():
     games, _ = K.load(K.LIVE)
     games = [g for g in games if g["season"] >= START]
+    fut = K.upcoming(K.LIVE)
     stats, starters = load_stats()
     fit, chan_pred, profiles = {}, {}, defaultdict(dict)
     for name, key in CHANNELS.items():
@@ -159,7 +175,7 @@ def main():
         vals = [v for g in games[:400] for v in (obs(g, g["home"]), obs(g, g["away"])) if v is not None]
         p, nll = fit_channel(games, obs, float(np.std(vals)) or 1.0)
         fit[name] = dict(params=p, nll=nll)
-        _, out, states = run_pair(games, obs, p, record=True)
+        _, out, states = run_pair(games, obs, p, record=True, future=fut)
         for s, w, h, ph, pa in out:
             chan_pred.setdefault((s, w, h), {})[name] = (ph, pa)
         for (s, w, t), (o, d) in states.items():
@@ -168,11 +184,11 @@ def main():
     tq = lambda x: [math.exp(x[0]), math.exp(x[1]), 1 / (1 + math.exp(-x[2])), math.exp(x[3]), math.exp(x[4])]
     xq, vq = K.nelder_mead(lambda x: run_qb(games, starters, tq(x))[0], [math.log(2), math.log(20), 1.0, math.log(15), math.log(100)], [0.5] * 5, iters=300)
     fit["qb"] = dict(params=tq(xq), nll=vq)
-    _, qb_pred = run_qb(games, starters, tq(xq), record=True)
+    _, qb_pred = run_qb(games, starters, tq(xq), record=True, future=fut)
     print(f"{'qb':14s} nll {vq:10.1f} params {[round(x, 4) for x in tq(xq)]}", flush=True)
     kfit = json.load(open(LAB / "kalman-fit.json"))["fits"]
-    _, k1 = K.run_margin(games, {}, kfit["K1"]["params"], False, record=True)
-    _, k2 = K.run_total(games, kfit["K2"]["params"], record=True)
+    _, k1 = K.run_margin(games, {}, kfit["K1"]["params"], False, record=True, future=fut)
+    _, k2 = K.run_total(games, kfit["K2"]["params"], record=True, future=fut)
     k1 = {(r["season"], r["week"], r["home"]): r for r in k1}; k2 = {(r["season"], r["week"], r["home"]): r for r in k2}
 
     names = list(CHANNELS)
@@ -183,7 +199,7 @@ def main():
         diff = [cp[n][0] - cp[n][1] for n in names]; summ = [cp[n][0] + cp[n][1] for n in names]
         qb = qb_pred.get((g["season"], g["week"], g["home"]), 50.0) - qb_pred.get((g["season"], g["week"], g["away"]), 50.0)
         return dict(margin=diff + [k1[k]["pred"], qb], total=summ + [k2[k]["total"]])
-    rows = [(g, feats(g)) for g in games]; rows = [(g, f) for g, f in rows if f]
+    rows = [(g, feats(g)) for g in games + fut]; rows = [(g, f) for g, f in rows if f]
     train = [(g, f) for g, f in rows if FIT_FROM <= g["season"] <= FIT_TO]
     mnames, tnames = names + ["k1", "qb"], names + ["k2"]
     readouts = {}
@@ -196,7 +212,7 @@ def main():
             readouts[f"minus_{c}_{target}"] = dict(cols=keep, model=ridge([[x[j] for j in keep] for x in X], y))
     with open(LAB / "kmulti-preds.jsonl", "w") as fh:
         for g, f in rows:
-            rec = dict(season=g["season"], week=g["week"], home=g["home"], away=g["away"])
+            rec = dict(season=g["season"], week=g["week"], home=g["home"], away=g["away"], upcoming=g["hs"] is None)
             for name, ro in readouts.items():
                 target = name.rsplit("_", 1)[1]
                 rec[f"kmulti_{name}"] = float(apply(ro["model"], [[f[target][j] for j in ro["cols"]]])[0])
@@ -207,7 +223,7 @@ def main():
     (LAB / "kmulti-fit.json").write_text(json.dumps(dict(fit_seasons=[FIT_FROM, FIT_TO], channels=CHANNELS, fits=fit,
                                                           readouts={k: dict(cols=v["cols"], w=v["model"]["w"]) for k, v in readouts.items()},
                                                           margin_cols=mnames, total_cols=tnames), indent=1))
-    ev = [(g, f) for g, f in rows if g["season"] >= 2022]
+    ev = [(g, f) for g, f in rows if g["season"] >= 2022 and g["hs"] is not None]
     for target, fn in (("margin", lambda g: g["hs"] - g["as_"]), ("total", lambda g: g["hs"] + g["as_"])):
         preds = apply(readouts[f"full_{target}"]["model"], [f[target] for _, f in ev])
         base = [k1[(g["season"], g["week"], g["home"])]["pred"] if target == "margin" else k2[(g["season"], g["week"], g["home"])]["total"] for g, _ in ev]

@@ -43,6 +43,15 @@ def arg(name, default):
     return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
 
 
+def upcoming(db):
+    """Unscored games of the latest scored season that already have a line: the next slate to predict."""
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    return [dict(season=s, week=w, home=h, away=a, hs=None, as_=None, neutral=bool(n))
+            for s, w, h, a, n in con.execute("""SELECT season, week, team, opponent, COALESCE(neutral_site,0) FROM game_lines
+                WHERE home=1 AND team_score IS NULL AND spread IS NOT NULL AND season=(SELECT MAX(season) FROM game_lines WHERE team_score IS NOT NULL)
+                ORDER BY week, team""")]
+
+
 def load(db):
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     games = [dict(season=s, week=w, home=h, away=a, hs=hs, as_=as_, neutral=bool(n))
@@ -65,7 +74,7 @@ def weeks_of(games):
     return sorted(out.items())
 
 
-def run_margin(games, epa, p, use_epa, record=False):
+def run_margin(games, epa, p, use_epa, record=False, future=None):
     q_week, q_season, rho, sigma, h, p0 = p[:6]
     k, tau, h_e, c = (p[6], p[7], p[8], p[9]) if use_epa else (0, 1, 0, 0)
     r = defaultdict(float)
@@ -115,10 +124,19 @@ def run_margin(games, epa, p, use_epa, record=False):
             r[hm] += upd[0]; r[aw] += upd[1]
             Pn = (np.eye(2) - K @ H) @ D
             P[hm], P[aw] = max(Pn[0, 0], 1e-6), max(Pn[1, 1], 1e-6)
+    if record and future:
+        for g in future:
+            if g["season"] != season:
+                for t in list(P):
+                    r[t] *= rho; P[t] = rho * rho * P[t] + q_season
+                season = g["season"]
+            hf = 0.0 if g["neutral"] else h
+            out.append(dict(season=g["season"], week=g["week"], home=g["home"], away=g["away"], pred=r[g["home"]] - r[g["away"]] + hf,
+                            sd=math.sqrt(P[g["home"]] + P[g["away"]] + 2 * q_week + sigma * sigma), upcoming=True))
     return nll, out
 
 
-def run_total(games, p, record=False):
+def run_total(games, p, record=False, future=None):
     q_week, q_season, rho, sigma, hh, p0, q_mu = p
     o, d = defaultdict(float), defaultdict(float)
     Po, Pd = defaultdict(lambda: p0), defaultdict(lambda: p0)
@@ -155,6 +173,16 @@ def run_total(games, p, record=False):
                 inn = y - m
                 mu += Pmu / S * inn; o[off_t] += Po[off_t] / S * inn; d[def_t] += Pd[def_t] / S * inn
                 Pmu *= 1 - Pmu / S; Po[off_t] *= 1 - Po[off_t] / S; Pd[def_t] *= 1 - Pd[def_t] / S
+    if record and future:
+        for g in future:
+            if g["season"] != season:
+                for t in list(Po):
+                    o[t] *= rho; d[t] *= rho; Po[t] = rho * rho * Po[t] + q_season; Pd[t] = rho * rho * Pd[t] + q_season
+                season = g["season"]
+            hb = 0.0 if g["neutral"] else hh / 2
+            mh = mu + o[g["home"]] + d[g["away"]] + hb; ma = mu + o[g["away"]] + d[g["home"]] - hb
+            V = 2 * (Pmu + q_mu) + Po[g["home"]] + Pd[g["away"]] + Po[g["away"]] + Pd[g["home"]] + 4 * q_week + 2 * sigma * sigma
+            out.append(dict(season=g["season"], week=g["week"], home=g["home"], away=g["away"], total=mh + ma, total_sd=math.sqrt(V), home_pts=mh, away_pts=ma, upcoming=True))
     return nll, out
 
 
@@ -205,9 +233,18 @@ def main():
     for k, v in fits.items():
         print(k, "nll", round(v["nll"], 1), "params", [round(z, 4) for z in v["params"]])
 
-    _, k1 = run_margin(games, epa, fits["K1"]["params"], False, record=True)
-    _, k1b = run_margin(games, epa, fits["K1b"]["params"], True, record=True)
-    _, k2 = run_total(games, fits["K2"]["params"], record=True)
+    fut = upcoming(db)
+    _, k1 = run_margin(games, epa, fits["K1"]["params"], False, record=True, future=fut)
+    _, k1b = run_margin(games, epa, fits["K1b"]["params"], True, record=True, future=fut)
+    _, k2 = run_total(games, fits["K2"]["params"], record=True, future=fut)
+    kb = {(r["season"], r["week"], r["home"]): r for r in k1b if r.get("upcoming")}; kt = {(r["season"], r["week"], r["home"]): r for r in k2 if r.get("upcoming")}
+    with open(out_path.parent / "kalman-upcoming.jsonl", "w") as fh:
+        for r in k1:
+            if r.get("upcoming"):
+                k = (r["season"], r["week"], r["home"])
+                fh.write(json.dumps(dict(season=r["season"], week=r["week"], home=r["home"], away=r["away"], kalman_score=r["pred"], kalman_score_sd=r["sd"],
+                                         kalman_score_epa=kb[k]["pred"], kalman_total=kt[k]["total"], kalman_total_sd=kt[k]["total_sd"])) + "\n")
+    k1 = [r for r in k1 if not r.get("upcoming")]; k1b = [r for r in k1b if not r.get("upcoming")]; k2 = [r for r in k2 if not r.get("upcoming")]
     key = lambda r: (r["season"], r["week"], r["home"])
     b = {key(r): r for r in k1b}; t = {key(r): r for r in k2}
     with open(out_path, "w") as fh:

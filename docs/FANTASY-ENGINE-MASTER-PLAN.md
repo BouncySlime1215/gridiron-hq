@@ -99,6 +99,22 @@ All five are ESPN **redraft, PPR, 10-team** (one 8-team), all `connected`. "Long
 
 Roster map from chat → ESPN: Raj=1, Rami=2, Parth=4, Nick=5, Christian=8, Josh=9, Lars=10, Anthony (Vass)=11, Zach=12, Haiden Bonczek=7 ("Aiden Smith"; confirmed by Nick 2026-09-17).
 
+**Nick's read on each manager (2026-09-17) — the dossier seeds.** (Repo made private the same day so this can live here; also in `data/derived/manager-dossiers.md` and the `manager_notes` table.) Archetype priors and Coach rules start from these:
+
+| Person | Roster | Nick's read | Prior it sets |
+|---|---|---|---|
+| Raj ("Sai") | 1 | graduated, old roommate; sweaty; will try to scam | `sharp` high, adversarial; winner's-curse check on every incoming offer; his public valuations are anchors |
+| Rami Fakih | 2 | at Michigan now; close with Nick; claims to know ball, doesn't; good team; asks others for help | slow, second-hand decisions; give him a reason he can repeat |
+| Parth Bedi | 4 | abroad; kinda wants out | disengaged seller; low attention; simple 1-for-1s |
+| Haiden Bonczek | 7 | noob; "a bot" in Nick's other league | `auto_drafter` high; check lineup discipline before assuming he reads offers |
+| Christian Etheridge | 8 | Commanders fan like Nick, not die-hard | light rapport lever |
+| Josh Smith | 9 | smart, cocky (IB internship); co-coaches flag with Nick; second-ever fantasy team | `expertise` high in reasoning, low in fantasy: numbers-forward, no name-brand tricks |
+| Lars Cramer | 10 | not sharp; uses fantasy Reddit for feedback; has a gf, rarely around; replies fast; scammed before | consensus-driven; cite ESPN/consensus; fast replies |
+| Anthony Vasquez ("AV") | 11 | doesn't talk; knows some ball, lower end | DM only, short; little chat signal |
+| Zach Ruggiero | 12 | has a gf, doesn't talk much | DM only; low volume; slow |
+
+Entity map (`entity_map` table): Sai = Raj; AV = Anthony. **Not in the league:** Aidan (roommate — not Haiden), Greg, Roan, Jake (Christian & Parth's roommate), Josh Arnold (roommate, abroad — not Josh Smith). The iMessage group **"Transfer Portal V4" is the friend chat — out of scope, never read.**
+
 ---
 
 ## 2. The final product

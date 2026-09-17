@@ -204,7 +204,73 @@ Each phase lists **inputs**, **work**, **deliverable**, **acceptance** (numeric 
 **4a. Transaction history collector (1 day).** Extend `espnGet(leagueId, season, views)` with `mTransactions2` and `mRoster` + `scoringPeriodId`, for seasons 2023–2026 across all 5 leagues. Store `league_transactions(league_id, season, ts, type, roster_id, items_json, bid, status, proposer, responder, response_ts)`, `league_draft_picks`, `league_roster_history(league_id, season, week, roster_id, player_ids_json)`. **Needs Nick's OK to hit ESPN for prior seasons.**
 **Acceptance:** ≥ 3 seasons × 5 leagues of transactions; every accepted/declined trade proposal with both packages.
 
-**4b. Behavioural profile (1 day).** Per manager: auto-drafter score (pick-vs-ADP distance, pick latency), waiver aggressiveness and recency (claims within 24 h of a box score), lineup discipline (byes left in), trade frequency, **accepted-value ratio** (what they took vs gave, by our value), counter rate, response latency, position bias, endowment effect (sell ratio − buy ratio), name-brand premium (prior-year ADP − current value of roster), panic-sell (drops after one bad week), buy-high. Plus the chat timing stats already computed (reply p50/p90, initiates%, unanswered%, night%).
+**4b. Behavioural profile (1–2 days).** Nick: *"more more more."* Every metric below is computed per manager per season from a named table, stored in `manager_profiles` (currently 0 rows) as `{metric, value, n, season}` so the UI can show the number and the sample it rests on. Source key: **D** = `league_draft_picks`, **T** = `league_transactions`, **R** = `league_roster_history`, **C** = chat labels (4c), **S** = scores/standings, **M** = `espn_player_market`.
+
+*Draft (D, M):*
+- reach rate and value rate — mean/SD of pick-vs-ADP distance; share of picks ≥ 12 spots early
+- pick latency — seconds per pick; ESPN auto-pick flag; share of picks made at the clock
+- positional sequencing — round of first RB / WR / QB / TE; zero-RB, hero-RB, early-QB, early-TE flags
+- rank-follower score — correlation of pick order with ESPN default rank (drafts the list vs thinks)
+- rookie share, own-NFL-team share (homer), QB+WR stack rate, handcuff-of-own-RB rate
+- late-round style — ADP dispersion of rounds 10+ (upside swings vs floor veterans)
+- attachment — same players re-drafted year over year; keeps his guys
+- draft-capital efficiency — realised season points per draft slot vs league mean
+
+*Waivers / free agency (T, M):*
+- claims per week; FAAB bid size distribution and win rate (or waiver-priority spend) where applicable
+- reaction latency — hours from a breakout box score to the claim
+- streamer flag — DST/K/QB churn per week
+- speculative vs reactive adds — handcuffs and injured stashes vs post-box-score adds
+- impatience index — median days from add to drop; drops after N bad weeks (N per manager)
+- IR-slot usage; roster churn by week 8
+- waiver ROI — points scored by adds while rostered vs points by the players dropped
+
+*Lineups (R, S):*
+- points left on bench per week (optimal − actual); rank in league
+- inattention index — byes or Out players left in the starting lineup
+- projection-follower score — share of weeks the started lineup equals ESPN's projected-best lineup
+- risk preference — starts high-variance players in must-win weeks vs floor players
+- Thursday/Monday awareness — starters locked before a Thursday injury update
+
+*Trades (T, R, M):*
+- proposals sent / received / accepted / declined / countered / expired per season
+- **personal acceptance curve** — P(accept) as a function of their-side value delta (by our value AND by ESPN value)
+- response latency to proposals; probability of no response at all (ghost)
+- counter rate and counter magnitude — how far they move from the original ask
+- package shape preference — 2-for-1 consolidator vs depth collector
+- positional bias — buys RB / sells TE etc., by value flow per position
+- partner concentration — Herfindahl of trade partners (only trades with friends?)
+- week distribution of trades; deadline-week activity; post-loss trade rate (48 h)
+- endowment effect — asking price for own player vs price paid for an equivalent
+- name-brand premium — value paid above ESPN for prior-year ADP top-50
+- recency premium — price paid after a player's best week of the season vs his season mean
+- injury discount — value at which they sell a player on IR / Questionable vs healthy
+- playoff-schedule awareness — value flow toward good weeks-15–17 schedules
+- fairness sensitivity — rejects lopsided deals even in their favour (needs "fair-looking")
+- regret rate — re-trades a player received within 3 weeks
+- accepted-value ratio over time (season trend) — sharp or fish, and getting sharper or not
+- history with Nick — every proposal between them, outcome, and the chat around it
+
+*Chat (C):*
+- volume — messages/week, share of group messages, burst count
+- timing — hour-of-day and day-of-week histograms; reply latency p50/p90; initiation %; unanswered %; night %
+- tone mix — trash-talk / friendly / defensive / dismissive shares
+- confidence index — mean `confidence`; **calibration** — join confident player claims to that player's next-4-week points (were they right?)
+- stated valuations ledger — (player, sentiment, confidence, date); untouchables; sell statements; buy interest
+- loss reactivity — message rate and tone in the 24 h after a loss vs after a win
+- responsiveness to Nick — reply latency and reply probability to Nick vs to others
+- persuasion susceptibility — after a Nick pitch in chat, did a proposal follow and what happened (join C→T)
+- topic share — trade talk / lineups / NFL news / non-fantasy
+- tapback ratio — reacts instead of replying (low-effort responder)
+- social graph — who they reply to most; who they never answer
+- public-commitment rate — says it in the group, then does it (join C→T)
+
+*Outcomes (S, R):*
+- finish history; points for; all-play record (luck-adjusted); playoff appearances
+- roster value trajectory by week (did their trades gain value?)
+- weekly-luck exposure — record vs all-play record (tilt risk)
+
+*Compound indices (fitted, not hand-set):* activity, sharpness, exploitability (P(accept a deal ≥ 15% lopsided by ESPN value)), reachability (reply probability × latency), tilt (post-loss behaviour delta), attention (inattention + lineup lag). Each index is a fitted weighting of the metrics above against realised acceptance/decline outcomes; report the weights.
 
 **Archetypes (Nick: "we need JEV to seriously UNDERSTAND who this person is").** Every manager gets a score on every archetype, not one label; each is measurable from 4a + 4c:
 - *Auto-drafter* — pick-vs-ADP distance ≈ 0, pick latency ≈ 0, byes left in lineups.
@@ -351,7 +417,7 @@ Sequential: **14.5–22 working days.** With Phase 4 in parallel with 1–3 and 
 - **One workflow at a time** on this 8-core Mac against the 18 GB archive. Scan `ps -eo pcpu,args | grep Python.framework` by cwd after every run; `TaskStop` does not kill children.
 - **Databases read-only** except the designated writes: `weekly_ensemble_fits`, `nfl_player_feature_vectors`, `espn_player_market`, `league_transactions*`, `live_data_health`, `off_sleeper_players`, `jev_chat_signals` (private DB only).
 - **Privacy:** `data/derived/league_chat.sqlite` never leaves the machine except to Jev (standard retention, Nick's choice 2026-09-17). Never commit it. Never paste message text into logs or docs.
-- **Budget (Nick: "pls dont run up my bofa card"):** no new paid data or subscriptions; Jev runs ≤ $1 each without asking and check the balance first; Claude workflows one at a time.
+- **Budget (Nick: "pls dont run up my bofa card", "for API stuff keep it low"):** no new paid data or subscriptions; Jev runs ≤ $1 each without asking and check the balance first; Claude workflows one at a time. Anthropic API: `nfl_news_signals` runs on Haiku 4.5, hourly not every 15 min, only on new `news_items`; Explain/Coach calls are on-demand and cached per (trade, day); no background loops on Opus/Sonnet.
 - **Focus (Nick: "the ideas should be focused not all over the place"):** an addition enters this plan only if it serves one of the three jobs (projection, counterparty, trade engine) or Phase 0. Everything else goes to the backlog in section 10 or is dropped.
 - **Storage:** `storage_watch.sh` stays in the maintenance loop; checkpoint WALs over 512 MB; `.metadata_never_index` on every new data directory.
 

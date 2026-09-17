@@ -118,8 +118,11 @@ r.delete('/:id', (req, res) => {
 const ESPN_SLOT_NAME = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'DEF', 17: 'K', 23: 'FLEX' };
 
 async function fetchEspn(lg, season) {
+  // No scoringPeriodId: ESPN then answers for the CURRENT period. Pinning it to 1
+  // froze every roster at week 1 for the whole season — leagues looked connected
+  // but never changed (found 2026-09-17).
   const url = `${ESPN_BASE}/seasons/${season}/segments/0/leagues/${lg.league_id}`
-    + `?scoringPeriodId=1&view=mTeam&view=mRoster&view=mMatchup&view=mSettings`;
+    + `?view=mTeam&view=mRoster&view=mMatchup&view=mSettings`;
   const headers = { ...BROWSER_HEADERS };
   if (lg.espn_s2 && lg.swid) headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });

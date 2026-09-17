@@ -270,6 +270,29 @@ Each phase lists **inputs**, **work**, **deliverable**, **acceptance** (numeric 
 - roster value trajectory by week (did their trades gain value?)
 - weekly-luck exposure — record vs all-play record (tilt risk)
 
+*Coach signals (from `docs/COACH-PLAYBOOK.md` §7 — the profile must also carry these):*
+- expertise: rate and sources of calculator/ADP/snap-share/rankings citations per 100 chat messages (drives ask-first, precision level, name-brand and contingent-contract gating)
+- stated_valuation_unit: modal unit of the manager's value talk (pick round / tier / straight-up / points)
+- stated-valuation channel (group vs DM) and loss-window flag on every ledger entry
+- stated_needs and stated_denials ledger: explicit 'I need X' / 'my RBs are fine' statements with dates
+- emoji_rate over the last 10 messages
+- trust_with_nick composite: fitted from completed trades with Nick, last-thread outcome, tone toward Nick
+- days_since_last_dm with Nick
+- rejection_latency conditional on outcome, as a ratio to reply_p50 (time-to-decline vs time-to-accept)
+- instant_accept_n: Nick's proposals accepted with no counter in under 1 hour
+- their_counters_asset_class: asset class requested in each of their counters (pick / throw-in / starter swap)
+- ultimatum_ledger: ultimatum phrases per asset with repetition count
+- lopsided_complaints: 'lopsided/collusion/robbery' posts in the last 30 days
+- tactic_exposure_log: per manager and thread, which Coach tactics fired (deadline revealed, BATNA mentioned, nibble, 'final' said, quoted valuation) and outcome
+- reply_latency_by_hour: hour-of-day histogram restricted to replies rather than all messages
+- team_news_mention_rate by NFL team: information-asymmetry proxy for players on that team
+- roster constraints per opponent: droppable_count, positional_depth per slot, roster_at_max, ir_slots_free, bye_cluster_next_week, handcuff map, keeper eligibility
+- acquisition_source_and_date per roster asset (draft round / waiver / trade, date) for endowment targeting
+- batna_n: number of alternative rosters where an equivalent package is plausible, from findTrades
+- league calendar: lineup lock times, waiver run time, trade deadline, veto rule and review window; NFL game windows for the week
+- coach_threads state store: last_msg_class (accept / counter / reject-with-reason / reject-no-counter / ultimatum / valuation-claim / brush-off / confirmation / silence), keyword flags (fair/lowball/insult), counter_n, their_msgs, offer diff history, concessions_by_them, ultimatum_n, idle_time, next_allowed_followup, final_said, agreed_unsubmitted
+- Nick draft lint: I/you ratio, exclamation/emoji/caps counts, negation count, obligation words, sarcasm markers, forbidden-vocabulary hits, unnamed value added vs last offer, implicit deadline, addressed channel
+
 *Compound indices (fitted, not hand-set):* activity, sharpness, exploitability (P(accept a deal ≥ 15% lopsided by ESPN value)), reachability (reply probability × latency), tilt (post-loss behaviour delta), attention (inattention + lineup lag). Each index is a fitted weighting of the metrics above against realised acceptance/decline outcomes; report the weights.
 
 **Archetypes (Nick: "we need JEV to seriously UNDERSTAND who this person is").** Every manager gets a score on every archetype, not one label; each is measurable from 4a + 4c:
@@ -334,7 +357,9 @@ Rebuild the `trade-explain` payload so Claude receives, per player on each side,
 Prompt rule: argue only from the blocks; cite the block; never invent a number. Keep the propose→verify→retry loop from `trade-verify.js`.
 **Acceptance:** a blind read-through of 20 explanations finds zero uncited numbers; each explanation names the decisive block first.
 
-### Phase 8 — The Coach (1 day)
+### Phase 8 — The Coach (1–2 days)
+
+**Playbook:** `docs/COACH-PLAYBOOK.md` (2026-09-17) — researched from six schools (Voss/FBI, Harvard PON, Cialdini, behavioural economics of bargaining, e-negotiation/text research, fantasy practitioner columns; 102 sources), every rule graded (P) peer-reviewed / (p) practitioner / (i) inference, keyed to measurable 4b triggers, with six cross-school conflicts resolved explicitly. Standing constraint: a ten-person league is repeated play — rapport-preserving moves outrank hardball; the Coach optimises season EV, not the current thread. The Coach implements the playbook's sections 1–6 (anchoring, framing, tactic table, concession ladder, channel/timing, never-list) and is measured by its section 8.
 
 `POST /:leagueId/coach` with `{targetRosterId, package, draft}` → `{message, anchor, send_at, dont_say[], predicted_response, p_accept}`. Inputs: dossier, timing stats, recent thread, package numbers, anchoring ladder. Output tuned to the person (numbers-forward vs casual; length from their reply style). Reposition Nick's draft rather than replace it.
 **Acceptance:** Nick rates ≥ 8/10 of coached messages as "I'd send that" in a first pass.
@@ -457,7 +482,14 @@ Everything ≈ 0?
 3. **OK to pull 2023–25 league history from ESPN** (transactions, drafts, weekly rosters, all 5 leagues, read-only with live cookies) — **approved 2026-09-17.**
 4. **OK to run an external 15-minute refresh loop** for injuries/news/rosters, replacing the in-server scheduler that hung the app — **approved 2026-09-17.**
 5. **Haiden Bonczek = ESPN roster 7 ("Aiden Smith")** — **confirmed 2026-09-17.**
-6. **Go on Phase 0 and Phase 1a.** *Pending explicit go — 1a changes live recommendations.*
+6. **Go on Phase 0 and Phase 1a.** *Phase 0 started 2026-09-17 (refresh loop live, news signals live, roster-sync bug fixed). 1a still pending explicit go — it changes live recommendations.*
+
+From the Coach playbook (answer when convenient; defaults in brackets):
+7. Which neutral reference should the Coach cite per manager — ESPN value, FantasyCalc, or the league's own comparable trades? [ESPN, since every league is on ESPN]
+8. Willing to run a coached/uncoached A/B — alternating partners by week — so the Coach's effect can be measured? [yes, from week 5]
+9. Do any leagues allow conditional picks or commissioner-logged side agreements? [no → contingent-contract tactic disabled]
+10. Should the Coach plan the whole concession ladder before message 1 (recommended) or only the next step each call? [whole ladder, stored per thread]
+Decided without asking: `coach_threads` and `tactic_exposure_log` live in the private `league_chat.sqlite`, never the main DB.
 
 ---
 

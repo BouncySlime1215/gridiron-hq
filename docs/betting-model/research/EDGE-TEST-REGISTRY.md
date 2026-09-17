@@ -1325,3 +1325,58 @@ The agent's v1 reported "+0.17 pts CLV, t=2.6" and killed it itself:
 favourite side will show positive CLV that is drift, not information. Every CLV number must be
 tested against the always-favourite baseline. Added to the rules.
 
+
+## S. Player props — DEAD on liquidity, and a correction to an earlier recommendation
+
+Earlier tonight I told Nick props were "the softest market available" and the best remaining
+target. The data says otherwise, in two independent ways.
+
+### 1. There are no prices — an infrastructure gate
+`0 of 7,634` prop markets have a single traded price in this repo. The collector gates history on
+`pm_markets.is_core`, and every prop is `is_core=0`: 4 have any price point (0.05%), 0 have any
+trade row. The calibration hypothesis — "are props worse calibrated than game markets" — is
+**unmeasurable on local data**, and no fallback exists: Kalshi has no player series, covers and
+oddsapi and Pinnacle carry only game markets. Flipping the gate and backfilling would fix this.
+
+### 2. But it would not matter — the liquidity kills it independently
+```
+prop volume, all-time         $2,026,187     (41.6% of it is ONE Super Bowl)
+core game-market volume    $1,320,156,114
+props as share of NFL flow        0.15%
+
+volume distribution over 7,637 props:  p50 $0   p90 $298   p99 $2,624
+traded exactly $0                          58.6%
+top 10 markets                             46.9% of all prop volume
+
+per slate-week (ex Super Bowl):  >= $500   median 29    >= $1,000  median 7
+                                 >= $5,000 median 0, mean 1.4
+```
+And that is **lifetime two-sided notional, not depth**. Roughly **one prop per week** outside the
+Super Bowl is liquid enough to carry a real stake. Not income even if the edge were real.
+
+### 3. The one price-free test available died on placebo
+P(Over) on the posted line = 0.3991 (n=4,428, t=−3.52) — an apparent Under bias. The
+same-player-different-week placebo returns 0.4308 (t=−3.16); the threshold-shuffle placebo
+0.4236 (t=−3.73). **Reproduced by both placebos: a line-setting artifact, not an inefficiency.**
+
+### Data-quality finding worth keeping
+Question text is corrupt for a subset of QB markets — passing lines labelled "Rushing Yards"
+(305 rushing lines above 60; above 120 the threshold sits a median 79.5 yds from the passing
+line). Any future prop join must screen for this. Parse-and-grade otherwise worked: 6,094 of
+7,637 matched to a settled stat line.
+
+**Verdict: props are not "the softest market." On Polymarket they are barely a market.** If Nick
+wants props, the data has to come from a sportsbook prop feed, not from here — and the liquidity
+question would have to be re-asked there.
+
+## T. Operational — the orphan scan was blind
+`pgrep python3` returns 0 while four `Python.framework/.../Python` processes run at 60–93% CPU.
+Workflow agents' scripts run under the framework binary, not `python3`, and their names are
+generic (`model.py`, `ortho.py`, `build.py`). The reliable attribution is **cwd** via
+`lsof -a -p PID -d cwd` — orphans from a completed workflow sit in `analysis/<workflow-dir>`.
+Two `model.py` refits in `analysis/lineup_ml` were still running at 93% after the player-level
+workflow had returned all 6 results; killed. Load had reached **41.87**.
+
+Rule: after any workflow completes or is stopped, scan `ps -eo pid,pcpu,args | grep
+Python.framework` and attribute by cwd before assuming the machine is free.
+

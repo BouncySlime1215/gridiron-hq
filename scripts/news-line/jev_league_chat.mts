@@ -8,7 +8,8 @@
  * that may or may not be earned. No transaction log carries that.
  *
  * PRIVACY. Source is data/derived/league_chat.sqlite — a gitignored extract of iMessage threads
- * the user is a participant in. Every Jev call sets gateway zeroDataRetention. Results go back
+ * the user is a participant in. Classifies EVERY message — members, Nick's own, and tapback reactions
+ * (Nick: "dont skip mine and tapbacks", 2026-09-17). Sent under standard gateway retention by Nick's choice. Results go back
  * into the same private file, never into the repo's tracked databases.
  *
  * WHY JEV. Typed questions with probabilities over thousands of short messages is exactly its
@@ -119,12 +120,12 @@ function mentioned(text: string): string | null {
 const limitArg = process.argv.indexOf('--limit');
 const LIMIT = limitArg > -1 ? Number(process.argv[limitArg + 1]) : 0;
 const rows = chat.prepare(`
-  SELECT m.msg_id, m.name, m.chat_kind, m.chat_name, m.ts_utc, m.text
+  SELECT m.msg_id, m.name, m.chat_kind, m.chat_name, m.ts_utc, m.text, m.is_tapback
   FROM messages m LEFT JOIN jev_chat_done d ON d.msg_id = m.msg_id
-  WHERE d.msg_id IS NULL AND m.name <> 'ME' AND m.is_tapback = 0
-    AND m.text IS NOT NULL AND length(m.text) >= 3
+  WHERE d.msg_id IS NULL
+    AND m.text IS NOT NULL AND trim(replace(m.text, char(65532), '')) <> ''  -- 'W', 'L', 'gg', a lone emoji all count; only the bare attachment placeholder is skipped
   ORDER BY m.chat_name, m.ts_utc ${LIMIT ? 'LIMIT ' + LIMIT : ''}`).all() as any[];
-console.log(`${rows.length.toLocaleString()} member messages to classify (ZDR on)`);
+console.log(`${rows.length.toLocaleString()} messages to classify — everyone incl. Nick, tapbacks included (standard retention)`);
 
 // Context: the two messages before this one in the same thread.
 const ctxStmt = chat.prepare(`SELECT name, text FROM messages WHERE chat_name = ? AND ts_utc < ? AND text IS NOT NULL
@@ -147,11 +148,12 @@ async function worker() {
         `Fantasy football league chat (${r.chat_kind === 'group' ? 'group chat' : 'private DM with Nick'}).`,
         player ? `MENTIONED PLAYER: ${player}` : 'MENTIONED PLAYER: none',
         ...prior.map(p => `${who(p.name)}: ${String(p.text).slice(0, 240)}`),
-        `>>> THEM: ${String(r.text).slice(0, 400)}`,
+        `>>> ${who(r.name)}${r.is_tapback ? ' (TAPBACK REACTION to a quoted message)' : ''}: ${String(r.text).slice(0, 400)}`,
       ].join('\n');
       const result = await evaluate({
         model: 'typesafe-ai/jev', state, questions: QUESTIONS,
-        providerOptions: { gateway: { zeroDataRetention: true } },
+        // Nick chose standard retention on 2026-09-17 (ZDR is Pro/Enterprise-only; he declined to
+        // upgrade). Re-enable `providerOptions: { gateway: { zeroDataRetention: true } }` on a paid plan.
       });
       for (const [q, a] of Object.entries(result.answers as Record<string, any>)) {
         if (!a) continue;

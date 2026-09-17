@@ -75,11 +75,29 @@ Measured 2026-09-17 19:40Z, Wednesday of NFL week 3:
 | `nfl-weekly-feature-store.js` | built, `nfl_player_feature_vectors` 1,090 rows (2026 only) | freezes cutoff-safe player/team vectors with history, trend, volatility, coverage, missingness. **Backfill 2021–25 before use.** |
 | League chat extract | `data/derived/league_chat.sqlite`, 15,763 msgs, gitignored | "Transfer league 2026" group + 9 member DMs; names resolved; timing stats computed |
 
-### 1.5 The leagues
+### 1.5 Betting-side assets to reuse
+
+Nick: *"make sure we use the data and modeling from betting — we had a bunch of rly sharp things."* What carries over, and what doesn't:
+
+| Asset | Where | Fantasy use |
+|---|---|---|
+| Regularised APM (`player_value_weekly`, QB r=0.416 OOS) | `data/derived/player_value.sqlite` | efficiency prior (1e) |
+| Game lines: spread, total, implied points, weather, rest | `game_lines` 2021–26 | game-script **distribution** (blowout → garbage time), never the mean (r²=0.03) |
+| `margin-distribution.js` | betting model | blowout probability per game → garbage-time share feature |
+| Injury dialect by team (TB 80.8% vs PIT 47.0% on "Questionable") + practice-pattern rates | measured in registry §P | replaces the hand-set constants in `contingency.js:115–150` |
+| `nfl-props.js#projectWeek` sim (+27.3% Brier skill on 2+TD) | `server/services/nfl-props.js:547` | the per-stat distribution engine for floor/ceiling — reuse, don't rebuild |
+| Presser corpus: 10,670 timestamped coach pressers + `jev_presser_signals` (availability_state, team_impact, position_group, **coach_hedging**) | `line_history.sqlite` | coach_hedging as an injury-uncertainty feature; re-ask fantasy questions (role expansion, committee, "get him more touches") |
+| `jev_transaction_signals` (10,543 official NFL transactions: move_type, availability_impact) | `line_history.sqlite` | roster-move features: starter_out/depth_in, IR, activation timing |
+| Feature store + family-contribution harness | `nfl-weekly-feature-store.js`, `nfl-family-contribution.js` | the ML head (1f) and its admission gate |
+| Prop-line history (`nfl_prop_clv`, 3,117 rows) | `line_history.sqlite` | validation set for the prop anchor (1g) |
+| Harness discipline: walk-forward, placebo, BH, drift baseline, cluster-by-game, bet-everything control | registry §A–AA | section 6, verbatim |
+| **Not carried over:** line-movement/CLV models, key-number atoms, teaser pricing, Polymarket/Kalshi | — | no fantasy use |
+
+### 1.6 The leagues
 
 All five are ESPN **redraft, PPR, 10-team** (one 8-team), all `connected`. "Long term" = rest-of-season + playoff weeks 15–17, **not** dynasty. Focus league for the counterparty work: id 4 "Transfer portal" (Nick = roster 5).
 
-Roster map from chat → ESPN: Raj=1, Rami=2, Parth=4, Nick=5, Christian=8, Josh=9, Lars=10, Anthony (Vass)=11, Zach=12. **Haiden Bonczek ↔ roster 7 "Aiden Smith" — unconfirmed, ask Nick.**
+Roster map from chat → ESPN: Raj=1, Rami=2, Parth=4, Nick=5, Christian=8, Josh=9, Lars=10, Anthony (Vass)=11, Zach=12, Haiden Bonczek=7 ("Aiden Smith"; confirmed by Nick 2026-09-17).
 
 ---
 
@@ -159,6 +177,11 @@ Each phase lists **inputs**, **work**, **deliverable**, **acceptance** (numeric 
 - *Efficiency (NGS/derived):* YAC-oe, separation, cushion, RYOE, % vs 8+ box, contested/catchable, aDOT stability, INT-worthy rate.
 - *Context:* wind > 15, rest days, first game back from injury (`nfl-player-context`), blowout probability from `margin-distribution.js` (distribution only).
 - *Novel:* **man/zone split × opponent man rate** — compute per-player efficiency vs man and vs zone from `pbp_participation`, interact with the opponent's rates.
+- *On/off splits (Nick: "correlation between on/off field stats"):* each player's usage and efficiency **with and without** each key teammate on the field, from `pbp_participation.offense_players` — so 1b's redistribution uses measured absorption, not depth-chart guesses. Includes QB-on/QB-off splits for pass-catchers when the starter changes.
+- *Off-field context:* contract year, holdout or trade request, suspension, coaching/OC change, first game back — typed from `nfl_news_signals` and the 10,543 labeled official transactions (`jev_transaction_signals`).
+- *Trajectory ("history and future growth"):* usage-trend slope over the last 4 weeks, age/experience curve by position, rookie ramp (weeks 1–6 vs 7+), post-injury ramp, post-coaching-change ramp. In redraft "future" means the next 12 weeks, so the slope carries more than the level.
+
+**1g. Second market anchor — sportsbook player props (½ day, optional).** Where a player has a prop line (receiving/rushing yards, receptions, anytime TD) it is the sharpest public estimate of that stat's median. Use it beside ESPN in the Phase-2 gate and as a shrinkage target for the per-stat head. Historical validation from `nfl_prop_clv`. Live props need a feed we do not currently collect (oddsapi player-prop calls cost more; collectors are off) — build only if a source clears the budget rule. **Acceptance:** on prop-covered players, prop-anchored per-stat MAE ≤ ESPN-anchored.
 
 **If the numbers don't go great (Phase 1):**
 - Fitted blend < 5% over naive → ship 1a–1e anyway (they are strictly better), report the ceiling honestly, and **use ESPN's consensus projection as the mean** (Phase 2) with our sim for the distribution. The trade engine still improves because the counterparty layer does not depend on projection edge.
@@ -183,9 +206,25 @@ Each phase lists **inputs**, **work**, **deliverable**, **acceptance** (numeric 
 
 **4b. Behavioural profile (1 day).** Per manager: auto-drafter score (pick-vs-ADP distance, pick latency), waiver aggressiveness and recency (claims within 24 h of a box score), lineup discipline (byes left in), trade frequency, **accepted-value ratio** (what they took vs gave, by our value), counter rate, response latency, position bias, endowment effect (sell ratio − buy ratio), name-brand premium (prior-year ADP − current value of roster), panic-sell (drops after one bad week), buy-high. Plus the chat timing stats already computed (reply p50/p90, initiates%, unanswered%, night%).
 
+**Archetypes (Nick: "we need JEV to seriously UNDERSTAND who this person is").** Every manager gets a score on every archetype, not one label; each is measurable from 4a + 4c:
+- *Auto-drafter* — pick-vs-ADP distance ≈ 0, pick latency ≈ 0, byes left in lineups.
+- *Waiver junkie* — claims per week, share of roster churned by week 8.
+- *Name-brand buyer* — pays for last year's ADP; holds declining veterans.
+- *Recency chaser* — buys after a big week, sells after a dud (trade timestamps vs box scores).
+- *Hoarder* — declines everything for his top 3; "untouchable" declarations in chat.
+- *Counter-everything* — never accepts v1; median counters per deal.
+- *Ghost* — reply p90 > 24 h, high unanswered%; only reachable in the group.
+- *Homer* — over-rosters his NFL team's players (roster share vs league base rate).
+- *Sharp* — accepted-value ratio ≥ 1, buys before breakouts.
+- *Panic seller* — drops or sells within 48 h of a loss; `reacting_to_loss` + own-roster complaining in chat.
+- *Talker* — high initiates%, high trash-talk ratio, states valuations publicly (those are anchors to use).
+
+**Seasonal price trend (Nick: "what price — trends").** Per manager, how the accepted-value ratio moves across weeks 1–4 → 5–9 → deadline → playoffs, and whether they overpay early or panic late. Feeds `send_at` in the Coach.
+
 **4c. Chat dossier + Jev labels (1 day; PLANNED, gated on Nick's privacy choice).**
 - *Understand (Claude, once):* read the group thread and each DM whole; reconstruct conversations (`reply_to`, bursts < 2 min, name continuity); build an entity map (nicknames → people, team names → people, player nicknames → players); write a **dossier** per manager: role in chat, stated valuations with dates, confidence pattern and whether it was right, trade posture, loss reactions, what they respond to.
-- *Label (Jev, at scale):* `scripts/news-line/jev_league_chat.mts` — topic, confidence, tone, own-roster sentiment, player sentiment (player pre-extracted), open-to-trade, reacting-to-loss — with the dossier line as context. ~$0.15. **Requires `providerOptions.gateway.zeroDataRetention:true`, which is Vercel Pro-only. Do not send without it unless Nick chooses to.**
+- *Label (Jev, at scale):* `scripts/news-line/jev_league_chat.mts` — topic, confidence, tone, own-roster sentiment, player sentiment (player pre-extracted), open-to-trade, reacting-to-loss — with the dossier line as context. ~$0.15. Sent under **standard gateway retention by Nick's explicit choice (2026-09-17)** — ZDR is Pro-only and he declined to upgrade; re-enable `providerOptions.gateway.zeroDataRetention` if the plan changes.
+- *Scope:* **every message** — members, Nick's own, and tapback reactions (Nick, 2026-09-17: "dont skip mine and tapbacks"); one- and two-character messages (`W`, `L`, `gg`, a lone emoji) count. Only bare attachment placeholders (383) and null bodies (26) are skipped. Nick's own messages feed the Coach (what he already said to whom, his tells) and a consistency check ("you told Raj X on 9/3").
 - *Aggregate:* per manager, per week — sentiment toward each player they own, confidence index, trash-talk ratio, sell/untouchable declarations.
 
 **4d. Per-manager valuation.** `their_value(player, manager) = ESPN consensus × (1 + name_brand_premium) × (1 + endowment if theirs) × sentiment_adjust(chat) × position_bias`. Fit the multipliers on 4a's accepted/declined history by maximum likelihood.
@@ -222,6 +261,7 @@ Rebuild the `trade-explain` payload so Claude receives, per player on each side,
 - matchup: next 3 weeks' coverage/pressure/run-defense fit; playoff-weeks SOS
 - availability: status, practice pattern, team dialect P(play), first-game-back flag, news signals (typed, with source and time)
 - market: `their_value`, endowment/name-brand adjustments, ESPN rank/ADP/%rostered
+- public sentiment (Nick: "player sentiment etc"): Sleeper trending adds/drops (`trending_players`), %rostered Δ week-over-week, ESPN rank movement, news-signal tone — the hype the counterparty is reading, separate from what the league chat says
 - counterparty: archetype, stated valuations from chat (with dates), timing stats, predicted response, P(accept)
 - sim: title/playoff delta for both sides, seed, runs
 - **weights:** each block tagged `strength ∈ {decisive, strong, supporting, weak}` from its measured lift, so the explanation leads with what actually decides the deal.
@@ -241,6 +281,8 @@ Using `league_roster_history` (4a): for each week of 2024 and 2025, reconstruct 
 
 ### Phase 10 — UI (1–2 days) — build on Trade Lab, don't replace it
 
+**Sweep first (Nick: "the UI is fine but do a sweep").** Audit all 12 tabs and 47 endpoints in `routes/trades.js` + `routes/tradelab.js`: dead or duplicate endpoints, responses > 2 s, stale caches, console errors, numbers that disagree between tabs. Fix before adding.
+
 Existing tabs stay: *Find deals, Target a player, Mock a trade, Title impact, Buy low, Buy the backup, Claim now, Go get them, Hold or sell, Matchups, News edge, You have him.* Add:
 - **Live-data badge** (top of every page): injuries / news / rosters last refreshed, green/amber/red.
 - **Find deals → tree view:** ideas grouped by partner; multi-step chains rendered as a tree; 3-team routes as a triangle; each card shows `P(accept)` as a filled bar, `their_value_delta`, ROS gain, title Δ, and the archetype hint.
@@ -249,6 +291,41 @@ Existing tabs stay: *Find deals, Target a player, Mock a trade, Title impact, Bu
 - **Explain panel:** collapsible evidence blocks in strength order; every number links to its source block.
 - **Projection card:** our mean vs ESPN, floor/ceiling, the top 3 drivers (e.g., "TPRR up 18% over 3 wks", "xTD −1.4 → regression", "faces 71% man, he's +0.9 ypt vs man").
 - **Health page:** harness numbers (MAE vs naive, vs ESPN, coverage), backtest result, last fit date.
+
+More offerings (Nick: "those are good but we need more"):
+- **Counter an offer:** paste an incoming trade → its value both ways, P(accept) of three counters, the archetype hint.
+- **Package builder:** 2-for-1 and 3-for-1 consolidation finder — who in the league needs depth, what my bench is worth to them.
+- **Playoff planner:** weeks 15–17 matchups for my roster vs targets; who to own for the playoff run.
+- **Deadline mode:** trade-deadline countdown; what to do by when; which partners go quiet before it (timing stats).
+- **Claim-and-flip:** waiver adds that become trade chips within 2 weeks (trending + partner need).
+- **Who needs what:** league-wide needs map from `partners` — positions, byes, injuries per roster.
+- **Sell-high timing:** my players whose public sentiment (Phase 7) is above our projection — sell into hype.
+
+### Where Jev fits (Nick: "we have Jev so that could help MASSIVELY")
+1. League-chat labels (4c) — running.
+2. Presser corpus — fantasy questions over the 10,670 pressers: role expansion, committee, target-share promises; `coach_hedging` already labeled.
+3. Typed news extraction fallback (Phase 0) when the Anthropic key is unavailable — choice/score questions over `news_items`.
+4. Coach (Phase 8) — second opinion on wording: "reads as a lowball?", predicted reply tone.
+5. P(accept) second opinion (Phase 5) — boolean "would a manager with this dossier accept this package?" as one feature in the logistic; kept only if held-out Brier improves.
+Budget: each run ≤ $1 without asking; check `GET https://ai-gateway.vercel.sh/v1/credits` before every run (balance $9.96 on 2026-09-17).
+
+### Timeline (Nick: "figure out how long this whole thing will take")
+
+| Phase | Days | Depends on |
+|---|---|---|
+| 0 Live data | 0.5–1 | key from Nick |
+| 1 Projection | 3–5 | 0 |
+| 2 Consensus gate | 1 | 1 |
+| 3 ROS value | 1 | 2 |
+| 4 Counterparty | 2–3 | 0 (runs beside 1–3) |
+| 5 Game theory | 2–3 | 3, 4 |
+| 6 Find | 1–2 | 5 |
+| 7 Explain | 1 | 6 |
+| 8 Coach | 1 | 4, 7 |
+| 9 Backtest | 1–2 | 6 |
+| 10 UI | 1–2 | 6–9 |
+
+Sequential: **14.5–22 working days.** With Phase 4 in parallel with 1–3 and agents on separate phases: **~12–15 working days, about three calendar weeks.** First visible change (Phase 0 + 1a) inside one day of the go.
 
 ---
 
@@ -273,7 +350,10 @@ Existing tabs stay: *Find deals, Target a player, Mock a trade, Title impact, Bu
 - **Controls before spend:** gates run **before** expensive labeling, never alongside it ($4.51 was burned tonight by running them in parallel).
 - **One workflow at a time** on this 8-core Mac against the 18 GB archive. Scan `ps -eo pcpu,args | grep Python.framework` by cwd after every run; `TaskStop` does not kill children.
 - **Databases read-only** except the designated writes: `weekly_ensemble_fits`, `nfl_player_feature_vectors`, `espn_player_market`, `league_transactions*`, `live_data_health`, `off_sleeper_players`, `jev_chat_signals` (private DB only).
-- **Privacy:** `data/derived/league_chat.sqlite` never leaves the machine except to Jev with ZDR. Never commit it. Never paste message text into logs or docs.
+- **Privacy:** `data/derived/league_chat.sqlite` never leaves the machine except to Jev (standard retention, Nick's choice 2026-09-17). Never commit it. Never paste message text into logs or docs.
+- **Budget (Nick: "pls dont run up my bofa card"):** no new paid data or subscriptions; Jev runs ≤ $1 each without asking and check the balance first; Claude workflows one at a time.
+- **Focus (Nick: "the ideas should be focused not all over the place"):** an addition enters this plan only if it serves one of the three jobs (projection, counterparty, trade engine) or Phase 0. Everything else goes to the backlog in section 10 or is dropped.
+- **Storage:** `storage_watch.sh` stays in the maintenance loop; checkpoint WALs over 512 MB; `.metadata_never_index` on every new data directory.
 
 ## 7. If the whole thing doesn't go great — the honest tree
 
@@ -301,17 +381,32 @@ Everything ≈ 0?
 - **ESPN public APIs** (`lm-api-reads.fantasy.espn.com`) — leagues, transactions, rosters by period, `kona_player_info`. Cookies are live.
 - **FantasyCalc** (already in `dynasty_values`) — refresh weekly for redraft values.
 - **Open-source benchmarks** — permitted for method comparison only (e.g., ffopportunity, nflfastR-based projection repos). Cite; do not copy GPL code into the repo.
+- **GitHub, specifically:** `nflverse/nflverse-data` releases (pbp, participation, NGS, snap counts, injuries, depth charts, FTN charting); `ffverse/ffopportunity` (xFP, already ingested); `ffverse/ffsimulator` (season-sim method — compare with `season-sim.js`); `ffverse/ffscrapr` (MIT; ESPN/Sleeper endpoint shapes incl. `mTransactions2`, `kona_player_info` — read for API knowledge); `nflverse/nfl_data_py`; `dynastyprocess/data` (values — use only for the name-brand-premium proxy, all leagues are redraft). FantasyPros ECR public pages as a consensus-rank anchor (respect rate limits). Pro-Football-Reference only if `snap_counts` cannot give OL continuity.
 - **Not to be used:** anything that requires scraping a sportsbook, paid PFF data unless Nick supplies a license, or any source that cannot be re-fetched reproducibly.
 
 ## 9. What is needed from Nick before starting
 
-1. **Anthropic API key, workspace-scoped** → `.env` `ANTHROPIC_API_KEY`. Unblocks typed news signals (Phase 0) and the Explain/Coach layers.
-2. **Privacy choice for the chat layer:** Vercel Pro for Jev ZDR (~$20/mo) / fully local model / standard retention. Default if unanswered: **dossier is built by Claude in-session once; Jev labeling waits.**
-3. **OK to pull 2023–25 league history from ESPN** (transactions, drafts, rosters by week) for all 5 leagues. Read-only, his cookies.
-4. **OK to install the external live-data refresh loop** (a nohup/cron loop, every 15 min) — this replaces the in-server scheduler that hung the app.
-5. **Confirm Haiden Bonczek = ESPN roster 7 ("Aiden Smith")** in the Transfer portal league.
-6. **Go on Phase 0 and Phase 1a.** Both are unambiguous improvements; everything else gates on them.
+1. **Anthropic API key, workspace-scoped** → `.env` `ANTHROPIC_API_KEY`. Unblocks typed news signals (Phase 0) and the Explain/Coach layers. *Pending — Nick is replacing it locally.*
+2. **Privacy choice for the chat layer** — **answered 2026-09-17: standard retention, no upgrade.** Jev labels the chat without ZDR; the private DB still never leaves the machine otherwise.
+3. **OK to pull 2023–25 league history from ESPN** (transactions, drafts, weekly rosters, all 5 leagues, read-only with live cookies) — **approved 2026-09-17.**
+4. **OK to run an external 15-minute refresh loop** for injuries/news/rosters, replacing the in-server scheduler that hung the app — **approved 2026-09-17.**
+5. **Haiden Bonczek = ESPN roster 7 ("Aiden Smith")** — **confirmed 2026-09-17.**
+6. **Go on Phase 0 and Phase 1a.** *Pending explicit go — 1a changes live recommendations.*
 
 ---
 
 *Every claim above is traceable to a measurement made 2026-09-17 in this repo. The betting-side registry (`docs/betting-model/research/EDGE-TEST-REGISTRY.md`, sections A–Z) holds the methodology that produced them.*
+
+## 10. Not worth our time — and the backlog
+
+Nick asked for the "what is not worth our time" list. Deliberately skipped:
+- Beating the closing line for game-script **means** (r² = 0.03; the betting oracle test measured the ceiling at zero). Distribution only.
+- Dynasty values and pick valuation — every league is redraft.
+- Props as a betting market (no liquidity) — prop **lines** as an anchor are fine (1g).
+- DFS or lineup-optimizer work.
+- A 16th reweighting of the same FP series as a "new head".
+- Hand-tuned weights of any kind.
+- A local LLM for chat labeling — Jev does the whole corpus for ~$1.
+- Scraping sportsbooks or paid data.
+
+Backlog (mentioned, deferred, not in any phase): three-team routes beyond 10/week; Reddit/Twitter sentiment; a DK/FD prop scraper; Kalshi/Polymarket anything.

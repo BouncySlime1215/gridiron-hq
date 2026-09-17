@@ -368,6 +368,21 @@ Each phase lists **inputs**, **work**, **deliverable**, **acceptance** (numeric 
 - Cache at the shared-projection layer so the whole search is < 30 s per league.
 **Acceptance:** median league returns ≥ 25 distinct ideas with P(accept) ≥ 0.3; ≥ 5 multi-step; search < 30 s.
 
+**Counterparty → finder data contract (Nick, 2026-09-17: "just want to make sure the data we gather on our league members and texts etc feeds into the trade finder").** Today `findTrades` reads exactly one counterparty fact: the hand-set `manager_profiles.tradeability` tier (`never` blocks, `hard` × 0.55). Everything below is a **hard requirement of Phase 6**, not the Coach — an agent that ships the Coach without these wired into `findTrades` has not finished Phase 6:
+
+| Source (table) | Produced by | Consumed in `findTrades` as |
+|---|---|---|
+| `manager_chat_profile` (volume, tone, confidence, open-to-trade, reacting-to-loss, untouchable rate) | 4c rollup (running every 15 min) | archetype scores → `P(accept)` features; `open_to_trade` raises partner priority; `reacting_to_loss` sets the timing flag on the idea |
+| `manager_player_sentiment` (per person × player) | 4c rollup | `their_value(player, manager)` multiplier for that exact player; praise ≥ 3.0 → "they overvalue him" (ask for more, or don't target); complaint ≤ 1.5 → buy-low candidate surfaced |
+| stated **untouchables** and sell declarations (from `own_roster.untouchable` / chat ledger) | 4c | untouchables are **pruned from `candidates()`** for that partner; declared sells are boosted |
+| `manager_notes` + `entity_map` (Nick's reads) | dossier seeds | archetype priors before data exists (Raj → adversarial/`sharp`, Haiden → `auto_drafter`, Parth → seller, Lars → consensus-driven); the archetype hint shown on every idea card |
+| `league_transactions_raw` (proposals, accepts, declines, vetoes with timestamps) | forward collector (running) | personal acceptance curve → `P(accept)` calibration; counter rate → MESO vs single offer; veto history → veto-proofing flag |
+| 4e reaction timeline (lead time, reaction latency, news reactivity) | 4e | `send_at` on each idea; partners in a post-loss window get the T9/T10 rule applied to the ranking, not just the message |
+| `their_value` (4d) | 4d | prices **their** side of every evaluated package; the finder ranks by `P(accept) × my_ros_gain − λ|their_value_delta|⁺` (section 5) |
+| `P(accept | package, manager)` (5) | 5 | the ranking objective; ideas below 0.15 pruned; the filled bar on the card |
+
+Rule: any new counterparty signal added anywhere in the system must name its `findTrades` consumer in this table or it is Coach-only by explicit decision. **Acceptance addition:** for the Transfer portal league, the top-10 ideas change when `manager_player_sentiment` is zeroed out (proof the finder is reading it), and no idea targets a player its owner has declared untouchable in the last 30 days.
+
 ### Phase 7 — Explain from everything (1 day)
 
 Rebuild the `trade-explain` payload so Claude receives, per player on each side, a structured evidence block:

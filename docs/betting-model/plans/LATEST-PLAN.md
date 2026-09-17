@@ -1,7 +1,7 @@
 # Gridiron HQ — latest betting-model plan
 
 **September 16, 2026, late night — read this pointer first.**
-**"RESULTS — OPENER LAB" (search for that heading) is the NEWEST result.** A leak in the
+**"PREREGISTERED — MULTI-CHANNEL KALMAN" is in progress.** **"RESULTS — OPENER LAB" (search for that heading) is the NEWEST result.** A leak in the
 consensus-gap feature was found and corrected; at-open information predicts the
 direction of line moves but not expected value; Kelly weights fail; Kalshi appears to
 lead sportsbooks by 2-3 h (2026, descriptive until 150 games).
@@ -3949,6 +3949,36 @@ expected value. The one live lead is timing: Kalshi appears to move 2-3 hours
 before sportsbooks. That is a forward test, not a finding, until 150 games —
 and when it gets there it must be graded on the CLV + Kelly scorecard at the
 books' actual prices after Kalshi moves.
+
+### PREREGISTERED — MULTI-CHANNEL KALMAN (September 16, 2026, late night; committed BEFORE building; `scripts/model-lab/kalman_multi.py`)
+
+Nick: "add more models into kalman - more more more." One engine, each team
+tracked on several channels at once, every channel a matchup-adjusted Kalman
+pair (offense state + opponent's defense-allowed state + a league level that
+drifts), updated after every game exactly like K2, hyperparameters (q_week,
+q_season, rho, sigma, p0, q_mu) per channel by maximum likelihood of that
+channel's OWN next-game stat on 2016-2021, then frozen.
+
+Channels, observed per game from `nfl_team_week_features` (Rams deduped):
+drives (off_drives), tempo (off_seconds_per_drive), drive_scoring
+(drive_scoring_rate), pass_epa (pass_epa_per_play), rush_epa
+(rush_epa_per_play), explosive (explosive_play_rate), success (success_rate),
+turnover (turnover_rate), field_position (avg_drive_start). Plus QB: a
+per-player Kalman on `nfl_qbr_weekly.qbr_raw`; a game's expected starter is
+the team's previous game's most-played QB (point-in-time; announced changes
+are missed and noted). Plus the existing K1 score rating and K2 scoring level.
+
+Readouts, fit by ridge on 2016-2021 one-step-ahead channel predictions and
+frozen: margin = f(channel home-minus-away matchup predictions, K1 diff, QB
+diff); total = f(channel home-plus-away, K2). Ablations: each single channel
+alone, and full minus each channel. Team-week state vectors are written out
+as drive-sim profiles (wiring the sim is a later step).
+
+Evaluation, identical to the model lab: methods A and C on 2023-24 (dev,
+nested), 2025 holdout for the full model only, Holm across the family; then
+the CLV + Kelly scorecard at reference and best-book lines. Success = the
+scorecard's: positive expected Kelly growth in both 2024 and 2025 with Holm-
+significant dev EV. MAE vs K1/K2 is reported but is not success.
 
 ### RECONCILED PLAN — September 16, 2026, night (supersedes FINAL ORDER's own internal ordering below it; FINAL ORDER's items and numbers are kept as a reference catalog, not deleted)
 

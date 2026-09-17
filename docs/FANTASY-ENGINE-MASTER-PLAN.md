@@ -6,6 +6,10 @@
 
 ---
 
+## 0a. Read first: the target is defined before the model (2026-09-17)
+
+**`docs/WHAT-WINS-STUDY.md`** now precedes every phase below. A five-angle literature review found that season-long fantasy at the manager level is ~80% luck (Cates, R* = 0.19), that good projections beat real managers by only ~+0.2 wins/season, and that the documented in-season edge is keeping live players and capturing value vs market price. So: the study runs first, produces a per-format target spec, and **every gate in Phases 1–9 is re-pointed at attainable-arm all-play win % and bench points instead of MAE.** Availability and live players move to the top; the counterparty layer is the part of the system the luck finding does not touch.
+
 ## 0. What this is, in one paragraph
 
 The fantasy trade engine (`server/services/trade-engine.js`, 1,515 lines) is well-built — lineup solver, market value as a separate axis, red flags, sim-verified verdicts — and it is standing on a projection that **loses to a moving average**, valuing both sides of every deal with *our* number instead of the counterparty's. The overhaul has three jobs: (1) make the projection genuinely good by feeding it information it has never seen, (2) model the *ten people Nick actually trades with* rather than the market, and (3) turn that into a trade engine that finds deals people accept, explains them from everything it knows, and coaches what to say. Live news and injury data is a hard prerequisite and it is currently half-broken.

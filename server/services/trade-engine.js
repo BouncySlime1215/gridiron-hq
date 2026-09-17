@@ -40,6 +40,7 @@ import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
 import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
+import { counterpartyLayer, readDeal, untouchablesFor } from './counterparty-pricing.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -811,12 +812,13 @@ function candidates(team, slots, limit = 11, excludeIds = null) {
  */
 export function findTrades(lg, opts = {}) {
   if (opts.teamsOverride || opts.assetsOverride) return findTradesUncached(lg, opts);
-  const { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null, excludeIds = null } = opts;
+  const { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null,
+    excludeIds = null, counterparty: useCounterparty = true } = opts;
   const target = tradeWeekContext();
   const { formatKey } = deriveFormat(lg);
   const excludeKey = excludeIds ? [...excludeIds].sort((a, b) => a - b).join(',') : '';
   const key = `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
-    `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:${excludeKey}`;
+    `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:${excludeKey}:cp${useCounterparty ? 1 : 0}`;
   return cached(key, fingerprint([
     { table: 'players', stamp: 'id' }, { table: 'roster_players', stamp: 'id' },
     { table: 'dynasty_values', stamp: 'player_id' }, { table: 'player_week_usage', stamp: 'week' },
@@ -833,7 +835,12 @@ function findTradesUncached(lg, {
   myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null, excludeIds = null,
   // Lets findTradeSequences() re-run this exact search against a hypothetical
   // post-trade roster without duplicating any of the logic below.
-  teamsOverride = null, assetsOverride = null
+  teamsOverride = null, assetsOverride = null,
+  // Off only so the harness can measure what the counterparty layer is worth.
+  // Production always wants it on: ranking by what we think a deal is worth,
+  // with no model of whether anyone would accept it, is how the engine spent
+  // its life suggesting trades nobody took.
+  counterparty: useCounterparty = true
 } = {}) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetsOverride ?? assetUniverse(lg, formatKey);
@@ -846,6 +853,11 @@ function findTradesUncached(lg, {
   const managerProfiles = new Map(rows(`SELECT roster_id,tradeability FROM manager_profiles WHERE league_id=?`, lg.id)
     .map(profile => [String(profile.roster_id), profile.tradeability]));
   const blockedManagers = new Set([...managerProfiles].filter(([, tier]) => tier === 'never').map(([id]) => id));
+  // What we know about the ten people on the other side: how each one talks
+  // about trades, what he has said about these specific players, and how he has
+  // actually behaved. Loaded once for the whole search; empty maps are the
+  // normal case for a league with no chat corpus and cost nothing.
+  const counterparties = useCounterparty ? counterpartyLayer(lg.id) : new Map();
 
   const myPool = candidates(me, slots, 11, excludeIds);
   const deals = [];
@@ -854,7 +866,14 @@ function findTradesUncached(lg, {
     if (them.roster_id === me.roster_id) continue;
     if (blockedManagers.has(String(them.roster_id))) continue;
     const theirCtx = context.get(String(them.roster_id));
-    let theirPool = candidates(them, slots);
+    const cp = counterparties.get(String(them.roster_id)) ?? null;
+    // Players he has repeatedly called untouchable in the last month are removed
+    // from the search, not ranked down. Asking for one is the cheapest possible
+    // way to look like you do not read the chat, and no amount of surplus value
+    // makes that a suggestion worth sending.
+    const offLimits = useCounterparty ? untouchablesFor(lg.id, them.roster_id) : new Set();
+    let theirPool = candidates(them, slots)
+      .filter(p => !offLimits.has(String(p.name ?? '').toLowerCase()));
     if (target) {
       // Target mode: every package must contain the player we're after.
       const t = theirPool.find(p => p.id === target);
@@ -902,8 +921,26 @@ function findTradesUncached(lg, {
             && lean.them.ppg_delta >= ev.them.ppg_delta - 0.05;
         });
         if (redundant) continue;
-        const managerFactor = managerProfiles.get(String(them.roster_id)) === 'hard' ? 0.55 : 1;
+        // Read the deal from his side of the table: what he gives and gets, priced
+        // with HIS opinion of those players rather than ours. `receptiveness` is
+        // how tradeable this person is at all; `perception_delta` is whether this
+        // particular package reads as a win to him.
+        const counterparty = cp
+          ? readDeal({ theirGive: get, theirGet: give, managerProfile: cp })
+          : { receptiveness: managerProfiles.get(String(them.roster_id)) === 'hard' ? 0.55 : 1,
+            perception_delta: null, perception_reasons: [], chat_msgs: 0, accept_rate: null };
+        // Fall back to the old binary tier when there is no counterparty data, so a
+        // league with no chat corpus ranks exactly as it did before.
+        const managerFactor = cp
+          ? counterparty.receptiveness * (managerProfiles.get(String(them.roster_id)) === 'hard' ? 0.55 : 1)
+          : (managerProfiles.get(String(them.roster_id)) === 'hard' ? 0.55 : 1);
         const fairnessFactor = 1 / (1 + Math.exp(-(ev.their_value_pct + 4) / 10));
+        // How the package lands with HIM, bounded to +-10% of the score. Sentiment
+        // from a handful of texts breaks ties between comparable deals; it is never
+        // allowed to promote a deal that is bad for us.
+        const perceptionFactor = Number.isFinite(counterparty.perception_delta)
+          ? 1 + Math.max(-0.10, Math.min(0.10, counterparty.perception_delta / 100))
+          : 1;
         deals.push({
           partner: them.owner, partner_id: them.roster_id,
           i_give: give.map(slim), i_get: get.map(slim),
@@ -913,7 +950,9 @@ function findTradesUncached(lg, {
           // one where I surrender less market value is strictly better — without this
           // term the ranking is indifferent to throwing in a free asset.
           manager_tradeability: managerProfiles.get(String(them.roster_id)) ?? 'fair',
-          score: +(managerFactor * fairnessFactor * (ev.me.ppg_delta + 0.2 * ev.joint_ppg)).toFixed(3)
+          counterparty,
+          score: +(managerFactor * fairnessFactor * perceptionFactor
+            * (ev.me.ppg_delta + 0.2 * ev.joint_ppg)).toFixed(3)
         });
       }
     }

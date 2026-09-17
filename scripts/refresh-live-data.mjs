@@ -22,6 +22,7 @@
 process.env.SCHEDULER_DISABLED = '1';
 
 const FANTASY_LIVE_JOBS = [
+  'nfl_lines',          // ESPN game lines + finals — scores are what advance the current week
   'nfl_injuries',       // nflverse official reports (nightly upstream)
   'league_rosters',     // the 5 ESPN leagues — rosters, matchups, settings
   'player_rosters',     // ESPN player ↔ NFL team map

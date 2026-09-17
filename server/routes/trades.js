@@ -16,6 +16,7 @@ import {
 // draft advisor runs on (server/routes/drafts.js) — one voice for both rooms.
 import { evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
 import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
+import { leagueCurrentWeek, leagueLastCompletedWeek } from '../services/league-week.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { brainState, brainPlan, managerProfiles, setManagerProfile } from '../services/league-brain.js';
@@ -375,7 +376,7 @@ r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     res.json(ceilingLineup(lg.id, {
       teamId: req.query.team_id,
-      week: Math.min(18, Math.max(1, Number(req.query.week) || 1)),
+      week: Math.min(18, Math.max(1, Number(req.query.week) || leagueCurrentWeek(lg))),
       objective: req.query.objective === 'mean' ? 'mean' : 'ceiling',
       target: req.query.target ? Number(req.query.target) : null,
       trials: Math.min(8000, Number(req.query.trials) || 3000)
@@ -409,7 +410,7 @@ r.get('/:leagueId/postmortem', (req, res, next) => {
     res.json(weekPostmortem(lg.id, {
       teamId: req.query.team_id,
       season: Number(req.query.season) || undefined,
-      week: Math.min(18, Math.max(1, Number(req.query.week) || 1)),
+      week: Math.min(18, Math.max(1, Number(req.query.week) || leagueLastCompletedWeek(lg))),
       lineup: lineup.length ? lineup : null
     }));
   } catch (e) { next(e); }

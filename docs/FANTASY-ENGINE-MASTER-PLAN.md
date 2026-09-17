@@ -149,6 +149,8 @@ Each phase lists **inputs**, **work**, **deliverable**, **acceptance** (numeric 
 3. Add **Sleeper** as a second injury/status source: `https://api.sleeper.app/v1/players/nfl` (no key, ~5 MB, `injury_status`, `injury_body_part`, `practice_participation`, `depth_chart_order`, updated continuously). Wire into `off_sleeper_players` (exists, 0 rows) and merge into `nfl_injuries` with source precedence: nflverse official report > Sleeper > ESPN news mention.
 4. Add a **data-health table** `live_data_health(feed, last_ok_at, last_error, rows)` written by the runner, exposed at `GET /api/health/live-data`, rendered as a badge in the UI (green <30 min, amber <6 h, red otherwise).
 5. Re-enable the in-server scheduler only for **growth** tier jobs (daily) once live tier runs externally; keep `SCHEDULER_DISABLED` semantics for interactive use.
+6. **Week progression follows ESPN (done 2026-09-17):** `leagues.current_week` = ESPN `status.currentMatchupPeriod` at every sync (migration 056); `services/league-week.js#leagueCurrentWeek` is the only way pages resolve "this week"; the ESPN sync no longer pins `scoringPeriodId=1`; `nfl_lines` (finals) is in the refresh allowlist because unscored games are what advance `tradeWeekContext()`. Rule: no route or service defaults a week to `1`.
+7. **24/7 hosting (Nick, 2026-09-17: "make it accessible even if my laptop isn't there or off the wifi… keep server running 24/7"):** the app must run off a host that is not the laptop. The fantasy app needs `server/data.sqlite` (635 MB) + `data/derived/player_value.sqlite` (66 MB) + the private `league_chat.sqlite` (56 MB); the 22 GB betting archive stays local. Same refresh loop runs on the host. Login is the existing single-user `local-auth`. Hosting choice and account creation are Nick's (see section 9).
 
 **Acceptance:** all six feeds show `last_ok_at` within their cadence for 24 h straight; week-3 injury rows present by Thursday 08:00Z; `nfl_news_signals` inserts rows; server HTTP p95 < 500 ms under the external runner.
 **If it doesn't go great:** nflverse late → Sleeper becomes primary for status until nflverse catches up; Anthropic key unavailable → typed signals fall back to a regex/keyword extractor over `news_items` (out / questionable / activated / IR / placed / designated), lower recall, never silent.
@@ -490,6 +492,7 @@ From the Coach playbook (answer when convenient; defaults in brackets):
 9. Do any leagues allow conditional picks or commissioner-logged side agreements? [no → contingent-contract tactic disabled]
 10. Should the Coach plan the whole concession ladder before message 1 (recommended) or only the next step each call? [whole ladder, stored per thread]
 Decided without asking: `coach_threads` and `tactic_exposure_log` live in the private `league_chat.sqlite`, never the main DB.
+11. **Hosting for 24/7 access** — pick one and create the account yourself (I cannot create accounts or enter payment details): (a) **Fly.io** — stable `https://<app>.fly.dev` URL, no domain, built-in HTTPS, ~$5–7/mo for a small VM + 3 GB volume; (b) **Hetzner CX22 + Tailscale** — ~€4/mo, private (only your phone on the VPN can reach it), no public URL. Recommended: (a) for simplicity. I prepare the Dockerfile/systemd unit, data upload, secrets list, and the cut-over; you run the two login commands.
 
 ---
 

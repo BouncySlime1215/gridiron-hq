@@ -24,7 +24,7 @@ const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 r.get('/', (req, res) => {
   res.json(rows(`SELECT l.id, l.platform, l.league_id, l.season, l.name, l.my_team_id, l.team_count, l.ppr,
                         l.superflex, l.league_type, l.fetched_at, l.connection_status, l.sync_error,
-                        l.espn_s2 IS NOT NULL AS has_cookies
+                        l.current_week, l.espn_s2 IS NOT NULL AS has_cookies
                  FROM leagues l JOIN league_memberships m ON m.league_id = l.id
                  WHERE m.user_id = ? ORDER BY l.id`, req.auth.userId));
 });
@@ -146,11 +146,12 @@ export async function syncEspnLeague(lg) {
   const lineup = data.settings?.rosterSettings?.lineupSlotCounts ?? {};
   const rosterPositions = Object.entries(lineup)
     .flatMap(([slot, n]) => Array(n).fill(ESPN_SLOT_NAME[slot]).filter(Boolean));
+  const currentWeek = Number(data.status?.currentMatchupPeriod) || null;
   run(`UPDATE leagues SET name = ?, team_count = ?, payload = ?, roster_positions = ?,
-       league_type = ?, fetched_at = datetime('now') WHERE id = ?`,
+       league_type = ?, current_week = ?, fetched_at = datetime('now') WHERE id = ?`,
     data.settings?.name ?? `ESPN ${lg.league_id}`, data.teams?.length ?? null,
     JSON.stringify(data), rosterPositions.length ? JSON.stringify(rosterPositions) : null,
-    leagueTypeFromPayload('espn', data), lg.id);
+    leagueTypeFromPayload('espn', data), currentWeek, lg.id);
   return { teams: data.teams?.length ?? 0, roster_players: rosterCount(data), season_used: usedSeason, fell_back: fellBack };
 }
 

@@ -106,12 +106,14 @@ Roster map from chat → ESPN: Raj=1, Rami=2, Parth=4, Nick=5, Christian=8, Josh
 | Raj ("Sai") | 1 | graduated, old roommate; sweaty; will try to scam | `sharp` high, adversarial; winner's-curse check on every incoming offer; his public valuations are anchors |
 | Rami Fakih | 2 | at Michigan now; close with Nick; claims to know ball, doesn't; good team; asks others for help | slow, second-hand decisions; give him a reason he can repeat |
 | Parth Bedi | 4 | abroad; kinda wants out | disengaged seller; low attention; simple 1-for-1s |
-| Haiden Bonczek | 7 | noob; "a bot" in Nick's other league | `auto_drafter` high; check lineup discipline before assuming he reads offers |
+| Haiden Bonczek | 7 | noob, "just ass" — but active and locked in (Nick corrected his first read; data agrees: 10 starters set, none OUT; ESPN draft-day rank 4 → now 7) | low `sharp`, normal attention; reads offers; plain fair-looking 1-for-1s |
 | Christian Etheridge | 8 | Commanders fan like Nick, not die-hard | light rapport lever |
 | Josh Smith | 9 | smart, cocky (IB internship); co-coaches flag with Nick; second-ever fantasy team | `expertise` high in reasoning, low in fantasy: numbers-forward, no name-brand tricks |
 | Lars Cramer | 10 | not sharp; uses fantasy Reddit for feedback; has a gf, rarely around; replies fast; scammed before | consensus-driven; cite ESPN/consensus; fast replies |
 | Anthony Vasquez ("AV") | 11 | doesn't talk; knows some ball, lower end | DM only, short; little chat signal |
 | Zach Ruggiero | 12 | has a gf, doesn't talk much | DM only; low volume; slow |
+
+**Bias rule (Nick, 2026-09-17: "i could be wrong tho — my opinion is biased").** Nick's reads are **priors, not facts**: each starts with the weight of ~3 observations and decays as 4a/4c/4e data accrues for that person. Where data and the read disagree, the data wins and the disagreement is shown ("you said X; the last 12 proposals say Y"). The Haiden row above is the first example: "a bot" was withdrawn when the lineup and draft data said otherwise.
 
 Entity map (`entity_map` table): Sai = Raj; AV = Anthony. **Not in the league:** Aidan (roommate — not Haiden), Greg, Roan, Jake (Christian & Parth's roommate), Josh Arnold (roommate, abroad — not Josh Smith). The iMessage group **"Transfer Portal V4" is the friend chat — out of scope, never read.**
 
@@ -381,7 +383,10 @@ Each phase lists **inputs**, **work**, **deliverable**, **acceptance** (numeric 
 | `their_value` (4d) | 4d | prices **their** side of every evaluated package; the finder ranks by `P(accept) × my_ros_gain − λ|their_value_delta|⁺` (section 5) |
 | `P(accept | package, manager)` (5) | 5 | the ranking objective; ideas below 0.15 pruned; the filled bar on the card |
 
-Rule: any new counterparty signal added anywhere in the system must name its `findTrades` consumer in this table or it is Coach-only by explicit decision. **Acceptance addition:** for the Transfer portal league, the top-10 ideas change when `manager_player_sentiment` is zeroed out (proof the finder is reading it), and no idea targets a player its owner has declared untouchable in the last 30 days.
+Rule: any new counterparty signal added anywhere in the system must name its `findTrades` consumer in this table or it is Coach-only by explicit decision.
+
+**AI synthesis of realistic proposals (Nick, 2026-09-17: "use AI to combine all the data to realistic proposals").** After the numeric ranking, the top ~15 ideas per league go through one Claude pass (Sonnet, cached per league-day, ≤ 1 call per refresh) that receives, per idea: both packages priced both ways, `P(accept)`, the partner's chat profile and per-player sentiment, their stated untouchables/sells, their transaction history and acceptance curve, the reaction-timeline timing, Nick's read *and its current weight*, and the roster-fit notes. It returns 5–10 **realistic proposals**: the package to actually send, why this person would say yes in their terms, the opening ask and floor, `send_at`, the one risk, and which data points it leaned on. Rules: it may merge or drop ideas but may not invent players or numbers; when Nick's read and the data conflict it follows the data and says so; every claim cites the block it came from (same discipline as Explain). Output lands on the Find deals page above the raw list, and each proposal links to its Coach thread.
+**Acceptance:** Nick rates ≥ 7/10 synthesized proposals "I'd actually send this"; every proposal's cited data points exist in the tables named above. **Acceptance addition:** for the Transfer portal league, the top-10 ideas change when `manager_player_sentiment` is zeroed out (proof the finder is reading it), and no idea targets a player its owner has declared untouchable in the last 30 days.
 
 ### Phase 7 — Explain from everything (1 day)
 

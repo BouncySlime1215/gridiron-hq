@@ -1268,3 +1268,60 @@ model at 1.20pp vs 2.2pp needed.
 The market is not slightly ahead of the models. **It is the sufficient statistic, and the models
 are noise around it.** Any remaining edge is in what the market *is*, not in what the game will be.
 
+
+## R. Personnel-delta and a SECOND oracle — the player-level workflow, complete: 6 of 6 no_edge
+
+### Personnel-delta: "the market prices a QB change crudely" — FALSIFIED
+The hypothesis the entire player-level workflow was built on. Put a plain "QB changed" dummy and
+the player-level QB *quality* delta in the same regression on the closing line:
+
+```
+                          coef on closing line     t
+QB-changed dummy              +0.366             +3.24
+player-level QB delta         +0.605             +3.40
+on material QB changes only (n=333):
+QB-changed dummy                                 +0.93   ← drops out
+player-level QB delta                            +2.69   ← holds
+```
+
+**The market prices replacement *quality*, not just the event.** Under-reaction (outcome minus
+market) = −0.252 ± 0.362, t=−0.69, p=0.47. Sign-flip placebo p=0.46. Per position, Holm-corrected
+over 9 groups: nothing tradeable. Safeties reached nominal significance and are the wrong way round
+(the outcome runs opposite to the rating; market coefficient −0.012, t=−0.03 — the market is not
+over-reacting, the rating is wrong). Train/test gap on the betting model: +7 to +15pp. Textbook.
+
+### The second oracle — independently reproduced
+A different agent, different construction, same experiment: rebuild the lineup rating from the
+game's **actual** week-t snap counts.
+
+```
+corr(oracle lineup, actual margin)     +0.3015    ← the personnel axis is REAL
+corr(oracle lineup, closing line)      +0.7257    ← and the market has it
+corr(oracle lineup, RESIDUAL)          +0.0007    ← nothing left over
+n=1,121; clustered t on both components 0.72 and −1.02
+```
+
+Two agents, two constructions, one answer: **perfect usage foreknowledge adds nothing.**
+
+### A resolved null, not an underpowered one
+This matters, because "not significant" is usually "not enough data." Here it is not:
+
+```
+ROI space:  SE 2.845pp, MDE 7.08pp → resolving a 0.64% edge needs ~137,000 bets (~490 seasons)
+CLV space:  SE 0.0234 pts, MDE 0.058 pts  <  0.077 pts the graveyard bar requires
+            → ADEQUATELY POWERED to detect a graveyard-sized edge. Returns −0.058. Resolved.
+```
+
+The model's net CLV is −0.0582 ± 0.0234 pts, t=−2.49: it sits on the **wrong side of the line's
+own move**, 5.8 SEs below the graveyard bar.
+
+### NEW RULE — the drift placebo
+The agent's v1 reported "+0.17 pts CLV, t=2.6" and killed it itself:
+
+> Blindly betting the **favourite** earns +0.150 pts of T−1440-to-close CLV at **t=+7.31** with
+> no model at all. v1's predictions correlated +0.74 with the favourite. v1's CLV was line drift.
+
+**Lines drift toward favourites in the final 24 hours.** Any model whose picks correlate with the
+favourite side will show positive CLV that is drift, not information. Every CLV number must be
+tested against the always-favourite baseline. Added to the rules.
+

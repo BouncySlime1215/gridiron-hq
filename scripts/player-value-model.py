@@ -88,6 +88,14 @@ R_PASS, R_RUSH, R_REC, R_DEF = 0, 1, 2, 3
 TUNE_SEASONS   = [2018, 2019, 2020, 2021]
 REPORT_SEASONS = [2022, 2023, 2024, 2025]
 
+# Chosen on TUNE_SEASONS only (see scripts output of `tune`), then frozen before
+# any 2022-2025 number was computed. Per-role because the roles disagree sharply:
+# passers and rushers want LESS shrinkage than the method-of-moments value,
+# receivers and defenders want much more.
+LOCKED_HALFLIFE = 26
+LOCKED_MULT = {R_PASS: 0.5, R_RUSH: 0.5, R_REC: 64.0, R_DEF: 64.0}
+LOCKED_MULT_GLOBAL_ALT = 16.0    # the single-multiplier alternative, reported as a sensitivity
+
 
 DENSE_RIDGE = 1e-3
 
@@ -502,7 +510,8 @@ _WARM = {}
 def season_eval(D, t, lam_mult, halflife, placebo_rng=None):
     """Fit on everything strictly before season t week 1; evaluate on season t."""
     ctx = season_context(D, t, halflife)
-    lam = {r: ctx['lam0'][r] * lam_mult for r in range(4)}
+    mm = lam_mult if isinstance(lam_mult, dict) else {r: lam_mult for r in range(4)}
+    lam = {r: ctx['lam0'][r] * mm[r] for r in range(4)}
     warm = _WARM.get((t, halflife))
     gg, bb, rvar, neff, x, _ = solve(D, 0, ctx['hi'], lam, halflife, ctx['cut'], warm=warm)
     _WARM[(t, halflife)] = x
@@ -549,7 +558,7 @@ def tune():
     situation-residual EPA."""
     D = Data()
     grid_mult = [0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0]
-    grid_hl = [None, 104, 52, 26, 13]
+    grid_hl = [None, 104, 52, 26, 13, 8, 5]
     results = []
     print(f"[tune] start {time.strftime('%H:%M:%S')}", flush=True)
     for hl in grid_hl:
@@ -570,8 +579,15 @@ def tune():
             print(f"  [{time.strftime('%H:%M:%S')}] hl={str(hl):>4} mult={mult:>4} "
                   f"score={score:.4f}  {results[-1]['per_role']}", flush=True)
     best = max(results, key=lambda d: d['score'])
-    print("\n[tune] BEST (locked):", best)
-    json.dump(dict(best=best, grid=results), open(TUNED, 'w'), indent=1)
+    per_role_best = {}
+    for hl in grid_hl:
+        rows = [g for g in results if g['halflife'] == hl]
+        if rows:
+            per_role_best[str(hl)] = {rn: max(rows, key=lambda g: g['per_role'].get(rn, -9))['mult']
+                                      for rn in ROLES}
+    print("\n[tune] BEST single multiplier (locked):", best)
+    print("[tune] BEST per-role multipliers by half-life:", per_role_best)
+    json.dump(dict(best=best, per_role_best=per_role_best, grid=results), open(TUNED, 'w'), indent=1)
     return best
 
 
@@ -606,8 +622,9 @@ def _wmean_by(key, y, w, keys_all):
 def validate():
     """The locked out-of-sample report. Hyper-parameters come from TUNE_SEASONS and
     are not touched here. Every baseline is the POSITIONAL mean, per the brief."""
-    tuned = json.load(open(TUNED))['best']
-    mult, hl = tuned['mult'], tuned['halflife']
+    tuned = json.load(open(TUNED))
+    hl = LOCKED_HALFLIFE
+    mult = LOCKED_MULT
     D = Data()
     npg = len(POSGROUPS)
     print(f"\n[validate] LOCKED from {TUNE_SEASONS}: lambda_mult={mult} halflife={hl}", flush=True)
@@ -699,9 +716,84 @@ def validate():
             in_sample_r_train_window=round(r_in, 4),
         ))
         print(json.dumps(lines[-1]), flush=True)
-    json.dump(dict(locked=tuned, results=lines),
+    json.dump(dict(locked=dict(halflife=hl, mult={ROLES[k]: v for k, v in mult.items()}),
+                   results=lines),
               open(os.path.splitext(CACHE)[0] + "_validation.json", 'w'), indent=1)
     return lines
+
+
+# ------------------------------------------------ SE calibration + costs -----
+def calibrate_se(D, hi, lam, halflife, cut, n_rep=2, seed=7):
+    """The analytic sampling SD of a ridge coefficient for an isolated column is
+    se_i = sigma*sqrt(n_i)/(n_i+lambda). It ignores the correlation between a
+    player's column and his team-mates', so it is not to be trusted as written.
+    Measure the error: split GAMES at random into halves, fit both, and compare the
+    realised spread of (b_A-b_B)/sqrt(2) with what the formula predicts. The
+    returned per-role factor multiplies the formula in `emit`; it is fitted, not
+    assumed, and a value far from 1.0 is itself the finding."""
+    rng = np.random.default_rng(seed)
+    gidx = D.game_idx[:hi]
+    ngames = int(gidx.max()) + 1
+    ratios = {r: [] for r in range(4)}
+    for rep in range(n_rep):
+        side = rng.integers(0, 2, ngames)
+        halves = []
+        for h in (0, 1):
+            rows = np.where(side[gidx] == h)[0]
+            halves.append(_fit_subset(D, rows, lam, halflife, cut))
+        (bA, nA, vA), (bB, nB, vB) = halves
+        d = (bA - bB) / math.sqrt(2.0)
+        for r in range(4):
+            sel = np.where((D.col_role == r) & (nA > 10) & (nB > 10))[0]
+            if len(sel) < 30:
+                continue
+            f = 0.5 * (np.sqrt(vA * nA[sel]) / (nA[sel] + lam[r]) +
+                       np.sqrt(vB * nB[sel]) / (nB[sel] + lam[r]))
+            ratios[r].append(float(np.std(d[sel] / f)))
+    return {r: (float(np.mean(v)) if v else 1.0) for r, v in ratios.items()}
+
+
+def _fit_subset(D, rows, lam_by_role, halflife, cut):
+    """ridge fit on an arbitrary subset of play rows (used only for SE calibration)."""
+    y = D.epa[rows]; Z = D.Z[rows]
+    n, m, p = len(rows), Z.shape[1], D.p
+    sw = D.sw[rows]
+    if halflife:
+        wk = (sw // 100 - 2016) * 22 + (sw % 100)
+        ck = (cut // 100 - 2016) * 22 + (cut % 100)
+        w = np.power(0.5, (ck - wk) / float(halflife))
+    else:
+        w = np.ones(n)
+    newpos = -np.ones(D.n, np.int64); newpos[rows] = np.arange(n)
+    keep = newpos[D.ri] >= 0
+    ri = newpos[D.ri[keep]]; ci = D.ci[keep]; vi = D.vi[keep]
+    lam = np.array([lam_by_role[r] for r in D.col_role], np.float64)
+    wy = w * y
+    rhs = np.concatenate([Z.T @ wy, np.bincount(ci, weights=vi * wy[ri], minlength=p)])
+    dg = (Z * Z * w[:, None]).sum(0) + DENSE_RIDGE
+    db = np.bincount(ci, weights=vi * vi * w[ri], minlength=p) + lam
+    dinv = 1.0 / np.concatenate([np.maximum(dg, 1e-9), np.maximum(db, 1e-9)])
+
+    def A(x):
+        g, b = x[:m], x[m:]
+        pred = Z @ g + np.bincount(ri, weights=vi * b[ci], minlength=n)
+        wp = w * pred
+        return np.concatenate([Z.T @ wp + DENSE_RIDGE * g,
+                               np.bincount(ci, weights=vi * wp[ri], minlength=p) + lam * b])
+    x = np.zeros(m + p); r_ = rhs - A(x); z = dinv * r_; pd = z.copy(); rz = r_ @ z
+    nr = max(np.linalg.norm(rhs), 1e-12)
+    for _ in range(300):
+        Ap = A(pd); al = rz / max(pd @ Ap, 1e-30)
+        x += al * pd; r_ -= al * Ap
+        if np.linalg.norm(r_) / nr < 1e-6:
+            break
+        z = dinv * r_; rz2 = r_ @ z; pd = z + (rz2 / rz) * pd; rz = rz2
+    g, b = x[:m], x[m:]
+    pred = Z @ g + np.bincount(ri, weights=vi * b[ci], minlength=n)
+    resid = y - pred
+    rvar = float((w * resid * resid).sum() / w.sum())
+    neff = np.bincount(ci, weights=vi * vi * w[ri], minlength=p)
+    return b, neff, rvar
 
 
 def attribution_cost(D, hi, lam, halflife, cut):
@@ -742,8 +834,7 @@ def attribution_cost(D, hi, lam, halflife, cut):
 
 # ------------------------------------------------------------------ emit -----
 def emit():
-    tuned = json.load(open(TUNED))['best']
-    mult, hl = tuned['mult'], tuned['halflife']
+    hl, mult = LOCKED_HALFLIFE, LOCKED_MULT
     D = Data()
     cuts = sorted(int(v) for v in D.uniq_sw if v // 100 >= 2018)
     # 2026: pbp_participation is not published, so the window simply ends at 2025
@@ -752,9 +843,9 @@ def emit():
     # SE inflation factor, measured once at the 2022 cut and applied throughout
     hi22 = D.sw_start[202201]
     _, lam0 = _sit(D, hi22, hl, 202201)
-    lam22 = {r: lam0[r] * mult for r in range(4)}
+    lam22 = {r: lam0[r] * mult[r] for r in range(4)}
     infl = calibrate_se(D, hi22, lam22, hl, 202201)
-    print("[emit] SE inflation over the closed-form EB posterior SD:",
+    print("[emit] SE calibration factor over sigma*sqrt(n)/(n+lambda):",
           {ROLES[r]: round(v, 2) for r, v in infl.items()})
     ac = attribution_cost(D, hi22, lam22, hl, 202201)
     print("[emit] attribution cost:", json.dumps(ac))
@@ -790,22 +881,23 @@ def emit():
         if hi < 5000:
             continue
         _, lam0 = _sit(D, hi, hl, cut_fit)
-        lam = {r: lam0[r] * mult for r in range(4)}
+        lam = {r: lam0[r] * mult[r] for r in range(4)}
         gg, bb, rvar, neff, warm, iters = solve(D, 0, hi, lam, hl, cut_fit, warm=warm)
-        se = np.array([infl[D.col_role[c]] for c in range(D.p)]) * \
-             np.sqrt(rvar / (neff + np.array([lam[r] for r in D.col_role])))
+        lam_vec = np.array([lam[int(r)] for r in D.col_role])
+        se = np.array([infl[int(r)] for r in D.col_role]) * \
+             np.sqrt(rvar * np.maximum(neff, 0.0)) / (neff + lam_vec)
         # collapse player-role columns to one row per player
         byp = {}
         for c in range(D.p):
             if neff[c] < 5:
                 continue
-            pid = str(D.col_pid[c]); role = D.col_role[c]
+            pid = str(D.col_pid[c]); role = int(D.col_role[c])
             d = byp.setdefault(pid, dict(pos=str(D.col_pos[c])))
             d[role] = (float(bb[c]), float(se[c]), float(neff[c]))
         rows = []
         wend = int(max(v for v in D.uniq_sw if v < cut) if cut // 100 != 2026 else max(D.uniq_sw))
         for pid, d in byp.items():
-            roles = [(r, v) for r, v in d.items() if isinstance(r, int)]
+            roles = [(r, v) for r, v in d.items() if r != 'pos']
             if not roles:
                 continue
             prim = max(roles, key=lambda kv: kv[1][2])
@@ -814,7 +906,7 @@ def emit():
                          prim[1][0], prim[1][1], sum(v[2] for _, v in roles),
                          *g(R_PASS), *g(R_RUSH), *g(R_REC), *g(R_DEF),
                          wend // 100, wend % 100, stale))
-        out.executemany("insert or replace into player_value_weekly values (" + ",".join(["?"] * 24) + ")", rows)
+        out.executemany("insert or replace into player_value_weekly values (" + ",".join(["?"] * 23) + ")", rows)
         total += len(rows)
         if cut % 100 == 1:
             print(f"  {cut//100} w{cut%100}: train={hi:,} iters={iters} players={len(rows)} "
@@ -823,7 +915,7 @@ def emit():
         built_at=time.strftime("%Y-%m-%d %H:%M:%S"),
         nflverse_mtime=time.ctime(os.path.getmtime(NFLVERSE)),
         as_of="play_by_play 2016-2025 + pbp_participation 2016-2025; participation NOT published for 2026",
-        lambda_multiplier=mult, halflife_weeks=str(hl),
+        lambda_multiplier={ROLES[k]: v for k, v in mult.items()}, halflife_weeks=str(hl),
         tuned_on=str(TUNE_SEASONS), reported_on=str(REPORT_SEASONS),
         se_inflation={ROLES[r]: round(v, 3) for r, v in infl.items()},
         attribution_cost=ac,

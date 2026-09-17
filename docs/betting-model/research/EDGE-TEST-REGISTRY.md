@@ -974,3 +974,49 @@ After serializing workflows and killing orphans: **17.5**.
 - `jev_yt_triage.sqlite` — **39,163 YouTube titles** classified for content type and injury
   relevance. This is the corpus-expansion map for the 20-of-32-teams coverage gap.
 
+
+## L. "Questionable" dialects — GATE 3 FAILS. The market already prices it.
+
+Gates 1 and 2 passed convincingly (section H): teams differ by 34 points, and the difference
+persists across seasons at 71% of the reliability ceiling. Gate 3 asks the only question that
+pays — does the closing line price each team's own rate, or a league average?
+
+Construction: `residual = n_Q * (rate_team − rate_league)`, i.e. how many more players than a
+league-average reading implies are actually available. Team rates fitted on **prior seasons only**;
+1,232 games dropped rather than backfilled where a side lacked 60 prior Questionable entries.
+
+```
+CONTROL  mean margin_error over all games  +0.0248 pts, SE 0.2776, t=+0.09     PASS
+
+correlation  +0.0095    slope +0.286 pts/unit    p = 0.6627    n = 2,120 games
+
+quintile   mean margin_error      t
+Q1              +0.1792        +0.28
+Q2              -0.5377        -0.91
+Q3              +0.1403        +0.24
+Q4              +0.5566        +0.88
+Q5              -0.2146        -0.33
+```
+
+Not monotone, not significant, nowhere near the ~1.5 points of edge a spread bet needs to clear
+4.25% vig. **The dialect is real, it persists, and the closing line has already absorbed it.**
+
+This is the most common shape of finding in this project and it deserves naming: *real signal,
+zero edge*. Gates 1 and 2 measure information; only gate 3 measures money, and information the
+market already holds is worth nothing. Running gates in that order cost one afternoon instead of
+a season. Script: `scripts/model-lab/questionable_gate3.py`
+
+## M. Presser timestamps — SOLVED via the YouTube Data API
+
+yt-dlp capped at 482 of 10,670 because YouTube stops exposing exact publication times past ~6
+weeks. `videos.list(part=snippet)` has no such limit and costs **1 quota unit per CALL** (50 ids
+per call), so the whole corpus is 204 units against a 10,000/day free allowance — about 2% of one
+free day, no billing.
+
+Result: **0 missing, 0 date-mismatches** across every batch. This takes the presser event study
+from 482 events (t=+1.10, underpowered) to the full corpus — roughly 20x the statistical power,
+and the difference between a shrug and a verdict.
+
+Script: `scripts/line-history/youtube_api_timestamps.py` (reads the key from the environment only;
+never prints, logs, or stores it, and strips query strings from error messages).
+

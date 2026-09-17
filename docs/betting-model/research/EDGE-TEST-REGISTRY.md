@@ -947,3 +947,30 @@ reliability bins off by |z|>2.
 
 This is the cheapest kill of the session: the gate design caught it in one agent instead of ten.
 
+
+## K. Two operational mistakes worth not repeating
+
+**1. GATES MUST BE SEQUENTIAL WITH THE SPEND, NOT PARALLEL TO IT.**
+The live-game workflow put its feasibility gates and its expensive labeling in the SAME phase, so
+they ran concurrently. The benchmark agent found the play feed is synchronous with the market to
+within 15 seconds — killing the premise — while a sibling agent was already spending **$3.26**
+classifying 68,413 plays for that premise. Gate-first worked inside an agent and failed across the
+workflow. A gate that can kill a hypothesis must complete BEFORE the work it gates.
+
+**2. STOPPING A WORKFLOW DOES NOT KILL WHAT ITS AGENTS SPAWNED.**
+After `TaskStop` on two workflows, three orphaned Jev jobs (`jev_live_plays`, `jev_yt_triage`,
+`jev_luck`) were still running at 20–35% CPU each and still spending credits on abandoned lines of
+inquiry. Always `pkill` the child scripts after stopping a workflow, and check with
+`ps aux | grep tsx`.
+
+**Cost of the two together:** $4.51 of a $10 budget, 87% of total spend, on hypotheses that were
+dead or abandoned. Load average hit **34 on 8 cores** (4.25× oversubscribed), slowing the UI.
+After serializing workflows and killing orphans: **17.5**.
+
+**Artifacts survived the hypotheses**, and are reusable:
+- `jev_live_plays.sqlite` — **68,414 plays** labelled for event_class (12 categories),
+  injury_severity, star_player_involved and surprise. Usable by the luck-vs-skill and garbage-time
+  tests, neither of which needs a speed edge.
+- `jev_yt_triage.sqlite` — **39,163 YouTube titles** classified for content type and injury
+  relevance. This is the corpus-expansion map for the 20-of-32-teams coverage gap.
+

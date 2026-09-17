@@ -80,3 +80,4 @@ data/grading_panel.sqlite-wal
 
 # private: extracted iMessage league chat for manager profiling. Never commit.
 data/derived/league_chat.sqlite*
+.wip/

@@ -1546,3 +1546,55 @@ ROI. This is why rule 3 exists, and it generalises: any future CLV claim must be
    games returns +0.1005. Caught by a direct raw-data sanity check, not by the script. **Prefer
    `abs()` formulations that cannot express a sign error.**
 
+
+## Z. Q1/Q2 — permanent vs transitory: most "line movement" is quote noise
+
+Run directly. `scripts/model-lab/permanent_transitory.py`, covers spread tape resampled onto an
+hourly grid (LOCF, games under 60% coverage dropped), 2,452 games.
+
+### The raw result looked like massive mean reversion — and half of it was my sampling
+```
+                 VR(2)   VR(6)  VR(24)   var(1h)
+ALL BOOKS mixed  0.745   0.458   0.271    0.15672
+betvictor        0.809   0.624   0.514    0.08651
+betway           0.857   0.667   0.527    0.06050
+williamhill      0.897   0.781   0.668    0.04401
+bet365           0.814   0.481   0.298    0.10691
+```
+Taking "the last quote from whichever book" makes the series alternate between books quoting −7
+and −7.5 — the bid-ask-bounce artifact. **Restricting to a single book cuts hourly variance by
+30–72% and roughly doubles VR(24).** A large share of apparent movement is not movement.
+
+### Genuine reversion remains, and it is still not the market being wrong
+Single-book VR(24) of 0.51–0.67 is well below 1. But the money arm points the other way:
+```
+CONTROL both sides at close:  -5.605% +/- 0.093   (single-book theory -5.49%)  PASS
+FOLLOW the last-24h move   :  -2.456% +/- 3.061   n=984, t=-0.80
+FADE the last-24h move     :  -8.571% +/- 2.975   n=984, t=-2.88
+```
+If the line genuinely reverted, FADE would profit. It loses 6.1pp to FOLLOW. FOLLOW beats the
+control by 3.15pp but at ~1.03 SE — not significant, and not a strategy.
+
+**Resolution: the residual reversion is each book's own quote jitter (shading juice, posting −7
+then −7.5 then back), not the fair line reverting.** The tape is noisy; the fair value is not
+wrong.
+
+### Persistence regression — the primary, model-free view
+regress (close − line_T) on (line_T − line_{T−h}); coef 0 = persisted, −1 = fully reverted:
+```
+T=72h  coef -0.09 to -0.20   permanent 80-91%
+T=24h  coef -0.20 to -0.33   permanent 67-80%
+T= 3h  coef -0.24 to -0.40   permanent 60-76%
+```
+**58–91% of a move is permanent.** Reversion grows as kickoff approaches — consistent with late
+quotes being noisier, not with late information being wrong.
+
+### What this reframes
+Every strategy touching line movement — steam, follow-the-sharp-money, fade-the-public, buy-the-
+bounce — is trading a series that is **substantially quote noise on a mixed-book tape**. This
+retroactively explains why both directions died in the graveyard: there was never a stable regime
+to exploit, and much of the measured "movement" was an artifact of how the tape is assembled.
+
+**Operational rule added: any line-movement study must fix the book.** A mixed-book series has
+~2x the hourly variance of a single-book series and half its variance ratio.
+

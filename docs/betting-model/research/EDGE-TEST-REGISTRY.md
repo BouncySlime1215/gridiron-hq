@@ -1175,3 +1175,96 @@ Every injury/personnel finding of the session, now under one roof:
 The personnel axis was the last untested source of team-strength information. It is now tested
 to its ceiling. **The market prices who plays. Completely.**
 
+
+## Q. THE SYSTEMATIC-ERROR AUDIT — why the models fail, in three numbers
+
+The first workflow of the session (rebuild-and-audit, 6 agents, 2.3 hours) finished last. It was
+the direct answer to "use audits to find our systematic errors," and it found them precisely.
+
+### 1. The confidence carries zero information — calibration slope 0.00, not merely under 1
+
+```
+model               calibration slope    se       z(slope=1)     z(slope=0)
+kmulti_full            0.0004           0.0896     −11.15         +0.00
+kalman_score          −0.0015           0.091      −11.05
+live ensemble blend    0.026            0.176       −5.55
+market (control)       0.477            0.451       −1.16   ← passes
+```
+
+Decile 10 of the model (predicted P(cover)=0.677) **realises 0.470**. Decile 1 (predicted 0.313)
+realises 0.478. The reliability diagram is flat-to-inverted. Intercepts are within 0.03 of zero,
+so the miscalibration is *entirely* slope: the model's level is fine, its *disagreement with the
+line* carries no information at all. Optimal shrinkage toward the market: **0.00** in logit space.
+
+This is the measured answer to "rank 100 ML models by confidence": **our confidence has slope
+zero. Ranking by it ranks by noise.** Replicated independently by the F11 calibration agent on a
+different window and construction (slope +0.056, se 0.108).
+
+**The ceiling, bounded:** at the most generous end of the 95% CI, at most 16% of the model's mean
+2.39-point disagreement with the line is real → 0.39 pts → **1.20pp of cover probability**,
+against the **~2.2pp** that −110 vig demands. Full-sample bound 1.95pp. Both short.
+
+### 2. Level shrinkage — every model pulls toward the mean (β < 1), and it explains the dog/over skew
+
+```
+                    spread β (se)          total β (se)
+kmulti_full         0.845 (0.013)          0.538 → 0.468 on 2022-25
+kalman              0.783 (0.011)          0.726
+live blend          0.788 (0.018)
+```
+
+Model RMSE 13.04 vs the line's 12.70 (+2.7%), widening to +4.0% on 2022–25. **Totals are twice
+as bad as spreads.** The dog/over pick skew (live blend 70.5% dogs, 82% on |line|≥7) is the
+mechanical consequence: a model that pulls every number toward pick'em lands on the dog by
+construction. F16's diagnosis confirmed. Fixable by an affine rescale — which is *invariant* to the
+informativeness t-stat, so **fixing it moves picks, not profit.**
+
+### 3. The parameter budget — THREE, and the stacker spends FORTY
+
+The sharpest single diagnosis of the session:
+
+> Break-even needs R² = 0.558% (0.313% honouring key numbers). Each signal in the ridge costs
+> ~1/n = 0.19% of R² in fitting noise at n=530. **The entire budget is three free parameters.
+> The stacker spends forty.** A budget overrun of 13.5× before a single football insight is tested.
+
+```
+effective rank                    2.61 of 30 columns
+PC1 (the market anchor)           60.3% of variance; 43.2% of all signal variance
+leave-one-signal-out              37 of 40 signals inert (median marginal 0.037 pts)
+bias² / variance / irreducible    2.68% / 0.55% / 97.32%
+stacker contribution              a 0.64-pt wobble on a 5.63-pt anchor vs a 14-pt outcome
+```
+
+The ridge, left alone, shrank to λ=10,000 — its own way of saying "nothing here worth fitting."
+Not bad signals, not bad shrinkage, not bias, not variance. **Irreducible: 97.32%.**
+
+Prescription from the audit: a **1–3 parameter model, pre-registered, on the 2–3 PCs that exist**
+— not a 40-signal stacker. Not built, because finding 1 already bounds even a perfect 3-parameter
+model at 1.20pp vs 2.2pp needed.
+
+### Also from this workflow
+- **Modern ML rebuild** (GBM + elastic net, residual + level, spread + total, 2020–25
+  walk-forward, n=1,693): **0 of 16 money tests survive**; best is 0.74 SE from zero. Residual
+  models *tie* the line (RMSE 12.665 vs 12.663); level models are 1.39 pts *worse*.
+- **Calibration + conformal (F11)**: quarter-Kelly log growth negative in **all 21** model ×
+  calibrator runs; ~−5%/year at the best (Platt). Calibration cannot manufacture edge.
+- **Cross-venue** (books/Kalshi/Polymarket same-minute panel, 67,993 rows, 62 resolved games):
+  no_edge. Kalshi mids already sum to 1.0002 — cost is purely spread + fee.
+- **Polymarket audit**: "70M price points" overstates content by **~39×** — it is a uniform
+  60-second bar series, 1.8M actual fills. `outcome0` is **NOT reliably away**: 9.2% of events
+  list home first; assuming away-first silently inverts 1 game in 11. Verdict: stop treating PM as
+  an edge source, use it as a **free consensus prior** — as calibrated as the 4-book consensus
+  (Brier gap −0.00006), printing every 60s where covers is a median 79 min stale.
+
+### What section Q means, together with section P
+| Question | Answer | Where |
+|---|---|---|
+| Can better features help? | No — 37/40 inert, rank 2.61, budget is 3 | Q.3 |
+| Can a smarter combiner help? | No — confidence slope 0.00 | Q.1 |
+| Can personnel data help? | No — oracle R²≈0 | P |
+| Can calibration/Kelly help? | No — negative in 21/21 | Q |
+| Can a different ML family help? | No — 0/16, ties the line at best | Q |
+
+The market is not slightly ahead of the models. **It is the sufficient statistic, and the models
+are noise around it.** Any remaining edge is in what the market *is*, not in what the game will be.
+

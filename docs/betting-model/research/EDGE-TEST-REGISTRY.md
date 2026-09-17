@@ -921,3 +921,29 @@ and is the one that decides whether this is money.** Script: `scripts/model-lab/
 - **Jev spend**: $0.63 of $10 for 10,519 transactions + 2,276 pressers. Classification is
   effectively free; analysis on top of it is not.
 
+
+## J. Live in-game markets — DEAD at the foundation gate, before any hunting
+
+Premise: live markets reprice in seconds on thin books, so a classifier reading play text might
+beat a crowd watching a broadcast. Three gates were checked before any edge-hunting; all three
+failed, which is why the workflow was stopped rather than run to completion.
+
+1. **NO SPEED EDGE.** The ESPN play feed is synchronous with the Kalshi market to **within 15
+   seconds**. There is no window in which we know something the market does not. This alone ends
+   the premise.
+2. **SAMPLE.** Overlap is 63 games — **47 preseason, 16 regular season**. Per-bucket cluster SEs
+   are 0.08–0.10 in probability units, so no reliability bucket can resolve a market-vs-model
+   calibration gap smaller than ~8pp. Reaching t=2 needs ~380 games (~1.4 seasons of coverage).
+3. **PLACEBO.** An outcome-shuffle placebo reproduces +0.00701 of the +0.00955 Brier gap and
+   **exceeds the observed P&L** in the gated cut.
+
+Control passed: buy-home-at-ask every minute returns −0.0497 ± 0.0483 against a theoretical
+−(half-spread + fee) = −0.0169, 0.68 SD.
+
+**Worth keeping — ESPN win probability is a sound referee** and is reusable anywhere a benchmark
+is needed: Brier 0.15235 ± 0.00239, LogLoss 0.45690, Brier skill 0.3862 over 579,050 play-rows and
+3,295 games; **ECE 0.0098**; global recalibration slope 1.029 with CI containing 1.0; only 1 of 10
+reliability bins off by |z|>2.
+
+This is the cheapest kill of the session: the gate design caught it in one agent instead of ten.
+

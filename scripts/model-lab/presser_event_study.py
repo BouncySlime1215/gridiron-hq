@@ -206,13 +206,20 @@ def main():
         se = math.sqrt(ra[1] ** 2 + pa_[1] ** 2)
         t_ = diff / se if se else 0.0
         print(f"   AFTER-window movement, presser vs placebo: {diff:+.4f} pts   t={t_:+.2f}")
-        if abs(t_) < 2:
+        if t_ > 2:
+            print("   -> There IS abnormal movement after the upload timestamp.")
+        elif t_ < -2:
+            print("   -> Lines move LESS after a presser than at the control time. That is not an")
+            print("      event signature -- an information event raises volatility, it does not")
+            print("      lower it. Check the placebo n: the control is 'same game, one week earlier',")
+            print("      and games with quotes two weeks out are a SELECTED subset (marquee games")
+            print("      with livelier lines), so a negative t here is a placebo-selection artifact,")
+            print("      not evidence that pressers calm the market. Treat as NO EVENT SIGNAL.")
+        else:
             print("   -> Lines are NOT more volatile after a presser than at a matched control")
             print("      time. There is no abnormal movement for a classifier to explain, so")
             print("      running Jev over the transcripts cannot produce an edge here. This is")
             print("      outcome 1: a clean, cheap negative, established without spending on Jev.")
-        else:
-            print("   -> There IS abnormal movement after the upload timestamp.")
     if rb and ra:
         ratio = rb[0] / ra[0] if ra[0] else float("inf")
         print(f"\n   before/after ratio: {ratio:.2f}")

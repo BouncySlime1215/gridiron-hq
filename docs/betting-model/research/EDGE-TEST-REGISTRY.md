@@ -1020,3 +1020,76 @@ and the difference between a shrug and a verdict.
 Script: `scripts/line-history/youtube_api_timestamps.py` (reads the key from the environment only;
 never prints, logs, or stores it, and strips query strings from error messages).
 
+
+## N. Presser event study at FULL POWER — no event signature. The news line is closed.
+
+The YouTube Data API repaired all 10,670 timestamps (0 missing, 0 mismatches), taking the event
+study from 482 events to **2,957 matched presser-game pairs** — ~6× the pairs, ~20× the power.
+
+```
+                        n      mean |move|    se
+BEFORE upload        2957        0.624      0.025
+AFTER  upload        2957        0.506      0.025
+placebo BEFORE        451        0.918      0.068
+placebo AFTER         451        0.680      0.066
+
+after-window, presser vs placebo:  −0.1735 pts,  t = −2.45
+before/after ratio: 1.23  → symmetric
+```
+
+**No positive event signature.** The negative t is not "pressers calm the market" — an information
+event raises volatility, it never lowers it. It is a placebo-selection artifact: the control is
+"same game, one week earlier", and only **451 of 2,957** games had quotes two weeks out. Those are
+marquee/primetime games with livelier lines, so the control is biased high. (The script's verdict
+branch treated any |t|>2 as "abnormal movement"; fixed to read a negative t correctly.)
+
+With the power question settled, the news line is closed on three independent studies:
+
+| Study | n | Result | Why |
+|---|---|---|---|
+| Pressers (yt-dlp) | 482 | t=+1.10 | underpowered |
+| Pressers (API) | 2,957 | t=−2.45, wrong sign | placebo-selection artifact; no positive signal |
+| Transactions | 7,699 | inside placebo band | official record lags the news |
+
+Same structural cause each time: **we timestamp the record, not the information.** Beat writers
+post from the room; the upload and the IR paperwork land afterwards. Jev classified 3,746 pressers
+and 10,519 transactions accurately, and accurate classification of stale news is worth nothing.
+
+## O. Practice pattern beneath the designation — REAL, INCREMENTAL, and ALREADY PRICED
+
+Third injury finding with the identical shape. Within an **identical** "Questionable" tag:
+
+```
+practice_status    n      P(play)   95% Wilson
+Full            2,957     0.7995    [0.7846, 0.8135]
+Limited         8,978     0.6860    [0.6763, 0.6955]
+DNP             2,268     0.4475    [0.4272, 0.4681]
+→ 35.2-point spread, monotone, intervals nowhere near overlapping
+```
+
+And it is **genuinely incremental information, out of sample**: walk-forward log-loss
+0.31282 → 0.29964 (**+4.21% lift**, n=48,403), positive in 8 of 10 test seasons. The practice
+field predicts play beyond the designation. The model never sees its own season.
+
+**And the market has it.** Every money specification nulls:
+
+```
+snap-weighted      rho +0.0101   t +0.500   n=2,391
+QB starters only   rho +0.0149   t +0.768
+betting sim, all four thresholds NEGATIVE: ROI −0.9% to −6.4%
+real |t| = 0.500 sits BELOW the placebo median |t| of 0.682
+```
+
+A 1-SD move in the residual shifts margin **+0.129 pts** against ~1.5 needed — **11.6× short**.
+
+### The pattern, now confirmed three times on injuries alone
+| Layer | Information real? | Persists? | Market prices it? |
+|---|---|---|---|
+| Questionable designation by team | yes, 34-pt spread | yes, r=+0.40 | **yes** (gate 3 null) |
+| Practice pattern under the tag | yes, 35-pt spread | yes, 8/10 seasons | **yes** (t=0.50) |
+| Official transactions | monotone ordering | — | **yes** (inside placebo) |
+
+**Real signal, zero edge** is not an occasional outcome here — it is the *default* outcome for
+any public-data signal, and injuries are the most-watched public data in the sport. The
+information gates pass; the money gate fails; the market is the thing that already asked.
+

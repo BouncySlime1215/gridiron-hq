@@ -227,12 +227,17 @@ export function liveEspnStatuses(season, week) {
     key = JSON.stringify(rows('SELECT id, fetched_at FROM leagues WHERE payload IS NOT NULL ORDER BY id'));
   } catch { return null; }
   if (_espnMemo.key !== key) {
-    const periods = new Set(rows(`SELECT json_extract(payload, '$.seasonId') AS s,
-                                         json_extract(payload, '$.scoringPeriodId') AS w
-                                  FROM leagues WHERE payload IS NOT NULL`).map(l => `${Number(l.s)}|${Number(l.w)}`));
-    _espnMemo = { key, periods, value: periods.size ? espnStatusById() : new Map() };
+    // The live period is the LATEST one on file, not any of them: a league whose sync
+    // lags (or an old-season payload) still names a past week, and a union made that
+    // week "live", so today's statuses priced its replay.
+    const periods = rows(`SELECT json_extract(payload, '$.seasonId') AS s,
+                                 json_extract(payload, '$.scoringPeriodId') AS w
+                          FROM leagues WHERE payload IS NOT NULL`)
+      .map(l => Number(l.s) * 100 + Number(l.w)).filter(Number.isFinite);
+    const live = periods.length ? Math.max(...periods) : null;
+    _espnMemo = { key, periods: live, value: live != null ? espnStatusById() : new Map() };
   }
-  return _espnMemo.periods.has(`${season}|${week}`) ? _espnMemo.value : null;
+  return _espnMemo.periods != null && _espnMemo.periods === season * 100 + week ? _espnMemo.value : null;
 }
 
 /* ------------------------------------------------------------------ role */

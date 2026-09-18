@@ -142,14 +142,24 @@ export function priceAdjustment(read) {
 }
 
 /**
- * Every read for one league, keyed roster_id -> player name -> read.
- *
- * Ownership comes from the synced ESPN payload rather than from the chat, so a
+ * Who owns whom, from the synced ESPN payload rather than from the chat, so a
  * manager cannot talk his way into owning someone.
+ *
+ * One read for the whole league, exported because the valuation map needs the
+ * same answer: whether a price adjustment applies at all turns on ownership
+ * (his own hot player is dear to him; someone else's is something he might pay
+ * for), and two different answers to "does he own him" would put the deal read
+ * and the manager view out of step.
+ *
+ * A league that has never synced returns null, not an empty map: "nobody owns
+ * anybody" and "we do not know who owns anybody" must not read alike, because
+ * the second one means no read may be made at all.
+ *
+ * @returns {Map<string, string>|null} lowercased player name -> roster_id
  */
-export function talkReads(leagueId, season, week) {
+export function rosterOwnership(leagueId) {
   const lg = rows('SELECT payload FROM leagues WHERE id = ?', leagueId)[0];
-  if (!lg?.payload) return new Map();
+  if (!lg?.payload) return null;
   const payload = JSON.parse(lg.payload);
   const ownedBy = new Map();
   for (const t of payload.teams ?? []) {
@@ -158,7 +168,21 @@ export function talkReads(leagueId, season, week) {
       if (nm) ownedBy.set(nm.toLowerCase(), String(t.id));
     }
   }
-  const gaps = expectationGaps(season, week);
+  return ownedBy;
+}
+
+/**
+ * Every read for one league, keyed roster_id -> player name -> read.
+ *
+ * `gaps` and `ownedBy` may be supplied by a caller that has already built them
+ * (the counterparty layer builds both once for the league and uses them for the
+ * valuation map too); omitted, they are built here. Passing them in is purely
+ * about not doing the same query twice — the result is identical either way.
+ */
+export function talkReads(leagueId, season, week, { gaps: suppliedGaps = null, ownedBy: suppliedOwners = null } = {}) {
+  const ownedBy = suppliedOwners ?? rosterOwnership(leagueId);
+  if (!ownedBy) return new Map();
+  const gaps = suppliedGaps ?? expectationGaps(season, week);
   const out = new Map();
   for (const v of rows(`SELECT roster_id, player_name, sentiment, n FROM manager_player_view
                         WHERE league_id = ?`, leagueId)) {

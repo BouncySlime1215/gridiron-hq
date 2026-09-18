@@ -335,29 +335,41 @@ test('G1b: no factor may exceed its own source cap, and the player is clamped at
 });
 
 test('G1c: a player every source pushes the same way is clamped, and says he was clamped', () => {
+  // A real profile in which every source pushes the same way at once: he talks
+  // him up, his model read names him untouchable, his record is flattered, and
+  // his declarations have always held.
   const loaded = {
-    receptiveness: 1, owned: new Set(['quiet star']), players: new Map(), reads: new Map(),
-    // Every source pushed hard in the same direction; the sum is well past the cap.
-    forced: [
-      { source: 'chat_sentiment', effect: 0.12, n: 9 },
-      { source: 'profile_roster_read', effect: 0.10, n: 1 },
-      { source: 'luck_self_view', effect: 0.05, n: 6 },
-      { source: 'untouchable_credibility', effect: 0.10, n: 3 },
-    ],
+    roster_id: '2', receptiveness: 1, roster_size: 3,
+    owned: new Set(['quiet star']),
+    players: new Map([['quiet star', { sentiment: 4, n: 20, last: '2026-09-16', multiplier: 1.12 }]]),
+    reads: new Map(),
+    gaps: new Map(),
+    negotiation: { roster_read: { really_untouchable: ['Quiet Star'], quietly_available: [],
+      overvalues: [], undervalues: [] } },
+    negotiation_n: 400,
+    luck: { value: 2.4, n: 6 },
+    stance: { stance: 'respect', respect: new Set(['quiet star']), probe: new Set(),
+      credibility: { credibility: 1, declarations: 6 } },
+    needs: new Set(), surplus: new Set(),
   };
   const v = pricing.playerValuation(loaded, { name: 'Quiet Star', position: 'RB', value: 1000 });
+  assert.ok(v.factors.length >= 4, `every source should have fired (${v.factors.map(f => f.source)})`);
   assert.equal(v.capped, true);
   assert.equal(v.multiplier, 1 + pricing.PLAYER_VALUATION_CAP);
   assert.equal(v.their_value, 1000 * (1 + pricing.PLAYER_VALUATION_CAP));
 });
 
 test('G1d: the package cap is unchanged — a three-player package cannot stack three premiums', () => {
-  const map = mapFor(21);
-  const hayden = map.managers.get('2');
+  const hayden = layerFor(21).get('2');
   const pkg = ['Hot Hype', 'Quiet Star', 'Bench Guy']
     .map(n => PLAYERS.find(p => p.name === n));
   const priced = pricing.perceivedValue(pkg, hayden);
   assert.ok(Math.abs(priced.multiplier - 1) <= pricing.PERCEPTION_CAP + 1e-9);
+  // And the serialised map view answers the same as the layer it came from: a
+  // page holding one must not be able to quote a different number.
+  const view = mapFor(21).managers.get('2');
+  assert.equal(pricing.perceivedValue(pkg, { ...hayden, needs: view.needs, surplus: view.surplus }).multiplier,
+    priced.multiplier);
 });
 
 test('G1e: the same evidence is never charged twice — a talk read replaces the raw gap', () => {
@@ -427,16 +439,17 @@ test('G2c: the source registry is the contract — caps, minimum samples and wha
 
 // ============================================================ G3 cutoff safety
 test('G3: a week-w map never reads week-w data', () => {
-  const before = mapFor(21);
-  const hot = byName(before.managers.get('2'), 'Hot Hype');
-  // Week WEEK carries a 60-point explosion for Hot Hype and Silent Riser. If any
-  // of it leaked in, the gap-driven numbers would move.
-  const riser = byName(before.managers.get('3'), 'Silent Riser');
-  const gapFactor = riser.factors.find(f => f.source === 'hype_vs_usage');
-  assert.ok(gapFactor);
-  assert.equal(gapFactor.n, WEEK - 1, 'the gap may only rest on the weeks before this one');
-  const earlier = pricing.valuationMap(21, { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS });
-  assert.deepEqual(factorNames(byName(earlier.managers.get('2'), 'Hot Hype')), factorNames(hot));
+  // Week WEEK carries a 60-point explosion for Silent Riser. A week-WEEK map may
+  // not see it; a week-(WEEK+1) map must, which is what proves the boundary is
+  // the cutoff and not simply a missing row.
+  const now = byName(mapFor(21).managers.get('3'), 'Silent Riser');
+  const gapNow = now.factors.find(f => f.source === 'hype_vs_usage');
+  assert.ok(gapNow, 'the gap read must be firing at all for this to mean anything');
+  assert.equal(gapNow.n, WEEK - 1, 'the gap may only rest on the weeks before this one');
+
+  const next = pricing.valuationMap(21, { season: SEASON, week: WEEK + 1, players: PLAYERS, rosterContext: NEEDS });
+  const gapNext = byName(next.managers.get('3'), 'Silent Riser').factors.find(f => f.source === 'hype_vs_usage');
+  assert.equal(gapNext.n, WEEK, 'a week later the same read sees one more week — the cutoff moved, not the data');
 });
 
 // ========================================================== G4 degradation

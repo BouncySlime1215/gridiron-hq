@@ -141,7 +141,7 @@ first one:
 Paste this into the Environment variables box:
 
 ```
-ANTHROPIC_API_KEY=...          the Coach, the AI proposal pass, the chat classifier
+GRIDIRON_ANTHROPIC_API_KEY=... the Coach, the AI proposal pass, the chat classifier
 ODDS_API_KEY=...               The Odds API
 PARLAY_API_KEY=...             ParlayAPI (second odds feed)
 CFBD_API_KEY=...               CollegeFootballData rookie signals
@@ -151,10 +151,36 @@ SPORTSGAMEODDS_API_KEY=...     SportsGameOdds feed
 TWITTERAPI_IO_KEY=...          news / beat-reporter feed
 ```
 
-Only `ANTHROPIC_API_KEY` blocks anything. The rest each switch one feed off.
+Only the Anthropic key blocks anything. The rest each switch one feed off.
 
-`ANTHROPIC_API_KEY` is also readable from `app_settings`, so pasting it into
-Settings in the UI works instead of setting the env var.
+#### The Anthropic key needs a different variable name here
+
+Note the name in that list. **A Claude Code cloud box will not pass a variable
+called `ANTHROPIC_API_KEY` through to the process.** Those environments
+authenticate their own sessions from the signed-in Anthropic account, so they
+claim that name; the settings screen says as much right under the box
+("*won't be used to authenticate requests*"). The variable is simply absent at
+runtime, which from inside the app is indistinguishable from never having
+pasted it.
+
+Measured 2026-09-18, in a box where the key had been pasted into the
+Environment variables box and saved: `CFBD_API_KEY` added at the same time
+showed up in an already-running session about eleven minutes later, while
+`ANTHROPIC_API_KEY` stayed unset. Only `ANTHROPIC_BASE_URL` was present under
+that prefix. Nothing was wrong with the key or the box.
+
+So `getApiKey()` (`server/services/claude.js`) reads, in order:
+
+1. `GRIDIRON_ANTHROPIC_API_KEY` — the name to use in a cloud box. Nothing
+   claims it.
+2. `ANTHROPIC_API_KEY` — still the right name on a Mac, a plain server, or in
+   a `.env` file.
+3. `app_settings`, so pasting the key into Settings in the UI works too. Note
+   that writes the database of whichever box you did it in, so doing it on the
+   Mac does nothing for a cloud session.
+
+`scripts/check-environment.mjs` accepts either variable and prints which one
+actually carried the key.
 
 The box carries a warning that its values are visible to anyone using the
 environment. This project is private to Nick, so in practice that is himself.
@@ -216,8 +242,16 @@ startup gate. It reports keys as present or absent and never prints a value.
 
 Order for a fresh cloud box:
 
-1. Paste the keys into the environment's **Environment variables** box (not API credentials — see above).
-2. Connect ESPN from the cloud app's Settings (bookmarklet).
+1. Paste the keys into the environment's **Environment variables** box (not API credentials — see above), using `GRIDIRON_ANTHROPIC_API_KEY` for the Anthropic one.
+2. Connect ESPN from the cloud app's Settings (bookmarklet). **Not possible in a
+   Claude Code session** — checked 2026-09-18: those boxes expose no
+   browser-reachable port for the app (`SESSION_INGRESS_URL` is the message
+   ingress API, not a port forward, and the session carries no preview URL), and
+   ESPN cookies have no CLI entry point — only `server/routes/espn-connect.js`,
+   whose bookmarklet and paste-box fallback both need Settings open in a browser
+   against the running app. The same gap means step 4's `<cloud-url>` does not
+   exist. So `server/data.sqlite` cannot be rebuilt in a session box; that needs
+   the real hosting step (WF / Phase 11), and until then the app stays on the Mac.
 3. `node scripts/bootstrap-data.mjs`
 4. Pull the chat on the laptop, upload it (or `import-league-chat.mjs`).
 5. `node scripts/check-environment.mjs` — expect a clean bill.

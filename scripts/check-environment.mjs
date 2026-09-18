@@ -67,10 +67,12 @@ const FILES = [
  * is only safe when somebody knows it happened.
  */
 const KEYS = [
-  { name: 'ANTHROPIC_API_KEY', level: 'blocking',
+  { name: 'GRIDIRON_ANTHROPIC_API_KEY', aliases: ['ANTHROPIC_API_KEY'], level: 'blocking',
     what: 'the Coach, the AI proposal pass, and the chat classifier',
     without: 'every LLM path fails on the call, as a connection error rather than a clear refusal',
-    note: 'also readable from app_settings, so pasting it in Settings works instead of the env' },
+    note: 'in a Claude Code cloud box use GRIDIRON_ANTHROPIC_API_KEY — the platform refuses to pass a '
+      + 'variable named ANTHROPIC_API_KEY through to the process. ANTHROPIC_API_KEY still works '
+      + 'everywhere else, and app_settings is read as a last resort, so pasting it in Settings also works' },
   { name: 'ODDS_API_KEY', level: 'degrades', what: 'The Odds API', without: 'odds fall back to model-only output' },
   { name: 'PARLAY_API_KEY', level: 'degrades', what: 'ParlayAPI, the second odds feed', without: 'that feed no-ops' },
   { name: 'CFBD_API_KEY', level: 'degrades', what: 'CollegeFootballData rookie signals', without: 'that signal no-ops' },
@@ -84,7 +86,14 @@ const fileRow = f => {
   const present = existsSync(abs);
   return { ...f, present, size: present ? statSync(abs).size : 0 };
 };
-const keyRow = k => ({ ...k, present: !!process.env[k.name] });
+// A key may be accepted under more than one variable name (see the note on
+// GRIDIRON_ANTHROPIC_API_KEY), so presence is "any of them is set", and the
+// row reports which name actually carried it rather than just "set".
+const keyRow = k => {
+  const names = [k.name, ...(k.aliases ?? [])];
+  const found = names.find(name => !!process.env[name]) ?? null;
+  return { ...k, present: !!found, found_as: found };
+};
 
 const files = FILES.map(fileRow);
 const keys = KEYS.map(keyRow);
@@ -110,7 +119,8 @@ for (const f of files) {
 console.log(c.b('\nAPI keys') + c.dim('  (presence only — no value is ever printed)\n'));
 for (const k of keys) {
   const mark = k.present ? c.g('  set    ') : k.level === 'blocking' ? c.r('  UNSET  ') : c.y('  unset  ');
-  console.log(`${mark}  ${k.name}${c.dim(`  — ${k.what}`)}`);
+  const via = k.present && k.found_as !== k.name ? c.dim(`  (as ${k.found_as})`) : '';
+  console.log(`${mark}  ${k.name}${via}${c.dim(`  — ${k.what}`)}`);
   if (!k.present) {
     console.log(`           ${c.dim('without it: ')}${k.without}`);
     if (k.note) console.log(`           ${c.dim('note:       ')}${k.note}`);

@@ -13,8 +13,19 @@ const ENV_PATH = path.join(__dirname, '..', '..', '.env');
 // reads/writes included); re-exported so existing importers keep working.
 export { PRICING, costOf };
 
+// `GRIDIRON_ANTHROPIC_API_KEY` is checked first, and exists because of the
+// hosting platform rather than anything about this app. Claude Code's cloud
+// environments authenticate their own sessions through the signed-in Anthropic
+// account, so they refuse to pass a variable literally named
+// `ANTHROPIC_API_KEY` through to the process — the settings screen even says
+// so next to the box. The variable is silently absent at runtime, which looks
+// exactly like never having pasted it. Any name the platform does not claim
+// works, so the app accepts one of its own. `ANTHROPIC_API_KEY` is still read
+// second, since it is the normal name everywhere else (a Mac, a plain server,
+// a .env file), and app_settings stays the last resort.
 export function getApiKey() {
-  return process.env.ANTHROPIC_API_KEY
+  return process.env.GRIDIRON_ANTHROPIC_API_KEY
+    || process.env.ANTHROPIC_API_KEY
     || row(`SELECT value FROM app_settings WHERE key = 'anthropic_api_key'`)?.value
     || null;
 }

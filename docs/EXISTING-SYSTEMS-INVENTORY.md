@@ -1,5 +1,7 @@
 # Existing systems inventory — 2026-09-18, 04:40
 
+> **Correction (checked 04:45):** `league_transactions_raw` *is* refreshed automatically — `scripts/refresh-live-data.mjs` runs `collect-league-transactions.mjs` and the chat extract/rollup on every 15-minute tick (last tick 08:11 UTC: transactions ok, 1,349 rows; chat rollup ok). What nothing rebuilds is the **main-DB** copy the trade finder reads (`manager_signals`, `manager_player_view`, via `buildManagerSignals`) — that finding stands.
+
 Read-only inventory of every system that overlaps the Trade Brain, Coach, action plan and dashboard (section 00 of FANTASY-ENGINE-MASTER-PLAN.md). Produced by a read-only agent; no files were changed. Every build from WA on reads this before writing code (Discover → Audit → Decide).
 
 I made no changes: no files edited, no server or node scripts run. The chat DB and `server/data.sqlite` were only read with `sqlite3 -readonly`.

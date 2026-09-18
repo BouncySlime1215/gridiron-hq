@@ -145,7 +145,12 @@ for (const [rs, ps, pos, tier, gap, p] of [
   ['none', '*', '*', '*', '*', 0.85], ['none', 'limited', '*', '*', '*', 0.93],
   ['none', 'limited', '*', 'starter', 'g0', 0.97],
   ['out', '*', '*', '*', '*', 0.006],
-  ['questionable', '*', '*', '*', '*', 0.58], ['questionable', 'none', '*', 'starter', 'g0', 0.66],
+  // Single-observation artifacts of the practice 'none' branch (the live D1 failure:
+  // [out, none, *] fitted 0.084 from one row). A designation with no practice line must
+  // not be priced on them.
+  ['out', 'none', '*', '*', '*', 0.40], ['questionable', 'none', '*', 'starter', 'g0', 0.95],
+  ['questionable', '*', '*', '*', '*', 0.58],
+  ['questionable', '*', '*', 'starter', '*', 0.64], ['questionable', '*', '*', 'starter', 'g0', 0.66],
   ['questionable', 'limited', '*', '*', '*', 0.60],
   ['questionable', 'limited', '*', 'starter', '*', 0.72], ['questionable', 'limited', '*', 'starter', 'g0', 0.74]
 ]) {
@@ -191,8 +196,10 @@ test('an ESPN injured-reserve player is priced out this week', () => {
 
 test('an ESPN-Questionable starter with no NFL row gets the questionable role cell times his team\'s dialect', () => {
   const a = C.weeklyAvailability(2025, 6).get(923);
+  // Practice unknown -> the practice-pooled branch [questionable, *, *, starter, g0], not
+  // the thin [questionable, none, ...] cell (0.95 in this fixture).
   assert.equal(a.active_probability, +(0.66 * ratio).toFixed(3));
-  assert.match(a.source, /questionable/);
+  assert.match(a.source, /questionable\/starter\/g0/);
   assert.doesNotMatch(a.source, /noreport/, 'never the role prior alone');
   assert.match(a.source, /AAA/);
 });
@@ -224,6 +231,40 @@ test('a caller can switch ESPN off (the gate scripts grade the NFL report alone)
   const a = C.weeklyAvailability(2025, 6, { espn: false }).get(922);
   assert.equal(a.active_probability, 0.953);
   assert.equal(a.espn_status, null);
+});
+
+test('a designation with no practice line is priced on the practice-pooled branch of the fit', () => {
+  const obs = [];
+  const push = (n, hits, cell) => { for (let i = 0; i < n; i++) obs.push({ ...cell, active: i < hits ? 1 : 0 }); };
+  push(200, 0, { rs: 'out', ps: 'dnp', position: 'RB', tier: 'starter', gap: 'g0' });
+  push(1, 1, { rs: 'out', ps: 'none', position: 'TE', tier: 'rotation', gap: 'g0' });
+  push(60, 40, { rs: 'questionable', ps: 'limited', position: 'WR', tier: 'starter', gap: 'g0' });
+  push(40, 16, { rs: 'questionable', ps: 'dnp', position: 'WR', tier: 'starter', gap: 'g0' });
+  push(100, 95, { rs: 'noreport', ps: 'none', position: 'WR', tier: 'starter', gap: 'g0' });
+  const config = JSON.stringify({ k: 5, byPosition: true, durabilityCap: false });
+  const rates = C.fitRoleRates(obs, { k: 5, byPosition: true });
+  const node = (...parts) => rates.find(r => [r.report_status, r.practice_status, r.position, r.tier, r.gap].join('|') === parts.join('|'));
+  // The pooled branch: every practice status of the designation, shrunk toward its own parent.
+  const wr = node('questionable', '*', 'WR', '*', '*');
+  assert.equal(wr.n, 100);
+  const root = node('questionable', '*', '*', '*', '*');
+  assert.ok(Math.abs(wr.p_active - (56 + 5 * root.p_active) / 105) < 1e-9);
+  const leaf = node('questionable', '*', 'WR', 'starter', 'g0');
+  assert.equal(leaf.n, 100);
+  assert.equal(node('out', 'none', 'TE', 'rotation', 'g0').n, 1, 'the practice branch is still emitted');
+  const lk = C.buildAvailabilityLookup({ roleRates: rates.map(r => ({ ...r, config })) });
+
+  const outTe = lk.roleLookup({ status: 'out', practice: 'none', position: 'TE', tier: 'rotation', gap: 'g0' });
+  assert.ok(outTe.p < 0.05, `an unknown-practice Out must not read the one-row cell, got ${outTe.p}`);
+  assert.match(outTe.basis, /^out\//);
+  const qWr = lk.roleLookup({ status: 'questionable', practice: 'none', position: 'WR', tier: 'starter', gap: 'g0' });
+  assert.ok(Math.abs(qWr.p - leaf.p_active) < 1e-9);
+  assert.equal(qWr.basis, 'questionable/WR/starter/g0');
+  // A known practice status and the no-designation path are unchanged.
+  const qLimited = lk.roleLookup({ status: 'questionable', practice: 'limited', position: 'WR', tier: 'starter', gap: 'g0' });
+  assert.equal(qLimited.basis, 'questionable/limited/WR/starter/g0');
+  const healthy = lk.roleLookup({ status: 'noreport', practice: 'none', position: 'WR', tier: 'starter', gap: 'g0' });
+  assert.equal(healthy.basis, 'noreport/none/WR/starter/g0');
 });
 
 /* ------------------------------------------- designation x role gate (G2) */

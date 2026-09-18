@@ -347,6 +347,12 @@ export function buildManagerSignals(leagueId, opts = {}) {
   const ids = identityMap(leagueId);
   const ownChat = !('chat' in opts);
   const chat = ownChat ? (ids.size ? openChatDb() : null) : opts.chat;
+  // Trusted chat identities mean this league's reads come from the chat. With
+  // the chat DB gone, a rebuild would silently strip every one of them, so
+  // refuse and leave the stored rows as they are.
+  if (ownChat && ids.size && !chat) {
+    return { league_id: leagueId, error: `chat corpus expected (trusted chat identities) but no chat DB at ${chatDbPath()}` };
+  }
   const tx = txIndex(leagueId, season);
   const arch = archetypeIndex(leagueId, season);
   const written = [];

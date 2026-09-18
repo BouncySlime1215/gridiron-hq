@@ -121,7 +121,10 @@ function buildChatFixture(file) {
   })), 120, 'h1', 'claude-sonnet-5', '2026-09-18 05:00:00');
   np.run('ME', JSON.stringify(profileFor({
     headline: 'Sends a lot of offers.',
-    roster_read: { really_untouchable: ['Quiet Star'], quietly_available: ['Shopped Man (offered to 6+ managers)'],
+    roster_read: { really_untouchable: ['Quiet Star'],
+      // The second entry is prose, not a name — exactly what the real `ME`
+      // profile contains ("Olave-adjacent throw-ins when he had him").
+      quietly_available: ['Shopped Man (offered to 6+ managers)', 'bench filler when he had it'],
       overvalues: [], undervalues: ['Shopped Man'], reasoning: 'he is tired of him' },
   })), 300, 'h2', 'claude-sonnet-5', '2026-09-18 05:50:00');
   chat.close();
@@ -281,6 +284,8 @@ signals.buildManagerSignals(22, { chat: null });
 chatHandle?.close();
 
 // ---------------------------------------------------------------- the universe
+// These also go into `players`, because "is this string a real player" is a
+// question selfRead has to be able to answer (see G5b2).
 const PLAYERS = [
   { id: 701, name: 'Shopped Man', position: 'WR', value: 1000 },
   { id: 702, name: 'Keeper Guy', position: 'RB', value: 900 },
@@ -291,6 +296,9 @@ const PLAYERS = [
   { id: 722, name: 'Plain Guy', position: 'WR', value: 500 },
   { id: 731, name: 'Nobody Talks', position: 'QB', value: 300 },
 ];
+for (const p of PLAYERS) {
+  run('INSERT INTO players (id, name, position, fantasy_relevant) VALUES (?,?,?,1)', p.id, p.name, p.position);
+}
 const NEEDS = new Map([
   ['1', { needs: new Set(['TE']), surplus: new Set(['WR']), window: 'contend' }],
   ['2', { needs: new Set(['QB']), surplus: new Set(['RB']), window: 'retool' }],
@@ -558,6 +566,20 @@ test('G5b: how Nick looks — what the league knows he is shopping, by source', 
     'a player he has never discussed is not something the league knows');
 });
 
+test('G5b2: a profile entry that is not a player never becomes one', () => {
+  // Found on the real league-4 corpus 2026-09-18: the `ME` profile's
+  // quietly_available list contains the prose entry "Olave-adjacent throw-ins
+  // when he had him", which the first version of selfRead reported to Nick as a
+  // player he is known to be shopping.
+  const self = pricing.selfRead(21, { season: SEASON, week: WEEK });
+  for (const s of self.known_shopping) {
+    assert.ok(PLAYERS.some(p => p.name.toLowerCase() === s.player.toLowerCase()),
+      `"${s.player}" is not a player — a prose line in a profile must not be listed as one`);
+  }
+  assert.ok(self.known_shopping.some(s => s.player === 'Shopped Man'),
+    'and the real name in the same list must survive the check');
+});
+
 test('G5c: how Nick looks — the veto votes cast against his deals', () => {
   const self = pricing.selfRead(21, { season: SEASON, week: WEEK });
   assert.equal(self.veto_votes_against, 2);
@@ -588,6 +610,15 @@ test('G7: zeroing a source removes exactly that source and changes the price', (
   assert.notEqual(a.multiplier, b.multiplier, 'a source that changes nothing is not a source');
   assert.deepEqual(factorNames(b), factorNames(a).filter(s => s !== 'profile_roster_read'),
     'zeroing one source must not disturb the others');
+});
+
+test('G7b: the manager-level source can be zeroed too, or the ablation has a hole', () => {
+  const on = layerFor(21).get('2');
+  const offLayer = layerFor(21, { zero: ['recency_post_loss'] }).get('2');
+  assert.ok(on.receptiveness_factors.some(f => f.source === 'recency_post_loss'));
+  assert.ok(!offLayer.receptiveness_factors.some(f => f.source === 'recency_post_loss'));
+  assert.ok(on.receptiveness > offLayer.receptiveness,
+    'the post-loss window must actually be worth something in receptiveness');
 });
 
 // ======================================== one source of truth for the deal read

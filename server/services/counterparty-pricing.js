@@ -122,7 +122,7 @@ function percentile(xs, x) {
  * anyway: it is choosing between these ten people, not against an abstract
  * baseline.
  */
-export function counterpartyLayer(leagueId, { season, week, rosterContext = null } = {}) {
+export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [] } = {}) {
   const signals = managerSignalsFor(leagueId);
   // Every league-wide read is built ONCE here and handed to whoever needs it,
   // so the deal read and the valuation map cannot end up on different answers.
@@ -183,7 +183,9 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
     // not move a player's price: losing badly does not change what he thinks
     // Jonathan Taylor is worth, it changes whether he answers at all. So it is
     // applied to receptiveness and reported here, with its cap and its sample.
-    const postLoss = postLossFactor(m, s.samples);
+    // `zero` suppresses a source for the ablation — the only way to answer "does
+    // this signal change any idea" without reasoning backwards from a score.
+    const postLoss = zero.includes('recency_post_loss') ? null : postLossFactor(m, s.samples);
     if (postLoss) score += postLoss.effect;
 
     const [lo, hi] = RECEPTIVENESS_RANGE;
@@ -474,6 +476,17 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
   };
 }
 
+/** Is this name a real player in our own table? Memoised per process. */
+const realPlayerCache = new Map();
+function isRealPlayer(lowerName) {
+  if (realPlayerCache.has(lowerName)) return realPlayerCache.get(lowerName);
+  let hit = false;
+  try { hit = rows('SELECT 1 AS x FROM players WHERE lower(name) = ? LIMIT 1', lowerName).length > 0; }
+  catch { hit = false; }
+  realPlayerCache.set(lowerName, hit);
+  return hit;
+}
+
 /**
  * Does one of the negotiation profile's roster lists name this player?
  *
@@ -712,6 +725,12 @@ export function selfRead(leagueId, { season = null } = {}) {
       const subject = String(entry).split(/\s+—\s+|\s+-\s+|\(/)[0].trim();
       const key = subject.toLowerCase();
       if (!key) continue;
+      // The lists are prose, and some entries are not players at all — the real
+      // `ME` profile lists "Olave-adjacent throw-ins when he had him". An entry
+      // that does not resolve to a real player is dropped rather than shown to
+      // Nick as someone the league knows he is shopping. Ownership is NOT
+      // required: he can be known for shopping a player he has since moved.
+      if (!isRealPlayer(key)) continue;
       const already = shopping.get(key);
       if (already) {
         already.source = 'chat+profile';

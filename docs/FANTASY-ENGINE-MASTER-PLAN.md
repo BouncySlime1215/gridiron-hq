@@ -30,11 +30,42 @@ Nick, 03:50: *"Trades are designed by the people they are being sent to while fi
 | W0 | Early-season projections, rest-of-season value, fake floors, waiver drops, IR starts, 10-lens skills review | **Done, live** | — |
 | WA | Essentials — chance to play with ESPN designations (**done**), manager data for all 5 leagues (**done**), LLM costs and budgets (**done**), the two missing reviews (**done**); infra (roster snapshots, phone launcher, chat-failure logging) **running**; then review fixes and the **Trade Brain** (correctness → valuation map → tactics → value + acceptance → sendable proposals in Trade Lab) | Running | ~20:30 Fri, then restart |
 | — | Provenance audit (read-only) | Running | ~12:30 |
-| WO + WB | **Run together as one workflow** (different files): WO — opportunity model with every advanced signal, trade-value backtest, season-sim odds calibration, measured win-now vs championship split; WB — Coach + knowledge pack, weekly action plan, dashboard home, game-day checks | Next | ~01:30 Sat, then restart |
-| WC + WD | **Run together**: WC — every page inspected and cleaned, orphans retired, routing splits merged; WD — model refinements, weekly learning loop, K/DEF test, remaining deferrals | After | ~07:30 Sat, then restart |
-| WE | Final integration, restart, push, morning report | Last | ~08:30 Sat |
+| WO + WB | **Run together as one workflow** (different files): WO — opportunity model with every advanced signal, injury-return model, trade-value backtest, season-sim odds calibration, measured win-now vs championship split; WB — Coach + knowledge pack, weekly action plan, dashboard home, game-day checks, decision log | Next | ~02:30 Sat, then restart |
+| WC + WD | **Run together**: WC — every page inspected and cleaned, orphans retired, routing splits merged; WD — model refinements, weekly learning loop, K/DEF test, remaining deferrals | After | ~09:30 Sat, then restart |
+| WE | Final integration, restart, push, morning report | Last | ~10:30 Sat |
 
 Everything that matters for Sunday's week-2 games — chance to play, the Trade Brain, the Coach and home page — is live by Saturday morning.
+
+### 00.2b What the running agents found (read 12:10) and what it changes
+
+**Findings that change the plan** (from WA's finished builders, verifiers and the two review agents):
+1. **Chance to play must go live as one piece** — new code and the fitted role rates together at WA's restart. Old code with the new rates would start three Questionable players (Collins, Flowers, McConkey). *(WA integration)*
+2. **Injured players come back too fast in every multi-week number.** Designations apply to this week only, so rest-of-season value, trade value and the season sim treat an IR player as healthy next week (A.J. Brown 0.96 from week 3). **New:** an injury-return model fit on past injury histories (return week by injury type and designation), used by ROS, trade value and the sim — it also powers the "buy the injured star cheap" tactic. *(WO, gated on 2021-2025)*
+3. **Free agents have no ESPN injury status** — 62 OUT/IR free agents are priced as likely to play, so waivers can suggest them. **New:** pull ESPN statuses for the free-agent pool. *(WB waivers)*
+4. **ESPN designations drop for a few hours each week** when our week flips before ESPN's scoring period does. **New:** one week definition with a handover rule. *(WB, with the "current week" merge)*
+5. **No history of ESPN pregame statuses is kept**, so the ESPN-to-NFL status mapping can't be fit. **New:** store ESPN injuryStatus in the weekly roster snapshots. *(WA infra if not already, else WD)*
+6. **Silent failures in the live path** (review agents): the play-chance loader swallows a missing table; the trade cache ignores injury-report updates (it stamps a column that doesn't exist); a failed early-week promotion isn't rolled back; the chat rollup drops and rebuilds its tables outside a transaction. *(WA review fixes; the rollup race → WA infra or WD)*
+7. **Served-vs-trained mismatches** (mle-reviewer): the fantasy coordinator is applied on a different basis than it was fit on; posture uses the Vegas lift at full strength; the prediction log doesn't record the model that actually served; the rest-of-season market prior was graded on FantasyPros but is built live from a different source. *(provenance → WO/WD)*
+8. **Look-ahead in an existing fit:** the team injury-dialect strength was picked by scoring 2025, the validation season. Re-pick without 2025. *(WD)*
+9. **LLM budget:** a trade-proposal pass costs ~$0.13 per league, so $0.50/day covers ~3 leagues. Daily for league 4 (the only one with chat), on demand for the others. Budget settings get a Settings control. *(WA T4 / WB)*
+10. **Outcome and luck data refresh only by hand** → the weekly learning loop rebuilds them. *(WD)*
+
+**Added because the numbers must be based in history (my additions):**
+- **Accuracy scoreboard** — every week, grade our live projections against what happened and against ESPN's, plus bench points from the roster snapshots, so trust is measured, not claimed. *(WD weekly loop, shown in WB)*
+- **Decision and outcome log** — every trade sent, accepted or declined, every waiver claim and every Coach recommendation is recorded with what we predicted, then graded later. It builds the history that acceptance odds and the Coach can be tested on. *(WB)*
+- **Storage guardrails** — one shared DB copy per workflow; agents move leftovers to Trash at the end of each item (never delete); a weekly storage check warns above 85%; pre-migration backups keep the newest 2; the nightly backup keeps 7. *(from WO+WB on; the checks in WD)*
+
+### 00.2c How much work is left (12:15)
+
+| Block | Items left | Machine time | Lands |
+|---|---|---|---|
+| WA (running): infra, review fixes, Trade Brain ×5, integration | 8 | ~8 h | ~20:30 Fri |
+| WO + WB | ~14 | ~6 h | ~02:30 Sat |
+| WC + WD | ~30 | ~7 h | ~09:30 Sat |
+| WE | 1 | ~1 h | ~10:30 Sat |
+| **Total** | **~53 items** | **~22 h** | **Saturday late morning** |
+
+Nick's decisions (00.4) don't block any of it.
 
 ### 00.3 What is in each remaining step
 
@@ -52,7 +83,7 @@ Everything that matters for Sunday's week-2 games — chance to play, the Trade 
 
 ### 00.4 Decisions only Nick can make
 
-1. **Delete the two old line-history backup copies (18 GB)?** Permanent; nothing reads them; the live archive stays. (Disk is 93% full.) Slim the live 22 GB archive to the tables fantasy uses after WO decides what it needs.
+1. **Empty the Trash** (47 GB): the two old line-history backups — verified table-by-table and row-by-row to be fully contained in the live archive — and 31 leftover agent DB copies. Moved there, not deleted (permanent deletion is Nick's click). Takes the disk from 93% to ~83%. The live 22 GB archive gets slimmed to the tables fantasy uses after WO decides what it needs.
 2. **ESPN cookie bookmarklet:** closing its last open auth gap needs an install key; Nick re-saves the bookmarklet once.
 3. **24/7 hosting and accounts (Phase 11):** so the app, the chat monitor and the phone work with the laptop off.
 4. **Phone notifications** for game-day alerts need an outside service (e.g. a push app) — his choice of service.

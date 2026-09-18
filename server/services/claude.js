@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  PRICING, costOf, costOfUsage, priceFor, rowCostUsd, estimateCallCostUsd, reserveBudget, listBudgets
+  PRICING, costOf, costOfUsage, requirePrice, rowCostUsd, estimateCallCostUsd, reserveBudget, listBudgets
 } from './llm-budget.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -201,7 +201,7 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
     throw err;
   }
   if (!CACHE_TTLS.has(cacheTtl)) throw new Error(`cacheTtl must be '5m' or '1h', not ${String(cacheTtl)}`);
-  if (!priceFor(model)) costOfUsage(model); // throws "No price for model …"
+  requirePrice(model);
   assertUsageSchema();
 
   const caching = cacheSystem || cachedPrefix != null;

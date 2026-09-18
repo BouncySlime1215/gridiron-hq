@@ -64,7 +64,8 @@ export function priceFor(model) {
   return typeof model === 'string' && Object.hasOwn(PRICING, model) ? PRICING[model] : null;
 }
 
-function requirePrice(model) {
+/** The model's prices, or a thrown "No price for model …" (status 500). */
+export function requirePrice(model) {
   const price = priceFor(model);
   if (!price) {
     throw httpError(`No price for model ${model} — add its rates to PRICING in server/services/llm-budget.js before calling it.`, 500);

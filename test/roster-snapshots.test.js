@@ -134,6 +134,7 @@ test('G2a: migration 058 creates the snapshot table and index, and down() drops 
     .all(kind).map(r => r.name);
   assert.deepEqual(has('table'), ['league_roster_snapshots']);
   assert.ok(has('index').includes('idx_league_roster_snapshots_period'), 'period index');
+  assert.ok(scratch.prepare('PRAGMA table_info(league_roster_snapshots)').all().some(c => c.name === 'pregame_injury_status'));
   mod.down(scratch);
   assert.deepEqual(has('table'), []);
   scratch.close();
@@ -289,6 +290,28 @@ test('G2e: a starter total that disagrees with ESPN\'s score is reported, not hi
   const out = await RS.collectRosterSnapshots({ fetchImpl: mockFetch({ 1: bad }, []) });
   assert.deepEqual(out.leagues[0].final[0].mismatched_teams, [{ team_id: 1, starters: 29.5, espn_total: 99.99 }]);
   assert.equal(out.status, 'partial');
+});
+
+test('G2: the ESPN status a player carried into his game is kept after kickoff (plan 00: no pregame status history)', async () => {
+  // Saturday: Questionable, not locked.
+  resetLeague(leaguePayload({ teams: [[1, [entry(101, 0, { injury: 'QUESTIONABLE' }), entry(102, 20)]], [2, TEAM2]] }));
+  await RS.collectRosterSnapshots({ network: false, now: () => '2026-09-19T15:00:00.000Z' });
+  const read = pid => rows(`SELECT injury_status, pregame_injury_status FROM league_roster_snapshots
+    WHERE scoring_period_id = 2 AND espn_player_id = ?`, pid)[0];
+  assert.deepEqual(read(101), { injury_status: 'QUESTIONABLE', pregame_injury_status: 'QUESTIONABLE' });
+  // Sunday after kickoff: locked, and ESPN now says OUT (hurt in the game). The pregame status stays.
+  setPayload(leaguePayload({ teams: [[1, [entry(101, 0, { injury: 'OUT', locked: true, actual: 3.1 }), entry(102, 20)]], [2, TEAM2]] }));
+  await RS.collectRosterSnapshots({ network: false, now: () => '2026-09-20T19:00:00.000Z' });
+  assert.deepEqual(read(101), { injury_status: 'OUT', pregame_injury_status: 'QUESTIONABLE' });
+  // A player first seen after his game locked has no pregame status on file.
+  setPayload(leaguePayload({ teams: [[1, [entry(101, 0, { injury: 'OUT', locked: true, actual: 3.1 }), entry(102, 20), entry(106, 20, { injury: 'ACTIVE', locked: true })]], [2, TEAM2]] }));
+  await RS.collectRosterSnapshots({ network: false, now: () => '2026-09-20T20:00:00.000Z' });
+  assert.equal(read(106).pregame_injury_status, null);
+  // The final boxscore keeps it too.
+  setPayload(leaguePayload({ period: 3, teams: [[1, TEAM1], [2, TEAM2]] }));
+  await RS.collectRosterSnapshots({ fetchImpl: mockFetch({ 1: WEEK1, 2: boxscore(2, [[1, [[101, 0, 3.1], [102, 20, 8]]], [2, [[201, 0, 6]]]]) }, []) });
+  assert.equal(rows(`SELECT source FROM league_roster_snapshots WHERE scoring_period_id = 2 AND espn_player_id = 101`)[0].source, 'final');
+  assert.equal(read(101).pregame_injury_status, 'QUESTIONABLE');
 });
 
 test('G2f: a network failure keeps the live capture and is recorded as partial with the reason', async () => {

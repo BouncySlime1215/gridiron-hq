@@ -31,10 +31,11 @@ import { rows, row } from '../db/index.js';
 import { PPR } from './scoring.js';
 import { buildProjections, sampleWeeks } from './projections.js';
 import { correlatedSampler } from './correlation.js';
-import { dvpFor, matchupModel } from './matchups.js';
+import { gameMultiplier, matchupModel } from './matchups.js';
 import { gameScriptFor } from './gamescript.js';
 import { deriveFormat } from './format.js';
 import { assetUniverse, loadRosters, lineupSlots } from './trade-engine.js';
+import { irOnRoster } from './lineup-brain.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const POOL = 600;          // outcomes sampled per player, then indexed by the copula
@@ -69,8 +70,12 @@ function outcomePools(players, season, week, scoring) {
     // rather than zero-filled: a zero would silently drag a lineup's mean down
     // while still occupying a slot the optimiser could have used.
     if (!pr || !game) continue;
-    const d = dvpFor(game.opponent_abbr, p.position);
-    const base = d.mult * (game.home ? 1.02 : 0.98);
+    // The matchup factor is matchups.js's own, which is exactly 1 in its tested
+    // state: neither home/away nor defense-vs-position beat no adjustment on the
+    // 2026-09-17 weekly walk-forward test (matchups.js MATCHUP_EVIDENCE). This used to
+    // hard-code `dvpFor(...).mult * (home ? 1.02 : 0.98)`, so every home week here was
+    // drawn 4% richer than the same player's away week after the signal was retired.
+    const base = gameMultiplier(game.opponent_abbr, game.home, p.position);
     const gs = gameScriptFor(p.team_abbr, season, week);
     const samples = sampleWeeks(pr.params, POOL, scoring,
       { pass: base * gs.pass_mult, rush: base * gs.rush_mult }, 1).sort((a, b) => a - b);
@@ -150,7 +155,12 @@ export function ceilingLineup(leagueId, {
   if (!me) return { error: 'team not found in this league' };
   const slots = lineupSlots(lg);
 
-  const pools = outcomePools(me.players, season, week, PPR)
+  // IR players are never candidates: ESPN's IR slot or injured-reserve status, the
+  // rule Start/Sit (lineup-brain.js#irOnRoster), the matchup card, the waiver board
+  // and the League Hub card all use. This solved on every rostered player, so on the
+  // 2026-W2 live check league 4's lineup put Zach Charbonnet (IR slot, OUT) at FLEX.
+  const irReason = irOnRoster(lg, me.roster_id, me.players);
+  const pools = outcomePools(me.players.filter(p => !irReason.has(p.id)), season, week, PPR)
     .sort((a, b) => b.mean - a.mean)
     .slice(0, candidates);
   if (pools.length < slots.length) {
@@ -219,6 +229,9 @@ export function ceilingLineup(leagueId, {
   return {
     league: lg.name, team: me.owner, season, week,
     objective, target: effectiveTarget, trials, candidates_considered: pools.length,
+    // Left out because they are on IR, with why.
+    on_ir: me.players.filter(p => irReason.has(p.id))
+      .map(p => ({ name: p.name, position: p.position, why: irReason.get(p.id) })),
     lineup: bestFilled.map(f => ({ slot: f.slot, player: f.pick.player.name,
       position: f.pick.player.position, team: f.pick.player.team_abbr,
       mean_points: r2(f.pick.mean) })),

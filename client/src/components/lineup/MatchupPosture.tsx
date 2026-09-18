@@ -33,6 +33,8 @@ export interface Posture {
   swaps?: PostureSwap[];
   note?: string;
   win_probability_scope?: string;
+  /** What "You" and "Them" are summed from: the Start/Sit week points, betting line included. */
+  projection_basis?: string;
 }
 
 const STANCE: Record<string, { label: string; chip: string; bar: string }> = {
@@ -159,6 +161,9 @@ function Body({ data, loading, error, onRetry }: {
       {data.win_probability_scope && (
         <p className="mt-3 border-t border-slate-100 pt-2 text-[11px] leading-4 text-slate-400">
           Win chance covers {data.win_probability_scope}.
+          {data.projection_basis
+            ? ' Both totals are the Start/Sit week points (this week\'s projection with the betting-line adjustment), so "You" matches the lineup below.'
+            : ''}
         </p>
       )}
     </>

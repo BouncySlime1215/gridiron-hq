@@ -257,6 +257,73 @@ export function evidenceCache(season, providers = DEFAULT_PROVIDERS) {
  * rather than buried inside a comparison.
  */
 const SKILL_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE']);
+
+/**
+ * This week's number for one player, on the Start/Sit basis.
+ *
+ * current_week_ppg (trade-engine's week projection: the coordinator-corrected weekly
+ * number times his chance to play, 0 on a bye) times the betting-line game-script
+ * multiplier when there is a line for his game. Exported so every page that prints a
+ * week total prices a player exactly as Start/Sit does: the matchup card
+ * (lineup-posture.js) used to sum raw current_week_ppg, so its "You" figure and the
+ * Start/Sit projection disagreed by 0.3-2.0 points on all five live leagues and, in
+ * two of them, named a different FLEX. trade-engine.js#lineupDiffWeekPoints is the
+ * same construction for the League Hub card.
+ */
+export function startSitWeekPoints(p, season, week) {
+  const lift = vegasLift(p, season, week);
+  // adj_ppg is a 25%-current/75%-rest-of-season blend built for the trade horizon, not
+  // this decision, so it is only a fallback for a player with no week number at all.
+  // current_week_ppg is 0 (not null) on a bye, so a real bye is never masked.
+  const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
+  // Unlike the trade horizon, this is the full multiplier: the whole decision IS this week.
+  return { week_points: r2(base * (lift.applied ? lift.multiplier : 1)), vegas: lift };
+}
+
+/** ESPN's lineup slot id for IR (trade-engine.js SLOT_NAME). */
+const ESPN_IR_SLOT = 21;
+
+/**
+ * Who on one roster is on IR, with why — the rule every other lineup surface already
+ * uses: waiver-wire.js (never a drop), lineup-posture.js#rosterAssets (never in the
+ * matchup lineup) and trade-engine.js#lineupDiff, the League Hub card (never
+ * recommended in). ESPN's IR slot (lineupSlotId 21), or ESPN injury status
+ * INJURY_RESERVE. A player in the IR slot cannot score for this team until he is moved
+ * out of it; one ESPN lists on injured reserve is out for weeks.
+ *
+ * Sleeper keeps IR as the roster's `reserve` list. Returns Map<player id, reason>.
+ */
+export function irOnRoster(lg, rosterId, players) {
+  const out = new Map();
+  let payload;
+  try { payload = JSON.parse(lg.payload); } catch { return out; }
+  if (lg.platform === 'sleeper') {
+    const ro = (payload.rosters ?? []).find(r => String(r.roster_id) === String(rosterId));
+    const reserve = new Set((ro?.reserve ?? []).map(String));
+    for (const p of players) {
+      if (p.sleeper_id != null && reserve.has(String(p.sleeper_id))) {
+        out.set(p.id, 'In your IR slot: he cannot start until you move him out of it.');
+      }
+    }
+    return out;
+  }
+  const team = (payload.teams ?? []).find(t => String(t.id) === String(rosterId));
+  for (const e of team?.roster?.entries ?? []) {
+    const pl = e.playerPoolEntry?.player;
+    if (!pl) continue;
+    const inSlot = e.lineupSlotId === ESPN_IR_SLOT;
+    if (!inSlot && pl.injuryStatus !== 'INJURY_RESERVE') continue;
+    // Matched the way loadRosters() put him on the roster: ESPN id first, then name.
+    const p = players.find(x => x.espn_id != null && String(x.espn_id) === String(pl.id))
+      ?? players.find(x => norm(x.name) === norm(pl.fullName));
+    if (!p) continue;
+    out.set(p.id, inSlot
+      ? 'In your IR slot: he cannot start until you move him out of it.'
+      : 'ESPN lists him on IR (injured reserve), so he is not expected to play.');
+  }
+  return out;
+}
+
 const TIE_THRESHOLD = 1.5;
 const CLEAR_THRESHOLD = 4.0;
 
@@ -281,29 +348,23 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
 
   const { season, week } = tradeWeekContext();
 
+  // IR players are out of the call entirely: not started, not the benched
+  // alternative a starter "beat", not on the bench list. This page used to be the
+  // one lineup surface that ignored IR, so on the 2026-W2 sync it listed Jordyn Tyson
+  // (IR slot, leagues 2 and 3) as a bench option and, under "Protect the floor",
+  // STARTED Zach Charbonnet (IR slot, OUT) and A.J. Brown (ESPN injured reserve) in
+  // league 4 — while the League Hub card refused both. They are reported in `on_ir`.
+  const irReason = irOnRoster(lg, me.roster_id, me.players);
+
   // Annotate every player with this week's market view before solving. The
   // betting model already prices how much volume a team's game script implies,
   // and a start/sit call is exactly the horizon where that matters most — it is
   // a decision about one Sunday, which is the only thing a single week's line
-  // describes.
-  const annotated = me.players.map(p => {
-    const lift = vegasLift(p, season, week);
-    // adj_ppg is a 25%-current/75%-rest-of-season blend built for the trade
-    // horizon, not this decision. A start/sit call is genuinely one week, so
-    // it has to rank on current_week_ppg (this week's DvP-adjusted number)
-    // and apply the game-script multiplier there — multiplying the whole
-    // adj_ppg blend instead inflates/deflates the 75% ROS share by a signal
-    // that only describes this Sunday. current_week_ppg is 0 (not null) on a
-    // bye, so the ?? fallback below only triggers when the field is
-    // genuinely absent, never masking a real bye week as "no data."
-    const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
-    return {
-      ...p,
-      vegas: lift,
-      // Unlike the trade horizon, this is the full multiplier: the whole
-      // decision IS this week.
-      week_points: r2(base * (lift.applied ? lift.multiplier : 1))
-    };
+  // describes. startSitWeekPoints() is the one construction, shared with the
+  // matchup card.
+  const annotated = me.players.filter(p => !irReason.has(p.id)).map(p => {
+    const { week_points: weekPoints, vegas } = startSitWeekPoints(p, season, week);
+    return { ...p, vegas, week_points: weekPoints };
   });
 
   /*
@@ -486,6 +547,11 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     })),
     submitted,
     unavailable,
+    // On IR (ESPN IR slot or injured-reserve status): never started, never the
+    // alternative, never on the bench list. Named here so the page can say why.
+    on_ir: me.players.filter(p => irReason.has(p.id)).map(p => ({
+      name: p.name, position: p.position, team_abbr: p.team_abbr, why: irReason.get(p.id)
+    })),
     team_conditions: [...teamCtx.entries()]
       .filter(([, c]) => c && !c.insufficient && c.flags.length)
       .map(([team, c]) => ({ team, opponent: c.opponent, home: c.home,
@@ -494,7 +560,11 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     warnings: risky.map(c => ({
       player: c.player.name,
       issue: c.player.bye === week ? 'on bye this week'
-        : `only plays about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% of weeks`,
+        // active_probability is THIS week's chance to play (the injury report and the
+        // availability model, contingency.js; its role layer adds recent missed games),
+        // not a share of weeks. "Only plays about 19% of weeks" would misdescribe a
+        // starter who has missed his last two games.
+        : `about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% likely to play this week`,
       slot: c.slot
     })),
     objectives: [

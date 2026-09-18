@@ -49,6 +49,10 @@ export default function Lineup() {
   // already shows under "not being considered".
   const out: OutList = useMemo(() => new Map<string, string>(
     (d?.unavailable ?? []).map((u: any) => [String(u.name).toLowerCase(), String(u.why)])), [d]);
+  // Everyone the lineup call leaves out, with why: IR (ESPN's IR slot or injured
+  // reserve — never started, the same rule as the League Hub card) and players the
+  // engine flags out for the season or released.
+  const notConsidered: any[] = [...(d?.on_ir ?? []), ...(d?.unavailable ?? [])];
 
   // The floating assistant otherwise never learns what's on this page and
   // falls back to a generic "this page hasn't told me what's on screen"
@@ -159,14 +163,14 @@ export default function Lineup() {
         </div>
       )}
 
-      {d?.unavailable?.length > 0 && (
+      {notConsidered.length > 0 && (
         <details className="tr-rise rounded-xl border border-slate-200 bg-white p-4" style={{ animationDelay: '150ms' }}>
           <summary className="cursor-pointer text-sm font-bold text-slate-700">
-            Why {d.unavailable.length} rostered player{d.unavailable.length === 1 ? ' is' : 's are'} not
+            Why {notConsidered.length} rostered player{notConsidered.length === 1 ? ' is' : 's are'} not
             being considered
           </summary>
           <div className="mt-2 space-y-1.5">
-            {d.unavailable.map((u: any, i: number) => (
+            {notConsidered.map((u: any, i: number) => (
               <p key={i} className="text-sm leading-6 text-slate-600">
                 <b className="text-slate-900">{u.name}</b> ({u.position}, {u.team_abbr}) — {u.why}
               </p>
@@ -309,7 +313,9 @@ function waiverSummary(w: WaiverBoard | null) {
     claims_that_help_this_week: claims.length,
     top_claim: top ? { player: top.player, position: top.position, adds_to_this_weeks_lineup: top.upgrade,
       drop: top.drop_candidate?.player ?? null } : null,
-    stashes: (w.stashes ?? []).filter(onATeam).length
+    stashes: (w.stashes ?? []).filter(onATeam).length,
+    // Claims that would help this week only by cutting someone worth more over the season.
+    held_back: w.held_back_count ?? (w.held_back ?? []).length
   };
 }
 

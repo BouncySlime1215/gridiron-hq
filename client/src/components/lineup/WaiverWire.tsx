@@ -9,13 +9,16 @@ import { PageLoading, PageError } from '../PageState';
  * Two lists with two different questions, kept visibly apart:
  *
  *   Claims now — ranked on points added to THIS WEEK's starting lineup
- *                (current_week_ppg), after cutting the weakest bench player.
+ *                (current_week_ppg), after the server's cut: never someone worth
+ *                more over the rest of the season than the claim, never one whose
+ *                loss lowers the rest-of-season lineup (waiver-wire.js#chooseClaimCut).
+ *                Claims with no such cut are held back and counted.
  *   Stashes    — no help this week, ranked on points added to the
  *                REST-OF-SEASON lineup, with their own cut.
  *
- * The server picks a different drop for each list when the week and the season
- * disagree about who the weakest bench player is, and the page says so rather
- * than showing one "drop" as if there were a single answer.
+ * The server can pick a different drop for each list, and the page says so rather
+ * than showing one "drop" as if there were a single answer. Free agents with no NFL
+ * team are left off the board by the server and only counted here.
  */
 
 export interface WaiverRow {
@@ -23,7 +26,9 @@ export interface WaiverRow {
   projected_ppg: number; ros_ppg?: number | null;
   injury_status?: string | null; active_probability?: number | null;
   upgrade: number; would_start?: boolean;
-  drop_candidate?: { player: string; position: string; ppg: number | null } | null;
+  drop_candidate?: { player: string; position: string; ppg: number | null; ros_ppg?: number | null } | null;
+  /** What the claim and its cut do to the rest-of-season lineup (never negative). */
+  ros_change?: number | null;
   ros_upgrade?: number | null;
   ros_drop_candidate?: { player: string; position: string; ros_ppg: number | null } | null;
 }
@@ -34,7 +39,18 @@ export interface WaiverBoard {
   immediate?: WaiverRow[]; stashes?: WaiverRow[];
   live_players?: number; roster_size?: number; on_ir?: string[];
   free_agents_considered?: number; baseline_points?: number;
+  drop_rule?: string;
+  held_back?: HeldBack[]; held_back_count?: number;
+  teamless_excluded?: number;
   note?: string;
+}
+
+/** A free agent who would help this week, but only by cutting someone worth more over the season. */
+export interface HeldBack {
+  player: string; position: string; team?: string | null; ros_ppg?: number | null;
+  week_upgrade: number;
+  would_cut: { player: string; position: string; ppg: number | null; ros_ppg: number | null };
+  why: string;
 }
 
 /** Rostered players the lineup solver will not start, by lower-cased name → why. */
@@ -43,13 +59,12 @@ export type OutList = Map<string, string>;
 const SHOWN = 3;
 
 /**
- * Free agents with no NFL team are held back by default, with a count and a
- * toggle, not silently dropped. The server's pool admits them (waiver-wire.js
- * filters on rostered-in-league and `available`, never on having a team), and on
- * the 2026-W2 sync they were 17 of the 21 stash rows across five leagues — every
- * one of league 2's ten, all out-of-work or retired quarterbacks carrying 13-16
- * point rest-of-season figures and 0 this week. A player without a team cannot
- * score until someone signs him, so that figure cannot describe a real role.
+ * Free agents with no NFL team: the server now leaves them off the board and
+ * returns only a count (`teamless_excluded`). On the 2026-W2 sync they were 17 of
+ * the 21 stash rows across five leagues — every one of league 2's ten, all
+ * out-of-work or retired quarterbacks carrying 13-16 point rest-of-season figures
+ * and 0 this week. A player without a team cannot score until someone signs him.
+ * The filter stays as a guard for a response from an older server.
  */
 export const onATeam = (r: WaiverRow) => !!r.team;
 const fmt = (v: number | null | undefined, d = 1) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d));
@@ -90,7 +105,6 @@ function Body({ data, loading, error, onRetry, out }: {
   data: WaiverBoard | null; loading: boolean; error: string | null; onRetry: () => void; out: OutList;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const [showTeamless, setShowTeamless] = useState(false);
   if (loading && !data) return <PageLoading label="Checking every free agent against your lineup…" />;
   if (error && !data) return <div className="mt-3"><PageError message={error} onRetry={onRetry} /></div>;
   if (!data) return null;
@@ -98,11 +112,11 @@ function Body({ data, loading, error, onRetry, out }: {
     return <p className="mt-2 text-sm leading-6 text-slate-600">No waiver board for this league right now: {data.error}.</p>;
   }
 
-  const immediateAll = data.immediate ?? [];
-  const stashAll = data.stashes ?? [];
-  const immediate = showTeamless ? immediateAll : immediateAll.filter(onATeam);
-  const stashes = showTeamless ? stashAll : stashAll.filter(onATeam);
-  const teamless = immediateAll.filter(r => !onATeam(r)).length + stashAll.filter(r => !onATeam(r)).length;
+  const immediate = (data.immediate ?? []).filter(onATeam);
+  const stashes = (data.stashes ?? []).filter(onATeam);
+  const teamless = data.teamless_excluded ?? 0;
+  const heldBack = data.held_back ?? [];
+  const heldCount = data.held_back_count ?? heldBack.length;
   const shown = showAll ? immediate : immediate.slice(0, SHOWN);
   const drop = sharedDrop(shown.map(r => r.drop_candidate));
   const rosDrop = sharedDrop(stashes.map(r => r.ros_drop_candidate));
@@ -117,14 +131,15 @@ function Body({ data, loading, error, onRetry, out }: {
         </div>
         {immediate.length === 0 ? (
           <p className="mt-1.5 text-sm leading-6 text-slate-600">
-            {immediateAll.length > 0
-              ? 'No free agent on an NFL roster would improve this week\'s starting lineup.'
+            {heldCount > 0
+              ? 'No free agent improves this week\'s lineup without cutting someone worth more over the rest of the season.'
               : 'No free agent would improve this week\'s starting lineup — none projects above the starter he would replace.'}
           </p>
         ) : (
           <>
             {drop && <DropLine label="To make room, drop" who={drop.player} pos={drop.position}
-              detail={out.get(drop.player.toLowerCase()) ?? `${fmt(drop.ppg)} projected this week`} />}
+              detail={out.get(drop.player.toLowerCase())
+                ?? `${fmt(drop.ppg)} projected this week · ${fmt(drop.ros_ppg)} a week rest of season`} />}
             <div className="mt-2 divide-y divide-slate-100">
               {shown.map((r, i) => (
                 <ClaimRow key={`${r.player}-${i}`} r={r} value={r.upgrade} valueLabel="this week"
@@ -141,6 +156,29 @@ function Body({ data, loading, error, onRetry, out }: {
               </button>
             )}
           </>
+        )}
+        {heldBack.length > 0 && (
+          // The claims the cut rule stopped: they help this Sunday only by releasing
+          // someone worth more over the rest of the season. Named, with the cut, so
+          // "why isn't X suggested" has an answer on the page.
+          <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+            <b className="text-slate-800">Held back ({heldCount}):</b>{' '}
+            {heldBack.slice(0, 2).map((h, i) => (
+              <span key={`${h.player}-${i}`}>
+                {i > 0 ? '; ' : ''}{h.player} would add +{fmt(h.week_upgrade)} this week{' '}
+                {(h.would_cut.ros_ppg ?? 0) > (h.ros_ppg ?? 0)
+                  ? <>but only by cutting {h.would_cut.player} ({fmt(h.would_cut.ros_ppg)} a week rest of season vs
+                    his {fmt(h.ros_ppg)})</>
+                  // The other reason a claim is held: every cut that keeps the week gain
+                  // lowers the rest-of-season lineup (waiver-wire.js rule (b)).
+                  : <>but every cut that keeps that gain lowers your rest-of-season lineup</>}
+              </span>
+            ))}
+            {heldCount > 2 ? `; and ${heldCount - 2} more` : ''}.
+          </div>
+        )}
+        {data.drop_rule && (immediate.length > 0 || heldBack.length > 0) && (
+          <p className="mt-1.5 text-[11px] leading-4 text-slate-400">{data.drop_rule}</p>
         )}
       </div>
 
@@ -160,8 +198,7 @@ function Body({ data, loading, error, onRetry, out }: {
           <p className="mt-2 text-sm leading-6 text-slate-600">
             {/* The server keeps anyone who helps THIS week out of the stash list, so
                 the claims above may well improve the rest of the season too. */}
-            {`${immediate.length > 0 ? 'Beyond the claims above, no' : 'No'} free agent${
-              stashAll.length > 0 ? ' on an NFL roster' : ''} improves your rest-of-season lineup.`}
+            {`${immediate.length > 0 ? 'Beyond the claims above, no' : 'No'} free agent improves your rest-of-season lineup.`}
           </p>
         ) : (
           <>
@@ -170,7 +207,7 @@ function Body({ data, loading, error, onRetry, out }: {
                 detail={out.get(rosDrop.player.toLowerCase())
                   ?? `${fmt(rosDrop.ros_ppg)} a week projected rest of season`}
                 differs={weekDropName != null && weekDropName !== rosDrop.player
-                  ? `A different cut from the claims above: judged on the rest of the season, ${rosDrop.player} is your weakest bench player; judged on this week alone, it is ${weekDropName}.`
+                  ? `A different cut from the claims above: a stash cuts your weakest rest-of-season bench player, ${rosDrop.player}; the claims above cut ${weekDropName}, the cut that keeps this week's gain at the least cost to the rest of the season.`
                   : null} />
             )}
             <div className="mt-2 divide-y divide-slate-200">
@@ -198,12 +235,8 @@ function Body({ data, loading, error, onRetry, out }: {
       </p>
       {teamless > 0 && (
         <p className="mt-1.5 text-[11px] leading-4 text-slate-500">
-          {showTeamless ? 'Showing' : 'Hiding'} {teamless} free agent{teamless === 1 ? '' : 's'} with no NFL team: they
-          cannot score until someone signs them, so a rest-of-season number cannot describe a real role.{' '}
-          <button type="button" onClick={() => setShowTeamless(v => !v)}
-            className="font-semibold text-slate-700 underline underline-offset-2">
-            {showTeamless ? 'Hide them' : 'Show them anyway'}
-          </button>
+          Left off: {teamless} free agent{teamless === 1 ? '' : 's'} with no NFL team. They cannot score until
+          someone signs them, so a rest-of-season number cannot describe a real role.
         </p>
       )}
     </>
@@ -256,10 +289,12 @@ function ClaimRow({ r, value, valueLabel, sub, hole, marginal, perRowDrop }: {
             )}
             {injury && <Chip cls="bg-rose-50 text-rose-800 ring-rose-200">{injury}</Chip>}
             {plays != null && (
-              // With an injury designation the probability is this week's, from the
-              // report (Out is about 0.001), not his share of weeks played.
+              // active_probability is this week's chance to play in every case: from
+              // the injury report when there is a designation (Out is about 0.001),
+              // otherwise from the availability model (contingency.js). It is the
+              // number this week's projection is multiplied by, not a share of weeks.
               <Chip cls="bg-amber-50 text-amber-900 ring-amber-200">
-                {injury ? `about ${plays}% to play this week` : `plays about ${plays}% of weeks`}
+                {`about ${plays}% to play this week`}
               </Chip>
             )}
           </div>

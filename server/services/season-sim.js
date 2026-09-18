@@ -11,7 +11,8 @@
  *
  * Each simulated week:
  *   1. draw correlated weekly scores for every rostered player (copula over the
- *      projection model's distributions, matchup-adjusted for that week's opponent)
+ *      projection model's distributions, times that week's game script and
+ *      matchups.js#gameMultiplier, which is 1 while matchups carry no validated signal)
  *   2. set each fantasy team's optimal lineup from what it drew
  *   3. resolve that week's head-to-head fixtures
  * then seed the bracket on record and points, and play it out.
@@ -20,7 +21,7 @@ import { rows } from '../db/index.js';
 import { PPR } from './scoring.js';
 import { buildProjections, sampleWeeks } from './projections.js';
 import { correlatedSampler } from './correlation.js';
-import { dvpFor, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
+import { gameMultiplier, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 import { deriveFormat } from './format.js';
 import { gameScriptFor } from './gamescript.js';
 import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
@@ -214,8 +215,10 @@ export function simulateSeason(lg, {
       const nflWeek = nflSchedule.get(p.team_abbr)?.find(g => g.week === week);
       // On bye, or no NFL game that week, the player scores nothing.
       if (!pr || !nflWeek) { entries.push({ p, samples: null, meta: null }); continue; }
-      const d = dvpFor(nflWeek.opponent_abbr, p.position);
-      const base = d.mult * (nflWeek.home ? 1.02 : 0.98);
+      // matchups.js's one matchup multiplier: exactly 1 in its tested state (no home/away
+      // or defense-vs-position arm beat no adjustment, MATCHUP_EVIDENCE). This used to
+      // hard-code `dvpFor(...).mult * (home ? 1.02 : 0.98)`, a tilt matchups.js retired.
+      const base = gameMultiplier(nflWeek.opponent_abbr, nflWeek.home, p.position);
       // Matchup difficulty and game script are independent effects on the same volume:
       // who you play, and how the game is expected to unfold.
       const gs = gameScriptFor(p.team_abbr, SEASON, week);

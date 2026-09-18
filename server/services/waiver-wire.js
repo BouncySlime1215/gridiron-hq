@@ -22,12 +22,88 @@
  * nothing to a roster whose worst bench player already projects 9. The replay's
  * winning policy was exactly this and nothing cleverer: drop the weakest bench
  * player, add the best available, by projected points.
+ *
+ * "Weakest" is now judged on the rest of the season as well as this week (see
+ * chooseClaimCut): the replay's projection was one number for both horizons, while
+ * the live board has a week number that can be one game (at week 2) and a separate
+ * rest-of-season number, and cutting on the week alone released good players after
+ * one bad game.
  */
 import { rows } from '../db/index.js';
 import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots } from './trade-engine.js';
 import { deriveFormat } from './format.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
+
+/**
+ * THE CUT FOR AN IMMEDIATE CLAIM. Rule written down 2026-09-18 before it was run on
+ * the live leagues (scratch step1b/decision-leftovers/GATE.md, check C2):
+ *
+ *   (a) never cut a player worth more over the rest of the season (ros_ppg) than the
+ *       player claimed. A player the engine flags out for the season or released
+ *       (available === false) counts as 0 there: he is the one genuinely free cut,
+ *       whatever stale number he still carries;
+ *   (b) never cut a player whose loss lowers the rest-of-season lineup (bestLineup on
+ *       ros_ppg, after the add);
+ *   (c) the claim must still improve THIS week's starting lineup by more than
+ *       MIN_GAIN;
+ *   (d) among cuts meeting (a)-(c): the largest week gain, then the highest
+ *       rest-of-season lineup after, then the lowest rest-of-season value, then the
+ *       lowest week number.
+ *
+ * Any active rostered player is a candidate, not only this week's bench: a bench cut
+ * always keeps the full week gain, so (d) prefers one, but when none is safe,
+ * replacing a weak starter can be. A free agent with no cut meeting (a)-(c) is not an
+ * immediate claim; he is listed in `held_back` with the gain and the cut the old rule
+ * would have used.
+ *
+ * Why. The cut used to be the bench player with the lowest THIS-WEEK number, which
+ * turns one bad game into a release: Jaylen Waddle (1.2 points in week 1, a 9.9
+ * rest-of-season player) was the suggested cut for Jalen Coker in leagues 1 and 2 at
+ * 2026 week 2. And a cut chosen on the week alone ignored what it cost later: on the
+ * week-2 sync, 16 of league 3's claims cut Tyler Warren and lowered the
+ * rest-of-season lineup by 0.4-0.6 points a week.
+ */
+export const MIN_GAIN = 0.05;
+const TIE = 0.005;
+const seasonValue = p => (p.available === false ? 0 : (p.ros_ppg ?? 0));
+export const DROP_RULE = 'An immediate claim cuts the player whose loss keeps this week\'s gain and costs the ' +
+  'rest of season least: never someone worth more over the rest of season than the player claimed, and never ' +
+  'someone whose loss lowers your rest-of-season lineup. A claim with no such cut is held back.';
+
+/** Is cut `a` better than cut `b` under rule (d)? */
+function betterCut(a, b) {
+  if (Math.abs(a.week - b.week) > TIE) return a.week > b.week;
+  if (Math.abs(a.rosAfter - b.rosAfter) > TIE) return a.rosAfter > b.rosAfter;
+  if (Math.abs(seasonValue(a.drop) - seasonValue(b.drop)) > TIE) return seasonValue(a.drop) < seasonValue(b.drop);
+  return weekPpg(a.drop) < weekPpg(b.drop);
+}
+
+/**
+ * The cut for claiming `fa` onto `active`, under the rule above.
+ * Returns { safe, unsafe }: the chosen safe cut (or null) and the best cut by week gain
+ * alone (or null when the claim cannot help this week at all), each as
+ * { drop, week, rosAfter }.
+ */
+export function chooseClaimCut(active, fa, slots, weekBase, rosBase) {
+  // No cut can beat keeping everyone: if the add alone does not help this week, stop.
+  if ((bestLineup([...active, fa], slots, 'current_week_ppg').points ?? 0) - weekBase <= MIN_GAIN) {
+    return { safe: null, unsafe: null };
+  }
+  let safe = null, unsafe = null;
+  for (const drop of active) {
+    const after = [...active.filter(p => p.id !== drop.id), fa];
+    const week = (bestLineup(after, slots, 'current_week_ppg').points ?? 0) - weekBase;
+    if (!(week > MIN_GAIN)) continue;                                   // (c)
+    const cut = { drop, week, rosAfter: bestLineup(after, slots, 'ros_ppg').points ?? 0 };
+    if (!unsafe || cut.week > unsafe.week + TIE
+      || (Math.abs(cut.week - unsafe.week) <= TIE && weekPpg(drop) < weekPpg(unsafe.drop))) unsafe = cut;
+    if (seasonValue(drop) > (fa.ros_ppg ?? 0) + 1e-9) continue;         // (a)
+    if (cut.rosAfter < rosBase - 1e-9) continue;                        // (b)
+    if (!safe || betterCut(cut, safe)) safe = cut;                      // (d)
+  }
+  return { safe, unsafe };
+}
 
 /**
  * Which number to rank on, and why it matters.
@@ -95,15 +171,15 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   const active = mine.filter(p => !p.on_ir);
   const baseline = bestLineup(active, slots, 'current_week_ppg');
   const baselinePoints = baseline.points ?? 0;
-  const starters = new Set(baseline.slots.map(s => s.player?.id).filter(Boolean));
-  // Drop order: anyone the engine has flagged season-ending or released goes
-  // FIRST. They are excluded from bestLineup, so they always land on the bench —
-  // and the old ascending-projection sort put a season-ending player with a stale
-  // high projection LAST, making the one genuinely free cut the one never
-  // suggested (Kenneth Walker III: available false, current_week_ppg 22.99).
+  // Drop order for the STASH cut: anyone the engine has flagged season-ending or
+  // released goes FIRST. They are excluded from bestLineup, so they always land on the
+  // bench — and the old ascending-projection sort put a season-ending player with a
+  // stale high projection LAST, making the one genuinely free cut the one never
+  // suggested (Kenneth Walker III: available false, current_week_ppg 22.99). The
+  // immediate claim's cut has its own rule, chooseClaimCut() above, which reaches the
+  // same answer for such a player through seasonValue() = 0.
   const dropOrder = field => (a, b) =>
     (a.available === false ? 0 : 1) - (b.available === false ? 0 : 1) || field(a) - field(b);
-  const bench = active.filter(p => !starters.has(p.id)).sort(dropOrder(weekPpg));
 
   // Free agents: priced by our own model, not on anyone's roster. The week gate
   // and the rest-of-season gate are separate. The single weekPpg gate used to run
@@ -112,10 +188,20 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   // suppressed by an availability discount, never reached the board at all: 294
   // free agents per league had current_week_ppg < 4 and ros_ppg >= 6. The bye week
   // was precisely when a good stash was invisible.
-  const unowned = [...assets.values()].filter(a =>
+  //
+  // A free agent with no NFL team is not on the board at all. He cannot score until
+  // someone signs him (current_week_ppg is 0 by construction: no game), so he was
+  // never an immediate claim — but his rest-of-season number is the last team's role,
+  // and on the 2026-W2 sync such players were 17 of the 21 stash rows across the five
+  // leagues (all ten of league 2's: out-of-work or retired quarterbacks at 13-16 a
+  // week). The rows this takes off the board are counted in `teamless_excluded`
+  // (below, once the stash cut is known), so the page can say so.
+  const unownedAll = [...assets.values()].filter(a =>
     SCORED.has(a.position)
     && !owned.has(String(a.name).toLowerCase())
     && a.available !== false);
+  const onNflTeam = a => Boolean(a.team_abbr ?? a.team);
+  const unowned = unownedAll.filter(onNflTeam);
   const passesWeek = a => weekPpg(a) >= minProjected;
   const passesRos = a => (a.ros_ppg ?? 0) >= minRosProjected;
   const free = unowned.filter(a => passesWeek(a) || passesRos(a));
@@ -133,17 +219,40 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   // hurt-now-good-later players the stash list exists to find.
   const rosStarters = new Set(rosBaselineLineup.slots.map(s => s.player?.id).filter(Boolean));
   const rosBench = active.filter(p => !rosStarters.has(p.id)).sort(dropOrder(p => p.ros_ppg ?? 0));
+  const rosDropForStash = rosBench[0] ?? null;
+  const rosAfterWith = fa =>
+    bestLineup([...active.filter(p => p.id !== rosDropForStash?.id), fa], slots, 'ros_ppg').points ?? 0;
+  // Teamless free agents who would otherwise have been a stash (they score 0 this
+  // week, so never a claim): the rows the no-team rule actually takes off the board.
+  // Counting every unsigned player instead said "308 left off" in every league on
+  // the live copy, nearly all of them retired.
+  const teamlessExcluded = unownedAll.filter(a => !onNflTeam(a) && passesRos(a)
+    && rosAfterWith(a) - rosBaseline > 0.5).length;
 
   const board = [];
+  const heldBack = [];
   for (const fa of free) {
-    // What the lineup scores if he is added and the weakest bench player goes.
-    const drop = bench[0] ?? null;
-    const afterRoster = [...active.filter(p => p.id !== drop?.id), fa];
-    const after = bestLineup(afterRoster, slots, 'current_week_ppg');
-    const upgrade = (after.points ?? 0) - baselinePoints;
-    const rosDrop = rosBench[0] ?? null;
-    const rosAfterRoster = [...active.filter(p => p.id !== rosDrop?.id), fa];
-    const rosAfter = bestLineup(rosAfterRoster, slots, 'ros_ppg').points ?? 0;
+    // The immediate claim: what the lineup scores this week if he is added and the
+    // cut chosen by the rule above goes. No safe cut, no immediate claim.
+    const { safe, unsafe } = chooseClaimCut(active, fa, slots, baselinePoints, rosBaseline);
+    const drop = safe?.drop ?? null;
+    const after = safe ? bestLineup([...active.filter(p => p.id !== drop.id), fa], slots, 'current_week_ppg') : null;
+    const upgrade = safe ? safe.week : 0;
+    if (!safe && unsafe && passesWeek(fa)) {
+      heldBack.push({
+        player: fa.name, position: fa.position, team: fa.team_abbr ?? fa.team,
+        ros_ppg: fa.ros_ppg ?? null,
+        // What he would add this week, and the cut chosen on this week's number alone.
+        week_upgrade: +unsafe.week.toFixed(2),
+        would_cut: { player: unsafe.drop.name, position: unsafe.drop.position,
+          ppg: +weekPpg(unsafe.drop).toFixed(2), ros_ppg: unsafe.drop.ros_ppg ?? null },
+        why: seasonValue(unsafe.drop) > (fa.ros_ppg ?? 0) + 1e-9
+          ? `${unsafe.drop.name} is worth more over the rest of season (${fmt(seasonValue(unsafe.drop))} a week) than ${fa.name} (${fmt(fa.ros_ppg ?? 0)}), and no other cut keeps this week's gain without costing the season.`
+          : `Every cut that keeps this week's gain lowers your rest-of-season lineup.`,
+      });
+    }
+    const rosDrop = rosDropForStash;
+    const rosAfter = rosAfterWith(fa);
     board.push({
       player: fa.name, position: fa.position, team: fa.team_abbr ?? fa.team,
       projected_ppg: +weekPpg(fa).toFixed(2),
@@ -151,11 +260,15 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
       value: fa.value ?? null,
       injury_status: fa.injury_status ?? null,
       active_probability: fa.active_probability ?? null,
-      // Points added to the STARTING lineup this week.
+      // Points added to the STARTING lineup this week, after the rule's cut; 0 when
+      // there is no safe cut.
       upgrade: +upgrade.toFixed(2),
       // Whether he would actually start, which is what makes the upgrade real.
-      would_start: (after.slots ?? []).some(s => s.player?.id === fa.id),
-      drop_candidate: drop ? { player: drop.name, position: drop.position, ppg: +weekPpg(drop).toFixed(2) } : null,
+      would_start: (after?.slots ?? []).some(s => s.player?.id === fa.id),
+      drop_candidate: drop ? { player: drop.name, position: drop.position, ppg: +weekPpg(drop).toFixed(2),
+        ros_ppg: drop.ros_ppg ?? null } : null,
+      // What the claim-and-cut does to the rest-of-season lineup: never negative.
+      ros_change: safe ? +(safe.rosAfter - rosBaseline).toFixed(2) : null,
       // A stash: no help this week, but a better rest-of-season lineup.
       ros_upgrade: +(rosAfter - rosBaseline).toFixed(2),
       // The cut the stash figure assumes. When it differs from drop_candidate, the
@@ -171,9 +284,10 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   board.sort((a, b) => b.upgrade - a.upgrade || (b.ros_upgrade ?? 0) - (a.ros_upgrade ?? 0));
   // Each list keeps its own gate: the immediate list exactly as before (week
   // projection >= minProjected), the stash list on the rest-of-season projection.
-  const starts = board.filter(b => b.passes_week_gate && b.upgrade > 0.05);
-  const stashes = board.filter(b => b.passes_ros_gate && b.upgrade <= 0.05 && (b.ros_upgrade ?? 0) > 0.5)
+  const starts = board.filter(b => b.passes_week_gate && b.upgrade > MIN_GAIN);
+  const stashes = board.filter(b => b.passes_ros_gate && b.upgrade <= MIN_GAIN && (b.ros_upgrade ?? 0) > 0.5)
     .sort((a, b) => (b.ros_upgrade ?? 0) - (a.ros_upgrade ?? 0));
+  heldBack.sort((a, b) => b.week_upgrade - a.week_upgrade);
 
   return {
     season: week.season, week: week.week, roster_id: rosterId,
@@ -187,8 +301,19 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
     on_ir: mine.filter(p => p.on_ir).map(p => p.name),
     immediate: starts.slice(0, limit),
     stashes: stashes.slice(0, Math.max(5, Math.floor(limit / 2))),
-    note: starts.length
+    // How an immediate claim's cut is chosen, and the claims no safe cut exists for.
+    drop_rule: DROP_RULE,
+    held_back: heldBack.slice(0, 5),
+    held_back_count: heldBack.length,
+    // Free agents left off the board because they have no NFL team.
+    teamless_excluded: teamlessExcluded,
+    note: (starts.length
       ? `${starts.length} free agents would improve this week's starting lineup.`
-      : 'No free agent improves the starting lineup this week; stashes below are rest-of-season plays.',
+      : 'No free agent improves the starting lineup this week; stashes below are rest-of-season plays.')
+      + (heldBack.length
+        ? ` ${heldBack.length} more would help this week only by cutting someone worth more over the rest of season, so they are held back.`
+        : ''),
   };
 }
+
+const fmt = v => (Number.isFinite(+v) ? (+v).toFixed(1) : '—');

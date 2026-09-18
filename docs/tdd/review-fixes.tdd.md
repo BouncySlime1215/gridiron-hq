@@ -122,3 +122,41 @@ deliberately reversed: "adding a league with no session token still succeeds" is
 Not done here (deferred): POST /cookies is still anonymous. Closing it means the
 bookmarklet must carry an install key, and every saved bookmarklet has to be dragged
 again; that is Nick's call.
+
+## 4. Lineup card: urgency rules had no tests; a bad team_id published a rival's swaps (high + medium; tdd-workflow, backend-patterns)
+
+Journeys: as Nick, I want each lineup swap's "how sure" number and urgency to stay
+the measured rule, so a refactor cannot quietly turn coin flips into "high". And I
+want my Decision Inbox to hold only my own lineup calls, whatever team the My Team
+selector points at.
+
+Characterization (tests written after the code, so RED is shown by mutation): eight
+tests pin P(right) = Phi(gap/14.5) at gaps 3, 4 and 10 (0.582 low, 0.609 medium,
+0.755 high), a swap into an empty IR-left slot priced at the newcomer's chance to
+play (0.8), retiring an open row as `superseded`, `activate_from_ir`, and
+`flagged_starters.espn_disagrees`. Each of six scratch mutations fails at least one
+of them (`scratchpad/step1b/review-fixes/mutations-lineup-diff.log`):
+
+| Mutation | Characterization tests failing |
+|----------|-------------------------------|
+| M1 urgency always 'high' | 3 (3.0 gap, 4.0 gap, retire) |
+| M2 sigma 14.5 -> 3 | 4 |
+| M3 versus-zero priced on the gap | 1 (empty-slot swap) |
+| M4 retire UPDATE disabled | 1 |
+| M5 on_ir forced false | 2 |
+| M6 espn_disagrees always false | 1 |
+
+Bug (RED at 33d5ab3, which also adds the only production change needed to test it:
+an optional injected `assets` argument): `lineupDiff(lg, 'not-a-team')` computed
+teams[0] and published it; a rival's team_id published the rival's swaps to Nick's
+inbox. Fix: an unknown team_id returns `{ error, not_found: true }` and the route
+answers 404; only the roster matching `leagues.my_team_id` publishes or retires; the
+swallowed inbox error is logged with league and dedup key. The dedup key for Nick's
+own roster is unchanged (`lineup:<league>:<my_team_id>`), so open rows keep matching.
+
+Live check on the snapshot (`diff-live.mjs`): `not-a-team` is not-found in all 5
+leagues and the open lineup rows stay at 2 (the reviewer's run wrote 3 new rows).
+
+Regression: all 14 files that import trade-engine or the trades route pass (125
+tests; list in `reg-trade-engine.log`). The stale "(>= 4pt threshold)" message in
+decision-inbox.test.js now states the Phi rule.

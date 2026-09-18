@@ -241,7 +241,7 @@ test('lineupDiff() publishes a "start X over Y" recommendation when a real gap e
   assert.equal(reco.sourceModel, 'lineup-brain');
   assert.equal(reco.link, '/lineup');
   assert.deepEqual(reco.subjectIds.sort(), [strong.id, weak.id].sort());
-  assert.equal(reco.urgency, 'high', 'an 11+ point gain should be urgency high (>= 4pt threshold)');
+  assert.equal(reco.urgency, 'high', 'an 11+ point gap is right at least 75% of the time (Phi(gap / 14.5)), so urgency high');
 
   // Recomputing (e.g. the page reloading) must refresh the same row, not spam a duplicate.
   lineupDiff(lg, '1');

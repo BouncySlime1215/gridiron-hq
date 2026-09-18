@@ -524,7 +524,9 @@ r.get('/:leagueId/inbox', (req, res, next) => {
 r.get('/:leagueId/lineup-diff', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(lineupDiff(lg, req.query.team_id));
+    const diff = lineupDiff(lg, req.query.team_id);
+    if (diff.not_found) return res.status(404).json({ error: diff.error });
+    res.json(diff);
   } catch (e) { next(e); }
 });
 

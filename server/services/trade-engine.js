@@ -2082,8 +2082,14 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
   const assets = pricedAssets ?? assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
   const slots = lineupSlots(lg);
-  const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
-  if (!me) return { error: 'your team not found in this league' };
+  // A requested team that is not in the league is not found. It used to fall back to
+  // teams[0] — a rival's roster in 3 of the 5 live leagues — and then publish that
+  // rival's swaps into Nick's Decision Inbox. Only a league with no my_team_id at all
+  // (never synced who is who) still shows the first roster, and never publishes.
+  const requested = myTeamId ?? lg.my_team_id;
+  const me = requested != null && requested !== '' ? teams.find(t => t.roster_id === String(requested)) : teams[0];
+  if (!me) return { error: `team ${requested} is not in this league`, not_found: true };
+  const isMine = lg.my_team_id != null && me.roster_id === String(lg.my_team_id);
   const { season, week } = tradeWeekContext();
 
   const payload = JSON.parse(lg.payload);
@@ -2176,33 +2182,39 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
   // an open lineup recommendation this function published earlier is retired
   // rather than left to say "high" for 72 hours. See server/routes/decision-inbox.js
   // for publishRecommendation() and migrations/020 for the schema.
-  try {
-    const teamKey = String(myTeamId ?? lg.my_team_id ?? me.roster_id);
-    const dedupKey = `lineup:${lg.id}:${teamKey}`;
-    if (headline && URGENCY_RANK[headline.urgency] >= URGENCY_RANK.medium) {
-      const single = swaps.length === 1 && swaps[0].out;
-      publishRecommendation({
-        dedupKey,
-        leagueId: lg.id, sport: 'NFL', type: 'lineup',
-        subjectIds: swaps.flatMap(s => [s.in.id, s.out?.id]).filter(id => id != null),
-        title: single ? `Start ${swaps[0].in.name} over ${swaps[0].out.name}`
-          : `${swaps.length} lineup swap${swaps.length > 1 ? 's' : ''} this week (+${gain} pts)`,
-        rationale: `Week ${week} projection: submitted lineup ${submittedLineup.points} vs. optimal ${optimal.points}. ` +
-          swaps.map(s => `${s.in.name} over ${s.out ? s.out.name : 'an empty slot'}: +${s.gap}, ` +
-            `right about ${Math.round(s.p_right * 100)}% of the time`).join('; ') + '.',
-        expectedValue: gain, confidence: headline.p_right, urgency: headline.urgency,
-        // No exact kickoff time is threaded into this module today, so this is
-        // a judgment-call heuristic (72h), not a computed slate deadline —
-        // flagged rather than silently assumed.
-        expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
-        sourceModel: 'lineup-brain', sourceVersion: 'v2-week-points', link: '/lineup'
-      });
-    } else {
-      dbRun(`UPDATE decision_recommendations SET status = 'expired', resolved_at = datetime('now'), outcome = ?
-             WHERE dedup_key = ? AND status = 'open' AND type = 'lineup'`,
-        'superseded: no lineup swap this week clears a 60% chance of being right', dedupKey);
+  // Only Nick's own roster: the inbox is his, and the My Team page can point this
+  // card at any team in the league.
+  const dedupKey = `lineup:${lg.id}:${me.roster_id}`;
+  if (isMine) {
+    try {
+      if (headline && URGENCY_RANK[headline.urgency] >= URGENCY_RANK.medium) {
+        const single = swaps.length === 1 && swaps[0].out;
+        publishRecommendation({
+          dedupKey,
+          leagueId: lg.id, sport: 'NFL', type: 'lineup',
+          subjectIds: swaps.flatMap(s => [s.in.id, s.out?.id]).filter(id => id != null),
+          title: single ? `Start ${swaps[0].in.name} over ${swaps[0].out.name}`
+            : `${swaps.length} lineup swap${swaps.length > 1 ? 's' : ''} this week (+${gain} pts)`,
+          rationale: `Week ${week} projection: submitted lineup ${submittedLineup.points} vs. optimal ${optimal.points}. ` +
+            swaps.map(s => `${s.in.name} over ${s.out ? s.out.name : 'an empty slot'}: +${s.gap}, ` +
+              `right about ${Math.round(s.p_right * 100)}% of the time`).join('; ') + '.',
+          expectedValue: gain, confidence: headline.p_right, urgency: headline.urgency,
+          // No exact kickoff time is threaded into this module today, so this is
+          // a judgment-call heuristic (72h), not a computed slate deadline —
+          // flagged rather than silently assumed.
+          expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
+          sourceModel: 'lineup-brain', sourceVersion: 'v2-week-points', link: '/lineup'
+        });
+      } else {
+        dbRun(`UPDATE decision_recommendations SET status = 'expired', resolved_at = datetime('now'), outcome = ?
+               WHERE dedup_key = ? AND status = 'open' AND type = 'lineup'`,
+          'superseded: no lineup swap this week clears a 60% chance of being right', dedupKey);
+      }
+    } catch (error) {
+      // A side effect: never break the card over it, but never lose it silently either.
+      console.error(`[lineup-diff] Decision Inbox write failed for league ${lg.id} (${dedupKey}):`, error);
     }
-  } catch { /* Decision Inbox publish is a side effect; never break lineup-diff over it. */ }
+  }
 
   return {
     // A one-week decision: every number below is THIS week's projection.

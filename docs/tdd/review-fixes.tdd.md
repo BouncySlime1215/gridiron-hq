@@ -391,3 +391,29 @@ the Mahomes-shaped swap, rendered in the built-in browser at 375x812 and measure
 Fix: only the position and name stay `whitespace-nowrap`; the reason is its own
 `min-w-0 break-words` span inside a wrapping group, and in the screenshot it drops to
 its own line under "Patrick Mahomes". `tsc --noEmit` clean.
+
+## 14. Two rules written in several places: this week's number and "is he on IR" (medium x2; coding-standards)
+
+Reproduced by reading: the week-points formula is in lineup-brain.js#startSitWeekPoints
+and trade-engine.js#lineupDiffWeekPoints; the ESPN IR test is in irOnRoster,
+lineup-posture.js#rosterAssets, lineupDiff and waiver-wire.js. The import cycle is real
+too, and it showed up while writing this test: mocking `waiver-brain.js#vegasLift`
+reaches lineup-brain but not trade-engine, because waiver-brain imports trade-engine,
+which binds the real waiver-brain first.
+
+Not consolidated here (deferred, see the list): moving `vegasLift`,
+`startSitWeekPoints` and an ESPN-entry IR test into a leaf module also means rewriting
+the betting-line mocks in three test files that belong to other items, and today the
+copies agree, so there is no user-visible bug to fix. What this item adds is a guard
+that fails the moment a copy drifts: `test/lineup-surfaces-agree.test.js` (2 tests)
+prices one roster through the real vegasLift (the game-script model is mocked
+underneath it) and checks that the League Hub card's week points equal
+`startSitWeekPoints` for every starter, and that irOnRoster, the matchup card and the
+League Hub card exclude exactly the same two IR players.
+
+| Mutation (scratch copy) | Tests failing |
+|-------------------------|---------------|
+| A1 League Hub card drops the lift | 1 |
+| A2 League Hub card rounds to 0.1 | 1 |
+| A3 matchup card ignores INJURY_RESERVE | 1 |
+| A4 League Hub card ignores INJURY_RESERVE | 2 |

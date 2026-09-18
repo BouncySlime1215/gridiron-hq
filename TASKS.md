@@ -57,6 +57,16 @@ Last updated: 2026-09-18, cloud session on `cursor/betting-model-audit-fixes-1c8
   next workflow launch runs `~/claude-handoff/usage.sh` first and hands off to
   Terminal on TOO CLOSE.
 
+- **Secrets could ride the environment's credential injector, but not as the
+  code stands.** Checked, not assumed: `CFBD_API_KEY` travels as
+  `Authorization: Bearer` and three more as custom headers, so the injector
+  could carry them and never expose the value to the process. The blocker is
+  upstream — every feed gates itself on `Boolean(process.env.X)` before it makes
+  a request (`odds-api.js:21`, `cfbd.js:32`), so a key held only by the injector
+  makes the feed report itself unconfigured and no-op. Would mean splitting "is
+  this configured" from "here is the secret". **[WD]**, worth doing if these ever
+  run somewhere less private than a private project. Two keys travel in the query
+  string and could never use it.
 - **The offline guard does not cover the Anthropic SDK.**
   `test/offline-guard.mjs` replaces `globalThis.fetch`, which the SDK does not
   go through, so `nfl-news-events.test.js` (7 tests) and `page-explain.test.js`

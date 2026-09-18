@@ -126,23 +126,72 @@ message store — it must never be callable by whoever holds the URL.
 `isDirectLoopback` rejects anything carrying a forwarding header, so a tunnelled
 request cannot pass for local.
 
-### 4. Keys — paste them into the project environment
+### 4. Keys — the **Environment variables** box, not API credentials
+
+The environment settings screen offers two places to put a secret. Use the
+first one:
+
+- **Environment variables** — a `.env`-format box. The values land in
+  `process.env`, which is where this code looks. This is the one to use.
+- **API credentials** — injects an `Authorization` header into outbound requests
+  to whitelisted hosts, and never exposes the value to the process. Better
+  mechanism in principle, but see below: it cannot work here without code
+  changes.
+
+Paste this into the Environment variables box:
 
 ```
-ANTHROPIC_API_KEY          the Coach, the AI proposal pass, the chat classifier
-ODDS_API_KEY               The Odds API
-PARLAY_API_KEY             ParlayAPI (second odds feed)
-CFBD_API_KEY               CollegeFootballData rookie signals
-PFF_API_TOKEN              PFF grades
-PFF_API_BASE_URL           PFF endpoint
-SPORTSGAMEODDS_API_KEY     SportsGameOdds feed
-TWITTERAPI_IO_KEY          news / beat-reporter feed
+ANTHROPIC_API_KEY=...          the Coach, the AI proposal pass, the chat classifier
+ODDS_API_KEY=...               The Odds API
+PARLAY_API_KEY=...             ParlayAPI (second odds feed)
+CFBD_API_KEY=...               CollegeFootballData rookie signals
+PFF_API_TOKEN=...              PFF grades
+PFF_API_BASE_URL=...           PFF endpoint
+SPORTSGAMEODDS_API_KEY=...     SportsGameOdds feed
+TWITTERAPI_IO_KEY=...          news / beat-reporter feed
 ```
 
 Only `ANTHROPIC_API_KEY` blocks anything. The rest each switch one feed off.
 
 `ANTHROPIC_API_KEY` is also readable from `app_settings`, so pasting it into
 Settings in the UI works instead of setting the env var.
+
+The box carries a warning that its values are visible to anyone using the
+environment. This project is private to Nick, so in practice that is himself.
+
+#### Why the credential injector doesn't fit (checked, not assumed)
+
+Worth recording, because it looks like it should and the reason is one line of
+code rather than anything about the feeds.
+
+How each key actually travels:
+
+| Key | Sent as | Injector could carry it? |
+|---|---|---|
+| `CFBD_API_KEY` | `Authorization: Bearer …` (`cfbd.js:36`) | the header, yes |
+| `TWITTERAPI_IO_KEY` | `X-API-Key` (`twitterapi-io.js:53`) | via custom headers |
+| `SPORTSGAMEODDS_API_KEY` | `X-Api-Key` (`sportsgameodds.js:41`) | via custom headers |
+| `PFF_API_TOKEN` | header (`nfl-roster-strength.js:410`) | via custom headers |
+| `ODDS_API_KEY` | query string, `?apiKey=` (`odds-api.js:103`) | no — it isn't a header |
+| `PARLAY_API_KEY` | query string | no |
+| `ANTHROPIC_API_KEY` | the SDK needs it to construct the client | no |
+
+But the blocker is upstream of all of that. Every one of these feeds gates
+itself on the variable being present before it makes a request:
+
+```js
+export const hasKey = () => Boolean(process.env.ODDS_API_KEY);   // odds-api.js:21
+export const hasKey = () => Boolean(process.env.CFBD_API_KEY);   // cfbd.js:32
+```
+
+With the key only in the injector and not in `process.env`, `hasKey()` is false,
+the call is never made, and the injector never gets a request to decorate. The
+feed reports itself as "not configured" and quietly no-ops.
+
+So: **Environment variables box today.** Moving a feed onto the injector would
+mean splitting "is this configured" from "here is the secret" — a real change
+worth making if these ever run somewhere less private, and not worth doing now.
+Noted in `TASKS.md` under **[WD]** rather than done here.
 
 **Measured, not assumed:** with no `ANTHROPIC_API_KEY` in this cloud box, the
 test suite fails in exactly two files — `nfl-news-events.test.js` (7) and
@@ -165,7 +214,7 @@ startup gate. It reports keys as present or absent and never prints a value.
 
 Order for a fresh cloud box:
 
-1. Paste the keys into the project environment.
+1. Paste the keys into the environment's **Environment variables** box (not API credentials — see above).
 2. Connect ESPN from the cloud app's Settings (bookmarklet).
 3. `node scripts/bootstrap-data.mjs`
 4. Pull the chat on the laptop, upload it (or `import-league-chat.mjs`).

@@ -13,7 +13,7 @@ import { PPR, scoreLine } from './scoring.js';
 import { WEEKLY_ENSEMBLE_HEADS } from './weekly-ensemble.js';
 import { PLAYER_HEADS, PLAYER_HEAD_REGISTRY_VERSION } from './player-head-registry.js';
 import {
-  activeWeeklyWeightSet, latestWeeklyWeightSet, saveWeeklyFit, weeklyFitDataHash, weeklyFitHistory
+  activeWeeklyWeightSet, latestWeeklyWeightSet, saveWeeklyFit, storedEarlyWeights, weeklyFitDataHash, weeklyFitHistory
 } from './weekly-weight-store.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
 import { spearman } from './backtest.js';
@@ -167,10 +167,31 @@ export function settleWeeklyPredictions() {
 }
 
 export function retrainWeeklyWeights({ minSettled = 250, maxRows = 2400 } = {}) {
-  const all = rows(`SELECT * FROM weekly_prediction_snapshots WHERE actual IS NOT NULL
-                    AND season_to_date IS NOT NULL ORDER BY season,week,player_id`)
-    .slice(-maxRows);
-  if (all.length < minSettled) return { trained: false, reason: `need ${minSettled} settled snapshots`, settled: all.length };
+  /*
+   * Only rows the per-position vector is actually served for. Inside the stored
+   * early-week window (weeks 2-4) production serves the early buckets, which this
+   * retrain does not refit and saveWeeklyFit carries forward unchanged. Fitting or
+   * grading the vector on those rows scores it where it never runs: on the live table,
+   * whose only settled rows will be 2026 week 2, the champion was graded as fit-1's
+   * vector (the blend known to lose at week 2), so a candidate fit on week-2 rows
+   * cleared the gate and would have been served at weeks 5-18. The pass rule below is
+   * unchanged; only the population is restricted to where the candidate would run.
+   */
+  const early = storedEarlyWeights();
+  const [earlyFrom, earlyTo] = Array.isArray(early?.weeks) ? early.weeks : [];
+  const inEarlyWindow = x => early != null && x.week >= earlyFrom && x.week <= earlyTo;
+  const settled = rows(`SELECT * FROM weekly_prediction_snapshots WHERE actual IS NOT NULL
+                    AND season_to_date IS NOT NULL ORDER BY season,week,player_id`);
+  const servedByVectors = settled.filter(x => !inEarlyWindow(x));
+  const excludedEarly = settled.length - servedByVectors.length;
+  const all = servedByVectors.slice(-maxRows);
+  if (all.length < minSettled) {
+    return {
+      trained: false, settled: all.length, excluded_early_window: excludedEarly,
+      reason: `need ${minSettled} settled snapshots outside the early-week window` +
+        (early ? ` (weeks ${earlyFrom}-${earlyTo} are served by the stored early buckets)` : '')
+    };
+  }
   const hash = crypto.createHash('sha256').update(JSON.stringify(all.map(x =>
     [x.season, x.week, x.player_id, x.actual, x.structural, x.season_to_date, x.last3, x.last1, x.median]))).digest('hex');
   const existing = row('SELECT id,promoted FROM weekly_ensemble_fits WHERE data_hash=?', weeklyFitDataHash(hash));

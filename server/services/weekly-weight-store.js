@@ -101,8 +101,33 @@ export function carryEarlyWeights(next, previous) {
   return { ...next, early: previous.early };
 }
 
-export function saveWeeklyFit(fit) {
+/**
+ * The early-week block of the newest promoted fit (this epoch) that has one, or null.
+ * Read uncut: the block carries its own week window, and callers need that window.
+ */
+export function storedEarlyWeights() {
   const epochId = activeLearningEpoch()?.id ?? 1;
+  const fits = rows(`SELECT weights_json FROM weekly_ensemble_fits WHERE promoted=1 AND epoch_id=?
+            ORDER BY through_season DESC, through_week DESC, id DESC`, epochId);
+  for (const fit of fits) {
+    const early = JSON.parse(fit.weights_json)?.early;
+    if (early) return early;
+  }
+  return null;
+}
+
+/**
+ * A promoted fit without `early` inherits the stored early block. The invariant lives
+ * here, not in each caller, because the scheduled retrain (weekly-learning.js) fits the
+ * per-position vectors only: saved as-is, the newest promoted fit had no `early`, and
+ * weeks 2-4 silently went back to the blend that was proved worse there. A rejected
+ * fit is ledger-only and is stored exactly as evaluated.
+ */
+export function saveWeeklyFit(input) {
+  const epochId = activeLearningEpoch()?.id ?? 1;
+  const fit = input.promoted
+    ? { ...input, weights: carryEarlyWeights(input.weights, { early: storedEarlyWeights() }) }
+    : input;
   if (fit.weights?.early !== undefined) validateEarlyWeights(fit.weights.early);
   const storedHash = weeklyFitDataHash(fit.data_hash);
   const result = run(`INSERT INTO weekly_ensemble_fits

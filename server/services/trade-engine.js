@@ -54,6 +54,9 @@ import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { counterpartyLayer, readDeal } from './counterparty-pricing.js';
 import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
+// ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
+// week's number stays the weekly blend.
+import { buildRosProjections } from './ros-projection.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -167,6 +170,13 @@ function buildAssetUniverse(lg, formatKey, target) {
   // decay only makes sense for a dynasty/keeper valuation, never redraft.
   const isDynasty = formatKey.startsWith('dyn_');
   const weekly = buildPlayerWeekEngine({ season: target.season, week: target.week, scoring });
+  // Rest-of-season rate per game played (ros-projection.js): preseason market prior
+  // updated by this season's games at n/(n+4), half-weighted with the structural head.
+  // It replaced the weekly blend as ros_ppg after a pre-registered gate (2024 and 2025,
+  // weeks 1-4: MAE vs the rest-of-season actual 2.8-3.8 -> 2.3-2.5; weeks 6-10 pooled
+  // not worse in either season).
+  // Players it has no entry for (no game yet this season) keep the weekly number.
+  const rosModel = buildRosProjections({ season: target.season, week: target.week, scoring, weekly });
   // Read-only, no computation — the coordinator itself is refit on a schedule
   // (scheduler.js#fantasy_coordinator_refit) and persisted; walk-forward
   // verified (fantasy-coordinator.js's own doc-comment) to beat the plain
@@ -230,9 +240,13 @@ function buildAssetUniverse(lg, formatKey, target) {
     // ever passes the harness. thisGame itself is the bye detector: no game, 0.
     const currentWeekPpg = thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0;
     // Rest-of-season weekly rate. No schedule tilt (see scheduleTilt above), no
-    // availability term — the same basis it has always had, minus the sos factor.
-    const rosPpg = scheduleTilt ? weeklyPpg * sched.sos : weeklyPpg;
-    // The rate for THIS league's playoff weeks, on ros_ppg's basis: the weekly rate
+    // availability term — per game played, the same basis it has always had. It used
+    // to BE weeklyPpg, which at week 2 is 80% the week-1 score (Coker 29.9 after a
+    // 33.8-point week 1; Waddle 2.72 after 1.2).
+    const ros = rosModel.get(p.id) ?? null;
+    const rosBasePpg = ros?.ros_ppg ?? weeklyPpg;
+    const rosPpg = scheduleTilt ? rosBasePpg * sched.sos : rosBasePpg;
+    // The rate for THIS league's playoff weeks, on ros_ppg's basis: the ROS rate
     // times the share of those weeks his team actually plays. A playoff-week bye is a
     // real, known zero; opponent strength in those weeks is not something any tested
     // model forecasts, so it is not in here. For nearly everyone this equals ros_ppg
@@ -242,7 +256,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     const hasSchedule = Boolean(p.team_abbr && SCORED.has(p.position));
     const playoffGameShare = hasSchedule && playoffWeeksLeft > 0
       ? (sched.playoff_games?.length ?? 0) / playoffWeeksLeft : 1;
-    const playoffPpg = (scheduleTilt ? weeklyPpg * sched.playoff_sos : weeklyPpg) * playoffGameShare;
+    const playoffPpg = (scheduleTilt ? rosBasePpg * sched.playoff_sos : rosBasePpg) * playoffGameShare;
     // Which of those weeks he sits out, so a trade's playoff leg can solve that week's
     // lineup without him (evaluate()) instead of charging his whole rate x share.
     const playoffByeWeek = hasSchedule && sched.bye != null && sched.bye >= target.week
@@ -322,6 +336,12 @@ function buildAssetUniverse(lg, formatKey, target) {
         ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions }
         : null,
       ros_ppg: +rosPpg.toFixed(2),
+      // What ros_ppg was built from; null = no ROS entry, ros_ppg is the weekly number.
+      ros_basis: ros ? {
+        games: ros.games, season_to_date: +ros.season_to_date.toFixed(2),
+        prior: ros.prior == null ? null : +ros.prior.toFixed(2), prior_source: ros.prior_source,
+        weight_in_season: ros.weight_in_season == null ? null : +ros.weight_in_season.toFixed(3)
+      } : null,
       active_probability: +activeProbability.toFixed(3),
       injury_status: availability?.report_status ?? null,
       practice_status: availability?.practice_status ?? null,

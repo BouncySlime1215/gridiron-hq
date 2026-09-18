@@ -28,12 +28,8 @@ run(`INSERT OR IGNORE INTO schedule_games (season, team_id, week, opponent_abbr,
      SELECT 2026, t.id, w.week, t.abbr, 1 FROM nfl_teams t
      JOIN (WITH RECURSIVE n(week) AS (SELECT 1 UNION ALL SELECT week + 1 FROM n WHERE week < 18) SELECT week FROM n) w`);
 
-// Side-effect imports: assetUniverse() reads tables these route files create on import.
-await import('../server/routes/stats.js');
-await import('../server/routes/aggregates.js');
-await import('../server/routes/tradelab.js');
-await import('../server/routes/nfldata.js');
-
+// The mock is registered BEFORE the route imports below: routes/tradelab.js imports
+// trade-engine.js, which would otherwise bind the real ros-projection.js first.
 const rosCalls = [];
 let rosMap = new Map();
 mock.module('../server/services/ros-projection.js', {
@@ -41,6 +37,12 @@ mock.module('../server/services/ros-projection.js', {
     buildRosProjections: args => { rosCalls.push(args); return rosMap; }
   }
 });
+
+// Side-effect imports: assetUniverse() reads tables these route files create on import.
+await import('../server/routes/stats.js');
+await import('../server/routes/aggregates.js');
+await import('../server/routes/tradelab.js');
+await import('../server/routes/nfldata.js');
 const { assetUniverse } = await import('../server/services/trade-engine.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });

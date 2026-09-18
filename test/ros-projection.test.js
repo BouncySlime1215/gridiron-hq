@@ -25,7 +25,7 @@ const { PPR, HALF_PPR, STANDARD } = await import('../server/services/scoring.js'
 const {
   evidenceWeight, kFor, rosUpdate, priorFor, fitRosParams, selectRosStructure,
   foldOf, evaluateRosGate, isStandardPpr, inSeasonHistory, buildRosProjections,
-  ROS_ALPHA_GRID, ROS_K_GRID
+  rosPriorMap, clearRosPriorCache, ROS_PARAMS, ROS_ALPHA_GRID, ROS_K_GRID
 } = await import('../server/services/ros-projection.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -44,6 +44,8 @@ test('kFor reads a per-position k and a global k; an unfitted position has none'
   assert.equal(kFor({ k: 4 }, 'WR'), 4);
   assert.equal(kFor({ k: { QB: 2, RB: 5, WR: 6, TE: 8 } }, 'RB'), 5);
   assert.equal(kFor({ k: { QB: 2, RB: 5, WR: 6, TE: 8 } }, 'K'), null);
+  assert.equal(kFor({}, 'WR'), null);
+  assert.equal(rosUpdate({ structural: 5, seasonToDate: 5, games: 1, prior: 5, position: 'WR' }, { alpha: 0.5 }), null);
 });
 
 test('with no in-season games the update is alpha*structural + (1-alpha)*prior', () => {
@@ -246,6 +248,28 @@ test('buildRosProjections: players who have played get the fitted update; the re
   // no entry, so trade-engine keeps its existing number for them
   assert.equal(out.has(3), false);
   assert.equal(out.has(4), false);
+});
+
+test('the shipped fit is the gated one: market prior, one k, alpha in [0,1]', () => {
+  assert.equal(ROS_PARAMS.prior, 'c_mkt');
+  assert.ok(ROS_K_GRID.includes(ROS_PARAMS.k));
+  assert.ok(ROS_ALPHA_GRID.includes(ROS_PARAMS.alpha));
+  assert.ok(Object.isFrozen(ROS_PARAMS));
+});
+
+test('rosPriorMap: the structural prior uses last season only; no board on file means no market prior', () => {
+  clearRosPriorCache();
+  const id = addPlayer('Prior Receiver', 'WR');
+  for (let week = 1; week <= 6; week++) usage(id, 2025, week, { receptions: 6, receiving_yards: 70 });
+  usage(id, 2026, 1, { receptions: 12, receiving_yards: 200, receiving_tds: 3 }); // in-season: must not leak in
+  const priors = rosPriorMap(2026, { scoring: PPR });
+  const p = priors.get(id);
+  assert.ok(p, 'a player with last-season history has a prior');
+  assert.equal(p.c_mkt, null, 'no draft board in this database');
+  assert.ok(Number.isFinite(p.c_struct) && p.c_struct > 0 && p.c_struct < 20,
+    `prior ${p.c_struct} should reflect 2025 (13 PPR/game), not the 50-point 2026 week`);
+  assert.equal(rosPriorMap(2026, { scoring: PPR }), priors, 'memoised per season and scoring');
+  assert.notEqual(rosPriorMap(2026, { scoring: HALF_PPR }), priors, 'a different scoring is a different prior');
 });
 
 test('buildRosProjections without params returns an empty map (nothing ships unfitted)', () => {

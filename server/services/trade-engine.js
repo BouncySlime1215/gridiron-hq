@@ -41,6 +41,7 @@ import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { counterpartyLayer, readDeal } from './counterparty-pricing.js';
+import { horizonWeights, horizonGain, horizonNote } from './trade-horizon.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -655,6 +656,16 @@ export function evaluate(a, b, slots, ctx = {}) {
       ppg_delta: +(post.points - before.points).toFixed(2),
       season_delta: +((post.points - before.points) * GAMES).toFixed(1),
       playoff_ppg_delta: +(pMonth.points - bMonth.points).toFixed(2),
+      // The playoff lineup's own baseline. Needed because playoff_ppg and
+      // adj_ppg are NOT on the same scale: adj_ppg carries this week's
+      // availability discount (0.25 * currentWeekPpg, which is multiplied by
+      // active_probability) while playoff_ppg is weeklyPpg * playoff_sos with
+      // no availability term at all. Measured across 288 rostered players,
+      // playoff_ppg / adj_ppg has mean 1.159 and is above 1.0 for EVERY one of
+      // them. Subtracting one delta from the other would be reading a units
+      // mismatch as a schedule signal, so consumers normalise by the baselines.
+      playoff_lineup_before: +bMonth.points.toFixed(2),
+      playoff_lineup_after: +pMonth.points.toFixed(2),
       value_out: valueOut, value_in: valueIn, value_delta: valueIn - valueOut,
       roster_spots: gets.length - gives.length,
       floor_delta: spreadBefore.floor != null && spreadAfter.floor != null
@@ -821,12 +832,17 @@ function candidates(team, slots, limit = 11, excludeIds = null) {
 export function findTrades(lg, opts = {}) {
   if (opts.teamsOverride || opts.assetsOverride) return findTradesUncached(lg, opts);
   const { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null,
-    excludeIds = null, counterparty: useCounterparty = true } = opts;
+    excludeIds = null, counterparty: useCounterparty = true,
+    // Playoff odds for MY team. Without it the horizon uses an uninformative
+    // 0.5 prior, which is the right default but a poor answer for a team plainly
+    // out of it — a seller's December roster does not matter, and the objective
+    // should collapse back to "what helps me now".
+    playoffOdds } = opts;
   const target = tradeWeekContext();
   const { formatKey } = deriveFormat(lg);
   const excludeKey = excludeIds ? [...excludeIds].sort((a, b) => a - b).join(',') : '';
   const key = `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
-    `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:${excludeKey}:cp${useCounterparty ? 1 : 0}`;
+    `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}`;
   return cached(key, fingerprint([
     { table: 'players', stamp: 'id' }, { table: 'roster_players', stamp: 'id' },
     { table: 'dynasty_values', stamp: 'player_id' }, { table: 'player_week_usage', stamp: 'week' },
@@ -843,7 +859,7 @@ function findTradesUncached(lg, {
   myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null, excludeIds = null,
   // Lets findTradeSequences() re-run this exact search against a hypothetical
   // post-trade roster without duplicating any of the logic below.
-  teamsOverride = null, assetsOverride = null,
+  teamsOverride = null, assetsOverride = null, playoffOdds,
   // Off only so the harness can measure what the counterparty layer is worth.
   // Production always wants it on: ranking by what we think a deal is worth,
   // with no model of whether anyone would accept it, is how the engine spent
@@ -867,6 +883,12 @@ function findTradesUncached(lg, {
   // normal case for a league with no chat corpus and cost nothing.
   // NB: `target` in this function is the target PLAYER, not the week context.
   const weekNow = tradeWeekContext();
+  // WHEN the points land, not just how many. `evaluate()` has always computed
+  // playoff_ppg_delta — the lineup solved against each player's playoff-schedule
+  // rate — and nothing has ever read it. It is weighted against this week's
+  // delta by how much of the season remains and how likely this roster is to
+  // still be playing in December.
+  const horizon = horizonWeights(weekNow.week, { playoffOdds });
   const counterparties = useCounterparty
     ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
     : new Map();
@@ -981,8 +1003,17 @@ function findTradesUncached(lg, {
         const perceptionFactor = Number.isFinite(counterparty.perception_delta)
           ? 1 + Math.max(-0.10, Math.min(0.10, counterparty.perception_delta / 100))
           : 1;
+        // Horizon-weighted gain replaces the flat weekly delta.
+        const gain = horizonGain({
+          ppgDelta: ev.me.ppg_delta,
+          playoffPpgDelta: ev.me.playoff_ppg_delta,
+          nowBaseline: ev.me.lineup_before,
+          playoffBaseline: ev.me.playoff_lineup_before,
+          weights: horizon,
+        });
         deals.push({
           partner: them.owner, partner_id: them.roster_id,
+          horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain) },
           i_give: give.map(slim), i_get: get.map(slim),
           tags: tagDeal(give, get, ev),
           ...ev,
@@ -1007,7 +1038,7 @@ function findTradesUncached(lg, {
               ? `You get ${Math.abs(ev.their_value_pct).toFixed(0)}% more market value than you send.`
               : 'Roughly even on market value.',
           score: +Math.max(0, managerFactor * fairnessFactor * perceptionFactor
-            * (ev.me.ppg_delta + 0.2 * ev.joint_ppg) - valueCost).toFixed(3)
+            * (gain.value + 0.2 * ev.joint_ppg) - valueCost).toFixed(3)
         });
       }
     }

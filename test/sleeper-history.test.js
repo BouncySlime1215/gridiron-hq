@@ -104,3 +104,40 @@ test('team-seasons: record, points, max points, seed, playoffs, champion, weekly
   assert.deepEqual(JSON.parse(w1.starters_json), ['a', 'b']);
   assert.equal(weeks.filter(w => w.roster_id === 4 && w.week === 3)[0].points, 0);
 });
+
+test('edge cases: non-NFL, playoffs as big as the league, ambiguous finals, bad points, missing matchup ids', async () => {
+  const { isEligibleLeague: ok, champion: champ, allPlayByWeek: ap, buildTeamSeasons: build } = await import('../server/services/sleeper-history.js');
+  const base = league({ settings: { num_teams: 10, playoff_teams: 4, playoff_week_start: 15 } });
+  assert.equal(ok({ ...base, sport: 'nba' }, { seasons: [2024] }), false);
+  assert.equal(ok(league({ settings: { num_teams: 10, playoff_teams: 10, playoff_week_start: 15 } }), { seasons: [2024] }), false);
+  assert.equal(ok(base), true, 'no season filter means any season');
+  assert.equal(champ([{ r: 2, w: 1, t1: 1, t2: 2 }, { r: 2, w: 3, t1: 3, t2: 4 }]), null, 'two last-round games and no flags: unknown, not a guess');
+  assert.equal(champ([{ p: 1, r: 3, w: null, t1: 1, t2: 2 }]), null, 'unplayed title game');
+  const m = { 1: [{ roster_id: 1, points: 'x' }, { roster_id: 2, points: 50 }] };
+  assert.deepEqual([...ap(m, [1, 2]).entries()], [[2, [null, null]]], 'a non-numeric score is dropped; a lone team has no one to beat; a missing week is null');
+  const { teams, weeks } = build(league(), [{ roster_id: 1, settings: {} }],
+    { 1: [{ roster_id: 1, points: null }] }, null);
+  assert.equal(teams[0].points_for, null);
+  assert.equal(teams[0].made_playoffs, 0);
+  assert.equal(weeks[0].points, null);
+  assert.equal(weeks[0].opponent_roster_id, null);
+});
+
+test('transactions: trades, waivers and free agents per week, with bids, never the creator', async () => {
+  const { parseTransactions } = await import('../server/services/sleeper-history.js');
+  const rows = parseTransactions([
+    { type: 'waiver', status: 'complete', roster_ids: [8], adds: { LAC: 8 }, drops: { MIA: 8 }, settings: { waiver_bid: 5 }, created: 1537945060706, status_updated: 1537945442264, creator: '31161755661385728', consenter_ids: [8] },
+    { type: 'waiver', status: 'failed', roster_ids: [5], adds: { 4531: 5 }, drops: null, settings: { waiver_bid: 0 }, created: 1, status_updated: 2, creator: 'x' },
+    { type: 'trade', status: 'complete', roster_ids: [1, 2], adds: { 10: 1, 20: 2 }, drops: { 10: 2, 20: 1 }, draft_picks: [{ season: '2025', round: 1 }], created: 5, status_updated: 9, creator: 'y' },
+    null,
+  ], 3);
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].week, 3);
+  assert.equal(rows[0].type, 'waiver');
+  assert.equal(rows[0].waiver_bid, 5);
+  assert.equal(rows[1].status, 'failed');
+  assert.deepEqual(JSON.parse(rows[2].roster_ids_json), [1, 2]);
+  assert.equal(rows[2].draft_picks, 1);
+  assert.equal(rows[2].latency_ms, 4, 'proposed to processed');
+  for (const r of rows) assert.ok(!JSON.stringify(r).includes('creator') && !JSON.stringify(r).includes('3116175566'), 'no user ids');
+});

@@ -100,6 +100,29 @@ export function allPlayByWeek(matchupsByWeek, weeks) {
 const withDecimal = (whole, dec) => (whole == null ? null : Number(whole) + Number(dec ?? 0) / 100);
 
 /**
+ * Whether a league actually played, as opposed to being created and closed with
+ * `status: 'complete'` but never drafted. Found in the first crawl: 162 of 488
+ * stored leagues (33%) had every roster at wins=losses=ties=0, fpts=0 and empty
+ * matchup weeks — real example, Sleeper league 1003885794173517824, whose rosters
+ * carry `starters: ["0","0",...]` (the placeholder for an empty slot; nobody ever
+ * drafted). `isEligibleLeague` cannot catch this: format settings (team count,
+ * playoff_teams, playoff_week_start) are set at league creation, before a single
+ * game is played. This checks outcomes instead: at least one roster with a
+ * non-zero record OR non-zero points is enough (a real NFL season cannot end
+ * 0-0-0 for every team with zero points scored by anyone).
+ */
+export function leaguePlayed(rosters) {
+  if (!Array.isArray(rosters) || !rosters.length) return false;
+  return rosters.some(r => {
+    const s = r?.settings ?? {};
+    const record = num(s.wins) || num(s.losses) || num(s.ties);
+    const points = withDecimal(s.fpts, s.fpts_decimal);
+    return Boolean(record) || (points != null && points > 0);
+  });
+}
+
+
+/**
  * Team-season and team-week rows for one league-season.
  * `reg_seed` is the regular-season standing: wins (ties as half) then points for.
  */

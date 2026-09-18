@@ -29,7 +29,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  isEligibleLeague, scoringType, regularSeasonWeeks, buildTeamSeasons, parseTransactions,
+  isEligibleLeague, scoringType, regularSeasonWeeks, buildTeamSeasons, parseTransactions, leaguePlayed,
 } from '../server/services/sleeper-history.js';
 
 /** The league Sleeper's own API documentation uses as its example (a real 2018 league). */
@@ -126,6 +126,12 @@ export async function runCrawl({
     // failure never leaves a half-built league behind.
     const weeks = regularSeasonWeeks(league);
     const rosters = await get(`/league/${id}/rosters`);
+    // A league can be status='complete' with the right format settings and still never
+    // have drafted or played a game (found in the first crawl: 162 of 488 stored leagues,
+    // 33%, were exactly this). isEligibleLeague cannot see it - format is set at creation,
+    // before any game is played - so this checks outcomes instead, and skips before the
+    // matchup/bracket/transaction calls a dead league would otherwise still cost.
+    if (!leaguePlayed(rosters)) { q.mark.run('skipped', 'league', id, qSeason); return; }
     const matchups = {};
     for (const w of weeks) matchups[w] = (await get(`/league/${id}/matchups/${w}`)) ?? [];
     const bracket = (await get(`/league/${id}/winners_bracket`)) ?? [];

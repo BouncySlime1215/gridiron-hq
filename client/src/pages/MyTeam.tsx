@@ -367,10 +367,14 @@ function LineupDiffCard({ d, platform }: { d: any; platform: string }) {
               </span>
               <span className="text-xs text-slate-400">over</span>
               {s.out ? (
-                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                  <span className={`text-[10px] font-black pos-${s.out.position}`}>{s.out.position}</span>
-                  <span className="font-medium">{s.out.name}</span>
-                  <span className="text-xs text-slate-400">{s.out.reason ?? pts(s.out.week_points)}</span>
+                // Only position + name stay on one line: a server reason ("flagged out for
+                // the season or released") must wrap, or at 375px it runs past the card.
+                <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1.5">
+                  <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                    <span className={`text-[10px] font-black pos-${s.out.position}`}>{s.out.position}</span>
+                    <span className="font-medium">{s.out.name}</span>
+                  </span>
+                  <span className="min-w-0 break-words text-xs text-slate-400">{s.out.reason ?? pts(s.out.week_points)}</span>
                 </span>
               ) : (
                 <span className="text-slate-500">an empty {s.slot} slot</span>

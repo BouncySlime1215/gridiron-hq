@@ -372,3 +372,22 @@ corrected before this commit). No production change.
 | B2 weeklyLevelMean always 1 | 3 |
 | B3 byPosition ignored | 1 (d) |
 | B4 `{ sigma }` no longer overrides byPosition | 1 (e) |
+
+## 13. League Hub lineup card scrolled sideways at 375px (medium; frontend-patterns)
+
+Journey: as Nick on my phone, I want the week-2 "Caleb Williams over Patrick Mahomes
+(flagged out for the season or released)" row to fit the card.
+
+The repo has no client test runner, so the evidence is the reviewer's Vite harness,
+re-run: the real `LineupDiffCard` extracted from MyTeam.tsx, league 1 live data plus
+the Mahomes-shaped swap, rendered in the built-in browser at 375x812 and measured with
+`document.documentElement.scrollWidth` (harness in `scratchpad/step1b/review-fixes/harness`).
+
+| Build | scrollWidth / clientWidth | Overflowing elements |
+|-------|---------------------------|----------------------|
+| before (reviewer's copy of HEAD) | 379 / 375 | the nowrap "over" group and its reason span |
+| after (this change) | 375 / 375 | none |
+
+Fix: only the position and name stay `whitespace-nowrap`; the reason is its own
+`min-w-0 break-words` span inside a wrapping group, and in the screenshot it drops to
+its own line under "Patrick Mahomes". `tsc --noEmit` clean.

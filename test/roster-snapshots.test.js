@@ -53,7 +53,9 @@ function entry(pid, slot, { period = 2, proj = 10, actual = null, injury = 'ACTI
   const stats = [stat(period, 1, proj), stat(0, 0, 999, SEASON, 0), stat(period, 0, 555, SEASON - 1)];
   if (actual != null) stats.push(stat(period, 0, actual));
   return {
-    playerId: pid, lineupSlotId: slot, injuryStatus: injury, acquisitionType: 'DRAFT',
+    // As ESPN sends it: the entry-level injuryStatus is 'NORMAL' on all 755 rostered entries
+    // (2026-09-18, five leagues); the real status (QUESTIONABLE 85, IR 16, OUT 5, ...) is the player's.
+    playerId: pid, lineupSlotId: slot, injuryStatus: 'NORMAL', acquisitionType: 'DRAFT',
     playerPoolEntry: {
       id: pid, appliedStatTotal: 999, lineupLocked: locked,
       player: { id: pid, fullName: `Player ${pid}`, defaultPositionId: pos, proTeamId: 26, injuryStatus: injury, stats }
@@ -297,7 +299,7 @@ test('G2: the ESPN status a player carried into his game is kept after kickoff (
   resetLeague(leaguePayload({ teams: [[1, [entry(101, 0, { injury: 'QUESTIONABLE' }), entry(102, 20)]], [2, TEAM2]] }));
   await RS.collectRosterSnapshots({ network: false, now: () => '2026-09-19T15:00:00.000Z' });
   const read = pid => rows(`SELECT injury_status, pregame_injury_status FROM league_roster_snapshots
-    WHERE scoring_period_id = 2 AND espn_player_id = ?`, pid)[0];
+    WHERE scoring_period_id = 2 AND espn_player_id = ?`, pid).map(r => ({ ...r }))[0];
   assert.deepEqual(read(101), { injury_status: 'QUESTIONABLE', pregame_injury_status: 'QUESTIONABLE' });
   // Sunday after kickoff: locked, and ESPN now says OUT (hurt in the game). The pregame status stays.
   setPayload(leaguePayload({ teams: [[1, [entry(101, 0, { injury: 'OUT', locked: true, actual: 3.1 }), entry(102, 20)]], [2, TEAM2]] }));

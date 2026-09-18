@@ -84,6 +84,7 @@ Rule: no model ships on "it should be smarter". Each is fit on earlier seasons a
 | Opportunity (targets, carries, attempts) | current head only 1.5-5.7% better than a season average | **WO** — every advanced signal, tested on opportunity and start/sit |
 | **Trade value (the edge test)** | none yet | **WO** — at week w of 2021-2025, does our ROS delta for a swap predict the realized ROS delta (sign accuracy, rank)? |
 | **Season sim: playoff and title odds** | none yet | **WO** — calibration of week-w odds against real finishes (Nick's 12 league-seasons + replay leagues) |
+| **Win-now vs championship split** | uses a borrowed 4× playoff-week weight and a fixed 50% playoff chance | **WA T0** passes real playoff odds; **WO** measures the exchange rate in the replay — marginal title odds per point by week and by team strength (contender / bubble / out) — and replaces the 4× with it; the fast horizon score is then checked against the slow title-odds simulation on the top ideas |
 | Season-ending news flag | unit tests + hand audit of the live feed | **WD** — backtest on 2025 news against real IR/release transactions |
 | P(accept) and the valuation map | ~30 decided 2026 proposals (ESPN keeps no prior seasons) | tested on what exists, shown as a band; re-tested as proposals accrue |
 | Weekly action plan | built only from tested parts | **WD** — a "follow the plan" arm in the replay vs the attainable-arm manager |

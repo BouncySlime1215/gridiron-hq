@@ -42,13 +42,15 @@ const FILES = [
   { path: 'server/data.sqlite', level: 'blocking',
     what: 'the app database: leagues, rosters, projections, manager profiles, ESPN cookies',
     without: 'nothing to serve — every league surface is empty',
-    fix: 'connect ESPN (Settings -> Connect, bookmarklet or paste), then: node scripts/bootstrap-data.mjs' },
+    fix: 'on the Mac: connect ESPN in Settings (bookmarklet), then node scripts/bootstrap-data.mjs. '
+      + 'A Claude cloud session has no browser-reachable URL, so the bookmarklet cannot reach it '
+      + 'there — expected in a build-only box, see docs/CLOUD-MIGRATION.md' },
   { path: 'data/derived/league_chat.sqlite', level: 'degrades',
     what: 'the private iMessage league corpus (sentiment, negotiation profiles, bluff reads)',
     without: 'the Trade Brain loses its whole counterparty half — every ladder falls back to '
       + '"priced on our numbers only", no sell-the-crush, no buy-the-sour, no timing read',
-    fix: 'on the Mac: python3 scripts/chat/extract_league_chat.py --full --classify --rollup, '
-      + 'then upload the file and run: node scripts/import-league-chat.mjs <uploaded-path>' },
+    fix: 'on the Mac: pull it with the League chat button in Settings. To move it here, get the '
+      + 'file into this box and run: node scripts/import-league-chat.mjs <path>' },
   { path: 'data/line-history/nflverse.sqlite', level: 'degrades',
     what: 'the nflverse research archive (roster status 2016-2026, injuries, play-by-play, QBR)',
     without: 'the injury-return model (WO / O2) and the historical studies have no history to fit on; '
@@ -119,7 +121,9 @@ for (const k of keys) {
 
 console.log('');
 if (missingBlocking.length) {
-  console.log(c.r(c.b(`Not ready: ${missingBlocking.length} required item(s) missing`)));
+  console.log(c.r(c.b(`Not ready to SERVE: ${missingBlocking.length} required item(s) missing`)));
+  console.log(c.dim('  (A Claude cloud session is a build machine — repo work, tests and builds only'));
+  console.log(c.dim('   need the keys. server/data.sqlite missing here is expected, not a fault.)'));
   for (const m of missingBlocking) console.log(c.r(`  - ${m.path ?? m.name}`));
 } else {
   console.log(c.g(c.b('Ready — everything the engine requires is here.')));

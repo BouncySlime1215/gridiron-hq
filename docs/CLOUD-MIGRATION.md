@@ -3,9 +3,34 @@
 Written 2026-09-18, for Nick's "make everything be cloud — take what's not on
 cloud and move it there."
 
-The short version: **everything moves except the league chat, and that gets a
-button.** One manual step, on the laptop, whenever you want the counterparty
-read refreshed. Nothing else needs your Mac.
+**Read this first — corrected 2026-09-18 after testing in a real cloud box.**
+
+An earlier version of this document said you could connect ESPN from a cloud
+session's Settings page. You cannot, and the reason kills more than that one
+step: **a Claude Code cloud session has no browser-reachable URL.**
+`SESSION_INGRESS_URL` resolves to `api.anthropic.com`, the session record
+carries no preview URL, and the container is reclaimed after inactivity. There
+is no address you can point a browser, a bookmarklet, or a `curl` from your Mac
+at.
+
+So what "laptop closed" buys today is narrower than the rest of this document
+originally implied:
+
+| | Laptop closed, today |
+|---|---|
+| Claude sessions doing repo work — engine changes, tests, builds, the whole Trade Brain build | **Yes**, with the keys in the environment |
+| The app actually *running* — scheduler, refresh loop, UI, live league sync | **No** |
+| Pulling the league chat | **No** — needs the Mac, by design |
+
+The real prerequisite for the full thing is **hosting the app** — WF / Phase 11
+in the master plan (Fly.io, Google sign-in, per-user Claude keys). Once it has a
+permanent URL, everything below works as written, including the bookmarklet and
+the corpus upload. Until then, a cloud session is a very capable *build*
+machine, not a place the app lives.
+
+The rest of this document is accurate about what moves and how. Just read
+"cloud box" as "the machine the app will eventually run on" rather than "this
+Claude session."
 
 ---
 
@@ -48,33 +73,44 @@ Neither of these blocks anything you'd do with the laptop closed.
 
 ### 2. `server/data.sqlite` — re-auth, don't ship the file
 
-You don't need to move this one at all, and you shouldn't want to — it has your
-cookies in it.
+You don't need to move this one, and you shouldn't want to — it has your cookies
+in it.
 
-The ESPN bookmarklet already works against a cloud URL. `server/routes/espn-connect.js`
-derives its post-back address from the request that served it:
+**The normal path is on the Mac**, and always was: open Settings → **Connect
+ESPN**, run the bookmarklet from ESPN's own page. The bookmarklet posts back to
+whatever host served it (`originFor()` in `server/routes/espn-connect.js`
+derives it from the request), so this also works against any *hosted* instance —
+it is only a Claude cloud session, with no reachable address at all, where it
+cannot work.
 
-```js
-function originFor(req) {
-  const host = req.headers.host || `localhost:${process.env.API_PORT || 5177}`;
-  ...
-}
+Then `node scripts/bootstrap-data.mjs` pulls rosters, projections, market prices
+and the weekly boxscores from the live feeds, and you sync leagues as normal.
+
+#### The cloud fallback, if you ever need it
+
+There is one CLI route in, and it is worth knowing about because it is the only
+way to hand ESPN cookies to a machine with no browser access. `POST
+/api/espn-connect/cookies` is deliberately **not** session-guarded — the
+bookmarklet runs on espn.com and cannot carry the app's token, so the route is
+mounted without the auth wrapper (`server/index.js`, `app.use('/api/espn-connect',
+espnConnectRouter)` with no `legacyAuthenticated`). It takes the same blob the
+paste box takes:
+
+```bash
+# inside the box, with the server running on its own loopback port
+curl -X POST http://localhost:5177/api/espn-connect/cookies \
+     -H 'Content-Type: application/json' \
+     -d '{"raw":"espn_s2=…; SWID={…}"}'
 ```
 
-so the bookmarklet posts to whatever host you loaded Settings from. Hardcoding
-localhost was fixed long ago. There's a paste box as a fallback for browsers
-where bookmarklets are awkward.
+It validates against ESPN before writing anything, so a bad paste changes
+nothing.
 
-So the cloud path is:
-
-1. Open the cloud app's Settings → **Connect ESPN**, run the bookmarklet from
-   ESPN's own page. Cookies land in the cloud box's `app_settings`.
-2. `node scripts/bootstrap-data.mjs` — pulls rosters, projections, market prices
-   and the weekly boxscores from the live feeds.
-3. Sync your leagues as normal.
-
-That reconstructs `data.sqlite` from scratch without the original ever leaving
-your machine.
+**The caveat is the point, though:** those two cookies are your ESPN session —
+anyone holding them is logged in as you. Getting them into a cloud box means
+pasting them somewhere, and a chat thread is not a good somewhere. Prefer the
+Mac. Use this only for a box you control and intend to keep, and rotate by
+signing out of ESPN afterwards if you ever do it casually.
 
 ### 3. The league chat — the one real exception
 
@@ -105,14 +141,21 @@ cannot work and the reason given is always the real one.
 Moving the file between boxes:
 
 ```bash
-# on the Mac, after a pull
+# In a Claude cloud session today: get the file into the box by whatever means
+# the session offers (an upload into the workspace), then install it.
+node scripts/import-league-chat.mjs <path-to-uploaded-file>
+node scripts/import-league-chat.mjs --verify
+```
+
+The HTTP route exists and is tested, but **it needs a reachable address, which a
+Claude cloud session does not have** (see the note at the top). Once the app is
+hosted — Phase 11 — this is the one-liner from the Mac after a pull:
+
+```bash
+# only once there is a real <cloud-url>
 curl -X POST <cloud-url>/api/league-chat/upload \
      -H 'Content-Type: application/octet-stream' \
      --data-binary @data/derived/league_chat.sqlite
-
-# or, if you have the file locally in the cloud box already
-node scripts/import-league-chat.mjs <uploaded-path>
-node scripts/import-league-chat.mjs --verify
 ```
 
 Both paths validate before they replace anything: a file with no `messages`
@@ -214,13 +257,18 @@ node scripts/check-environment.mjs
 It exits non-zero when something genuinely required is absent, so it works as a
 startup gate. It reports keys as present or absent and never prints a value.
 
-Order for a fresh cloud box:
+Order for a fresh box:
 
-1. Paste the keys into the environment's **Environment variables** box (not API credentials — see above).
-2. Connect ESPN from the cloud app's Settings (bookmarklet).
-3. `node scripts/bootstrap-data.mjs`
-4. Pull the chat on the laptop, upload it (or `import-league-chat.mjs`).
-5. `node scripts/check-environment.mjs` — expect a clean bill.
+1. Paste the keys into the environment's **Environment variables** box (not API
+   credentials — see above). This is the whole setup for a Claude session doing
+   repo work, and it clears the only *required* key.
+2. **On the Mac:** connect ESPN (bookmarklet), then `node scripts/bootstrap-data.mjs`.
+3. **On the Mac:** pull the chat with the Settings button.
+4. Only if the app is genuinely being hosted somewhere: move `data.sqlite` and
+   the corpus to it, per sections 2 and 3.
+5. `node scripts/check-environment.mjs` — it will still report `server/data.sqlite`
+   missing in a Claude session, and that is correct and expected there. It is a
+   build machine, not somewhere the app runs.
 
 ---
 
@@ -258,7 +306,14 @@ first.
 
 ## What this does not do
 
-It does not put the app *online* permanently — that's WF / Phase 11 in the
-master plan (Fly.io, Google sign-in, per-user Claude keys, hiding the chat
-reading from other accounts), deliberately scheduled last. This document is
-about running a cloud session with the laptop closed, not about hosting.
+It does not put the app *online* — that's WF / Phase 11 in the master plan
+(Fly.io, Google sign-in, per-user Claude keys, hiding the chat reading from
+other accounts), deliberately scheduled last.
+
+And per the correction at the top, that turns out not to be a separate concern
+from this document but **its prerequisite**. "Everything runs in the cloud" in
+the sense of the app living somewhere with its scheduler and UI up needs a
+permanent address, and a permanent address is exactly what Phase 11 delivers.
+What this document buys in the meantime is real but narrower: the keys, the
+migration mechanics, and the tooling to move each piece — all of which Phase 11
+will need anyway, and none of which has to be redone.

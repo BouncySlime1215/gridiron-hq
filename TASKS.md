@@ -26,7 +26,22 @@ Last updated: 2026-09-18, cloud session on `cursor/betting-model-audit-fixes-1c8
     drift apart again. Three regression tests in
     `test/trade-engine-correctness.test.js` (G9a/G9b/G9c).
 
-- **Cloud migration — built.** `docs/CLOUD-MIGRATION.md` is the path;
+- **Cloud migration — corrected 2026-09-18 after a real cloud-box test.** The
+  first version of `docs/CLOUD-MIGRATION.md` said ESPN could be connected from a
+  cloud session's Settings page. It cannot: **a Claude Code cloud session has no
+  browser-reachable URL** (`SESSION_INGRESS_URL` resolves to
+  `api.anthropic.com`, no preview URL on the session record, container reclaimed
+  after inactivity), verified in this box. That also invalidated the doc's
+  `curl <cloud-url>/api/league-chat/upload`. Both fixed, and the doc now states
+  plainly what laptop-closed buys today: **Claude sessions doing repo work with
+  the keys live — not the app running with its scheduler and UI.** Hosting the
+  app (**WF / Phase 11**) is the real prerequisite for the full thing, and the
+  doc says so rather than leaving the gap implied. One thing worth keeping:
+  `POST /api/espn-connect/cookies` *is* session-free and mounted without the
+  auth wrapper, so there is a CLI way to hand cookies to a headless box — the
+  doc records it with the caveat that those cookies are a live ESPN session and
+  a chat thread is a bad place to paste one.
+- **Cloud migration tooling — built.** `docs/CLOUD-MIGRATION.md` is the path;
   `scripts/check-environment.mjs` names every missing file and key and what each
   costs (exits non-zero when something required is absent, so it works as a
   startup gate); `scripts/import-league-chat.mjs` installs an uploaded corpus and

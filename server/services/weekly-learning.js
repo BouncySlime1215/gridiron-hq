@@ -86,7 +86,11 @@ export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 2
         heads.last1, heads.median, projection.ppg, dist.p10, dist.p90,
         JSON.stringify(engine.weights), engine.weight_fit, projection.candidate_head_version,
         JSON.stringify(projection.candidate_heads),
-        structuralOnly ? 'cold_start_structural_only' : 'position_ensemble').changes;
+        // The mode that actually priced the row (weekly-ensemble.js#weeklyEnsembleMode):
+        // in weeks 2-4 that is the early bucket, not the weeks 5-18 blend. This was
+        // hard-coded 'position_ensemble', which mislabelled every early-bucket row in
+        // the log the retrain and the accuracy scoreboard read (review-fixes-2, finding 8).
+        structuralOnly ? 'cold_start_structural_only' : engine.mode ?? 'position_ensemble').changes;
     }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }

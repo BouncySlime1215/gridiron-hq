@@ -730,11 +730,20 @@ export function explainPlayerWeek(projection) {
   const changeText = change
     ? ` A ${change.status.replaceAll('_', ' ')} is confirmed: opportunities moved from ${change.prior_opportunities.toFixed(1)} to ${change.recent_opportunities.toFixed(1)} and snap share moved ${change.snap_change_points > 0 ? '+' : ''}${change.snap_change_points.toFixed(1)} points.`
     : '';
+  // Name the weight set and the blend that actually produced this number. It used to
+  // say "the frozen ensemble" whichever fitted set served, and the Coach cites this
+  // block as grounded evidence (review-fixes-2, finding 8).
+  const modeText = /^early_week_bucket_(\d)/.test(engine.mode ?? '')
+    ? `, early-week bucket ${engine.mode.match(/^early_week_bucket_(\d)/)[1]}`
+    : engine.mode === 'cold_start_prior_season' ? ', prior-season start' : '';
   return {
     source: 'deterministic_model_evidence',
     cutoff: engine.cutoff,
+    weight_fit: engine.weight_fit,
+    mode: engine.mode,
     summary: `The structural model projects ${projection.structural_ppg.toFixed(1)} points. ` +
-      `The frozen ${projection.position} ensemble ${direction} to ${projection.ppg.toFixed(1)}, using only games completed through ${engine.cutoff}. ` +
+      `The ${projection.position} ensemble (weight set ${engine.weight_fit}${modeText}) ${direction} to ${projection.ppg.toFixed(1)}, ` +
+      `using only games completed through ${engine.cutoff}. ` +
       `Season average is ${heads.season_to_date.toFixed(1)}, median ${heads.median.toFixed(1)}, and last game ${heads.last1.toFixed(1)}.` + changeText,
     claims: [
       { id: 'structural_ppg', value: projection.structural_ppg, unit: 'fantasy_points' },

@@ -45,12 +45,14 @@ const BUDGET_KEY_RE = /^[a-z0-9_-]{1,64}$/;
 
 /**
  * Characters per token used to estimate a pending call's input. English prose
- * runs ~4 characters per token on the older tokenizer; Claude 4.7-and-later
- * models (Sonnet 5 among them) produce ~30% more tokens for the same text, and
- * JSON packets run denser still, so 3 errs toward over-estimating — this
- * number only gates a call, the logged cost is the API's own count.
+ * runs ~3-4 characters per token, but number-dense packets — which is what the
+ * Coach's situation brief and the trade contexts are — run far denser: the live
+ * cache check on 2026-09-18 billed 5,444 Sonnet 5 input tokens for ~12,650
+ * characters (2.3 per token). 2 keeps the estimate at or above the bill for
+ * those, and over-estimates prose, which only makes the cap stricter. This
+ * number only gates a call; the logged cost is the API's own count.
  */
-const CHARS_PER_TOKEN_ESTIMATE = 3;
+const CHARS_PER_TOKEN_ESTIMATE = 2;
 /** Tool definitions add a hidden tool-use system prompt (354-588 tokens across these models). */
 const TOOL_SYSTEM_PROMPT_TOKENS = 600;
 

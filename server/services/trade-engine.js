@@ -22,6 +22,7 @@
  *                 player object, plus a floor/ceiling risk read per side —
  *                 explanation only, never an input to any number above
  */
+import crypto from 'node:crypto';
 import { rows } from '../db/index.js';
 import { vorBoard, volatility } from '../routes/edge.js';
 import { deriveFormat } from './format.js';
@@ -140,13 +141,20 @@ export function tradeWeekContext() {
  * Every table buildAssetUniverse() reads, for the fingerprints of assetUniverse() and
  * findTrades(). A table missing here is an input whose change the cache never sees.
  */
-const ASSET_INPUT_TABLES = [
+export const ASSET_INPUT_TABLES = [
   { table: 'players', stamp: 'id' },
   { table: 'roster_players', stamp: 'id' },
   { table: 'dynasty_values', stamp: 'player_id' },
-  { table: 'player_week_usage', stamp: 'week' },
-  { table: 'nfl_injuries', stamp: 'id' },
-  { table: 'game_lines', stamp: 'week' },
+  // Row counts only: MAX(week) was always 18 and carried nothing. In-place stat
+  // corrections to the served season are caught by servedInputsDigest() below.
+  'player_week_usage',
+  // modified_at is the source's own clock (blank on 2026 rows); the served week's
+  // report itself is digested in servedInputsDigest(). This used to stamp 'id', which
+  // does not exist, and the error was swallowed into a row count.
+  { table: 'nfl_injuries', stamp: 'modified_at' },
+  // Both line writers stamp fetched_at on insert and the ESPN writer on every update;
+  // MAX(week) was always 22.
+  { table: 'game_lines', stamp: 'fetched_at' },
   // buildAssetUniverse() also calls seasonEndingEspnIds(), which reads
   // news_items directly — omitted here, a genuine new release/season-ending
   // report (or a fix to how that news is matched) would never invalidate this
@@ -159,18 +167,39 @@ const ASSET_INPUT_TABLES = [
   // Chance to play: the fitted rates and the role layer's tiers (contingency.js).
   { table: 'nfl_availability_rates', stamp: 'fitted_at' },
   { table: 'nfl_availability_role_rates', stamp: 'fitted_at' },
-  { table: 'player_week_snaps', stamp: 'week' },
+  'player_week_snaps',
   'trending_players', 'player_metrics', 'schedule_games'
 ];
 
 /**
+ * What the served week reads that is rewritten in place with no update time, so no
+ * row count or newest stamp can see it (review-fixes-2, finding 5): the served week's
+ * injury report (syncInjuries upserts a Friday Questionable -> Out onto the same row;
+ * weeklyAvailability reads exactly these rows) and the served season's usage and snap
+ * totals (nflverse stat corrections upsert in place). About 1 ms on production data.
+ */
+function servedInputsDigest(season, week) {
+  const report = rows(`SELECT gsis_id, team, report_status, practice_status, injury
+                       FROM nfl_injuries WHERE season = ? AND week = ? ORDER BY gsis_id`, season, week);
+  const usage = rows(`SELECT COUNT(*) AS n, total(targets), total(carries), total(attempts), total(receptions),
+                             total(receiving_yards), total(rushing_yards), total(passing_yards),
+                             total(receiving_tds), total(rushing_tds), total(passing_tds),
+                             total(interceptions), total(fumbles_lost)
+                      FROM player_week_usage WHERE season = ?`, season);
+  const snaps = rows(`SELECT COUNT(*) AS n, total(offense_snaps), total(offense_pct)
+                      FROM player_week_snaps WHERE season = ?`, season);
+  return crypto.createHash('sha1').update(JSON.stringify([report, usage, snaps])).digest('hex').slice(0, 16);
+}
+
+/**
  * The promoted weekly weight set that prices this week. A promotion adds a row, but a
  * rollback only clears a `promoted` flag, which no row count or max id sees, so the
- * served set's id itself is part of the key.
+ * served set's id itself is part of the key. Plus the in-place digest above.
  */
 const assetInputsKey = (lg, formatKey, target) =>
   `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
-  `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}`;
+  `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}:` +
+  `d${servedInputsDigest(target.season, target.week)}`;
 
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();

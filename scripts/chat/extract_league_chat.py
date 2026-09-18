@@ -23,12 +23,23 @@ except message text sent to Jev under standard retention (Nick's choice).
 """
 import argparse, os, sqlite3, subprocess, sys, time
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-OUT = os.path.join(ROOT, 'data', 'derived', 'league_chat.sqlite')
-SRC = os.path.expanduser('~/Library/Messages/chat.db')
 GROUP_NAME = 'Transfer league 2026'
 APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
+# The league's clock. "Night" in the profile means midnight to 6am here, not in UTC.
+LEAGUE_TZ = ZoneInfo('America/New_York')
+
+
+def default_paths():
+    """chat.db and the output DB; LEAGUE_CHAT_SRC / LEAGUE_CHAT_OUT point a smoke run at copies."""
+    src = os.environ.get('LEAGUE_CHAT_SRC') or os.path.expanduser('~/Library/Messages/chat.db')
+    out = os.environ.get('LEAGUE_CHAT_OUT') or os.path.join(ROOT, 'data', 'derived', 'league_chat.sqlite')
+    return src, out
+
+
+SRC, OUT = default_paths()
 
 
 def apple_ts(ns):
@@ -48,7 +59,7 @@ def decode_attributed_body(blob):
     i = blob.find(b'NSString')
     if i < 0: return None
     j = blob.find(b'+', i)
-    if j < 0: return None
+    if j < 0 or j + 1 >= len(blob): return None  # truncated: no length byte
     k = j + 1
     ln = blob[k]
     if ln == 0x81:
@@ -71,6 +82,8 @@ def open_dbs():
     out.execute("CREATE UNIQUE INDEX IF NOT EXISTS messages_msg_id ON messages(msg_id)")
     out.execute("CREATE TABLE IF NOT EXISTS participants (handle TEXT PRIMARY KEY, name TEXT, dm_chat_id INTEGER)")
     out.execute("CREATE TABLE IF NOT EXISTS extract_runs (ran_at TEXT, mode TEXT, new_rows INTEGER, max_msg_id INTEGER)")
+    if 'unknown_handle' not in [c[1] for c in out.execute("PRAGMA table_info(extract_runs)")]:
+        out.execute("ALTER TABLE extract_runs ADD COLUMN unknown_handle INTEGER")
     src = sqlite3.connect(f'file:{SRC}?mode=ro', uri=True)
     return src, out
 
@@ -93,6 +106,10 @@ def extract(full=False):
     hid_to_handle = {r[0]: r[1] for r in src.execute("SELECT ROWID, id FROM handle")}
     since = 0 if full else (out.execute("SELECT COALESCE(MAX(msg_id),0) FROM messages").fetchone()[0] or 0)
     if full: out.execute("DELETE FROM messages")
+    # A group row stored unnamed (its handle was not in participants yet) gets its name
+    # as soon as the handle is added; the resume watermark means it is never re-read.
+    out.execute("""UPDATE messages SET name = (SELECT p.name FROM participants p WHERE p.handle = messages.handle)
+                   WHERE name IS NULL AND is_from_me = 0 AND handle IN (SELECT handle FROM participants)""")
     chat_ids = list(group_ids) + list(dm_ids.keys())
     q = f"""
       SELECT m.ROWID, cmj.chat_id, m.handle_id, m.is_from_me, m.date, m.text, m.attributedBody,
@@ -100,7 +117,7 @@ def extract(full=False):
       FROM message m JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
       WHERE cmj.chat_id IN ({','.join('?' * len(chat_ids))}) AND m.ROWID > ?
       ORDER BY m.ROWID"""
-    new = 0; max_id = since
+    new = 0; unknown = 0; max_id = since
     for rowid, chat_id, hid, from_me, date, text, body, assoc, thread in src.execute(q, chat_ids + [since]):
         txt = text if text else decode_attributed_body(body)
         if txt is not None: txt = txt.replace('￼', '￼')  # keep placeholder as-is; classifier filters it
@@ -109,8 +126,11 @@ def extract(full=False):
         if from_me:
             name = 'ME'
         elif is_group:
+            # A member texting from a new number or Apple ID. Stored unnamed rather than
+            # skipped: skipping put the row below the resume watermark for good. Unnamed
+            # rows are never classified or profiled until the handle is in participants.
             name = handle_name.get(handle)
-            if name is None: continue  # someone outside the nine members (should not happen)
+            if name is None: unknown += 1
         else:
             name = dm_ids[chat_id]
         out.execute("INSERT OR IGNORE INTO messages VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -118,11 +138,26 @@ def extract(full=False):
                      handle, name, 1 if from_me else 0, apple_ts(date), txt,
                      1 if (assoc or 0) >= 2000 else 0, 1 if thread else 0))
         new += 1; max_id = max(max_id, rowid)
-    out.execute("INSERT INTO extract_runs VALUES (?,?,?,?)",
-                (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), 'full' if full else 'incremental', new, max_id))
+    out.execute("INSERT INTO extract_runs (ran_at, mode, new_rows, max_msg_id, unknown_handle) VALUES (?,?,?,?,?)",
+                (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), 'full' if full else 'incremental', new, max_id, unknown))
     out.commit(); src.close(); out.close()
-    print(f'extract: {new} new message(s), max msg_id {max_id}')
+    note = (f', {unknown} from a handle not in participants (stored unnamed until the handle is added)'
+            if unknown else '')
+    print(f'extract: {new} new message(s), max msg_id {max_id}{note}')
     return new
+
+
+def unlabeled_backlog():
+    """Named, non-empty rows the classifier has not evaluated yet."""
+    out = sqlite3.connect(OUT)
+    try:
+        done = out.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jev_chat_done'").fetchone()
+        return out.execute(f"""SELECT COUNT(*) FROM messages m
+            {'LEFT JOIN jev_chat_done d ON d.msg_id = m.msg_id' if done else ''}
+            WHERE {'d.msg_id IS NULL AND' if done else ''} m.name IS NOT NULL
+              AND m.text IS NOT NULL AND trim(replace(m.text, char(65532), '')) <> ''""").fetchone()[0]
+    finally:
+        out.close()
 
 
 def classify():
@@ -138,7 +173,17 @@ def classify():
     r = subprocess.run(['npx', 'tsx', 'scripts/news-line/jev_league_chat.mts'], cwd=ROOT, env=env,
                        capture_output=True, text=True, timeout=3600)
     tail = [l for l in (r.stdout + r.stderr).splitlines() if l.strip()][-2:]
-    print('classify:', ' | '.join(tail) if tail else f'exit {r.returncode}')
+    status = '' if r.returncode == 0 else f'FAILED (exit {r.returncode}) '
+    print('classify:', status + (' | '.join(tail) if tail else f'exit {r.returncode}'))
+    return r.returncode
+
+
+def league_hour(ts_utc):
+    """Hour on the league's clock for a stored UTC stamp ('T' or space separated), or None."""
+    try:
+        return datetime.fromisoformat(ts_utc).replace(tzinfo=timezone.utc).astimezone(LEAGUE_TZ).hour
+    except (TypeError, ValueError):
+        return None
 
 
 def rollup():
@@ -149,13 +194,17 @@ def rollup():
     These are the chat half of Phase 4b; the transaction half joins on `name`.
     """
     out = sqlite3.connect(OUT)
+    # ts_utc is UTC; night_share is midnight-6am on the league's clock, DST included.
+    # strftime('%H', ts_utc) alone scored 8pm-2am Eastern as "night".
+    out.create_function('league_hour', 1, league_hour, deterministic=True)
     out.executescript("""
       DROP TABLE IF EXISTS manager_chat_profile;
       CREATE TABLE manager_chat_profile AS
       WITH base AS (
         SELECT m.msg_id, m.name, m.chat_kind, m.ts_utc, m.is_tapback,
-               CAST(strftime('%H', m.ts_utc) AS INTEGER) AS hr
-        FROM messages m WHERE m.text IS NOT NULL AND trim(replace(m.text, char(65532), '')) <> ''
+               league_hour(m.ts_utc) AS hr
+        FROM messages m WHERE m.name IS NOT NULL
+          AND m.text IS NOT NULL AND trim(replace(m.text, char(65532), '')) <> ''
       ),
       sig AS (SELECT msg_id, question, probability FROM jev_chat_signals)
       SELECT b.name,
@@ -197,12 +246,22 @@ def rollup():
     print(f'rollup: {n1} manager profiles, {n2} (manager, player) sentiment rows')
 
 
-if __name__ == '__main__':
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--full', action='store_true')
     ap.add_argument('--classify', action='store_true')
     ap.add_argument('--rollup', action='store_true')
     a = ap.parse_args()
     new = extract(full=a.full)
-    if a.classify and (new or a.full): classify()
+    failed = 0
+    # Also when earlier rows are still unlabeled: classify used to run only on new rows,
+    # so a run that failed left its rows unlabeled until someone happened to text.
+    if a.classify and (new or a.full or unlabeled_backlog()):
+        failed = classify()
     if a.rollup: rollup()
+    # The rollup still runs on what is labeled; the loop must still see the failure.
+    if failed: sys.exit(f'classify failed (exit {failed})')
+
+
+if __name__ == '__main__':
+    main()

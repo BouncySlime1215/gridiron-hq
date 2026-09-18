@@ -164,13 +164,14 @@ const rows = chat.prepare(`
   SELECT m.msg_id, m.name, m.chat_kind, m.chat_name, m.ts_utc, m.text, m.is_tapback
   FROM messages m LEFT JOIN jev_chat_done d ON d.msg_id = m.msg_id
   WHERE d.msg_id IS NULL
+    AND m.name IS NOT NULL  -- unnamed = a handle not in participants yet (extract_league_chat.py); never sent
     AND m.text IS NOT NULL AND trim(replace(m.text, char(65532), '')) <> ''  -- 'W', 'L', 'gg', a lone emoji all count; only the bare attachment placeholder is skipped
   ORDER BY m.chat_name, m.ts_utc ${LIMIT ? 'LIMIT ' + LIMIT : ''}`).all() as any[];
 console.log(`${rows.length.toLocaleString()} messages to classify — everyone incl. Nick, tapbacks included (standard retention)`);
 
 // Context: the two messages before this one in the same thread.
 const ctxStmt = chat.prepare(`SELECT name, text FROM messages WHERE chat_name = ? AND ts_utc < ? AND text IS NOT NULL
-  AND is_tapback = 0 ORDER BY ts_utc DESC LIMIT 2`);
+  AND name IS NOT NULL AND is_tapback = 0 ORDER BY ts_utc DESC LIMIT 2`);
 const insSig = chat.prepare('INSERT OR REPLACE INTO jev_chat_signals VALUES (?,?,?,?,?,?,?)');
 const insDone = chat.prepare('INSERT OR REPLACE INTO jev_chat_done VALUES (?,?,?,?,?)');
 

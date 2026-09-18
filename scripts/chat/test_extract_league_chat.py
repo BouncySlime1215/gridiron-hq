@@ -162,6 +162,7 @@ class TestRollup(Base):
             ('2026-01-15 07:00:00', 1.0, '02:00 EST'),
             ('2026-01-15 10:30:00', 1.0, '05:30 EST (hours 0-5 are night)'),
             ('2026-01-15 11:00:00', 0.0, '06:00 EST'),
+            ('2025-08-16T06:54:14', 1.0, 'stored with a T separator, 02:54 EDT'),
         ]:
             with self.subTest(local=local):
                 self.assertEqual(self.rollup_night_share(ts_utc), want, local)

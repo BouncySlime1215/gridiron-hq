@@ -194,3 +194,43 @@ live number until week 5.
 
 Regression: player-week-distribution 12/12, fantasy-workflows 7/7, find-trades 3/3,
 trade-evidence 6/6.
+
+## 6. League-chat extractor: no tests, "night" measured in UTC, failures reported as ok, unknown handles lost (high + 3 medium; python-testing)
+
+Journeys: as Nick, I want the chat profile numbers that reach the negotiation prompts
+to mean what their names say, and a broken classifier run to show up as an ERROR in
+the refresh log instead of "ok".
+
+New suite `scripts/chat/test_extract_league_chat.py` (stdlib unittest, synthetic DBs
+only; run `python3 -m unittest discover -s scripts/chat -p 'test_*.py'`). RED at
+a8beb7f: 10 of 13 tests failed (the commit message says 11; the night-share test
+counts once, with 4 failing sub-cases). GREEN: 13/13.
+
+| # | What is guaranteed | RED | GREEN |
+|---|--------------------|-----|-------|
+| 1 | Resume by ROWID is idempotent | PASS | PASS |
+| 2 | A renamed group chat exits non-zero | PASS | PASS |
+| 3 | A group row from an unknown handle is stored unnamed and reported, not dropped below the watermark | FAIL | PASS |
+| 4 | Once the handle is added to participants, the unnamed row gets its name on the next run | FAIL | PASS |
+| 5 | LEAGUE_CHAT_SRC / LEAGUE_CHAT_OUT override the paths | FAIL | PASS |
+| 6 | A non-zero classifier exit is returned | FAIL | PASS |
+| 7 | main() still runs the rollup, then exits non-zero, when classify fails | FAIL | PASS |
+| 8 | classify runs for an unlabeled backlog even with no new rows | FAIL | PASS |
+| 9 | no backlog and no new rows: classifier not called | FAIL (no main) | PASS |
+| 10 | night_share = hours 0-5 on the Eastern clock, both sides of DST, both stored timestamp formats | FAIL (4 of 6 sub-cases) | PASS (7 sub-cases) |
+| 11 | Unnamed rows are in no profile | FAIL | PASS |
+| 12 | typedstream decoder: 1- and 2-byte lengths | PASS | PASS |
+| 13 | a truncated blob returns None instead of raising IndexError | FAIL | PASS |
+
+The classifier (`jev_league_chat.mts`) never sends an unnamed row or uses one as
+context, so the privacy scope (the nine members) is unchanged. Retrying ok=0 rows in
+the classifier and a sync_log row for Data Health are deferred (see the list).
+
+Smoke run of `rollup()` on a copy of the live `league_chat.sqlite` (the first attempt
+failed: the live rows are stored as `2025-08-16T01:54:14`, with a T; the parser now
+takes both forms and a test pins it): 10 profiles, 119 sentiment rows (same as live),
+backlog 0. **One number changes for users:** mean `night_share` across the 10
+managers goes 0.227 -> 0.030 (range 0.171-0.309 -> 0.000-0.092), because it now
+measures midnight-6am Eastern instead of 8pm-2am. It is a descriptive ratio, not a
+fitted model; it reaches `manager_signals.chat_night_share` and the negotiation
+prompts. The refresh loop picks this up on its next tick.

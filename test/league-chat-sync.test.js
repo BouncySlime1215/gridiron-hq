@@ -128,3 +128,87 @@ test('pull() refuses rather than half-running where extraction is impossible', a
   // refusal — a button press that could not run must not age the corpus forward.
   assert.equal(sync.lastPull(), null);
 });
+
+/* ------------------------------------------------------- the upload receiver */
+
+/**
+ * The cloud box's receiving end. What matters here is not the happy path but
+ * the two refusals: a corpus that is not a corpus, and one that is empty. Both
+ * would install cleanly and then read downstream exactly like having no chat
+ * data at all — the engine would price every ladder "on our numbers only" and
+ * nothing would look broken. So they are rejected, and whatever was already
+ * installed is left alone.
+ *
+ * `express.json()` is mounted here the way server/index.js mounts it globally,
+ * so this also pins that the raw body still arrives through it.
+ */
+const express = (await import('express')).default;
+const { default: leagueChatRouter } = await import('../server/routes/league-chat.js');
+
+const app = express();
+app.use(express.json());
+app.use('/api/league-chat', leagueChatRouter);
+const server = app.listen(0);
+const base = `http://127.0.0.1:${server.address().port}/api/league-chat`;
+test.after(() => server.close());
+
+const post = (path, body, type = 'application/octet-stream') =>
+  fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': type }, body });
+
+test('status is answerable over HTTP from a machine that cannot extract', async () => {
+  process.env.LEAGUE_CHAT_SRC = path.join(temp, 'definitely-not-here.db');
+  const res = await fetch(`${base}/status`);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.capability.can, false);
+  assert.ok(body.freshness.state);
+});
+
+test('a file that is not the corpus is refused, and the installed one is untouched', async () => {
+  const before = sync.corpusStats().messages;
+  const res = await post('/upload', Buffer.from('this is not sqlite'));
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, 'not_the_corpus');
+  assert.equal(sync.corpusStats().messages, before, 'the existing corpus must survive a bad upload');
+});
+
+test('an empty corpus is refused rather than installed as "no chat data"', async () => {
+  const before = sync.corpusStats().messages;
+  const empty = path.join(temp, 'empty-corpus.sqlite');
+  buildCorpus(empty, { messages: 0, classified: 0 });
+  const res = await post('/upload', fs.readFileSync(empty));
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, 'empty_corpus');
+  assert.equal(sync.corpusStats().messages, before);
+});
+
+test('an empty body is refused with a usable message rather than a stack trace', async () => {
+  const res = await post('/upload', Buffer.alloc(0));
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).detail, /--data-binary/);
+});
+
+test('a real corpus installs, and the previous one is kept beside it', async () => {
+  const fresh = path.join(temp, 'fresh-corpus.sqlite');
+  buildCorpus(fresh, { messages: 900, classified: 700 });
+  const res = await post('/upload', fs.readFileSync(fresh));
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.messages, 900);
+  assert.equal(sync.corpusStats().messages, 900, 'the engine now reads the new corpus');
+  const kept = fs.readdirSync(temp).filter(f => f.includes('league_chat.sqlite.replaced-'));
+  assert.equal(kept.length, 1, 'the replaced corpus is one rename away, not gone');
+});
+
+test('pull over HTTP is refused from a non-loopback caller, and says where it does work', async () => {
+  const res = await fetch(`${base}/pull`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.7' },
+    body: JSON.stringify({}),
+  });
+  assert.equal(res.status, 403);
+  const body = await res.json();
+  assert.equal(body.error, 'not_local');
+  assert.match(body.detail, /Mac/);
+});

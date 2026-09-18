@@ -106,8 +106,9 @@ Moving the file between boxes:
 
 ```bash
 # on the Mac, after a pull
-curl -X POST --data-binary @data/derived/league_chat.sqlite \
-     <cloud-url>/api/league-chat/upload
+curl -X POST <cloud-url>/api/league-chat/upload \
+     -H 'Content-Type: application/octet-stream' \
+     --data-binary @data/derived/league_chat.sqlite
 
 # or, if you have the file locally in the cloud box already
 node scripts/import-league-chat.mjs <uploaded-path>

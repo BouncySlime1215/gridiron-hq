@@ -20,8 +20,8 @@
  * `/upload` writes the corpus and nothing else: it validates the body is really
  * the corpus before replacing what is there, and keeps the previous copy.
  */
-import { Router } from 'express';
-import { existsSync, mkdirSync, renameSync, writeFileSync, statSync } from 'node:fs';
+import express, { Router } from 'express';
+import { existsSync, mkdirSync, renameSync, writeFileSync, statSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isDirectLoopback } from './local-auth.js';
@@ -72,55 +72,55 @@ r.post('/pull', requireLocal, async (req, res) => {
 /**
  * Accept an uploaded corpus.
  *
- * Body is the raw SQLite file. It is written to a temporary path and opened
- * before anything existing is touched: installing a truncated or wrong upload
- * would read downstream exactly like having no chat data at all, which is the
- * failure this whole route exists to prevent.
+ * `express.raw` rather than reading the stream by hand: the global
+ * `express.json()` upstream only declines a body whose content-type is not
+ * JSON, so hand-rolling this would work with `curl --data-binary` and silently
+ * receive nothing from any client that sent `application/json`. Taking the body
+ * explicitly, for any content-type, removes that trap.
+ *
+ * The upload is written to a temporary path and opened before anything existing
+ * is touched: installing a truncated or wrong file would read downstream exactly
+ * like having no chat data at all, which is the failure this route exists to
+ * prevent.
  */
-r.post('/upload', (req, res) => {
-  const chunks = [];
-  let size = 0;
-  const LIMIT = 512 * 1024 * 1024;
+r.post('/upload', express.raw({ type: '*/*', limit: '512mb' }), (req, res) => {
+  const body = req.body;
+  if (!Buffer.isBuffer(body) || !body.length) {
+    return res.status(400).json({ error: 'empty_body',
+      detail: 'Send the corpus as the raw request body, e.g. curl --data-binary @league_chat.sqlite.' });
+  }
 
-  req.on('data', d => {
-    size += d.length;
-    if (size > LIMIT) { req.destroy(); return; }
-    chunks.push(d);
-  });
+  const dest = chatDbPath();
+  const tmp = `${dest}.incoming`;
+  try {
+    mkdirSync(path.dirname(dest), { recursive: true });
+    writeFileSync(tmp, body);
 
-  req.on('end', () => {
-    if (!chunks.length) return res.status(400).json({ error: 'empty_body' });
-    const dest = chatDbPath();
-    const tmp = `${dest}.incoming`;
+    let messages = null;
     try {
-      mkdirSync(path.dirname(dest), { recursive: true });
-      writeFileSync(tmp, Buffer.concat(chunks));
-
-      let messages = null;
-      try {
-        const db = new DatabaseSync(tmp, { readOnly: true });
-        messages = db.prepare('SELECT COUNT(*) AS n FROM messages').get().n;
-        db.close();
-      } catch (e) {
-        return res.status(400).json({ error: 'not_the_corpus',
-          detail: `Uploaded file is not a readable league-chat database: ${e.message}. Nothing was replaced.` });
-      }
-      if (!messages) {
-        return res.status(400).json({ error: 'empty_corpus',
-          detail: 'The uploaded corpus has no messages, which would read as no chat data. Nothing was replaced.' });
-      }
-
-      if (existsSync(dest)) {
-        renameSync(dest, `${dest}.replaced-${new Date().toISOString().replace(/[:.]/g, '-')}`);
-      }
-      renameSync(tmp, dest);
-      res.json({ ok: true, messages, size_bytes: statSync(dest).size, corpus: corpusStats() });
+      const db = new DatabaseSync(tmp, { readOnly: true });
+      messages = db.prepare('SELECT COUNT(*) AS n FROM messages').get().n;
+      db.close();
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      rmSync(tmp, { force: true });
+      return res.status(400).json({ error: 'not_the_corpus',
+        detail: `Uploaded file is not a readable league-chat database: ${e.message}. Nothing was replaced.` });
     }
-  });
+    if (!messages) {
+      rmSync(tmp, { force: true });
+      return res.status(400).json({ error: 'empty_corpus',
+        detail: 'The uploaded corpus has no messages, which would read as no chat data. Nothing was replaced.' });
+    }
 
-  req.on('error', e => res.status(400).json({ error: 'upload_failed', detail: e.message }));
+    if (existsSync(dest)) {
+      renameSync(dest, `${dest}.replaced-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+    }
+    renameSync(tmp, dest);
+    res.json({ ok: true, messages, size_bytes: statSync(dest).size, corpus: corpusStats() });
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    res.status(500).json({ error: e.message });
+  }
 });
 
 export default r;

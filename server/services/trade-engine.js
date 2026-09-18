@@ -200,7 +200,16 @@ function buildAssetUniverse(lg, formatKey, target) {
   // weeks 1-4: MAE vs the rest-of-season actual 2.8-3.8 -> 2.3-2.5; weeks 6-10 pooled
   // not worse in either season).
   // Players it has no entry for (no game yet this season) keep the weekly number.
-  const rosModel = buildRosProjections({ season: target.season, week: target.week, scoring, weekly });
+  // A failed build is logged and marked on every asset (ros_basis.failed) rather than
+  // taking every page down or, as before, silently reading as "no games yet".
+  let rosModel = new Map();
+  let rosFailure = null;
+  try {
+    rosModel = buildRosProjections({ season: target.season, week: target.week, scoring, weekly });
+  } catch (error) {
+    rosFailure = `rest-of-season model failed (${error.message}); ros_ppg is the weekly number`;
+    console.error(`[trade-engine] league ${lg.id}, ${target.season} W${target.week}: ${rosFailure}`);
+  }
   // Read-only, no computation — the coordinator itself is refit on a schedule
   // (scheduler.js#fantasy_coordinator_refit) and persisted; walk-forward
   // verified (fantasy-coordinator.js's own doc-comment) to beat the plain
@@ -360,12 +369,13 @@ function buildAssetUniverse(lg, formatKey, target) {
         ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions }
         : null,
       ros_ppg: +rosPpg.toFixed(2),
-      // What ros_ppg was built from; null = no ROS entry, ros_ppg is the weekly number.
+      // What ros_ppg was built from; null = no ROS entry (no game yet), { failed } = the
+      // ROS build failed; in both cases ros_ppg is the weekly number.
       ros_basis: ros ? {
         games: ros.games, season_to_date: +ros.season_to_date.toFixed(2),
         prior: ros.prior == null ? null : +ros.prior.toFixed(2), prior_source: ros.prior_source,
         weight_in_season: ros.weight_in_season == null ? null : +ros.weight_in_season.toFixed(3)
-      } : null,
+      } : rosFailure ? { failed: rosFailure } : null,
       active_probability: +activeProbability.toFixed(3),
       injury_status: availability?.report_status ?? null,
       practice_status: availability?.practice_status ?? null,

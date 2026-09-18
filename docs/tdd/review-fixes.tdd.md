@@ -260,3 +260,31 @@ Cost, measured on the snapshot (league 1, 8,640 assets): a cached call went from
 3.1 ms to 8.1 ms (the `leagues` stamp reads past each 2 MB payload, 2.7 ms; snaps
 1.7 ms). A cold build is ~8.5-8.9 s either way. Regression: all 18 files that import
 trade-engine, contingency or the trades route pass (list in `reg-fp.log`).
+
+## 8. Silent failures in the rest-of-season inputs (medium; coding-standards / silent-failure)
+
+Journey: as Nick, if the rest-of-season model cannot read its inputs, I want the
+server log and the asset to say so, not a quiet return to the week-1-score numbers.
+
+RED (ac754a0): 5 of 5 fail. Fix: `inSeasonHistory` treats only a missing table as
+"no games" and otherwise logs (season, week) and raises; `rosPriorMap` logs a failed
+source and does not memoise a map built after a failure; `buildAssetUniverse` catches a
+ROS failure, logs it with league and week, keeps building, and marks each asset
+`ros_basis: { failed }`; `buildAvailabilityLookup` reports an unreadable role config
+(`configError` plus a warning) instead of silently switching to pooled positions.
+
+| # | What is guaranteed | Test | RED | GREEN |
+|---|--------------------|------|-----|-------|
+| 1 | A failed history query raises and is logged with the season | `ros-projection-failures.test.js` | FAIL | PASS |
+| 2 | buildRosProjections propagates it (no empty "no ROS" map) | same | FAIL | PASS |
+| 3 | A prior map built after a failure is recomputed next call; a clean one is cached | same | FAIL | PASS |
+| 4 | An unreadable role config is reported | same | FAIL | PASS |
+| 5 | A ROS failure is logged and marked on assets; the universe still builds | `ros-projection-failure-wiring.test.js` | FAIL (threw) | PASS |
+
+The test for #3 first counted buildProjections calls, which also counts the calls
+preseasonProjections makes; it was changed to compare the returned maps, and the
+revised file was re-run against HEAD's code in the scratch copy: 4 of 4 fail there.
+Regression: ros-projection 24/24, ros-projection-wiring 1/1, availability-role 17/17,
+asset-universe-fingerprint 5/5, decision-inbox 17/17, fantasy-workflows 7/7,
+find-trades 3/3, trade-evidence 6/6, decision-leftovers-waivers 7/7, post-draft-plan
+5/5, model-integrity 94/94.

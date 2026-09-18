@@ -27,12 +27,11 @@ await runMigrations();
 
 // buildProjections fails on demand, the way a locked database would.
 const realProjections = await import('../server/services/projections.js');
-let failProjections = 0, projectionCalls = 0;
+let failProjections = 0;
 mock.module('../server/services/projections.js', {
   namedExports: {
     ...realProjections,
     buildProjections: (...args) => {
-      projectionCalls++;
       if (failProjections > 0) { failProjections--; throw new Error('database is locked'); }
       return realProjections.buildProjections(...args);
     }
@@ -66,13 +65,12 @@ test('buildRosProjections does not turn a history failure into "no ROS for anyon
 
 test('a prior map built after a failure is not cached', () => {
   R.clearRosPriorCache();
-  failProjections = 1; projectionCalls = 0;
+  failProjections = 1;
   const first = captureWarnings(() => R.rosPriorMap(2031));
   assert.ok(first.warnings.some(w => /rosPriorMap/.test(w) && /database is locked/.test(w)), `warned: ${first.warnings}`);
-  R.rosPriorMap(2031);
-  assert.equal(projectionCalls, 2, 'the second call recomputes instead of serving the partial map');
-  R.rosPriorMap(2031);
-  assert.equal(projectionCalls, 2, 'a clean build is cached');
+  const second = R.rosPriorMap(2031);
+  assert.notEqual(second, first.value, 'the second call recomputes instead of serving the partial map');
+  assert.equal(R.rosPriorMap(2031), second, 'a clean build is cached');
 });
 
 test('an unreadable role config is reported, not silently read as "not by position"', () => {

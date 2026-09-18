@@ -276,13 +276,25 @@ export function isStandardPpr(scoring) {
   return true;
 }
 
-/** This season's games before `week`: player_id -> { games, season_to_date }. */
+/** A table that has never been created (a fresh install) is an empty state, not a failure. */
+const missingTable = error => /no such table/i.test(String(error?.message ?? error));
+
+/**
+ * This season's games before `week`: player_id -> { games, season_to_date }.
+ * Only a missing table reads as "no games". Any other failure is raised: an empty
+ * history makes every player's ros_ppg fall back to the weekly number, the exact bug
+ * the ROS model exists to fix, so it must never happen quietly.
+ */
 export function inSeasonHistory(season, week, { scoring = PPR } = {}) {
   const acc = new Map();
   let list = [];
   try {
     list = rows('SELECT * FROM player_week_usage WHERE season = ? AND week < ?', season, week);
-  } catch { return acc; }
+  } catch (error) {
+    if (missingTable(error)) return acc;
+    console.warn(`[ros-projection] inSeasonHistory(${season}, ${week}) failed: ${error.message}`);
+    throw error;
+  }
   for (const r of list) {
     const a = acc.get(r.player_id) ?? { games: 0, sum: 0 };
     a.games++;
@@ -300,17 +312,26 @@ const priorCache = new Map();
  * Preseason priors for `season`, keyed by players.id: { c_mkt, c_struct }. Built from
  * data before the season only, so it never changes in-season; memoised per process.
  * Each source is optional — a database without the market tables still gets c_struct.
+ * A source that fails for any other reason is logged, and the partial map is NOT
+ * memoised: it used to be, so one transient failure lasted until a restart (nothing
+ * outside the tests calls clearRosPriorCache).
  */
 export function rosPriorMap(season, { scoring = PPR } = {}) {
   const key = `${season}:${JSON.stringify(scoring)}`;
   if (priorCache.has(key)) return priorCache.get(key);
   const out = new Map();
   const entry = id => { if (!out.has(id)) out.set(id, { c_mkt: null, c_struct: null }); return out.get(id); };
+  let degraded = false;
+  const note = (source, error) => {
+    if (missingTable(error)) return;
+    degraded = true;
+    console.warn(`[ros-projection] rosPriorMap(${season}) ${source} prior failed, not cached: ${error.message}`);
+  };
   try {
     for (const [id, p] of buildProjections({ through: season - 1, scoring })) {
       if (finite(p.ppg)) entry(id).c_struct = p.ppg;
     }
-  } catch { /* no history on file: no structural prior */ }
+  } catch (error) { note('structural', error); }
   if (isStandardPpr(scoring)) {
     try {
       const market = preseasonProjections(season);
@@ -320,9 +341,9 @@ export function rosPriorMap(season, { scoring = PPR } = {}) {
           if (m && finite(m.ppg)) entry(p.id).c_mkt = m.ppg;
         }
       }
-    } catch { /* no board on file: c_mkt falls back to c_struct */ }
+    } catch (error) { note('market', error); }
   }
-  priorCache.set(key, out);
+  if (!degraded) priorCache.set(key, out);
   return out;
 }
 

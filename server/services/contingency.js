@@ -311,9 +311,18 @@ export function buildAvailabilityLookup({ rates = [], roleRates = [] } = {}) {
   }
   const role = new Map();
   let roleConfig = null;
+  let configError = null;
   for (const r of roleRates) {
     role.set([r.report_status, r.practice_status, r.position, r.tier, r.gap].join('|'), r);
-    if (!roleConfig && r.config) { try { roleConfig = JSON.parse(r.config); } catch { roleConfig = null; } }
+    if (!roleConfig && !configError && r.config) {
+      try { roleConfig = JSON.parse(r.config); } catch (error) { configError = error.message; }
+    }
+  }
+  // An unreadable config falls back to the pooled chain, which is not what a
+  // byPosition fit was graded on — so it is said out loud, never assumed quietly.
+  if (configError) {
+    console.warn(`[contingency] nfl_availability_role_rates.config is not JSON (${configError}); ` +
+      'the role lookup falls back to pooled positions');
   }
   roleConfig ??= { byPosition: false, durabilityCap: false };
 
@@ -329,6 +338,7 @@ export function buildAvailabilityLookup({ rates = [], roleRates = [] } = {}) {
   return {
     hasRole: role.size > 0,
     roleConfig,
+    configError,
     lookup(teamAbbr, statusRaw, practiceRaw) {
       const rs = normReportStatus(statusRaw), ps = normPracticeStatus(practiceRaw);
       const cell = league.get(`${rs}|${ps}`) ?? league.get(`${rs}|any`);

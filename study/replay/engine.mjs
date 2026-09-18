@@ -270,10 +270,16 @@ export function playSeason(teams, season, format, arm, rand) {
     }
 
     if (!format.churn || week >= format.playoffWeeks[0]) continue;
+    // Per-team churn. A league where EVERY team works the wire cannot show what
+    // working the wire is worth: all-play is zero-sum inside a league, so the
+    // mean is 0.500 by construction. The contrast has to be between teams in
+    // the same league, which means the flag lives on the team, not the format.
+    const churns = i => (format.churnMask ? !!format.churnMask[i] : true);
     const avg = p => { const r = priorPoints.get(p.key); return r && r.n ? r.sum / r.n : -1; };
     const order = teams.map((t, i) => ({ t, i, pts: Object.values(weekly[i]).reduce((a, b) => a + b, 0) }))
       .sort((a, b) => a.pts - b.pts);
-    for (const { t } of order) {
+    for (const { t, i } of order) {
+      if (!churns(i)) continue;
       const candidates = freeAgents.filter(p => !rostered.has(p.key) && avg(p) > 0)
         .sort((a, b) => avg(b) - avg(a));
       if (!candidates.length) break;

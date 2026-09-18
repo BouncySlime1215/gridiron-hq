@@ -71,15 +71,45 @@ Everything that matters for Sunday's week-2 games — chance to play, the Trade 
 
 **Where it shows (WB):** a **Team health** card on the home page for each league — verdict chip, playoff and title odds, the one-line story (e.g. *"1-1, but your lineup projects 3rd of 10 — teams like this make the playoffs X% of the time"*), and what to do; a deep dive on League Hub with odds by week (preseason → now) and the luck / noise / real split; a **team audit** tool for the Coach; plan items whenever the verdict is Act.
 
+### 00.2d-bis Team Outlook — the full statistical design (Nick, 11:55: "make it insane, statistically good, real history on fantasy leagues overall and mine")
+
+**Foundation first — season sim v2 (WO).** The provenance audit showed today's playoff/title odds live in a different projection world: projections built through 2025 with the old hand-picked shrinkage, 2026 rookies never started, every simulation restarting at week 1 and ignoring real standings, fixed playoff weeks 15-17 (leagues 1 and 3 differ), and future weeks priced on the old durability prior. v2 uses the live weekly engine for this week and the rest-of-season model (plus the injury-return model) for later weeks, starts from the league's current week with the real standings, remaining schedule and each league's own playoff format and tiebreakers, draws weeks with team-level shared variance fitted on real team-week scores, and includes rookies. A calibration layer (isotonic or Platt, fitted on history) sits on top only if the raw simulation is shown to be miscalibrated.
+
+**Three histories, each with a job:**
+1. **Nick's leagues** — 12 completed league-seasons (weekly scores, standings, seeds) plus 2026 live: the local truth and a transfer check.
+2. **Real public leagues (Sleeper's public API, 2021-2025)** — thousands of completed redraft league-seasons with real human managers, weekly matchups, standings and playoff brackets, stratified by league size, scoring and playoff teams. Stored anonymised (no user or team names; crawl identifiers purged after the crawl). Sleeper rosters carry player ids that map to ours (`players.sleeper_id`), so every real team gets **our** projected strength week by week. Collection starts now as a background job (network-bound, under Sleeper's published rate limit).
+3. **The replay leagues** (simulated drafts, real player outcomes 2021-2025) — counterfactuals: what happens when a team in a given spot acts (waivers, trades) versus not.
+
+**The model:**
+- *Team strength, Bayesian:* prior = projected lineup strength from our projections; update with observed weekly points; posterior weight on results = n / (n + k(w)), with k fitted per week from history — the explicit answer to "low data or real".
+- *Outcomes:* P(playoffs), P(title), expected final rank — from sim v2 on the posterior strength, and from a direct calibrated model on the same features (record, all-play, points for, luck, projected strength and rank, games back, weeks left, schedule); the held-out winner ships, or a blend if it wins.
+- *Decomposition:* the change since preseason attributed to luck (record vs all-play), scoring noise (points vs projection beyond what history says is informative at week w) and real change (injuries, roster, projections).
+- *"Teams like yours":* historical comps from the real leagues — e.g. "of N real teams that started 1-1 with a top-3 projected lineup, X% made the playoffs" — with N always shown.
+- *Verdict (Fine / Watch / Act), decision-theoretic:* Act when odds fall below a fitted threshold AND the best available move (waivers or the Trade Brain) raises title odds by at least a fitted amount; thresholds fitted on earlier seasons and validated on the replay counterfactuals (acting must beat not acting for teams labelled Act). Never Act on noise alone.
+
+**Validation, pre-registered:** walk-forward (fit 2021-2023, validate 2024 and 2025 once), bootstrap clustered by league; Brier, log loss and expected calibration error by week 1-13 with reliability tables; baselines: record-only, all-play-only, projection-only, the raw sim and naive win-rate-so-far; subgroup checks by league size and scoring, and Nick's leagues against the public population; signs stable across seasons. **Ships only if** the combined model beats every baseline at weeks 2-8 on held-out Brier with the interval excluding zero, and calibration error is at most 0.03.
+
+**Wiring:** one `team-outlook` service → route → the home card, the League Hub deep dive (odds by week, the decomposition, the comps), the Coach's team-audit tool, plan items when Act, and the decision log; the trade horizon reads its real playoff odds (replacing the 0.5 default); the Trade Brain's contender/bubble/out split comes from it.
+
+### 00.2e Provenance audit → steps (docs/NUMBER-PROVENANCE.md)
+
+Headline: of ~24 families of future numbers, ~8% are fully historical and on one route, ~38% have a validated core wrapped in hand-set, stale or mis-routed pieces, ~54% are not historical at all. Every item is assigned:
+- **WA (running):** deploy the validated chance-to-play model with its restart (item 2); `offerFor`/`offerForMany` get the counterparty read and horizon; the `findTrades` cache gets `counterpartyDataKey` and a caller for `negotiationProfilesFor`; trade-objective sensitivity table; at integration, check the in-season weight auto-promotion now on the refresh loop (`cf6ae18`) is gated, and restart the refresh loop too so it runs the new code.
+- **WO:** season sim v2 + calibration (items 1, routing 1, 9, 10); the 0.25/0.75 blend replaced by a replay-fitted weight (3); playoff-week importance and real playoff odds (4); realized-value replay for the trade objective (5); betting-line lift tested with/without, and its double count with the coordinator removed (6, routing 3); coordinator refit on the current head, gated against the live ensemble, applied on the basis it was fit on (15, routing 2); the live waiver rule through the replay (10); injury-return model so rest-of-season, trade legs and the sim carry availability (routing 10).
+- **WB:** one "this week" basis for every lineup view (routing 4); one confidence language — Start/Sit's 1.5/4.0 cuts replaced by the validated Φ(gap/σ) curve (7, routing 5); one current-week definition (routing 6); one posture decision (routing 8); the News projection on the same basis (routing 17); budget settings UI.
+- **WC:** wrong horizons fixed — "over the season" ×17 and the target panel ×(18 − week) (17, routing 12); retired schedule/DvP signals removed from the football case, the target panel and the Claude prompts (18, 20, routing 15); needs/surplus down to one version (routing 7).
+- **WD:** swap sigma and urgency cuts re-fit on the live basis with the fit script committed (8); posture spread scale re-fit (9); counterparty caps and priors fitted on decided proposals, leave-one-manager-out (11); needs/selfScout thresholds tested against declined proposals, "contender" replaced by calibrated odds (12); efficiency shrinkage and priors (13); correlations (14); QBR (16); news multipliers and Buy/Sell graded on settled outcomes (19, 20); the stale-basis refits (routing 11); the coordinator's daily ungated refit gets a gate (routing 16).
+- **Later:** draft bench constants (21) before next year's draft.
+
 ### 00.2c How much work is left (12:15)
 
 | Block | Items left | Machine time | Lands |
 |---|---|---|---|
 | WA (running): infra, review fixes, Trade Brain ×5, integration | 8 | ~8 h | ~20:30 Fri |
-| WO + WB (incl. Team Outlook) | ~16 | ~7 h | ~03:30 Sat |
-| WC + WD | ~30 | ~7 h | ~10:30 Sat |
-| WE | 1 | ~1 h | ~11:30 Sat |
-| **Total** | **~55 items** | **~23 h** | **Saturday ~11:30** |
+| WO + WB (incl. season sim v2 + Team Outlook) | ~22 | ~9 h | ~05:30 Sat |
+| WC + WD | ~38 | ~8 h | ~13:30 Sat |
+| WE | 1 | ~1 h | ~14:30 Sat |
+| **Total** | **~69 items** | **~26 h** | **Saturday ~14:30** |
 
 Nick's decisions (00.4) don't block any of it.
 

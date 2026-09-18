@@ -50,6 +50,14 @@ const FLEX_ELIGIBLE = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_F
 // Positions we model. K and D/ST are near-random week to week and roughly
 // interchangeable, so including them adds noise to every lineup comparison.
 const SCORED = new Set(SKILL);
+/**
+ * What handing over market value costs, per 20% of the value you send.
+ *
+ * Unfitted and deliberately conservative — see the note at the call site. Fit
+ * against decided proposals once `league_transactions_raw` holds enough of them
+ * to estimate how much acceptance a point of value actually buys.
+ */
+export const VALUE_GIVEAWAY_LAMBDA = 0.9;
 
 const norm = s => (s ?? '').toLowerCase().replace(/[.'’-]/g, '')
   .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
@@ -941,7 +949,32 @@ function findTradesUncached(lg, {
         const managerFactor = cp
           ? counterparty.receptiveness * (managerProfiles.get(String(them.roster_id)) === 'hard' ? 0.55 : 1)
           : (managerProfiles.get(String(them.roster_id)) === 'hard' ? 0.55 : 1);
-        const fairnessFactor = 1 / (1 + Math.exp(-(ev.their_value_pct + 4) / 10));
+        // FAIRNESS, CAPPED — and then paid for.
+        //
+        // This sigmoid rises monotonically with how much value you hand over:
+        // 0.17 when you win on value, 0.60 at even, 0.92 when they get 20% more.
+        // It was the engine's ONLY acceptance proxy, so rewarding generosity was
+        // the right shape for it. Now that receptiveness and perception model
+        // acceptance directly, an uncapped fairness term double-counts it and
+        // leaves nothing to stop the engine buying a yes with your assets. Every
+        // top suggestion was handing over 1,000-1,800 of market value.
+        //
+        // Capped just past even: beyond that a deal is already attractive to
+        // them and the rest is a donation.
+        const fairnessFactor = Math.min(
+          1 / (1 + Math.exp(-(Math.min(ev.their_value_pct, 4) + 4) / 10)), 0.60);
+        // The lambda term the objective always specified and never had: what
+        // surrendering market value costs YOU. Measured against the value you
+        // send, so a lopsided swap of two big assets is penalised harder than
+        // the same percentage on two bench players.
+        //
+        // NOT FITTED. It cannot be until enough proposals have been decided to
+        // estimate how much acceptance a point of value actually buys; forward
+        // capture began 2026-09-17. 0.9 makes giving away 20% of what you send
+        // cost about as much as 1.0 point a week of lineup gain — deliberately
+        // conservative, so the engine has to argue for a clear weekly win
+        // before it parts with assets.
+        const valueCost = VALUE_GIVEAWAY_LAMBDA * Math.max(0, ev.their_value_pct) / 20;
         // How the package lands with HIM, bounded to +-10% of the score. Sentiment
         // from a handful of texts breaks ties between comparable deals; it is never
         // allowed to promote a deal that is bad for us.
@@ -966,8 +999,15 @@ function findTradesUncached(lg, {
               .map(p => p.name),
             word_stance: cp?.stance?.stance ?? null,
           },
-          score: +(managerFactor * fairnessFactor * perceptionFactor
-            * (ev.me.ppg_delta + 0.2 * ev.joint_ppg)).toFixed(3)
+          // The trade-off, surfaced rather than buried in one number.
+          value_cost: +valueCost.toFixed(2),
+          value_note: ev.their_value_pct > 6
+            ? `You send ${ev.their_value_pct.toFixed(0)}% more market value than you get back — justified only by the weekly gain.`
+            : ev.their_value_pct < -6
+              ? `You get ${Math.abs(ev.their_value_pct).toFixed(0)}% more market value than you send.`
+              : 'Roughly even on market value.',
+          score: +Math.max(0, managerFactor * fairnessFactor * perceptionFactor
+            * (ev.me.ppg_delta + 0.2 * ev.joint_ppg) - valueCost).toFixed(3)
         });
       }
     }

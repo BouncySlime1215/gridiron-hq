@@ -60,6 +60,19 @@ Nick, 03:50: *"Trades are designed by the people they are being sent to while fi
 - *Inventory first* → attach it to "Existing systems first", turn each capability into a WA phase-1 audit assignment (named files, named routes), commit.
 - *W0 first* → run steps 1-7 above; restart; check live that Coker's and Waddle's rest-of-season numbers are sane, that Mahomes is not a drop, and that the lineup card still agrees with Start/Sit; push; launch WA. If the inventory is still running, WA's audit agents do their own discovery from the known-overlaps list, and the inventory is merged into their briefs as a cross-check when it lands.
 
+#### A4. Reference — what the codes mean (Nick, 2026-09-18: "why is it O1 and all these weird ordering... keep it internal but report differently to me, keep a reference for what is what")
+The letter/number codes below (WA, O1, B2, etc.) stay in this document as-is — they're stable tags so a finding logged in section E can point at exactly one step without being renumbered every time scope is added (which happens most sessions). They are **not** used when reporting to Nick in chat — status there is plain "step Y of X" (top-level) and, for whatever step is active, "part y of x" within it. This table is the translation between the two.
+
+| Code | Plain meaning | Top-level position |
+|---|---|---|
+| W0 | Early projections, ROS value, fake floors, waiver/IR fixes | 1 of 5 — **done** |
+| WA | Essentials + Trade Brain (chance-to-play, manager data, LLM budget, infra, review fixes, trade correctness/valuation/tactics/proposals) | 2 of 5 — **running** (13 agents; last checked: 12 of 13 done, 1 verify agent finishing) |
+| WO+WB | One workflow, two scopes: **WO** = H1 (league history) + O1 (opportunity, 3 parts: O1a scaffold, O1b 4 event triggers, O1c wiring) + O2 (injury-return) + O3 (season sim) + O4 (Team Outlook) + O5 (trade value/horizon) + O6 (weekly basis/lift/coordinator) + C0 (contracts); **WB** = B1 (action plan) + B2 (Coach) + B3 (opponent read/news) + B4 (UI) + B5 (decision log/waivers) + B6 (negotiation profiles) | 3 of 5 — next |
+| WC+WD | **WC** = every page audited/cleaned; **WD** = the remaining model refinements and the weekly learning loop | 4 of 5 — after |
+| WE | Final integration, restart, push, morning report | 5 of 5 — last |
+
+`D1-D10` are design specs (what a step must satisfy, not a step itself); `E1-E6` are evidence/audit findings (what was checked and what it changed) — neither gets a Y-of-X position, they're reference material the steps above are built from.
+
 ### B. Where we are
 
 #### B1. Status, next steps and ETAs
@@ -72,14 +85,16 @@ Nick, 03:50: *"Trades are designed by the people they are being sent to while fi
 | WC + WD | **Run together**: WC — every page inspected and cleaned, orphans retired, routing splits merged; WD — model refinements, weekly learning loop, K/DEF test, remaining deferrals | After | ~09:30 Sat, then restart |
 | WE | Final integration, restart, push, morning report | Last | ~10:30 Sat |
 
+**ETA correction, 2026-09-18 (structural audit, Nick: "does the plan all make sense — is what we are doing good?"):** every time below was set assuming WA finishes on its own ~20:30 Fri estimate. Checked against the live workflow view, not carried forward as fact: WA has run 8h15m+ and is still in its Verify phase (13 agents total; last checked, 12 of 13 done). It has already overrun its own ETA. Every downstream time (WO+WB ~05:30 Sat, WC+WD ~13:30 Sat, WE ~14:30 Sat) inherits that slip and is marked **stale** — not restated as if still true. A real re-estimate happens once WA actually finishes, not before.
+
 Everything that matters for Sunday's week-2 games — chance to play, the Trade Brain, the Coach and home page — is live by Saturday morning.
 
 | Block | Items left | Machine time | Lands |
 |---|---|---|---|
-| WA (running): infra, review fixes, Trade Brain ×5, integration | 8 | ~8 h | ~20:30 Fri |
-| WO + WB (incl. season sim v2 + Team Outlook) | ~22 | ~9 h | ~05:30 Sat |
-| WC + WD | ~38 | ~8 h | ~13:30 Sat |
-| WE | 1 | ~1 h | ~14:30 Sat |
+| WA (running): infra, review fixes, Trade Brain ×5, integration | 8 | ~8 h (actual: 8h15m+, still running) | ~20:30 Fri — **overrun, stale** |
+| WO + WB (incl. season sim v2 + Team Outlook, now includes O1's 3-part split + 8 items from E6) | ~22 → **~35** (E6's 8 findings + O1's split added real scope) | ~9 h | **stale — depends on WA's actual finish** |
+| WC + WD | ~38 | ~8 h | **stale** |
+| WE | 1 | ~1 h | **stale** |
 | **Total** | **~69 items** | **~26 h** | **Saturday ~14:30** |
 
 Nick's decisions (B2) don't block any of it.
@@ -92,6 +107,7 @@ Nick's decisions (B2) don't block any of it.
 5. **FYI:** the fake-floor fix shipped after its first gate was shown to be a draw-count artifact (947d66c explains it).
 
 #### B3. Status log
+- **2026-09-18 — structural audit, prompted directly ("does the plan all make sense — is what we are doing good?").** (1) *Still makes sense:* yes across the board — tonight's E6 scenario audit and O1's wiring finding sharpened real gaps, nothing found makes a planned build redundant or wrong-headed. (2) *Order:* mostly right, with one real correction — the B1 ETA table was stale (WA overran its own ~20:30 Fri estimate, still in Verify at 8h15m+) and has been marked so rather than left standing as fact. (3) *Re-architect:* yes, acted on — O1 had grown to 11 items across this session without ever being restructured; split into O1a (core scaffold) / O1b (4 event triggers) / O1c (wiring), each independently gated, so a single brief can't quietly under-deliver on 8 of 11 items. Added a reference table (A4) translating the plan's internal codes to plain "step Y of X" language for chat, since the codes themselves were confusing when spoken rather than read. (4) *Obsolete:* nothing new. **Honest balance:** since the last shipped code (trade-engine-correctness, still finishing verification), this stretch has been audit and plan-refinement — E6, the O1 wiring/season-goals disconnect, Coach's tool-catalog completeness requirement, the Coach voice contract, this restructure — not new shipped code. That is the direct, correct consequence of the one-workflow-at-a-time rule (WA is still the only thing allowed to touch the build surface) — a legitimate use of the wait, not a detour, but it should not be read as forward progress on the build itself.
 - **~12:57 — critical ingestion gap fixed, plus a self-caught crawler defect.** `nfl_model_growth`/`ffopportunity` added to the live refresh loop (`cf3d446`) while the review-fix agent's file was briefly clear — no collision. Separately, spot-checking the Sleeper crawl for data quality (not just non-emptiness) found 33% of stored leagues (167 of 509) were Sleeper leagues marked `status: complete` that never actually drafted or played — real example live-verified. Fixed test-first (`c759679`), the bad rows purged from the crawl DB, crawler restarted clean.
 - **~12:45 — orphan review.** The 3 untracked feature-study files were checked against the consolidated study's verdict: 2 of 3 duplicate hypotheses already tested dead (man/zone, O-line/PROE via `adv_team_week`) and were deleted (never git-tracked). The third, `td-features.js` (week-level TD-rate features), is a genuinely untested angle — kept, flagged into WD.
 - **~12:40 — existing-systems rule saved a build.** The injury-return model's history (weekly IR/PUP status 2016-2026) and the QBR history are already in `data/line-history/nflverse.sqlite`; noted in C and F, and that archive is protected from any line-history slimming.
@@ -435,6 +451,12 @@ Tags: **[WA-ess]** WA phase-1 essentials · **[WA]** Trade Brain · **[WB]** Coa
 - **[WO O1]** Redistribution null re-tested with weeks 2-4 included, the fitted-K head, an absorption fit excluding the graded season, and teammate P(out) from the role layer.
 - **[WO O1]** `td-features.js` and the man/zone family wired as O1 discovery candidates rather than a standalone decision; man/zone parked until nflverse participation data covers 2026 (currently ends 2025).
 - **[WO O1, Nick ~13:35: "when someone is hurt, how the teammates will do — only tell someone to get the waiver if it's legit not fake"]** Injury-driven opportunity redistribution gets its own explicit, honest re-test and a hard rule for what reaches the waiver board and the plan:
+
+  **Re-architected into three sub-steps, 2026-09-18 (Nick: "does the plan all make sense... u can redo the plan if u need, just reorder, don't drop anything").** Eleven items had accumulated under one O1 label across this session — the core statistical re-test, four different real-world trigger types that all reuse it, and the requirement that the result actually reaches Coach and the trade engine. Bundling all eleven into one brief risks exactly what E6 exists to catch: a big brief gets 3 items built well and the rest shallow or dropped. Split by real dependency, nothing dropped, every item's original text kept below unchanged:
+  - **O1a — the core scaffold (items 1-6).** The redistribution regression itself: continuous covariates, per-player/team conditioning, the significance gate, the waiver-disclosure rule, the double-counting guard. Ships first, in Phase 1 alongside H1/O2/C0 — nothing below can be built before this exists.
+  - **O1b — event triggers (items 7-10, 4 of them: QB/starter switching, O-line, NFL trades, realized usage-share drops/benching).** Four different real-world causes that all feed O1a's SAME regression as a real event. Independent of each other, so these four can run as parallel sub-agents once O1a lands — moved to Phase 2, right after O1a, not bundled into Phase 1 where it was implicitly sitting before.
+  - **O1c — wiring into consumers (item 11).** Making the redistribution effect actually reach `projections.js`, `trade-engine.js` and Coach, plus the separate season-goals disconnect (`trade-engine.js`'s `window` vs. the real O3/O4 verdict). Depends on O1a-O1b for the first half, and additionally on O3/O4 shipping for the second half (the `window` fix) — Phase 2, ordered after both.
+
   1. *Re-test* (already queued above, made explicit here): weeks 2-4 included, the fitted-K head, teammate P(out) from the role layer instead of realized absence, absorption fit excluding the graded season, player-clustered bootstrap, graded on the teammate's OWN opportunity (targets/carries/routes) AND on start/sit pair accuracy — not assumed to help because the story sounds right. Three earlier variants already failed this; this is the fourth honest attempt, not a rerun of the same broken thing.
   2. *The gate a waiver claim must clear before it can say "because X is hurt":* the redistribution effect for that position/situation must be statistically significant out-of-sample (player-clustered CI excluding zero) in the walk-forward test, not just plausible-sounding. If the model fails the gate, it ships OFF, exactly as it is today, and the waiver board/plan/Coach must not manufacture an injury-driven bump that was never validated.
   3. *If it passes:* the waiver board (`waiver-wire.js`) and the weekly plan (B1) may only surface an injury-driven pickup with the size of the validated effect attached (e.g. "+2.1 expected targets/game, measured on N similar absences") — never a bare "he's now the guy" line with no number behind it. The Coach must cite the same number if asked, and say plainly when a suggestion is speculative (below the significance bar) versus real.

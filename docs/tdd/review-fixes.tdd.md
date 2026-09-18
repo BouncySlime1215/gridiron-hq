@@ -330,3 +330,22 @@ out. No production change.
 | P2 MATERIAL_EDGE 23 -> 12 | 2 (constants, stance boundary) |
 | P3 spread from each player's own (ceiling - floor) / 2.56 | 4 |
 | P4 flagged players allowed into the swap pool | 1 |
+
+## 11. Matchup no-signal state had no tests (medium; tdd-workflow)
+
+Journey: as Nick, I want defense-vs-position and home/away to stay out of my
+projections until they pass the walk-forward test, whatever the history shows.
+
+Characterization tests (`test/matchups-no-signal.test.js`, 5) on seeded game logs where
+one defense allows twice the usual: `dvpFor` mult 1 / signal false / the reason, with
+the descriptive history intact; `scheduleOutlook` sos and playoff_sos 1, no best or
+worst, every game multiplier 1, bye still found; `dvpTable` display-only with applied
+multiplier 1; `GET /trades/dvp` reports signal false and the reason; a self-opponent
+schedule row is repaired from the other team's row. No production change.
+
+| Mutation (scratch copy) | Tests failing |
+|-------------------------|---------------|
+| X1 DVP_MULTIPLIER_ENABLED = true | 4 |
+| X2 scheduleOutlook's no-signal return removed | 1 |
+| X3 HOME_FIELD_MULTIPLIER_ENABLED = true | 2 |
+| X4 self-opponent repair removed | 1 |

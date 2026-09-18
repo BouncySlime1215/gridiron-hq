@@ -18,6 +18,7 @@ import { evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../se
 import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
 import { leagueCurrentWeek, leagueLastCompletedWeek } from '../services/league-week.js';
 import { waiverBoard } from '../services/waiver-wire.js';
+import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { brainState, brainPlan, managerProfiles, setManagerProfile } from '../services/league-brain.js';
@@ -433,6 +434,23 @@ r.get('/:leagueId/waivers', (req, res, next) => {
       limit: Math.min(50, Math.max(5, Number(req.query.limit) || 20)),
       minProjected: Number(req.query.min_projected) || 4,
     }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Floor or ceiling, against THIS week's opponent.
+ *
+ * Maximising expected points is the wrong objective in a head-to-head week. As
+ * a heavy underdog the safe lineup loses slowly; as a heavy favourite variance
+ * is the only way you lose. The effect is small and conditional — about +1.3pp
+ * of win probability for one boom/bust swap at a 25-point deficit, and under
+ * 0.3pp inside five points — so this deliberately says nothing in close
+ * matchups rather than inventing advice.
+ */
+r.get('/:leagueId/posture', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(lineupPosture(lg, { myTeamId: req.query.team_id, week: req.query.week }));
   } catch (e) { next(e); }
 });
 

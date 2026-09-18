@@ -18,7 +18,8 @@
  * are the contract that keeps a chatty manager from dominating the ranking.
  */
 import { rows } from '../db/index.js';
-import { managerSignalsFor, sentimentMultiplier } from './manager-signals.js';
+import { managerSignalsFor, openChatDb, chatDataKey } from './manager-signals.js';
+import { identityMap } from './manager-identity.js';
 import { talkReads } from './talk-vs-model.js';
 import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 
@@ -51,7 +52,9 @@ export function counterpartyLayer(leagueId, { season, week } = {}) {
   // are loaded once for the league: the first decides the SIGN of a sentiment
   // adjustment, the second decides whether a refusal is real.
   const reads = talkReads(leagueId, season, week);
-  const credibility = declarationCredibility();
+  // Declarations live in the chat, so a league with no trusted chat identity
+  // has none to weigh — and no reason to open the private chat DB at all.
+  const credibility = identityMap(leagueId).size ? declarationCredibility() : null;
   const tiers = new Map(rows('SELECT roster_id, tradeability FROM manager_profiles WHERE league_id = ?', leagueId)
     .map(r => [String(r.roster_id), r.tradeability]));
 
@@ -84,9 +87,11 @@ export function counterpartyLayer(leagueId, { season, week } = {}) {
     if (m.prior_seller) score += 0.08 * m.prior_seller;
 
     const [lo, hi] = RECEPTIVENESS_RANGE;
-    let receptiveness = lo + (hi - lo) * Math.max(0, Math.min(1, score));
+    const receptiveness = lo + (hi - lo) * Math.max(0, Math.min(1, score));
+    // The hand-set tier is reported, not applied: trade-engine.js applies the
+    // 0.55 "hard" factor to every deal, with or without this layer, and
+    // applying it here as well discounted a hard manager to 0.30.
     const tier = tiers.get(id) ?? 'fair';
-    if (tier === 'hard') receptiveness *= 0.55;
 
     profile.set(id, {
       roster_id: id, receptiveness: +receptiveness.toFixed(3), tier,
@@ -154,16 +159,30 @@ export function perceivedValue(players, managerProfile) {
  * receives looks to him than the one he gives up, as a percentage of what he is
  * giving. Positive means it reads as a win from his side of the table — which
  * is the precondition for acceptance, independent of whether it is good for us.
+ *
+ * It is null when nothing we know about him moves the price of any player in
+ * the deal. His "perception" is then just our own value gap, which the trade
+ * engine already prices through its capped fairness term and its value cost;
+ * returning it anyway let the ±10% perception factor pay a second time for
+ * handing him value — for every manager with no chat read, which after the
+ * all-league build is every manager in four of the five leagues.
+ * `perception_shift` is the part his views add beyond our own gap, in the same
+ * units: the tie-breaker the perception factor was written to be.
  */
 export function readDeal({ theirGive, theirGet, managerProfile }) {
   const give = perceivedValue(theirGive, managerProfile);
   const get = perceivedValue(theirGet, managerProfile);
   const base = give.value || 1;
   const delta = (get.value - give.value) / base;
+  const sum = list => list.reduce((s, p) => s + (p.value ?? 0), 0);
+  const ourDelta = (sum(theirGet) - sum(theirGive)) / (sum(theirGive) || 1);
+  const informed = give.reasons.length > 0 || get.reasons.length > 0;
   return {
     receptiveness: managerProfile?.receptiveness ?? 1,
     their_perceived_give: give.value, their_perceived_get: get.value,
-    perception_delta: +(delta * 100).toFixed(1),
+    perception_informed: informed,
+    perception_delta: informed ? +(delta * 100).toFixed(1) : null,
+    perception_shift: informed ? +((delta - ourDelta) * 100).toFixed(1) : null,
     perception_reasons: [...give.reasons.map(r => ({ ...r, side: 'they_give' })),
       ...get.reasons.map(r => ({ ...r, side: 'they_get' }))],
     chat_msgs: managerProfile?.chat_msgs ?? 0,
@@ -173,16 +192,181 @@ export function readDeal({ theirGive, theirGet, managerProfile }) {
   };
 }
 
+// untouchablesFor lived here until 2026-09-18. It had no caller: declared
+// untouchables are decided by bluff-detector.js#untouchableStance, which reads
+// the same rows and also weighs whether the manager's word has held.
+
 /**
- * Players this manager has publicly treated as untouchable recently.
- *
- * Asking for someone's declared untouchable is the single cheapest way to look
- * like you do not read the chat, so these are removed from the search entirely
- * rather than ranked down — the same treatment Nick's own exclusions get.
+ * Signature of every counterparty input for one league, for a cache
+ * fingerprint (the findTrades cache left these out, so a rebuild served stale
+ * rankings). Stable across an idle rebuild — the builders only write when
+ * something changed — and different after any real change: signals and player
+ * views (one stamp, see buildManagerSignals), identities, hand-set tiers, and
+ * for a chat league the chat data and the negotiation profiles.
  */
-export function untouchablesFor(leagueId, rosterId, { days = 30, threshold = 2.9 } = {}) {
-  return new Set(rows(`SELECT player_name FROM manager_player_view
-                       WHERE league_id = ? AND roster_id = ? AND sentiment >= ? AND n >= 3
-                         AND last_mention >= date('now', ?)`,
-  leagueId, String(rosterId), threshold, `-${days} days`).map(r => r.player_name.toLowerCase()));
+export function counterpartyDataKey(leagueId) {
+  const part = (table, stamp) => {
+    try {
+      const r = rows(`SELECT COUNT(*) AS n, MAX(${stamp}) AS m FROM ${table} WHERE league_id = ?`, leagueId)[0];
+      return `${r?.n ?? 0}:${r?.m ?? ''}`;
+    } catch { return 'absent'; }
+  };
+  let chat = 'none';
+  if (identityMap(leagueId).size) {
+    const c = openChatDb();
+    if (!c) chat = 'absent';
+    else {
+      try {
+        let np = 'absent';
+        try {
+          const r = c.prepare('SELECT COUNT(*) AS n, MAX(built_at) AS m FROM negotiation_profiles').get();
+          np = `${r.n}:${r.m ?? ''}`;
+        } catch { np = 'absent'; }
+        chat = `${chatDataKey(c)}|np:${np}`;
+      } finally { c.close(); }
+    }
+  }
+  return `ms:${part('manager_signals', 'computed_at')}|id:${part('league_member_identity', 'updated_at')}`
+    + `|mp:${part('manager_profiles', 'updated_at')}|chat:${chat}`;
+}
+
+/**
+ * Shape of one stored negotiation profile — the input schema of the tool
+ * scripts/build-negotiation-profiles.mjs forces the model to call. Kept here so
+ * the server has one reader that checks what it reads; the script should import
+ * it rather than carry a second copy.
+ */
+const strings = { type: 'array', items: { type: 'string' } };
+export const NEGOTIATION_PROFILE_SCHEMA = Object.freeze({
+  type: 'object',
+  properties: {
+    headline: { type: 'string' },
+    says_no: { type: 'object', properties: {
+      how: { type: 'string' }, hard_no_looks_like: strings, soft_no_looks_like: strings,
+      does_his_no_hold: { type: 'string', enum: ['yes', 'usually', 'rarely', 'unknown'] }, evidence: strings,
+    }, required: ['how', 'does_his_no_hold', 'evidence'] },
+    praise_means: { type: 'object', properties: {
+      reading: { type: 'string', enum: ['belief', 'marketing', 'habit', 'mixed', 'unknown'] },
+      why: { type: 'string' }, hypes_before_selling: { type: 'boolean' }, agrees_with_numbers: { type: 'string' },
+      evidence: strings,
+    }, required: ['reading', 'why', 'evidence'] },
+    techniques: { type: 'array', items: { type: 'object', properties: {
+      name: { type: 'string' }, how_he_does_it: { type: 'string' }, evidence: strings,
+      how_often: { type: 'string', enum: ['often', 'sometimes', 'once'] },
+    }, required: ['name', 'how_he_does_it', 'how_often'] } },
+    calibration: { type: 'object', properties: {
+      enthusiasm_scale: { type: 'string' }, baseline_tone: { type: 'string' },
+      inflation: { type: 'string', enum: ['none', 'mild', 'heavy', 'unknown'] },
+    }, required: ['enthusiasm_scale', 'inflation'] },
+    roster_read: { type: 'object', properties: {
+      really_untouchable: strings, quietly_available: strings, overvalues: strings, undervalues: strings,
+      reasoning: { type: 'string' },
+    } },
+    what_moves_him: strings,
+    what_shuts_him_down: strings,
+    how_to_approach: { type: 'string' },
+    best_bait: { type: 'string' },
+    confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+    caveats: strings,
+  },
+  required: ['headline', 'says_no', 'praise_means', 'techniques', 'calibration',
+    'what_moves_him', 'how_to_approach', 'confidence', 'caveats'],
+});
+
+/**
+ * Every violation of the schema, recursively: type, enum, required keys,
+ * unexpected keys, and tool-call markup leaked into a string — the failure
+ * that left six of nine profiles unusable on 2026-09-18 while still parsing.
+ */
+function schemaErrors(schema, value, where = 'profile') {
+  if (value == null) return [];
+  switch (schema.type) {
+    case 'object': {
+      if (typeof value !== 'object' || Array.isArray(value)) {
+        return [`${where}: expected object, got ${Array.isArray(value) ? 'array' : typeof value}`];
+      }
+      const errs = [];
+      for (const k of schema.required ?? []) if (value[k] == null) errs.push(`${where}.${k}: missing`);
+      const known = schema.properties ?? {};
+      for (const k of Object.keys(value)) {
+        if (!(k in known)) errs.push(`${where}.${k}: unexpected key`);
+        else errs.push(...schemaErrors(known[k], value[k], `${where}.${k}`));
+      }
+      return errs;
+    }
+    case 'array':
+      if (!Array.isArray(value)) return [`${where}: expected array, got ${typeof value}`];
+      return value.flatMap((v, i) => schemaErrors(schema.items, v, `${where}[${i}]`));
+    case 'string':
+      if (typeof value !== 'string') return [`${where}: expected string, got ${typeof value}`];
+      if (/<\/?parameter\b/.test(value)) return [`${where}: leaked tool-call markup`];
+      if (schema.enum && !schema.enum.includes(value)) return [`${where}: "${value}" not in ${schema.enum.join('/')}`];
+      return [];
+    case 'boolean':
+      return typeof value === 'boolean' ? [] : [`${where}: expected boolean, got ${typeof value}`];
+    default:
+      return [];
+  }
+}
+export function negotiationProfileErrors(profile) {
+  if (profile == null || typeof profile !== 'object') return ['profile: expected object'];
+  return schemaErrors(NEGOTIATION_PROFILE_SCHEMA, profile);
+}
+
+/**
+ * The one server reader for negotiation_profiles (private chat DB, written by
+ * scripts/build-negotiation-profiles.mjs with Sonnet 5).
+ *
+ * Returns, for one league:
+ *   byRoster  roster_id -> { name, profile, built_at, messages_read, model } for
+ *             every VALID profile whose person is a trusted identity here
+ *   self      'ME' — Nick as the league-4 chat experiences him. Never a
+ *             counterparty; it answers "how do I look to them".
+ *   invalid   [{ name, errors }] — stored rows that fail the schema; not used
+ *   unmapped  valid profiles with no trusted identity in this league
+ *
+ * A league with no trusted chat identity returns available=false: the profiles
+ * are read from one chat, and attaching them to namesakes elsewhere would be
+ * worse than having none.
+ */
+export function negotiationProfilesFor(leagueId) {
+  const result = (available, reason = null) => ({
+    league_id: leagueId, available, reason, byRoster: new Map(), self: null, invalid: [], unmapped: [],
+  });
+  const ids = identityMap(leagueId);
+  if (!ids.size) return result(false, 'no chat corpus for this league (no confirmed chat identities)');
+  const chat = openChatDb();
+  if (!chat) return result(false, 'chat DB not found');
+  let stored;
+  try {
+    stored = chat.prepare(`SELECT name, profile_json, messages_read, model, built_at, corpus_hash
+                           FROM negotiation_profiles ORDER BY name`).all();
+  } catch (e) {
+    if (/no such table/.test(String(e?.message))) {
+      return result(false, 'no negotiation_profiles table (scripts/build-negotiation-profiles.mjs has not run)');
+    }
+    throw e;
+  } finally { chat.close(); }
+
+  const out = result(true);
+  const rosterByName = new Map([...ids.values()].map(i => [i.chat_name, i.roster_id]));
+  const myTeam = rows('SELECT my_team_id FROM leagues WHERE id = ?', leagueId)[0]?.my_team_id ?? null;
+  for (const r of stored) {
+    let profile = null;
+    let errors;
+    try { profile = JSON.parse(r.profile_json); errors = negotiationProfileErrors(profile); }
+    catch { errors = ['unparseable JSON']; }
+    if (errors.length) { out.invalid.push({ name: r.name, errors }); continue; }
+    const entry = { name: r.name, profile, built_at: r.built_at, messages_read: r.messages_read,
+      model: r.model, corpus_hash: r.corpus_hash };
+    if (r.name === 'ME') {
+      out.self = { ...entry, roster_id: rosterByName.get('ME') ?? (myTeam == null ? null : String(myTeam)),
+        scope: 'how the league chat sees Nick' };
+      continue;
+    }
+    const rosterId = rosterByName.get(r.name);
+    if (rosterId == null || String(rosterId) === String(myTeam)) { out.unmapped.push(r.name); continue; }
+    out.byRoster.set(String(rosterId), { ...entry, roster_id: String(rosterId) });
+  }
+  return out;
 }

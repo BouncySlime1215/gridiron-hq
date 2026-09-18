@@ -27,23 +27,15 @@
  * football. Only the short window counts, and the number is always reported
  * with its sample size because these counts are small by nature.
  */
-import { DatabaseSync } from 'node:sqlite';
-import path from 'node:path';
 import { rows } from '../db/index.js';
-
-import { PROJECT_ROOT } from '../platform/paths.js';
-const ROOT = PROJECT_ROOT;
-const CHAT_DB = path.join(ROOT, 'data/derived/league_chat.sqlite');
+import { openChatDb, chatDbPath, chatDataKey } from './manager-signals.js';
+import { TRUSTED_CONFIDENCE } from './manager-identity.js';
 
 /** A reversal inside this many days is about negotiating, not about football. */
 export const BLUFF_WINDOW_DAYS = 10;
 /** League-average bluff rate to shrink toward, and the strength of that pull. */
 export const PRIOR_BLUFF_RATE = 0.35;
 export const PRIOR_WEIGHT = 4;
-
-function openChat() {
-  try { return new DatabaseSync(CHAT_DB, { readOnly: true }); } catch { return null; }
-}
 
 /**
  * Every "this guy is not available" moment we can find, per (manager, player).
@@ -81,14 +73,31 @@ const daysBetween = (a, b) => (Date.parse(b) - Date.parse(a)) / 86400000;
  * `credibility` is the shrunk probability that a declaration holds. With no
  * declarations at all it is the league prior, NOT 1 — "we have never heard him
  * refuse" is not evidence that his refusals are honest.
+ *
+ * Cached per window against chatDataKey: the two queries join the 500k-row
+ * classifier table (~90 ms) and used to run on every uncached findTrades call.
+ * A new message or classifier row changes the key; the 15-minute rollup
+ * rewriting the same aggregates does not. The cached object is shared —
+ * callers read it, never mutate it.
+ *
+ * Always the same shape: `{ byManager, events, available }`. With no chat DB
+ * `available` is false and both collections are empty.
  */
+const credibilityCache = new Map();
 export function declarationCredibility({ windowDays = BLUFF_WINDOW_DAYS } = {}) {
-  const chat = openChat();
-  if (!chat) return new Map();
-  const decls = declarations(chat);
-  const opens = openings(chat);
-  chat.close();
+  const chat = openChatDb();
+  if (!chat) return { byManager: new Map(), events: [], available: false };
+  try {
+    const key = `${chatDbPath()}|${chatDataKey(chat)}`;
+    const hit = credibilityCache.get(windowDays);
+    if (hit?.key === key) return hit.value;
+    const value = credibilityFrom(declarations(chat), openings(chat), windowDays);
+    credibilityCache.set(windowDays, { key, value });
+    return value;
+  } finally { chat.close(); }
+}
 
+function credibilityFrom(decls, opens, windowDays) {
   const openIndex = new Map();
   for (const o of opens) {
     const k = `${o.name}|${String(o.player).toLowerCase()}`;
@@ -148,7 +157,7 @@ export function declarationCredibility({ windowDays = BLUFF_WINDOW_DAYS } = {}) 
       players: Object.fromEntries([...r.players].map(([p, v]) => [p, v])),
     });
   }
-  return { byManager: out, events };
+  return { byManager: out, events, available: true };
 }
 
 /**
@@ -161,8 +170,12 @@ export function declarationCredibility({ windowDays = BLUFF_WINDOW_DAYS } = {}) 
  * suggestion while being wrong the other way costs a relationship.
  */
 export function untouchableStance(leagueId, rosterId, credibility) {
+  // Trusted identities only: a "likely" name match borrowing someone else's
+  // declaration record would decide whether his players are asked for at all.
   const ident = rows(`SELECT chat_name FROM league_member_identity
-                      WHERE league_id = ? AND roster_id = ?`, leagueId, String(rosterId))[0];
+                      WHERE league_id = ? AND roster_id = ?
+                        AND confidence IN (${TRUSTED_CONFIDENCE.map(() => '?').join(',')})`,
+  leagueId, String(rosterId), ...TRUSTED_CONFIDENCE)[0];
   const cred = ident?.chat_name ? credibility?.byManager?.get(ident.chat_name) : null;
   const declared = rows(`SELECT player_name, sentiment, n, last_mention FROM manager_player_view
                          WHERE league_id = ? AND roster_id = ? AND sentiment >= 2.9 AND n >= 3

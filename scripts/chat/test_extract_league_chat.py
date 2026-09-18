@@ -148,14 +148,20 @@ DONE_DDL = """CREATE TABLE IF NOT EXISTS jev_chat_done (msg_id INTEGER PRIMARY K
 TONE_ERROR = 'Question "tone" did not select a highest-probability option.'
 
 
+DONE_DDL_WITH_ATTEMPTS = """CREATE TABLE IF NOT EXISTS jev_chat_done (msg_id INTEGER PRIMARY KEY,
+  evaluated_at TEXT, input_tokens INTEGER, ok INTEGER, error TEXT, attempts INTEGER NOT NULL DEFAULT 0)"""
+
+
 class TestClassifierFailures(Base):
     """
     The classifier marks a message it could not label with jev_chat_done.ok = 0 and
     still exits 0, so the loop logged the run as ok and the rows were never seen
     again (18 such rows on 2026-09-17, all the same deterministic schema error).
-    They are not re-sent automatically — a retry of a deterministic failure only
-    spends money — but every run now says how many there are, loudly, and ends
-    with one machine-readable status line the refresh loop turns into sync_log.
+    Every run says how many there are, loudly, and ends with one machine-readable
+    status line the refresh loop turns into sync_log. A failed row is also re-sent
+    while it is under MAX_CLASSIFY_ATTEMPTS (review-fixes-2, finding 3: a gateway
+    outage used to park every row it touched for good); only a row that exhausts
+    its attempts is given up, and that is said separately.
     """
 
     def status(self):
@@ -183,29 +189,65 @@ class TestClassifierFailures(Base):
             self.run_main('--classify')
         text = self.printed_text()
         self.assertIn('WARNING 2 message(s) failed classification this run', text)
-        self.assertIn('not retried automatically', text)
         self.assertIn(TONE_ERROR, text)
         s = self.status()
         self.assertEqual(s['failed_this_run'], 2)
         self.assertEqual(s['failed_outstanding'], 2)
+        self.assertEqual(s['failed_retryable'], 2)
         self.assertEqual(s['failed_errors'], {TONE_ERROR: 2})
         self.assertEqual(s['extract_new'], 2)
         self.assertEqual(s['classify'], {'ran': True, 'exit': 0})
 
-    def test_outstanding_failures_are_reported_every_run_and_never_resent(self):
+    def test_a_failure_with_attempts_left_is_backlog_and_is_re_sent(self):
+        add_msg(self.src, 10, 1, 1, 'trade?')
+        elc.extract()
+        with sqlite3.connect(self.out_path) as out:
+            out.execute(DONE_DDL_WITH_ATTEMPTS)
+            out.execute("INSERT INTO jev_chat_done VALUES (10, 't', 0, 0, ?, 1)", (TONE_ERROR,))
+        self.assertEqual(elc.unlabeled_backlog(), 1)
+        with mock.patch.object(elc, 'classify', return_value=0) as classify:
+            self.run_main('--classify')
+        classify.assert_called_once()  # the row is re-sent while it has attempts left
+        s = self.status()
+        self.assertEqual(s['failed_outstanding'], 1)
+        self.assertEqual(s['failed_retryable'], 1)
+        self.assertEqual(s['failed_given_up'], 0)
+
+    def test_a_row_that_exhausted_its_attempts_is_not_re_sent_but_is_reported_every_run(self):
+        add_msg(self.src, 10, 1, 1, 'trade?')
+        elc.extract()
+        with sqlite3.connect(self.out_path) as out:
+            out.execute(DONE_DDL_WITH_ATTEMPTS)
+            out.execute("INSERT INTO jev_chat_done VALUES (10, 't', 0, 0, ?, ?)",
+                        (TONE_ERROR, elc.MAX_CLASSIFY_ATTEMPTS))
+        self.assertEqual(elc.unlabeled_backlog(), 0)
+        with mock.patch.object(elc, 'classify', return_value=0) as classify:
+            self.run_main('--classify')
+        classify.assert_not_called()  # no paid retry once the attempts are spent
+        s = self.status()
+        self.assertEqual(s['failed_this_run'], 0)
+        self.assertEqual(s['failed_outstanding'], 1)
+        self.assertEqual(s['failed_given_up'], 1)
+        self.assertEqual(s['classify'], {'ran': False, 'exit': None})
+        text = self.printed_text()
+        self.assertIn('given up', text)
+        self.assertIn(TONE_ERROR, text)
+
+    def test_a_pre_attempts_table_is_read_as_one_attempt_used(self):
+        # The live table predates the attempts column: those 18 rows get their retries.
         add_msg(self.src, 10, 1, 1, 'trade?')
         elc.extract()
         with sqlite3.connect(self.out_path) as out:
             out.execute(DONE_DDL)
             out.execute("INSERT INTO jev_chat_done VALUES (10, 't', 0, 0, ?)", (TONE_ERROR,))
-        with mock.patch.object(elc, 'classify', return_value=0) as classify:
-            self.run_main('--classify')
-        classify.assert_not_called()  # an ok=0 row is not backlog: no paid retry
-        s = self.status()
-        self.assertEqual(s['failed_this_run'], 0)
-        self.assertEqual(s['failed_outstanding'], 1)
-        self.assertEqual(s['classify'], {'ran': False, 'exit': None})
-        self.assertIn('1 message(s) failed classification earlier', self.printed_text())
+        self.assertEqual(elc.unlabeled_backlog(), 1)
+
+    def test_python_and_the_classifier_agree_on_the_attempt_limit(self):
+        mts = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(elc.__file__))),
+                           'news-line', 'jev_league_chat.mts')
+        with open(mts) as fh:
+            source = fh.read()
+        self.assertIn(f'MAX_ATTEMPTS = {elc.MAX_CLASSIFY_ATTEMPTS}', source)
 
     def test_a_clean_run_still_prints_the_status_line(self):
         add_msg(self.src, 10, 1, 1, 'trade?')

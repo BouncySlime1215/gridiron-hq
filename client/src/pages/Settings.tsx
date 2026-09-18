@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import EspnConnect from '../components/EspnConnect';
 import PhoneAccess from '../components/PhoneAccess';
+import LeagueChatPull from '../components/LeagueChatPull';
 import { api } from '../api';
 
 /**
@@ -23,6 +24,7 @@ export default function Settings() {
         <p className="text-xs leading-5 text-slate-600">Gridiron HQ provisions this browser when it connects from your own Mac. There is no bearer token to copy or paste. Protected league, draft, trade and Model Lab calls still require a real session; the server only issues it over the loopback interface.</p>
       </div>
       <PhoneAccess />
+      <LeagueChatPull />
       <EspnConnect />
       <h1 className="text-2xl font-bold mb-1">ESPN Settings</h1>
       <p className="text-sm text-slate-600 mb-6">

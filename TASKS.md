@@ -26,14 +26,28 @@ Last updated: 2026-09-18, cloud session on `cursor/betting-model-audit-fixes-1c8
     drift apart again. Three regression tests in
     `test/trade-engine-correctness.test.js` (G9a/G9b/G9c).
 
+- **Cloud migration — built.** `docs/CLOUD-MIGRATION.md` is the path;
+  `scripts/check-environment.mjs` names every missing file and key and what each
+  costs (exits non-zero when something required is absent, so it works as a
+  startup gate); `scripts/import-league-chat.mjs` installs an uploaded corpus and
+  refuses one that is not the corpus. ESPN needs no file copy at all — the
+  bookmarklet posts back to whatever host served it, so it works against a cloud
+  URL as-is. The archives never move: line-history is betting-side only and the
+  fantasy engine never opens it; nflverse rebuilds from public feeds if WO
+  needs it.
+- **Pull Messages — built.** `server/services/league-chat-sync.js` +
+  `server/routes/league-chat.js` + the League chat card in Settings. On the Mac
+  the button runs the whole incremental pull (extract, classify, rollup); in a
+  cloud box the same card is a staleness read, because the server reports its own
+  capability rather than the client guessing. `/pull` is loopback-only — it
+  spawns a process that reads a private message store and the tunnel makes this
+  app internet-reachable. 8 tests in `test/league-chat-sync.test.js`.
+
 ## Waiting On
 
-- **Nick — the live five-league check.** The cloud box has the code but not the
-  data: `server/data.sqlite`, `data/derived/league_chat.sqlite` (the iMessage
-  corpus the whole counterparty layer reads — not re-fetchable), the line-history
-  and nflverse archives, and `.env` are all gitignored. The Trade Brain can be
-  built and tested here; verifying it against the real leagues needs his machine
-  or those files moved up.
+- **Nick — the live five-league check.** The cloud box has the code and now the
+  migration path, but not the data itself. Verifying against the real leagues
+  needs the chat corpus pulled from the laptop and ESPN connected once.
 - **Nick — WA's remaining stages.** WA was stopped entirely, so the next three
   Trade Brain stages are no longer running anywhere:
   1. `build:value-and-acceptance` — value + P(accept) band.
@@ -42,6 +56,15 @@ Last updated: 2026-09-18, cloud session on `cursor/betting-model-audit-fixes-1c8
 - **Usage gate.** Desktop weekly was 96% (TOO CLOSE) at the pause. Per A5, the
   next workflow launch runs `~/claude-handoff/usage.sh` first and hands off to
   Terminal on TOO CLOSE.
+
+- **The offline guard does not cover the Anthropic SDK.**
+  `test/offline-guard.mjs` replaces `globalThis.fetch`, which the SDK does not
+  go through, so `nfl-news-events.test.js` (7 tests) and `page-explain.test.js`
+  (4) make real network calls and fail with `Connection error.` wherever there
+  is no key — and the test runner dies at that file rather than carrying on.
+  Deferred with evidence rather than fixed here: it is unrelated to either Trade
+  Brain bug and belongs with **[WD]** housekeeping, next to the 3 prop-CLV
+  failures. Everything else in the suite passes offline.
 
 ## Someday
 

@@ -553,6 +553,9 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     // shaped quantity, so the coin-flip/lean/clear labels are not calibrated for it.
     confidence_basis: objectiveUsed === 'week_points' ? 'calibrated_on_week_points'
       : `uncalibrated_for_${objectiveUsed}`,
+    // Which availability model priced every chance to play in this call ('role' |
+    // 'pooled' | 'constants', plus the missing fit tables), so the page can say so.
+    availability_basis: assets.context?.availability_basis ?? null,
     projected_points: r2(optimal.points),
     lineup: calls,
     bench: bench.slice(0, 8).map(p => ({

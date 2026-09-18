@@ -32,7 +32,7 @@ import { scheduleOutlook, relevantSplits, matchupSignalActive, MATCHUP_SIGNAL_RE
 import { SLOT_NAME } from './espn-draft.js';
 import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
-import { weeklyAvailability } from './contingency.js';
+import { weeklyAvailability, availabilityBasis } from './contingency.js';
 import { cached, fingerprint } from './compute-cache.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { scoringFor } from './scoring.js';
@@ -401,7 +401,11 @@ function buildAssetUniverse(lg, formatKey, target) {
     decision_horizon: '25% current week, 75% rest-of-season rate; dynasty market value remains a separate price axis',
     // Byes count; opponent strength does not (no validated signal — matchups.js).
     schedule_signal: matchupSignalActive(),
-    schedule_note: matchupSignalActive() ? null : MATCHUP_SIGNAL_REASON
+    schedule_note: matchupSignalActive() ? null : MATCHUP_SIGNAL_REASON,
+    // Which availability model priced active_probability: 'role' | 'pooled' | 'constants'
+    // and the fit tables that are missing (contingency.js#availabilityBasis). The cache
+    // fingerprint stamps both fit tables, so this matches the cached numbers.
+    availability_basis: availabilityBasis()
   };
   return out;
 }

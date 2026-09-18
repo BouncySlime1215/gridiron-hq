@@ -477,19 +477,30 @@ export function buildAvailabilityLookup({ rates = [], roleRates = [] } = {}) {
 }
 
 /**
- * The fitted availability tables, loaded once per process.
+ * The fitted availability tables, re-read whenever availabilityFitStamp() changes.
  *
  * Returns null when neither table has been built (fresh install, or
  * scripts/fit-availability.mjs has never run), and the caller falls back to the
- * legacy constants. Absent is a normal state, not an error. With the league
- * table but no role table, every number is exactly what it was before the role
- * layer existed.
+ * legacy constants. With the league table but no role table, every number is
+ * exactly what it was before the role layer existed.
+ *
+ * A missing table is a NAMED state, not a quiet one (review-fixes-2, finding 1):
+ * production priced every player on the pooled path from 2026-09-18 00:07 because
+ * the role table was never written, and a bare catch here made that, a missing
+ * column and a locked database all look the same — healthy starters sat at ~0.81 to
+ * play with no log line and no note on any page. Now: 'no such table' becomes
+ * availabilityBasis() = 'role' | 'pooled' | 'constants', warned once per fit stamp
+ * and carried on assetUniverse().context and lineupCall(); any other read error is
+ * a real fault (a table from another schema version) and throws.
  */
 let _fittedCache;
 let _fittedStamp;
+let _fittedBasis = null;
+const missingTable = error => /no such table/i.test(String(error?.message ?? error));
 export function resetAvailabilityCache() {
   _fittedCache = undefined;
   _fittedStamp = undefined;
+  _fittedBasis = null;
   _roleCache.clear();
   _espnMemo = { key: null, periods: null, value: null };
 }
@@ -505,24 +516,50 @@ export function availabilityFitStamp() {
     try {
       const r = rows(`SELECT COUNT(*) AS n, MAX(fitted_at) AS f FROM ${table}`)[0];
       return `${r?.n ?? 0}:${r?.f ?? ''}`;
-    } catch { return 'absent'; }
+    } catch (error) {
+      if (missingTable(error)) return 'absent';
+      throw error;
+    }
   };
   return `${part('nfl_availability_rates')}|${part('nfl_availability_role_rates')}`;
 }
 function fittedAvailability() {
   const stamp = availabilityFitStamp();
   if (_fittedCache !== undefined && stamp === _fittedStamp) return _fittedCache;
+  const read = sql => {
+    try { return rows(sql); } catch (error) {
+      if (missingTable(error)) return [];
+      throw error;
+    }
+  };
+  const rates = read('SELECT scope,team,report_status,practice_status,p_active,n FROM nfl_availability_rates');
+  const roleRates = read(`SELECT report_status,practice_status,position,tier,gap,p_active,n,config
+                          FROM nfl_availability_role_rates`);
+  const lookup = rates.length || roleRates.length ? buildAvailabilityLookup({ rates, roleRates }) : null;
+  const missing = [['nfl_availability_rates', rates], ['nfl_availability_role_rates', roleRates]]
+    .filter(([, list]) => !list.length).map(([table]) => table);
+  const basis = lookup?.hasRole ? 'role' : lookup ? 'pooled' : 'constants';
+  if (missing.length) {
+    // Once per fit stamp: this function only re-reads when the stamp changes.
+    console.warn(`[contingency] chance to play is priced on the '${basis}' path: ${missing.join(' and ')} ` +
+      `${missing.length > 1 ? 'are' : 'is'} missing or empty (fit stamp ${stamp}). ` +
+      'scripts/fit-availability.mjs writes both tables (docs/tdd/play-chance-live.tdd.md, section 6).');
+  }
+  // Set only after both reads succeeded, so a failed read is never cached as "no fit".
   _fittedStamp = stamp;
-  let rates = [], roleRates = [];
-  try {
-    rates = rows('SELECT scope,team,report_status,practice_status,p_active,n FROM nfl_availability_rates');
-  } catch { rates = []; }
-  try {
-    roleRates = rows(`SELECT report_status,practice_status,position,tier,gap,p_active,n,config
-                      FROM nfl_availability_role_rates`);
-  } catch { roleRates = []; }
-  _fittedCache = rates.length || roleRates.length ? buildAvailabilityLookup({ rates, roleRates }) : null;
+  _fittedCache = lookup;
+  _fittedBasis = { basis, missing, stamp };
   return _fittedCache;
+}
+
+/**
+ * Which availability model prices this process's chance-to-play numbers right now:
+ * 'role' (fitted role layer), 'pooled' (league/team rates only) or 'constants' (no
+ * fit on file), the fit tables that are missing or empty, and the fit stamp.
+ */
+export function availabilityBasis() {
+  fittedAvailability();
+  return { ..._fittedBasis, missing: [..._fittedBasis.missing] };
 }
 
 /**

@@ -218,3 +218,8 @@ HEAD: availability-fit-loader 7/7, asset-cache-stamps 5/5, weekly-promotion-roll
 4/4, prediction-log-served-model 3/3, league-chat-classifier-retry 4/4,
 refresh-loop-steps 19/19, snapshot-mode-migration 3/3, asset-universe-fingerprint 5/5,
 python chat 20/20.
+
+**Smoke on the production copy:** `node scripts/promote-early-week-weights.mjs --dry-run`
+runs end to end through the changed import — `GATE PASSED: (b)`, production early buckets
+`[1,0,0,0,0]` per position, "--dry-run: nothing written", exit 0. The promotion path
+itself (save → check → demote on failure) is covered by `weekly-promotion-rollback`.

@@ -45,6 +45,8 @@ const realMatchups = await import('../server/services/matchups.js');
 let assets = new Map();
 const projMap = new Map();
 const calls = [];
+// Extra points per draw for chosen players (J1d makes the IR players the best on paper).
+const boost = new Map();
 let gmOverride = null;
 const GS = { pass_mult: 1.1, rush_mult: 0.9, line: null };
 
@@ -57,7 +59,7 @@ mock.module('../server/services/projections.js', {
     buildProjections: () => projMap,
     sampleWeeks: (params, n, _scoring, mult) => {
       calls.push({ pid: params.pid, team: params.team, mult });
-      return Array.from({ length: n }, (_, i) => (i % 25) + (params.pid % 7));
+      return Array.from({ length: n }, (_, i) => (i % 25) + (params.pid % 7) + (boost.get(params.pid) ?? 0));
     }
   }
 });
@@ -156,4 +158,33 @@ test('J4 season-sim: the matchup factor is matchups.js#gameMultiplier, not a loc
   const { home, away } = byVenue();
   assert.ok(home.every(c => close(c.mult.pass, 1.5 * 1.1)), 'home draws follow gameMultiplier');
   assert.ok(away.every(c => close(c.mult.rush, 0.5 * 0.9)), 'away draws follow gameMultiplier');
+});
+
+test('J1d ceiling-lineup never starts a player on IR (ESPN IR slot or injured reserve)', () => {
+  // The same rule as Start/Sit (J1). Found on the live check: after the home/away
+  // tilt came out, league 4's ceiling lineup put Zach Charbonnet (ESPN IR slot, OUT)
+  // in the FLEX, because ceiling-lineup solved on every rostered player.
+  const irSlot = player('WR', 'HOM');
+  const reserve = player('RB', 'AWY');
+  boost.set(irSlot.id, 40); boost.set(reserve.id, 40);   // the best two on paper by far
+  for (const a of [irSlot, reserve]) assets.set(a.id, a);
+  const entries = [
+    ...mine.map(entry),
+    { ...entry(irSlot), lineupSlotId: 21 },
+    { lineupSlotId: 20, playerPoolEntry: { player: { ...entry(reserve).playerPoolEntry.player,
+      injuryStatus: 'INJURY_RESERVE' } } }
+  ];
+  const withIr = { ...payload, teams: [{ ...payload.teams[0], roster: { entries } }, payload.teams[1]] };
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, roster_positions, payload)
+       VALUES (802, 'espn', 'home-away-ir', 2026, 'Home away IR', '1', 10, 1, ?, ?)`,
+  JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX']), JSON.stringify(withIr));
+  for (const objective of ['ceiling', 'mean']) {
+    const out = ceilingLineup(802, { week: 2, trials: 50, objective });
+    assert.ifError(out.error);
+    const names = [...out.lineup.map(x => x.player), ...out.versus_highest_mean.lineup.map(x => x.player)];
+    assert.ok(!names.includes(irSlot.name) && !names.includes(reserve.name),
+      `${objective}: IR player in the lineup: ${names.join(', ')}`);
+    assert.deepEqual((out.on_ir ?? []).map(p => p.name).sort(), [irSlot.name, reserve.name].sort(),
+      'IR players are named with the reason');
+  }
 });

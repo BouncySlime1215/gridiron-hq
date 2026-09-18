@@ -163,12 +163,17 @@ test('J3 a free agent with no NFL team is not a stash; the same player on a team
   const mine = myRoster();
   const free = [
     p('Tyreek Hill', 'WR', 0, 14, { team_abbr: null }),
-    p('Signed Veteran', 'WR', 0, 14)
+    p('Signed Veteran', 'WR', 0, 14),
+    // Teamless too, but he would not have made the board anyway (a 5-a-week WR does
+    // not improve this rest-of-season lineup), so he is not part of the count.
+    p('Teamless Depth', 'WR', 0, 5, { team_abbr: null })
   ];
   const b = board(mine, free);
   const stashNames = b.stashes.map(s => s.player);
   assert.ok(stashNames.includes('Signed Veteran'), `control stash missing: ${stashNames}`);
   assert.ok(!stashNames.includes('Tyreek Hill'), 'teamless free agent offered as a stash');
   assert.ok(![...b.immediate, ...b.stashes].some(r => !r.team), 'no teamless row anywhere on the board');
+  // The count is of rows actually taken off the board, not of every unsigned player
+  // in the database (on the live copy that was ~300 per league, mostly retired).
   assert.equal(b.teamless_excluded, 1, 'the exclusion is counted, not silent');
 });

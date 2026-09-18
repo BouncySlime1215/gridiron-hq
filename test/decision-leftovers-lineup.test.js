@@ -191,3 +191,42 @@ test('J5 a lift that changes who starts changes it on both pages', () => {
   assert.deepEqual(card.lineup.map(x => x.player).sort(), [...s].sort());
   assert.equal(card.my_projection, +call.projected_points.toFixed(1));
 });
+
+test('J1b a low chance to play is worded as this week, not as a share of weeks', () => {
+  // active_probability is now a one-week number (the play-chance role layer: it
+  // falls to ~0.19 for a starter who missed his last two games), so "only plays about
+  // 19% of weeks" misdescribes it.
+  const mine = myRoster();
+  mine.find(p => p.asset.name === 'Back One').asset.active_probability = 0.19;
+  const lg = league(mine, theirRoster());
+  const call = lineupCall(lg.id, { providers: {} });
+  const w = call.warnings.find(x => x.player === 'Back One');
+  assert.ok(w, 'a starter under 75% to play is flagged');
+  assert.match(w.issue, /19% likely to play this week/);
+  assert.doesNotMatch(w.issue, /of weeks/);
+});
+
+test('J1c Sleeper: a player in the roster\'s reserve (IR) list is never started either', () => {
+  // Coverage test, added after GREEN (the Sleeper branch of irOnRoster had no test).
+  // Sleeper's roster.players includes the reserve list, so without the rule the
+  // reserve player would be solved like anyone else.
+  const mine = myRoster().filter(p => !IR_NAMES.has(p.asset.name));
+  const reserve = player('Sleeper Reserve', 'WR', 40);
+  const all = [...mine, reserve];
+  all.forEach((p, i) => { p.asset.sleeper_id = String(9000 + i); });
+  assets = new Map(all.map(p => [p.asset.id, p.asset]));
+  const id = leagueSeq++;
+  const payload = {
+    users: [{ user_id: 'u1', display_name: 'Mine' }],
+    rosters: [{ roster_id: 1, owner_id: 'u1', players: all.map(p => p.asset.sleeper_id),
+      reserve: [reserve.asset.sleeper_id] }]
+  };
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, roster_positions, payload)
+       VALUES (?, 'sleeper', ?, 2026, 'Sleeper leftovers', '1', 10, 1, ?, ?)`,
+  id, `dl-${id}`, JSON.stringify(SLOTS), JSON.stringify(payload));
+  const call = lineupCall(id, { providers: {} });
+  assert.ifError(call.error);
+  assert.ok(!namesIn(call).includes('Sleeper Reserve'), 'the reserve player leaked into the call');
+  assert.deepEqual(call.on_ir.map(p => p.name), ['Sleeper Reserve']);
+  assert.match(call.on_ir[0].why, /IR/);
+});

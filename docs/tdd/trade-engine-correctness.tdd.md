@@ -103,7 +103,33 @@ counts are identical on every target both runs shared, with one deliberate excep
 Hurts in league 3 the rung `Bucky Irving` is gone: weekly +0.1, playoff −1.9, horizon-weighted gain
 ≤ 0. The old ladder offered a package that makes Nick's team worse over the rest of the season.
 
-## 6. Coverage and known gaps
+## 6. One thing broke, and why
+
+The full suite found two failures this item caused: `test/decision-leftovers-home-away.test.js`
+J4 season-sim, "the spy saw 0 home and 0 away draws".
+
+Root cause, confirmed by stubbing the import (5/5 pass without it): `trade-engine.js` now imports
+`season-sim.js`, so importing trade-engine also loads season-sim — **before** that test's
+`mock.module('../server/services/trade-engine.js')` runs. ES module mocks only reach modules
+imported after them, so season-sim kept a live binding to the real `assetUniverse`, got an empty
+universe, and never drew a player-week. The test's guarantee (the retired home/away multiplier stays
+retired) was not wrong; its load order was.
+
+Fixed in the test, not routed around: it requests season-sim under an unused URL after the mocks are
+installed, so the copy it drives resolves `./trade-engine.js` to the mock. Same assertions, 5/5.
+
+The layering inversion behind it is deliberate and temporary, and is written at the import: the
+playoff odds belong to the Team Outlook service (master plan 00, D3 — "the trade horizon reads its
+real playoff odds"), which does not exist yet. When it ships, `myPlayoffOdds` reads it and the import
+goes away. The alternative today was leaving the live `/find` route on the 0.5 prior, which is the
+bug this item exists to fix.
+
+Second-order check: trade sequences (`findTradeSequences`) on the production copy went from 7 to 9
+unlocked ideas, and from 2 leagues with any sequence to 4. League 2 drops from 5 to 1 because its
+first step is now a better deal (Chase Brown + Deebo Samuel → Christian McCaffrey), which leaves
+fewer additive follow-ups — a consequence of the better step 1, not a regression.
+
+## 7. Coverage and known gaps
 
 - The two new test files cover every gate. The engine's existing suites (`find-trades`,
   `trade-evidence`, `post-draft-plan`, `asset-cache-stamps`, `manager-data-pipeline`,

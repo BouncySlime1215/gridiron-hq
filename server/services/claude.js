@@ -2,15 +2,16 @@ import { rows, row, run } from '../db/index.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  PRICING, costOf, costOfUsage, priceFor, rowCostUsd, estimateCallCostUsd, reserveBudget, listBudgets
+} from './llm-budget.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = path.join(__dirname, '..', '..', '.env');
 
-// $ per million tokens — Haiku 4.5 is what every feature here uses.
-export const PRICING = {
-  'claude-haiku-4-5-20251001': { in: 1.00, out: 5.00 },
-  default: { in: 1.00, out: 5.00 }
-};
+// Prices live in llm-budget.js (one table, every model the app calls, cache
+// reads/writes included); re-exported so existing importers keep working.
+export { PRICING, costOf };
 
 export function getApiKey() {
   return process.env.ANTHROPIC_API_KEY
@@ -71,17 +72,37 @@ export function clearWorkspaceId() {
   persistEnvVar('ANTHROPIC_WORKSPACE_ID', null);
 }
 
+/**
+ * Log one call: tokens (uncached input, output, cache reads, cache writes) and
+ * its dollar cost at the model's own rates. Returns the cost.
+ */
 export function recordUsage(feature, model, usage) {
-  if (!usage) return;
-  run(`INSERT INTO ai_usage (date, feature, model, input_tokens, output_tokens, calls)
-       VALUES (date('now'), ?, ?, ?, ?, 1)`,
-    feature, model, usage.input_tokens ?? 0, usage.output_tokens ?? 0);
+  if (!usage) return null;
+  const cost = costOfUsage(model, usage);
+  run(`INSERT INTO ai_usage (date, feature, model, input_tokens, output_tokens,
+                             cache_read_input_tokens, cache_creation_input_tokens, cost_usd, calls)
+       VALUES (date('now'), ?, ?, ?, ?, ?, ?, ?, 1)`,
+    feature, model, usage.input_tokens ?? 0, usage.output_tokens ?? 0,
+    usage.cache_read_input_tokens ?? 0, usage.cache_creation_input_tokens ?? 0, cost);
+  return cost;
 }
 
-export const costOf = (model, inTok, outTok) => {
-  const p = PRICING[model] ?? PRICING.default;
-  return (inTok / 1e6) * p.in + (outTok / 1e6) * p.out;
-};
+const USAGE_COLUMNS = ['cost_usd', 'cache_read_input_tokens', 'cache_creation_input_tokens'];
+let usageSchemaReady = false;
+
+/** Fail before a call is paid for, not after, when this database hasn't run migration 057. */
+function assertUsageSchema() {
+  if (usageSchemaReady) return;
+  const cols = rows('PRAGMA table_info(ai_usage)').map(c => c.name);
+  const missing = USAGE_COLUMNS.filter(c => !cols.includes(c));
+  if (missing.length) {
+    const err = new Error(`ai_usage is missing ${missing.join(', ')} — run the database migrations `
+      + '(server/migrations/057_ai_usage_cost_and_cache.js) before making AI calls.');
+    err.status = 500;
+    throw err;
+  }
+  usageSchemaReady = true;
+}
 
 export const GROUNDING_SYSTEM = `Use only facts explicitly present in the user's evidence packet.
 Never invent a player, team, injury, statistic, source, event, causal explanation, or level of certainty.
@@ -91,20 +112,18 @@ Follow the requested output schema exactly and do not add fields.`;
 
 let anthropicClient = null;
 let anthropicClientKey = null;
+let testClient = null;
 
 /**
- * Single entry point for every Claude call in the app: enforces the key,
- * records token usage, and returns the raw message.
+ * Tests only: route every call to a stand-in `{ messages: { create(body) } }`
+ * instead of the SDK (null restores the real client). No network, no spend.
  */
-export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt, messages,
-  tools = undefined, toolChoice = undefined, system = GROUNDING_SYSTEM, temperature = null }) {
-  const key = getApiKey();
-  if (!key) {
-    const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
-    err.status = 400;
-    throw err;
-  }
-  const workspaceId = getWorkspaceId();
+export function setAnthropicClientForTesting(client) {
+  testClient = client ?? null;
+}
+
+async function clientFor(key, workspaceId) {
+  if (testClient) return testClient;
   // Rebuild the client if the key or workspace changed since the last call —
   // setApiKey()/setWorkspaceId() null it out, but a direct env var edit
   // wouldn't, so compare the actual key rather than trust the cached client.
@@ -114,24 +133,108 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
       ...(workspaceId ? { defaultHeaders: { 'anthropic-workspace-id': workspaceId } } : {}) });
     anthropicClientKey = `${key}:${workspaceId}`;
   }
+  return anthropicClient;
+}
+
+// Prompt caching. A cache entry is a byte-exact prefix (tools → system →
+// messages): only stable content may sit before a breakpoint. The API allows 4
+// breakpoints per request, and silently skips caching a prefix shorter than the
+// model's minimum (Sonnet 5: 1,024 tokens; Haiku 4.5: 4,096) — check
+// cache_read_input_tokens in ai_usage to confirm a cache is being hit.
+const CACHE_TTLS = new Set(['5m', '1h']);
+const MAX_CACHE_BREAKPOINTS = 4;
+const cacheMark = ttl => (ttl === '1h' ? { type: 'ephemeral', ttl: '1h' } : { type: 'ephemeral' });
+
+function withCachedSystem(system, ttl) {
+  if (typeof system === 'string' && system) return [{ type: 'text', text: system, cache_control: cacheMark(ttl) }];
+  if (Array.isArray(system) && system.length) {
+    return system.map((block, i) => (i === system.length - 1 ? { ...block, cache_control: cacheMark(ttl) } : block));
+  }
+  throw new Error('cacheSystem needs a non-empty system prompt');
+}
+
+function withCachedPrefix(baseMessages, cachedPrefix, ttl) {
+  if (typeof cachedPrefix !== 'string' || !cachedPrefix) {
+    throw new Error('cachedPrefix must be a non-empty string');
+  }
+  const [first, ...rest] = baseMessages;
+  if (first?.role !== 'user') {
+    throw new Error('cachedPrefix goes into the first message, which must be a user turn');
+  }
+  const content = typeof first.content === 'string' ? [{ type: 'text', text: first.content }] : first.content;
+  return [{ ...first, content: [{ type: 'text', text: cachedPrefix, cache_control: cacheMark(ttl) }, ...content] }, ...rest];
+}
+
+function cacheBreakpoints({ system, messages, tools }) {
+  const blocks = [
+    ...(Array.isArray(system) ? system : []),
+    ...(tools ?? []),
+    ...messages.flatMap(m => (Array.isArray(m.content) ? m.content : []))
+  ];
+  return blocks.filter(block => block?.cache_control).length;
+}
+
+/**
+ * Single entry point for every Claude call in the app. In order, before any
+ * money is spent: the key, a known price for the model, the usage table, the
+ * caching request, and the feature's daily budget (llm-budget.js). Then the
+ * call, then the log (tokens, cache tokens, cost). Returns the message with
+ * `cost_usd` added.
+ *
+ * Caching (opt-in; existing callers send exactly what they sent before):
+ * - `cacheSystem: true` marks the system prompt as a cache breakpoint.
+ * - `cachedPrefix` is a stable context block (the Coach's situation brief, the
+ *   trade-proposal context) placed first in the first user turn with its own
+ *   breakpoint; the varying question follows it.
+ * - `cacheTtl` '5m' (default, writes cost 1.25x input) or '1h' (2x).
+ * Budgets: the feature's key is its name up to the first colon, so
+ * `coach:answer` draws on the `coach` budget. A refusal is an LlmBudgetError
+ * (status 429) whose message the page can show as is.
+ */
+export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001', maxTokens = 1024, prompt, messages,
+  tools = undefined, toolChoice = undefined, system = GROUNDING_SYSTEM, temperature = null,
+  cacheSystem = false, cachedPrefix = undefined, cacheTtl = '5m' }) {
+  const key = getApiKey();
+  if (!key) {
+    const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
+    err.status = 400;
+    throw err;
+  }
+  if (!CACHE_TTLS.has(cacheTtl)) throw new Error(`cacheTtl must be '5m' or '1h', not ${String(cacheTtl)}`);
+  if (!priceFor(model)) costOfUsage(model); // throws "No price for model …"
+  assertUsageSchema();
+
+  const caching = cacheSystem || cachedPrefix != null;
+  const baseMessages = messages ?? [{ role: 'user', content: prompt }];
+  const request = {
+    model, max_tokens: maxTokens,
+    system: cacheSystem ? withCachedSystem(system, cacheTtl) : system,
+    // Newer models reject `temperature` outright ("deprecated for this
+    // model"), so it is sent only when a caller explicitly asks for one.
+    // Every existing caller relied on the old default of 0, which is also
+    // what these models do by default, so nothing changes for them.
+    ...(temperature == null ? {} : { temperature }),
+    // `messages` (a full multi-turn history, used by the page-explain
+    // tool-use loop to append assistant tool_use + user tool_result turns)
+    // takes precedence; every other caller still just passes a single
+    // `prompt` string and gets the original one-turn behavior.
+    messages: cachedPrefix != null ? withCachedPrefix(baseMessages, cachedPrefix, cacheTtl) : baseMessages,
+    ...(tools?.length ? { tools } : {}),
+    ...(toolChoice ? { tool_choice: toolChoice } : {})
+  };
+  const breakpoints = cacheBreakpoints(request);
+  if (breakpoints > MAX_CACHE_BREAKPOINTS) {
+    throw new Error(`This request has ${breakpoints} cache breakpoints; the API allows ${MAX_CACHE_BREAKPOINTS}.`);
+  }
+
+  const release = reserveBudget(feature,
+    estimateCallCostUsd({ model, maxTokens, request, cacheTtl: caching ? cacheTtl : null }));
+  const workspaceId = getWorkspaceId();
   try {
-    const msg = await anthropicClient.messages.create({
-      model, max_tokens: maxTokens, system,
-      // Newer models reject `temperature` outright ("deprecated for this
-      // model"), so it is sent only when a caller explicitly asks for one.
-      // Every existing caller relied on the old default of 0, which is also
-      // what these models do by default, so nothing changes for them.
-      ...(temperature == null ? {} : { temperature }),
-      // `messages` (a full multi-turn history, used by the page-explain
-      // tool-use loop to append assistant tool_use + user tool_result turns)
-      // takes precedence; every other caller still just passes a single
-      // `prompt` string and gets the original one-turn behavior.
-      messages: messages ?? [{ role: 'user', content: prompt }],
-      ...(tools?.length ? { tools } : {}),
-      ...(toolChoice ? { tool_choice: toolChoice } : {})
-    });
-    recordUsage(feature, model, msg.usage);
-    return msg;
+    const client = await clientFor(key, workspaceId);
+    const msg = await client.messages.create(request);
+    const cost = recordUsage(feature, model, msg.usage);
+    return { ...msg, cost_usd: cost };
   } catch (e) {
     // This exact message means the key is Anthropic Console's newer
     // "identity-linked" type, which every other error here is not — surface
@@ -143,6 +246,10 @@ export async function callClaude({ feature, model = 'claude-haiku-4-5-20251001',
       throw err;
     }
     throw e;
+  } finally {
+    // After recordUsage, so today's spend never drops out of view between
+    // the hold being released and the real cost being counted.
+    release();
   }
 }
 
@@ -156,28 +263,54 @@ export function parseJson(msg) {
   return parsed;
 }
 
+/**
+ * Spend for the Dev Hub. Every row is costed at its own model's rates (the
+ * stored cost_usd, or priced by model for rows written without one) — the old
+ * version priced the by-feature and today totals at Haiku rates whatever the
+ * model. `unpriced_calls` counts rows for a model with no price, which are left
+ * out of `cost` rather than guessed.
+ */
 export function usageSummary(days = 30) {
-  const daily = rows(`SELECT date, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
-                             SUM(calls) AS calls, model
-                      FROM ai_usage WHERE date >= date('now', ?) GROUP BY date, model ORDER BY date DESC`,
-    `-${days} days`);
-  const byFeature = rows(`SELECT feature, SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens,
-                                 SUM(calls) AS calls
-                          FROM ai_usage WHERE date >= date('now', ?) GROUP BY feature ORDER BY calls DESC`,
-    `-${days} days`);
-  const today = row(`SELECT COALESCE(SUM(input_tokens),0) AS input_tokens,
-                            COALESCE(SUM(output_tokens),0) AS output_tokens,
-                            COALESCE(SUM(calls),0) AS calls
-                     FROM ai_usage WHERE date = date('now')`);
+  const logged = rows(`SELECT date, feature, model, input_tokens, output_tokens, cache_read_input_tokens,
+                              cache_creation_input_tokens, calls, cost_usd, date = date('now') AS is_today
+                       FROM ai_usage WHERE date >= date('now', ?)`, `-${days} days`);
+  const blank = () => ({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0,
+    calls: 0, cost: 0, unpriced_calls: 0 });
+  const add = (acc, r) => {
+    acc.input_tokens += r.input_tokens ?? 0;
+    acc.output_tokens += r.output_tokens ?? 0;
+    acc.cache_read_input_tokens += r.cache_read_input_tokens ?? 0;
+    acc.cache_creation_input_tokens += r.cache_creation_input_tokens ?? 0;
+    acc.calls += r.calls ?? 0;
+    const cost = rowCostUsd(r);
+    if (cost == null) acc.unpriced_calls += r.calls ?? 0;
+    else acc.cost += cost;
+    return acc;
+  };
+  const groupBy = (keyOf, seed) => {
+    const groups = new Map();
+    for (const r of logged) {
+      const k = keyOf(r);
+      if (!groups.has(k)) groups.set(k, { ...seed(r), ...blank() });
+      add(groups.get(k), r);
+    }
+    return [...groups.values()];
+  };
+  const rounded = g => ({ ...g, cost: +g.cost.toFixed(4) });
 
-  const withCost = r => ({ ...r, cost: +costOf(r.model, r.input_tokens, r.output_tokens).toFixed(4) });
-  const totalCost = daily.reduce((s, d) => s + costOf(d.model, d.input_tokens, d.output_tokens), 0);
+  const daily = groupBy(r => `${r.date}|${r.model}`, r => ({ date: r.date, model: r.model }))
+    .sort((a, b) => b.date.localeCompare(a.date)).map(rounded);
+  const byFeature = groupBy(r => r.feature, r => ({ feature: r.feature }))
+    .sort((a, b) => b.calls - a.calls).map(rounded);
+  const today = logged.filter(r => r.is_today).reduce(add, blank());
+  const period = logged.reduce(add, blank());
 
   return {
-    today: { ...today, cost: +costOf('default', today.input_tokens, today.output_tokens).toFixed(4) },
+    today: rounded(today),
     period_days: days,
-    period_cost: +totalCost.toFixed(4),
-    daily: daily.map(withCost),
-    by_feature: byFeature.map(f => ({ ...f, cost: +costOf('default', f.input_tokens, f.output_tokens).toFixed(4) }))
+    period_cost: +period.cost.toFixed(4),
+    daily,
+    by_feature: byFeature,
+    budgets: listBudgets()
   };
 }

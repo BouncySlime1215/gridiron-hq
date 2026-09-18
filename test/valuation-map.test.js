@@ -352,8 +352,8 @@ test('G1c: a player every source pushes the same way is clamped, and says he was
     players: new Map([['quiet star', { sentiment: 4, n: 20, last: '2026-09-16', multiplier: 1.12 }]]),
     reads: new Map(),
     gaps: new Map(),
-    negotiation: { roster_read: { really_untouchable: ['Quiet Star'], quietly_available: [],
-      overvalues: [], undervalues: [] } },
+    negotiation: { confidence: 'high', roster_read: { really_untouchable: ['Quiet Star'],
+      quietly_available: [], overvalues: [], undervalues: [] } },
     negotiation_n: 400,
     luck: { value: 2.4, n: 6 },
     stance: { stance: 'respect', respect: new Set(['quiet star']), probe: new Set(),
@@ -526,6 +526,27 @@ test('the negotiation profile\'s own over/undervalues list reaches the price', (
   assert.ok(over.effect > 0);
   const under = byName(hayden, 'Bench Guy').factors.find(f => f.source === 'profile_roster_read');
   assert.ok(under && under.effect < 0, 'and Bench Guy as something he undervalues');
+});
+
+test('a profile that says it is unsure moves the price less than one that is sure', () => {
+  // 5 of the 10 real profiles came back `confidence: low`. A named player from
+  // one of those must not be priced as hard as a named player from Raj's, which
+  // came back `high` — the model's own statement about itself is evidence.
+  const base = {
+    roster_id: '9', receptiveness: 1, roster_size: 3, owned: new Set(['plain guy']),
+    players: new Map(), reads: new Map(), gaps: new Map(), negotiation_n: 200,
+    needs: new Set(), surplus: new Set(), luck: null, stance: null,
+  };
+  const withConfidence = c => pricing.playerValuation({ ...base,
+    negotiation: { confidence: c, roster_read: { overvalues: ['Plain Guy'], undervalues: [],
+      really_untouchable: [], quietly_available: [] } } },
+  { name: 'Plain Guy', position: 'WR', value: 1000 })
+    .factors.find(f => f.source === 'profile_roster_read').effect;
+
+  const hi = withConfidence('high'), med = withConfidence('medium'), lo = withConfidence('low');
+  assert.equal(hi, pricing.VALUATION_SOURCES.profile_roster_read.cap, 'a high-confidence read earns the whole cap');
+  assert.ok(hi > med && med > lo && lo > 0, `expected high > medium > low > 0, got ${hi}/${med}/${lo}`);
+  assert.equal(withConfidence(undefined), lo, 'a profile that does not state its confidence is treated as the weakest');
 });
 
 test('a manager who just lost is easier to reach — reported on the manager, not on a player', () => {

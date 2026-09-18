@@ -75,6 +75,14 @@ talk read, because the expectation gap is already that read's discriminator;
 `praise_means` is not its own factor — it halves an attachment premium for a
 manager the model says hypes before selling, and sharpens a sales-pitch discount.
 
+**The model's own confidence is used.** `profile_roster_read` earns its full cap
+only from a profile the model marked `high`; `medium` earns 70% and `low` 40%.
+On the real corpus that matters: of the ten profiles, 2 are high, 2 medium, 5
+low and 1 unstated, so a flat effect would have priced half the league on the
+model's own least certain reads. Adding this turned the source from something
+that only moved the ranking's order (2 positions) into one of three that do,
+because it stopped every named player being pinned to the same ±10%.
+
 **A source below its minimum sample is reported inert with its reason, never
 dropped.** In week 2 of 2026 that is two of the eight, and both say so:
 `hype_vs_usage` ("rests on 1 of the 2 needed") and `luck_self_view` ("rests on 1
@@ -163,18 +171,18 @@ both pass — every unablated score rebuilds to < 1e-6, and `perception_shift`
 recomputed here with nothing zeroed equals the engine's own number on every
 deal. Both passed.
 
-| Source | Deals repriced (of 15 mutual / 61 plausible) | Top-10 membership changed | Top-10 order changed |
+| Source | Deals repriced (of 15 mutual / 61 plausible) | Top-10 membership changed | Top-10 order changed (mutual / plausible) |
 |---|---|---|---|
-| `profile_roster_read` | 7 / 39 | 0 | **2 / 6 positions** |
-| `positional_need` | 5 / 40 | 0 | 0 |
+| `profile_roster_read` | 7 / 39 | 0 | **2 / 4 positions** |
+| `positional_need` | 5 / 41 | 0 | **2 / 0** |
+| `chat_sentiment` | 2 / 13 | 0 | **2 / 2** |
 | `recency_post_loss` | 15 / 61 | 0 | 0 |
-| `chat_sentiment` | 2 / 14 | 0 | 0 |
 | `talk_vs_model` | 0 / 6 | 0 | 0 |
 | `untouchable_credibility` | 0 / 0 | 0 | 0 |
 | `hype_vs_usage` | inert (1 of 2 games) | — | — |
 | `luck_self_view` | inert (1 of 4 weeks) | — | — |
 
-**No source changes which ideas surface.** One source changes their order. The
+**No source changes which ideas surface.** Three change their order. The
 binding constraint is not the map: `perceptionFactorFor` in `trade-engine.js`
 bounds the whole counterparty read to ±10% of a deal's score, and it is applied
 to `perception_shift`, which by construction cancels our own value gap. That

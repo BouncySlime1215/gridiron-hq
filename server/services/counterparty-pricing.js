@@ -103,6 +103,13 @@ const POST_LOSS_FULL_MARGIN = 30;
 const POST_LOSS_CHAT_FULL = 0.10;
 /** Luck, in wins above expectation, at which the flattered-self read is full strength. */
 const LUCK_FULL_WINS = 2;
+/**
+ * How much of its cap a negotiation profile's roster read earns, by the
+ * confidence the model itself reported. Measured on the real corpus
+ * (2026-09-18): 2 high, 2 medium, 5 low, 1 unstated — so treating them alike
+ * would price half the league on the model's own least certain reads.
+ */
+const PROFILE_CONFIDENCE = Object.freeze({ high: 1, medium: 0.7, low: 0.4 });
 
 /** Percentile of x within xs, in [0,1]; 0.5 when xs carries no information. */
 function percentile(xs, x) {
@@ -405,10 +412,16 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
     const hit = profileListHit(profile.roster_read, key);
     if (hit) {
       const cap = VALUATION_SOURCES.profile_roster_read.cap;
-      const effect = hit.list === 'really_untouchable' || hit.list === 'overvalues' ? cap
-        : hit.list === 'undervalues' ? -cap : -cap * 0.5;
-      add('profile_roster_read', effect, managerProfile.negotiation_n ?? 1,
-        `his negotiation profile lists him under ${hit.list.replace(/_/g, ' ')}: "${hit.text}"`);
+      // The model states its own confidence, and on the real corpus it says
+      // `low` for five of the ten people. Pricing a low-confidence read as hard
+      // as a high-confidence one would be ignoring the one thing the model
+      // actually knows about how sure it is.
+      const conf = PROFILE_CONFIDENCE[profile.confidence] ?? PROFILE_CONFIDENCE.low;
+      const direction = hit.list === 'really_untouchable' || hit.list === 'overvalues' ? 1
+        : hit.list === 'undervalues' ? -1 : -0.5;
+      add('profile_roster_read', cap * direction * conf, managerProfile.negotiation_n ?? 1,
+        `his negotiation profile (${profile.confidence ?? 'unstated'} confidence) lists him under `
+        + `${hit.list.replace(/_/g, ' ')}: "${hit.text}"`);
     }
   }
 

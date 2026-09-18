@@ -368,12 +368,30 @@ export function buildAvailabilityLookup({ rates = [], roleRates = [] } = {}) {
  * layer existed.
  */
 let _fittedCache;
+let _fittedStamp;
 export function resetAvailabilityCache() {
   _fittedCache = undefined;
+  _fittedStamp = undefined;
   _roleCache.clear();
 }
+/**
+ * Row count and newest fitted_at of both tables. The lookup used to be held for the
+ * life of the process, so a refit written by scripts/fit-availability.mjs (another
+ * process) was never read until a restart. Two cheap reads per weeklyAvailability().
+ */
+function fittedStamp() {
+  const part = table => {
+    try {
+      const r = rows(`SELECT COUNT(*) AS n, MAX(fitted_at) AS f FROM ${table}`)[0];
+      return `${r?.n ?? 0}:${r?.f ?? ''}`;
+    } catch { return 'absent'; }
+  };
+  return `${part('nfl_availability_rates')}|${part('nfl_availability_role_rates')}`;
+}
 function fittedAvailability() {
-  if (_fittedCache !== undefined) return _fittedCache;
+  const stamp = fittedStamp();
+  if (_fittedCache !== undefined && stamp === _fittedStamp) return _fittedCache;
+  _fittedStamp = stamp;
   let rates = [], roleRates = [];
   try {
     rates = rows('SELECT scope,team,report_status,practice_status,p_active,n FROM nfl_availability_rates');

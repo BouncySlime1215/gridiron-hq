@@ -34,6 +34,7 @@ import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
 import { weeklyAvailability } from './contingency.js';
 import { cached, fingerprint } from './compute-cache.js';
+import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { scoringFor } from './scoring.js';
 import { activeFantasyCoordinatorFit, weeklyExpertValues, coordinateFantasy } from './fantasy-coordinator.js';
 import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
@@ -135,25 +136,47 @@ export function tradeWeekContext() {
  * answer. A sync changes the fingerprint and the work is redone on the next
  * call; nothing changes and the previous answer was already correct.
  */
+/**
+ * Every table buildAssetUniverse() reads, for the fingerprints of assetUniverse() and
+ * findTrades(). A table missing here is an input whose change the cache never sees.
+ */
+const ASSET_INPUT_TABLES = [
+  { table: 'players', stamp: 'id' },
+  { table: 'roster_players', stamp: 'id' },
+  { table: 'dynasty_values', stamp: 'player_id' },
+  { table: 'player_week_usage', stamp: 'week' },
+  { table: 'nfl_injuries', stamp: 'id' },
+  { table: 'game_lines', stamp: 'week' },
+  // buildAssetUniverse() also calls seasonEndingEspnIds(), which reads
+  // news_items directly — omitted here, a genuine new release/season-ending
+  // report (or a fix to how that news is matched) would never invalidate this
+  // cache until an unrelated table happened to change, silently continuing
+  // to bench an actually-available player.
+  { table: 'news_items', stamp: 'id' },
+  // ...and espnStatusById(), which reads every league's payload ("ESPN wins when
+  // fresher"); a sync writes payload and fetched_at and nothing else.
+  { table: 'leagues', stamp: 'fetched_at' },
+  // Chance to play: the fitted rates and the role layer's tiers (contingency.js).
+  { table: 'nfl_availability_rates', stamp: 'fitted_at' },
+  { table: 'nfl_availability_role_rates', stamp: 'fitted_at' },
+  { table: 'player_week_snaps', stamp: 'week' },
+  'trending_players', 'player_metrics', 'schedule_games'
+];
+
+/**
+ * The promoted weekly weight set that prices this week. A promotion adds a row, but a
+ * rollback only clears a `promoted` flag, which no row count or max id sees, so the
+ * served set's id itself is part of the key.
+ */
+const assetInputsKey = (lg, formatKey, target) =>
+  `${lg.id}:${formatKey}:${target.season}:${target.week}:` +
+  `w${activeWeeklyWeightSet({ season: target.season, week: target.week }).id}`;
+
 export function assetUniverse(lg, formatKey, requested = null) {
   const target = requested ?? tradeWeekContext();
   return cached(
     `assets:${lg.id}:${formatKey}:${target.season}:${target.week}`,
-    fingerprint([
-      { table: 'players', stamp: 'id' },
-      { table: 'roster_players', stamp: 'id' },
-      { table: 'dynasty_values', stamp: 'player_id' },
-      { table: 'player_week_usage', stamp: 'week' },
-      { table: 'nfl_injuries', stamp: 'id' },
-      { table: 'game_lines', stamp: 'week' },
-      // buildAssetUniverse() also calls seasonEndingEspnIds(), which reads
-      // news_items directly — omitted here, a genuine new release/season-ending
-      // report (or a fix to how that news is matched) would never invalidate this
-      // cache until an unrelated table happened to change, silently continuing
-      // to bench an actually-available player.
-      { table: 'news_items', stamp: 'id' },
-      'trending_players', 'player_metrics', 'schedule_games'
-    ], `${lg.id}:${formatKey}:${target.season}:${target.week}`),
+    fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target)),
     () => buildAssetUniverse(lg, formatKey, target));
 }
 
@@ -1178,15 +1201,13 @@ export function findTrades(lg, opts = {}) {
   const key = `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}`;
   return cached(key, fingerprint([
-    { table: 'players', stamp: 'id' }, { table: 'roster_players', stamp: 'id' },
-    { table: 'dynasty_values', stamp: 'player_id' }, { table: 'player_week_usage', stamp: 'week' },
-    { table: 'nfl_injuries', stamp: 'id' }, { table: 'game_lines', stamp: 'week' },
-    { table: 'news_items', stamp: 'id' }, 'trending_players', 'player_metrics', 'schedule_games',
-    // Not part of assetUniverse's own fingerprint: a manager marked "never
+    // Everything the universe reads (the rosters come from leagues.payload, too)...
+    ...ASSET_INPUT_TABLES,
+    // ...plus, not part of assetUniverse's own fingerprint: a manager marked "never
     // trade" or "hard" changes findTrades' own filtering directly, on top of
     // whatever assetUniverse already accounts for.
     'manager_profiles'
-  ], key), () => findTradesUncached(lg, opts));
+  ], `${key}:${assetInputsKey(lg, formatKey, target)}`), () => findTradesUncached(lg, opts));
 }
 
 function findTradesUncached(lg, {

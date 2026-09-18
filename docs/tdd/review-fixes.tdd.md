@@ -234,3 +234,29 @@ managers goes 0.227 -> 0.030 (range 0.171-0.309 -> 0.000-0.092), because it now
 measures midnight-6am Eastern instead of 8pm-2am. It is a descriptive ratio, not a
 fitted model; it reaches `manager_signals.chat_night_share` and the negotiation
 prompts. The refresh loop picks this up on its next tick.
+
+## 7. The asset-universe cache served stale projections after a promotion, rollback, league sync or availability refit (medium; backend-patterns, clickhouse-io)
+
+Journey: as Nick, when a weight set is promoted or rolled back, a league syncs, or the
+availability model is refit, I want the next page to show the new numbers without a
+server restart.
+
+RED (730e75f): 4 of 5 fail. Fix: one list of every table `buildAssetUniverse` reads
+(`ASSET_INPUT_TABLES`, now also `leagues.fetched_at`, both availability tables and
+`player_week_snaps`), used by both the assetUniverse and findTrades fingerprints, plus
+the served weight set's id in the key (a rollback only clears a flag, which no row
+count or max id can see). contingency.js keys its fitted-availability lookup on the
+two tables' row count and newest `fitted_at` instead of holding it for the process.
+
+| # | What is guaranteed | RED | GREEN |
+|---|--------------------|-----|-------|
+| 1 | No change: the same cached object | PASS | PASS |
+| 2 | Promotion and rollback each rebuild | FAIL | PASS |
+| 3 | A league sync rebuilds | FAIL | PASS |
+| 4 | An availability refit (either table) or a snap load rebuilds | FAIL | PASS |
+| 5 | weeklyAvailability reads a refit made after its first read (0.592 -> 0.61) | FAIL | PASS |
+
+Cost, measured on the snapshot (league 1, 8,640 assets): a cached call went from
+3.1 ms to 8.1 ms (the `leagues` stamp reads past each 2 MB payload, 2.7 ms; snaps
+1.7 ms). A cold build is ~8.5-8.9 s either way. Regression: all 18 files that import
+trade-engine, contingency or the trades route pass (list in `reg-fp.log`).

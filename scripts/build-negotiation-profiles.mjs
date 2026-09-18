@@ -315,7 +315,43 @@ function statsPacket(name) {
   };
 }
 
-const names = ONLY ? [ONLY] : chat.prepare(
+/**
+ * --self profiles NICK — stored under the name 'ME' — as the other nine experience him.
+ *
+ * Nick, 2026-09-18: "I want the coach to always be considering how I look." A
+ * counterparty's answer depends on how he reads the proposer, not only on the
+ * package, so Nick's own profile is an input to every idea and every message the
+ * Coach drafts. It gets the same schema as everyone else plus a reputation block:
+ * his share of the league's trade offers, the veto votes on his accepted deals, and
+ * how his message volume compares.
+ */
+const SELF = process.argv.includes('--self');
+function reputationPacket() {
+  const me = Number(identity.get('ME')?.roster_id);
+  const tx = appRows('SELECT * FROM league_transactions_raw WHERE league_id = ?', LEAGUE_ID);
+  const props = tx.filter(t => t.type === 'TRADE_PROPOSAL');
+  const offersBy = {};
+  for (const p of props) offersBy[p.team_id] = (offersBy[p.team_id] ?? 0) + 1;
+  const involvesMe = p => JSON.parse(p.items_json || '[]').some(i => i.fromTeamId === me || i.toTeamId === me);
+  const vetoes = props.filter(involvesMe).map(p => {
+    const d = tx.filter(x => x.related_tx_id === p.tx_id);
+    return { proposed_at: p.proposed_at?.slice(0, 10), proposer: p.team_id,
+      accepted: d.some(x => x.type === 'TRADE_ACCEPT'), veto_votes: d.filter(x => x.type === 'TRADE_VETO').length,
+      upheld: d.some(x => x.type === 'TRADE_UPHOLD') };
+  }).filter(v => v.accepted);
+  const style = chat.prepare('SELECT * FROM manager_chat_profile').all();
+  const rankOf = m => [...style].sort((a, b) => (b[m] ?? 0) - (a[m] ?? 0)).findIndex(x => x.name === 'ME') + 1;
+  const sent = chat.prepare(`SELECT chat_name, count(*) n FROM messages WHERE name='ME' AND chat_kind='dm' GROUP BY 1`).all();
+  const recv = new Map(chat.prepare(`SELECT chat_name, count(*) n FROM messages WHERE name<>'ME' AND chat_kind='dm' GROUP BY 1`).all().map(r => [r.chat_name, r.n]));
+  return {
+    league: 'Transfer portal (ESPN league 4), 10 teams; roster ids map to managers in the identity packet',
+    trade_offers_sent_by_roster: offersBy, his_roster: me,
+    his_accepted_deals_and_league_veto_votes: vetoes,
+    chat_rank_of_10: Object.fromEntries(['msgs', 'group_msgs', 'tapbacks', 'p_trade_talk', 'p_open_to_trade', 'p_reacting_to_loss', 'p_competitive', 'confidence_mean'].map(m => [m, rankOf(m)])),
+    dm_messages_he_sent_vs_received: Object.fromEntries(sent.map(r => [r.chat_name, { sent: r.n, received: recv.get(r.chat_name) ?? 0 }])),
+  };
+}
+const names = SELF ? ['ME'] : ONLY ? [ONLY] : chat.prepare(
   `SELECT DISTINCT name FROM messages WHERE name <> 'ME' ORDER BY name`).all().map(r => r.name);
 
 let built = 0, skipped = 0, failed = 0, tokensIn = 0, tokensOut = 0;
@@ -331,12 +367,20 @@ for (const name of names) {
   if (prior?.corpus_hash === hash) console.log(`${name}: messages unchanged but stored profile is malformed (${priorErrors.length} errors, e.g. ${priorErrors[0]}) — rebuilding`);
 
   const transcript = corpus.map(c =>
-    `[${c.at.slice(0, 16)}${c.where ? ' ' + c.where : ''}] ${c.who === name ? 'HIM' : c.who}: ${String(c.text).slice(0, 260)}`
+    `[${c.at.slice(0, 16)}${c.where ? ' ' + c.where : ''}] ${c.who === name || (SELF && c.who === 'NICK') ? 'HIM' : c.who}: ${String(c.text).slice(0, 260)}`
   ).join('\n');
   const stats = statsPacket(name);
-  const prompt = `Profile the negotiating style of ${name} (referred to as HIM below).
-NICK is the person running the trade tool. Other names are other league members.
+  const prompt = (SELF ? `Profile the negotiating style of NICK (referred to as HIM below) as the OTHER league members
+experience him. HIM is the person who runs this trade tool; the profile is used to predict how his offers and
+messages land with each leaguemate, so be candid about what they see: pressure, volume, how his praise and his
+"no" read from their side, and anything that makes them wary (for example veto votes on his deals). For best_bait,
+name the player of HIS that leaguemates most want from him. Other names are other league members.
 
+=== HIS REPUTATION IN THE LEAGUE ===
+${JSON.stringify(reputationPacket(), null, 1)}
+` : `Profile the negotiating style of ${name} (referred to as HIM below).
+NICK is the person running the trade tool. Other names are other league members.
+`) + `
 === THE NUMBERS ===
 ${stats ? JSON.stringify(stats, null, 1) : 'no roster mapping for this person'}
 

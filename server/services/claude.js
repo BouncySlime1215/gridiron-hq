@@ -268,11 +268,13 @@ export function parseJson(msg) {
  * stored cost_usd, or priced by model for rows written without one) — the old
  * version priced the by-feature and today totals at Haiku rates whatever the
  * model. `unpriced_calls` counts rows for a model with no price, which are left
- * out of `cost` rather than guessed.
+ * out of `cost` rather than guessed. `today` is Nick's local day, the same
+ * day the budgets count (llm-budget.js#spentTodayUsd), not the UTC `date`.
  */
 export function usageSummary(days = 30) {
   const logged = rows(`SELECT date, feature, model, input_tokens, output_tokens, cache_read_input_tokens,
-                              cache_creation_input_tokens, calls, cost_usd, date = date('now') AS is_today
+                              cache_creation_input_tokens, calls, cost_usd,
+                              created_at >= datetime('now', 'localtime', 'start of day', 'utc') AS is_today
                        FROM ai_usage WHERE date >= date('now', ?)`, `-${days} days`);
   const blank = () => ({ input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0,
     calls: 0, cost: 0, unpriced_calls: 0 });

@@ -29,7 +29,7 @@
  * comes out near zero.
  */
 import { rows } from '../db/index.js';
-import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots } from './trade-engine.js';
+import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots, FLEX_ELIGIBLE } from './trade-engine.js';
 import { deriveFormat } from './format.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -52,13 +52,31 @@ function weekPpg(p) {
 
 /** Below this edge the advice is not worth giving. */
 export const MATERIAL_EDGE = 12;
-/** Observed coefficient of variation of a team-week score, from the replay. */
+/**
+ * Coefficient of variation of a team-week score — as ORIGINALLY ASSUMED.
+ *
+ * PROVENANCE WARNING, 2026-09-17. The comment here used to say "Observed ... from
+ * the replay". No replay, artifact or doc in this repo produces 0.28; the constant
+ * appears nowhere but this file. The data that does exist disagrees: league_week_scores,
+ * 2023-2025 regular season, 62 team-seasons with >= 8 games, 806 team-weeks —
+ * pooled within-team-season SD 23.56 on a mean of 119.5, CV 0.197.
+ */
 export const TEAM_WEEK_CV = 0.28;
 /**
  * How much a real lineup's spread exceeds the sum of independent player
  * variances, because teammates share a week. Calibrated so a typical lineup
  * lands on TEAM_WEEK_CV; applied as a multiplier so that two lineups with
  * genuinely different player-level variance stay different.
+ *
+ * UNFITTED AND, ON THE EVIDENCE, TOO LARGE. It was reverse-engineered to hit the
+ * 0.28 above, which is itself unsupported (see TEAM_WEEK_CV). Against the observed
+ * CV of ~0.20 the UNINFLATED independent sum already lands roughly on target, so
+ * 1.9 roughly doubles every lineup SD and pulls every win probability toward 50%.
+ * It also contradicts trade-engine.js#lineupSpread's own measurement that the
+ * fitted correlations move a lineup's joint SD by 0-3.4%. Left unchanged here only
+ * because changing it moves every live win probability and swap recommendation;
+ * the replacement should be estimated against league_week_scores (or, better, the
+ * SD of actual minus projected lineup totals once those are persisted), not picked.
  */
 export const CORRELATION_INFLATION = 1.9;
 
@@ -79,9 +97,20 @@ function lineupMoments(starters) {
   // aside, so variances add. Using each player's own floor/ceiling spread when
   // we have it, and a positional default when we do not.
   const DEFAULT_CV = { QB: 0.40, RB: 0.57, WR: 0.63, TE: 0.67 };
-  let varTotal = 0;
+  let varTotal = 0, fromDistribution = 0;
   for (const p of starters) {
-    const spread = (p.ceiling != null && p.floor != null && p.ceiling > p.floor)
+    // A player projected for zero this week — on bye, or with no game matched —
+    // contributes zero variance. The mean comes from current_week_ppg, which is 0
+    // on a bye; the spread used to come from a weekly distribution that is built
+    // with `mult: thisGame?.mult ?? 1` and so is never zeroed for a bye. That handed
+    // a non-playing player a full game's spread at zero mean cost — free variance,
+    // which is exactly the shape the chase-variance search goes looking for, so on
+    // a bye week it would preferentially recommend starting someone not playing.
+    // 672 of 8,640 assets carried current_week_ppg 0 with a live floor/ceiling.
+    if (!(weekPpg(p) > 0)) continue;
+    const hasDist = p.ceiling != null && p.floor != null && p.ceiling > p.floor;
+    if (hasDist) fromDistribution++;
+    const spread = hasDist
       ? (p.ceiling - p.floor) / 2.56                 // p90-p10 spans 2.56 SD
       : weekPpg(p) * (DEFAULT_CV[p.position] ?? 0.6);
     varTotal += spread * spread;
@@ -102,7 +131,14 @@ function lineupMoments(starters) {
   // make one lineup safer than another while still landing a typical lineup on
   // the observed spread.
   const independent = Math.sqrt(varTotal);
-  return { mean, sd: independent * CORRELATION_INFLATION };
+  // `sd_coverage` is the share of starters whose spread came from a real weekly
+  // distribution rather than DEFAULT_CV. The two are not on the same scale —
+  // median implied CV from the distributions is QB 1.19 vs 0.40 default, RB 0.97 vs
+  // 0.57 — so an SD built mostly from defaults is a different quantity from one
+  // built mostly from distributions, and a reader needs to know which it is.
+  const playing = starters.filter(p => weekPpg(p) > 0).length;
+  return { mean, sd: independent * CORRELATION_INFLATION,
+    sd_coverage: playing ? +(fromDistribution / playing).toFixed(2) : null };
 }
 
 /** This week's opponent for a roster, from the synced schedule. */
@@ -190,14 +226,25 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
   //
   // The right question is "what if I deliberately start him in that slot", so
   // the candidate is built directly and its legality is checked explicitly.
-  const benchPool = mine.filter(p => !startIds.has(p.id));
+  // Only players the solver itself could start. bestLineup() excludes anyone
+  // flagged season-ending or released (available === false); this pool did not,
+  // so the swap search offered them as starters. On the 2026-W2 sync that was
+  // EVERY swap the module produced — 6 of 6 across the 5 leagues told the user to
+  // start Kenneth Walker III or Patrick Mahomes, both out, with a fabricated 1.5-10pp
+  // win-probability gain. ESPN's IR slot is a different flag and is handled in
+  // rosterAssets(); this is the engine's own season-ending flag.
+  const benchPool = mine.filter(p => !startIds.has(p.id) && p.available !== false);
+  let artifactsRejected = 0;
   const swaps = [];
   if (stance !== 'neutral') {
     const startingSlots = best.slots.filter(s2 => s2.player);
     for (const slot of startingSlots) {
       const outP = slot.player;
-      const eligible = benchPool.filter(p => (slot.slot === 'FLEX'
-        ? ['RB', 'WR', 'TE'].includes(p.position)
+      // The same eligibility table the solver uses. This used to special-case only
+      // the literal 'FLEX', so REC_FLEX, WRRB_FLEX, SUPER_FLEX and OP fell through
+      // to `position === slot` and silently yielded no candidates at all.
+      const eligible = benchPool.filter(p => (FLEX_ELIGIBLE[slot.slot]
+        ? FLEX_ELIGIBLE[slot.slot].includes(p.position)
         : p.position === slot.slot));
       for (const inP of eligible) {
         const next = startingSlots.map(s2 => (s2.player.id === outP.id ? inP : s2.player));
@@ -205,6 +252,12 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
         const p2 = winProb(m.mean - oppMoments.mean, m.sd, oppMoments.sd);
         const delta = (p2 - basePwin) * 100;
         if (delta <= 0.15) continue;                 // below this it is not advice
+        // The baseline maximises mean points, so a legal swap can only GIVE UP
+        // points. A negative value means the baseline was not optimal for this
+        // candidate — an eligibility or availability mismatch — and the "gain" is
+        // an artifact, not advice. This is the tell the header of this search
+        // describes; it is now enforced rather than remembered.
+        if (mineMoments.mean - m.mean < -1e-9) { artifactsRejected++; continue; }
         swaps.push({
           slot: slot.slot,
           start: inP.name, start_position: inP.position, start_ppg: weekPpg(inP),
@@ -228,6 +281,19 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
     stance,
     lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
     swaps: swaps.slice(0, 5),
+    swaps_rejected_as_artifacts: artifactsRejected,
+    // How much of each SD came from a measured weekly distribution rather than a
+    // positional default. The two differ by up to 3x for the same projection.
+    my_sd_coverage: mineMoments.sd_coverage,
+    opponent_sd_coverage: oppMoments.sd_coverage ?? null,
+    // Scope of the probability. lineupSlots() prices the skill slots only; every
+    // synced league also starts a K and a DEF, which are in neither side's mean nor
+    // variance. The omission cancels in a DIFFERENCE of two lineups but not in a
+    // level and its spread, so this is P(win) over the modelled slots, not over the
+    // matchup as scored. CORRELATION_INFLATION (1.9) is also an unfitted scale: the
+    // uninflated SD already matches observed team-week spread in league_week_scores.
+    win_probability_scope: `modelled skill slots only (${slots.length} of ` +
+      `${JSON.parse(lg.roster_positions ?? '[]').length || slots.length} roster slots); K and DEF excluded`,
     note: stance === 'neutral'
       ? `Matchup is within ${MATERIAL_EDGE} points. Posture is worth under a third of a percentage point here — start the highest projections and leave it alone.`
       : edge < 0

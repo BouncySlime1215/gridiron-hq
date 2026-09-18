@@ -12,8 +12,39 @@ import { shrink } from './stats-util.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const POSITIONS = ['QB', 'RB', 'WR', 'TE'];
-// Fantasy playoffs in nearly every ESPN/Sleeper league.
+// Fantasy playoffs in nearly every ESPN/Sleeper league — the DEFAULT only. Leagues
+// that say otherwise are priced on their own weeks via trade-horizon.js#leagueSchedule.
 export const PLAYOFF_WEEKS = [15, 16, 17];
+
+/*
+ * STATE OF THIS MODULE, measured 2026-09-17. Read before trusting any number it emits.
+ *
+ * 1. THE DEFENCE-VS-POSITION AXIS IS EMPTY IN PRODUCTION. player_gamelog has 0 rows —
+ *    its only writer, edge.js#syncGameLogs, is reachable from a manual script and a
+ *    route, never the refresh loop — so computeDvp() builds an empty map and dvpFor()
+ *    returns its { mult: 1 } fallback for every key. Across 32 teams x 4 positions
+ *    playoff_sos takes exactly three values, {0.98, 0.993, 1.007}: the means of the
+ *    home/away factor over three games. playoff_sos is a count of home games in weeks
+ *    15-17 and nothing else, and every "best/worst matchup" list is home vs away.
+ *    dvpFor() cannot tell "no data" from "exactly league average"; it should.
+ *
+ * 2. EVEN POPULATED, DvP DOES NOT PREDICT. Rebuilt on nflverse 2021-2025 (per the
+ *    audit): first-half DvP -> second-half player outcome r = +0.027 (R^2 0.075%);
+ *    year-over-year r = +0.063; and out-of-sample MAE of baseline x mult falls
+ *    monotonically as K_DVP grows (k=12 5.417, k=200 5.309, k=1000 5.303) — the
+ *    optimum is no adjustment at all. The same-season in-sample r of +0.21 is what
+ *    makes it look like it works.
+ *
+ * 3. The constants below were entered as literals in the first commit and never
+ *    fitted: K_DVP, K_SPLIT, MIN_SPLIT_GAMES, SEASON_WEIGHT and the 1.02/0.98 home
+ *    factor. SEASON_WEIGHT is keyed SEASON-1..3, so the CURRENT season falls through
+ *    to the `?? 0.2` catch-all and counts less than a game from three years ago.
+ *
+ * None of this is changed here, because every one of these moves live projections
+ * (the matchup multiplier feeds current_week_ppg) and has to be graded on the weekly
+ * harness first. The likely right answer, on the evidence, is mult = 1 with DvP kept
+ * as descriptive display only.
+ */
 // Older seasons still carry signal (scheme continuity, personnel), just less of it.
 const SEASON_WEIGHT = s => ({ [SEASON - 1]: 1, [SEASON - 2]: 0.6, [SEASON - 3]: 0.35 })[s] ?? 0.2;
 // Below this many observed games a split is a coin flip, not a trend.
@@ -164,6 +195,11 @@ function computeSplits(log) {
         pct: baseline ? +(((adjusted - baseline) / baseline) * 100).toFixed(0) : 0,
         raw_pct: baseline ? +(((avg - baseline) / baseline) * 100).toFixed(0) : 0,
         // How much of the raw signal survived the sample-size discount.
+        // A SHRINKAGE WEIGHT, not evidential confidence: n / (n + K_SPLIT), 0.20 at the
+        // two-game minimum. Measured on nflverse 2016-2025 (per the audit), the
+        // player-vs-opponent effect it weights has split-half reliability r = -0.011
+        // and first-two-meetings -> later r = -0.087, i.e. no surviving signal, so a
+        // reader should not take 0.20 as "20% of a real effect survived".
         confidence: +(o.games.length / (o.games.length + K_SPLIT)).toFixed(2),
         best: +Math.max(...o.games).toFixed(1),
         worst: +Math.min(...o.games).toFixed(1),
@@ -215,7 +251,17 @@ export function dvpFor(opponent, position) {
  * @returns {{ sos: number, playoff_sos: number, bye: number|null,
  *             best: object[], worst: object[], playoff_games: object[] }}
  */
-export function scheduleOutlook(teamAbbr, position, fromWeek = 1) {
+/**
+ * @param playoffWeeks the league's own playoff weeks (trade-horizon.js#leagueSchedule).
+ *   Defaults to PLAYOFF_WEEKS = [15, 16, 17], which is right for a 14-week regular
+ *   season with one-week playoff rounds and wrong for leagues 1 and 3 as synced.
+ *
+ * POLARITY: playoff_sos here is a points MULTIPLIER, higher = EASIER.
+ * edge.js#scheduleEdge emits an unrelated opponent-strength field with the same
+ * name and the opposite polarity. Also note that when the playoff slate is empty
+ * (the season is past it), mean([]) returns 1, i.e. "no games" reads as "neutral".
+ */
+export function scheduleOutlook(teamAbbr, position, fromWeek = 1, playoffWeeks = PLAYOFF_WEEKS) {
   const { schedule, byeWeek } = matchupModel();
   const games = (schedule.get(teamAbbr) ?? []).filter(g => g.week >= fromWeek);
   if (!games.length) return { sos: 1, playoff_sos: 1, bye: byeWeek.get(teamAbbr) ?? null, best: [], worst: [], playoff_games: [] };
@@ -227,6 +273,10 @@ export function scheduleOutlook(teamAbbr, position, fromWeek = 1) {
       opponent: g.opponent_abbr,
       home: !!g.home,
       // Home field is worth a little, and it is the one adjustment every book makes.
+      // Unfitted and flat across positions (a 4.08% home/away edge). Per the audit's
+      // nflverse 2021-2025 measurement the unconditional ratio is QB 1.068, RB 1.051,
+      // WR 1.049, TE 1.023 — roughly right for RB/WR, low for QB, high for TE. With
+      // DvP empty this factor is currently the ENTIRE content of sos and playoff_sos.
       mult: +(d.mult * (g.home ? 1.02 : 0.98)).toFixed(3),
       allowed: d.allowed,
       rank: d.rank,
@@ -234,7 +284,7 @@ export function scheduleOutlook(teamAbbr, position, fromWeek = 1) {
     };
   });
   const mean = list => (list.length ? list.reduce((s, g) => s + g.mult, 0) / list.length : 1);
-  const playoff = scored.filter(g => PLAYOFF_WEEKS.includes(g.week));
+  const playoff = scored.filter(g => playoffWeeks.includes(g.week));
   const ranked = [...scored].sort((a, b) => b.mult - a.mult);
 
   return {

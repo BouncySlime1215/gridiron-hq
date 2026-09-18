@@ -6,7 +6,7 @@ const { WEEKLY_ROLE_RECENCY, weeklyEnsemblePrediction } = await import(R+'weekly
 const { activeWeeklyWeightSet } = await import(R+'weekly-weight-store.js');
 const { pairedBootstrapDiff } = await import(R+'backtest-significance.js');
 const w = activeWeeklyWeightSet({season:2026,week:3}).weights;
-const common = { startWeek:5, endWeek:18, distributions:false, kOverride: activeKVector(), roleRecency: WEEKLY_ROLE_RECENCY,
+const common = { startWeek:5, endWeek:18, distributions:false, kOverride: undefined /* cutoff-safe default: shrinkage-fit.js cutoffSafeKVector */, roleRecency: WEEKLY_ROLE_RECENCY,
   predictionHead: ctx => weeklyEnsemblePrediction(ctx, w) };
 for (const season of [2024, 2025]) {
   const t0=Date.now();

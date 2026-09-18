@@ -22,11 +22,11 @@
  */
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { db, rows, run } from '../db/index.js';
 import { identityMap } from './manager-identity.js';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+import { PROJECT_ROOT } from '../platform/paths.js';
+const ROOT = PROJECT_ROOT;
 const CHAT_DB = path.join(ROOT, 'data/derived/league_chat.sqlite');
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (

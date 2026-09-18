@@ -41,12 +41,12 @@ import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
 import { counterpartyLayer, readDeal } from './counterparty-pricing.js';
-import { horizonWeights, horizonGain, horizonNote } from './trade-horizon.js';
+import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
-const FLEX_ELIGIBLE = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
+export const FLEX_ELIGIBLE = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
                         SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'], OP: ['QB', 'RB', 'WR', 'TE'] };
 // Positions we model. K and D/ST are near-random week to week and roughly
 // interchangeable, so including them adds noise to every lineup comparison.
@@ -143,6 +143,9 @@ function buildAssetUniverse(lg, formatKey, target) {
   // evidence cache should refresh on, so it is dropped here rather than on a TTL.
   evidenceCache.clear();
   const scoring = scoringFor(lg);
+  // This league's own playoff weeks, so playoff_ppg is priced on the weeks that
+  // actually decide ITS title (see trade-horizon.js#leagueSchedule).
+  const { playoffWeeks } = leagueSchedule(lg);
   // formatKey is `dyn_...`/`rd_...` per deriveFormat (format.js) — the age
   // decay only makes sense for a dynasty/keeper valuation, never redraft.
   const isDynasty = formatKey.startsWith('dyn_');
@@ -184,7 +187,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     const weekProjection = weekly.get(p.id);
     const proj = v?.proj ?? 0;
     const sched = p.team_abbr && SCORED.has(p.position)
-      ? scheduleOutlook(p.team_abbr, p.position, target.week)
+      ? scheduleOutlook(p.team_abbr, p.position, target.week, playoffWeeks)
       : { sos: 1, playoff_sos: 1, bye: null, best: [], worst: [], playoff_games: [] };
     const tr = trending.get(p.id);
     const availability = active.get(p.id);
@@ -204,8 +207,19 @@ function buildAssetUniverse(lg, formatKey, target) {
     // it cannot erase the remaining schedule or turn a bye into a player-value
     // collapse. The weekly engine itself refreshes from every completed week.
     const decisionPpg = 0.25 * currentWeekPpg + 0.75 * rosPpg;
+    // 2,000 draws, playerWeekDistribution's own default. This used to override it
+    // down to 400, and at 400 the percentiles are not stable enough to print, let
+    // alone difference across the two sides of a trade: measured over 200 re-draws
+    // of one WR1, p90 sd 1.84 at 400 vs 0.86 at 2,000 (p10 0.52 vs 0.23, mean 0.69 vs
+    // 0.34). A ceiling_delta of a few points was inside the draw noise of the two
+    // swapped players. Cost: ~0.7s -> ~3.6s of sampling per asset-universe build
+    // (1,183 players), which is cached per league-week. Deterministic seeding from
+    // the cache key makes the number reproducible, which is not the same as
+    // accurate — and because the key includes activeProbability and mult, a small
+    // availability change re-rolls the whole draw. Common random numbers across the
+    // before/after lineups would cancel that noise in a delta; not done here.
     const weekDist = weekProjection
-      ? playerWeekDistribution(weekProjection, { runs: 400, activeProbability, mult: thisGame?.mult ?? 1 })
+      ? playerWeekDistribution(weekProjection, { runs: 2000, activeProbability, mult: thisGame?.mult ?? 1 })
       : null;
 
     out.set(p.id, {
@@ -320,15 +334,69 @@ export function lineupSlots(lg) {
 
 /* -------------------------------------------------------- lineup optimiser */
 
+const warnedMissingKeys = new Set();
+
+/**
+ * Exact max-weight assignment of flex slots, for eligibility sets that are not
+ * nested (see bestLineup). `pool` is already sorted by `key`, descending, and holds
+ * only players no dedicated slot took. Enumerates injective slot->player maps over
+ * the union of each slot's top-f eligible players; with f flex slots that is at
+ * most f^2 candidates, so the search is tiny.
+ */
+function exactFlexAssignment(pool, flexSlots, key) {
+  const f = flexSlots.length;
+  const candidates = [...new Set(flexSlots.flatMap(slot =>
+    pool.filter(p => FLEX_ELIGIBLE[slot].includes(p.position)).slice(0, f)))];
+  let best = null, bestPts = -Infinity;
+  const pick = new Array(f).fill(null);
+  const taken = new Set();
+  const walk = i => {
+    if (i === f) {
+      const pts = pick.reduce((sum, p) => sum + (p?.[key] ?? 0), 0);
+      if (pts > bestPts) { bestPts = pts; best = [...pick]; }
+      return;
+    }
+    const ok = FLEX_ELIGIBLE[flexSlots[i]];
+    for (const p of candidates) {
+      if (taken.has(p.id) || !ok.includes(p.position)) continue;
+      taken.add(p.id); pick[i] = p; walk(i + 1); taken.delete(p.id);
+    }
+    pick[i] = null; walk(i + 1);
+  };
+  walk(0);
+  return flexSlots.map((slot, i) => ({ slot, player: best?.[i] ?? null }));
+}
+
 /**
  * Best possible starting lineup from a set of players.
  *
  * Fills dedicated slots with the top players at each position, then flex slots from
- * whatever is left. That greedy order is optimal here because flex eligibility is a
- * superset of the dedicated slots it competes with — no dedicated slot can ever be
- * better served by a player the flex already took.
+ * whatever is left. The dedicated-before-flex order is optimal because every flex
+ * set is a superset of the dedicated slot it competes with — no dedicated slot can
+ * ever be better served by a player the flex already took.
  *
- * @param key which projection to optimise: 'adj_ppg' (season) or 'playoff_ppg'
+ * That argument covers dedicated vs flex ONLY. It says nothing about two flex slots
+ * competing with each other, and the old code filled those in roster_positions order,
+ * which is a platform artifact. Two cases:
+ *
+ *   NESTED flex sets (FLEX with SUPER_FLEX/OP, or several FLEX) — every pair is a
+ *   subset of the other. Greedy is optimal provided the MOST RESTRICTIVE slot is
+ *   filled first; in platform order a SUPER_FLEX could take the last RB/WR/TE and
+ *   strand a FLEX that a spare QB could not fill. The pass now sorts by eligibility
+ *   size, which is a no-op for every league synced today (all plain FLEX).
+ *
+ *   NON-NESTED sets (REC_FLEX {WR,TE} with WRRB_FLEX {RB,WR}) — no greedy order is
+ *   optimal. Measured: RB3 = 14, WR3 = 15, TE2 = 2 left over, slot order [WRRB, REC]
+ *   scored 125 and [REC, WRRB] 137 on the identical roster. For these the flex pass is
+ *   solved exactly by enumeration, which is cheap: an optimal assignment only ever
+ *   uses, for each slot, one of that slot's top-f eligible players (f = number of flex
+ *   slots), so the candidate set is at most f^2 players.
+ *
+ * No synced league uses a non-nested pair, so this changes no number today. It
+ * matters because every downstream decision is a DIFFERENCE of two of these calls.
+ *
+ * @param key which projection to optimise: 'adj_ppg' (season), 'current_week_ppg'
+ *   (this week), 'ros_ppg', 'playoff_ppg', or a key the caller annotated.
  */
 export function bestLineup(players, slots, key = 'adj_ppg') {
   // Season-ending/released players (see player-availability.js) never fill a
@@ -336,6 +404,22 @@ export function bestLineup(players, slots, key = 'adj_ppg') {
   // entirely, so the roster view can show why that slot moved to someone else.
   const eligible = players.filter(p => SCORED.has(p.position));
   const pool = eligible.filter(p => p.available !== false).sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0));
+  // A key that exists on NO player is almost always a programming error — a typo,
+  // or a caller that forgot to annotate the field it asked for — and it used to
+  // return points 0 beside a full, plausible-looking lineup with no signal at all.
+  // Every consumer takes a difference of two such calls, so the failure read as "no
+  // upgrade found" everywhere. It is now flagged on the result (`key_missing`) and
+  // logged once per key. It does not throw: evaluate() is legitimately called on
+  // partial player objects (the test fixtures carry adj_ppg and no playoff_ppg), and
+  // a crash on a live page is a worse failure than a flagged zero. A key that is
+  // present but null or 0 on some players is a legitimate data state and is not
+  // flagged.
+  const keyMissing = pool.length > 0 && !pool.some(p => Object.prototype.hasOwnProperty.call(p, key));
+  if (keyMissing && !warnedMissingKeys.has(key)) {
+    warnedMissingKeys.add(key);
+    console.warn(`[trade-engine] bestLineup: no player in the pool carries '${key}' — every lineup on this key ` +
+      'scores 0. Misspelled or unannotated key? (logged once per key; see key_missing on the result)');
+  }
   const used = new Set();
   const filled = [];
 
@@ -344,16 +428,35 @@ export function bestLineup(players, slots, key = 'adj_ppg') {
     if (pick) used.add(pick.id);
     filled.push({ slot, player: pick ?? null });
   }
-  for (const slot of slots.filter(s => FLEX_ELIGIBLE[s])) {
-    const ok = FLEX_ELIGIBLE[slot];
-    const pick = pool.find(p => !used.has(p.id) && ok.includes(p.position));
-    if (pick) used.add(pick.id);
-    filled.push({ slot, player: pick ?? null });
+  // Solve the flex slots most-restrictive first, then report them back in the
+  // league's own roster order so no consumer sees a reshuffled slot list.
+  const flexOrder = slots.filter(s => FLEX_ELIGIBLE[s])
+    .map((slot, order) => ({ slot, order }))
+    .sort((a, b) => FLEX_ELIGIBLE[a.slot].length - FLEX_ELIGIBLE[b.slot].length || a.order - b.order);
+  const flexSlots = flexOrder.map(x => x.slot);
+  const nested = flexSlots.every((a, i) => flexSlots.slice(i + 1).every(b =>
+    FLEX_ELIGIBLE[a].every(pos => FLEX_ELIGIBLE[b].includes(pos))
+    || FLEX_ELIGIBLE[b].every(pos => FLEX_ELIGIBLE[a].includes(pos))));
+  let flexFilled;
+  if (nested) {
+    flexFilled = flexSlots.map(slot => {
+      const ok = FLEX_ELIGIBLE[slot];
+      const pick = pool.find(p => !used.has(p.id) && ok.includes(p.position));
+      if (pick) used.add(pick.id);
+      return { slot, player: pick ?? null };
+    });
+  } else {
+    flexFilled = exactFlexAssignment(pool.filter(p => !used.has(p.id)), flexSlots, key);
+    for (const f of flexFilled) if (f.player) used.add(f.player.id);
   }
+  const inRosterOrder = new Array(flexOrder.length);
+  flexOrder.forEach((x, i) => { inRosterOrder[x.order] = flexFilled[i]; });
+  filled.push(...inRosterOrder);
 
   const points = filled.reduce((s, f) => s + (f.player?.[key] ?? 0), 0);
   return {
     points: +points.toFixed(2),
+    key_missing: keyMissing,
     slots: filled,
     bench: eligible.filter(p => !used.has(p.id)),
     holes: filled.filter(f => !f.player).map(f => f.slot)
@@ -397,6 +500,20 @@ export function bestLineup(players, slots, key = 'adj_ppg') {
  * rarely stack and the fitted correlations themselves are modest. The
  * machinery already lives in the one place it changes an actual decision —
  * `ceiling-lineup.js` — and does not need duplicating here on a null result.
+ *
+ * WHAT THAT ARGUMENT MISSES, and it is far larger than correlation. This returns
+ * the SUM of each starter's own p10 as the lineup "floor" and the sum of p90s as
+ * the "ceiling". A sum of quantiles is not the quantile of a sum. Measured on a
+ * nine-starter lineup at activeProbability 0.92 with 40,000 joint draws (per the
+ * audit): sum of p10 5.2 against a true lineup-total p10 of 73.6; sum of p90 245.4
+ * against a true p90 of 159.5. The "floor" sits below every one of the 40,000
+ * simulated totals — it is the all-nine-bust scenario, not a 10th percentile — and
+ * because most individual p10s are pinned at 0 by the availability atom, it is
+ * driven by which starters happen to sit below activeProbability ~0.90. So
+ * floor_delta / ceiling_delta in the trade verdict are not percentiles of anything.
+ * Not changed here because it moves the verdict text on every trade; the fix is to
+ * draw the lineup total jointly (correlation.js already has the sampler) and take
+ * p10/p90 of that, or, as an interim, combine per-player SDs in quadrature.
  */
 export function lineupSpread(lineup) {
   const starters = lineup.slots.map(s => s.player).filter(Boolean);
@@ -666,6 +783,16 @@ export function evaluate(a, b, slots, ctx = {}) {
       // mismatch as a schedule signal, so consumers normalise by the baselines.
       playoff_lineup_before: +bMonth.points.toFixed(2),
       playoff_lineup_after: +pMonth.points.toFixed(2),
+      // The playoff delta on the CURRENT lineup's basis — the same share-of-own-
+      // baseline correction horizonGain() applies to the ranking value. The raw
+      // playoff_ppg_delta above is kept for that function, but it is ~1.11x the
+      // scale of ppg_delta, and it used to be the number the UI and the Claude
+      // trade prompt printed right under ppg_delta, where the gap reads as "my
+      // schedule improves in December". It does not; the gap is availability and
+      // byes. This is the field to display. It is a lineup-level rescale, so a
+      // per-player residual remains (individual ratios span ~1.01-1.34).
+      playoff_ppg_delta_scaled: bMonth.points > 0
+        ? +(((pMonth.points - bMonth.points) / bMonth.points) * before.points).toFixed(2) : null,
       value_out: valueOut, value_in: valueIn, value_delta: valueIn - valueOut,
       roster_spots: gets.length - gives.length,
       floor_delta: spreadBefore.floor != null && spreadAfter.floor != null
@@ -760,8 +887,16 @@ function tagDeal(give, get, ev) {
   const oldest = list => Math.max(...list.map(p => p.age ?? 0));
 
   if (give.length + get.length >= 4) tags.push('Blockbuster');
-  // playoff_sos is a multiplier already centred near 1; lower is an easier stretch.
-  if (avg(get, 'playoff_sos', 1) < avg(give, 'playoff_sos', 1) - 0.05) tags.push('Playoff Push');
+  // playoff_sos here is matchups.js#scheduleOutlook's points MULTIPLIER — this file
+  // computes playoff_ppg = weeklyPpg * playoff_sos — so HIGHER is an EASIER stretch.
+  // The comment used to say "lower is easier", which is the polarity of edge.js's
+  // unrelated field of the same name (opponent strength, higher = harder), and the
+  // comparison followed the comment: the tag fired for deals that acquire the HARDER
+  // schedule. Flipped. Note it is still unreachable today — with player_gamelog empty
+  // the multiplier only encodes home games (0.98 to 1.007 across rostered players, a
+  // maximum average gap of 0.027 against this 0.05 threshold), so the inversion hid.
+  // The 0.05 is unfitted and should be re-derived once DvP carries real signal.
+  if (avg(get, 'playoff_sos', 1) > avg(give, 'playoff_sos', 1) + 0.05) tags.push('Playoff Push');
   if (youngest(get) <= 24 && oldest(give) >= youngest(get) + 3) tags.push('Youth Play');
   if (oldest(give) >= 29 && youngest(get) < oldest(give)) tags.push('Sell High');
   // role_change is only ever set when the weekly engine detected a real usage
@@ -888,7 +1023,7 @@ function findTradesUncached(lg, {
   // rate — and nothing has ever read it. It is weighted against this week's
   // delta by how much of the season remains and how likely this roster is to
   // still be playing in December.
-  const horizon = horizonWeights(weekNow.week, { playoffOdds });
+  const horizon = horizonWeights(weekNow.week, { playoffOdds, ...leagueSchedule(lg) });
   const counterparties = useCounterparty
     ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
     : new Map();
@@ -1037,6 +1172,13 @@ function findTradesUncached(lg, {
             : ev.their_value_pct < -6
               ? `You get ${Math.abs(ev.their_value_pct).toFixed(0)}% more market value than you send.`
               : 'Roughly even on market value.',
+          // The signed objective is what ORDERS deals; `score` is its display form,
+          // clamped at zero as before. Clamping before sorting made every net-
+          // negative deal tie at exactly 0, so their order was roster-iteration
+          // order presented as a ranking. Latent at today's gain magnitudes (min
+          // score 8.9 on league 2), but it binds as soon as projections settle.
+          score_signed: +(managerFactor * fairnessFactor * perceptionFactor
+            * (gain.value + 0.2 * ev.joint_ppg) - valueCost).toFixed(3),
           score: +Math.max(0, managerFactor * fairnessFactor * perceptionFactor
             * (gain.value + 0.2 * ev.joint_ppg) - valueCost).toFixed(3)
         });
@@ -1044,7 +1186,7 @@ function findTradesUncached(lg, {
     }
   }
 
-  deals.sort((a, b) => b.score - a.score);
+  deals.sort((a, b) => b.score_signed - a.score_signed);
   // Collapse to distinct *ideas*. Two offers are the same idea when the headline
   // pieces match — keying on the whole package instead just surfaces ten variants of
   // one swap padded with different throwaway bench players.
@@ -1520,7 +1662,11 @@ export function selfScout(lg, myTeamId) {
     rank: myRank, of: allLineups.length,
     lineup: { points: lineup.points, slots: lineup.slots.map(s => ({ slot: s.slot, player: s.player ? slim(s.player) : null })),
               bench: lineup.bench.map(slim), holes: lineup.holes },
+    // Solved on playoff_ppg, which carries no availability term and so runs ~1.11x
+    // lineup.points for reasons that have nothing to do with the schedule. Do not
+    // compare the two directly; _scaled expresses it on lineup.points' basis.
     playoff_lineup_points: playoffLineup.points,
+    playoff_lineup_scale_note: 'playoff_ppg basis (no availability term); not comparable to lineup.points',
     spread,
     positions,
     strengths: strengths.map(([pos, v]) => ({ position: pos, ...v })),

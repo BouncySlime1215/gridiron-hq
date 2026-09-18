@@ -10,3 +10,9 @@ export function up(db) {
   const cols = db.prepare('PRAGMA table_info(leagues)').all().map(c => c.name);
   if (!cols.includes('current_week')) db.exec('ALTER TABLE leagues ADD COLUMN current_week INTEGER');
 }
+
+export function down(db) {
+  // Additive column only; dropping it returns the table to its 055 shape.
+  const cols = db.prepare('PRAGMA table_info(leagues)').all().map(c => c.name);
+  if (cols.includes('current_week')) db.exec('ALTER TABLE leagues DROP COLUMN current_week');
+}

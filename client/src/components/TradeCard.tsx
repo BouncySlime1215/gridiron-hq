@@ -109,7 +109,8 @@ function SideBox({ s, mine }: { s: any; mine: boolean }) {
       </div>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-[11px]">
         <div><dt className="text-[var(--muted)]">Playoffs (15–17)</dt>
-          <dd className={`tabular-nums font-medium ${s.playoff_ppg_delta > 0 ? 'text-good' : s.playoff_ppg_delta < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>{num(s.playoff_ppg_delta)} ppg</dd></div>
+          {/* The rescaled delta: the raw playoff_ppg_delta sits ~1.11x the scale of the weekly delta above it. */}
+          <dd className={`tabular-nums font-medium ${(s.playoff_ppg_delta_scaled ?? s.playoff_ppg_delta) > 0 ? 'text-good' : (s.playoff_ppg_delta_scaled ?? s.playoff_ppg_delta) < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>{num(s.playoff_ppg_delta_scaled ?? s.playoff_ppg_delta)} ppg</dd></div>
         <div><dt className="text-[var(--muted)]">Market value</dt>
           <dd className={`tabular-nums font-medium ${s.value_delta > 0 ? 'text-good' : s.value_delta < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>{num(s.value_delta, 0)}</dd></div>
         {s.floor_delta != null && (

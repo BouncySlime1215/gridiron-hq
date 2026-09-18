@@ -28,7 +28,7 @@ import {
   shrink, mean, quantile, percentiles,
   randGamma, randNegBinomial, randBinomial, randPoisson, randn, randBeta, random
 } from './stats-util.js';
-import { activeKVector } from './shrinkage-fit.js';
+import { activeKVectorFor } from './shrinkage-fit.js';
 import { qbrTrailingForPlayer } from './nfl-qbr.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -37,18 +37,66 @@ const GAMES = 17;
 /* ------------------------------------------------------------------ priors */
 
 /**
- * Regression strengths, in effective games. These encode the whole thesis of the
- * model, so they are worth reading as a statement rather than as constants:
- * a role stabilises in a handful of games, efficiency takes most of a season,
- * and touchdown rate essentially never stabilises.
+ * Regression strengths. These encode the whole thesis of the model, so they are
+ * worth reading as a statement rather than as constants: a role stabilises in a
+ * handful of games, efficiency takes most of a season, and touchdown rate
+ * essentially never stabilises.
+ *
+ * UNITS — there are two, and they are not interchangeable. This block used to
+ * claim a single "effective games" unit, which was wrong for five of its seven
+ * members and unrecoverable from the call sites, because each one divided BOTH
+ * n and k by the same "opportunities per game" figure (targets/5, carries/8,
+ * attempts/10). Those divisors cancel inside shrink() — (o*n + p*k)/(n + k) is
+ * invariant to scaling n and k together — so they never changed a projection;
+ * they only made the constant look like something it isn't. They are gone, and
+ * every k below now sits in the unit its own n is counted in:
+ *
+ *   share, team_volume      RECENCY-WEIGHTED GAMES. n is a weighted game count,
+ *                           so 6 really does mean "six games of evidence".
+ *   yards_per, catch_rate,  RAW OPPORTUNITIES (targets, carries, attempts). One
+ *   td_rate, int_rate       number here therefore buys DIFFERENT numbers of
+ *                           games per metric, because positions see different
+ *                           opportunity rates: td_rate = 70 is 14.0 games of
+ *                           receiving (≈5 targets/g), 8.8 games of rushing
+ *                           (≈8 carries/g) and 7.0 games of passing (≈10
+ *                           attempts/g). yards_per = 34 is 6.8 / 4.3 / 3.4.
+ *                           That asymmetry is now visible instead of hidden;
+ *                           it is not a claim that it is correct.
+ *
+ * The availability shrink at the bottom of the file is a third unit again
+ * (seasons of team games / 17) and passes its own literal rather than reading
+ * this object.
+ *
+ * OPEN AND MEASURED, 2026-09-17 — the two VOLUME constants are far too strong
+ * and this is the largest single defect in the head. Fitting k with the
+ * variance-components estimator in shrinkage-fit.js, strictly on seasons <= s-1,
+ * and substituting ONLY the five volume metrics (target_share, carry_share,
+ * qb_attempts, team_pass_att, team_rush_att): 2023 weekly MAE 4.695 -> 4.349,
+ * 2024 4.921 -> 4.460, 2025 4.749 -> 4.376, with Spearman +0.065 in every one
+ * of the three held-out seasons. The fitted values are 0.36-0.46 for
+ * target_share against the 6 here, and 2.9-5.1 for team volume against 10. The
+ * model's opening thesis — "volume is forecast with light regression and
+ * efficiency with heavy regression" — is inverted in these constants: volume is
+ * regressed 6-30x harder than the data supports.
+ *
+ * It is NOT fixed here, deliberately. Moving the structural head from 4.749 to
+ * 4.376 changes its standing against season_to_date (4.386) from clearly worse
+ * to parity, and the promoted ensemble weights [0.20 structural, 0.40
+ * season_to_date, 0.15 last3, 0.05 last1, 0.20 median] were fitted against the
+ * CURRENT head. A head this much better should earn more weight, so the fix is
+ * "persist the fit, then re-run the ensemble promotion gate", not a one-line
+ * constant change — and it moves live start/sit output, so it needs grading
+ * before it ships. The EFFICIENCY k from the same fitter is a separate matter
+ * and should NOT be applied: substituting it makes 2025 worse (4.773 vs 4.749),
+ * because "player" is not a stable group for efficiency within a season and the
+ * method-of-moments between-player variance is inflated for those metrics.
  */
 const K = {
-  share: 6,          // target/carry share — stable, trust it early
-  team_volume: 10,   // team pass/rush rate — stable
-  yards_per: 34,     // yards per opportunity — regress hard
-  catch_rate: 26,
-  td_rate: 70,       // the most regression-prone number in fantasy
-  games: 8,          // availability
+  share: 6,          // target/carry share — stable, trust it early (weighted games)
+  team_volume: 10,   // team pass/rush rate — stable (weighted games)
+  yards_per: 34,     // yards per opportunity — regress hard (raw opportunities)
+  catch_rate: 26,    // raw targets
+  td_rate: 70,       // the most regression-prone number in fantasy (raw opportunities)
   /*
    * Interceptions are very close to random, and treating them otherwise was
    * an active defect rather than a missed opportunity: the anytime-INT
@@ -61,14 +109,19 @@ const K = {
    * against n = attempts/10) let a QB with ~700 prior attempts carry ~91%
    * weight on his own rate — nearly full trust in noise.
    *
-   * 160 is swept, not chosen: K in {0.7, 2.5, 5, 10, 20, 40, 80, 160, 320, inf}
-   * on 2022-2025, scoring Brier skill against each population's own
-   * climatology. Skill rises monotonically from -6.2% at the old value to
-   * +2.6% here, then falls again. Note it also beats pure league mean
+   * 1,600 raw attempts is swept, not chosen: K in {0.7, 2.5, 5, 10, 20, 40,
+   * 80, 160, 320, inf} in the old pseudo-game unit (n = attempts/10) on
+   * 2022-2025, scoring Brier skill against each population's own climatology.
+   * Skill rises monotonically from -6.2% at the old value to +2.6% at the
+   * swept winner, then falls again. Note it also beats pure league mean
    * (+2.4%), so a small amount of real quarterback signal does exist — just
    * an order of magnitude less than the model previously assumed.
+   *
+   * The literal is written as 1,600 rather than 160 only because the /10
+   * divisor on both n and k has been removed; the shrink weight it produces,
+   * attempts/(attempts + 1600), is exactly what the sweep selected.
    */
-  int_rate: 160
+  int_rate: 1600
 };
 
 // Recency weights. A role two years ago is weak evidence about this year's role.
@@ -129,15 +182,23 @@ function rowWeight(u, through, throughWeek, r) {
 
 /**
  * Build Order 1.1 — every shrink() call below goes through this picker rather
- * than the hardcoded K object directly. When a fitted k-vector is active (see
- * shrinkage-fit.js), it replaces both the constant and, for raw-opportunity
- * efficiency metrics, the evidence unit itself: the old code converted counts
- * to "pseudo games" (targets/5, carries/8, attempts/10) purely so they could
- * be compared against one hand-picked K.yards_per/K.td_rate shared across
- * every position. A fitted k is already measured in raw units (targets,
- * carries, attempts, or recency-weighted games — whatever `rawN` is), so
- * there is no conversion left to do; `hardcodedN`/`hardcodedK` are only used
- * when no fit for that (metric, position) has ever beaten the baseline.
+ * than the hardcoded K object directly, so a fitted k-vector (see
+ * shrinkage-fit.js) can replace the constant without touching a call site.
+ * `hardcodedN`/`hardcodedK` are the fallback used when no fit for that
+ * (metric, position) has ever beaten the baseline.
+ *
+ * The fitted and hardcoded branches now agree on units. They did not always:
+ * the old code converted counts to "pseudo games" (targets/5, carries/8,
+ * attempts/10) for the hardcoded branch only, so that one hand-picked
+ * K.yards_per/K.td_rate could be shared across positions. Since that divisor
+ * was applied to n and k alike it cancelled inside shrink() and changed
+ * nothing, and it is gone — both branches are in raw opportunities (or
+ * recency-weighted games, for the volume metrics), whatever `rawN` counts.
+ *
+ * NOTE, and it is the reason this picker looks inert in production: no fitted
+ * k has ever been persisted. shrinkage_fits and shrinkage_k are both empty, so
+ * activeKVector() returns null and every call takes the hardcoded branch. See
+ * the fitter's header for what the fit says the constants should be.
  */
 function pickK(kOverride, metric, position, rawN, hardcodedN, hardcodedK) {
   const fitted = kOverride?.[metric]?.[position];
@@ -188,6 +249,25 @@ export const LEVEL_UNCERTAINTY = { a: 0, b: 1.15, lo: 0.30, hi: 0.70, downMult: 
  * gain in both held-out seasons — modest, not a null result. `center` is the
  * league mean QBR among qualified starts (qb_plays >= 5), not fit against any
  * fantasy outcome, so it cannot leak the thing being predicted.
+ *
+ * PROVENANCE WARNING, 2026-09-17. Every number in the paragraphs above is
+ * UNVERIFIABLE against the database this code now runs on. `nfl_qbr_weekly`
+ * holds 540 rows for 2025 and 32 for 2026 week 1 and NOTHING for 2021-2024, so
+ * neither the 1,367-player-week fit nor the 2024/2025 held-out results can be
+ * reproduced here; the table was evidently rebuilt after the fit and the
+ * history was not re-synced. `center = 53.26` likewise cannot be recomputed:
+ * the qualified-start mean over the rows that do exist is 52.97. Read the fit
+ * as a claim about data that is gone, not as something this repo can show.
+ *
+ * Two further cautions that stand on their own, both measured on the shipped
+ * data. First, the adjustment carries NO minimum-evidence gate: over 2025
+ * weeks 5-17, 20% of the QB reads come from fewer than three qualifying starts
+ * and 59 from exactly one, and k = 0.073 was (per the fit above) estimated on
+ * stable 8-start trailing reads, so a single noisy game gets an eight-game
+ * coefficient. Second, the whole signal is currently worth roughly nothing:
+ * 2025 weekly MAE is 4.749 with it on and 4.751 with it off. It is not doing
+ * harm, and it is not the place to spend effort. Re-syncing 2021-2024 QBR and
+ * re-running scripts/analyze-qbr-fantasy-signal.mjs is what would settle both.
  */
 export const QBR_SIGNAL = { enabled: true, k: 0.073, center: 53.26, window: 8 };
 
@@ -366,12 +446,19 @@ export function buildProjections({
   through = SEASON - 1, throughWeek = null, scoring = PPR, kOverride, recency,
   roleRecency, qbrSignal = QBR_SIGNAL
 } = {}) {
-  const k = kOverride === undefined ? activeKVector() : kOverride;
   const r = { ...RECENCY, ...recency };
   // Opportunity and efficiency are different processes. `roleRecency` lets an
   // experiment shorten only the memory of volume while efficiency keeps the
   // already-validated global history. Omitted means identical legacy behavior.
   const rr = { ...r, ...roleRecency };
+  // The active fitted vector, filtered to the recency it was fitted under: the
+  // volume k only applies when volume evidence is accumulated the way it was
+  // during the fit (see shrinkage-fit.js#activeKVectorFor). An explicit
+  // kOverride — the backtest's way of comparing vectors — is used verbatim.
+  // The season whose games are being predicted: an in-season cutoff predicts later
+  // weeks of `through`; a season-boundary cutoff predicts `through + 1`.
+  const predictingSeason = throughWeek != null ? through : through + 1;
+  const k = kOverride === undefined ? activeKVectorFor(rr, { predictingSeason }) : kOverride;
   const log = history(through, throughWeek);
   if (!log.length) return new Map();
   const { teams: teamVol, league: leagueVol } = teamVolume(log, through, k, throughWeek, rr);
@@ -433,6 +520,30 @@ export function buildProjections({
     const carryShareGroup = a.pos === 'RB' ? 'RB' : 'OTHER';
     const tgtShareObs = a.tgtShareW ? a.tgtShare / a.tgtShareW : 0;
     const tgtShareK = pickK(k, 'target_share', 'ALL', a.tgtShareW, a.tgtShareW, K.share);
+    /*
+     * OPEN, 2026-09-17: one global prior for three non-exchangeable positions.
+     *
+     * 0.06 is not the mean of anything. Opportunity rows 2021-2025, including
+     * zero-target games: WR 0.1311 (n=12,274), TE 0.0981 (n=6,112), RB 0.0624
+     * (n=8,088), pooled non-QB 0.1025. Only RB is anywhere near 0.06.
+     *
+     * Paired with K.share = 6 (which the fitter says should be ~0.4) this
+     * produces a clean monotone bias in evidence: over 2025 weeks 5-17 the head
+     * runs +6.60 pts/g on QBs with under two effective games, +4.65 on RBs,
+     * +2.60 on TEs, against -0.99 on RBs with 16+ and -0.90 on TEs with 16+.
+     * The low-evidence end is the waiver wire and the fringe start/sit call, and
+     * a one-game backup RB is being projected further above his actual than the
+     * model's whole MAE. Projected carries for RBs under two games: 6.15 against
+     * 3.37 actual.
+     *
+     * positionalPriors() already accumulates per-position tgtShare and carShare
+     * arrays and then throws them away — its return object (see the `out[pos]`
+     * literal) has no share key — so the material for a per-position prior is
+     * collected on every build and discarded. Not fixed here because it changes
+     * live projections and interacts with the volume-k fix above (a weaker k
+     * reduces how much the prior matters, so the two have to be fitted together,
+     * and neither may be tuned on 2025).
+     */
     const targetSharePrior = 0.06;
     const tgtShare = shrinkSafe(tgtShareObs, targetSharePrior, tgtShareK.n, tgtShareK.k);
     const carShareObs = tv.rush_att ? rolePerGame(a.roleCarries) / tv.rush_att : 0;
@@ -448,25 +559,25 @@ export function buildProjections({
       ? shrinkSafe(rolePerGame(a.roleAttempts), tv.pass_att * 0.92, qbAttK.n, qbAttK.k) : 0;
 
     /* ---- efficiency: heavy regression toward the positional norm ---- */
-    const yptK = pickK(k, 'ypt', a.pos, a.targets, a.targets / 5, K.yards_per / 5);
+    const yptK = pickK(k, 'ypt', a.pos, a.targets, a.targets, K.yards_per);
     const ypt = shrinkSafe(a.targets > 0 ? a.recYds / a.targets : prior.ypt, prior.ypt, yptK.n, yptK.k);
-    const catchRateK = pickK(k, 'catch_rate', a.pos, a.targets, a.targets / 5, K.catch_rate / 5);
+    const catchRateK = pickK(k, 'catch_rate', a.pos, a.targets, a.targets, K.catch_rate);
     const catchRate = shrinkSafe(a.targets > 0 ? a.receptions / a.targets : prior.catch_rate,
       prior.catch_rate, catchRateK.n, catchRateK.k);
-    const recTdK = pickK(k, 'rec_td_rate', a.pos, a.targets, a.targets / 5, K.td_rate / 5);
+    const recTdK = pickK(k, 'rec_td_rate', a.pos, a.targets, a.targets, K.td_rate);
     const recTdRate = shrinkSafe(a.targets > 0 ? a.recTd / a.targets : prior.rec_td_rate,
       prior.rec_td_rate, recTdK.n, recTdK.k);
-    const ypcK = pickK(k, 'ypc', a.pos, a.carries, a.carries / 8, K.yards_per / 8);
+    const ypcK = pickK(k, 'ypc', a.pos, a.carries, a.carries, K.yards_per);
     const ypc = shrinkSafe(a.carries > 0 ? a.rushYds / a.carries : prior.ypc, prior.ypc, ypcK.n, ypcK.k);
-    const rushTdK = pickK(k, 'rush_td_rate', a.pos, a.carries, a.carries / 8, K.td_rate / 8);
+    const rushTdK = pickK(k, 'rush_td_rate', a.pos, a.carries, a.carries, K.td_rate);
     const rushTdRate = shrinkSafe(a.carries > 0 ? a.rushTd / a.carries : prior.rush_td_rate,
       prior.rush_td_rate, rushTdK.n, rushTdK.k);
-    const ypaK = pickK(k, 'ypa', a.pos, a.attempts, a.attempts / 10, K.yards_per / 10);
+    const ypaK = pickK(k, 'ypa', a.pos, a.attempts, a.attempts, K.yards_per);
     const ypa = shrinkSafe(a.attempts > 0 ? a.passYds / a.attempts : prior.ypa, prior.ypa, ypaK.n, ypaK.k);
-    const passTdK = pickK(k, 'pass_td_rate', a.pos, a.attempts, a.attempts / 10, K.td_rate / 10);
+    const passTdK = pickK(k, 'pass_td_rate', a.pos, a.attempts, a.attempts, K.td_rate);
     const passTdRate = shrinkSafe(a.attempts > 0 ? a.passTd / a.attempts : prior.pass_td_rate,
       prior.pass_td_rate, passTdK.n, passTdK.k);
-    const intRateK = pickK(k, 'int_rate', a.pos, a.attempts, a.attempts / 10, K.int_rate);
+    const intRateK = pickK(k, 'int_rate', a.pos, a.attempts, a.attempts, K.int_rate);
     const intRate = shrinkSafe(a.attempts > 0 ? a.ints / a.attempts : prior.int_rate,
       prior.int_rate, intRateK.n, intRateK.k);
 
@@ -474,6 +585,14 @@ export function buildProjections({
     const recent = a.weekly.filter(x => x.season === through);
     const opp = recent.map(x => (a.pos === 'QB' ? x.attempts : x.targets + x.carries));
     const oppMean = mean(opp) || (targets + carries + attempts) || 1;
+    // OPEN (per the audit; not changed because it moves every floor/ceiling and the
+    // coverage gate would need re-running): this is the /n (biased-low) variance from
+    // as few as 4 weeks; the 1.6 and 12 fallbacks are unfitted; zero-opportunity rows
+    // (11.7% of modelled-position rows, possibly DNPs) inflate it even though
+    // sampleWeeks already zeroes a week with probability 1 - activeProbability, so
+    // availability is counted twice; it is estimated around oppMean but applied
+    // around the shrunk p.targets; and one scalar drives targets, carries and
+    // attempts, which sampleWeekEvents then draws INDEPENDENTLY.
     const oppVar = opp.length > 1 ? mean(opp.map(x => (x - oppMean) ** 2)) : oppMean * 1.6;
     // Negative binomial dispersion implied by the observed over-dispersion. Clamped:
     // a tiny sample can imply an absurd shape in either direction.
@@ -508,9 +627,20 @@ export function buildProjections({
       availPlayed += w * (a.gamesBySeason.get(s) ?? 0);
     }
     const playRate = availW ? availPlayed / availW : 0;
-    // Prior and evidence weight chosen by sweeping both against two held-out seasons
-    // (2024 and 2025) rather than by intuition — see the backtest harness. The surface
-    // is flat, so these are a reasonable point on a plateau, not a tuned optimum.
+    // Prior and evidence weight chosen by sweeping both against 2024 and 2025 rather
+    // than by intuition — see the backtest harness. The surface is flat, so these are
+    // a reasonable point on a plateau, not a tuned optimum.
+    //
+    // Call them what they are: IN-SAMPLE FOR 2025, not held out. 2025 is the season
+    // every headline accuracy figure in this repo is reported on, and these two
+    // constants were selected partly on it, so any 2025 claim that depends on
+    // availability is optimistic by an unknown amount. The flatness bounds the damage
+    // but does not remove it. Two things keep it small in practice: conditional-on-
+    // active MAE does not move at all when these change (substituting the variance-
+    // components fit's availability k moved 2025 weekly MAE by 0.000 — it only shifts
+    // expected_games and `points`), and the fitter disagrees sharply anyway (it wants
+    // k ≈ 0.12-0.19 against the 0.8 here). Re-selecting on 2021-2023 only, and leaving
+    // 2024/2025 untouched, is the fix; it has not been done.
     const availK = pickK(k, 'availability', 'ALL', availW / GAMES, availW / GAMES, 0.8);
     let rate = shrinkSafe(playRate, 0.66, availK.n, availK.k);
 
@@ -606,7 +736,19 @@ export function buildProjections({
       qbr_adjustment: +qbrAdjustment.toFixed(3),
       qbr_read: qbrRead,
       ppg: +meanPpg.toFixed(2),
-      points: +(meanPpg * expectedGames).toFixed(1)
+      // HORIZON: `points` is always a FULL-SEASON total, at every cutoff. expectedGames
+      // is rate * 17 with no throughWeek term, so at throughWeek = 12 — five weeks of
+      // football left — C.McCaffrey still reads points 203.7 off expected_games 12.4.
+      // The field name carries no horizon, which is the same shape as the
+      // playoff_ppg/adj_ppg defect: two numbers on different bases, and subtracting
+      // them throws nothing. `points_horizon` is emitted so a consumer can assert on
+      // it rather than assume. Every consumer traced today (trade-engine's
+      // preseasonProjection card, preseason-model) is preseason by construction and
+      // therefore correct; nothing in-season mixes it with a rest-of-season quantity.
+      // If one ever needs to, emit a remaining-games total under a new name rather
+      // than redefining this one out from under the draft-time callers.
+      points: +(meanPpg * expectedGames).toFixed(1),
+      points_horizon: 'full_season_17g'
     });
   }
   return out;
@@ -690,6 +832,24 @@ export function sampleWeek(params, scoring = PPR, mult = 1) {
  * `downMult` stayed at 1.0: unlike season totals, weekly outcomes showed no
  * benefit from a fattened downside once the overall spread was right.
  * See scripts/fit-weekly-coverage.mjs.
+ *
+ * OPEN, 2026-09-17 — THE SHOCK IS NOT MEAN-PRESERVING. `level = exp(z * sigma)`
+ * has E[level] = exp(sigma^2 / 2) = 1.1066 at 0.45, and expected points are linear
+ * in the volume it scales, so every simulated week is centred ~10% ABOVE the point
+ * projection it is documented as the distribution of. Measured: S.Barkley (ppg
+ * 15.46) simulates a mean of 15.45 at sigma 0 and 17.14 at 0.45 (ratio 1.109), p90
+ * 24.8 -> 31.7. On the 2025 grade the simulated mean is 8.16 against an actual
+ * 7.46 while the point prediction is nearly unbiased (per the audit), and
+ * re-running with `exp(z * sigma - sigma^2 / 2)` cuts calibration error
+ * 0.114 -> 0.067 at the same coverage. So playerWeekDistribution().mean, every p90
+ * "ceiling" (~24% high) and boom_rate are biased up, and comparing a distribution
+ * mean against ppg / current_week_ppg is a two-bases comparison off by ~10%.
+ * seasonDistribution has the same defect (sigma 0.30-0.70 -> 4.6-28% inflation).
+ * Not fixed here, because 0.45 was SELECTED partly because the inflation bought
+ * coverage — fix the shock and sigma must be refit, and the selection criterion in
+ * fit-weekly-coverage.mjs should change with it. Sigma is also a single global
+ * value that is materially wrong by position and projection tier (2025: RB
+ * coverage 0.723, QB calibration error 0.306, 0-4 ppg tier coverage 0.740).
  */
 export const WEEKLY_LEVEL = { sigma: 0.45, downMult: 1 };
 
@@ -766,6 +926,15 @@ export function seasonDistribution(projection, { runs = 1000, scoring = PPR, mul
     // than a breakout climbs. `downMult` widens only the downside so the left tail
     // carries the mass the data actually shows, instead of the model being
     // repeatedly surprised by busts.
+    //
+    // EXCEPT THAT IT IS OFF. LEVEL_UNCERTAINTY ships downMult = 1, so both branches
+    // of the line below are identical and this is a plain symmetric log-normal — the
+    // exact shape the paragraph above argues is wrong. The mechanism is present and
+    // inert. It was left at 1 because the WEEKLY sweep found no benefit there (see
+    // WEEKLY_LEVEL), but the negative skew quoted above is a SEASON-total measurement
+    // and the season path has never had its own sweep. Either fit downMult for this
+    // path or delete the branch; do not read the paragraph as a description of what
+    // currently runs.
     const z = randn();
     const level = Math.exp(z < 0 ? z * sigma * L.downMult : z * sigma);
     // Beta-binomial rather than binomial: a season is usually "healthy" or "hurt",

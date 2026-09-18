@@ -3,6 +3,7 @@ import { db, rows, row, run } from '../db/index.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 
 import { draftSurvival } from '../services/draft-survival.js';
+import { canonicalTeamCode } from '../services/team-codes.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -161,30 +162,63 @@ r.get('/volatility', (req, res) => {
 });
 
 // ------------------------------------------- 3. Playoff & weekly schedule edge
-/** Opponent strength per week, and specifically weeks 15-17 (fantasy playoffs). */
+/**
+ * Opponent strength per week, and specifically weeks 15-17 (fantasy playoffs).
+ *
+ * POLARITY: here higher = HARDER (opponent strength over league average, sorted
+ * ascending so rank 1 = easiest). matchups.js#scheduleOutlook also emits a field
+ * called playoff_sos with the OPPOSITE polarity (a points multiplier, higher =
+ * easier). They are different quantities that happen to share a name; do not
+ * compare one to the other.
+ *
+ * NO DATA IS NOT A NUMBER. Strength is the summed market value (player_metrics,
+ * source 'fc_value') of each team's fantasy-relevant players, and player_metrics
+ * is currently EMPTY. The old code did not notice: every team's strength summed to
+ * 0, `avg` defaulted to 1, and because 0 is not nullish the `?? avg` fallback never
+ * fired — except for opponents whose abbreviation was missing from nfl_teams.
+ * schedule_games spells Washington 'WSH' while nfl_teams says 'WAS', so the ONLY
+ * variation in the output was "does this team play Washington in weeks 15-17"
+ * (0 vs 0.333), mean 0.0416, not centred on 1. That arbitrary order was ranked
+ * 1..32 and written verbatim into the Claude scout-report prompt as the
+ * "fantasy-playoff SOS". Now: opponents are canonicalised (WSH -> WAS), and when no
+ * team has any strength data the SOS fields are null and unranked rather than a
+ * fabricated number.
+ *
+ * Separately, and not fixed here: even populated, an opponent's OFFENSIVE market
+ * value is not a measure of how its DEFENCE handles your position.
+ */
 export function scheduleEdge(season = SEASON) {
   const strength = {};
   for (const t of rows(`SELECT t.abbr, COALESCE(SUM(m.value),0) AS s
                         FROM nfl_teams t
                         LEFT JOIN players p ON p.team_id = t.id AND p.fantasy_relevant = 1
                         LEFT JOIN player_metrics m ON m.player_id = p.id AND m.source = 'fc_value'
-                        GROUP BY t.id`)) strength[t.abbr] = t.s;
+                        GROUP BY t.id`)) strength[canonicalTeamCode(t.abbr)] = t.s;
   const vals = Object.values(strength).filter(v => v > 0);
-  const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 1;
+  const hasStrength = vals.length > 0;
+  const avg = hasStrength ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  const strengthOf = abbr => {
+    const v = strength[canonicalTeamCode(abbr)];
+    return Number.isFinite(v) && v > 0 ? v : avg;
+  };
 
-  return rows('SELECT id, abbr FROM nfl_teams').map(t => {
+  const out = rows('SELECT id, abbr FROM nfl_teams').map(t => {
     const games = rows('SELECT week, opponent_abbr, home FROM schedule_games WHERE season = ? AND team_id = ? ORDER BY week',
       season, t.id);
     const playoff = games.filter(g => g.week >= 15 && g.week <= 17);
-    const mean = arr => arr.length ? arr.reduce((s, g) => s + (strength[g.opponent_abbr] ?? avg), 0) / arr.length : avg;
+    const mean = arr => (arr.length ? arr.reduce((s, g) => s + strengthOf(g.opponent_abbr), 0) / arr.length : avg);
     return {
       abbr: t.abbr,
-      season_sos: +(mean(games) / avg).toFixed(3),
-      playoff_sos: +(mean(playoff) / avg).toFixed(3),
+      season_sos: hasStrength ? +(mean(games) / avg).toFixed(3) : null,
+      playoff_sos: hasStrength ? +(mean(playoff) / avg).toFixed(3) : null,
       playoff_games: playoff.map(g => `${g.home ? '' : '@'}${g.opponent_abbr}`),
-      games
+      games,
+      strength_basis: hasStrength ? 'opponent fantasy-relevant market value (offence, not defence)' : null,
+      unavailable_reason: hasStrength ? null : 'no opponent-strength data on file (player_metrics fc_value is empty)'
     };
-  }).sort((a, b) => a.playoff_sos - b.playoff_sos)
+  });
+  if (!hasStrength) return out.map(x => ({ ...x, playoff_rank: null }));
+  return out.sort((a, b) => a.playoff_sos - b.playoff_sos)
     .map((x, i) => ({ ...x, playoff_rank: i + 1 }));
 }
 
@@ -279,7 +313,7 @@ r.post('/scout/:id', async (req, res, next) => {
 
 VALUE: projected ${v?.proj?.toFixed(0) ?? '?'} pts, VOR ${v?.vor ?? '?'} (rank ${v?.vor_rank ?? '?'} overall), ADP ${v?.adp ?? 'n/a'}${v?.adp_edge != null ? `, ADP is ${v.adp_edge > 0 ? `${v.adp_edge.toFixed(0)} picks LATER than his VOR rank (value)` : `${Math.abs(v.adp_edge).toFixed(0)} picks EARLIER than his VOR rank (cost)`}` : ''}
 WEEKLY PROFILE (last season): ${vol ? `avg ${vol.avg}, floor ${vol.floor}, ceiling ${vol.ceiling}, boom ${(vol.boom_rate*100).toFixed(0)}% of weeks, bust ${(vol.bust_rate*100).toFixed(0)}%, consistency ${vol.consistency}` : 'no weekly data'}
-SCHEDULE: season SOS ${sched?.season_sos ?? '?'}, fantasy-playoff SOS ${sched?.playoff_sos ?? '?'} (rank ${sched?.playoff_rank ?? '?'}/32, 1 = easiest), Wk15-17 vs ${sched?.playoff_games?.join(', ') ?? '?'}
+SCHEDULE: ${sched?.playoff_sos != null ? `season SOS ${sched.season_sos}, fantasy-playoff SOS ${sched.playoff_sos} (rank ${sched.playoff_rank}/32, 1 = easiest), ` : 'no opponent-strength data on file — do not rate the schedule as easy or hard; '}Wk15-17 vs ${sched?.playoff_games?.join(', ') ?? '?'}
 OFFENSE: HC ${p.head_coach}, OC ${p.oc_name}. ${p.off_scheme_detail ?? ''}
 O-LINE: ${p.ol_analysis ?? 'n/a'}
 NEWS: ${news.map(n => `[${n.date}] ${n.headline}`).join(' | ') || 'none'}

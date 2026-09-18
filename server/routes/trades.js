@@ -732,7 +732,7 @@ r.post('/:leagueId/sense-check', async (req, res, next) => {
   Sends: ${s.gives.length ? s.gives.map(fmtPlayer).join('\n    ') : 'nothing'}
   Receives: ${s.gets.length ? s.gets.map(fmtPlayer).join('\n    ') : 'nothing'}
   Starting lineup: ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}/wk, ${s.season_delta > 0 ? '+' : ''}${s.season_delta} over the season)
-  Weeks 15-17 lineup: ${s.playoff_ppg_delta > 0 ? '+' : ''}${s.playoff_ppg_delta ?? '?'} ppg
+  Weeks 15-17 lineup (rescaled to the current lineup's basis): ${s.playoff_ppg_delta_scaled > 0 ? '+' : ''}${s.playoff_ppg_delta_scaled ?? '?'} ppg
   Market value: ${s.value_delta > 0 ? '+' : ''}${s.value_delta}
   Weekly floor/ceiling shift: ${s.floor_delta ?? '?'}/${s.ceiling_delta ?? '?'}
 ${fmtRisk(s.risk)}
@@ -919,7 +919,7 @@ The analysis is already done — do not re-argue the numbers, just use them.
 ${fmtSide(d.me)}
 ${fmtSide(d.them)}
 Fairness on market price: ${d.fairness}. Both sides improve: ${d.mutual ? 'yes' : 'no'}.
-${d.me.playoff_ppg_delta != null ? `My weeks 15-17 lineup changes by ${d.me.playoff_ppg_delta} ppg.` : ''}
+${d.me.playoff_ppg_delta_scaled != null ? `My weeks 15-17 lineup changes by ${d.me.playoff_ppg_delta_scaled} ppg (rescaled to the current lineup's basis).` : ''}
 ${untouchables.length ? `Untouchable — never suggest offering these, not even as a sweetener: ${untouchables.join(', ')}.` : ''}
 ${records.length ? `Records (real, multi-season — cite these numbers in the pitch, never an adjective in their place):\n${records.join('\n')}` : ''}
 

@@ -115,6 +115,24 @@ The pattern is consistent and it explains itself. xFP is the strongest single he
 
 **What this means for the plan:** Phase 1f, the per-stat ML head over 67+183 features, should not be expected to move MAE. It is now demoted below its already-demoted position. Any remaining projection gain has to come from **week-level** signal — matchup, game script, usage spikes, injury-driven role change — not from better estimates of a player's average.
 
+### 5b. The structural head was over-shrunk — fixed, and what it did and did not buy (2026-09-17)
+
+The model-chain audit found that the volume regression constants (`K.share = 6`, `K.team_volume = 10`) pulled target share, carry share, QB attempts and team volume toward average 6–30× harder than a variance-components fit supports, and that the fitter's output had never been persisted. `scripts/promote-volume-shrinkage.mjs` fits them walk-forward (seasons ≤ s−1) and gates them:
+
+| Structural head, weekly MAE | Hand-picked | Fitted | Clustered 90% CI of the gain |
+|---|---|---|---|
+| 2023 | 4.695 | 4.342 | [−0.43, −0.28] |
+| 2024 | 4.921 | 4.448 | [−0.55, −0.39] |
+| 2025 | 4.749 | 4.363 | [−0.47, −0.30] |
+
+Rank correlation rose about 0.065 in every season. Players with no games yet in the season — where the head is the whole prediction — improved 5.16→4.63, 4.94→4.69, 5.20→4.35.
+
+**It barely moves the blend, and that is consistent with 5a.** The five heads are close to one signal (effective rank 1.74), and the blend was already recovering most of the head's shortfall through season-to-date. With blend weights re-fit for each pipeline on prior seasons only, the held-out blend improves 4.428→4.396 (2024) and 4.338→4.314 (2025). With the weights actually live (fit-1, tuned to the old head, 20% structural) the blend is flat: 4.292→4.298, 4.417→4.404, 4.330→4.333. Start/sit pair accuracy with did-not-play scored as zero rises in all three seasons, by 0.1–0.3pp.
+
+**The blend weights were not re-promoted.** `promote-weekly-ensemble.mjs` failed its own gate on the new head: a re-fit blend (4.321) ties the frozen 2023 weights (4.321) and does not significantly beat the fixed 60/40 blend (4.332). The weight surface is flat, so no set of weights can win significantly. Production keeps fit-1.
+
+**Scope.** The fitted constants reach only the weekly engine. They were estimated under the weekly role recency, and every season-long caller (preseason model, season sim, draft assist) accumulates volume evidence under a different recency, so those callers keep the hand-picked constants (`shrinkage-fit.js#activeKVectorFor`). Any replay of a season at or before the fit's cutoff re-fits the constants on earlier seasons automatically (`cutoffSafeKVector`), so no backtest can grade with constants that saw the season being graded.
+
 ## 6. Priority order this produces
 
 1. **Availability first.** The hindsight gap is 19.4 pts/week and the largest single component is starting someone who does not play. The measured per-team injury dialect (Tampa's "Questionable" = 81% play, Pittsburgh's = 47%) replaces the hand-set constants in `contingency.js`.

@@ -37,6 +37,39 @@ export const PLAYOFF_IMPORTANCE = 4;
 export const REGULAR_SEASON_END = 14;
 
 /**
+ * This league's own calendar, from the settings the platform synced.
+ *
+ * horizonWeights() used to take a week number and no league, so REGULAR_SEASON_END
+ * = 14 and PLAYOFF_WEEKS = [15, 16, 17] applied to every league. Two of the five
+ * synced leagues are not shaped like that: league 3 has a 13-week regular season,
+ * so its week 14 is already a playoff week and was being counted as regular season;
+ * leagues 1 and 3 play two-week playoff matchups, so their playoffs span four NFL
+ * weeks, not three (league_week_scores shows the doubled totals). Derived here as
+ * matchupPeriodCount regular weeks, then ceil(log2(playoffTeamCount)) rounds of
+ * playoffMatchupPeriodLength weeks each. For the three 6-team-bracket leagues
+ * that is exactly the old default. Falls back to the defaults when the platform
+ * does not say, or uses multi-week REGULAR-season matchups (where period count is
+ * not a week count).
+ */
+export function leagueSchedule(lg) {
+  let ss = null;
+  try { ss = JSON.parse(lg?.payload ?? 'null')?.settings?.scheduleSettings ?? null; } catch { ss = null; }
+  const regular = Number(ss?.matchupPeriodCount);
+  const perRound = Number(ss?.playoffMatchupPeriodLength);
+  const teams = Number(ss?.playoffTeamCount);
+  const regularLength = Number(ss?.matchupPeriodLength ?? 1);
+  if (!(regular > 0) || !(perRound > 0) || !(teams >= 2) || regularLength !== 1) {
+    return { regularSeasonEnd: REGULAR_SEASON_END, playoffWeeks: [...PLAYOFF_WEEKS], source: 'default' };
+  }
+  const rounds = Math.ceil(Math.log2(teams));
+  return {
+    regularSeasonEnd: regular,
+    playoffWeeks: Array.from({ length: rounds * perRound }, (_, i) => regular + 1 + i),
+    source: 'league_settings',
+  };
+}
+
+/**
  * Split a trade's value between "now" and "the playoffs".
  *
  * Returns weights that sum to 1. Pass `playoffOdds` when it is known; the
@@ -44,16 +77,19 @@ export const REGULAR_SEASON_END = 14;
  * playoff spots plus the uncertainty of not knowing, and it is deliberately
  * uninformative rather than optimistic.
  */
-export function horizonWeights(week, { playoffOdds = 0.5, regularSeasonEnd = REGULAR_SEASON_END } = {}) {
+export function horizonWeights(week, {
+  playoffOdds = 0.5, regularSeasonEnd = REGULAR_SEASON_END, playoffWeeks = PLAYOFF_WEEKS
+} = {}) {
   const w = Math.max(1, Math.min(18, Number(week) || 1));
   const regularLeft = Math.max(0, regularSeasonEnd - w + 1);
   // Once the regular season is over, every remaining point is a playoff point.
-  const playoffLeft = PLAYOFF_WEEKS.filter(pw => pw >= w).length;
-  if (!playoffLeft) return { now: 1, playoff: 0, regular_weeks_left: regularLeft, playoff_weeks_left: 0, playoff_odds: playoffOdds };
+  const playoffLeft = playoffWeeks.filter(pw => pw >= w).length;
+  const weeksLabel = playoffWeeks.length ? `${playoffWeeks[0]}-${playoffWeeks.at(-1)}` : null;
+  if (!playoffLeft) return { now: 1, playoff: 0, regular_weeks_left: regularLeft, playoff_weeks_left: 0, playoff_odds: playoffOdds, playoff_weeks_label: weeksLabel };
   const odds = Math.max(0, Math.min(1, playoffOdds));
   const playoffMass = playoffLeft * PLAYOFF_IMPORTANCE * odds;
   const total = regularLeft + playoffMass;
-  if (total <= 0) return { now: 0, playoff: 1, regular_weeks_left: 0, playoff_weeks_left: playoffLeft, playoff_odds: odds };
+  if (total <= 0) return { now: 0, playoff: 1, regular_weeks_left: 0, playoff_weeks_left: playoffLeft, playoff_odds: odds, playoff_weeks_label: weeksLabel };
   const playoff = playoffMass / total;
   return {
     now: +(1 - playoff).toFixed(3),
@@ -61,15 +97,22 @@ export function horizonWeights(week, { playoffOdds = 0.5, regularSeasonEnd = REG
     regular_weeks_left: regularLeft,
     playoff_weeks_left: playoffLeft,
     playoff_odds: +odds.toFixed(3),
+    playoff_weeks_label: weeksLabel,
   };
 }
 
 /**
  * The horizon-weighted gain for one side of a deal.
  *
- * `ppgDelta` is the change in this week's best lineup; `playoffPpgDelta` is the
- * change in the lineup solved against each player's playoff-schedule-adjusted
- * rate, which `evaluate()` already computes and nothing has ever read.
+ * `ppgDelta` is the change in the best lineup solved on adj_ppg — NOT this week's
+ * lineup, whatever the name "now" suggests. evaluate() calls bestLineup() with its
+ * default key, and adj_ppg is 0.25 * current_week_ppg + 0.75 * ros_ppg, so 75% of
+ * the "now" leg is already rest-of-season value. At week 2 the effective weight on
+ * the actual current week is weights.now * 0.25, not weights.now. This comment used
+ * to call it "the change in this week's best lineup"; the number has not been
+ * changed here because re-keying it moves every trade ranking and needs grading
+ * first. `playoffPpgDelta` is the change in the lineup solved against each player's
+ * playoff-schedule-adjusted rate.
  */
 export function horizonGain({ ppgDelta, playoffPpgDelta, nowBaseline, playoffBaseline, weights }) {
   const now = Number(ppgDelta) || 0;
@@ -93,7 +136,13 @@ export function horizonGain({ ppgDelta, playoffPpgDelta, nowBaseline, playoffBas
   // familiar units.
   const nb = Number(nowBaseline) > 0 ? Number(nowBaseline) : null;
   const pb = Number(playoffBaseline) > 0 ? Number(playoffBaseline) : null;
-  const later = (nb && pb) ? (rawLater / pb) * nb : rawLater;
+  // Only a genuine playoff figure is on the playoff scale. When the fallback above
+  // ran, rawLater IS `now`, already in adj_ppg units, and rescaling it by nb/pb
+  // (~0.90 on measured data) would quietly make the deal ~10% worse in December —
+  // the opposite of what the fallback's own comment promises.
+  const hasPlayoff = Number.isFinite(playoffPpgDelta);
+  const scaled = hasPlayoff && nb && pb;
+  const later = scaled ? (rawLater / pb) * nb : rawLater;
 
   return {
     value: +(weights.now * now + weights.playoff * later).toFixed(3),
@@ -101,7 +150,7 @@ export function horizonGain({ ppgDelta, playoffPpgDelta, nowBaseline, playoffBas
     playoff_component: +(weights.playoff * later).toFixed(3),
     playoff_delta_raw: +rawLater.toFixed(2),
     playoff_delta_scaled: +later.toFixed(2),
-    scale_applied: nb && pb ? +(nb / pb).toFixed(3) : null,
+    scale_applied: scaled ? +(nb / pb).toFixed(3) : null,
     // Positive means the deal is worth MORE in the playoffs than now, on a
     // like-for-like scale — the shape a contender should be buying in November.
     playoff_tilt: +(later - now).toFixed(2),
@@ -114,11 +163,12 @@ export function horizonNote(weights, gain) {
     return 'Ranked almost entirely on the remaining regular season — playoff odds are too low for December to matter.';
   }
   const pct = Math.round(weights.playoff * 100);
+  const weeks = weights.playoff_weeks_label ?? '15-17';
   if (gain.playoff_tilt > 0.4) {
-    return `${pct}% of this is weighted to weeks 15-17, and the deal is worth ${gain.playoff_tilt.toFixed(1)} more per week there than it is now.`;
+    return `${pct}% of this is weighted to weeks ${weeks}, and the deal is worth ${gain.playoff_tilt.toFixed(1)} more per week there than it is now.`;
   }
   if (gain.playoff_tilt < -0.4) {
-    return `${pct}% of this is weighted to weeks 15-17, where the deal is ${Math.abs(gain.playoff_tilt).toFixed(1)} per week WORSE than it is now — a win-now move.`;
+    return `${pct}% of this is weighted to weeks ${weeks}, where the deal is ${Math.abs(gain.playoff_tilt).toFixed(1)} per week WORSE than it is now — a win-now move.`;
   }
-  return `${pct}% weighted to weeks 15-17; the deal is about the same in both windows.`;
+  return `${pct}% weighted to weeks ${weeks}; the deal is about the same in both windows.`;
 }

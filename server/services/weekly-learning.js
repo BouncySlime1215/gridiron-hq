@@ -12,7 +12,10 @@ import { buildPlayerWeekEngine, playerWeekDistribution, clearPlayerWeekEngineCac
 import { PPR, scoreLine } from './scoring.js';
 import { WEEKLY_ENSEMBLE_HEADS } from './weekly-ensemble.js';
 import { PLAYER_HEADS, PLAYER_HEAD_REGISTRY_VERSION } from './player-head-registry.js';
-import { activeWeeklyWeightSet, saveWeeklyFit, weeklyFitDataHash, weeklyFitHistory } from './weekly-weight-store.js';
+import {
+  activeWeeklyWeightSet, latestWeeklyWeightSet, saveWeeklyFit, weeklyFitDataHash, weeklyFitHistory
+} from './weekly-weight-store.js';
+import { pairedBootstrapDiff } from './backtest-significance.js';
 import { spearman } from './backtest.js';
 import { nflKickoffDate } from './date-util.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
@@ -175,11 +178,27 @@ export function retrainWeeklyWeights({ minSettled = 250, maxRows = 2400 } = {}) 
 
   const split = Math.max(1, Math.floor(all.length * 0.8));
   const train = all.slice(0, split), validation = all.slice(split);
-  const champion = activeWeeklyWeightSet();
-  const candidate = {};
-  for (const position of ['QB', 'RB', 'WR', 'TE']) {
-    candidate[position] = fitPosition(train.filter(x => x.position === position), champion.weights[position]);
-  }
+  // The champion is the one that was legitimately available BEFORE the validation
+  // window — the newest promoted fit trained strictly before its first row. This used
+  // to be an uncut `activeWeeklyWeightSet()`, which returned the newest fit regardless
+  // of what it was trained on; if that fit had seen the validation rows it graded
+  // artificially well and the gate would refuse genuinely better candidates.
+  const firstValidation = validation[0];
+  const champion = activeWeeklyWeightSet({ season: firstValidation.season, week: firstValidation.week });
+  /*
+   * GLOBAL architecture only: one convex vector shared by every position. This used
+   * to fit a separate vector per position unconditionally, which is the architecture
+   * the promotion script's own 2024 discovery step did NOT select (global 4.4284 vs
+   * position 4.4310, and the stored champion's data_hash reads `phase1a:global:...`).
+   * On <= 2,400 settled rows that is ~600 per position with four free parameters each,
+   * which is exactly the regime where a lucky fit clears a small threshold by chance.
+   * Re-introduce per-position only if a fresh discovery step re-selects it. The vector
+   * is stored replicated per position because a bare array would make
+   * weeklyEnsemblePrediction() fall through to the structural head for every player.
+   */
+  const globalFallback = champion.weights.WR ?? champion.weights[Object.keys(champion.weights)[0]];
+  const globalWeights = fitPosition(train, globalFallback);
+  const candidate = Object.fromEntries(['QB', 'RB', 'WR', 'TE'].map(position => [position, globalWeights]));
   const candidateFn = x => predict(candidate[x.position] ?? champion.weights[x.position], x);
   const championFn = x => predict(champion.weights[x.position], x);
   const candidateMae = mae(validation, candidateFn), championMae = mae(validation, championFn);
@@ -191,11 +210,28 @@ export function retrainWeeklyWeights({ minSettled = 250, maxRows = 2400 } = {}) 
   });
   const withIntervals = validation.filter(x => x.lower_80 != null && x.upper_80 != null);
   const coverage = withIntervals.length ? covered.length / withIntervals.length : null;
-  const promoted = validation.length >= 100 && candidateMae <= championMae - 0.005
+  /*
+   * Significance, not a fixed margin. The gate used to be `candidateMae <= championMae
+   * - 0.005`: an unfitted threshold with no test at all, on the SAME table that
+   * scripts/promote-weekly-ensemble.mjs writes to under a paired bootstrap against two
+   * baselines. A second, weaker door into one table means the weaker door decides.
+   * This is now the same test the promotion script uses, clustered by player: the
+   * validation rows are ~a few hundred players observed over several weeks each, and
+   * resampling player-weeks as if independent narrows the interval by ~30% (measured
+   * on 2025). The candidate must be significantly better than the champion.
+   */
+  const significance = pairedBootstrapDiff(
+    validation.map(x => Math.abs(championFn(x) - x.actual)),
+    validation.map(x => Math.abs(candidateFn(x) - x.actual)),
+    { seed: 20260917, groups: validation.map(x => x.player_id) }
+  );
+  const significantlyBetter = !significance.error && significance.significant && significance.mean_diff < 0;
+  const promoted = validation.length >= 100 && significantlyBetter
     && candidateRank >= championRank - 0.001 && coverage != null && coverage >= 0.78 && coverage <= 0.82;
   const last = all.at(-1);
   const rejection = promoted ? null
-    : `gate failed: mae ${candidateMae.toFixed(4)} vs ${championMae.toFixed(4)}, ` +
+    : `gate failed: mae ${candidateMae.toFixed(4)} vs ${championMae.toFixed(4)} ` +
+      `(player-clustered ci90 ${JSON.stringify(significance.ci90 ?? significance.error)}), ` +
       `rank ${candidateRank} vs ${championRank}, coverage ${coverage?.toFixed(3) ?? 'n/a'}`;
   const saved = saveWeeklyFit({
     data_hash: hash, through_season: last.season, through_week: last.week,
@@ -212,7 +248,8 @@ export function weeklyLearningStatus() {
   return {
     snapshots: row(`SELECT COUNT(*) AS total, SUM(actual IS NOT NULL) AS settled,
                            MAX(as_of) AS latest_capture FROM weekly_prediction_snapshots`),
-    champion: activeWeeklyWeightSet(),
+    // Display only: the newest promoted fit, uncut. Never grade or predict with it.
+    champion: latestWeeklyWeightSet(),
     fits: weeklyFitHistory(10),
     candidate_heads: candidateForwardScoreboard()
   };

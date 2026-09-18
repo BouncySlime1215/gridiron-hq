@@ -37,6 +37,19 @@ const FLEX_ELIGIBLE = {
 // is the resolution of every marginal distribution in the simulation.
 const POOL = 600;
 
+/*
+ * Wilson interval on hits/runs. Read it as RUN-TO-RUN Monte Carlo error ONLY.
+ *
+ * It treats the runs as independent draws from the model, but every run indexes
+ * the same fixed POOL-sized outcome pool per player-week and the same Cholesky
+ * factor. The pools' own sampling error is therefore a bias shared by every run —
+ * at 600 draws a WR1's p90 has sd ~1.5-1.7 and his mean sd ~0.6 across pool
+ * regenerations — and it does not shrink as runs grows. So the stated interval is
+ * narrower than the real uncertainty in the odds, and re-running the same league
+ * with a different seed can move the point estimate by more than the interval.
+ * To report the full error, regenerate the pools per batch and pool the variance
+ * across regenerations. The payload says which interval this is.
+ */
 const binomial95 = (hits, n) => {
   if (!n) return [null, null];
   const z = 1.96, p = hits / n, den = 1 + z * z / n;
@@ -331,6 +344,7 @@ export function simulateSeason(lg, {
   return {
     runs, weeks: weeks.length, from_week: fromWeek, playoff_teams: playoffTeams,
     standings_carried_in: fromWeek > 1,
+    odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
     teams: out
   };
 }

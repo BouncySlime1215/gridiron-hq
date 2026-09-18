@@ -15,7 +15,7 @@ import { redistribute } from './opportunity-redistribution.js';
 import { weeklyAvailability } from './contingency.js';
 import {
   WEEKLY_ROLE_RECENCY,
-  weeklyEnsembleContext, weeklyEnsemblePrediction
+  weeklyEnsembleContext, weeklyEnsemblePrediction, weeklyEnsembleMode
 } from './weekly-ensemble.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { roleChangepoints } from './role-changepoint.js';
@@ -122,6 +122,22 @@ export function playerPropEligibility(engine, projection) {
   };
 }
 
+/**
+ * Each player's in-season weekly scores before `week`, oldest first.
+ *
+ * Returns `{ scores, source }`. `source` is 'prior_season' when the in-season query
+ * found nothing and the cross-season fallback below ran. That case matters
+ * downstream: the fallback yields a ONE-element array, so season_to_date, last3,
+ * last1 and median all collapse to the same number and 0.80 of the ensemble weight
+ * lands on it. The weights were fit and graded only on weeks 5-18 with genuine
+ * in-season history (weekly-backtest skips rows without it), so this regime was
+ * never seen by the fit. Weeks 2-4 were checked and are benign: replaying weeks
+ * 2-4 with the promoted weights and grading only rows with exactly ONE prior
+ * in-season week, the ensemble still beats season_to_date — 2023 5.368 vs 5.623
+ * (n=373), 2024 4.470 vs 4.668 (n=379), 2025 4.740 vs 5.034 (n=391). Week 1 itself,
+ * where this fallback fires, is ungraded: the harness cannot reach it. The flag
+ * lets the engine record it rather than label it an ordinary ensemble prediction.
+ */
 function priorScores(season, week, scoring) {
   const out = new Map();
   for (const row of rows(`SELECT * FROM player_week_usage
@@ -154,8 +170,9 @@ function priorScores(season, week, scoring) {
     for (const [playerId, acc] of weighted) {
       if (acc.weight > 0) out.set(playerId, [acc.sum / acc.weight]);
     }
+    return { scores: out, source: 'prior_season' };
   }
-  return out;
+  return { scores: out, source: 'in_season' };
 }
 
 
@@ -255,7 +272,7 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
     through: season, throughWeek: week - 1, scoring, kOverride,
     roleRecency: WEEKLY_ROLE_RECENCY
   });
-  const history = priorScores(season, week, scoring);
+  const { scores: history, source: historySource } = priorScores(season, week, scoring);
   const roleChanges = roleChangepoints(season, week);
   const out = new Map();
   for (const [playerId, projection] of structural) {
@@ -272,7 +289,12 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
       gridiron_engine_version: nflEngineVersionFor(season, week),
       season, week,
       cutoff: `${season}-W${Math.max(0, week - 1)}`,
-      mode: context ? 'position_ensemble' : 'structural_only_no_current_season_history',
+      // From what actually ran, not from `context != null`, which used to report
+      // 'position_ensemble' even when the position had no weight vector and the
+      // structural head was returned instead.
+      mode: context && historySource === 'prior_season'
+        ? 'cold_start_prior_season'
+        : weeklyEnsembleMode(context, weightChampion.weights),
       heads: context,
       weights: context ? weights : null,
       weight_fit: weightChampion.id,

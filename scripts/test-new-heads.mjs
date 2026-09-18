@@ -233,7 +233,7 @@ function calibrate(pairs) {
 
 const common = {
   startWeek: 5, endWeek: 18, distributions: false,
-  kOverride: activeKVector(), roleRecency: WEEKLY_ROLE_RECENCY,
+  kOverride: undefined /* cutoff-safe default: shrinkage-fit.js cutoffSafeKVector */, roleRecency: WEEKLY_ROLE_RECENCY,
 };
 
 console.log('Replaying seasons (this is the slow part)...');

@@ -81,3 +81,9 @@ data/grading_panel.sqlite-wal
 # private: extracted iMessage league chat for manager profiling. Never commit.
 data/derived/league_chat.sqlite*
 .wip/
+
+# Secret backups written by persistEnvVar, and local-only data files.
+.env.bak-*
+server/data/learned-shadow/
+server/data/app.sqlite
+data/nflverse.sqlite

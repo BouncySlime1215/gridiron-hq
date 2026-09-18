@@ -26,10 +26,34 @@
  * projections.js already uses at each shrink() call site, so a fitted k slots
  * into the existing formula in the same units as the hardcoded one it
  * replaces — see FIT_SPECS for the mapping and MODEL_ROADMAP.md 1.1 for the
- * derivation.
+ * derivation. (The /5, /8, /10 divisors mentioned above have since been removed
+ * from projections.js; they cancelled inside shrink() and never mattered.)
+ *
+ * STATUS, 2026-09-17: nothing from this file has ever been persisted.
+ * shrinkage_fits and shrinkage_k are both empty, activeKVector() returns null,
+ * and production runs the hand-picked constants on every call. What the fit
+ * would buy, measured walk-forward (fit strictly on seasons <= s-1, substitute
+ * ONLY the five volume metrics, weekly MAE / Spearman, weeks 5-18):
+ *
+ *                 hardcoded        volume k,          volume k,
+ *                                  old RECENCY fit    recency-matched fit
+ *     2023     4.695 / 0.6155    4.349 / 0.6809     4.342 / 0.6830
+ *     2024     4.921 / 0.6285    4.460 / 0.6961     4.448 / 0.6982
+ *     2025     4.749 / 0.6194    4.376 / 0.6833     4.363 / 0.6854
+ *
+ * All three seasons move the same way, which is the only kind of evidence the
+ * five-seasons rule accepts. The right-hand column is the fitter AFTER the
+ * volume specs were moved onto the recency projections.js actually applies to
+ * them (see roleWeightFor) — a further 0.007-0.013, same sign in every season.
+ *
+ * Do not apply the EFFICIENCY k this file produces: substituting it makes 2025
+ * worse (4.773 vs 4.749). And do not persist the volume k without re-running the
+ * weekly ensemble promotion afterwards — the promoted ensemble weights were fit
+ * against the current, over-shrunk structural head.
  */
 import { db, rows } from '../db/index.js';
 import { RECENCY } from './projections.js';
+import { WEEKLY_ROLE_RECENCY } from './weekly-ensemble.js';
 
 const GAMES = 17;
 // Must mirror projections.js's own seasonWeight() exactly: the fit has to be
@@ -40,12 +64,48 @@ const GAMES = 17;
 // script's old standalone {1, 0.55, 0.28, 0.12} table — importing the live
 // RECENCY constant keeps the two in lockstep, including the escape hatch
 // (seasonDecay: null) that restores the original hand-picked table.
-const SEASON_WEIGHT = (s, through) => {
+const SEASON_WEIGHT = (s, through) => weightUnder(RECENCY, s, through);
+
+/**
+ * One weighting rule, parameterised by the recency config, so a spec can be
+ * trained under whichever config its call site actually applies.
+ *
+ * This exists because the invariant above was being violated for exactly the
+ * metrics where the measured accuracy gain lives. projections.js runs TWO
+ * recency configs, not one: efficiency and availability use `r` (RECENCY,
+ * seasonDecay 0.35), while the volume quantities — teamVolume(), tgtShareW,
+ * roleCarries and roleAttempts — are accumulated under `rr`, which production
+ * sets to WEEKLY_ROLE_RECENCY (seasonDecay 0.05, weekHalfLife 5). The two
+ * differ by 7x in how much a season-old row counts, which changes the effective
+ * n a fitted k is estimated against, and therefore changes the k.
+ *
+ * Note the honest limit on `weekHalfLife` here. It decays weeks WITHIN the
+ * cutoff season, and a fit run at a season boundary has no partial cutoff
+ * season to decay — production applies it to weeks of the season being
+ * predicted, which by construction are not in the training data. Passing
+ * `throughWeek` lets a mid-season fit reproduce it; at a season boundary it is
+ * correctly a no-op, exactly as projections.js's rowWeight() treats it.
+ */
+function weightUnder(r, s, through, week = null, throughWeek = null) {
   const back = through - s;
-  return RECENCY.seasonDecay == null
+  const seasonW = r.seasonDecay == null
     ? ({ 0: 1, 1: 0.55, 2: 0.28 })[back] ?? 0.12
-    : Math.pow(RECENCY.seasonDecay, back);
-};
+    : Math.pow(r.seasonDecay, back);
+  if (r.weekHalfLife == null || s !== through || throughWeek == null || week == null) return seasonW;
+  return seasonW * Math.pow(0.5, Math.max(0, throughWeek - week) / r.weekHalfLife);
+}
+
+/** `(season, week) => weight` under RECENCY — efficiency and availability call sites. */
+const efficiencyWeightFor = through => (s, _week) => weightUnder(RECENCY, s, through);
+
+/**
+ * `(season, week) => weight` under the recency the VOLUME call sites actually apply.
+ * projections.js builds `rr = { ...r, ...roleRecency }` and passes it to teamVolume()
+ * and to every roleW accumulation, and production sets roleRecency to
+ * WEEKLY_ROLE_RECENCY, so that is what these specs are trained under.
+ */
+const roleWeightFor = (through, throughWeek = null, roleRecency = WEEKLY_ROLE_RECENCY) =>
+  (s, week) => weightUnder({ ...RECENCY, ...roleRecency }, s, through, week, throughWeek);
 
 /* ------------------------------------------------------- variance components */
 
@@ -143,12 +203,16 @@ function efficiencyObservations(log, position, oppField, valueFn) {
   return out;
 }
 
-/** Per-player-week share/count metrics, weighted by recency exactly like the model's own `n`. */
-function recencyObservations(log, through, position, valueFn) {
+/**
+ * Per-player-week share/count metrics, weighted by recency exactly like the model's
+ * own `n`. `weightFn(season, week)` is the recency rule of the call site being
+ * replaced — ROLE_WEIGHT for the volume metrics, SEASON_WEIGHT otherwise.
+ */
+function recencyObservations(log, through, position, valueFn, weightFn) {
   const out = [];
   for (const u of log) {
     if (position && u.pos !== position) continue;
-    const w = SEASON_WEIGHT(u.season, through);
+    const w = weightFn(u.season, u.week);
     if (!(w > 0)) continue;
     const value = valueFn(u);
     if (value != null && Number.isFinite(value)) out.push({ group: u.player_id, weight: w, value });
@@ -157,35 +221,60 @@ function recencyObservations(log, through, position, valueFn) {
 }
 
 /** Team pass/rush attempts per team-week, grouped by team — mirrors teamVolume(). */
-function teamVolumeObservations(log, through, field) {
+function teamVolumeObservations(log, through, field, weightFn) {
   const out = [];
   for (const t of teamWeeks(log)) {
-    const w = SEASON_WEIGHT(t.season, through);
+    const w = weightFn(t.season, t.week);
     if (!(w > 0)) continue;
     out.push({ group: t.team, weight: w, value: t[field] });
   }
   return out;
 }
 
-/** Per-player-season availability (share of team games played), weighted by recency. */
+/**
+ * Per-player-season availability (share of team games played), weighted by recency.
+ *
+ * The denominator has to be the games the player's TEAM actually played that season,
+ * not a flat 17. projections.js divides by teamG for a reason its own comment spells
+ * out — a season that has not finished (or not kicked off) has fewer than 17 team
+ * games, and dividing by 17 anyway invents phantom missed games and depresses every
+ * play rate. This used to divide by GAMES, so the fit was estimating the variance of
+ * a quantity the model never computes. Falls back to 17 only for a (team, season)
+ * with no rows at all, which is the same fallback projections.js uses.
+ */
 function availabilityObservations(log, through) {
-  const bySeason = new Map(); // playerId -> season -> games played
+  const bySeason = new Map();    // playerId -> season -> games played
   const firstSeason = new Map();
+  const latestTeam = new Map();  // playerId -> most recent team seen (mirrors projections' a.team)
+  const teamGames = new Map();   // team|season -> distinct weeks played
+  const teamWeekSeen = new Set();
   for (const u of log) {
     const key = u.player_id;
     const s = bySeason.get(key) ?? new Map();
     s.set(u.season, (s.get(u.season) ?? 0) + 1);
     bySeason.set(key, s);
     firstSeason.set(key, Math.min(firstSeason.get(key) ?? u.season, u.season));
+    latestTeam.set(key, u.team);
+    if (u.team) {
+      const tw = `${u.team}|${u.season}|${u.week}`;
+      if (!teamWeekSeen.has(tw)) {
+        teamWeekSeen.add(tw);
+        const tk = `${u.team}|${u.season}`;
+        teamGames.set(tk, (teamGames.get(tk) ?? 0) + 1);
+      }
+    }
   }
   const out = [];
   for (const [player, seasons] of bySeason) {
     const first = firstSeason.get(player);
+    const team = latestTeam.get(player);
     for (let s = first; s <= through; s++) {
       const w = SEASON_WEIGHT(s, through);
       if (!(w > 0)) continue;
+      const teamG = teamGames.get(`${team}|${s}`) ?? GAMES;
+      if (!(teamG > 0)) continue;
       const played = seasons.get(s) ?? 0;
-      out.push({ group: player, weight: w, value: played / GAMES });
+      out.push({ group: player, weight: w, value: played / teamG });
     }
   }
   return out;
@@ -223,16 +312,22 @@ function qbAttemptShareObservations(log, through) {
  * training data from history through a cutoff season. `applyTo` documents
  * exactly which projections.js call site this replaces.
  */
-export function buildFitSpecs(through) {
+export function buildFitSpecs(through, { throughWeek = null, roleRecency = WEEKLY_ROLE_RECENCY } = {}) {
   const log = history(through);
   const specs = [];
+  // The five VOLUME metrics are accumulated in projections.js under `rr`, not `r`.
+  // Training them under RECENCY was the defect this pair of weight functions fixes:
+  // the fitted k for exactly the metrics that carry the measured accuracy gain was
+  // being estimated in the wrong evidence units.
+  const roleW = roleWeightFor(through, throughWeek, roleRecency);
+  const effW = efficiencyWeightFor(through);
 
-  specs.push({ metric: 'team_pass_att', position: 'ALL', observations: teamVolumeObservations(log, through, 'att') });
-  specs.push({ metric: 'team_rush_att', position: 'ALL', observations: teamVolumeObservations(log, through, 'car') });
+  specs.push({ metric: 'team_pass_att', position: 'ALL', observations: teamVolumeObservations(log, through, 'att', roleW) });
+  specs.push({ metric: 'team_rush_att', position: 'ALL', observations: teamVolumeObservations(log, through, 'car', roleW) });
 
   specs.push({ metric: 'target_share', position: 'ALL',
     observations: recencyObservations(log, through, null, u =>
-      u.target_share != null && u.target_share > 0 ? u.target_share : null) });
+      u.target_share != null && u.target_share > 0 ? u.target_share : null, roleW) });
 
   // carry_share needs team rush attempts per week, which the model reads off
   // teamVolume() rather than the raw log — recompute the same team-week map.
@@ -242,7 +337,7 @@ export function buildFitSpecs(through) {
     const out = [];
     for (const u of log) {
       if (position === 'RB' ? u.pos !== 'RB' : u.pos === 'RB') continue;
-      const w = SEASON_WEIGHT(u.season, through);
+      const w = roleW(u.season, u.week);
       if (!(w > 0)) continue;
       const teamCar = teamCarByWeek.get(`${u.team}|${u.season}|${u.week}`);
       if (!(teamCar > 0)) continue;
@@ -254,7 +349,7 @@ export function buildFitSpecs(through) {
   specs.push({ metric: 'carry_share', position: 'OTHER', observations: carryShareObs('OTHER') });
 
   specs.push({ metric: 'qb_attempts', position: 'QB',
-    observations: recencyObservations(log, through, 'QB', u => u.attempts ?? null) });
+    observations: recencyObservations(log, through, 'QB', u => u.attempts ?? null, roleW) });
 
   for (const position of ['WR', 'RB', 'TE']) {
     specs.push({ metric: 'ypt', position, observations:
@@ -284,8 +379,8 @@ export function buildFitSpecs(through) {
 }
 
 /** Fits every spec, dropping any that don't have enough data to trust. */
-export function fitAllK(through) {
-  const specs = buildFitSpecs(through);
+export function fitAllK(through, options = {}) {
+  const specs = buildFitSpecs(through, options);
   const results = [];
   for (const spec of specs) {
     const fit = fitK(spec.observations);
@@ -309,7 +404,20 @@ export function saveFit({ through, testSeason, crpsFitted, crpsHardcoded, maeFit
         (fit_id, metric, position, k, sigma2_within, sigma2_between, n_groups, n_obs)
       VALUES (?,?,?,?,?,?,?,?)`);
     for (const r of kVector) {
-      if (r.k == null || !Number.isFinite(r.k)) continue;
+      // k = Infinity is the fit's STRONGEST statement, not a failure: it means the
+      // between-player variance came out at or below zero, i.e. the data shows no
+      // detectable player signal in this metric and the prior should be trusted
+      // outright. This line used to read `!Number.isFinite(r.k)` and dropped it, so
+      // the conclusion never reached the database: activeKVector() had no entry,
+      // pickK() fell back to the hand-picked constant, and shrinkSafe()'s
+      // `k === Infinity -> return prior` branch was unreachable for any persisted
+      // fit. A metric the data says carries no signal was being given several
+      // pseudo-games of trust in the player's own number — the exact inverse of
+      // what was measured. SQLite stores IEEE infinity in a REAL column and
+      // node:sqlite reads it back as Infinity, so the sentinel round-trips and
+      // shrinkSafe's branch is now live. NaN and null are still genuine failures
+      // and are still dropped.
+      if (r.k == null || Number.isNaN(r.k)) continue;
       ins.run(fitId, r.metric, r.position, r.k, r.sigma2_within ?? null, r.sigma2_between ?? null,
         r.n_groups ?? null, r.n_obs ?? null);
     }
@@ -328,7 +436,16 @@ export function activateFit(fitId) {
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
-/** The currently-active k-vector, as {metric: {position: k}}, or null if none has ever beaten hardcoded. */
+/**
+ * The currently-active k-vector, as {metric: {position: k}}, or null if none has ever
+ * beaten hardcoded.
+ *
+ * A k of Infinity here is meaningful and is passed through deliberately: it is the
+ * fitter saying "no detectable between-player variance, use the prior", and
+ * projections.js's shrinkSafe() honours it. Distinguish it from a MISSING entry,
+ * which means no fit for that (metric, position) exists and the hardcoded constant
+ * applies.
+ */
 export function activeKVector() {
   const fit = rows('SELECT id FROM shrinkage_fits WHERE active = 1 ORDER BY id DESC LIMIT 1')[0];
   if (!fit) return null;
@@ -341,4 +458,98 @@ export function activeKVector() {
 
 export function fitHistory(limit = 20) {
   return rows('SELECT * FROM shrinkage_fits ORDER BY id DESC LIMIT ?', limit);
+}
+
+/* ------------------------------------------------------- volume-only vector */
+
+/**
+ * The only fitted constants measured to help: the five VOLUME metrics (six
+ * (metric, position) pairs, because carry_share is split RB / OTHER).
+ *
+ * The efficiency k from the same fitter is excluded on evidence, not taste:
+ * substituting it made 2025 worse (4.773 vs 4.749), because "player" is not a
+ * stable group for efficiency within a season and the method-of-moments
+ * between-player variance is inflated for those metrics.
+ */
+export const VOLUME_METRICS = Object.freeze([
+  ['team_pass_att', 'ALL'], ['team_rush_att', 'ALL'], ['target_share', 'ALL'],
+  ['carry_share', 'RB'], ['carry_share', 'OTHER'], ['qb_attempts', 'QB'],
+]);
+const VOLUME_METRIC_NAMES = new Set(VOLUME_METRICS.map(([m]) => m));
+
+/** Fit the volume metrics only, on seasons <= `through`. Rows in fitAllK's shape. */
+export function volumeKFits(through, options = {}) {
+  const want = new Set(VOLUME_METRICS.map(([m, p]) => `${m}|${p}`));
+  return fitAllK(through, options)
+    .filter(r => want.has(`${r.metric}|${r.position}`) && r.k != null && !Number.isNaN(r.k));
+}
+
+/** fitAllK rows -> the {metric: {position: k}} shape buildProjections takes. */
+export function toKVector(fits) {
+  const out = {};
+  for (const r of fits) (out[r.metric] ??= {})[r.position] = r.k;
+  return out;
+}
+
+/** True when a recency config is the one the volume specs are trained under. */
+export function isWeeklyRoleRecency(rr) {
+  return rr?.seasonDecay === WEEKLY_ROLE_RECENCY.seasonDecay
+    && rr?.weekHalfLife === WEEKLY_ROLE_RECENCY.weekHalfLife;
+}
+
+/**
+ * The active vector AS IT APPLIES under a given volume recency.
+ *
+ * A fitted k is only meaningful in the evidence units it was estimated in. The
+ * volume specs are trained under WEEKLY_ROLE_RECENCY (seasonDecay 0.05, week
+ * half-life 5), which is what the weekly engine applies. Every season-long
+ * caller — preseason-model, season-sim, draft-assist, week-postmortem,
+ * ceiling-lineup — calls buildProjections with no roleRecency, so its volume
+ * evidence is accumulated under RECENCY (seasonDecay 0.35): a season-old game
+ * counts seven times more there. Handing those callers a k fitted for the other
+ * weighting would be the same units error this file's header describes, just
+ * moved to the apply side. So under any other recency the volume entries are
+ * withheld and those callers keep the hand-picked constants they were validated
+ * with. They are not claimed to be right, only untested with the fitted k.
+ */
+export function activeKVectorFor(rr, { predictingSeason } = {}) {
+  const v = cutoffSafeKVector(predictingSeason);
+  if (!v || isWeeklyRoleRecency(rr)) return v;
+  const out = {};
+  for (const [metric, byPos] of Object.entries(v)) if (!VOLUME_METRIC_NAMES.has(metric)) out[metric] = byPos;
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * The active vector as it would have existed BEFORE `predictingSeason`.
+ *
+ * The production fit is estimated on seasons <= its through_season (2025 for the
+ * first one). Handing it to a replay of 2023, 2024 or 2025 lets the constants see
+ * the season being graded — a leak no caller would notice, because the numbers
+ * just come out slightly better. So when the stored fit's cutoff is not strictly
+ * before the season being predicted, the SAME (metric, position) pairs are re-fit
+ * on seasons <= predictingSeason - 1 and that vector is used instead, memoised per
+ * (fit, season). Production — predicting 2026 from a through-2025 fit — never takes
+ * that branch. A caller that omits predictingSeason gets the stored vector
+ * unchanged, which is the legacy behaviour; buildProjections always passes it.
+ */
+const walkForwardCache = new Map();
+export function activeFitMeta() {
+  return rows('SELECT id, through_season FROM shrinkage_fits WHERE active = 1 ORDER BY id DESC LIMIT 1')[0] ?? null;
+}
+export function cutoffSafeKVector(predictingSeason) {
+  const meta = activeFitMeta();
+  if (!meta) return null;
+  const stored = activeKVector();
+  if (predictingSeason == null || meta.through_season < predictingSeason) return stored;
+  const ck = `${meta.id}|${predictingSeason}`;
+  if (!walkForwardCache.has(ck)) {
+    const want = new Set(Object.entries(stored ?? {})
+      .flatMap(([m, byPos]) => Object.keys(byPos).map(p => `${m}|${p}`)));
+    const fits = fitAllK(predictingSeason - 1)
+      .filter(r => want.has(`${r.metric}|${r.position}`) && r.k != null && !Number.isNaN(r.k));
+    const v = toKVector(fits);
+    walkForwardCache.set(ck, Object.keys(v).length ? v : null);
+  }
+  return walkForwardCache.get(ck);
 }

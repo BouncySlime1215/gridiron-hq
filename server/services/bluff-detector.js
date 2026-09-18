@@ -29,10 +29,10 @@
  */
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { rows } from '../db/index.js';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+import { PROJECT_ROOT } from '../platform/paths.js';
+const ROOT = PROJECT_ROOT;
 const CHAT_DB = path.join(ROOT, 'data/derived/league_chat.sqlite');
 
 /** A reversal inside this many days is about negotiating, not about football. */

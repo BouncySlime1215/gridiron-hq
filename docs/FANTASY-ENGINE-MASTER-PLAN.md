@@ -50,11 +50,14 @@ Walk-forward, weeks 5–18, PPR, truth = `player_week_usage`, harness = `server/
 
 ```
 2025 one-shot MAE   structural (buildProjections) 4.749
-                    PRODUCTION (frozen 2023 weights) 4.455
+                    fixed 60/40 blend (never shipped) 4.455
+                    PRODUCTION (frozen 2023 weights) 4.425
                     season_to_date (naive)           4.386
                     ensemble_global (FITTED)          4.334   gate PASS, p=0.999 vs naive
 per season 2021–25  structural loses to season_to_date by 2.8–6.2% MAE and on Spearman, every year
 ```
+
+> **Corrected 2026-09-17.** This table used to label 4.455 "PRODUCTION (frozen 2023 weights)". 4.455 is the harness's fixed 0.6·structural + 0.4·season_to_date blend, which production never ran. The frozen per-position `WEEKLY_ENSEMBLE_WEIGHTS` production actually ran score **4.425** on the same 4,532 rows (2023 4.361, 2024 4.549). The real displacement gain is 0.095, not 0.125. Stored row `weekly_ensemble_fits.id=1` has been corrected to match: `champion_mae` 4.455 → 4.425, and `candidate_mae` 4.33 (in-sample production path) → 4.334 (the gate's held-out figure). Weights unchanged. The gate still passes with the bootstrap clustered by player: vs season_to_date ci90 [−0.083, −0.018], vs the displaced champion [−0.120, −0.062].
 
 - `weekly_ensemble_fits` has **0 rows**, so `activeWeeklyWeightSet()` returns `source:'frozen'`. Production runs weights that lose to a moving average. The validated fit exists (`scripts/fit-weekly-ensemble.mjs`) and was never persisted.
 - **All 15 heads in `player-head-registry.js` are reweightings of the player's own FP history** (season_mean, median, trimmed/winsor, ewma×3, trend, level_shift, robust blends). No head carries new information — the same failure the betting ensemble showed at effective rank 2.61.

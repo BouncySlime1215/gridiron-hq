@@ -256,6 +256,7 @@ export function evidenceCache(season, providers = DEFAULT_PROVIDERS) {
  * fitted — it is a judgement, stated here in one place so it can be argued with
  * rather than buried inside a comparison.
  */
+const SKILL_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE']);
 const TIE_THRESHOLD = 1.5;
 const CLEAR_THRESHOLD = 4.0;
 
@@ -305,13 +306,37 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     };
   });
 
-  const key = objective === 'ceiling' ? 'ceiling' : objective === 'floor' ? 'floor' : 'week_points';
-  const usable = annotated.filter(p => Number.isFinite(p[key]));
-  const optimal = bestLineup(usable.length === annotated.length ? annotated : annotated, slots,
-    // Fall back to the week projection when a roster has no floor/ceiling
-    // distribution recorded — better than solving on undefined and returning an
-    // empty lineup, which is what an unguarded key swap does here.
-    usable.length === annotated.length ? key : 'week_points');
+  /*
+   * The ceiling/floor objective used to be dead. The guard compared the players
+   * carrying the requested key against EVERY rostered player, and kickers and
+   * defences never carry a ceiling (95 of the 102 missing values across all 46
+   * synced rosters were K/DEF), so it failed on essentially every roster and
+   * silently solved on week_points — while the response still said
+   * objective: 'ceiling'. The underdog's "give me variance" request was answered
+   * with the mean lineup, labelled as the ceiling lineup. (Its fallback was also a
+   * ternary with two identical branches, the tell that it was never finished.)
+   *
+   * Now: coverage is measured over the skill players the solver can actually
+   * start. Skill players without the requested field are held out of the solve
+   * and reported by name, rather than mixed in on a different basis. If holding
+   * them out would leave a slot unfillable, the whole solve falls back to
+   * week_points and SAYS so — the response carries the objective actually used.
+   */
+  const requestedKey = objective === 'ceiling' ? 'ceiling' : objective === 'floor' ? 'floor' : 'week_points';
+  const skill = annotated.filter(p => SKILL_POSITIONS.has(p.position));
+  const lacking = skill.filter(p => !Number.isFinite(p[requestedKey]));
+  let key = requestedKey;
+  let solvePool = requestedKey === 'week_points' ? annotated : annotated.filter(p => !lacking.includes(p));
+  let optimal = bestLineup(solvePool, slots, key);
+  let objectiveFallback = null;
+  if (requestedKey !== 'week_points' && optimal.holes?.length) {
+    objectiveFallback = `holding out the ${lacking.length} player(s) with no ${requestedKey} would leave ` +
+      `${optimal.holes.join('/')} unfilled, so the lineup was solved on week_points instead`;
+    key = 'week_points';
+    solvePool = annotated;
+    optimal = bestLineup(solvePool, slots, key);
+  }
+  const objectiveUsed = key;
 
   const startingIds = new Set(optimal.slots.map(s => s.player?.id).filter(Boolean));
   // The alternative must come from the pool the solver could actually have
@@ -323,6 +348,14 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const startable = annotated.filter(p => p.available !== false);
   const bench = startable.filter(p => !startingIds.has(p.id) && (p.week_points ?? 0) > 0)
     .sort((a, b) => b.week_points - a.week_points);
+  // Who each start "beat" has to be chosen on the SAME basis the lineup was solved
+  // on, and the margin computed on that basis only. It used to pick the alternative
+  // by week_points and then subtract `(p[key] ?? p.week_points)`, so under a ceiling
+  // objective a starter's p90 could be compared against a benched player's MEAN.
+  // For the default week_points objective this is the same list as `bench`.
+  const alternatives = startable
+    .filter(p => !startingIds.has(p.id) && Number.isFinite(p[key]) && (p.week_points ?? 0) > 0)
+    .sort((a, b) => b[key] - a[key]);
   // Kept separately and reported, because "why is my best back on the bench" is
   // the first question this page has to answer.
   const unavailable = annotated
@@ -373,8 +406,8 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const calls = optimal.slots.filter(s => s.player).map(s => {
     const p = s.player;
     // The best benched player who could legally fill this slot.
-    const alt = bench.find(b => slotAccepts(s.slot, b.position));
-    const margin = alt ? r2((p[key] ?? p.week_points) - (alt[key] ?? alt.week_points)) : null;
+    const alt = alternatives.find(b => slotAccepts(s.slot, b.position));
+    const margin = alt ? r2(p[key] - alt[key]) : null;
     const confidence = margin == null ? 'only option'
       : margin >= CLEAR_THRESHOLD ? 'clear'
         : margin >= TIE_THRESHOLD ? 'lean'
@@ -432,6 +465,18 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
 
   return {
     league: lg.name, owner: me.owner, season, week, objective,
+    // What was actually optimised, which is not always what was asked for.
+    objective_used: objectiveUsed,
+    objective_fallback: objectiveFallback,
+    objective_held_out: objectiveUsed === requestedKey && requestedKey !== 'week_points'
+      ? lacking.map(p => ({ name: p.name, position: p.position, week_points: p.week_points,
+        why: `no ${requestedKey} distribution on file, so he could not be ranked on it` }))
+      : [],
+    // TIE_THRESHOLD and CLEAR_THRESHOLD were set as judgement calls on MEAN weekly
+    // points. A margin between two ceilings (or two floors) is a wider, differently
+    // shaped quantity, so the coin-flip/lean/clear labels are not calibrated for it.
+    confidence_basis: objectiveUsed === 'week_points' ? 'calibrated_on_week_points'
+      : `uncalibrated_for_${objectiveUsed}`,
     projected_points: r2(optimal.points),
     lineup: calls,
     bench: bench.slice(0, 8).map(p => ({

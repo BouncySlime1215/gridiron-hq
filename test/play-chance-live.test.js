@@ -256,7 +256,6 @@ test('a designation with no practice line is priced on the practice-pooled branc
 
   const outTe = lk.roleLookup({ status: 'out', practice: 'none', position: 'TE', tier: 'rotation', gap: 'g0' });
   assert.ok(outTe.p < 0.05, `an unknown-practice Out must not read the one-row cell, got ${outTe.p}`);
-  assert.match(outTe.basis, /^out\//);
   const qWr = lk.roleLookup({ status: 'questionable', practice: 'none', position: 'WR', tier: 'starter', gap: 'g0' });
   assert.ok(Math.abs(qWr.p - leaf.p_active) < 1e-9);
   assert.equal(qWr.basis, 'questionable/WR/starter/g0');
@@ -265,6 +264,29 @@ test('a designation with no practice line is priced on the practice-pooled branc
   assert.equal(qLimited.basis, 'questionable/limited/WR/starter/g0');
   const healthy = lk.roleLookup({ status: 'noreport', practice: 'none', position: 'WR', tier: 'starter', gap: 'g0' });
   assert.equal(healthy.basis, 'noreport/none/WR/starter/g0');
+});
+
+test('Out and Doubtful are priced at the designation\'s own fitted rate: role and practice sub-cells are not read', () => {
+  const obs = [];
+  const push = (n, hits, cell) => { for (let i = 0; i < n; i++) obs.push({ ...cell, active: i < hits ? 1 : 0 }); };
+  push(300, 0, { rs: 'out', ps: 'dnp', position: 'RB', tier: 'starter', gap: 'g0' });
+  push(20, 0, { rs: 'out', ps: 'dnp', position: 'TE', tier: 'rotation', gap: 'g0' });
+  push(1, 1, { rs: 'out', ps: 'none', position: 'TE', tier: 'rotation', gap: 'g0' });
+  push(150, 0, { rs: 'doubtful', ps: 'dnp', position: 'WR', tier: 'starter', gap: 'g0' });
+  push(10, 1, { rs: 'doubtful', ps: 'limited', position: 'WR', tier: 'starter', gap: 'g0' });
+  const config = JSON.stringify({ k: 5, byPosition: true, durabilityCap: false });
+  const rates = C.fitRoleRates(obs, { k: 5, byPosition: true });
+  const lk = C.buildAvailabilityLookup({ roleRates: rates.map(r => ({ ...r, config })) });
+  const root = s => rates.find(r => r.report_status === s && r.practice_status === '*' && r.position === '*').p_active;
+  for (const practice of ['none', 'dnp', 'limited']) {
+    const out = lk.roleLookup({ status: 'out', practice, position: 'TE', tier: 'rotation', gap: 'g0' });
+    assert.equal(out.p, root('out'), practice);
+    assert.equal(out.basis, 'out');
+  }
+  const doubtful = lk.roleLookup({ status: 'doubtful', practice: 'limited', position: 'WR', tier: 'starter', gap: 'g0' });
+  assert.equal(doubtful.p, root('doubtful'), 'not the 1-of-10 limited cell');
+  assert.equal(doubtful.basis, 'doubtful');
+  assert.ok(root('out') < 0.01 && root('doubtful') < 0.01);
 });
 
 /* ------------------------------------------- designation x role gate (G2) */

@@ -17,6 +17,7 @@
  */
 import { rows } from '../db/index.js';
 import { shrink, mean } from './stats-util.js';
+import { pairedBootstrapDiff } from './backtest-significance.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
@@ -113,85 +114,315 @@ export function availability({ through = SEASON - 1 } = {}) {
  */
 
 /**
- * The fitted availability table, loaded once per process.
- *
- * Returns null when the table has not been built (fresh install, or
- * scripts/fit-availability.mjs has never run), and the caller falls back to the
- * legacy constants. Absent is a normal state, not an error.
+ * Tables written by scripts/fit-availability.mjs. The DDL lives here so the fit
+ * script, this loader and the tests share one definition.
  */
-let _fittedCache;
-function fittedAvailability() {
-  if (_fittedCache !== undefined) return _fittedCache;
-  let all;
-  try {
-    all = rows('SELECT scope,team,report_status,practice_status,p_active,n FROM nfl_availability_rates');
-  } catch { _fittedCache = null; return null; }
-  if (!all?.length) { _fittedCache = null; return null; }
+export const AVAILABILITY_RATES_DDL = `CREATE TABLE IF NOT EXISTS nfl_availability_rates (
+  scope TEXT NOT NULL,            -- 'league' | 'team'
+  team TEXT NOT NULL,             -- '' for league scope
+  report_status TEXT NOT NULL,    -- normalised: out | doubtful | questionable | none
+  practice_status TEXT NOT NULL,  -- normalised: dnp | limited | full | none | any
+  p_active REAL NOT NULL,
+  n INTEGER NOT NULL,
+  raw_rate REAL,
+  shrunk INTEGER NOT NULL,
+  fitted_at TEXT NOT NULL,
+  PRIMARY KEY (scope, team, report_status, practice_status))`;
 
+export const AVAILABILITY_ROLE_RATES_DDL = `CREATE TABLE IF NOT EXISTS nfl_availability_role_rates (
+  report_status TEXT NOT NULL,    -- noreport | none | questionable | doubtful | out
+  practice_status TEXT NOT NULL,  -- dnp | limited | full | none | '*'
+  position TEXT NOT NULL,         -- QB | RB | WR | TE | '*' (pooled unless the fit chose byPosition)
+  tier TEXT NOT NULL,             -- starter | rotation | depth | fringe | unknown | '*'
+  gap TEXT NOT NULL,              -- g0 | g1 | g2 | '*'
+  p_active REAL NOT NULL,         -- shrunk toward the parent cell
+  n INTEGER NOT NULL,
+  raw_rate REAL,
+  config TEXT NOT NULL,           -- JSON {k, byPosition, durabilityCap, fitSeasons, gate}
+  fitted_at TEXT NOT NULL,
+  PRIMARY KEY (report_status, practice_status, position, tier, gap))`;
+
+/** Injury-report game status, normalised. A player with no report at all is the caller's 'noreport'. */
+export function normReportStatus(s) {
+  const t = String(s ?? '').toLowerCase();
+  if (/out|reserve|\bir\b|pup|suspend/.test(t)) return 'out';
+  if (/doubtful/.test(t)) return 'doubtful';
+  if (/questionable/.test(t)) return 'questionable';
+  return 'none';
+}
+
+/** Practice participation, normalised. */
+export function normPracticeStatus(s) {
+  const t = String(s ?? '').toLowerCase();
+  if (/did not|dnp/.test(t)) return 'dnp';
+  if (/limited/.test(t)) return 'limited';
+  if (/full/.test(t)) return 'full';
+  return 'none';
+}
+
+/* ------------------------------------------------------------------ role */
+
+/*
+ * WHO HE IS RIGHT NOW. The fitted rates above were built on injury-report rows
+ * only, so the rate for "no game status" (0.831) is the play rate of players who
+ * were ON the practice report — and it was being applied to every healthy player
+ * who was not on the report at all, then capped at a career durability prior
+ * that is shrunk toward a position mean full of backups. A healthy starter who
+ * has never missed a game showed 0.57-0.86 on Start/Sit (Caleb Williams, 100% of
+ * games played, showed 0.758).
+ *
+ * Two facts from games already played separate starters from everyone else, and
+ * both are available before kickoff:
+ *   - role tier: his offensive snap share over his last three appearances.
+ *   - gap: how many of his team's games he has missed since he last appeared. A
+ *     starter who sat last week is mostly still sitting (fit seasons 2021-2024:
+ *     healthy-looking g0 starters recorded usage 95.3% of weeks, g1 29.7%).
+ * Only seasons s-1 and s, and only weeks before `week`, are ever read.
+ */
+export const ROLE_MAX_GAP = 3;
+const ROLE_RECENT_APPEARANCES = 3;
+const ROLE_POSITIONS = "('QB','RB','WR','TE')";
+
+export function roleTier(share) {
+  if (share == null || !Number.isFinite(share)) return 'unknown';
+  if (share >= 0.60) return 'starter';
+  if (share >= 0.35) return 'rotation';
+  if (share >= 0.15) return 'depth';
+  return 'fringe';
+}
+
+/** g0 = played his team's last game, g1 = missed one, g2 = missed two or three; beyond that he is out of role scope. */
+export function gapBucket(gap) {
+  if (!Number.isInteger(gap) || gap < 0 || gap > ROLE_MAX_GAP) return null;
+  return gap === 0 ? 'g0' : gap === 1 ? 'g1' : 'g2';
+}
+
+const _roleCache = new Map();
+const ROLE_CACHE_MAX = 16;
+
+/**
+ * Role state for every skill player who has appeared in seasons s-1..s before
+ * `week`. An appearance is a usage row or an offensive snap. His team is the
+ * team on his most recent usage row; a team's games are the weeks it has any
+ * usage row, so a bye is never counted as a game he missed.
+ *
+ * @returns Map<player_id, { player_id, position, team, share, tier, gap, gap_bucket, last_seen }>
+ */
+export function roleStates(season, week) {
+  const prev = season - 1;
+  const window = '(season = ? OR (season = ? AND week < ?))';
+  // Keyed on the row counts it reads, so a load of new games is never served stale.
+  const stamp = rows(`SELECT (SELECT COUNT(*) FROM player_week_usage WHERE ${window}) AS u,
+                             (SELECT COUNT(*) FROM player_week_snaps WHERE ${window}) AS s`,
+    prev, season, week, prev, season, week)[0];
+  const key = `${season}|${week}|${stamp?.u}|${stamp?.s}`;
+  if (_roleCache.has(key)) return _roleCache.get(key);
+
+  const slot = (s, w) => s * 100 + w;
+  const players = new Map();
+  const entry = (id, position) => players.get(id)
+    ?? players.set(id, { position, apps: new Map(), lastUsage: -1, team: null }).get(id);
+  for (const u of rows(`SELECT u.player_id, u.season, u.week, u.team, p.position
+                        FROM player_week_usage u JOIN players p ON p.id = u.player_id
+                        WHERE p.position IN ${ROLE_POSITIONS}
+                          AND (u.season = ? OR (u.season = ? AND u.week < ?))`, prev, season, week)) {
+    const e = entry(u.player_id, u.position);
+    const k = slot(u.season, u.week);
+    if (!e.apps.has(k)) e.apps.set(k, null);
+    if (u.team && k > e.lastUsage) { e.lastUsage = k; e.team = u.team; }
+  }
+  for (const s of rows(`SELECT s.player_id, s.season, s.week, s.offense_pct, p.position
+                        FROM player_week_snaps s JOIN players p ON p.id = s.player_id
+                        WHERE p.position IN ${ROLE_POSITIONS} AND s.offense_snaps > 0
+                          AND (s.season = ? OR (s.season = ? AND s.week < ?))`, prev, season, week)) {
+    entry(s.player_id, s.position).apps.set(slot(s.season, s.week), s.offense_pct);
+  }
+  const teamGames = new Map();
+  for (const g of rows(`SELECT DISTINCT team, season, week FROM player_week_usage
+                        WHERE team IS NOT NULL AND (season = ? OR (season = ? AND week < ?))`, prev, season, week)) {
+    (teamGames.get(g.team) ?? teamGames.set(g.team, []).get(g.team)).push(slot(g.season, g.week));
+  }
+
+  const out = new Map();
+  for (const [id, e] of players) {
+    const apps = [...e.apps.keys()].sort((a, b) => b - a);
+    const last = apps[0];
+    const shares = apps.slice(0, ROLE_RECENT_APPEARANCES).map(k => e.apps.get(k)).filter(v => v != null);
+    const share = shares.length ? shares.reduce((s, v) => s + v, 0) / shares.length : null;
+    const games = e.team ? teamGames.get(e.team) ?? [] : null;
+    const gap = games ? games.filter(g => g > last).length : null;
+    out.set(id, {
+      player_id: id, position: e.position, team: e.team,
+      share, tier: roleTier(share), gap, gap_bucket: gapBucket(gap),
+      last_seen: { season: Math.floor(last / 100), week: last % 100 }
+    });
+  }
+  if (_roleCache.size >= ROLE_CACHE_MAX) _roleCache.delete(_roleCache.keys().next().value);
+  _roleCache.set(key, out);
+  return out;
+}
+
+/**
+ * Role rates by hierarchical beta-binomial shrinkage, parent -> child:
+ *   status -> status|practice -> [|position ->] |tier -> |tier|gap
+ * p_child = (hits + k * p_parent) / (n + k); the root is its raw rate. Every
+ * node is returned ('*' marks a pooled level) so a lookup of a combination the
+ * fit never saw can fall back to its deepest fitted ancestor.
+ *
+ * @param observations [{ rs, ps, position, tier, gap ('g0'|'g1'|'g2'), active (0|1) }]
+ */
+export function fitRoleRates(observations, { k = 10, byPosition = false } = {}) {
+  const path = o => byPosition
+    ? [[o.rs, '*', '*', '*', '*'], [o.rs, o.ps, '*', '*', '*'], [o.rs, o.ps, o.position, '*', '*'],
+       [o.rs, o.ps, o.position, o.tier, '*'], [o.rs, o.ps, o.position, o.tier, o.gap]]
+    : [[o.rs, '*', '*', '*', '*'], [o.rs, o.ps, '*', '*', '*'],
+       [o.rs, o.ps, '*', o.tier, '*'], [o.rs, o.ps, '*', o.tier, o.gap]];
+  const nodes = new Map();
+  for (const o of observations) {
+    let parent = null;
+    for (const parts of path(o)) {
+      const key = parts.join('|');
+      const node = nodes.get(key) ?? nodes.set(key, { parts, n: 0, hits: 0, parent }).get(key);
+      node.n++; node.hits += o.active ? 1 : 0;
+      parent = key;
+    }
+  }
+  // A parent is always inserted before its first child, so insertion order is top-down.
+  const p = new Map();
+  for (const [key, node] of nodes) {
+    p.set(key, node.parent == null ? node.hits / node.n : (node.hits + k * p.get(node.parent)) / (node.n + k));
+  }
+  return [...nodes].map(([key, node]) => ({
+    report_status: node.parts[0], practice_status: node.parts[1], position: node.parts[2],
+    tier: node.parts[3], gap: node.parts[4], p_active: p.get(key), n: node.n, raw_rate: node.hits / node.n
+  }));
+}
+
+/**
+ * The lookup over fitted rows. Pure, so the fit script scores exactly the code
+ * path the app runs.
+ */
+export function buildAvailabilityLookup({ rates = [], roleRates = [] } = {}) {
   const league = new Map();      // "status|practice" and "status|any"
   const team = new Map();        // "TEAM|status"
-  for (const r of all) {
+  for (const r of rates) {
     if (r.scope === 'league') league.set(`${r.report_status}|${r.practice_status}`, r);
     else team.set(`${String(r.team).toUpperCase()}|${r.report_status}`, r);
   }
+  const role = new Map();
+  let roleConfig = null;
+  for (const r of roleRates) {
+    role.set([r.report_status, r.practice_status, r.position, r.tier, r.gap].join('|'), r);
+    if (!roleConfig && r.config) { try { roleConfig = JSON.parse(r.config); } catch { roleConfig = null; } }
+  }
+  roleConfig ??= { byPosition: false, durabilityCap: false };
 
-  const normStatus = s => {
-    const t = String(s ?? '').toLowerCase();
-    if (/out|reserve|\bir\b|pup|suspend/.test(t)) return 'out';
-    if (/doubtful/.test(t)) return 'doubtful';
-    if (/questionable/.test(t)) return 'questionable';
-    return 'none';
-  };
-  const normPractice = s => {
-    const t = String(s ?? '').toLowerCase();
-    if (/did not|dnp/.test(t)) return 'dnp';
-    if (/limited/.test(t)) return 'limited';
-    if (/full/.test(t)) return 'full';
-    return 'none';
+  // Team enters as a RATIO to its league status rate, so the team effect and
+  // the practice (or role) effect compose instead of one replacing the other.
+  const teamRatio = (teamAbbr, rs) => {
+    const statusLeague = league.get(`${rs}|any`);
+    const tc = teamAbbr ? team.get(`${String(teamAbbr).toUpperCase()}|${rs}`) : null;
+    if (!tc || !(statusLeague?.p_active > 0)) return null;
+    return { ratio: tc.p_active / statusLeague.p_active, team: String(teamAbbr).toUpperCase() };
   };
 
-  _fittedCache = {
+  return {
+    hasRole: role.size > 0,
+    roleConfig,
     lookup(teamAbbr, statusRaw, practiceRaw) {
-      const rs = normStatus(statusRaw), ps = normPractice(practiceRaw);
+      const rs = normReportStatus(statusRaw), ps = normPracticeStatus(practiceRaw);
       const cell = league.get(`${rs}|${ps}`) ?? league.get(`${rs}|any`);
       if (!cell) return null;
-      const statusLeague = league.get(`${rs}|any`);
-      const tc = teamAbbr ? team.get(`${String(teamAbbr).toUpperCase()}|${rs}`) : null;
-      // Team enters as a RATIO to its league status rate, so the team effect and
-      // the practice effect compose instead of one replacing the other.
       let p = cell.p_active;
       let basis = `${rs}/${ps}`;
-      if (tc && statusLeague?.p_active > 0) {
-        p *= tc.p_active / statusLeague.p_active;
-        basis += ` x ${String(teamAbbr).toUpperCase()}`;
-      }
+      const tr = teamRatio(teamAbbr, rs);
+      if (tr) { p *= tr.ratio; basis += ` x ${tr.team}`; }
       return { p: Math.max(0.001, Math.min(0.995, p)), basis, n: cell.n };
+    },
+    teamRatio(teamAbbr, statusRaw) {
+      return teamRatio(teamAbbr, normReportStatus(statusRaw));
+    },
+    /** status is a report group ('noreport' when he is not on the report); gap is a bucket. */
+    roleLookup({ status, practice, position, tier, gap }) {
+      const chain = roleConfig.byPosition
+        ? [[status, practice, position, tier, gap], [status, practice, position, tier, '*'],
+           [status, practice, position, '*', '*'], [status, practice, '*', '*', '*'], [status, '*', '*', '*', '*']]
+        : [[status, practice, '*', tier, gap], [status, practice, '*', tier, '*'],
+           [status, practice, '*', '*', '*'], [status, '*', '*', '*', '*']];
+      for (const parts of chain) {
+        const r = role.get(parts.join('|'));
+        if (r) return { p: r.p_active, n: r.n, basis: parts.filter(x => x !== '*').join('/') };
+      }
+      return null;
     }
   };
+}
+
+/**
+ * The fitted availability tables, loaded once per process.
+ *
+ * Returns null when neither table has been built (fresh install, or
+ * scripts/fit-availability.mjs has never run), and the caller falls back to the
+ * legacy constants. Absent is a normal state, not an error. With the league
+ * table but no role table, every number is exactly what it was before the role
+ * layer existed.
+ */
+let _fittedCache;
+export function resetAvailabilityCache() {
+  _fittedCache = undefined;
+  _roleCache.clear();
+}
+function fittedAvailability() {
+  if (_fittedCache !== undefined) return _fittedCache;
+  let rates = [], roleRates = [];
+  try {
+    rates = rows('SELECT scope,team,report_status,practice_status,p_active,n FROM nfl_availability_rates');
+  } catch { rates = []; }
+  try {
+    roleRates = rows(`SELECT report_status,practice_status,position,tier,gap,p_active,n,config
+                      FROM nfl_availability_role_rates`);
+  } catch { roleRates = []; }
+  _fittedCache = rates.length || roleRates.length ? buildAvailabilityLookup({ rates, roleRates }) : null;
   return _fittedCache;
 }
 
-export function weeklyAvailability(season, week, { through = season - 1 } = {}) {
-  const base = availability({ through });
-  const players = rows(`SELECT id, name, position, gsis_id FROM players
-                        WHERE position IN ('QB','RB','WR','TE')`);
-  const reports = new Map(rows(`SELECT * FROM nfl_injuries WHERE season=? AND week=?`, season, week)
-    .map(r => [String(r.gsis_id), r]));
-  const out = new Map();
+/**
+ * One player's chance to be active, from whatever is on file. Shared by
+ * weeklyAvailability and the fit script's gate, so what was validated is what runs.
+ */
+export function playerActiveProbability({ fitted, report, prior, role = null, useRole = true }) {
+  const status = String(report?.report_status ?? '').toLowerCase();
+  const practice = String(report?.practice_status ?? '').toLowerCase();
+  let active = prior;
+  let source = report ? 'weekly injury report + durability prior' : 'durability prior only';
 
-  const fitted = fittedAvailability();
+  const roleCell = useRole && fitted?.hasRole && role?.gap_bucket
+    ? fitted.roleLookup({
+        status: report ? normReportStatus(status) : 'noreport', practice: normPracticeStatus(practice),
+        position: role.position, tier: role.tier, gap: role.gap_bucket
+      })
+    : null;
 
-  for (const p of players) {
-    const prior = base.get(p.id)?.available ?? 0.92;
-    const report = p.gsis_id ? reports.get(String(p.gsis_id)) : null;
-    const status = String(report?.report_status ?? '').toLowerCase();
-    const practice = String(report?.practice_status ?? '').toLowerCase();
-    let active = prior;
-    let source = report ? 'weekly injury report + durability prior' : 'durability prior only';
-
-    const measured = fitted
-      ? fitted.lookup(report?.team, status, practice)
-      : null;
+  if (roleCell) {
+    // Fitted on 2021-2024, selected on 2024, scored ONCE on 2025 against the
+    // path below under the gate in scripts/fit-availability.mjs (8,657 in-scope
+    // player-weeks): log loss 0.551 -> 0.396 (player-clustered bootstrap 90% CI
+    // of the change [-0.170, -0.141]), calibration error 0.074 -> 0.017, listed
+    // Q/D/Out rows 0.289 -> 0.257. Healthy starters (no report, starter tier,
+    // played last game) actually played 94.5%; the old path said 0.708, this 0.952.
+    // Known weak spot: week 1, where the role comes from last season (2025 wk 1
+    // log loss 0.554 -> 0.721) — see docs/tdd/play-chance.tdd.md.
+    // Same team ratio as the league path, for a listed player only.
+    let p = roleCell.p;
+    let basis = roleCell.basis;
+    const tr = report ? fitted.teamRatio(report.team, status) : null;
+    if (tr) { p *= tr.ratio; basis += ` x ${tr.team}`; }
+    active = p;
+    source = `fitted availability by role (${basis}, n=${roleCell.n})`;
+    // Only if the fit's own selection (on 2024, never 2025) chose it.
+    if (!report && fitted.roleConfig?.durabilityCap) active = Math.min(active, prior);
+  } else {
+    const measured = fitted ? fitted.lookup(report?.team, status, practice) : null;
     if (measured) {
       // Measured rates, fitted on 2021-2024 and validated out-of-sample on 2025
       // (16.5% better log loss than the constants below). Two of those constants
@@ -214,13 +445,105 @@ export function weeklyAvailability(season, week, { through = season - 1 } = {}) 
         else if (/full/.test(practice) && !/doubtful/.test(status)) active = Math.max(active, 0.96);
       }
     }
-
     // The durability prior still matters for a player with no report at all:
     // someone who has missed half of every season is not an 0.83 just because
     // nobody listed him this week.
     if (!report) active = Math.min(active, prior);
+  }
 
-    active = Math.max(0.001, Math.min(0.995, active));
+  return { active: Math.max(0.001, Math.min(0.995, active)), source };
+}
+
+/* ------------------------------------------------------------- scoring */
+
+/** Per-row log loss, p clipped to [0.001, 0.999]. */
+export function rowLogLoss(p, y) {
+  const q = Math.max(0.001, Math.min(0.999, p));
+  return y ? -Math.log(q) : -Math.log(1 - q);
+}
+
+/**
+ * Log loss, Brier, expected calibration error and the calibration table
+ * (predicted vs actual play rate by equal-width bin of predicted p).
+ */
+export function availabilityScores(pairs, { bins = 10 } = {}) {
+  const table = Array.from({ length: bins }, (_, i) => ({ lo: i / bins, hi: (i + 1) / bins, n: 0, sum: 0, hits: 0 }));
+  let ll = 0, brier = 0;
+  for (const { p, y } of pairs) {
+    ll += rowLogLoss(p, y);
+    brier += (p - (y ? 1 : 0)) ** 2;
+    const b = table[Math.min(bins - 1, Math.max(0, Math.floor(p * bins)))];
+    b.n++; b.sum += p; b.hits += y ? 1 : 0;
+  }
+  const n = pairs.length;
+  const filled = table.filter(b => b.n).map(b => ({ lo: b.lo, hi: b.hi, n: b.n, mean_p: b.sum / b.n, rate: b.hits / b.n }));
+  return {
+    n,
+    log_loss: n ? ll / n : null,
+    brier: n ? brier / n : null,
+    ece: n ? filled.reduce((s, b) => s + (b.n / n) * Math.abs(b.mean_p - b.rate), 0) : null,
+    table: filled
+  };
+}
+
+/**
+ * The pre-registered ship rule for the role layer (written 2026-09-18 before
+ * any 2025 number for it was computed; never moved after):
+ *   1. log loss improves AND the player-clustered paired bootstrap of per-row
+ *      log loss (b - a, candidate minus current) has its 90% interval below 0;
+ *   2. expected calibration error (10 equal-width bins) improves;
+ *   3. guard: on rows listed Questionable/Doubtful/Out, candidate log loss is
+ *      no more than 0.01 worse than current.
+ * All three or nothing ships.
+ */
+export const ROLE_GATE = Object.freeze({
+  seed: 20260918, iterations: 2000, bins: 10, guardSlack: 0.01,
+  guardStatuses: Object.freeze(['questionable', 'doubtful', 'out'])
+});
+
+/** @param gateRows [{ player_id, y, p_current, p_candidate, rs }] */
+export function roleGateDecision(gateRows, gate = ROLE_GATE) {
+  const current = availabilityScores(gateRows.map(r => ({ p: r.p_current, y: r.y })), { bins: gate.bins });
+  const candidate = availabilityScores(gateRows.map(r => ({ p: r.p_candidate, y: r.y })), { bins: gate.bins });
+  const bootstrap = pairedBootstrapDiff(
+    gateRows.map(r => rowLogLoss(r.p_current, r.y)),
+    gateRows.map(r => rowLogLoss(r.p_candidate, r.y)),
+    { iterations: gate.iterations, seed: gate.seed, groups: gateRows.map(r => r.player_id) });
+  const listed = gateRows.filter(r => gate.guardStatuses.includes(r.rs));
+  const meanLL = key => listed.length ? listed.reduce((s, r) => s + rowLogLoss(r[key], r.y), 0) / listed.length : null;
+  const guardCurrent = meanLL('p_current'), guardCandidate = meanLL('p_candidate');
+  const checks = {
+    log_loss: {
+      current: current.log_loss, candidate: candidate.log_loss, bootstrap,
+      pass: candidate.log_loss < current.log_loss && !bootstrap.error && bootstrap.ci90[1] < 0
+    },
+    calibration: { current: current.ece, candidate: candidate.ece, pass: candidate.ece < current.ece },
+    guard: {
+      n: listed.length, current: guardCurrent, candidate: guardCandidate, slack: gate.guardSlack,
+      pass: listed.length === 0 || guardCandidate <= guardCurrent + gate.guardSlack
+    }
+  };
+  return { pass: checks.log_loss.pass && checks.calibration.pass && checks.guard.pass, checks, current, candidate };
+}
+
+export function weeklyAvailability(season, week, { through = season - 1, useRole = true } = {}) {
+  const base = availability({ through });
+  const players = rows(`SELECT id, name, position, gsis_id FROM players
+                        WHERE position IN ('QB','RB','WR','TE')`);
+  const reports = new Map(rows(`SELECT * FROM nfl_injuries WHERE season=? AND week=?`, season, week)
+    .map(r => [String(r.gsis_id), r]));
+  const out = new Map();
+
+  const fitted = fittedAvailability();
+  // Role states are only read when fitted role rates exist; without them this
+  // function is byte-for-byte the pre-role path.
+  const roles = useRole && fitted?.hasRole ? roleStates(season, week) : null;
+
+  for (const p of players) {
+    const prior = base.get(p.id)?.available ?? 0.92;
+    const report = p.gsis_id ? reports.get(String(p.gsis_id)) : null;
+    const role = roles?.get(p.id) ?? null;
+    const { active, source } = playerActiveProbability({ fitted, report, prior, role, useRole });
     out.set(p.id, {
       player_id: p.id, name: p.name, position: p.position,
       active_probability: +active.toFixed(3),
@@ -228,6 +551,10 @@ export function weeklyAvailability(season, week, { through = season - 1 } = {}) 
       report_status: report?.report_status ?? null,
       practice_status: report?.practice_status ?? null,
       injury: report?.injury ?? null,
+      role: role ? {
+        tier: role.tier, share: role.share == null ? null : +role.share.toFixed(3),
+        gap: role.gap, in_scope: role.gap_bucket != null
+      } : null,
       source
     });
   }

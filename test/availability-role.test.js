@@ -150,6 +150,25 @@ test('role lookup falls back to the deepest fitted ancestor when a cell was neve
     'no fitted report group -> no role cell, caller keeps today\'s path');
 });
 
+test('by-position fits (the config the 2024 selection chose) look up by position and fall back within it', () => {
+  const obs = [];
+  const push = (n, hits, cell) => { for (let i = 0; i < n; i++) obs.push({ ...cell, active: i < hits ? 1 : 0 }); };
+  push(20, 19, { rs: 'noreport', ps: 'none', position: 'RB', tier: 'starter', gap: 'g0' });
+  push(20, 12, { rs: 'noreport', ps: 'none', position: 'QB', tier: 'starter', gap: 'g0' });
+  push(20, 4, { rs: 'noreport', ps: 'none', position: 'QB', tier: 'depth', gap: 'g0' });
+  const config = JSON.stringify({ k: 5, byPosition: true, durabilityCap: false });
+  const roleRates = C.fitRoleRates(obs, { k: 5, byPosition: true }).map(r => ({ ...r, config }));
+  const lk = C.buildAvailabilityLookup({ roleRates });
+  const rb = lk.roleLookup({ status: 'noreport', practice: 'none', position: 'RB', tier: 'starter', gap: 'g0' });
+  const qb = lk.roleLookup({ status: 'noreport', practice: 'none', position: 'QB', tier: 'starter', gap: 'g0' });
+  assert.ok(rb.p > qb.p, 'RB starters play more often than QB starters in this fixture, and the lookup must keep them apart');
+  assert.equal(rb.basis, 'noreport/none/RB/starter/g0');
+  const qbUnseenGap = lk.roleLookup({ status: 'noreport', practice: 'none', position: 'QB', tier: 'starter', gap: 'g1' });
+  assert.equal(qbUnseenGap.basis, 'noreport/none/QB/starter', 'falls back to the same position and tier, not the pooled rate');
+  const teUnseen = lk.roleLookup({ status: 'noreport', practice: 'none', position: 'TE', tier: 'starter', gap: 'g0' });
+  assert.equal(teUnseen.basis, 'noreport/none', 'an unseen position falls back to the pooled status/practice cell');
+});
+
 /* ------------------------------------------------------ weeklyAvailability */
 
 // Team AAA, 2024-2025. Healthy starter S (thin 2024 history -> low durability
@@ -263,7 +282,7 @@ test('the module exports the DDL the fit script uses, with the columns this fixt
   const cols = ddl => {
     const scratch = new (db.constructor)(':memory:');
     scratch.exec(ddl);
-    const names = scratch.prepare(`SELECT name FROM pragma_table_info(${JSON.stringify(ddl.match(/EXISTS (\w+)/)[1])})`).all().map(r => r.name);
+    const names = scratch.prepare('SELECT name FROM pragma_table_info(?)').all(ddl.match(/EXISTS (\w+)/)[1]).map(r => r.name);
     scratch.close();
     return names.sort();
   };

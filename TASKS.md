@@ -43,6 +43,17 @@ Last updated: 2026-09-18, cloud session on `cursor/betting-model-audit-fixes-1c8
   spawns a process that reads a private message store and the tunnel makes this
   app internet-reachable. 8 tests in `test/league-chat-sync.test.js`.
 
+- **Suite state in this cloud box, measured 2026-09-18.** `2,613 pass / 3 fail /
+  41 skipped of 2,660`. The 3 failures are the known pre-existing prop-CLV ones
+  already in Q4 — unchanged by anything here. Three more things do not run in
+  this box and are excluded from that count, none of them code faults:
+  `nfl-news-events` (7) and `page-explain` (4) need `ANTHROPIC_API_KEY` and fail
+  `Connection error.`; `report-cache` (3) aborts on worker-thread spawn
+  (`Promise resolution is still pending but the event loop has already
+  resolved`) and node's own summary scores it `fail 0`, since it is a runner
+  abort rather than an assertion. Re-check all three on the Mac, where the key
+  and the worker threads are both available.
+
 ## Waiting On
 
 - **Nick — the live five-league check.** The cloud box has the code and now the

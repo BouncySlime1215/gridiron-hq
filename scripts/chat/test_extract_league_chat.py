@@ -8,7 +8,7 @@ the python3 the loop spawns).
 
 Run from the repo root:  python3 -m unittest discover -s scripts/chat -p 'test_*.py'
 """
-import os, sqlite3, subprocess, sys, tempfile, unittest
+import json, os, sqlite3, subprocess, sys, tempfile, unittest
 from unittest import mock
 
 sys.dont_write_bytecode = True
@@ -141,6 +141,86 @@ class TestClassify(Base):
              mock.patch.object(sys, 'argv', ['extract_league_chat.py', '--classify']):
             elc.main()
         classify.assert_not_called()
+
+
+DONE_DDL = """CREATE TABLE IF NOT EXISTS jev_chat_done (msg_id INTEGER PRIMARY KEY, evaluated_at TEXT,
+  input_tokens INTEGER, ok INTEGER, error TEXT)"""
+TONE_ERROR = 'Question "tone" did not select a highest-probability option.'
+
+
+class TestClassifierFailures(Base):
+    """
+    The classifier marks a message it could not label with jev_chat_done.ok = 0 and
+    still exits 0, so the loop logged the run as ok and the rows were never seen
+    again (18 such rows on 2026-09-17, all the same deterministic schema error).
+    They are not re-sent automatically — a retry of a deterministic failure only
+    spends money — but every run now says how many there are, loudly, and ends
+    with one machine-readable status line the refresh loop turns into sync_log.
+    """
+
+    def status(self):
+        lines = [c.args[0] for c in self.printed.call_args_list
+                 if c.args and str(c.args[0]).startswith('league_chat_status ')]
+        self.assertEqual(len(lines), 1, 'exactly one status line per run')
+        return json.loads(lines[0][len('league_chat_status '):])
+
+    def run_main(self, *flags):
+        with mock.patch.object(sys, 'argv', ['extract_league_chat.py', *flags]):
+            elc.main()
+
+    def test_failures_in_this_run_are_reported_loudly(self):
+        add_msg(self.src, 10, 1, 1, 'trade?')
+        add_msg(self.src, 11, 1, 1, 'lol')
+
+        def classifier_that_fails_two():
+            with sqlite3.connect(self.out_path) as out:
+                out.execute(DONE_DDL)
+                out.execute("INSERT INTO jev_chat_done VALUES (10, 't', 0, 0, ?)", (TONE_ERROR,))
+                out.execute("INSERT INTO jev_chat_done VALUES (11, 't', 0, 0, ?)", (TONE_ERROR,))
+            return 0  # the real classifier exits 0 after failing rows
+
+        with mock.patch.object(elc, 'classify', side_effect=classifier_that_fails_two):
+            self.run_main('--classify')
+        text = self.printed_text()
+        self.assertIn('WARNING 2 message(s) failed classification this run', text)
+        self.assertIn('not retried automatically', text)
+        self.assertIn(TONE_ERROR, text)
+        s = self.status()
+        self.assertEqual(s['failed_this_run'], 2)
+        self.assertEqual(s['failed_outstanding'], 2)
+        self.assertEqual(s['failed_errors'], {TONE_ERROR: 2})
+        self.assertEqual(s['extract_new'], 2)
+        self.assertEqual(s['classify'], {'ran': True, 'exit': 0})
+
+    def test_outstanding_failures_are_reported_every_run_and_never_resent(self):
+        add_msg(self.src, 10, 1, 1, 'trade?')
+        elc.extract()
+        with sqlite3.connect(self.out_path) as out:
+            out.execute(DONE_DDL)
+            out.execute("INSERT INTO jev_chat_done VALUES (10, 't', 0, 0, ?)", (TONE_ERROR,))
+        with mock.patch.object(elc, 'classify', return_value=0) as classify:
+            self.run_main('--classify')
+        classify.assert_not_called()  # an ok=0 row is not backlog: no paid retry
+        s = self.status()
+        self.assertEqual(s['failed_this_run'], 0)
+        self.assertEqual(s['failed_outstanding'], 1)
+        self.assertEqual(s['classify'], {'ran': False, 'exit': None})
+        self.assertIn('1 message(s) failed classification earlier', self.printed_text())
+
+    def test_a_clean_run_still_prints_the_status_line(self):
+        add_msg(self.src, 10, 1, 1, 'trade?')
+        self.run_main()
+        s = self.status()
+        self.assertEqual((s['extract_new'], s['failed_this_run'], s['failed_outstanding']), (1, 0, 0))
+        self.assertNotIn('WARNING', self.printed_text())
+
+    def test_the_status_line_is_printed_before_a_failing_exit(self):
+        add_msg(self.src, 10, 1, 1, 'trade?')
+        with mock.patch.object(elc, 'classify', return_value=1), \
+             mock.patch.object(sys, 'argv', ['extract_league_chat.py', '--classify']):
+            with self.assertRaises(SystemExit):
+                elc.main()
+        self.assertEqual(self.status()['classify'], {'ran': True, 'exit': 1})
 
 
 class TestRollup(Base):

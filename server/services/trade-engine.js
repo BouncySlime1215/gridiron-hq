@@ -89,6 +89,18 @@ import { counterpartyLayer, readDeal, counterpartyDataKey } from './counterparty
 // Neither touches the other's bindings while its module body evaluates (both uses
 // are inside functions), and test/trade-engine-correctness.test.js loads them in
 // both orders to keep it that way.
+//
+// TESTS: importing this file now also loads season-sim, so a later
+// mock.module('trade-engine.js') does NOT reach season-sim — it already holds the
+// real bindings. A test that mocks this module for season-sim's benefit must
+// import season-sim under an unused URL afterwards; see the comment in
+// test/decision-leftovers-home-away.test.js.
+//
+// This inverts the layering on purpose and temporarily: the odds belong to the
+// Team Outlook service (master plan 00, D3 — "the trade horizon reads its real
+// playoff odds"), which does not exist yet. When it ships, myPlayoffOdds() should
+// read it and this import goes away. Until then the alternative was leaving the
+// live /find route on the 0.5 prior, which is the bug this item exists to fix.
 import { simulateSeason } from './season-sim.js';
 import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This

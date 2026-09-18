@@ -83,7 +83,15 @@ mock.module('../server/services/matchups.js', {
 });
 
 const { ceilingLineup } = await import('../server/services/ceiling-lineup.js');
-const { simulateSeason } = await import('../server/services/season-sim.js');
+// `?after-mocks` is load order, not decoration. Since 2026-09-18 trade-engine.js
+// imports season-sim.js (tradeIdeas reads this roster's real playoff odds), so
+// importing trade-engine above ALSO loaded season-sim — holding a live binding to
+// the real assetUniverse, before mock.module() above could replace it. ES module
+// mocks only reach modules imported after them, so the copy this test drives has
+// to be requested under a URL that has not been loaded yet; its own
+// `./trade-engine.js` then resolves to the mock. Without this the spy records
+// nothing and both J4 season-sim tests fail on an empty universe.
+const { simulateSeason } = await import('../server/services/season-sim.js?after-mocks');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 

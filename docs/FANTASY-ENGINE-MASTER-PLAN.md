@@ -20,6 +20,34 @@ Nick, 03:50: *"Trades are designed by the people they are being sent to while fi
 
 ---
 
+### Operating protocol — every checkpoint, every launch, every wait (Nick, 04:30)
+
+**When a result lands (workflow, agent, or script):**
+1. Re-read the north star.
+2. Read the whole result — status, gate, verifier verdict, every unfixed problem — not the summary line.
+3. Check the key claims myself: re-run one number, one live call, one test. Summaries are not evidence.
+4. Sort every problem: *fixed* / *fix now at the root* / *deferred with evidence → tagged into Q*. Nothing is left broken and unlisted.
+5. Update this section's status and commit.
+6. Restart or push only after an integration pass says so; always `SCHEDULER_DISABLED=1`.
+7. Tell Nick in a few lines: what landed, what he will see, what is next.
+
+**When sending agents:**
+1. The north star and the never-leave-broken rule at the top of the shared context.
+2. Discover → audit → decide before any new code.
+3. One owner per file; pre-registered gates; tests first; commits of own files only.
+4. Acceptance criteria that tie back to the north star, and a verifier who tries to break the result.
+5. The drift check written into the brief: *does this make Nick win, and is it in section 00? If new work surfaces, which step does it belong to?*
+
+**While waiting:**
+1. Prep the next launch: its agents, their files, their gates, and what the current result must hand them.
+2. Read the running workflow's commits as they land, for anything obviously wrong.
+3. No second workflow; light read-only work only.
+4. Ask the drift question of myself: am I on the sequence, or chasing something new? New work gets a tag in Q, not an unplanned detour.
+
+**Which result lands first, and what happens next:**
+- *Inventory first* → attach it to "Existing systems first", turn each capability into a WA phase-1 audit assignment (named files, named routes), commit.
+- *W0 first* → run steps 1-7 above; restart; check live that Coker's and Waddle's rest-of-season numbers are sane, that Mahomes is not a drop, and that the lineup card still agrees with Start/Sit; push; launch WA. If the inventory is still running, WA's audit agents do their own discovery from the known-overlaps list, and the inventory is merged into their briefs as a cross-check when it lands.
+
 ### Sequence — optimal order (re-checked 2026-09-18, 04:20)
 
 | # | Workflow | What it delivers | Est. |

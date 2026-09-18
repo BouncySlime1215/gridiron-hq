@@ -58,13 +58,45 @@ Nick, 03:50: *"Trades are designed by the people they are being sent to while fi
 |---|---|---|---|
 | W0 | early-season + skills review — **DONE 05:58, restarted** | Week 2-4 projections use the structural head; rest-of-season value from preseason + in-season evidence; play-chance by role; waiver drops never cut a higher-ROS player; IR-slot starts; 10-lens skills review + fixes. **Then restart** so the weekend's decisions run on it. | ~1 h |
 | WA | **Essentials + every audit + Trade Brain** | Phase 1, in parallel: (a) *essentials that feed every number the trades and plan use or that lose data if late* — play-chance activation respecting ESPN Questionable/Doubtful, then the fake-floor fix; `weekly-learning` keeps the early-week key; **weekly roster snapshots start on the refresh loop** (bench points need history; every uncaptured week is lost); launcher `spawn node ENOENT` so the phone Start works; (b) *Discover → Audit → Decide* on every existing system the Trade Brain, Coach, plan and dashboard overlap. Phase 2: the Trade Brain, including the trade objective's unfitted constants, multi-week horizon, bye weeks and the trade deadline inside trade value, the P(accept) band and the AI proposal pass. | 3-3.5 h |
-| WO | **Opportunity model — locked in (Nick, 10:55)** | Predict each player's *opportunity* (targets, carries, routes, red-zone looks) from every advanced signal we hold — game script (spread/total, pace, pass rate over expected), O-line (pass-block/run-block, pressure allowed), opposing defensive scheme (man/zone, coverage shell, blitz, run-defense front), routes (routes run, TPRR, route share, alignment), snaps, air yards, NGS, xFP — and test it historically the right way: walk-forward 2021→2025, validate 2024 and 2025 once, player-clustered bootstrap, graded on **opportunity itself** and then on **start/sit accuracy**, not just points MAE. Every signal must also exist live in 2026 (man/zone participation data ends in 2025 — find a live substitute or drop it, and say so). Ships only if it beats the current share × team-volume head. | 3-4 h |
+| WO | **Opportunity model + the historical-test gaps (trade value, season-sim odds) — locked in (Nick, 10:55 / 11:05)** | Predict each player's *opportunity* (targets, carries, routes, red-zone looks) from every advanced signal we hold — game script (spread/total, pace, pass rate over expected), O-line (pass-block/run-block, pressure allowed), opposing defensive scheme (man/zone, coverage shell, blitz, run-defense front), routes (routes run, TPRR, route share, alignment), snaps, air yards, NGS, xFP — and test it historically the right way: walk-forward 2021→2025, validate 2024 and 2025 once, player-clustered bootstrap, graded on **opportunity itself** and then on **start/sit accuracy**, not just points MAE. Every signal must also exist live in 2026 (man/zone participation data ends in 2025 — find a live substitute or drop it, and say so). Ships only if it beats the current share × team-volume head. | 3-4 h |
 | WB | **Coach + action plan + dashboard home** | API contracts first, then in parallel: the computed weekly action plan, the grounded Coach chat (plan and trades as its tools, evidence-block explanations = Phase 7), and the dashboard home built against the same contracts. | 3 h |
 | WC | **UI audit + cleanup** | Every page in the browser at phone and desktop width, including the new home; dead/betting remnants removed; numbers agree across pages. | 2 h |
 | WD | **Model refinements** (Q1 remainder, Q3) | `targetSharePrior`, QBR, NB dispersion, ensemble form, copula/spread rule, postmortem cutoff, posture bootstrap, volume-prediction grading, ROS beyond week 10 (**deadline: before week 11**), stacking as a playoff tool, early-QB → draft tool with a VBD baseline, Phase 9 backtest, roster-risk per league, field rename, prop-CLV tests, the three unused files. Each gated. | 4 h |
 | WE | **Final integration + morning report** | Full suite, build, harness, live smoke on all 5 leagues, restart, push, report. (Every workflow above also ends with its own integration pass.) | 45 min |
 
 **Why this order.** (1) Time-sensitive first: week-2 decisions and data that is lost if not captured now (roster snapshots). (2) Dependencies before consumers: numbers → trades → plan → Coach → dashboard; the audits only read code, so they run in parallel with the essentials instead of waiting. (3) Contracts first lets the Coach, plan and home page be built side by side in one workflow. (4) Refinements last: their measured gains are small and nothing downstream depends on them; the one with a deadline (ROS beyond week 10) has weeks of slack. (5) One workflow at a time on this machine, but many agents inside each.
+
+### Every model is tested on past seasons (Nick, 11:05) — status
+
+Rule: no model ships on "it should be smarter". Each is fit on earlier seasons and tested once on later ones (2024/2025), with a player-clustered bootstrap and an independent verifier. The Coach is the one exception — it is not a forecasting model — and is built from a curated knowledge pack instead (below).
+
+| Model | Historical test | Status |
+|---|---|---|
+| Weekly projection (structural + blend) | walk-forward 2021-2025 | tested |
+| Early weeks 2-4 | 2024 + 2025 walk-forward | tested (4.71 → 4.32) |
+| Volume shrinkage constants | 2023, 2024, 2025 | tested (4.75 → 4.36) |
+| Rest-of-season value | weeks 1-10, 2024 + 2025 | tested to week 10; **beyond week 10 → WD** (before week 11) |
+| Chance to play | 2025 holdout, by designation × role | tested |
+| Boom/bust ranges | 2025 coverage / CRPS | tested |
+| Matchup win odds (posture) | walk-forward synthetic matchups 2023-25 | tested |
+| Lineup-card swap odds | fit 2023-24, check 2025 | tested |
+| Waiver policy | replay 2021-2025, within-league contrast | tested (+3.45pp all-play) |
+| Opportunity (targets, carries, attempts) | current head only 1.5-5.7% better than a season average | **WO** — every advanced signal, tested on opportunity and start/sit |
+| **Trade value (the edge test)** | none yet | **WO** — at week w of 2021-2025, does our ROS delta for a swap predict the realized ROS delta (sign accuracy, rank)? |
+| **Season sim: playoff and title odds** | none yet | **WO** — calibration of week-w odds against real finishes (Nick's 12 league-seasons + replay leagues) |
+| Season-ending news flag | unit tests + hand audit of the live feed | **WD** — backtest on 2025 news against real IR/release transactions |
+| P(accept) and the valuation map | ~30 decided 2026 proposals (ESPN keeps no prior seasons) | tested on what exists, shown as a band; re-tested as proposals accrue |
+| Weekly action plan | built only from tested parts | **WD** — a "follow the plan" arm in the replay vs the attainable-arm manager |
+
+### Coach knowledge pack (WB) — negotiation, theory, psychology
+
+The Coach cannot be back-tested like a forecast, so it is grounded in a curated, cited knowledge pack loaded as its cached prefix:
+1. **Negotiation** — extend `docs/COACH-PLAYBOOK.md` (27 tactics, 6 schools — Voss, Fisher & Ury / PON, Malhotra & Bazerman, Cialdini, behavioural economics — each with an evidence grade and six resolved conflicts).
+2. **Psychology of fantasy managers** — endowment effect, loss aversion, recency and availability bias, sunk cost, overconfidence, status quo bias, reactance; how each shows up in trade talk and how to work with it, graded the same way.
+3. **Fantasy trade theory** — value over replacement, positional scarcity, buy-low / sell-high and regression to the mean, bye and playoff-schedule timing, consolidation vs depth.
+4. **Real examples from Nick's league** — anonymised snippets of how each person actually negotiated and what worked, from the chat and the transaction outcomes.
+
+Evaluation: scripted scenarios (every number traced to a tool result), plus a partial historical check — replay past Transfer-portal negotiations from the chat and ask whether the Coach's recommended approach matches what actually worked. Labelled partial.
 
 ### Existing systems first — discover, audit, decide, then build
 

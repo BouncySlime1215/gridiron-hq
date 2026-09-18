@@ -55,23 +55,55 @@ const FLEX_OK = new Set(['RB', 'WR', 'TE']);
 /* --------------------------------------------------------------- archetypes */
 
 /**
- * How each agent deviates from consensus. `posBias` multiplies a player's
- * effective rank (below 1 = reach earlier). `earlyRounds` is where the bias
- * applies; past that everyone drifts back toward best-available, which is what
- * real drafters do once their structure is set.
+ * Archetypes as POSITIONAL RULES, not value penalties.
  *
- * These are deliberately coarse. The point is to create real, labelled
- * variation in roster shape — not to model any individual's draft board.
+ * The first implementation multiplied a player's consensus rank by a positional
+ * bias. That does not model a strategy — it models drafting worse players. An
+ * agent biased against RB takes a WR ranked 40 over an RB ranked 20, then keeps
+ * doing it, and ends the draft with systematically less talent. Every archetype
+ * duly "lost" by 5-15 percentage points of all-play, which is not a finding
+ * about football; it is the tautology that deviating from an efficient ranking
+ * costs value, and ADP is efficient here (Spearman 0.48 against realised
+ * points).
+ *
+ * What a real structural strategy does is constrain WHICH POSITIONS are live in
+ * which rounds, and then take the best available player among them. Zero RB is
+ * not "avoid running backs"; it is "take the best receiver or tight end early,
+ * then take running back VALUE once it falls". Modelled that way the agent
+ * still drafts the best player it can, so the contrast measures allocation
+ * rather than competence.
+ *
+ * `avoid` lists positions that are off the board in those rounds; `require`
+ * forces a position by the end of a round. Everything else is best available.
  */
 export const ARCHETYPES = {
-  balanced: { label: 'best available by consensus', posBias: {}, earlyRounds: 0 },
-  zero_rb: { label: 'Zero RB', posBias: { RB: 1.9, WR: 0.72, TE: 0.9 }, earlyRounds: 6 },
-  hero_rb: { label: 'Hero RB', posBias: { RB: 1.0, WR: 0.85 }, earlyRounds: 6, heroRb: true },
-  robust_rb: { label: 'Robust RB', posBias: { RB: 0.65, WR: 1.25 }, earlyRounds: 5 },
-  early_qb: { label: 'early QB', posBias: { QB: 0.45 }, earlyRounds: 5 },
-  late_qb: { label: 'late QB', posBias: { QB: 2.2 }, earlyRounds: 10 },
-  early_te: { label: 'early TE', posBias: { TE: 0.5 }, earlyRounds: 5 },
+  balanced: { label: 'best available by consensus', rules: [] },
+  zero_rb: { label: 'Zero RB — no RB before round 6', rules: [{ rounds: [1, 5], avoid: ['RB'] }] },
+  hero_rb: { label: 'Hero RB — one early RB, then none until round 7', rules: [{ rounds: [2, 6], avoid: ['RB'], unless: { pos: 'RB', maxCount: 0 } }] },
+  robust_rb: { label: 'Robust RB — RB with the first two picks', rules: [{ rounds: [1, 2], only: ['RB'] }] },
+  early_qb: { label: 'early QB — a QB by round 4', rules: [{ rounds: [1, 4], require: 'QB' }] },
+  late_qb: { label: 'late QB — no QB before round 9', rules: [{ rounds: [1, 8], avoid: ['QB'] }] },
+  early_te: { label: 'early TE — a TE by round 4', rules: [{ rounds: [1, 4], require: 'TE' }] },
 };
+
+/** Which positions this archetype will consider in this round. */
+function allowedPositions(arch, round, counts, roundsLeft) {
+  let allowed = new Set(['QB', 'RB', 'WR', 'TE']);
+  for (const r of arch.rules ?? []) {
+    const [lo, hi] = r.rounds;
+    if (round < lo || round > hi) continue;
+    if (r.only) allowed = new Set(r.only.filter(p => allowed.has(p)));
+    if (r.avoid) {
+      // "unless" lets Hero RB take exactly one back before the avoid window.
+      const exempt = r.unless && counts[r.unless.pos] <= r.unless.maxCount;
+      if (!exempt) for (const p of r.avoid) allowed.delete(p);
+    }
+    // A "require" becomes binding only as its window closes, so the agent still
+    // takes value first and satisfies the constraint at the last opportunity.
+    if (r.require && counts[r.require] === 0 && round === hi) allowed = new Set([r.require]);
+  }
+  return allowed.size ? allowed : new Set(['QB', 'RB', 'WR', 'TE']);
+}
 
 /* -------------------------------------------------------------------- draft */
 
@@ -105,23 +137,21 @@ export function draft(season, format, agents, rand) {
     const order = round % 2 ? teams : teams.slice().reverse();
     for (const team of order) {
       const arch = ARCHETYPES[team.archetype] ?? ARCHETYPES.balanced;
-      const applyBias = round <= arch.earlyRounds;
-      let best = null, bestScore = Infinity;
+      const allowed = allowedPositions(arch, round, team.counts, format.rounds - round);
+      // Every agent takes the BEST AVAILABLE player, and the archetype only
+      // decides which positions are on its board this round. Same board, same
+      // noise, different allocation.
+      let best = null, bestScore = Infinity, fallback = null, fallbackScore = Infinity;
       for (const p of board) {
         if (taken.has(p.key)) continue;
         if (team.counts[p.pos] >= (maxAtPos[p.pos] ?? 6)) continue;
-        let score = p.adp;
-        if (applyBias) {
-          let bias = arch.posBias[p.pos] ?? 1;
-          // Hero RB: one early back, then treat RB like Zero RB does.
-          if (arch.heroRb && p.pos === 'RB') bias = team.counts.RB === 0 ? 0.8 : 2.0;
-          score *= bias;
-        }
-        // Noise proportional to consensus disagreement and to depth of board.
         const sd = Math.max(1.5, (p.adp_sd ?? 3) * (1 + round / 8));
-        score += randn(rand) * sd;
+        const score = p.adp + randn(rand) * sd;
+        if (score < fallbackScore) { fallbackScore = score; fallback = p; }
+        if (!allowed.has(p.pos)) continue;
         if (score < bestScore) { bestScore = score; best = p; }
       }
+      best = best ?? fallback;
       if (!best) continue;
       taken.add(best.key);
       team.players.push(best);

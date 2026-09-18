@@ -193,10 +193,12 @@ mean splitting "is this configured" from "here is the secret" — a real change
 worth making if these ever run somewhere less private, and not worth doing now.
 Noted in `TASKS.md` under **[WD]** rather than done here.
 
-**Measured, not assumed:** with no `ANTHROPIC_API_KEY` in this cloud box, the
-test suite fails in exactly two files — `nfl-news-events.test.js` (7) and
-`page-explain.test.js` (4) — every one of them `Connection error.` from the
-Anthropic SDK. Nothing else in the suite needs a key or a network.
+**Measured, not assumed:** a full `npm test` in this cloud box gives
+2,609 pass / 14 fail / 41 skipped of 2,667. Eleven of those 14 are this key:
+`nfl-news-events.test.js` (7) and `page-explain.test.js` (4), every one of them
+`Connection error.` from the Anthropic SDK. The other 3 are the known
+pre-existing prop-CLV failures. Nothing else in the suite needs a key or a
+network.
 
 ---
 

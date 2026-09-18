@@ -43,16 +43,21 @@ Last updated: 2026-09-18, cloud session on `cursor/betting-model-audit-fixes-1c8
   spawns a process that reads a private message store and the tunnel makes this
   app internet-reachable. 8 tests in `test/league-chat-sync.test.js`.
 
-- **Suite state in this cloud box, measured 2026-09-18.** `2,613 pass / 3 fail /
-  41 skipped of 2,660`. The 3 failures are the known pre-existing prop-CLV ones
-  already in Q4 — unchanged by anything here. Three more things do not run in
-  this box and are excluded from that count, none of them code faults:
-  `nfl-news-events` (7) and `page-explain` (4) need `ANTHROPIC_API_KEY` and fail
-  `Connection error.`; `report-cache` (3) aborts on worker-thread spawn
-  (`Promise resolution is still pending but the event loop has already
-  resolved`) and node's own summary scores it `fail 0`, since it is a runner
-  abort rather than an assertion. Re-check all three on the Mac, where the key
-  and the worker threads are both available.
+- **Suite state in this cloud box, measured 2026-09-18.** A full `npm test` runs
+  to completion here: **2,609 pass / 14 fail / 41 skipped of 2,667**. Every one
+  of the 14 is an environment gap, not a code fault:
+  - `nfl-news-events` (7) and `page-explain` (4) reach the Anthropic API and
+    fail `Connection error.` — no `ANTHROPIC_API_KEY` in this box.
+  - `prop-clv-free-capture` (3) are the known pre-existing prop-CLV failures
+    already filed in Q4. Unchanged by anything in this session.
+  - `report-cache` (3) aborts spawning a worker thread (`Promise resolution is
+    still pending but the event loop has already resolved`). Node's own summary
+    scores that file `fail 0`, which is why a raw `not ok` count reads 17
+    against a reported 14.
+
+  Excluding the two key-dependent files, the rest of the suite is
+  **2,613 pass / 3 fail / 41 skipped of 2,660** — the 3 being the prop-CLV ones.
+  Re-check the key-dependent and worker-thread groups on the Mac.
 
 ## Waiting On
 
@@ -82,8 +87,10 @@ Last updated: 2026-09-18, cloud session on `cursor/betting-model-audit-fixes-1c8
   `test/offline-guard.mjs` replaces `globalThis.fetch`, which the SDK does not
   go through, so `nfl-news-events.test.js` (7 tests) and `page-explain.test.js`
   (4) make real network calls and fail with `Connection error.` wherever there
-  is no key — and the test runner dies at that file rather than carrying on.
-  Deferred with evidence rather than fixed here: it is unrelated to either Trade
+  is no key. (Each call burns its SDK retry budget before giving up, so the
+  suite is slow through those files rather than stopped at them — an earlier
+  note here said the runner died at that point; it does not, a full run
+  completes.) Deferred with evidence rather than fixed here: it is unrelated to either Trade
   Brain bug and belongs with **[WD]** housekeeping, next to the 3 prop-CLV
   failures. Everything else in the suite passes offline.
 

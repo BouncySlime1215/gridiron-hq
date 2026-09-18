@@ -21,7 +21,7 @@ Requires Full Disk Access for the terminal/Claude (already granted). Output DB
 `data/derived/league_chat.sqlite` is gitignored and never leaves the machine
 except message text sent to Jev under standard retention (Nick's choice).
 """
-import argparse, os, sqlite3, subprocess, sys, time
+import argparse, json, os, sqlite3, subprocess, sys, time
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
@@ -178,6 +178,39 @@ def classify():
     return r.returncode
 
 
+def classifier_failures():
+    """
+    Messages the classifier gave up on: jev_chat_done rows with ok = 0, and their
+    errors grouped (at most 5, each cut to 120 characters). The classifier exits 0
+    after failing rows and marks them done, so without this they were invisible.
+    They are deliberately not re-sent: the failures seen so far are deterministic
+    (the same schema error every time), so an automatic retry only spends money.
+    """
+    out = sqlite3.connect(OUT)
+    try:
+        if not out.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jev_chat_done'").fetchone():
+            return 0, {}
+        n = out.execute("SELECT COUNT(*) FROM jev_chat_done WHERE ok = 0").fetchone()[0]
+        errors = dict(out.execute("""SELECT COALESCE(substr(error, 1, 120), '(no message)') AS e, COUNT(*)
+            FROM jev_chat_done WHERE ok = 0 GROUP BY e ORDER BY COUNT(*) DESC, e LIMIT 5""").fetchall())
+        return n, errors
+    finally:
+        out.close()
+
+
+def report_classifier_failures(before, after, errors):
+    """Say it loudly; returns how many failed in this run."""
+    this_run = max(0, after - before)
+    grouped = '; '.join(f'{n} x {e}' for e, n in errors.items())
+    if this_run:
+        print(f'classify: WARNING {this_run} message(s) failed classification this run and are '
+              f'not retried automatically ({after} unlabeled by failures in total): {grouped}')
+    elif after:
+        print(f'classify: WARNING {after} message(s) failed classification earlier and are '
+              f'not retried automatically: {grouped}')
+    return this_run
+
+
 def league_hour(ts_utc):
     """Hour on the league's clock for a stored UTC stamp ('T' or space separated), or None."""
     try:
@@ -254,11 +287,21 @@ def main():
     a = ap.parse_args()
     new = extract(full=a.full)
     failed = 0
+    ran = False
+    before, _ = classifier_failures()
     # Also when earlier rows are still unlabeled: classify used to run only on new rows,
     # so a run that failed left its rows unlabeled until someone happened to text.
     if a.classify and (new or a.full or unlabeled_backlog()):
+        ran = True
         failed = classify()
+    after, errors = classifier_failures()
+    this_run = report_classifier_failures(before, after, errors)
     if a.rollup: rollup()
+    # One machine-readable line, always last before any exit: the refresh loop turns it
+    # into the sync_log 'league_chat' row (partial while failures are outstanding).
+    print('league_chat_status ' + json.dumps({
+        'extract_new': new, 'classify': {'ran': ran, 'exit': failed if ran else None},
+        'failed_this_run': this_run, 'failed_outstanding': after, 'failed_errors': errors}))
     # The rollup still runs on what is labeled; the loop must still see the failure.
     if failed: sys.exit(f'classify failed (exit {failed})')
 

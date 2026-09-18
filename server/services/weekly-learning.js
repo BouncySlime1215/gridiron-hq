@@ -166,6 +166,57 @@ export function settleWeeklyPredictions() {
   return { pending: pending.length, settled };
 }
 
+/** The old absolute pass region for 80% coverage; still a safe harbour. */
+export const COVERAGE_BAND = Object.freeze([0.78, 0.82]);
+const NOMINAL_COVERAGE = 0.8;
+
+/**
+ * "Preserves interval coverage", decided the way the MAE check is: relative to the
+ * champion on the same rows, with a player-clustered paired bootstrap.
+ *
+ * The check used to be an absolute band, coverage in [0.78, 0.82]. The served model's
+ * own coverage sits on the band's lower edge (0.775-0.783 across seeds and draw counts
+ * with the model fixed; docs/evidence/baselines/2025-weekly-distribution-draws.json),
+ * and a candidate's interval is the champion's, moved onto its own prediction. So a
+ * candidate calibrated exactly like the champion failed about half the time on noise
+ * alone, however much better its point forecast (FANTASY-ENGINE-MASTER-PLAN.md Q1, "the
+ * 0.78 line").
+ *
+ * GATE G4 (pre-registered 2026-09-18 in scratchpad/wa/infra-essentials/GATE.md, before
+ * this code ran; nothing here is fitted):
+ *   ok when coverage is inside [0.78, 0.82] (the old pass region: this only relaxes);
+ *   otherwise it fails only when BOTH its coverage is further from 0.80 than the
+ *   champion's on the same rows AND the change is significant — the 90% interval of
+ *   (candidate - champion) coverage, player-clustered, seed 20260917, excludes 0.
+ *   G4b: a candidate at the champion's own 0.775 with MAE 0.00 vs 4.36 is promoted.
+ *   G4c: moving coverage significantly away from 0.80, below or above, still fails.
+ *   G4d: simulated at 0.778, 480 rows, 160 players, 200 seeds: the old band rejects a
+ *        null candidate >= 40% of the time, this rule <= 10%; a harmful one (0.778 ->
+ *        ~0.70) is caught >= 90%.
+ * No row with an interval means nothing to check against: that fails.
+ */
+export function coverageCheck({ championCovered, candidateCovered, groups, seed = 20260917 }) {
+  const n = candidateCovered.length;
+  if (!n || championCovered.length !== n) {
+    return { ok: false, coverage: null, champion_coverage: null, change_ci90: null,
+      reason: 'no validation row has an 80% interval' };
+  }
+  const mean = xs => xs.reduce((s, x) => s + x, 0) / xs.length;
+  const coverage = mean(candidateCovered), championCoverage = mean(championCovered);
+  const [low, high] = COVERAGE_BAND;
+  const inBand = coverage >= low && coverage <= high;
+  const further = Math.abs(coverage - NOMINAL_COVERAGE) > Math.abs(championCoverage - NOMINAL_COVERAGE) + 1e-12;
+  const change = pairedBootstrapDiff(championCovered, candidateCovered, { seed, groups });
+  const significant = !change.error && change.significant;
+  const ok = inBand || !(further && significant);
+  return {
+    ok, coverage, champion_coverage: championCoverage, change_ci90: change.ci90 ?? null,
+    reason: ok ? null
+      : `coverage ${coverage.toFixed(3)} is further from 0.80 than the champion's ${championCoverage.toFixed(3)} `
+        + `on the same rows, significantly (player-clustered ci90 of the change ${JSON.stringify(change.ci90)})`
+  };
+}
+
 export function retrainWeeklyWeights({ minSettled = 250, maxRows = 2400 } = {}) {
   /*
    * Only rows the per-position vector is actually served for. Inside the stored
@@ -224,13 +275,18 @@ export function retrainWeeklyWeights({ minSettled = 250, maxRows = 2400 } = {}) 
   const championFn = x => predict(champion.weights[x.position], x);
   const candidateMae = mae(validation, candidateFn), championMae = mae(validation, championFn);
   const candidateRank = rank(validation, candidateFn), championRank = rank(validation, championFn);
-  const covered = validation.filter(x => {
-    if (x.lower_80 == null || x.upper_80 == null) return false;
-    const shift = candidateFn(x) - x.prediction;
-    return x.actual >= x.lower_80 + shift && x.actual <= x.upper_80 + shift;
-  });
+  // Each model's 80% interval is the stored one moved onto that model's own prediction
+  // (the champion's shift is ~0 when it is the vector that was served).
   const withIntervals = validation.filter(x => x.lower_80 != null && x.upper_80 != null);
-  const coverage = withIntervals.length ? covered.length / withIntervals.length : null;
+  const coveredBy = fn => withIntervals.map(x => {
+    const shift = fn(x) - x.prediction;
+    return x.actual >= x.lower_80 + shift && x.actual <= x.upper_80 + shift ? 1 : 0;
+  });
+  const coverageGate = coverageCheck({
+    championCovered: coveredBy(championFn), candidateCovered: coveredBy(candidateFn),
+    groups: withIntervals.map(x => x.player_id)
+  });
+  const coverage = coverageGate.coverage;
   /*
    * Significance, not a fixed margin. The gate used to be `candidateMae <= championMae
    * - 0.005`: an unfitted threshold with no test at all, on the SAME table that
@@ -248,12 +304,14 @@ export function retrainWeeklyWeights({ minSettled = 250, maxRows = 2400 } = {}) 
   );
   const significantlyBetter = !significance.error && significance.significant && significance.mean_diff < 0;
   const promoted = validation.length >= 100 && significantlyBetter
-    && candidateRank >= championRank - 0.001 && coverage != null && coverage >= 0.78 && coverage <= 0.82;
+    && candidateRank >= championRank - 0.001 && coverageGate.ok;
   const last = all.at(-1);
   const rejection = promoted ? null
     : `gate failed: mae ${candidateMae.toFixed(4)} vs ${championMae.toFixed(4)} ` +
       `(player-clustered ci90 ${JSON.stringify(significance.ci90 ?? significance.error)}), ` +
-      `rank ${candidateRank} vs ${championRank}, coverage ${coverage?.toFixed(3) ?? 'n/a'}`;
+      `rank ${candidateRank} vs ${championRank}, coverage ${coverage?.toFixed(3) ?? 'n/a'} ` +
+      `vs champion ${coverageGate.champion_coverage?.toFixed(3) ?? 'n/a'}` +
+      (coverageGate.ok ? '' : ` (${coverageGate.reason})`);
   const saved = saveWeeklyFit({
     data_hash: hash, through_season: last.season, through_week: last.week,
     weights: candidate, sample_size: all.length, validation_size: validation.length,

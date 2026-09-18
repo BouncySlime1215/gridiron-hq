@@ -90,6 +90,31 @@ Replaces MAE as the gate for every projection change.
 
 Calibration so nobody expects the wrong thing: the literature puts **projections at +0.2 wins/season over real managers**, and managers already sit at ~79% lineup efficiency in our own replay. A projection change that moves attainable-arm all-play by even half a point is doing well. A null is not failure — it is the measured shape of the game.
 
+### 5a. The projection is at its player-level ceiling (measured 2026-09-17)
+
+On identical 2025 rows (n=4,311 player-weeks with at least four games):
+
+| | MAE |
+|---|---|
+| Production ensemble | **4.390** |
+| Oracle knowing each player's true season mean, **leave-one-out** | **4.411** |
+
+**The model already beats a season-mean oracle.** Whatever a constant-per-player estimate can deliver, the ensemble has it.
+
+*A correction worth recording:* an earlier measurement put the floor at 3.927 and claimed 0.40 points of headroom. It computed each player's mean **including the week being predicted**, so with ~14 games every week supplied a fourteenth of its own forecast. That leak moved the floor by 0.44 points and inverted the conclusion.
+
+Three candidate heads were then tested under the promoted architecture's own cutoff-safe procedure (fit 2021–23, select 2024, open 2025 once), on complete cases:
+
+| Candidate | Standalone MAE | Correlation with existing heads | Verdict |
+|---|---|---|---|
+| Expected fantasy points (xFP) | **4.821** — best single head, beats season-to-date's 4.854 | **0.95** with season_to_date | −0.17%, not significant |
+| Opponent adjustment | 4.902 | **0.97–0.99** with structural | −0.14%, significant but trivial |
+| 15-key feature ridge | 5.581 | 0.53 with structural — genuinely different | Zero weight in the fit |
+
+The pattern is consistent and it explains itself. xFP is the strongest single head we have and adds nothing, because it is 95% the same signal as a player's own scoring average arriving by another route. The feature blob is genuinely *different* information (correlation 0.53) but too weak to use. All three are player-level, and player level is saturated.
+
+**What this means for the plan:** Phase 1f, the per-stat ML head over 67+183 features, should not be expected to move MAE. It is now demoted below its already-demoted position. Any remaining projection gain has to come from **week-level** signal — matchup, game script, usage spikes, injury-driven role change — not from better estimates of a player's average.
+
 ## 6. Priority order this produces
 
 1. **Availability first.** The hindsight gap is 19.4 pts/week and the largest single component is starting someone who does not play. The measured per-team injury dialect (Tampa's "Questionable" = 81% play, Pittsburgh's = 47%) replaces the hand-set constants in `contingency.js`.

@@ -194,7 +194,52 @@ transaction history. Use them together. The messages tell you what he says; the 
 whether to believe it. Where they disagree, say so explicitly — that disagreement is the single
 most valuable thing in this profile.
 
-Record your answer with the record_negotiation_profile tool.`;
+Record your answer with the record_negotiation_profile tool. Nested sections (says_no, praise_means,
+calibration, roster_read, and each technique) are JSON objects with their own fields; never write
+tool-call markup such as <parameter name="..."> inside a string value.`;
+
+/**
+ * Structural check against PROFILE_TOOL's own schema, recursively.
+ *
+ * Presence was not enough. On 2026-09-18, six of nine stored profiles had every
+ * required key and were still unusable: the model had leaked raw tool-call markup
+ * into string fields ("says_no": "\n<parameter name=\"how\">He rejects..."), so the
+ * nested sections arrived as strings and their fields spilled to the root. That
+ * passes a missing-key check and fails every consumer that reads says_no.how.
+ * This checks type, enum membership, required keys, unexpected root keys and
+ * leaked markup, and returns every violation.
+ */
+function schemaErrors(schema, value, where = 'profile') {
+  if (value == null) return [];
+  switch (schema.type) {
+    case 'object': {
+      if (typeof value !== 'object' || Array.isArray(value)) return [`${where}: expected object, got ${Array.isArray(value) ? 'array' : typeof value}`];
+      const errs = [];
+      for (const k of schema.required ?? []) if (value[k] == null) errs.push(`${where}.${k}: missing`);
+      const known = schema.properties ?? {};
+      for (const k of Object.keys(value)) {
+        if (!(k in known)) errs.push(`${where}.${k}: unexpected key`);
+        else errs.push(...schemaErrors(known[k], value[k], `${where}.${k}`));
+      }
+      return errs;
+    }
+    case 'array':
+      if (!Array.isArray(value)) return [`${where}: expected array, got ${typeof value}`];
+      return value.flatMap((v, i) => schemaErrors(schema.items, v, `${where}[${i}]`));
+    case 'string':
+      if (typeof value !== 'string') return [`${where}: expected string, got ${typeof value}`];
+      if (/<\/?parameter\b/.test(value)) return [`${where}: leaked tool-call markup`];
+      if (schema.enum && !schema.enum.includes(value)) return [`${where}: "${value}" not in ${schema.enum.join('/')}`];
+      return [];
+    case 'boolean':
+      return typeof value === 'boolean' ? [] : [`${where}: expected boolean, got ${typeof value}`];
+    default:
+      return [];
+  }
+}
+const profileErrors = profile => schemaErrors(PROFILE_TOOL.input_schema, profile);
+/** Attempts per manager. Each failed attempt is paid for, so this is a cost cap as much as a retry count. */
+const MAX_ATTEMPTS = 3;
 
 const { callClaude } = await import('../server/services/claude.js');
 const { rows: appRows } = await import('../server/db/index.js');
@@ -279,8 +324,11 @@ for (const name of names) {
   if (corpus.length < 12) { console.log(`${name}: only ${corpus.length} readable messages — skipped`); skipped++; continue; }
   const hash = crypto.createHash('sha1')
     .update(corpus.map(c => `${c.at}|${c.who}|${c.text}`).join('\n')).digest('hex').slice(0, 16);
-  const prior = chat.prepare('SELECT corpus_hash FROM negotiation_profiles WHERE name = ?').get(name);
-  if (prior?.corpus_hash === hash) { console.log(`${name}: unchanged since last profile — skipped`); skipped++; continue; }
+  const prior = chat.prepare('SELECT corpus_hash, profile_json FROM negotiation_profiles WHERE name = ?').get(name);
+  let priorErrors = [];
+  try { priorErrors = prior ? profileErrors(JSON.parse(prior.profile_json)) : []; } catch { priorErrors = ['unparseable JSON']; }
+  if (prior?.corpus_hash === hash && !priorErrors.length) { console.log(`${name}: unchanged since last profile — skipped`); skipped++; continue; }
+  if (prior?.corpus_hash === hash) console.log(`${name}: messages unchanged but stored profile is malformed (${priorErrors.length} errors, e.g. ${priorErrors[0]}) — rebuilding`);
 
   const transcript = corpus.map(c =>
     `[${c.at.slice(0, 16)}${c.where ? ' ' + c.where : ''}] ${c.who === name ? 'HIM' : c.who}: ${String(c.text).slice(0, 260)}`
@@ -305,7 +353,9 @@ ${transcript}`;
 
   if (DRY) { console.log(`${name}: would send ${corpus.length} messages, ~${Math.round(prompt.length / 4)} tokens`); continue; }
   try {
-    const msg = await callClaude({
+   let msg, profile, lastErr;
+   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    msg = await callClaude({
       feature: 'negotiation_profile', model: 'claude-sonnet-5', maxTokens: 8000,
       system: SYSTEM, prompt,
       // Tool use rather than "return JSON": free-form JSON truncated mid-string
@@ -314,9 +364,10 @@ ${transcript}`;
       tools: [PROFILE_TOOL],
       toolChoice: { type: 'tool', name: PROFILE_TOOL.name, disable_parallel_tool_use: true },
     });
+    tokensIn += msg.usage?.input_tokens ?? 0; tokensOut += msg.usage?.output_tokens ?? 0;
     const block = msg.content?.find(c => c.type === 'tool_use' && c.name === PROFILE_TOOL.name);
-    if (!block?.input) throw new Error('model did not call the profile tool');
-    const profile = block.input;
+    if (!block?.input) { lastErr = 'model did not call the profile tool'; continue; }
+    profile = block.input;
     // A tool call that hits the output cap comes back as a PARTIAL object: the
     // nested keys arrive flattened at the root and the sections we actually use
     // are undefined. That parses cleanly and is worthless, so check the shape
@@ -325,13 +376,21 @@ ${transcript}`;
     const missing = ['headline', 'says_no', 'praise_means', 'techniques', 'calibration', 'how_to_approach']
       .filter(k => profile[k] == null);
     if (missing.length || msg.stop_reason === 'max_tokens') {
-      throw new Error(`incomplete profile (stop=${msg.stop_reason}, missing: ${missing.join(',') || 'none'})`);
+      lastErr = `incomplete profile (stop=${msg.stop_reason}, missing: ${missing.join(',') || 'none'})`;
+      profile = null; console.log(`${name}: attempt ${attempt} ${lastErr}`); continue;
     }
+    const shapeErrs = profileErrors(profile);
+    if (shapeErrs.length) {
+      lastErr = `malformed profile (${shapeErrs.length} errors, e.g. ${shapeErrs.slice(0, 2).join('; ')})`;
+      profile = null; console.log(`${name}: attempt ${attempt} ${lastErr}`); continue;
+    }
+    break;
+   }
+    if (!profile) throw new Error(`${lastErr} after ${MAX_ATTEMPTS} attempts`);
     chat.prepare(`INSERT OR REPLACE INTO negotiation_profiles
       (name, profile_json, messages_read, corpus_hash, model, built_at)
       VALUES (?,?,?,?,?,datetime('now'))`)
       .run(name, JSON.stringify(profile), corpus.length, hash, 'claude-sonnet-5');
-    tokensIn += msg.usage?.input_tokens ?? 0; tokensOut += msg.usage?.output_tokens ?? 0;
     built++;
     console.log(`${name}: profiled from ${corpus.length} messages — ${profile.headline ?? ''}`);
   } catch (e) {

@@ -349,3 +349,26 @@ schedule row is repaired from the other team's row. No production change.
 | X2 scheduleOutlook's no-signal return removed | 1 |
 | X3 HOME_FIELD_MULTIPLIER_ENABLED = true | 2 |
 | X4 self-opponent repair removed | 1 |
+
+## 12. The weekly boom/bust shock was held only by a golden snapshot (medium; tdd-workflow)
+
+Journey: as the next person to refit WEEKLY_LEVEL, I want tests that say what must
+still hold (mean-preserving, per-position sigma, the `{ sigma }` override), not a
+snapshot that breaks on any refit.
+
+Property tests (`test/weekly-level.test.js`, 6): the closed-form shock mean with and
+without the downside multiplier (checked against an independent 200,000-draw
+simulation within 0.5%); the simulated mean equals the no-shock mean within 1%
+(100,000 draws — at 20,000 the first run differed by 1.3% by chance; measured at
+200,000 over three seeds: within 0.5%); default QB/WR draws equal explicit sigma
+0.30/0.20; `{ sigma: 0 }` switches the shock off for every position;
+`meanPreserving: false` moves the mean by exactly the shock mean (0.985 for a WR with
+downMult 1.6 — below 1, not above; my first draft of that assertion was wrong and was
+corrected before this commit). No production change.
+
+| Mutation (scratch copy) | Tests failing |
+|-------------------------|---------------|
+| B1 meanPreserving false by default | 1 (c) |
+| B2 weeklyLevelMean always 1 | 3 |
+| B3 byPosition ignored | 1 (d) |
+| B4 `{ sigma }` no longer overrides byPosition | 1 (e) |

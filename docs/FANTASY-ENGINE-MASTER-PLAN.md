@@ -20,6 +20,10 @@ Nick, 03:50: *"Trades are designed by the people they are being sent to while fi
 
 ---
 
+### Status log
+
+- **W0 done (05:58).** Shipped and live after restart: week 2-4 projections use the structural head (2025 weeks 2-4 MAE 4.71 → 4.32; weeks 5-18 untouched); rest-of-season value from preseason + in-season evidence (Coker 29.9 → 14.3, Waddle 2.7 → 9.9); fake floors fixed; waiver drops never cut a higher-ROS player; Start/Sit never starts an IR-slot player; home factor retired from ceiling-lineup and season-sim; skills review — 58 findings, 19 fixed with tests, 9 deferred into WA/WD. Suite 2,376 / 2,418 (3 known prop-CLV). **Open, first in WA:** chance to play is not live (healthy starters ~0.81, projections ~20% low) until the role rates are written with ESPN Questionable/Out respected; the silent-failure-hunter and mle-reviewer reviews failed to launch (agent types not registered) and rerun in WA as agents that read their instruction files.
+
 ### Operating protocol — every checkpoint, every launch, every wait (Nick, 04:30)
 
 **When a result lands (workflow, agent, or script):**
@@ -52,7 +56,7 @@ Nick, 03:50: *"Trades are designed by the people they are being sent to while fi
 
 | # | Workflow | What it delivers | Est. |
 |---|---|---|---|
-| W0 | early-season + skills review *(running)* | Week 2-4 projections use the structural head; rest-of-season value from preseason + in-season evidence; play-chance by role; waiver drops never cut a higher-ROS player; IR-slot starts; 10-lens skills review + fixes. **Then restart** so the weekend's decisions run on it. | ~1 h |
+| W0 | early-season + skills review — **DONE 05:58, restarted** | Week 2-4 projections use the structural head; rest-of-season value from preseason + in-season evidence; play-chance by role; waiver drops never cut a higher-ROS player; IR-slot starts; 10-lens skills review + fixes. **Then restart** so the weekend's decisions run on it. | ~1 h |
 | WA | **Essentials + every audit + Trade Brain** | Phase 1, in parallel: (a) *essentials that feed every number the trades and plan use or that lose data if late* — play-chance activation respecting ESPN Questionable/Doubtful, then the fake-floor fix; `weekly-learning` keeps the early-week key; **weekly roster snapshots start on the refresh loop** (bench points need history; every uncaptured week is lost); launcher `spawn node ENOENT` so the phone Start works; (b) *Discover → Audit → Decide* on every existing system the Trade Brain, Coach, plan and dashboard overlap. Phase 2: the Trade Brain, including the trade objective's unfitted constants, multi-week horizon, bye weeks and the trade deadline inside trade value, the P(accept) band and the AI proposal pass. | 3-3.5 h |
 | WB | **Coach + action plan + dashboard home** | API contracts first, then in parallel: the computed weekly action plan, the grounded Coach chat (plan and trades as its tools, evidence-block explanations = Phase 7), and the dashboard home built against the same contracts. | 3 h |
 | WC | **UI audit + cleanup** | Every page in the browser at phone and desktop width, including the new home; dead/betting remnants removed; numbers agree across pages. | 2 h |

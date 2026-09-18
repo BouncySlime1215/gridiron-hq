@@ -34,6 +34,11 @@ test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
 // A port nothing uses, so an accidental listen() on import would be caught.
 const PROBE_PORT = 20000 + (process.pid % 20000);
 process.env.LAUNCHER_PORT = String(PROBE_PORT);
+// The service's key and logs, redirected: no test reads the real key or writes the real logs.
+const TEST_KEY = 'test-launcher-key-0123456789';
+process.env.LAUNCHER_KEY_FILE = path.join(temp, 'launcher-key.txt');
+process.env.LAUNCHER_LOG_DIR = path.join(temp, 'launcher-logs');
+fs.writeFileSync(process.env.LAUNCHER_KEY_FILE, TEST_KEY, { mode: 0o600 });
 
 const L = await import('../scripts/launcher.mjs');
 const B = await import('../scripts/client-build-check.mjs');
@@ -229,6 +234,37 @@ test('G3e: importing the launcher opens no port', async () => {
   });
   assert.equal(refused, true);
   assert.equal(typeof L.main, 'function');
+});
+
+test('G3e: the running service — health is open, everything else needs the key, status reports the start state', async () => {
+  // appPort points at nothing, and /start is never called: no app is started.
+  const logged = [];
+  const origLog = console.log;
+  console.log = (...a) => logged.push(a.join(' '));
+  let server;
+  try {
+    server = L.main({ port: 0, appPort: 1 });
+    await new Promise(resolve => (server.listening ? resolve() : server.once('listening', resolve)));
+  } finally { console.log = origLog; }
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const health = await fetch(`${base}/health`);
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { ok: true });
+    assert.equal((await fetch(`${base}/status?key=wrong`)).status, 403);
+    assert.equal((await fetch(`${base}/status`)).status, 403);
+    const status = await (await fetch(`${base}/status?key=${TEST_KEY}`)).json();
+    assert.equal(status.server_up, false);
+    assert.equal(status.tunnel_url, null);
+    assert.equal(status.start.phase, 'idle');
+    const home = await (await fetch(`${base}/?key=${TEST_KEY}`)).text();
+    assert.match(home, /\/start\?key=test-launcher-key/);
+    assert.ok(logged.some(l => l.includes(`127.0.0.1:${server.address().port}`)), 'the bound port is logged');
+    assert.ok(!logged.join('\n').includes(TEST_KEY), 'the key is never logged');
+    assert.ok(fs.existsSync(process.env.LAUNCHER_LOG_DIR), 'logs go where the service was told');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
 });
 
 // ---------------------------------------------------------------- shared build check

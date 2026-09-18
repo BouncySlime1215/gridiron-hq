@@ -84,3 +84,61 @@ test('a failing endpoint is retried, then the league is marked failed, not store
   assert.equal(db.prepare("SELECT count(*) n FROM sh_team_seasons WHERE league_id = 'L1'").get().n, 0);
   assert.equal(db.prepare("SELECT status FROM sh_crawl WHERE kind = 'league' AND id = 'L1'").get().status, 'failed');
 });
+
+test('a call budget pauses the crawl (user ids kept for the resume), and the next run finishes and purges them', async () => {
+  const db = new DatabaseSync(':memory:');
+  const api = fakeApi();
+  const r1 = await runCrawl({ db, fetchJson: api.fetchJson, seeds: ['L0'], seasons: [2023, 2024], perSeason: 5, rps: 0, maxCalls: 3, log: () => {} });
+  assert.equal(r1.done, false);
+  assert.ok(db.prepare("SELECT count(*) n FROM sh_crawl WHERE kind = 'user'").get().n > 0, 'a paused crawl keeps its queue');
+  const r2 = await runCrawl({ db, fetchJson: api.fetchJson, seeds: ['L0'], seasons: [2023, 2024], perSeason: 5, rps: 0, log: () => {} });
+  assert.equal(r2.done, true);
+  assert.equal(db.prepare("SELECT count(*) n FROM sh_crawl WHERE kind = 'user'").get().n, 0);
+  assert.equal(db.prepare('SELECT count(*) n FROM sh_leagues').get().n, 3);
+});
+
+test('retries back off, a 404 is not retried, a missing league is marked, and history chains are followed', async () => {
+  const db = new DatabaseSync(':memory:');
+  const api = fakeApi();
+  let tries429 = 0, tries404 = 0;
+  const leagues = { PREV: { ...LEAGUE('PREV', 2023) }, CUR: { ...LEAGUE('CUR', 2024), previous_league_id: 'PREV' } };
+  const f = async p => {
+    if (p === '/league/GONE') return null;
+    if (p === '/league/CUR') { if (tries429++ < 1) throw Object.assign(new Error('429'), { status: 429 }); return leagues.CUR; }
+    if (p === '/league/PREV') return leagues.PREV;
+    if (p === '/league/NOPE') { tries404++; throw Object.assign(new Error('404'), { status: 404 }); }
+    if (/^\/league\/(CUR|PREV)\/users$/.test(p)) return [];
+    return api.fetchJson(p);
+  };
+  const t0 = Date.now();
+  await runCrawl({ db, fetchJson: f, seeds: ['GONE', 'CUR', 'NOPE'], seasons: [2023, 2024], perSeason: 5, rps: 1000, retries: 2, backoffMs: 5, log: () => {} });
+  assert.ok(Date.now() - t0 >= 5, 'backoff waited');
+  assert.equal(tries429, 2, 'a 429 is retried');
+  assert.equal(tries404, 1, 'a 404 is not');
+  assert.equal(db.prepare("SELECT status FROM sh_crawl WHERE kind = 'league' AND id = 'GONE'").get().status, 'missing');
+  assert.equal(db.prepare("SELECT status FROM sh_crawl WHERE kind = 'league' AND id = 'NOPE'").get().status, 'failed');
+  assert.deepEqual(db.prepare('SELECT league_id FROM sh_leagues ORDER BY league_id').all().map(r => r.league_id), ['CUR', 'PREV'],
+    'the previous season of a stored league is followed');
+  assert.equal(db.prepare("SELECT previous_league_id p FROM sh_leagues WHERE league_id = 'CUR'").get().p, 'PREV');
+});
+
+test('queued users for a season that fills up are skipped without a call', async () => {
+  const db = new DatabaseSync(':memory:');
+  const api = fakeApi();
+  const r = await runCrawl({ db, fetchJson: api.fetchJson, seeds: ['L0', 'L3'], seasons: [2023, 2024], perSeason: 1, rps: 0, log: () => {} });
+  assert.equal(r.perSeason[2023], 1);
+  assert.equal(r.perSeason[2024], 1);
+  assert.equal(r.done, true);
+});
+
+test('CLI helpers: season ranges and a fetch that reports status without leaking user ids', async () => {
+  const { parseSeasons, makeFetchJson } = await import('../scripts/collect-sleeper-history.mjs');
+  assert.deepEqual(parseSeasons('2021-2023'), [2021, 2022, 2023]);
+  assert.deepEqual(parseSeasons('2024'), [2024]);
+  assert.throws(() => parseSeasons('2025-2021'));
+  assert.throws(() => parseSeasons('abc'));
+  const ok = makeFetchJson(async url => ({ ok: true, json: async () => ({ url }) }), 'https://x');
+  assert.deepEqual(await ok('/league/1'), { url: 'https://x/league/1' });
+  const bad = makeFetchJson(async () => ({ ok: false, status: 429 }), 'https://x');
+  await assert.rejects(bad('/user/123456789/leagues/nfl/2024'), e => e.status === 429 && !/123456789/.test(e.message));
+});

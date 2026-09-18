@@ -485,3 +485,40 @@ lineup-brain.js from 79dbeb1 (before section 2) FAIL 10 of 15 — all five floor
 Not done (deferred): wiring it into the promote scripts, and the p10-coverage check
 (does the card's floor cover week-w outcomes, did-not-play = 0, under the live
 P(play)), which needs the play-chance role layer live to mean anything.
+
+## Deferred, with the gate or decision each one needs
+
+| Finding | Reproduced | Why not here | What it needs |
+|---------|-----------|--------------|---------------|
+| Weekly coverage gate is draw-count and seed sensitive (high) | yes: 0.782 at 300 draws, 0.777 at seed 3, 0.778 at 2,000 | changing a gate's definition, and WEEKLY_LEVEL reads 0.778 (outside the band) at production's 2,000 draws | a new pre-registered gate: grade at 2,000 draws, band must hold for each of >= 3 seeds (pass^3) or a margin wider than the measured +/-0.004; then re-run the WEEKLY_LEVEL fit under it. Baseline recorded in `docs/evidence/baselines/2025-weekly-distribution-draws.json` |
+| Fake floors shipped after its registered gate failed (medium) | yes (doc said held back) | a decision the builder asked a person to make | Nick: keep 947d66c on G2 + D1 as a newly written gate, or revert until a like-for-like G1 exists. No week-2 number depends on it (0 of 1,183 shifts > 0.05) |
+| Waiver line calls an ESPN-OUT player healthy (medium) | yes: league 3 Charbonnet ESPN OUT, Start/Sit 8.05, 13 of 13 "likely to play" | moves availability outputs | gate on 2025: player-weeks whose pregame status was Out — observed play rate; if it is ~0, set P(play) near 0 when ESPN's OUT is fresher than the injury report, graded by log loss (player-clustered bootstrap) against the current availability |
+| ROS gate grades per game played; product has no availability term (medium) | yes: DNP-counted MAE, d worse than a at w6/8/10 in 2024 (3.06-3.28 vs 2.83-2.90) and 2025 (3.17-3.35 vs 3.03-3.07) | moves trade and waiver values | either an availability term on the ROS leg of decisionPpg and the waiver cut, gated on the DNP-counted target, or gate ROS on expected points per remaining team game; add w 12/14/16 "late not worse" before trusting playoff_ppg |
+| POST /api/espn-connect/cookies still anonymous (part of high) | yes | the bookmarklet runs on espn.com and cannot carry the session; closing it means an install key in the bookmarklet and re-dragging it | Nick's call on the bookmarklet UX |
+| One leaf module for week points and the IR test; break the waiver-brain <-> trade-engine cycle (medium x2) | yes, incl. the cycle bending test mocks | touches the lift mocks in 3 test files owned by other items; no user-visible bug while the copies agree | a refactor pass: `week-points.js` with vegasLift, startSitWeekPoints, an ESPN-entry IR test; tests mock gamescript.js#gameScriptFor. The drift guards in `test/lineup-surfaces-agree.test.js` must stay green |
+| SPREAD_SCALE production guard (part of medium) | yes (dataset predates the availability fit, no version recorded) | the fit's availability version is unknown | at the next posture refit (required after the play-chance role layer), store the availability stamp beside SPREAD_SCALE and add a test that fails when the live stamp differs |
+| Combined eval after every promotion; p10 coverage under live P(play) (part of high) | yes | wiring into promote scripts; p10 check needs the role layer live | call `scripts/eval-lineup-objectives.mjs` from the promote scripts; add the p10 coverage check once role rates are written |
+| Classifier: retry ok=0 rows; sync_log row for league_chat (part of medium) | yes (18 ok=0 rows, Data Health blind) | a retry re-sends rows to Jev (cost) and the 18 failures look deterministic | decide a retry policy (e.g. once after 1 h); write a sync_log row from refresh-live-data.mjs |
+
+## Verification (verification-loop)
+
+```
+VERIFICATION REPORT (HEAD 6303356 + this report, 2026-09-18 ~05:55)
+Build:     PASS  vite build of the client into a scratch outDir (client/dist, which the live
+                 server serves, was not touched)
+Types:     PASS  tsc --noEmit, 0 errors
+Lint:      PASS  scripts/lint.mjs, 795 files syntax-checked
+Tests:     2,376 pass / 3 fail / 39 skipped of 2,418 (full node suite, 310 s)
+           The 3 failures are test/prop-clv-free-capture.test.js and fail identically on
+           79dbeb1 (a git archive of the pre-review tree): pre-existing, not touched here.
+           Python: scripts/chat 13/13.
+Coverage:  new modules and changed functions, on the 13 files that exercise them (107/107):
+           gate-verdicts.js 100%, player-availability.js 100% lines, ros-projection.js 98.7%,
+           espn-connect.js 96.1%, weekly-weight-store.js 90.7%. eval-lineup-objectives.mjs
+           59.5%: the uncovered part is main(), run by hand on the snapshot (section 17).
+Security:  no secret patterns in the 79dbeb1..HEAD diff; two unauthenticated route families
+           closed (section 3)
+Diff:      46 files, 29 commits, all this item's (git commit --only, nothing pushed)
+Live:      nothing restarted; the web server on 5177 runs the old code until its next
+           restart. The chat extractor change is picked up by the refresh loop's next tick.
+```

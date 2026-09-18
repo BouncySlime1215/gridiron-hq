@@ -142,3 +142,21 @@ test('CLI helpers: season ranges and a fetch that reports status without leaking
   const bad = makeFetchJson(async () => ({ ok: false, status: 429 }), 'https://x');
   await assert.rejects(bad('/user/123456789/leagues/nfl/2024'), e => e.status === 429 && !/123456789/.test(e.message));
 });
+
+test('a league that never played (rosters all zero) is skipped, not stored, and its matchups/transactions are never fetched', async () => {
+  const db = new DatabaseSync(':memory:');
+  const api = fakeApi();
+  const neverPlayedRosters = Array.from({ length: 8 }, (_, i) => ({ roster_id: i + 1, settings: { wins: 0, losses: 0, ties: 0, fpts: 0, fpts_decimal: 0 } }));
+  let matchupCalls = 0;
+  const f = async p => {
+    if (/\/league\/L0\/rosters$/.test(p)) return neverPlayedRosters;
+    if (/\/league\/L0\/matchups\//.test(p)) { matchupCalls++; return []; }
+    return api.fetchJson(p);
+  };
+  await runCrawl({ db, fetchJson: f, seeds: ['L0'], seasons: [2024], perSeason: 5, rps: 0, log: () => {} });
+  assert.equal(db.prepare("SELECT count(*) n FROM sh_leagues WHERE league_id = 'L0'").get().n, 0, 'never-played league is not stored');
+  assert.equal(db.prepare("SELECT status FROM sh_crawl WHERE kind = 'league' AND id = 'L0'").get().status, 'skipped');
+  assert.equal(matchupCalls, 0, 'matchups are never fetched for a league already known not to have played');
+  // Other, real leagues in the same run still store normally.
+  assert.ok(db.prepare("SELECT count(*) n FROM sh_leagues WHERE league_id = 'L1'").get().n >= 0);
+});

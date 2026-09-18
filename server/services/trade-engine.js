@@ -82,7 +82,14 @@ import { run as dbRun } from '../db/index.js';
 import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
-import { counterpartyLayer, readDeal, counterpartyDataKey } from './counterparty-pricing.js';
+import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, selfRead }
+  from './counterparty-pricing.js';
+// The nine tactics and THE EDGE TEST (trade-tactics.js). The edge test is the
+// only thing in this file that removes an idea on the strength of the
+// counterparty read rather than describing one: a deal that is not positive for
+// Nick on our own numbers never reaches the list, whatever the other manager
+// thinks of it (master plan 00 D4, "a gift, not a trade").
+import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
 // loadRosters / lineupSlots from THIS file, so the two modules form a cycle.
@@ -1402,12 +1409,17 @@ const ideaCtx = (lg, ctx = null) => (ctx?.target && ctx?.formatKey ? ctx
 
 function findTradesKey(lg, opts = {}, ctx = null) {
   const { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null,
-    excludeIds = null, counterparty: useCounterparty = true, playoffOdds } = opts;
+    excludeIds = null, counterparty: useCounterparty = true, playoffOdds, zero = [] } = opts;
   const { target, formatKey } = ideaCtx(lg, ctx);
   const excludeKey = excludeIds ? [...excludeIds].sort((a, b) => a - b).join(',') : '';
+  // `zero` suppresses named valuation-map sources. It is in the KEY because the
+  // ablation has to be a real re-run of this search: the previous step's
+  // ablation re-scored an already-surfaced list, which cannot see an idea
+  // appear or disappear and reported a "no set change" that was not true.
+  const zeroKey = [...zero].sort().join(',');
   return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
-    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}`;
+    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}:z${zeroKey}`;
 }
 
 /**
@@ -1456,12 +1468,16 @@ function findTradesUncached(lg, {
   // post-trade roster without duplicating any of the logic below.
   teamsOverride = null, assetsOverride = null, playoffOdds, playoffOddsSource = null,
   playoffOddsInterval = null,
+  // Named valuation-map sources to suppress, for the per-source ablation. The
+  // list is part of the cache key, so two arms can never share an answer.
+  zero = [],
   // Off only so the harness can measure what the counterparty layer is worth.
   // Production always wants it on: ranking by what we think a deal is worth,
   // with no model of whether anyone would accept it, is how the engine spent
   // its life suggesting trades nobody took.
   counterparty: useCounterparty = true
 } = {}) {
+  const startedAt = Date.now();
   const { formatKey } = deriveFormat(lg);
   const assets = assetsOverride ?? assetUniverse(lg, formatKey);
   const teams = teamsOverride ?? loadRosters(lg, assets);
@@ -1498,8 +1514,12 @@ function findTradesUncached(lg, {
   // One memo for the whole search: the two rosters' before-lineups are the same for
   // every package against them (see evaluate()).
   const memo = new WeakMap();
+  // `rosterContext` is handed through on purpose: without it the layer calls
+  // analyzeLeague a second time for the same league, which measured +0.9 s of
+  // cold cost per call on production (valuation-map handoff).
   const counterparties = useCounterparty
-    ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
+    ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week,
+      rosterContext: context, zero })
     : new Map();
 
   const myPool = candidates(me, slots, 11, excludeIds);
@@ -1618,6 +1638,19 @@ function findTradesUncached(lg, {
           playoffBaseline: ev.me.playoff_lineup_before,
           weights: horizon,
         });
+        // THE EDGE TEST (trade-tactics.js#edgeTest). The signed objective is
+        // computed twice: once as it ships, and once with the counterparty read
+        // taken OUT. A deal that is only positive with it is an idea that wins
+        // on his perception and loses on ours — a gift, not a trade — and it is
+        // removed below rather than ranked. Measured on a copy of production
+        // before this went in: league 3's "Tyler Warren for Patrick Mahomes"
+        // was -0.046 without the read and +0.013 with it, and surfaced.
+        const rawGain = gain.value + 0.2 * ev.joint_ppg;
+        const scoreUnperceived = +(managerFactor * fairnessFactor * rawGain - valueCost).toFixed(3);
+        const scoreSigned = +(managerFactor * fairnessFactor * perceptionFactor * rawGain
+          - valueCost).toFixed(3);
+        const edge = edgeTest({ ppgDelta: ev.me.ppg_delta, horizonGain: gain.value,
+          scoreSigned, scoreUnperceived });
         deals.push({
           partner: them.owner, partner_id: them.roster_id,
           horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain) },
@@ -1649,10 +1682,21 @@ function findTradesUncached(lg, {
           // negative deal tie at exactly 0, so their order was roster-iteration
           // order presented as a ranking. Latent at today's gain magnitudes (min
           // score 8.9 on league 2), but it binds as soon as projections settle.
-          score_signed: +(managerFactor * fairnessFactor * perceptionFactor
-            * (gain.value + 0.2 * ev.joint_ppg) - valueCost).toFixed(3),
-          score: +Math.max(0, managerFactor * fairnessFactor * perceptionFactor
-            * (gain.value + 0.2 * ev.joint_ppg) - valueCost).toFixed(3)
+          score_signed: scoreSigned,
+          score: +Math.max(0, scoreSigned).toFixed(3),
+          // The same objective with the counterparty read removed, and the
+          // four-check verdict built from it. `edge.passes` is what decides
+          // whether this deal is allowed to be shown at all.
+          score_unperceived: scoreUnperceived,
+          edge: { ...edge,
+            // Not a failure, but Nick should see it: a deal that is worth more
+            // now than it costs in weeks 15-17 is a real win-now trade, and the
+            // horizon weighting is the number the plan ranks on.
+            playoff_leg: ev.me.playoff_ppg_delta,
+            playoff_leg_note: ev.me.playoff_ppg_delta < 0
+              ? `Costs ${Math.abs(ev.me.playoff_ppg_delta).toFixed(1)} a week in the playoff weeks; `
+                + 'it clears the bar on the horizon-weighted number because this week is worth more.'
+              : null },
         });
       }
     }
@@ -1678,22 +1722,44 @@ function findTradesUncached(lg, {
   // Measured case (manager-data-pipeline handoff, league 4): "Deebo Samuel for
   // Jalen Coker" disappeared from the mutual list because the variant that also
   // threw in Juwan Johnson scored higher and was not mutual.
-  const eligible = requireMutual
-    ? deals.filter(d => d.mutual && d.plausible && d.red_flags.length === 0)
-    : deals.filter(d => d.plausible && d.red_flags.length === 0);
+  const passesShape = requireMutual
+    ? d => d.mutual && d.plausible && d.red_flags.length === 0
+    : d => d.plausible && d.red_flags.length === 0;
+  const shaped = deals.filter(passesShape);
+  // THE EDGE TEST, applied here and nowhere else. Everything below this line is
+  // an idea that is positive for Nick on our own numbers: this week, the
+  // horizon-weighted blend, after the market value it costs, and WITHOUT the
+  // counterparty read. Before this filter existed the engine surfaced deals
+  // with a negative horizon gain, a negative signed score, and one that was
+  // positive only because the partner was short at a position.
+  const eligible = shaped.filter(d => d.edge.passes);
+  const removed = shaped.filter(d => !d.edge.passes);
 
   // Collapse to distinct *ideas*. Two offers are the same idea when the headline
   // pieces match — keying on the whole package instead just surfaces ten variants of
   // one swap padded with different throwaway bench players. `eligible` is already
   // sorted, so the survivor is the best variant that PASSED.
   const headline = list => list.slice().sort((x, y) => y.value - x.value)[0]?.id;
+  const ideaKey = d => `${headline(d.i_give)}>${headline(d.i_get)}`;
   const seen = new Set();
   const result = eligible.filter(d => {
-    const k = `${headline(d.i_give)}>${headline(d.i_get)}`;
+    const k = ideaKey(d);
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
   });
+
+  // An idea is only LOST when no variant of it survived — a package whose
+  // cleaner sibling is still on the list has not been taken away from Nick.
+  const survived = new Set(result.map(ideaKey));
+  const lostIdeas = [];
+  const lostSeen = new Set();
+  for (const d of removed) {
+    const k = ideaKey(d);
+    if (survived.has(k) || lostSeen.has(k)) continue;
+    lostSeen.add(k);
+    lostIdeas.push(d);
+  }
 
   // Every deal above is computed independently against your CURRENT roster, so
   // two of them can both plan on trading away the same player — real, but only
@@ -1706,10 +1772,81 @@ function findTradesUncached(lg, {
     if (!overlap.length) for (const p of d.i_give) claimed.add(p.id);
   }
 
+  const shown = result.slice(0, limit);
+  // The tactics run ONCE, on the list that is actually returned — not on every
+  // candidate in the combinatorial search, which would multiply the cost of the
+  // inner loop by the price of a valuation lookup for nothing.
+  const tacticsStartedAt = Date.now();
+  attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey });
+  const tacticsMs = Date.now() - tacticsStartedAt;
+
   return { mode: 'league', me: { roster_id: me.roster_id, owner: me.owner }, slots,
            model_context: assets.context, considered: deals.length,
-           excluded_never_trade: [...blockedManagers], deals: result.slice(0, limit),
-           context: ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounterparty, week: weekNow }) };
+           excluded_never_trade: [...blockedManagers], deals: shown,
+           // What the edge test took away, and why — reported rather than
+           // silently absent, because "the engine found nothing" and "the engine
+           // found three things that were not good for you" are different answers.
+           edge_removed: lostIdeas.length,
+           edge_removed_variants: removed.length,
+           edge_removed_examples: lostIdeas.slice(0, 5).map(d => ({
+             partner: d.partner, partner_id: d.partner_id,
+             i_give: d.i_give.map(p => p.name), i_get: d.i_get.map(p => p.name),
+             failed: d.edge.failed,
+             numbers: Object.fromEntries(d.edge.checks.map(c => [c.name, c.value])),
+           })),
+           context: { ...ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounterparty,
+             week: weekNow }),
+           // Runtime of THIS computation. A cache hit replays the number the
+           // cold run measured, which is what it cost to produce this answer.
+           runtime_ms: Date.now() - startedAt, tactics_ms: tacticsMs,
+           zeroed_sources: [...zero] } };
+}
+
+/**
+ * Hang the nine tactics on the ideas that are going out, with the numbers.
+ *
+ * Every per-player number a tactic quotes comes from the SAME
+ * `playerValuation` the valuation map and the trade card use — injected, not
+ * re-derived — so a tactic and the card it sits on cannot disagree.
+ */
+function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, teams, zero, ideaKey }) {
+  if (!shown.length) return;
+  const byEspn = new Map();
+  for (const a of assets.values()) if (a.espn_id != null) byEspn.set(String(a.espn_id), a);
+  const valueOfEspn = espnId => byEspn.get(String(espnId))?.value ?? null;
+
+  let timing = new Map();
+  let climate = null;
+  let self = null;
+  try { timing = timingRead(lg.id, { season: weekNow.season }); } catch { timing = new Map(); }
+  try { climate = vetoClimate(lg, { season: weekNow.season, priceOfPlayer: valueOfEspn }); }
+  catch { climate = null; }
+  try { self = selfRead(lg.id, { season: weekNow.season }); } catch { self = null; }
+  const ownerNames = teams.map(t => t.owner).filter(Boolean);
+
+  for (const d of shown) {
+    const cp = counterparties.get(String(d.partner_id)) ?? null;
+    // Same target, same partner, every package that PASSED the edge test: the
+    // rungs of the ladder are offers Nick could actually send.
+    const target = ideaKey(d).split('>')[1];
+    const variants = deals
+      .filter(v => v.partner_id === d.partner_id && v.edge.passes && ideaKey(v).split('>')[1] === target)
+      .map(v => ({ give_value: v.i_give.reduce((s, p) => s + (p.value ?? 0), 0),
+        perception_delta: v.counterparty?.perception_delta ?? null,
+        their_value_pct: v.their_value_pct, score_signed: v.score_signed,
+        i_give: v.i_give.map(p => ({ name: p.name, value: p.value })),
+        i_get: v.i_get.map(p => ({ name: p.name, value: p.value })) }));
+    const postLoss = (cp?.receptiveness_factors ?? []).find(f => f.source === 'recency_post_loss') ?? null;
+    const out = tacticsForDeal({
+      give: d.i_give, get: d.i_get, manager: cp, partnerId: d.partner_id, partnerName: d.partner,
+      valuationOf: p => playerValuation(cp, p, { zero }),
+      self, climate, timing: timing.get(String(d.partner_id)) ?? null,
+      theirValuePct: d.their_value_pct, variants, postLoss,
+      otherManagerNames: ownerNames.filter(n => n !== d.partner),
+    });
+    d.tactics = out.tactics;
+    d.tactics_absent = out.tactics_absent;
+  }
 }
 
 /**

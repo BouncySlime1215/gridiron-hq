@@ -343,6 +343,29 @@ const everyDeal = [...found.deals, ...mutual.deals, ...bare.deals];
 const dealNames = d => `${d.i_give.map(p => p.name).join('+')}>${d.i_get.map(p => p.name).join('+')}`;
 const key = d => `${d.partner_id}|${dealNames(d)}`;
 
+test('G2i: the fixture exercises the tactics end to end, not only as unit calls', () => {
+  // A tactic that only ever fires in a hand-built unit test is a tactic that
+  // could silently stop being wired into findTrades. Seven of the ten fire on
+  // this league through the real entry point; consolidate_for_need, hype_window
+  // and probe_declared are covered by G2f, G2g and G3b, and are reported ABSENT
+  // here with their reasons rather than being quietly missing.
+  const firing = new Set(found.deals.flatMap(d => d.tactics.map(t => t.key)));
+  assert.ok(firing.size >= 6, `only ${firing.size} tactics fired through findTrades: ${[...firing]}`);
+  for (const k of ['sell_the_crush', 'buy_the_sour', 'sneak_in', 'timing', 'veto_proof',
+    'anchor_ladder', 'how_nick_looks']) {
+    assert.ok(firing.has(k), `${k} never fired through the real entry point`);
+  }
+  const absent = new Set(found.deals.flatMap(d => d.tactics_absent.map(a => a.key)));
+  for (const k of ['consolidate_for_need', 'hype_window']) {
+    assert.ok(absent.has(k), `${k} must be reported absent with its reason where it does not fire`);
+  }
+  // Ranked net of positional need: the chat reads come first, and every tactic
+  // carries the number it was ranked on.
+  const top = found.deals.find(d => d.tactics.some(t => t.key === 'sell_the_crush'));
+  assert.equal(top.tactics[0].key, 'sell_the_crush');
+  assert.ok(top.tactics.every(t => Number.isFinite(t.rank_effect)));
+});
+
 // ========================================================= G1 THE EDGE TEST
 test('G1a: perception may reorder ideas, never promote one that loses on our numbers', () => {
   const promoted = tactics.edgeTest({ ppgDelta: 0.9, horizonGain: 0.4,
@@ -543,10 +566,23 @@ test('G3b: asking for a player he only bluffs about is allowed, and is flagged w
   const probes = [...found.deals, ...mutual.deals]
     .filter(d => (d.counterparty?.asking_for_declared ?? []).length);
   for (const d of probes) {
-    const warn = d.tactics.concat(d.warnings ?? []).find(t => t.key === 'probe_declared');
+    const warn = d.tactics.find(t => t.key === 'probe_declared');
     assert.ok(warn, `${key(d)} asks for a declared player without flagging it`);
     assert.ok(/\d/.test(warn.why), 'the flag must carry his credibility number');
   }
+  // Direct, so the rule is covered whether or not this week's search happens to
+  // produce a package containing one of Carl's walked-back declarations.
+  const probe = { name: CARL_PROBE, position: 'RB', value: 4000, ros_ppg: 13 };
+  const out = tactics.tacticsForDeal({ give: [{ name: 'Mine', position: 'WR', value: 4000, ros_ppg: 13 }],
+    get: [probe], partnerId: '3', partnerName: 'Team 3',
+    manager: { receptiveness: 1, stance: { probe: new Set([CARL_PROBE.toLowerCase()]),
+      respect: new Set(), credibility: { credibility: 0.2, declarations: 3 } } },
+    valuationOf: p => ({ our_value: p.value, their_value: p.value, multiplier: 1, owns: false, factors: [] }) });
+  const flagged = out.tactics.find(t => t.key === 'probe_declared');
+  assert.ok(flagged, 'asking for a player he only bluffs about must be flagged');
+  assert.equal(flagged.numbers.credibility, 0.2);
+  assert.equal(flagged.numbers.declarations, 3);
+  assert.match(flagged.why, /20% of the time/);
 });
 
 // =================================================== G4 a real ablation hook
@@ -607,7 +643,7 @@ test('G6a: the veto threshold is each league\'s own ESPN setting, never a consta
   const there = tactics.vetoClimate(LG_BARE, { season: SEASON });
   assert.equal(here.votes_required, 3);
   assert.equal(there.votes_required, 5);
-  assert.equal(here.other_owners, 5, 'six teams, minus me and minus the partner');
+  assert.equal(here.other_owners, 4, 'six teams, minus me and minus the partner');
 });
 
 test('G6b: the one package that drew votes is the reference, with its n printed', () => {

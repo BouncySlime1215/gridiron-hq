@@ -91,13 +91,13 @@ The letter/number codes below (WA, O1, B2, etc.) stay in this document as-is —
 #### B1. Status, next steps and ETAs
 | Step | What | State | ETA |
 |---|---|---|---|
-| W0 | Early-season projections, rest-of-season value, fake floors, waiver drops, IR starts, 10-lens skills review | **Done, live** | — |
-| WA | Essentials — chance to play with ESPN designations (**done**), manager data for all 5 leagues (**done**), LLM costs and budgets (**done**), the two missing reviews (**done**); infra (roster snapshots, phone launcher, chat-failure logging) **running**; then review fixes and the **Trade Brain** (correctness → valuation map → tactics → value + acceptance → sendable proposals in Trade Lab) | Running | ~20:30 Fri, then restart |
-| — | Provenance audit (read-only) | Running | ~12:30 |
+| W0 | Early-season projections, rest-of-season value, fake floors, waiver drops, IR starts, 10-lens skills review (done, live) | Done | — |
+| WA | Essentials — chance to play with ESPN designations (done), manager data for all 5 leagues (done), LLM costs and budgets (done), the two missing reviews (done); infra (roster snapshots, phone launcher, chat-failure logging) done; then review fixes and the **Trade Brain** (correctness → valuation map → tactics → value + acceptance → sendable proposals in Trade Lab), currently in tactics | Running | ~20:30 Fri, then restart |
+| — | Provenance audit (read-only) — finished hours ago (`docs/NUMBER-PROVENANCE.md`, used throughout E3/E5); not one of the 6 top-level steps, kept as a row for history only | Done | landed ~12:30 |
 | WO + WB | **Run together as one workflow** (different files): WO — opportunity model with every advanced signal, injury-return model, trade-value backtest, season-sim odds calibration, measured win-now vs championship split; WB — Coach + knowledge pack, weekly action plan, dashboard home, game-day checks, decision log | Next | ~02:30 Sat, then restart |
 | WC + WD | **Run together**: WC — every page inspected and cleaned, orphans retired, routing splits merged; WD — model refinements, weekly learning loop, K/DEF test, remaining deferrals | After | ~09:30 Sat, then restart |
-| WE | Final integration, restart, push, morning report | After that | ~10:30 Sat |
-| WF | Phase 11 (sharpened 2026-09-18): put the whole thing online, Google sign-in, every user brings their own Claude key, Nick's chat-reading hidden and unreachable for every other account, auto-deploy on push, security checklist | **Last, by design** | stale — after WE |
+| WE | Final integration, restart, push, morning report | After | ~10:30 Sat |
+| WF | Phase 11 (sharpened 2026-09-18): put the whole thing online, Google sign-in, every user brings their own Claude key, Nick's chat-reading hidden and unreachable for every other account, auto-deploy on push, security checklist — deliberately last | Last | stale — after WE |
 
 **ETA correction, 2026-09-18 (structural audit, Nick: "does the plan all make sense — is what we are doing good?"):** every time below was set assuming WA finishes on its own ~20:30 Fri estimate. Checked against the live workflow view, not carried forward as fact: WA has run 8h15m+ and is still in its Verify phase (13 agents total; last checked, 12 of 13 done). It has already overrun its own ETA. Every downstream time (WO+WB ~05:30 Sat, WC+WD ~13:30 Sat, WE ~14:30 Sat) inherits that slip and is marked **stale** — not restated as if still true. A real re-estimate happens once WA actually finishes, not before.
 

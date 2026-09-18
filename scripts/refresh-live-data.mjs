@@ -81,7 +81,11 @@ export function transactionsCapture({ spawn = spawnSync, log = console.log } = {
   const r = spawn(process.execPath, ['--env-file-if-exists=.env', 'scripts/collect-league-transactions.mjs'],
     { cwd: ROOT, env: process.env, encoding: 'utf8', timeout: 5 * 60 * 1000 });
   const last = outputLines(r).filter(l => !/espn_s2|SWID/.test(l)).at(-1) ?? spawnFailure(r) ?? `exit ${r.status}`;
-  log(`${stamp()} ${'league_tx'.padEnd(18)} ${r.status === 0 ? 'ok' : 'ERROR'} ${last.slice(0, 160)} (${Date.now() - t0} ms)`);
+  // The collector exits 0 even when leagues failed (its sync_log row says 'error');
+  // its summary line carries the count, so the log line must not say ok.
+  const leaguesFailed = Number(/failed (\d+)/.exec(last)?.[1] ?? 0);
+  const ok = r.status === 0 && leaguesFailed === 0;
+  log(`${stamp()} ${'league_tx'.padEnd(18)} ${ok ? 'ok' : 'ERROR'} ${last.slice(0, 160)} (${Date.now() - t0} ms)`);
 }
 
 // Every team's roster and lineup slots for the current scoring period, plus a one-time

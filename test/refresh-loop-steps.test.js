@@ -75,6 +75,19 @@ test('G2h: the roster snapshot step runs the collector with node, from the repo 
   assert.match(lines[0], /ESPN 503/, 'the failing league is on the log line, not only the summary');
 });
 
+test('league_tx: a collector run where leagues failed is not logged as ok (the collector exits 0 either way)', () => {
+  // Seen in a tick on the production copy with the network blocked: "ok transactions: seen 0, new 0, failed 5".
+  for (const [stdout, label] of [
+    ['league 1: ERROR fetch blocked\ntransactions: seen 0, new 0, failed 5\n', 'ERROR'],
+    ['league 1 A: 40 in window, 0 new, 900 stored\ntransactions: seen 236, new 1, failed 0\n', 'ok'],
+  ]) {
+    const { spawn } = fakeSpawn({ 'collect-league-transactions.mjs': { status: 0, stdout } });
+    const lines = [];
+    LOOP.transactionsCapture({ spawn, log: l => lines.push(l) });
+    assert.match(lines[0], new RegExp(`league_tx\\s+${label} transactions:`), lines[0]);
+  }
+});
+
 // ---------------------------------------------------------------- manager signals
 test('G1a: manager signals is the hand-off\'s exact spawn', () => {
   const { spawn, calls } = fakeSpawn({ 'build-manager-signals.mjs': { stdout: 'manager_signals: ok in 380 ms\n' } });

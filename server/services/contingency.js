@@ -385,11 +385,13 @@ export function resetAvailabilityCache() {
   _roleCache.clear();
 }
 /**
- * Row count and newest fitted_at of both tables. The lookup used to be held for the
- * life of the process, so a refit written by scripts/fit-availability.mjs (another
- * process) was never read until a restart. Two cheap reads per weeklyAvailability().
+ * Row count and newest fitted_at of both tables: which availability fit is live.
+ * Keys the lookup below (it used to be held for the life of the process, so a refit
+ * written by scripts/fit-availability.mjs in another process was never read until a
+ * restart; two cheap reads per weeklyAvailability()), and is recorded by
+ * scripts/fit-posture-calibration.mjs beside the dataset SPREAD_SCALE is fit on.
  */
-function fittedStamp() {
+export function availabilityFitStamp() {
   const part = table => {
     try {
       const r = rows(`SELECT COUNT(*) AS n, MAX(fitted_at) AS f FROM ${table}`)[0];
@@ -399,7 +401,7 @@ function fittedStamp() {
   return `${part('nfl_availability_rates')}|${part('nfl_availability_role_rates')}`;
 }
 function fittedAvailability() {
-  const stamp = fittedStamp();
+  const stamp = availabilityFitStamp();
   if (_fittedCache !== undefined && stamp === _fittedStamp) return _fittedCache;
   _fittedStamp = stamp;
   let rates = [], roleRates = [];

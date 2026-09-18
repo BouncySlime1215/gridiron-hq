@@ -59,8 +59,12 @@
  *   projected >= 4 by every model: one common pair set; ties score 0.5), CRPS and
  *   coverage_80 on 2025 weeks 2-4 for (a), (b) and the shipped candidate.
  *
- * Usage: node scripts/promote-early-week-weights.mjs [--dry-run] [--out results.json]
+ * Usage: node scripts/promote-early-week-weights.mjs [--dry-run] [--out results.json] [--baseline-fit 1]
  * --dry-run grades and prints everything, writes nothing.
+ * --baseline-fit picks the stored fit whose position vectors are baseline (a), by id
+ * (default 1, the fit-1 this gate was graded against). It used to be whatever
+ * activeWeeklyWeightSet({2026, week 3}) returned, so a later promotion of new position
+ * vectors would have changed (a) without anyone deciding to.
  */
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
@@ -217,12 +221,13 @@ async function main() {
   const { spearman } = await import('../server/services/backtest.js');
   const { WEEKLY_ROLE_RECENCY, weeklyEnsemblePrediction, weeklyWeightSetForWeek } =
     await import('../server/services/weekly-ensemble.js');
-  const { activeWeeklyWeightSet, saveWeeklyFit, validateEarlyWeights } =
+  const { activeWeeklyWeightSet, weeklyWeightSetById, saveWeeklyFit, validateEarlyWeights } =
     await import('../server/services/weekly-weight-store.js');
   const { dbPath } = await import('../server/db/index.js');
 
   const report = { db: dbPath, dry_run: DRY, gate: 'see header', seasons: {} };
-  const live = activeWeeklyWeightSet({ season: 2026, week: 3 });
+  const baselineIdx = process.argv.indexOf('--baseline-fit');
+  const live = weeklyWeightSetById(baselineIdx > 0 ? Number(process.argv[baselineIdx + 1]) : 1);
   // Baseline (a) is the per-position vectors only, even if an early block is already live.
   const liveWeights = Object.fromEntries(POSITIONS.map(p => [p, live.weights[p]]));
   for (const p of POSITIONS) {

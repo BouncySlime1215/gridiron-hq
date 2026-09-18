@@ -22,13 +22,19 @@
  * Usage: node scripts/fit-weekly-coverage.mjs             fit + the one 2025 validation
  *        node scripts/fit-weekly-coverage.mjs --fit-only  never touches 2025
  *        add --json <path> to write every number printed to a file
+ *        add --center-fit <id> to centre on another stored weekly fit (default 1)
+ *
+ * The draw count and seed move coverage by more than the band's margin with the model
+ * fixed: 2025 weeks 5-18 read 0.775-0.783 across seeds and draw counts, and 0.778 at
+ * production's 2,000 draws (docs/evidence/baselines/2025-weekly-distribution-draws.json).
+ * A gate that uses RUNS = 300 and one seed is recorded with both; changing either is a
+ * new gate, not a re-run.
  */
 process.env.SCHEDULER_DISABLED ??= '1';
 const { replaySeasonWeekly } = await import('../server/services/weekly-backtest.js');
 const { WEEKLY_ROLE_RECENCY, weeklyEnsemblePrediction } = await import('../server/services/weekly-ensemble.js');
-const { activeWeeklyWeightSet } = await import('../server/services/weekly-weight-store.js');
+const { weeklyWeightSetById } = await import('../server/services/weekly-weight-store.js');
 const { WEEKLY_LEVEL, buildProjections, sampleWeeks } = await import('../server/services/projections.js');
-const { tradeWeekContext } = await import('../server/services/trade-engine.js');
 const { pairedBootstrapDiff } = await import('../server/services/backtest-significance.js');
 const { random, withRandomSeed } = await import('../server/services/stats-util.js');
 const { PPR } = await import('../server/services/scoring.js');
@@ -47,8 +53,10 @@ const { writeFileSync } = await import('node:fs');
  * shipped combination happens to land back inside the gate, but the cited figure
  * was measured on a model the app does not run.
  *
- * The centring head is the LIVE champion — activeWeeklyWeightSet(tradeWeekContext()),
- * the weights production uses this week — on every replayed season. It used to be
+ * The centring head is fit-1, read by id (--center-fit). It was the live champion —
+ * activeWeeklyWeightSet(tradeWeekContext()) — which made the centre depend on the day
+ * the script ran: once fit-2 (early-week buckets) was promoted the same command graded
+ * a different model and the recorded numbers could not be reproduced. It used to be
  * activeWeeklyWeightSet({ season, week: 5 }) per replayed season. That is cutoff-clean,
  * but the only promoted fit (fit-1) is trained through 2025 W18, so it resolved to the
  * frozen 2023 WEEKLY_ENSEMBLE_WEIGHTS on 2023, 2024 AND 2025: the spread was fitted
@@ -57,8 +65,9 @@ const { writeFileSync } = await import('node:fs');
  * fit-1 was trained on 2023-2025, so the centre is mildly in-sample on every replayed
  * season (5 global weights). The spread is the only thing fitted here, on 2023 + 2024.
  */
-const LIVE = tradeWeekContext();
-const champion = activeWeeklyWeightSet(LIVE);
+const centerIdx = process.argv.indexOf('--center-fit');
+const CENTER_FIT = centerIdx >= 0 ? Number(process.argv[centerIdx + 1]) : 1;
+const champion = weeklyWeightSetById(CENTER_FIT);
 const production = () => ({
   kOverride: undefined /* cutoff-safe default: shrinkage-fit.js cutoffSafeKVector */, roleRecency: WEEKLY_ROLE_RECENCY,
   predictionHead: ctx => weeklyEnsemblePrediction(ctx, champion.weights),
@@ -165,9 +174,9 @@ function summarize(scored, idx = null) {
 const indexWhere = (rows, f) => rows.map((r, i) => (f(r) ? i : -1)).filter(i => i >= 0);
 const avg = (xs, f) => xs.reduce((s, x) => s + f(x), 0) / xs.length;
 const f3 = x => x.toFixed(3);
-const report = { live: LIVE, champion: champion.id, shipped: WEEKLY_LEVEL };
+const report = { champion: champion.id, champion_data_hash: champion.data_hash, runs: RUNS, shipped: WEEKLY_LEVEL };
 
-console.log(`Centring head: ${champion.id} = activeWeeklyWeightSet(${LIVE.season} W${LIVE.week}); ` +
+console.log(`Centring head: ${champion.id} (pinned by id, --center-fit); ` +
   `shipped WEEKLY_LEVEL ${JSON.stringify(WEEKLY_LEVEL)}.`);
 console.log(`Sweeping ${grid.length} mean-preserving settings on ${FIT_SEASONS.join(' + ')}.\n`);
 

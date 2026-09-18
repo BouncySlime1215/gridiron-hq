@@ -1,7 +1,7 @@
 /**
  * Fit and gate the rest-of-season projection (server/services/ros-projection.js).
  *
- *   node scripts/fit-ros-projection.mjs [--smoke] [--out results.json]
+ *   node scripts/fit-ros-projection.mjs [--smoke] [--out results.json] [--baseline-fit 1]
  *
  * Reads the database only (point GRIDIRON_DB_PATH at a copy for experiments). Prints
  * the per-w table, the gate verdict and, on PASS, the live params to paste into
@@ -20,7 +20,9 @@
  *   points over w+1..18 / his team's games in w+1..18 (did-not-play = 0).
  * Candidates (per game played, no availability term):
  *   (a) current  = weekly blend for week w+1, activeWeeklyWeightSet({season:2026,
- *                  week:3}) weights (what ros_ppg is today)
+ *                  week:3}) weights (what ros_ppg is today) — that call returned fit-1
+ *                  when this gate ran; the script now reads fit-1 by id
+ *                  (--baseline-fit, default 1) so a re-run grades the same baseline
  *   (b) structural head alone
  *   (c) preseason prior: c_mkt = preseason-model.js market curve -> c_struct -> (b);
  *       c_struct = buildProjections({through: s-1}) -> (b)
@@ -48,7 +50,7 @@ const { buildProjections } = await import('../server/services/projections.js');
 const { actuals, spearman } = await import('../server/services/backtest.js');
 const { WEEKLY_ROLE_RECENCY, weeklyEnsembleContext, weeklyEnsemblePrediction } =
   await import('../server/services/weekly-ensemble.js');
-const { activeWeeklyWeightSet } = await import('../server/services/weekly-weight-store.js');
+const { weeklyWeightSetById } = await import('../server/services/weekly-weight-store.js');
 const { pairedBootstrapDiff } = await import('../server/services/backtest-significance.js');
 const {
   ROS_POSITIONS, rosPriorMap, priorFor, predictRow, selectRosStructure, evaluateRosGate
@@ -66,7 +68,17 @@ const TRAIN = { 2023: [2022], 2024: [2023], 2025: [2023, 2024], live: [2023, 202
 const REPORT_SEASONS = SMOKE ? [2023] : [2023, 2024, 2025];
 const VALIDATION = [2024, 2025];
 
-const blendWeights = activeWeeklyWeightSet({ season: 2026, week: 3 });
+// Pinned, not looked up: activeWeeklyWeightSet({2026, week 3}) returned fit-1 when this
+// gate was graded and returns fit-2 (structural only in weeks 2-4) today, which would
+// turn baseline (a) into (b) for w 1-3 and make the recorded table unreproducible.
+const PREREGISTERED_BASELINE_FIT = 1;
+const baselineIdx = args.indexOf('--baseline-fit');
+const BASELINE_FIT = baselineIdx >= 0 ? Number(args[baselineIdx + 1]) : PREREGISTERED_BASELINE_FIT;
+const blendWeights = weeklyWeightSetById(BASELINE_FIT);
+if (BASELINE_FIT !== PREREGISTERED_BASELINE_FIT) {
+  console.error(`NOTE: baseline (a) is ${blendWeights.id}, not the pre-registered fit-${PREREGISTERED_BASELINE_FIT}; ` +
+    'the verdict below is NOT the registered gate and the exit code is 2');
+}
 const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : NaN);
 const r3 = x => (Number.isFinite(x) ? +x.toFixed(3) : null);
 
@@ -139,7 +151,8 @@ for (const s of seasonsNeeded) {
 }
 const primary = s => data.get(s).filter(r => r.actual != null);
 
-const report = { blend_weights: blendWeights.id, seasons: {}, gate: null, live: null };
+const report = { blend_weights: blendWeights.id, blend_weights_data_hash: blendWeights.data_hash,
+  preregistered_baseline: BASELINE_FIT === PREREGISTERED_BASELINE_FIT, seasons: {}, gate: null, live: null };
 const gateRows = [];
 for (const s of REPORT_SEASONS) {
   const train = TRAIN[s].flatMap(primary);
@@ -223,4 +236,4 @@ if (report.gate) {
 }
 console.error(`done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 if (OUT) fs.writeFileSync(OUT, JSON.stringify(report, null, 2));
-process.exit(SMOKE ? 0 : report.gate?.pass ? 0 : 1);
+process.exit(BASELINE_FIT !== PREREGISTERED_BASELINE_FIT ? 2 : SMOKE ? 0 : report.gate?.pass ? 0 : 1);

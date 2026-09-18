@@ -417,3 +417,34 @@ League Hub card exclude exactly the same two IR players.
 | A2 League Hub card rounds to 0.1 | 1 |
 | A3 matchup card ignores INJURY_RESERVE | 1 |
 | A4 League Hub card ignores INJURY_RESERVE | 2 |
+
+## 15. Gate scripts graded whatever baseline was promoted on the day (medium x2; eval-harness)
+
+Journey: as whoever re-runs a gate, I want the same command to grade the same
+baseline it was registered against, and a cached dataset to be refused when the model
+that priced it has changed.
+
+RED (137c2d2): 3 of 3 fail (no read-by-id, no availability stamp). Fix:
+`weekly-weight-store.js#weeklyWeightSetById(id, { week })` and
+`contingency.js#availabilityFitStamp()`. Scripts:
+
+| Script | Before | After |
+|--------|--------|-------|
+| fit-ros-projection.mjs | baseline (a) = activeWeeklyWeightSet({2026, 3}) | `--baseline-fit`, default 1 (registered); another id prints a note and exits 2; the result file records the fit id and data hash |
+| fit-posture-calibration.mjs | centre = activeWeeklyWeightSet({2026, 3}); cache loaded unconditionally | `--center-fit`, default 1; the dataset records centre fit + availability stamp; a cache built under others is refused (exit 2) |
+| fit-weekly-coverage.mjs | centre = activeWeeklyWeightSet(tradeWeekContext()) — today's date | `--center-fit`, default 1; header records the draw-count sensitivity and the committed baseline file |
+| promote-early-week-weights.mjs | (a) = today's active position vectors | `--baseline-fit`, default 1 |
+
+Evidence on the snapshot: `fit-ros-projection.mjs --smoke` exits 0 with
+`blend_weights: fit-1`; the same run with `--baseline-fit 2` exits 2 and shows why the
+pin matters — pooled early d-a moves from -0.724 to -0.132 and b-a from -0.642 to
+-0.050, because fit-2's weeks 2-4 already are the structural head. The posture script
+refuses an unversioned cached dataset (exit 2, message names both versions). The
+coverage script starts with "Centring head: fit-1 (pinned by id)". The play-chance
+handoff now says to re-fit the posture spread after the role rates are written (the
+posture dataset was built at 00:01, six minutes before the live availability fit, and
+did not record which one priced it).
+
+Regression: pinned-baselines 3/3, weekly-early-week-blend 19/19,
+weekly-retrain-early-carry 4/4, model-integrity 94/94, availability-role 17/17,
+asset-universe-fingerprint 5/5, ros-projection-failures 4/4.

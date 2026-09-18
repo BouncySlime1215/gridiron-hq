@@ -51,6 +51,20 @@ export function latestWeeklyWeightSet() {
   return weightSetFrom(fit);
 }
 
+/**
+ * One stored fit by its numeric id, whatever is promoted now. For gate scripts, whose
+ * baseline is pre-registered by id: looking it up with activeWeeklyWeightSet() at run
+ * time grades a different baseline as soon as a new fit is promoted, and the recorded
+ * result can no longer be reproduced. `week` applies the early-week window exactly as
+ * activeWeeklyWeightSet does. `data_hash` identifies the fit in a result file.
+ */
+export function weeklyWeightSetById(id, { week = null } = {}) {
+  if (!Number.isInteger(id)) throw new Error(`weeklyWeightSetById needs an integer fit id (got ${JSON.stringify(id)})`);
+  const fit = rows('SELECT * FROM weekly_ensemble_fits WHERE id = ?', id)[0];
+  if (!fit) throw new Error(`weekly ensemble fit ${id} is not stored in this database`);
+  return { ...weightSetFrom(fit, week), source: 'pinned', data_hash: fit.data_hash };
+}
+
 function weightSetFrom(fit, week = null) {
   if (!fit) return { id: 'frozen-2023', weights: WEEKLY_ENSEMBLE_WEIGHTS, source: 'frozen' };
   const weights = JSON.parse(fit.weights_json);

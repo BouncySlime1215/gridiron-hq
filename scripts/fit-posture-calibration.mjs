@@ -32,9 +32,19 @@
  * Usage (never against the live file; point GRIDIRON_DB_PATH at a copy):
  *   GRIDIRON_DB_PATH=/path/copy.sqlite node scripts/fit-posture-calibration.mjs \
  *     --dataset /path/posture-dataset.json [--rebuild] [--fit-only] [--out /path/result.json]
+ *     [--center-fit 1]
  *
  *   --dataset   where the calibration rows are cached (built on first run, ~1 min)
  *   --rebuild   rebuild the rows even if the cache exists
+ *   --center-fit  the weekly ensemble fit the replay is centred on, by id (default 1,
+ *               the fit-1 head GATE names). It used to be whatever
+ *               activeWeeklyWeightSet({2026, week 3}) returned on the day.
+ *
+ * The cached dataset records the centre fit and the availability fit it was built with
+ * (contingency.js#availabilityFitStamp: rows and fitted_at of both rate tables). A
+ * cache built under different ones is refused; pass --rebuild. SPREAD_SCALE absorbs
+ * the noise the availability discount adds to the edge (lineup-posture.js), so a
+ * refit of availability — the play-chance role layer — needs a re-run of this script.
  *   --fit-only  fit and select on 2023+2024 and stop; 2025 is not read
  *   --out       write the full result (fits, gate, reliability tables) as JSON
  */
@@ -65,6 +75,7 @@ const flag = name => args.includes(name);
 const opt = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
 
 const DATASET = opt('--dataset', path.join(os.tmpdir(), 'posture-calibration-dataset.json'));
+const CENTER_FIT = Number(opt('--center-fit', '1'));
 const OUT = opt('--out', null);
 const FIT_SEASONS = [2023, 2024];
 const VALIDATION_SEASON = 2025;
@@ -114,7 +125,7 @@ async function buildDataset() {
   const { rows } = await import('../server/db/index.js');
   const { replaySeasonWeekly } = await import('../server/services/weekly-backtest.js');
   const { WEEKLY_ROLE_RECENCY, weeklyEnsemblePrediction } = await import('../server/services/weekly-ensemble.js');
-  const { activeWeeklyWeightSet } = await import('../server/services/weekly-weight-store.js');
+  const { weeklyWeightSetById } = await import('../server/services/weekly-weight-store.js');
   const { buildProjections, sampleWeeks } = await import('../server/services/projections.js');
   const { weeklyAvailability } = await import('../server/services/contingency.js');
   const { PPR } = await import('../server/services/scoring.js');
@@ -124,7 +135,9 @@ async function buildDataset() {
   // predictions are in-sample for the ensemble WEIGHTS (a handful of numbers over
   // 13k rows). That can only make 2025 errors look slightly smaller, i.e. it biases
   // the validation toward a narrower spread, not a wider one.
-  const ws = activeWeeklyWeightSet({ season: 2026, week: 3 });
+  // Pinned by id (--center-fit): the replays are weeks 5-17 and 2-4, and a later fit
+  // with an early-week block would silently change the centre of the 2-4 diagnostic.
+  const ws = weeklyWeightSetById(CENTER_FIT);
   const audit = { weight_set: ws.id, blocks: [] };
   const out = [];
 
@@ -192,7 +205,15 @@ async function buildDataset() {
 
   for (const season of [...FIT_SEASONS, VALIDATION_SEASON]) block(season, MAIN_WEEKS, 'main');
   block(VALIDATION_SEASON, EARLY_WEEKS, 'early');
-  return { built_at: new Date().toISOString(), audit, rows: out };
+  return { built_at: new Date().toISOString(), versions: await datasetVersions(), audit, rows: out };
+}
+
+/** What a cached dataset was built with; a mismatch means it prices a different model. */
+async function datasetVersions() {
+  const { weeklyWeightSetById } = await import('../server/services/weekly-weight-store.js');
+  const { availabilityFitStamp } = await import('../server/services/contingency.js');
+  const ws = weeklyWeightSetById(CENTER_FIT);
+  return { weight_set: ws.id, weight_set_data_hash: ws.data_hash, availability: availabilityFitStamp() };
 }
 
 /* --------------------------------------------------------- synthetic matchups */
@@ -352,6 +373,12 @@ async function main() {
   let data;
   if (!flag('--rebuild') && existsSync(DATASET)) {
     data = JSON.parse(readFileSync(DATASET, 'utf8'));
+    const now = await datasetVersions();
+    if (JSON.stringify(data.versions ?? null) !== JSON.stringify(now)) {
+      console.error(`Refusing the cached dataset ${DATASET}: it was built with ${JSON.stringify(data.versions ?? 'no recorded versions')}, ` +
+        `this database has ${JSON.stringify(now)}. Re-run with --rebuild.`);
+      process.exit(2);
+    }
     console.log(`loaded ${data.rows.length} calibration rows from ${DATASET} (built ${data.built_at})`);
   } else {
     data = await buildDataset();
@@ -364,7 +391,7 @@ async function main() {
   const fitSet = mainSet.filter(m => FIT_SEASONS.includes(m.season));
   console.log(`matchups: ${matchups.length} (ties dropped ${ties}; CV fallback player-slots ${fallback}); fit ${fitSet.length}`);
 
-  const result = { gate: GATE, dataset: DATASET, audit: data.audit, counts: { ties, fallback }, fit: {} };
+  const result = { gate: GATE, dataset: DATASET, versions: data.versions, audit: data.audit, counts: { ties, fallback }, fit: {} };
 
   // 1. Baselines and candidates on the fit seasons.
   const B0 = { model: 'dist', params: { k: BASELINE_SCALE } };

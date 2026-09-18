@@ -109,7 +109,12 @@ Nick's decisions (B2) don't block any of it.
 
 **WE — final:** see D10.
 
-The detailed brief for WO + WB (agents, file ownership, gates) is prepared before launch from parts D and E; every item in part F names its step.
+**WO + WB build list (one workflow, one owner per file; the full brief is written from parts D and E at launch):**
+- *Phase 1, parallel:* **H1** league-history service (the only reader of the league-history data; comps, signal-to-noise, point value by week, spreads, waiver competition, trade timing, lineup efficiency) · **O1** opportunity model (every advanced signal, live-in-2026 check, graded on opportunity and start/sit; includes a re-test of teammate-absence redistribution as a feature) · **O2** injury-return model · **C0** API contracts (plan, Coach, home, opponent read, Team Outlook — every number carries its provenance class).
+- *Phase 2:* **O3** season sim v2 · **O4** Team Outlook (D1-D2, split into the strength model and the calibration/validation/self-grading half, each verified) · **O5** trade value and horizon (replay-fitted blend, measured playoff-week value, real playoff odds, trade-value backtest, correct horizons) · **O6** one "this week" basis, betting-line lift test, coordinator refit on its basis, validated confidence language · **B1** weekly action plan (incl. game-day items) · **B2** Coach (D5-D7: objective, all data incl. chat search, relays the verdict) · **B3** opponent read, scoped news, one current-week definition, free-agent injury status · **B4** UI (home at "/", Coach everywhere, Team Outlook deep dive, budget settings, decision-log view) · **B5** decision log + FAAB guidance · **B6** live negotiation profiles.
+- *Phase 3:* a verifier per item, the full skills review panel, fixes, integration via verification-loop, restart (server and refresh loop).
+
+The detailed brief for WO + WB is prepared before launch from parts D and E; every item in part F names its step.
 
 ### D. The designs
 

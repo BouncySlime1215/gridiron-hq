@@ -11,6 +11,8 @@ import {
   buildProjections, sampleAllocatedWeekEvents, sampleWeekEvents, sampleWeeks, SEASON_WEIGHT
 } from './projections.js';
 import { PPR, scoreLine } from './scoring.js';
+import { redistribute } from './opportunity-redistribution.js';
+import { weeklyAvailability } from './contingency.js';
 import {
   WEEKLY_ROLE_RECENCY,
   weeklyEnsembleContext, weeklyEnsemblePrediction
@@ -156,13 +158,97 @@ function priorScores(season, week, scoring) {
   return out;
 }
 
-export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, useCache = true } = {}) {
+
+/**
+ * Re-price every team's projections for who is actually available this week.
+ *
+ * Volume moves first (measured absorption, team total conserved), then points
+ * follow volume through the player's own efficiency rates — a receiver who
+ * gains four targets gains four targets' worth of catches, yards and
+ * touchdowns at HIS rates, not at a league average. Efficiency itself is left
+ * alone: there is no evidence that a player becomes more efficient because a
+ * teammate sat, and assuming so would double-count the effect.
+ */
+function applyRedistribution(out, season, week, scoring) {
+  const availability = weeklyAvailability(season, week, { through: season - 1 });
+  const byTeam = new Map();
+  for (const [playerId, projection] of out) {
+    if (!projection?.team || !projection.params) continue;
+    (byTeam.get(projection.team) ?? byTeam.set(projection.team, []).get(projection.team)).push(projection);
+  }
+
+  for (const [, roster] of byTeam) {
+    // Only carries and targets. Passing attempts are NOT a pool that gets
+    // shared: when a starting quarterback sits, the backup inherits the job
+    // outright, and every quarterback's projection is already built as though
+    // he were the starter. Treating attempts as divisible turned a backup's
+    // notional 30 attempts into 30 EXTRA attempts for the starter and put
+    // Lamar Jackson at 103 points a game.
+    for (const channel of ['carries', 'targets']) {
+      const players = roster
+        .filter(p => p.position !== 'QB')
+        .map(p => ({
+          player_id: p.player_id, pos: p.position,
+          volume: p.params?.[channel] ?? 0,
+          active: isActive(availability, p),
+        }))
+        .filter(p => p.volume > 0);
+      // Redistribute only from someone who was actually going to carry volume.
+      // A deep backup projected for half a carry vacates nothing, and treating
+      // every such player as an absence would churn the whole roster.
+      const vacating = players.filter(p => !p.active && p.volume >= 2);
+      if (!vacating.length) continue;
+      for (const p of players) if (!p.active && p.volume < 2) p.active = true;
+      const adjusted = redistribute(players);
+      for (const p of roster) {
+        const next = adjusted.get(p.player_id);
+        if (next == null) continue;
+        const prev = p.params[channel] ?? 0;
+        if (Math.abs(next - prev) < 1e-9) continue;
+        p.params = { ...p.params, [channel]: next };
+        p.redistribution = { ...(p.redistribution ?? {}), [channel]: { from: +prev.toFixed(2), to: +next.toFixed(2) } };
+      }
+    }
+  }
+
+  // Re-derive points from the adjusted volume, for everyone who moved.
+  for (const [playerId, projection] of out) {
+    if (!projection.redistribution) continue;
+    const ev = playerWeekEventExpectation(projection, { scoring });
+    const pts = ev?.structural_fantasy_points;
+    if (!Number.isFinite(pts)) continue;
+    out.set(playerId, { ...projection, ppg: +pts.toFixed(2), ppg_before_redistribution: projection.ppg });
+  }
+}
+
+/**
+ * Whose volume is actually up for grabs.
+ *
+ * Requires an EXPLICIT report of out/doubtful/IR. A low durability prior is not
+ * an absence — it is a player who has missed games before, and treating that as
+ * "out this week" marked almost every player on every roster as vacating and
+ * made the redistribution meaningless. The probability itself still multiplies
+ * through elsewhere; this decides only who is being replaced.
+ */
+function isActive(availability, projection) {
+  const a = availability.get(projection.player_id);
+  if (!a?.report_status) return true;
+  return !/out|reserve|\bir\b|pup|suspend|doubtful/i.test(String(a.report_status));
+}
+
+export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, useCache = true,
+  // OFF BY DEFAULT — measured, not assumed. See opportunity-redistribution.js
+  // for the three variants tried and the numbers. Every one made the projection
+  // worse on exactly the player-weeks it was built to fix. Kept behind the flag
+  // because the measurement harness is reusable and the idea may yet work with
+  // a better absorber model; shipped off because the evidence says off.
+  redistributeVolume = false } = {}) {
   if (!Number.isInteger(season) || !Number.isInteger(week) || week < 1 || week > 22) {
     throw new Error('player-week engine requires an integer season and week');
   }
   const weightChampion = activeWeeklyWeightSet({ season, week });
   const cacheKey = JSON.stringify({ season, week, scoring, kOverride: kOverride ?? 'active',
-    version: PLAYER_WEEK_ENGINE_VERSION, weightFit: weightChampion.id });
+    version: PLAYER_WEEK_ENGINE_VERSION, weightFit: weightChampion.id, redistributeVolume });
   if (useCache && engineCache.has(cacheKey)) return engineCache.get(cacheKey);
 
   const structural = buildProjections({
@@ -260,6 +346,15 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
         ensemble_shift: ppg - projection.ppg, player_week_engine: engine })
     });
   }
+  // OPPORTUNITY REDISTRIBUTION. Until now a projection was built from a player's
+  // own history alone, so when a teammate was ruled out nothing moved: a
+  // receiver about to absorb eight extra targets was projected as if it were an
+  // ordinary week. The absorption shares are measured over 2021-2025 single-
+  // absence team-weeks (RB1 out -> RB2 takes 40% of the carries; QB1 out -> QB2
+  // takes 52% of the attempts) and the redistribution conserves the team total,
+  // so nothing is created — one player's loss is another's gain.
+  if (redistributeVolume) applyRedistribution(out, season, week, scoring);
+
   // The truth ledger is part of the shared engine so fantasy and betting inspect
   // the same evidence state. Context-specific consumers may enrich it with
   // opponent, market and weather data, but they cannot replace this foundation.

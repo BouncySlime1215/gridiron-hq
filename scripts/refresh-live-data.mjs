@@ -49,6 +49,12 @@ export const FANTASY_LIVE_JOBS = [
   'rss_news',           // ESPN RSS
   'espn_news',          // ESPN team pages
   'nfl_news_signals',   // typed extraction (Haiku; hourly by its own maxAge)
+  // Fantasy weekly learning: the pregame snapshot of what the engine serves (first write
+  // wins, refused once the slate starts — a missed week is lost), then settlement and the
+  // gated retrain. Every 6 h by its own maxAge. Nothing else runs it while the server has
+  // SCHEDULER_DISABLED=1. It runs in this process, so restart the loop together with the
+  // web server: the snapshot must come from the code that is being served.
+  'nfl_weekly_learning',
 ];
 
 /**

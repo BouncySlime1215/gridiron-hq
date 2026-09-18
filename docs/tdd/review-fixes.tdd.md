@@ -310,3 +310,23 @@ On the snapshot (`se-live.mjs`, HEAD code from the scratch copy vs new): the sam
 Regression: player-availability 15/15, decision-leftovers-waivers 7/7,
 fantasy-workflows 7/7, find-trades 3/3, trade-evidence 6/6, decision-inbox 17/17,
 ros-projection-wiring 1/1.
+
+## 10. Matchup card calibration had no tests (medium; tdd-workflow)
+
+Journey: as Nick, I want the card's win probability and "chase variance / protect the
+lead" stance to stay the fitted rule, so a refactor cannot bring back the old spread.
+
+Characterization tests (`test/posture-calibration.test.js`, 6, closed-form fixtures):
+the constants (1.63, 23, the positional CVs); `my_sd` = 1.63 x root-sum-square of
+projection x CV; win probability = Phi(edge / sqrt(sd1^2 + sd2^2)); the stance turns
+at exactly 23 (-22.9 neutral, -23.0 chase, +23 protect); a 0-point player adds no
+variance; the variance search (a superflex OP case where a receiver or a tight end
+trades half a point for spread) offers the healthy player and never the one flagged
+out. No production change.
+
+| Mutation (scratch copy) | Tests failing |
+|-------------------------|---------------|
+| P1 SPREAD_SCALE 1.63 -> 1.9 | 4 |
+| P2 MATERIAL_EDGE 23 -> 12 | 2 (constants, stance boundary) |
+| P3 spread from each player's own (ceiling - floor) / 2.56 | 4 |
+| P4 flagged players allowed into the swap pool | 1 |

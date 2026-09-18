@@ -6,6 +6,32 @@
 
 ---
 
+## 0aa. REVISED PRIORITY ORDER (2026-09-17, after the study ran)
+
+The study is done (`docs/TARGET-SPEC.md`, gate 15/15). It invalidated three things in the order below and exposed one omission. **This section overrides the phase sequence in section 4.**
+
+**What broke:**
+1. **Phase 1f (per-stat ML head) was priority one; its ceiling is now measured and small.** Projections beat real managers by ~+0.2 wins/season, and our own replay puts managers at 79% lineup efficiency. Still worth building; no longer first.
+2. **Phase 2 (beat ESPN's MAE) is the wrong gate.** The gate is attainable-arm all-play win rate and bench points per week. Accuracy is instrumental.
+3. **The projection-before-person ordering is backwards.** Season-long fantasy is ~80% luck at the manager level (R* = 0.19). The football half has a low measured ceiling; the counterparty half does not — a manager reversing 5 of 5 untouchable declarations is not a coin flip.
+
+**What was missing:** waivers. "Live players at week 14" is the strongest documented in-season driver and roughly half of a title roster's value arrives after the draft. It gets a phase.
+
+**Execution order:**
+
+| # | Work | Est. | Gate |
+|---|---|---|---|
+| 1 | **Availability** — replace `contingency.js`'s hand-set constants with the measured per-team injury dialect (TB "Questionable" = 81% play, PIT = 47%) | 1 h | bench points; starts-of-inactive-players falls |
+| 2 | **Opportunity redistribution** (Phase 1b) — vacated targets move when a teammate sits | 2 h | attainable all-play; MAE on affected player-weeks |
+| 3 | **Waivers / live players** — NEW. Claim recommendations ranked by win-rate added; live-player count surfaced | 3 h | live players at wk 14 vs league; all-play |
+| 4 | **Expected-points anchor + TD regression** (Phase 1c) | 2 h | attainable all-play |
+| 5 | **Lineup posture by stage** — floor when favoured, ceiling as underdog or in playoffs; volatility's sign is conditional, so the engine switches rather than averages | 2 h | all-play, and win rate vs the actual opponent |
+| 6 | **Counterparty + Coach** (Phases 4–8, largely built) — finish and wire | — | P(accept) calibration; Nick's read of the messages |
+| 7 | **ML head** (Phase 1f) — demoted, ceiling known | 2 d | ≥ 0.010 all-play, sign-stable 4/5 seasons |
+| 8 | **UI teardown** — remove Players, Command Center, League Brain, Trends, Matchups, The Model, Accuracy & Experiments, Data Health, and all four betting tabs. Backends untouched | 2 h | `npm run build` passes |
+
+Everything below stays valid as specification. Only the order and the gates change.
+
 ## 0a. Read first: the target is defined before the model (2026-09-17)
 
 **`docs/WHAT-WINS-STUDY.md`** now precedes every phase below. A five-angle literature review found that season-long fantasy at the manager level is ~80% luck (Cates, R* = 0.19), that good projections beat real managers by only ~+0.2 wins/season, and that the documented in-season edge is keeping live players and capturing value vs market price. So: the study runs first, produces a per-format target spec, and **every gate in Phases 1–9 is re-pointed at attainable-arm all-play win % and bench points instead of MAE.** Availability and live players move to the top; the counterparty layer is the part of the system the luck finding does not touch.

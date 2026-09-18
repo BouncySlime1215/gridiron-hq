@@ -16,6 +16,9 @@ export const name = '058_league_roster_snapshots';
  *   - on_roster 0    — the player was on this team earlier in the period but not in
  *     the latest capture (dropped or traded; kept, he may have scored for the team).
  * Points are this period's only: projected (ESPN statSourceId 1) and actual (0).
+ * pregame_injury_status is ESPN's status at the last capture before the player's
+ * game locked (injury_status keeps moving after kickoff): the history the ESPN->NFL
+ * status mapping needs (plan 00, "no history of ESPN pregame statuses is kept").
  * first_seen_at / changed_at move only when something changed, so re-capturing the
  * same payload writes nothing.
  */
@@ -35,6 +38,7 @@ export function up(db) {
     lineup_slot TEXT,
     is_starter INTEGER NOT NULL CHECK (is_starter IN (0, 1)),
     injury_status TEXT,
+    pregame_injury_status TEXT,
     acquisition_type TEXT,
     lineup_locked INTEGER,
     projected_points REAL,

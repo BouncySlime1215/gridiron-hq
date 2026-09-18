@@ -37,7 +37,7 @@ const BENCH_SLOT = 20, IR_SLOT = 21;
 const FETCH_TIMEOUT_MS = 20_000;
 // Fields compared to decide whether a stored row changed. Timestamps are not.
 const TRACKED = ['player_id', 'player_name', 'position', 'espn_position_id', 'pro_team_id', 'lineup_slot_id',
-  'lineup_slot', 'is_starter', 'injury_status', 'acquisition_type', 'lineup_locked', 'projected_points',
+  'lineup_slot', 'is_starter', 'injury_status', 'pregame_injury_status', 'acquisition_type', 'lineup_locked', 'projected_points',
   'actual_points', 'on_roster', 'source'];
 
 const round2 = x => (Number.isFinite(x) ? Math.round(x * 100) / 100 : null);
@@ -84,7 +84,9 @@ export function rowsFromEntries(entries, { season, period, source, players }) {
       lineup_slot_id: slot,
       lineup_slot: SLOT_NAME[slot] ?? null,
       is_starter: slot === BENCH_SLOT || slot === IR_SLOT ? 0 : 1,
-      injury_status: e.injuryStatus ?? pl.injuryStatus ?? null,
+      // The player's status (ACTIVE, QUESTIONABLE, OUT, INJURY_RESERVE, ...), as waiver-wire and
+      // trade-engine read it. The entry-level injuryStatus is 'NORMAL' on every rostered entry.
+      injury_status: pl.injuryStatus ?? null,
       acquisition_type: e.acquisitionType ?? null,
       lineup_locked: typeof ppe.lineupLocked === 'boolean' ? (ppe.lineupLocked ? 1 : 0) : null,
       projected_points: periodPoints(pl.stats, season, period, 1),
@@ -124,6 +126,10 @@ function writePeriod(leagueId, season, period, byTeam, source, now) {
         const key = `${teamId}|${r.espn_player_id}`;
         present.add(key);
         const old = stored.get(key);
+        // The status he carried into his game: taken while his lineup is still unlocked,
+        // then held (ESPN's status keeps moving after kickoff; boxscores carry no lock flag).
+        r.pregame_injury_status = source === 'live' && r.lineup_locked === 0
+          ? r.injury_status : (old?.pregame_injury_status ?? null);
         if (!old) {
           insert.run(leagueId, season, period, teamId, r.espn_player_id, ...TRACKED.map(c => r[c]), now, now);
           inserted++;

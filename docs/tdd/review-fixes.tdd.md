@@ -160,3 +160,37 @@ leagues and the open lineup rows stay at 2 (the reviewer's run wrote 3 new rows)
 Regression: all 14 files that import trade-engine or the trades route pass (125
 tests; list in `reg-trade-engine.log`). The stale "(>= 4pt threshold)" message in
 decision-inbox.test.js now states the Phi rule.
+
+## 5. Trade floor/ceiling (lineupSpread) had no tests; two comments said the fake-floors bug was live (high + medium; tdd-workflow, coding-standards, eval-harness)
+
+Journey: as Nick, I want every trade's floor and ceiling change to stay the lineup
+total's 10th/90th percentile, so a refactor cannot bring back the "everyone busts at
+once" floor.
+
+Characterization tests (`test/lineup-spread.test.js`, 5): (a) two priced starters give
+mean -/+ 1.2816 sd of the total, not the sum of floors; (b) no spread information gives
+floor null, coverage 0; (c) the floor is clamped at 0; (d) a same-team QB+WR pair adds
+one correlation term and widens sd, and with weekly models floor/ceiling are
+mean -/+ 1.2816 sd; (e) `evaluate().me.floor_delta` equals the difference of the two
+lineupSpread floors and no weekly model is read until the field is. The only
+production change is exporting the `WEEK_MARGINAL` symbol so a fixture can carry a
+weekly model.
+
+| Mutation (scratch copy) | Tests failing |
+|-------------------------|---------------|
+| S1 Z90 1.2816 -> 3 | 1 (d) — survived (a)-(c), where the quantile cancels; (d) was strengthened, then caught it |
+| S2 floor = sum of starters' floors | 1 (a) |
+| S3 correlation term dropped | 1 (d) |
+| S4 floor not clamped at 0 | 1 (c) |
+| S5 spreads computed eagerly in evaluate() | 1 (e) |
+
+Comments: `player-week-engine.js#playerWeekDistribution` said "the fix was held back"
+while the code applied it, and `trade-engine.js` (lineupSpread notes) said the engine
+still scored a sitting week as the shift. Both now state today's behaviour (a sitting
+week is 0 in both places), and `docs/tdd/fake-floors.tdd.md` now says SHIPPED at
+947d66c with the sign-off still owed (deferred to Nick). Checked on the snapshot: 0 of
+1,183 week-2 projections carry an ensemble shift above 0.05, so the fix changes no
+live number until week 5.
+
+Regression: player-week-distribution 12/12, fantasy-workflows 7/7, find-trades 3/3,
+trade-evidence 6/6.

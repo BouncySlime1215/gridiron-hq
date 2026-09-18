@@ -1,10 +1,16 @@
 # TDD evidence: fake floors (2026-09-18)
 
-**Status: FIX HELD BACK, NOT SHIPPED.** The fix is written, tested (12/12 green) and saved as a
-patch (below). It did not ship because gate G1 failed as pre-registered. A control run shows the
-failure has nothing to do with the fix: G1's harness never calls this function, and the unchanged
-engine fails G1 with identical numbers. The gate was not moved. A person has to decide on a re-gate
-(options at the end).
+**Status (corrected 2026-09-18 by review-fixes): SHIPPED at 947d66c, human sign-off still owed.**
+The text below was written when the fix was held back, and it is kept as the record. After it was
+written, commit 947d66c applied the fix: gate G1 had failed as pre-registered (0.776 at 200 draws),
+the control run showed G1 cannot see this function, and the fix was applied on G2 (93 -> 0) and D1
+(quantile loss 1.239 -> 1.229, 90% CI [-0.013, -0.007]). That was a decision the builder had asked
+a person to make, and no person made it. It also turned out that G1's own band is draw-count
+sensitive (docs/evidence/baselines/2025-weekly-distribution-draws.json: 0.775-0.783 with the model
+fixed). At 2026 week 2 the fix changes no live number (every ensemble shift is 0 in weeks 2-4 since
+fit-2), so the decision can wait until week 5, when shifts return. What Nick needs to decide: keep
+the fix on the evidence of G2 + D1 as a new, written gate, or revert 947d66c until a like-for-like
+G1 exists.
 
 **Module:** `server/services/player-week-engine.js#playerWeekDistribution`, the per-player weekly
 floor (p10), ceiling (p90), average, boom and bust shown on roster, trade and waiver assets

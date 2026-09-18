@@ -69,7 +69,8 @@ const SCORED = new Set(SKILL);
 // Per-player weekly-model inputs for lineupSpread() (see there), attached to every
 // asset under this symbol by buildAssetUniverse(). A symbol, not a field: object
 // spread copies it, JSON.stringify and Object.keys skip it.
-const WEEK_MARGINAL = Symbol('weekMarginal');
+// Exported so a test can attach a weekly model to a fixture (test/lineup-spread.test.js).
+export const WEEK_MARGINAL = Symbol('weekMarginal');
 /**
  * What handing over market value costs, per 20% of the value you send.
  *
@@ -571,13 +572,11 @@ export function bestLineup(players, slots, key = 'adj_ppg') {
  *   One starter's week. With probability 1 - active_probability he does not play
  *   and scores exactly 0. Otherwise one played week from projections.js
  *   #sampleWeeks (this week's usage/efficiency params and the mean-preserving
- *   weekly shock) plus the ensemble shift, clamped at 0 — the same inputs as the
- *   per-player floor/ceiling on the asset. One deliberate difference:
- *   player-week-engine.js#playerWeekDistribution also adds the shift to weeks the
- *   player does not play, so there a player who sits scores `shift`, not 0 (found
- *   by the boom/bust verification; the fix belongs in that file). Here a week he
- *   sits is a 0. Each starter's mean and variance come from a fixed, seeded pool
- *   of 2,000 played weeks plus that 0 for the weeks he sits.
+ *   weekly shock) plus the ensemble shift, clamped at 0 — the same inputs, and the
+ *   same 0 for a week he sits, as player-week-engine.js#playerWeekDistribution, so
+ *   this lineup floor and the per-player floor on the asset agree. Each starter's
+ *   mean and variance come from a fixed, seeded pool of 2,000 played weeks plus
+ *   that 0 for the weeks he sits.
  *
  *   Together. The lineup total's mean is the sum of the means; its variance is the
  *   sum of the variances plus 2 rho sd sd for every pair in the same game (the

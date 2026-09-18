@@ -762,25 +762,12 @@ export function explainPlayerWeek(projection) {
  * above it, so the printed floor (p10) was the shift itself: live at 2026 week 2
  * (league 1 assets), 99 of the 99 players projected over 5 with a positive shift
  * (Caleb Williams: floor 13.9 at P(play) 0.76; 482 of the 485 projected over 5 carry
- * P(play) < 0.9). The mean was inflated by (1 - P(play)) x shift. The trade
- * engine's lineupSpread already modelled a sitting week as 0; this now agrees.
+ * P(play) < 0.9). The mean was inflated by (1 - P(play)) x shift.
  *
- * GATE (pre-registered before any run; scratchpad step1b/fake-floors/GATE.md):
- *   G1  2025 weekly harness, distributions on, weeks 5-18, live ensemble head:
- *       coverage_80 in [0.78, 0.82], calibration_error <= 0.111, CRPS <= 3.078.
- *       (The harness samples conditional on playing via sampleWeeks directly and
- *       has no path into this function, so G1 is a regression check only.)
- *   G2  live 2026 week 2, league 1 asset universe: no player with P(play) < 0.9
- *       and a positive shift has floor == shift unless that floor is a genuine
- *       10th percentile of an independent 20,000-draw simulation of the correct
- *       mixture (within 0.5).
- *
- * RESULT (2026-09-18). G2 passed: 93 failing players before, 0 after. G1 FAILED as
- * pre-registered: at the harness default of 200 draws it reads 0.776 / 0.111 / 3.083,
- * and the pre-fix engine reads the same to the last PIT bin (this function is not on
- * the harness path). The live 0.782 / 0.111 / 3.078 were measured at 300 draws
- * (scripts/fit-weekly-coverage.mjs), where both engines reproduce them exactly. The
- * fix was held back on that failure; see docs/tdd/fake-floors.tdd.md for the re-gate.
+ * Shipped at 947d66c; trade-engine.js#lineupSpread treats a sitting week the same way,
+ * so the per-player floor and the lineup floor agree. The gate record (G1 failed at
+ * 200 draws for reasons unrelated to this function, G2 and D1 passed) and the human
+ * sign-off it still needs are in docs/tdd/fake-floors.tdd.md.
  */
 export function playerWeekDistribution(projection, {
   runs = 2000, scoring = PPR, mult = 1, activeProbability = 1, useCache = true

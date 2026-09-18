@@ -161,10 +161,11 @@ export function tradeWeekContext() {
  * This is the most expensive pure function in the fantasy half of the app: it
  * builds a weekly projection engine, a VOR board, a volatility table, schedule
  * outlooks and a 400-run distribution per player. One call is fine. The problem
- * is that the league brain makes about a dozen — `brainState`, `brainPlan`,
+ * is that the surrounding services make about a dozen — `brainState`,
  * `waiverUpgrades`, `sellHigh`, `positionLiquidity`, and one `selfScout` per
  * team — each rebuilding the identical universe from the identical tables, and
  * the page went from 1.3 to 5.0 seconds as those callers were added.
+ * (`brainPlan` was another, until it was retired on 2026-09-18.)
  *
  * A fingerprint cache rather than a TTL, for the reason compute-cache.js
  * explains: keyed on the row counts and newest timestamps of the tables this
@@ -1264,9 +1265,9 @@ function candidates(team, slots, limit = 11, excludeIds = null) {
  * Why it matters: `horizonWeights` splits a deal's value between "now" and the
  * playoff weeks, and the split is driven by P(make playoffs). Nothing ever passed
  * it, so every deal in every league was weighted on the 0.5 prior. Measured on
- * production, 2026 week 2, the real numbers are 0.69 / 0.55 / 0.27 / 0.35 / 0.86 —
- * league 3 was being told its December roster matters twice as much as it does,
- * and league 5 half as much.
+ * production, 2026 week 2, the shipped numbers are 0.69 / 0.58 / 0.26 / 0.31 / 0.87 —
+ * league 3 was being told its December roster matters about twice as much as it
+ * does, and league 5 about half as much.
  *
  * Seeded on purpose. The sim is Monte Carlo; an unseeded run would hand the
  * cache a new key every time and turn a cached search into an uncached one.

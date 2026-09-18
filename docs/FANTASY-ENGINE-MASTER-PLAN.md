@@ -273,6 +273,35 @@ Their value = our value × their personal multipliers, each capped and each from
 
 ---
 
+### 00.9b The Coach is objective-driven, uses ALL the data, and is a chat Nick can ask anything (Nick, ~12:25)
+
+**The objective it holds, per league:** maximise Nick's championship probability. Luck decides most of a season, so the Coach works only the levers Nick controls, in the order the evidence says they matter, and says how each move changes the title odds (from the Team Outlook once it ships; until then, no title-odds number is quoted).
+
+**The path it plans, by stage** (re-planned weekly from the Team Outlook verdict):
+1. *Early (weeks 2-6):* don't act on noise; build roster value — buy players whose owners have soured or whose slow start is noise, sell hype before regression; work waivers every week (+3.45pp of all-play, the strongest measured in-season lever).
+2. *Middle (weeks 7-11):* convert depth into starters (consolidation trades built around what each manager overvalues); fix bye clusters and injury holes before they cost a week.
+3. *Deadline:* contenders buy for weeks 15-17, bubble teams decide with the measured win-now/championship split, long shots sell.
+4. *Weeks 12-14:* seeding, insurance for the starters who matter.
+5. *Playoffs:* lineup posture by matchup (floor when favoured, ceiling as an underdog).
+Always: availability-aware lineups, and never give edges away (pacing, veto-proof offers, not broadcasting who he's shopping).
+
+**It opens every conversation with the status:** per league — where Nick stands (verdict, odds, what changed since last week and why), the one or two moves that matter most this week with timing, and what not to do.
+
+**ALL the data — the tool coverage it must have** (acceptance: one scripted question per row answered from that source, numbers traced):
+
+| Area | Sources the Coach can query |
+|---|---|
+| Players | weekly projection, rest-of-season value, opportunity model, chance to play (with ESPN designation), injury-return timeline, floor/ceiling, news signals, each number's provenance class |
+| My teams | lineups and the one call that matters, Team Outlook (verdict, odds, luck/noise/real, comps), byes, depth, bench points and lineup efficiency |
+| Matchup | this week's win odds and posture, the opponent's lineup and holes, the opponent manager's read |
+| Trades | the Trade Brain: every manager's valuation map, tactics, sendable proposals with ask/fair/floor and send window, acceptance band, trade value and horizon, veto risk |
+| People | chat profile, player sentiment, talk-vs-model reads, bluff record, negotiation profile (updated live), archetype and luck, trade timing from transactions, "how Nick looks" to each person, **search of the league chat** ("what did Raj say about Taylor?") |
+| Market | waivers, FAAB bid history and competition, free-agent injury status |
+| History | league-history comps and base rates (real public leagues, Nick's own leagues, the replay), the decision log (what Nick did before and how it turned out) |
+| League | settings, calendar, playoff format, trade deadline |
+
+**The chat:** a thread per league that remembers the conversation; answers lead with the move, then why (at most three numbers that tell the story), then the approach — for a negotiation: the opener in Nick's voice, what to say and not to say, the anchor/fair/floor, and when to send. It asks a clarifying question only when the answer truly depends on Nick's intent. Numbers only from tool results (propose → verify → retry once), estimates labelled, "I don't have that" instead of a guess. Chat snippets it quotes go to the model under the same standard retention Nick chose for Jev.
+
 ### 00.10 Coach knowledge pack (WB) — negotiation, psychology, fantasy theory
 
 The Coach cannot be back-tested like a forecast, so it is grounded in a curated, cited knowledge pack loaded as its cached prefix:

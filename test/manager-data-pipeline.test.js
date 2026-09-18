@@ -377,6 +377,19 @@ test('signals: a re-run with no new data writes nothing, and new data rewrites t
   assert.notEqual(pricing.counterpartyDataKey(12), keyBefore, 'new data must change the key');
 });
 
+test('signals: a chat league is never rebuilt without its chat DB (that would strip every chat read)', () => {
+  const before = sigRows(11).length;
+  const views = rows('SELECT COUNT(*) AS n FROM manager_player_view WHERE league_id = 11')[0].n;
+  const saved = process.env.GRIDIRON_CHAT_DB_PATH;
+  process.env.GRIDIRON_CHAT_DB_PATH = path.join(temp, 'gone.sqlite');
+  try {
+    const r = signals.buildManagerSignals(11);
+    assert.match(r.error ?? '', /chat DB/);
+  } finally { process.env.GRIDIRON_CHAT_DB_PATH = saved; }
+  assert.equal(sigRows(11).length, before);
+  assert.equal(rows('SELECT COUNT(*) AS n FROM manager_player_view WHERE league_id = 11')[0].n, views);
+});
+
 test('refresh: one call covers every league, uses chat names only where Nick confirmed a chat identity', () => {
   const r = signals.refreshManagerData();
   const byId = new Map(r.leagues.map(l => [l.league_id, l]));

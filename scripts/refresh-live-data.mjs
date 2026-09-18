@@ -115,9 +115,10 @@ export function rosterSnapshots({ spawn = spawnSync, log = console.log, record =
 //
 // The extractor ends with one `league_chat_status {json}` line. It becomes the
 // sync_log 'league_chat' row: 'error' when the run failed (non-zero exit, or no
-// status line), 'partial' while any message is unlabeled because the classifier
-// failed on it (those are never re-sent automatically: the failures seen so far are
-// deterministic, so a retry only spends money), 'ok' otherwise.
+// status line — the classifier exits non-zero on the tick it gives up on a message),
+// 'partial' while any message is unlabeled because the classifier failed on it (a
+// failure is re-sent on the next tick until MAX_CLASSIFY_ATTEMPTS; after that it is
+// given up and reported every run), 'ok' otherwise.
 export function parseChatStatus(lines) {
   const line = lines.filter(l => l.startsWith('league_chat_status ')).at(-1);
   if (!line) return null;
@@ -139,7 +140,9 @@ export function chatBackfill({ spawn = spawnSync, log = console.log, record = re
     : { exit: r.status, error: (failed ?? lines.slice(-3).join(' | ')).slice(0, 300) || 'no status line' });
   const note = detail && failures > 0
     ? ` | ${detail.failed_this_run ? `${detail.failed_this_run} failed classification this run; ` : ''}`
-      + `${detail.failed_outstanding} failed classification outstanding (not retried automatically)`
+      + `${detail.failed_outstanding} failed classification outstanding`
+      + (detail.failed_retryable == null ? ''
+        : ` (${detail.failed_retryable} retried next tick, ${detail.failed_given_up} given up)`)
     : '';
   log(`${stamp()} ${'league_chat'.padEnd(18)} ${status === 'ok' ? 'ok' : status.toUpperCase()} `
     + `${text.slice(0, 200)}${note} (${Date.now() - t0} ms)`);

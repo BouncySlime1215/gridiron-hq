@@ -30,6 +30,10 @@ GROUP_NAME = 'Transfer league 2026'
 APPLE_EPOCH = datetime(2001, 1, 1, tzinfo=timezone.utc)
 # The league's clock. "Night" in the profile means midnight to 6am here, not in UTC.
 LEAGUE_TZ = ZoneInfo('America/New_York')
+# How often one message may be sent before it is given up. Mirrors MAX_ATTEMPTS in
+# scripts/news-line/jev_league_chat.mts, which re-sends exactly the rows counted as
+# backlog here (review-fixes-2, finding 3: a failed row used to be parked for good).
+MAX_CLASSIFY_ATTEMPTS = 3
 
 
 def default_paths():
@@ -148,13 +152,23 @@ def extract(full=False):
 
 
 def unlabeled_backlog():
-    """Named, non-empty rows the classifier has not evaluated yet."""
+    """
+    Named, non-empty rows the classifier will send: never evaluated, or failed with
+    attempts left. The same predicate the classifier itself selects on, so the backlog
+    and the run cannot disagree — a row missing from one and present in the other is
+    exactly how 18 failures became invisible.
+    """
     out = sqlite3.connect(OUT)
     try:
         done = out.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jev_chat_done'").fetchone()
+        # The live table predates `attempts`: those rows read as one attempt used.
+        has_attempts = done and any(r[1] == 'attempts' for r in out.execute("PRAGMA table_info(jev_chat_done)"))
+        attempts = 'COALESCE(d.attempts, 1)' if has_attempts else '1'
+        retryable = (f"(d.msg_id IS NULL OR (d.ok = 0 AND {attempts} < {MAX_CLASSIFY_ATTEMPTS})) AND"
+                     if done else '')
         return out.execute(f"""SELECT COUNT(*) FROM messages m
             {'LEFT JOIN jev_chat_done d ON d.msg_id = m.msg_id' if done else ''}
-            WHERE {'d.msg_id IS NULL AND' if done else ''} m.name IS NOT NULL
+            WHERE {retryable} m.name IS NOT NULL
               AND m.text IS NOT NULL AND trim(replace(m.text, char(65532), '')) <> ''""").fetchone()[0]
     finally:
         out.close()
@@ -180,34 +194,41 @@ def classify():
 
 def classifier_failures():
     """
-    Messages the classifier gave up on: jev_chat_done rows with ok = 0, and their
-    errors grouped (at most 5, each cut to 120 characters). The classifier exits 0
-    after failing rows and marks them done, so without this they were invisible.
-    They are deliberately not re-sent: the failures seen so far are deterministic
-    (the same schema error every time), so an automatic retry only spends money.
+    Messages the classifier could not label: jev_chat_done rows with ok = 0, split into
+    the ones it will send again (attempts left) and the ones it has given up on, with
+    their errors grouped (at most 5, each cut to 120 characters). The classifier exits 0
+    after a retryable failure and marks the row done, so without this they were invisible.
+
+    @returns (outstanding, retryable, given_up, errors)
     """
     out = sqlite3.connect(OUT)
     try:
         if not out.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='jev_chat_done'").fetchone():
-            return 0, {}
+            return 0, 0, 0, {}
+        has_attempts = any(r[1] == 'attempts' for r in out.execute("PRAGMA table_info(jev_chat_done)"))
+        attempts = 'COALESCE(attempts, 1)' if has_attempts else '1'
         n = out.execute("SELECT COUNT(*) FROM jev_chat_done WHERE ok = 0").fetchone()[0]
+        given_up = out.execute(
+            f"SELECT COUNT(*) FROM jev_chat_done WHERE ok = 0 AND {attempts} >= {MAX_CLASSIFY_ATTEMPTS}").fetchone()[0]
         errors = dict(out.execute("""SELECT COALESCE(substr(error, 1, 120), '(no message)') AS e, COUNT(*)
             FROM jev_chat_done WHERE ok = 0 GROUP BY e ORDER BY COUNT(*) DESC, e LIMIT 5""").fetchall())
-        return n, errors
+        return n, n - given_up, given_up, errors
     finally:
         out.close()
 
 
-def report_classifier_failures(before, after, errors):
+def report_classifier_failures(before, after, errors, retryable=0, given_up=0):
     """Say it loudly; returns how many failed in this run."""
     this_run = max(0, after - before)
     grouped = '; '.join(f'{n} x {e}' for e, n in errors.items())
     if this_run:
-        print(f'classify: WARNING {this_run} message(s) failed classification this run and are '
-              f'not retried automatically ({after} unlabeled by failures in total): {grouped}')
+        print(f'classify: WARNING {this_run} message(s) failed classification this run '
+              f'({after} outstanding: {retryable} retried next run, {given_up} given up after '
+              f'{MAX_CLASSIFY_ATTEMPTS} attempts): {grouped}')
     elif after:
-        print(f'classify: WARNING {after} message(s) failed classification earlier and are '
-              f'not retried automatically: {grouped}')
+        print(f'classify: WARNING {after} message(s) failed classification earlier '
+              f'({retryable} retried next run, {given_up} given up after {MAX_CLASSIFY_ATTEMPTS} '
+              f'attempts and never re-sent): {grouped}')
     return this_run
 
 
@@ -288,20 +309,22 @@ def main():
     new = extract(full=a.full)
     failed = 0
     ran = False
-    before, _ = classifier_failures()
+    before, _, _, _ = classifier_failures()
     # Also when earlier rows are still unlabeled: classify used to run only on new rows,
-    # so a run that failed left its rows unlabeled until someone happened to text.
+    # so a run that failed left its rows unlabeled until someone happened to text. A
+    # failure with attempts left is backlog too, so an outage is recovered from.
     if a.classify and (new or a.full or unlabeled_backlog()):
         ran = True
         failed = classify()
-    after, errors = classifier_failures()
-    this_run = report_classifier_failures(before, after, errors)
+    after, retryable, given_up, errors = classifier_failures()
+    this_run = report_classifier_failures(before, after, errors, retryable, given_up)
     if a.rollup: rollup()
     # One machine-readable line, always last before any exit: the refresh loop turns it
     # into the sync_log 'league_chat' row (partial while failures are outstanding).
     print('league_chat_status ' + json.dumps({
         'extract_new': new, 'classify': {'ran': ran, 'exit': failed if ran else None},
-        'failed_this_run': this_run, 'failed_outstanding': after, 'failed_errors': errors}))
+        'failed_this_run': this_run, 'failed_outstanding': after, 'failed_retryable': retryable,
+        'failed_given_up': given_up, 'failed_errors': errors}))
     # The rollup still runs on what is labeled; the loop must still see the failure.
     if failed: sys.exit(f'classify failed (exit {failed})')
 

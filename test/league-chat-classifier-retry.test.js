@@ -40,6 +40,7 @@ function seed() {
     name TEXT, is_from_me INTEGER, ts_utc TEXT, text TEXT, is_tapback INTEGER, is_reply INTEGER)`);
   chat.exec(`INSERT INTO messages VALUES (1, 'group', 'League', 'h1', 'Alice', 0, '2026-09-17T18:00:00Z', 'want to trade?', 0, 0)`);
   chat.close();
+  fs.rmSync(appDb, { force: true });
   const app = new DatabaseSync(appDb);
   app.exec(`CREATE TABLE players (id INTEGER PRIMARY KEY, name TEXT, position TEXT);
             CREATE TABLE player_week_usage (player_id INTEGER, season INTEGER, week INTEGER);

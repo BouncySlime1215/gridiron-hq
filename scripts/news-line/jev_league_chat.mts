@@ -18,16 +18,28 @@
  *
  * Usage: set -a; . ./.env.local; set +a; npx tsx scripts/news-line/jev_league_chat.mts [--limit N]
  */
-import { experimental_evaluate as evaluate } from 'ai';
+import { experimental_evaluate } from 'ai';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const REPO = path.resolve(import.meta.dirname, '../..');
-const CHAT_DB = path.join(REPO, 'data/derived/league_chat.sqlite');
-const APP_DB = path.join(REPO, 'server/data.sqlite');
+// Same environment names the extractor uses (scripts/chat/extract_league_chat.py), so a
+// test can point both at a fixture instead of the real private extract.
+const CHAT_DB = process.env.LEAGUE_CHAT_OUT ?? path.join(REPO, 'data/derived/league_chat.sqlite');
+const APP_DB = process.env.GRIDIRON_DB_PATH ?? path.join(REPO, 'server/data.sqlite');
 const CONCURRENCY = 8;
 const MAX_USD = Number(process.env.JEV_MAX_USD ?? 1.0);
+// How often one message may be sent before it is given up. A failed row used to be
+// parked for good, so a gateway outage lost every row it touched (review-fixes-2,
+// finding 3). Mirrored by MAX_CLASSIFY_ATTEMPTS in scripts/chat/extract_league_chat.py,
+// which counts exactly the rows this run will re-send.
+const MAX_ATTEMPTS = 3;
+// Test seam: a module exporting `evaluate`, honoured only under NODE_ENV=test, so the
+// retry policy is testable without sending a message anywhere.
+const evaluate = process.env.NODE_ENV === 'test' && process.env.JEV_EVALUATE_MODULE
+  ? (await import(process.env.JEV_EVALUATE_MODULE)).evaluate as typeof experimental_evaluate
+  : experimental_evaluate;
 
 const QUESTIONS = {
   topic: {
@@ -103,7 +115,11 @@ chat.exec('PRAGMA busy_timeout=60000');
 chat.exec(`CREATE TABLE IF NOT EXISTS jev_chat_signals (
   msg_id INTEGER NOT NULL, name TEXT, chat_kind TEXT, mentioned_player TEXT,
   question TEXT NOT NULL, probability REAL, evaluated_at TEXT NOT NULL, PRIMARY KEY (msg_id, question))`);
-chat.exec(`CREATE TABLE IF NOT EXISTS jev_chat_done (msg_id INTEGER PRIMARY KEY, evaluated_at TEXT, input_tokens INTEGER, ok INTEGER, error TEXT)`);
+chat.exec(`CREATE TABLE IF NOT EXISTS jev_chat_done (msg_id INTEGER PRIMARY KEY, evaluated_at TEXT, input_tokens INTEGER, ok INTEGER, error TEXT, attempts INTEGER NOT NULL DEFAULT 0)`);
+// The live table predates `attempts`; its rows read as one attempt used (COALESCE below).
+if (!(chat.prepare('PRAGMA table_info(jev_chat_done)').all() as { name: string }[]).some(c => c.name === 'attempts')) {
+  chat.exec('ALTER TABLE jev_chat_done ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0');
+}
 
 // Player names for mention pre-extraction.
 //
@@ -161,21 +177,27 @@ if (process.argv.includes('--recheck-mentions')) {
 const limitArg = process.argv.indexOf('--limit');
 const LIMIT = limitArg > -1 ? Number(process.argv[limitArg + 1]) : 0;
 const rows = chat.prepare(`
-  SELECT m.msg_id, m.name, m.chat_kind, m.chat_name, m.ts_utc, m.text, m.is_tapback
+  SELECT m.msg_id, m.name, m.chat_kind, m.chat_name, m.ts_utc, m.text, m.is_tapback,
+         COALESCE(d.attempts, CASE WHEN d.msg_id IS NULL THEN 0 ELSE 1 END) AS attempts
   FROM messages m LEFT JOIN jev_chat_done d ON d.msg_id = m.msg_id
-  WHERE d.msg_id IS NULL
+  -- Never sent, or failed with attempts left. extract_league_chat.py#unlabeled_backlog
+  -- counts exactly these rows, so the backlog and this query cannot disagree.
+  WHERE (d.msg_id IS NULL OR (d.ok = 0 AND COALESCE(d.attempts, 1) < ${MAX_ATTEMPTS}))
     AND m.name IS NOT NULL  -- unnamed = a handle not in participants yet (extract_league_chat.py); never sent
     AND m.text IS NOT NULL AND trim(replace(m.text, char(65532), '')) <> ''  -- 'W', 'L', 'gg', a lone emoji all count; only the bare attachment placeholder is skipped
   ORDER BY m.chat_name, m.ts_utc ${LIMIT ? 'LIMIT ' + LIMIT : ''}`).all() as any[];
-console.log(`${rows.length.toLocaleString()} messages to classify — everyone incl. Nick, tapbacks included (standard retention)`);
+const retrying = rows.filter(r => Number(r.attempts) > 0).length;
+console.log(`${rows.length.toLocaleString()} messages to classify — everyone incl. Nick, tapbacks included (standard retention)` +
+  (retrying ? `; ${retrying} of them a retry of an earlier failure` : ''));
 
 // Context: the two messages before this one in the same thread.
 const ctxStmt = chat.prepare(`SELECT name, text FROM messages WHERE chat_name = ? AND ts_utc < ? AND text IS NOT NULL
   AND name IS NOT NULL AND is_tapback = 0 ORDER BY ts_utc DESC LIMIT 2`);
 const insSig = chat.prepare('INSERT OR REPLACE INTO jev_chat_signals VALUES (?,?,?,?,?,?,?)');
-const insDone = chat.prepare('INSERT OR REPLACE INTO jev_chat_done VALUES (?,?,?,?,?)');
+const insDone = chat.prepare(`INSERT OR REPLACE INTO jev_chat_done
+  (msg_id, evaluated_at, input_tokens, ok, error, attempts) VALUES (?,?,?,?,?,?)`);
 
-let ok = 0, failed = 0, tokens = 0, stop = false, cursor = 0;
+let ok = 0, failed = 0, gaveUp = 0, tokens = 0, stop = false, cursor = 0;
 async function worker() {
   while (!stop) {
     const i = cursor++;
@@ -209,10 +231,12 @@ async function worker() {
         }
       }
       const used = (result as any).usage?.inputTokens ?? 0;
-      tokens += used; insDone.run(r.msg_id, now, used, 1, null); ok++;
+      tokens += used; insDone.run(r.msg_id, now, used, 1, null, Number(r.attempts) + 1); ok++;
     } catch (err: any) {
       const msg = String(err?.message ?? err);
-      insDone.run(r.msg_id, now, 0, 0, msg.slice(0, 300)); failed++;
+      const attempts = Number(r.attempts) + 1;
+      insDone.run(r.msg_id, now, 0, 0, msg.slice(0, 300), attempts); failed++;
+      if (attempts >= MAX_ATTEMPTS) gaveUp++;
       if (/authentication|not have access|free tier/i.test(msg)) { console.log(`\nSTOPPING: ${msg.slice(0, 160)}`); stop = true; return; }
     }
     const done = ok + failed;
@@ -224,4 +248,10 @@ async function worker() {
   }
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-console.log(`done: ${ok} classified, ${failed} failed, ${tokens.toLocaleString()} input tokens (~$${((tokens / 1e6) * 0.042).toFixed(3)})`);
+console.log(`done: ${ok} classified, ${failed} failed` +
+  (gaveUp ? `, gave up on ${gaveUp} after ${MAX_ATTEMPTS} attempts` : failed ? ' (retried next run)' : '') +
+  `, ${tokens.toLocaleString()} input tokens (~$${((tokens / 1e6) * 0.042).toFixed(3)})`);
+// Giving up on a message is the one thing here that cannot be undone by the next tick,
+// so it is the one thing that fails the run. A failure with attempts left is reported
+// and retried; the outstanding count is printed every tick by extract_league_chat.py.
+if (gaveUp) process.exit(2);

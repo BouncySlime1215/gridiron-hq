@@ -288,3 +288,25 @@ Regression: ros-projection 24/24, ros-projection-wiring 1/1, availability-role 1
 asset-universe-fingerprint 5/5, decision-inbox 17/17, fantasy-workflows 7/7,
 find-trades 3/3, trade-evidence 6/6, decision-leftovers-waivers 7/7, post-draft-plan
 5/5, model-integrity 94/94.
+
+## 9. seasonEndingEspnIds cost ~0.8 s per league build for the same answer (medium; clickhouse-io)
+
+Journey: as Nick, I want a news refresh not to cost five near-second rebuilds of the
+same "who is out for the season" list.
+
+RED (2b21bda): 2 of 3 fail — 1,863 name normalisations for 60 players x 30 stories,
+and identical inputs recomputed every call. Fix: each severe story is normalised once;
+the result is memoised on the exact inputs (window, in-window severe stories' text and
+time, the roster, each league's fetched_at), so an in-place story edit is seen.
+
+| # | What is guaranteed | RED | GREEN |
+|---|--------------------|-----|-------|
+| 1 | Same answer (the named player flagged) | PASS | PASS |
+| 2 | Normalisations scale with players + stories, not their product | FAIL (1,863) | PASS |
+| 3 | Same inputs: no work; a new story or an in-place edit changes the answer | FAIL | PASS |
+
+On the snapshot (`se-live.mjs`, HEAD code from the scratch copy vs new): the same
+71 espn ids, identical; first call 773-829 ms -> 228 ms, repeat calls 9 ms.
+Regression: player-availability 15/15, decision-leftovers-waivers 7/7,
+fantasy-workflows 7/7, find-trades 3/3, trade-evidence 6/6, decision-inbox 17/17,
+ros-projection-wiring 1/1.

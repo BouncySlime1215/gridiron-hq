@@ -6,6 +6,7 @@
  * so the fantasy trade engine's lineup solver (which never had it at all) can use it
  * too, instead of drifting into its own copy of the same regex.
  */
+import crypto from 'node:crypto';
 import { rows } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
 
@@ -131,8 +132,18 @@ export function espnStatusById() {
   return out;
 }
 
+/*
+ * Memoised on the exact inputs: the in-window severe stories (text and time), the
+ * roster, and each league's fetched_at (espnStatusById reads the payloads). Keying on
+ * content, not on row counts, means a story edited in place is never served stale.
+ * Every league's asset build calls this and the answer does not depend on the league,
+ * so on the 2026-W2 snapshot five builds paid ~0.93 s each for the same Set.
+ */
+const seasonEndingMemo = new Map();
+const SEASON_ENDING_MEMO_MAX = 8;
+
 export function seasonEndingEspnIds({ days = 45 } = {}) {
-  const roster = rows(`SELECT DISTINCT espn_id, name FROM roster_players WHERE espn_id IS NOT NULL`);
+  const roster = rows(`SELECT DISTINCT espn_id, name FROM roster_players WHERE espn_id IS NOT NULL ORDER BY espn_id, name`);
   if (!roster.length) return new Set();
   const severe = rows(
     `SELECT headline, body, COALESCE(published_at, date) AS at FROM news_items WHERE COALESCE(published_at, date) >= datetime('now', ?)`,
@@ -140,6 +151,15 @@ export function seasonEndingEspnIds({ days = 45 } = {}) {
   ).map(n => ({ text: `${n.headline ?? ''}. ${n.body ?? ''}`, at: toMs(n.at) }))
     .filter(n => SEASON_ENDING_RE.test(n.text) || RELEASED_RE.test(n.text));
   if (!severe.length) return new Set();
+
+  const syncs = rows(`SELECT id, fetched_at FROM leagues WHERE payload IS NOT NULL ORDER BY id`);
+  const key = crypto.createHash('sha1').update(JSON.stringify([days, severe, roster, syncs])).digest('hex');
+  const hit = seasonEndingMemo.get(key);
+  if (hit) return new Set(hit);
+
+  // Normalised once per story, not once per (player x story) pair: that inner call was
+  // 268,164 normalisations of whole story texts per build on the 2026-W2 snapshot.
+  for (const n of severe) n.normText = norm(n.text);
 
   // ESPN is fresher than most stories and is the league's own source of truth. A
   // player it lists as available on an NFL team, in a sync taken AFTER the story,
@@ -150,7 +170,7 @@ export function seasonEndingEspnIds({ days = 45 } = {}) {
     const normName = normalizePlayerName(player.name);
     if (!normName.includes(' ')) continue;
     for (const n of severe) {
-      if (!norm(n.text).includes(` ${normName} `)) continue;
+      if (!n.normText.includes(` ${normName} `)) continue;
       if (!newsSeverityFor(n.text, player.name)) continue;
       const e = espn.get(String(player.espn_id));
       if (e && e.at > n.at && ESPN_AVAILABLE.has(e.status ?? 'ACTIVE') && e.proTeamId !== 0) continue;
@@ -158,5 +178,7 @@ export function seasonEndingEspnIds({ days = 45 } = {}) {
       break;
     }
   }
+  if (seasonEndingMemo.size >= SEASON_ENDING_MEMO_MAX) seasonEndingMemo.delete(seasonEndingMemo.keys().next().value);
+  seasonEndingMemo.set(key, new Set(flagged));
   return flagged;
 }

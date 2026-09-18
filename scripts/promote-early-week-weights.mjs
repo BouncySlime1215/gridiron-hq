@@ -49,10 +49,11 @@
  *
  *   Production fit (only on PASS): refit the chosen candidate on 2021-2025 weeks 2-4
  *   ((c) architecture re-decided on 2025 with fit on 2021-2024), store through
- *   saveWeeklyFit with a new data_hash, through 2025-W18, promoted; candidate_* /
+ *   promoteWeeklyFitChecked with a new data_hash, through 2025-W18, promoted; candidate_* /
  *   champion_* are the 2025 held-out figures (candidate fit <= 2024; champion = (a)).
  *   Round trip: the row read back by activeWeeklyWeightSet({2026, week 3}) must
- *   reproduce the graded predictions bit for bit, and live exactly on weeks 5-18.
+ *   reproduce the graded predictions bit for bit, and live exactly on weeks 5-18;
+ *   if it does not, the fit is demoted again before the script exits 1.
  *
  *   Report only: per-week / per-bucket MAE, bias, Spearman, decision MAE with DNP = 0,
  *   start/sit pair accuracy (weeks 2-4 decision rows, same week and position, both
@@ -221,7 +222,7 @@ async function main() {
   const { spearman } = await import('../server/services/backtest.js');
   const { WEEKLY_ROLE_RECENCY, weeklyEnsemblePrediction, weeklyWeightSetForWeek } =
     await import('../server/services/weekly-ensemble.js');
-  const { activeWeeklyWeightSet, weeklyWeightSetById, saveWeeklyFit, validateEarlyWeights } =
+  const { activeWeeklyWeightSet, weeklyWeightSetById, promoteWeeklyFitChecked, validateEarlyWeights } =
     await import('../server/services/weekly-weight-store.js');
   const { dbPath } = await import('../server/db/index.js');
 
@@ -411,7 +412,10 @@ async function main() {
   if (DRY) { writeReport(); console.log('\n--dry-run: nothing written.'); process.exit(0); }
 
   const held = report.seasons[2025].models;
-  const saved = saveWeeklyFit({
+  // Post-save round trip through the real store. A failure (or a throw) demotes the fit
+  // before the script exits (weekly-weight-store.js#promoteWeeklyFitChecked).
+  let active = null;
+  const result = promoteWeeklyFitChecked({
     data_hash: `early-week:${chosen}:${prod.early.architecture ?? (chosen === 'd' ? `k${prod.early.k}` : 'fixed')}` +
       `:buckets1-3:weeks${EARLY_WEEKS.join('-')}:${FIRST_SEASON}-2025:grid0.05:live-${live.id}`,
     through_season: 2025, through_week: 18, weights: prod,
@@ -421,33 +425,33 @@ async function main() {
     candidate_mae: held[chosen].mae, champion_mae: held.a.mae,
     candidate_spearman: held[chosen].spearman, champion_spearman: held.a.spearman,
     coverage_80: report.distribution_2025[chosen]?.coverage_80 ?? null,
-    promoted: 1, rejection_reason: null
+    rejection_reason: null
+  }, saved => {
+    report.saved = { inserted: saved.inserted, stored_data_hash: saved.stored_data_hash, epoch_id: saved.epoch_id };
+    console.log('saveWeeklyFit:', report.saved);
+    const failures = [];
+    active = activeWeeklyWeightSet({ season: 2026, week: 3 });
+    if (active.fit?.data_hash !== saved.stored_data_hash) failures.push(`active week-3 set is ${active.id} (${active.fit?.data_hash}), not the new row`);
+    if (JSON.stringify(active.weights.early) !== JSON.stringify(stored.early)) failures.push('stored early block differs from the graded one');
+    for (const week of [1, 5, 10, 18]) {
+      const w = activeWeeklyWeightSet({ season: 2026, week }).weights;
+      if (w.early) failures.push(`week ${week} set carries early`);
+      for (const p of POSITIONS) if (JSON.stringify(w[p]) !== JSON.stringify(liveWeights[p])) failures.push(`week ${week} ${p} vector changed`);
+    }
+    for (const week of [2, 4]) if (!activeWeeklyWeightSet({ season: 2026, week }).weights.early) failures.push(`week ${week} set lacks early`);
+    const readBack = early2025.map(c => predict(activeWeeklyWeightSet({ season: 2026, week: c.week }).weights, c));
+    if (readBack.some((v, i) => v !== graded[i])) failures.push('read-back weeks 2-4 predictions differ from graded');
+    for (const s of VALIDATION_SEASONS) { const moved = mismatches5to18(active.weights, s); if (moved) failures.push(`${s}: ${moved} week 5-18 predictions moved via the week-3 set`); }
+    const harness = replaySeasonWeekly(2025, { startWeek: 2, endWeek: 4, distributions: false, roleRecency: WEEKLY_ROLE_RECENCY,
+      predictionHead: ctx => predict(activeWeeklyWeightSet({ season: 2026, week: 3 }).weights, ctx) });
+    if (Math.abs(harness.point.model.mae - +inSample.toFixed(3)) > 0.0005) failures.push(`harness MAE ${harness.point.model.mae} vs graded ${inSample.toFixed(4)}`);
+    return failures;
   });
-  report.saved = { inserted: saved.inserted, stored_data_hash: saved.stored_data_hash, epoch_id: saved.epoch_id };
-  console.log('saveWeeklyFit:', report.saved);
-
-  // Post-save round trip through the real store.
-  const failures = [];
-  const active = activeWeeklyWeightSet({ season: 2026, week: 3 });
-  if (active.fit?.data_hash !== saved.stored_data_hash) failures.push(`active week-3 set is ${active.id} (${active.fit?.data_hash}), not the new row`);
-  if (JSON.stringify(active.weights.early) !== JSON.stringify(stored.early)) failures.push('stored early block differs from the graded one');
-  for (const week of [1, 5, 10, 18]) {
-    const w = activeWeeklyWeightSet({ season: 2026, week }).weights;
-    if (w.early) failures.push(`week ${week} set carries early`);
-    for (const p of POSITIONS) if (JSON.stringify(w[p]) !== JSON.stringify(liveWeights[p])) failures.push(`week ${week} ${p} vector changed`);
-  }
-  for (const week of [2, 4]) if (!activeWeeklyWeightSet({ season: 2026, week }).weights.early) failures.push(`week ${week} set lacks early`);
-  const readBack = early2025.map(c => predict(activeWeeklyWeightSet({ season: 2026, week: c.week }).weights, c));
-  if (readBack.some((v, i) => v !== graded[i])) failures.push('read-back weeks 2-4 predictions differ from graded');
-  for (const s of VALIDATION_SEASONS) { const moved = mismatches5to18(active.weights, s); if (moved) failures.push(`${s}: ${moved} week 5-18 predictions moved via the week-3 set`); }
-  const harness = replaySeasonWeekly(2025, { startWeek: 2, endWeek: 4, distributions: false, roleRecency: WEEKLY_ROLE_RECENCY,
-    predictionHead: ctx => predict(activeWeeklyWeightSet({ season: 2026, week: 3 }).weights, ctx) });
-  if (Math.abs(harness.point.model.mae - +inSample.toFixed(3)) > 0.0005) failures.push(`harness MAE ${harness.point.model.mae} vs graded ${inSample.toFixed(4)}`);
-  report.round_trip = { active_id: active.id, failures };
+  report.round_trip = { active_id: active?.id ?? null, failures: result.failures, demoted: result.demoted };
   writeReport();
-  if (failures.length) {
-    console.error('STORED WEIGHTS DO NOT REPRODUCE THE GRADED MODEL:', failures);
-    console.error(`Demote by hand: UPDATE weekly_ensemble_fits SET promoted=0 WHERE data_hash='${saved.stored_data_hash}'`);
+  if (!result.ok) {
+    console.error('STORED WEIGHTS DO NOT REPRODUCE THE GRADED MODEL:', result.failures);
+    console.error(`Demoted ${result.saved.stored_data_hash} (promoted=0); it is no longer served.`);
     process.exit(1);
   }
   console.log(`\nOK — ${active.id} serves early-week buckets in weeks 2-4; weeks 1 and 5-18 unchanged.`);

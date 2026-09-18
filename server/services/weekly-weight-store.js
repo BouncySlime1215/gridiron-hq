@@ -155,6 +155,47 @@ export function saveWeeklyFit(input) {
   return { inserted: result.changes > 0, ...fit, stored_data_hash: storedHash, epoch_id: epochId };
 }
 
+/**
+ * Promote a fit and keep it live only if the caller's read-back checks pass.
+ *
+ * `verify(saved)` runs against the stored, promoted row (it may read the store through
+ * activeWeeklyWeightSet) and returns a list of failures; a throw is a failure. On any
+ * failure the fit is demoted (promoted = 0, rejection_reason = the failures), and the
+ * demotion is itself checked: the fit must no longer be served for the weeks it was
+ * legal for, or this throws. The promotion scripts used to save promoted = 1, run the
+ * same checks, and on a failure print "Demote by hand" and exit 1, which left the
+ * failed fit serving every request (review-fixes-2, finding 4).
+ *
+ * The checks are not run inside one transaction on purpose: a harness replay holds
+ * the write lock for longer than the server's 15 s busy_timeout.
+ *
+ * @returns {{ ok: boolean, saved: object, failures: string[], demoted: boolean }}
+ */
+export function promoteWeeklyFitChecked(input, verify) {
+  const saved = saveWeeklyFit({ ...input, promoted: 1 });
+  let failures;
+  try {
+    failures = [...(verify(saved) ?? [])].map(String);
+  } catch (error) {
+    failures = [`the read-back check threw: ${error?.message ?? error}`];
+  }
+  if (!failures.length) return { ok: true, saved, failures, demoted: false };
+
+  run(`UPDATE weekly_ensemble_fits SET promoted = 0, rejection_reason = ? WHERE data_hash = ?`,
+    `rolled back after promotion: ${failures.join('; ')}`.slice(0, 1000), saved.stored_data_hash);
+  const after = rows('SELECT id, promoted FROM weekly_ensemble_fits WHERE data_hash = ?', saved.stored_data_hash)[0];
+  const next = saved.through_week >= 18
+    ? { season: saved.through_season + 1, week: 1 }
+    : { season: saved.through_season, week: saved.through_week + 1 };
+  const stillServed = [next, { season: next.season, week: Math.max(next.week, 3) }]
+    .some(at => activeWeeklyWeightSet(at).fit?.data_hash === saved.stored_data_hash);
+  if (after?.promoted || stillServed) {
+    throw new Error(`fit ${saved.stored_data_hash} failed its read-back check (${failures.join('; ')}) ` +
+      'and could not be demoted; it is still served');
+  }
+  return { ok: false, saved, failures, demoted: true };
+}
+
 export function weeklyFitHistory(limit = 20) {
   return rows('SELECT * FROM weekly_ensemble_fits ORDER BY id DESC LIMIT ?', limit)
     .map(fit => ({ ...fit, weights: JSON.parse(fit.weights_json) }));

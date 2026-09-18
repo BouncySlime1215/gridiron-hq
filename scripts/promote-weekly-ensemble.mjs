@@ -54,7 +54,7 @@ import { activeKVector, fitAllK, toKVector, fitHistory } from '../server/service
 import { pairedBootstrapDiff } from '../server/services/backtest-significance.js';
 import { spearman } from '../server/services/backtest.js';
 import { WEEKLY_ROLE_RECENCY, weeklyEnsemblePrediction } from '../server/services/weekly-ensemble.js';
-import { saveWeeklyFit, activeWeeklyWeightSet, weeklyFitHistory, carryEarlyWeights } from '../server/services/weekly-weight-store.js';
+import { promoteWeeklyFitChecked, activeWeeklyWeightSet, weeklyFitHistory, carryEarlyWeights } from '../server/services/weekly-weight-store.js';
 
 const DRY = process.argv.includes('--dry-run');
 const HEADS = ['structural', 'season_to_date', 'last3', 'last1', 'median'];
@@ -303,7 +303,10 @@ console.log(storedWeights.early
 
 if (DRY) { console.log('\n--dry-run: nothing written.'); process.exit(0); }
 
-const saved = saveWeeklyFit({
+// Promote, then read it back out of the DB and re-grade, so what production loads is
+// what was graded. A failure (or a throw) demotes the fit before the script exits
+// (weekly-weight-store.js#promoteWeeklyFitChecked); it used to stay live.
+const result = promoteWeeklyFitChecked({
   data_hash: `phase1a:${selected.architecture}:${HEADS.join('+')}:2023-2025:grid0.05:k${ACTIVE_K_FIT ?? 'hand'}`,
   through_season: 2025, through_week: 18,
   weights: storedWeights,
@@ -315,17 +318,25 @@ const saved = saveWeeklyFit({
   candidate_mae: candidate.point.model.mae, champion_mae: +championMae.toFixed(3),
   candidate_spearman: candidate.point.model.spearman, champion_spearman: championSpearman,
   coverage_80: candidate.distribution.coverage_80,
-  promoted: 1, rejection_reason: null,
+  rejection_reason: null,
+}, saved => {
+  console.log('saveWeeklyFit:', { inserted: saved.inserted, hash: saved.stored_data_hash, epoch: saved.epoch_id });
+  const active = activeWeeklyWeightSet({ season: 2026, week: 3 });
+  console.log('activeWeeklyWeightSet(2026 W3):', { id: active.id, source: active.source, weights: active.weights });
+  console.log('history rows:', weeklyFitHistory(5).length);
+  // The new row itself, not merely some adaptive fit, must be the one served.
+  if (active.fit?.data_hash !== saved.stored_data_hash) {
+    return [`PROMOTION DID NOT TAKE — week 3 serves ${active.id} (${active.source}), not ${saved.stored_data_hash}`];
+  }
+  const roundTrip = replay(2025, { predictionHead: ctx => weeklyEnsemblePrediction(ctx, active.weights) });
+  console.log('round-trip 2025 MAE from the stored row:', roundTrip.point.model.mae);
+  return Math.abs(roundTrip.point.model.mae - prodCheck.point.model.mae) > 1e-6
+    ? [`STORED WEIGHTS DO NOT REPRODUCE THE GRADED MODEL (${roundTrip.point.model.mae} vs ${prodCheck.point.model.mae})`]
+    : [];
 });
-console.log('saveWeeklyFit:', { inserted: saved.inserted, hash: saved.stored_data_hash, epoch: saved.epoch_id });
-const active = activeWeeklyWeightSet({ season: 2026, week: 3 });
-console.log('activeWeeklyWeightSet(2026 W3):', { id: active.id, source: active.source, weights: active.weights });
-console.log('history rows:', weeklyFitHistory(5).length);
-if (active.source !== 'adaptive') { console.error('PROMOTION DID NOT TAKE — still', active.source); process.exit(1); }
-// Read it back out of the DB and re-grade, so what production loads is what was graded.
-const roundTrip = replay(2025, { predictionHead: ctx => weeklyEnsemblePrediction(ctx, active.weights) });
-console.log('round-trip 2025 MAE from the stored row:', roundTrip.point.model.mae);
-if (Math.abs(roundTrip.point.model.mae - prodCheck.point.model.mae) > 1e-6) {
-  console.error('STORED WEIGHTS DO NOT REPRODUCE THE GRADED MODEL.'); process.exit(1);
+if (!result.ok) {
+  console.error(result.failures.join('\n'));
+  console.error(`Demoted ${result.saved.stored_data_hash} (promoted=0); it is no longer served.`);
+  process.exit(1);
 }
 console.log('\nOK — production now runs the fitted weights.');

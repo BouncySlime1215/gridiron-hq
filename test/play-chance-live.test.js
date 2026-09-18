@@ -170,6 +170,26 @@ test('liveEspnStatuses is only read for the payloads\' current ESPN scoring peri
   assert.equal(C.liveEspnStatuses(2024, 6), null);
 });
 
+test('a payload that lags (an older ESPN period or season) never makes that past week live', () => {
+  // Verifier finding: the live period was the UNION of every payload's period, so one
+  // league whose sync lagged (still period 5) or an old-season league (2024, period 17)
+  // made that past week "live" and today's ESPN statuses priced its replay.
+  const add = (id, seasonId, scoringPeriodId, age) => run(`INSERT INTO leagues
+      (platform, league_id, season, name, my_team_id, payload, fetched_at)
+      VALUES ('espn', ?, ?, ?, '1', ?, datetime('now', ?))`, id, seasonId, id,
+    JSON.stringify({ seasonId, scoringPeriodId, teams: [{ id: 1, roster: { entries: [] } }] }), age);
+  add('test-lagging', 2025, 5, '-3 days');
+  add('test-old-season', 2024, 17, '-200 days');
+  try {
+    assert.equal(C.liveEspnStatuses(2025, 5), null, 'week 5 is history although one payload still says period 5');
+    assert.equal(C.liveEspnStatuses(2024, 17), null, 'an old-season league does not make its last week live');
+    assert.equal(C.liveEspnStatuses(2025, 6)?.get('7002')?.status, 'OUT', 'the live week still reads ESPN');
+    assert.equal(C.weeklyAvailability(2025, 5).get(922).espn_status, null);
+  } finally {
+    run(`DELETE FROM leagues WHERE league_id IN ('test-lagging', 'test-old-season')`);
+  }
+});
+
 test('a healthy starter with no designation keeps the role cell', () => {
   const a = C.weeklyAvailability(2025, 6).get(921);
   assert.equal(a.active_probability, 0.953);

@@ -234,7 +234,7 @@ test('discover loads the current account leagues from stored cookies', async () 
   resetState();
   run(`INSERT INTO app_settings (key,value) VALUES ('espn_s2',?),('swid',?)`, GOOD_S2, GOOD_SWID);
   stubEspn({ leagues: [{ league_id: '24680', name: 'Loaded League', team_id: '7' }] });
-  const res = await realFetch(`${base}/discover`);
+  const res = await realFetch(`${base}/discover`, { headers: { authorization: `Bearer ${TEST_TOKEN}` } });
   const body = await res.json();
   assert.equal(res.status, 200);
   assert.deepEqual(body.leagues.map(l => [l.league_id, l.name, l.team_id]),
@@ -245,7 +245,7 @@ test('discover reports expired ESPN credentials instead of pretending the accoun
   resetState();
   run(`INSERT INTO app_settings (key,value) VALUES ('espn_s2',?),('swid',?)`, GOOD_S2, GOOD_SWID);
   stubEspn({ ok: false, status: 401 });
-  const res = await realFetch(`${base}/discover`);
+  const res = await realFetch(`${base}/discover`, { headers: { authorization: `Bearer ${TEST_TOKEN}` } });
   const body = await res.json();
   assert.equal(res.status, 400);
   assert.match(body.error, /didn't recognise those cookies/);
@@ -254,7 +254,7 @@ test('discover reports expired ESPN credentials instead of pretending the accoun
 /* ------------------------------------------------------------------- portability */
 
 test('the bookmarklet targets the host the request actually came in on, not a hardcoded port', async () => {
-  const res = await realFetch(`${base}/bookmarklet`);
+  const res = await realFetch(`${base}/bookmarklet`, { headers: { authorization: `Bearer ${TEST_TOKEN}` } });
   const body = await res.json();
   assert.equal(body.origin, `http://127.0.0.1:${port}`,
     'a clone running on a different port must get a bookmarklet that points at itself');
@@ -265,7 +265,7 @@ test('the emitted bookmarklet is syntactically valid JavaScript', async () => {
   // The minifier used to strip the `//` inside `http://…` as if it were a comment,
   // emitting `fetch('http:` — invalid JS, so the button silently did nothing at all.
   // Parsing it here (without running it) is what catches that class of breakage.
-  const body = await (await realFetch(`${base}/bookmarklet`)).json();
+  const body = await (await realFetch(`${base}/bookmarklet`, { headers: { authorization: `Bearer ${TEST_TOKEN}` } })).json();
   const source = decodeURIComponent(body.href).replace(/^javascript:/, '');
   assert.doesNotThrow(() => new Function(source), 'bookmarklet must parse as JavaScript');
   assert.doesNotThrow(() => new Function(body.console_snippet), 'console fallback must parse too');
@@ -297,12 +297,17 @@ test('adding a league through the connect flow grants the caller commissioner me
     'the connecting user must be able to sync the league they just connected');
 });
 
-test('adding a league with no session token still succeeds (membership grant is best-effort)', async () => {
+// Reversed on purpose (review-fixes, security-checklist finding): /add upserts
+// my_team_id, which every lineup, waiver and trade surface reads, and the app is
+// reachable through the public tunnel. The connect modal's api() always sends the
+// session token, and provisions one on a 401, so no real flow calls it anonymously.
+test('adding a league with no session token is refused and writes nothing', async () => {
   resetState();
   const res = await realFetch(`${base}/add`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ league_id: '555445', season: 2026, name: 'No Session League' })
   });
-  assert.equal((await res.json()).ok, true, 'a missing/expired token must not block adding the league itself');
+  assert.equal(res.status, 401);
+  assert.equal(row(`SELECT COUNT(*) AS n FROM leagues WHERE league_id = '555445'`).n, 0);
 });

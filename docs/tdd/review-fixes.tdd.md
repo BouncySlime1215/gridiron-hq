@@ -81,3 +81,44 @@ Williams, 83.75). Ceiling totals are unchanged (league 1 186.1).
 
 Regression: decision-leftovers-lineup 10/10, decision-inbox 17/17, lineup-evidence
 16/16, fantasy-workflows 7/7. `tsc --noEmit` clean.
+
+## 3. ESPN-connect and the page assistant answered anyone on the tunnel (high + medium; security-checklist, pre-existing)
+
+Journey: as Nick, I want only my own signed-in browsers to read, wipe or rebind my
+ESPN connection or spend my Anthropic credit, so that someone who learns the tunnel
+URL cannot turn every lineup into advice for another team.
+
+Reproduced with the routers mounted exactly as server/index.js mounts them (no
+wrapper): anonymous GET /api/espn-connect/status returned 200 with cookie
+previews; anonymous POST /api/betting/explain/page reached the model call.
+
+Fix: the routers carry their own guards. espn-connect: `legacyAuthenticated` on GET
+/bookmarklet, GET /status, DELETE /cookies, GET /discover, POST /add; /add takes the
+member from `req.auth`; /status no longer returns any part of either cookie (no client
+code read the previews). The bookmarklet's cross-origin POST /cookies and its OPTIONS
+preflight stay open (it runs on espn.com and cannot carry the token). betting-hub:
+the assistant needs a session, has its own 12/min per-user limit, and refuses a page
+summary over 16,000 characters or a question over 2,000 (413) before any model call;
+the audits list needs a session. The client's `api()` already sends the token and
+provisions one on a 401, so no page changes. Takes effect when the server restarts
+(not restarted here).
+
+| # | What is guaranteed | Test | Type | RED (f34ff16) | GREEN |
+|---|--------------------|------|------|---------------|-------|
+| 1 | Anonymous status/bookmarklet/discover/DELETE/add get 401 and change nothing | `espn-connect-auth.test.js: anonymous callers cannot...` | integration | FAIL (200) | PASS |
+| 2 | espn.com preflight still 204 | `...: the bookmarklet preflight stays open` | integration | PASS | PASS |
+| 3 | Signed-in status has no cookie fragment | `...: status, for a signed-in caller...` | integration | FAIL | PASS |
+| 4 | Assistant and audits need a session | `...: the page assistant and its stored answers require a session` | integration | FAIL | PASS |
+| 5 | Oversized summary or question is 413 before the model | `...: refuses an oversized prompt` | integration | FAIL (400 no key) | PASS |
+| 6 | Per-user limit at most 20/min (set 12) | `...: has its own per-user limit` | integration | FAIL | PASS |
+
+Existing tests updated to send a session: `espn-connect.test.js` (discover x2,
+bookmarklet x2) and `page-explain.test.js` (request helper). One expectation was
+deliberately reversed: "adding a league with no session token still succeeds" is now
+"...is refused and writes nothing", because the finding's point is that /add rewrites
+`my_team_id`. Regression: espn-connect 19/19, page-explain 7/7, draft-reconcile
+16/16, league-removal 8/8, legacy-route-security 5/5.
+
+Not done here (deferred): POST /cookies is still anonymous. Closing it means the
+bookmarklet must carry an install key, and every saved bookmarklet has to be dragged
+again; that is Nick's call.

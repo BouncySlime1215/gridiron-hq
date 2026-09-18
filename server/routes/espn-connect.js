@@ -12,7 +12,20 @@
  */
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
-import { resolveAuthenticatedUser } from '../platform/auth.js';
+import { legacyAuthenticated } from '../platform/legacy-access.js';
+
+/*
+ * Every route here except the bookmarklet's own POST /cookies (and its preflight)
+ * needs a session. This router is mounted without an auth wrapper (server/index.js)
+ * because the bookmarklet runs on espn.com and cannot carry the app's token, and the
+ * app is reachable through the public tunnel: anyone holding the URL could list the
+ * leagues, wipe the cookies (DELETE /cookies), rewrite which roster is Nick's
+ * (POST /add upserts my_team_id, which every lineup, waiver and trade surface reads)
+ * or call ESPN with his cookies (GET /discover). The client's api() already sends the
+ * session token on all of these. POST /cookies still validates with ESPN before
+ * writing and only rebinds leagues on the posted SWID (see its comment).
+ */
+const signedIn = legacyAuthenticated;
 
 const r = Router();
 
@@ -140,7 +153,7 @@ const BOOKMARKLET = origin => `
 const minify = s => s.replace(/^\s*\/\/[^\n]*$/gm, '').replace(/\s+/g, ' ').trim();
 
 /** The bookmarklet as a javascript: URL, plus a copy/paste snippet for the fallback. */
-r.get('/bookmarklet', (req, res) => {
+r.get('/bookmarklet', ...signedIn, (req, res) => {
   const origin = originFor(req);
   res.json({
     href: `javascript:${encodeURIComponent(minify(BOOKMARKLET(origin)))}`,
@@ -234,19 +247,21 @@ r.post('/cookies', captureCors, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Cookies currently held, masked — enough to confirm they are set, not to leak them. */
-r.get('/status', (req, res) => {
+/**
+ * Whether cookies are held, and for which leagues. No part of either cookie is
+ * returned: nothing in the client reads a preview, and a prefix of espn_s2 is still a
+ * piece of a credential.
+ */
+r.get('/status', ...signedIn, (req, res) => {
   const { s2, swid, source } = getCookies();
   res.json({
     connected: !!(s2 && swid),
     source,
-    espn_s2_preview: s2 ? `${s2.slice(0, 6)}…${s2.slice(-4)} (${s2.length} chars)` : null,
-    swid_preview: swid ? `${swid.slice(0, 10)}…` : null,
     leagues: rows(`SELECT id, league_id, season, name, team_count FROM leagues WHERE platform='espn'`)
   });
 });
 
-r.delete('/cookies', (req, res) => {
+r.delete('/cookies', ...signedIn, (req, res) => {
   run(`DELETE FROM app_settings WHERE key IN ('espn_s2','swid')`);
   run(`UPDATE leagues SET espn_s2 = NULL, swid = NULL WHERE platform = 'espn'`);
   res.json({ ok: true });
@@ -319,7 +334,7 @@ async function validateCookies(espn_s2, swid) {
 }
 
 /** Re-run discovery on demand, using stored cookies from whichever source has them. */
-r.get('/discover', async (req, res, next) => {
+r.get('/discover', ...signedIn, async (req, res, next) => {
   try {
     const { s2, swid } = getCookies();
     if (!s2 || !swid) return res.status(400).json({ error: 'no ESPN cookies stored yet — connect below first' });
@@ -330,7 +345,7 @@ r.get('/discover', async (req, res, next) => {
 });
 
 /** Add a discovered league straight into the leagues table. */
-r.post('/add', async (req, res, next) => {
+r.post('/add', ...signedIn, async (req, res, next) => {
   try {
     const { league_id, season, my_team_id, name } = req.body ?? {};
     if (!league_id) return res.status(400).json({ error: 'league_id required' });
@@ -351,10 +366,9 @@ r.post('/add', async (req, res, next) => {
     // league_memberships row — leagues.js's own POST / creates one, but this
     // route (the actual first-run path: the ESPN-connect modal calls this, not
     // that one) never did, so a freshly-connected league had no member and its
-    // very first sync 403'd. The bookmarklet flow always carries the caller's
-    // session token by the time this fires, so resolve it the same way
-    // requireAuthenticated does rather than trusting anything in the body.
-    const auth = resolveAuthenticatedUser(req);
+    // very first sync 403'd. The route now requires a session, so req.auth is the
+    // caller, never anything in the body.
+    const auth = req.auth;
     if (lg?.id && auth?.userId) {
       run(`INSERT INTO league_memberships (league_id,user_id,role) VALUES (?,?,'commissioner')
            ON CONFLICT(league_id,user_id) DO UPDATE SET role='commissioner'`, lg.id, auth.userId);

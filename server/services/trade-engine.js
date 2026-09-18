@@ -2019,6 +2019,35 @@ const ladderGain = (ev, horizon) => horizonGain({
   nowBaseline: ev.me.lineup_before, playoffBaseline: ev.me.playoff_lineup_before, weights: horizon,
 });
 
+/**
+ * The free-add ceiling: add the target(s) for nothing and re-solve. If even a
+ * gift does not help, no package can, and the honest answer is to say so rather
+ * than hunt for one that will never exist.
+ *
+ * It is measured on the SAME horizon-weighted basis every rung below it is
+ * gated on. It used to be a `bestLineup` diff on this week alone while the rung
+ * loop had already been moved to `ladderGain`, so the two disagreed: a player
+ * who is a real upgrade across the rest of the season but not this Sunday was
+ * refused outright with "he would not crack your starting lineup", and the
+ * ladder that would have priced him never ran. Live case that found it
+ * (verify:trade-engine-correctness): offering for Ja'Marr Chase, 0.00 ppg this
+ * week and +0.17 horizon-weighted, came back as a flat refusal.
+ *
+ * Going through `evaluate()` with an empty give is what keeps them in step —
+ * it is the same call the rungs make, so the gate and the ladder cannot drift
+ * apart again.
+ */
+export function freeAddCeiling(me, owner, targets, slots, horizon, ctx = {}) {
+  const ev = evaluate({ team: me, gives: [] }, { team: owner, gives: targets }, slots, ctx);
+  const gain = ladderGain(ev, horizon);
+  return {
+    weekly: ev.me.ppg_delta,
+    horizon_weighted: gain.value,
+    playoff_leg: ev.me.playoff_ppg_delta,
+    gain,
+  };
+}
+
 /** What we know about this owner, independent of any one package. */
 function ownerRead(counterparties, owner, tier) {
   const cp = counterparties.get(String(owner.roster_id)) ?? null;
@@ -2098,12 +2127,14 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   const theirCost = +(theirLine.points - withoutHim.points).toFixed(2);
   const replaceable = theirCost < 1.0;
 
-  // Ceiling on what he can possibly do for me: add him for free and re-solve. If
-  // that number is zero he cannot help at any price, and the honest answer is to
-  // say so rather than to hunt for a package that will never exist.
+  // Ceiling on what he can possibly do for me — on the horizon-weighted number
+  // the rungs below are gated on, not on this week alone (see freeAddCeiling).
+  const memo = new WeakMap();   // both rosters are fixed for this whole ladder (see evaluate())
   const myLine = bestLineup(me.players, slots);
-  const withHim = bestLineup([...me.players, target], slots);
-  const upside = +(withHim.points - myLine.points).toFixed(2);
+  const addCeiling = freeAddCeiling(me, owner, [target], slots, horizon,
+    { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+  const upside = addCeiling.weekly;
+  const upsideHorizon = addCeiling.horizon_weighted;
   const blockedBy = myLine.slots
     .map(s => s.player)
     .filter(p => p && (p.position === target.position || FLEX_ELIGIBLE.FLEX?.includes(p.position)))
@@ -2115,7 +2146,12 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     context: ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounterparty: true, week: weekNow }),
     model_context: assets.context,
     target: slim(target), owner: owner.owner, owner_id: owner.roster_id,
-    their_cost: theirCost, replaceable, upside_ppg: upside,
+    their_cost: theirCost, replaceable,
+    // Both legs travel together: `upside_ppg` is the this-week lineup change a
+    // free add makes, `upside_ppg_horizon` is that blended with the playoff
+    // weeks, and the second one is what the refusal below is decided on.
+    upside_ppg: upside, upside_ppg_horizon: upsideHorizon,
+    upside_playoff_leg: addCeiling.playoff_leg,
     counterparty: ownerRead(counterparties, owner, tier),
     target_stance: targetStance(counterparties, owner, [target]),
     leverage: replaceable
@@ -2123,13 +2159,18 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
       : `He is load-bearing for ${owner.owner} (${theirCost} ppg of their lineup). Expect to pay a premium or get refused.`
   };
 
-  if (upside <= 0.05) {
+  // Refuse only when he cannot help across the rest of the season either. A
+  // player who does nothing for THIS Sunday but improves the playoff weeks is
+  // exactly the trade a contender makes, and the rung loop below already ranks
+  // on that number.
+  if (upsideHorizon <= 0.05) {
     return {
       ...context,
       error: `He would not crack your starting lineup.`,
-      reason: blockedBy
+      reason: (blockedBy
         ? `${target.name} projects ${target.adj_ppg} ppg once his schedule is priced in; you already start ${blockedBy.name} at ${blockedBy.adj_ppg}. Buying him upgrades your bench, not your Sunday.`
-        : `${target.name} projects ${target.adj_ppg} ppg, below what you already start at that spot.`,
+        : `${target.name} projects ${target.adj_ppg} ppg, below what you already start at that spot.`)
+        + ` Weighting the playoff weeks in does not rescue it either (${upsideHorizon} ppg).`,
       // The bar an acquisition has to clear to be worth anything at all.
       bar: blockedBy ? { name: blockedBy.name, position: blockedBy.position, adj_ppg: blockedBy.adj_ppg } : null
     };
@@ -2137,7 +2178,6 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
 
   const myPool = candidates(me, slots, 12, excludeIds);
   const packages = combos(myPool, 3).filter(c => c.length <= 3);
-  const memo = new WeakMap();   // both rosters are fixed for this whole ladder (see evaluate())
 
   const priced = [];
   for (const give of packages) {
@@ -2165,7 +2205,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     return {
       ...context,
       error: 'He would help, but nothing on your roster prices out.',
-      reason: `Adding him is worth ${upside} ppg to your lineup, but every package in his price range (${Math.round(target.value * 0.7)}–${Math.round(target.value * 1.65)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
+      reason: `Adding him is worth ${upsideHorizon} ppg to your lineup horizon-weighted (${upside} this week), but every package in his price range (${Math.round(target.value * 0.7)}–${Math.round(target.value * 1.65)}) costs you more than he returns. You need a third team, or a cheaper player at the same position.`
         + (excludeIds?.size ? ` This search also left out the player(s) you've marked untouchable.` : '')
     };
   }
@@ -2249,7 +2289,6 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
 
   const context = rosterContext(lg);
   const myPool = candidates(me, slots, 12, excludeIds);
-  const myLine = bestLineup(me.players, slots);
 
   const ladders = [];
   for (const { team: owner, targets: theirTargets } of byOwner.values()) {
@@ -2269,12 +2308,19 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
     const theirCost = +(theirLine.points - withoutThem.points).toFixed(2);
     const replaceable = theirCost < 1.0 * theirTargets.length;
 
-    const withThem = bestLineup([...me.players, ...theirTargets], slots);
-    const upside = +(withThem.points - myLine.points).toFixed(2);
+    // Same free-add ceiling as offerFor, on the horizon-weighted number the rungs
+    // below are gated on rather than on this week alone (see freeAddCeiling).
+    const memo = new WeakMap();   // both rosters are fixed for this owner's ladder (see evaluate())
+    const addCeiling = freeAddCeiling(me, owner, theirTargets, slots, horizon,
+      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+    const upside = addCeiling.weekly;
+    const upsideHorizon = addCeiling.horizon_weighted;
 
     const base = {
       targets: theirTargets.map(slim), owner: owner.owner, owner_id: owner.roster_id,
-      their_cost: theirCost, replaceable, upside_ppg: upside,
+      their_cost: theirCost, replaceable,
+      upside_ppg: upside, upside_ppg_horizon: upsideHorizon,
+      upside_playoff_leg: addCeiling.playoff_leg,
       counterparty: ownerRead(counterparties, owner, tier),
       target_stance: targetStance(counterparties, owner, theirTargets),
       leverage: replaceable
@@ -2282,15 +2328,18 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
         : `${theirTargets.length > 1 ? 'They are' : 'He is'} load-bearing for ${owner.owner} (${theirCost} ppg of their lineup). Expect to pay a premium or get refused.`
     };
 
-    if (upside <= 0.05) {
+    // Refuse only when the group cannot help across the rest of the season
+    // either — the rung loop below ranks on the horizon-weighted number, so the
+    // gate has to be measured on it too.
+    if (upsideHorizon <= 0.05) {
       ladders.push({ ...base, error: `This package would not crack your starting lineup.`,
-        reason: `Adding ${theirTargets.map(t => t.name).join(' + ')} is worth ${upside} ppg to your lineup — not enough to change your best starting 9.` });
+        reason: `Adding ${theirTargets.map(t => t.name).join(' + ')} is worth ${upsideHorizon} ppg to your lineup horizon-weighted `
+          + `(${upside} this week) — not enough to change your best starting 9 now or in the playoff weeks.` });
       continue;
     }
 
     const maxGive = Math.min(4, theirTargets.length + 2);
     const packages = combos(myPool, maxGive);
-    const memo = new WeakMap();   // both rosters are fixed for this owner's ladder (see evaluate())
     const priced = [];
     for (const give of packages) {
       const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);

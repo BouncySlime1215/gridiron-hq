@@ -337,3 +337,99 @@ test('G8a: the legacy names are thin wrappers over the one entry point', () => {
   assert.deepEqual(viaLegacy.deals.map(d => d.score_signed), viaEntry.deals.map(d => d.score_signed));
   assert.equal(viaLegacy.context.playoff_odds, viaEntry.context.playoff_odds);
 });
+
+/* ------------------------- G9: the ladder's entry gate is the ladder's own number */
+
+/**
+ * The bug (verify:trade-engine-correctness, finding 1): `offerFor`/`offerForMany`
+ * decided "he would not crack your starting lineup" on a free-add ceiling solved
+ * for THIS WEEK, while every rung underneath had already been moved to the
+ * horizon-weighted gain. A player who does nothing this Sunday but real work in
+ * the playoff weeks — the live case was Ja'Marr Chase, 0.00 now, +0.17
+ * horizon-weighted — was refused outright and his ladder never ran.
+ *
+ * The shape is built here directly rather than fished out of the six-team
+ * fixture, whose projections are flat across the season and so can never make
+ * the two numbers disagree: the target is on bye this week (`adj_ppg` 0) and
+ * carries a full weekly rate for the playoff weeks.
+ */
+const ladderSlots = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
+
+function ladderPlayer(id, position, adj, ros, value = 100) {
+  return { id, name: `P${id}`, position, value,
+    adj_ppg: adj, ros_ppg: ros, playoff_ppg: ros,
+    playoff_weeks_left: 3, playoff_bye_week: null };
+}
+
+/** A starting nine that is identical this week and in the playoff weeks. */
+function ladderRoster(roster_id, owner, scale = 1) {
+  return { roster_id, owner, players: [
+    ladderPlayer(`${roster_id}-qb`, 'QB', 18 * scale, 18 * scale),
+    ladderPlayer(`${roster_id}-rb1`, 'RB', 14 * scale, 14 * scale),
+    ladderPlayer(`${roster_id}-rb2`, 'RB', 12 * scale, 12 * scale),
+    ladderPlayer(`${roster_id}-wr1`, 'WR', 15 * scale, 15 * scale),
+    ladderPlayer(`${roster_id}-wr2`, 'WR', 11 * scale, 11 * scale),
+    ladderPlayer(`${roster_id}-te`, 'TE', 9 * scale, 9 * scale),
+    ladderPlayer(`${roster_id}-flex`, 'WR', 10 * scale, 10 * scale),
+  ] };
+}
+
+test('G9a: a target who is worthless this week but real in the playoff weeks clears the entry gate', () => {
+  const me = ladderRoster('1', 'Nick');
+  const them = ladderRoster('2', 'Alpha One');
+  // On bye this Sunday, and the best receiver in the league for the playoff run.
+  const onByeNow = ladderPlayer('chase', 'WR', 0, 24, 400);
+  them.players.push(onByeNow);
+  const horizon = horizonWeights(2, { playoffOdds: 0.6, regularWeeks: 14, playoffWeeks: [15, 16, 17] });
+
+  const ceiling = engine.freeAddCeiling(me, them, [onByeNow], ladderSlots, horizon);
+
+  // The two numbers the two gates read, side by side. `weekly` is what the old
+  // gate tested, and 0 <= 0.05 is exactly why this player came back as a flat
+  // refusal; `horizon_weighted` is what the gate tests now, and the ladder runs.
+  assert.equal(ceiling.weekly, 0, 'he genuinely does nothing for this week — that part was never wrong');
+  assert.ok(ceiling.weekly <= 0.05, 'the old weekly-only gate would have refused him here');
+  assert.ok(ceiling.playoff_leg > 0, `playoff leg should be positive, got ${ceiling.playoff_leg}`);
+  assert.ok(ceiling.horizon_weighted > 0.05,
+    `the horizon-weighted ceiling is what the gate reads; got ${ceiling.horizon_weighted}`);
+});
+
+test('G9b: a target who cannot help on either leg is still refused', () => {
+  const me = ladderRoster('1', 'Nick');
+  const them = ladderRoster('2', 'Alpha One');
+  // Worse than everyone already starting, now and later.
+  const bench = ladderPlayer('filler', 'WR', 2, 2, 20);
+  them.players.push(bench);
+  const horizon = horizonWeights(2, { playoffOdds: 0.6, regularWeeks: 14, playoffWeeks: [15, 16, 17] });
+
+  const ceiling = engine.freeAddCeiling(me, them, [bench], ladderSlots, horizon);
+
+  assert.equal(ceiling.weekly, 0);
+  assert.ok(ceiling.horizon_weighted <= 0.05,
+    `a genuine non-upgrade must still be refused; got ${ceiling.horizon_weighted}`);
+});
+
+test('G9c: the refusal every ladder can return is decided on the horizon number it reports', () => {
+  const lg = rows('SELECT * FROM leagues WHERE id = 401')[0];
+  const payload = JSON.parse(lg.payload);
+  let checked = 0;
+  for (const t of payload.teams) {
+    if (String(t.id) === '1') continue;
+    for (const e of t.roster.entries) {
+      const name = e.playerPoolEntry.player.fullName;
+      const id = rows('SELECT id FROM players WHERE name = ? ORDER BY id LIMIT 1', name)[0]?.id;
+      if (!id) continue;
+      const out = engine.offerFor(lg, { myTeamId: '1', targetId: id });
+      if (out.upside_ppg_horizon == null) continue;
+      checked++;
+      // Both legs are always reported, so a UI never has to guess which number
+      // the refusal was made on.
+      assert.equal(typeof out.upside_ppg, 'number', `${name}: weekly leg missing`);
+      assert.equal(typeof out.upside_ppg_horizon, 'number', `${name}: horizon leg missing`);
+      const refused = out.error === 'He would not crack your starting lineup.';
+      assert.equal(refused, out.upside_ppg_horizon <= 0.05,
+        `${name}: refused=${refused} but horizon ceiling is ${out.upside_ppg_horizon}`);
+    }
+  }
+  assert.ok(checked > 10, `fixture must exercise real ladders, only checked ${checked}`);
+});

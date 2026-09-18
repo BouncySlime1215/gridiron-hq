@@ -748,7 +748,40 @@ export function explainPlayerWeek(projection) {
   };
 }
 
-/** Distribution centered on the shared engine's ensemble point estimate. */
+/**
+ * Distribution centered on the shared engine's ensemble point estimate.
+ *
+ * A week he does not play scores 0. The played weeks are sampled with the player
+ * active, moved by the ensemble shift (blend minus structural) and clamped at 0;
+ * then exactly round((1 - P(play)) x runs) weeks are zeros.
+ *
+ * FIXED 2026-09-18 (fake floors). This used to call sampleWeeks with the active
+ * probability, which returns 0 for a did-not-play draw, and then add the shift to
+ * EVERY draw, so a DNP week scored `shift`. With P(play) < 0.9 and a positive
+ * shift, over 10% of draws sat at exactly the shift and every played draw sat
+ * above it, so the printed floor (p10) was the shift itself: live at 2026 week 2
+ * (league 1 assets), 99 of the 99 players projected over 5 with a positive shift
+ * (Caleb Williams: floor 13.9 at P(play) 0.76; 482 of the 485 projected over 5 carry
+ * P(play) < 0.9). The mean was inflated by (1 - P(play)) x shift. The trade
+ * engine's lineupSpread already modelled a sitting week as 0; this now agrees.
+ *
+ * GATE (pre-registered before any run; scratchpad step1b/fake-floors/GATE.md):
+ *   G1  2025 weekly harness, distributions on, weeks 5-18, live ensemble head:
+ *       coverage_80 in [0.78, 0.82], calibration_error <= 0.111, CRPS <= 3.078.
+ *       (The harness samples conditional on playing via sampleWeeks directly and
+ *       has no path into this function, so G1 is a regression check only.)
+ *   G2  live 2026 week 2, league 1 asset universe: no player with P(play) < 0.9
+ *       and a positive shift has floor == shift unless that floor is a genuine
+ *       10th percentile of an independent 20,000-draw simulation of the correct
+ *       mixture (within 0.5).
+ *
+ * RESULT (2026-09-18). G2 passed: 93 failing players before, 0 after. G1 FAILED as
+ * pre-registered: at the harness default of 200 draws it reads 0.776 / 0.111 / 3.083,
+ * and the pre-fix engine reads the same to the last PIT bin (this function is not on
+ * the harness path). The live 0.782 / 0.111 / 3.078 were measured at 300 draws
+ * (scripts/fit-weekly-coverage.mjs), where both engines reproduce them exactly. The
+ * fix was held back on that failure; see docs/tdd/fake-floors.tdd.md for the re-gate.
+ */
 export function playerWeekDistribution(projection, {
   runs = 2000, scoring = PPR, mult = 1, activeProbability = 1, useCache = true
 } = {}) {
@@ -762,9 +795,14 @@ export function playerWeekDistribution(projection, {
   const shift = projection.ensemble_shift ?? 0;
   let seed = 2166136261;
   for (let i = 0; i < cacheKey.length; i++) seed = Math.imul(seed ^ cacheKey.charCodeAt(i), 16777619);
+  // NaN plays, as it did in the old sampler's `random() > p` test; out of range clamps.
+  const pPlay = Number(activeProbability);
+  const playShare = Number.isNaN(pPlay) ? 1 : Math.min(1, Math.max(0, pPlay));
+  const dnpWeeks = Math.round((1 - playShare) * runs);
   const samples = withRandomSeed(seed >>> 0, () =>
-    sampleWeeks(projection.params, runs, scoring, mult, activeProbability)
-      .map(value => Math.max(0, value + shift)));
+    sampleWeeks(projection.params, runs - dnpWeeks, scoring, mult, 1)
+      .map(value => Math.max(0, value + shift)))
+    .concat(new Array(dnpWeeks).fill(0));
   const pct = percentiles(samples, [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]);
   const mean = samples.reduce((sum, value) => sum + value, 0) / Math.max(1, samples.length);
   const boom = ({ QB: 24, RB: 18, WR: 18, TE: 14 })[projection.position] ?? 18;

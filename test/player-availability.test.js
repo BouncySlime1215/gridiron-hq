@@ -141,3 +141,61 @@ test('newsSeverityFor classifies per player, not per story', () => {
   assert.equal(newsSeverityFor('Sources: AJ Brown to have season-ending surgery', 'A.J. Brown'), 'season_ending');
   assert.equal(newsSeverityFor('Waived LBs Liam Anderson, Jack Dingle, Eli Neal.', 'Jack Dingle'), 'released');
 });
+
+test('progressive verb forms count as a release ("is also releasing punter X")', () => {
+  assert.equal(newsSeverityFor('A source confirmed to ESPN that the team is also releasing punter Mitch Wishnowsky.', 'Mitch Wishnowsky'), 'released');
+  assert.equal(newsSeverityFor('The Jets are waiving WR Example Player.', 'Example Player'), 'released');
+});
+
+test('the player a release makes room for is the signing, not the one released', () => {
+  const t = "The Cowboys named Sam Howell as the team's backup QB after waiving Joe Milton III on Monday to make room for free agent RB Emari Demercado.";
+  assert.equal(newsSeverityFor(t, 'Emari Demercado'), null);
+  assert.equal(newsSeverityFor(t, 'Joe Milton III'), 'released');
+  assert.equal(newsSeverityFor('The Bears released WR Old Guy and signed WR New Guy.', 'New Guy'), null);
+  assert.equal(newsSeverityFor('The Bears released WR Old Guy and signed WR New Guy.', 'Old Guy'), 'released');
+});
+
+test('passive releases, past-season injuries, abbreviations and one-word names', () => {
+  assert.equal(newsSeverityFor('Veteran WR Some Receiver was released by the team on Tuesday.', 'Some Receiver'), 'released');
+  assert.equal(newsSeverityFor('Some Runner tore his ACL last season and is fully cleared.', 'Some Runner'), null);
+  assert.equal(newsSeverityFor('Some Runner tore his ACL in practice and will miss the rest of the season.', 'Some Runner'), 'season_ending');
+  // "Jr." and initials must not end a sentence and strand the name from its verb.
+  assert.equal(newsSeverityFor('Released WR Marvin Harrison Jr. on Monday.', 'Marvin Harrison Jr.'), 'released');
+  assert.equal(newsSeverityFor('Released RB J.K. Dobbins vs. the cap.', 'J.K. Dobbins'), 'released');
+  assert.equal(newsSeverityFor('Released WR Someone.', 'Someone'), null, 'a one-word name cannot be attributed');
+  assert.equal(newsSeverityFor('', 'Noah Brown'), null);
+});
+
+test('ESPN only overrides the news when it is newer, says available, and has him on an NFL team', () => {
+  const league = (id, status, proTeamId, fetched) => run(
+    `INSERT INTO leagues (platform, league_id, season, name, payload, fetched_at) VALUES ('espn', ?, 2026, 'fixture', ?, ${fetched})`,
+    String(9000 + id), JSON.stringify({ teams: [{ id: 1, roster: { entries: [
+      { lineupSlotId: 0, playerPoolEntry: { player: { id, fullName: `Case ${id}`, injuryStatus: status, proTeamId } } }] } }] }));
+  roster(201, 'Case Out'); roster(202, 'Case Stale'); roster(203, 'Case Freeagent');
+  run(`INSERT INTO leagues (platform, league_id, season, name, payload, fetched_at) VALUES ('espn', '8999', 2026, 'bad', '{not json', datetime('now'))`);
+  story('Case Out out for season', 'Case Out suffered a season-ending injury.', "datetime('now','-2 days')");
+  story('Case Stale out for season', 'Case Stale suffered a season-ending injury.', "datetime('now')");
+  story('Released LB Case Freeagent', 'Released LB Case Freeagent.', "datetime('now','-2 days')");
+  league(201, 'INJURY_RESERVE', 12, "datetime('now')");     // ESPN agrees he is out
+  league(202, 'ACTIVE', 12, "datetime('now','-5 days')");    // ESPN is older than the story
+  league(203, 'ACTIVE', 0, "datetime('now')");               // ESPN: no NFL team
+  const flagged = seasonEndingEspnIds();
+  assert.equal(flagged.has(201), true, 'ESPN confirms');
+  assert.equal(flagged.has(202), true, 'a stale ESPN sync does not override fresh news');
+  assert.equal(flagged.has(203), true, 'a free agent is still released');
+});
+
+test('the newest ESPN sync wins when a player appears in several leagues; malformed entries are skipped', () => {
+  roster(301, 'Case Multi');
+  story('Case Multi out for season', 'Case Multi suffered a season-ending injury.', "datetime('now','-2 days')");
+  const payload = (status, extra = []) => JSON.stringify({ teams: [{ id: 1, roster: { entries: [
+    ...extra, { lineupSlotId: 0, playerPoolEntry: { player: { id: 301, fullName: 'Case Multi', injuryStatus: status, proTeamId: 3 } } }] } }, { id: 2 }] });
+  run(`INSERT INTO leagues (platform, league_id, season, name, payload, fetched_at) VALUES ('espn','9301',2026,'a',?,datetime('now','-1 hours'))`,
+    payload('OUT', [{ lineupSlotId: 20, playerPoolEntry: {} }]));
+  run(`INSERT INTO leagues (platform, league_id, season, name, payload, fetched_at) VALUES ('espn','9302',2026,'b',?,datetime('now'))`,
+    payload(undefined));   // no injuryStatus at all = healthy on ESPN
+  run(`INSERT INTO leagues (platform, league_id, season, name, payload, fetched_at) VALUES ('espn','9303',2026,'c',?,datetime('now','-3 hours'))`,
+    payload('INJURY_RESERVE'));
+  assert.equal(seasonEndingEspnIds().has(301), false, 'the newest sync (healthy) overrides the older OUT rows');
+  assert.equal(textMentionsFullName('anything', ''), false);
+});

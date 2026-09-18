@@ -54,7 +54,7 @@ import { activeKVector, fitAllK, toKVector, fitHistory } from '../server/service
 import { pairedBootstrapDiff } from '../server/services/backtest-significance.js';
 import { spearman } from '../server/services/backtest.js';
 import { WEEKLY_ROLE_RECENCY, weeklyEnsemblePrediction } from '../server/services/weekly-ensemble.js';
-import { saveWeeklyFit, activeWeeklyWeightSet, weeklyFitHistory } from '../server/services/weekly-weight-store.js';
+import { saveWeeklyFit, activeWeeklyWeightSet, weeklyFitHistory, carryEarlyWeights } from '../server/services/weekly-weight-store.js';
 
 const DRY = process.argv.includes('--dry-run');
 const HEADS = ['structural', 'season_to_date', 'last3', 'last1', 'median'];
@@ -288,12 +288,25 @@ if (!(heldOutMae < stdMae && heldOutMae < blendMae && heldOutMae < championMae))
   process.exit(1);
 }
 
+// WEEKS 2-4 ARE NOT THIS SCRIPT'S. This script fits and grades weeks 5-18 only. The
+// served set may also carry `early` — per-prior-game buckets for weeks 2-4, promoted
+// by scripts/promote-early-week-weights.mjs under its own gate (fit-2: structural
+// only for 1-3 prior games). A new row here supersedes that one, so without this
+// carry the early buckets would silently vanish and weeks 2-4 would go back to
+// putting 80% of the projection on one game. They are carried unchanged, and the
+// round trip below still grades weeks 5-18 only, where `early` is never read.
+const earlySource = activeWeeklyWeightSet({ season: 2026, week: 2 });
+const storedWeights = carryEarlyWeights(prodWeights, earlySource.weights);
+console.log(storedWeights.early
+  ? `carrying early-week buckets from ${earlySource.id} (candidate ${storedWeights.early.candidate ?? '?'}, weeks ${JSON.stringify(storedWeights.early.weeks)})`
+  : 'no early-week buckets to carry');
+
 if (DRY) { console.log('\n--dry-run: nothing written.'); process.exit(0); }
 
 const saved = saveWeeklyFit({
   data_hash: `phase1a:${selected.architecture}:${HEADS.join('+')}:2023-2025:grid0.05:k${ACTIVE_K_FIT ?? 'hand'}`,
   through_season: 2025, through_week: 18,
-  weights: prodWeights,
+  weights: storedWeights,
   // candidate_* and validation_size are the GATE's held-out 2025 figures (fit on
   // 2023 only), which is what the column names claim. They used to hold the
   // in-sample production-path replay, a validation label on a training number.

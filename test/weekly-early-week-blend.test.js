@@ -308,6 +308,38 @@ test('earlyGateVerdict passes only when every rule holds in both validation seas
   }
 });
 
+test('fitBuckets: per-bucket grid fits, structural-only under 200 rows, per-position only where a position has 200', () => {
+  let seed = 3;
+  const rnd = () => { seed = (seed * 48271) % 2147483647; return seed / 2147483647; };
+  const row = (prior_weeks, position, truth) => {
+    const r = { structural: rnd() * 20, season_to_date: rnd() * 20, last3: rnd() * 20, last1: rnd() * 20,
+      median: rnd() * 20, position, prior_weeks };
+    r.actual = truth(r);
+    return r;
+  };
+  const data = [];
+  for (let i = 0; i < 400; i++) data.push(row(1, POSITIONS[i % 4], r => 0.8 * r.structural + 0.2 * r.season_to_date));
+  for (let i = 0; i < 100; i++) data.push(row(2, POSITIONS[i % 4], r => r.last1));                 // too few rows
+  for (let i = 0; i < 250; i++) data.push(row(3, 'QB', r => 0.5 * r.structural + 0.5 * r.last1));
+  for (const position of ['RB', 'WR']) for (let i = 0; i < 250; i++) data.push(row(3, position, r => 0.9 * r.structural + 0.1 * r.median));
+  for (let i = 0; i < 50; i++) data.push(row(3, 'TE', r => 0.9 * r.structural + 0.1 * r.median));   // TE too few
+  const round = w => w.map(x => +x.toFixed(10));
+
+  const global = P.fitBuckets(data, false);
+  for (const p of POSITIONS) {
+    assert.deepEqual(round(global[1][p]), [0.8, 0.2, 0, 0, 0]);
+    assert.deepEqual(global[2][p], [1, 0, 0, 0, 0], 'a bucket under 200 rows is structural-only');
+  }
+  assert.deepEqual(global[3].QB, global[3].TE, 'global architecture: one vector per bucket');
+
+  const byPosition = P.fitBuckets(data, true);
+  assert.deepEqual(round(byPosition[3].QB), [0.5, 0, 0, 0.5, 0]);
+  assert.deepEqual(round(byPosition[3].RB), [0.9, 0, 0, 0, 0.1]);
+  assert.deepEqual(byPosition[3].TE, global[3].TE, 'a position under 200 rows takes the bucket global');
+  assert.deepEqual(byPosition[1].WR, global[1].WR, '100 rows per position in bucket 1: all take the global');
+  assert.deepEqual(byPosition[2].QB, [1, 0, 0, 0, 0]);
+});
+
 test('buildEarlyWeightSet keeps the live position vectors and passes storage validation', () => {
   const live = perPosition(LIVE);
   const buckets = { 1: perPosition([1, 0, 0, 0, 0]), 2: perPosition([0.8, 0.2, 0, 0, 0]), 3: perPosition([0.6, 0.4, 0, 0, 0]) };

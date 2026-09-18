@@ -1,6 +1,8 @@
 /** Versioned champion weights for the weekly ensemble. */
 import { rows, run } from '../db/index.js';
-import { WEEKLY_ENSEMBLE_WEIGHTS } from './weekly-ensemble.js';
+import {
+  WEEKLY_ENSEMBLE_WEIGHTS, WEEKLY_ENSEMBLE_HEADS, EARLY_WEEK_MAX_PRIOR_WEEKS, weeklyWeightSetForWeek
+} from './weekly-ensemble.js';
 import { activeLearningEpoch } from './nfl-engine-registry.js';
 
 export const weeklyFitDataHash = hash => `e${activeLearningEpoch()?.id ?? 1}:${hash}`;
@@ -32,7 +34,9 @@ export function activeWeeklyWeightSet({ season, week } = {}) {
   const fit = rows(`SELECT * FROM weekly_ensemble_fits WHERE promoted=1 AND epoch_id=?
             AND (through_season < ? OR (through_season = ? AND through_week < ?))
             ORDER BY through_season DESC, through_week DESC, id DESC LIMIT 1`, epochId, season, season, week)[0];
-  return weightSetFrom(fit);
+  // `early` (weeks 2-4 buckets) is served only inside its stored week window, so a
+  // week-1 or week-5+ caller gets exactly the per-position vectors it always got.
+  return weightSetFrom(fit, week);
 }
 
 /**
@@ -47,13 +51,59 @@ export function latestWeeklyWeightSet() {
   return weightSetFrom(fit);
 }
 
-function weightSetFrom(fit) {
+function weightSetFrom(fit, week = null) {
   if (!fit) return { id: 'frozen-2023', weights: WEEKLY_ENSEMBLE_WEIGHTS, source: 'frozen' };
-  return { id: `fit-${fit.id}`, weights: JSON.parse(fit.weights_json), source: 'adaptive', fit };
+  const weights = JSON.parse(fit.weights_json);
+  return { id: `fit-${fit.id}`, weights: week == null ? weights : weeklyWeightSetForWeek(weights, week), source: 'adaptive', fit };
+}
+
+const EARLY_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
+
+/**
+ * Refuse an early-week block that weeklyEnsemblePrediction() would silently skip or
+ * misread: a week window that is not [lo, hi] with 2 <= lo <= hi (week 1's single
+ * "prior week" is a prior-season average, not a game), a bucket that is not a
+ * prior-game count in 1-3, or any bucket/position that is not a convex 5-vector.
+ * A missing position would quietly fall back to the live vector; a bare array would
+ * never be read. Both are refused here rather than discovered in production.
+ */
+export function validateEarlyWeights(early) {
+  const fail = why => { throw new Error(`refusing to store weightSet.early: ${why}`); };
+  if (!early || typeof early !== 'object' || Array.isArray(early)) fail('it is not an object');
+  const weeks = early.weeks;
+  if (!Array.isArray(weeks) || weeks.length !== 2 || !weeks.every(Number.isInteger) || weeks[0] < 2 || weeks[1] < weeks[0]) {
+    fail(`week window ${JSON.stringify(weeks)} must be [lo, hi] with 2 <= lo <= hi`);
+  }
+  const keys = Object.keys(early.buckets ?? {});
+  if (!keys.length || Array.isArray(early.buckets)) fail('it has no prior-game buckets');
+  for (const key of keys) {
+    const n = Number(key);
+    if (!Number.isInteger(n) || n < 1 || n > EARLY_WEEK_MAX_PRIOR_WEEKS) {
+      fail(`bucket "${key}" is not a prior-game count in 1-${EARLY_WEEK_MAX_PRIOR_WEEKS}`);
+    }
+    for (const position of EARLY_POSITIONS) {
+      const w = early.buckets[key]?.[position];
+      const convex = Array.isArray(w) && w.length === WEEKLY_ENSEMBLE_HEADS.length
+        && w.every(x => Number.isFinite(x) && x >= 0 && x <= 1)
+        && Math.abs(w.reduce((a, b) => a + b, 0) - 1) <= 1e-9;
+      if (!convex) fail(`bucket ${key} ${position} is not a convex ${WEEKLY_ENSEMBLE_HEADS.length}-vector: ${JSON.stringify(w)}`);
+    }
+  }
+  return true;
+}
+
+/**
+ * Re-promoting the weeks 5-18 vector must not silently drop the early-week buckets.
+ * Returns `next` with `previous.early` attached when `next` has none of its own.
+ */
+export function carryEarlyWeights(next, previous) {
+  if (next?.early || !previous?.early) return next;
+  return { ...next, early: previous.early };
 }
 
 export function saveWeeklyFit(fit) {
   const epochId = activeLearningEpoch()?.id ?? 1;
+  if (fit.weights?.early !== undefined) validateEarlyWeights(fit.weights.early);
   const storedHash = weeklyFitDataHash(fit.data_hash);
   const result = run(`INSERT INTO weekly_ensemble_fits
     (data_hash,through_season,through_week,weights_json,sample_size,validation_size,

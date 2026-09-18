@@ -213,24 +213,26 @@ export function weekDesignation({ report = null, espnStatus = null, team = null 
   return { report, designation: nfl === 'none' ? null : nfl, source: nfl === 'none' ? null : 'nfl' };
 }
 
-let _espnMemo = { key: null, value: null };
+let _espnMemo = { key: null, periods: null, value: null };
 /**
  * ESPN's current injury status per ESPN player id (player-availability.js#espnStatusById,
  * the freshest synced league payload wins), or null unless (season, week) is the
  * payloads' current ESPN scoring period. A status describes now, so it may only price
- * the live week.
+ * the live week. Memoised on each league's fetched_at (a sync rewrites payload and
+ * fetched_at together); the payloads, ~2.5 MB each, are read only when one changes.
  */
 export function liveEspnStatuses(season, week) {
-  let leagues;
+  let key;
   try {
-    leagues = rows(`SELECT id, fetched_at, json_extract(payload, '$.seasonId') AS s,
-                           json_extract(payload, '$.scoringPeriodId') AS w
-                    FROM leagues WHERE payload IS NOT NULL ORDER BY id`);
+    key = JSON.stringify(rows('SELECT id, fetched_at FROM leagues WHERE payload IS NOT NULL ORDER BY id'));
   } catch { return null; }
-  if (!leagues.some(l => Number(l.s) === season && Number(l.w) === week)) return null;
-  const key = JSON.stringify(leagues);
-  if (_espnMemo.key !== key) _espnMemo = { key, value: espnStatusById() };
-  return _espnMemo.value;
+  if (_espnMemo.key !== key) {
+    const periods = new Set(rows(`SELECT json_extract(payload, '$.seasonId') AS s,
+                                         json_extract(payload, '$.scoringPeriodId') AS w
+                                  FROM leagues WHERE payload IS NOT NULL`).map(l => `${Number(l.s)}|${Number(l.w)}`));
+    _espnMemo = { key, periods, value: periods.size ? espnStatusById() : new Map() };
+  }
+  return _espnMemo.periods.has(`${season}|${week}`) ? _espnMemo.value : null;
 }
 
 /* ------------------------------------------------------------------ role */
@@ -484,7 +486,7 @@ export function resetAvailabilityCache() {
   _fittedCache = undefined;
   _fittedStamp = undefined;
   _roleCache.clear();
-  _espnMemo = { key: null, value: null };
+  _espnMemo = { key: null, periods: null, value: null };
 }
 /**
  * Row count and newest fitted_at of both tables: which availability fit is live.

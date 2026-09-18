@@ -30,6 +30,7 @@
 import { rows } from '../db/index.js';
 import { openChatDb, chatDbPath, chatDataKey } from './manager-signals.js';
 import { TRUSTED_CONFIDENCE } from './manager-identity.js';
+import { normalizePlayerName } from './player-identity.js';
 
 /** A reversal inside this many days is about negotiating, not about football. */
 export const BLUFF_WINDOW_DAYS = 10;
@@ -45,8 +46,59 @@ export const PRIOR_WEIGHT = 4;
  * that is simultaneously high-praise and NOT open to trading — the "he's a
  * league winner, I'm good" move, which is the same message with better manners.
  */
-function declarations(chat, minProb = 0.5) {
-  return chat.prepare(`
+/**
+ * Every player name a chat name has EVER owned, from the app's own roster history —
+ * `league_roster_snapshots` (weekly-captured, migration 058) first, and the current
+ * `leagues.payload` roster as a fallback for a manager whose snapshot history has not
+ * accumulated yet. Not point-in-time: a manager who traded a player away in July still
+ * shows him here. That is deliberate — "ever owned" is enough to rule out the bug this
+ * exists to fix (a manager declaring a player he has NEVER owned, i.e. someone else's
+ * roster), and requiring exact point-in-time ownership would starve every declaration
+ * older than the roster-snapshot history, which started 2026-09-18.
+ *
+ * Found in the 2026-09-18 structural relook: `declarations()`/`openings()` matched a
+ * chat message to `mentioned_player` with no check that the SPEAKER owned that player at
+ * all. Live example: Raj's "5 of 5 hard reversals" included Achane and Chase Brown —
+ * Nick's players, not Raj's — because Raj talking about someone else's roster looked
+ * identical to Raj declaring his own.
+ *
+ * Returns Map<chat_name lowercased, Set<normalized player name>>. A chat name with no
+ * roster data anywhere (no trusted identity, no snapshot, no payload) is simply absent,
+ * which is the honest state: "we cannot verify this" is not the same as "false," and a
+ * declaration about a name absent from the map is dropped rather than trusted at face value.
+ */
+function ownedPlayersByChatName() {
+  const out = new Map();
+  const identities = rows(`SELECT DISTINCT league_id, roster_id, chat_name FROM league_member_identity
+                           WHERE chat_name IS NOT NULL AND confidence IN (${TRUSTED_CONFIDENCE.map(() => '?').join(',')})`,
+    ...TRUSTED_CONFIDENCE);
+  if (!identities.length) return out;
+  const add = (chatName, playerName) => {
+    if (!playerName) return;
+    const key = String(chatName).toLowerCase();
+    if (!out.has(key)) out.set(key, new Set());
+    out.get(key).add(normalizePlayerName(playerName));
+  };
+  for (const id of identities) {
+    for (const r of rows(`SELECT player_name FROM league_roster_snapshots
+                          WHERE league_id = ? AND team_id = ? AND on_roster = 1`, id.league_id, id.roster_id)) {
+      add(id.chat_name, r.player_name);
+    }
+  }
+  // Fallback: current live roster, for a league whose snapshot history has not built up.
+  for (const id of identities) {
+    if (out.has(String(id.chat_name).toLowerCase())) continue; // already has real snapshot history
+    const lg = rows('SELECT payload FROM leagues WHERE id = ?', id.league_id)[0];
+    if (!lg?.payload) continue;
+    let payload; try { payload = JSON.parse(lg.payload); } catch { continue; }
+    const team = (payload.teams ?? []).find(t => String(t.id) === String(id.roster_id));
+    for (const e of team?.roster?.entries ?? []) add(id.chat_name, e.playerPoolEntry?.player?.fullName);
+  }
+  return out;
+}
+
+function declarations(chat, minProb = 0.5, owned = ownedPlayersByChatName()) {
+  const all = chat.prepare(`
     SELECT s.name, s.mentioned_player AS player, m.ts_utc, s.probability AS prob,
            (SELECT probability FROM jev_chat_signals o
              WHERE o.msg_id = s.msg_id AND o.question = 'open_to_trade') AS open_prob
@@ -54,15 +106,20 @@ function declarations(chat, minProb = 0.5) {
     WHERE s.question = 'own_roster.untouchable' AND s.probability >= ?
       AND s.mentioned_player IS NOT NULL AND s.name <> 'ME'
     ORDER BY s.name, s.mentioned_player, m.ts_utc`).all(minProb);
+  // A declaration only means something as a claim about the speaker's OWN roster.
+  return all.filter(d => owned.get(String(d.name).toLowerCase())?.has(normalizePlayerName(d.player)));
 }
 
 /** Later moments where the same manager opened the door on the same player. */
-function openings(chat, minProb = 0.6) {
-  return chat.prepare(`
+function openings(chat, minProb = 0.6, owned = ownedPlayersByChatName()) {
+  const all = chat.prepare(`
     SELECT s.name, s.mentioned_player AS player, m.ts_utc, s.probability AS prob
     FROM jev_chat_signals s JOIN messages m ON m.msg_id = s.msg_id
     WHERE s.question = 'open_to_trade' AND s.probability >= ?
       AND s.mentioned_player IS NOT NULL AND s.name <> 'ME'`).all(minProb);
+  // An "open to trade" reversal is only a REVERSAL if it is about a player he owns.
+  // "I would take Rival Star" from someone who never had him is an offer, not a bluff.
+  return all.filter(o => owned.get(String(o.name).toLowerCase())?.has(normalizePlayerName(o.player)));
 }
 
 const daysBetween = (a, b) => (Date.parse(b) - Date.parse(a)) / 86400000;

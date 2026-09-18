@@ -485,7 +485,15 @@ test('bluff: credibility is cached against the chat data and invalidated when it
   const b = bluff.declarationCredibility();
   assert.equal(a, b, 'unchanged chat data serves the cached result');
   assert.equal(a.available, true);
-  assert.equal(a.byManager.get('Danny Echo').hard_reversals, 1);
+  // Danny Echo is only a "likely" identity match (asserted elsewhere in this file), and
+  // since 2026-09-18 a declaration can only be verified against a TRUSTED identity's own
+  // roster (fixes the relook finding that Raj's reversals included players he never owned)
+  // - so an unconfirmed name like Danny now correctly contributes no credibility record at
+  // all, rather than being trusted at face value. Hayden Brook (roster 2, confirmed, and
+  // genuinely owns "Player A" per the league-11 fixture) is the verifiable one here.
+  assert.ok(!a.byManager.has('Danny Echo'), 'an unconfirmed identity cannot have its declarations verified');
+  assert.equal(a.byManager.get('Hayden Brook').declarations, 1);
+  assert.equal(a.byManager.get('Hayden Brook').hard_reversals, 0, 'he has not reversed on Player A yet');
   assert.notEqual(bluff.declarationCredibility({ windowDays: 1 }), a, 'the window is part of the key');
 
   const w = new DatabaseSync(CHAT_PATH);

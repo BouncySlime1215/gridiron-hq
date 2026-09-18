@@ -91,16 +91,51 @@ test('a declaration about a player the speaker does NOT own is not a self-declar
   const raj = byManager.get('Raj');
   assert.ok(raj, 'Raj has a credibility record from his real declaration');
   assert.equal(raj.declarations, 1, 'only "Own Guy" counts - "Rival Star" is not his to declare');
-  assert.equal(raj.hard, 1, 'the real reversal on his own player still counts');
-  const players = [...raj.players.keys()];
+  assert.equal(raj.hard_reversals, 1, 'the real reversal on his own player still counts');
+  const players = Object.keys(raj.players);
   assert.deepEqual(players, ['Own Guy']);
   assert.ok(!events.some(e => e.name === 'Raj' && String(e.player).toLowerCase() === 'rival star'),
     'no event is recorded for a player Raj never owned');
 });
 
-test('with no roster history for the league, ownership cannot be checked, and nothing is silently trusted as a declaration', () => {
-  buildChat();
-  // No league_roster_snapshots or league_member_identity rows at all this time.
+test('a chat name with no roster link anywhere cannot have its declarations verified, and none are trusted at face value', () => {
+  // Reuses the same chat DB as test 1 (buildChat() is not called again - a genuinely
+  // fresh chat/app DB pair per test would need full isolation this suite does not have,
+  // and the point survives without it): "Unlinked Manager" appears in jev_chat_signals
+  // exactly like Raj did, but gets no league_member_identity row and no roster_snapshot
+  // row anywhere, so ownedPlayersByChatName() can never resolve what he owns.
+  const chat = new DatabaseSync(CHAT_PATH);
+  const msg = chat.prepare(`INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,0,0)`);
+  const sig = chat.prepare(`INSERT INTO jev_chat_signals VALUES (?,?,?,?,?,?,?)`);
+  msg.run(5, 'group', 'League', 'h1', 'Unlinked Manager', 0, '2026-09-09T12:00:00Z', 'Some Guy is not going anywhere');
+  sig.run(5, 'Unlinked Manager', 'group', 'Some Guy', 'own_roster.untouchable', 0.9, '2026-09-10');
+  chat.close();
   const { byManager } = declarationCredibility();
-  assert.ok(!byManager.has('Raj'), 'unverifiable declarations are dropped, not counted at face value');
+  assert.ok(!byManager.has('Unlinked Manager'),
+    'a manager we cannot map to a roster contributes no declaration, rather than being trusted at face value');
+});
+
+test('fallback: a manager with no roster-snapshot history yet is checked against the current live roster instead', () => {
+  const chat = new DatabaseSync(CHAT_PATH);
+  const msg = chat.prepare(`INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,0,0)`);
+  const sig = chat.prepare(`INSERT INTO jev_chat_signals VALUES (?,?,?,?,?,?,?)`);
+  msg.run(6, 'group', 'League', 'h1', 'Lars', 0, '2026-09-11T12:00:00Z', 'Live Roster Guy is not going anywhere');
+  sig.run(6, 'Lars', 'group', 'Live Roster Guy', 'own_roster.untouchable', 0.9, '2026-09-12');
+  msg.run(7, 'group', 'League', 'h1', 'Lars', 0, '2026-09-13T12:00:00Z', 'Someone Elses Guy is not going anywhere');
+  sig.run(7, 'Lars', 'group', 'Someone Elses Guy', 'own_roster.untouchable', 0.9, '2026-09-14');
+  chat.close();
+  // No league_roster_snapshots row for Lars's roster (id 20) at all, but the current
+  // ESPN payload lists "Live Roster Guy" on his team - the fallback source.
+  run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id, roster_positions)
+       VALUES (9, 'espn', 'espn-bluff-9', 2026, 'Fallback league', ?, 2, '21', '[]')`,
+    JSON.stringify({ teams: [{ id: 20, roster: { entries: [
+      { playerPoolEntry: { player: { fullName: 'Live Roster Guy' } } } ] } }] }));
+  run(`INSERT INTO league_member_identity (league_id, roster_id, espn_member_id, espn_name, team_name,
+         chat_name, match_method, confidence)
+       VALUES (9, '20', '{LARS}', 'Lars', 'Lars Team', 'Lars', 'confirmed by Nick', 'confirmed')`);
+  const { byManager } = declarationCredibility();
+  const lars = byManager.get('Lars');
+  assert.ok(lars, 'the live-roster fallback found Lars a roster');
+  assert.equal(lars.declarations, 1, 'only the player on his current live roster counts');
+  assert.deepEqual(Object.keys(lars.players), ['Live Roster Guy']);
 });

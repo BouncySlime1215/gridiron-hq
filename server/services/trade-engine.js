@@ -2075,10 +2075,11 @@ function pairLineupSwaps(ins, outs, optimalPlayers, slots, points) {
  * silent bench. An IR-slot player ESPN lists as playing, who would start if
  * activated, is listed in `activate_from_ir` rather than recommended.
  */
-export function lineupDiff(lg, myTeamId) {
+export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
   if (lg.platform !== 'espn') return { error: 'Submitted-lineup comparison is ESPN-only for now — Sleeper stores starters in a different shape this doesn\'t read yet.' };
   const { formatKey } = deriveFormat(lg);
-  const assets = assetUniverse(lg, formatKey);
+  // `assets` lets a test price every player exactly (test/lineup-diff-urgency.test.js).
+  const assets = pricedAssets ?? assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
   const slots = lineupSlots(lg);
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];

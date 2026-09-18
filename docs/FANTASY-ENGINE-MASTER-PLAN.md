@@ -89,6 +89,8 @@ Rule: no model ships on "it should be smarter". Each is fit on earlier seasons a
 | P(accept) and the valuation map | ~30 decided 2026 proposals (ESPN keeps no prior seasons) | tested on what exists, shown as a band; re-tested as proposals accrue |
 | Weekly action plan | built only from tested parts | **WD** — a "follow the plan" arm in the replay vs the attainable-arm manager |
 
+**Provenance rule (Nick, 11:20): every number shown for the future — win probability, weekly points, floor/ceiling, chance to play, opportunities, rest-of-season value, trade value, trade scores and acceptance odds, waiver upgrades, playoff and title odds, and every "theory" constant (playoff-week weight, fairness caps) — traces to a model fit and validated on past seasons, and each number has ONE source every page reads.** A read-only provenance audit (running 11:20) lists every constant on every user-facing path as fitted+validated / fitted / borrowed / hand-set / definitional, and every place a number is computed twice. Its output becomes `docs/NUMBER-PROVENANCE.md`; every hand-set or borrowed constant that moves a decision is scheduled into WO or WD with the historical test that replaces it, and every routing split into WB (contracts) or WC (pages).
+
 ### Coach knowledge pack (WB) — negotiation, theory, psychology
 
 The Coach cannot be back-tested like a forecast, so it is grounded in a curated, cited knowledge pack loaded as its cached prefix:

@@ -5,9 +5,9 @@
  * the ensemble shift (blend minus structural) was then added to EVERY draw, so a
  * DNP week scored the shift. For P(play) < 0.9 and a positive shift, more than 10%
  * of draws sat at exactly `shift` and every played draw was above it, so the
- * printed floor (p10) was the shift itself: 57% of floors for players projected
- * over 5 equalled it (Caleb Williams, floor 13.9 at P(play) 0.76). The mean was
- * inflated by (1 - P(play)) x shift.
+ * printed floor (p10) was the shift itself: in league 1's assets, 99 of the 99
+ * players projected over 5 with a positive shift (Caleb Williams, floor 13.9 at
+ * P(play) 0.76). The mean was inflated by (1 - P(play)) x shift.
  *
  * Gate and eval definition: scratchpad step1b/fake-floors/GATE.md and
  * docs/tdd/fake-floors.tdd.md.
@@ -141,4 +141,21 @@ test('R5 the cached call returns the same summary as the uncached one', () => {
   const cachedTwice = playerWeekDistribution(te, { runs: 1000, activeProbability: 0.8 });
   assert.equal(cachedOnce, cachedTwice, 'second call is a cache hit');
   assert.deepEqual(cachedOnce, dist(te, { runs: 1000, activeProbability: 0.8 }));
+});
+
+test('R6 a non-numeric P(play) plays every week, as the old sampler did', () => {
+  // The old sampler's `random() > NaN` was always false, i.e. always active.
+  const wr = player(9210, 'WR', 30, { targets: 8 });
+  const d = dist(wr, { runs: 1000, activeProbability: Number.NaN });
+  assert.equal(d.bust_rate, 0, 'NaN must not zero the week');
+  assert.ok(d.p5 >= 30, `every draw is a played week carrying the +30 shift (p5 ${d.p5})`);
+});
+
+test('R7 a structural-only player (no ensemble shift) is shift 0, and a sitting week is 0', () => {
+  const base = player(9211, 'RB', 0, { carries: 15, targets: 4 });
+  const { ensemble_shift, ...structuralOnly } = base;
+  assert.equal(ensemble_shift, 0);
+  const a = dist(structuralOnly, { runs: 2000, activeProbability: 0.76 });
+  assert.deepEqual(a, dist(base, { runs: 2000, activeProbability: 0.76 }));
+  assert.equal(a.p10, 0, '24% of weeks are DNP');
 });

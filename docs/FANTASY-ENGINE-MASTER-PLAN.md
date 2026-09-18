@@ -139,6 +139,8 @@ Nick's decisions (B2) don't block any of it.
 
 #### B4. WA workflow — full record (Nick, 2026-09-18: "record everything on this workflow in the plan — ids and progress reports and work")
 
+**Full version: `docs/WA-WORKFLOW-RECORD.md`** — every finding from every agent (not just the headline ones below), the full review-agent reports, and pointers to what even that doc doesn't transcribe.
+
 **Identity.** Run id `wf_90ebcd25-088` (label `wa-essentials-audits-trade-brain`). Background task_id: **not recoverable from this session** (assigned before a context compaction; see A2 rule 10's gap note) — use the user's own `/tasks` or `/workflows` panel for it, not a guess. Journal: `~/.claude/projects/-Users-nick-matta-Claude/b8d740e9-a5f3-4cad-8a9a-765d40f59b44/subagents/workflows/wf_90ebcd25-088/journal.jsonl`. Started 2026-09-18, still running as of this entry.
 
 **Every agent, in order, with its id** (`grep agentId` in the journal to find any of these directly):

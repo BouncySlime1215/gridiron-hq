@@ -448,3 +448,20 @@ did not record which one priced it).
 Regression: pinned-baselines 3/3, weekly-early-week-blend 19/19,
 weekly-retrain-early-carry 4/4, model-integrity 94/94, availability-role 17/17,
 asset-universe-fingerprint 5/5, ros-projection-failures 4/4.
+
+## 16. Commit 11ab55c skipped the TDD cycle (medium; tdd-workflow)
+
+The retroactive tests are sections 4, 5, 10, 11, 12 and 14 above (all shown able to
+fail by mutation). What this section adds:
+
+- `server/services/gate-verdicts.js`: the ship rules of the weekly-coverage gate
+  (G1-G3) and the posture gate (log loss, ECE, bootstrap), moved out of the scripts
+  unchanged; both scripts now call them. RED (91aafb6): the module did not exist.
+  GREEN: `test/gate-verdicts.test.js` 2/2, pass/fail tables including the recorded
+  2025 runs (coverage B 0.782 / 0.111 / CRPS -0.0296 significant: PASS; A 0.772:
+  FAIL on G1; posture 0.6669 vs 0.6726, ECE 0.010 vs 0.039, CI [-0.0096, -0.0016]:
+  SHIP) and each rule's edges (band ends inclusive, calibration strictly lower, CRPS
+  worse only fails when significant, bootstrap error means not significant).
+- `docs/tdd/week2-numbers.tdd.md`: the six step-1 gate records copied verbatim from the
+  session scratch directory, the per-swap calibration result, and a table mapping each
+  gated behaviour to its retroactive tests and mutation counts.

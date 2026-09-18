@@ -465,14 +465,14 @@ async function main() {
   const llB0 = val.map(m => lossOf(probOf(B0.model, B0.params, m), m.y));
   const llShip = val.map(m => lossOf(probOf(winner.model, winner.shipped_params, m), m.y));
   const boot = pairedBootstrapDiff(llB0, llShip, { seed: SEED, iterations: 2000, groups: val.map(m => m.group) });
-  const pass1 = evShip.log_loss < evB0.log_loss;
-  const pass2 = evShip.ece < evB0.ece;
-  const pass3 = !boot.error && boot.ci90[1] < 0;
+  const { postureGateVerdict } = await import('../server/services/gate-verdicts.js');
+  const verdict = postureGateVerdict({ logLoss: evShip.log_loss, baseLogLoss: evB0.log_loss,
+    ece: evShip.ece, baseEce: evB0.ece, boot });
   result.validation = {
     season: VALIDATION_SEASON, n: val.length, weeks: new Set(val.map(m => m.group)).size,
     B0_current: evB0, B1_cv_fallback: evB1, winner_unrounded: evWin, winner_shipped: evShip,
     bootstrap_log_loss_winner_minus_B0: boot,
-    gate: { log_loss_beats_B0: pass1, ece_beats_B0: pass2, bootstrap_significant: pass3, SHIP: pass1 && pass2 && pass3 }
+    gate: verdict
   };
   const valLineups = lineups.filter(l => l.phase === 'main' && l.season === VALIDATION_SEASON);
   const k = winner.shipped_params.k ?? null;

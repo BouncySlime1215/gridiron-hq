@@ -36,6 +36,7 @@ const { WEEKLY_ROLE_RECENCY, weeklyEnsemblePrediction } = await import('../serve
 const { weeklyWeightSetById } = await import('../server/services/weekly-weight-store.js');
 const { WEEKLY_LEVEL, buildProjections, sampleWeeks } = await import('../server/services/projections.js');
 const { pairedBootstrapDiff } = await import('../server/services/backtest-significance.js');
+const { coverageGateVerdict } = await import('../server/services/gate-verdicts.js');
 const { random, withRandomSeed } = await import('../server/services/stats-util.js');
 const { PPR } = await import('../server/services/scoring.js');
 const { writeFileSync } = await import('node:fs');
@@ -259,9 +260,9 @@ function calibrationBootstrap(base, cand) {    // report-only: is the PIT-flatne
 function gate(name, baseKey = 'shipped') {
   const d = H[name].distribution, b = H[baseKey].distribution;
   const crpsBoot = pairedBootstrapDiff(H[baseKey]._errors.crps, H[name]._errors.crps, { ...BOOT, groups });
-  const g1 = inBand(d.coverage_80), g2 = d.calibration_error < b.calibration_error;
-  const g3 = !(crpsBoot.significant && crpsBoot.mean_diff > 0);
-  return { name, vs: baseKey, pass: g1 && g2 && g3, g1, g2, g3, crps_boot: crpsBoot, cal_boot: calibrationBootstrap(S[baseKey], S[name]) };
+  const { g1, g2, g3, pass } = coverageGateVerdict({ coverage80: d.coverage_80, calibrationError: d.calibration_error,
+    baseCalibrationError: b.calibration_error, crpsBoot, band: GATE });
+  return { name, vs: baseKey, pass, g1, g2, g3, crps_boot: crpsBoot, cal_boot: calibrationBootstrap(S[baseKey], S[name]) };
 }
 const tiers = [['0-4', 0, 4], ['4-8', 4, 8], ['8-12', 8, 12], ['12+', 12, Infinity]];
 console.log('  setting  | coverage  calib   crps  | sim mean  (head mean, actual mean) | PIT histogram');

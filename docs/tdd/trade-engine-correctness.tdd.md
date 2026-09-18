@@ -129,7 +129,13 @@ unlocked ideas, and from 2 leagues with any sequence to 4. League 2 drops from 5
 first step is now a better deal (Chase Brown + Deebo Samuel → Christian McCaffrey), which leaves
 fewer additive follow-ups — a consequence of the better step 1, not a regression.
 
-## 7. Coverage and known gaps
+## 7. Full suite
+
+`full-suite-2.log`: **2,610 tests, 2,568 pass, 3 fail, 39 skipped.** The three failures are the known
+pre-existing prop-CLV ones (`nfl_prop_clv` devig / idempotency / time separation), unrelated to this
+item and failing on the branch before it. Lint clean, `tsc --noEmit` clean.
+
+## 8. Coverage and known gaps
 
 - The two new test files cover every gate. The engine's existing suites (`find-trades`,
   `trade-evidence`, `post-draft-plan`, `asset-cache-stamps`, `manager-data-pipeline`,

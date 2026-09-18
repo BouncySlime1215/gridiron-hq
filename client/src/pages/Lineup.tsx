@@ -103,7 +103,10 @@ export default function Lineup() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <div className="text-[10px] font-black uppercase tracking-[.15em] text-emerald-300">
-                Week {d.week} projection
+                {/* Named for what was summed: a floor or ceiling total is not a projection. */}
+                {d.objective_used === 'floor' ? `Week ${d.week} · sum of bad-week floors`
+                  : d.objective_used === 'ceiling' ? `Week ${d.week} · sum of good-week ceilings`
+                    : `Week ${d.week} projection`}
               </div>
               <div className="mt-1 text-4xl font-black tabular-nums text-white">{d.projected_points}</div>
               <p className="mt-1 text-sm text-slate-400">
@@ -123,6 +126,11 @@ export default function Lineup() {
               ))}
             </div>
           </div>
+          {d.objective_fallback && (
+            <p role="status" className="mt-3 rounded-lg bg-amber-400/15 px-3 py-2 text-sm leading-6 text-amber-100">
+              This lineup is the highest-average one: {d.objective_fallback}.
+            </p>
+          )}
           {d.objectives?.find((o: any) => o.id === objective) && (
             <p className="mt-3 border-t border-white/10 pt-3 text-sm leading-6 text-slate-300">
               {d.objectives.find((o: any) => o.id === objective).when}

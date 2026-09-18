@@ -387,10 +387,25 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const skill = annotated.filter(p => SKILL_POSITIONS.has(p.position));
   const lacking = skill.filter(p => !Number.isFinite(p[requestedKey]));
   let key = requestedKey;
-  let solvePool = requestedKey === 'week_points' ? annotated : annotated.filter(p => !lacking.includes(p));
-  let optimal = bestLineup(solvePool, slots, key);
+  // bestLineup's sort is stable, so an exact tie on the key keeps this order: highest
+  // week_points first, never roster order. Distinct key values are unaffected.
+  const byWeekPoints = pool => [...pool].sort((a, b) => (b.week_points ?? 0) - (a.week_points ?? 0));
+  let solvePool = byWeekPoints(requestedKey === 'week_points' ? annotated : annotated.filter(p => !lacking.includes(p)));
+  // A key on which every startable skill player has the same value ranks no one. At
+  // 2026 week 2 every floor is 0 (a did-not-play week scores 0 and no live chance to
+  // play exceeds 0.9, so each p10 is 0): optimising it returned roster order as "the
+  // floor lineup", projection 0, every margin a +0 coin flip.
+  const rankable = new Set(solvePool.filter(p => SKILL_POSITIONS.has(p.position) && p.available !== false)
+    .map(p => p[requestedKey]));
+  let optimal = requestedKey !== 'week_points' && rankable.size <= 1 ? null : bestLineup(solvePool, slots, key);
   let objectiveFallback = null;
-  if (requestedKey !== 'week_points' && optimal.holes?.length) {
+  if (!optimal) {
+    objectiveFallback = `every player's ${requestedKey} is ${[...rankable][0] ?? 'missing'} this week, so it cannot ` +
+      'rank anyone; the lineup was solved on week_points instead';
+    key = 'week_points';
+    solvePool = byWeekPoints(annotated);
+    optimal = bestLineup(solvePool, slots, key);
+  } else if (requestedKey !== 'week_points' && optimal.holes?.length) {
     objectiveFallback = `holding out the ${lacking.length} player(s) with no ${requestedKey} would leave ` +
       `${optimal.holes.join('/')} unfilled, so the lineup was solved on week_points instead`;
     key = 'week_points';
@@ -416,7 +431,7 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // For the default week_points objective this is the same list as `bench`.
   const alternatives = startable
     .filter(p => !startingIds.has(p.id) && Number.isFinite(p[key]) && (p.week_points ?? 0) > 0)
-    .sort((a, b) => b[key] - a[key]);
+    .sort((a, b) => b[key] - a[key] || (b.week_points ?? 0) - (a.week_points ?? 0));
   // Kept separately and reported, because "why is my best back on the bench" is
   // the first question this page has to answer.
   const unavailable = annotated

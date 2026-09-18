@@ -36,7 +36,7 @@ Nick, 03:50: *"Trades are designed by the people they are being sent to while fi
 
 Everything that matters for Sunday's week-2 games — chance to play, the Trade Brain, the Coach and home page — is live by Saturday morning.
 
-### 00.2b What the running agents found (read 12:10) and what it changes
+### 00.2b What the running agents found (read ~11:40) and what it changes
 
 **Findings that change the plan** (from WA's finished builders, verifiers and the two review agents):
 1. **Chance to play must go live as one piece** — new code and the fitted role rates together at WA's restart. Old code with the new rates would start three Questionable players (Collins, Flowers, McConkey). *(WA integration)*
@@ -55,7 +55,7 @@ Everything that matters for Sunday's week-2 games — chance to play, the Trade 
 - **Decision and outcome log** — every trade sent, accepted or declined, every waiver claim and every Coach recommendation is recorded with what we predicted, then graded later. It builds the history that acceptance odds and the Coach can be tested on. *(WB)*
 - **Storage guardrails** — one shared DB copy per workflow; agents move leftovers to Trash at the end of each item (never delete); a weekly storage check warns above 85%; pre-migration backups keep the newest 2; the nightly backup keeps 7. *(from WO+WB on; the checks in WD)*
 
-### 00.2d Team Outlook — early panic vs low data (Nick, 12:25: "this needs to be WELL BUILT, add UI support")
+### 00.2d Team Outlook — early panic vs low data (Nick, ~11:45: "this needs to be WELL BUILT, add UI support")
 
 **The question it answers, per team, every week:** where are we right now, how much of that is real and how much is early-season noise, and what should we do about it — or are we fine?
 
@@ -71,7 +71,7 @@ Everything that matters for Sunday's week-2 games — chance to play, the Trade 
 
 **Where it shows (WB):** a **Team health** card on the home page for each league — verdict chip, playoff and title odds, the one-line story (e.g. *"1-1, but your lineup projects 3rd of 10 — teams like this make the playoffs X% of the time"*), and what to do; a deep dive on League Hub with odds by week (preseason → now) and the luck / noise / real split; a **team audit** tool for the Coach; plan items whenever the verdict is Act.
 
-### 00.2d-bis Team Outlook — the full statistical design (Nick, 11:55: "make it insane, statistically good, real history on fantasy leagues overall and mine")
+### 00.2d-bis Team Outlook — the full statistical design (Nick, ~11:50: "make it insane, statistically good, real history on fantasy leagues overall and mine")
 
 **Foundation first — season sim v2 (WO).** The provenance audit showed today's playoff/title odds live in a different projection world: projections built through 2025 with the old hand-picked shrinkage, 2026 rookies never started, every simulation restarting at week 1 and ignoring real standings, fixed playoff weeks 15-17 (leagues 1 and 3 differ), and future weeks priced on the old durability prior. v2 uses the live weekly engine for this week and the rest-of-season model (plus the injury-return model) for later weeks, starts from the league's current week with the real standings, remaining schedule and each league's own playoff format and tiebreakers, draws weeks with team-level shared variance fitted on real team-week scores, and includes rookies. A calibration layer (isotonic or Platt, fitted on history) sits on top only if the raw simulation is shown to be miscalibrated.
 
@@ -91,7 +91,7 @@ Everything that matters for Sunday's week-2 games — chance to play, the Trade 
 
 **Wiring:** one `team-outlook` service → route → the home card, the League Hub deep dive (odds by week, the decomposition, the comps), the Coach's team-audit tool, plan items when Act, and the decision log; the trade horizon reads its real playoff odds (replacing the 0.5 default); the Trade Brain's contender/bubble/out split comes from it.
 
-### 00.2d-ter League history dataset — a platform asset, used everywhere it applies (Nick, 12:05: "make sure we can properly use this in all of our systems — lock this in")
+### 00.2d-ter League history dataset — a platform asset, used everywhere it applies (Nick, ~11:55: "make sure we can properly use this in all of our systems — lock this in")
 
 **What it is:** `data/derived/sleeper_history.sqlite`, filled by `scripts/collect-sleeper-history.mjs` (TDD, 14 tests, `docs/tdd/sleeper-history.tdd.md`), running now in the background: target ~500 completed redraft league-seasons per season, 2021-2025 — standings, weekly scores and opponents, max possible points, playoff brackets and champions, and every waiver (with bids, including failed ones), free-agent move and trade. Anonymised by construction. Verified on the first real leagues (3 twelve-team leagues: 36 teams, 18 playoff teams, 3 champions, 492 team-weeks, ~1,445 moves).
 
@@ -120,7 +120,7 @@ Headline: of ~24 families of future numbers, ~8% are fully historical and on one
 - **WD:** swap sigma and urgency cuts re-fit on the live basis with the fit script committed (8); posture spread scale re-fit (9); counterparty caps and priors fitted on decided proposals, leave-one-manager-out (11); needs/selfScout thresholds tested against declined proposals, "contender" replaced by calibrated odds (12); efficiency shrinkage and priors (13); correlations (14); QBR (16); news multipliers and Buy/Sell graded on settled outcomes (19, 20); the stale-basis refits (routing 11); the coordinator's daily ungated refit gets a gate (routing 16).
 - **Later:** draft bench constants (21) before next year's draft.
 
-### 00.2c How much work is left (12:15)
+### 00.2c How much work is left (~11:45, updated ~12:00)
 
 | Block | Items left | Machine time | Lands |
 |---|---|---|---|
@@ -157,7 +157,7 @@ Nick's decisions (00.4) don't block any of it.
 ### 00.5 Status log
 
 - **W0 done (05:58).** Shipped and live after restart: week 2-4 projections use the structural head (2025 weeks 2-4 MAE 4.71 → 4.32; weeks 5-18 untouched); rest-of-season value from preseason + in-season evidence (Coker 29.9 → 14.3, Waddle 2.7 → 9.9); fake floors fixed; waiver drops never cut a higher-ROS player; Start/Sit never starts an IR-slot player; home factor retired from ceiling-lineup and season-sim; skills review — 58 findings, 19 fixed with tests, 9 deferred into WA/WD. Suite 2,376 / 2,418 (3 known prop-CLV). **Open, first in WA:** chance to play is not live (healthy starters ~0.81, projections ~20% low) until the role rates are written with ESPN Questionable/Out respected; the silent-failure-hunter and mle-reviewer reviews failed to launch (agent types not registered) and rerun in WA as agents that read their instruction files.
-- **12:15 — real league history collecting.** Sleeper crawler built test-first (14 tests), verified on the first real leagues, running in the background (~2 h for ~2,500 league-seasons). Provenance audit landed (`docs/NUMBER-PROVENANCE.md`): ~8% of future numbers fully historical today; every finding assigned to a step.
+- **~12:00 — real league history collecting.** Sleeper crawler built test-first (14 tests), verified on the first real leagues, running in the background (~2 h for ~2,500 league-seasons). Provenance audit landed (`docs/NUMBER-PROVENANCE.md`): ~8% of future numbers fully historical today; every finding assigned to a step.
 - **11:40 — backups restored.** The nightly backup job was not loaded, while agents were writing fitted models into the production DB. A verified one-off copy was taken, the job was limited to the app DB (the 11 GB line-history archive would need ~77 GB at 7 copies on a 93%-full disk), loaded, and run once (672 MB, integrity ok). Runs 04:30 daily, keeps 7.
 
 ### 00.6 Operating protocol — every checkpoint, launch and wait
@@ -178,7 +178,7 @@ Nick's decisions (00.4) don't block any of it.
 4. Acceptance criteria that tie back to the north star, and a verifier who tries to break the result.
 5. The drift check written into the brief: *does this make Nick win, and is it in section 00? If new work surfaces, which step does it belong to?*
 
-**Scope audit at every checkpoint (Nick, 12:10: "constantly be auditing the scope plan and reconsidering old build items — if you build something but later notice something, properly go back"):** when a new finding touches something already built, reopen it — add a failing test for the new fact, fix it, and log it here — instead of stacking a workaround on top. Example already applied: the provenance audit showed the season sim lives in a different projection world, so the Team Outlook starts by rebuilding it rather than reading its odds.
+**Scope audit at every checkpoint (Nick, ~11:58: "constantly be auditing the scope plan and reconsidering old build items — if you build something but later notice something, properly go back"):** when a new finding touches something already built, reopen it — add a failing test for the new fact, fix it, and log it here — instead of stacking a workaround on top. Example already applied: the provenance audit showed the season sim lives in a different projection world, so the Team Outlook starts by rebuilding it rather than reading its odds.
 
 **While waiting:**
 1. Prep the next launch: its agents, their files, their gates, and what the current result must hand them.
@@ -213,7 +213,7 @@ Rule: no model ships on "it should be smarter". Each is fit on earlier seasons a
 | P(accept) and the valuation map | ~30 decided 2026 proposals (ESPN keeps no prior seasons) | tested on what exists, shown as a band; re-tested as proposals accrue |
 | Weekly action plan | built only from tested parts | **WD** — a "follow the plan" arm in the replay vs the attainable-arm manager |
 
-**Provenance rule (Nick, 11:20): every number shown for the future — win probability, weekly points, floor/ceiling, chance to play, opportunities, rest-of-season value, trade value, trade scores and acceptance odds, waiver upgrades, playoff and title odds, and every "theory" constant (playoff-week weight, fairness caps) — traces to a model fit and validated on past seasons, and each number has ONE source every page reads.** A read-only provenance audit (running 11:20) lists every constant on every user-facing path as fitted+validated / fitted / borrowed / hand-set / definitional, and every place a number is computed twice. Its output becomes `docs/NUMBER-PROVENANCE.md`; every hand-set or borrowed constant that moves a decision is scheduled into WO or WD with the historical test that replaces it, and every routing split into WB (contracts) or WC (pages).
+**Provenance rule (Nick, 11:20): every number shown for the future — win probability, weekly points, floor/ceiling, chance to play, opportunities, rest-of-season value, trade value, trade scores and acceptance odds, waiver upgrades, playoff and title odds, and every "theory" constant (playoff-week weight, fairness caps) — traces to a model fit and validated on past seasons, and each number has ONE source every page reads.** A read-only provenance audit (ran ~11:20-11:55) lists every constant on every user-facing path as fitted+validated / fitted / borrowed / hand-set / definitional, and every place a number is computed twice. Its output becomes `docs/NUMBER-PROVENANCE.md`; every hand-set or borrowed constant that moves a decision is scheduled into WO or WD with the historical test that replaces it, and every routing split into WB (contracts) or WC (pages).
 
 ### 00.8 Trade Brain design (WA)
 

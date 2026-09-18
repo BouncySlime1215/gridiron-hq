@@ -29,6 +29,23 @@ import { deriveFormat } from './format.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
+/**
+ * Which number to rank on, and why it matters.
+ *
+ * `adj_ppg` is a 25%-this-week / 75%-rest-of-season blend built for the TRADE
+ * horizon. `current_week_ppg` is this Sunday's matchup-adjusted projection.
+ * They differ by about 5 points a player on a typical week — larger than the
+ * projection's own error — and on a bye `current_week_ppg` is 0 while `adj_ppg`
+ * is not, so ranking a one-week decision on the season blend will happily start
+ * a player who is not playing.
+ *
+ * So: week decisions rank on `weekPpg`, season/trade decisions on `adj_ppg`.
+ */
+function weekPpg(p) {
+  return p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
+}
+
+
 /** Every player rostered anywhere in the league, by normalised name. */
 function rosteredNames(payload) {
   const owned = new Map();
@@ -76,17 +93,17 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4 } = {})
   if (!mine.length) return { error: 'could not price your roster' };
 
   const active = mine.filter(p => !p.on_ir);
-  const baseline = bestLineup(active, slots);
+  const baseline = bestLineup(active, slots, 'current_week_ppg');
   const baselinePoints = baseline.points ?? 0;
   const starters = new Set(baseline.slots.map(s => s.player?.id).filter(Boolean));
   const bench = active.filter(p => !starters.has(p.id))
-    .sort((a, b) => (a.adj_ppg ?? 0) - (b.adj_ppg ?? 0));
+    .sort((a, b) => weekPpg(a) - weekPpg(b));
 
   // Free agents: priced by our own model, not on anyone's roster.
   const free = [...assets.values()].filter(a =>
     SCORED.has(a.position)
     && !owned.has(String(a.name).toLowerCase())
-    && (a.adj_ppg ?? 0) >= minProjected
+    && weekPpg(a) >= minProjected
     && a.available !== false);
 
   // Rest-of-season baseline, solved the same way. This is what makes a stash
@@ -99,12 +116,12 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4 } = {})
     // What the lineup scores if he is added and the weakest bench player goes.
     const drop = bench[0] ?? null;
     const afterRoster = [...active.filter(p => p.id !== drop?.id), fa];
-    const after = bestLineup(afterRoster, slots);
+    const after = bestLineup(afterRoster, slots, 'current_week_ppg');
     const upgrade = (after.points ?? 0) - baselinePoints;
     const rosAfter = bestLineup(afterRoster, slots, 'ros_ppg').points ?? 0;
     board.push({
       player: fa.name, position: fa.position, team: fa.team_abbr ?? fa.team,
-      projected_ppg: fa.adj_ppg ?? null,
+      projected_ppg: +weekPpg(fa).toFixed(2),
       ros_ppg: fa.ros_ppg ?? null,
       value: fa.value ?? null,
       injury_status: fa.injury_status ?? null,
@@ -113,7 +130,7 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4 } = {})
       upgrade: +upgrade.toFixed(2),
       // Whether he would actually start, which is what makes the upgrade real.
       would_start: (after.slots ?? []).some(s => s.player?.id === fa.id),
-      drop_candidate: drop ? { player: drop.name, position: drop.position, ppg: drop.adj_ppg } : null,
+      drop_candidate: drop ? { player: drop.name, position: drop.position, ppg: +weekPpg(drop).toFixed(2) } : null,
       // A stash: no help this week, but a better rest-of-season lineup.
       ros_upgrade: +(rosAfter - rosBaseline).toFixed(2),
     });

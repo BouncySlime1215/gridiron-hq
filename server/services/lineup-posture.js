@@ -33,6 +33,23 @@ import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots } from './trad
 import { deriveFormat } from './format.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
+
+/**
+ * Which number to rank on, and why it matters.
+ *
+ * `adj_ppg` is a 25%-this-week / 75%-rest-of-season blend built for the TRADE
+ * horizon. `current_week_ppg` is this Sunday's matchup-adjusted projection.
+ * They differ by about 5 points a player on a typical week — larger than the
+ * projection's own error — and on a bye `current_week_ppg` is 0 while `adj_ppg`
+ * is not, so ranking a one-week decision on the season blend will happily start
+ * a player who is not playing.
+ *
+ * So: week decisions rank on `weekPpg`, season/trade decisions on `adj_ppg`.
+ */
+function weekPpg(p) {
+  return p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
+}
+
 /** Below this edge the advice is not worth giving. */
 export const MATERIAL_EDGE = 12;
 /** Observed coefficient of variation of a team-week score, from the replay. */
@@ -50,7 +67,7 @@ const winProb = (edge, sd, oppSd) => normalCdf(edge / Math.sqrt(sd * sd + oppSd 
 
 /** A lineup's mean and standard deviation, from each player's own spread. */
 function lineupMoments(starters) {
-  const mean = starters.reduce((s, p) => s + (p.adj_ppg ?? 0), 0);
+  const mean = starters.reduce((s, p) => s + weekPpg(p), 0);
   // Players are close to independent week to week once the QB stack is set
   // aside, so variances add. Using each player's own floor/ceiling spread when
   // we have it, and a positional default when we do not.
@@ -59,7 +76,7 @@ function lineupMoments(starters) {
   for (const p of starters) {
     const spread = (p.ceiling != null && p.floor != null && p.ceiling > p.floor)
       ? (p.ceiling - p.floor) / 2.56                 // p90-p10 spans 2.56 SD
-      : (p.adj_ppg ?? 0) * (DEFAULT_CV[p.position] ?? 0.6);
+      : weekPpg(p) * (DEFAULT_CV[p.position] ?? 0.6);
     varTotal += spread * spread;
   }
   // Independence understates a real lineup. Measured in the replay, team-week
@@ -120,12 +137,12 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
 
   const oppId = opponentFor(payload, rosterId, wk);
   const theirs = oppId ? rosterAssets(payload, assets, oppId) : [];
-  const oppLineup = theirs.length ? bestLineup(theirs, slots) : null;
+  const oppLineup = theirs.length ? bestLineup(theirs, slots, 'current_week_ppg') : null;
   const oppMoments = oppLineup
     ? lineupMoments(oppLineup.slots.map(s => s.player).filter(Boolean))
     : { mean: null, sd: 30 };
 
-  const best = bestLineup(mine, slots);
+  const best = bestLineup(mine, slots, 'current_week_ppg');
   const starters = best.slots.map(s => s.player).filter(Boolean);
   const startIds = new Set(starters.map(p => p.id));
   const mineMoments = lineupMoments(starters);
@@ -135,7 +152,7 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
       season: ctx.season, week: wk, roster_id: rosterId, opponent_roster_id: null,
       note: 'No opponent found for this week, so there is no posture to take. Start the highest projection.',
       my_projection: +mineMoments.mean.toFixed(1), my_sd: +mineMoments.sd.toFixed(1),
-      lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: p.adj_ppg })),
+      lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
     };
   }
 
@@ -155,7 +172,7 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
         // set — it was producing "give up -1.74 points", i.e. a free gain, which
         // is the tell that the substitution was illegal.
         const pool = mine.filter(p => p.id !== outP.id);
-        const solved = bestLineup(pool, slots);
+        const solved = bestLineup(pool, slots, 'current_week_ppg');
         const next = solved.slots.map(s2 => s2.player).filter(Boolean);
         if (!next.some(p => p.id === inP.id)) continue;   // he would not actually start
         if (next.length !== starters.length) continue;    // slot could not be filled
@@ -164,8 +181,8 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
         const delta = (p2 - basePwin) * 100;
         if (delta <= 0.15) continue;                 // below this it is not advice
         swaps.push({
-          start: inP.name, start_position: inP.position, start_ppg: inP.adj_ppg,
-          instead_of: outP.name, instead_of_ppg: outP.adj_ppg,
+          start: inP.name, start_position: inP.position, start_ppg: weekPpg(inP),
+          instead_of: outP.name, instead_of_ppg: weekPpg(outP),
           points_given_up: +(mineMoments.mean - m.mean).toFixed(2),
           win_prob_change: +delta.toFixed(2),
           new_win_prob: +(p2 * 100).toFixed(1),
@@ -182,7 +199,7 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
     edge: +edge.toFixed(1),
     win_probability: +(basePwin * 100).toFixed(1),
     stance,
-    lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: p.adj_ppg })),
+    lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
     swaps: swaps.slice(0, 5),
     note: stance === 'neutral'
       ? `Matchup is within ${MATERIAL_EDGE} points. Posture is worth under a third of a percentage point here — start the highest projections and leave it alone.`

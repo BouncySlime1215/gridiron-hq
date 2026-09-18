@@ -141,3 +141,30 @@ test('transactions: trades, waivers and free agents per week, with bids, never t
   assert.equal(rows[2].latency_ms, 4, 'proposed to processed');
   for (const r of rows) assert.ok(!JSON.stringify(r).includes('creator') && !JSON.stringify(r).includes('3116175566'), 'no user ids');
 });
+
+test('leaguePlayed: a league whose rosters never drafted (all games/points zero) is not a real season', async () => {
+  const { leaguePlayed } = await import('../server/services/sleeper-history.js');
+  // Real example: Sleeper league 1003885794173517824 — status 'complete', playoff format
+  // passes isEligibleLeague, but every roster has wins=losses=ties=0, fpts=0, and
+  // starters are all the placeholder '0' (never drafted). 33% of a first crawl run
+  // (162 of 488) turned out to be leagues exactly like this.
+  const neverPlayed = [
+    { roster_id: 1, settings: { wins: 0, losses: 0, ties: 0, fpts: 0, fpts_decimal: 0 } },
+    { roster_id: 2, settings: { wins: 0, losses: 0, ties: 0, fpts: 0, fpts_decimal: 0 } },
+  ];
+  assert.equal(leaguePlayed(neverPlayed, {}), false);
+  const real = [
+    { roster_id: 1, settings: { wins: 2, losses: 1, ties: 0, fpts: 300, fpts_decimal: 0 } },
+    { roster_id: 2, settings: { wins: 1, losses: 2, ties: 0, fpts: 250, fpts_decimal: 0 } },
+  ];
+  assert.equal(leaguePlayed(real, {}), true);
+  // Edge case: a real season where scores round to zero-ish is implausible in the NFL, but a
+  // league with SOME non-zero points and zero record (bye-week timing artifact) should still count.
+  const somePoints = [
+    { roster_id: 1, settings: { wins: 0, losses: 0, ties: 0, fpts: 45, fpts_decimal: 0 } },
+    { roster_id: 2, settings: { wins: 0, losses: 0, ties: 0, fpts: 0, fpts_decimal: 0 } },
+  ];
+  assert.equal(leaguePlayed(somePoints, {}), true);
+  assert.equal(leaguePlayed([], {}), false);
+  assert.equal(leaguePlayed(null, {}), false);
+});

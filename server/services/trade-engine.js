@@ -21,6 +21,34 @@
  *   evidence    — career record, preseason band and offseason read on every
  *                 player object, plus a floor/ceiling risk read per side —
  *                 explanation only, never an input to any number above
+ *
+ * ---------------------------------------------------------------------------
+ * THE ONE ENTRY POINT FOR TRADE IDEAS: `tradeIdeas(lg, opts)`
+ * ---------------------------------------------------------------------------
+ * Trade Lab, the Coach, the dashboard and the weekly plan all ask the SAME
+ * function for ideas. Before 2026-09-18 there were five answers to "what trade
+ * should I make" — `findTrades`, `offerFor`/`offerForMany`, league-brain's own
+ * `enumerateDeals` + `acceptProbability`, Trade Lab `/partners` and edge
+ * `POST /trade` — and they disagreed, because only the first read the
+ * counterparty layer and only the first was horizon-weighted. The other four are
+ * retired (410 with a pointer). These are the only three shapes left, and they
+ * share every input:
+ *
+ *   tradeIdeas(lg, { myTeamId, ... })              -> { mode:'league',  context, deals }
+ *   tradeIdeas(lg, { myTeamId, targets:[id],
+ *                    shape:'single' })             -> { mode:'target',  context, offers, ... }
+ *   tradeIdeas(lg, { myTeamId, targets:[id, ...] })-> { mode:'targets', context, ladders }
+ *
+ * `context` is the same block in all three, and it is what makes them agree:
+ * league and roster, season/week, this roster's real P(make playoffs) and where
+ * that number came from, the horizon split those odds produce, whether a
+ * counterparty layer was available, and how the chance to play is priced. Every
+ * number a consumer shows should be traceable to it.
+ *
+ * `findTrades`, `offerFor` and `offerForMany` are kept as named wrappers so the
+ * existing routes and tests keep working; they call straight through, so no
+ * caller can be served a different answer than the entry point gives. New
+ * consumers call `tradeIdeas`.
  */
 import crypto from 'node:crypto';
 import { rows } from '../db/index.js';
@@ -54,7 +82,14 @@ import { run as dbRun } from '../db/index.js';
 import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
-import { counterpartyLayer, readDeal } from './counterparty-pricing.js';
+import { counterpartyLayer, readDeal, counterpartyDataKey } from './counterparty-pricing.js';
+// tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
+// horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
+// loadRosters / lineupSlots from THIS file, so the two modules form a cycle.
+// Neither touches the other's bindings while its module body evaluates (both uses
+// are inside functions), and test/trade-engine-correctness.test.js loads them in
+// both orders to keep it that way.
+import { simulateSeason } from './season-sim.js';
 import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trade-horizon.js';
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
@@ -1216,6 +1251,116 @@ function candidates(team, slots, limit = 11, excludeIds = null) {
     .slice(0, limit);
 }
 
+/* --------------------------------------------- shared inputs, one definition */
+
+/**
+ * GATE (scratchpad/wa/trade-engine-correctness/GATE.md, G1), written before this
+ * code: the odds that enter the ranking must be the simulator's answer for THIS
+ * roster, must be identical between calls and between processes (so they cannot
+ * drift into the cache key), must fall back to the documented 0.5 prior with a
+ * stated reason when the simulator cannot run, and must cost <= 6 s cold and
+ * <= 50 ms warm.
+ *
+ * Why it matters: `horizonWeights` splits a deal's value between "now" and the
+ * playoff weeks, and the split is driven by P(make playoffs). Nothing ever passed
+ * it, so every deal in every league was weighted on the 0.5 prior. Measured on
+ * production, 2026 week 2, the real numbers are 0.69 / 0.55 / 0.27 / 0.35 / 0.86 —
+ * league 3 was being told its December roster matters twice as much as it does,
+ * and league 5 half as much.
+ *
+ * Seeded on purpose. The sim is Monte Carlo; an unseeded run would hand the
+ * cache a new key every time and turn a cached search into an uncached one.
+ */
+const HORIZON_SIM_SEED = 20260918;
+const HORIZON_SIM_RUNS = 1000;
+
+export function myPlayoffOdds(lg, myTeamId = null) {
+  const rosterId = String(myTeamId ?? lg?.my_team_id ?? '');
+  const prior = reason => ({ value: null, roster_id: rosterId, source: `0.5 prior — ${reason}` });
+  if (!lg?.payload) return prior('this league is not synced yet');
+  const target = tradeWeekContext();
+  const { formatKey } = deriveFormat(lg);
+  return cached(
+    `playoffOdds:${lg.id}:${rosterId}:${target.season}:${target.week}`,
+    fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target)),
+    () => {
+      // A returned `error` is a NAMED state (no fixtures left, an unsynced
+      // schedule) and falls back. Anything thrown is a real defect and is left to
+      // throw — a silent 0.5 would hide it, which is how this number got lost in
+      // the first place.
+      const sim = withRandomSeed(HORIZON_SIM_SEED, () => simulateSeason(lg, {
+        runs: HORIZON_SIM_RUNS, fromWeek: target.week, scoring: scoringFor(lg)
+      }));
+      if (sim?.error) return prior(`the season simulation could not run (${sim.error})`);
+      const mine = sim.teams?.find(t => String(t.roster_id) === rosterId);
+      if (!Number.isFinite(mine?.playoff_odds)) return prior('your roster is not in this league\'s simulated standings');
+      return {
+        value: +mine.playoff_odds.toFixed(2),
+        roster_id: rosterId,
+        interval: mine.playoff_odds_95 ?? null,
+        source: `season simulation, ${sim.runs} runs from week ${target.week}`,
+      };
+    });
+}
+
+/** Resolve the odds the horizon is built on: caller's number, else the sim, else the prior. */
+function horizonOdds(lg, myTeamId, supplied) {
+  if (Number.isFinite(supplied)) return { value: supplied, source: 'supplied by the caller' };
+  const measured = myPlayoffOdds(lg, myTeamId);
+  return measured.value == null
+    ? { value: 0.5, source: measured.source, measured: null }
+    : { value: measured.value, source: measured.source, interval: measured.interval ?? null };
+}
+
+/**
+ * The hand-set "hard to trade with" discount, applied in exactly ONE place.
+ *
+ * It used to be applied here AND inside counterparty-pricing's receptiveness,
+ * which discounted a hard manager to 0.55 x 0.55 = 0.30 (inventory section C).
+ * counterparty-pricing now only REPORTS the tier; this is the only multiplier.
+ */
+export const HARD_TIER_FACTOR = 0.55;
+const tierFactor = tier => (tier === 'hard' ? HARD_TIER_FACTOR : 1);
+
+/**
+ * How the package lands with HIM, bounded to +-10% of the score.
+ *
+ * Driven by `perception_shift`, NOT `perception_delta`. The delta is how much
+ * better the incoming package looks to him than the one he gives up — but most
+ * of that is just our own value gap, which the capped fairness term and the
+ * value cost already charge for. Multiplying by it as well paid a second time for
+ * handing him value. The shift is the part his views add BEYOND our gap, which is
+ * the tie-breaker this factor was written to be: a handful of texts breaks a tie
+ * between comparable deals and never promotes a deal that is bad for us.
+ */
+export function perceptionFactorFor(counterparty) {
+  const shift = counterparty?.perception_shift;
+  if (!Number.isFinite(shift)) return 1;
+  return 1 + Math.max(-0.10, Math.min(0.10, shift / 100));
+}
+
+/**
+ * The block every trade-idea shape carries, so Trade Lab, the Coach, the
+ * dashboard and the plan can never quote numbers built on different assumptions.
+ * Cheap: everything in it was already computed by the caller.
+ */
+function ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounterparty, week }) {
+  return {
+    league_id: lg.id,
+    my_roster_id: me?.roster_id ?? String(lg.my_team_id ?? ''),
+    season: week.season,
+    week: week.week,
+    playoff_odds: horizon.playoff_odds,
+    playoff_odds_source: odds.source,
+    playoff_odds_interval: odds.interval ?? null,
+    horizon: { now: horizon.now, playoff: horizon.playoff,
+      playoff_weeks: horizon.playoff_weeks_label, note: horizonNote(horizon, { playoff_tilt: 0 }) },
+    counterparty_available: useCounterparty && counterparties.size > 0,
+    counterparty_managers: counterparties.size,
+    availability_basis: assets?.context?.availability_basis ?? null,
+  };
+}
+
 /**
  * Search the league for deals worth sending.
  *
@@ -1229,35 +1374,65 @@ function candidates(team, slots, limit = 11, excludeIds = null) {
  * @param opts.max_per_side  package size cap (2 keeps it realistic and fast)
  * @param opts.require_mutual only surface deals that also improve their lineup
  */
-export function findTrades(lg, opts = {}) {
-  if (opts.teamsOverride || opts.assetsOverride) return findTradesUncached(lg, opts);
+function findTradesKey(lg, opts = {}) {
   const { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null,
-    excludeIds = null, counterparty: useCounterparty = true,
-    // Playoff odds for MY team. Without it the horizon uses an uninformative
-    // 0.5 prior, which is the right default but a poor answer for a team plainly
-    // out of it — a seller's December roster does not matter, and the objective
-    // should collapse back to "what helps me now".
-    playoffOdds } = opts;
+    excludeIds = null, counterparty: useCounterparty = true, playoffOdds } = opts;
   const target = tradeWeekContext();
   const { formatKey } = deriveFormat(lg);
   const excludeKey = excludeIds ? [...excludeIds].sort((a, b) => a - b).join(',') : '';
-  const key = `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
-    `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}`;
-  return cached(key, fingerprint([
+  return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
+    `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
+    `${excludeKey}:cp${useCounterparty ? 1 : 0}:po${playoffOdds ?? 'd'}`;
+}
+
+/**
+ * GATE (G2): every input the ranking reads must be in here, including the ones a
+ * row count cannot see. The counterparty tables were not: rebuilding
+ * `manager_signals`, confirming an identity, flipping a manager's tier in place
+ * or rebuilding the negotiation profiles all left the cache serving the old
+ * ranking (inventory section C, "stale cache after a signals rebuild"). They are
+ * covered by `counterpartyDataKey`, which stamps signals, player views,
+ * identities, hand-set tiers, the chat corpus and the negotiation profiles for
+ * this league in one string.
+ *
+ * Exported so a test can assert the fingerprint moves without having to guess at
+ * cache internals.
+ */
+export function tradeIdeasFingerprint(lg, opts = {}) {
+  const target = tradeWeekContext();
+  const { formatKey } = deriveFormat(lg);
+  const key = findTradesKey(lg, opts);
+  return fingerprint([
     // Everything the universe reads (the rosters come from leagues.payload, too)...
     ...ASSET_INPUT_TABLES,
     // ...plus, not part of assetUniverse's own fingerprint: a manager marked "never
     // trade" or "hard" changes findTrades' own filtering directly, on top of
-    // whatever assetUniverse already accounts for.
-    'manager_profiles'
-  ], `${key}:${assetInputsKey(lg, formatKey, target)}`), () => findTradesUncached(lg, opts));
+    // whatever assetUniverse already accounts for. Stamped on updated_at, because
+    // editing a tier changes no row count.
+    { table: 'manager_profiles', stamp: 'updated_at' }
+  ], `${key}:${assetInputsKey(lg, formatKey, target)}:${counterpartyDataKey(lg.id)}`);
+}
+
+export function findTrades(lg, opts = {}) {
+  if (opts.teamsOverride || opts.assetsOverride) return findTradesUncached(lg, opts);
+  // Playoff odds for MY team, resolved BEFORE the key so two searches with
+  // different odds can never share a cache entry. Without them the horizon used
+  // an uninformative 0.5 prior, which is the right default and a poor answer for
+  // a team plainly out of it — a seller's December roster does not matter, and
+  // the objective should collapse back to "what helps me now".
+  const odds = horizonOdds(lg, opts.myTeamId, opts.playoffOdds);
+  const resolved = { ...opts, playoffOdds: odds.value, playoffOddsSource: odds.source,
+    playoffOddsInterval: odds.interval ?? null };
+  const key = findTradesKey(lg, resolved);
+  return cached(key, tradeIdeasFingerprint(lg, resolved), () => findTradesUncached(lg, resolved));
 }
 
 function findTradesUncached(lg, {
   myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null, excludeIds = null,
   // Lets findTradeSequences() re-run this exact search against a hypothetical
   // post-trade roster without duplicating any of the logic below.
-  teamsOverride = null, assetsOverride = null, playoffOdds,
+  teamsOverride = null, assetsOverride = null, playoffOdds, playoffOddsSource = null,
+  playoffOddsInterval = null,
   // Off only so the harness can measure what the counterparty layer is worth.
   // Production always wants it on: ranking by what we think a deal is worth,
   // with no model of whether anyone would accept it, is how the engine spent
@@ -1290,7 +1465,13 @@ function findTradesUncached(lg, {
   // deal between the two legs is timing: this week's number (each player's modelled
   // chance to play — for healthy starters mostly the durability prior, contingency.js —
   // a bye, the game-line correction) against byes in the playoff weeks.
-  const horizon = horizonWeights(weekNow.week, { playoffOdds, ...leagueSchedule(lg) });
+  // findTradeSequences() reaches this function directly (teamsOverride), so the
+  // odds are resolved here too rather than only in the cached wrapper — a
+  // sequence must be ranked on the same horizon as the deal that opens it.
+  const odds = Number.isFinite(playoffOdds) && playoffOddsSource
+    ? { value: playoffOdds, source: playoffOddsSource, interval: playoffOddsInterval }
+    : horizonOdds(lg, myTeamId, playoffOdds);
+  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
   // One memo for the whole search: the two rosters' before-lineups are the same for
   // every package against them (see evaluate()).
   const memo = new WeakMap();
@@ -1367,15 +1548,16 @@ function findTradesUncached(lg, {
         // with HIS opinion of those players rather than ours. `receptiveness` is
         // how tradeable this person is at all; `perception_delta` is whether this
         // particular package reads as a win to him.
+        const tier = managerProfiles.get(String(them.roster_id)) ?? 'fair';
         const counterparty = cp
-          ? readDeal({ theirGive: get, theirGet: give, managerProfile: cp })
-          : { receptiveness: managerProfiles.get(String(them.roster_id)) === 'hard' ? 0.55 : 1,
-            perception_delta: null, perception_reasons: [], chat_msgs: 0, accept_rate: null };
-        // Fall back to the old binary tier when there is no counterparty data, so a
-        // league with no chat corpus ranks exactly as it did before.
-        const managerFactor = cp
-          ? counterparty.receptiveness * (managerProfiles.get(String(them.roster_id)) === 'hard' ? 0.55 : 1)
-          : (managerProfiles.get(String(them.roster_id)) === 'hard' ? 0.55 : 1);
+          ? { ...readDeal({ theirGive: get, theirGet: give, managerProfile: cp }), counterparty_data: true }
+          : { receptiveness: 1, perception_delta: null, perception_shift: null, perception_reasons: [],
+            chat_msgs: 0, accept_rate: null, counterparty_data: false };
+        // ONE place, ONE tier factor (see HARD_TIER_FACTOR). With no counterparty
+        // data receptiveness is 1, so a league with no chat corpus ranks exactly as
+        // it did before, and the reported receptiveness never silently carries the
+        // hand-set tier — which is what made the double discount invisible.
+        const managerFactor = counterparty.receptiveness * tierFactor(tier);
         // FAIRNESS, CAPPED — and then paid for.
         //
         // This sigmoid rises monotonically with how much value you hand over:
@@ -1402,12 +1584,9 @@ function findTradesUncached(lg, {
         // conservative, so the engine has to argue for a clear weekly win
         // before it parts with assets.
         const valueCost = VALUE_GIVEAWAY_LAMBDA * Math.max(0, ev.their_value_pct) / 20;
-        // How the package lands with HIM, bounded to +-10% of the score. Sentiment
-        // from a handful of texts breaks ties between comparable deals; it is never
-        // allowed to promote a deal that is bad for us.
-        const perceptionFactor = Number.isFinite(counterparty.perception_delta)
-          ? 1 + Math.max(-0.10, Math.min(0.10, counterparty.perception_delta / 100))
-          : 1;
+        // How the package lands with HIM, bounded to +-10% of the score — on the
+        // part of his read that is NOT our own value gap (see perceptionFactorFor).
+        const perceptionFactor = perceptionFactorFor(counterparty);
         // Horizon-weighted gain replaces the flat weekly delta.
         const gain = horizonGain({
           ppgDelta: ev.me.ppg_delta,
@@ -1425,7 +1604,7 @@ function findTradesUncached(lg, {
           // Lineup gain is the point, but among deals that land the same lineup the
           // one where I surrender less market value is strictly better — without this
           // term the ranking is indifferent to throwing in a free asset.
-          manager_tradeability: managerProfiles.get(String(them.roster_id)) ?? 'fair',
+          manager_tradeability: tier,
           counterparty: {
             ...counterparty,
             // He has called one of these players untouchable, but his word has
@@ -1457,31 +1636,41 @@ function findTradesUncached(lg, {
   }
 
   deals.sort((a, b) => b.score_signed - a.score_signed);
+
+  // Found live, on a real league (2026-09): requireMutual=true (both sides'
+  // OPTIMAL LINEUP must improve) found 1 partner out of 9 real opponents.
+  // Dropping to the deduplicated list unfiltered used to be the only
+  // alternative, which included implausible and red-flagged packages nobody
+  // would ever accept — not a real second option, just noise. There is a real
+  // middle tier already computed by evaluate() and previously discarded here:
+  // `plausible` (fair by market value, no red flags, a real GM could reasonably
+  // say yes) without also requiring bothImprove. On that same real league, this
+  // tier alone found 5 of 9 partners with a genuinely fair, no-red-flag trade —
+  // still real, just not a lineup win for both sides specifically.
+  //
+  // FILTER FIRST, THEN COLLAPSE (GATE G5). It used to be the other way round,
+  // and the ordering was a real bug: the dedupe spent an idea's one slot on the
+  // highest-scoring VARIANT, which the mutual filter could then reject, hiding a
+  // lower-scoring variant of the same idea that both lineups actually liked.
+  // Measured case (manager-data-pipeline handoff, league 4): "Deebo Samuel for
+  // Jalen Coker" disappeared from the mutual list because the variant that also
+  // threw in Juwan Johnson scored higher and was not mutual.
+  const eligible = requireMutual
+    ? deals.filter(d => d.mutual && d.plausible && d.red_flags.length === 0)
+    : deals.filter(d => d.plausible && d.red_flags.length === 0);
+
   // Collapse to distinct *ideas*. Two offers are the same idea when the headline
   // pieces match — keying on the whole package instead just surfaces ten variants of
-  // one swap padded with different throwaway bench players.
+  // one swap padded with different throwaway bench players. `eligible` is already
+  // sorted, so the survivor is the best variant that PASSED.
   const headline = list => list.slice().sort((x, y) => y.value - x.value)[0]?.id;
   const seen = new Set();
-  const unique = deals.filter(d => {
+  const result = eligible.filter(d => {
     const k = `${headline(d.i_give)}>${headline(d.i_get)}`;
     if (seen.has(k)) return false;
     seen.add(k);
     return true;
   });
-
-  // Found live, on a real league (2026-09): requireMutual=true (both sides'
-  // OPTIMAL LINEUP must improve) found 1 partner out of 9 real opponents.
-  // Dropping to "unique" unfiltered used to be the only alternative, which
-  // included implausible and red-flagged packages nobody would ever accept —
-  // not a real second option, just noise. There is a real middle tier
-  // already computed by evaluate() and previously discarded here: `plausible`
-  // (fair by market value, no red flags, a real GM could reasonably say yes)
-  // without also requiring bothImprove. On that same real league, this tier
-  // alone found 5 of 9 partners with a genuinely fair, no-red-flag trade —
-  // still real, just not a lineup win for both sides specifically.
-  const result = requireMutual
-    ? unique.filter(d => d.mutual && d.plausible && d.red_flags.length === 0)
-    : unique.filter(d => d.plausible && d.red_flags.length === 0);
 
   // Every deal above is computed independently against your CURRENT roster, so
   // two of them can both plan on trading away the same player — real, but only
@@ -1494,8 +1683,44 @@ function findTradesUncached(lg, {
     if (!overlap.length) for (const p of d.i_give) claimed.add(p.id);
   }
 
-  return { me: { roster_id: me.roster_id, owner: me.owner }, slots, model_context: assets.context, considered: deals.length,
-           excluded_never_trade: [...blockedManagers], deals: result.slice(0, limit) };
+  return { mode: 'league', me: { roster_id: me.roster_id, owner: me.owner }, slots,
+           model_context: assets.context, considered: deals.length,
+           excluded_never_trade: [...blockedManagers], deals: result.slice(0, limit),
+           context: ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounterparty, week: weekNow }) };
+}
+
+/**
+ * THE ONE ENTRY POINT FOR TRADE IDEAS (see the file header).
+ *
+ * Every consumer — Trade Lab, the Coach, the dashboard, the weekly plan — asks
+ * this one function, so they cannot quote different numbers for the same league.
+ * It dispatches on what was asked for, never on who is asking:
+ *
+ *   no targets            -> the ranked league-wide list  ({ mode: 'league' })
+ *   targets + shape:'single' -> one full ladder for one player ({ mode: 'target' })
+ *   targets               -> a ladder per owner            ({ mode: 'targets' })
+ *
+ * All three carry the same `context` block: season and week, this roster's real
+ * P(make playoffs) and where it came from, the horizon split, whether a
+ * counterparty layer was available, and how the chance to play is priced.
+ *
+ * @param opts.myTeamId      my roster id (defaults to the league's my_team_id)
+ * @param opts.targets       player id(s) I want — omit for the league-wide search
+ * @param opts.shape         'single' for one player's full ladder
+ * @param opts.playoffOdds   override P(make playoffs); measured from the season
+ *                           simulation when omitted (never the silent 0.5 prior)
+ * @param opts.excludeIds    my untouchables — absent from every package
+ */
+export function tradeIdeas(lg, opts = {}) {
+  const { targets = null, shape = null, ...rest } = opts;
+  const list = targets == null ? [] : (Array.isArray(targets) ? targets : [targets]).filter(v => v != null);
+  if (!list.length) return findTrades(lg, rest);
+  if (shape === 'single') {
+    return offerFor(lg, { myTeamId: rest.myTeamId, targetId: list[0],
+      excludeIds: rest.excludeIds ?? null, playoffOdds: rest.playoffOdds });
+  }
+  return offerForMany(lg, { myTeamId: rest.myTeamId, targetIds: list,
+    excludeIds: rest.excludeIds ?? null, playoffOdds: rest.playoffOdds });
 }
 
 /**
@@ -1578,10 +1803,85 @@ export function resolvePlayer(id, assets, teams) {
 /* ------------------------------------------------- "what do I offer for X" */
 
 /**
+ * GATE (G6): a targeted ladder must read the SAME table as the league-wide
+ * search. It did not. `offerFor`/`offerForMany` ranked on the flat weekly delta
+ * with no horizon and never opened the counterparty layer, so Trade Lab's "go get
+ * him" tab could recommend a package the league list had already priced as a bad
+ * idea — two answers to one question (inventory section C, "ignores the chat
+ * reads and timing weighting. Inconsistent with findTrades").
+ */
+function ladderInputs(lg, myTeamId, playoffOdds, useCounterparty = true) {
+  const weekNow = tradeWeekContext();
+  const odds = horizonOdds(lg, myTeamId, playoffOdds);
+  const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
+  const counterparties = useCounterparty
+    ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
+    : new Map();
+  return { weekNow, odds, horizon, counterparties };
+}
+
+/** The same horizon-weighted gain findTrades ranks on, for one ladder rung. */
+const ladderGain = (ev, horizon) => horizonGain({
+  ppgDelta: ev.me.ppg_delta, playoffPpgDelta: ev.me.playoff_ppg_delta,
+  nowBaseline: ev.me.lineup_before, playoffBaseline: ev.me.playoff_lineup_before, weights: horizon,
+});
+
+/** What we know about this owner, independent of any one package. */
+function ownerRead(counterparties, owner, tier) {
+  const cp = counterparties.get(String(owner.roster_id)) ?? null;
+  const receptiveness = cp?.receptiveness ?? 1;
+  return {
+    counterparty_data: !!cp,
+    receptiveness, tier,
+    manager_factor: +(receptiveness * tierFactor(tier)).toFixed(3),
+    chat_msgs: cp?.chat_msgs ?? 0,
+    accept_rate: cp?.accept_rate ?? null,
+    accept_rate_n: cp?.accept_rate_n ?? 0,
+    word_stance: cp?.stance?.stance ?? null,
+    word_note: cp?.stance?.note ?? null,
+    note: cp ? null : 'No counterparty read for this league — this ladder is priced on our numbers only.',
+  };
+}
+
+/**
+ * How this owner has talked about the player being asked for.
+ *
+ * findTrades removes a CREDIBLY declared untouchable from the search entirely; a
+ * ladder cannot do that (the user named him), so it says so instead rather than
+ * quietly pricing a player who is not for sale.
+ */
+function targetStance(counterparties, owner, targets) {
+  const cp = counterparties.get(String(owner.roster_id)) ?? null;
+  if (!cp?.stance) return null;
+  const named = list => targets.filter(t => list?.has?.(String(t.name ?? '').toLowerCase())).map(t => t.name);
+  const respected = named(cp.stance.respect);
+  const probe = named(cp.stance.probe);
+  if (!respected.length && !probe.length) return null;
+  return {
+    respected, probe,
+    warning: respected.length
+      ? `${owner.owner} has called ${respected.join(' and ')} untouchable and his word has held — the league search will not even ask. Price this as a long shot.`
+      : `${owner.owner} has called ${probe.join(' and ')} untouchable, but his refusals have not held. Worth asking, expecting a first no.`,
+  };
+}
+
+/** One rung's package-specific counterparty read. */
+function rungCounterparty(counterparties, owner, tier, { theirGive, theirGet }) {
+  const cp = counterparties.get(String(owner.roster_id)) ?? null;
+  const read = cp
+    ? { ...readDeal({ theirGive, theirGet, managerProfile: cp }), counterparty_data: true }
+    : { receptiveness: 1, perception_delta: null, perception_shift: null, perception_reasons: [],
+      chat_msgs: 0, accept_rate: null, counterparty_data: false };
+  return { ...read, tier,
+    manager_factor: +(read.receptiveness * tierFactor(tier)).toFixed(3),
+    perception_factor: +perceptionFactorFor(read).toFixed(3) };
+}
+
+/**
  * Offer ladder for a specific target: the cheapest package that plausibly gets it
  * done, a fair-market version, and the point past which you are overpaying.
  */
-export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
+export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdds }) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
@@ -1592,10 +1892,11 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
   const owner = teams.find(t => t.players.some(p => p.id === target.id));
   if (!owner) return { error: 'that player is not on a roster in this league' };
   if (owner.roster_id === me.roster_id) return { error: 'you already own him' };
-  const blocked = rows(`SELECT 1 FROM manager_profiles WHERE league_id=? AND roster_id=? AND tradeability='never'`,
-    lg.id, String(owner.roster_id))[0];
-  if (blocked) return { error: `${owner.owner} is marked "Never trades," so the engine did not generate fake offers for this player.` };
+  const tier = rows(`SELECT tradeability FROM manager_profiles WHERE league_id=? AND roster_id=?`,
+    lg.id, String(owner.roster_id))[0]?.tradeability ?? 'fair';
+  if (tier === 'never') return { error: `${owner.owner} is marked "Never trades," so the engine did not generate fake offers for this player.` };
   const ownerCtx = rosterContext(lg).get(String(owner.roster_id));
+  const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
 
   // How motivated is the seller? A team with surplus at his position and a hole
   // elsewhere is a much cheaper negotiation than one starting him with no cover.
@@ -1617,9 +1918,13 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
     .sort((a, b) => a.adj_ppg - b.adj_ppg)[0];
 
   const context = {
+    mode: 'target',
+    context: ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounterparty: true, week: weekNow }),
     model_context: assets.context,
     target: slim(target), owner: owner.owner, owner_id: owner.roster_id,
     their_cost: theirCost, replaceable, upside_ppg: upside,
+    counterparty: ownerRead(counterparties, owner, tier),
+    target_stance: targetStance(counterparties, owner, [target]),
     leverage: replaceable
       ? `${owner.owner} can cover him — losing him only costs their lineup ${theirCost} ppg. Start low.`
       : `He is load-bearing for ${owner.owner} (${theirCost} ppg of their lineup). Expect to pay a premium or get refused.`
@@ -1648,12 +1953,19 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
     if (ratio < 0.70 || ratio > 1.65) continue;
     const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
       { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
-    if (ev.me.ppg_delta <= 0) continue;
+    const gain = ladderGain(ev, horizon);
+    // The horizon-weighted gain is the objective, so it is also the entry gate —
+    // it used to be the flat weekly delta, which discarded a package that is worth
+    // more in December than it is this week, the exact shape a contender buys.
+    if (gain.value <= 0) continue;
     priced.push({
       i_give: give.map(slim), ratio: +ratio.toFixed(2), give_value: giveValue,
       ...ev,
-      // Best offer = most lineup gain for me per unit of market value surrendered.
-      efficiency: +(ev.me.ppg_delta / Math.max(1, giveValue / 100)).toFixed(3)
+      horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain) },
+      counterparty: rungCounterparty(counterparties, owner, tier, { theirGive: [target], theirGet: give }),
+      // Best offer = most horizon-weighted lineup gain per unit of market value
+      // surrendered. Same currency findTrades ranks on.
+      efficiency: +(gain.value / Math.max(1, giveValue / 100)).toFixed(3)
     });
   }
   if (!priced.length) {
@@ -1665,7 +1977,11 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
     };
   }
 
-  const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0);
+  // "He might say yes": his lineup improves, or he wins on market value, or —
+  // the counterparty read findTrades has always had and this ladder did not —
+  // the package reads as a win from HIS side of the table.
+  const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0
+    || (p.counterparty.perception_delta ?? 0) > 0);
   const pool = acceptable.length ? acceptable : priced;
   // Cheapest first, but among packages that cost the same never open with the one
   // that helps me least — that offer is dominated and only wastes the first ask.
@@ -1713,13 +2029,15 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
  * two players on different rosters come back as two separate ladders, one per
  * owner, rather than pretending a single package could land both.
  */
-export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null }) {
+export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playoffOdds }) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
   const slots = lineupSlots(lg);
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your team not found in this league' };
+  // Same horizon and same counterparty layer as the league-wide search (G6).
+  const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
 
   const targets = [...new Set((targetIds ?? []).map(Number))]
     .map(id => resolvePlayer(id, assets, teams)).filter(Boolean);
@@ -1742,10 +2060,11 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null }) {
 
   const ladders = [];
   for (const { team: owner, targets: theirTargets } of byOwner.values()) {
-    const blocked = rows(`SELECT 1 FROM manager_profiles WHERE league_id=? AND roster_id=? AND tradeability='never'`,
-      lg.id, String(owner.roster_id))[0];
-    if (blocked) {
+    const tier = rows(`SELECT tradeability FROM manager_profiles WHERE league_id=? AND roster_id=?`,
+      lg.id, String(owner.roster_id))[0]?.tradeability ?? 'fair';
+    if (tier === 'never') {
       ladders.push({ targets: theirTargets.map(slim), owner: owner.owner, owner_id: owner.roster_id,
+        counterparty: ownerRead(counterparties, owner, tier),
         error: `${owner.owner} is marked "Never trades," so no offers were generated.` });
       continue;
     }
@@ -1763,6 +2082,8 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null }) {
     const base = {
       targets: theirTargets.map(slim), owner: owner.owner, owner_id: owner.roster_id,
       their_cost: theirCost, replaceable, upside_ppg: upside,
+      counterparty: ownerRead(counterparties, owner, tier),
+      target_stance: targetStance(counterparties, owner, theirTargets),
       leverage: replaceable
         ? `${owner.owner} can cover ${theirTargets.length > 1 ? 'both' : 'him'} — losing ${theirTargets.length > 1 ? 'them' : 'him'} only costs their lineup ${theirCost} ppg. Start low.`
         : `${theirTargets.length > 1 ? 'They are' : 'He is'} load-bearing for ${owner.owner} (${theirCost} ppg of their lineup). Expect to pay a premium or get refused.`
@@ -1784,11 +2105,14 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null }) {
       if (ratio < 0.70 || ratio > 1.65) continue;
       const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
         { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
-      if (ev.me.ppg_delta <= 0) continue;
+      const gain = ladderGain(ev, horizon);
+      if (gain.value <= 0) continue;
       priced.push({
         i_give: give.map(slim), ratio: +ratio.toFixed(2), give_value: giveValue,
         ...ev,
-        efficiency: +(ev.me.ppg_delta / Math.max(1, giveValue / 100)).toFixed(3)
+        horizon: { ...horizon, ...gain, note: horizonNote(horizon, gain) },
+        counterparty: rungCounterparty(counterparties, owner, tier, { theirGive: theirTargets, theirGet: give }),
+        efficiency: +(gain.value / Math.max(1, giveValue / 100)).toFixed(3)
       });
     }
     if (!priced.length) {
@@ -1798,7 +2122,8 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null }) {
       continue;
     }
 
-    const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0);
+    const acceptable = priced.filter(p => p.them.ppg_delta > 0 || p.ratio >= 1.0
+      || (p.counterparty.perception_delta ?? 0) > 0);
     const pool = acceptable.length ? acceptable : priced;
     const headline = list => list.slice().sort((x, y) => y.value - x.value)[0]?.id;
     const seenHeadline = new Set();
@@ -1817,7 +2142,9 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null }) {
     ladders.push({ ...base, offers, fair: byEfficiency[0], alternatives: byEfficiency.slice(1, 5) });
   }
 
-  return { me: { roster_id: me.roster_id, owner: me.owner }, model_context: assets.context, ladders };
+  return { mode: 'targets',
+    context: ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounterparty: true, week: weekNow }),
+    me: { roster_id: me.roster_id, owner: me.owner }, model_context: assets.context, ladders };
 }
 
 /* --------------------------------------------------------------- self scout */

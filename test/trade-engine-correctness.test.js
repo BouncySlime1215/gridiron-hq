@@ -57,7 +57,10 @@ await import('../server/routes/tradelab.js');
 await import('../server/routes/nfldata.js');
 const engine = await import('../server/services/trade-engine.js');
 const { deriveFormat } = await import('../server/services/format.js');
-const { horizonWeights } = await import('../server/services/trade-horizon.js');
+const { horizonWeights, leagueSchedule } = await import('../server/services/trade-horizon.js');
+const { simulateSeason } = await import('../server/services/season-sim.js');
+const { withRandomSeed } = await import('../server/services/stats-util.js');
+const { scoringFor } = await import('../server/services/scoring.js');
 
 await runMigrations();
 seedIfEmpty();
@@ -110,7 +113,9 @@ function sixTeamLeague(ownerNames = null) {
   seedMarket([...qb, ...rb, ...wr, ...te]);
   const teams = [];
   for (let i = 0; i < 6; i++) {
-    const roster = [qb[i], rb[i], rb[i + 6], rb[i + 12], wr[i], wr[i + 6], wr[i + 12], te[i]].filter(Boolean);
+    // Snaked so every team's index-sum is identical (i + (5-i) + (23+i) + (28-i) = 56):
+    // a balanced league, which is what makes both playoff odds and mutual deals real.
+    const roster = [qb[i], rb[i], rb[11 - i], rb[12 + i], wr[5 - i], wr[6 + i], wr[17 - i], te[5 - i]].filter(Boolean);
     teams.push({ id: i + 1, name: `Team ${i + 1}`, owners: [`{M${i + 1}}`],
       roster: { entries: roster.map(p => ({
         playerPoolEntry: { player: { id: fakeId++, fullName: p.name, defaultPositionId: POS_ID[p.position] } } })) } });
@@ -131,11 +136,21 @@ function insertLeague(id, payload) {
   return rows('SELECT * FROM leagues WHERE id = ?', id)[0];
 }
 
+/** A player on somebody else's roster, chosen without going through the finder. */
+function targetOnAnotherRoster(lg, myTeamId) {
+  const payload = JSON.parse(lg.payload);
+  const them = payload.teams.find(t => String(t.id) !== String(myTeamId));
+  const name = them.roster.entries[1].playerPoolEntry.player.fullName;
+  const id = rows('SELECT id FROM players WHERE name = ? ORDER BY id LIMIT 1', name)[0]?.id;
+  assert.ok(id, `no player row for ${name}`);
+  return id;
+}
+
 /* ---------------------------------------------------- G1: real playoff odds */
 
 test('G1a: the entry point prices the horizon on this team\'s real playoff odds, not the 0.5 prior', () => {
   const lg = insertLeague(401, sixTeamLeague());
-  const out = engine.tradeIdeas(lg, { myTeamId: '1', limit: 10 });
+  const out = engine.tradeIdeas(lg, { myTeamId: '1', limit: 10, requireMutual: false });
   assert.ok(!out.error, out.error);
   assert.equal(out.mode, 'league');
   const odds = out.context.playoff_odds;
@@ -143,7 +158,7 @@ test('G1a: the entry point prices the horizon on this team\'s real playoff odds,
   assert.notEqual(odds, 0.5, 'still the never-passed 0.5 default');
   assert.match(out.context.playoff_odds_source, /season simulation/i);
   // The horizon every deal was ranked on must be the one those odds produce.
-  const expected = horizonWeights(2, { playoffOdds: odds, regularSeasonEnd: 14, playoffWeeks: [15, 16, 17] });
+  const expected = horizonWeights(2, { playoffOdds: odds, ...leagueSchedule(lg) });
   assert.ok(out.deals.length > 0, 'fixture must produce deals');
   for (const d of out.deals) {
     assert.equal(d.horizon.playoff_odds, expected.playoff_odds);
@@ -156,7 +171,13 @@ test('G1b: the odds that enter the ranking are seeded, so they never drift betwe
   const a = engine.myPlayoffOdds(lg, '1');
   const b = engine.myPlayoffOdds(lg, '1');
   assert.equal(a.value, b.value);
-  assert.ok(a.value > 0 && a.value < 1, `implausible odds ${a.value}`);
+  assert.ok(a.value >= 0 && a.value <= 1, `implausible odds ${a.value}`);
+  // It is the simulator's own answer for this roster, not a prior wearing a label.
+  const direct = withRandomSeed(20260918, () => simulateSeason(lg, {
+    runs: 1000, fromWeek: 2, scoring: scoringFor(lg) }));
+  const mine = direct.teams.find(t => String(t.roster_id) === '1');
+  assert.equal(a.value, +mine.playoff_odds.toFixed(2));
+  assert.match(a.source, /1000 runs from week 2/);
 });
 
 test('G1c: a league the simulator cannot run falls back to the prior and says why', () => {
@@ -268,8 +289,7 @@ test('G5: one idea per headline pair is taken AFTER the mutual filter, not befor
 test('G6a/G6c: an offer ladder carries the same horizon the league ideas were ranked on', () => {
   const lg = rows('SELECT * FROM leagues WHERE id = 401')[0];
   const league = engine.tradeIdeas(lg, { myTeamId: '1', limit: 10 });
-  const wanted = league.deals[0]?.i_get?.[0]?.id;
-  assert.ok(wanted, 'need a target from the league list');
+  const wanted = targetOnAnotherRoster(lg, '1');
   const ladder = engine.tradeIdeas(lg, { myTeamId: '1', targets: [wanted], shape: 'single' });
   assert.equal(ladder.mode, 'target');
   assert.equal(ladder.context.playoff_odds, league.context.playoff_odds);
@@ -279,15 +299,16 @@ test('G6a/G6c: an offer ladder carries the same horizon the league ideas were ra
     assert.equal(o.horizon.playoff_odds, league.context.playoff_odds);
   }
   // The "fair" rung is chosen on horizon-weighted gain per unit of value sent.
-  const best = [...ladder.offers, ...(ladder.alternatives ?? [])]
-    .reduce((a, b) => (b.efficiency > a.efficiency ? b : a));
-  assert.equal(ladder.fair.efficiency, best.efficiency);
+  for (const o of [...ladder.offers, ...(ladder.alternatives ?? [])]) {
+    assert.ok(ladder.fair.efficiency >= o.efficiency,
+      `a rung is more efficient than the "fair" one: ${o.efficiency} > ${ladder.fair.efficiency}`);
+  }
+  assert.ok(ladder.fair.horizon.value > 0);
 });
 
 test('G6b: every ladder says what counterparty data it had', () => {
   const lg = rows('SELECT * FROM leagues WHERE id = 401')[0];
-  const league = engine.tradeIdeas(lg, { myTeamId: '1', limit: 10 });
-  const wanted = league.deals[0]?.i_get?.[0]?.id;
+  const wanted = targetOnAnotherRoster(lg, '1');
   const one = engine.tradeIdeas(lg, { myTeamId: '1', targets: [wanted], shape: 'single' });
   assert.ok(one.counterparty, 'no counterparty block on the ladder');
   assert.equal(typeof one.counterparty.counterparty_data, 'boolean');

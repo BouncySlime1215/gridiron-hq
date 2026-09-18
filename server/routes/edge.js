@@ -267,27 +267,21 @@ r.get('/movers', (req, res) => {
   res.json({ breakouts: scored.slice(0, 25), regressions: scored.slice(-25).reverse() });
 });
 
-// ------------------------------------------------------- 5. Trade analyzer
-r.post('/trade', (req, res) => {
-  const { give = [], get = [], teams = 12 } = req.body ?? {};
-  const board = new Map(vorBoard(teams).map(p => [p.id, p]));
-  const val = ids => ids.map(id => board.get(Number(id))).filter(Boolean);
-  const giveP = val(give), getP = val(get);
-  const sum = list => ({
-    vor: +list.reduce((s, p) => s + p.vor, 0).toFixed(1),
-    proj: +list.reduce((s, p) => s + p.proj, 0).toFixed(1),
-    best: list.slice().sort((a, b) => b.vor - a.vor)[0]?.name ?? null
-  });
-  const a = sum(giveP), b = sum(getP);
-  const diff = +(b.vor - a.vor).toFixed(1);
-  return res.json({
-    give: giveP, get: getP, give_total: a, get_total: b, vor_diff: diff,
-    verdict: diff > 15 ? 'clear win' : diff > 5 ? 'slight win' : diff < -15 ? 'clear loss' : diff < -5 ? 'slight loss' : 'even',
-    note: giveP.length !== getP.length
-      ? 'Uneven player counts — the side sending more players also needs roster spots to be worth it.'
-      : null
-  });
-});
+// --------------------------------------------- 5. Trade analyzer (RETIRED)
+/**
+ * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
+ *
+ * This summed VOR on each side and called the difference a verdict. It ignored
+ * the only currency that decides a trade (what your STARTING LINEUP projects
+ * afterwards), the rest-of-season and playoff horizon, and the other manager
+ * entirely — and it had no client caller. The scorer that does all three is
+ * POST /api/trades/:leagueId/evaluate, the same `evaluate()` the trade finder
+ * ranks with.
+ */
+r.post('/trade', (_req, res) => res.status(410).json({
+  error: 'This endpoint was retired on 2026-09-18. A VOR-sum difference is not a trade verdict: it ignores your starting lineup, the rest of the season and the other manager.',
+  use: '/api/trades/:leagueId/evaluate',
+}));
 
 // -------------------------------------------------------- 6. AI Scout Report
 r.post('/scout/:id', async (req, res, next) => {

@@ -21,8 +21,8 @@ import { waiverBoard } from '../services/waiver-wire.js';
 import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
-import { brainState, brainPlan, managerProfiles, setManagerProfile } from '../services/league-brain.js';
-import { waiverUpgrades, sellHigh, freeAgents } from '../services/waiver-brain.js';
+import { brainState, managerProfiles, setManagerProfile } from '../services/league-brain.js';
+import { waiverUpgrades, freeAgents } from '../services/waiver-brain.js';
 import { byeOutlook, byePatches, fragility } from '../services/roster-risk.js';
 import { positionLiquidity } from '../services/position-liquidity.js';
 import { trendExploits } from '../services/trend-exploits.js';
@@ -121,6 +121,15 @@ r.get('/:leagueId/post-draft-plan', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * A route that existed and was deliberately removed. 410 (Gone), never 404, and
+ * always with a pointer: a caller that finds a missing path deserves to be told
+ * where the capability went, and a silent 404 reads like a bug.
+ */
+const retired = (use, why) => (_req, res) => res.status(410).json({
+  error: `This endpoint was retired on 2026-09-18. ${why}`, use,
+});
+
 /* ----------------------------------------------------------------- the brain */
 
 /** Where you stand: rank, holes, and which hole is worth paying to fix. */
@@ -132,20 +141,17 @@ r.get('/:leagueId/brain/state', (req, res, next) => {
 });
 
 /**
- * The plan: ranked by acceptance probability times gain, not by gain.
+ * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
  *
- * See league-brain.js — a deal nobody signs is worth nothing, and sorting by
- * how much a trade helps you is sorting by how unacceptable it is.
+ * `brainPlan` ranked its own enumerated deals by its own tier-based acceptance
+ * curve, neither of which read the counterparty layer or the horizon — a second,
+ * quietly different answer to "what trade should I send". Both are retired with
+ * it (see league-brain.js). The ranked weekly plan across lineup, waivers and
+ * trades is being rebuilt as a deterministic service on the Decision Inbox
+ * (master plan 00, D5), fed by waiverBoard and the one trade-idea entry point.
  */
-r.get('/:leagueId/brain/plan', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(brainPlan(lg.id, {
-      myTeamId: req.query.team_id ?? null,
-      limit: Math.min(20, Number(req.query.limit) || 8)
-    }));
-  } catch (e) { next(e); }
-});
+r.get('/:leagueId/brain/plan', retired('/api/trades/:leagueId/find',
+  'The plan\'s trade half was a second enumerator with its own acceptance curve. Trade ideas now come from one place, which prices how each manager reads a deal; the weekly plan service is being rebuilt on top of it.'));
 
 /**
  * Free agents who would crack your lineup.
@@ -164,16 +170,19 @@ r.get('/:leagueId/brain/waivers', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Players priced above their own position's production curve. */
-r.get('/:leagueId/brain/sell-high', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(sellHigh(lg.id, {
-      myTeamId: req.query.team_id ?? null,
-      limit: Math.min(15, Number(req.query.limit) || 5)
-    }));
-  } catch (e) { next(e); }
-});
+/**
+ * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
+ *
+ * `sellHigh` itself is NOT retired — it is the price-curve half of the Trade
+ * Brain's "hype window" tactic, and it stays as an input to that (it is still
+ * exported from waiver-brain.js). What is retired is serving it as its own page:
+ * a list of players priced above their production curve, with no buyer attached
+ * and no read on who overvalues them, is half an idea. The whole idea — who to
+ * sell him to, what to ask, and whether that manager has talked him up — is a
+ * trade idea, and trade ideas have one source.
+ */
+r.get('/:leagueId/brain/sell-high', retired('/api/trades/:leagueId/find',
+  'Selling high on a player is a trade idea, not a list: the finder names the buyer, the package and how he reads it. sellHigh() remains an input to the hype-window tactic.'));
 
 /** The unrostered pool, ranked on the horizon that matters this week. */
 r.get('/:leagueId/brain/free-agents', (req, res, next) => {

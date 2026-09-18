@@ -49,6 +49,7 @@ const RETIRED = [
   ['POST', '/api/tradelab/1/pitch'],
   ['POST', '/api/edge/trade'],
   ['GET', '/api/trades/1/brain/sell-high'],
+  ['GET', '/api/trades/1/brain/plan'],
 ];
 
 test('G7a: every retired trade route answers 410 with a pointer to its replacement', async () => {

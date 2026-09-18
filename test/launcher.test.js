@@ -59,6 +59,14 @@ test('G3a: an absolute, executable NODE_BIN is honoured', () => {
   assert.equal(L.resolveNodeBin({ env: { NODE_BIN: process.execPath, PATH: MINIMAL_PATH } }), process.execPath);
 });
 
+test('G3a: the stable install path wins over this process\'s version-specific binary', () => {
+  // Under launchd process.execPath is the resolved Cellar path (…/Cellar/node/25.9.0_1/bin/node),
+  // which a `brew upgrade` + cleanup deletes; /opt/homebrew/bin/node survives the upgrade.
+  const stable = path.join(temp, 'stable-node');
+  fs.symlinkSync(process.execPath, stable);
+  assert.equal(L.resolveNodeBin({ env: { PATH: MINIMAL_PATH }, execPath: process.execPath, knownLocations: [stable] }), stable);
+});
+
 test('G3a: with no usable candidate at all the error says what was tried', () => {
   assert.throws(() => L.resolveNodeBin({ env: { PATH: '/nonexistent' }, execPath: '/nonexistent/node', knownLocations: [] }),
     /no usable node binary.*\/nonexistent\/node/s);
@@ -175,6 +183,31 @@ test('G3c: a second start while one is in flight spawns nothing', () => {
   spawns[0].child.exit(0);
   assert.equal(starter.startApp(), 'starting');
   assert.equal(spawns.length, 2);
+});
+
+test('G3c: the node binary is resolved again at every start (an upgrade between starts is picked up)', () => {
+  const bins = ['/opt/old/bin/node', '/opt/new/bin/node'];
+  const spawns = [];
+  const starter = L.createAppStarter({
+    root: '/repo', appPort: 55555, nodeBin: () => bins.shift(), env: { PATH: MINIMAL_PATH },
+    spawn: (cmd, args, opts) => { const child = new FakeChild(); spawns.push({ cmd, opts, child }); return child; },
+    portOpen: () => false, buildStatus: () => ({ needed: false }), writeMarker: () => {}, openLog: () => 'ignore', log: () => {},
+  });
+  starter.startApp();
+  spawns[0].child.exit(1);
+  starter.startApp();
+  assert.deepEqual(spawns.map(s => s.cmd), ['/opt/old/bin/node', '/opt/new/bin/node']);
+  assert.equal(spawns[1].opts.env.PATH.split(':')[0], '/opt/new/bin');
+});
+
+test('G3c: a node binary that cannot be resolved at start time is a reported failure', () => {
+  const starter = L.createAppStarter({
+    root: '/repo', appPort: 55555, nodeBin: () => { throw new Error('no usable node binary; tried x'); },
+    env: { PATH: MINIMAL_PATH }, spawn: () => { throw new Error('must not spawn'); },
+    portOpen: () => false, buildStatus: () => ({ needed: false }), writeMarker: () => {}, openLog: () => 'ignore', log: () => {},
+  });
+  assert.match(starter.startApp(), /failed: no usable node binary/);
+  assert.equal(starter.status().phase, 'failed');
 });
 
 test('G3c: a server that exits before listening can be started again', () => {

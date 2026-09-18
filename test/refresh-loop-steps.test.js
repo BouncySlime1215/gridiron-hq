@@ -276,3 +276,25 @@ test('G4: the weekly learning cycle (pregame capture, settlement, retrain) is on
 test('G1/G2/G5: importing the loop runs nothing (no tick, no scheduler job)', () => {
   assert.equal(rows(`SELECT COUNT(*) AS n FROM sync_log WHERE job IN ('league_rosters', 'manager_signals', 'league_chat')`)[0].n, 0);
 });
+
+test('G6: player_week_usage/xFP ingestion is on the loop, or a week-1-stuck-forever bug is invisible', async () => {
+  // Found in the 2026-09-18 structural relook: player_week_usage's max week was stuck
+  // at 1 while the server ran SCHEDULER_DISABLED=1, because the jobs that ingest a
+  // finalized week (nfl_model_growth) and the weekly xFP benchmark (ffopportunity)
+  // were scheduler-only and never on THIS loop. Both jobs already exist fully
+  // configured in scheduler.js's JOBS map (refreshNflModelGrowth, refreshFfOpportunity)
+  // — this was purely a missing two-line allowlist entry, not a missing feature.
+  // Left unfixed, the play-chance role layer's "missed last game" signal
+  // (contingency.js, counts team games from player_week_usage) silently reads every
+  // player as never having missed a game from week 3 on.
+  assert.ok(LOOP.FANTASY_LIVE_JOBS.includes('nfl_model_growth'), 'finalized-week ingest must be on the live loop');
+  assert.ok(LOOP.FANTASY_LIVE_JOBS.includes('ffopportunity'), 'weekly xFP benchmark must be on the live loop');
+  const { JOBS } = await import('../server/services/scheduler.js');
+  for (const name of LOOP.FANTASY_LIVE_JOBS) assert.ok(JOBS[name], `${name} is a scheduler job`);
+  const ran = [];
+  await LOOP.tick({ jobs: LOOP.FANTASY_LIVE_JOBS, runJob: async name => { ran.push(name); return { skipped: true }; },
+    spawn: fakeSpawn({ 'extract_league_chat.py': { stdout: STATUS({ failed_outstanding: 0 }) } }).spawn,
+    log: quiet, record: quiet, inputsKey: () => 'k' });
+  assert.ok(ran.includes('nfl_model_growth'));
+  assert.ok(ran.includes('ffopportunity'));
+});

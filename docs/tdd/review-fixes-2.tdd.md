@@ -194,11 +194,10 @@ Commands: the repo runner for the node files; `python3 -m unittest discover -s s
 
 ## New work found while doing this (not done here)
 
-1. **`test/refresh-loop-steps.test.js` G6 is an open RED** from `66cdac0`:
-   `nfl_model_growth` and `ffopportunity` are still not in `FANTASY_LIVE_JOBS`, so with
-   the scheduler off `player_week_usage` stops advancing and the role layer's "missed
-   last game" signal reads every player as never having missed a game from week 3 on.
-   Two allowlist lines plus that test. **Step: WA integration.**
+1. ~~`test/refresh-loop-steps.test.js` G6 is an open RED from `66cdac0`~~ — it was open
+   while this item ran (18/19) and another agent closed it in `cf3d446`
+   (`nfl_model_growth` and `ffopportunity` on the live loop). 19/19 at the end of this
+   item; nothing left to do.
 2. **`football-first.js#residualModel`** stamps `nfl_injuries` on MAX(week) — the same
    blind spot, on the betting side only (the fit is on prior seasons, so it is cosmetic
    today). **Step: WD.**
@@ -209,3 +208,13 @@ Commands: the repo runner for the node files; `python3 -m unittest discover -s s
    the root cause is in the provider's answer, not in us — the options are a rounding
    tolerance or dropping the `tone`/`topic` choice for those rows. **Step: WB, with the
    negotiation-profile rebuild that reads these labels.**
+
+## Suite
+
+Full suite at the end of this item: **2,594 tests, 2,552 pass, 3 fail, 39 skipped**. The
+3 failures are the known prop-CLV tests (betting, pre-existing since W0, queued for WD);
+nothing new fails. Lint clean (819 files), `tsc --noEmit` clean. Re-run at the final
+HEAD: availability-fit-loader 7/7, asset-cache-stamps 5/5, weekly-promotion-rollback
+4/4, prediction-log-served-model 3/3, league-chat-classifier-retry 4/4,
+refresh-loop-steps 19/19, snapshot-mode-migration 3/3, asset-universe-fingerprint 5/5,
+python chat 20/20.

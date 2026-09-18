@@ -1,7 +1,7 @@
 /**
  * Real public-league history from Sleeper — the pure parsing layer.
  *
- * Why it exists (plan section 00.2d-bis, Nick 2026-09-18): the Team Outlook has to
+ * Why it exists (plan section 00, parts D2-D3, Nick 2026-09-18): the Team Outlook has to
  * say how much an early-season record really means, and "real history on fantasy
  * leagues overall and mine" needs more than Nick's 12 league-seasons. Sleeper's
  * public API serves complete historical leagues — weekly matchups, standings, max

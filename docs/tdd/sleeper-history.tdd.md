@@ -1,6 +1,6 @@
 # TDD evidence — real public-league history (Sleeper) — 2026-09-18
 
-**Why:** plan section 00.2d-bis. The Team Outlook, trade horizon, waiver and posture calibration, and the Coach's "teams like yours" need real league history beyond Nick's 12 league-seasons.
+**Why:** plan section 00, parts D2-D3. The Team Outlook, trade horizon, waiver and posture calibration, and the Coach's "teams like yours" need real league history beyond Nick's 12 league-seasons.
 
 **Files:** `server/services/sleeper-history.js` (pure parsing), `scripts/collect-sleeper-history.mjs` (crawler + CLI), `test/sleeper-history.test.js`, `test/sleeper-crawl.test.js`. Output DB `data/derived/sleeper_history.sqlite` (git-ignored).
 

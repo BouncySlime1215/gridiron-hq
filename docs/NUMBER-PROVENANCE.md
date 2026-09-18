@@ -1,6 +1,6 @@
 # Number provenance and routing audit — 2026-09-18
 
-Read-only audit of every future-facing number Nick sees: where it is computed, every constant on its path classified FV (fitted + validated on a held-out season) / F (fitted, not validated) / B (borrowed) / H (hand-set) / D (definitional), and every place the same number is computed differently. Rule it serves: section 00.1 rule 3 of FANTASY-ENGINE-MASTER-PLAN.md. Every item below is mapped to a step in section 00.2e.
+Read-only audit of every future-facing number Nick sees: where it is computed, every constant on its path classified FV (fitted + validated on a held-out season) / F (fitted, not validated) / B (borrowed) / H (hand-set) / D (definitional), and every place the same number is computed differently. Rule it serves: section 00 part A2 (rule 3) of FANTASY-ENGINE-MASTER-PLAN.md. Every item below is mapped to a step in section 00 part E3.
 
 I've finished the audit. The short answer is that most of what you see for the future isn't fully historical yet. Only a couple of numbers are fitted and checked on past seasons end to end. Several validated models sit behind hand-set wrappers, and the title odds run on a different set of projections from every other page.
 

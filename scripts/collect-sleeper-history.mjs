@@ -2,7 +2,7 @@
 /**
  * Collect real public fantasy-league history from Sleeper's public API.
  *
- * Why (plan section 00.2d-bis): the Team Outlook, the trade horizon, waiver and
+ * Why (plan section 00, parts D2-D3): the Team Outlook, the trade horizon, waiver and
  * posture calibration and the Coach's "teams like yours" all need real league history
  * beyond Nick's 12 league-seasons — weekly scores, standings, max possible points,
  * playoff brackets and every trade/waiver move, from thousands of real managers.

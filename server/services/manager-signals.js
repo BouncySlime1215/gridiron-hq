@@ -448,9 +448,12 @@ export function refreshManagerData({ leagueIds = null } = {}) {
                                     WHERE confidence = 'confirmed' AND chat_name IS NOT NULL`).map(r => r.league_id));
   const chat = openChatDb();
   try {
-    const chatNames = chat
-      ? chat.prepare('SELECT name FROM manager_chat_profile WHERE name IS NOT NULL ORDER BY name').all().map(r => r.name)
-      : [];
+    // Read on first use, inside the chat league's own try: the rollup drops and
+    // recreates manager_chat_profile outside a transaction, and a missing table
+    // must fail that league alone, never the leagues that have no chat.
+    let chatNames = null;
+    const chatNamesNow = () => (chatNames ??= chat
+      .prepare('SELECT name FROM manager_chat_profile WHERE name IS NOT NULL ORDER BY name').all().map(r => r.name));
     const out = [];
     for (const lg of leagues) {
       const name = String(lg.name ?? '').trim();
@@ -458,7 +461,7 @@ export function refreshManagerData({ leagueIds = null } = {}) {
       const corpus = chatLeagues.has(lg.id);
       try {
         if (corpus && !chat) throw new Error(`chat corpus expected (confirmed chat identities) but no chat DB at ${chatDbPath()}`);
-        const ident = matchIdentities(lg.id, { chatNames: corpus ? chatNames : [] });
+        const ident = matchIdentities(lg.id, { chatNames: corpus ? chatNamesNow() : [] });
         const sig = buildManagerSignals(lg.id, { chat: corpus ? chat : null });
         out.push({
           league_id: lg.id, name, chat_corpus: corpus,

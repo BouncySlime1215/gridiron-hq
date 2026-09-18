@@ -1274,7 +1274,12 @@ function candidates(team, slots, limit = 11, excludeIds = null) {
 const HORIZON_SIM_SEED = 20260918;
 const HORIZON_SIM_RUNS = 1000;
 
-export function myPlayoffOdds(lg, myTeamId = null) {
+/** The asset universe's own fingerprint. ~24 ms on production, so it is computed
+ *  once per entry-point call and handed to everything that keys on it. */
+const assetPrint = (lg, formatKey, target) =>
+  fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target));
+
+export function myPlayoffOdds(lg, myTeamId = null, print = null) {
   const rosterId = String(myTeamId ?? lg?.my_team_id ?? '');
   const prior = reason => ({ value: null, roster_id: rosterId, source: `0.5 prior — ${reason}` });
   if (!lg?.payload) return prior('this league is not synced yet');
@@ -1282,7 +1287,7 @@ export function myPlayoffOdds(lg, myTeamId = null) {
   const { formatKey } = deriveFormat(lg);
   return cached(
     `playoffOdds:${lg.id}:${rosterId}:${target.season}:${target.week}`,
-    fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target)),
+    print ?? assetPrint(lg, formatKey, target),
     () => {
       // A returned `error` is a NAMED state (no fixtures left, an unsynced
       // schedule) and falls back. Anything thrown is a real defect and is left to
@@ -1304,9 +1309,9 @@ export function myPlayoffOdds(lg, myTeamId = null) {
 }
 
 /** Resolve the odds the horizon is built on: caller's number, else the sim, else the prior. */
-function horizonOdds(lg, myTeamId, supplied) {
+function horizonOdds(lg, myTeamId, supplied, print = null) {
   if (Number.isFinite(supplied)) return { value: supplied, source: 'supplied by the caller' };
-  const measured = myPlayoffOdds(lg, myTeamId);
+  const measured = myPlayoffOdds(lg, myTeamId, print);
   return measured.value == null
     ? { value: 0.5, source: measured.source, measured: null }
     : { value: measured.value, source: measured.source, interval: measured.interval ?? null };
@@ -1374,11 +1379,18 @@ function ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounter
  * @param opts.max_per_side  package size cap (2 keeps it realistic and fast)
  * @param opts.require_mutual only surface deals that also improve their lineup
  */
-function findTradesKey(lg, opts = {}) {
+/**
+ * The week and format every key below is built on. Derived ONCE per entry-point
+ * call: `deriveFormat` measured 13 ms on production data, and the warm path used
+ * to pay it three times over.
+ */
+const ideaCtx = (lg, ctx = null) => (ctx?.target && ctx?.formatKey ? ctx
+  : { target: tradeWeekContext(), formatKey: deriveFormat(lg).formatKey, print: ctx?.print ?? null });
+
+function findTradesKey(lg, opts = {}, ctx = null) {
   const { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null,
     excludeIds = null, counterparty: useCounterparty = true, playoffOdds } = opts;
-  const target = tradeWeekContext();
-  const { formatKey } = deriveFormat(lg);
+  const { target, formatKey } = ideaCtx(lg, ctx);
   const excludeKey = excludeIds ? [...excludeIds].sort((a, b) => a - b).join(',') : '';
   return `findTrades:${lg.id}:${formatKey}:${target.season}:${target.week}:` +
     `${myTeamId ?? lg.my_team_id}:${maxPerSide}:${requireMutual}:${limit}:${targetId ?? ''}:` +
@@ -1398,19 +1410,15 @@ function findTradesKey(lg, opts = {}) {
  * Exported so a test can assert the fingerprint moves without having to guess at
  * cache internals.
  */
-export function tradeIdeasFingerprint(lg, opts = {}) {
-  const target = tradeWeekContext();
-  const { formatKey } = deriveFormat(lg);
-  const key = findTradesKey(lg, opts);
-  return fingerprint([
-    // Everything the universe reads (the rosters come from leagues.payload, too)...
-    ...ASSET_INPUT_TABLES,
-    // ...plus, not part of assetUniverse's own fingerprint: a manager marked "never
-    // trade" or "hard" changes findTrades' own filtering directly, on top of
-    // whatever assetUniverse already accounts for. Stamped on updated_at, because
-    // editing a tier changes no row count.
-    { table: 'manager_profiles', stamp: 'updated_at' }
-  ], `${key}:${assetInputsKey(lg, formatKey, target)}:${counterpartyDataKey(lg.id)}`);
+export function tradeIdeasFingerprint(lg, opts = {}, ctx = null) {
+  const resolved = ideaCtx(lg, ctx);
+  // Everything the universe reads (the rosters come from leagues.payload, too)...
+  const assets = resolved.print ?? assetPrint(lg, resolved.formatKey, resolved.target);
+  // ...plus, not part of assetUniverse's own fingerprint: a manager marked "never
+  // trade" or "hard" changes findTrades' own filtering directly. Stamped on
+  // updated_at, because editing a tier in place changes no row count.
+  const profiles = fingerprint([{ table: 'manager_profiles', stamp: 'updated_at' }]);
+  return `${assets}|${profiles}|${findTradesKey(lg, opts, resolved)}|${counterpartyDataKey(lg.id)}`;
 }
 
 export function findTrades(lg, opts = {}) {
@@ -1420,11 +1428,13 @@ export function findTrades(lg, opts = {}) {
   // an uninformative 0.5 prior, which is the right default and a poor answer for
   // a team plainly out of it — a seller's December roster does not matter, and
   // the objective should collapse back to "what helps me now".
-  const odds = horizonOdds(lg, opts.myTeamId, opts.playoffOdds);
+  const ctx = ideaCtx(lg);
+  ctx.print = assetPrint(lg, ctx.formatKey, ctx.target);
+  const odds = horizonOdds(lg, opts.myTeamId, opts.playoffOdds, ctx.print);
   const resolved = { ...opts, playoffOdds: odds.value, playoffOddsSource: odds.source,
     playoffOddsInterval: odds.interval ?? null };
-  const key = findTradesKey(lg, resolved);
-  return cached(key, tradeIdeasFingerprint(lg, resolved), () => findTradesUncached(lg, resolved));
+  const key = findTradesKey(lg, resolved, ctx);
+  return cached(key, tradeIdeasFingerprint(lg, resolved, ctx), () => findTradesUncached(lg, resolved));
 }
 
 function findTradesUncached(lg, {

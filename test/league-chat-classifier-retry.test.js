@@ -116,6 +116,20 @@ test('a failed row is retried on the next run and given up only after MAX_ATTEMP
   assert.match(fourth.out, /0 messages to classify/);
 });
 
+test('a row parked before the attempts column existed keeps the retries it has left, not a full set', () => {
+  seed();
+  // The live table (18 parked rows, 2026-09-17): one attempt each, no attempts column.
+  const chat = new DatabaseSync(chatDb);
+  chat.exec(`CREATE TABLE jev_chat_done (msg_id INTEGER PRIMARY KEY, evaluated_at TEXT, input_tokens INTEGER, ok INTEGER, error TEXT)`);
+  chat.exec(`INSERT INTO jev_chat_done VALUES (1, '2026-09-17T19:55:00Z', 0, 0, 'Question "tone" did not select a highest-probability option.')`);
+  chat.close();
+  const first = runClassifier('throw');
+  assert.equal(doneRow().attempts, 2, `the stored row counts as one attempt already used: ${first.out}`);
+  const second = runClassifier('throw');
+  assert.equal(doneRow().attempts, 3);
+  assert.notEqual(second.status, 0, 'giving up is a non-zero exit');
+});
+
 test('a retried row that succeeds is labelled and leaves the backlog', () => {
   seed();
   runClassifier('throw');

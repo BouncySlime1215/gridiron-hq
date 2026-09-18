@@ -115,10 +115,12 @@ chat.exec('PRAGMA busy_timeout=60000');
 chat.exec(`CREATE TABLE IF NOT EXISTS jev_chat_signals (
   msg_id INTEGER NOT NULL, name TEXT, chat_kind TEXT, mentioned_player TEXT,
   question TEXT NOT NULL, probability REAL, evaluated_at TEXT NOT NULL, PRIMARY KEY (msg_id, question))`);
-chat.exec(`CREATE TABLE IF NOT EXISTS jev_chat_done (msg_id INTEGER PRIMARY KEY, evaluated_at TEXT, input_tokens INTEGER, ok INTEGER, error TEXT, attempts INTEGER NOT NULL DEFAULT 0)`);
-// The live table predates `attempts`; its rows read as one attempt used (COALESCE below).
+// Every stored row has been attempted at least once, which is what the default says;
+// a row written below always carries its true count. The live table predates the
+// column, so its 18 parked rows get their remaining retries, not a fresh set.
+chat.exec(`CREATE TABLE IF NOT EXISTS jev_chat_done (msg_id INTEGER PRIMARY KEY, evaluated_at TEXT, input_tokens INTEGER, ok INTEGER, error TEXT, attempts INTEGER NOT NULL DEFAULT 1)`);
 if (!(chat.prepare('PRAGMA table_info(jev_chat_done)').all() as { name: string }[]).some(c => c.name === 'attempts')) {
-  chat.exec('ALTER TABLE jev_chat_done ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0');
+  chat.exec('ALTER TABLE jev_chat_done ADD COLUMN attempts INTEGER NOT NULL DEFAULT 1');
 }
 
 // Player names for mention pre-extraction.

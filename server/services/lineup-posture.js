@@ -54,6 +54,13 @@ function weekPpg(p) {
 export const MATERIAL_EDGE = 12;
 /** Observed coefficient of variation of a team-week score, from the replay. */
 export const TEAM_WEEK_CV = 0.28;
+/**
+ * How much a real lineup's spread exceeds the sum of independent player
+ * variances, because teammates share a week. Calibrated so a typical lineup
+ * lands on TEAM_WEEK_CV; applied as a multiplier so that two lineups with
+ * genuinely different player-level variance stay different.
+ */
+export const CORRELATION_INFLATION = 1.9;
 
 /** Standard normal CDF (Abramowitz-Stegun 26.2.17). */
 export function normalCdf(z) {
@@ -80,15 +87,22 @@ function lineupMoments(starters) {
     varTotal += spread * spread;
   }
   // Independence understates a real lineup. Measured in the replay, team-week
-  // scores have a CV near 0.28, so a 120-point lineup has SD near 34; summing
-  // independent player variances gives about half that. Players share a week's
-  // game environment (pace, weather, blowouts) and a QB shares outcomes with
-  // his own receivers. Without that correction P(win) comes out far too
-  // confident — a 43-point underdog was being told 5% when the honest answer is
-  // closer to 15%.
+  // scores have a CV near 0.28, so a 120-point lineup has SD near 34, while
+  // summing independent player variances gives about half that. Players share a
+  // week's game environment (pace, weather, blowouts) and a quarterback shares
+  // outcomes with his own receivers.
+  //
+  // The correction is a SCALE, not a floor. A floor was the first attempt and it
+  // silently destroyed the only signal this module exists to find: for a
+  // 92-point lineup the floor sits at 25.8 while independent variance is around
+  // 17, so the floor bound every single time and every lineup came out with an
+  // identical standard deviation. A roster of steady players and a roster of
+  // boom-bust players became indistinguishable, which is why the swap search
+  // returned nothing at all. Scaling preserves the relative differences that
+  // make one lineup safer than another while still landing a typical lineup on
+  // the observed spread.
   const independent = Math.sqrt(varTotal);
-  const target = mean * TEAM_WEEK_CV;
-  return { mean, sd: Math.max(independent, target) };
+  return { mean, sd: independent * CORRELATION_INFLATION };
 }
 
 /** This week's opponent for a roster, from the synced schedule. */
@@ -162,28 +176,41 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
 
   // Candidate swaps: a bench player who costs expected points but changes the
   // shape in the direction the matchup wants.
-  const bench = mine.filter(p => !startIds.has(p.id));
+  //
+  // SUBSTITUTE INTO THE SLOT, with eligibility checked. Two wrong versions came
+  // before this one. The first swapped names without regard to slot, so a
+  // receiver could land in the tight end's spot and leave it empty — the tell
+  // was "give up -1.74 points", a free gain, which is impossible if the
+  // baseline was already optimal. The second re-solved the lineup after
+  // deleting a starter, which is a different question entirely: the solver
+  // maximises MEAN, so it always replaced him with the highest-projection bench
+  // player and essentially never with the volatile one this module exists to
+  // find. That version could not fire at all, and duly returned zero swaps in
+  // every league.
+  //
+  // The right question is "what if I deliberately start him in that slot", so
+  // the candidate is built directly and its legality is checked explicitly.
+  const benchPool = mine.filter(p => !startIds.has(p.id));
   const swaps = [];
   if (stance !== 'neutral') {
-    for (const inP of bench) {
-      for (const outP of starters) {
-        // RE-SOLVE, do not substitute. Swapping a receiver's name into a tight
-        // end's slot leaves that slot empty and reports a lineup that cannot be
-        // set — it was producing "give up -1.74 points", i.e. a free gain, which
-        // is the tell that the substitution was illegal.
-        const pool = mine.filter(p => p.id !== outP.id);
-        const solved = bestLineup(pool, slots, 'current_week_ppg');
-        const next = solved.slots.map(s2 => s2.player).filter(Boolean);
-        if (!next.some(p => p.id === inP.id)) continue;   // he would not actually start
-        if (next.length !== starters.length) continue;    // slot could not be filled
+    const startingSlots = best.slots.filter(s2 => s2.player);
+    for (const slot of startingSlots) {
+      const outP = slot.player;
+      const eligible = benchPool.filter(p => (slot.slot === 'FLEX'
+        ? ['RB', 'WR', 'TE'].includes(p.position)
+        : p.position === slot.slot));
+      for (const inP of eligible) {
+        const next = startingSlots.map(s2 => (s2.player.id === outP.id ? inP : s2.player));
         const m = lineupMoments(next);
         const p2 = winProb(m.mean - oppMoments.mean, m.sd, oppMoments.sd);
         const delta = (p2 - basePwin) * 100;
         if (delta <= 0.15) continue;                 // below this it is not advice
         swaps.push({
+          slot: slot.slot,
           start: inP.name, start_position: inP.position, start_ppg: weekPpg(inP),
           instead_of: outP.name, instead_of_ppg: weekPpg(outP),
           points_given_up: +(mineMoments.mean - m.mean).toFixed(2),
+          lineup_sd_change: +(m.sd - mineMoments.sd).toFixed(1),
           win_prob_change: +delta.toFixed(2),
           new_win_prob: +(p2 * 100).toFixed(1),
         });

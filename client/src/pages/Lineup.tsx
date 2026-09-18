@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { useApi } from '../api';
 import { useLeague } from '../state/league';
 import EvidenceStrip, { RecordLine } from '../components/lineup/EvidenceStrip';
-import { usePageExplain } from '../components/betting/PageExplainContext';
+import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
 
 /**

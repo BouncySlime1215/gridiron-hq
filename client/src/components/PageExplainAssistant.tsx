@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { api, useApi } from '../../api';
-import { NOT_PROVEN_MESSAGE } from '../../pages/betting/copy';
+import { api, useApi } from '../api';
+import { NOT_PROVEN_MESSAGE } from '../copy-constants';
 import type { PageExplainInfo } from './PageExplainContext';
 
 /**

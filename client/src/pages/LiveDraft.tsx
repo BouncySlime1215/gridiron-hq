@@ -7,7 +7,7 @@ import StreakChips from '../components/draft/StreakChips';
 import SourcePill from '../components/draft/SourcePill';
 import DraftBoardRail from '../components/draft/DraftBoardRail';
 import { pprSeries, statHeadline } from '../components/draft/types';
-import { usePageExplain } from '../components/betting/PageExplainContext';
+import { usePageExplain } from '../components/PageExplainContext';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
 
 /* --------------------------------------------------------------- primitives */

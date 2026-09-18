@@ -25,55 +25,30 @@ export type NavItem = { to: string; label: string; icon: string; end?: boolean; 
 export type NavGroup = { label: string; question: string; items: NavItem[] };
 
 export const NAV_GROUPS: NavGroup[] = [
-  { label: 'Fantasy', question: 'Manage my team', items: [
-    { to: '/', label: 'Command Center', icon: 'H', end: true },
-    { to: '/league', label: 'League Hub', icon: 'L' },
-    { to: '/draft', label: 'Draft', icon: 'D', live: true },
-    { to: '/players', label: 'Players', icon: 'P' },
-    { to: '/trade-lab', label: 'Trade Lab', icon: 'T' },
+  { label: 'My team', question: 'Win this week', items: [
+    { to: '/league', label: 'League Hub', icon: 'L', end: true },
     { to: '/lineup', label: 'Start/Sit', icon: 'S' },
-    { to: '/brain', label: 'League Brain', icon: 'B' },
-    { to: '/trends', label: 'Trends', icon: 'W' }
+    { to: '/trade-lab', label: 'Trade Lab', icon: 'T' },
+    { to: '/draft', label: 'Draft', icon: 'D', live: true }
   ]},
   { label: 'Intelligence', question: 'Understand football', items: [
     { to: '/news', label: 'News', icon: 'N' },
-    { to: '/teams', label: "X's & O's", icon: 'X' },
-    { to: '/matchups', label: 'Matchups', icon: 'M' }
+    { to: '/teams', label: "X's & O's", icon: 'X' }
   ]},
-  { label: 'Betting', question: 'Track the market', items: [
-    { to: '/betting', label: 'Betting Desk', icon: 'B', end: true },
-    { to: '/betting/nfl', label: 'NFL', icon: 'N' },
-    { to: '/betting/nfl/wong', label: 'NFL Wong', icon: 'W', live: true },
-    { to: '/betting/mlb/auto', label: 'MLB', icon: 'M' }
-  ]},
-  { label: 'Lab', question: 'Verify the model', items: [
-    { to: '/model', label: 'The Model', icon: 'M' },
-    { to: '/lab', label: 'Accuracy & Experiments', icon: 'A' },
-    { to: '/data-health', label: 'Data Health', icon: 'H' },
+  { label: 'Setup', question: '', items: [
     { to: '/settings', label: 'Settings', icon: 'S' }
   ]}
 ];
 
 /** A one-line description per nav route, for the palette's second line. */
 const NAV_NOTES: Record<string, string> = {
-  '/': 'Prioritized actions and source freshness',
   '/league': 'Roster, sync health and league-wide analysis',
   '/draft': 'Mock, live and recap modes',
-  '/players': 'Search, compare and rank players',
   '/trade-lab': 'Trade construction and impact',
   '/lineup': 'Weekly start/sit calls with the reasoning',
-  '/brain': 'League-wide tiers, tendencies and rival reads',
-  '/trends': 'Movement in usage, role and market value',
   '/news': 'Attributed news and fantasy impact',
   '/teams': 'Whiteboard schemes and team context',
-  '/matchups': 'Opponent history and weekly projections',
-  '/betting': 'Path to profit across NFL and MLB',
-  '/betting/nfl': 'Board, execution, live games and one engine',
   '/betting/nfl/wong': "Six-point teasers: this week's board, one-click tracking, season projection",
-  '/betting/mlb/auto': 'Slate, forward capture and evidence ledger',
-  '/model': 'What the model believes and why',
-  '/lab': 'Backtests, promotion gates and registry',
-  '/data-health': 'Feed freshness, cadence and failure modes',
   '/settings': 'Connections and local API configuration'
 };
 

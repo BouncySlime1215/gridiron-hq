@@ -41,7 +41,7 @@ const { db, rows, run } = await import('../server/db/index.js');
 const {
   AVAILABILITY_RATES_DDL, AVAILABILITY_ROLE_RATES_DDL, normReportStatus, normPracticeStatus,
   availability, roleStates, fitRoleRates, buildAvailabilityLookup, playerActiveProbability,
-  rowLogLoss, availabilityScores, roleGateDecision, ROLE_GATE
+  rowLogLoss, availabilityScores, roleGateDecision, ROLE_GATE, designationRoleGate, DESIGNATION_ROLE_GATE
 } = await import('../server/services/contingency.js');
 
 const DRY = process.argv.includes('--dry-run');
@@ -227,6 +227,17 @@ if (q.length) console.log(`  spread: ${(q[0].p - q.at(-1).p).toFixed(3)} between
  *     calibration error over 10 equal-width bins improves; (3) on rows listed
  *     Questionable/Doubtful/Out, log loss is no more than 0.01 worse.
  *   A failed gate writes no role rates and clears any left from an earlier fit.
+ *
+ * G2, ADDED 2026-09-18 (play-chance-live) before any 2025 number was broken out
+ * this way; the rule is DESIGNATION_ROLE_GATE / designationRoleGate in contingency.js:
+ *   On the same 2025 rows, by designation (report group noreport | none |
+ *   questionable | doubtful | out) x role tier, plus each designation pooled: every
+ *   cell with n >= 50 must have (a) candidate log loss <= current + 0.02 and
+ *   (b) |mean candidate - actual| <= max(0.03, 2 x binomial SE) or no worse than
+ *   current's. 10-bin ECE per cell reported for both arms, gated overall only.
+ *   Role rates are written only if the original gate AND G2 pass. Live ESPN
+ *   designations are not in any of these rows (no pregame ESPN history exists);
+ *   they are checked on the live week (docs/tdd/play-chance-live.tdd.md, G4).
  */
 const ROLE_INNER_FIT = FIT_SEASONS.slice(0, -1);
 const ROLE_INNER_TEST = FIT_SEASONS.at(-1);
@@ -284,9 +295,29 @@ for (const byPosition of [false, true]) for (const k of ROLE_K_GRID) {
   }
 }
 selection.sort((a, b) => a.log_loss - b.log_loss);
-const chosen = selection[0];
+const selected = selection[0];
 console.log(`selection (fit ${ROLE_INNER_FIT.join(',')}, scored ${ROLE_INNER_TEST}, ${innerTest.length} rows), best 5:`);
 for (const s of selection.slice(0, 5)) console.log(`  byPosition=${s.byPosition} k=${s.k} durabilityCap=${s.durabilityCap}  log loss ${s.log_loss}`);
+
+/*
+ * PINNED CONFIG (play-chance-live, 2026-09-18). The selection above picked
+ * byPosition, k = 5, no cap before any change in that item (49174d4, and run 1 of
+ * play-chance-live), and that config was validated on 2025 on its first look. After
+ * Out/Doubtful were priced at their designation rate (contingency.js NEAR_CERTAIN) the
+ * same selection flipped to k = 2 on a 0.00018 margin (k = 5 vs k = 2 is a near-tie
+ * both ways), and k = 2 failed the designation x role gate on 2025 (none/unknown log
+ * loss +0.028). The pin keeps every row the new rules do not touch identical to the
+ * validated model; the selection still runs and is reported, and the output says when
+ * it disagrees. Pinned after seeing that failure — docs/tdd/play-chance-live.tdd.md.
+ * A new pin needs its own gate.
+ */
+const PINNED_ROLE_CONFIG = Object.freeze({ k: 5, byPosition: true, durabilityCap: false });
+const chosen = { ...PINNED_ROLE_CONFIG, log_loss: selection.find(s => s.k === PINNED_ROLE_CONFIG.k
+  && s.byPosition === PINNED_ROLE_CONFIG.byPosition && s.durabilityCap === PINNED_ROLE_CONFIG.durabilityCap)?.log_loss ?? null };
+const selectionAgrees = selected.k === chosen.k && selected.byPosition === chosen.byPosition
+  && selected.durabilityCap === chosen.durabilityCap;
+console.log(`pinned config k=${chosen.k} byPosition=${chosen.byPosition} durabilityCap=${chosen.durabilityCap} ` +
+  `(2024 log loss ${chosen.log_loss}); selection ${selectionAgrees ? 'agrees' : `DISAGREES (picked k=${selected.k} byPosition=${selected.byPosition} durabilityCap=${selected.durabilityCap})`}`);
 
 const baseConfig = { k: chosen.k, byPosition: chosen.byPosition, durabilityCap: chosen.durabilityCap };
 const roleFit = fitRoleRates(roleObs.filter(o => FIT_SEASONS.includes(o.season)), baseConfig);
@@ -313,7 +344,16 @@ console.log(`  1 log loss      current ${f4(L.current)}  candidate ${f4(L.candid
 console.log(`  2 calibration   ECE current ${f4(E.current)}  candidate ${f4(E.candidate)}  ${E.pass ? 'PASS' : 'FAIL'}`);
 console.log(`  3 guard Q/D/Out n=${G.n}  current ${f4(G.current)}  candidate ${f4(G.candidate)}  (slack ${G.slack})  ${G.pass ? 'PASS' : 'FAIL'}`);
 console.log(`  Brier current ${f4(gate.current.brier)}  candidate ${f4(gate.candidate.brier)}`);
-console.log(`  DECISION: ${gate.pass ? 'PASS - role rates will be written' : 'FAIL - no role rates are written'}`);
+const g2 = designationRoleGate(gateRows);
+const ship = gate.pass && g2.pass;
+console.log(`  G2 designation x role (cells n >= ${DESIGNATION_ROLE_GATE.minCell} gated): ${g2.pass ? 'PASS' : 'FAIL'}`);
+console.log('  designation/role            n   actual  mean cur  mean cand  ll cur  ll cand  ECE cur  ECE cand  gated  result');
+for (const c of g2.cells) {
+  console.log(`  ${(c.designation + '/' + c.role).padEnd(24)} ${String(c.n).padStart(5)}  ${c.actual.toFixed(3)}   ${c.mean_current.toFixed(3)}     ` +
+    `${c.mean_candidate.toFixed(3)}    ${c.log_loss_current.toFixed(3)}   ${c.log_loss_candidate.toFixed(3)}    ${c.ece_current.toFixed(3)}    ` +
+    `${c.ece_candidate.toFixed(3)}    ${c.gated ? 'yes' : 'no '}    ${!c.gated ? '-' : c.pass ? 'PASS' : `FAIL${c.log_loss_pass ? '' : ' ll'}${c.calibration_pass ? '' : ' cal'}`}`);
+}
+console.log(`  DECISION: ${ship ? 'PASS - role rates will be written' : 'FAIL - no role rates are written'}`);
 console.log('\n  calibration table (predicted vs actual play rate)');
 console.log('  bin        | current: n    mean p  actual | candidate: n  mean p  actual');
 for (let i = 0; i < ROLE_GATE.bins; i++) {
@@ -340,20 +380,26 @@ for (const g of subgroups.slice(0, 14)) console.log(`  ${g.group.padEnd(30)} n=$
 
 const roleConfig = {
   ...baseConfig, fitSeasons: FIT_SEASONS,
-  selection: { fit: ROLE_INNER_FIT, scored: ROLE_INNER_TEST, log_loss: chosen.log_loss },
+  selection: { fit: ROLE_INNER_FIT, scored: ROLE_INNER_TEST, log_loss: chosen.log_loss, pinned: true,
+    selection_agrees: selectionAgrees, selection_best: { k: selected.k, byPosition: selected.byPosition,
+      durabilityCap: selected.durabilityCap, log_loss: selected.log_loss } },
   gate: {
     season: TEST_SEASON, pass: gate.pass, rows: gateRows.length,
     log_loss: { current: L.current, candidate: L.candidate, ci90: L.bootstrap.ci90 },
     ece: { current: E.current, candidate: E.candidate },
-    guard: { n: G.n, current: G.current, candidate: G.candidate }
+    guard: { n: G.n, current: G.current, candidate: G.candidate },
+    designation_role: { pass: g2.pass, failed_cells: g2.cells.filter(c => c.gated && !c.pass).map(c => `${c.designation}/${c.role}`) },
+    ship
   }
 };
 const roleRatesToWrite = withConfig(roleFit, roleConfig);
 if (REPORT_PATH) {
   const fs = await import('node:fs');
   fs.writeFileSync(REPORT_PATH, JSON.stringify({
-    selection, chosen, current_arm_matches_table_on_file: sameAsOnFile,
+    selection, chosen, selected, selection_agrees: selectionAgrees, current_arm_matches_table_on_file: sameAsOnFile,
+    gate_rows: gateRows,
     gate: { pass: gate.pass, checks: gate.checks, current: gate.current, candidate: gate.candidate },
+    designation_role_gate: g2, ship,
     subgroups, role_rates: roleRatesToWrite.map(({ config, ...r }) => r)
   }, null, 2));
   console.log(`\nreport written to ${REPORT_PATH}`);
@@ -370,7 +416,7 @@ try {
   }
   // A failed gate ships nothing: no role rates, and none left over from an earlier fit.
   run('DELETE FROM nfl_availability_role_rates');
-  if (gate.pass) {
+  if (ship) {
     for (const r of roleRatesToWrite) {
       run(`INSERT INTO nfl_availability_role_rates
            (report_status,practice_status,position,tier,gap,p_active,n,raw_rate,config,fitted_at)
@@ -381,7 +427,7 @@ try {
   db.exec('COMMIT');
 } catch (e) { db.exec('ROLLBACK'); throw e; }
 console.log(`\nwrote ${out.length} rows to nfl_availability_rates (shrinkage k=${bestK})`);
-console.log(gate.pass
+console.log(ship
   ? `wrote ${roleRatesToWrite.length} rows to nfl_availability_role_rates (k=${chosen.k}, byPosition=${chosen.byPosition}, durabilityCap=${chosen.durabilityCap})`
-  : 'nfl_availability_role_rates left empty: the gate failed');
+  : 'nfl_availability_role_rates left empty: the gate (overall or designation x role) failed');
 process.exit(0);

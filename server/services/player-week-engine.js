@@ -15,7 +15,7 @@ import { redistribute } from './opportunity-redistribution.js';
 import { weeklyAvailability } from './contingency.js';
 import {
   WEEKLY_ROLE_RECENCY,
-  weeklyEnsembleContext, weeklyEnsemblePrediction, weeklyEnsembleMode
+  weeklyEnsembleContext, weeklyEnsemblePrediction, weeklyEnsembleMode, weeklyEnsembleWeightsFor
 } from './weekly-ensemble.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { roleChangepoints } from './role-changepoint.js';
@@ -282,7 +282,10 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
       priorWeeks,
       position: projection.position
     });
-    const weights = weightChampion.weights[projection.position];
+    // The vector that actually produced `ppg`: in weeks 2-4 a player with 1-3 games is
+    // priced on his early bucket, not the position's weeks 5-18 vector, and the audit
+    // record (and explainPlayerWeek's weights) must say so.
+    const weights = context ? weeklyEnsembleWeightsFor(context, weightChampion.weights) : null;
     const ppg = context ? weeklyEnsemblePrediction(context, weightChampion.weights) : projection.ppg;
     const engine = {
       version: PLAYER_WEEK_ENGINE_VERSION,
@@ -296,7 +299,7 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
         ? 'cold_start_prior_season'
         : weeklyEnsembleMode(context, weightChampion.weights),
       heads: context,
-      weights: context ? weights : null,
+      weights,
       weight_fit: weightChampion.id,
       weight_source: weightChampion.source,
       role_change: roleChanges.get(playerId) ?? null

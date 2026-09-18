@@ -18,6 +18,7 @@
 import { rows } from '../db/index.js';
 import { shrink, mean } from './stats-util.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
+import { espnStatusById } from './player-availability.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
@@ -160,6 +161,78 @@ export function normPracticeStatus(s) {
   return 'none';
 }
 
+/* ----------------------------------------------------------- designation */
+
+/*
+ * THIS WEEK'S DESIGNATION DOMINATES THE ROLE PRIOR (play-chance-live, 2026-09-18).
+ *
+ * The rates are fitted on the NFL injury report, and that report is all the fit and
+ * the replays ever see. Live, it is late and incomplete: mid-week it carries practice
+ * rows but almost no game statuses (6 of 230 week-2 rows on Friday morning), and it
+ * never lists players on injured reserve or a reserve list. ESPN's own status, which
+ * is what Nick's leagues show, does: on the 2026-W2 sync Zach Charbonnet was ESPN OUT
+ * and priced 0.805 to play, A.J. Brown was on ESPN injured reserve (0.959 with role
+ * rates), and four ESPN-Questionable starters with no NFL game status would have been
+ * started on the healthy-starter role cell (~0.95).
+ *
+ * So the week's designation is the MORE SEVERE of the NFL game status and ESPN's
+ * current status, and it picks the fitted cell; the role (tier, games missed) and the
+ * team's dialect for that designation refine it. ESPN is read only for the payloads'
+ * current scoring period (liveEspnStatuses), so no replay or fit ever sees it: there is
+ * no pregame ESPN status history on file to fit or backtest it on. The mapping is the
+ * designation ESPN itself shows; DAY_TO_DAY, an ESPN doubt label with no NFL
+ * equivalent, is treated as Questionable. Gate and numbers: docs/tdd/play-chance-live.tdd.md.
+ */
+export const ESPN_DESIGNATION_LABEL = Object.freeze({
+  OUT: 'Out (ESPN)',
+  INJURY_RESERVE: 'Out (ESPN injured reserve)',
+  SUSPENSION: 'Out (ESPN suspension)',
+  DOUBTFUL: 'Doubtful (ESPN)',
+  QUESTIONABLE: 'Questionable (ESPN)',
+  DAY_TO_DAY: 'Questionable (ESPN day-to-day)'
+});
+const DESIGNATION_SEVERITY = { none: 0, questionable: 1, doubtful: 2, out: 3 };
+
+/**
+ * The report this week's chance to play is priced on: the NFL row, or a copy of it
+ * (practice status kept) carrying ESPN's designation when ESPN's is more severe.
+ *
+ * @returns {{ report: object|null, designation: 'out'|'doubtful'|'questionable'|null, source: 'nfl'|'espn'|null }}
+ */
+export function weekDesignation({ report = null, espnStatus = null, team = null } = {}) {
+  const nfl = report?.report_status ? normReportStatus(report.report_status) : 'none';
+  const label = ESPN_DESIGNATION_LABEL[String(espnStatus ?? '').toUpperCase()] ?? null;
+  const espn = label ? normReportStatus(label) : 'none';
+  if (DESIGNATION_SEVERITY[espn] > DESIGNATION_SEVERITY[nfl]) {
+    return {
+      report: { ...(report ?? {}), team: report?.team || team, report_status: label,
+        practice_status: report?.practice_status ?? null },
+      designation: espn, source: 'espn'
+    };
+  }
+  return { report, designation: nfl === 'none' ? null : nfl, source: nfl === 'none' ? null : 'nfl' };
+}
+
+let _espnMemo = { key: null, value: null };
+/**
+ * ESPN's current injury status per ESPN player id (player-availability.js#espnStatusById,
+ * the freshest synced league payload wins), or null unless (season, week) is the
+ * payloads' current ESPN scoring period. A status describes now, so it may only price
+ * the live week.
+ */
+export function liveEspnStatuses(season, week) {
+  let leagues;
+  try {
+    leagues = rows(`SELECT id, fetched_at, json_extract(payload, '$.seasonId') AS s,
+                           json_extract(payload, '$.scoringPeriodId') AS w
+                    FROM leagues WHERE payload IS NOT NULL ORDER BY id`);
+  } catch { return null; }
+  if (!leagues.some(l => Number(l.s) === season && Number(l.w) === week)) return null;
+  const key = JSON.stringify(leagues);
+  if (_espnMemo.key !== key) _espnMemo = { key, value: espnStatusById() };
+  return _espnMemo.value;
+}
+
 /* ------------------------------------------------------------------ role */
 
 /*
@@ -263,11 +336,27 @@ export function roleStates(season, week) {
 }
 
 /**
+ * Designations priced at their own fitted rate, never a role or practice sub-cell: in
+ * the fit seasons 1 of 1,066 in-scope Out rows and 1 of 213 Doubtful rows recorded
+ * usage, every 2025 Out cell played 0.000, and the only non-trivial sub-cells were
+ * single-hit artefacts (doubtful/limited/WR 0.073 from 1 of 10; out/none/TE/rotation/g0
+ * 0.470 from 1 of 1). Role carries no information inside these designations.
+ */
+const NEAR_CERTAIN = new Set(['out', 'doubtful']);
+
+/**
  * Role rates by hierarchical beta-binomial shrinkage, parent -> child:
  *   status -> status|practice -> [|position ->] |tier -> |tier|gap
  * p_child = (hits + k * p_parent) / (n + k); the root is its raw rate. Every
  * node is returned ('*' marks a pooled level) so a lookup of a combination the
  * fit never saw can fall back to its deepest fitted ancestor.
+ *
+ * Questionable rows also feed a PRACTICE-POOLED branch under the same root,
+ * status -> [|position ->] |tier -> |tier|gap with practice '*', for a Questionable
+ * player whose practice status is unknown (an ESPN designation with no NFL practice
+ * line; see roleLookup). The practice 'none' cells of a designation are a rare report
+ * state (questionable/none: 24 rows in 2021-2024), too thin to price on. The extra
+ * branch changes no existing cell.
  *
  * @param observations [{ rs, ps, position, tier, gap ('g0'|'g1'|'g2'), active (0|1) }]
  */
@@ -277,15 +366,22 @@ export function fitRoleRates(observations, { k = 10, byPosition = false } = {}) 
        [o.rs, o.ps, o.position, o.tier, '*'], [o.rs, o.ps, o.position, o.tier, o.gap]]
     : [[o.rs, '*', '*', '*', '*'], [o.rs, o.ps, '*', '*', '*'],
        [o.rs, o.ps, '*', o.tier, '*'], [o.rs, o.ps, '*', o.tier, o.gap]];
+  // Below the shared root only: the root is counted once, by path().
+  const pooledPath = o => byPosition
+    ? [[o.rs, '*', o.position, '*', '*'], [o.rs, '*', o.position, o.tier, '*'], [o.rs, '*', o.position, o.tier, o.gap]]
+    : [[o.rs, '*', '*', o.tier, '*'], [o.rs, '*', '*', o.tier, o.gap]];
   const nodes = new Map();
-  for (const o of observations) {
-    let parent = null;
-    for (const parts of path(o)) {
+  const walk = (o, steps, parent) => {
+    for (const parts of steps) {
       const key = parts.join('|');
       const node = nodes.get(key) ?? nodes.set(key, { parts, n: 0, hits: 0, parent }).get(key);
       node.n++; node.hits += o.active ? 1 : 0;
       parent = key;
     }
+  };
+  for (const o of observations) {
+    walk(o, path(o), null);
+    if (o.rs === 'questionable') walk(o, pooledPath(o), [o.rs, '*', '*', '*', '*'].join('|'));
   }
   // A parent is always inserted before its first child, so insertion order is top-down.
   const p = new Map();
@@ -354,11 +450,16 @@ export function buildAvailabilityLookup({ rates = [], roleRates = [] } = {}) {
     },
     /** status is a report group ('noreport' when he is not on the report); gap is a bucket. */
     roleLookup({ status, practice, position, tier, gap }) {
-      const chain = roleConfig.byPosition
-        ? [[status, practice, position, tier, gap], [status, practice, position, tier, '*'],
-           [status, practice, position, '*', '*'], [status, practice, '*', '*', '*'], [status, '*', '*', '*', '*']]
-        : [[status, practice, '*', tier, gap], [status, practice, '*', tier, '*'],
-           [status, practice, '*', '*', '*'], [status, '*', '*', '*', '*']];
+      // Out / Doubtful: the designation's own rate (NEAR_CERTAIN). Questionable with no
+      // practice status on file (an ESPN designation with no NFL practice line, or a
+      // report row that lists none): every practice status of Questionable, still by
+      // role, not the thin 'none' cells (fitRoleRates).
+      const ps = status === 'questionable' && practice === 'none' ? '*' : practice;
+      const chain = NEAR_CERTAIN.has(status) ? [[status, '*', '*', '*', '*']] : roleConfig.byPosition
+        ? [[status, ps, position, tier, gap], [status, ps, position, tier, '*'],
+           [status, ps, position, '*', '*'], [status, ps, '*', '*', '*'], [status, '*', '*', '*', '*']]
+        : [[status, ps, '*', tier, gap], [status, ps, '*', tier, '*'],
+           [status, ps, '*', '*', '*'], [status, '*', '*', '*', '*']];
       for (const parts of chain) {
         const r = role.get(parts.join('|'));
         if (r) return { p: r.p_active, n: r.n, basis: parts.filter(x => x !== '*').join('/') };
@@ -383,6 +484,7 @@ export function resetAvailabilityCache() {
   _fittedCache = undefined;
   _fittedStamp = undefined;
   _roleCache.clear();
+  _espnMemo = { key: null, value: null };
 }
 /**
  * Row count and newest fitted_at of both tables: which availability fit is live.
@@ -556,12 +658,75 @@ export function roleGateDecision(gateRows, gate = ROLE_GATE) {
   return { pass: checks.log_loss.pass && checks.calibration.pass && checks.guard.pass, checks, current, candidate };
 }
 
-export function weeklyAvailability(season, week, { through = season - 1, useRole = true } = {}) {
+/**
+ * G2 of the play-chance-live gate (pre-registered 2026-09-18, before any 2025 number
+ * broken out this way; docs/tdd/play-chance-live.tdd.md): the pooled gate above can
+ * pass while one designation x role cell gets worse, and that cell is exactly where a
+ * start/sit is decided (a Questionable starter). Cells: designation (report group:
+ * noreport | none | questionable | doubtful | out) x role tier, plus each designation
+ * pooled over roles ('*'). A cell with n >= minCell is gated and must satisfy BOTH
+ *   (a) log loss non-inferiority: candidate <= current + logLossSlack;
+ *   (b) calibration in the large: |mean p_candidate - actual| <= max(calibrationFloor,
+ *       2 x binomial SE of the actual rate), OR no further from the truth than current.
+ * 10-bin ECE is reported per cell for both arms and gated only overall (roleGateDecision):
+ * on 50-300 rows a 10-bin ECE is mostly sampling noise. Smaller cells are reported only.
+ */
+export const DESIGNATION_ROLE_GATE = Object.freeze({
+  minCell: 50, logLossSlack: 0.02, calibrationFloor: 0.03, bins: 10,
+  designations: Object.freeze(['noreport', 'none', 'questionable', 'doubtful', 'out']),
+  roles: Object.freeze(['*', 'starter', 'rotation', 'depth', 'fringe', 'unknown'])
+});
+
+/** @param gateRows [{ player_id, y, p_current, p_candidate, rs, tier }] */
+export function designationRoleGate(gateRows, gate = DESIGNATION_ROLE_GATE) {
+  const groups = new Map();
+  const add = (designation, role, row) => {
+    const key = `${designation}|${role}`;
+    (groups.get(key) ?? groups.set(key, { designation, role, rows: [] }).get(key)).rows.push(row);
+  };
+  for (const row of gateRows) { add(row.rs, row.tier ?? 'unknown', row); add(row.rs, '*', row); }
+  const avg = (list, key) => list.reduce((s, r) => s + r[key], 0) / list.length;
+  const order = (list, value) => { const i = list.indexOf(value); return i < 0 ? list.length : i; };
+  const cells = [...groups.values()].map(({ designation, role, rows: list }) => {
+    const n = list.length;
+    const actual = list.reduce((s, r) => s + (r.y ? 1 : 0), 0) / n;
+    const cur = availabilityScores(list.map(r => ({ p: r.p_current, y: r.y })), { bins: gate.bins });
+    const cand = availabilityScores(list.map(r => ({ p: r.p_candidate, y: r.y })), { bins: gate.bins });
+    const meanCurrent = avg(list, 'p_current'), meanCandidate = avg(list, 'p_candidate');
+    const tolerance = Math.max(gate.calibrationFloor, 2 * Math.sqrt(actual * (1 - actual) / n));
+    const biasCurrent = Math.abs(meanCurrent - actual), biasCandidate = Math.abs(meanCandidate - actual);
+    const gated = n >= gate.minCell;
+    const logLossPass = cand.log_loss <= cur.log_loss + gate.logLossSlack;
+    const calibrationPass = biasCandidate <= tolerance || biasCandidate <= biasCurrent;
+    return {
+      designation, role, n, actual, mean_current: meanCurrent, mean_candidate: meanCandidate,
+      log_loss_current: cur.log_loss, log_loss_candidate: cand.log_loss,
+      ece_current: cur.ece, ece_candidate: cand.ece, tolerance, gated,
+      log_loss_pass: logLossPass, calibration_pass: calibrationPass,
+      pass: !gated || (logLossPass && calibrationPass)
+    };
+  }).sort((a, b) => order(gate.designations, a.designation) - order(gate.designations, b.designation)
+    || order(gate.roles, a.role) - order(gate.roles, b.role));
+  return { pass: cells.every(c => c.pass), cells };
+}
+
+/**
+ * Every skill player's chance to be active in (season, week), strictly pregame.
+ *
+ * `espn` (default on) merges ESPN's current designation (weekDesignation) — read only
+ * when (season, week) is the synced payloads' current ESPN scoring period, so a replay
+ * of any other week is the NFL report alone. `report_status` is the status the number
+ * was priced on (an ESPN label such as 'Out (ESPN)' when ESPN's is the more severe);
+ * `designation` / `designation_source` / `espn_status` say which and why.
+ */
+export function weeklyAvailability(season, week, { through = season - 1, useRole = true, espn = true } = {}) {
   const base = availability({ through });
-  const players = rows(`SELECT id, name, position, gsis_id FROM players
-                        WHERE position IN ('QB','RB','WR','TE')`);
+  const players = rows(`SELECT p.id, p.name, p.position, p.gsis_id, p.espn_id, t.abbr AS team
+                        FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id
+                        WHERE p.position IN ('QB','RB','WR','TE')`);
   const reports = new Map(rows(`SELECT * FROM nfl_injuries WHERE season=? AND week=?`, season, week)
     .map(r => [String(r.gsis_id), r]));
+  const espnStatus = espn ? liveEspnStatuses(season, week) : null;
   const out = new Map();
 
   const fitted = fittedAvailability();
@@ -571,8 +736,11 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
 
   for (const p of players) {
     const prior = base.get(p.id)?.available ?? 0.92;
-    const report = p.gsis_id ? reports.get(String(p.gsis_id)) : null;
+    const nflReport = p.gsis_id ? reports.get(String(p.gsis_id)) ?? null : null;
     const role = roles?.get(p.id) ?? null;
+    const espnNow = espnStatus && p.espn_id != null ? espnStatus.get(String(p.espn_id))?.status ?? null : null;
+    const week_ = weekDesignation({ report: nflReport, espnStatus: espnNow, team: p.team ?? role?.team ?? null });
+    const report = week_.report;
     const { active, source } = playerActiveProbability({ fitted, report, prior, role, useRole });
     out.set(p.id, {
       player_id: p.id, name: p.name, position: p.position,
@@ -580,6 +748,9 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
       durability_prior: +prior.toFixed(3),
       report_status: report?.report_status ?? null,
       practice_status: report?.practice_status ?? null,
+      designation: week_.designation,
+      designation_source: week_.source,
+      espn_status: espnNow,
       injury: report?.injury ?? null,
       role: role ? {
         tier: role.tier, share: role.share == null ? null : +role.share.toFixed(3),

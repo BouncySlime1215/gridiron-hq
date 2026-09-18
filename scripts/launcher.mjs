@@ -56,9 +56,12 @@ function onPath(name, pathValue) {
 
 /**
  * The node binary to spawn, as an absolute path that exists and is executable:
- * NODE_BIN (absolute, or a bare name found on PATH), then this process's own binary,
- * then the usual install locations, then PATH. Throws, naming every candidate tried,
- * rather than ever handing spawn() a bare name.
+ * NODE_BIN (absolute, or a bare name found on PATH), then the usual install locations,
+ * then this process's own binary, then PATH. The install locations come before
+ * process.execPath because under launchd that is the resolved, version-specific
+ * Cellar path (…/Cellar/node/25.9.0_1/bin/node), which `brew upgrade` + cleanup
+ * deletes while this service keeps running; /opt/homebrew/bin/node survives it.
+ * Throws, naming every candidate tried, rather than ever handing spawn() a bare name.
  */
 export function resolveNodeBin({ env = process.env, execPath = process.execPath,
   knownLocations = KNOWN_NODE_LOCATIONS } = {}) {
@@ -70,8 +73,8 @@ export function resolveNodeBin({ env = process.env, execPath = process.execPath,
   };
   const override = String(env.NODE_BIN ?? '').trim();
   const found = (override && usable(path.isAbsolute(override) ? override : onPath(override, env.PATH) ?? override))
-    || usable(execPath)
     || knownLocations.map(usable).find(Boolean)
+    || usable(execPath)
     || usable(onPath('node', env.PATH));
   if (!found) throw new Error(`no usable node binary; tried ${tried.join(', ') || 'nothing'}`);
   return found;
@@ -95,16 +98,17 @@ function processRunning(pattern) {
 /**
  * Starts the app (rebuilding the interface first when it is stale) and remembers
  * how that went, for /status. Every dependency is injectable so this is testable
- * without starting anything.
+ * without starting anything. `nodeBin` is a path or a function returning one; a
+ * function is called at every start, so a node upgrade while this service runs is
+ * picked up instead of spawning a path that no longer exists.
  */
 export function createAppStarter({ root = ROOT, appPort, nodeBin, env = process.env, spawn = nodeSpawn,
   portOpen: isPortOpen = portOpen, buildStatus = clientBuildStatus, writeMarker = writeBuildMarker,
   openLog = name => fs.openSync(path.join(LOG_DIR, name), 'a'), log = console.log } = {}) {
-  const state = { phase: 'idle', error: null, build_error: null, started_at: null };
+  const state = { phase: 'idle', error: null, build_error: null, started_at: null, node: null };
   let current = null;
-  const childEnv = appChildEnv(nodeBin, env);
-  const besideNode = path.join(path.dirname(nodeBin), 'npm');
-  const npm = isExecutableFile(besideNode) ? besideNode : 'npm';
+  // Set at each start from the node binary resolved for it.
+  let bin = null, childEnv = null, npm = 'npm';
 
   const fail = message => {
     state.phase = 'failed';
@@ -116,7 +120,7 @@ export function createAppStarter({ root = ROOT, appPort, nodeBin, env = process.
     let child;
     try {
       const out = openLog('server.log');
-      child = spawn(nodeBin, ['--env-file-if-exists=.env', 'server/index.js'],
+      child = spawn(bin, ['--env-file-if-exists=.env', 'server/index.js'],
         { cwd: root, detached: true, stdio: ['ignore', out, out], env: childEnv });
     } catch (e) { fail(`server could not start: ${e.message}`); return; }
     current = child;
@@ -150,6 +154,17 @@ export function createAppStarter({ root = ROOT, appPort, nodeBin, env = process.
     if (isPortOpen(appPort)) { state.phase = 'running'; return 'already running'; }
     if (state.phase === 'building') return 'building the interface';
     if (state.phase === 'starting' && current && current.exitCode == null) return 'starting';
+    try {
+      bin = typeof nodeBin === 'function' ? nodeBin() : nodeBin;
+      if (!bin) throw new Error('no node binary configured');
+    } catch (e) {
+      fail(e.message);
+      return `failed: ${state.error}`;
+    }
+    state.node = bin;
+    childEnv = appChildEnv(bin, env);
+    const besideNode = path.join(path.dirname(bin), 'npm');
+    npm = isExecutableFile(besideNode) ? besideNode : 'npm';
     let build;
     try { build = buildStatus(root); } catch (e) {
       log(`build check failed (${e.message}); starting on whatever build exists`);
@@ -188,7 +203,7 @@ export function createAppStarter({ root = ROOT, appPort, nodeBin, env = process.
   return { startApp, status: () => ({ ...state }) };
 }
 
-function startTunnel(nodeBin, appPort) {
+function startTunnel(appPort) {
   // Must be specific to THIS tunnel (the app's, port APP_PORT) — a bare
   // 'cloudflared tunnel' substring also matches the launcher's own permanent
   // tunnel (a different port, started once by launchd and always up), so
@@ -198,6 +213,7 @@ function startTunnel(nodeBin, appPort) {
   // /start reporting success.
   if (processRunning(`cloudflared tunnel --url http://localhost:${appPort}`)) return 'already running';
   try {
+    const nodeBin = resolveNodeBin();
     const out = fs.openSync(path.join(LOG_DIR, 'tunnel.log'), 'a');
     const child = nodeSpawn(nodeBin, ['scripts/tunnel.mjs'],
       { cwd: ROOT, detached: true, stdio: ['ignore', out, out], env: appChildEnv(nodeBin) });
@@ -246,9 +262,10 @@ export function main({ port = Number(process.env.LAUNCHER_PORT) || 5199,
   appPort = Number(process.env.API_PORT) || 5177 } = {}) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   const KEY = keyOnDisk();
-  let nodeBin = null, nodeError = null;
-  try { nodeBin = resolveNodeBin(); } catch (e) { nodeError = e.message; }
-  const starter = nodeBin ? createAppStarter({ appPort, nodeBin }) : null;
+  // Resolved again at every start (see createAppStarter); this one is only for the boot log.
+  let bootNode;
+  try { bootNode = resolveNodeBin(); } catch (e) { bootNode = `none (${e.message})`; }
+  const starter = createAppStarter({ appPort, nodeBin: () => resolveNodeBin() });
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -265,8 +282,8 @@ export function main({ port = Number(process.env.LAUNCHER_PORT) || 5199,
     }
 
     if (url.pathname === '/start') {
-      const appStatus = starter ? starter.startApp() : `failed: ${nodeError}`;
-      const tunnelStatus = nodeBin ? startTunnel(nodeBin, appPort) : `failed: ${nodeError}`;
+      const appStatus = starter.startApp();
+      const tunnelStatus = startTunnel(appPort);
       res.writeHead(200, { 'Content-Type': 'text/html' });
       return res.end(page(`
       <p>Server: <b>${appStatus}</b> · Tunnel: <b>${tunnelStatus}</b></p>
@@ -295,7 +312,7 @@ export function main({ port = Number(process.env.LAUNCHER_PORT) || 5199,
       res.writeHead(200, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({
         server_up: portOpen(appPort), tunnel_up: processRunning('cloudflared tunnel'), tunnel_url: tunnelUrl,
-        start: starter ? starter.status() : { phase: 'failed', error: nodeError }
+        start: starter.status()
       }));
     }
 
@@ -310,7 +327,7 @@ export function main({ port = Number(process.env.LAUNCHER_PORT) || 5199,
   server.listen(port, '127.0.0.1', () => {
     console.log(`Launcher listening on http://127.0.0.1:${port}`);
     // The key itself stays in its 0600 file; this log is world-readable.
-    console.log(`Key: in ${path.relative(ROOT, KEY_FILE)}; node: ${nodeBin ?? `none (${nodeError})`}`);
+    console.log(`Key: in ${path.relative(ROOT, KEY_FILE)}; node: ${bootNode}`);
   });
   return server;
 }

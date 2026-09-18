@@ -26,7 +26,7 @@ import { rows } from '../db/index.js';
 import { PPR, scoreSim } from './scoring.js';
 import {
   shrink, mean, quantile, percentiles,
-  randGamma, randNegBinomial, randBinomial, randPoisson, randn, randBeta, random
+  randGamma, randNegBinomial, randBinomial, randPoisson, randn, randBeta, random, normalCdf
 } from './stats-util.js';
 import { activeKVectorFor } from './shrinkage-fit.js';
 import { qbrTrailingForPlayer } from './nfl-qbr.js';
@@ -824,45 +824,82 @@ export function sampleWeek(params, scoring = PPR, mult = 1) {
  * his true target share or efficiency, and that uncertainty does not average away
  * within a single week. `sigma` = 0 reproduces the original behaviour exactly.
  *
- * sigma = 0.45 is fitted, not chosen: swept on the 2023 + 2024 weekly replays and
- * validated on 2025, where it moved 80% coverage from 0.724 to 0.791 (gate is
- * [0.78, 0.82]) and PIT calibration error from 0.161 to 0.109, at effectively
- * unchanged CRPS (3.248 -> 3.251) — i.e. it widened the interval where it was
- * genuinely too narrow rather than buying coverage by hedging everything.
- * `downMult` stayed at 1.0: unlike season totals, weekly outcomes showed no
- * benefit from a fattened downside once the overall spread was right.
- * See scripts/fit-weekly-coverage.mjs.
+ * HISTORY. sigma 0.45 / downMult 1 shipped first, selected on 2023 + 2024 by
+ * 10 * |coverage - 0.80| + calibration error. That shock, exp(z * sigma), was NOT
+ * mean-preserving: E[level] = exp(sigma^2 / 2) = 1.107 at 0.45, and expected points
+ * are linear in the volume it scales, so every simulated week sat ~10% above the
+ * point projection it claims to be the distribution of (S.Barkley ppg 15.46
+ * simulated a mean of 17.14, p90 24.8 -> 31.7), and 0.45 was selected partly
+ * BECAUSE that inflation bought coverage. Every mean, p90 "ceiling" and boom_rate
+ * read high, and a distribution mean compared with ppg / current_week_ppg was a
+ * two-bases comparison off by ~10%.
  *
- * OPEN, 2026-09-17 — THE SHOCK IS NOT MEAN-PRESERVING. `level = exp(z * sigma)`
- * has E[level] = exp(sigma^2 / 2) = 1.1066 at 0.45, and expected points are linear
- * in the volume it scales, so every simulated week is centred ~10% ABOVE the point
- * projection it is documented as the distribution of. Measured: S.Barkley (ppg
- * 15.46) simulates a mean of 15.45 at sigma 0 and 17.14 at 0.45 (ratio 1.109), p90
- * 24.8 -> 31.7. On the 2025 grade the simulated mean is 8.16 against an actual
- * 7.46 while the point prediction is nearly unbiased (per the audit), and
- * re-running with `exp(z * sigma - sigma^2 / 2)` cuts calibration error
- * 0.114 -> 0.067 at the same coverage. So playerWeekDistribution().mean, every p90
- * "ceiling" (~24% high) and boom_rate are biased up, and comparing a distribution
- * mean against ppg / current_week_ppg is a two-bases comparison off by ~10%.
- * seasonDistribution has the same defect (sigma 0.30-0.70 -> 4.6-28% inflation).
- * Not fixed here, because 0.45 was SELECTED partly because the inflation bought
- * coverage — fix the shock and sigma must be refit, and the selection criterion in
- * fit-weekly-coverage.mjs should change with it. Sigma is also a single global
- * value that is materially wrong by position and projection tier (2025: RB
- * coverage 0.723, QB calibration error 0.306, 0-4 ppg tier coverage 0.740).
+ * NOW (2026-09-18). The shock is divided by its own mean (weeklyLevelMean), and the
+ * spread was refit on that shock by scripts/fit-weekly-coverage.mjs: centred on the
+ * live ensemble head (fit-1), fit on 2023 + 2024 (80% coverage in [0.78, 0.82], then
+ * the flattest PIT), validated ONCE on 2025 against a gate written down first:
+ * coverage in [0.78, 0.82], calibration error strictly lower than the old setting,
+ * CRPS not significantly worse (player-clustered paired bootstrap, 90% CI).
+ *
+ *   2025, 4,532 player-weeks          coverage  calib   CRPS   sim mean (actual 7.46)
+ *   old 0.45 / 1.0, inflating           0.803   0.134  3.107   8.27
+ *   A   0.25 / 1.6 global               0.772   0.111  3.076   7.46   failed coverage
+ *   B   per position, below             0.782   0.111  3.078   7.46   passed, shipped
+ *   B vs old CRPS -0.030, 90% CI [-0.041, -0.018]: significantly better.
+ *
+ * Honest limits. B's coverage is only just inside the band. The calibration gain
+ * (0.134 -> 0.111) is NOT significant on its own in a player-clustered bootstrap
+ * (90% CI of the change [-0.048, +0.003]). QB (coverage 0.764) and 0-4 point
+ * projections (0.742) are still too narrow, and the PIT still has a heavy bottom bin
+ * (511 vs 453 expected): real busts (a role vanishing mid-game) are fatter than this
+ * shock produces. seasonDistribution still has the old, inflating shape
+ * (LEVEL_UNCERTAINTY, sigma 0.30-0.70 -> 4.6-28% high); it was not refit here.
+ *
+ * `byPosition` applies by params.position, `sigma` is the fallback. A caller that
+ * passes its own `sigma` without `byPosition` gets that sigma for everyone (so
+ * `{ sigma: 0 }` still means "no shock"); `meanPreserving: false` reproduces the
+ * old inflating shock for comparisons.
  */
-export const WEEKLY_LEVEL = { sigma: 0.45, downMult: 1 };
+export const WEEKLY_LEVEL = Object.freeze({
+  sigma: 0.25, downMult: 1.6, meanPreserving: true,
+  byPosition: Object.freeze({ QB: 0.30, RB: 0.30, WR: 0.20, TE: 0.25 })
+});
+
+/**
+ * E[level] for the two-piece log-normal shock sampleWeeks draws:
+ * level = exp(sigma_d * Z) for Z < 0 and exp(sigma * Z) for Z >= 0, sigma_d = sigma * downMult.
+ *   E = exp(sigma_d^2 / 2) * Phi(-sigma_d) + exp(sigma^2 / 2) * Phi(sigma)
+ * which is exp(sigma^2 / 2) when downMult = 1. Dividing the shock by this makes it
+ * mean-preserving: expected points are linear in the volume the shock scales, so the
+ * simulated mean then equals the point projection instead of sitting above it.
+ */
+export function weeklyLevelMean(sigma, downMult = 1) {
+  if (!(sigma > 0)) return 1;
+  const sd = sigma * downMult;
+  if (sd === sigma) return Math.exp(sigma * sigma / 2);
+  return Math.exp(sd * sd / 2) * normalCdf(-sd) + Math.exp(sigma * sigma / 2) * normalCdf(sigma);
+}
+
+/** The shock sigma for one player: a per-position value when the level carries one, else the global one. */
+function weeklySigma(L, position) {
+  const s = L.byPosition?.[position];
+  return Number.isFinite(s) ? s : L.sigma;
+}
 
 /** N simulated weeks. */
 export function sampleWeeks(params, n = 2000, scoring = PPR, mult = 1, activeProbability = 1, levelOpts) {
   const L = { ...WEEKLY_LEVEL, ...levelOpts };
+  // An explicit global sigma without its own per-position table means that sigma for everyone.
+  if (levelOpts && 'sigma' in levelOpts && !('byPosition' in levelOpts)) L.byPosition = null;
+  const sigma = weeklySigma(L, params.position);
+  const norm = L.meanPreserving ? weeklyLevelMean(sigma, L.downMult) : 1;
   const out = new Array(n);
   for (let i = 0; i < n; i++) {
     if (random() > activeProbability) { out[i] = 0; continue; }
     let m = mult;
-    if (L.sigma > 0) {
+    if (sigma > 0) {
       const z = randn();
-      const level = Math.exp(z < 0 ? z * L.sigma * L.downMult : z * L.sigma);
+      const level = Math.exp(z < 0 ? z * sigma * L.downMult : z * sigma) / norm;
       m = typeof mult === 'object'
         ? { pass: (mult.pass ?? 1) * level, rush: (mult.rush ?? 1) * level }
         : mult * level;

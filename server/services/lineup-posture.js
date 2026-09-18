@@ -7,21 +7,33 @@
  * heavy favourite, variance is the only way you lose.
  *
  * The size of the effect is worth stating before anyone over-builds on it.
- * Two lineups with the same mean, mine at SD 30 against an opponent at SD 30,
- * P(win) = Phi(edge / sqrt(s1^2 + s2^2)):
+ * P(win) = Phi(edge / sqrt(s1^2 + s2^2)), with the spread now FITTED to real
+ * matchup outcomes (see SPREAD_SCALE). A typical live lineup has SD 37.5 and a
+ * typical one-for-one bench swap moves it by 1.5 (medians, 46 live rosters,
+ * 2026 W2), so for two lineups of that SD:
  *
- *   edge      one boom/bust swap (SD 30->34)    two swaps (SD 30->40)
- *   -25 pts   +1.3pp                            +3.1pp
- *   -15 pts   +0.9pp                            +2.0pp
- *     0 pts    0.0pp                             0.0pp
- *   +15 pts   -0.9pp                            -2.0pp
- *   +25 pts   -1.3pp                            -3.1pp
+ *   edge      one swap (SD 37.5->39.0)    two swaps (SD 37.5->40.5)
+ *   -25 pts   +0.33pp                     +0.65pp
+ *   -15 pts   +0.21pp                     +0.42pp
+ *     0 pts    0.00pp                      0.00pp
+ *   +15 pts   -0.21pp                     -0.42pp
+ *   +25 pts   -0.33pp                     -0.65pp
  *
- * So: real, free, and only worth acting on at the extremes. Inside about five
- * points of even it is worth less than a third of a percentage point, which is
- * noise next to a projection that is a coin flip between players under a point
- * apart. The engine therefore stays silent in close matchups rather than
- * inventing advice.
+ * So: real, but small, and only worth mentioning at the extremes. Below
+ * MATERIAL_EDGE (23 points) a typical swap is worth less than a third of a
+ * percentage point, which is noise next to a projection that is a coin flip
+ * between players under a point apart. The engine therefore stays silent in
+ * close matchups rather than inventing advice. (An earlier version of this table
+ * assumed SD 30 and a 4-point swap; neither was measured, and it overstated the
+ * effect about fourfold.)
+ *
+ * Since the spread is now one positional CV times the projection, a same-position
+ * bench player always has a lower mean AND a lower SD than the starter he
+ * replaces, so "chase variance" can only come from a cross-position FLEX swap and
+ * will rarely fire. That is what the evidence supports: a player's own boom/bust
+ * distribution did not predict matchup outcomes any better than his position
+ * (SPREAD_SCALE has the numbers), and the old search returned zero swaps on all
+ * 46 live rosters anyway.
  *
  * The literature agrees on the sign and on the conditionality: variance helps
  * in best ball (auto-optimal lineups harvest it) and slightly hurts in managed
@@ -50,35 +62,71 @@ function weekPpg(p) {
   return p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
 }
 
-/** Below this edge the advice is not worth giving. */
-export const MATERIAL_EDGE = 12;
 /**
- * Coefficient of variation of a team-week score — as ORIGINALLY ASSUMED.
- *
- * PROVENANCE WARNING, 2026-09-17. The comment here used to say "Observed ... from
- * the replay". No replay, artifact or doc in this repo produces 0.28; the constant
- * appears nowhere but this file. The data that does exist disagrees: league_week_scores,
- * 2023-2025 regular season, 62 team-seasons with >= 8 games, 806 team-weeks —
- * pooled within-team-season SD 23.56 on a mean of 119.5, CV 0.197.
+ * Below this edge the advice is not worth giving. DERIVED, 2026-09-18, by a rule
+ * written down before it was computed: the smallest edge at which one typical swap
+ * moves P(win) by 0.3 percentage points. On the 46 live rosters (2026 W2) under the
+ * fitted spread: median lineup SD 37.5; median |SD change| across all 840 legal
+ * one-for-one bench swaps 1.48; |Phi(e/sqrt(39.0^2 + 37.5^2)) - Phi(e/sqrt(2 x 37.5^2))|
+ * first reaches 0.003 at e = 23. It was 12 when a swap was believed to move the SD
+ * by ~4 on a lineup of 30; neither number was measured.
  */
-export const TEAM_WEEK_CV = 0.28;
+export const MATERIAL_EDGE = 23;
 /**
- * How much a real lineup's spread exceeds the sum of independent player
- * variances, because teammates share a week. Calibrated so a typical lineup
- * lands on TEAM_WEEK_CV; applied as a multiplier so that two lineups with
- * genuinely different player-level variance stay different.
- *
- * UNFITTED AND, ON THE EVIDENCE, TOO LARGE. It was reverse-engineered to hit the
- * 0.28 above, which is itself unsupported (see TEAM_WEEK_CV). Against the observed
- * CV of ~0.20 the UNINFLATED independent sum already lands roughly on target, so
- * 1.9 roughly doubles every lineup SD and pulls every win probability toward 50%.
- * It also contradicts trade-engine.js#lineupSpread's own measurement that the
- * fitted correlations move a lineup's joint SD by 0-3.4%. Left unchanged here only
- * because changing it moves every live win probability and swap recommendation;
- * the replacement should be estimated against league_week_scores (or, better, the
- * SD of actual minus projected lineup totals once those are persisted), not picked.
+ * One player's weekly spread, relative to his projection: SD = weekPpg x POSITION_CV.
+ * Only the SHAPE across positions matters here; the level is SPREAD_SCALE's job.
+ * These are the old positional defaults, unchanged — a per-position fit (4 free
+ * CVs) did no better out of sample and could not pin the QB value down at all
+ * (it ran to the 0.05 search bound), so the shape was left alone.
  */
-export const CORRELATION_INFLATION = 1.9;
+export const POSITION_CV = { QB: 0.40, RB: 0.57, WR: 0.63, TE: 0.67 };
+/**
+ * The scale that makes P(win) an honest probability. FITTED, 2026-09-18.
+ *
+ * What has to be calibrated is not how much scores move but how often a projected
+ * edge holds up, i.e. the spread of (actual margin - projected margin).
+ * scripts/fit-posture-calibration.mjs measures exactly that, walk-forward: the weekly
+ * harness with the live ensemble head, 2023-2025 weeks 5-17, every plausible starter
+ * priced the way production prices him (prediction x active probability, a
+ * did-not-play counted as the zero it is), 100 synthetic 10-team leagues a week,
+ * about 6,500 graded head-to-head matchups a season. Fit on 2023+2024 by Bernoulli
+ * log-likelihood (1.6304), validated ONCE on 2025 against the rule it replaces, on a
+ * gate written down before the fit:
+ *
+ *                                        log loss   calibration error (10 bins)
+ *   old: own distribution x 1.9           0.6726          0.039
+ *   new: POSITION_CV x 1.63                0.6669          0.010
+ *   difference, bootstrap clustered by week: -0.0057, 90% CI [-0.0096, -0.0016]
+ *
+ * In plain terms the old rule pulled every probability toward 50%: when it said
+ * 30-40% the team won 26% of the time, when it said 60-70% it won 73%. The new rule
+ * says 36% and they win 38%, 64% and they win 65%, 73% and they win 74%. Weeks 2-4
+ * (reported, not gated): 0.6732 vs 0.6765, calibration error 0.014 vs 0.042.
+ *
+ * What replaced what. The old SD was each player's own weekly distribution,
+ * (p90 - p10) / 2.56 — every live starter had one — times a 1.9 "correlation
+ * inflation" reverse-engineered to hit a team-week CV of 0.28 that nothing in the
+ * repo ever measured. With a fitted scale, that distribution spread (x 0.99) and the
+ * plain positional CV (x 1.63) came out tied on 2023-24 held-out seasons (log loss
+ * 0.66733 vs 0.66716; the pre-registered rule took the lower). So a player's own
+ * boom/bust shape carries no measurable information about who wins a matchup beyond
+ * his position and projection, and ONE spread source now serves everyone. It is also
+ * the source that survives the known flaw in its input: current_week_ppg carries an
+ * availability discount averaging ~0.76 on starters who in fact play 98% of weeks,
+ * and a positional CV scales with the projection, so edge and SD shrink together and
+ * P(win) does not move; a distribution with a 24% spike at zero does not have that
+ * property. If the availability model is recalibrated, re-run the script — part of
+ * this 1.63 is the noise that discount adds to the edge.
+ *
+ * Why above 1. Raw lineup misses have SD ~21.5 on these lineups, but the projected
+ * edge also overstates the real one (actual on projection, slope 0.87 per player), so
+ * the spread that turns an edge into an honest probability is wider, ~26.5.
+ * Cross-check: real ESPN team-week scores in league_week_scores (2023-25 regular
+ * season, 62 team-seasons, 861 team-weeks, K and DEF included) swing with SD 24.1
+ * around a team's own average (CV 0.20). Same order, as it should be; they are not
+ * the same quantity, and the fit is on the one P(win) needs.
+ */
+export const SPREAD_SCALE = 1.63;
 
 /** Standard normal CDF (Abramowitz-Stegun 26.2.17). */
 export function normalCdf(z) {
@@ -90,55 +138,31 @@ export function normalCdf(z) {
 
 const winProb = (edge, sd, oppSd) => normalCdf(edge / Math.sqrt(sd * sd + oppSd * oppSd));
 
-/** A lineup's mean and standard deviation, from each player's own spread. */
-function lineupMoments(starters) {
+/**
+ * A lineup's mean and standard deviation. Exported so that the MATERIAL_EDGE
+ * derivation and any test measure the function that ships, not a copy of it.
+ */
+export function lineupMoments(starters) {
   const mean = starters.reduce((s, p) => s + weekPpg(p), 0);
-  // Players are close to independent week to week once the QB stack is set
-  // aside, so variances add. Using each player's own floor/ceiling spread when
-  // we have it, and a positional default when we do not.
-  const DEFAULT_CV = { QB: 0.40, RB: 0.57, WR: 0.63, TE: 0.67 };
-  let varTotal = 0, fromDistribution = 0;
+  let varTotal = 0;
   for (const p of starters) {
     // A player projected for zero this week — on bye, or with no game matched —
-    // contributes zero variance. The mean comes from current_week_ppg, which is 0
-    // on a bye; the spread used to come from a weekly distribution that is built
-    // with `mult: thisGame?.mult ?? 1` and so is never zeroed for a bye. That handed
-    // a non-playing player a full game's spread at zero mean cost — free variance,
-    // which is exactly the shape the chase-variance search goes looking for, so on
-    // a bye week it would preferentially recommend starting someone not playing.
-    // 672 of 8,640 assets carried current_week_ppg 0 with a live floor/ceiling.
+    // contributes zero variance. This guard dates from when the spread came from a
+    // weekly distribution that was never zeroed for a bye, which handed a
+    // non-playing player a full game's spread at zero mean cost: free variance, the
+    // exact shape the chase-variance search looks for (672 of 8,640 assets carried
+    // current_week_ppg 0 with a live floor/ceiling). A positional CV is zero at a
+    // zero projection anyway; the guard stays so a future spread source cannot
+    // reintroduce it.
     if (!(weekPpg(p) > 0)) continue;
-    const hasDist = p.ceiling != null && p.floor != null && p.ceiling > p.floor;
-    if (hasDist) fromDistribution++;
-    const spread = hasDist
-      ? (p.ceiling - p.floor) / 2.56                 // p90-p10 spans 2.56 SD
-      : weekPpg(p) * (DEFAULT_CV[p.position] ?? 0.6);
+    const spread = weekPpg(p) * (POSITION_CV[p.position] ?? 0.6);
     varTotal += spread * spread;
   }
-  // Independence understates a real lineup. Measured in the replay, team-week
-  // scores have a CV near 0.28, so a 120-point lineup has SD near 34, while
-  // summing independent player variances gives about half that. Players share a
-  // week's game environment (pace, weather, blowouts) and a quarterback shares
-  // outcomes with his own receivers.
-  //
-  // The correction is a SCALE, not a floor. A floor was the first attempt and it
-  // silently destroyed the only signal this module exists to find: for a
-  // 92-point lineup the floor sits at 25.8 while independent variance is around
-  // 17, so the floor bound every single time and every lineup came out with an
-  // identical standard deviation. A roster of steady players and a roster of
-  // boom-bust players became indistinguishable, which is why the swap search
-  // returned nothing at all. Scaling preserves the relative differences that
-  // make one lineup safer than another while still landing a typical lineup on
-  // the observed spread.
-  const independent = Math.sqrt(varTotal);
-  // `sd_coverage` is the share of starters whose spread came from a real weekly
-  // distribution rather than DEFAULT_CV. The two are not on the same scale —
-  // median implied CV from the distributions is QB 1.19 vs 0.40 default, RB 0.97 vs
-  // 0.57 — so an SD built mostly from defaults is a different quantity from one
-  // built mostly from distributions, and a reader needs to know which it is.
-  const playing = starters.filter(p => weekPpg(p) > 0).length;
-  return { mean, sd: independent * CORRELATION_INFLATION,
-    sd_coverage: playing ? +(fromDistribution / playing).toFixed(2) : null };
+  // Variances add, then ONE fitted scale (SPREAD_SCALE) turns the sum into the
+  // spread that makes P(win) honest. It is a SCALE, not a floor: a floor was tried
+  // once and bound every lineup to an identical SD, which erased every difference
+  // between lineups. See SPREAD_SCALE for the fit and the evidence.
+  return { mean, sd: Math.sqrt(varTotal) * SPREAD_SCALE };
 }
 
 /** This week's opponent for a roster, from the synced schedule. */
@@ -151,7 +175,7 @@ function opponentFor(payload, rosterId, week) {
   return null;
 }
 
-function rosterAssets(payload, assets, rosterId) {
+export function rosterAssets(payload, assets, rosterId) {
   const team = (payload.teams ?? []).find(t => String(t.id) === String(rosterId));
   const out = [];
   for (const e of team?.roster?.entries ?? []) {
@@ -282,16 +306,16 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
     lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
     swaps: swaps.slice(0, 5),
     swaps_rejected_as_artifacts: artifactsRejected,
-    // How much of each SD came from a measured weekly distribution rather than a
-    // positional default. The two differ by up to 3x for the same projection.
-    my_sd_coverage: mineMoments.sd_coverage,
-    opponent_sd_coverage: oppMoments.sd_coverage ?? null,
+    // Where both SDs come from. There used to be a per-side "coverage" figure here
+    // because two spread sources on different scales were mixed; there is one now.
+    sd_model: `projection x positional CV x ${SPREAD_SCALE} (fitted 2023-24, validated 2025: scripts/fit-posture-calibration.mjs)`,
     // Scope of the probability. lineupSlots() prices the skill slots only; every
     // synced league also starts a K and a DEF, which are in neither side's mean nor
     // variance. The omission cancels in a DIFFERENCE of two lineups but not in a
     // level and its spread, so this is P(win) over the modelled slots, not over the
-    // matchup as scored. CORRELATION_INFLATION (1.9) is also an unfitted scale: the
-    // uninflated SD already matches observed team-week spread in league_week_scores.
+    // matchup as scored. SPREAD_SCALE was fitted on the same scope (QB, 2 RB, 2 WR,
+    // TE, FLEX graded on their own actual totals), so it is calibrated for exactly
+    // the probability printed here; K and DEF add real variance it does not see.
     win_probability_scope: `modelled skill slots only (${slots.length} of ` +
       `${JSON.parse(lg.roster_positions ?? '[]').length || slots.length} roster slots); K and DEF excluded`,
     note: stance === 'neutral'

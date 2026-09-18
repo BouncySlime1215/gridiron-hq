@@ -108,17 +108,19 @@ function SideBox({ s, mine }: { s: any; mine: boolean }) {
         {s.lineup_before} → {s.lineup_after} · {num(s.season_delta, 0)} over the season
       </div>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-[11px]">
-        <div><dt className="text-[var(--muted)]">Playoffs (15–17)</dt>
-          {/* The rescaled delta: the raw playoff_ppg_delta sits ~1.11x the scale of the weekly delta above it. */}
-          <dd className={`tabular-nums font-medium ${(s.playoff_ppg_delta_scaled ?? s.playoff_ppg_delta) > 0 ? 'text-good' : (s.playoff_ppg_delta_scaled ?? s.playoff_ppg_delta) < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>{num(s.playoff_ppg_delta_scaled ?? s.playoff_ppg_delta)} ppg</dd></div>
+        {/* No "Playoffs (15–17)" row: it showed a schedule tilt that failed validation
+            (matchups.js) and is gone. When the points land still shapes the ranking
+            (trade-horizon.js), through byes and this week's chance to play only. */}
         <div><dt className="text-[var(--muted)]">Market value</dt>
           <dd className={`tabular-nums font-medium ${s.value_delta > 0 ? 'text-good' : s.value_delta < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>{num(s.value_delta, 0)}</dd></div>
         {s.floor_delta != null && (
-          <div><dt className="text-[var(--muted)]">Weekly floor</dt>
+          <div title="Change in your starting lineup's total in a bad week (1 week in 10) — estimated from each starter's weekly range, with starters in the same game moving together">
+            <dt className="text-[var(--muted)]">Weekly floor</dt>
             <dd className="tabular-nums text-[var(--ink)]">{num(s.floor_delta, 1)}</dd></div>
         )}
         {s.ceiling_delta != null && (
-          <div><dt className="text-[var(--muted)]">Weekly ceiling</dt>
+          <div title="Change in your starting lineup's total in a good week (1 week in 10) — estimated from each starter's weekly range, with starters in the same game moving together">
+            <dt className="text-[var(--muted)]">Weekly ceiling</dt>
             <dd className="tabular-nums text-[var(--ink)]">{num(s.ceiling_delta, 1)}</dd></div>
         )}
       </dl>

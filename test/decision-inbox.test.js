@@ -15,6 +15,12 @@ const { runMigrations } = await import('../server/db/migrate.js');
 const applied = await runMigrations();
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 seedIfEmpty();
+// lineupDiff() decides on THIS week's projection (current_week_ppg), which is 0 for a
+// team with no game on the schedule. Give every seeded team a week-1 game so the
+// fixture's players are actually playing this week (matchupModel() caches the slate
+// per process, so this has to land before the first assetUniverse() call).
+run(`INSERT OR IGNORE INTO schedule_games (season, team_id, week, opponent_abbr, home)
+     SELECT 2026, id, 1, abbr, 1 FROM nfl_teams`);
 
 // POST / now requires an authenticated caller (a6-money-path) — any engine
 // publishing a recommendation must identify itself, not just claim to be one.

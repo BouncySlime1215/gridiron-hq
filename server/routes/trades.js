@@ -15,7 +15,7 @@ import {
 // The same season-by-season prompt lines and "argue from the numbers" rules the
 // draft advisor runs on (server/routes/drafts.js) — one voice for both rooms.
 import { evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
-import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
+import { dvpTable, relevantSplits, matchupModel, matchupSignalActive, MATCHUP_SIGNAL_REASON } from '../services/matchups.js';
 import { leagueCurrentWeek, leagueLastCompletedWeek } from '../services/league-week.js';
 import { waiverBoard } from '../services/waiver-wire.js';
 import { lineupPosture } from '../services/lineup-posture.js';
@@ -442,9 +442,9 @@ r.get('/:leagueId/waivers', (req, res, next) => {
  *
  * Maximising expected points is the wrong objective in a head-to-head week. As
  * a heavy underdog the safe lineup loses slowly; as a heavy favourite variance
- * is the only way you lose. The effect is small and conditional — about +1.3pp
- * of win probability for one boom/bust swap at a 25-point deficit, and under
- * 0.3pp inside five points — so this deliberately says nothing in close
+ * is the only way you lose. The effect is small and conditional — below
+ * lineup-posture.js MATERIAL_EDGE (23 points) one typical swap moves win
+ * probability by under 0.3pp — so this deliberately says nothing in close
  * matchups rather than inventing advice.
  */
 r.get('/:leagueId/posture', (req, res, next) => {
@@ -641,7 +641,8 @@ r.get('/:leagueId/rosters', (req, res, next) => {
               id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
               espn_id: p.espn_id, sleeper_id: p.sleeper_id,
               value: p.value, proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
-              age: p.age, bye: p.bye, injury: p.injury, sos: p.sos, playoff_sos: p.playoff_sos,
+              // No sos/playoff_sos: both are 1 with no validated signal (matchups.js).
+              age: p.age, bye: p.bye, injury: p.injury,
               starter: starters.has(p.id)
             }))
             .sort((a, b) => Number(b.starter) - Number(a.starter) || b.adj_ppg - a.adj_ppg)
@@ -664,7 +665,10 @@ r.get('/dvp', (req, res, next) => {
   try {
     const pos = String(req.query.position ?? 'WR').toUpperCase();
     if (!['QB', 'RB', 'WR', 'TE'].includes(pos)) return res.status(400).json({ error: 'position must be QB/RB/WR/TE' });
-    res.json({ position: pos, seasons: matchupModel().seasons, table: dvpTable(pos) });
+    // Points allowed is history, not a forecast: the DvP multiplier failed the
+    // weekly walk-forward test, so the table says so alongside the numbers.
+    res.json({ position: pos, seasons: matchupModel().seasons, signal: matchupSignalActive(),
+      reason: matchupSignalActive() ? null : MATCHUP_SIGNAL_REASON, table: dvpTable(pos) });
   } catch (e) { next(e); }
 });
 
@@ -714,8 +718,9 @@ r.post('/:leagueId/sense-check', async (req, res, next) => {
         `proj ${p.proj ?? '?'} pts, ${p.adj_ppg ?? '?'} adj ppg, market value ${p.value ?? '?'}` +
         `${p.age != null ? `, age ${p.age}` : ''}${p.bye ? `, bye week ${p.bye}` : ''}` +
         `${p.injury ? ', INJURY FLAG' : ''}${p.floor != null ? `, floor/ceiling ${p.floor}/${p.ceiling}` : ''}` +
-        `${p.consistency != null ? `, consistency ${p.consistency}` : ''}` +
-        `${p.playoff_sos != null ? `, weeks 15-17 matchup mult ${p.playoff_sos}` : ''}`;
+        `${p.consistency != null ? `, consistency ${p.consistency}` : ''}`;
+      // No playoff-schedule line: no schedule-strength signal has passed testing
+      // (matchups.js), so the prompt must not hand Claude one to reason from.
       // Season-by-season record, streaks, our preseason band and drivers, the
       // offseason read — the evidence the second opinion has to argue from.
       const lines = evidenceLines(p);
@@ -732,9 +737,8 @@ r.post('/:leagueId/sense-check', async (req, res, next) => {
   Sends: ${s.gives.length ? s.gives.map(fmtPlayer).join('\n    ') : 'nothing'}
   Receives: ${s.gets.length ? s.gets.map(fmtPlayer).join('\n    ') : 'nothing'}
   Starting lineup: ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}/wk, ${s.season_delta > 0 ? '+' : ''}${s.season_delta} over the season)
-  Weeks 15-17 lineup (rescaled to the current lineup's basis): ${s.playoff_ppg_delta_scaled > 0 ? '+' : ''}${s.playoff_ppg_delta_scaled ?? '?'} ppg
   Market value: ${s.value_delta > 0 ? '+' : ''}${s.value_delta}
-  Weekly floor/ceiling shift: ${s.floor_delta ?? '?'}/${s.ceiling_delta ?? '?'}
+  Starting lineup's weekly total, change in its bad week (10th percentile) / good week (90th percentile): ${s.floor_delta ?? '?'}/${s.ceiling_delta ?? '?'}
 ${fmtRisk(s.risk)}
   ${s.new_holes?.length ? `Leaves an unfilled starting slot at: ${s.new_holes.join(', ')}` : 'Fills every starting slot'}`;
 
@@ -919,7 +923,6 @@ The analysis is already done — do not re-argue the numbers, just use them.
 ${fmtSide(d.me)}
 ${fmtSide(d.them)}
 Fairness on market price: ${d.fairness}. Both sides improve: ${d.mutual ? 'yes' : 'no'}.
-${d.me.playoff_ppg_delta_scaled != null ? `My weeks 15-17 lineup changes by ${d.me.playoff_ppg_delta_scaled} ppg (rescaled to the current lineup's basis).` : ''}
 ${untouchables.length ? `Untouchable — never suggest offering these, not even as a sweetener: ${untouchables.join(', ')}.` : ''}
 ${records.length ? `Records (real, multi-season — cite these numbers in the pitch, never an adjective in their place):\n${records.join('\n')}` : ''}
 

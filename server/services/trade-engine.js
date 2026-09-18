@@ -10,7 +10,9 @@
  *
  * Layers, bottom up:
  *   assets      — every rostered player enriched with projection, market price,
- *                 weekly floor/ceiling, and schedule/DvP context
+ *                 weekly floor/ceiling, and this week's game (no schedule-strength
+ *                 or DvP tilt: none has passed the weekly walk-forward test, see
+ *                 matchups.js)
  *   bestLineup  — optimal-lineup solver over a league's real slot config
  *   evaluate    — score any give/get package for both sides
  *   findTrades  — enumerate and rank realistic deals across the league
@@ -26,7 +28,7 @@ import { deriveFormat } from './format.js';
 import { pickInventory } from './picks.js';
 import { analyzeLeague } from '../routes/tradelab.js';
 import { publishRecommendation } from '../routes/decision-inbox.js';
-import { scheduleOutlook, relevantSplits, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
+import { scheduleOutlook, relevantSplits, matchupSignalActive, MATCHUP_SIGNAL_REASON } from './matchups.js';
 import { SLOT_NAME } from './espn-draft.js';
 import { seasonEndingEspnIds } from './player-availability.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
@@ -35,6 +37,16 @@ import { cached, fingerprint } from './compute-cache.js';
 import { scoringFor } from './scoring.js';
 import { activeFantasyCoordinatorFit, weeklyExpertValues, coordinateFantasy } from './fantasy-coordinator.js';
 import { dynastyAgeAdjustment } from './dynasty-age-curve.js';
+// lineupDiff() only: the Start/Sit tab's own game-script lift (so both pages price
+// this week identically), the normal CDF behind a swap's probability, and the
+// write that retires a lineup recommendation lineupDiff() itself published.
+import { vegasLift } from './waiver-brain.js';
+import { normalCdf, withRandomSeed } from './stats-util.js';
+// lineupSpread() only: each starter's played-week draws and the fitted archetype
+// correlations, for the lineup-total floor/ceiling.
+import { sampleWeeks } from './projections.js';
+import { correlationMatrix } from './correlation.js';
+import { run as dbRun } from '../db/index.js';
 // Evidence layers (see the "evidence" section below). Read-only sources: the
 // engine never re-prices on them, it explains with them.
 import { careerLine } from './player-career.js';
@@ -51,6 +63,10 @@ export const FLEX_ELIGIBLE = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'],
 // Positions we model. K and D/ST are near-random week to week and roughly
 // interchangeable, so including them adds noise to every lineup comparison.
 const SCORED = new Set(SKILL);
+// Per-player weekly-model inputs for lineupSpread() (see there), attached to every
+// asset under this symbol by buildAssetUniverse(). A symbol, not a field: object
+// spread copies it, JSON.stringify and Object.keys skip it.
+const WEEK_MARGINAL = Symbol('weekMarginal');
 /**
  * What handing over market value costs, per 20% of the value you send.
  *
@@ -146,6 +162,7 @@ function buildAssetUniverse(lg, formatKey, target) {
   // This league's own playoff weeks, so playoff_ppg is priced on the weeks that
   // actually decide ITS title (see trade-horizon.js#leagueSchedule).
   const { playoffWeeks } = leagueSchedule(lg);
+  const playoffWeeksLeft = playoffWeeks.filter(w => w >= target.week).length;
   // formatKey is `dyn_...`/`rd_...` per deriveFormat (format.js) — the age
   // decay only makes sense for a dynasty/keeper valuation, never redraft.
   const isDynasty = formatKey.startsWith('dyn_');
@@ -188,7 +205,14 @@ function buildAssetUniverse(lg, formatKey, target) {
     const proj = v?.proj ?? 0;
     const sched = p.team_abbr && SCORED.has(p.position)
       ? scheduleOutlook(p.team_abbr, p.position, target.week, playoffWeeks)
-      : { sos: 1, playoff_sos: 1, bye: null, best: [], worst: [], playoff_games: [] };
+      : { sos: 1, playoff_sos: 1, signal: false, reason: 'no team', bye: null, best: [], worst: [],
+          playoff_games: [], games: [] };
+    // Schedule STRENGTH only enters a number when matchups.js says it is a validated
+    // signal. Today it is not (every arm of the 2026-09-17 weekly walk-forward test
+    // failed, see matchups.js MATCHUP_EVIDENCE), so sos and playoff_sos are 1 and no
+    // rate below is tilted by them. The schedule's FACTS — whether his team plays a
+    // given week — still count: that is a bye, not a forecast.
+    const scheduleTilt = sched.signal === true;
     const tr = trending.get(p.id);
     const availability = active.get(p.id);
     const activeProbability = availability?.active_probability ?? 0.92;
@@ -201,8 +225,28 @@ function buildAssetUniverse(lg, formatKey, target) {
     const expertValues = weekProjection ? weeklyExpertValues(weekProjection, target.season, target.week, scoring) : null;
     const coordinated = expertValues ? coordinateFantasy(fantasyFit, expertValues, weeklyPpg) : null;
     const currentWeekBasePpg = coordinated?.ready ? coordinated.corrected_ppg : weeklyPpg;
+    // thisGame.mult is exactly 1 while the matchup signal is off (matchups.js#
+    // gameMultiplier); kept as a factor so this line needs no edit if a multiplier
+    // ever passes the harness. thisGame itself is the bye detector: no game, 0.
     const currentWeekPpg = thisGame ? currentWeekBasePpg * thisGame.mult * activeProbability : 0;
-    const rosPpg = weeklyPpg * sched.sos;
+    // Rest-of-season weekly rate. No schedule tilt (see scheduleTilt above), no
+    // availability term — the same basis it has always had, minus the sos factor.
+    const rosPpg = scheduleTilt ? weeklyPpg * sched.sos : weeklyPpg;
+    // The rate for THIS league's playoff weeks, on ros_ppg's basis: the weekly rate
+    // times the share of those weeks his team actually plays. A playoff-week bye is a
+    // real, known zero; opponent strength in those weeks is not something any tested
+    // model forecasts, so it is not in here. For nearly everyone this equals ros_ppg
+    // (2026: only week 14 has byes, and only league 3's playoffs include week 14).
+    // Players with no NFL schedule on file (no team, K/DEF) keep the full rate —
+    // unknown is not a bye.
+    const hasSchedule = Boolean(p.team_abbr && SCORED.has(p.position));
+    const playoffGameShare = hasSchedule && playoffWeeksLeft > 0
+      ? (sched.playoff_games?.length ?? 0) / playoffWeeksLeft : 1;
+    const playoffPpg = (scheduleTilt ? weeklyPpg * sched.playoff_sos : weeklyPpg) * playoffGameShare;
+    // Which of those weeks he sits out, so a trade's playoff leg can solve that week's
+    // lineup without him (evaluate()) instead of charging his whole rate x share.
+    const playoffByeWeek = hasSchedule && sched.bye != null && sched.bye >= target.week
+      && playoffWeeks.includes(sched.bye) ? sched.bye : null;
     // A trade is a rest-of-season decision, not DFS. The live week matters, but
     // it cannot erase the remaining schedule or turn a bye into a player-value
     // collapse. The weekly engine itself refreshes from every completed week.
@@ -216,13 +260,24 @@ function buildAssetUniverse(lg, formatKey, target) {
     // (1,183 players), which is cached per league-week. Deterministic seeding from
     // the cache key makes the number reproducible, which is not the same as
     // accurate — and because the key includes activeProbability and mult, a small
-    // availability change re-rolls the whole draw. Common random numbers across the
-    // before/after lineups would cancel that noise in a delta; not done here.
+    // availability change re-rolls the whole draw. These per-player numbers are for
+    // display; a trade's floor_delta/ceiling_delta no longer adds them up — it comes
+    // from lineupSpread()'s lineup-total percentiles.
     const weekDist = weekProjection
       ? playerWeekDistribution(weekProjection, { runs: 2000, activeProbability, mult: thisGame?.mult ?? 1 })
       : null;
 
     out.set(p.id, {
+      // What lineupSpread() needs to put this player's week into a lineup total: the
+      // same week inputs as weekDist above. Symbol-keyed so it survives the
+      // `{ ...p }` copies the trade search makes and never reaches a JSON response.
+      [WEEK_MARGINAL]: weekProjection ? {
+        params: weekProjection.params, shift: weekProjection.ensemble_shift ?? 0,
+        activeProbability, mult: thisGame?.mult ?? 1, scoring,
+        seed: `${target.season}:${target.week}:${p.id}:${activeProbability}:${thisGame?.mult ?? 1}:${weekProjection.ensemble_shift ?? 0}`,
+        meta: { id: p.id, position: p.position, team: p.team_abbr, opponent: thisGame?.opponent ?? null,
+          target_share: weekProjection.volume?.target_share ?? null }
+      } : null,
       id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
       espn_id: p.espn_id, sleeper_id: p.sleeper_id,
       proj: +(weeklyPpg * Math.max(1, 18 - target.week)).toFixed(1),
@@ -253,8 +308,11 @@ function buildAssetUniverse(lg, formatKey, target) {
       injury: injured.has(p.id) || !!(availability?.report_status && !/probable/i.test(availability.report_status)) ? 1 : 0,
       available: !(p.espn_id && seasonEnding.has(p.espn_id)),
       trend_kind: tr?.kind ?? null, trend_count: tr?.count ?? null,
-      // Schedule-adjusted: the number the lineup solver actually optimises.
+      // Schedule strength: 1 and `schedule_signal: false` while matchups.js has no
+      // validated signal. Kept on the asset (the player outlook shows them) but no
+      // number in this file reads them unless schedule_signal is true.
       sos: sched.sos, playoff_sos: sched.playoff_sos, bye: sched.bye,
+      schedule_signal: scheduleTilt, schedule_reason: scheduleTilt ? null : (sched.reason ?? MATCHUP_SIGNAL_REASON),
       adj_ppg: +decisionPpg.toFixed(2),
       current_week_ppg: +currentWeekPpg.toFixed(2),
       // Transparency for the correction folded into current_week_ppg above —
@@ -271,8 +329,14 @@ function buildAssetUniverse(lg, formatKey, target) {
       model_mode: weekProjection?.player_week_engine?.mode ?? 'season_projection_fallback',
       role_change: weekProjection?.player_week_engine?.role_change ?? null,
       matchup: thisGame,
-      playoff_ppg: +(weeklyPpg * sched.playoff_sos).toFixed(2),
-      best_matchups: sched.best, worst_matchups: sched.worst,
+      // Weekly rate in this league's playoff weeks: ros_ppg's basis, times the share
+      // of those weeks his team plays (byes). No opponent adjustment — see above.
+      playoff_ppg: +playoffPpg.toFixed(2),
+      playoff_game_share: +playoffGameShare.toFixed(3),
+      playoff_bye_week: playoffByeWeek,
+      playoff_weeks_left: playoffWeeksLeft,
+      // The playoff-week opponents themselves are fact and stay for display; each
+      // game's mult is 1 and rank null while the matchup signal is off.
       playoff_games: sched.playoff_games
     });
   }
@@ -280,7 +344,10 @@ function buildAssetUniverse(lg, formatKey, target) {
     season: target.season, week: target.week,
     cutoff: `${target.season}-W${Math.max(0, target.week - 1)}`,
     engine: 'player-week-v2.1 + weekly availability + current/remaining schedule',
-    decision_horizon: '25% current week, 75% rest-of-season rate; dynasty market value remains a separate price axis'
+    decision_horizon: '25% current week, 75% rest-of-season rate; dynasty market value remains a separate price axis',
+    // Byes count; opponent strength does not (no validated signal — matchups.js).
+    schedule_signal: matchupSignalActive(),
+    schedule_note: matchupSignalActive() ? null : MATCHUP_SIGNAL_REASON
   };
   return out;
 }
@@ -463,67 +530,137 @@ export function bestLineup(players, slots, key = 'adj_ppg') {
   };
 }
 
+/*
+ * THE LINEUP'S WEEKLY FLOOR AND CEILING — percentiles of the lineup's TOTAL.
+ *
+ * Two rosters can project identically and have very different variance; a win-now
+ * team wants floor, a longshot wants ceiling. The question is what the starting
+ * lineup scores in a bad week and in a good one.
+ *
+ * This used to answer it with the SUM of each starter's own p10 as the lineup
+ * "floor" and the sum of p90s as the "ceiling". A sum of quantiles is not the
+ * quantile of a sum: nine starters do not all have their 1-in-10 week together.
+ * Measured by the 2026-09-17 audit on a nine-starter lineup (40,000 joint draws):
+ * sum of p10 5.2 against a true lineup p10 of 73.6; sum of p90 245.4 against a
+ * true 159.5. The "floor" was the everyone-busts week, which never happens, and
+ * floor_delta / ceiling_delta in every trade verdict were differences of those.
+ *
+ * Now the floor and ceiling are the 10th and 90th percentiles of the lineup total,
+ * from each starter's weekly model:
+ *
+ *   One starter's week. With probability 1 - active_probability he does not play
+ *   and scores exactly 0. Otherwise one played week from projections.js
+ *   #sampleWeeks (this week's usage/efficiency params and the mean-preserving
+ *   weekly shock) plus the ensemble shift, clamped at 0 — the same inputs as the
+ *   per-player floor/ceiling on the asset. One deliberate difference:
+ *   player-week-engine.js#playerWeekDistribution also adds the shift to weeks the
+ *   player does not play, so there a player who sits scores `shift`, not 0 (found
+ *   by the boom/bust verification; the fix belongs in that file). Here a week he
+ *   sits is a 0. Each starter's mean and variance come from a fixed, seeded pool
+ *   of 2,000 played weeks plus that 0 for the weeks he sits.
+ *
+ *   Together. The lineup total's mean is the sum of the means; its variance is the
+ *   sum of the variances plus 2 rho sd sd for every pair in the same game (the
+ *   fitted archetype correlations, correlation.js: QB-WR same team ~0.18, opposing
+ *   QBs ~0.16; every other pair is independent, which is what most drafted
+ *   lineups are). Floor and ceiling = mean -/+ 1.2816 sd.
+ *
+ * That last step is a normal approximation, and it was chosen by a pre-registered
+ * check, not by taste (scratch step1/trade-consumers/GATE.md, 2026-09-18). Truth
+ * was a brute-force joint simulation — 200,000 draws per player through the
+ * library copula sampler (correlation.js#correlatedSampler) — on all 46 lineups in
+ * the five synced leagues plus every post-trade lineup findTrades returned (150
+ * lineups, 142 before/after pairs). Pass: level error <= 2.5 pts max and <= 1.0
+ * mean, trade deltas within 1.0 pt for 95% of pairs and within 2.0 for all.
+ *
+ *                         p10 err max/mean   p90 err max/mean   deltas within 1.0 (floor / ceiling)
+ *   old sum of quantiles    48.2 / 29.8        81.3 / 65.0        30% / 37%
+ *   joint draws (10,000)     1.4 / 0.46         2.7 / 0.68        96.5% / 92.3%   FAILED
+ *   normal approximation     1.2 / 0.46         2.0 / 0.59        100% / 99.3%    passed
+ *
+ * The joint simulation (10,000 draws of the same per-player pools) was the first
+ * choice and failed narrowly: a lineup's 90th percentile wandered up to 2.7 pts
+ * and ceiling deltas were within a point only 92% of the time. The normal
+ * approximation, on the same pools, passed on every count; its own bias is small
+ * and known — about 0.4 pts low at both ends, because a lineup total is slightly
+ * skewed. Where the true change in floor or ceiling was a point or more, its sign
+ * agreed with the brute force every time (206 of 206).
+ *
+ * Cost: ~3 ms per player the first time he enters any spread (his pool), then
+ * microseconds per lineup. evaluate() computes floor_delta/ceiling_delta only when
+ * they are read (see there), so the trade search does not pay for the thousands of
+ * candidate deals nobody ever sees.
+ */
+const SPREAD_POOL = 2000;     // played weeks per player — the per-player distribution's own size
+const Z90 = 1.2815516;        // standard-normal 90th percentile
+
+const seedOf = text => {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return h >>> 0;
+};
+
 /**
- * Weekly floor and ceiling of a lineup, from each starter's observed distribution.
- * Two rosters can project identically and have very different variance; a Win-now
- * team wants floor, a longshot wants ceiling.
+ * One starter's weekly mean and variance: `model` from his weekly model (memoised
+ * on the WEEK_MARGINAL object, which lives exactly as long as its asset universe),
+ * `approx` from the floor/ceiling he carries when he has no weekly model (a normal
+ * with that 10th-90th range, unclamped), or `constant` at his average.
+ */
+function spreadInput(p) {
+  const m = p[WEEK_MARGINAL];
+  if (m?.params) {
+    if (!m.moments) {
+      const played = withRandomSeed(seedOf(`${m.seed}:pool`), () =>
+        sampleWeeks(m.params, SPREAD_POOL, m.scoring, m.mult, 1));
+      const ap = Math.max(0, Math.min(1, Number(m.activeProbability) || 0));
+      let s1 = 0, s2 = 0;
+      for (const v of played) { const x = Math.max(0, v + m.shift); s1 += x; s2 += x * x; }
+      const mean = ap * (s1 / played.length);
+      m.moments = { mean, variance: Math.max(0, ap * (s2 / played.length) - mean * mean) };
+    }
+    return { kind: 'model', meta: m.meta, ...m.moments };
+  }
+  if (p.floor != null && p.ceiling != null) {
+    const sd = Math.max(0, p.ceiling - p.floor) / (2 * Z90);
+    return { kind: 'approx', mean: p.avg ?? (p.floor + p.ceiling) / 2, variance: sd * sd };
+  }
+  return { kind: 'constant', mean: Number(p.avg ?? p.adj_ppg ?? 0) || 0, variance: 0 };
+}
+
+/**
+ * The starting lineup's weekly floor (p10) and ceiling (p90) TOTAL. See the note
+ * above for the model and the check behind it.
  *
- * ─────────────────────────────────────────────────────────────────────────────
- * WHY THIS STILL SUMS INDEPENDENTLY, VERIFIED AGAINST REAL DATA
- *
- * `correlation.js` has real fitted archetype correlations (QB-WR same team
- * r=0.176, RB-RB same team r≈-0.05, WR-WR same team r≈0.011 — see
- * `correlationTable()`) and `ceiling-lineup.js` already uses them for the one
- * place they earn their keep: choosing WHICH bench players to start when the
- * objective is to maximise P(score >= target). That is a search over lineup
- * *composition*, where a stack is a lever the optimiser can pull.
- *
- * This function is not that. It scores a lineup that is already fixed —
- * usually the highest-`adj_ppg` starters — so covariance only matters here if
- * that fixed lineup happens to contain a same-team pair. Tested directly
- * against the user's real synced league (league id 7, "My 2026 League", 10
- * rosters, `fitCorrelations()` already run on real boxscores):
- *
- *   - 7 of 10 teams' optimal starting lineups contain ZERO same-team pair at
- *     all — the players a real draft assembles are spread across different
- *     NFL teams almost by construction, unlike a DFS lineup built to stack.
- *   - Of the 3 that do (one QB-WR stack, one 3-player same-team stack), the
- *     covariance-aware joint standard deviation (sd_i from each player's own
- *     p10/p90, correlated via `correlationMatrix()`) differed from the
- *     independent sum by 0-3.4%, moving the resulting floor/ceiling estimate
- *     by roughly 0-1.1 points out of ~90 — never enough to flip a verdict,
- *     which is driven by `ppg_delta`, not spread.
- *
- * So wiring covariance into `lineupSpread`/`evaluate()` was evaluated and
- * declined: on this real roster data it does not change any trade
- * recommendation in a materially different way, because real drafted rosters
- * rarely stack and the fitted correlations themselves are modest. The
- * machinery already lives in the one place it changes an actual decision —
- * `ceiling-lineup.js` — and does not need duplicating here on a null result.
- *
- * WHAT THAT ARGUMENT MISSES, and it is far larger than correlation. This returns
- * the SUM of each starter's own p10 as the lineup "floor" and the sum of p90s as
- * the "ceiling". A sum of quantiles is not the quantile of a sum. Measured on a
- * nine-starter lineup at activeProbability 0.92 with 40,000 joint draws (per the
- * audit): sum of p10 5.2 against a true lineup-total p10 of 73.6; sum of p90 245.4
- * against a true p90 of 159.5. The "floor" sits below every one of the 40,000
- * simulated totals — it is the all-nine-bust scenario, not a 10th percentile — and
- * because most individual p10s are pinned at 0 by the availability atom, it is
- * driven by which starters happen to sit below activeProbability ~0.90. So
- * floor_delta / ceiling_delta in the trade verdict are not percentiles of anything.
- * Not changed here because it moves the verdict text on every trade; the fix is to
- * draw the lineup total jointly (correlation.js already has the sampler) and take
- * p10/p90 of that, or, as an interim, combine per-player SDs in quadrature.
+ * @returns {{ floor, ceiling, mean, sd, coverage, method, correlated_pairs }}
  */
 export function lineupSpread(lineup) {
-  const starters = lineup.slots.map(s => s.player).filter(Boolean);
-  const withData = starters.filter(p => p.floor != null);
-  if (!withData.length) return { floor: null, ceiling: null, coverage: 0 };
-  const scale = starters.length / withData.length;   // extrapolate over unlogged starters
+  const starters = (lineup?.slots ?? []).map(s => s.player).filter(Boolean);
+  const inputs = starters.map(spreadInput);
+  if (!inputs.some(x => x.kind !== 'constant')) return { floor: null, ceiling: null, coverage: 0 };
+  let mean = 0, variance = 0;
+  for (const x of inputs) { mean += x.mean; variance += x.variance; }
+  // Same-game pairs among the starters with a weekly model: 2 rho sd_i sd_j each.
+  const modeled = inputs.filter(x => x.kind === 'model');
+  let correlatedPairs = 0;
+  if (modeled.length > 1) {
+    const R = correlationMatrix(modeled.map(x => x.meta));
+    for (let i = 0; i < modeled.length; i++) {
+      for (let j = i + 1; j < modeled.length; j++) {
+        if (!R[i][j]) continue;
+        correlatedPairs++;
+        variance += 2 * R[i][j] * Math.sqrt(modeled[i].variance * modeled[j].variance);
+      }
+    }
+  }
+  const sd = Math.sqrt(Math.max(0, variance));
   return {
-    floor: +(withData.reduce((s, p) => s + p.floor, 0) * scale).toFixed(1),
-    ceiling: +(withData.reduce((s, p) => s + p.ceiling, 0) * scale).toFixed(1),
-    coverage: +(withData.length / starters.length).toFixed(2)
+    floor: +Math.max(0, mean - Z90 * sd).toFixed(1),
+    ceiling: +(mean + Z90 * sd).toFixed(1),
+    mean: +mean.toFixed(1),
+    sd: +sd.toFixed(1),
+    coverage: +(modeled.length / inputs.length).toFixed(2),
+    method: 'normal approximation of the lineup total',
+    correlated_pairs: correlatedPairs
   };
 }
 
@@ -734,6 +871,21 @@ function verdictEvidence(risk) {
 
 /* ------------------------------------------------------------- evaluation */
 
+/**
+ * Define `key` on `obj` as an enumerable field whose value is computed on first
+ * read and then stored as a plain data property. JSON.stringify, object spread and
+ * ordinary reads all see a normal field; assigning to it simply replaces it.
+ */
+function lazyField(obj, key, compute) {
+  const settle = (target, value) => Object.defineProperty(target, key,
+    { value, enumerable: true, writable: true, configurable: true });
+  Object.defineProperty(obj, key, {
+    enumerable: true, configurable: true,
+    get() { const value = compute(); settle(this, value); return value; },
+    set(value) { settle(this, value); }
+  });
+}
+
 const verdictFor = (ppgDelta, valueDelta) => {
   if (ppgDelta >= 2.5) return 'clear win';
   if (ppgDelta >= 0.8) return 'win';
@@ -751,18 +903,47 @@ const verdictFor = (ppgDelta, valueDelta) => {
  *   package actually makes sense for them, not just whether the numbers pencil out.
  */
 export function evaluate(a, b, slots, ctx = {}) {
+  // A team's lineups BEFORE the deal do not depend on the deal, and the trade
+  // search evaluates thousands of packages against the same two rosters. Callers
+  // that loop (findTrades, offerFor, offerForMany) pass one `memo` per search so
+  // each before-lineup is solved once; a one-off call just solves it.
+  const solve = (players, key, byeWeek) => bestLineup(
+    byeWeek == null ? players : players.filter(p => p.playoff_bye_week !== byeWeek), slots, key);
+  const lineupOf = (players, key, byeWeek = null) => {
+    if (!ctx.memo) return solve(players, key, byeWeek);
+    let byKey = ctx.memo.get(players);
+    if (!byKey) ctx.memo.set(players, byKey = new Map());
+    const k = `${key}|${byeWeek}`;
+    if (!byKey.has(k)) byKey.set(k, solve(players, key, byeWeek));
+    return byKey.get(k);
+  };
+  // WHEN points land, for horizonGain(): the best lineup in each of this league's
+  // remaining playoff weeks, averaged, on the weekly rate (ros_ppg). Anyone on bye in
+  // a given playoff week is left out of THAT week's lineup, so a playoff-week bye
+  // costs one week of his value minus whoever replaces him — not his whole rate
+  // times the share of weeks he plays, which is what one lineup solved on
+  // playoff_ppg charged. Weeks with no bye on the roster share one solve. No
+  // opponent adjustment: none is validated (matchups.js). null when the players
+  // carry no ros_ppg (partial fixtures), so horizonGain() falls back to "now".
+  const playoffLeg = (players, memoize) => {
+    if (!players.some(p => p.ros_ppg != null)) return null;
+    const get = (byeWeek = null) => (memoize ? lineupOf(players, 'ros_ppg', byeWeek) : solve(players, 'ros_ppg', byeWeek)).points;
+    const weeks = Math.max(0, ...players.map(p => p.playoff_weeks_left ?? 0));
+    const byeWeeks = [...new Set(players.map(p => p.playoff_bye_week).filter(w => w != null))];
+    if (!weeks || !byeWeeks.length) return get();
+    return ((weeks - byeWeeks.length) * get() + byeWeeks.reduce((sum, w) => sum + get(w), 0)) / weeks;
+  };
   const side = (team, gives, gets) => {
     const after = team.players.filter(p => !gives.some(g => g.id === p.id)).concat(gets);
-    const before = bestLineup(team.players, slots);
+    const before = lineupOf(team.players, 'adj_ppg');
     const post = bestLineup(after, slots);
-    const bMonth = bestLineup(team.players, slots, 'playoff_ppg');
-    const pMonth = bestLineup(after, slots, 'playoff_ppg');
+    const bMonth = playoffLeg(team.players, true);
+    const pMonth = playoffLeg(after, false);
     const valueOut = gives.reduce((s, p) => s + Math.max(0, p.value), 0);
     const valueIn = gets.reduce((s, p) => s + Math.max(0, p.value), 0);
-    const spreadBefore = lineupSpread(before), spreadAfter = lineupSpread(post);
     const givesOut = gives.map(slim), getsIn = gets.map(slim);
 
-    return {
+    const out = {
       roster_id: team.roster_id, owner: team.owner,
       gives: givesOut, gets: getsIn,
       // Floor/ceiling/consistency of what leaves vs what arrives, from each
@@ -772,36 +953,36 @@ export function evaluate(a, b, slots, ctx = {}) {
       lineup_before: before.points, lineup_after: post.points,
       ppg_delta: +(post.points - before.points).toFixed(2),
       season_delta: +((post.points - before.points) * GAMES).toFixed(1),
-      playoff_ppg_delta: +(pMonth.points - bMonth.points).toFixed(2),
-      // The playoff lineup's own baseline. Needed because playoff_ppg and
-      // adj_ppg are NOT on the same scale: adj_ppg carries this week's
-      // availability discount (0.25 * currentWeekPpg, which is multiplied by
-      // active_probability) while playoff_ppg is weeklyPpg * playoff_sos with
-      // no availability term at all. Measured across 288 rostered players,
-      // playoff_ppg / adj_ppg has mean 1.159 and is above 1.0 for EVERY one of
-      // them. Subtracting one delta from the other would be reading a units
-      // mismatch as a schedule signal, so consumers normalise by the baselines.
-      playoff_lineup_before: +bMonth.points.toFixed(2),
-      playoff_lineup_after: +pMonth.points.toFixed(2),
-      // The playoff delta on the CURRENT lineup's basis — the same share-of-own-
-      // baseline correction horizonGain() applies to the ranking value. The raw
-      // playoff_ppg_delta above is kept for that function, but it is ~1.11x the
-      // scale of ppg_delta, and it used to be the number the UI and the Claude
-      // trade prompt printed right under ppg_delta, where the gap reads as "my
-      // schedule improves in December". It does not; the gap is availability and
-      // byes. This is the field to display. It is a lineup-level rescale, so a
-      // per-player residual remains (individual ratios span ~1.01-1.34).
-      playoff_ppg_delta_scaled: bMonth.points > 0
-        ? +(((pMonth.points - bMonth.points) / bMonth.points) * before.points).toFixed(2) : null,
+      // The lineup change in THIS league's playoff weeks (playoffLeg above: the
+      // weekly-rate lineup of each playoff week, byes out, averaged). No opponent
+      // adjustment, so this differs from ppg_delta only by WHEN points land: adj_ppg
+      // carries 25% of this week (its injuries, its byes), this carries playoff-week
+      // byes. It is horizonGain()'s playoff leg, not a display number: it is not on
+      // adj_ppg's scale (adj_ppg's this-week share is discounted by availability, the
+      // weekly rate is not), which is why the two baselines below travel with it and
+      // horizonGain() compares each delta to its own baseline.
+      playoff_ppg_delta: bMonth != null && pMonth != null ? +(pMonth - bMonth).toFixed(2) : null,
+      playoff_lineup_before: bMonth != null ? +bMonth.toFixed(2) : null,
+      playoff_lineup_after: pMonth != null ? +pMonth.toFixed(2) : null,
       value_out: valueOut, value_in: valueIn, value_delta: valueIn - valueOut,
       roster_spots: gets.length - gives.length,
-      floor_delta: spreadBefore.floor != null && spreadAfter.floor != null
-        ? +(spreadAfter.floor - spreadBefore.floor).toFixed(1) : null,
-      ceiling_delta: spreadBefore.ceiling != null && spreadAfter.ceiling != null
-        ? +(spreadAfter.ceiling - spreadBefore.ceiling).toFixed(1) : null,
       new_holes: post.holes,
       verdict: verdictFor(post.points - before.points, valueIn - valueOut)
     };
+    // floor_delta / ceiling_delta: the change in the starting lineup's weekly p10 /
+    // p90 TOTAL (lineupSpread). Computed the first time the field is read — a JSON
+    // response, a prompt, a caller — and then fixed on the object. The trade search
+    // builds thousands of these and returns a few dozen; only those are ever read,
+    // so only those pay for the players' weekly draws.
+    let spreads = null;
+    const spreadDelta = which => {
+      spreads ??= { before: lineupSpread(before), after: lineupSpread(post) };
+      const x = spreads.before[which], y = spreads.after[which];
+      return x != null && y != null ? +(y - x).toFixed(1) : null;
+    };
+    lazyField(out, 'floor_delta', () => spreadDelta('floor'));
+    lazyField(out, 'ceiling_delta', () => spreadDelta('ceiling'));
+    return out;
   };
 
   const A = side(a.team, a.gives, b.gives);
@@ -862,7 +1043,8 @@ const slim = p => ({
   value: p.value, proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
   age: p.age, bye: p.bye, injury: p.injury, available: p.available !== false,
   floor: p.floor, ceiling: p.ceiling, consistency: p.consistency,
-  sos: p.sos, playoff_sos: p.playoff_sos,
+  // sos / playoff_sos are left off: 1 with no validated signal behind them
+  // (matchups.js), and a card or prompt that shows them invites reading a schedule.
   current_week_ppg: p.current_week_ppg, ros_ppg: p.ros_ppg, fantasy_coordinator: p.fantasy_coordinator,
   active_probability: p.active_probability, injury_status: p.injury_status,
   practice_status: p.practice_status, model_cutoff: p.model_cutoff,
@@ -887,16 +1069,14 @@ function tagDeal(give, get, ev) {
   const oldest = list => Math.max(...list.map(p => p.age ?? 0));
 
   if (give.length + get.length >= 4) tags.push('Blockbuster');
-  // playoff_sos here is matchups.js#scheduleOutlook's points MULTIPLIER — this file
-  // computes playoff_ppg = weeklyPpg * playoff_sos — so HIGHER is an EASIER stretch.
-  // The comment used to say "lower is easier", which is the polarity of edge.js's
-  // unrelated field of the same name (opponent strength, higher = harder), and the
-  // comparison followed the comment: the tag fired for deals that acquire the HARDER
-  // schedule. Flipped. Note it is still unreachable today — with player_gamelog empty
-  // the multiplier only encodes home games (0.98 to 1.007 across rostered players, a
-  // maximum average gap of 0.027 against this 0.05 threshold), so the inversion hid.
-  // The 0.05 is unfitted and should be re-derived once DvP carries real signal.
-  if (avg(get, 'playoff_sos', 1) > avg(give, 'playoff_sos', 1) + 0.05) tags.push('Playoff Push');
+  // 'Playoff Push' claims the deal buys an easier weeks-15-17 schedule. No schedule-
+  // strength signal has passed the weekly walk-forward test (matchups.js: home field
+  // and DvP both failed on 2025), so while matchupSignalActive() is false the tag
+  // cannot fire — playoff_sos is exactly 1 and any gap would be noise. If a signal
+  // ever passes, playoff_sos is a points MULTIPLIER (higher = easier stretch; the
+  // opposite polarity of edge.js's unrelated field of the same name), and the 0.05
+  // threshold is unfitted and must be re-derived on that signal.
+  if (matchupSignalActive() && avg(get, 'playoff_sos', 1) > avg(give, 'playoff_sos', 1) + 0.05) tags.push('Playoff Push');
   if (youngest(get) <= 24 && oldest(give) >= youngest(get) + 3) tags.push('Youth Play');
   if (oldest(give) >= 29 && youngest(get) < oldest(give)) tags.push('Sell High');
   // role_change is only ever set when the weekly engine detected a real usage
@@ -1018,12 +1198,19 @@ function findTradesUncached(lg, {
   // normal case for a league with no chat corpus and cost nothing.
   // NB: `target` in this function is the target PLAYER, not the week context.
   const weekNow = tradeWeekContext();
-  // WHEN the points land, not just how many. `evaluate()` has always computed
-  // playoff_ppg_delta — the lineup solved against each player's playoff-schedule
-  // rate — and nothing has ever read it. It is weighted against this week's
-  // delta by how much of the season remains and how likely this roster is to
-  // still be playing in December.
+  // WHEN the points land, not just how many. evaluate()'s playoff_ppg_delta is
+  // the lineup change on each player's rate in this league's playoff weeks —
+  // byes counted, no opponent adjustment (no schedule-strength signal has passed
+  // the weekly harness; matchups.js). It is weighted against the adj_ppg delta by
+  // how much of the season remains, how much more a playoff week is worth, and how
+  // likely this roster is to still be playing then (trade-horizon.js). What moves a
+  // deal between the two legs is timing: this week's number (each player's modelled
+  // chance to play — for healthy starters mostly the durability prior, contingency.js —
+  // a bye, the game-line correction) against byes in the playoff weeks.
   const horizon = horizonWeights(weekNow.week, { playoffOdds, ...leagueSchedule(lg) });
+  // One memo for the whole search: the two rosters' before-lineups are the same for
+  // every package against them (see evaluate()).
+  const memo = new WeakMap();
   const counterparties = useCounterparty
     ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
     : new Map();
@@ -1069,7 +1256,7 @@ function findTradesUncached(lg, {
         if (skew < -0.16 || skew > 0.30) continue;
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
-          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window });
+          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo });
         if (ev.me.ppg_delta < 0.4) continue;
         // Never even a "closest fit" fallback candidate — no real GM accepts leaving
         // a starting slot empty, whatever the value math says.
@@ -1088,7 +1275,7 @@ function findTradesUncached(lg, {
           const leanGet = side === 'get' ? get.filter(x => x.id !== player.id) : get;
           if (!leanGive.length || !leanGet.length) return false;
           const lean = evaluate({ team: me, gives: leanGive }, { team: them, gives: leanGet }, slots,
-            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window });
+            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo });
           return lean.me.ppg_delta >= ev.me.ppg_delta - 0.05
             && lean.them.ppg_delta >= ev.them.ppg_delta - 0.05;
         });
@@ -1369,6 +1556,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
 
   const myPool = candidates(me, slots, 12, excludeIds);
   const packages = combos(myPool, 3).filter(c => c.length <= 3);
+  const memo = new WeakMap();   // both rosters are fixed for this whole ladder (see evaluate())
 
   const priced = [];
   for (const give of packages) {
@@ -1376,7 +1564,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null }) {
     const ratio = target.value ? giveValue / target.value : 0;
     if (ratio < 0.70 || ratio > 1.65) continue;
     const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
-      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window });
+      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
     if (ev.me.ppg_delta <= 0) continue;
     priced.push({
       i_give: give.map(slim), ratio: +ratio.toFixed(2), give_value: giveValue,
@@ -1505,13 +1693,14 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null }) {
 
     const maxGive = Math.min(4, theirTargets.length + 2);
     const packages = combos(myPool, maxGive);
+    const memo = new WeakMap();   // both rosters are fixed for this owner's ladder (see evaluate())
     const priced = [];
     for (const give of packages) {
       const giveValue = give.reduce((s, p) => s + Math.max(0, p.value), 0);
       const ratio = targetsValue ? giveValue / targetsValue : 0;
       if (ratio < 0.70 || ratio > 1.65) continue;
       const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
-        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window });
+        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
       if (ev.me.ppg_delta <= 0) continue;
       priced.push({
         i_give: give.map(slim), ratio: +ratio.toFixed(2), give_value: giveValue,
@@ -1563,7 +1752,8 @@ export function selfScout(lg, myTeamId) {
   if (!me) return { error: 'your team not found' };
 
   const lineup = bestLineup(me.players, slots);
-  const playoffLineup = bestLineup(me.players, slots, 'playoff_ppg');
+  // The starting lineup's weekly total in a bad (p10) and a good (p90) week — see
+  // lineupSpread().
   const spread = lineupSpread(lineup);
 
   // League context: every rival's optimal lineup, so "strong at RB" means strong
@@ -1611,10 +1801,16 @@ export function selfScout(lg, myTeamId) {
     .map(([week, list]) => ({ week: Number(week), count: list.length, players: list }))
     .sort((a, b) => b.count - a.count);
 
-  // Whose schedule turns in the weeks that decide the title.
-  const playoffSwing = lineup.slots.map(s => s.player).filter(Boolean)
-    .map(p => ({ ...slim(p), swing: +(p.playoff_ppg - p.adj_ppg).toFixed(2), games: p.playoff_games }))
-    .sort((a, b) => a.swing - b.swing);
+  // The weeks that decide the title. This used to report a per-starter "playoff
+  // swing", playoff_ppg - adj_ppg, as the schedule turning in weeks 15-17. It was a
+  // units artifact (playoff_ppg had no availability term, adj_ppg does), positive
+  // for every starter, and the schedule strength behind it has no validated signal
+  // (matchups.js). What IS known about those weeks is who is on bye in them.
+  const { playoffWeeks } = leagueSchedule(lg);
+  const nowWeek = tradeWeekContext().week;
+  const playoffByes = lineup.slots.map(s => s.player)
+    .filter(p => p?.bye && p.bye >= nowWeek && playoffWeeks.includes(p.bye))
+    .map(p => ({ ...slim(p), week: p.bye }));
 
   const strengths = Object.entries(positions).filter(([, v]) => v.status === 'strength')
     .sort((a, b) => b[1].ratio - a[1].ratio);
@@ -1639,16 +1835,17 @@ export function selfScout(lg, myTeamId) {
       issue: `${b.count} of your starters are on bye in Week ${b.week} (${b.players.map(p => p.name).join(', ')}).`,
       action: 'Stagger byes when two trade targets are otherwise equal, or plan the waiver claim now.' });
   }
-  const badPlayoff = playoffSwing.filter(p => p.swing < -0.6);
-  if (badPlayoff.length) {
-    fixes.push({ priority: 'medium', area: 'Playoff schedule',
-      issue: `${badPlayoff.map(p => p.name).join(', ')} ${badPlayoff.length === 1 ? 'faces' : 'face'} harder-than-normal defences in Weeks ${PLAYOFF_WEEKS.join('/')}.`,
-      action: 'Prefer trade targets whose Weeks 15-17 slate is soft — same season projection, more of it lands when it matters.' });
+  const byeWeeks = [...new Set(playoffByes.map(p => p.week))].sort((a, b) => a - b);
+  for (const w of byeWeeks) {
+    const names = playoffByes.filter(p => p.week === w).map(p => p.name);
+    fixes.push({ priority: 'medium', area: `Week ${w} playoff bye`,
+      issue: `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} on bye in week ${w}, one of this league's playoff weeks.`,
+      action: 'Plan that week\'s replacement early — the bye is certain, unlike any read on playoff matchups.' });
   }
   if (spread.floor != null && spread.coverage > 0.5) {
     const rank = myRank <= 3 ? 'contender' : myRank >= rivals.length - 1 ? 'longshot' : 'bubble';
     fixes.push({ priority: 'low', area: 'Roster shape',
-      issue: `Lineup floor ${spread.floor} / ceiling ${spread.ceiling} per week; you project ${myRank}${ord(myRank)} of ${allLineups.length}.`,
+      issue: `Your starters total about ${spread.floor} in a bad week and ${spread.ceiling} in a good one (1 week in 10 each); you project ${myRank}${ord(myRank)} of ${allLineups.length}.`,
       action: rank === 'contender'
         ? 'You are ahead — trade ceiling for floor and consistency to protect the lead.'
         : 'You need variance — target boom-rate players over steady ones; a median week does not win you the league from here.' });
@@ -1662,17 +1859,15 @@ export function selfScout(lg, myTeamId) {
     rank: myRank, of: allLineups.length,
     lineup: { points: lineup.points, slots: lineup.slots.map(s => ({ slot: s.slot, player: s.player ? slim(s.player) : null })),
               bench: lineup.bench.map(slim), holes: lineup.holes },
-    // Solved on playoff_ppg, which carries no availability term and so runs ~1.11x
-    // lineup.points for reasons that have nothing to do with the schedule. Do not
-    // compare the two directly; _scaled expresses it on lineup.points' basis.
-    playoff_lineup_points: playoffLineup.points,
-    playoff_lineup_scale_note: 'playoff_ppg basis (no availability term); not comparable to lineup.points',
     spread,
     positions,
     strengths: strengths.map(([pos, v]) => ({ position: pos, ...v })),
     weaknesses: weaknesses.map(([pos, v]) => ({ position: pos, ...v })),
     bye_risk: byeRisk,
-    playoff_swing: playoffSwing,
+    // Empty while no schedule-strength signal is validated (see above); the key stays
+    // so the My Team card that renders it simply hides.
+    playoff_swing: [],
+    playoff_byes: playoffByes,
     fixes: fixes.sort((a, b) => ({ high: 0, medium: 1, low: 2 })[a.priority] - ({ high: 0, medium: 1, low: 2 })[b.priority]),
     league_lineups: [{ owner: me.owner, roster_id: me.roster_id, points: lineup.points, me: true },
                      ...rivals.map(r => ({ owner: r.owner, roster_id: r.roster_id, points: r.line.points, me: false }))]
@@ -1693,7 +1888,10 @@ export function playerOutlook(lg, playerId) {
   const a = resolvePlayer(playerId, assets, teams);
   if (!a) return { error: 'player not found' };
   const owner = teams.find(t => t.players.some(p => p.id === a.id));
-  const splits = a.team_abbr ? relevantSplits(a.id, a.team_abbr) : { upcoming: [], notable: [] };
+  // relevantSplits() carries `signal: false` and its reason (history, not a
+  // forecast); the no-team fallback says the same.
+  const splits = a.team_abbr ? relevantSplits(a.id, a.team_abbr)
+    : { baseline: null, upcoming: [], notable: [], signal: false, reason: 'no NFL team on file' };
   const news = rows(`SELECT date, headline, fantasy_impact, importance FROM news_items
                      WHERE headline LIKE ? OR body LIKE ? ORDER BY date DESC LIMIT 5`,
     `%${a.name}%`, `%${a.name}%`);
@@ -1708,11 +1906,154 @@ export function playerOutlook(lg, playerId) {
 const STARTER_SLOT_IDS = new Set(
   Object.entries(SLOT_NAME).filter(([, name]) => name !== 'BENCH' && name !== 'IR').map(([id]) => Number(id)));
 
+const IR_SLOT_ID = Number(Object.entries(SLOT_NAME).find(([, name]) => name === 'IR')[0]);
+// ESPN statuses under which a player is still expected to suit up.
+const ESPN_PLAYING = new Set(['ACTIVE', 'QUESTIONABLE', 'DAY_TO_DAY', 'PROBABLE']);
+
+/**
+ * This week's number for one player, built exactly as lineup-brain.js#lineupCall
+ * builds `week_points` for the Start/Sit tab: current_week_ppg (this Sunday's
+ * projection times his chance to play, 0 on a bye; no opponent adjustment, none
+ * is validated — matchups.js) times this week's
+ * game-script multiplier from the betting line. Kept identical on purpose — if
+ * the two drift, the League Hub card and the Start/Sit tab name different
+ * lineups. The `?? adj_ppg ?? ppg` fallback only fires when the field is absent,
+ * never on a real 0 (a bye), same as weekPpg() in lineup-posture.js and
+ * waiver-wire.js (commit fe38e93).
+ */
+function lineupDiffWeekPoints(p, season, week) {
+  const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
+  const lift = vegasLift(p, season, week);
+  const v = base * (lift.applied ? lift.multiplier : 1);
+  return Number.isFinite(v) ? +v.toFixed(2) : null;
+}
+
+/*
+ * HOW SURE IS ONE SWAP — the probability on each swap, and the urgency it sets.
+ *
+ * Question: when two players are this many projected points apart, how often
+ * does the higher projection actually score more? Measured with the walk-forward
+ * weekly replay (weekly-backtest.js#replaySeasonWeekly, live ensemble weights,
+ * weeks 5-17) on every pair of same-position players in the same week whose
+ * projections were both >= 4 points — the players a start/sit is actually
+ * between — keeping anyone who then sat out as 0, because on Tuesday you do not
+ * know who will be inactive on Sunday. A tie in actual points counts half.
+ *
+ *   projected gap     <1    1-2   2-3   3-5   5-8   8+
+ *   2023+24 (fit)    52.4  55.3  58.8  62.3  68.7  76.4   % right, 161,078 pairs
+ *   2025 (check)     51.7  53.5  57.5  61.9  67.7  75.0   % right,  78,735 pairs
+ *
+ * One curve fits it: P(right) = Phi(gap / 14.5), the 14.5 by maximum likelihood
+ * on 2023+2024 only. Checked once on 2025 against a pre-registered gate: every
+ * bin within 4 points of what happened (worst: 8+ says 77.9, observed 75.0), and
+ * no worse on log-loss than a six-bin lookup fit on the same seasons
+ * (player-clustered paired bootstrap, 90% CI of the difference -0.0014..+0.0003).
+ *
+ * The audit's table (<1 48.6, 1-2 57.0, 2-3 63.0, 3-5 69.2, 5-8 78.6, 8+ 88.3)
+ * reads higher because it also scores pairs nobody faces — a 15-point starter
+ * against a 2-point backup — and, in its best-matching form, only players who
+ * went on to play. Low projections miss by less, so the same gap looks more
+ * decisive there. On the players a lineup call is really between, a 5-8 point
+ * edge is right about two times in three, not four in five.
+ *
+ * Urgency is set on that probability, with cut points fixed before the fit:
+ *   high    >= 75%   a gap of about 9.8 points or more (Phi^-1(0.75) x 14.5)
+ *   medium  >= 60%   about 3.7 points or more
+ *   low     <  60%   right barely more often than a coin
+ * These replace the old hand-picked cut on the WHOLE swap set's gain (>= 4 high,
+ * >= 2 medium), which also let two coin-flip swaps add up to "medium".
+ *
+ * A swap against a SURE zero — an empty slot, a starter with no game, one
+ * flagged out or on IR — is not a two-player comparison: it is right whenever
+ * the new man plays, so its probability is his own active_probability.
+ */
+const SWAP_GAP_SIGMA = 14.5;
+const swapRightProbability = gap => normalCdf(gap / SWAP_GAP_SIGMA);
+const SWAP_URGENCY = [['high', 0.75], ['medium', 0.60], ['low', -Infinity]];
+const swapUrgency = p => SWAP_URGENCY.find(([, min]) => p >= min)[0];
+const URGENCY_RANK = { low: 0, medium: 1, high: 2 };
+
+/**
+ * Pair each player coming IN with the starter he replaces, so every swap
+ * carries its own gap and its own probability.
+ *
+ * Pairs are exchanges FROM the optimum: (out y, in x) is legal when the optimal
+ * lineup minus x plus y still fills every slot legally. The optimum cannot gain
+ * from any single exchange, so every legal pair has pts(x) - pts(y) >= 0, and the
+ * gaps of a full pairing add up to the total gain. A full legal pairing always
+ * exists (lineups are bases of a transversal matroid — Brualdi's exchange
+ * theorem); an empty slot on either side pads with null. Among full pairings,
+ * prefer same-position pairs (the one a manager reads naturally), then the
+ * largest smallest gap — the conservative choice for the headline, since the
+ * gaps' sum is fixed. `points` is what each player counts for this week.
+ */
+function pairLineupSwaps(ins, outs, optimalPlayers, slots, points) {
+  const n = Math.max(ins.length, outs.length);
+  if (!n) return [];
+  const I = [...ins, ...new Array(n - ins.length).fill(null)];
+  const O = [...[...outs].sort((a, b) => points(b) - points(a)), ...new Array(n - outs.length).fill(null)];
+  // Legality ignores availability on purpose: a flagged starter is being replaced,
+  // and the question is only whether the slots still fill.
+  const holds = set => bestLineup(set.map(p => ({ ...p, available: true })), slots, 'week_points')
+    .slots.filter(s => s.player).length === set.length;
+  const legal = O.map(y => I.map(x => !x || !y || holds([...optimalPlayers.filter(p => p.id !== x.id), y])));
+  const gap = (y, x) => (x ? points(x) : 0) - (y ? points(y) : 0);
+
+  let best = null;
+  const used = new Array(n).fill(false), pick = new Array(n);
+  const walk = j => {
+    if (j === n) {
+      let same = 0, min = Infinity;
+      for (let k = 0; k < n; k++) {
+        const x = I[pick[k]], y = O[k];
+        if (x && y && x.position === y.position) same++;
+        if (x) min = Math.min(min, gap(y, x));
+      }
+      if (!best || same > best.same || (same === best.same && min > best.min + 1e-9)) best = { same, min, pick: [...pick] };
+      return;
+    }
+    for (let i = 0; i < n; i++) {
+      if (used[i] || !legal[j][i]) continue;
+      used[i] = true; pick[j] = i; walk(j + 1); used[i] = false;
+    }
+  };
+  if (n <= 7) walk(0);
+  // Beyond 7 swaps (a whole lineup set wrong), or if no full legal pairing turned
+  // up, fall back to pairing by rank: best newcomer for the weakest starter (O is
+  // strongest-first, so it takes the newcomers weakest-first).
+  const order = best?.pick ?? I.map((_, i) => i).sort((a, b) =>
+    (I[a] ? points(I[a]) : -1) - (I[b] ? points(I[b]) : -1));
+  return O.map((y, j) => ({ out: y, in: I[order[j]], gap: gap(y, I[order[j]]) })).filter(p => p.in || p.out);
+}
+
 /**
  * What's actually set on the platform right now vs. what the engine's own
- * optimal-lineup solver would start — the "what should I change before kickoff"
- * question My Team never answered before, despite already computing the optimal
- * side of it via selfScout/bestLineup.
+ * optimal-lineup solver would start THIS WEEK — the "what should I change
+ * before kickoff" question.
+ *
+ * ONE-WEEK QUESTION, ONE-WEEK NUMBER. This used to solve both lineups on
+ * adj_ppg, the 25%-this-week / 75%-rest-of-season blend built for trades. For a
+ * start/sit that is wrong twice over: it ranks players on a rest-of-season rate
+ * this Sunday says little about, and it carries a player on bye (current_week_ppg
+ * 0) at most of his season value. When the audit measured it (2026 week 2),
+ * league 3's card read "107.44 vs optimal 112.48, +5.04, urgency high"; on this
+ * week's number it was 87.47 vs 89.37, +1.90. League 4's swap set was worth 2.22
+ * fewer week points than the right one and missed a swap; league 1 missed one.
+ *
+ * It now ranks on `week_points`, built the way lineup-brain.js#lineupCall builds
+ * it (lineupDiffWeekPoints above), so the League Hub card and the Start/Sit tab
+ * name the same optimal lineup at the same points — checked roster by roster
+ * across every synced league when this changed. The one designed difference is
+ * IR, below.
+ *
+ * Never recommended IN: a player with no game this week (bye), anyone the
+ * availability layer flags out for the season or released (available === false;
+ * bestLineup already drops them), and anyone on IR (ESPN's IR slot, or ESPN
+ * status INJURY_RESERVE). A flagged or IR player the manager has STARTED counts 0
+ * in the submitted lineup and is listed in `flagged_starters` beside ESPN's own
+ * status, so a false positive in the news scan reads as "check this", not as a
+ * silent bench. An IR-slot player ESPN lists as playing, who would start if
+ * activated, is listed in `activate_from_ir` rather than recommended.
  */
 export function lineupDiff(lg, myTeamId) {
   if (lg.platform !== 'espn') return { error: 'Submitted-lineup comparison is ESPN-only for now — Sleeper stores starters in a different shape this doesn\'t read yet.' };
@@ -1722,65 +2063,145 @@ export function lineupDiff(lg, myTeamId) {
   const slots = lineupSlots(lg);
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your team not found in this league' };
+  const { season, week } = tradeWeekContext();
 
   const payload = JSON.parse(lg.payload);
   const espnTeam = payload.teams?.find(t => String(t.id) === me.roster_id);
   const byEspnId = new Map([...assets.values()].filter(a => a.espn_id).map(a => [String(a.espn_id), a]));
+  // Each of my players' ESPN entry — the slot he is set in and ESPN's own injury
+  // status. Matched by ESPN id, then by name within this roster (the fallback
+  // loadRosters() itself uses to put him on the roster).
+  const entryOf = new Map();
   const submittedIds = new Set();
   for (const e of espnTeam?.roster?.entries ?? []) {
-    if (!STARTER_SLOT_IDS.has(e.lineupSlotId)) continue;
-    const p = byEspnId.get(String(e.playerPoolEntry?.player?.id));
+    const pl = e.playerPoolEntry?.player;
+    const p = byEspnId.get(String(pl?.id)) ?? me.players.find(x => norm(x.name) === norm(pl?.fullName));
+    if (!p) continue;
+    entryOf.set(p.id, e);
     // K/DEF are outside SCORED — bestLineup()/lineupSlots() never touch them (see
     // this file's header: near-random week to week, deliberately unmodeled), so
     // comparing them here would flag every started K/DEF as a "should bench" false
     // positive purely because the optimizer was never going to consider them.
-    if (p && SCORED.has(p.position)) submittedIds.add(p.id);
+    if (STARTER_SLOT_IDS.has(e.lineupSlotId) && SCORED.has(p.position)) submittedIds.add(p.id);
   }
   if (!espnTeam || submittedIds.size === 0) return { error: 'could not read a submitted lineup for this team — try syncing the league again' };
 
-  const optimal = bestLineup(me.players, slots);
-  const optimalIds = new Set(optimal.slots.map(s => s.player?.id).filter(Boolean));
+  const espnStatus = p => entryOf.get(p.id)?.playerPoolEntry?.player?.injuryStatus ?? null;
+  const mine = me.players.map(p => ({
+    ...p,
+    week_points: lineupDiffWeekPoints(p, season, week),
+    espn_status: espnStatus(p),
+    in_ir_slot: entryOf.get(p.id)?.lineupSlotId === IR_SLOT_ID,
+    on_ir: entryOf.get(p.id)?.lineupSlotId === IR_SLOT_ID || espnStatus(p) === 'INJURY_RESERVE',
+    no_game: p.bye === week || !p.matchup
+  }));
+  const dead = p => p.available === false || p.on_ir;          // counts 0 this week
+  const sureZero = p => dead(p) || p.no_game;                  // scores 0 for certain
+  const counts = p => (dead(p) ? 0 : (p.week_points ?? 0));
 
-  const submittedLineup = bestLineup(me.players.filter(p => submittedIds.has(p.id)), slots);
-  const swapIn = optimal.slots.filter(s => s.player && !submittedIds.has(s.player.id)).map(s => ({ slot: s.slot, player: slim(s.player) }));
-  const swapOut = [...submittedIds].filter(id => !optimalIds.has(id)).map(id => slim(me.players.find(p => p.id === id)));
+  // The optimum, on the Start/Sit tab's own basis, from everyone who can start.
+  const optimal = bestLineup(mine.filter(p => !p.on_ir), slots, 'week_points');
+  const optimalPlayers = optimal.slots.map(s => s.player).filter(Boolean);
+  const optimalIds = new Set(optimalPlayers.map(p => p.id));
+  const slotOf = new Map(optimal.slots.filter(s => s.player).map(s => [s.player.id, s.slot]));
+
+  // What is set on ESPN, with flagged and IR starters held at 0 (bestLineup
+  // drops the flagged ones by itself; IR is dropped here).
+  const submitted = mine.filter(p => submittedIds.has(p.id));
+  const submittedLineup = bestLineup(submitted.filter(p => !p.on_ir), slots, 'week_points');
   const gain = +(optimal.points - submittedLineup.points).toFixed(2);
 
-  // Decision Inbox publish (additive — the object below is unchanged and is
-  // still exactly what every existing caller of lineupDiff() gets back).
-  // "Start Player A over Player B" is the audit's own lead example for the
-  // universal Decision Inbox. Gated at 1.0 projected point so a coin-flip
-  // near-tie (this module's whole point, see the file header on lineup-brain.js
-  // about not dressing up noise as a decision) never spams a recommendation.
-  // See server/routes/decision-inbox.js for publishRecommendation() and
-  // server/migrations/019_decision_recommendations.js for the schema.
+  const brief = p => ({ id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
+    week_points: p.week_points, active_probability: p.active_probability ?? null,
+    injury_status: p.injury_status ?? null, espn_status: p.espn_status });
+  const outReason = p => (!p ? 'empty slot' : p.on_ir ? 'on IR'
+    : p.available === false ? 'flagged out for the season or released'
+      : p.no_game ? 'no game this week' : null);
+
+  const pairs = pairLineupSwaps(optimalPlayers.filter(p => !submittedIds.has(p.id)),
+    submitted.filter(p => !optimalIds.has(p.id)), optimalPlayers, slots, counts);
+  const swaps = pairs
+    .filter(x => x.in && !sureZero(x.in) && (x.in.week_points ?? 0) > 0 && x.gap > 0.005)
+    .map(x => {
+      const versusZero = !x.out || sureZero(x.out);
+      const p = versusZero ? (x.in.active_probability ?? 0.92) : swapRightProbability(x.gap);
+      return {
+        slot: slotOf.get(x.in.id),
+        in: brief(x.in),
+        out: x.out ? { ...brief(x.out), counts_for: counts(x.out), reason: outReason(x.out) } : null,
+        gap: +x.gap.toFixed(2),
+        p_right: +p.toFixed(3),
+        p_basis: versusZero ? 'active_probability' : 'projected_gap',
+        urgency: swapUrgency(p)
+      };
+    })
+    .sort((a, b) => URGENCY_RANK[b.urgency] - URGENCY_RANK[a.urgency] || b.p_right - a.p_right);
+  const headline = swaps[0] ?? null;
+
+  const flaggedStarters = submitted.filter(dead).map(p => ({
+    ...brief(p), reason: outReason(p),
+    // The news scan says out, ESPN still says playing — worth a look before benching.
+    espn_disagrees: p.available === false && !p.on_ir && ESPN_PLAYING.has(p.espn_status)
+  }));
+  const activatable = mine.filter(p => !p.on_ir || (p.in_ir_slot && ESPN_PLAYING.has(p.espn_status)));
+  const ifActivated = bestLineup(activatable, slots, 'week_points');
+  const activateFromIr = ifActivated.slots.map(s => s.player).filter(p => p?.on_ir && !p.no_game && p.week_points > 0)
+    .map(p => ({ ...brief(p), lineup_points_if_activated: ifActivated.points }));
+
+  // Decision Inbox publish — a side effect; the return value below is what
+  // every caller gets. Published only at medium urgency or above: a "low" swap
+  // is right less than 60% of the time, and dressing that up as a decision is
+  // what lineup-brain.js's header warns against. When nothing clears the bar,
+  // an open lineup recommendation this function published earlier is retired
+  // rather than left to say "high" for 72 hours. See server/routes/decision-inbox.js
+  // for publishRecommendation() and migrations/020 for the schema.
   try {
     const teamKey = String(myTeamId ?? lg.my_team_id ?? me.roster_id);
-    if (swapIn.length && gain >= 1.0) {
-      const single = swapIn.length === 1 && swapOut.length === 1;
+    const dedupKey = `lineup:${lg.id}:${teamKey}`;
+    if (headline && URGENCY_RANK[headline.urgency] >= URGENCY_RANK.medium) {
+      const single = swaps.length === 1 && swaps[0].out;
       publishRecommendation({
-        dedupKey: `lineup:${lg.id}:${teamKey}`,
+        dedupKey,
         leagueId: lg.id, sport: 'NFL', type: 'lineup',
-        subjectIds: [...swapIn.map(s => s.player.id), ...swapOut.map(p => p.id)],
-        title: single ? `Start ${swapIn[0].player.name} over ${swapOut[0].name}`
-          : `${swapIn.length} lineup swap${swapIn.length > 1 ? 's' : ''} available (+${gain} pts)`,
-        rationale: `Submitted lineup projects ${submittedLineup.points} vs. optimal ${optimal.points} this week — ` +
-          `swapping in ${swapIn.map(s => s.player.name).join(', ')} for ${swapOut.map(p => p.name).join(', ')} gains ${gain} points.`,
-        expectedValue: gain, confidence: null,
-        urgency: gain >= 4 ? 'high' : gain >= 2 ? 'medium' : 'low',
+        subjectIds: swaps.flatMap(s => [s.in.id, s.out?.id]).filter(id => id != null),
+        title: single ? `Start ${swaps[0].in.name} over ${swaps[0].out.name}`
+          : `${swaps.length} lineup swap${swaps.length > 1 ? 's' : ''} this week (+${gain} pts)`,
+        rationale: `Week ${week} projection: submitted lineup ${submittedLineup.points} vs. optimal ${optimal.points}. ` +
+          swaps.map(s => `${s.in.name} over ${s.out ? s.out.name : 'an empty slot'}: +${s.gap}, ` +
+            `right about ${Math.round(s.p_right * 100)}% of the time`).join('; ') + '.',
+        expectedValue: gain, confidence: headline.p_right, urgency: headline.urgency,
         // No exact kickoff time is threaded into this module today, so this is
         // a judgment-call heuristic (72h), not a computed slate deadline —
         // flagged rather than silently assumed.
         expiresAt: new Date(Date.now() + 72 * 3600 * 1000).toISOString(),
-        sourceModel: 'lineup-brain', sourceVersion: 'v1', link: '/lineup'
+        sourceModel: 'lineup-brain', sourceVersion: 'v2-week-points', link: '/lineup'
       });
+    } else {
+      dbRun(`UPDATE decision_recommendations SET status = 'expired', resolved_at = datetime('now'), outcome = ?
+             WHERE dedup_key = ? AND status = 'open' AND type = 'lineup'`,
+        'superseded: no lineup swap this week clears a 60% chance of being right', dedupKey);
     }
   } catch { /* Decision Inbox publish is a side effect; never break lineup-diff over it. */ }
 
   return {
-    matches: swapIn.length === 0,
+    // A one-week decision: every number below is THIS week's projection.
+    basis: 'week_points', season, week,
+    matches: swaps.length === 0,
     submitted_points: submittedLineup.points,
     optimal_points: optimal.points,
-    gain, swap_in: swapIn, swap_out: swapOut
+    gain,
+    urgency: headline?.urgency ?? null,
+    p_right: headline?.p_right ?? null,
+    swaps,
+    // The recommended swaps in the original shape, for existing callers.
+    swap_in: swaps.map(s => ({ slot: s.slot, player: slim(mine.find(p => p.id === s.in.id)) })),
+    swap_out: swaps.filter(s => s.out).map(s => slim(mine.find(p => p.id === s.out.id))),
+    optimal: optimal.slots.map(s => ({ slot: s.slot, player: s.player ? brief(s.player) : null })),
+    empty_slots: optimal.holes,
+    flagged_starters: flaggedStarters,
+    activate_from_ir: activateFromIr,
+    note: `Week ${week} projection: this Sunday's game (0 on a bye) and injury odds, with the betting line's game script — ` +
+      'the same numbers as the Start/Sit tab. p_right is how often the higher projection actually outscored the ' +
+      'other at that gap in the 2023-2025 weekly replay.'
   };
 }

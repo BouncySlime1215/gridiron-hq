@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useApi } from '../api';
 import { useLeague } from '../state/league';
 import EvidenceStrip, { RecordLine } from '../components/lineup/EvidenceStrip';
 import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
+import WaiverWire, { WaiverTeaser, onATeam } from '../components/lineup/WaiverWire';
+import type { WaiverBoard, OutList } from '../components/lineup/WaiverWire';
+import MatchupPosture from '../components/lineup/MatchupPosture';
+import type { Posture } from '../components/lineup/MatchupPosture';
 
 /**
  * The week's lineup, with the closeness of each call made visible.
@@ -29,6 +33,22 @@ export default function Lineup() {
   const [objective, setObjective] = useState<'mean' | 'ceiling' | 'floor'>('mean');
   const { data: d, loading, error, refetch } = useApi<any>(
     leagueId ? `/trades/${leagueId}/lineup?objective=${objective}` : null);
+  // The waiver wire and this week's matchup. Separate requests, so a slow or
+  // failed one never holds the lineup hostage; both follow the active league and
+  // default to my own roster, exactly as the lineup request does.
+  const waivers = useApi<WaiverBoard>(leagueId ? `/trades/${leagueId}/waivers` : null);
+  const posture = useApi<Posture>(leagueId ? `/trades/${leagueId}/posture` : null);
+  // Only for the opponent's name; the same cached request the Trade Lab makes.
+  const opponentId = posture.data?.opponent_roster_id ?? null;
+  const { data: rosters } = useApi<any>(leagueId && opponentId ? `/trades/${leagueId}/rosters` : null);
+  const opponentName: string | null = rosters?.teams
+    ?.find((t: any) => String(t.roster_id) === String(opponentId))?.owner ?? null;
+  // Rostered players the solver will not start. The waiver board names its cut
+  // without saying why, and "drop Patrick Mahomes, 18.6 projected" reads as
+  // madness until you know he is flagged out; this is the same list the page
+  // already shows under "not being considered".
+  const out: OutList = useMemo(() => new Map<string, string>(
+    (d?.unavailable ?? []).map((u: any) => [String(u.name).toLowerCase(), String(u.why)])), [d]);
 
   // The floating assistant otherwise never learns what's on this page and
   // falls back to a generic "this page hasn't told me what's on screen"
@@ -39,7 +59,12 @@ export default function Lineup() {
     projected_points: d?.projected_points ?? null,
     coin_flips: d?.coin_flips ?? null,
     slots: (d?.lineup ?? []).length,
-    warnings: (d?.warnings ?? []).length
+    warnings: (d?.warnings ?? []).length,
+    matchup: posture.data && !posture.data.error && posture.data.win_probability != null
+      ? { win_probability_pct: posture.data.win_probability, stance: posture.data.stance ?? null,
+          point_edge: posture.data.edge ?? null, swaps_suggested: (posture.data.swaps ?? []).length }
+      : null,
+    waivers: waiverSummary(waivers.data)
   });
 
   if (!leagueId) {
@@ -104,6 +129,10 @@ export default function Lineup() {
 
       {loading && !d && <PageLoading label="Solving the lineup…" />}
 
+      <MatchupPosture data={posture.data} loading={posture.loading} error={posture.error}
+        onRetry={posture.refetch} opponentName={opponentName} />
+      <WaiverTeaser data={waivers.data} />
+
       {d?.warnings?.length > 0 && (
         <section className="tr-rise rounded-2xl border border-amber-200 bg-amber-50/60 p-4" style={{ animationDelay: '80ms' }}>
           <h2 className="text-sm font-black uppercase tracking-wide text-amber-900">Check before kickoff</h2>
@@ -165,6 +194,9 @@ export default function Lineup() {
       )}
 
       {d?.note && <p className="text-xs leading-5 text-slate-500">{d.note}</p>}
+
+      <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}
+        onRetry={waivers.refetch} out={out} />
     </Shell>
   );
 }
@@ -266,6 +298,19 @@ function Slot({ c, index }: { c: any; index: number }) {
       )}
     </article>
   );
+}
+
+/** What the explain assistant is told about the waiver section: the same rows the section shows by default. */
+function waiverSummary(w: WaiverBoard | null) {
+  if (!w || w.error) return null;
+  const claims = (w.immediate ?? []).filter(onATeam);
+  const top = claims[0];
+  return {
+    claims_that_help_this_week: claims.length,
+    top_claim: top ? { player: top.player, position: top.position, adds_to_this_weeks_lineup: top.upgrade,
+      drop: top.drop_candidate?.player ?? null } : null,
+    stashes: (w.stashes ?? []).filter(onATeam).length
+  };
 }
 
 const Shell = ({ children }: { children: ReactNode }) =>

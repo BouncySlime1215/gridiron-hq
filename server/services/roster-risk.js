@@ -46,7 +46,7 @@ const LAST_REGULAR_WEEK = 14;
  * adj_ppg, and the reason is the unit-mismatch family this codebase keeps producing.
  *
  * adj_ppg = 0.25 * current_week_ppg + 0.75 * ros_ppg, and current_week_ppg already
- * carries THIS week's matchup, THIS week's active_probability, and a hard zero on a
+ * carries THIS week's projection, THIS week's active_probability, and a hard zero on a
  * bye. Neither question here is about this week:
  *
  *   byeOutlook / byePatches price a FUTURE week w. Solving them on adj_ppg let the
@@ -60,9 +60,11 @@ const LAST_REGULAR_WEEK = 14;
  *   ~1.25 times and expected_loss was understated most for exactly the least
  *   available players — the ones this module exists to flag.
  *
- * ros_ppg is weeklyPpg * sos: a rest-of-season rate with no availability term and no
- * current-week contamination. Rankings did not change in the measured snapshot; the
- * reported magnitudes now mean what their labels say.
+ * ros_ppg is the weekly rate: a rest-of-season rate with no availability term and no
+ * current-week contamination. (It used to be weeklyPpg * sos; the schedule-strength
+ * multiplier failed the weekly walk-forward test and is gone — matchups.js,
+ * 2026-09-17.) Rankings did not change in the measured snapshot; the reported
+ * magnitudes now mean what their labels say.
  */
 const RISK_KEY = 'ros_ppg';
 

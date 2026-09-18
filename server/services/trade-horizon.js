@@ -111,8 +111,22 @@ export function horizonWeights(week, {
  * the actual current week is weights.now * 0.25, not weights.now. This comment used
  * to call it "the change in this week's best lineup"; the number has not been
  * changed here because re-keying it moves every trade ranking and needs grading
- * first. `playoffPpgDelta` is the change in the lineup solved against each player's
- * playoff-schedule-adjusted rate.
+ * first.
+ *
+ * `playoffPpgDelta` is the change in the playoff-weeks lineup: evaluate() solves
+ * the best lineup on the weekly rate (ros_ppg) for each of this league's remaining
+ * playoff weeks, with anyone on bye that week out of it, and averages them. It
+ * carries NO schedule strength. The playoff multiplier it used to carry
+ * (playoff_sos, via playoff_ppg) failed the weekly walk-forward test —
+ * home field and DvP were no better than nothing on 2025 (matchups.js,
+ * 2026-09-17) — and is 1 while that stays true. So the two legs differ only by
+ * WHEN points land: the "now" leg carries this week (its injuries, its byes, its
+ * betting-line correction) and the playoff leg carries playoff-week byes. The
+ * importance weighting (a playoff week worth PLAYOFF_IMPORTANCE regular weeks,
+ * times P(make playoffs)) is untouched. When this week's projection equals the
+ * weekly rate for everyone involved (no bye, no injury, no this-week correction)
+ * and nobody is on bye in the playoff weeks, the two legs are equal and `value`
+ * is ppgDelta.
  */
 export function horizonGain({ ppgDelta, playoffPpgDelta, nowBaseline, playoffBaseline, weights }) {
   const now = Number(ppgDelta) || 0;
@@ -123,14 +137,16 @@ export function horizonGain({ ppgDelta, playoffPpgDelta, nowBaseline, playoffBas
 
   // SCALE CORRECTION, and it is load-bearing.
   //
-  // adj_ppg and playoff_ppg are not the same units. adj_ppg is
+  // adj_ppg and the playoff leg are not the same units. adj_ppg is
   // 0.25*currentWeekPpg + 0.75*rosPpg, and currentWeekPpg is multiplied by
-  // active_probability; playoff_ppg is weeklyPpg * playoff_sos with no
-  // availability term at all. Measured over 288 rostered players, the ratio
-  // playoff_ppg/adj_ppg has mean 1.159 and exceeds 1.0 for every single one.
+  // active_probability (about 0.8 for a healthy starter — a known under-estimate,
+  // contingency.js) and is 0 on a bye; the playoff leg is on the weekly rate, with
+  // no availability term. Measured 2026 W2 over 742 rostered players in the five
+  // synced leagues (after the schedule tilt was removed): rate/adj_ppg has mean
+  // 1.111 and exceeds 1.0 for 734; whole lineups run 1.03-1.10 (mean 1.064).
   //
-  // So a raw subtraction of the two lineup deltas reads a units mismatch as a
-  // schedule signal. Both are converted to a share of their OWN baseline
+  // So a raw subtraction of the two lineup deltas would read that level gap as a
+  // "worth more in December" signal. Both are converted to a share of their OWN baseline
   // lineup first — "this deal improves my lineup by X%" — which cancels the
   // scale, and then expressed back in this-week points so the score stays in
   // familiar units.
@@ -164,11 +180,18 @@ export function horizonNote(weights, gain) {
   }
   const pct = Math.round(weights.playoff * 100);
   const weeks = weights.playoff_weeks_label ?? '15-17';
+  // The tilt is timing only: this week's number (each player's modelled chance to
+  // play, this week's bye, the game-line correction) against playoff-week byes. No
+  // matchup read is behind it (see horizonGain), so the note never implies one. Nor
+  // does it say "injury": measured 2026 W2, 32 of 33 deals with |tilt| > 0.4 had no
+  // injury report or bye on any player involved; 27 of them went to ~0 when this
+  // week's number was set to the weekly rate, i.e. the chance-to-play prior
+  // (contingency.js, ~0.57-0.86 for healthy starters) is what moves them.
   if (gain.playoff_tilt > 0.4) {
-    return `${pct}% of this is weighted to weeks ${weeks}, and the deal is worth ${gain.playoff_tilt.toFixed(1)} more per week there than it is now.`;
+    return `${pct}% of this is weighted to weeks ${weeks}, and the deal is worth ${gain.playoff_tilt.toFixed(1)} more per week there than it is now — this week's number is cut by each player's modelled chance to play (and any bye or betting-line adjustment); the playoff weeks only lose byes.`;
   }
   if (gain.playoff_tilt < -0.4) {
-    return `${pct}% of this is weighted to weeks ${weeks}, where the deal is ${Math.abs(gain.playoff_tilt).toFixed(1)} per week WORSE than it is now — a win-now move.`;
+    return `${pct}% of this is weighted to weeks ${weeks}, where the deal is ${Math.abs(gain.playoff_tilt).toFixed(1)} per week WORSE than it is now — more of its value sits in this week's number (who is likelier to play, the betting-line adjustment), or playoff-week byes on the rosters change who is needed then — a win-now move.`;
   }
   return `${pct}% weighted to weeks ${weeks}; the deal is about the same in both windows.`;
 }

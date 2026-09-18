@@ -211,37 +211,8 @@ export default function MyTeam() {
         <PostDraftPlan leagueId={active.id} teamId={myTeamId} />
       )}
 
-      {synced && lineupDiff && !lineupDiff.error && !lineupDiff.matches && (
-        <div className="card p-4 mb-4 border-amber-300 bg-amber-50/50">
-          <div className="flex items-center gap-2 mb-2">
-            <h3 className="text-sm font-bold text-slate-800">Your submitted lineup isn't optimal</h3>
-            <span className="text-xs text-amber-700 font-semibold">+{lineupDiff.gain} ppg available</span>
-          </div>
-          <div className="grid sm:grid-cols-2 gap-3 text-sm">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wide text-good mb-1">Start</div>
-              {lineupDiff.swap_in.map((s: any) => (
-                <div key={s.player.id} className="flex items-center gap-2 py-0.5">
-                  <span className={`text-[10px] font-black pos-${s.player.position}`}>{s.player.position}</span>
-                  <span className="font-medium">{s.player.name}</span>
-                  <span className="text-xs text-slate-400 ml-auto">{s.slot}</span>
-                </div>
-              ))}
-            </div>
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wide text-crit mb-1">Bench</div>
-              {lineupDiff.swap_out.map((p: any) => (
-                <div key={p.id} className="flex items-center gap-2 py-0.5">
-                  <span className={`text-[10px] font-black pos-${p.position}`}>{p.position}</span>
-                  <span className="font-medium">{p.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <p className="text-[11px] text-slate-500 mt-2">
-            Compares what's actually set on {active?.platform === 'espn' ? 'ESPN' : 'Sleeper'} against the engine's optimal lineup — make this swap on the platform itself before kickoff.
-          </p>
-        </div>
+      {synced && lineupDiff && !lineupDiff.error && (
+        <LineupDiffCard d={lineupDiff} platform={active?.platform === 'espn' ? 'ESPN' : 'Sleeper'} />
       )}
 
       {synced && (
@@ -331,6 +302,123 @@ export default function MyTeam() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+const URGENCY_CHIP: Record<string, string> = {
+  high: 'bg-red-100 text-red-700',
+  medium: 'bg-amber-100 text-amber-800',
+  low: 'bg-slate-100 text-slate-500'
+};
+
+/**
+ * "Is the lineup I set on the platform the best one for THIS week?"
+ *
+ * Everything on it is this week's projection (`/trades/:id/lineup-diff`, basis
+ * `week_points`) — the same number the Start/Sit tab ranks on, not the season
+ * average trades use. Each swap carries how often a call with that projected gap
+ * has actually come out right; a "low" one is close to a coin flip and is styled
+ * quietly on purpose. Hidden when there is nothing to change and nothing to check.
+ */
+function LineupDiffCard({ d, platform }: { d: any; platform: string }) {
+  const swaps: any[] = d.swaps ?? [];
+  const empty: string[] = d.empty_slots ?? [];
+  const flagged: any[] = d.flagged_starters ?? [];
+  const activate: any[] = d.activate_from_ir ?? [];
+  // An older server answers on the season blend (no `basis`); showing that under a
+  // "this week" label is the bug this card replaced, so render nothing instead.
+  if (d.basis !== 'week_points') return null;
+  if (d.matches && !empty.length && !flagged.length && !activate.length) return null;
+  const loud = d.urgency === 'high' || d.urgency === 'medium' || flagged.some(f => f.espn_disagrees);
+  const pct = (p: number) => `${Math.round(p * 100)}%`;
+  const pts = (v: number | null | undefined) => (v == null ? '–' : Number(v).toFixed(1));
+
+  return (
+    // Inline, not Tailwind classes: `.card` in index.css is unlayered and outranks
+    // the utilities, so `border-amber-300 bg-amber-50/50` here never rendered.
+    <div className="card p-4 mb-4" style={loud ? { borderColor: '#fcd34d', background: '#fffbeb' } : undefined}>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+        <h3 className="text-sm font-bold text-slate-800">
+          {d.matches ? `Week ${d.week} lineup: check before kickoff` : `Week ${d.week}: your ${platform} lineup isn't this week's best`}
+        </h3>
+        {!d.matches && <span className="text-xs text-amber-700 font-semibold">+{d.gain} projected pts this week</span>}
+        {d.urgency && (
+          <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${URGENCY_CHIP[d.urgency] ?? ''}`}>
+            {d.urgency}
+          </span>
+        )}
+      </div>
+      {!d.matches && (
+        <p className="text-xs text-slate-500 mb-2">
+          This week, your {platform} lineup projects {d.submitted_points}; the best lineup on your roster projects {d.optimal_points}.
+        </p>
+      )}
+
+      {swaps.length > 0 && (
+        <div className="divide-y divide-slate-100 text-sm">
+          {swaps.map((s: any) => (
+            <div key={s.in.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 py-1">
+              <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <span className="text-[10px] font-bold uppercase tracking-wide text-good">Start</span>
+                <span className={`text-[10px] font-black pos-${s.in.position}`}>{s.in.position}</span>
+                <span className="font-medium">{s.in.name}</span>
+                <span className="text-xs text-slate-400">{pts(s.in.week_points)}</span>
+              </span>
+              <span className="text-xs text-slate-400">over</span>
+              {s.out ? (
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <span className={`text-[10px] font-black pos-${s.out.position}`}>{s.out.position}</span>
+                  <span className="font-medium">{s.out.name}</span>
+                  <span className="text-xs text-slate-400">{s.out.reason ?? pts(s.out.week_points)}</span>
+                </span>
+              ) : (
+                <span className="text-slate-500">an empty {s.slot} slot</span>
+              )}
+              <span className="ml-auto text-xs text-slate-600 whitespace-nowrap">
+                +{s.gap} · right about {pct(s.p_right)}
+                <span className={`ml-1.5 text-[10px] font-bold uppercase px-1 py-0.5 rounded ${URGENCY_CHIP[s.urgency] ?? ''}`}>{s.urgency}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(empty.length > 0 || flagged.length > 0 || activate.length > 0) && (
+        <ul className="mt-2 space-y-1 text-xs text-slate-600">
+          {flagged.map((f: any) => (
+            <li key={`f-${f.id}`}>
+              <span className="font-semibold text-crit">{f.name}</span> is counted as 0 this week ({f.reason}).
+              {f.espn_disagrees && (
+                <span className="text-amber-800"> {platform} still lists him {String(f.espn_status).toLowerCase().replace(/_/g, ' ')} — our news scan may be wrong, so check before you bench him.</span>
+              )}
+            </li>
+          ))}
+          {empty.map((slot: string, i: number) => {
+            // Empty only because the news scan zeroed a starter ESPN still lists as playing
+            // (2026 wk 2: Mahomes, a false season-ending read) — don't send him to waivers first.
+            const disputed = flagged.find((f: any) => f.espn_disagrees && f.position === slot);
+            return (
+              <li key={`e-${slot}-${i}`}>
+                {disputed
+                  ? <>Nobody else on your roster can play <span className="font-semibold">{slot}</span> — look at waivers only if {disputed.name} really is out.</>
+                  : <>Nobody on your roster can play <span className="font-semibold">{slot}</span> this week — look at waivers.</>}
+              </li>
+            );
+          })}
+          {activate.map((a: any) => (
+            <li key={`a-${a.id}`}>
+              <span className="font-semibold">{a.name}</span> is in your IR slot but listed {String(a.espn_status).toLowerCase().replace(/_/g, ' ')} ({pts(a.week_points)} projected) — activate him and he starts.
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-[11px] text-slate-500 mt-2">
+        Uses THIS WEEK's projection (Week {d.week}: matchup, byes, injury odds and the betting line), the same numbers as
+        the Start/Sit tab, not the season average. "Right about X%" is how often the higher projection actually outscored the
+        other at that gap in past seasons; under 60% is close to a coin flip. Make changes on {platform} before kickoff.
+      </p>
     </div>
   );
 }

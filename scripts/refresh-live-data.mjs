@@ -55,6 +55,14 @@ export const FANTASY_LIVE_JOBS = [
   // SCHEDULER_DISABLED=1. It runs in this process, so restart the loop together with the
   // web server: the snapshot must come from the code that is being served.
   'nfl_weekly_learning',
+  // 2026-09-18 structural relook: both fully configured in scheduler.js already
+  // (refreshNflModelGrowth, refreshFfOpportunity) but scheduler-only, so player_week_usage
+  // was stuck at the season's first week while SCHEDULER_DISABLED=1 — silently inverting
+  // the play-chance role layer's "missed last game" signal from week 3 on (a player who
+  // sat out reads as a healthy starter). Both are cheap on a clean week (mostly SQLite
+  // reads; heavier work only fires when a newly finalized week is actually ahead).
+  'nfl_model_growth',   // finalized-week ingest, shadow settlement, next-week fit — 6h maxAge
+  'ffopportunity',      // weekly expected-fantasy-points benchmark — 3-day maxAge
 ];
 
 /**

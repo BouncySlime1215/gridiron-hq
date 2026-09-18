@@ -375,7 +375,7 @@ export function vetoClimate(lg, { season = null, priceOfPlayer = null } = {}) {
     votes_required: payload?.settings?.tradeSettings?.vetoVotesRequired ?? null,
     // The owners who get a vote on a deal between me and one partner.
     other_owners: Math.max(0, teamCount - 2),
-    team_count: teamCount, n: 0, observed_max_votes: 0, observed: [],
+    team_count: teamCount, n: 0, priceable_n: 0, reference_n: 0, observed_max_votes: 0, observed: [],
     reference: null, reference_skew_pct: null, fitted: false,
     source: 'ESPN league settings + league_transactions_raw',
   };
@@ -416,9 +416,20 @@ export function vetoClimate(lg, { season = null, priceOfPlayer = null } = {}) {
   }
   climate.observed.sort((a, b) => b.votes - a.votes);
   climate.n = climate.observed.length;
+  // `priceable_n` is how many vetoed packages have a proposal row we can price
+  // at all; `reference_n` is how many stand behind `reference_skew_pct`, which
+  // is ALWAYS exactly one (the highest-voted priceable package, picked below).
+  // League 4 vetoed 4 packages, 2 are priceable, and 1 supplies the 18% — the
+  // sentence Nick reads used to credit all four with it (GATE G6: "the
+  // reference … with n = 1 printed").
+  climate.priceable_n = climate.observed.filter(o => Number.isFinite(o.skew_pct)).length;
   climate.observed_max_votes = climate.observed[0]?.votes ?? 0;
   const withSkew = climate.observed.find(o => Number.isFinite(o.skew_pct));
-  if (withSkew) { climate.reference = withSkew; climate.reference_skew_pct = Math.abs(withSkew.skew_pct); }
+  if (withSkew) {
+    climate.reference = withSkew;
+    climate.reference_skew_pct = Math.abs(withSkew.skew_pct);
+    climate.reference_n = 1;
+  }
   else if (climate.observed.length) climate.reference = climate.observed[0];
   return climate;
 }
@@ -437,8 +448,13 @@ export function vetoRiskFor(climate, { theirValuePct = null, giveValue = null, g
     : unreachable
       ? `${votesRequired} votes, which the ${owners} other owners cannot reach — a veto is impossible here`
       : `${votesRequired} of the ${owners} other owners`;
+  // The packages that actually supply the reference skew, which is not the same
+  // number as the packages that drew a veto vote (see vetoClimate#reference_n).
+  const refN = Number.isFinite(climate?.reference_n) ? climate.reference_n
+    : (Number.isFinite(climate?.reference_skew_pct) ? 1 : 0);
+  const priceableN = Number.isFinite(climate?.priceable_n) ? climate.priceable_n : refN;
   const base = { votes_required: votesRequired, other_owners: owners, skew_pct: skew,
-    veto_reachable: !unreachable, n: climate?.n ?? 0,
+    veto_reachable: !unreachable, n: climate?.n ?? 0, reference_n: refN, priceable_n: priceableN,
     reference_skew_pct: climate?.reference_skew_pct ?? null, fitted: false };
   if (!climate?.n || !Number.isFinite(climate?.reference_skew_pct)) {
     return { ...base, level: 'unknown',
@@ -448,7 +464,9 @@ export function vetoRiskFor(climate, { theirValuePct = null, giveValue = null, g
   const ref = climate.reference_skew_pct;
   const watch = ref * TACTIC_THRESHOLDS.veto_watch_share;
   const level = !Number.isFinite(skew) ? 'unknown' : skew >= ref ? 'high' : skew >= watch ? 'watch' : 'low';
-  const sample = `the ${climate.n} package${climate.n === 1 ? '' : 's'} this league has voted on`;
+  const sample = refN === climate.n
+    ? `the ${climate.n} package${climate.n === 1 ? '' : 's'} this league has voted on`
+    : `the ${refN} of ${climate.n} vetoed packages this number comes from`;
   const why = level === 'high'
     ? `this sends ${skew.toFixed(0)}% more market value than it gets back, at or past the ${ref.toFixed(0)}% `
       + `of ${sample} (${climate.observed_max_votes} votes drawn; ${needed} to kill it)`

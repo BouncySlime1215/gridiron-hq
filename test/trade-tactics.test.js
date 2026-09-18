@@ -715,6 +715,29 @@ test('G6c: a package at the skew the league has already voted against reads high
     'the sample behind the reference is in the sentence Nick reads');
 });
 
+test('G6d: the sample behind the reference is the packages we can PRICE, not every vetoed one', () => {
+  // VERIFIER, 2026-09-18. G6 promised "the one multi-vote package is the
+  // reference with n = 1 printed". On league 4 the live sentence reads "well
+  // inside the 18% of the 4 packages this league has voted on" — 4 packages
+  // drew a veto vote there, but only ONE of them has a proposal row with items
+  // we can price, so exactly one supplies the 18%. Quoting 4 overstates the
+  // evidence behind the number on a card Nick reads.
+  const climate = tactics.vetoClimate(LG, { season: SEASON, priceOfPlayer: () => 1000 });
+  assert.equal(climate.n, 1);
+  assert.equal(climate.reference_n, 1, 'how many vetoed packages actually supply a skew');
+  const live = { votes_required: 5, other_owners: 8, n: 4, reference_n: 1, observed_max_votes: 4,
+    reference_skew_pct: 18.1 };
+  for (const skew of [3, 12, 18.5]) {
+    const why = tactics.vetoRiskFor(live, { theirValuePct: skew }).why;
+    assert.doesNotMatch(why, /4 packages/,
+      `the 18% reference comes from one package, not four: ${why}`);
+    assert.match(why, /\b1 of 4\b/, `say how many of the vetoed packages we can price: ${why}`);
+  }
+  // Unchanged wording when every vetoed package is priceable.
+  assert.match(tactics.vetoRiskFor({ ...live, n: 1, reference_n: 1 }, { theirValuePct: 3 }).why,
+    /1 package this league has voted on/);
+});
+
 // ======================================================= G7 how Nick looks
 test('G7a: never lead with a player the whole league knows he is shopping', () => {
   const self = pricing.selfRead(LEAGUE, { season: SEASON });

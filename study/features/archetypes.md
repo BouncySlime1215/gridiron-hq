@@ -184,14 +184,14 @@ predicting what he will do in a draft we do not have. "Will Greene auto-drafts" 
 Will Greene with four observations behind it; "auto-drafting is a stable managerial trait" is a claim
 this dataset does not support once he is removed from it.
 
-**Identity caution, 2026-09-17.** This build takes names from ESPN's member records. ESPN lists the
-owner of league 4 roster 7 as "Aiden Smith"; Nick identified roster 7 as Haiden Bonczek, and separately
-said his roommate Aidan is not in the league chat. Which person the "Aiden Smith" account is has not
-been confirmed. What the data does say about that account: in the 2026 league-4 draft all 17 of its
-picks carry ESPN auto-draft type 3 — one mode for the whole draft, unlike the scattered type 1/2 picks
-elsewhere — and it auto-picked 35% across 49 picks in four seasons. Nick's read was that Haiden did NOT
-auto-draft "unless league data supports that"; for the 2026 draft it does. That is a statement about a
-draft, not about how the roster is managed in season.
+**Identity, resolved 2026-09-18.** ESPN's "Aiden Smith" account (member {AB513C66...}) is Haiden
+Bonczek: Nick confirmed roster 7 = Haiden (`league_member_identity`, 'confirmed by Nick'), and the same
+member owns team 2 in league 3 ("My 2025 League"), the other league Nick shares with him. His 49 picks
+are three league-seasons, not four: league 3 2025 (16 picks, 0 auto), league 3 2026 (16, 0 auto) and
+league 4 2026 (17, all 17 auto, ESPN type 3). So Nick's read ("he didn't auto-draft") is right for
+league 3 and wrong for the Transfer portal draft. The career line above (-1.73 wins of luck on a 0.41
+all-play) is his league-3 record. Either way it is a statement about drafts, not about how he manages
+a roster in season.
 
 ## Jev
 

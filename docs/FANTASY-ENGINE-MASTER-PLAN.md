@@ -16,19 +16,18 @@ Nick, 03:50: *"Trades are designed by the people they are being sent to while fi
 
 ---
 
-### Sequence
+### Sequence — optimal order (re-checked 2026-09-18, 04:20)
 
 | # | Workflow | What it delivers | Est. |
 |---|---|---|---|
-| W0 | early-season + skills review *(running)* | Week 2-4 projections use the structural head; rest-of-season value from preseason + in-season evidence; fake floors; play-chance by role; waiver drops never cut a higher-ROS player; IR-slot starts; 10-lens skills review + fixes | ~1 h left |
-| WQ | **Queued work + model build-out** (Q below) | Every item deferred earlier in the session and everything still open in the model chain, each gated; housekeeping | 4-6 h |
-| W1 | **Trade Brain** | Trades built from how each person values players, with the edge, the tactic, the package and the negotiation plan | 2-3 h |
-| W2 | **Coach** | Grounded chat + the weekly action plan ("send now / wait until…"), cheap, numbers that tell a story | 2 h |
-| W3 | **Dashboard home** | New `/` page: action plan, top trades, Coach, matchup + intelligence read, major news, waivers; deep-dive links | 1.5 h |
-| W4 | **UI audit + cleanup** | Every page inspected in the browser at phone and desktop width; dead/betting remnants removed; one consistent design | 1.5-2 h |
-| W5 | **Final integration** | Full suite, build, harness, live smoke on all 5 leagues, restart, morning report | 45 min |
+| W0 | early-season + skills review *(running)* | Week 2-4 projections use the structural head; rest-of-season value from preseason + in-season evidence; play-chance by role; waiver drops never cut a higher-ROS player; IR-slot starts; 10-lens skills review + fixes. **Then restart** so the weekend's decisions run on it. | ~1 h |
+| WA | **Essentials + every audit + Trade Brain** | Phase 1, in parallel: (a) *essentials that feed every number the trades and plan use or that lose data if late* — play-chance activation respecting ESPN Questionable/Doubtful, then the fake-floor fix; `weekly-learning` keeps the early-week key; **weekly roster snapshots start on the refresh loop** (bench points need history; every uncaptured week is lost); launcher `spawn node ENOENT` so the phone Start works; (b) *Discover → Audit → Decide* on every existing system the Trade Brain, Coach, plan and dashboard overlap. Phase 2: the Trade Brain, including the trade objective's unfitted constants, multi-week horizon, bye weeks and the trade deadline inside trade value, the P(accept) band and the AI proposal pass. | 3-3.5 h |
+| WB | **Coach + action plan + dashboard home** | API contracts first, then in parallel: the computed weekly action plan, the grounded Coach chat (plan and trades as its tools, evidence-block explanations = Phase 7), and the dashboard home built against the same contracts. | 3 h |
+| WC | **UI audit + cleanup** | Every page in the browser at phone and desktop width, including the new home; dead/betting remnants removed; numbers agree across pages. | 2 h |
+| WD | **Model refinements** (Q1 remainder, Q3) | `targetSharePrior`, QBR, NB dispersion, ensemble form, copula/spread rule, postmortem cutoff, posture bootstrap, volume-prediction grading, ROS beyond week 10 (**deadline: before week 11**), stacking as a playoff tool, early-QB → draft tool with a VBD baseline, Phase 9 backtest, roster-risk per league, field rename, prop-CLV tests, the three unused files. Each gated. | 4 h |
+| WE | **Final integration + morning report** | Full suite, build, harness, live smoke on all 5 leagues, restart, push, report. (Every workflow above also ends with its own integration pass.) | 45 min |
 
----
+**Why this order.** (1) Time-sensitive first: week-2 decisions and data that is lost if not captured now (roster snapshots). (2) Dependencies before consumers: numbers → trades → plan → Coach → dashboard; the audits only read code, so they run in parallel with the essentials instead of waiting. (3) Contracts first lets the Coach, plan and home page be built side by side in one workflow. (4) Refinements last: their measured gains are small and nothing downstream depends on them; the one with a deadline (ROS beyond week 10) has weeks of slack. (5) One workflow at a time on this machine, but many agents inside each.
 
 ### Existing systems first — discover, audit, decide, then build
 

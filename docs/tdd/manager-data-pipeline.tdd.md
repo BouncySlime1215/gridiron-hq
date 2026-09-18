@@ -42,7 +42,15 @@ Effect on league 4's live counterparty read (old snapshot, then rebuilt):
 | 10 (Lars) | none (n 4) | 0.38 (n 8) | 1.17 -> 1.04 |
 | 7 (Haiden) | none (n 4) | 0.40 (n 5) | 1.13 -> 1.07 |
 
-League 3: roster 3 has 0.17 (n 6) and roster 8 has 0.00 (n 5), giving receptiveness 0.92 and 0.90. These are the first observed-behaviour reads outside league 4.
+The "old" column is the 09-17 snapshot, built from less data. Most of the move from "none" to a rate
+comes from transactions captured after that snapshot, not from the reader fix. The old reader run on
+the SAME data (verifier, production copy) gives Nick 0.56 (n 9), Raj 0.43 (n 7), Lars 0.44 (n 9) and
+Haiden 0.50 (n 6). The reader fix's own effect is 0.56 -> 0.43, 0.43 -> 0.20, 0.44 -> 0.38 and
+0.50 -> 0.40.
+
+League 3: roster 3 (Tyler Weiss) has 0.17 (n 6), giving receptiveness 0.92. This is the only
+observed-behaviour read on a counterparty outside league 4. Roster 8 (0.00, n 5) is **Nick's own
+team** (my_team_id 8), so it is never used as a counterparty read.
 
 ## User journeys
 - As Nick, I want every league's trade ideas to know how each manager actually behaves, not only the league that has a group chat.
@@ -138,3 +146,17 @@ Sources by league:
   - League 3 roster 2 is the same ESPN member as league 4 roster 7 (Haiden). His chat reads and profile are **not** carried across by this item, per the brief. Whether a person's profile transfers between leagues is T1's call.
 - **Owner of `scripts/build-negotiation-profiles.mjs`:** import `NEGOTIATION_PROFILE_SCHEMA` and `negotiationProfileErrors` from counterparty-pricing instead of carrying a second copy.
 - **Tests (suite owner):** add `GRIDIRON_CHAT_DB_PATH ??= '/nonexistent/...'` to `test/offline-guard.mjs` so no test can read the private corpus. After this change the existing trade tests no longer open it, but nothing enforces that.
+
+## Adversarial verification (2026-09-18)
+
+Re-run by a separate verifier on its own production copy (10:49) with the real chat DB opened read-only.
+Scripts and gate: the `wa/verify-manager-data-pipeline/` scratch folder.
+
+| Check | Result |
+|---|---|
+| RED before GREEN | f2248c0 fails 21/21 and cff411d fails 1/22 in their own trees. HEAD passes 22/22. The 17 neighbour files pass 114/114. |
+| G1, G2, G4, G5, G6, G10 | Reproduced: 46 identity rows, league 4 unchanged, 1,273 signals, idle re-run unchanged (stamps identical), 0.38 s, sync_log ok, 9 profiles plus ME. |
+| G3, all 5 leagues | Decisions, proposals, veto votes and accept rates match an independent SQL count for all 46 rosters. |
+| G7 | The tier applies once: receptiveness is identical with the tier set to fair or hard. The output ratio is within 0.0054 of 0.55 across 11 real deals. That spread is rounding (score to 3 decimals, value cost to 2). GATE.md pre-registered ±0.001, but the test and the results use ±0.002 without saying so. |
+| G8 | The build leaves the top 10 unchanged in all 5 leagues. In the full lists, only deals with league 3 roster 3 and league 4 Raj, Lars and Haiden move. With the old code on the built DB, every league's ranking would have moved through the perception term. |
+| Fixed | 46ce795 (RED) and fe1b81a (GREEN): a missing `manager_chat_profile` (the rollup's DROP/CREATE window, or a crashed rollup) used to fail all 5 leagues. It now fails league 4 alone, which keeps its rows. |

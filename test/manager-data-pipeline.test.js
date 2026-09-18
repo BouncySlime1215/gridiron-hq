@@ -403,6 +403,26 @@ test('refresh: one call covers every league, uses chat names only where Nick con
   assert.ok(!JSON.stringify(r).includes('secret-s2'), 'never echoes league credentials');
 });
 
+test('refresh: a chat table missing mid-rollup fails the chat league only; chat-free leagues still build', () => {
+  // The rollup drops and recreates manager_chat_profile outside a transaction;
+  // a crash between the two leaves it missing. That must not block the leagues
+  // that have no chat at all.
+  const midroll = path.join(temp, 'midroll.sqlite');
+  fs.copyFileSync(CHAT_PATH, midroll);
+  const c = new DatabaseSync(midroll); c.exec('DROP TABLE manager_chat_profile'); c.close();
+  const chatRows = sigRows(11).length;
+  const saved = process.env.GRIDIRON_CHAT_DB_PATH;
+  process.env.GRIDIRON_CHAT_DB_PATH = midroll;
+  let r;
+  try { r = signals.refreshManagerData(); } finally { process.env.GRIDIRON_CHAT_DB_PATH = saved; }
+  const byId = new Map(r.leagues.map(l => [l.league_id, l]));
+  assert.match(byId.get(11).error ?? '', /manager_chat_profile/);
+  assert.equal(byId.get(12).error, undefined);
+  assert.ok(byId.get(12).signals > 0);
+  assert.equal(r.status, 'error');
+  assert.equal(sigRows(11).length, chatRows, 'the chat league keeps its stored rows');
+});
+
 // ================================================================= pricing
 test('pricing: the counterparty layer does not apply the "hard" tier — the trade engine applies it once', () => {
   const fair = pricing.counterpartyLayer(12, { season: 2026, week: 2 }).get('3');

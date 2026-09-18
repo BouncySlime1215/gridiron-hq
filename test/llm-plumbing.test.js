@@ -323,6 +323,22 @@ test('a failed call releases its hold and logs no spend', async () => {
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM ai_usage WHERE feature = 'coach'").get().n, 2);
 });
 
+test('the pre-call estimate does not undershoot a number-dense brief (measured live on Sonnet 5, 2026-09-18)', () => {
+  // The exact request of the G4 live cache check: this synthetic brief plus the
+  // grounding system prompt billed 5,444 input tokens (12 uncached + 5,432
+  // cache write) — about 2.2 characters per token, denser than prose. Situation
+  // briefs and trade contexts are mostly numbers, so the gate must hold here.
+  const lines = [];
+  for (let i = 1; i <= 160; i++) lines.push(`Row ${i}: synthetic player P${i} (team T${i % 32}) projects ${(5 + (i * 7) % 20).toFixed(1)} points, role code R${i % 5}.`);
+  const brief = `SYNTHETIC CACHE CHECK BRIEF — not real data.\n${lines.join('\n')}`;
+  const request = { model: SONNET, max_tokens: 64, system: claude.GROUNDING_SYSTEM, messages: [{ role: 'user', content: [
+    { type: 'text', text: brief, cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: 'Reply with the single word: ok' }
+  ] }] };
+  const inputOnly = budget.estimateCallCostUsd({ model: SONNET, maxTokens: 0, request, cacheTtl: '5m' });
+  assert.ok(inputOnly >= 5_444 * 2.50 / 1e6, `estimate $${inputOnly} is below the billed $${5_444 * 2.5 / 1e6}`);
+});
+
 // ---------------------------------------------------------------- settings hook
 
 test('Nick can raise, zero and reset a budget; the setting persists in app_settings', async () => {

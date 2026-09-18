@@ -137,6 +137,48 @@ Nick's decisions (B2) don't block any of it.
 - **~12:00 — real league history collecting.** Sleeper crawler built test-first (14 tests), verified on the first real leagues, running in the background (~2 h for ~2,500 league-seasons). Provenance audit landed (`docs/NUMBER-PROVENANCE.md`): ~8% of future numbers fully historical today; every finding assigned to a step.
 - **11:40 — backups restored.** The nightly backup job was not loaded, while agents were writing fitted models into the production DB. A verified one-off copy was taken, the job was limited to the app DB (the 11 GB line-history archive would need ~77 GB at 7 copies on a 93%-full disk), loaded, and run once (672 MB, integrity ok). Runs 04:30 daily, keeps 7.
 
+#### B4. WA workflow — full record (Nick, 2026-09-18: "record everything on this workflow in the plan — ids and progress reports and work")
+
+**Identity.** Run id `wf_90ebcd25-088` (label `wa-essentials-audits-trade-brain`). Background task_id: **not recoverable from this session** (assigned before a context compaction; see A2 rule 10's gap note) — use the user's own `/tasks` or `/workflows` panel for it, not a guess. Journal: `~/.claude/projects/-Users-nick-matta-Claude/b8d740e9-a5f3-4cad-8a9a-765d40f59b44/subagents/workflows/wf_90ebcd25-088/journal.jsonl`. Started 2026-09-18, still running as of this entry.
+
+**Every agent, in order, with its id** (`grep agentId` in the journal to find any of these directly):
+
+| # | Label | Phase | Agent id | Verdict |
+|---|---|---|---|---|
+| 1 | `build:play-chance-live` | Essentials | `ac2b2c92621fbf08e` | shipped_partial |
+| 2 | `review:silent-failure-hunter` | Essentials | `a717da9ae86fd8579` | findings (read-only) |
+| 3 | `review:mle-reviewer` | Essentials | `a519e0fce305cfc76` | findings, approve with warnings |
+| 4 | `build:manager-data-pipeline` | Essentials | `a85c2b185aaf74483` | shipped |
+| 5 | `build:llm-plumbing` | Essentials | `a63133b881d7040b3` | shipped |
+| 6 | `verify:llm-plumbing` | Verify | `aa8e05ef5f7d490d8` | confirmed_with_fixes |
+| 7 | `verify:play-chance-live` | Verify | `abe103df9d34d1ef2` | confirmed_with_fixes |
+| 8 | `verify:manager-data-pipeline` | Verify | `af7755fa8a915a6e6` | confirmed_with_fixes |
+| 9 | `build:infra-essentials` | Essentials | `aff856d6f5985e385` | shipped |
+| 10 | `verify:infra-essentials` | Verify | `a91f92b6637b5f6cd` | **issues_unfixed** |
+| 11 | `fix:review-findings-2` | Review fixes | `a40f521415c9e1024` | 5 applied, 1 rejected, 4 deferred |
+| 12 | `build:trade-engine-correctness` | Trade Brain | `a3636deea5a8e6561` | shipped |
+| 13 | `verify:trade-engine-correctness` | Verify | `ac2f2f3a087554881` | **issues_unfixed** |
+| 14 | `build:valuation-map` | Trade Brain | `aa91b1f6c902f1599` | shipped |
+| 15 | `verify:valuation-map` | Verify | `ac93274f51587f5f6` | **issues_unfixed** |
+| 16 | `build:tactics-and-packages` | Trade Brain | `a9a744c291074cfdc` | shipped (GREEN `ffe97c9`, then fix commits `9cee38a`, `f92bb5f`) |
+| 17 | `verify:tactics-and-packages` | Verify | `ac60b583127cb402a` | **running now** (as of this entry — live test process confirmed active) |
+
+**The actual work, condensed from each builder's own report — not just verdicts:**
+
+- **llm-plumbing:** real per-call cost tracking against live Anthropic pricing (was under-reporting: true spend $2.29, old reporting said $1.14 for the same 47 calls). Prompt caching wired (repeat call: $0.0012 vs $0.0136 first call). Coach capped $1/day, trades $0.50/day, enforced pre-call.
+- **play-chance-live:** fitted chance-to-play rates built and tested but **deliberately held back from going live** — the running server still has old code, and old-code-plus-new-rates tested worse (would start injured players). Write happens at the next restart, not before. Took 3 fit runs to pass all checks.
+- **manager-data-pipeline:** all 5 leagues (was just league 4) get a real manager-identity read. Found and fixed: Nick's own trade accept rate was showing 0.80, really 0.43.
+- **infra-essentials:** roster history for all 46 teams (exact-match verified against ESPN scores), phone Start button hardened, weekly-learning's rejection rule fixed (was wrongly rejecting good models 55% of the time on a coverage technicality, now 2.5%). **Unfixed (medium):** no supervised process restarts the refresh loop after a reboot/crash; a removed "Data Health" page means failures are invisible to Nick except in raw logs.
+- **trade-engine-correctness:** found and fixed a real bug — the deal-finder collapsed near-duplicate offers to the highest-scoring variant, then discarded the WHOLE idea if that variant failed a fairness check, hiding good deals behind bad ones. Fix order (filter, then collapse): ideas went 18→25 / 3→5 / 5→20 / 3→15 / 6→9 across the 5 leagues, 39 new ideas, zero lost. **Unfixed (medium):** `offerFor`/`offerForMany` still refuse a genuinely good horizon-weighted upgrade (Ja'Marr Chase, live-verified) on a stale weekly-only ceiling gate — `trade-engine.js:1935-1959`, `2101-2118`.
+- **valuation-map:** built a real per-manager price list — your number times up to 8 named, capped, sourced adjustments (chat talk, talk-vs-usage mismatch, negotiation profile, hot streak, luck, positional need, post-loss timing, untouchable-credibility). Ran its own honest pre-registered test: does it predict real accept/decline better than raw value alone? **No — 0.81 vs 0.81, statistically indistinguishable** (too few real decisions yet, ~30, to prove it either way) — reported plainly, not hidden. **Unfixed (medium):** an edge-test violation — one surfaced trade scores positive only via the perception multiplier while it's -0.48 ppg for Nick on real numbers, against the plan's own non-negotiable rule — `trade-engine.js:1354-1358` (`perceptionFactorFor`).
+- **tactics-and-packages:** builds the nine trade tactics + "the edge test" enforcement the plan specifies (line 245) and nothing before this enforced. Its own follow-up commits fixed 3 more real bugs found on real data: an ablation that measured nothing (zeroing a source moved 0 of 223 scores, now correctly moves 35 of 57), an "active hours" read that was really just reporting draft time, and a sneak-in rule that fired as a hidden QB detector (18 of 60 ideas, now 8, measured against the right positional baseline). **Verify in progress — check its result before assuming either open bug above is still open; this item's own scope (the edge test) is plausibly relevant to the valuation-map one.**
+
+**The two review agents (read-only, no code changes, $0 spend):**
+- **silent-failure-hunter** — *high* severity: the validated chance-to-play role layer silently isn't running in production, a bare `catch` turns any read error into "treat as absent" with no log or warning anywhere. Live effect measured: healthy starters like Jayden Daniels show "57% likely to play, check before kickoff" with zero real injury concern.
+- **mle-reviewer** — approved with warnings: the fantasy coordinator is served on a different basis than it was trained on (ensemble shift double-counted from week 5 on; every player gets a flat -0.78 penalty meant only for players missing specific training data). Live, pricing Start/Sit, waivers, posture, and 25% of trade value right now.
+
+**Full suite result at last check (infra-essentials verify):** 2,525 of 2,567 pass, only the 3 known betting prop-CLV failures.
+
 ### C. The remaining steps — what each contains
 
 **WA (running):** see D4 for the Trade Brain design. Its briefs do not include depth-3 trade sequences or three-team routes — those moved to WD.

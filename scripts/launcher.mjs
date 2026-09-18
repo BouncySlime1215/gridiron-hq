@@ -37,8 +37,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { clientBuildStatus, writeBuildMarker } from './client-build-check.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const KEY_FILE = path.join(ROOT, 'server', 'data', 'launcher-key.txt');
-const LOG_DIR = path.join(ROOT, 'server', 'data', 'launcher-logs');
+// Overridable so tests never read the real key or write the real logs.
+const KEY_FILE = process.env.LAUNCHER_KEY_FILE || path.join(ROOT, 'server', 'data', 'launcher-key.txt');
+const LOG_DIR = process.env.LAUNCHER_LOG_DIR || path.join(ROOT, 'server', 'data', 'launcher-logs');
 const KNOWN_NODE_LOCATIONS = ['/opt/homebrew/bin/node', '/usr/local/bin/node'];
 
 const isExecutableFile = p => {
@@ -325,7 +326,7 @@ export function main({ port = Number(process.env.LAUNCHER_PORT) || 5199,
     process.exit(1);
   });
   server.listen(port, '127.0.0.1', () => {
-    console.log(`Launcher listening on http://127.0.0.1:${port}`);
+    console.log(`Launcher listening on http://127.0.0.1:${server.address().port}`);
     // The key itself stays in its 0600 file; this log is world-readable.
     console.log(`Key: in ${path.relative(ROOT, KEY_FILE)}; node: ${bootNode}`);
   });

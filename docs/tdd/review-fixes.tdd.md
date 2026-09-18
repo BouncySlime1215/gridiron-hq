@@ -465,3 +465,23 @@ fail by mutation). What this section adds:
 - `docs/tdd/week2-numbers.tdd.md`: the six step-1 gate records copied verbatim from the
   session scratch directory, the per-swap calibration result, and a table mapping each
   gated behaviour to its retroactive tests and mutation counts.
+
+## 17. No eval graded the combined shipped state (high; eval-harness)
+
+Journey: as whoever promotes a fit or refits availability, I want one command that
+fails if any lineup objective in any league has nothing to rank on.
+
+`scripts/eval-lineup-objectives.mjs` runs `lineupCall` for every league x {mean,
+ceiling, floor} on a database copy (it refuses the live file: lineupCall also writes
+Decision Inbox rows) and fails a call that errors, totals 0, or has more than half of
+its contested margins exactly tied while claiming to have optimised the objective. An
+objective that falls back and says so passes. RED (b13b3f2): the script did not exist
+(5 of 5 fail). GREEN: `test/eval-lineup-objectives.test.js` 5/5.
+
+On the 05:00 snapshot: current code PASS 15 of 15; the same snapshot with
+lineup-brain.js from 79dbeb1 (before section 2) FAIL 10 of 15 — all five floor calls,
+"projected_points 0 ... 6 of 6 contested margins are exact ties on floor".
+
+Not done (deferred): wiring it into the promote scripts, and the p10-coverage check
+(does the card's floor cover week-w outcomes, did-not-play = 0, under the live
+P(play)), which needs the play-chance role layer live to mean anything.

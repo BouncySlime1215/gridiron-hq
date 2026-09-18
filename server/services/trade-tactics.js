@@ -237,6 +237,14 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
   const timed = tx.map(t => ({ ...t, at: toTime(t.proposed_at) }))
     .filter(t => t.at != null && t.at <= cutoff);
   const byId = new Map(timed.map(t => [t.tx_id, t]));
+  // What counts as "him being in the app". NOT the draft: every manager's
+  // picks land inside one league-wide sitting, so including them made all ten
+  // managers in a league share the same busiest hour — which was the hour of
+  // the draft, reported as a personal habit. Measured 2026-09-18: with DRAFT
+  // rows in, leagues 1 and 5 gave every roster the same busiest hour from 16-21
+  // actions, of which 16 were draft picks. NOT league PROCESS rows either
+  // (waivers clear on the league's clock, not his).
+  const ownAction = t => t.type !== 'DRAFT' && t.execution_type !== 'PROCESS';
 
   const out = new Map();
   const blank = id => ({
@@ -258,7 +266,7 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
     if (t.team_id == null || Number(t.team_id) <= 0) continue;
     const rid = String(t.team_id);
     if (!out.has(rid)) out.set(rid, blank(rid));
-    actions.set(rid, [...(actions.get(rid) ?? []), t.at]);
+    if (ownAction(t)) actions.set(rid, [...(actions.get(rid) ?? []), t.at]);
 
     if (t.execution_type !== 'EXECUTE' || !t.related_tx_id) continue;
     if (t.type !== 'TRADE_ACCEPT' && t.type !== 'TRADE_DECLINE') continue;
@@ -295,8 +303,9 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
       entry.active_hours = hist.map((n, h) => ({ hour_utc: h, n })).filter(h => h.n > 0);
       entry.busiest_hour = busiest;
     } else {
-      entry.active_hours_reason = `rests on ${acts.length} of the ${MIN_A} timestamped actions needed `
-        + 'before an active-hours window means anything';
+      entry.active_hours_reason = `rests on ${acts.length} of the ${MIN_A} moves he made on his own `
+        + `clock needed before an active-hours window means anything (draft picks and league waiver `
+        + `processing do not count)`;
     }
   }
   return out;
@@ -473,15 +482,20 @@ export function vetoRiskFor(climate, { theirValuePct = null, giveValue = null, g
  * what "and still positive for Nick" means in the brief.
  */
 export function anchorLadder(variants, { acceptRate = null, acceptRateN = 0 } = {}) {
-  const rungs = (variants ?? []).filter(v => (v?.score_signed ?? 0) > 0);
+  const rungs = (variants ?? []).filter(v => (v?.score_signed ?? 0) > 0)
+    // What a rung COSTS is what we hand over minus what comes back, not the
+    // gross give. Ranked on the gross give, a 2-for-2 that also returns a
+    // throw-in looked like a far dearer offer than the 1-for-1 beside it, and
+    // the ladder printed "ask 3,669, floor 10,184" for the same target.
+    .map(v => ({ ...v, net_cost: (v.give_value ?? 0) - (v.get_value ?? sumValue(v.i_get)) }));
   if (rungs.length < 2) return null;
-  const byGive = [...rungs].sort((a, b) => (a.give_value ?? 0) - (b.give_value ?? 0));
+  const byGive = [...rungs].sort((a, b) => a.net_cost - b.net_cost);
   const ask = byGive[0];
   const floor = byGive[byGive.length - 1];
   const evenness = v => (Number.isFinite(v.perception_delta) ? Math.abs(v.perception_delta)
     : Number.isFinite(v.their_value_pct) ? Math.abs(v.their_value_pct) : Infinity);
   const fair = [...byGive].sort((a, b) => evenness(a) - evenness(b)
-    || (a.give_value ?? 0) - (b.give_value ?? 0))[0] ?? byGive[Math.floor(byGive.length / 2)];
+    || a.net_cost - b.net_cost)[0] ?? byGive[Math.floor(byGive.length / 2)];
   return {
     ask, fair, floor, rungs: byGive.length,
     anchor: {
@@ -554,7 +568,7 @@ const pct = x => +((x - 1) * 100).toFixed(1);
 export function tacticsForDeal({
   give = [], get = [], manager = null, valuationOf = null, self = null, timing = null,
   climate = null, partnerId = null, partnerName = null, theirValuePct = null,
-  variants = null, now = null, otherManagerNames = [], postLoss = null,
+  variants = null, now = null, otherManagerNames = [], postLoss = null, positionRate = null,
 } = {}) {
   const price = typeof valuationOf === 'function' ? valuationOf : () => null;
   const vGive = give.map(p => ({ p, v: price(p) ?? {} }));
@@ -616,31 +630,46 @@ export function tacticsForDeal({
     ? 'he has not marked down any player we are asking for' : noChat);
 
   // ------------------------------------------------------ 3. sneak-in
+  //
+  // "We rate him highly" is measured AGAINST HIS OWN POSITION, not against the
+  // headline piece. Points per unit of market price is not comparable across
+  // positions in a one-QB league: a starting QB scores like a WR1 and costs a
+  // quarter as much, so comparing him to the running back he is riding along
+  // with made every quarterback in the league a sneak-in. Measured 2026-09-18
+  // before this was fixed: the rule fired on 18 of 60 league-3 ideas and 17 of
+  // 32 in league 5, led by Jalen Hurts at "7.6 against 2.6 for Derrick Henry".
   const headGet = headlineOf(get);
   const getTotal = sumValue(get);
-  const headRate = headGet ? ourRate(headGet) : 0;
+  const baseRate = p => positionRate?.get?.(p?.position) ?? null;
   const sneaks = vGet.filter(({ p, v }) => {
     if (!headGet || p.name === headGet.name || !getTotal) return false;
     if ((v.multiplier ?? 1) > 1 + 0.005) return false;               // he prices him UP: not filler
     if ((Number(p.value) || 0) / getTotal > TACTIC_THRESHOLDS.sneak_share) return false;
-    return headRate > 0 && ourRate(p) >= TACTIC_THRESHOLDS.sneak_rate_edge * headRate;
+    const base = baseRate(p);
+    return Number.isFinite(base) && base > 0
+      && ourRate(p) >= TACTIC_THRESHOLDS.sneak_rate_edge * base;
   });
   if (sneaks.length) {
     tactics.push({ key: 'sneak_in', label: TACTICS.sneak_in.label, fitted: false,
-      effect: +sneaks.reduce((s, x) => s + (ourRate(x.p) / Math.max(headRate, 0.01) - 1) * 0.05, 0).toFixed(4),
+      effect: +sneaks.reduce((s, x) => s
+        + (ourRate(x.p) / Math.max(baseRate(x.p) ?? 1, 0.01) - 1) * 0.05, 0).toFixed(4),
       effect_net: null, n: sneaks.length,
       players: sneaks.map(({ p, v }) => ({ ...cell(p, v, chatFactor(v)),
-        our_rate_per_1k: +ourRate(p).toFixed(2), headline_rate_per_1k: +headRate.toFixed(2) })),
+        our_rate_per_1k: +ourRate(p).toFixed(2),
+        position_median_rate_per_1k: +(baseRate(p) ?? 0).toFixed(2) })),
       numbers: { share_of_package: +(sumValue(sneaks.map(x => x.p)) / getTotal).toFixed(2) },
       why: sneaks.map(({ p }) => `${p.name} is ${Math.round((Number(p.value) || 0) / getTotal * 100)}% of `
         + `what we are getting and he does not price him up at all, but on our numbers he returns `
-        + `${ourRate(p).toFixed(1)} points a game per 1,000 of price against ${headRate.toFixed(1)} for `
-        + `${headGet.name}`).join('; ') });
+        + `${ourRate(p).toFixed(1)} points a game per 1,000 of price against a `
+        + `${(baseRate(p) ?? 0).toFixed(1)} median for ${p.position}s in this league`).join('; ') });
   } else {
     note('sneak_in', get.length < 2
       ? 'a one-player return has no throw-in to sneak in'
-      : 'no incoming throw-in both reads as filler to him and beats the headline piece on our own '
-        + 'points-per-price');
+      : !positionRate
+        ? 'no positional price-per-point baseline for this league, so "cheap for what he returns" '
+          + 'cannot be measured'
+        : 'no incoming throw-in both reads as filler to him and beats the median price-per-point at '
+          + 'his own position by enough to be worth naming');
   }
 
   // ------------------------------------------- 4. consolidate for need
@@ -714,17 +743,20 @@ export function tacticsForDeal({
   const ladder = anchorLadder(variants, { acceptRate: manager?.accept_rate ?? null,
     acceptRateN: manager?.accept_rate_n ?? 0 });
   if (ladder) {
-    const money = r => Math.round(r.give_value ?? sumValue(r.i_give));
+    const money = r => Math.round(r.net_cost ?? 0);
+    const rung = r => ({ net_cost: money(r), give: (r.i_give ?? []).map(p => p.name),
+      get: (r.i_get ?? []).map(p => p.name), his_view_pct: r.perception_delta ?? null });
     tactics.push({ key: 'anchor_ladder', label: TACTICS.anchor_ladder.label, fitted: false,
       effect: 0, effect_net: 0, n: ladder.rungs, players: [],
-      numbers: { ask: money(ladder.ask), fair: money(ladder.fair), floor: money(ladder.floor),
-        ask_package: (ladder.ask.i_give ?? []).map(p => p.name),
-        fair_package: (ladder.fair.i_give ?? []).map(p => p.name),
-        floor_package: (ladder.floor.i_give ?? []).map(p => p.name),
-        anchor: ladder.anchor },
-      why: `open at ${money(ladder.ask)} of market value, settle around ${money(ladder.fair)} where it is `
-        + `even on HIS numbers, and stop at ${money(ladder.floor)} — past that the deal stops being `
-        + `positive for you. ${ladder.anchor.why}` });
+      numbers: { ask: rung(ladder.ask), fair: rung(ladder.fair), floor: rung(ladder.floor),
+        basis: 'market value handed over minus market value coming back', anchor: ladder.anchor },
+      why: `open by sending ${ladder.ask.i_give.map(p => p.name).join(' + ')} (net `
+        + `${money(ladder.ask)} of market value), settle around `
+        + `${ladder.fair.i_give.map(p => p.name).join(' + ')} (net ${money(ladder.fair)}) where it is `
+        + `closest to even on HIS numbers, and stop at `
+        + `${ladder.floor.i_give.map(p => p.name).join(' + ')} (net ${money(ladder.floor)}) — every rung `
+        + `above has already passed the edge test, so the floor is the most you can pay and still win. `
+        + `${ladder.anchor.why}` });
   } else note('anchor_ladder', 'only one package with this manager survived the edge test, so there is '
     + 'no ladder to climb');
 

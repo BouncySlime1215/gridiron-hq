@@ -540,9 +540,16 @@ function profileListHit(rosterRead, key) {
  * `perception_shift` is the part his views add beyond our own gap, in the same
  * units: the tie-breaker the perception factor was written to be.
  */
-export function readDeal({ theirGive, theirGet, managerProfile }) {
-  const give = perceivedValue(theirGive, managerProfile);
-  const get = perceivedValue(theirGet, managerProfile);
+export function readDeal({ theirGive, theirGet, managerProfile, zero = [] }) {
+  // `zero` was built into playerValuation and perceivedValue for the per-source
+  // ablation and stopped here, so a findTrades run with a source suppressed
+  // still priced every DEAL with it. Measured 2026-09-18 on a copy of
+  // production with manager signals built: zeroing all four chat sources moved
+  // exactly 0 of 223 deal scores across the five leagues, because this call was
+  // the last one still reading them. Threading it through is what makes the
+  // ablation a measurement rather than a formality.
+  const give = perceivedValue(theirGive, managerProfile, { zero });
+  const get = perceivedValue(theirGet, managerProfile, { zero });
   const base = give.value || 1;
   const delta = (get.value - give.value) / base;
   const sum = list => list.reduce((s, p) => s + (p.value ?? 0), 0);

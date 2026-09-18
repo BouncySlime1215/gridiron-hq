@@ -316,6 +316,14 @@ tx(LEAGUE, 'c1', 'TRADE_PROPOSAL', 'EXECUTE', 1, { items: swap(1, 3, 130, 230), 
 tx(LEAGUE, 'c1-d', 'TRADE_DECLINE', 'EXECUTE', 3, { related: 'c1', at: '2026-09-18T13:20:00Z' });
 // An offer Nick RECEIVED — never one he sent.
 tx(LEAGUE, 'in1', 'TRADE_PROPOSAL', 'EXECUTE', 2, { items: swap(2, 1, 300, 400), at: '2026-09-15T00:00:00Z' });
+// The draft: sixteen picks for Hayden inside one league-wide sitting. These are
+// NOT him being in the app on his own clock, and counting them gave every
+// manager in a league the same "busiest hour" — the hour of the draft.
+for (let i = 0; i < 16; i++) {
+  tx(LEAGUE, `dr${i}`, 'DRAFT', 'EXECUTE', 2, { at: `2026-08-24T04:${String(i).padStart(2, '0')}:00Z` });
+}
+// …and the league clearing a waiver on its own clock, which is not him either.
+tx(LEAGUE, 'wproc', 'WAIVER', 'PROCESS', 2, { at: '2026-09-10T11:00:00Z' });
 // A row AFTER the cutoff used in G5c, written the way the collector writes them
 // today (space-separated), which a string compare would sort BEFORE the cutoff.
 tx(LEAGUE, 'late', 'TRADE_PROPOSAL', 'EXECUTE', 1, { items: swap(1, 2, 500, 600), at: '2026-09-18 23:00:00' });
@@ -351,7 +359,7 @@ test('G2i: the fixture exercises the tactics end to end, not only as unit calls'
   // here with their reasons rather than being quietly missing.
   const firing = new Set(found.deals.flatMap(d => d.tactics.map(t => t.key)));
   assert.ok(firing.size >= 6, `only ${firing.size} tactics fired through findTrades: ${[...firing]}`);
-  for (const k of ['sell_the_crush', 'buy_the_sour', 'sneak_in', 'timing', 'veto_proof',
+  for (const k of ['sell_the_crush', 'buy_the_sour', 'timing', 'veto_proof',
     'anchor_ladder', 'how_nick_looks']) {
     assert.ok(firing.has(k), `${k} never fired through the real entry point`);
   }
@@ -491,16 +499,36 @@ test('G2e: sneak-in needs BOTH halves — filler to him, and cheap production to
   const sneak = { name: 'Sneak', position: 'RB', value: 800, ros_ppg: 9 };      // 11.3 vs 3.5 per 1k
   const dud = { name: 'Dud', position: 'RB', value: 800, ros_ppg: 2 };          // 2.5 per 1k
   const mine = { name: 'Mine', position: 'WR', value: 4500, ros_ppg: 15 };
+  // The baseline is the median points-per-1,000 AT HIS OWN POSITION, because
+  // price-per-point is not comparable across positions: a one-QB-league starter
+  // scores like a WR1 at a quarter of the price. Measured against the headline
+  // instead, the rule fired on 18 of 60 league-3 ideas, led by Jalen Hurts.
+  const positionRate = new Map([['RB', 3.5], ['WR', 3.5], ['QB', 8.0]]);
   const fires = tactics.tacticsForDeal({ give: [mine], get: [headline, sneak],
-    manager: { receptiveness: 1 }, valuationOf: flat, partnerId: '2' });
+    manager: { receptiveness: 1 }, valuationOf: flat, partnerId: '2', positionRate });
   const hit = fires.tactics.find(t => t.key === 'sneak_in');
   assert.ok(hit, 'a cheap high-rate throw-in he does not price up is the sneak-in');
   assert.deepEqual(hit.players.map(p => p.player), ['Sneak']);
+  assert.equal(hit.players[0].position_median_rate_per_1k, 3.5);
 
   const quiet = tactics.tacticsForDeal({ give: [mine], get: [headline, dud],
-    manager: { receptiveness: 1 }, valuationOf: flat, partnerId: '2' });
+    manager: { receptiveness: 1 }, valuationOf: flat, partnerId: '2', positionRate });
   assert.equal(quiet.tactics.find(t => t.key === 'sneak_in'), undefined,
     'a genuinely useless throw-in is not a tactic, it is padding');
+
+  // A cheap quarterback beats every RB and WR on points per unit of price and
+  // is NOT a sneak-in: against his own position he is ordinary.
+  const qb = { name: 'Cheap QB', position: 'QB', value: 1200, ros_ppg: 9.6 };  // 8.0/1k = the QB median
+  const withQb = tactics.tacticsForDeal({ give: [mine], get: [headline, qb],
+    manager: { receptiveness: 1 }, valuationOf: flat, partnerId: '2', positionRate });
+  assert.equal(withQb.tactics.find(t => t.key === 'sneak_in'), undefined,
+    'a quarterback priced like every other quarterback is not a steal');
+
+  // …and with no baseline at all the rule refuses rather than guessing.
+  const blind = tactics.tacticsForDeal({ give: [mine], get: [headline, sneak],
+    manager: { receptiveness: 1 }, valuationOf: flat, partnerId: '2' });
+  assert.equal(blind.tactics.find(t => t.key === 'sneak_in'), undefined);
+  assert.match(blind.tactics_absent.find(a => a.key === 'sneak_in').reason, /baseline/);
 });
 
 test('G2f: consolidate for need is 2-for-1 into a position he is short at', () => {
@@ -601,6 +629,18 @@ test('G4b: zeroing the chat changes what the ideas SAY, and it is a real re-run'
     'the chat league must produce at least one chat-driven tactic to ablate');
   assert.ok(!after.has('sell_the_crush') && !after.has('buy_the_sour'),
     'with the chat zeroed, no chat-driven tactic may still fire');
+
+  // …and it has to change the NUMBERS, not only the labels. `zero` reached
+  // counterpartyLayer and playerValuation but stopped at readDeal, so a
+  // suppressed source was still pricing every deal: measured on a copy of
+  // production, zeroing all four chat sources moved 0 of 223 deal scores in
+  // five leagues. An ablation that cannot move a score measures nothing.
+  const scoreOf = list => new Map(list.deals.map(d => [key(d), d.score_signed]));
+  const was = scoreOf(found), now = scoreOf(zeroed);
+  const shared = [...was.keys()].filter(k => now.has(k));
+  assert.ok(shared.length > 0, 'the two arms must share ideas to compare');
+  assert.ok(shared.some(k => was.get(k) !== now.get(k)),
+    'zeroing the chat changed no deal score at all — the suppression is not reaching the ranking');
 });
 
 // ============================================================== G5 timing
@@ -614,6 +654,12 @@ test('G5a: a response window needs decided offers, and says so when it does not 
   const quiet = read.get('6');
   assert.ok(!quiet || quiet.median_hours === null, 'no decisions, no median');
   if (quiet) assert.match(quiet.decisions_reason, /of the 3/);
+  // The draft is not a habit. Hayden has 16 draft picks and one league-processed
+  // waiver in the fixture; neither counts toward "when is he in the app", so he
+  // stays under the gate and says why instead of reporting the draft hour.
+  assert.ok(hayden.actions_n < 10, `draft picks leaked into the activity sample (${hayden.actions_n})`);
+  assert.equal(hayden.busiest_hour, null);
+  assert.match(hayden.active_hours_reason, /draft picks and league waiver processing do not count/);
 });
 
 test('G5b: "wait" after he has just declined, "now" when the window is open', () => {
@@ -712,8 +758,9 @@ test('G7c: a pressure point is attributed to a manager only when the evidence na
 
 // =============================================== G8 ladder, runtime, degradation
 test('G8a: the anchor ladder is ask / fair / floor, all three still positive for Nick', () => {
-  const rung = (giveValue, perception, score) => ({ give_value: giveValue, perception_delta: perception,
-    score_signed: score, i_give: [{ name: `G${giveValue}`, value: giveValue }],
+  const rung = (giveValue, perception, score) => ({ give_value: giveValue, get_value: 5000,
+    perception_delta: perception, score_signed: score,
+    i_give: [{ name: `G${giveValue}`, value: giveValue }],
     i_get: [{ name: 'Target', value: 5000 }] });
   const ladder = tactics.anchorLadder([rung(3000, -12, 0.9), rung(4000, -2, 0.6),
     rung(4800, 6, 0.3), rung(5400, 14, 0.1)], { acceptRate: 0.2, acceptRateN: 30 });
@@ -725,6 +772,22 @@ test('G8a: the anchor ladder is ask / fair / floor, all three still positive for
   assert.equal(ladder.anchor.accept_rate, 0.2);
   assert.equal(ladder.anchor.n, 30);
   assert.equal(ladder.anchor.calibrated, false, 'the band is an anchor, not a fitted probability');
+
+  // The rungs are ranked on what the offer COSTS — what goes out minus what
+  // comes back. Ranked on the gross give, a 2-for-2 that also returns a
+  // throw-in looked like the dearest offer on the board: measured on league 4,
+  // the ladder for D'Andre Swift printed "ask 3,669, floor 10,184" for the same
+  // player, because the 10,184 rung was getting 6,000 back.
+  // Twice the gross give of the 5,400 rung, but it also gets 9,000 back: it
+  // costs LESS, so it cannot be the floor.
+  const fat = { give_value: 9000, get_value: 9000, perception_delta: 3, score_signed: 0.5,
+    i_give: [{ name: 'Big A', value: 5000 }, { name: 'Big B', value: 4000 }],
+    i_get: [{ name: 'Target', value: 5000 }, { name: 'Throw-in', value: 4000 }] };
+  const netted = tactics.anchorLadder([...[rung(3000, -12, 0.9), rung(5400, 14, 0.1)], fat],
+    { acceptRate: 0.2, acceptRateN: 30 });
+  assert.equal(netted.floor.i_give[0].name, 'G5400',
+    'the dearest rung is the one that costs the most NET, not the one with the biggest give');
+  assert.equal(netted.ask.net_cost, -2000, 'net cost is what goes out minus what comes back');
 });
 
 test('G8b: a league with no chat and no transactions still gets ideas, and says what is missing', () => {

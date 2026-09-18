@@ -1593,7 +1593,8 @@ function findTradesUncached(lg, {
         // particular package reads as a win to him.
         const tier = managerProfiles.get(String(them.roster_id)) ?? 'fair';
         const counterparty = cp
-          ? { ...readDeal({ theirGive: get, theirGet: give, managerProfile: cp }), counterparty_data: true }
+          ? { ...readDeal({ theirGive: get, theirGet: give, managerProfile: cp, zero }),
+            counterparty_data: true }
           : { receptiveness: 1, perception_delta: null, perception_shift: null, perception_reasons: [],
             chat_msgs: 0, accept_rate: null, counterparty_data: false };
         // ONE place, ONE tier factor (see HARD_TIER_FACTOR). With no counterparty
@@ -1788,6 +1789,14 @@ function findTradesUncached(lg, {
            // found three things that were not good for you" are different answers.
            edge_removed: lostIdeas.length,
            edge_removed_variants: removed.length,
+           // Which check did the removing, over every idea that was removed.
+           // "We dropped nine and seven of them only won on his perception" is
+           // a different sentence from "we dropped nine", and it is the one
+           // that says whether the counterparty read is being used honestly.
+           edge_removed_by_check: lostIdeas.reduce((acc, d) => {
+             for (const name of d.edge.failed) acc[name] = (acc[name] ?? 0) + 1;
+             return acc;
+           }, {}),
            edge_removed_examples: lostIdeas.slice(0, 5).map(d => ({
              partner: d.partner, partner_id: d.partner_id,
              i_give: d.i_give.map(p => p.name), i_get: d.i_get.map(p => p.name),
@@ -1823,15 +1832,39 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
   catch { climate = null; }
   try { self = selfRead(lg.id, { season: weekNow.season }); } catch { self = null; }
   const ownerNames = teams.map(t => t.owner).filter(Boolean);
+  // Median points-per-1,000-of-price BY POSITION, over every rostered player in
+  // this league. The sneak-in rule needs a baseline that is not cross-position:
+  // in a one-QB league a starting quarterback scores like a WR1 at a quarter of
+  // the price, so measuring him against the running back he rides along with
+  // made every QB in the league look like a steal.
+  const rates = new Map();
+  for (const t of teams) {
+    for (const p of t.players ?? []) {
+      const rate = Number(p.ros_ppg ?? p.adj_ppg ?? 0) || 0;
+      const price = Math.max(0.25, (Number(p.value) || 0) / 1000);
+      if (!p.position || rate <= 0) continue;
+      rates.set(p.position, [...(rates.get(p.position) ?? []), rate / price]);
+    }
+  }
+  const positionRate = new Map([...rates].map(([pos, xs]) => {
+    const sorted = xs.sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return [pos, sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2];
+  }));
 
   for (const d of shown) {
     const cp = counterparties.get(String(d.partner_id)) ?? null;
-    // Same target, same partner, every package that PASSED the edge test: the
-    // rungs of the ladder are offers Nick could actually send.
-    const target = ideaKey(d).split('>')[1];
+    // The rungs of the ladder are the packages that land EXACTLY THIS RETURN
+    // from this partner and passed the edge test. Keyed on the headline piece
+    // instead, the ladder's opening ask was a different deal — "open with
+    // De'Von Achane" for a return that also included Cam Skattebo, against an
+    // idea whose return was D'Andre Swift alone.
+    const sameReturn = list => list.map(p => p.id).sort((a, b) => a - b).join(',');
+    const returning = sameReturn(d.i_get);
     const variants = deals
-      .filter(v => v.partner_id === d.partner_id && v.edge.passes && ideaKey(v).split('>')[1] === target)
+      .filter(v => v.partner_id === d.partner_id && v.edge.passes && sameReturn(v.i_get) === returning)
       .map(v => ({ give_value: v.i_give.reduce((s, p) => s + (p.value ?? 0), 0),
+        get_value: v.i_get.reduce((s, p) => s + (p.value ?? 0), 0),
         perception_delta: v.counterparty?.perception_delta ?? null,
         their_value_pct: v.their_value_pct, score_signed: v.score_signed,
         i_give: v.i_give.map(p => ({ name: p.name, value: p.value })),
@@ -1841,7 +1874,7 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
       give: d.i_give, get: d.i_get, manager: cp, partnerId: d.partner_id, partnerName: d.partner,
       valuationOf: p => playerValuation(cp, p, { zero }),
       self, climate, timing: timing.get(String(d.partner_id)) ?? null,
-      theirValuePct: d.their_value_pct, variants, postLoss,
+      theirValuePct: d.their_value_pct, variants, postLoss, positionRate,
       otherManagerNames: ownerNames.filter(n => n !== d.partner),
     });
     d.tactics = out.tactics;

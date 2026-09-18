@@ -55,15 +55,31 @@ Everything that matters for Sunday's week-2 games — chance to play, the Trade 
 - **Decision and outcome log** — every trade sent, accepted or declined, every waiver claim and every Coach recommendation is recorded with what we predicted, then graded later. It builds the history that acceptance odds and the Coach can be tested on. *(WB)*
 - **Storage guardrails** — one shared DB copy per workflow; agents move leftovers to Trash at the end of each item (never delete); a weekly storage check warns above 85%; pre-migration backups keep the newest 2; the nightly backup keeps 7. *(from WO+WB on; the checks in WD)*
 
+### 00.2d Team Outlook — early panic vs low data (Nick, 12:25: "this needs to be WELL BUILT, add UI support")
+
+**The question it answers, per team, every week:** where are we right now, how much of that is real and how much is early-season noise, and what should we do about it — or are we fine?
+
+**What exists today:** season-sim playoff/title odds (uncalibrated), a luck read (record vs all-play), early-week projections that no longer chase week 1. Nothing combines them into a verdict, and nothing is tested on history.
+
+**First evidence (Nick's 7 completed league-seasons, 62 team-seasons — small, descriptive):** top-4 base rate 45%; after a bad week 1, 38%; after bad weeks 1-3, 24%; after hot weeks 1-3, 71%. Correlation with final all-play: week 1 alone 0.37, weeks 1-3 0.54. One bad week is mostly noise; three bad weeks are signal.
+
+**The model (WO):**
+- *Inputs at week w, all known at the time:* projected rest-of-season lineup strength of the current roster (ROS values, chance to play, the injury-return model) and its rank in the league; results so far (points for vs projected, all-play, record); luck (wins minus all-play-expected wins); remaining schedule; playoff format.
+- *Outputs:* playoff and title odds (the calibrated season sim); the change since preseason split into **luck** (record vs all-play), **scoring noise** (points vs projection, weighted by how little that has meant historically at week w) and **real change** (roster, injuries, projections); a verdict **Fine / Watch / Act** with the two or three numbers that tell the story.
+- *History test, pre-registered:* fit on the replay leagues (2021-2025, thousands of team-seasons with real player outcomes) and check on Nick's 12 real league-seasons. At weeks 1-8, compare record-only, all-play-only, projection-only and the combined model on held-out 2024/2025: Brier score and calibration by week. Verdict thresholds chosen on earlier seasons, then validated: "Act" teams must finish materially worse, and in the replay, "Act" teams that follow the waiver/trade policy must do better than those that don't. The verdict may never say "Act" on noise alone.
+- *Acceptance:* the combined model beats record-only and projection-only at weeks 2-6 on held-out Brier; calibration within ±5pp per decile.
+
+**Where it shows (WB):** a **Team health** card on the home page for each league — verdict chip, playoff and title odds, the one-line story (e.g. *"1-1, but your lineup projects 3rd of 10 — teams like this make the playoffs X% of the time"*), and what to do; a deep dive on League Hub with odds by week (preseason → now) and the luck / noise / real split; a **team audit** tool for the Coach; plan items whenever the verdict is Act.
+
 ### 00.2c How much work is left (12:15)
 
 | Block | Items left | Machine time | Lands |
 |---|---|---|---|
 | WA (running): infra, review fixes, Trade Brain ×5, integration | 8 | ~8 h | ~20:30 Fri |
-| WO + WB | ~14 | ~6 h | ~02:30 Sat |
-| WC + WD | ~30 | ~7 h | ~09:30 Sat |
-| WE | 1 | ~1 h | ~10:30 Sat |
-| **Total** | **~53 items** | **~22 h** | **Saturday late morning** |
+| WO + WB (incl. Team Outlook) | ~16 | ~7 h | ~03:30 Sat |
+| WC + WD | ~30 | ~7 h | ~10:30 Sat |
+| WE | 1 | ~1 h | ~11:30 Sat |
+| **Total** | **~55 items** | **~23 h** | **Saturday ~11:30** |
 
 Nick's decisions (00.4) don't block any of it.
 

@@ -3,9 +3,39 @@
 The fast-read summary A5 asks for. `docs/FANTASY-ENGINE-MASTER-PLAN.md` stays the
 full authoritative record; this file is what a handoff report quotes.
 
-Last updated: 2026-09-18, cloud session on `cursor/betting-model-audit-fixes-1c85`.
+Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c85`.
 
 ## Active
+
+- **Cloud keys and the laptop-closed run (2026-09-18/19 session). Code side done,
+  one manual step left for Nick.**
+  - *Done, merged to this branch as `cc6a788`.* `getApiKey()` now reads
+    `GRIDIRON_ANTHROPIC_API_KEY` first, then `ANTHROPIC_API_KEY`, then
+    `app_settings`. A Claude Code cloud environment claims the name
+    `ANTHROPIC_API_KEY` for its own session auth and will not forward it to the
+    process — the settings screen says so under the box — so the key was pasted
+    and saved correctly the whole time and never arrived. `check-environment.mjs`
+    accepts either name and prints which one carried it. Covered by a new test in
+    `test/llm-plumbing.test.js` (31/31 pass, lint clean).
+  - *Waiting on Nick.* He must (a) rotate the Anthropic key — the old one was
+    exposed in a screenshot posted to the project thread on 2026-09-18 — and
+    (b) re-paste it in the Environment variables box as
+    `GRIDIRON_ANTHROPIC_API_KEY=`, deleting the dead `ANTHROPIC_API_KEY=` line.
+    Until then every LLM path still fails on the call.
+  - *Keys verified live in a cloud box, 2026-09-18.* `ODDS_API_KEY` works but the
+    plan is at 1,920 of 20,000 requests left, so it is nearly spent (it is a paid
+    plan, not the 500/month free tier the code comments assume). `TWITTERAPI_IO_KEY`
+    works. `CFBD_API_KEY` works — `/player/usage?year=2025` returned 5,613 players,
+    so `draft-assist.js`'s `college_signal` will stop returning null once the
+    7-day `cfbd_rookie_usage` job runs. `PARLAY_API_KEY` (MLB-only),
+    `SPORTSGAMEODDS_API_KEY` (free tier is 2.5k objects/month, gone in ~3 days at
+    the scheduler's 30-min cadence) and `PFF_API_TOKEN` (paid, no free tier) were
+    all assessed and deliberately skipped.
+  - *Open decision.* The app cannot run in a Claude Code session — no
+    browser-reachable port, so ESPN cannot be connected and `server/data.sqlite`
+    cannot be rebuilt there. Making the app genuinely laptop-independent is
+    WF / Phase 11 (Fly.io, Google sign-in, per-user Claude keys). Nick has not
+    said yes to starting it. See `docs/CLOUD-MIGRATION.md`.
 
 - **WA / Trade Brain — the two open bugs: both now closed.**
   - *Bug 1, edge-test violation (`perceptionFactorFor`).* **Closed by the tactics

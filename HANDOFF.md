@@ -4,6 +4,44 @@ This is a curated snapshot on top of the automatic switch report (which already
 captures PIDs, transcripts, and raw git state). Read this first for the "why";
 use `docs/FANTASY-ENGINE-MASTER-PLAN.md` part A5 for the mechanical recovery steps.
 
+## 2026-09-19 — cloud keys thread (read this first if you are picking up cold)
+
+Written by the thread session that handled Nick's "check the keys work / what do
+I need to do so I can shut the laptop" run. Everything below is committed and
+pushed to `cursor/betting-model-audit-fixes-1c85`; nothing is sitting on a local
+branch. Full detail is the first **Active** entry in `TASKS.md`.
+
+**Shipped:** `cc6a788` (merge of `claude/project-thread-jwjblu`, itself `85bddac`).
+`getApiKey()` accepts `GRIDIRON_ANTHROPIC_API_KEY` before `ANTHROPIC_API_KEY`
+before `app_settings`, because a Claude Code cloud environment claims the
+`ANTHROPIC_API_KEY` name for its own session auth and never forwards it to the
+process. `check-environment.mjs` accepts either and reports which one carried the
+key. New test in `test/llm-plumbing.test.js`; 31/31 pass, lint exit 0.
+(`npm run typecheck` fails in a cloud box on `client/src` only — React is not
+installed there. Not caused by this work; do not chase it.)
+
+**What Nick still has to do by hand, in order:**
+
+1. Rotate the Anthropic key. The previous one was readable in a screenshot he
+   posted into the project thread on 2026-09-18 — treat it as burned.
+2. In the environment's **Environment variables** box, set the new key as
+   `GRIDIRON_ANTHROPIC_API_KEY=…` and delete the old `ANTHROPIC_API_KEY=` line.
+3. On the Mac, connect ESPN and run `node scripts/bootstrap-data.mjs`, then pull
+   the league chat from Settings. The exact click-path was given in the thread
+   and is also in `docs/CLOUD-MIGRATION.md`.
+
+**Do not repeat these dead ends** (each was checked, not assumed):
+- The app cannot be reached in a browser from a Claude Code session, so ESPN
+  cannot be connected there and `server/data.sqlite` cannot be rebuilt there.
+  `scripts/tunnel.mjs` does not help — it is Mac-side and points outward.
+- `scripts/launcher.mjs` / `npm run tunnel` are likewise Mac-side.
+- The **API credentials** box cannot carry any of these keys: every feed gates on
+  `Boolean(process.env.X)` before it makes a request, so the injector never gets
+  a request to decorate.
+
+**Open, awaiting Nick's word:** WF / Phase 11 (Fly.io hosting) is what would make
+the app genuinely laptop-independent. He was offered it and has not answered.
+
 ## Where things stand
 
 **Top-level: step 2 of 6 (WA running).** See `docs/FANTASY-ENGINE-MASTER-PLAN.md`

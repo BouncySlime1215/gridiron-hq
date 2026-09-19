@@ -36,6 +36,37 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
     was actually revoked before trusting that this is closed** — it was not
     verified from inside this session, which cannot see that dashboard.
     No Jev-dependent work was started, so nothing is blocked on it either way.
+  - **What this box CANNOT check, because there is no database in it.** A cloud
+    session is a fresh clone: `server/data.sqlite` is gitignored and absent, and
+    so is the private chat DB (`GRIDIRON_CHAT_DB_PATH`). Everything built here is
+    fixture-verified only. The list below is what needs Nick's Mac (or the Fly
+    install) to actually settle, and none of it should be reported as closed
+    until it is run there:
+    1. **The real accept-rate anchor.** D4's "6 accepts, 24 declines" is a
+       number from when the plan was written. The P(accept) band anchors on it
+       and carries its `n`, but today's real counts per manager are unknown from
+       here. Run the new service against the live DB and confirm the anchor it
+       reads is the real one.
+    2. **Whether the acceptance band changes anything.** D4's own acceptance
+       criterion — "top ideas change when the sentiment map is zeroed" — needs
+       the five real leagues. The ablation hook exists and is unit-tested; it has
+       never been run against real rosters.
+    3. **The two Trade Brain bugs, re-checked live.** They are recorded closed
+       (edge-test violation in `perceptionFactorFor`; the horizon-upgrade refusal
+       in `offerFor`/`offerForMany`), but closure was established by reading the
+       shipped code, not by re-running the two live cases that found them — the
+       Ja'Marr Chase refusal and the Tyler Warren/Mahomes deal. Re-run both.
+    4. **QBR corruption is still in the live data.** 520 of 550 rows for season
+       2026 in `nfl_qbr_weekly` are exact copies of the 2025 row; weeks 2-18 are
+       100% copies. The ingestion fix shipped; the existing bad rows were
+       deliberately left alone as a remediation call for separate review. Any
+       consumer reading 2026 weeks 2-18 today still reads fabricated data.
+    5. **Three things from tonight's earlier session, still unconfirmed:** the
+       `POST /model/sync` historical pull triggered on Fly (outcome never
+       confirmed — check `GET /model/setup-status`), the scheduler live-tier
+       pass duration after `767d804` (did it actually halve), and `npm run check`
+       on the Mac (a cloud box cannot boot the server, so the start-smoke fix
+       from `5983e9e` has never been exercised).
 
 - **Fly.io self-host — LIVE, confirmed 2026-09-19 04:58Z.** App name
   `gridiron-hq`, URL **https://gridiron-hq.fly.dev/**. Nick logged in and saw

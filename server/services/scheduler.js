@@ -1017,6 +1017,13 @@ export const JOBS = {
 /** The budget a job gets before the tier abandons it. Overridable per job. */
 const DEFAULT_JOB_TIMEOUT_MS = 120_000;
 
+// Threshold for the "a job ran long" warning below. Not a timeout — jobs still
+// get their full budget (DEFAULT_JOB_TIMEOUT_MS) — just a number worth seeing.
+// Picked from server/index.js:143's own bound: an HTTP request queued behind a
+// blocking synchronous call feels instant under ~100ms and noticeable well
+// before a full second, so 750ms is "found it" territory, not noise.
+const SLOW_JOB_WARN_MS = 750;
+
 export async function runIfStale(name, { force = false } = {}) {
   const job = JOBS[name];
   if (!job) return { job: name, error: 'unknown job' };
@@ -1024,6 +1031,7 @@ export async function runIfStale(name, { force = false } = {}) {
   if (!force && age < job.maxAgeMinutes) {
     return { job: name, skipped: true, age_minutes: Math.round(age), max_age_minutes: job.maxAgeMinutes };
   }
+  const startedAt = Date.now();
   try {
     // EVERY JOB IS TIME-BOUND, AND THIS IS NOT DEFENSIVE PROGRAMMING.
     //
@@ -1058,7 +1066,18 @@ export async function runIfStale(name, { force = false } = {}) {
     // is not healthy; recording it as 'ok' told every freshness view that a
     // capture happened when nothing did.
     record(name, detail?.skipped === true ? 'skipped' : 'ok', detail);
-    return { job: name, ran: true, detail };
+    // node:sqlite's DatabaseSync is fully synchronous (server/db/index.js) — a
+    // slow query inside job.run() blocks this process, not just this job, so
+    // every other request queues behind it for the same span this prints.
+    // Found empirically 2026-09-19 chasing a scheduler-caused freeze that a
+    // fresh/small database can't reproduce (see the note above runIfStale):
+    // this is the number to read off Nick's real box, not this sandbox's.
+    const durationMs = Date.now() - startedAt;
+    if (durationMs >= SLOW_JOB_WARN_MS) {
+      console.warn(`[scheduler] '${name}' took ${(durationMs / 1000).toFixed(1)}s ` +
+        '— every request was blocked for that long while it ran');
+    }
+    return { job: name, ran: true, detail, duration_ms: durationMs };
   } catch (e) {
     // A failed refresh must never take a page down — the stale data is still
     // servable, and the failure is recorded so it is visible rather than silent.
@@ -1070,7 +1089,7 @@ export async function runIfStale(name, { force = false } = {}) {
     // the pass with no output at all. The recording of a failure must not be
     // able to cause a larger one.
     try { record(name, 'error', e.message); } catch { /* the pass continues */ }
-    return { job: name, ran: true, error: e.message };
+    return { job: name, ran: true, error: e.message, duration_ms: Date.now() - startedAt };
   }
 }
 
@@ -1208,9 +1227,20 @@ export function startScheduler({
         return;
       }
       inFlight = true;
+      const passStartedAt = Date.now();
       (async () => { for (const j of jobs) await runIfStale(j); })()
         .catch(e => console.error(`[scheduler] ${label} tier pass failed:`, e?.message ?? e))
-        .finally(() => { inFlight = false; });
+        .finally(() => {
+          // Total wall time for the pass, next to SLOW_JOB_WARN_MS's per-job
+          // lines above — the two together say both "how long was the app
+          // unresponsive this cycle" and "because of which job".
+          const passMs = Date.now() - passStartedAt;
+          if (passMs >= SLOW_JOB_WARN_MS) {
+            console.warn(`[scheduler] ${label} tier pass took ${(passMs / 1000).toFixed(1)}s total ` +
+              `(${jobs.length} jobs) — see any '[scheduler] '<job>' took ...' lines above for which one`);
+          }
+          inFlight = false;
+        });
     }, everyMs);
     handle.unref?.();   // never hold the process open just for this
     return handle;

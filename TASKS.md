@@ -7,6 +7,56 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
 
 ## Active
 
+- **STOPPED CLEANLY 2026-09-19, ~06:50Z, at Nick's request ("stop all the work
+  safely — starting a new session"). Read this first.**
+  - **Nothing is uncommitted and nothing is unpushed.** `git status` clean,
+    local `HEAD` == `origin/cursor/betting-model-audit-fixes-1c85` at `a4ec87c`
+    plus the guard commits below. No work is sitting in a container.
+  - **Landed and pushed tonight**, oldest first: the chance-to-play silent
+    failure (`f7ee045`/`78811b1`), `value-and-acceptance` built and
+    independently verified (`6976685` → `32faf5f` → `180b3a9` → `bd06648` →
+    `5851e22`), `sendable-proposals` built and independently verified
+    (`fd70334` → `abac2c5` → `ace0101` → `9b867ab` → `768d05b`), and the
+    offline-guard fix (`cc12a22` → `5ac597a`).
+  - **UNFINISHED, and the first thing to settle:**
+    1. **The offline-guard agent never reported.** Its RED and GREEN are
+       committed and on the remote, but it was still running its full-suite
+       regression when the session stopped, so **its verdict is unknown** —
+       nobody has confirmed the 11 previously-network-dependent tests behave,
+       or whether the suite got faster. Re-run `npm test` and read it fresh
+       rather than assuming `5ac597a` is good.
+    2. **One unexplained suite failure.** The last full run measured
+       **2,660 pass / 15 fail / 41 skip of 2,719**, against a documented
+       baseline of 14 known failures. The extra one looks like
+       `not ok 1016 — evidence daemon status exposes feed gaps without faking
+       price evidence`, but that was read off a partial run and is **not
+       confirmed**. Do not call WA done until it has a name and a cause.
+    3. **WA integration / final verify pass** is the last WA item and has not
+       been started. After it, B1's State column goes WA → Done and WO+WB opens.
+  - **The API key mystery, solved — act on this before the next session.**
+    This session ran in environment **"GridIron HQ"
+    (`env_018JCMxcnhDtud9VXS1CW51B`)**, created 2026-09-19 04:33Z, 31 minutes
+    before the session. That environment delivered `ODDS_API_KEY`,
+    `CFBD_API_KEY` and `TWITTERAPI_IO_KEY` — so the mechanism works — but
+    **not** `GRIDIRON_ANTHROPIC_API_KEY` under any name. The account has three
+    environments, two of them both called "Default"; the Anthropic key is
+    almost certainly in an older one, from when the 2026-09-18 rename was
+    diagnosed. **Add `GRIDIRON_ANTHROPIC_API_KEY` to the GridIron HQ
+    environment**, then a NEW session there can finally exercise the live
+    Sonnet call — the single biggest untested thing on this branch.
+    `PARLAY_API_KEY`, `SPORTSGAMEODDS_API_KEY`, `PFF_API_TOKEN` and
+    `AI_GATEWAY_API_KEY` are missing from that environment too.
+  - **The mechanism, corrected.** A cloud session runs with
+    `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1`: Claude Code's own model access is
+    brokered by the host and never lands in an environment variable at all. So
+    the 09-18 diagnosis ("the cloud claims the `ANTHROPIC_API_KEY` name") is
+    close but not exact — there is no key anywhere to forward, which is why a
+    user-supplied one must arrive under a name the host does not manage. The
+    session's own `CLAUDE_SESSION_INGRESS_TOKEN_FILE` /
+    `CLAUDE_CODE_MESSAGING_TOKEN` are harness session-control credentials, not
+    an Anthropic API key, and were deliberately not repurposed for app calls: a
+    test passing on borrowed session auth would say nothing about production.
+
 - **WA Trade Brain resumed in a second cloud session, 2026-09-19 (this entry).**
   Picked up cold from `HANDOFF.md` + the first Active entry below, per A5. Nick's
   laptop is off for the night; this session is cloud-side and unaffected by that.

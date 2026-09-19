@@ -230,9 +230,13 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
   const oppId = opponentFor(payload, rosterId, wk);
   const theirs = oppId ? price(rosterAssets(payload, assets, oppId)) : [];
   const oppLineup = theirs.length ? bestLineup(theirs, slots, 'week_points') : null;
+  // `sd: 30` here was a hardcoded spread for an unpriceable opponent. It is
+  // unreachable — the `mean == null` early return below fires first — so it
+  // never shipped a number, but it is a live landmine if that return ever
+  // moves. Nothing is known about this opponent, so nothing is asserted.
   const oppMoments = oppLineup
     ? lineupMoments(oppLineup.slots.map(s => s.player).filter(Boolean))
-    : { mean: null, sd: 30 };
+    : { mean: null, sd: null };
 
   const best = bestLineup(mine, slots, 'week_points');
   const starters = best.slots.map(s => s.player).filter(Boolean);
@@ -244,6 +248,24 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
       season: ctx.season, week: wk, roster_id: rosterId, opponent_roster_id: null,
       note: 'No opponent found for this week, so there is no posture to take. Start the highest projection.',
       my_projection: +mineMoments.mean.toFixed(1), my_sd: +mineMoments.sd.toFixed(1),
+      lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
+    };
+  }
+
+  // Both spreads are built from `weekPpg(p) > 0` players only, so when the
+  // projection pipeline yields nothing both sides price to a mean of 0 and an
+  // SD of 0. `winProb` then computes normalCdf(0 / 0), which is NaN, which
+  // `toFixed` turns into NaN and JSON turns into null — and the client falls
+  // through to printing this function's `note`, a confident sentence about a
+  // matchup on which nothing was measured. There is no posture to take on two
+  // lineups nobody could price.
+  if (!(mineMoments.sd > 0) || !(oppMoments.sd > 0)) {
+    return {
+      season: ctx.season, week: wk, roster_id: rosterId, opponent_roster_id: oppId,
+      error: 'no weekly projections available to price this matchup',
+      my_projection: +mineMoments.mean.toFixed(1), opponent_projection: +oppMoments.mean.toFixed(1),
+      my_priced: starters.filter(p => weekPpg(p) > 0).length,
+      opponent_priced: (oppLineup?.slots ?? []).map(s2 => s2.player).filter(p => p && weekPpg(p) > 0).length,
       lineup: starters.map(p => ({ player: p.name, position: p.position, ppg: weekPpg(p) })),
     };
   }

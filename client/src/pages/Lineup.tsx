@@ -25,7 +25,10 @@ const CONF: Record<string, { label: string; bar: string; chip: string }> = {
   clear: { label: 'Clear', bar: 'bg-emerald-500', chip: 'bg-emerald-50 text-emerald-800 ring-emerald-200' },
   lean: { label: 'Lean', bar: 'bg-sky-500', chip: 'bg-sky-50 text-sky-800 ring-sky-200' },
   'coin flip': { label: 'Coin flip', bar: 'bg-amber-400', chip: 'bg-amber-50 text-amber-900 ring-amber-200' },
-  'only option': { label: 'Only option', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-600 ring-slate-200' }
+  'only option': { label: 'Only option', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
+  // Other eligible players existed, none of them had a projection. That is not
+  // the same call as having only one option, and it should not look like one.
+  'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' }
 };
 
 export default function Lineup() {
@@ -116,7 +119,9 @@ export default function Lineup() {
               <p className="mt-1 text-sm text-slate-400">
                 {d.coin_flips > 0
                   ? `${d.coin_flips} of these calls are ties inside the model's own error`
-                  : 'Every call has a real margin behind it'}
+                  : d.not_compared > 0
+                    ? `${d.not_compared} of these slots had no projection to compare against`
+                    : 'Every call has a real margin behind it'}
               </p>
             </div>
             <div className="flex flex-wrap gap-1 rounded-xl bg-white/10 p-1">
@@ -181,6 +186,15 @@ export default function Lineup() {
         </section>
       )}
 
+      {d?.holes?.length > 0 && (
+        <section className="tr-rise rounded-2xl border border-amber-200 bg-amber-50/60 p-4" style={{ animationDelay: '90ms' }}>
+          <h2 className="text-sm font-black uppercase tracking-wide text-amber-900">Empty starting slots</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-700">
+            No eligible player on your roster for {d.holes.join(', ')}. These slots are empty on ESPN too.
+          </p>
+        </section>
+      )}
+
       {d && d.lineup?.length === 0 ? (
         <EmptyState
           title="No lineup to show"
@@ -240,7 +254,10 @@ function Slot({ c, index }: { c: any; index: number }) {
   const conf = CONF[c.confidence] ?? CONF.lean;
   // Scaled against the "clear" threshold, so the bar reads as a fraction of a
   // decisive margin rather than as an unanchored number.
-  const width = c.margin == null ? 100 : Math.min(100, Math.max(4, (c.margin / 4) * 100));
+  // A call with no margin compared nothing, so it gets no bar. It used to draw a
+  // full-width one, which is the visual encoding of certainty at exactly the
+  // moment there is none.
+  const width = c.margin == null ? 0 : Math.min(100, Math.max(4, (c.margin / 4) * 100));
   return (
     <article className="tr-rise rounded-2xl border border-slate-200 bg-white p-4" style={{ animationDelay: `${index * 45}ms` }}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

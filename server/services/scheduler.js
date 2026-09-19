@@ -95,6 +95,88 @@ function record(job, status, detail) {
 }
 
 /**
+ * Marks a job as started, so "never finished" stops being indistinguishable
+ * from "never started".
+ *
+ * THE BUG THIS FIXES: `record()` runs only after `job.run()` returns. A job
+ * that takes the process down with it — an OOM kill, or the #29 event-loop
+ * watchdog firing on a synchronous ingest — therefore records NOTHING. Its
+ * `sync_log` row is left exactly as the previous attempt left it, so on the
+ * next boot the scheduler reads the same row it read last time, reaches the
+ * same conclusion, and starts the same job. It dies at the same point. That
+ * is a restart loop with no counter anywhere in it, and it was measured on
+ * the live app on 2026-09-19: `nfl_model_growth` with `last_run_at` frozen at
+ * 21:17:44Z and `consecutive_failures: 1` across seven consecutive lives.
+ *
+ * Deliberately narrow: this touches `last_status` and `last_detail` and
+ * NOTHING else. In particular it does not stamp `last_run_at`, because every
+ * freshness view in the app reads that column to decide how much to trust the
+ * data — source-registry.js's `confidence()`, the diagnostic, the model
+ * routes. Stamping it here would make a job that has produced nothing yet
+ * read as freshly synced for as long as it runs, which is the exact shape of
+ * failure this project keeps finding: healthy-looking and not working.
+ *
+ * The start time goes in the detail instead, where `reapAbandonedRuns` below
+ * can use it to date the attempt honestly rather than guessing.
+ */
+function recordStart(job) {
+  run(`INSERT INTO sync_log (job, last_run_at, last_status, last_detail, runs, consecutive_failures)
+       VALUES (?, NULL, 'running', ?, 0, 0)
+       ON CONFLICT(job) DO UPDATE SET
+         last_status='running', last_detail=excluded.last_detail`,
+    job, JSON.stringify({ running: true, started_at: nowIso() }));
+}
+
+/**
+ * Converts every 'running' row left behind by a dead process into a recorded
+ * failure, once, at startup.
+ *
+ * A 'running' row can only survive a process boundary one way: the process
+ * died between `recordStart` and `record`. Nothing else writes that status,
+ * and an in-flight job inside a live process is held by the `running` Map in
+ * `runIfStale`, not by this row. So finding one at startup is proof that the
+ * previous life of this process started that job and never came back — and
+ * the job that kills the process is the one you most need a backoff on.
+ *
+ * Recording it as 'error' is not a convenience: it is what happened. It also
+ * puts the existing machinery to work rather than inventing a second one —
+ * `nextDueMinutes` already backs an erroring job off exponentially (5, 10,
+ * 20, 40 minutes, capped at its own cadence) and `confidence()` already
+ * floors a failed source at 0.1. So the second boot after a kill does not
+ * re-run the job, and the cycle has a counter in it at last.
+ *
+ * `last_run_at` IS stamped here, with the start time the marker carried,
+ * because by now the attempt is over: it happened, at that time, and it
+ * failed. That is the same thing `record()` means by the column, and the
+ * staleness gate in `runIfStale` compares against it — without it the backoff
+ * would be computed against an hours-old timestamp and would never bite.
+ */
+export function reapAbandonedRuns() {
+  const abandoned = rows("SELECT job, last_detail FROM sync_log WHERE last_status = 'running'");
+  for (const r of abandoned) {
+    let startedAt = null;
+    try { startedAt = JSON.parse(r.last_detail)?.started_at ?? null; } catch { startedAt = null; }
+    run(`UPDATE sync_log SET
+           last_run_at = ?, last_status = 'error', last_detail = ?,
+           consecutive_failures = consecutive_failures + 1
+         WHERE job = ?`,
+      startedAt ?? nowIso(),
+      JSON.stringify({
+        error: 'abandoned',
+        abandoned: true,
+        started_at: startedAt,
+        reason: 'the process died before this job reported back; see recordStart in scheduler.js'
+      }),
+      r.job);
+  }
+  if (abandoned.length) {
+    console.warn(`[scheduler] ${abandoned.length} job(s) did not report back before the last restart, ` +
+      `now recorded as failed and backed off: ${abandoned.map(r => r.job).join(', ')}`);
+  }
+  return { reaped: abandoned.map(r => r.job) };
+}
+
+/**
  * What a job's own return value says about whether it actually did its work.
  *
  * `record` used to be called with a hardcoded 'ok' for anything that did not
@@ -1662,6 +1744,10 @@ export async function runIfStale(name, { force = false, offThread } = {}) {
 /** The run itself, once the gates above have decided it should happen. */
 async function runJobNow(name, job, offThreadOverride) {
   const startedAt = Date.now();
+  // Before anything can go wrong, leave a mark saying this started. If the run
+  // takes the process down, this is the only trace it ever existed — see
+  // recordStart and reapAbandonedRuns above.
+  recordStart(name);
   try {
     // EVERY JOB IS TIME-BOUND, AND THIS IS NOT DEFENSIVE PROGRAMMING.
     //
@@ -1803,6 +1889,13 @@ export function startScheduler({
   intervalMinutes = 30, liveIntervalSeconds = 90, bootDelayMs = 20000, onBootComplete = null
 } = {}) {
   if (timer) return { already_running: true };
+
+  // FIRST, before the brake and before anything is scheduled: settle the
+  // previous life's unfinished business. A job that killed the process last
+  // time must be backed off before this boot can decide to start it again,
+  // and the log should be honest even when the brake is on and nothing will
+  // run at all.
+  reapAbandonedRuns();
 
   // SCHEDULER_DISABLED: a hand-operated brake, not a feature. Added 2026-09-07
   // hours before the Matta-Kodsi draft, after the betting-side live tier's

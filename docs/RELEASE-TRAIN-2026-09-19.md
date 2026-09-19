@@ -159,6 +159,25 @@ response at all, including a 503 or a 404, as the app being up.
 3. Retarget PR #14's base from `…-3ldl77-docs` to `…-o3wt2p-reentry`, so #14 still
    has a health route to probe when its own CI runs. #14 is last in the train, so
    this costs nothing.
+4. Add a test in #14 asserting the mounted app registers `/api/health` **exactly
+   once**.
+
+**On point 4, and which thread owns it.** The scheduler thread is separately
+hardening #17's handler — its failure body was returning the raw SQLite error,
+including the database path, unauthenticated on a public host — and moving it
+into its own module. That is a good fix and it is not this one. Cleaning up the
+body of #17's handler does not stop #14's handler also being registered, and if
+both survive, Express serves whichever comes first; #14's unconditional 200
+winning that race gives Fly a liveness check that passes on a wedged database,
+which is the exact failure this deploy exists to cure.
+
+So the two fixes are complementary and neither is sufficient, which is the kind
+of thing two threads each assume the other covered. The single-registration
+guarantee is **#14's side** — deleting its handler — and the test belongs there
+too, because it is the only branch where both routes would otherwise be present:
+on #17's own base there is nothing to collide with, so the same test would pass
+trivially and prove nothing. Once #14's base is retargeted onto the scheduler
+stack, that test is meaningful and fails if the duplicate ever comes back.
 
 ### Break 2 — seven failing tests in `test/manager-signals-api.test.js`
 

@@ -772,6 +772,33 @@ The 20:58Z probe listed `/data` and found **no `.bak` files at all** — only
 `data.sqlite`, its `-shm` and `-wal`, and `lost+found`. So tonight's will be the
 first, and the volume is starting clean.
 
+**And it is the only snapshot of the live rows that will ever exist on that
+volume.** `scripts/nightly-backup.sh` looks like it covers this and does not: it
+runs from a LaunchAgent on Nick's Mac at 04:30, its `SRC` is
+`$REPO/server/data.sqlite` — his local clone — and its `DEST` is
+`$HOME/Documents/gridiron-db-backups`. It never touches `/data` and never
+touches the Fly machine. There is no backup job in `scheduler.js` either;
+`grep -i backup` over the scheduler and the source registry returns nothing. So
+the Fly volume has no scheduled snapshot of any kind, and the pre-migration
+`.bak` is not one restore point among several — it is the only one.
+
+Two consequences follow, and they run opposite ways, so keep them apart.
+**Pruning old snapshots is the right advice in general and is not available
+tonight**: it needs old snapshots, and the 20:58Z probe says there are none. On
+this volume the only `.bak` that can exist is the one this deploy writes, so
+"free up space by pruning" resolves to "delete the rollback". Tonight the fix
+for a tight `df` is `fly volumes extend` and nothing else. From the *second*
+migration deploy onward there will be a genuine choice, and then the rule is the
+ordinary one: keep the newest, and keep any taken before a migration whose undo
+needs rows rather than code.
+
+The second is a latent hazard rather than tonight's problem. If anyone ever
+points `nightly-backup.sh` at `/data`, its prune glob is
+`"$DEST/$NAME."*.bak` with `NAME=data`, and a shell `*` matches across dots — so
+`data.sqlite.pre-migration-<stamp>.bak` matches it. A script written to protect
+the database would delete the migration rollbacks on a seven-file rotation. It
+is safe today only because `DEST` is a directory on a laptop.
+
 If `assertRoomForSnapshot` does refuse, it prints the three numbers that decide
 it — snapshot size, space needed, space available, all in GB — so the error
 answers its own question. Read it rather than guessing at the volume size.

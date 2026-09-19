@@ -51,6 +51,30 @@ This is the dangerous one. A duplicate number is cosmetic; a duplicate name is
 silent data loss. It is easiest to hit by copying a nearby migration as a
 template and editing `up()` without editing `name`.
 
+### The half-rename is the quiet one
+
+`runMigrations` checks two different keys for two different things, and the
+asymmetry only shows up if a rename updates one half:
+
+- `migrate.js` computes `pendingCount` from the **filename**, and that is what
+  decides whether `backupBeforeMigration` takes a snapshot first.
+- It then applies each migration under `mod.name ?? <basename>`, and
+  `db/index.js`'s apply-once guard is keyed on **that**.
+
+Rename a file and its `name` export together and the failure is loud: every
+new basename is absent from `schema_migrations`, `pendingCount` is high, the
+backup is taken, and every migration re-applies — bad, but visible, and rule 1
+already forbids it.
+
+Rename only the `name` export and it is silent. The basename is still in
+`schema_migrations`, so `pendingCount` is zero and **no backup is taken**,
+while `migrate()` sees a name it has never applied and runs `up()` against the
+live database. A schema change with no `VACUUM INTO` snapshot behind it, and
+nothing in the output says so.
+
+Every file here currently has `name` equal to its basename, which is why this
+has never fired. Keep it that way.
+
 ## Duplicate numbers are expected, and are not a bug to fix
 
 Several files share a number, `062` among them. That is not damage and does
@@ -80,7 +104,8 @@ Each file default-exports `{ name, up(db) }`, optionally `down(db)` for
 `rollbackMigration`. Discovery is `/^\d+_.+\.js$/` over this directory, applied
 in lexicographic filename order.
 
-- Give it a `name` nothing else in this directory uses. Check, do not assume.
+- Give it a `name` nothing else in this directory uses, and make it exactly the
+  filename without `.js`. Check, do not assume.
 - Write `up()` so that running it twice is a no-op, even though it should never
   happen. Guard column additions with `PRAGMA table_info`, create with
   `IF NOT EXISTS`, and make backfills idempotent. That is cheap on the way in

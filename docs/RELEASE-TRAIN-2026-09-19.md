@@ -212,7 +212,7 @@ The only scheduled QBR job is `nfl_qbr_weather` (`scheduler.js:1216`), which cal
 
 | # | State | What it needs |
 |---|---|---|
-| 8 | CI cancelled twice — **structural, not flaky.** Cause found and fixed; a fresh run needs one push by its owning thread | Both runs died at exactly the 20-minute mark (20m16s and 20m14s): that is `timeout-minutes: 20` in `ci.yml:33`, not someone pressing cancel. This branch sat on `main`, which lacks #7's CI fixes, and `main`'s suite takes about 24 minutes — so it could never have gone green on its old base however many times it was re-run. **Base retargeted from `main` to `…-3ldl77` (#7)**; base change only, no commits touched. That does not by itself re-trigger CI, because `ci.yml` uses a bare `on: pull_request`, whose default types are `opened`, `synchronize` and `reopened` — a base change fires `edited`, which is not among them. So #8 still has no green run **of its own**, and getting one needs a single push to that branch by the thread that owns it. Its content is nonetheless proved: `5podec` was one of the twenty-five merged into the scratch branch, and that run was green. |
+| 8 | CI cancelled twice — **structural, not flaky.** Cause found and fixed; a fresh run needs one push by its owning thread | Both runs died at exactly the 20-minute mark (20m16s and 20m14s): that is `timeout-minutes: 20` in `ci.yml:33`, not someone pressing cancel. This branch sat on `main`, which lacks #7's CI fixes, and `main`'s suite takes about 24 minutes — so it could never have gone green on its old base however many times it was re-run. **Base retargeted from `main` to `…-3ldl77` (#7)**; base change only, no commits touched. That does not by itself re-trigger CI, because `ci.yml` uses a bare `on: pull_request`, whose default types are `opened`, `synchronize` and `reopened` — a base change fires `edited`, which is not among them. So #8 still has no green run **of its own**, and getting one needs a single push to that branch by the thread that owns it. Its content is nonetheless proved: `5podec` was one of the twenty-five merged into the scratch branch, and that run was green. **If its owning thread has nothing genuine to push, #8 merges on the train's proof rather than on its own check** — do not stop at the missing check and improvise, and do not manufacture a commit to produce one, which would devalue every other green check in the train. |
 | 33 | CI **failed** at 19:52Z: 2,808 tests, 1 failure | Probably nothing, and a re-run is queued to confirm. That single failure did **not** reproduce in the merged train, where the same code passed inside 2,928 green tests. It also matches a known repo-wide signature: a test file whose every test passes but whose `after` hook throws `ENOTEMPTY` on `fs.rmSync`, because a worker thread re-runs `server/db/index.js` and re-creates the database directory mid-removal. That is environmental and predates the whole stack. It is in the sequence on the strength of the train result; if the re-run fails differently, the owning thread should look before this lands. |
 | 34 | Green, wrong base | Rebasing off PR #6's branch. See section 2. |
 
@@ -297,8 +297,13 @@ it now than during a bad deploy.
 
 ```
 curl -s -H "Authorization: Bearer $TOKEN" \
-  "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=1&runs=2000&from_week=2" > ~/sim-before.json
+  "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=1&runs=2000&from_week=2" > ~/sim-before-s1.json
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=2&runs=2000&from_week=2" > ~/sim-before-s2.json
 ```
+
+**Two seeds, not one.** The spread between them is the Monte Carlo noise band,
+which is what makes a later movement defensible rather than arguable.
 
 Three separate changes move the same numbers — playoff odds, title odds, trade
 horizon. Two further sim fixes are coming from the fantasy plan thread and are
@@ -319,6 +324,44 @@ Allow up to 300 seconds for this first request — the machine cold starts and
 
 **Expect the odds to rise**, in some leagues by a lot. That is the fix working,
 not a regression. Say so to anyone who looks before they report it as one.
+
+### 2a. The cache that would have made all of this say "no change"
+
+**Read this before taking any of the three readings.** `model.js:107-111` memoises
+the simulator in a bare `Map` with no TTL, no fingerprint and no invalidation,
+under the key `sim:<league>:<runs>:<from_week>:seed:<seed>` (`model.js:525-527`).
+Nothing in that key mentions the availability tables. The codebase already knows:
+`leagues.js:222` says in its own words that the simulator is "cached in-process
+with no TTL... a roster change never shows up... until the whole server restarts."
+
+Exactly one of the three readings is poisoned by this, and it is the one that
+matters most. Steps 2 and 12 are fine: `fly deploy` replaces the process, so the
+post-deploy reading is computed in an empty cache. But the availability fit is
+written **from a separate ssh process**, which cannot clear the app process's
+`Map`. So a third reading at `seed=1` returns the cached post-deploy answer byte
+for byte, the comparison shows zero change, and the natural reading is "the fit
+did not move the odds" - which would be false.
+
+So the third reading does two independent things, and passes if either works:
+
+1. `fly apps restart gridiron-hq` first, which clears every in-process cache and
+   writes no data.
+2. Read at a **seed never used before** as well. An unused key cannot be cached,
+   so it answers even if the restart silently did not happen.
+
+**Do not** use `POST /api/leagues/:id/sync` as the cache clear even though it
+calls `clearModelCache()` (`leagues.js:228`): it also rewrites the league payload,
+which confounds the very comparison being made. Same objection to
+`POST /api/model/sync`, the only other caller (`model.js:648`), which is a
+multi-season ingest - exactly the heavy work step 5 exists to keep away from the
+fit. There is no clean cache-clearing route; the restart is the clean mechanism.
+
+**The asymmetry is the opposite of the intuitive one, and is worth knowing for
+any future before-and-after.** The trade engine does *not* need any of this:
+`trade-engine.js:223-224` puts `nfl_availability_rates` and
+`nfl_availability_role_rates` into its cache fingerprint stamped on `fitted_at`,
+so writing the fit invalidates it by itself. The surface with the explicit
+fingerprint is safe; the one that merely memoises is not.
 
 ### 3. Deploy
 
@@ -516,10 +559,17 @@ Then:
    count or `fitted_at` changes. Landing on `pooled` rather than `role` means the
    gate declined to ship the role layer — a legitimate outcome, not an error.
 2. **Spot-check a healthy starter**, who should move from ~0.70 to ~0.95.
-3. **Take the reading a third time**, to `~/sim-after-fit.json`. The difference
-   from `~/sim-after-deploy.json` is this write's effect on playoff odds, isolated
-   from every code change in the train — and the baseline the fantasy plan
-   thread's two sim fixes will be measured against.
+3. **Restart, then take the reading a third time.** `fly apps restart
+   gridiron-hq` first — the fit was written from an ssh process and cannot clear
+   the app process's memo cache, so without this the reading returns the cached
+   post-deploy answer and the fit looks like it did nothing (step 2a). Then read
+   at seeds 1 and 2, which compare exactly against the post-deploy pair, and at
+   seed 3, which has never been used and so answers even if the restart did not
+   take. Take them promptly: the restart re-runs `bootJobs` and
+   `weeklyAvailability` reads `nfl_injuries` (`contingency.js:837`), which the
+   live tier may refresh underneath you. The difference is this write's effect on
+   playoff odds, isolated from every code change in the train — and the baseline
+   the fantasy plan thread's two sim fixes will be measured against.
 4. **Re-fit the posture calibration:** `node scripts/fit-posture-calibration.mjs
    --rebuild`. This is a step, not advice. `SPREAD_SCALE = 1.63` in
    `lineup-posture.js` prices the matchup card's win probability and was fit under
@@ -600,6 +650,11 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ### The merge — irreversible from here
 
+> **STOP. Everything above this line can be run and undone freely. Nothing below
+> it can.** Step 3 writes to the deployment branch; step 5 publishes it. Before
+> pasting either, be sure of two things: the image reference from step 1 is in
+> hand, and step 4 came back green.
+
 ```
 # 3. Land the train. Same order, same branches, as the run that was proved.
 git fetch origin --prune
@@ -657,9 +712,12 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 # 11. Prove the Trade Brain works, per league. Exits 2 if the app never answers.
 GRIDIRON_FLY_TOKEN=... node scripts/verify-trade-brain-live.mjs
 
-# 12. The reading again, for attribution.
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=1&runs=2000&from_week=2" > ~/sim-after-deploy.json
+# 12. The reading again, for attribution. Fresh process after the deploy, so
+#     these are computed rather than served from the memo cache.
+for S in 1 2; do
+  curl -s -H "Authorization: Bearer $TOKEN" \
+    "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=$S&runs=2000&from_week=2" > ~/sim-after-deploy-s$S.json
+done
 ```
 
 ### The two database writes
@@ -686,10 +744,20 @@ node scripts/fit-posture-calibration.mjs --rebuild
 ```
 
 ```
-# 18. The reading a third time. The difference from step 12 is write 2's effect,
-#     isolated from every code change in the train.
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=1&runs=2000&from_week=2" > ~/sim-after-fit.json
+# 18. Clear the memo cache FIRST. The fit was written from an ssh process and
+#     cannot clear the app process's Map, so without this step 19 returns step
+#     12's cached answer and the fit looks like it did nothing. See step 2a.
+fly apps restart gridiron-hq
+curl -sS --max-time 300 https://gridiron-hq.fly.dev/api/health
+
+# 19. The reading a third time. Seeds 1 and 2 compare exactly against step 12;
+#     seed 3 has never been used, so it answers even if the restart did not take.
+#     Take these promptly: the restart re-runs bootJobs, and weeklyAvailability
+#     reads nfl_injuries (contingency.js:837), which the live tier may refresh.
+for S in 1 2 3; do
+  curl -s -H "Authorization: Bearer $TOKEN" \
+    "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=$S&runs=2000&from_week=2" > ~/sim-after-fit-s$S.json
+done
 ```
 
 ### Undo

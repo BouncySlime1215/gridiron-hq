@@ -376,3 +376,41 @@ test('every grandfathered entry names an owner or a scope, and what retires it',
     assert.match(why, /\.js:\d+/, `${key} must cite the file and line it was found at`);
   }
 });
+
+
+/*
+ * A PAGE THAT NOTHING ROUTES, WITHOUT THE THREE FALSE POSITIVES NEXT TO IT.
+ *
+ * The mirror image of module-reaches-no-surface: not something built that
+ * reaches no surface, but something that LOOKS like a surface and is reached by
+ * nothing. Reported by the UI-rebuild thread, whose own first pass called seven
+ * pages orphans and was wrong about three — LeagueHub.tsx imports Leagues and
+ * MyTeam as tabs, DraftHub.tsx imports Drafts. A rule that read App.tsx's
+ * route table instead of the import graph would repeat that mistake, so the
+ * live-by-import case is pinned here rather than trusted.
+ */
+test('a page is an orphan only when nothing imports it, tabs included', () => {
+  const page = p => ({ path: `client/src/pages/${p}`, tree: 'client', scope: 'shared' });
+  const pages = ['Model.tsx', 'MyTeam.tsx', 'Drafts.tsx', 'NotFound.tsx'];
+  const importedBy = new Map([
+    // Live as a tab, not as a route. The trap.
+    ['client/src/pages/MyTeam.tsx', ['client/src/pages/LeagueHub.tsx']],
+    ['client/src/pages/Drafts.tsx', ['client/src/pages/DraftHub.tsx']],
+    // Live as a lazy route.
+    ['client/src/pages/NotFound.tsx', ['client/src/App.tsx']],
+    // Nothing at all.
+    ['client/src/pages/Model.tsx', []],
+  ]);
+  const orphaned = pages.map(page).filter(f => !(importedBy.get(f.path) ?? []).length);
+  assert.deepEqual(orphaned.map(f => f.path), ['client/src/pages/Model.tsx'],
+    'only the page with no importer at all is an orphan');
+});
+
+test('every page-never-routed finding is baselined or the gate would be red on arrival', async () => {
+  const ann = JSON.parse(await readFile(new URL('../docs/wiring/annotations.json', import.meta.url)));
+  const accepted = ann.accepted_orphan_modules ?? [];
+  for (const f of ['Edge', 'Model', 'Projections', 'Rankings']) {
+    assert.ok(accepted.includes(`client/src/pages/${f}.tsx`),
+      `${f}.tsx is a known unrouted page and must be baselined, not left to fail the build on arrival`);
+  }
+});

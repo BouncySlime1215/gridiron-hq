@@ -199,9 +199,10 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `cache-blind-to-its-inputs` | staleness | 0 | 0 | 3 |
 | `table-in-another-database` | context | 2 | 0 | 8 |
 | `table-never-scheduled` | context | 12 | 9 | 40 |
+| `page-never-routed` | orphan | 1 | 0 | 3 |
 | `edge-behind-an-off-flag` | context | 1 | 0 | 1 |
 | `module-only-tested` | orphan | 2 | 8 | 6 |
-| `module-imported-by-nothing` | orphan | 1 | 0 | 14 |
+| `module-imported-by-nothing` | orphan | 0 | 0 | 11 |
 | `module-reaches-no-surface` | orphan | 0 | 4 | 13 |
 | `field-attached-never-read` | orphan | 4 | 18 | 39 |
 | `value-computed-never-used` | orphan | 15 | 15 | 64 |
@@ -604,6 +605,17 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `writer server/migrations/015_manager_profiles.js` | 1 |
 | _… 22 more files_ | 22 |
 
+### `page-never-routed` — ORPHAN (4)
+
+- **client/src/pages/Edge.tsx** `[shared]` — a page component that no file imports and no route renders — nothing in the app can reach it. Not the same as dead code elsewhere: a file in client/src/pages reads as a live screen to anyone browsing the directory. Before deleting, check whether the SCREEN is gone or only this file: on 2026-09-19 all four survivors of the nine-tab removal (commit 1694694) were genuinely redundant, because App.tsx redirects the old paths and another component already calls the same endpoint — but that had to be checked per page, not assumed
+  - client/src/pages/Edge.tsx
+- **client/src/pages/Model.tsx** `[shared]` — a page component that no file imports and no route renders — nothing in the app can reach it. Not the same as dead code elsewhere: a file in client/src/pages reads as a live screen to anyone browsing the directory. Before deleting, check whether the SCREEN is gone or only this file: on 2026-09-19 all four survivors of the nine-tab removal (commit 1694694) were genuinely redundant, because App.tsx redirects the old paths and another component already calls the same endpoint — but that had to be checked per page, not assumed
+  - client/src/pages/Model.tsx
+- **client/src/pages/Projections.tsx** `[fantasy]` — a page component that no file imports and no route renders — nothing in the app can reach it. Not the same as dead code elsewhere: a file in client/src/pages reads as a live screen to anyone browsing the directory. Before deleting, check whether the SCREEN is gone or only this file: on 2026-09-19 all four survivors of the nine-tab removal (commit 1694694) were genuinely redundant, because App.tsx redirects the old paths and another component already calls the same endpoint — but that had to be checked per page, not assumed
+  - client/src/pages/Projections.tsx
+- **client/src/pages/Rankings.tsx** `[shared]` — a page component that no file imports and no route renders — nothing in the app can reach it. Not the same as dead code elsewhere: a file in client/src/pages reads as a live screen to anyone browsing the directory. Before deleting, check whether the SCREEN is gone or only this file: on 2026-09-19 all four survivors of the nine-tab removal (commit 1694694) were genuinely redundant, because App.tsx redirects the old paths and another component already calls the same endpoint — but that had to be checked per page, not assumed
+  - client/src/pages/Rankings.tsx
+
 ### `edge-behind-an-off-flag` — CONTEXT (2)
 
 - **applyRedistribution() in server/services/player-week-engine.js** `[fantasy]` — runs only when `redistributeVolume` is true, and the only thing that sets it true is scripts/eval-redistribution.mjs — so this is code the running app never reaches, however real the import edge looks
@@ -646,14 +658,10 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **server/services/purged-walk-forward.js** `[shared]` — imported only by its test (test/purged-walk-forward.test.js) — built, verified, never wired in
   - test/purged-walk-forward.test.js
 
-### `module-imported-by-nothing` — ORPHAN (15)
+### `module-imported-by-nothing` — ORPHAN (11)
 
 - **client/src/components/StaleBanner.tsx** `[shared]` — no file in the repository imports it
 - **client/src/features/model-lab/ModelRegistryPanel.tsx** `[shared]` — no file in the repository imports it
-- **client/src/pages/Edge.tsx** `[shared]` — no file in the repository imports it
-- **client/src/pages/Model.tsx** `[shared]` — no file in the repository imports it
-- **client/src/pages/Projections.tsx** `[fantasy]` — no file in the repository imports it
-- **client/src/pages/Rankings.tsx** `[shared]` — no file in the repository imports it
 - **scripts/_bottom-up-team-total-worker.mjs** `[shared]` — no file in the repository imports it
 - **scripts/_prepare-validation-db.mjs** `[shared]` — no file in the repository imports it
 - **scripts/_recheck-variance-only.mjs** `[shared]` — no file in the repository imports it

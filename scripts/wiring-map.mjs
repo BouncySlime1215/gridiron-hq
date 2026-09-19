@@ -1105,8 +1105,34 @@ function findings(model, ann) {
     // A migration's exports are called by name by the migration runner.
     if (/^server\/(migrations|db\/schema|db\/seed)\//.test(f.path)) continue;
     if (!importers.length) {
-      add({ kind: 'orphan', rule: 'module-imported-by-nothing', scope: f.scope, subject: f.path,
-        detail: 'no file in the repository imports it', evidence: [] });
+      // A PAGE COMPONENT IS NOT AN ORDINARY DEAD MODULE.
+      //
+      // The mirror image of module-reaches-no-surface: that is something built
+      // that reaches no surface, this is something that LOOKS like a surface and
+      // is reached by nothing. A file in client/src/pages is a page by
+      // convention — a reader of this map, or of the directory, reasonably
+      // assumes it renders somewhere. When it does not, the map saying
+      // "imported by nothing" alongside three throwaway scripts undersells it.
+      //
+      // The trap, found by the UI-rebuild thread before I looked: a page routed
+      // nowhere in App.tsx may still be live as a TAB. LeagueHub.tsx imports
+      // Leagues.tsx and MyTeam.tsx, DraftHub.tsx imports Drafts.tsx. Checking
+      // only App.tsx's lazy() calls reports three false orphans, so this rule
+      // uses the import graph and not the route table.
+      if (/^client\/src\/pages\/[^/]+\.[jt]sx?$/.test(f.path)) {
+        add({ kind: 'orphan', rule: 'page-never-routed', scope: f.scope, subject: f.path,
+          detail: 'a page component that no file imports and no route renders — nothing in the app can '
+            + 'reach it. Not the same as dead code elsewhere: a file in client/src/pages reads as a live '
+            + 'screen to anyone browsing the directory. Before deleting, check whether the SCREEN is '
+            + 'gone or only this file: on 2026-09-19 all four survivors of the nine-tab removal '
+            + '(commit 1694694) were genuinely redundant, because App.tsx redirects the old paths and '
+            + 'another component already calls the same endpoint — but that had to be checked per page, '
+            + 'not assumed',
+          evidence: [f.path] });
+      } else {
+        add({ kind: 'orphan', rule: 'module-imported-by-nothing', scope: f.scope, subject: f.path,
+          detail: 'no file in the repository imports it', evidence: [] });
+      }
     } else if (!nonTestImporters.length) {
       add({ kind: 'orphan', rule: 'module-only-tested', scope: f.scope, subject: f.path,
         detail: `imported only by its test (${importers.slice(0, 3).join(', ')}) — built, verified, never wired in`,
@@ -1767,7 +1793,7 @@ const SEVERITY = {
   'column-read-never-written': 1.2, 'producer-with-no-caller': 1.4,
   'two-names-different-sources': 1.6, 'constant-standing-in-for-a-model': 1.7, 'parameter-never-passed': 1.8,
   'served-but-not-rendered': 1.9,
-  'module-only-tested': 4, 'module-imported-by-nothing': 5,
+  'module-only-tested': 4, 'module-imported-by-nothing': 5, 'page-never-routed': 3,
   'module-reaches-no-surface': 5, 'field-attached-never-read': 6, 'value-computed-never-used': 7,
   'table-never-read': 8, 'export-only-tested': 9, 'export-imported-by-nothing': 10, 'route-no-caller': 11,
 };
@@ -2106,7 +2132,7 @@ if (INVOKED_DIRECTLY) {
     // module — means adding `module:<path>` to expected_orphans with a reason.
     // That is one line in a review, which is the point: somebody says out loud
     // that it is not wired yet, instead of nothing happening.
-    const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested']);
+    const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested', 'page-never-routed']);
     const { accepted, orphanOk, refused } = acceptGuard({
       accepted: ann.accepted_missing_feeds ?? [],
       orphans: (ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []),

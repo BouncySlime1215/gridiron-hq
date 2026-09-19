@@ -41,7 +41,8 @@
     "producer-with-no-caller backfillNewsEntities()",
     "producer-with-no-caller buildTotalCalibration()",
     "producer-with-no-caller syncDraftRookieEvidence()",
-    "producer-with-no-caller syncEspnMarket()"
+    "producer-with-no-caller syncEspnMarket()",
+    "league_season_teams"
   ],
   "_ACCEPTED_README": "accepted_missing_feeds is a RATCHET, not approval. Each entry is a gap that already existed when the check was turned on, so CI fails on anything NEW rather than on day one. Fixing one means deleting its line here. Nothing should ever be added to this list to make a build pass — add it only when turning the check on over existing debt. Entries with a rule name in front come from the should-wire family: a column nothing writes, or a producer nothing calls. They are real and they are pre-existing; the gate exists so the eleventh does not become the twelfth silently.",
   "accepted_orphan_modules": [
@@ -59,7 +60,6 @@
     "server/services/historical-adp-scrapes.js",
     "server/services/joint-score-backtest.js",
     "server/services/line-move-study.js",
-    "server/services/manager-archetypes.js",
     "server/services/nfl-ensemble-rank.js",
     "server/services/nfl-execution-clv-downsize.js",
     "server/services/nfl-execution-staking-policy.js",
@@ -75,9 +75,15 @@
     "server/services/nfl-qb-quality.js",
     "server/services/nfl-team-strength.js",
     "server/services/nfl-weekly-feature-store-v2.js",
+    "server/services/opportunity-model.js",
     "server/services/props-total-consistency.js",
     "server/services/purged-walk-forward.js",
     "server/services/sleeper-history.js"
   ],
-  "_ORPHAN_README": "Modules that exist today and reach no live surface. Every one was checked on 2026-09-19: they are deliberate research, a measured-and-declined experiment, or half of a split that never finished. They are listed so the build fails on the NEXT one, not on these. Adding to this list is how you say out loud that a module is landing unwired on purpose - put the reason in the review, not here."
+  "_ORPHAN_README": "Modules that exist today and reach no live surface. Every one was checked on 2026-09-19: they are deliberate research, a measured-and-declined experiment, or half of a split that never finished. They are listed so the build fails on the NEXT one, not on these. Adding to this list is how you say out loud that a module is landing unwired on purpose - put the reason in the review, not here.",
+  "_NEWLY_BASELINED_2026_09_19": {
+    "_why": "Baselined at the moment PR #36 was rebased onto merged main (791b131), NOT because they are fine. A gate that is red the day it arrives gets switched off. Both were found by the post-merge delta run, verified by hand in the merged tree, and sent to their owning threads as work. Remove the entry when the work lands.",
+    "server/services/opportunity-model.js": "PR #15. Only importer in the tree is test/opportunity-model.test.js plus scripts/study-opportunity-volume.mjs. No route, no job reaches it. Owner: the Opportunity thread.",
+    "league_season_teams": "Read at manager-archetypes.js:243/:819/:831, reached from the trades surface. Only writer is scripts/backfill-league-history.mjs:112, run by hand. Owner: whoever landed the league-history work."
+  }
 }

@@ -320,3 +320,39 @@ Also corrected in passing: `weight_on_results` is a property of the league forma
 the week, `games / (games + k)`, not of the team. Every team in a 12-team league at
 week 2 gets the same value. Any surface that places it where it reads as team-specific
 is making a different and false claim.
+
+### 7.7 A contamination in the corpus, and the deliberate decision not to filter it here
+
+`scripts/audit-team-week-spread.mjs` was reporting a pooled within-team spread of 517
+points and a 10-team PPR mean score of 1,539. A fantasy team-week is neither. Sleeper
+permits arbitrary scoring multipliers and a handful of leagues in the crawl use them: the
+largest single team-week in the corpus is 10,150,072.8 points, and 23 leagues carry a week
+above 400. That script now excludes a league whose median non-zero team-week falls outside
+40–250 points, a band taken from the corpus (5th percentile 91.8, median 123, 95th 166.5)
+rather than chosen, and it excludes whole leagues rather than weeks so no team's own spread
+is ever clipped.
+
+**Why it survived the first reading, which is the transferable part.** The conclusion that
+audit exists to support is about the coefficient of variation, and a CV is scale-invariant
+within a team: a league scoring ten thousand points a week still produces an ordinary CV
+near 0.2. The column the argument rested on looked healthy on contaminated data while the
+points columns beside it were nonsense. A ratio hides a scale error in its own denominator.
+
+**That correction ate one of this document's own claims.** The audit reported 10-team PPR
+at CV 0.226 against 12-team PPR's 0.198 and called the gap too large to dismiss. On clean
+data they are 0.207 and 0.199. The gap was mostly the contamination; what the data supports
+is one cv, not a table.
+
+**The features here are NOT being filtered, and that is a decision rather than an
+oversight.** `varianceComponents()` runs on `points_z`, normalised within each
+league-season, so an off-scale league's weeks become ordinary z-scores and the fitted `k`
+is unaffected by the scale. The residual exposure is a difference in *shape* rather than
+level, across roughly 2.6% of leagues, and it is unmeasured. Adding the filter to
+`weeklyPanel()` would change the fitted `k` and therefore every number in §7.1 — after the
+gate had been run and reported. Refiltering the population until the gate reads better is
+the move this document exists to prevent, whatever the motive.
+
+**REVISIT WHEN:** someone wants the gate re-run for its own sake. Then apply the scale rule
+to the panel, re-fit `k`, and re-run all four conditions as one pre-registered exercise, and
+report both populations side by side. Not before, and never as a tidy-up inside another
+change.

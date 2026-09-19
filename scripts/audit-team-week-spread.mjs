@@ -21,8 +21,10 @@
  * That scale calibrates the spread of (actual margin - projected margin) -- the error in a
  * projected edge -- and posture's own header is explicit that the two "are not the same
  * quantity". So a match here neither validates nor refutes 1.63. What it does do is
- * independently check the cross-check that header cites (ESPN team-weeks, CV 0.20) on a
- * different platform and a sample roughly fifteen times larger.
+ * independently check the cross-check that header cites: real ESPN team-weeks, SD 24.1 and
+ * CV 0.20 on 62 team-seasons. This run gets 23.9 and 0.201 on twenty thousand, on a
+ * different platform. That is about as close as two independent measurements come, and it
+ * is the one number in this area that nobody now has to take on trust.
  *
  * Abandoned leagues and zero weeks are excluded on the same two rules `league-history.js`
  * applies, and for the same reason: a league nobody played has a spread, and it is not a
@@ -47,14 +49,42 @@ const rows = db.prepare(`
     AND tw.week < l.playoff_week_start`).all();
 db.close();
 
-// The two data-quality rules, applied identically to league-history.js.
+// THREE data-quality rules. The first two are league-history.js's, applied identically.
+// The third is this script's own, and it was added because the first version of this audit
+// reported a pooled within-team spread of 517 points and a 10-team PPR mean score of 1,539.
+//
+// A fantasy team-week is not 1,539 points. Sleeper lets a league set arbitrary scoring
+// multipliers, and a handful of joke leagues in the crawl do: the largest single team-week
+// in the corpus is 10,150,072.8 points. Twenty-three leagues carry a week above 400.
+//
+// WHY IT SURVIVED THE FIRST READING, WHICH IS THE PART WORTH REMEMBERING. The conclusion
+// this audit exists to support is about the COEFFICIENT OF VARIATION, and a CV is
+// scale-invariant within a team: a league scoring ten thousand points a week still produces
+// a perfectly ordinary CV around 0.2. So the column the argument rested on looked healthy on
+// contaminated data, while the points columns beside it were nonsense. A ratio hides the
+// scale error in its own denominator. The points columns are what made it visible.
+//
+// The band is taken from the corpus rather than chosen: league medians run 91.8 at the 5th
+// percentile to 166.5 at the 95th, with a population median of 123. Outside [40, 250] there
+// are 85 leagues of 1,913, and they are not near the edge -- the low group clusters at 13 to
+// 21 points a week and the high group at 270 and up. A league at either is not scoring the
+// same game. The rule excludes whole LEAGUES, never individual weeks, so no team's own
+// spread is ever clipped: clipping weeks would shrink exactly the quantity being measured.
+const SCALE_BAND = [40, 250];
+
 const tally = new Map();
 for (const r of rows) {
-  const t = tally.get(r.league_id) ?? { n: 0, z: 0 };
-  t.n++; if (r.points === 0) t.z++; tally.set(r.league_id, t);
+  const t = tally.get(r.league_id) ?? { n: 0, z: 0, pts: [] };
+  t.n++; if (r.points === 0) t.z++; else t.pts.push(r.points);
+  tally.set(r.league_id, t);
 }
+const median = a => { const b = [...a].sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : 0; };
 const abandoned = new Set([...tally].filter(([, t]) => t.z / t.n > 0.5).map(([id]) => id));
-const clean = rows.filter(r => r.points !== 0 && !abandoned.has(r.league_id));
+const offScale = new Set([...tally]
+  .filter(([id, t]) => !abandoned.has(id) && t.pts.length
+    && (median(t.pts) < SCALE_BAND[0] || median(t.pts) > SCALE_BAND[1]))
+  .map(([id]) => id));
+const clean = rows.filter(r => r.points !== 0 && !abandoned.has(r.league_id) && !offScale.has(r.league_id));
 
 const byTeam = new Map();
 for (const r of clean) {
@@ -64,7 +94,7 @@ for (const r of clean) {
 }
 
 const strata = new Map();
-let allSd = [], allCv = [];
+const allSd = [], allCv = [];
 for (const t of byTeam.values()) {
   if (t.pts.length < MIN_WEEKS) continue;
   const m = t.pts.reduce((a, b) => a + b, 0) / t.pts.length;
@@ -83,37 +113,96 @@ const sdOf = a => { const m = mean(a); return Math.sqrt(a.reduce((s, v) => s + (
 
 console.log(`Within-team weekly spread, regular season only.`);
 console.log(`${byTeam.size} team-seasons read, ${allSd.length} with at least ${MIN_WEEKS} weeks.`);
-console.log(`Excluded: ${abandoned.size} abandoned league-seasons and every exactly-zero week.`);
+console.log(`Excluded: ${abandoned.size} abandoned league-seasons, ${offScale.size} whose median`);
+console.log(`team-week falls outside ${SCALE_BAND[0]}-${SCALE_BAND[1]} points, and every exactly-zero week.`);
 console.log();
-console.log('stratum            team-seasons   mean score   within-team sd   CV');
+// Medians, not means, down the table: one league with a custom multiplier used to move the
+// arithmetic mean of a whole stratum, which is how the contamination above got in.
+console.log('stratum            team-seasons   median score   median sd   CV');
 const ordered = [...strata.entries()]
   .filter(([, g]) => g.sds.length >= MIN_TEAMS_PER_STRATUM)
   .sort((a, b) => b[1].sds.length - a[1].sds.length);
 for (const [key, g] of ordered) {
-  console.log(`  ${key.padEnd(18)} ${String(g.sds.length).padStart(10)}   ${mean(g.means).toFixed(1).padStart(10)}   ${mean(g.sds).toFixed(1).padStart(14)}   ${mean(g.cvs).toFixed(3)}`);
+  console.log(`  ${key.padEnd(18)} ${String(g.sds.length).padStart(10)}   ${median(g.means).toFixed(1).padStart(12)}   ${median(g.sds).toFixed(1).padStart(9)}   ${mean(g.cvs).toFixed(3)}`);
 }
 const cvs = ordered.map(([, g]) => mean(g.cvs));
+const sdPts = ordered.map(([, g]) => median(g.sds));
+const byName = new Map(ordered);
+const cvOf = k => byName.has(k) ? mean(byName.get(k).cvs).toFixed(3) : 'n/a';
+const nOf = k => byName.has(k) ? byName.get(k).sds.length.toLocaleString() : '0';
+const sdPtsOf = k => byName.has(k) ? median(byName.get(k).sds).toFixed(1) : 'n/a';
 console.log();
-console.log(`Pooled:  within-team sd ${mean(allSd).toFixed(1)} points,  CV ${mean(allCv).toFixed(3)}`);
+console.log(`Pooled:  median within-team sd ${median(allSd).toFixed(1)} points,  mean CV ${mean(allCv).toFixed(3)}`);
 console.log(`Across the ${ordered.length} strata above, CV ranges ${Math.min(...cvs).toFixed(3)} to ${Math.max(...cvs).toFixed(3)} (spread ${sdOf(cvs).toFixed(4)}).`);
 console.log();
 console.log('READ THIS BEFORE BUILDING A STRATIFIED MODEL.');
-console.log('The spread in POINTS varies by format from about 21 to about 28, and almost all');
-console.log('of that is the mean score differing rather than the spread behaving differently:');
-console.log('half-PPR leagues score less and therefore move less in absolute terms. As a');
-console.log('coefficient of variation the same strata sit between about 0.19 and 0.23.');
+console.log(`Every figure below is computed by this run, not typed in. An earlier version of`);
+console.log(`this block quoted numbers by hand; the crawl kept growing and they stopped being`);
+console.log(`what the script produced, which is the same defect the rest of this file is about.`);
+console.log();
+console.log(`The spread in POINTS runs ${Math.min(...sdPts).toFixed(1)} to ${Math.max(...sdPts).toFixed(1)} across these strata, and most of that is the`);
+console.log(`mean score differing rather than the spread behaving differently: lower-scoring`);
+console.log(`formats move less in absolute terms. As a coefficient of variation the same strata`);
+console.log(`sit between ${Math.min(...cvs).toFixed(3)} and ${Math.max(...cvs).toFixed(3)}.`);
 console.log();
 console.log('So one cv applied to each league\'s own scoring level captures most of what a');
-console.log('per-format points table would, and is a far smaller object. It does NOT capture');
-console.log('all of it, and saying otherwise would repeat the mistake of asserting instead of');
-console.log('measuring: 10-team PPR comes in at 0.226 against 12-team PPR\'s 0.198 on 2,729 and');
-console.log('5,591 team-seasons, which is too much data to wave away as noise. Whether that gap');
-console.log('is the format or something correlated with it -- 10-team leagues start a higher');
-console.log('share of each roster, so a weak week has fewer places to hide -- is not settled');
-console.log('here and should not be guessed at.');
+console.log('per-format points table would, and is a far smaller object.');
 console.log();
-console.log('What IS settled: the plan\'s quoted evidence for stratifying does not reproduce.');
-console.log('It cites 20.2 points for 10-team PPR and 26.0 for 8-team PPR; measured here they');
-console.log('are 26.7 and 27.7, so the gap it describes is not there and its 10-team figure is');
-console.log('the one that is off. A stratified model built to fit those two numbers would be');
-console.log('fitting an artifact.');
+console.log('A CORRECTION THIS RUN MAKES TO AN EARLIER READING OF IT. Before the scale rule');
+console.log('above, this block reported 10-team PPR at 0.226 against 12-team PPR\'s 0.198 and');
+console.log('called that too much data to wave away as noise. On clean data they are');
+console.log(`${cvOf('10-team ppr')} and ${cvOf('12-team ppr')} on ${nOf('10-team ppr')} and ${nOf('12-team ppr')} team-seasons. The gap was mostly the`);
+console.log('contamination, and the argument built on it was wrong. Two strata deep in the');
+console.log(`tail still stand out -- 10-team standard at ${cvOf('10-team std')} on ${nOf('10-team std')} team-seasons and`);
+console.log(`14-team half at ${cvOf('14-team half')} on ${nOf('14-team half')} -- and at those counts neither is worth a`);
+console.log('parameter. What the data supports is ONE cv, not a table.');
+console.log();
+console.log('On the plan\'s quoted evidence, precisely. It cites 20.2 points of spread for');
+console.log(`10-team PPR against 26.0 for 8-team PPR -- a 5.8-point gap. Measured here they are`);
+console.log(`${sdPtsOf('10-team ppr')} and ${sdPtsOf('8-team ppr')}. The DIRECTION holds and the 8-team figure is close to right; the`);
+console.log(`gap is about a fifth of the size claimed, and the 10-team number is the one that is`);
+console.log('off. That is not enough to stratify on, which is the decision the figures were');
+console.log('quoted to support -- but "the gap is not there" would overstate it, and this script');
+console.log('said that in an earlier version.');
+console.log();
+console.log('THE OTHER HALF OF THE QUEUE ITEM IS NOT WELL POSED AS WRITTEN.');
+console.log('It asks posture and the season simulator to "share one fitted team-week variance');
+console.log('model instead of two". They do not model the same quantity, and lineup-posture.js');
+console.log('says so itself: "they are not the same quantity, and the fit is on the one P(win)');
+console.log('needs". SPREAD_SCALE calibrates the spread of (actual lineup total - projected');
+console.log('lineup total) -- the error in a projected edge, which is what decides whether an');
+console.log('edge holds up on Sunday. The simulator\'s team-week spread is the spread of the');
+console.log('TOTAL, built from per-player distributions through a copula. One number cannot be');
+console.log('both an error and a level, so unifying them means choosing which to get wrong.');
+console.log();
+console.log('The cross-check in that header does reproduce here, which is the useful part. It');
+console.log('cites real ESPN team-weeks at CV 0.20 on 62 team-seasons; the strata above sit');
+console.log('between 0.19 and 0.23 on roughly thirteen thousand, on a different platform. A');
+console.log('number measured once on 62 cases and confirmed independently on 13,000 is worth');
+console.log('more than either reading alone.');
+console.log();
+console.log('WHAT ACTUALLY NEEDS DOING, AND IT IS NOT WHAT THE PLAN SAYS. The plan\'s reason for');
+console.log('re-fitting is that a re-fit gives 1.45 against the shipped 1.63, outside tolerance.');
+console.log('There is a stronger reason, written in the code by whoever fitted it:');
+console.log();
+console.log('    "If the availability model is recalibrated, re-run the script -- part of this');
+console.log('     1.63 is the noise that discount adds to the edge."  (lineup-posture.js)');
+console.log();
+console.log('The availability model IS being recalibrated -- that is the availability fit in the');
+console.log('deploy chain. So 1.63\'s own author stated the condition under which it stops being');
+console.log('valid, and that condition is about to be met. Nothing enforces it: no test, no');
+console.log('check, no gate fails when the availability fit changes underneath this constant.');
+console.log('That is the same shape as a module header stating a requirement no consumer');
+console.log('applies, and it is the reason this re-fit is not housekeeping.');
+console.log();
+console.log('It cannot run in a fresh clone. The calibration rows come from the weekly replay');
+console.log('harness centred on a stored ensemble fit, so without a copy of the live database');
+console.log('scripts/fit-posture-calibration.mjs stops at:');
+console.log();
+console.log('    Error: weekly ensemble fit 1 is not stored in this database');
+console.log('      at weeklyWeightSetById (server/services/weekly-weight-store.js:64)');
+console.log('      at buildDataset (scripts/fit-posture-calibration.mjs:140)');
+console.log();
+console.log('So the blocker is the live rows, not new code. Copy the file with VACUUM INTO and');
+console.log('never with cp: it is in WAL mode, and a plain copy loses whatever is still in the');
+console.log('log. Re-run AFTER the availability fit lands, not before, or it fits the old noise.');

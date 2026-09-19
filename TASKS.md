@@ -10,15 +10,41 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
 - **WA Trade Brain resumed in a second cloud session, 2026-09-19 (this entry).**
   Picked up cold from `HANDOFF.md` + the first Active entry below, per A5. Nick's
   laptop is off for the night; this session is cloud-side and unaffected by that.
-  - **`build:value-and-acceptance` — in flight.** The next queued Trade Brain
-    stage per D4 ("P(accept) ... a band from the heuristic ... with the observed
-    accept rate as the anchor, labelled as a band"). Builder agent working
-    test-first against pre-registered gates, owning a new
-    `server/services/trade-acceptance.js` + its test + `docs/tdd/value-and-acceptance.tdd.md`,
-    with only surgical additive wiring into `trade-engine.js`/`trade-tactics.js`.
-    Not yet landed; no commits to report at the time of this write.
-  - **Idea -> proposal pipeline being mapped** (read-only) so
-    `build:sendable-proposals` can be briefed accurately rather than guessed at.
+  - **`build:value-and-acceptance` — LANDED.** RED `6976685`, GREEN `32faf5f`,
+    fix `180b3a9`; 16/16; evidence `docs/tdd/value-and-acceptance.tdd.md`.
+    Every surfaced idea now carries `acceptance`: a band centred on that
+    manager's own observed accept rate, widened by how little evidence stands
+    behind it, attached only after the edge test so a gift never carries an
+    acceptance number at all. `readDeal` now passes `accept_rate_n` through —
+    the layer computed it and `readDeal` dropped it, so until now no caller
+    could tell a four-offer anchor from a sixty-offer one.
+    - **Its verify pass found a real defect in its own first GREEN**, against
+      its own G3 gate: the band was centred on `tx_accept_rate` AND charging
+      receptiveness on top, but `counterparty-pricing.js:180-182` blends the
+      accept rate INTO receptiveness (weight `min(1, n/15)`), so one observed
+      rate was being presented as two agreeing signals. Receptiveness is now
+      charged only for the share the anchor does not already hold. Fixed in
+      `180b3a9`. **The verify was a self-verify, not an independent one** — an
+      independent verifier is still owed.
+    - **Deliberately NOT done:** need fit and the profile roster read are not
+      charged as separate P(accept) terms although D4 lists them, because
+      `playerValuation` already prices both into `perception_delta`. Two tests
+      pin this by adding each on top and asserting the band does not move.
+  - **`build:sendable-proposals` — LANDED (code), UNEXERCISED (the call).**
+    RED `fd70334`, GREEN `abac2c5`, wiring `ace0101`; 18/18; evidence
+    `docs/tdd/sendable-proposals.tdd.md`. `GET /api/trades/:leagueId/proposals`,
+    budgeted per league through the `trade_proposals` key that already existed
+    unused, cached in new table `trade_proposal_cache` (migration 060) on a
+    content hash of the slate rather than on a day.
+    - The point of the stage is the verifier: a proposal naming a player or a
+      number its cited ideas do not contain is rejected WHOLE, prose included,
+      so a throw-in smuggled into an opener is caught too. Refusals are never
+      cached, so a bad night cannot leave a league with an empty Trade Lab.
+    - **No live Sonnet call has ever been made against the prompt** — this box
+      has no key. Whether the model picks the right five ideas or writes an
+      opener that sounds like Nick is evidenced by nothing. Mac session.
+    - No client surface yet: the route returns proposals, no page renders them.
+      That is B4/UI work in WO+WB, not this stage.
   - **Skills installed in this box** at `~/.claude/skills`, since a cloud session
     does not share Nick's Mac's `~/.claude`: `i-have-adhd` (A2 rule 5 names it for
     every message to Nick) plus `tdd-workflow`, `eval-harness`, `verification-loop`,

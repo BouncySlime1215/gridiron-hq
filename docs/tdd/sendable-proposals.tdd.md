@@ -62,8 +62,24 @@ LLM spend: $0 — the caller is injected in every test.
 
 | Stage | Commit | Evidence |
 |---|---|---|
-| RED | (pending) | |
-| GREEN | (pending) | |
+| RED | `fd70334` | 18 tests, 0 pass — `server/services/trade-proposals.js` does not exist. Gates were written into this file first, then the tests, then the module. |
+| GREEN | `abac2c5` | 18/18. |
+| Wiring | `ace0101` | Migration 060, the persisted cache, the prompt, and `GET /api/trades/:leagueId/proposals`. 18/18 still, lint clean (836 files), `server/routes/trades.js` imports cleanly against a temp database. |
+
+### A bug the tests caught during GREEN, worth recording
+
+The first number scanner used `/-?\d+(\.\d+)?/`, which read the hyphen in the
+identifier `idea-1` as negative one and rejected five *correct* proposals for
+"inventing" a number that never appeared in the text. Two changes: a leading `-`
+counts as a sign only when it is not glued to a word, and `idea_ids` is excluded
+from the prose scan because it is structure, not something Nick reads.
+
+It is worth recording because of which direction it failed in. A verifier whose
+bug makes it too STRICT is visible immediately — good proposals vanish. The same
+class of bug in the other direction would have silently let fabricated numbers
+through, and nothing downstream would have noticed. The tests that caught it were
+the ones asserting that legitimate content passes, not the ones asserting that
+bad content fails.
 
 ## What this does NOT establish
 

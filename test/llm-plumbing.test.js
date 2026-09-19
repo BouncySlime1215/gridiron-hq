@@ -461,3 +461,41 @@ test('recomputeUsageCosts backs the table up first, corrects every priced row, a
   near(db.prepare('SELECT cost_usd FROM ai_usage WHERE model = ?').get(HAIKU).cost_usd, 0.0015);
   assert.throws(() => budget.recomputeUsageCosts({ backupTable: 'x; DROP TABLE ai_usage' }), /backup table/i);
 });
+
+// A Claude Code cloud box refuses to forward a variable named
+// ANTHROPIC_API_KEY to the process — it claims that name for its own session
+// auth — so the key is simply absent there and the app looks unconfigured.
+// getApiKey() therefore accepts GRIDIRON_ANTHROPIC_API_KEY first, keeps
+// ANTHROPIC_API_KEY for every other host, and falls back to app_settings last.
+test('getApiKey prefers the host-safe name, then the standard one, then app_settings', () => {
+  const saved = { gridiron: process.env.GRIDIRON_ANTHROPIC_API_KEY, standard: process.env.ANTHROPIC_API_KEY };
+  const restore = () => {
+    for (const [name, value] of [['GRIDIRON_ANTHROPIC_API_KEY', saved.gridiron], ['ANTHROPIC_API_KEY', saved.standard]]) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    db.exec("DELETE FROM app_settings WHERE key = 'anthropic_api_key'");
+  };
+
+  try {
+    delete process.env.GRIDIRON_ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = 'standard-name';
+    assert.equal(claude.getApiKey(), 'standard-name');
+
+    // Set together, the host-safe name wins — a cloud box may carry both.
+    process.env.GRIDIRON_ANTHROPIC_API_KEY = 'host-safe-name';
+    assert.equal(claude.getApiKey(), 'host-safe-name');
+
+    // With neither variable present, the stored setting is still honoured.
+    delete process.env.GRIDIRON_ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_API_KEY;
+    db.prepare(`INSERT INTO app_settings (key, value) VALUES ('anthropic_api_key', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run('from-settings');
+    assert.equal(claude.getApiKey(), 'from-settings');
+
+    db.exec("DELETE FROM app_settings WHERE key = 'anthropic_api_key'");
+    assert.equal(claude.getApiKey(), null);
+  } finally {
+    restore();
+  }
+});

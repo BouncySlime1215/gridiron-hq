@@ -1,7 +1,7 @@
 # Release train — 2026-09-19
 
-Twenty-seven pull requests were opened against this repository on 2026-09-19 by
-seven threads. None of it is deployed: `gridiron-hq.fly.dev` is running a build
+Twenty-nine pull requests were opened against this repository on 2026-09-19 by
+eight threads. None of it is deployed: `gridiron-hq.fly.dev` is running a build
 that predates all of them. This file is the ordered sequence for landing them,
 the evidence that the sequence works, and the deploy plan that follows it.
 
@@ -10,13 +10,19 @@ throwaway scratch branch built from `main`, which has been discarded.
 
 ## Summary
 
-Twenty-five pull requests go in, in the order in section 1. Two are excluded:
-one is betting work, one is in-scope work sitting on a betting base. Merging all
-twenty-five produced **one** conflict and **seven** failing tests; both fixes are
-written out in section 3 and neither has been pushed, because both belong to
-other threads' branches. With both applied the merged tree is green:
-**2,928 tests, 2,887 passed, 0 failed**, plus a clean typecheck, lint, client
-build and start-up smoke test.
+Twenty-six pull requests go in, in the order in section 1. Three are excluded:
+one is betting work, one is in-scope work sitting on a betting base, and one is
+tooling that arrived after the sequence was proved.
+
+**Merging all twenty-six, against every branch's current head, produces no
+conflicts and needs no hand-applied fixes, and the merged tree is green:
+2950 tests, 2909 passed, 0 failed, 41 skipped**, plus a clean
+`npm ci`, typecheck, lint, client build and start-up smoke test — the same five
+steps the CI job runs. That was not true two hours ago. The first run of this
+sequence hit one textual conflict and seven failing tests, neither of which any
+individual pull request could show, because each needed two green branches
+present at once. Both are now fixed in their own source branches by the threads
+that own them, which is section 3.
 
 One thing worth saying before the sequencing: **deploying is not only a risk to
 be managed, it is a cure.** Part of what makes the machine feel dangerous to
@@ -27,7 +33,7 @@ to touch it as little as possible. Here the opposite is true.
 
 ## 1. The order
 
-Twenty-five pull requests, merged bottom-first. Each line is a merge into the
+Twenty-six pull requests, merged bottom-first. Each line is a merge into the
 deployment branch.
 
 ### Base stack — strictly linear, each is the next one's base
@@ -64,10 +70,40 @@ reviewable unit. **Everything else in the train depends on #12.**
 | 25 | `…-3xqh5l-proposals-live` | Trade Lab proposals parse, per-league budget. **Before #22.** |
 | 26 | `…-3xqh5l-signals-api` | Serves the measured manager layer. **Before the chat sync is worth running.** |
 | 23 | `…-3xqh5l-manager-read` | Counterparty read on every trade card |
-| 22 | `…-3xqh5l-brain-ui` | The Trade Brain page |
+| 22 | `…-3xqh5l-brain-ui` | The Trade Brain page. **ON HOLD** — see below. |
 | 18 | `…-3xqh5l` | Live check that says whether the Trade Brain works |
+| 37 | `…-f921do-gate-v2` | The restructured availability gate, cherry-picked alone onto the stack base so it lands without #34. **Before #15**, because it decides what deploy step 10 writes. |
 | 15 | `…-w45mur` | Opportunity model. Carries the promotion script and runbook that deploy step 7 uses. |
 | 14 | `…-n4052e` | Google sign-in and per-user scoping. **Last, and it must come after #17.** |
+
+**#22 was held for about ten minutes and ships.** The wiring-map tool (PR #36)
+reported that the counterparty read depends on four tables nothing on the server
+fills, which would have meant every trade-partner screen formatting emptiness
+into something that reads like an answer — the exact defect class this whole
+deploy is about. Checked rather than taken, and the conclusion was wrong while
+its first half was right. Those four tables are not in the app's database at
+all: they live in a separate SQLite file opened through `chatDbPath` and
+`messagesDbPath`, and nothing is *supposed* to insert rows into them, because
+they arrive as a whole file — Nick's corpus, extracted on his Mac.
+`POST /api/league-chat/upload` is the server-side writer, and it refuses a file
+whose `messages` table is empty, keeps the previous copy under a timestamped
+name, and renames the new one into place atomically. So "nothing writes these
+tables" is true row-by-row and misleading as a conclusion.
+
+And on the question that actually decided it: both surfaces already guard, in
+#30's pattern and written that way deliberately rather than retrofitted.
+`ManagerRead` gates on a `counterparty_data` flag and prints a line saying the
+deal is priced on our numbers only, and that this is not the same as the manager
+looking neutral. `ManagerBoard` has four named states including a sentence for a
+404. The live capture reads `counterparty_data: false` on every league right
+now, which is exactly the state that triggers those lines. Thirteen of thirteen
+and twenty of twenty tests re-run on each branch's current head, several named
+for this precise failure. **#22 sits where it always did, behind #25.**
+
+Worth keeping from the exercise: the tool can tell whether code fills a table,
+not whether the rows in it are any good. A clean report from it is not a working
+feature, and the post-deploy checks in section 6 must not start treating it as a
+substitute for counting rows.
 
 Positions 19, 20, 28, 29, 31, 32, 33 and 27, 30 are forced: each is stacked on
 the one above it in git. Positions 8, 24, 23, 18, 15 are free — placed for
@@ -75,16 +111,18 @@ readability, not necessity.
 
 ### The three constraints that are real
 
-**#17 before #14.** Both invent `GET /api/health`, independently. Git merges
-them without conflict because they land in different places in
-`server/index.js`, so the merged file registers the route twice. Express serves
-whichever was registered first — #17's, which runs a synchronous SQLite read and
-answers 503 when it cannot. #14's is `res.json({ ok: true })` and answers 200
-unconditionally. One reordering of that file and Fly's liveness check silently
-becomes a check that passes on a dead database, which is the TCP-check failure
-`fly.toml` was just changed to fix. The two branches also conflict directly in
-`scripts/start-smoke.mjs` — the only textual conflict in the whole train. Fix in
-section 3.
+**#17 before #14.** This was the train's sharpest edge and it is now closed in
+the branches rather than in this document; the history is in section 3 because
+it is the best argument in the plan for proving an order instead of reasoning
+about one. Both branches independently invented `GET /api/health`, git merged
+them without conflict because they landed in different places in
+`server/index.js`, and the merged file registered the route twice — with #14's
+unconditional `res.json({ ok: true })` one reordering away from becoming Fly's
+liveness check, which is exactly the TCP-check failure `fly.toml` was changed to
+fix. #14 has since merged #17's extracted handler and deleted its own route, so
+the merged tree now registers `/api/health` once, at `server/index.js:86`,
+delegating to `healthHandler()`. The ordering constraint itself stands: #14
+takes #17's handler, so #17 merges first.
 
 **#25 before #22.** #22 adds the Trade Brain page; #25 makes the proposal parse
 read the model's answer and remembers an unanswerable slate for six hours
@@ -130,6 +168,25 @@ PR #6's branch.** `git merge-base --is-ancestor` confirms it contains all 375 of
 rebasing onto `…-3ldl77-docs` before it can join a train, which is the owning
 thread's call, not this one's.
 
+**One commit on it is now being extracted, and only that one.** `0bd4041`, the
+restructured availability gate Nick authorised tonight, is in
+`server/services/contingency.js` on this branch and nowhere else. Step 10 needs
+it, because `fit-availability.mjs` imports the gate rather than carrying it, so
+whether the role table ships is decided by which `contingency.js` is in the
+image. The owning thread is cherry-picking that change — one module, one TDD
+document, one test file — onto a fresh branch off `…-3ldl77-docs` and opening it
+as its own pull request, so none of #6 travels with it. When it exists and is
+green it joins the train immediately before #15 and the train is re-proved with
+it. The rest of #34 stays excluded on the base problem. **As of 20:19Z no such
+branch has been pushed**, and the rest of this plan reads as if it will not
+arrive; step 10 says what happens in each case.
+
+**PR #36 — the wiring map.** Opened after this sequence was proved. It is
+tooling rather than product (one script, one test, two `package.json` entries and
+generated output under `docs/wiring/`), it has already earned its keep by finding
+the #22 hold, and it goes in the next train. Adding it to this one for tidiness
+is precisely the collision this train exists to avoid.
+
 Nothing else in the train is betting work. #28 and #32 move betting jobs
 (`nfl_prop_feeds`, `beat_the_close`, `evidence_daemon`, `nfl_reports`) off the
 request thread, which is in scope because those jobs pin the machine the fantasy
@@ -137,12 +194,18 @@ app runs on.
 
 ## 3. What broke when it was proved, and what fixes it
 
-The twenty-five branches were merged in the order above onto a scratch branch
-from `main`, and the repository's own checks were run on the result: typecheck,
-lint, the full test suite, the client build, and the start-up smoke test.
+**Both breaks in this section are now closed in the source branches, and the
+current train merges with no conflicts and no hand-applied fixes at all.** The
+section is kept in full because it is the argument for this whole exercise: each
+break involved two pull requests that were green on their own, and neither could
+be seen from either one.
 
-**Before the fixes: 2,921 tests, 2,873 passed, 7 failed.** Typecheck, lint and
-build were clean. Twenty-four of the twenty-five merges were conflict-free.
+The branches were merged in the order above onto a scratch branch from `main`,
+and the repository's own checks were run on the result: typecheck, lint, the
+full test suite, the client build, and the start-up smoke test.
+
+**On the first run, before the fixes: 2,921 tests, 2,873 passed, 7 failed**,
+with one textual conflict. Typecheck, lint and build were clean.
 
 ### Break 1 — `scripts/start-smoke.mjs`, the only merge conflict
 
@@ -150,8 +213,41 @@ build were clean. Twenty-four of the twenty-five merges were conflict-free.
 `probe.ok` and the response body and keeps waiting on a 503; #14's treats any
 response at all, including a 503 or a 404, as the app being up.
 
-**#17's version wins**, and #14 should stop adding a health route of its own. On
-`claude/project-thread-n4052e`:
+**Closed in the branches, in three pieces by two threads.**
+
+1. **The handler's body.** The scheduler thread found that #17's failure path
+   returned the raw SQLite error — `unable to open database file: /data/…` —
+   unauthenticated on a public host, at the one moment the endpoint has
+   something worth disclosing. That is what #14's route had been protecting
+   against: its comment records that the probes used to poll
+   `GET /api/model/status`, which answers with row counts, so #14 authenticated
+   that endpoint and added a health route that deliberately says nothing.
+   `63e0886` makes the 503 body exactly `{ ok: false }` and sends the cause to
+   the process log, and moves the handler to `server/platform/health.js` so the
+   failure path can be tested at all — inline in `server/index.js` it could not
+   be, because that file binds a port on import.
+2. **A tripwire, and it is not where this document first put it.** The test
+   asserting a single registration went to the **top of the scheduler stack**
+   (`…-o3wt2p-reentry`, `0cf7cb3`), not into #14. The reasoning is better than
+   mine was: a test written by the same change that deletes the second route can
+   never fail, and would have been green from the moment it existed. On the
+   scheduler stack it stands in the tree *before* the collision arrives, and
+   because #14 takes that branch it is the test #14's own CI runs — red while
+   #14 carried its route, green the moment it was deleted. It was verified to
+   fire rather than assumed: with #14's line inserted where the real merge puts
+   it, the assertion fails with the registration count named. Three assertions,
+   because the collision has more than one shape — exactly one
+   `app.get('/api/health'`, the survivor delegating to `healthHandler()` (one
+   route that cannot return a non-200 is the TCP check again), and no
+   `/health` endpoint defined under `server/routes/` either.
+3. **Deleting #14's route**, which only #14 could do, and it has: `d7c9beb`
+   merges the extracted handler and drops its own line. The re-proved merge now
+   registers `/api/health` exactly once, at `server/index.js:86`, and
+   `scripts/start-smoke.mjs` no longer conflicts. There is nothing left in this
+   break to apply by hand.
+
+**#17's version won**, and #14 stopped adding a health route of its own. What
+was asked for on `claude/project-thread-n4052e`, all of it now done:
 
 1. Delete the one-line `app.get('/api/health', (_req, res) => res.json({ ok: true }));`
    and its comment block from `server/index.js`.
@@ -162,22 +258,18 @@ response at all, including a 503 or a 404, as the app being up.
 4. Add a test in #14 asserting the mounted app registers `/api/health` **exactly
    once**.
 
-**On point 4, and which thread owns it.** The scheduler thread is separately
-hardening #17's handler — its failure body was returning the raw SQLite error,
-including the database path, unauthenticated on a public host — and moving it
-into its own module. That is a good fix and it is not this one. Cleaning up the
-body of #17's handler does not stop #14's handler also being registered, and if
-both survive, Express serves whichever comes first; #14's unconditional 200
-winning that race gives Fly a liveness check that passes on a wedged database,
-which is the exact failure this deploy exists to cure.
-
-So the two fixes are complementary and neither is sufficient, which is the kind
-of thing two threads each assume the other covered. The single-registration
-guarantee is **#14's side** — deleting its handler — and the test belongs there
-too, because it is the only branch where both routes would otherwise be present:
-on #17's own base there is nothing to collide with, so the same test would pass
-trivially and prove nothing. Once #14's base is retargeted onto the scheduler
-stack, that test is meaningful and fails if the duplicate ever comes back.
+**There are now two single-registration tests, and that is fine.** The scheduler
+thread's `test/health-endpoint.test.js` tripwire sits on `…-o3wt2p-reentry`, and
+#14 wrote `test/health-route-single.test.js` of its own, which also asserts that
+`fly.toml`'s check probes that path and that it is not behind authentication.
+Both read the source rather than the route table, for the same correct reason:
+`server/index.js` binds a port on import and cannot be loaded from a test, and a
+request only ever reaches the first registration, so a duplicate is invisible
+over HTTP and visible only in the file. A merge is a textual event, so a textual
+assertion is the matched instrument. The redundancy costs one file. **Do not
+delete either as a tidy-up** — the scheduler's fires on any branch that stacks
+on it, #14's travels with the sign-in work, and between them the duplicate
+cannot come back through either door.
 
 ### Break 2 — seven failing tests in `test/manager-signals-api.test.js`
 
@@ -187,10 +279,18 @@ front of every `/api/trades/:leagueId` route. #26's fixture creates two users an
 two sessions but no `league_memberships` rows, because when it was written
 nothing required them.
 
-Both pull requests are right — the route *should* be membership-guarded. The fix
-is in #26's fixture, and it is safe on #26's own base too: `league_memberships`
-has existed since migration 006, so seeding it is a no-op until #14 lands. On
-`claude/project-thread-3xqh5l-signals-api`, after the last `insertLeague` call:
+**Fixed in source, 20:12Z — `f12bedd` on `claude/project-thread-3xqh5l-signals-api`.**
+The Trade Brain thread reproduced the seven failures on its own merged worktree
+before touching anything, and checked which side was wrong rather than assuming
+the fixture was: the measured manager layer is per-league private data partly
+derived from a private message corpus, so a session alone must not be enough to
+read one league's copy of it. The route is right to be guarded. The re-proof
+below merges that commit and the seven failures do not appear, so this break is
+closed and nothing here needs applying by hand any more.
+
+What it did, kept for the record, and safe on #26's own base because
+`league_memberships` has existed since migration 006 — after the last
+`insertLeague` call:
 
 ```js
 for (const id of [21, 22, 23, 24]) {
@@ -205,18 +305,53 @@ it not to.
 **With both fixes applied, the whole train is green: 2,928 tests, 2,887 passed,
 0 failed, 41 skipped, and a clean typecheck, lint, build and smoke.**
 
-### Not a break: three migrations numbered 061
+### Not a break: the migration numbering, which has since half-fixed itself
 
-#14, #19 and #21 each add a `server/migrations/061_*.js`, on a base stack that
-ends at 060. Survivable rather than broken: `server/db/migrate.js` keys
-`schema_migrations` on the **full filename**, not the number, and applies files in
-`.sort()` order, so all three are applied exactly once and none blocks another.
-They touch unrelated tables, so the order between them does not matter.
+The base stack ends at `060`. Three branches each added an `061_*.js`; #21 and
+#14 have both since renumbered to `062`, so the merged tree now carries one
+`061_sync_log_consecutive_failures.js` (#19) and two 062s,
+`062_google_identity_and_invites.js` (#14) and `062_league_payload_season.js`
+(#21).
 
-The one sharp edge: `npm run db:rollback` with no argument rolls back the
-*last-sorted* of the three, which is `061_sync_log_consecutive_failures`, not
-whichever was conceptually last. Renumbering to 061/062/063 would be tidier and
-is a rename of files nothing has applied yet. Not required, not in this plan.
+Still survivable, and for the same reason it always was: `server/db/migrate.js`
+keys `schema_migrations` on the **full filename**, not the number, and applies
+files in `.sort()` order, so every one is applied exactly once and none blocks
+another. They touch unrelated tables, so the order between them does not matter.
+None of these files has run anywhere, so every renumber has been a rename rather
+than a schema change.
+
+Swept on the merged tree rather than pairwise, because a pairwise check is how
+this happened: **63 migration files, 11 of them added by the train, exactly one
+duplicated number (062) and zero duplicated keys.** The key is what decides it.
+`migrate.js` uses `mod.name ?? filename`, and all 63 files declare a distinct
+`name` export, so every migration gets its own `schema_migrations` row and runs
+exactly once. Two files sharing a *number* is cosmetic; two sharing a *name*
+would be silent data loss, because the second would be recorded as already
+applied and skipped with no error anywhere. That is the check worth keeping, and
+it is not the one anyone was running.
+
+The one sharp edge moved rather than closing: `npm run db:rollback` with no
+argument rolls back the *last-sorted* file, which is now
+`062_league_payload_season`, not whichever was conceptually last. Pass the name
+explicitly if it ever comes to that.
+
+**Decided: ship as is, do not renumber.** Renumbering branches minutes before a
+proved train merges adds risk and fixes nothing, because the next pick collides
+just as blindly. A timestamp prefix and a CI duplicate check go in as a follow-up
+pull request after the stack lands. Treat the collision as a known and verified
+condition, not an open question to improvise on mid-merge.
+
+**The structural cause, which renumbering does not fix.** `origin/main` is at
+`052`. The train numbers into `053`-`062` from eight parallel branches, and each
+author picks the next free number from merged history plus their own branch,
+because nothing shows them the others. That is what produced three `061`s; two
+of them renumbered to `062` and landed on each other. Renumbering is a re-roll,
+not a fix. Closing it properly needs a rule — number from position in the merge
+sequence, or drop the numeric prefix and let the `name` export be the only key,
+which it already effectively is. Not in this train; worth deciding before the
+next one, because a repository that merges hand-numbered migrations from eight
+branches will produce this again, and the day it bites is the day two duplicates
+touch the same table.
 
 ### Verified, contrary to an earlier worry: nothing here backfills QBR
 
@@ -231,9 +366,29 @@ The only scheduled QBR job is `nfl_qbr_weather` (`scheduler.js:1216`), which cal
 
 | # | State | What it needs |
 |---|---|---|
-| 8 | CI cancelled twice — **structural, not flaky.** Cause found and fixed; a fresh run needs one push by its owning thread | Both runs died at exactly the 20-minute mark (20m16s and 20m14s): that is `timeout-minutes: 20` in `ci.yml:33`, not someone pressing cancel. This branch sat on `main`, which lacks #7's CI fixes, and `main`'s suite takes about 24 minutes — so it could never have gone green on its old base however many times it was re-run. **Base retargeted from `main` to `…-3ldl77` (#7)**; base change only, no commits touched. That does not by itself re-trigger CI, because `ci.yml` uses a bare `on: pull_request`, whose default types are `opened`, `synchronize` and `reopened` — a base change fires `edited`, which is not among them. So #8 still has no green run **of its own**, and getting one needs a single push to that branch by the thread that owns it. Its content is nonetheless proved: `5podec` was one of the twenty-five merged into the scratch branch, and that run was green. **If its owning thread has nothing genuine to push, #8 merges on the train's proof rather than on its own check** — do not stop at the missing check and improvise, and do not manufacture a commit to produce one, which would devalue every other green check in the train. |
-| 33 | CI **failed** at 19:52Z: 2,808 tests, 1 failure | Probably nothing, and a re-run is queued to confirm. That single failure did **not** reproduce in the merged train, where the same code passed inside 2,928 green tests. It also matches a known repo-wide signature: a test file whose every test passes but whose `after` hook throws `ENOTEMPTY` on `fs.rmSync`, because a worker thread re-runs `server/db/index.js` and re-creates the database directory mid-removal. That is environmental and predates the whole stack. It is in the sequence on the strength of the train result; if the re-run fails differently, the owning thread should look before this lands. |
-| 34 | Green, wrong base | Rebasing off PR #6's branch. See section 2. |
+| 34 | Green, wrong base — **and it now carries something the deploy needs** | Still sitting on PR #6's branch: `claude/project-thread-f921do` at `0bd4041`, and `git merge-base --is-ancestor` still places #6's tip inside it as of 20:19Z. See section 2 for why that excludes it, and step 10 for why one commit on it now matters more than it did an hour ago. |
+
+Everything else that was on this list has resolved itself, and both resolutions
+are worth recording because each was a claim that would have been wrong to carry
+forward:
+
+- **#8 is green.** Its thread found a genuine change to push — three claims in
+  its own `CLAUDE.md` that were wrong or about to be — and pushed it as
+  `d9cb4fd`, so #8 has its own check rather than merging on this train's proof.
+  The run took **4m50s**, 20:15:16Z to 20:20:06Z, against the 20m16s and 20m14s
+  timeouts it hit on `main`. That measures the diagnosis in section 4's earlier
+  draft rather than only reasoning about it: the old base was the problem, the
+  retarget onto #7 fixed it, and nobody had to manufacture a commit to get a
+  green check. The one constraint stands — it sits on #7's branch, so #7 merges
+  first or #8's base moves with it.
+- **#33's single failure did not reproduce.** It was not re-run into a verdict
+  so much as overtaken: the scheduler thread pushed its `/api/health` security
+  fix up the whole eight-branch stack at 20:15-20:17Z, and the re-proof below
+  merges those new tips. The failure does not appear there. Its signature was
+  the known repo-wide one — a test file whose every test passes but whose `after`
+  hook throws `ENOTEMPTY` on `fs.rmSync`, because a worker thread re-runs
+  `server/db/index.js` and re-creates the database directory mid-removal — which
+  predates this whole stack.
 
 Every other pull request in the train has a completed, green
 `typecheck, lint, test, build, smoke` run on its current head.
@@ -496,6 +651,16 @@ Admin-only. Until that is done, Transfer portal will correctly report itself
 chat-free even after a successful upload. Note it is **league 3**, not 4, and its
 stored name has a trailing space that breaks exact-match lookups.
 
+**Build the negotiation profiles before uploading, not after.**
+`negotiation_profiles` is built *into the chat database* by
+`scripts/build-negotiation-profiles.mjs`, and the upload route replaces that
+whole file atomically rather than inserting rows into it. So a corpus uploaded
+before the profiles are built arrives without the negotiation layer, and the
+acceptance band loses an input it would otherwise have. Everything degrades
+honestly if it is missing — nothing fabricates a profile — so this is an
+ordering note rather than a risk, but it is the kind of ordering that is
+expensive to notice a week later.
+
 ### 7. Database write 1, dry run — the opportunity promotion gate
 
 ```
@@ -530,26 +695,53 @@ them leaves the app parked in a middle state that delivers nothing.
 node scripts/fit-availability.mjs --dry-run --report=/tmp/fit.json
 ```
 
+**This step cannot be skipped, and it is the one that will look skippable.** It
+will be late, the deploy will have gone well, and the script will have been run
+successfully somewhere else already. Run it anyway, for a reason that is not
+caution: after step 10 there is no dry run, and the dry run is the *only* place
+anyone sees the size of this change before it is live. Skipping it turns
+approving a number into approving a direction. Every previous run was against a
+local rebuild of the history, not against this database, so none of them tells
+you what this one will do.
+
 Writes nothing, produces every gate number and the full ship/no-ship decision,
 and puts the verdict on file rather than only in a terminal. This exists so step
-10 is reading a result rather than making a judgement call. Do not skip it
-because the fit has been run elsewhere — those runs were against a local rebuild,
-not this database.
+10 is reading a result rather than making a judgement call.
 
 Expect the main gate to pass decisively — log loss 0.558 → 0.397, bootstrap CI90
-[-0.176, -0.147], calibration error 0.082 → 0.017 on 8,663 held-out rows — and
-expect `ship: false` on the role table. That is the *expected* outcome, not a
-surprise on the night.
+[-0.176, -0.147], calibration error 0.082 → 0.017 on 8,663 held-out rows. What
+to expect on the role table depends on which gate is in the deployed build, and
+that is step 10's first paragraph.
 
 **This is the most carefully staged step in the plan, and it is bigger than its
-runbook implies.** Only `contingency.js` reads the two tables, but eight modules
-consume it, and one of them is `player-week-engine.js:190` — the shared
-projection engine. So the honest statement is not "this changes Start/Sit". It is:
-**running this script changes the projection engine every fantasy surface is
-built on, with no code deploy and no pull request.** Start/Sit, the waiver board,
-asset values, `season-sim.js:212` (once per simulated week, which is what prices
-playoff and title odds), `trade-engine.js:304` and `:345`, and the trade horizon
-via `trade-engine.js:1317` all move.
+runbook implies.** Only `contingency.js` reads the two tables, and the honest
+statement is: **running this script changes every trade and lineup surface, with
+no code deploy and no pull request.** `season-sim.js:212` reads it once per
+simulated week, which is what prices playoff and title odds;
+`trade-engine.js:304` multiplies this week's ppg by `active_probability`
+outright and seeds the player-week distribution with it; the trade horizon
+inherits it again through `simulateSeason` at `trade-engine.js:1317`;
+`role-scenario-engine.js:123`, `news-fantasy-impact.js:85` and
+`server/routes/model.js:448` and `:585` read it directly.
+
+**Corrected, and worth recording because it was the strongest claim in this
+document.** An earlier draft said this reaches `player-week-engine.js:190`, the
+shared projection engine. It does not, on a served request. That read is inside
+`applyRedistribution`, called at `:381` behind `if (redistributeVolume)`; the
+parameter defaults to `false` at `:262`, and a grep of the merged tree returns
+six hits in total — three inside `player-week-engine.js` itself and two in
+`scripts/eval-redistribution.mjs`, which passes both values to compare them.
+Nothing under `server/` passes it. The module's own header says it is "shipped
+off because the evidence says off". So six modules import `weeklyAvailability`;
+five of those reads execute on a served request and one never does. The Trade
+Brain thread caught this and it was checked in the tree before this paragraph
+was rewritten. It is the same shape as the defect class this whole deploy is
+about: a line of code that looks like it runs and does not.
+
+If that flag is ever turned on, note that redistribution conserves the team
+total — pricing a starter as more likely to play means his backup absorbs less
+and projects lower, so the effect is not uniformly upward and a handcuff falling
+in value on fit day would be correct rather than a regression. Moot today.
 
 ### 10. Database write 2 — and the one decision that is Nick's
 
@@ -557,31 +749,121 @@ via `trade-engine.js:1317` all move.
 node scripts/fit-availability.mjs
 ```
 
-Creates and fills `nfl_availability_rates` (~139 rows). It will **leave
-`nfl_availability_role_rates` empty**, because one 60-row `none/unknown` cell
-fails a per-cell check and the script refuses to ship the role layer when that
-happens. Sixty rows veto a table fitted on 8,663.
+Creates and fills `nfl_availability_rates` (~139 rows). Whether it also fills
+`nfl_availability_role_rates` (~871 rows) depends on one thing, and it is a
+property of the **build on the machine**, not of the command:
 
-That is the decision:
+**The gate is code, and it is imported, not carried.** `fit-availability.mjs`
+imports `roleGateDecision` and `designationRoleGate` from
+`server/services/contingency.js` (`:44-45`, and `const gate =
+roleGateDecision(gateRows)` at `:339`). So whichever version of that module the
+deployed image contains is the gate that runs, and the script itself is
+identical in both cases.
 
-- **Shape A (recommended, and what the command above does).** Ship the main table,
-  leave the role table empty. It needs no code change.
-- **Shape B.** Also fill the role table, which means restructuring the gate so an
-  unknown-tier cell cannot veto it — a code change, reviewed and tested like any
-  other. **Nobody loosens a pre-registered gate after seeing the result**, so this
-  is a deliberate decision made in daylight, not something done at a console.
+- **Gate v1 — what every branch in this train currently carries.** One 60-row
+  `none/unknown` cell fails a per-cell check and the script refuses to ship the
+  role layer. Sixty rows veto a table fitted on 8,663. `availability_basis.basis`
+  lands on `pooled`. **This is a correct, expected outcome under v1, not an
+  error**, and it is what to expect unless the pull request below has landed.
+- **Gate v2 — PR #37, which Nick authorised tonight.** It changes exactly one
+  condition: a gated cell vetoes on log loss only when its own data can
+  distinguish a real degradation from noise, using the bootstrap the main gate
+  already uses. `minCell` is not raised, the 0.02 slack is not widened, no cell
+  is exempted, calibration is byte-identical, and `logLossBootstrap: false`
+  reproduces v1 cell for cell — which is how the diff is proved confined. The
+  rule was written out in full in `docs/tdd/play-chance-gate-v2.md` and committed
+  **before** the fit was re-run under it, which is the only order in which a
+  restructured gate means anything. Under v2 the role table ships and
+  `basis` lands on `role`.
+
+**Gate v2 arrived as PR #37 and is in the train.** For most of the evening it
+existed only as `0bd4041` on `claude/project-thread-f921do`, which is #34's
+branch and sits on #6, so it could not be merged without dragging 375 commits of
+the betting monolith with it. The fantasy plan thread cherry-picked that one
+change onto a fresh branch off `…-3ldl77-docs` — three files, nothing of #6 —
+and the train has been re-proved with it in, immediately before #15. **So expect
+the role table to ship: 870 role rates alongside the 139 pooled ones**, and
+`basis` to land on `role`.
+
+If #37 does not land for any reason, this step ships the main table only and the
+role layer becomes the next deploy; that is a legitimate outcome and the `pooled`
+stamp is then correct rather than a failure. Either way, read the dry run in step
+9 for which gate answered — every cell reports `log_loss_basis`, its interval and
+its point verdict, so the report says which rule decided rather than leaving it
+to be assumed.
+
+How narrow the change turned out to be, measured rather than argued: of 21 gated
+cells **exactly one verdict moved**, `none/unknown` from fail to pass, and no
+cell that passed under v1 fails under v2. That cell's measured log-loss penalty
+was +0.0240 with a 90% interval of [-0.1093, +0.1568] — eleven times wider than
+the effect it was vetoing on, containing both zero and a substantial
+improvement.
 
 Then:
 
 1. **Confirm it landed.** `availability_basis.stamp` goes `absent|absent` →
-   `139:<ts>|…`. No restart needed: `contingency.js:543` re-reads when the row
-   count or `fitted_at` changes. Landing on `pooled` rather than `role` means the
-   gate declined to ship the role layer — a legitimate outcome, not an error.
-2. **Spot-check a healthy starter**, who should move from ~0.70 to ~0.95.
-3. **Restart, then take the reading a third time.** `fly apps restart
-   gridiron-hq` first — the fit was written from an ssh process and cannot clear
-   the app process's memo cache, so without this the reading returns the cached
-   post-deploy answer and the fit looks like it did nothing (step 2a). Then read
+   `139:<ts>|…`. No restart needed for this one: `contingency.js:543` re-reads
+   when the row count or `fitted_at` changes. `basis` lands on `pooled` under
+   gate v1 and `role` under v2 — both are legitimate; which one you get was
+   decided by the build, and the step-9 report already said which.
+2. **Spot-check three players, not one, and expect them to move by different
+   amounts.** A single headline figure is the wrong instrument here: the
+   corrections are per designation and, under v2, per role as well, so a
+   differentiated change read through one number looks like noise. Take a
+   healthy starter with no injury report, a starter carrying a designation, and
+   a rotation player.
+
+   **Do not write down a single expected per-player number, including the ones
+   below.** Two threads measured this against the live app tonight and got
+   different answers that are both correct, which is the whole point. A healthy
+   RB with no injury of any kind reads `active_probability` **0.805** (Jahmyr
+   Gibbs, five leagues). The three players Start/Sit actually surfaces as
+   chance-to-play warnings on `GET /api/trades/1/lineup` read **70%, 74% and
+   75%** (De'Von Achane, Kyren Williams, Javonte Williams). Both are true because
+   they are different populations: the warning list is *selected* for the low end,
+   since Start/Sit only raises a warning below a threshold. The 69.5% in the
+   constants table is a cohort mean and is not what any individual player is
+   served.
+
+   So: expect the **cohort** to move about twenty-five points (69.5% → 94.5%),
+   expect individual players to vary, and expect **the players shown as warnings
+   to move the most** — which is also the change Nick is most likely to see,
+   because those are the lines on the screen. The shipped constants they are replacing
+   are wrong by different margins — `noreport/starter/g0` 69.5% against an
+   actual 94.5%, `noreport/rotation/g0` 63.6% against 83.4%,
+   `none/starter/g0` 83.5% against 96.6% — so **two players moving by different
+   amounts is the fix working, not something going wrong.** Say that to whoever
+   reads the after-numbers, because the natural reading of an uneven move is
+   that something broke.
+
+   **Take the before-and-after through the capture script rather than by hand.**
+   `node scripts/capture-availability-baseline.mjs --out=~/avail-before.json
+   --find` before the write, `--compare=~/avail-before.json --find` after it. It
+   arrives on #18. It re-reads the same players by id, so the after-run is a diff
+   rather than an argument, and it goes through the trade path, whose cache is
+   fingerprinted on both tables' `fitted_at` (`trade-engine.js:224-225`) — so it
+   cannot return a stale answer and needs no restart. It prints its own "how to
+   read the above" block saying in the output what this step says here, including
+   that a deal can gain or lose its `acceptance` band from the fit alone, because
+   `acceptanceBand` gates first on `edge.passes` (`trade-acceptance.js:142`) and
+   the edge test is ppg-derived. That is the fit and not the Trade Brain:
+   `manager-signals.js`, `counterparty-pricing.js` and `trade-acceptance.js` hold
+   no reference to availability at any remove.
+
+   Baseline captured live tonight, every league reading basis `constants` and
+   stamp `absent|absent`: playoff odds 0.62 (league 1), 0.63 (league 2), 0.26
+   (league 3), 0.24 (league 4), all on Gibbs at 0.805.
+
+   **Everything reading unchanged is the result to distrust, not the reassuring
+   one.**
+3. **Restart first. This is a requirement of the reading, not a precaution.**
+   `fly apps restart gridiron-hq` before you read anything. The fit is written
+   from an ssh process, which cannot clear the app process's in-memory `Map`, so
+   without the restart the simulate route returns its cached post-deploy answer —
+   **byte-identical, not approximately similar** — and the only available reading
+   of that is that the fit did nothing. It is the most convincing wrong answer in
+   this whole plan, because it looks like a clean negative result. Step 2a has
+   the mechanism. Then read
    at seeds 1 and 2, which compare exactly against the post-deploy pair, and at
    seed 3, which has never been used and so answers even if the restart did not
    take. Take them promptly: the restart re-runs `bootJobs` and
@@ -752,10 +1034,13 @@ node scripts/promote-volume-shrinkage.mjs --dry-run
 node scripts/promote-volume-shrinkage.mjs
 node scripts/promote-weekly-ensemble.mjs
 
-# 15. Gate, read-only, verdict on file. Expect ship:false on the role table.
+# 15. Gate, read-only, verdict on file. DO NOT SKIP THIS ONE. After step 16
+#     there is no dry run, and this is the only place anyone sees the size of
+#     the change before it is live. With PR #37 in the train, expect the role
+#     table to SHIP -- 870 role rates beside the 139 pooled. See step 10.
 node scripts/fit-availability.mjs --dry-run --report=/tmp/fit.json
 
-# 16. Write 2, after reading step 15.
+# 16. Write 2, after READING step 15 -- not after running it.
 node scripts/fit-availability.mjs
 
 # 17. Re-fit the posture calibration, which step 16 makes stale.
@@ -798,17 +1083,37 @@ fly deploy --image <ref> -a gridiron-hq
 
 ## 8. Evidence
 
-Scratch branch built from `main` at `ffe4e72`, 25 merges in the order in section
-1, both fixes from section 3 applied. Run with the repository's own scripts:
-`npm run typecheck`, `npm run lint`, `npm test`, `npm run build`,
-`npm run start:smoke` — the same five the CI job runs.
+The sequence was proved three times tonight, because the branches kept moving
+and a proof that describes a stack which no longer exists is worth nothing. Each
+run was a scratch branch built from `main` at `ffe4e72`, the merges done in the
+order in section 1, then `npm ci`, `npm run typecheck`, `npm run lint`,
+`npm test`, `npm run build`, `npm run start:smoke` — the same five steps the CI
+job runs.
 
-- Merges: 24 of 25 conflict-free; one conflict, in `scripts/start-smoke.mjs`.
-- Before the fixes: 2,921 tests, 2,873 passed, **7 failed**, all in
-  `test/manager-signals-api.test.js`.
-- After the fixes: **2,928 tests, 2,887 passed, 0 failed, 41 skipped.**
-  Typecheck, lint, client build and start-up smoke all clean. Exit 0.
+**Run 1** — 25 merges. One conflict, in `scripts/start-smoke.mjs`. 2,921 tests,
+2,873 passed, **7 failed**, all in `test/manager-signals-api.test.js`. With both
+section-3 fixes applied by hand: 2,928 tests, 2,887 passed, 0 failed.
 
-The scratch branch is a test fixture and has been thrown away. Every fix belongs
-in its source pull request, and neither has been pushed there — both are other
-threads' branches.
+**Run 2** — 21 merges against the scheduler stack's eight new tips, #8 at
+`d9cb4fd`, #26 at `f12bedd`, #15 at `9db53ff`, #18 at `11391cd`. Break 2 was
+gone: #26 had fixed the fixture in source. Break 1 survived exactly as predicted,
+so #14's route was still deleted by hand. **2,933 tests, 2,892 passed, 0 failed,
+41 skipped.** Exit 0 on all five steps.
+
+**Run 3, the current one.** 22 merges, every branch at the head listed below,
+with PR #37 in and #14's own fix present. **No conflicts and no hand-applied
+fixes of any kind.** Merged tip `6f473ec`.
+
+- **2950 tests, 2909 passed, 0 failed, 41 skipped.**
+- `npm ci`, typecheck, lint, client build and start-up smoke all exit 0.
+
+Heads proved in run 3: #12 `d9b4a90`, #8 `d9cb4fd`, #24 `7da5974`, #17
+`63e0886`, #19 `5f955fe`, #20 `e0c0659`, #28 `5adb6fe`, #29 `15625f3`, #31
+`b07f179`, #32 `56a85af`, #33 `0cf7cb3`, #21 `1955243`, #27 `f124b69`, #30
+`f030e2a`, #25 `356f166`, #26 `f12bedd`, #23 `dff747f`, #22 `3bb6d07`, #18
+`510771b`, #37 `c2f93c8`, #15 `9db53ff`, #14 `d7c9beb`.
+
+**This number describes those exact commits and nothing else.** If a branch
+moves, it needs re-running; that is not pedantry, it is the reason runs 2 and 3
+exist. Each scratch branch is a test fixture and has been thrown away — nothing
+here was pushed to any branch but this document's own.

@@ -17,6 +17,7 @@ First, because both of these have already produced a wrong answer here.
 - **ROUTES MATCH BY SHAPE.** /a/:id and /a/:other are the same path here.
 - **COLUMNS WRITTEN THROUGH A BUILT COLUMN LIST ARE INVISIBLE.** An INSERT whose columns come from a JavaScript array, or an INSERT ... SELECT *, names no column this scan can read, so every column of that table is left alone rather than reported on evidence that does not exist. It found five such tables and said nothing about any of their columns.
 - **A PARAMETER BUILT AT RUNTIME LOOKS UNPASSED.** The rule reads query strings out of source text. A caller that assembles one from variables would be missed, and the parameter would be reported as never passed when it is.
+- **THIS IS A SOURCE TREE, NOT THE RUNNING APP.** Every count and every edge here describes the checkout it was run in, named at the top of the file. On 2026-09-19 the deployed binary was ahead of main on contingency.js, serving three fields main does not have. Never read this map as a statement about what production is doing.
 
 ## How to read it
 
@@ -29,7 +30,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 
 **10 missing feed** — a surface depends on something nothing produces.
 **2033 orphan** — something produced that reaches no surface.
-134 context rows, listed because they are worth knowing and are usually fine.
+147 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
 
@@ -64,7 +65,7 @@ The missing-feed list in full, because it is short and it is the one that matter
   - writer scripts/nfl-2022-2025-rebuild.mjs:49, reader server/services/nfl-rebuild-progress.js:8, reader scripts/nfl-2022-2025-rebuild.mjs:85, reader scripts/nfl-2022-2025-rebuild.mjs:95
   - reached from /api/nfl-betting
 
-**63 should be wired** — nothing is broken enough to fail a test, and the code is answering from the wrong place, with a default, or from a column that is null on every row. This family is the one to read when the question is "what did we forget to connect", rather than "what is connected".
+**76 should be wired** — nothing is broken enough to fail a test, and the code is answering from the wrong place, with a default, or from a column that is null on every row. This family is the one to read when the question is "what did we forget to connect", rather than "what is connected".
 
 - **auth_sessions.revoked_at** `[column-read-never-written]` — declared on auth_sessions and read on a live surface, and no INSERT or UPDATE in the repository ever sets it — so it is null on every row and the reader's fallback is what runs
   - server/platform/auth.js:19, server/routes/local-auth.js:50, server/routes/local-auth.js:120
@@ -104,6 +105,32 @@ The missing-feed list in full, because it is short and it is the one that matter
   - server/services/offseason-model.js:1048, server/services/offseason-model.js:1599
 - **walkForward() vs walkForwardV2()** `[two-names-different-sources]` — both are exported from this module and the names read as the same thing, but walkForwardV2() reads off_player_season_features and walkForward() does not. Whoever reaches for the shorter name gets an answer from a different source, with no error
   - server/services/offseason-model.js:1048, server/services/offseason-model.js:1432
+- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/news-fantasy-impact.js:87
+- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/role-scenario-engine.js:124
+- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/roster-risk.js:257
+- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/season-sim.js:226
+- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/trade-engine.js:346
+- **clock_seconds ?? 900** `[constant-standing-in-for-a-model]` — 900 is used wherever clock_seconds is absent, and clock_seconds is a column the app fits and stores in nfl_play_by_play. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/nfl-espn-pbp.js:294
+- **experience ?? 99** `[constant-standing-in-for-a-model]` — 99 is used wherever experience is absent, and experience is a column the app fits and stores in roster_players. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/routes/nfldata.js:334
+- **home_rest ?? 7** `[constant-standing-in-for-a-model]` — 7 is used wherever home_rest is absent, and home_rest is a column the app fits and stores in off_schedule_games. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/nfl-specialists.js:220
+- **importance ?? 2** `[constant-standing-in-for-a-model]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/news/store.js:31
+- **importance ?? 2** `[constant-standing-in-for-a-model]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/routes/news.js:76
+- **pick_seconds ?? 90** `[constant-standing-in-for-a-model]` — 90 is used wherever pick_seconds is absent, and pick_seconds is a column the app fits and stores in drafts. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/draft/store.js:86
+- **unavailable_probability ?? 0.42** `[constant-standing-in-for-a-model]` — 0.42 is used wherever unavailable_probability is absent, and unavailable_probability is a column the app fits and stores in nfl_news_signals, nfl_news_signals_new, nfl_news_signals_old. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/nfl-postgame-truth.js:515
+- **yes_price ?? 0.5** `[constant-standing-in-for-a-model]` — 0.5 is used wherever yes_price is absent, and yes_price is a column the app fits and stores in prediction_market_quotes, prediction_market_flow. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/prediction-markets.js:466
 - **days** `[parameter-never-passed]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
   - server/routes/dev.js:58
 - **days** `[parameter-never-passed]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
@@ -127,6 +154,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `column-read-never-written` | should-wire | 3 | 0 | 2 |
 | `producer-with-no-caller` | should-wire | 0 | 0 | 6 |
 | `two-names-different-sources` | should-wire | 2 | 1 | 6 |
+| `constant-standing-in-for-a-model` | should-wire | 5 | 0 | 8 |
 | `parameter-never-passed` | should-wire | 4 | 35 | 4 |
 | `table-hand-fed` | missing-feed | 6 | 0 | 4 |
 | `cache-blind-to-its-inputs` | staleness | 0 | 0 | 3 |
@@ -191,6 +219,35 @@ The missing-feed list in full, because it is short and it is the one that matter
   - server/services/offseason-model.js:1048, server/services/offseason-model.js:1599
 - **walkForward() vs walkForwardV2()** `[shared]` — both are exported from this module and the names read as the same thing, but walkForwardV2() reads off_player_season_features and walkForward() does not. Whoever reaches for the shorter name gets an answer from a different source, with no error
   - server/services/offseason-model.js:1048, server/services/offseason-model.js:1432
+
+### `constant-standing-in-for-a-model` — SHOULD WIRE (13)
+
+- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/news-fantasy-impact.js:87
+- **active_probability ?? 0.92** `[shared]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/role-scenario-engine.js:124
+- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/roster-risk.js:257
+- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/season-sim.js:226
+- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/trade-engine.js:346
+- **clock_seconds ?? 900** `[shared]` — 900 is used wherever clock_seconds is absent, and clock_seconds is a column the app fits and stores in nfl_play_by_play. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/nfl-espn-pbp.js:294
+- **experience ?? 99** `[shared]` — 99 is used wherever experience is absent, and experience is a column the app fits and stores in roster_players. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/routes/nfldata.js:334
+- **home_rest ?? 7** `[shared]` — 7 is used wherever home_rest is absent, and home_rest is a column the app fits and stores in off_schedule_games. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/nfl-specialists.js:220
+- **importance ?? 2** `[shared]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/news/store.js:31
+- **importance ?? 2** `[shared]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/routes/news.js:76
+- **pick_seconds ?? 90** `[fantasy]` — 90 is used wherever pick_seconds is absent, and pick_seconds is a column the app fits and stores in drafts. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/draft/store.js:86
+- **unavailable_probability ?? 0.42** `[shared]` — 0.42 is used wherever unavailable_probability is absent, and unavailable_probability is a column the app fits and stores in nfl_news_signals, nfl_news_signals_new, nfl_news_signals_old. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/nfl-postgame-truth.js:515
+- **yes_price ?? 0.5** `[shared]` — 0.5 is used wherever yes_price is absent, and yes_price is a column the app fits and stores in prediction_market_quotes, prediction_market_flow. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+  - server/services/prediction-markets.js:466
 
 ### `parameter-never-passed` — SHOULD WIRE (43)
 

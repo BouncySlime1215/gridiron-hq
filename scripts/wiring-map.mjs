@@ -1404,7 +1404,50 @@ function shouldBeWired(model, ann, add) {
     }
   }
 
-  // 4. A PRODUCER NOBODY RUNS.
+  // 4. A HARDCODED NUMBER STANDING IN FOR A VALUE THE APP FITS.
+  //    `availability?.active_probability ?? 0.92` — `active_probability` is a
+  //    column the app fits and stores, and the fallback is a number somebody
+  //    typed. It is not a guard against a null, it is a second model with one
+  //    parameter, and it prices every row the fit does not cover. Nothing about
+  //    the output says which of the two produced a given number.
+  const modelled = new Map();     // column -> the tables that declare it
+  for (const [t, cols] of columns) {
+    if (tables.get(t)?.database) continue;
+    for (const c of cols) {
+      if (GENERIC_COLUMN.test(c) || c.length < 6) continue;
+      if (!modelled.has(c)) modelled.set(c, new Set());
+      modelled.get(c).add(t);
+    }
+  }
+  for (const f of files.values()) {
+    if (f.tree === 'test' || f.tree === 'script') continue;
+    if (!served(reach.get(f.path))) continue;
+    const seen = new Set();
+    for (const m of f.code.matchAll(/\.([a-z][\w]*)\s*(?:\?\?|\|\|)\s*(\d*\.\d+|[2-9]\d*)\b/g)) {
+      const [, field, literal] = m;
+      // 0 and 1 are identities, not models: `?? 0` is an empty count and
+      // `?? 1` is a multiplier that changes nothing. A number between them, or
+      // above them, is a value somebody chose.
+      if (!modelled.has(field) || seen.has(field)) continue;
+      // `pos_rank ?? 99` is a sentinel meaning "unranked", not a second model.
+      // Sorting an absent rank to the back is the correct thing to do with it.
+      if (/(_rank|_order|_seed|_slot)$/.test(field) && /^9+$/.test(literal)) continue;
+      const owners = [...modelled.get(field)];
+      // Only when something actually fills that column. A column nothing
+      // writes is the previous rule's finding, not this one's.
+      if (!owners.some(t => (tables.get(t)?.writes ?? []).some(w => w.tree !== 'test'))) continue;
+      if (ignored.has(`constant:${f.path}#${field}`)) continue;
+      seen.add(field);
+      add({ kind: 'should-wire', rule: 'constant-standing-in-for-a-model', scope: scopeOfFile(f.path),
+        subject: `${field} ?? ${literal}`,
+        detail: `${literal} is used wherever ${field} is absent, and ${field} is a column the app fits `
+          + `and stores in ${owners.slice(0, 3).join(', ')}. Every row the fit does not cover is priced `
+          + `on the typed number instead, and nothing in the output says which one produced it`,
+        evidence: [`${f.path}:${lineOf(f.code, m.index)}`] });
+    }
+  }
+
+  // 5. A PRODUCER NOBODY RUNS.
   //    A function whose name says it fills something, which writes a table a
   //    live surface reads, and which nothing calls. The table is not empty by
   //    accident; there is simply no path that fills it.
@@ -1530,6 +1573,10 @@ const LIMITS = [
   'A PARAMETER BUILT AT RUNTIME LOOKS UNPASSED. The rule reads query strings out of source '
   + 'text. A caller that assembles one from variables would be missed, and the parameter '
   + 'would be reported as never passed when it is.',
+  'THIS IS A SOURCE TREE, NOT THE RUNNING APP. Every count and every edge here describes the '
+  + 'checkout it was run in, named at the top of the file. On 2026-09-19 the deployed binary '
+  + 'was ahead of main on contingency.js, serving three fields main does not have. Never read '
+  + 'this map as a statement about what production is doing.',
 ];
 
 const SEVERITY = {
@@ -1537,7 +1584,7 @@ const SEVERITY = {
   'cache-blind-to-its-inputs': 2.5, 'table-in-another-database': 2.8, 'table-never-scheduled': 3,
   'edge-behind-an-off-flag': 3.5,
   'column-read-never-written': 1.2, 'producer-with-no-caller': 1.4,
-  'two-names-different-sources': 1.6, 'parameter-never-passed': 1.8,
+  'two-names-different-sources': 1.6, 'constant-standing-in-for-a-model': 1.7, 'parameter-never-passed': 1.8,
   'module-only-tested': 4, 'module-imported-by-nothing': 5,
   'module-reaches-no-surface': 5, 'field-attached-never-read': 6, 'value-computed-never-used': 7,
   'table-never-read': 8, 'export-only-tested': 9, 'export-imported-by-nothing': 10, 'route-no-caller': 11,

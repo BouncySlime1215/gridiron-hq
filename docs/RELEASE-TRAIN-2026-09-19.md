@@ -2310,9 +2310,14 @@ of a dozen jobs is the one currently holding the lock."
    ```
    fly secrets unset SCHEDULER_DISABLED -a gridiron-hq
    ```
-   then step 2 again. **Only after this passes does the run sheet resume at
-   step 7.** Re-enabling without re-proving is how a fix that half-works gets
-   believed.
+   then step 2's `curl` again — but **the bar here is `uptime_s` past 900, not
+   600.** Step 2's 600 is measured with the scheduler off, where there is no
+   boot pass, no timer and no tier at all. This one is measured with all of
+   them back, and the background tier fires every 300 seconds, so 900 is the
+   first number that clears two of its ticks. **In that window the app will be
+   busy and still answering** — a slow response is the fixed state, a dark one
+   is not. **Only after this passes does the run sheet resume at step 7.**
+   Re-enabling without re-proving is how a fix that half-works gets believed.
 
 7. Then, and only then, the run sheet's own step:
    ```

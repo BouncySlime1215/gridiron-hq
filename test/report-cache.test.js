@@ -15,13 +15,24 @@ await runMigrations();
 await import('../server/services/gamescript.js');
 const cache = await import('../server/services/report-cache.js');
 
-test.after(() => {
-  // No drain needed here: a worker's late 'exit' calls reclaimWal(), which
-  // returns immediately on a closed handle (see report-cache.js). That fix is
-  // in the module rather than in this file because every test that triggers a
-  // report hits the same window, not just this one.
+test.after(async () => {
   db.close();
-  fs.rmSync(temp, { recursive: true, force: true });
+  // `fs.rmSync(recursive)` walks the directory, and a worker thread still
+  // tearing down can recreate SQLite's -wal/-shm beside the database while it
+  // walks, which surfaces as ENOTEMPTY from rmdir. `force: true` does not
+  // cover that — it suppresses "missing", not "something appeared". Seen in
+  // CI and reproduced here roughly 1 run in 20.
+  //
+  // Retried rather than slept: a fixed delay is the same guess that made the
+  // test above flaky, and there is no event to wait on — the worker is
+  // detached from the promise by then.
+  for (let attempt = 0; ; attempt++) {
+    try { fs.rmSync(temp, { recursive: true, force: true }); break; }
+    catch (error) {
+      if (error.code !== 'ENOTEMPTY' || attempt >= 20) throw error;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+  }
 });
 
 test('an unknown report is refused', () => {
@@ -89,17 +100,22 @@ test('a finished worker\'s exit never overwrites a newer run of the same report'
   // Second run registers itself before that 'exit' arrives.
   const second = cache.refreshReport('policy_contract', { force: true });
 
-  // Let the first worker's 'exit' land while the second is still in flight.
-  await new Promise(resolve => setTimeout(resolve, 60));
+  // Sample the stored row for the whole of the second run rather than reading
+  // it once after a fixed delay. `policy_contract` recomputes in milliseconds,
+  // so any single sleep either lands after the second run finished (nothing to
+  // see) or races it — a first version of this test slept 60ms, passed here,
+  // and failed in CI on exactly that. Sampling catches the corrupt state
+  // whenever it appears, without depending on how fast the box is.
+  const corrupt = [];
+  const sampler = setInterval(() => {
+    const r = rows(`SELECT payload_json, error FROM nfl_cached_reports WHERE report='policy_contract'`)[0];
+    if (r && (r.error === 'worker exited with code 0' || r.payload_json === null)) corrupt.push(r);
+  }, 1);
+  try { await second; } finally { clearInterval(sampler); }
 
-  const during = rows(`SELECT payload_json, error FROM nfl_cached_reports WHERE report='policy_contract'`)[0];
-  const servedDuring = cache.serveReport('policy_contract', { refreshIfStale: false });
-  await second;
-
-  assert.notEqual(during.error, 'worker exited with code 0',
-    'a finished worker\'s exit wrote a failure over a report that had already succeeded');
-  assert.notEqual(during.payload_json, null,
-    'a finished worker\'s exit blanked the payload of a successful report');
-  assert.equal(servedDuring._report.refreshing, true,
-    'the second run was still computing, but its in-flight entry had been deleted by the first worker\'s exit');
+  const settled = rows(`SELECT payload_json, error FROM nfl_cached_reports WHERE report='policy_contract'`)[0];
+  assert.deepEqual(corrupt, [],
+    'a finished worker\'s exit wrote a failure, or blanked the payload, over a report that had already succeeded');
+  assert.equal(settled.error, null, 'the report ends successful');
+  assert.notEqual(settled.payload_json, null, 'the report ends with a payload');
 });

@@ -49,6 +49,41 @@ import { availabilityDegradation } from './contingency.js';
 const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 
+/**
+ * Roster entries that are not a starting slot at all, so they are not something
+ * this page owes the user an explanation for. ESPN writes BENCH and IR
+ * (espn-draft.js#SLOT_NAME); Sleeper writes its own codes in its own vocabulary.
+ */
+const NON_STARTING_SLOTS = new Set(['BENCH', 'BN', 'BE', 'IR', 'TAXI', 'RES', 'NA']);
+
+/**
+ * Starting slots this league fills that the model does not price, with counts.
+ *
+ * `lineupSlots` drops every slot outside SCORED/FLEX_ELIGIBLE — K and D/ST in
+ * every synced league — and that is a deliberate modelling scope, stated at
+ * trade-engine.js#SCORED: both are near-random week to week and roughly
+ * interchangeable, so including them adds noise to every lineup comparison. The
+ * decision is defensible; leaving it unsaid is not. Start/Sit renders a lineup
+ * with fewer slots than the manager's league actually starts, and nothing on the
+ * page connected the two, so the fix is to name the gap rather than close it.
+ *
+ * @param lg     the league row, for its recorded `roster_positions`
+ * @param slots  the result of lineupSlots(lg) — every slot code that IS modelled
+ * @returns [{ slot, count }], empty when the sync recorded no roster positions
+ */
+export function slotsNotModelled(lg, slots) {
+  let all;
+  try { all = lg.roster_positions ? JSON.parse(lg.roster_positions) : []; } catch { return []; }
+  if (!Array.isArray(all)) return [];
+  const modelled = new Set(slots);
+  const counts = new Map();
+  for (const s of all) {
+    if (typeof s !== 'string' || NON_STARTING_SLOTS.has(s) || modelled.has(s)) continue;
+    counts.set(s, (counts.get(s) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([slot, count]) => ({ slot, count }));
+}
+
 /* ───────────────────────────────────────────────────────────────────────────
  * PLAYER EVIDENCE
  *
@@ -559,6 +594,10 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // like the fitted number. `availability_basis` alone was not enough; it was served
   // from here since review-fixes-2 and no page ever read it.
   const availabilityBasis = assets.context?.availability_basis ?? null;
+
+  // Which of this league's starting slots the model does not price, so the page
+  // can say so beside the lineup instead of quietly showing a shorter one.
+  const notModelled = slotsNotModelled(lg, slots);
   const availabilityNote = availabilityDegradation(availabilityBasis);
 
   // What you actually submitted, when the platform exposes it.
@@ -594,6 +633,15 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     // computed this all along and lineupCall only read it inside the objective
     // fallback branch.
     holes: optimal.holes ?? [],
+    // Starting slots this league fills that the model does not price at all —
+    // the kicker and the defence in every synced league. Unlike `holes` these
+    // are not a roster problem and never will be filled here; they are the
+    // page's own scope, and until now the lineup simply had fewer slots than
+    // the manager's league does with nothing saying why. See slotsNotModelled.
+    slots_not_modelled: notModelled,
+    slots_not_modelled_reason: notModelled.length
+      ? 'near-random week to week and roughly interchangeable, so including them would add noise to every comparison'
+      : null,
     bench: bench.slice(0, 8).map(p => ({
       id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
       week_points: p.week_points, vegas: p.vegas?.reading ?? null,

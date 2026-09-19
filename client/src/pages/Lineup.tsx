@@ -31,6 +31,30 @@ const CONF: Record<string, { label: string; bar: string; chip: string }> = {
   'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' }
 };
 
+/** Slot codes as a manager says them out loud. Unknown codes print as themselves. */
+const SLOT_WORD: Record<string, [one: string, many: string]> = {
+  K: ['a kicker', 'kickers'],
+  DEF: ['a defence', 'defences'],
+  'D/ST': ['a defence', 'defences'],
+  DST: ['a defence', 'defences'],
+  IDP: ['a defensive player', 'defensive players'],
+  DL: ['a defensive lineman', 'defensive linemen'],
+  LB: ['a linebacker', 'linebackers'],
+  DB: ['a defensive back', 'defensive backs']
+};
+const COUNT_WORD = ['no', 'one', 'two', 'three', 'four', 'five', 'six'];
+
+/** "a kicker and a defence", or "two kickers" — the slots a page does not cover. */
+function listSlots(slots: { slot: string; count: number }[]): string {
+  const parts = slots.map(({ slot, count }) => {
+    const word = SLOT_WORD[slot];
+    if (!word) return count > 1 ? `${COUNT_WORD[count] ?? count} ${slot} slots` : `a ${slot} slot`;
+    return count > 1 ? `${COUNT_WORD[count] ?? count} ${word[1]}` : word[0];
+  });
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
 export default function Lineup() {
   const { activeId: leagueId } = useLeague();
   const [objective, setObjective] = useState<'mean' | 'ceiling' | 'floor'>('mean');
@@ -215,8 +239,23 @@ export default function Lineup() {
         />
       ) : (
         <div className="space-y-2">
-          {d?.lineup?.map((c: any, i: number) => <Slot key={i} c={c} index={i} />)}
+          {d?.lineup?.map((c: any, i: number) => (
+            <Slot key={i} c={c} index={i} basis={d?.availability_basis?.basis ?? null} week={d?.week ?? null} />
+          ))}
         </div>
+      )}
+
+      {/* The slots this page does not cover. Every synced league starts a kicker
+          and a defence; the model prices neither, on purpose, and the lineup
+          above simply had fewer slots than the league does with nothing saying
+          why. The reason travels with the fact from lineup-brain.js. */}
+      {d?.slots_not_modelled?.length > 0 && (
+        <p className="tr-rise text-xs leading-5 text-slate-500" style={{ animationDelay: '150ms' }}>
+          Your league also starts {listSlots(d.slots_not_modelled)}. This page does not cover{' '}
+          {d.slots_not_modelled.length === 1 ? 'that slot' : 'those slots'}: they are{' '}
+          {d.slots_not_modelled_reason}. Start whoever you like there — nothing above is a call on{' '}
+          {d.slots_not_modelled.length === 1 ? 'it' : 'them'}.
+        </p>
       )}
 
       {notConsidered.length > 0 && (
@@ -261,8 +300,18 @@ export default function Lineup() {
   );
 }
 
-function Slot({ c, index }: { c: any; index: number }) {
+function Slot({ c, index, basis, week }: { c: any; index: number; basis: string | null; week: number | null }) {
   const conf = CONF[c.confidence] ?? CONF.lean;
+  // The chance to play that priced this row's points, on the row it priced.
+  // It has been on the wire since the fit landed and no page ever showed it, so
+  // the number a start was multiplied by was the one thing the page would not
+  // say. `basis` decides the wording: 'role' is a rate measured from real usage,
+  // anything else is the hand-set fallback and must not read like a measurement.
+  // The page-level line above the lineup says which, once, in full.
+  const onBye = week != null && c.player.bye === week;
+  const play = !onBye && c.player.active_probability != null
+    ? Math.round(c.player.active_probability * 100) : null;
+  const measured = basis === 'role';
   // Scaled against the "clear" threshold, so the bar reads as a fraction of a
   // decisive margin rather than as an unanchored number.
   // A call with no margin compared nothing, so it gets no bar. It used to draw a
@@ -282,6 +331,20 @@ function Slot({ c, index }: { c: any; index: number }) {
             <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${conf.chip}`}>
               {conf.label}
             </span>
+            {onBye ? (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900 ring-1 ring-amber-200">
+                On bye
+              </span>
+            ) : play != null && (
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums ring-1 ${
+                  play < 75 ? 'bg-amber-50 text-amber-900 ring-amber-200'
+                    : measured ? 'bg-slate-50 text-slate-600 ring-slate-200'
+                      : 'bg-slate-50 text-slate-400 ring-slate-200'}`}
+              >
+                {play}% to play{measured ? '' : ' (assumed)'}
+              </span>
+            )}
           </div>
           <div className="mt-1.5 flex items-center gap-2">
             <div className="h-1.5 w-full max-w-[220px] overflow-hidden rounded-full bg-slate-100">

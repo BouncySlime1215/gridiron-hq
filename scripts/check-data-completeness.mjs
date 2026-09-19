@@ -191,6 +191,43 @@ function checkSingleton(spec) {
   return out;
 }
 
+/**
+ * Can the weekly tables still find their players?
+ *
+ * The question this answers is "the live `players` table holds 965 rows where a
+ * rebuild from the same sources holds 8,294 — does that cost us history?"
+ *
+ * NOTE ON THE SCHEMA, because the obvious query is the wrong one.
+ * `player_week_usage.player_id` is NOT a gsis_id; it is a foreign key to
+ * `players.id`, the local row id. Written as a gsis_id join it returns zero
+ * matches for every row and reports a 100% orphan rate on a perfectly healthy
+ * database. So there are two different things to measure, and only both
+ * together answer the question:
+ *
+ *   orphans  rows pointing at a players row that is not there. Referential
+ *            breakage — real, but it is not what a small players table causes.
+ *   distinct the number of players a season actually has rows FOR. A players
+ *            table too small to cover retired players does not orphan anything;
+ *            it means the rows were never created, which is silent absence and
+ *            invisible to an integrity check.
+ */
+function checkReferential(table) {
+  const out = { table, kind: 'referential', severity: 'degrades', seasons: [], problems: [] };
+  const totalPlayers = row('SELECT COUNT(*) n FROM players').n;
+  for (const r of rows(`SELECT season, COUNT(*) n, COUNT(DISTINCT player_id) players,
+                          SUM(CASE WHEN p.id IS NULL THEN 1 ELSE 0 END) orphans
+                        FROM ${table} u LEFT JOIN players p ON p.id = u.player_id
+                        WHERE season >= ? GROUP BY season ORDER BY season`, WINDOW_FROM)) {
+    const share = r.n ? r.orphans / r.n : 0;
+    out.seasons.push({ season: r.season, rows: r.n, distinctPlayers: r.players,
+      orphans: r.orphans, orphanShare: +(share * 100).toFixed(2),
+      verdict: share > 0.01 ? 'ORPHANS' : 'ok' });
+    if (share > 0.01) out.problems.push(`${r.season}: ${r.orphans}/${r.n} rows (${(share * 100).toFixed(2)}%) point at a players row that is not there`);
+  }
+  out.playersTotal = totalPlayers;
+  return out;
+}
+
 const played = weeksPlayed();
 const results = [];
 for (const spec of SPEC) {
@@ -203,6 +240,9 @@ for (const spec of SPEC) {
       problems: [`could not be read: ${e.message}`], error: true });
   }
 }
+
+const referential = checkReferential('player_week_usage');
+results.push(referential);
 
 if (process.argv.includes('--json')) {
   console.log(JSON.stringify({ season: SEASON, weeks_played: played, results }, null, 2));
@@ -229,6 +269,14 @@ if (process.argv.includes('--json')) {
     if (bad && spec.severity === 'degrades') console.log(`     IF THIS STAYS SHORT: ${spec.degradesWhat}`);
     console.log('');
   }
+  console.log(`[${referential.problems.length ? '!!' : 'ok'}] player_week_usage -> players  (referential)`);
+  console.log(`     Can the weekly rows still find their players? players holds ${referential.playersTotal} rows.`);
+  console.log(`     Orphans mean breakage; a low DISTINCT count means rows were never created at all.`);
+  for (const s2 of referential.seasons) {
+    console.log(`     ${s2.season}  ${String(s2.rows).padStart(7)} rows  ${String(s2.distinctPlayers).padStart(4)} distinct players  ${String(s2.orphans).padStart(5)} orphans (${s2.orphanShare}%)  ${s2.verdict}`);
+  }
+  console.log('');
+
   const blocking = results.filter(r => r.severity !== 'degrades' && r.severity !== 'by_design' && r.problems.length);
   const degraded = results.filter(r => (r.severity === 'degrades' && r.problems.length) || r.softProblems?.length);
   console.log(blocking.length

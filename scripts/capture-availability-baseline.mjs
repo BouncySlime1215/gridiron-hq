@@ -135,6 +135,18 @@ function handleFor (offer) {
       injury_status: target.injury_status ?? null, practice_status: target.practice_status ?? null,
       active_probability: num(target.active_probability),
       value: num(target.value), adj_ppg: num(target.adj_ppg), ppg: num(target.ppg),
+      // THE UNDAMPED FIELD, and the one to read first. active_probability multiplies
+      // current_week_ppg directly (trade-engine.js:359), but the value everything else
+      // is built on is decisionPpg = 0.25 * currentWeekPpg + 0.75 * rosPpg (:385), and
+      // rosPpg carries no availability term at all (:360, "per game played, the same
+      // basis it has always had"). So availability prices exactly a QUARTER of the
+      // decision value. This field's move is exactly delta_a / a0 — 36% for 0.70 to
+      // 0.95 — for EVERY player alike, with no dependence on his base rates. The move
+      // in adj_ppg is not: it is 0.25*c*da / (0.25*c*a0 + 0.75*r), which is +6.8% when
+      // the current-week base equals the rest-of-season rate and varies per player
+      // either side of that. Read this field first; adj_ppg alone is the effect seen
+      // through an attenuator of 1 + 3r/(c*a0), roughly 3x to 9x across a roster.
+      current_week_ppg: num(target.current_week_ppg),
       ros_ppg: num(target.ros_ppg), floor: num(target.floor), ceiling: num(target.ceiling)
     },
     their_cost: num(offer?.their_cost),
@@ -404,12 +416,36 @@ How to read the above:
                               drop is expected and partly definitional. Do not quote
                               0.001 as "one in a thousand chance of playing".
 
+  target.current_week_ppg     Where the effect is undamped, so read it before
+                              adj_ppg or value, and it is the CLEAN one: its move is
+                              exactly delta_a / a0, the same for every player, with no
+                              dependence on his base rates. For 0.70 to 0.95 that is
+                              36%, and 36% here is the mechanism working.
+
+                              adj_ppg will move far less and by an amount that varies
+                              per player: 0.25*c*da / (0.25*c*a0 + 0.75*r), which is
+                              +6.8% when the current-week base equals the
+                              rest-of-season rate. Expect single digits; do not
+                              promise which single digit. The decision blend is 0.25
+                              current-week and 0.75 rest-of-season, and only the first
+                              carries an availability term at all, so a percentage
+                              that moved twenty-five points beside a trade value that
+                              moved seven is that weight working as designed.
+
   playoff_odds, horizon_*     Expected to move, and by more than the availability
                               number alone suggests, because the seeded season
                               simulation reads the same tables once per simulated
                               week (season-sim.js:212) on top of the direct read.
                               Expect the odds to RISE where they were depressed by
                               players being priced as less available than they are.
+                              This is the STRONG instrument for detecting the fit.
+                              The sim applies availability per player per remaining
+                              week with no blend, while the trade engine damps it at a
+                              single point by 1 + 3r/(c*a0) — about 5x for a player
+                              whose two base rates are equal, and 3x to 9x across a
+                              roster. So if both readings come
+                              back and only the odds have moved clearly, that is the
+                              expected shape, not a partial failure.
 
   find.*.acceptance           A deal can ACQUIRE or LOSE its acceptance band here
                               with nothing in the counterparty layer having

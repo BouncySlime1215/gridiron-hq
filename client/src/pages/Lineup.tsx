@@ -64,6 +64,10 @@ export default function Lineup() {
     coin_flips: d?.coin_flips ?? null,
     slots: (d?.lineup ?? []).length,
     warnings: (d?.warnings ?? []).length,
+    // The assistant answers questions about these percentages too, so it is told the
+    // same thing the page prints when the model behind them is not the validated one.
+    chance_to_play_degraded: d?.availability_note
+      ? { reason: d.availability_note.reason, effect: d.availability_note.effect } : null,
     matchup: posture.data && !posture.data.error && posture.data.win_probability != null
       ? { win_probability_pct: posture.data.win_probability, stance: posture.data.stance ?? null,
           point_edge: posture.data.edge ?? null, swaps_suggested: (posture.data.swaps ?? []).length }
@@ -144,6 +148,25 @@ export default function Lineup() {
       <MatchupPosture data={posture.data} loading={posture.loading} error={posture.error}
         onRetry={posture.refetch} opponentName={opponentName} />
       <WaiverTeaser data={waivers.data} />
+
+      {/* Honest degradation, not a confident wrong number. Every "x% likely to play" on
+          this page comes from the fitted availability model; when that model is not the
+          validated role layer the percentages are systematically low for healthy
+          starters (a starter with no injury at all reads ~57%), so the page says which
+          model is talking and why before anyone acts on one. */}
+      {d?.availability_note && (
+        <section role="status"
+          className="tr-rise rounded-2xl border border-slate-300 bg-slate-50 p-4" style={{ animationDelay: '70ms' }}>
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">
+            Chance-to-play numbers are degraded
+          </h2>
+          <p className="mt-1.5 text-sm leading-6 text-slate-700">
+            {d.availability_note.inert} is not running: {d.availability_note.reason}.
+          </p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{d.availability_note.effect}.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">To fix: {d.availability_note.fix}.</p>
+        </section>
+      )}
 
       {d?.warnings?.length > 0 && (
         <section className="tr-rise rounded-2xl border border-amber-200 bg-amber-50/60 p-4" style={{ animationDelay: '80ms' }}>

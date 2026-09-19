@@ -213,6 +213,22 @@ export function weekDesignation({ report = null, espnStatus = null, team = null 
   return { report, designation: nfl === 'none' ? null : nfl, source: nfl === 'none' ? null : 'nfl' };
 }
 
+/*
+ * HOW A FAILED READ IS ALLOWED TO DEGRADE, shared by every reader below.
+ *
+ * One rule, because the alternative was measured in production: an absent table is a
+ * NAMED state that is said once and carries on; every other read error is a real fault
+ * and throws. Nothing in this file may turn a fault into "that source has nothing",
+ * because every source here answers "is he playing?" and silence reads as "he is fine".
+ */
+const missingTable = error => /no such table/i.test(String(error?.message ?? error));
+const _saidOnce = new Set();
+const warnOnce = (key, message) => {
+  if (_saidOnce.has(key)) return;
+  _saidOnce.add(key);
+  console.warn(message);
+};
+
 let _espnMemo = { key: null, periods: null, value: null };
 /**
  * ESPN's current injury status per ESPN player id (player-availability.js#espnStatusById,
@@ -225,7 +241,24 @@ export function liveEspnStatuses(season, week) {
   let key;
   try {
     key = JSON.stringify(rows('SELECT id, fetched_at FROM leagues WHERE payload IS NOT NULL ORDER BY id'));
-  } catch { return null; }
+  } catch (error) {
+    // Same rule as fittedAvailability() below, for the same reason. `leagues` is
+    // created by the legacy schema migration at import of server/db/index.js, so it
+    // exists in every process that can reach this line: a bare catch here could only
+    // ever swallow a REAL fault (a table from another schema, a locked database), and
+    // swallowing it deletes the whole ESPN designation layer — an ESPN OUT or
+    // INJURED RESERVE player has no NFL injury-report row, so he falls straight back
+    // onto his healthy-starter role cell (0.006 -> 0.953 on the fixture in
+    // test/availability-honest-degradation.test.js) and Start/Sit starts him.
+    // 'no such table' is the one legitimate absent state (a database built before the
+    // migration, e.g. a bare fixture), and it is said out loud, once.
+    if (!missingTable(error)) throw error;
+    warnOnce('espn-leagues-absent',
+      '[contingency] ESPN designations are not being read: the `leagues` table is absent, so no ' +
+      'ESPN OUT / INJURED RESERVE / QUESTIONABLE status can reach the chance to play. Every player ' +
+      'is priced on the NFL injury report and his role alone.');
+    return null;
+  }
   if (_espnMemo.key !== key) {
     // The live period is the LATEST one on file, not any of them: a league whose sync
     // lags (or an old-season payload) still names a past week, and a union made that
@@ -496,13 +529,13 @@ export function buildAvailabilityLookup({ rates = [], roleRates = [] } = {}) {
 let _fittedCache;
 let _fittedStamp;
 let _fittedBasis = null;
-const missingTable = error => /no such table/i.test(String(error?.message ?? error));
 export function resetAvailabilityCache() {
   _fittedCache = undefined;
   _fittedStamp = undefined;
   _fittedBasis = null;
   _roleCache.clear();
   _espnMemo = { key: null, periods: null, value: null };
+  _saidOnce.clear();
 }
 /**
  * Row count and newest fitted_at of both tables: which availability fit is live.
@@ -560,6 +593,39 @@ function fittedAvailability() {
 export function availabilityBasis() {
   fittedAvailability();
   return { ..._fittedBasis, missing: [..._fittedBasis.missing] };
+}
+
+/**
+ * The same basis, as something a page can print: null when the validated role layer is
+ * the one pricing the numbers, and otherwise the inert layer WITH ITS REASON, the shape
+ * counterparty-pricing.js uses for a source it cannot price on.
+ *
+ * This exists because the percentages themselves look identical either way. On the
+ * pooled path a healthy starter reads 0.55-0.86 (Jayden Daniels 0.574 in production on
+ * 2026-09-18, no injury of any kind) while starters of his role played about 95% of
+ * weeks — so Start/Sit flags him "check before kickoff" over nothing. A number that is
+ * known to be low must not be served looking like the validated one.
+ *
+ * @param basis availabilityBasis(), or whatever was carried alongside the numbers.
+ */
+export function availabilityDegradation(basis) {
+  if (!basis || basis.basis === 'role') return null;
+  const missing = (basis.missing ?? []);
+  const named = missing.length ? missing.join(' and ') : 'the fitted availability tables';
+  return {
+    inert: 'the fitted chance-to-play role layer',
+    basis: basis.basis,
+    reason: `${named} ${missing.length > 1 ? 'are' : 'is'} missing or empty, so the role layer ` +
+      'is not running (docs/tdd/play-chance.tdd.md)',
+    effect: basis.basis === 'constants'
+      ? 'no availability fit is on file at all, so every chance to play below is a hand-set constant ' +
+        'and a career durability prior, not a measured rate'
+      : 'every chance to play below is the pooled injury-report rate, which reads about 55-85% for a ' +
+        'healthy starter who actually plays about 95% of weeks — read them as a known-low placeholder, ' +
+        'not as a reason to sit anybody',
+    fix: 'run scripts/fit-availability.mjs (docs/tdd/play-chance-live.tdd.md, section 6)',
+    stamp: basis.stamp ?? null
+  };
 }
 
 /**

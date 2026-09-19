@@ -44,6 +44,7 @@ import { playerCase } from './player-case.js';
 import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
+import { availabilityDegradation } from './contingency.js';
 
 const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
@@ -534,6 +535,15 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const coinFlips = calls.filter(c => c.confidence === 'coin flip');
   const risky = calls.filter(c => (c.player.active_probability ?? 1) < 0.75 || c.player.bye === week);
 
+  // Which availability model priced every chance to play on this page, and — when it is
+  // not the validated role layer — why not. Honest degradation over a confident wrong
+  // number: on the pooled path these percentages are systematically low for healthy
+  // starters, so every one of them travels with that fact attached rather than reading
+  // like the fitted number. `availability_basis` alone was not enough; it was served
+  // from here since review-fixes-2 and no page ever read it.
+  const availabilityBasis = assets.context?.availability_basis ?? null;
+  const availabilityNote = availabilityDegradation(availabilityBasis);
+
   // What you actually submitted, when the platform exposes it.
   let submitted = null;
   try { const d = lineupDiff(lg, myTeamId ?? lg.my_team_id); if (!d.error) submitted = d; }
@@ -555,7 +565,10 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       : `uncalibrated_for_${objectiveUsed}`,
     // Which availability model priced every chance to play in this call ('role' |
     // 'pooled' | 'constants', plus the missing fit tables), so the page can say so.
-    availability_basis: assets.context?.availability_basis ?? null,
+    availability_basis: availabilityBasis,
+    // null when that model is the validated role layer; otherwise the inert layer with
+    // its reason, effect and fix, for the page to print above the percentages.
+    availability_note: availabilityNote,
     projected_points: r2(optimal.points),
     lineup: calls,
     bench: bench.slice(0, 8).map(p => ({
@@ -582,7 +595,12 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
         // availability model, contingency.js; its role layer adds recent missed games),
         // not a share of weeks. "Only plays about 19% of weeks" would misdescribe a
         // starter who has missed his last two games.
-        : `about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% likely to play this week`,
+        : `about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% likely to play this week` +
+          // A bye is a fact; a chance to play is a model output, and it is only allowed
+          // to be stated bare when the model that produced it is the validated one.
+          (availabilityNote ? ' — but that is not the fitted number: ' + availabilityNote.reason : ''),
+      // 'role' | 'pooled' | 'constants', so a reader of one warning can see it too.
+      availability_basis: c.player.bye === week ? null : availabilityBasis?.basis ?? null,
       slot: c.slot
     })),
     objectives: [

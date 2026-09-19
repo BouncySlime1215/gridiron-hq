@@ -1,0 +1,35 @@
+# app name is set by `fly launch` / `fly apps create` — leave blank here and
+# pass --name, or let `fly launch` fill it in on first run.
+primary_region = "iad"
+
+[build]
+
+[env]
+  HOST = "0.0.0.0"
+  # The scheduler fix from tonight (nfl_prop_feeds/beat_the_close off the
+  # live tier) is what makes always-on hosting practical; leave it enabled.
+
+[[mounts]]
+  source = "gridiron_data"
+  destination = "/data"
+
+[[services]]
+  internal_port = 5177
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.tcp_checks]]
+    interval = "15s"
+    timeout = "2s"
+    grace_period = "30s"

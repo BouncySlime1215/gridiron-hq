@@ -140,11 +140,14 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
   app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(DIST, 'index.html')));
 }
 
-app.listen(PORT, '127.0.0.1', () => {
-  // Printed as 127.0.0.1, matching the address actually bound above: on macOS
-  // "localhost" resolves to ::1 first, so the advertised URL would refuse the
-  // connection while the server was up.
-  console.log(`Gridiron HQ listening on http://127.0.0.1:${PORT}`);
+// Loopback-only by default (see the note at scripts/start.mjs's URL constant
+// for why 127.0.0.1, never "localhost"). A real host — Fly.io, any reverse
+// proxy — connects over the network, not through the container's loopback
+// interface, so it needs HOST=0.0.0.0; local/Mac use is unaffected since
+// nothing sets HOST there.
+const HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => {
+  console.log(`Gridiron HQ listening on http://${HOST}:${PORT}`);
   // Warm the evidence layers (career lines, preseason curve, offseason
   // adjustments, in-house projections) off the request path: cold they cost
   // ~4.5s on the first board read, which on draft night would land on the

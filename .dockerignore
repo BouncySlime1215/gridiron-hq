@@ -1,0 +1,12 @@
+node_modules
+client/dist
+client/node_modules
+.git
+.env
+.env.local
+.env.*.local
+server/data.sqlite*
+data/derived/league_chat.sqlite*
+data/nflverse.sqlite*
+data/line-history
+*.log

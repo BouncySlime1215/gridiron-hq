@@ -807,7 +807,15 @@ export const JOBS = {
   nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, tier: 'metered', label: 'Multi-book line snapshots (CLV)' },
   nfl_sgo_snapshot: { run: refreshSportsGameOdds, maxAgeMinutes: 30, tier: 'metered',
     label: 'SportsGameOdds multi-book snapshot (free, opt-in, own budget)' },
-  nfl_prop_feeds: { run: refreshPropFeeds, maxAgeMinutes: 60, tier: 'live',
+  // Measured live on 2026-09-19 (SLOW_JOB_WARN_MS instrumentation): this job
+  // alone took 19.7-28.6s per run, on a 60-minute staleness budget. Sitting in
+  // 'live' meant it was still CHECKED every 90s, and whenever due it ran
+  // inline in the middle of that tight tier's sequential loop, stalling the
+  // genuinely time-critical live jobs (pick watch, play-by-play, line watch)
+  // behind it. 'metered' is checked every few minutes instead, which such an
+  // hour-scale budget can't tell apart from 90s — see beat_the_close below,
+  // the live tier's other big contributor to the same measured stall.
+  nfl_prop_feeds: { run: refreshPropFeeds, maxAgeMinutes: 60, tier: 'metered',
     label: 'Free player-prop quotes: Action Network, Underdog' },
   nfl_book_feeds_extra: { run: refreshExtraBookFeeds, maxAgeMinutes: 60, tier: 'live',
     label: 'Free game lines: Rotowire (Circa, DK, FD, MGM, Caesars, BetRivers, Fanatics, theScore, Betr) and SBR (bet365, Hard Rock)' },
@@ -823,7 +831,11 @@ export const JOBS = {
     label: 'Free multi-book quotes (undocumented scrapes, kept conservative): BetRivers (Kambi), Bovada, FanDuel (direct)' },
   nfl_qbr_weather: { run: refreshQbrAndWeather, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'Weekly ESPN QBR and kickoff-hour weather for the current and prior season' },
-  beat_the_close: { run: refreshBeatTheClose, maxAgeMinutes: 60, tier: 'live',
+  // Measured live 2026-09-19: 20.2-22.0s per run, also on an hour-scale
+  // budget (maxAgeMinutes: 60) — see nfl_prop_feeds above for why that
+  // combination belongs on the 'metered' cadence, not 'live'. Together these
+  // two jobs were the majority of the live tier's 67.4s-per-pass total.
+  beat_the_close: { run: refreshBeatTheClose, maxAgeMinutes: 60, tier: 'metered',
     label: 'Beat the close: signal snapshots, zero-unit shadow decisions, CLV settlement' },
   // Pure SQLite reads plus rankBooks (no network call of its own), so this
   // rides the live tier's 90-second tick at a genuinely short cadence — the

@@ -3,13 +3,13 @@
   "asserted_producers": {
     "nfl_availability_rates": "Produced by `node scripts/fit-availability.mjs` over a shell on the machine. There is no route and no job that runs it, by design: it is a 5-season fit with a 2,000-draw bootstrap.",
     "nfl_availability_role_rates": "Same script, and only if its pre-registered gate passes on held-out 2025. A failed gate writes zero rows on purpose; an empty table is a legitimate outcome, not a bug.",
-    "espn_player_market": "syncEspnMarket() exists and nothing calls it. Not a deliberate manual step — an unfinished one.",
+    "espn_player_market": "syncEspnMarket() exists and nothing calls it. Not a deliberate manual step \u2014 an unfinished one.",
     "league_roster_snapshots": "`node scripts/collect-roster-snapshots.mjs`, run by hand per league.",
     "league_transactions_raw": "`node scripts/collect-league-transactions.mjs`, run by hand per league.",
-    "negotiation_profiles": "Lives in the CHAT database, not the app's — built by scripts/build-negotiation-profiles.mjs on the Mac and delivered inside the corpus file.",
+    "negotiation_profiles": "Lives in the CHAT database, not the app's \u2014 built by scripts/build-negotiation-profiles.mjs on the Mac and delivered inside the corpus file.",
     "nfl_rebuild_progress": "Written by the 2022-2025 rebuild script while it runs. Correctly manual.",
     "nfl_rebuild_checkpoints": "Written by the 2022-2025 rebuild script while it runs. Correctly manual.",
-    "manager_archetypes": "Written by server/services/manager-archetypes.js:561-563, driven by scripts/build-manager-archetypes.mjs. No chat dependency — it replays league-seasons out of the app's own database, so it works whether or not a corpus ever arrives. PR #26 registers it as a scheduled job (scheduler.js, heavy tier, 24h)."
+    "manager_archetypes": "Written by server/services/manager-archetypes.js:561-563, driven by scripts/build-manager-archetypes.mjs. No chat dependency \u2014 it replays league-seasons out of the app's own database, so it works whether or not a corpus ever arrives. PR #26 registers it as a scheduled job (scheduler.js, heavy tier, 24h)."
   },
   "expected_orphans": [
     "table:espn_settings"
@@ -17,7 +17,7 @@
   "notes": {
     "league_member_identity": "The walker sees a writer (manager-identity.js) reachable from a route and calls the table fed. It is not, in the way that matters: a row only becomes usable to the Trade Brain when its `confidence` is 'confirmed' or 'exact' (TRUSTED_CONFIDENCE), and 'confirmed' is only ever set from the `confirmations` argument, which a person has to supply. Name matching cannot bootstrap it, because chat handles are not ESPN names. A value-level dependency like this one is outside what an import-and-SQL walker can prove, which is why it is written down here.",
     "espn_settings": "Read once at server/db/index.js:228 to migrate a pre-multi-league row into `leagues`. Nothing writes it any more and nothing should. Kept as a legacy read.",
-    "scope": "Betting rows are mapped and tagged `betting`. They are out of scope for work and in scope for knowing — a map with a hole in it is worse than no map, because people trust it.",
+    "scope": "Betting rows are mapped and tagged `betting`. They are out of scope for work and in scope for knowing \u2014 a map with a hole in it is worse than no map, because people trust it.",
     "the chat corpus": "messages, jev_chat_signals, manager_chat_profile, manager_player_sentiment and negotiation_profiles are NOT in the app's database. They are Nick's iMessage corpus, a separate SQLite file opened read-only via chatDbPath()/messagesDbPath(), built on his Mac and delivered whole through POST /api/league-chat/upload (which refuses a corpus with an empty messages table). The map reported all four as 'written by nothing' before it learned to tell the two handles apart; they were fine. Both consuming surfaces already refuse and name the gap when the corpus is absent."
   },
   "accepted_missing_feeds": [
@@ -44,7 +44,7 @@
     "producer-with-no-caller syncEspnMarket()",
     "league_season_teams"
   ],
-  "_ACCEPTED_README": "accepted_missing_feeds is a RATCHET, not approval. Each entry is a gap that already existed when the check was turned on, so CI fails on anything NEW rather than on day one. Fixing one means deleting its line here. Nothing should ever be added to this list to make a build pass — add it only when turning the check on over existing debt. Entries with a rule name in front come from the should-wire family: a column nothing writes, or a producer nothing calls. They are real and they are pre-existing; the gate exists so the eleventh does not become the twelfth silently.",
+  "_ACCEPTED_README": "accepted_missing_feeds is a RATCHET, not approval. Each entry is a gap that already existed when the check was turned on, so CI fails on anything NEW rather than on day one. Fixing one means deleting its line here. Nothing should ever be added to this list to make a build pass \u2014 add it only when turning the check on over existing debt. Entries with a rule name in front come from the should-wire family: a column nothing writes, or a producer nothing calls. They are real and they are pre-existing; the gate exists so the eleventh does not become the twelfth silently.",
   "accepted_orphan_modules": [
     "client/src/components/StatTable.tsx",
     "server/betting/nfl/contracts/total-probabilities.js",
@@ -82,8 +82,15 @@
   ],
   "_ORPHAN_README": "Modules that exist today and reach no live surface. Every one was checked on 2026-09-19: they are deliberate research, a measured-and-declined experiment, or half of a split that never finished. They are listed so the build fails on the NEXT one, not on these. Adding to this list is how you say out loud that a module is landing unwired on purpose - put the reason in the review, not here.",
   "_NEWLY_BASELINED_2026_09_19": {
-    "_why": "Baselined at the moment PR #36 was rebased onto merged main (791b131), NOT because they are fine. A gate that is red the day it arrives gets switched off. Both were found by the post-merge delta run, verified by hand in the merged tree, and sent to their owning threads as work. Remove the entry when the work lands.",
-    "server/services/opportunity-model.js": "PR #15. Only importer in the tree is test/opportunity-model.test.js plus scripts/study-opportunity-volume.mjs. No route, no job reaches it. Owner: the Opportunity thread.",
+    "_why": "Baselined at the moment PR #36 was rebased onto merged main (791b131), NOT because it is fine. A gate that is red the day it arrives gets switched off. Found by the post-merge delta run, verified by hand in the merged tree, and sent to its owning thread as work. Remove the entry when the work lands. Distinct from _PERMANENT_ORPHAN_REASONS below, which are modules that are SUPPOSED to reach nothing.",
     "league_season_teams": "Read at manager-archetypes.js:243/:819/:831, reached from the trades surface. Only writer is scripts/backfill-league-history.mjs:112, run by hand. Owner: whoever landed the league-history work."
+  },
+  "_PERMANENT_ORPHAN_REASONS": {
+    "_why": "Entries in accepted_orphan_modules that are deliberate and expected to stay that way. Each carries the condition that would RETIRE it, so the list cannot rot into a junk drawer. If the condition is met and the module is still listed, that is a defect in this file, not in the module.",
+    "server/services/opportunity-model.js": "O1 research model (PR #15). Deliberately unwired: measured against its own baselines in scripts/study-opportunity-volume.mjs and the effect is inside the noise on every head - RB carries -0.86% and -0.98% across two seasons, pooled 90% intervals [-0.077,+0.027] and [-0.092,+0.037], both straddling zero; the full sixteen-feature ridge is WORSE than an exponentially-weighted average of the player's own recent volume by +7.5% and +10.7%. The mechanism is real (a vacated same-position share carries a positive coefficient, 0.49 to 1.65 in log space, in every position and season); the payoff is not. Fourth attempt at this question in this repository, agreeing with the previous three. Promotion needs a season it has not been fitted on. RETIRE THIS ENTRY WHEN: a season the model has not seen, graded the same way, puts RB carries clear of zero on the pooled interval - 2026 once it finishes, not before. Wiring it earlier should fail this check rather than edit this line. See docs/OPPORTUNITY-FINDINGS-2026-09-19.md section 3. Owner: the Opportunity thread. NOTE: what actually shipped from O1 is the volume shrinkage constants, which land as a database write rather than a caller - projections.js shrinks share with K.share=6 and team volume with K.team_volume=10 against fitted values of 0.08-0.28 and 1.3-1.7. That is the real defect from this work and this map cannot see it, because a constant that should be a fitted row has no edge."
+  },
+  "_NEVER_BASELINE": {
+    "_why": "Findings that must not be silenced by adding them to accepted_missing_feeds or accepted_orphan_modules. Written down because the moment one of these is inconvenient is exactly when somebody will reach for the accept list.",
+    "producer-with-no-caller": "An uncalled producer whose table has live readers is the failure this project keeps hitting, and it is the most valuable of the four gating rules. Present case: syncEspnMarket() is the SOLE writer of espn_player_market, which has four live readers - the draft board's ESPN ADP and injury columns, the aggregates, the preseason model, and a consensus weight of 2. Nothing calls it. That is a genuine defect owned by the feature-audit thread, not an accepted orphan. Fix the caller; do not accept the finding."
   }
 }

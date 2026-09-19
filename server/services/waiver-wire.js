@@ -32,6 +32,13 @@
 import { rows } from '../db/index.js';
 import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots } from './trade-engine.js';
 import { deriveFormat } from './format.js';
+// The app's canonical name normaliser. This file used to compare raw
+// `toLowerCase()` strings, which meant a typographic apostrophe on one side and
+// a straight one on the other never matched: Ja'Marr Chase, De'Von Achane,
+// D'Andre Swift and five more were dropped from your roster AND offered back to
+// you as free agents. Every other consumer in the app already normalises.
+import { normalizePlayerName } from './player-identity.js';
+import { availabilityDegradation } from './contingency.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -128,7 +135,7 @@ function rosteredNames(payload) {
   for (const team of payload.teams ?? []) {
     for (const e of team.roster?.entries ?? []) {
       const nm = e.playerPoolEntry?.player?.fullName;
-      if (nm) owned.set(nm.toLowerCase(), String(team.id));
+      if (nm) owned.set(normalizePlayerName(nm), String(team.id));
     }
   }
   return owned;
@@ -152,14 +159,20 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   const rosterId = String(myTeamId ?? lg.my_team_id);
   const slots = lineupSlots(lg);
 
-  // My roster, priced.
+  // My roster, priced. Indexed once by normalised name rather than a linear
+  // scan of the asset universe per roster entry.
+  const assetByName = new Map();
+  for (const a of assets.values()) assetByName.set(normalizePlayerName(a.name), a);
   const mine = [];
   const team = (payload.teams ?? []).find(t => String(t.id) === rosterId);
-  for (const e of team?.roster?.entries ?? []) {
+  const myEntries = team?.roster?.entries ?? [];
+  const unpriced = [];
+  for (const e of myEntries) {
     const nm = e.playerPoolEntry?.player?.fullName;
     if (!nm) continue;
-    const asset = [...assets.values()].find(a => String(a.name).toLowerCase() === nm.toLowerCase());
-    if (!asset || !SCORED.has(asset.position)) continue;
+    const asset = assetByName.get(normalizePlayerName(nm));
+    if (!asset) { unpriced.push(nm); continue; }
+    if (!SCORED.has(asset.position)) continue;
     const espnStatus = e.playerPoolEntry?.player?.injuryStatus ?? null;
     // ESPN lineup slot 21 is the IR slot. A player parked there does not occupy
     // a bench spot, so he is not a drop candidate — suggesting him is how you
@@ -167,6 +180,17 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
     mine.push({ ...asset, espn_status: espnStatus, on_ir: e.lineupSlotId === 21 || espnStatus === 'INJURY_RESERVE' });
   }
   if (!mine.length) return { error: 'could not price your roster' };
+  // Pricing SOME of the roster used to be indistinguishable from pricing all of
+  // it: baseline_points, roster_size, live_players and every upgrade below are
+  // measured against whatever survived the join, with nothing saying how much
+  // of your team that was. A board built on half a roster recommends claims you
+  // do not need and cuts you cannot afford.
+  const rosterCoverage = {
+    entries_in_payload: myEntries.length,
+    priced: mine.length,
+    unpriced: unpriced.slice(0, 10),
+    unpriced_count: unpriced.length
+  };
 
   const active = mine.filter(p => !p.on_ir);
   const baseline = bestLineup(active, slots, 'current_week_ppg');
@@ -198,10 +222,13 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   // (below, once the stash cut is known), so the page can say so.
   const unownedAll = [...assets.values()].filter(a =>
     SCORED.has(a.position)
-    && !owned.has(String(a.name).toLowerCase())
+    && !owned.has(normalizePlayerName(a.name))
     && a.available !== false);
   const onNflTeam = a => Boolean(a.team_abbr ?? a.team);
   const unowned = unownedAll.filter(onNflTeam);
+  // How much of the pool is priced at all. Distinguishes "the wire is thin"
+  // from "nothing on the wire has a number", which read identically before.
+  const pricedPool = unowned.filter(a => weekPpg(a) > 0 || (a.ros_ppg ?? 0) > 0).length;
   const passesWeek = a => weekPpg(a) >= minProjected;
   const passesRos = a => (a.ros_ppg ?? 0) >= minRosProjected;
   const free = unowned.filter(a => passesWeek(a) || passesRos(a));
@@ -289,10 +316,21 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
     .sort((a, b) => (b.ros_upgrade ?? 0) - (a.ros_upgrade ?? 0));
   heldBack.sort((a, b) => b.week_upgrade - a.week_upgrade);
 
+  // Where the chance-to-play numbers came from. lineup-brain.js has surfaced
+  // this since review-fixes-2 and this board never did, so `live_players` below
+  // was presented as a measured count when every player behind it carried the
+  // same hand-set constant.
+  const availabilityBasis = assets.context?.availability_basis ?? null;
+
   return {
     season: week.season, week: week.week, roster_id: rosterId,
     baseline_points: +baselinePoints.toFixed(2),
     free_agents_considered: free.length,
+    pool_size: unowned.length,
+    pool_priced: pricedPool,
+    roster_coverage: rosterCoverage,
+    availability_basis: availabilityBasis,
+    availability_note: availabilityDegradation(availabilityBasis),
     // Live players: how many of my roster are expected to actually play. The
     // replay's strongest in-season relationship — 5 live at week 14 was 0.443
     // all-play, 14 live was 0.553.
@@ -307,9 +345,14 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
     held_back_count: heldBack.length,
     // Free agents left off the board because they have no NFL team.
     teamless_excluded: teamlessExcluded,
-    note: (starts.length
-      ? `${starts.length} free agents would improve this week's starting lineup.`
-      : 'No free agent improves the starting lineup this week; stashes below are rest-of-season plays.')
+    // An unpriceable pool is a statement about the data, not about the wire.
+    // Saying "no free agent improves your lineup" when not one of them carries
+    // a projection reports a total outage as a finding about your roster.
+    note: (pricedPool === 0
+      ? `Not one of the ${unowned.length} available players carries a projection this week, so nothing was compared. That is missing data, not an empty wire.`
+      : starts.length
+        ? `${starts.length} free agents would improve this week's starting lineup.`
+        : 'No free agent improves the starting lineup this week; stashes below are rest-of-season plays.')
       + (heldBack.length
         ? ` ${heldBack.length} more would help this week only by cutting someone worth more over the rest of season, so they are held back.`
         : ''),

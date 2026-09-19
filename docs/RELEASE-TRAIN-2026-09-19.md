@@ -617,6 +617,19 @@ horizon. Two further sim fixes are coming from the fantasy plan thread and are
 **not** in this train. If they all landed together nobody could attribute how
 much moved to what.
 
+**That separation now has a measured size, and it is large.** The wiring map
+thread reports that #40's `from_week` fix alone moves playoff odds by **9.5
+points mean absolute across ten teams**, with nothing else changed. That is an
+order of magnitude above anything tonight's availability fit will produce, and
+far above the 0.01 drift floor the after-reads are scored against. Tonight's
+readings are taken on `791b131`, which does not carry #40, so the two are
+separated by accident of ordering rather than by design — **and the next train
+must keep them separated on purpose. #40 needs its own before-and-after odds
+reading, taken on its own deploy, with no database write between them.** If it
+ships alongside anything else that touches the sim, a 9.5 point move will
+absorb every smaller effect in the release and none of them will be
+attributable afterwards.
+
 Two details that make this reading worth taking:
 
 - **`seed=1` makes it deterministic.** `model.js:524` threads the query seed
@@ -1943,9 +1956,48 @@ tag of a release that never became healthy. The rollback target is still
 the tail of the same timeout, not a second failure, not an API outage, and not a
 machine stuck mid-update. Do not chase it.
 
-What it does not settle is which of the boot causes in 4b fired, because every
+What it did not settle was which of the boot causes in 4b fired, because every
 one of them ends in health checks never passing. The error is downstream of all
 four and discriminates between none.
+
+**The machine log settled it at 22:00Z: it was the disk gate.** Verbatim from
+the log, `Refusing to migrate: a pre-migration snapshot of 0.4 GB needs about
+2.4 GB free, and 0.4 GB is available of 1.0 GB`, with the stack running
+`assertRoomForSnapshot` (`server/db/index.js:163`) → `backupBeforeMigration`
+(`:123`) → `runMigrations` (`migrate.js:43`) → `index.js:23`. Then
+`Main child exited normally with code: 1`, repeatedly, until
+`machine has reached its max restart count of 10`.
+
+**The volume is 1 GB.** Nobody had looked, and the plan's own precondition —
+`df -h /data`, needs about 2.5 GB — would have caught it before the deploy
+rather than after it. It was written and then not run, which is its own lesson
+and a more ordinary one than any of the failure modes in this document.
+
+What the log also settles, and this is the part worth keeping: **no migration
+ran and no `.bak` was written.** The refusal is at `:123` and the `VACUUM INTO`
+at `:129`, so nothing was even started. The database is exactly as it was
+before the deploy, `schema_migrations` included. There is nothing to undo, and
+the retry is a clean first attempt rather than a resumption.
+
+**The fix, and the free verification nobody has to run.** `fly volumes extend
+vol_40oxk076jmqlelm4 -s 5 -a gridiron-hq`, then `fly deploy`. There is no step
+between them: Fly's init resizes the filesystem to the volume's current size
+when it mounts `/data` on boot, and the deploy boots the machine. The log proves
+this about itself — `Resized /data to 1056964608 bytes` at 22:01:54Z is that
+init doing exactly this on a restart, and 1,056,964,608 bytes is the 1 GB
+volume. **So the same line on the next boot should read about five times that,
+and if it still reads 1056964608 the extend did not take.** It is the first line
+of the next paste that says whether this worked.
+
+**Two things on the retry that look like failure and are not.** The boot is now
+longer than any previous one, because the snapshot actually runs: a `VACUUM
+INTO` of 445 MB plus eleven migrations, all before `app.listen`. And the app
+answers 502 for that whole window, because it is out of routing until it
+listens. So flyctl may report the same health-check timeout against a perfectly
+healthy boot. **The log decides, not the clock, and neither is a reason to
+redeploy.** 3a is the real fix for that and is deferred to the next train as
+PR #49; it is a second ask and a second deploy, and tonight's cause is now
+known to be something else.
 
 **One thing does move the ranking, against what 3a argues.** The app answered a
 502 with an empty body for more than thirty minutes. A merely slow boot heals:

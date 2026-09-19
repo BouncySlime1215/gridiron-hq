@@ -197,3 +197,11 @@ test('a chance-to-play warning never reads as a fitted number while the layer is
     'a fitted number carries no caveat');
   assert.equal(fitted.availability_basis, 'role');
 });
+
+test('the Start/Sit page renders the note instead of leaving it on the wire', () => {
+  // availability_basis was added to this payload by review-fixes-2 "so the page can say
+  // so" and no page ever read it. A served field nothing renders is not a disclosure.
+  const src = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
+  assert.match(src, /availability_note/, 'the lineup page reads the degradation note');
+  assert.match(src, /\.reason/, 'and renders its reason, not just its existence');
+});

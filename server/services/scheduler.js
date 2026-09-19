@@ -792,7 +792,30 @@ async function refreshCoaches() {
  * syncFfOpportunity's own multi-season signature is for.
  */
 /**
+ * The floor for calling a prior season complete.
+ *
+ * The NFL regular season is 17 weeks through 2020 and 18 from 2021, so any
+ * season ffverse has finished publishing clears 17. It is a floor rather than
+ * an equality because a release that stops at the regular season and one that
+ * carries playoff weeks are both complete, and the count must not be a moving
+ * target we re-fetch against forever.
+ */
+const COMPLETE_SEASON_WEEKS = 17;
+
+/**
  * Which seasons this run should actually fetch.
+ *
+ * "Held" has to mean the season is COMPLETE, not that a row exists. This
+ * previously asked `SELECT DISTINCT season`, so a season whose ingestion died
+ * after week 3 — a timeout, an OOM kill, the machine wedging, all of which
+ * this scheduler exists because of — counted as held forever and the missing
+ * fourteen weeks were never fetched again. Nothing would have reported it:
+ * the job returns clean, the sync status reads ok, and the gap only shows up
+ * as projections that are quietly worse.
+ *
+ * The cost of being wrong the other way is one idempotent re-download —
+ * syncFfOpportunity upserts on (season, week, player_gsis_id) — so the
+ * conservative direction is cheap and this one is not.
  *
  * Exported because it is the whole decision, and an off-thread job cannot be
  * module-mocked from the main thread (the worker imports its own copy), so
@@ -800,7 +823,9 @@ async function refreshCoaches() {
  * is better anyway.
  */
 export function ffOpportunitySeasons(season) {
-  const held = new Set(rows('SELECT DISTINCT season FROM nfl_ffopportunity_weekly').map(r => Number(r.season)));
+  const held = new Set(rows(`SELECT season FROM nfl_ffopportunity_weekly
+    GROUP BY season HAVING COUNT(DISTINCT week) >= ?`, COMPLETE_SEASON_WEEKS)
+    .map(r => Number(r.season)));
   return [...[season - 3, season - 2, season - 1].filter(s => !held.has(s)), season];
 }
 

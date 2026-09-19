@@ -70,3 +70,30 @@ test('an off-thread job cannot be module-mocked from the main thread', () => {
   // why ffOpportunitySeasons is exported.
   assert.equal(scheduler.JOBS.ffopportunity.offThread, true);
 });
+
+test('the two live-status jobs that were burning their whole budget on the request thread are off it', () => {
+  // Measured on the deployed app 2026-09-19, from /api/mlb/sync/status:
+  //
+  //   evidence_daemon  live   error  29 runs  "exceeded its 120s budget and
+  //                                            was abandoned so the rest of
+  //                                            the tier could run"
+  //   nfl_reports      growth error   3 runs  same message
+  //
+  // evidence_daemon is maxAgeMinutes 5 on the 90-second live tick, so that was
+  // happening continuously, on the thread serving requests, and nothing about
+  // AUTO_HEAVY_SYNC touched it.
+  for (const name of ['evidence_daemon', 'nfl_reports']) {
+    assert.equal(scheduler.JOBS[name].offThread, true,
+      `${name} spent its entire 120s budget on every attempt; that cost belongs on a worker`);
+  }
+});
+
+test('moving a job off-thread does not change its tier or its cadence', () => {
+  // The point of this change is scheduling, not behaviour. If either of these
+  // drifted, the job would be running at a different rate than the live
+  // measurement above was taken at, and the comparison would be worthless.
+  assert.equal(scheduler.JOBS.evidence_daemon.tier, 'live');
+  assert.equal(scheduler.JOBS.evidence_daemon.maxAgeMinutes, 5);
+  assert.equal(scheduler.JOBS.nfl_reports.tier, 'growth');
+  assert.equal(scheduler.JOBS.nfl_reports.maxAgeMinutes, 180);
+});

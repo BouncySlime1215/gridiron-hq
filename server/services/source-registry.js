@@ -72,6 +72,16 @@ export const MANUAL_SOURCES = {
     failureMode: 'throws mid-stream; that season\'s feature rows stay at whatever they were before the run',
     maxAgeMinutes: 3 * 24 * 60
   },
+  nflverse_weekly_rosters: {
+    label: 'nflverse weekly roster panel (roster_weekly) — feeds the injury-return model',
+    cadence: 'weekly during the season; each pull is a full-season file (2021 is 15 MB, '
+      + 'the current season about 1.8 MB), streamed row by row rather than buffered',
+    cutoff: 'revised after the fact — a retroactive injured-reserve placement is common, '
+      + 'so rows are upserted and a stale row is treated as worse than no row',
+    failureMode: 'per-season failures are caught and reported inline and other seasons still '
+      + 'sync; every season failing throws, because that is a broken loader rather than a thin week',
+    maxAgeMinutes: 3 * 24 * 60
+  },
   nflverse_historical_lines: {
     label: 'nflverse historical game lines (games.csv)',
     cadence: 'one-time backfill plus occasional corrections',

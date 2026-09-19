@@ -16,7 +16,7 @@ import { simulateSeason, tradeImpact } from '../services/season-sim.js';
 import { leagueCurrentWeek } from '../services/league-week.js';
 import { fitCorrelations, correlationTable, clearCorrelationCache } from '../services/correlation.js';
 import { fitGameScript, gameScriptFor, syncHistoricalLines, syncCurrentLines, linesFor, clearGameScriptCache } from '../services/gamescript.js';
-import { availability, weeklyAvailability, cascades, handcuffValue } from '../services/contingency.js';
+import { availability, weeklyAvailability, availabilityBasis, cascades, handcuffValue } from '../services/contingency.js';
 import { syncAll as syncNflverse, usageSeasons, usageFor } from '../services/nflverse.js';
 import { syncAllAdvanced } from '../services/nfl-advanced.js';
 import { syncPbpSeason } from '../services/nfl-pbp.js';
@@ -416,6 +416,47 @@ r.get('/projections', requireAuthenticated, (req, res, next) => {
 });
 
 /** Full distribution for one player — the percentiles behind a start/sit call. */
+/*
+ * WHAT PRICED THIS PLAYER'S CHANCE TO PLAY, said in the payload rather than
+ * implied by a field name.
+ *
+ * `availability:` used to serve availability().get(id) — the UNFITTED durability
+ * prior, a four-season attendance rate — directly beside the fitted
+ * `weekly_availability`. Two different answers to "how likely is he to play",
+ * one named after the other. Nothing in the response said which was which.
+ *
+ * The fit covers QB/RB/WR/TE only (contingency.js#weeklyAvailability selects on
+ * exactly those), so a K or DEF has no fitted answer at all — a case that is
+ * distinct from "the fit has not been run", and the two must not both read as a
+ * bare number.
+ *
+ *   role               a fitted role-level rate was used for THIS player
+ *   pooled             fitted rates exist, but not at the role level for him
+ *   constants          no fit on file; the hand-set constants path
+ *   unfitted_position  a position the fit does not cover, priced on the prior
+ */
+function availabilityPayload(playerId, weeklyAvail, priorRow) {
+  const prior = priorRow?.available == null ? null : +priorRow.available.toFixed(3);
+  if (!weeklyAvail) {
+    return { active_probability: null, durability_prior: prior,
+      basis: 'unfitted_position', fitted: false };
+  }
+  const global = availabilityBasis().basis;
+  // 'role' is claimed per player, not per process: the fit can be on the role
+  // path while this particular player has no in-scope role cell and falls to
+  // the pooled chain. Saying 'role' for him would be the same class of mistake
+  // as the field name this function exists to fix.
+  const basis = global === 'role'
+    ? (weeklyAvail.role?.in_scope ? 'role' : 'pooled')
+    : global;
+  return {
+    active_probability: weeklyAvail.active_probability ?? null,
+    durability_prior: weeklyAvail.durability_prior ?? prior,
+    basis,
+    fitted: basis !== 'constants'
+  };
+}
+
 r.get('/projections/:playerId', requireAuthenticated, (req, res, next) => {
   try {
     const leagueId = requireLeagueId(req);
@@ -461,7 +502,7 @@ r.get('/projections/:playerId', requireAuthenticated, (req, res, next) => {
       }),
       weekly_availability: weeklyAvail,
       season: (() => { const s = seasonDistribution(p, { runs: 800, scoring }); delete s.samples; return s; })(),
-      availability: availability().get(p.player_id) ?? null,
+      availability: availabilityPayload(p.player_id, weeklyAvail, availability().get(p.player_id)),
       usage_history: usageFor(p.player_id).slice(0, 20)
     })));
   } catch (e) { respondError(res, next, e); }
@@ -611,10 +652,26 @@ r.get('/availability', (req, res, next) => {
       return res.json({ season, week, players: [...a.values()]
         .sort((x, y) => x.active_probability - y.active_probability).slice(0, 200) });
     }
+    // NO `week` PARAMETER: this branch does NOT serve the fit and never has.
+    // availability() is a four-season attendance rate; the fitted answer is the
+    // `?week=N` branch above. The two were told apart only by the caller knowing
+    // which one it had asked for, which is how a verification read of this path
+    // gets mistaken for a reading of the fit. Every row now says so itself, and
+    // the position is carried so a reader can see which rows the fit could never
+    // have covered.
     const a = memo('avail', () => availability());
     const names = new Map(rows('SELECT id, name, position FROM players').map(p => [p.id, p]));
-    res.json([...a.values()].map(x => ({ ...x, name: names.get(x.player_id)?.name }))
-      .filter(x => x.name).sort((a, b) => a.available - b.available).slice(0, 120));
+    const covered = new Set(['QB', 'RB', 'WR', 'TE']);
+    res.json([...a.values()].map(x => {
+      const meta = names.get(x.player_id);
+      return {
+        ...x,
+        name: meta?.name,
+        position: meta?.position ?? null,
+        basis: covered.has(meta?.position) ? 'durability_prior' : 'unfitted_position',
+        fitted: false
+      };
+    }).filter(x => x.name).sort((a, b) => a.available - b.available).slice(0, 120));
   } catch (e) { next(e); }
 });
 

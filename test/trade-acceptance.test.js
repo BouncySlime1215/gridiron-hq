@@ -196,9 +196,32 @@ test('G5 a missing edge result is refused, not treated as a pass', () => {
 
 /* ---------------------------------------------------------- G6 ablation */
 
+test('G3 the accept rate is not charged twice, once as the anchor and again inside receptiveness', () => {
+  // counterparty-pricing.js:180-182 blends tx_accept_rate INTO receptiveness,
+  // with weight min(1, n/15). So at n>=15 receptiveness IS the accept rate,
+  // and centring the band on the anchor while also adding receptiveness on top
+  // counts one piece of evidence twice. Only the part of receptiveness the
+  // anchor does not already carry may be charged.
+  const fullyCarried = r => acceptanceBand({
+    counterparty: informed({ accept_rate: 0.25, accept_rate_n: 30, receptiveness: r }),
+    edge: passes,
+  });
+  assert.deepEqual(fullyCarried(1.3).band, fullyCarried(0.7).band,
+    'at n=30 the anchor already carries receptiveness entirely; it cannot move the band again');
+
+  const notCarried = r => acceptanceBand({
+    counterparty: informed({ accept_rate: null, accept_rate_n: 0, receptiveness: r }),
+    edge: passes,
+  });
+  assert.notDeepEqual(notCarried(1.3).band, notCarried(0.7).band,
+    'with no anchor, receptiveness is the only thing carrying that evidence and must count');
+});
+
 test('G6 zeroing a source really removes it from the band', () => {
-  const on = acceptanceBand({ counterparty: informed({ receptiveness: 1.3 }), edge: passes });
-  const off = acceptanceBand({ counterparty: informed({ receptiveness: 1.3 }), edge: passes,
+  // No anchor, so receptiveness is genuinely chargeable here (see the test above).
+  const live = { accept_rate: null, accept_rate_n: 0, receptiveness: 1.3 };
+  const on = acceptanceBand({ counterparty: informed(live), edge: passes });
+  const off = acceptanceBand({ counterparty: informed(live), edge: passes,
     zero: ['receptiveness'] });
   assert.notDeepEqual(off.band, on.band, 'the ablation is a measurement, not a formality');
   assert.ok(!off.factors.some(f => f.source === 'receptiveness'),

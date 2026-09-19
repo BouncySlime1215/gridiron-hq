@@ -23,6 +23,11 @@
  *
  *   - `receptiveness`  — how open he is to dealing at all, which is about the
  *                        person's current posture, not this package's price.
+ *                        Charged only for the part the anchor does not already
+ *                        hold: `counterparty-pricing.js:180-182` blends the
+ *                        observed accept rate into receptiveness, so past
+ *                        fifteen decided offers it IS the anchor and is not
+ *                        charged a second time.
  *   - `says_no_holds`  — whether a stated no converts into a real no. Declared
  *                        in NEGOTIATION_PROFILE_SCHEMA and read by nothing in
  *                        server/ before this file; it is a behavioural signal,
@@ -67,6 +72,14 @@ export const ACCEPTANCE_SOURCES = Object.freeze({
  * the centre is not knowledge.
  */
 const UNANCHORED_CENTRE = 0.30;
+
+/**
+ * Decided offers at which `counterparty-pricing.js` has blended the observed
+ * accept rate ENTIRELY into receptiveness (`:181`, `min(1, n/15)`). Mirrored
+ * here so the band can charge only the part of receptiveness the anchor does
+ * not already contain. If that file's blend changes, this must change with it.
+ */
+const ANCHOR_BLEND_N = 15;
 
 /** Band widths. Narrower means more evidence, never more confidence in the heuristic. */
 const WIDTH = Object.freeze({
@@ -154,10 +167,30 @@ export function acceptanceBand({ counterparty = null, edge = null, profile = nul
   }
 
   // --------------------------------------------- 2. his posture right now
+  //
+  // Charged only for the part the anchor does not already carry.
+  // `counterparty-pricing.js:180-182` blends `tx_accept_rate` INTO receptiveness
+  // with weight `min(1, n/15)`, so at fifteen or more decided offers
+  // receptiveness simply IS the accept rate this band is already centred on.
+  // Adding it on top would count one piece of evidence twice and make a single
+  // observed rate look like two agreeing signals — the same failure
+  // `playerValuation` avoids by treating talk_vs_model and chat_sentiment as
+  // alternatives rather than additions.
   const receptiveness = counterparty?.receptiveness;
+  const carriedByAnchor = Math.min(1, anchor.n / ANCHOR_BLEND_N);
   if (Number.isFinite(receptiveness) && Math.abs(receptiveness - 1) >= 0.001) {
-    add('receptiveness', (receptiveness - 1) * 0.4,
-      `receptiveness ${receptiveness.toFixed(2)} against a 1.00 no-information baseline`);
+    if (carriedByAnchor >= 1) {
+      skip('receptiveness', `his ${anchor.n} decided offers are already the anchor this band is `
+        + 'centred on, and receptiveness is built from them — charging it again would count the '
+        + 'same evidence twice');
+    } else {
+      add('receptiveness', (receptiveness - 1) * 0.4 * (1 - carriedByAnchor),
+        `receptiveness ${receptiveness.toFixed(2)} against a 1.00 no-information baseline`
+        + (carriedByAnchor > 0
+          ? `, discounted to ${Math.round((1 - carriedByAnchor) * 100)}% because ${anchor.n} `
+            + 'decided offers are already in the anchor'
+          : ''));
+    }
   } else {
     skip('receptiveness', 'receptiveness is 1.00, which is this layer saying it knows nothing');
   }

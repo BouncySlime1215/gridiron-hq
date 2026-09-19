@@ -383,6 +383,25 @@ async function upload(token, body) {
       `${mb(body.length)} exceeded the server limit.`,
       'Tell Claude — the limit is a one-line change on the app side.');
   }
+  // A 502/503/504 on a big body is almost never the proxy being fussy about
+  // size: it is the app dying part-way through and never answering. That was a
+  // real failure here at ~62MB, and the bare status code sent the diagnosis off
+  // in the wrong direction for a while, so say what it usually means.
+  if (res.status === 502 || res.status === 503 || res.status === 504) {
+    die(`${hostLabel} dropped the connection part-way through the upload (${res.status}).`,
+      `The whole ${mb(body.length)} was sent, and the app stopped answering before it replied.`,
+      'Nothing was replaced on the app.',
+      '',
+      'At this size that is almost always the app running out of memory while it',
+      'takes the file in, not a size limit and not a timeout. Two things fix it:',
+      '',
+      `  1. give the machine more memory  ${c.dim('fly scale memory 2048 -a gridiron-hq')}`,
+      '  2. deploy a build where the upload route streams the body to disk',
+      '     instead of holding it in memory',
+      '',
+      'If the app was simply restarting or asleep, running this again is enough.',
+      ...(detail && detail !== '(no detail)' ? ['', c.dim(`(it said: ${detail})`)] : []));
+  }
   die(`${hostLabel} answered ${res.status}.`, detail,
     'Nothing was replaced on the app.');
 }

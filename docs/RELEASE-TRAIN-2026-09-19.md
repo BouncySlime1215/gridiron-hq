@@ -1269,13 +1269,30 @@ Then:
 
    **One thing will be unobservable tonight, and it is the biggest effect the
    script has.** The designated band — Doubtful, Out — is where the fit moves
-   furthest and the only band that moves *downward*. No player on any of the five
-   rosters currently carries an `nfl_injuries` row: the capture's
-   designation-flagged targets come back at 0.833 and 0.823 with a null report
-   status, because an ESPN roster flag is not an injury-report row and takes the
-   no-report path. So the largest single movement will have nothing to land on in
-   this baseline. Expected, and named here so nobody spends the evening hunting
-   for it.
+   furthest and the only band that moves *downward*. **No player on any of the
+   five rosters currently carries an `nfl_injuries` row**, because an ESPN roster
+   flag is not an injury-report row and takes the no-report path. So the largest
+   single movement will have nothing to land on in this baseline. Expected, and
+   named here so nobody spends the evening hunting for it.
+
+   **An earlier draft of this section cited two numbers as an injured-player
+   reading, 0.833 and 0.823. They are withdrawn, and the reason is worth keeping
+   because it is the house failure mode in miniature.** The capture script
+   stringified the roster payload's `injury` field and tested it for emptiness,
+   but `injury` is a 0/1 flag (`trade-engine.js:440` on the shipping tree:
+   `injured.has(p.id) || !!(report_status && !/probable/i) ? 1 : 0`), and
+   `String(0)` is `"0"`, which is truthy. So *every* player matched and the
+   "injured" target was simply the next most valuable healthy one — which is why
+   those readings came back priced **above** the healthy target rather than
+   below, the one result an injured-player reading cannot produce. The Trade
+   Brain thread caught it and re-captured; the corrected script now reports "no
+   player on another roster carries an injury designation" instead of silently
+   substituting a healthy player.
+
+   The conclusion is unchanged and is now better supported, but **do not carry
+   0.833 or 0.823 into any comparison tonight.** A check that returns a
+   plausible-looking number for the wrong population is worse than one that
+   returns nothing.
 
    **Use `value` as a control variable — this is the check that tells you
    whether the measurement itself is sound.** A trade's `value` is

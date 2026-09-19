@@ -165,15 +165,21 @@ test('week 1 reads last season, because there is nothing else to read', () => {
 test('one game played is still last season, and the basis says why', () => {
   // This is the case that measured WORSE, so it must not switch. If someone later "fixes"
   // this to switch at one game, this test is what stops them.
-  const b = simProjectionBasis(2, 2026);
+  //
+  // The third argument is how many weeks the usage log actually holds. It used to be absent
+  // here, and this test passed while proving nothing about the data -- the function counted
+  // the calendar. Every case now has to say what was synced, because that is the number the
+  // threshold was measured against.
+  const b = simProjectionBasis(2, 2026, 1);
   assert.equal(b.through, 2025);
   assert.equal(b.throughWeek, null);
   assert.match(b.basis, /too little to outweigh/);
 });
 
 test('from two games played the simulator reads this season, up to the week before', () => {
+  // A log that has kept up with the calendar: every played week synced.
   for (const fromWeek of [3, 5, 9, 14]) {
-    const b = simProjectionBasis(fromWeek, 2026);
+    const b = simProjectionBasis(fromWeek, 2026, fromWeek - 1);
     assert.equal(b.through, 2026, `week ${fromWeek} reads this season`);
     // Never the week being simulated: that would leak the outcome of the first simulated week.
     assert.equal(b.throughWeek, fromWeek - 1, `week ${fromWeek} stops at ${fromWeek - 1}`);
@@ -199,8 +205,8 @@ test('a missing or junk week falls back to week 1 rather than reading the future
 test('the minimum-games constant is the one the basis actually uses', () => {
   // Guards against the constant and the comparison drifting apart.
   assert.equal(SIM_PROJECTION_MIN_GAMES, 2);
-  const atThreshold = simProjectionBasis(SIM_PROJECTION_MIN_GAMES + 1, 2026);
-  const below = simProjectionBasis(SIM_PROJECTION_MIN_GAMES, 2026);
+  const atThreshold = simProjectionBasis(SIM_PROJECTION_MIN_GAMES + 1, 2026, SIM_PROJECTION_MIN_GAMES);
+  const below = simProjectionBasis(SIM_PROJECTION_MIN_GAMES, 2026, SIM_PROJECTION_MIN_GAMES - 1);
   assert.equal(atThreshold.through, 2026);
   assert.equal(below.through, 2025);
 });

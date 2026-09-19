@@ -433,6 +433,15 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const alternatives = startable
     .filter(p => !startingIds.has(p.id) && Number.isFinite(p[key]) && (p.week_points ?? 0) > 0)
     .sort((a, b) => b[key] - a[key] || (b.week_points ?? 0) - (a.week_points ?? 0));
+  // Bench players who could legally start but carry no weekly projection. Both
+  // lists above filter on `week_points > 0`, so when the projection pipeline
+  // yields nothing these players vanish from the comparison and every slot
+  // comes back "only option" — which then printed "Nobody else on the roster
+  // can fill FLEX" with three benched flex-eligible players sitting there. An
+  // empty alternatives list for want of a number is not the same fact as a
+  // roster with one eligible player, and only this list can tell them apart.
+  const unpricedBench = startable
+    .filter(p => !startingIds.has(p.id) && !((p.week_points ?? 0) > 0));
   // Kept separately and reported, because "why is my best back on the bench" is
   // the first question this page has to answer.
   const unavailable = annotated
@@ -485,7 +494,9 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     // The best benched player who could legally fill this slot.
     const alt = alternatives.find(b => slotAccepts(s.slot, b.position));
     const margin = alt ? r2(p[key] - alt[key]) : null;
-    const confidence = margin == null ? 'only option'
+    const unpricedHere = alt ? [] : unpricedBench.filter(b => slotAccepts(s.slot, b.position));
+    const confidence = margin == null
+      ? (unpricedHere.length ? 'no projection' : 'only option')
       : margin >= CLEAR_THRESHOLD ? 'clear'
         : margin >= TIE_THRESHOLD ? 'lean'
           : 'coin flip';
@@ -522,7 +533,11 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       caution: ev?.kind === 'hot' ? ev.text : null,
       upside: ev?.kind === 'cold' ? ev.text : null,
       why: margin == null
-        ? `Nobody else on the roster can fill ${s.slot}.`
+        ? (unpricedHere.length
+          ? `${unpricedHere.length} other player${unpricedHere.length === 1 ? '' : 's'} could fill ` +
+            `${s.slot}, but none of them has a weekly projection, so nothing was compared. ` +
+            'This is missing data, not a clear call.'
+          : `Nobody else on the roster can fill ${s.slot}.`)
         : confidence === 'coin flip'
           ? `Only ${margin} points ahead of ${alt.name}. That gap is inside the projection's own ` +
             'error, so this is a tie — start whichever you prefer and do not spend the afternoon on it.' +
@@ -533,6 +548,8 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   });
 
   const coinFlips = calls.filter(c => c.confidence === 'coin flip');
+  // Slots where an eligible bench player existed but carried no projection.
+  const unprojected = calls.filter(c => c.confidence === 'no projection');
   const risky = calls.filter(c => (c.player.active_probability ?? 1) < 0.75 || c.player.bye === week);
 
   // Which availability model priced every chance to play on this page, and — when it is
@@ -571,6 +588,12 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     availability_note: availabilityNote,
     projected_points: r2(optimal.points),
     lineup: calls,
+    // Starting slots the solver could not fill. `calls` filters these out, so a
+    // lineup with an empty tight end spot rendered as a complete lineup and the
+    // page said nothing — while the user had a hole on ESPN. bestLineup has
+    // computed this all along and lineupCall only read it inside the objective
+    // fallback branch.
+    holes: optimal.holes ?? [],
     bench: bench.slice(0, 8).map(p => ({
       id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
       week_points: p.week_points, vegas: p.vegas?.reading ?? null,
@@ -588,6 +611,10 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       .map(([team, c]) => ({ team, opponent: c.opponent, home: c.home,
         market: c.market, conditions: c.conditions, flags: c.flags })),
     coin_flips: coinFlips.length,
+    // Slots where an eligible bench player existed but carried no weekly
+    // projection, so no comparison happened. Counted separately from coin
+    // flips: one is a close call, the other is no call at all.
+    not_compared: unprojected.length,
     warnings: risky.map(c => ({
       player: c.player.name,
       issue: c.player.bye === week ? 'on bye this week'
@@ -595,7 +622,17 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
         // availability model, contingency.js; its role layer adds recent missed games),
         // not a share of weeks. "Only plays about 19% of weeks" would misdescribe a
         // starter who has missed his last two games.
-        : `about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% likely to play this week` +
+        // ...and it is not "plays" either. The fitted model's event is RECORDED USAGE
+        // — a target, a carry or an attempt (scripts/fit-availability.mjs, "WHAT
+        // 'AVAILABLE' MEANS HERE"): deliberately not "dressed", because a player who
+        // suits up and touches the ball zero times scores zero and this number feeds a
+        // fantasy projection. The fit's own header warns that this puts its levels
+        // BELOW published "percent who played" figures. So "likely to play" overstates
+        // what the number knows, and it overstates it most for exactly the players
+        // carrying a designation — the band where the fit moves furthest, and the only
+        // one that moves DOWN. Said plainly instead, which is true on every basis:
+        // the durability prior behind the constants path is also a usage rate.
+        : `about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% likely to suit up and see the ball this week` +
           // A bye is a fact; a chance to play is a model output, and it is only allowed
           // to be stated bare when the model that produced it is the validated one.
           (availabilityNote ? ' — but that is not the fitted number: ' + availabilityNote.reason : ''),
@@ -612,11 +649,18 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       { id: 'floor', label: 'Protect the floor',
         when: 'You are a heavy favourite. Variance can only cost you the game from here.' }
     ],
+    // "Every call has a real margin behind it" was said whenever there were no
+    // coin flips — including when there were no margins at all, because nothing
+    // had a projection to compare. A claim about the quality of the calls may
+    // only be made about calls that were actually made.
     note: coinFlips.length
       ? `${coinFlips.length} of these calls are inside the projection's own error and are labelled ` +
         'as ties rather than dressed up as decisions. Weekly projections miss by five or six points ' +
         'on a starter; a gap of one is not a finding.'
-      : 'Every call this week has a real margin behind it.'
+      : unprojected.length
+        ? `${unprojected.length} of these slots had other eligible players on the bench with no weekly ` +
+          'projection, so no comparison was made for them. That is missing data, not a clear call.'
+        : 'Every call this week has a real margin behind it.'
   };
 }
 

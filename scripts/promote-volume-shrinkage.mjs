@@ -67,6 +67,7 @@ import { RECENCY } from '../server/services/projections.js';
 import { pairedBootstrapDiff } from '../server/services/backtest-significance.js';
 import { spearman } from '../server/services/backtest.js';
 import { WEEKLY_ROLE_RECENCY } from '../server/services/weekly-ensemble.js';
+import { rows as dbRows } from '../server/db/index.js';
 
 const DRY = process.argv.includes('--dry-run');
 const HEADS = ['structural', 'season_to_date', 'last3', 'last1', 'median'];
@@ -256,6 +257,40 @@ const gate = {
   '4 start/sit ranking with DNP = 0 not worse, 2024 and 2025': decisionOk,
   '5 coverage in [0.78, 0.82]': coverageOk,
 };
+/* The verdict is not independent of how much QBR is loaded: projections.js
+ * feeds a QB structural head from `nfl_qbr_weekly`, and the same gate measured
+ * pass / FAIL / pass on 2026-09-19 with that table empty / fully backfilled
+ * 2021-2026 / holding 2025-2026 only. Print the coverage next to the verdict so
+ * whoever reads a pass knows which of those three they are looking at, rather
+ * than having to find it in the runbook. See
+ * docs/RUNBOOK-promote-volume-shrinkage.md. */
+/* Deliberately only QBR. `nfl_ffopportunity_weekly` was tested the same way on
+ * 2026-09-19 and is NOT an input: the gate produced a byte-identical production
+ * vector with that table holding 2021-2026, holding 2021-2025, and completely
+ * empty. Nothing reachable from weekly-backtest.js reads it (19 files traced; it
+ * appears only in the schema declaration and the scheduler's job list). Printing
+ * a coverage line for it would imply a sensitivity that does not exist, so if a
+ * future change to the ffopportunity feed is proposed, the answer is already
+ * measured: it cannot move this verdict. */
+const qbrRows = dbRows('SELECT season, COUNT(*) c FROM nfl_qbr_weekly GROUP BY season ORDER BY season');
+console.log('\nnfl_qbr_weekly coverage (the gate is sensitive to this):',
+  qbrRows.length ? qbrRows.map(r => `${r.season}:${r.c}`).join(' ') : 'EMPTY — no rows in any season');
+
+/* Counts, not season names, and weeks alongside them. A half-ingested season is
+ * what an OOM-killed sync leaves behind, and it is invisible to any check that
+ * asks which seasons exist rather than how much of each one does. The gate would
+ * grade a season with three weeks in it without complaint and report a verdict
+ * that looks exactly like a real one. Expect ~18 weeks and several thousand rows
+ * for a complete season; anything far below that means the replay is standing on
+ * a partial history and the verdict should not be trusted. */
+const usageRows = dbRows(
+  `SELECT season, COUNT(*) c, COUNT(DISTINCT week) w FROM player_week_usage
+    WHERE season IN (${SEASONS.join(',')}) GROUP BY season ORDER BY season`);
+const missing = SEASONS.filter(s => !usageRows.some(r => Number(r.season) === s));
+console.log('player_week_usage in the graded seasons:',
+  usageRows.map(r => `${r.season}:${r.c} rows/${r.w} weeks`).join('  ') || 'NONE',
+  missing.length ? `— MISSING ENTIRELY: ${missing.join(', ')}` : '');
+
 console.log('\nGATE', JSON.stringify(gate, null, 2));
 const pass = Object.values(gate).every(Boolean);
 if (!pass) { console.log('GATE FAILED — nothing written; production keeps the hand-picked constants.'); process.exit(1); }

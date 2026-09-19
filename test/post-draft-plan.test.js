@@ -37,11 +37,11 @@ app.use((error, _req, res, _next) => res.status(error.status ?? 500).json({ erro
 
 const TOKEN = 'post-draft-plan-token';
 
-before(() => {
-  db.prepare(`INSERT OR IGNORE INTO users(id,subject,display_name) VALUES (881,'pdp-user','PDP User')`).run();
-  db.prepare(`INSERT OR REPLACE INTO auth_sessions(user_id,token_hash,expires_at) VALUES (881,?,datetime('now','+1 day'))`)
-    .run(hashSessionToken(TOKEN));
-});
+// At module scope, not in before(): insertLeague() writes a league_membership
+// row, and the migration-006 trigger refuses one whose user does not exist yet.
+db.prepare(`INSERT OR IGNORE INTO users(id,subject,display_name) VALUES (881,'pdp-user','PDP User')`).run();
+db.prepare(`INSERT OR REPLACE INTO auth_sessions(user_id,token_hash,expires_at) VALUES (881,?,datetime('now','+1 day'))`)
+  .run(hashSessionToken(TOKEN));
 
 after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -80,6 +80,11 @@ function insertLeague(id, payload, { teamCount = 10, myTeamId = '1' } = {}) {
        VALUES (?, 'espn', ?, 2026, 'PDP League', ?, ?, ?, ?, 'x', 'y', 'connected')`,
     id, `espn-${id}`, payload ? JSON.stringify(payload) : null, teamCount, myTeamId,
     JSON.stringify(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX']));
+  // Every league-scoped route in trades.js now requires the caller to be a
+  // member of the league it names (server/routes/trades.js, league()), so the
+  // fixture has to say who owns the league it just made up.
+  run(`INSERT OR IGNORE INTO league_memberships(league_id, user_id, role)
+       VALUES (?, 881, 'commissioner')`, id);
 }
 
 function draftedRoster() {
@@ -135,6 +140,7 @@ test('post-draft-plan is ESPN-only', async () => {
   run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id)
        VALUES (104, 'sleeper', 'sleeper-104', 2026, 'Sleeper League', ?, 10, '1')`,
     JSON.stringify({ rosters: [], users: [] }));
+  run(`INSERT OR IGNORE INTO league_memberships(league_id, user_id, role) VALUES (104, 881, 'commissioner')`);
   const res = await request('/api/trades/104/post-draft-plan');
   assert.equal(res.status, 400);
 });

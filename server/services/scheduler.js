@@ -17,6 +17,7 @@
  * cheap: the MLB schedule is one request for a whole season, and refreshes are
  * skipped entirely when the data is already fresh.
  */
+import { Worker } from 'node:worker_threads';
 import { db, rows, run, row } from '../db/index.js';
 
 /**
@@ -76,12 +77,103 @@ export function lastRun(job) {
 export function recordSync(job, status, detail) { record(job, status, detail); }
 
 function record(job, status, detail) {
-  run(`INSERT INTO sync_log (job, last_run_at, last_status, last_detail, runs)
-       VALUES (?,?,?,?,1)
+  // `consecutive_failures` is what makes a failure distinguishable from a
+  // success here at all. Both stamp `last_run_at`, so without this counter a
+  // job that failed looks exactly as fresh as one that worked, and nextDue()
+  // below would have nothing to back off on. Reset to 0 on anything that is
+  // not an error — including 'skipped', which did no work but also did not
+  // fail, so it must not accumulate a backoff.
+  run(`INSERT INTO sync_log (job, last_run_at, last_status, last_detail, runs, consecutive_failures)
+       VALUES (?,?,?,?,1,?)
        ON CONFLICT(job) DO UPDATE SET
          last_run_at=excluded.last_run_at, last_status=excluded.last_status,
-         last_detail=excluded.last_detail, runs=sync_log.runs+1`,
-    job, nowIso(), status, typeof detail === 'string' ? detail : JSON.stringify(detail));
+         last_detail=excluded.last_detail, runs=sync_log.runs+1,
+         consecutive_failures=CASE WHEN excluded.last_status='error'
+           THEN sync_log.consecutive_failures + 1 ELSE 0 END`,
+    job, nowIso(), status, typeof detail === 'string' ? detail : JSON.stringify(detail),
+    status === 'error' ? 1 : 0);
+}
+
+/**
+ * What a job's own return value says about whether it actually did its work.
+ *
+ * `record` used to be called with a hardcoded 'ok' for anything that did not
+ * throw, and that is how a dead feed looks healthy. Two real cases from this
+ * file:
+ *
+ *   - refreshPlayerRosters returns `{ skipped: 'live draft in progress' }` — a
+ *     STRING. The old check was `detail?.skipped === true`, so this recorded
+ *     'ok'. Every freshness view then reported a player-universe sync that
+ *     never happened, for as long as a draft window was open.
+ *   - refreshLeagueRosters catches each league's failure and returns
+ *     `{ leagues: 5, failed: 5 }`. All five ESPN leagues could fail to sync and
+ *     the job recorded 'ok', with the failure count sitting right there in the
+ *     detail it stored.
+ *
+ * So the status is derived from the shape the jobs in this file actually
+ * return, not assumed. Anything unrecognized is still 'ok' — this is a
+ * narrowing of a too-generous default, not a new way for a working job to be
+ * reported as broken.
+ */
+export function statusFromDetail(detail) {
+  if (detail == null || typeof detail !== 'object') return 'ok';
+  // Truthy, not `=== true`: a skip reason is more useful than a bare flag and
+  // several jobs here give one.
+  if (detail.skipped) return 'skipped';
+  if (detail.error) return 'error';
+  // A countable batch: `failed`/`failures` against whatever names the total.
+  const failed = Number.isFinite(detail.failed) ? detail.failed
+    : Array.isArray(detail.failures) ? detail.failures.length : null;
+  if (failed != null && failed > 0) {
+    const total = [detail.leagues, detail.attempted, detail.teamsAttempted, detail.seasons, detail.total]
+      .find(v => Number.isFinite(v) && v > 0);
+    // Every member of the batch failed: nothing was written, so this is a
+    // failure however cheerfully the job returned. A total we cannot read
+    // means we cannot claim 'error', so it degrades to 'partial'.
+    return total != null && failed >= total ? 'error' : 'partial';
+  }
+  return 'ok';
+}
+
+// First retry after a failure. Matched to server/index.js's actual
+// `intervalMinutes: 5`, so the first retry is simply the next background pass
+// rather than an interval nothing ever lands on.
+const RETRY_BASE_MINUTES = 5;
+// A skip did no work, so the job is not fresh — but it also did not fail, so
+// it gets a flat short interval rather than a backoff. Skips here are cheap
+// early returns (no API key, a draft window, no resolvable week), and the
+// point is to resume the moment the condition clears instead of sitting out
+// a 24-hour cadence for a draft that ended an hour ago.
+const SKIP_RETRY_MINUTES = 5;
+
+/**
+ * How old this job is allowed to get before the next attempt — its cadence
+ * normally, a backoff when the last attempt failed.
+ *
+ * THE BUG THIS FIXES: `record()` stamps `last_run_at` whether the job
+ * succeeded or failed, and the staleness check only ever read that timestamp.
+ * So one transient failure bought a job its entire cadence of silence —
+ * 24 hours for `espn_rosters`, three days for `ffopportunity` — and on the
+ * live app the normal failure was a transient 502 from an OOM-killed process,
+ * exactly the kind that succeeds on the next attempt. There was no retry
+ * anywhere in this file.
+ *
+ * Exponential, and capped at the job's own cadence so a permanently broken
+ * upstream settles back to being tried at its normal rate instead of being
+ * hammered every tick forever.
+ */
+export function nextDueMinutes(name, job) {
+  const l = lastRun(name);
+  const cadence = job.maxAgeMinutes;
+  if (!l?.last_run_at) return 0;              // never run: due now
+  if (l.last_status === 'error') {
+    const failures = Math.max(1, Number(l.consecutive_failures) || 1);
+    // 5, 10, 20, 40 ... minutes. Math.min guards against the exponent running
+    // away on a job that has been failing for weeks.
+    return Math.min(RETRY_BASE_MINUTES * 2 ** Math.min(failures - 1, 20), cadence);
+  }
+  if (l.last_status === 'skipped') return Math.min(SKIP_RETRY_MINUTES, cadence);
+  return cadence;
 }
 
 /** Minutes since a job last ran, or Infinity if it never has. */
@@ -447,6 +539,118 @@ async function refreshTradeAssetUniverse() {
 }
 
 /**
+ * Per-manager behavioural signals for every ESPN league — the counterparty half
+ * of the trade engine (manager-signals.js#refreshManagerData).
+ *
+ * NOTHING IN THE RUNNING APP CALLED THIS UNTIL NOW. The only caller was
+ * scripts/build-manager-signals.mjs, launched by hand (or by the off-server
+ * refresh loop, which shares this job's `manager_signals` sync_log row and so
+ * keeps this one from repeating work it has already done). On the deployed
+ * machine that meant the measured manager layer was never built at all: the
+ * trade finder's counterparty block — and now
+ * GET /api/trades/:leagueId/managers/signals — had nothing to read.
+ *
+ * IN A WORKER THREAD, AND THAT IS THE WHOLE POINT. node:sqlite is synchronous
+ * (server/db/index.js) and this build is CPU-bound by construction: it
+ * JSON.parses each league's whole ESPN payload and rolls it up per roster. Run
+ * on the main thread it would hold the event loop for the length of that work
+ * across five leagues, once per background tick — the exact shape that has
+ * already made this app unresponsive (see startScheduler's SCHEDULER_DISABLED
+ * note and report-cache.js's header). report-worker.js is the generic "import a
+ * module, run one exported function off-thread, post the JSON result" entry
+ * point report-cache.js already uses; it opens its own SQLite connection, which
+ * WAL allows alongside this thread's. What is left on the main thread is
+ * starting the thread and writing one sync_log row.
+ */
+export function refreshManagerSignalsOffThread({ leagueIds = null, timeoutMs = 120_000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./report-worker.js', import.meta.url), {
+      // `module` is resolved inside report-worker.js, which sits beside manager-signals.js.
+      workerData: { module: './manager-signals.js', fn: 'refreshManagerData', args: [{ leagueIds }] },
+      env: process.env,
+    });
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // The build is idempotent and writes one league per transaction, so
+      // abandoning a slow run loses at most the leagues it had not reached yet.
+      worker.terminate().catch(() => {});
+      if (error) reject(error); else resolve(value);
+    };
+    const timer = setTimeout(() => finish(new Error(
+      `the manager-signals build exceeded its ${Math.round(timeoutMs / 1000)}s budget and was abandoned`)), timeoutMs);
+    timer.unref?.();
+    worker.once('message', msg => finish(msg?.error ? new Error(msg.error) : null, msg?.value ?? null));
+    worker.once('error', e => finish(e));
+    // Reached before a message only when the thread died without posting one.
+    worker.once('exit', code => finish(new Error(`the manager-signals worker exited with code ${code}`)));
+  });
+}
+
+/**
+ * Every ESPN league's identities and signals, rebuilt where an input moved.
+ *
+ * A league that fails is isolated by the service itself, so the summary carries
+ * every league either way; this then throws when any of them failed, because
+ * `runIfStale` records a thrown message as the job's error and a partial build
+ * recorded as 'ok' is exactly how a silently empty counterparty layer survives.
+ * Nothing is lost by throwing: the message names every failing league.
+ */
+async function refreshManagerSignals() {
+  const out = await refreshManagerSignalsOffThread();
+  const leagues = out?.leagues ?? [];
+  const detail = {
+    chat_db: out?.chat_db ?? null, build_ms: out?.ms ?? null,
+    leagues: leagues.map(l => ({
+      league_id: l.league_id, name: l.name ?? null, skipped: l.skipped ?? null, error: l.error ?? null,
+      chat_corpus: l.chat_corpus ?? null, unchanged: l.unchanged ?? null, signals: l.signals ?? null,
+    })),
+  };
+  const failed = leagues.filter(l => l.error);
+  if (failed.length) {
+    throw new Error(`manager signals: ${failed.map(l => `league ${l.league_id} — ${l.error}`).join('; ')}`);
+  }
+  return detail;
+}
+
+/**
+ * The archetype half of the same layer: draft-revealed preference and the
+ * all-play/luck outcomes, which manager-signals.js copies into `manager_signals`
+ * as its `draft` and `outcome` sources. Nothing ran this either, so those two
+ * sources never appeared for any league.
+ *
+ * A child process, not an import: scripts/build-manager-archetypes.mjs owns the
+ * three-stage order (it runs scripts/luck-panel.mjs for the outcome half), and
+ * `execFile` keeps all of it off this thread — the event loop stays free while
+ * it runs, though the box's CPU does not, which is why this sits in `heavy`
+ * rather than beside the signals job. `--jev` is deliberately not passed: that
+ * stage calls a paid gateway and needs AI_GATEWAY_API_KEY, so it stays opt-in
+ * (`npm run build:manager-archetypes -- --jev`).
+ */
+async function refreshManagerArchetypes() {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const path = await import('node:path');
+  const { PROJECT_ROOT } = await import('../platform/paths.js');
+  const script = path.join(PROJECT_ROOT, 'scripts/build-manager-archetypes.mjs');
+  const { stdout } = await promisify(execFile)(process.execPath, [script, '--json'],
+    { cwd: PROJECT_ROOT, env: process.env, encoding: 'utf8', timeout: 9 * 60_000, maxBuffer: 32 * 1024 * 1024 });
+  // The script's --json tail is the whole report; only its summary belongs in a
+  // sync_log row, small enough that the Data Health page can show it.
+  let report = null;
+  try { report = JSON.parse(stdout.slice(stdout.indexOf('{'))); } catch { report = null; }
+  const s = report?.summary ?? null;
+  return s
+    ? { league_seasons: s.league_seasons, managers: s.managers, rows_written: s.rows_written,
+      draft_manager_seasons: s.draft_manager_seasons, outcome_manager_seasons: s.outcome_manager_seasons,
+      jev: 'not run — opt-in, needs AI_GATEWAY_API_KEY' }
+    : { error: 'the archetype build printed no JSON summary',
+      tail: stdout.trim().split('\n').at(-1)?.slice(0, 200) ?? null };
+}
+
+/**
  * Does an already-approved finding still work on fresh, out-of-sample data?
  * See decay-watch.js's header for why this is a genuinely separate check
  * from audit-registry.js's sealed audits (it never re-runs one) and from
@@ -572,10 +776,44 @@ async function refreshCoaches() {
  * nflverse_weekly_usage (settles a day or two after each week's games), so it
  * gets the same 3-day budget.
  */
+/**
+ * Expected fantasy points. The current season every time; a prior season only
+ * if we do not already hold it.
+ *
+ * This used to pull four seasons on every run, every three days. Three of them
+ * are completed seasons that ffverse never revises — about 5.4 MB of CSV each,
+ * re-parsed and re-upserted row by row to arrive at exactly the rows already
+ * stored. That is ~16 MB of parsing per run for ~0.3 MB of new data, on a
+ * machine whose failure mode is being OOM-killed on large payloads.
+ *
+ * The backfill still happens; it just happens once. A prior season with no rows
+ * is pulled (a fresh install, or a season that was missing), and after that it
+ * is left alone. Re-ingesting a completed season on purpose is what
+ * syncFfOpportunity's own multi-season signature is for.
+ */
+/**
+ * Which seasons this run should actually fetch.
+ *
+ * Exported because it is the whole decision, and an off-thread job cannot be
+ * module-mocked from the main thread (the worker imports its own copy), so
+ * testing it through runIfStale is not possible. Testing the decision directly
+ * is better anyway.
+ */
+export function ffOpportunitySeasons(season) {
+  const held = new Set(rows('SELECT DISTINCT season FROM nfl_ffopportunity_weekly').map(r => Number(r.season)));
+  return [...[season - 3, season - 2, season - 1].filter(s => !held.has(s)), season];
+}
+
 async function refreshFfOpportunity() {
   const { syncFfOpportunity } = await import('./ffopportunity.js');
   const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
-  return syncFfOpportunity([season - 3, season - 2, season - 1, season]);
+  const result = await syncFfOpportunity(ffOpportunitySeasons(season));
+  // Every requested season came back unpublished: nothing was written, and the
+  // job returning normally with `rows: 0` would otherwise log as a clean sync.
+  if (!result?.rows && result?.seasons?.every(s => s.status === 'not_published')) {
+    return { ...result, error: 'no requested season is published upstream' };
+  }
+  return result;
 }
 
 /** The transaction wire — signings, releases, IR moves, from ESPN's public transactions API. */
@@ -787,6 +1025,86 @@ async function refreshNflDecisionLedger() {
  */
 const T60_EXPERIMENT_ID = 'nfl-spread-t60-prospective-v1';
 
+/**
+ * The nflverse player ID crosswalk: espn_id -> gsis_id.
+ *
+ * The hinge of the whole fantasy chain. `players.gsis_id` is what weekly usage
+ * is keyed on, and on the live app it was null on every row — which is why
+ * every nflverse-derived table was empty even though the feeds were reachable.
+ * players.csv is ~7 MB, hence offThread.
+ */
+async function refreshNflverseCrosswalk() {
+  const { syncCrosswalk } = await import('./nflverse.js');
+  // The crosswalk matches on espn_id, so it can do nothing until the ESPN
+  // player sync above has populated some. Reporting that as a skip with the
+  // reason beats throwing: an error here would start a backoff over a
+  // precondition that is about to be satisfied by another job.
+  const withEspnId = row('SELECT COUNT(*) n FROM players WHERE espn_id IS NOT NULL')?.n ?? 0;
+  if (!withEspnId) return { skipped: 'no player carries an espn_id yet — player_rosters must land first' };
+  return syncCrosswalk();
+}
+
+/**
+ * Weekly player usage for the CURRENT season only.
+ *
+ * Deliberately not the multi-season backfill that /api/nfl/nflverse/sync runs:
+ * this is the in-season job, and each season is its own file (about 0.5 MB in
+ * week 2, a few MB by January). The backfill stays a manual, on-demand call.
+ * Six hours because nflverse settles a week's stats a day or two after the
+ * games; a six-hour check lands within hours of the file appearing and costs
+ * one conditional download when it has not.
+ */
+async function refreshNflverseWeeklyUsage() {
+  const { syncWeeklyUsage } = await import('./nflverse.js');
+  const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+  const mapped = row('SELECT COUNT(*) n FROM players WHERE gsis_id IS NOT NULL')?.n ?? 0;
+  // syncWeeklyUsage throws on this condition; catching it here instead keeps
+  // an ordering gap out of the error log and off the failure backoff.
+  if (!mapped) return { skipped: 'no player carries a gsis_id yet — nflverse_crosswalk must land first' };
+  return syncWeeklyUsage(season);
+}
+
+/** Snap counts for the current season — matched on name+position, so no gsis_id needed. */
+async function refreshNflverseSnapCounts() {
+  const { syncSnapCounts } = await import('./nflverse.js');
+  const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+  return syncSnapCounts(season);
+}
+
+/**
+ * ESPN's slot-level depth charts, NOT nflverse's.
+ *
+ * Measured 2026-09-19 before choosing: nflverse's own depth_charts_2026.csv is
+ * already 51 MB in week 2 and grows every week, because it carries a row per
+ * player per team per game. Putting that on a timer on a 2 GB machine is how
+ * the OOM kills come back. ESPN's core API is per team, small, and is what the
+ * app already reads for slot_code.
+ */
+async function refreshEspnDepthChart() {
+  const { syncDepthChart } = await import('../routes/nfldata.js');
+  return syncDepthChart();
+}
+
+/** ESPN season projections and prior-year actuals — the projection source the lineup tools read. */
+async function refreshEspnSeasonStats() {
+  const { syncStats } = await import('../routes/stats.js');
+  return syncStats();
+}
+
+/**
+ * Sleeper's player universe: a second, independent read of who exists, plus
+ * the only source of `sleeper_id` and the injury flag.
+ */
+async function refreshSleeperPlayers() {
+  const { syncSleeper } = await import('../routes/aggregates.js');
+  const result = await syncSleeper();
+  // This job exists to write rows. Matching nothing means the player table it
+  // joins against is empty or unrecognizable, which is a broken state and not
+  // a successful sync, however cleanly the fetch returned.
+  if (!result?.matched) return { ...result, error: 'matched no players — the player universe is empty or unmatched' };
+  return result;
+}
+
 export const JOBS = {
   mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, tier: 'live', label: 'MLB schedule and results' },
   mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, tier: 'heavy', label: 'MLB player game logs' },
@@ -795,6 +1113,48 @@ export const JOBS = {
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, tier: 'heavy', label: "Tomorrow's MLB picks" },
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live',
     label: 'Player team assignments — the actual fix for stale roster spots' },
+  /*
+   * THE FANTASY INGESTION CHAIN.
+   *
+   * Everything below was registered in source-registry.js's MANUAL_SOURCES —
+   * "runs when someone calls its /sync route, no timer, by design". Nobody
+   * ever called those routes, so on the deployed app the player universe was
+   * 448 seed rows with no external ids on any of them, and `player_week_usage`,
+   * `player_week_snaps` and the projections were empty. AUTO_HEAVY_SYNC was
+   * never the reason: these were not gated behind a flag, they were not
+   * scheduled at all, so switching that flag on changed nothing for any of
+   * them.
+   *
+   * ORDER MATTERS AND IS LOAD-BEARING. A tier runs its jobs in the order they
+   * appear in this object (see jobsInTier), and this chain has real
+   * dependencies: `player_rosters` above puts espn_id on players, the
+   * crosswalk maps espn_id to gsis_id, and weekly usage is keyed on gsis_id
+   * and throws outright without it. Keep these five in this order.
+   *
+   * They are 'growth', not 'heavy', deliberately. 'heavy' means "only when
+   * AUTO_HEAVY_SYNC is set", and putting the core fantasy feeds behind an
+   * opt-in flag is how they came to have never run. What they actually need is
+   * not to block the request thread, and that is `offThread`, which is a
+   * separate property for exactly this reason.
+   */
+  nflverse_crosswalk: {
+    run: refreshNflverseCrosswalk, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
+    label: 'nflverse player ID crosswalk (gsis_id — every weekly stat is keyed on it)' },
+  nflverse_weekly_usage: {
+    run: refreshNflverseWeeklyUsage, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
+    label: 'nflverse weekly player usage for the current season' },
+  nflverse_snap_counts: {
+    run: refreshNflverseSnapCounts, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
+    label: 'nflverse snap counts for the current season' },
+  espn_depth_chart: {
+    run: refreshEspnDepthChart, maxAgeMinutes: 12 * 60, tier: 'growth',
+    label: 'ESPN slot-level depth charts (32 teams)' },
+  espn_season_stats: {
+    run: refreshEspnSeasonStats, maxAgeMinutes: 24 * 60, tier: 'growth',
+    label: 'ESPN season projections and prior-year actuals' },
+  sleeper_players: {
+    run: refreshSleeperPlayers, maxAgeMinutes: 24 * 60, tier: 'growth',
+    label: 'Sleeper player universe (sleeper_id, overall rank, injury flag)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
   league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live',
@@ -819,7 +1179,12 @@ export const JOBS = {
     label: 'Free player-prop quotes: Action Network, Underdog' },
   nfl_book_feeds_extra: { run: refreshExtraBookFeeds, maxAgeMinutes: 60, tier: 'live',
     label: 'Free game lines: Rotowire (Circa, DK, FD, MGM, Caesars, BetRivers, Fanatics, theScore, Betr) and SBR (bet365, Hard Rock)' },
-  nfelo_sync: { run: refreshNfelo, maxAgeMinutes: 6 * 60, tier: 'growth',
+  // offThread: measured 2026-09-19 — qb_elos.csv alone is 6.4 MB and this
+  // pulls six CSVs, parsed synchronously. One run on the Fly machine was
+  // timed at 69 seconds, which on the main thread is 69 seconds of the whole
+  // app answering nothing, every six hours. It is on the 'growth' tier, which
+  // always runs, so AUTO_HEAVY_SYNC never protected anyone from it.
+  nfelo_sync: { run: refreshNfelo, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
     label: 'nfelo: QB-adjusted Elo, per-game HFA, pre-regression line, public splits' },
   nfl_external_ratings: { run: refreshExternalRatings, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'ESPN FPI weekly snapshot and TeamRankings predictive (Wednesday)' },
@@ -937,7 +1302,17 @@ export const JOBS = {
     }
     return { teams: teams.length, pressers, statements };
   }), maxAgeMinutes: 6 * 60, tier: 'heavy', label: 'Team press conferences (YouTube, transcribed)' },
-  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', label: 'Forward evidence capture windows' },
+  // offThread, from live status on the deployed app 2026-09-19: last_status
+  // error, 29 runs, every one of them 'exceeded its 120s budget and was
+  // abandoned'. It is tier 'live' with maxAgeMinutes 5, so the 90-second tick
+  // re-attempts it continuously, and each attempt does its synchronous payload
+  // parsing and its `UPDATE evidence_capture_windows` loops on the request
+  // thread. AUTO_HEAVY_SYNC never gated any of that.
+  //
+  // This is a SCHEDULING fix to a betting-side job, not betting work: nothing
+  // about what the job does is changed. See the note on its budget below.
+  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', offThread: true,
+    label: 'Forward evidence capture windows' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
     label: 'Fantasy weekly snapshot, settlement, and challenger retraining' },
   // Enabled by default, unlike broad heavy research sweeps. Most checks are a
@@ -952,7 +1327,12 @@ export const JOBS = {
     label: 'Depth chart / injury refresh on a calendar-aware cadence, independent of game finalization' },
   nfl_decision_ledger: { run: refreshNflDecisionLedger, maxAgeMinutes: 3 * 60, tier: 'growth',
     label: 'NFL current-week decision ledger, pregame snapshots, and expert council freeze (zero units)' },
-  nfl_reports: { run: refreshReports, maxAgeMinutes: 3 * 60, tier: 'growth',
+  // offThread for the same reason, also measured live (error, 'exceeded its
+  // 120s budget'). Its report computation is already in workers, but the
+  // per-report fingerprint queries and report-cache.js's TRUNCATE WAL
+  // checkpoint run synchronously on whichever thread calls it, and on a
+  // multi-gigabyte WAL that checkpoint is not cheap.
+  nfl_reports: { run: refreshReports, maxAgeMinutes: 3 * 60, tier: 'growth', offThread: true,
     label: 'Heavy dashboard reports computed off-thread (worker) and served from SQLite' },
   nfl_prop_calibration: { run: refreshNflPropCalibration, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'NFL chronological prop calibration registry' },
@@ -966,6 +1346,32 @@ export const JOBS = {
   // fantasy side's own inputs actually change (injuries every 6h, news hourly).
   trade_asset_universe_warm: { run: refreshTradeAssetUniverse, maxAgeMinutes: 20, tier: 'growth',
     label: 'Pre-warm the trade engine\'s asset universe for every league in use' },
+  /*
+   * The measured manager layer. 'growth', not 'heavy', deliberately:
+   *   - it makes no network request at all — it reads the league payload
+   *     league_rosters has already stored, the transaction rows beside it, and
+   *     the chat DB read-only — so there is nothing here to meter;
+   *   - it computes in a worker thread (refreshManagerSignalsOffThread), so the
+   *     event loop is never held while it runs, and the reason the `heavy` tier
+   *     exists — long compute ON THE MAIN THREAD — does not apply to it;
+   *   - `heavy` is gated behind AUTO_HEAVY_SYNC, and a signal layer that only
+   *     builds behind a flag is the "silently never runs" failure this file has
+   *     already had to fix twice (see decay_watch and nfl_model_growth).
+   * maxAgeMinutes matches league_rosters, its main input. The sync_log row is
+   * shared with scripts/build-manager-signals.mjs, so an off-server build counts
+   * as this job having run and neither path repeats the other's work.
+   */
+  manager_signals: { run: refreshManagerSignals, maxAgeMinutes: 60, tier: 'growth', timeoutMs: 150_000,
+    label: 'Who each manager is and what we have measured about him, every ESPN league (worker thread)' },
+  /*
+   * The archetype half: 24 h, because a draft happens once a season and the
+   * outcome metrics move once a week. 'heavy' because it spawns a child process
+   * that replays every league-season — off this thread, but not off this box.
+   * The off-server refresh loop runs it by name whatever its tier
+   * (scripts/refresh-live-data.mjs FANTASY_LIVE_JOBS).
+   */
+  manager_archetypes: { run: refreshManagerArchetypes, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 10 * 60_000,
+    label: 'Manager archetypes: draft-revealed preference and all-play/luck outcomes (child process)' },
   /*
    * Prop quote capture. Every hour during a slate, because a prop line that is
    * only observed once cannot yield closing-line value — CLV needs the price
@@ -1021,7 +1427,9 @@ export const JOBS = {
     label: "X's & O's writeups — self-limited to teams with news newer than their analysis" },
   nfl_coaches: { run: refreshCoaches, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'Per-team-season head-coach history (nflverse/nfldata games.csv)' },
-  ffopportunity: { run: refreshFfOpportunity, maxAgeMinutes: 3 * 24 * 60, tier: 'growth',
+  // offThread: each completed season's CSV is ~5.4 MB, and this pulled four of
+  // them every three days — see refreshFfOpportunity for why it no longer does.
+  ffopportunity: { run: refreshFfOpportunity, maxAgeMinutes: 3 * 24 * 60, tier: 'growth', offThread: true,
     label: 'ffopportunity weekly expected-fantasy-points benchmark' }
 };
 
@@ -1036,13 +1444,137 @@ const DEFAULT_JOB_TIMEOUT_MS = 120_000;
 // before a full second, so 750ms is "found it" territory, not noise.
 const SLOW_JOB_WARN_MS = 750;
 
+/** The original inline budget: abandon the promise so the rest of the tier can run. */
+function withJobTimeout(promise, name, timeoutMs) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(
+        `job '${name}' exceeded its ${Math.round(timeoutMs / 1000)}s budget and was abandoned so the ` +
+        'rest of the tier could run')), timeoutMs);
+      timer.unref?.();
+    })
+  ]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Run one job in a worker thread, so its CPU and its synchronous SQLite calls
+ * are not on the thread serving HTTP.
+ *
+ * THIS IS THE FIX FOR A REAL OUTAGE, not a tidiness exercise. `server/index.js`
+ * starts this scheduler with `intervalMinutes: 5`, so the background tier is
+ * ATTEMPTED every five minutes — the 30-minute default this file's own comments
+ * describe is overridden at the call site. Switching AUTO_HEAVY_SYNC on adds
+ * eleven heavy jobs (season simulations, model refits, LLM writeups, each
+ * budgeted in minutes) to that pass, sequentially, on the main thread. The
+ * first such pass blocks the event loop past any client's timeout, and the
+ * in-flight guard below only stops a SECOND pass stacking up — it does nothing
+ * to make the app answer while the first one runs. `fly.toml`'s check was TCP
+ * only, so the kernel's listen backlog kept answering and Fly never restarted
+ * the wedged process. Both halves are fixed together; see the HTTP check there
+ * and `/api/health` in server/index.js.
+ *
+ * The worker opens its own SQLite connection. WAL gives it a concurrent
+ * reader for free; writes still serialize against the main thread under the
+ * 15s busy_timeout in db/index.js, so this moves the parse-and-compute cost
+ * off the request thread but does not make two writers free. A job that holds
+ * one enormous write transaction can still stall main-thread WRITES for its
+ * duration — reads, which are nearly all of request handling, stay served.
+ *
+ * Timeout terminates the thread rather than merely abandoning a promise: an
+ * abandoned worker would keep burning CPU and holding its connection open,
+ * which is worse than the inline case it replaces.
+ */
+function runJobOffThread(name, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./job-worker.js', import.meta.url), {
+      // A job may name its work explicitly with a serializable
+      // `worker: { module, fn, args }` descriptor. Otherwise the worker looks
+      // the job up in its own import of this file, which is what lets every
+      // existing heavy job go off-thread without being restructured.
+      workerData: JOBS[name]?.worker ? { ...JOBS[name].worker } : { job: name },
+      env: process.env
+    });
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      worker.terminate().catch(() => {});
+      reject(new Error(`job '${name}' exceeded its ${Math.round(timeoutMs / 1000)}s budget in a worker ` +
+        'thread and the thread was terminated'));
+    }, timeoutMs);
+    timer.unref?.();
+    const finish = (err, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (err) reject(err instanceof Error ? err : new Error(err)); else resolve(value);
+    };
+    worker.once('message', msg => finish(msg.error ?? null, msg.value));
+    worker.once('error', err => finish(err));
+    // A worker that dies without posting anything — OOM-killed mid-parse is the
+    // case this app actually hits — must still resolve into a recorded error,
+    // not leave the job looking like it is permanently mid-run.
+    worker.once('exit', code => finish(code === 0 ? null : new Error(
+      `job '${name}' worker exited with code ${code} without reporting (an OOM kill looks like this)`)));
+  });
+}
+
+/*
+ * A JOB NEVER RUNS ON TOP OF ITSELF.
+ *
+ * The tier loops below guard a tier against its own next pass, which was the
+ * fix for two passes interleaving over the same `sync_log` rows. That guard is
+ * per timer, and it is not the whole problem, because a timer is only one of
+ * FIVE independent callers of this function:
+ *
+ *   1. the boot catch-up pass, 20 seconds after `startScheduler`
+ *   2. the live timer, every 90 seconds
+ *   3. the background timer, every `intervalMinutes`
+ *   4. `refreshInBackground`, on page loads that need current data
+ *   5. `POST /api/mlb/sync/now?job=X` and `/api/nfl-betting/sync`, by hand
+ *
+ * Nothing coordinated them. The staleness gate cannot, because `record()` runs
+ * only AFTER `job.run()` returns: while a job is in flight its last recorded
+ * run is still the old one, so it reads as stale to every other caller and
+ * they all start it again. Callers 4 and 5 pass `force: true` and skip the
+ * gate outright.
+ *
+ * This is not theoretical on the live app. The boot pass holds 18 jobs and one
+ * of them, `evidence_daemon`, spends its full 120-second budget every time it
+ * runs (29 runs, 29 timeouts, measured 2026-09-19), so the boot pass is still
+ * going when the 90-second live timer fires — every boot, not occasionally.
+ * The overlapping jobs then write the same tables from two synchronous SQLite
+ * transactions and record over each other's `sync_log` rows, and the second
+ * copy's cost is pure waste: its work was already being done.
+ *
+ * So the guard belongs on the job, where every caller goes through it, rather
+ * than on any one caller. A second request for a job already running is handed
+ * the SAME promise, so it gets the real result and the work happens once.
+ */
+const running = new Map();
+
 export async function runIfStale(name, { force = false } = {}) {
   const job = JOBS[name];
   if (!job) return { job: name, error: 'unknown job' };
+  // Before the staleness gate, and before `force` can bypass it: "already
+  // running" is a complete answer to "should this run", whatever the caller.
+  const inFlightRun = running.get(name);
+  if (inFlightRun) return inFlightRun;
   const age = minutesSince(name);
-  if (!force && age < job.maxAgeMinutes) {
-    return { job: name, skipped: true, age_minutes: Math.round(age), max_age_minutes: job.maxAgeMinutes };
+  const dueAfter = nextDueMinutes(name, job);
+  if (!force && age < dueAfter) {
+    return { job: name, skipped: true, age_minutes: Math.round(age),
+      max_age_minutes: job.maxAgeMinutes, due_after_minutes: dueAfter };
   }
+  const run = runJobNow(name, job);
+  running.set(name, run);
+  try { return await run; } finally { running.delete(name); }
+}
+
+/** The run itself, once the gates above have decided it should happen. */
+async function runJobNow(name, job) {
   const startedAt = Date.now();
   try {
     // EVERY JOB IS TIME-BOUND, AND THIS IS NOT DEFENSIVE PROGRAMMING.
@@ -1064,20 +1596,21 @@ export async function runIfStale(name, { force = false } = {}) {
     // capture for the life of the process. A timeout converts that into a
     // recorded error and lets the loop reach the jobs behind it.
     const timeoutMs = job.timeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
-    let timer;
-    const detail = await Promise.race([
-      job.run(),
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(
-          `job '${name}' exceeded its ${Math.round(timeoutMs / 1000)}s budget and was abandoned so the ` +
-          'rest of the tier could run')), timeoutMs);
-        timer.unref?.();
-      })
-    ]).finally(() => clearTimeout(timer));
+    // A job declared `offThread` runs in a worker; everything else keeps the
+    // original inline path exactly as it was. See runJobOffThread above.
+    // The heavy tier goes off-thread by default rather than job-by-job, so a
+    // heavy job added later cannot quietly reintroduce the outage by
+    // forgetting the flag. An individual job can still opt out with
+    // `offThread: false` if it genuinely needs main-thread state.
+    const offThread = job.offThread ?? job.tier === 'heavy';
+    const detail = offThread
+      ? await runJobOffThread(name, timeoutMs)
+      : await withJobTimeout(job.run(), name, timeoutMs);
     // A job that chose not to do its work (reserve hold, no key, no due window)
     // is not healthy; recording it as 'ok' told every freshness view that a
-    // capture happened when nothing did.
-    record(name, detail?.skipped === true ? 'skipped' : 'ok', detail);
+    // capture happened when nothing did. See statusFromDetail for the two
+    // shapes that were slipping through as 'ok'.
+    record(name, statusFromDetail(detail), detail);
     // node:sqlite's DatabaseSync is fully synchronous (server/db/index.js) — a
     // slow query inside job.run() blocks this process, not just this job, so
     // every other request queues behind it for the same span this prints.
@@ -1086,8 +1619,14 @@ export async function runIfStale(name, { force = false } = {}) {
     // this is the number to read off Nick's real box, not this sandbox's.
     const durationMs = Date.now() - startedAt;
     if (durationMs >= SLOW_JOB_WARN_MS) {
-      console.warn(`[scheduler] '${name}' took ${(durationMs / 1000).toFixed(1)}s ` +
-        '— every request was blocked for that long while it ran');
+      // An off-thread job took this long but did NOT block anything, so it must
+      // not print the line that sends someone hunting for a freeze. Keeping one
+      // message for both cases is how a fixed problem goes on being reported.
+      console.warn(offThread
+        ? `[scheduler] '${name}' took ${(durationMs / 1000).toFixed(1)}s in a worker thread ` +
+          '— requests were served normally throughout'
+        : `[scheduler] '${name}' took ${(durationMs / 1000).toFixed(1)}s ` +
+          '— every request was blocked for that long while it ran');
     }
     return { job: name, ran: true, detail, duration_ms: durationMs };
   } catch (e) {
@@ -1283,6 +1822,7 @@ export function schedulerStatus() {
     jobs: Object.entries(JOBS).map(([name, j]) => {
       const l = lastRun(name);
       const age = minutesSince(name);
+      const dueAfter = nextDueMinutes(name, j);
       return {
         job: name, label: j.label, tier: j.tier ?? 'heavy',
         max_age_minutes: j.maxAgeMinutes,
@@ -1291,7 +1831,15 @@ export function schedulerStatus() {
         stale: age >= j.maxAgeMinutes,
         last_status: l?.last_status ?? 'never run',
         last_detail: l?.last_detail ?? null,
-        runs: l?.runs ?? 0
+        runs: l?.runs ?? 0,
+        // The three fields that answer "why has this not run?" without anyone
+        // having to read this file: whether it is even on a timer under the
+        // current environment, how many times in a row it has failed, and how
+        // long the backoff is holding it off for.
+        consecutive_failures: l?.consecutive_failures ?? 0,
+        due_after_minutes: dueAfter,
+        off_thread: j.offThread ?? j.tier === 'heavy',
+        scheduled_now: j.tier === 'heavy' ? process.env.AUTO_HEAVY_SYNC === '1' : true
       };
     })
   };

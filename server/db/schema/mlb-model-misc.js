@@ -657,7 +657,8 @@ export function tables(db) {
     last_run_at TEXT,
     last_status TEXT,
     last_detail TEXT,
-    runs INTEGER DEFAULT 0
+    runs INTEGER DEFAULT 0,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0
   );
 `);
 

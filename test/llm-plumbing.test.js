@@ -272,13 +272,21 @@ test('the pending call\'s worst-case cost counts: $0.95 spent + up to $0.08 of o
 });
 
 test('the trade-proposal budget is its own $0.50 pot', async () => {
+  // Updated 2026-09-19 with the per-league budget fix: the pot is per LEAGUE
+  // ($0.50 each, llm-budget.js#budgetScopeFor), so league 4 running out is
+  // league 4's problem. It was league 1's $0.50 being seeded here that made this
+  // test assert the bug — five leagues sharing one allowance. Coach's $0.99 is
+  // still the point: a full Coach budget does not touch trade proposals.
+  // The per-league guarantees live in test/llm-budget-per-league.test.js.
   seedSpend({ feature: 'coach', cost: 0.99 });
-  seedSpend({ feature: 'trade_proposals:league-1', cost: 0.50 });
+  seedSpend({ feature: 'trade_proposals:league-4', cost: 0.50 });
   const fake = fakeClient();
   claude.setAnthropicClientForTesting(fake);
   await assert.rejects(claude.callClaude({ feature: 'trade_proposals:league-4', model: SONNET, prompt: 'q', maxTokens: 100 }),
-    /Today's trade proposals budget is used/);
+    /Today's trade proposals \(league 4\) budget is used/);
   assert.equal(fake.calls.length, 0);
+  await claude.callClaude({ feature: 'trade_proposals:league-1', model: SONNET, prompt: 'q', maxTokens: 100 });
+  assert.equal(fake.calls.length, 1, 'and league 1 still has its own $0.50');
 });
 
 test('features without a budget are not limited by one', async () => {

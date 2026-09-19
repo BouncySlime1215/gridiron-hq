@@ -50,7 +50,10 @@ async function syncFFC(season) {
 }
 
 // Sleeper — free public API; search_rank approximates their overall player ranking
-async function syncSleeper() {
+// Exported so scheduler.js can run it on a timer: this is a second independent
+// read of the player universe (and the only source of `sleeper_id` and the
+// injury flag), and it had no automatic path to ever run.
+export async function syncSleeper() {
   try {
     const resp = await fetch('https://api.sleeper.app/v1/players/nfl', { headers: { Accept: 'application/json' } });
     if (!resp.ok) throw new Error(`Sleeper API ${resp.status}`);

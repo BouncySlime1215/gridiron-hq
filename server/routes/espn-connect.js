@@ -10,9 +10,11 @@
  * The cookies never leave the machine: the bookmarklet runs in the user's browser and
  * posts to their own local install. Nothing is sent anywhere but ESPN's API.
  */
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { legacyAuthenticated } from '../platform/legacy-access.js';
+import { resolveAuthenticatedUser } from '../platform/auth.js';
 
 /*
  * Every route here except the bookmarklet's own POST /cookies (and its preflight)
@@ -22,10 +24,51 @@ import { legacyAuthenticated } from '../platform/legacy-access.js';
  * leagues, wipe the cookies (DELETE /cookies), rewrite which roster is Nick's
  * (POST /add upserts my_team_id, which every lineup, waiver and trade surface reads)
  * or call ESPN with his cookies (GET /discover). The client's api() already sends the
- * session token on all of these. POST /cookies still validates with ESPN before
- * writing and only rebinds leagues on the posted SWID (see its comment).
+ * session token on all of these.
+ *
+ * POST /cookies itself is gated a different way (see cookieWriteAuthorized below):
+ * it still can't require a session outright, because the whole reason it exists is
+ * that the bookmarklet runs ON espn.com and never had a session to send. Originally
+ * this route also validated with ESPN before writing and called that enough — true
+ * for a Mac behind a private, ephemeral phone tunnel, but not for a stable public
+ * hostname (a Fly.io deploy): anyone who finds the URL has their own real, valid ESPN
+ * cookies for free, so "validates with ESPN" filters nothing, and an unauthenticated
+ * write here overwrites the single global app_settings espn_s2/swid pair that
+ * getCookies() below treats as the account of record — a costless way for a stranger
+ * to boot Nick off his own connection. Now it also accepts a per-install token that
+ * only a signed-in caller can ever obtain (baked into the bookmarklet at /bookmarklet,
+ * itself session-gated), so a caller with neither a session nor that token is refused
+ * before ESPN is ever asked.
  */
 const signedIn = legacyAuthenticated;
+
+/**
+ * A random per-install secret, generated on first use and persisted like the cookies
+ * themselves. Its only job is proving "this POST came from a bookmarklet this install's
+ * owner actually generated while signed in" — not a credential ESPN accepts, so leaking
+ * it only lets someone submit cookies (still validated) for our own record, not read
+ * anything.
+ */
+function connectToken() {
+  const existing = row(`SELECT value FROM app_settings WHERE key = 'espn_connect_token'`)?.value;
+  if (existing) return existing;
+  const token = crypto.randomBytes(24).toString('base64url');
+  run(`INSERT INTO app_settings (key, value) VALUES ('espn_connect_token', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`, token);
+  return token;
+}
+
+/** A signed-in caller (the paste box, which sends the session bearer token), or the bookmarklet carrying the token it was minted with. */
+function cookieWriteAuthorized(req) {
+  if (resolveAuthenticatedUser(req)) return true;
+  const presented = typeof req.query?.t === 'string' ? req.query.t : '';
+  const expected = connectToken();
+  // Fixed-width buffers so timingSafeEqual never throws on a length mismatch — an
+  // over-long or empty presented value is simply padded/truncated to the same slot,
+  // never a crash, and still constant-time against the actual secret bytes.
+  const pad = s => Buffer.from(s.slice(0, 64).padEnd(64, '.'));
+  return presented.length > 0 && crypto.timingSafeEqual(pad(presented), pad(expected));
+}
 
 const r = Router();
 
@@ -110,7 +153,7 @@ function captureCors(req, res, next) {
  * espn_s2 is not HttpOnly, so document.cookie can see it. When ESPN changes that, the
  * script says so plainly instead of silently posting nothing.
  */
-const BOOKMARKLET = origin => `
+const BOOKMARKLET = (origin, token) => `
 (function(){
   function get(n){
     var m = document.cookie.match('(^|;)\\\\s*' + n + '\\\\s*=\\\\s*([^;]+)');
@@ -123,7 +166,7 @@ const BOOKMARKLET = origin => `
           'If it still fails, open Settings in Gridiron HQ and use the paste box instead.');
     return;
   }
-  fetch('${origin}/api/espn-connect/cookies', {
+  fetch('${origin}/api/espn-connect/cookies?t=${encodeURIComponent(token)}', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ espn_s2: s2, swid: swid })
@@ -155,9 +198,10 @@ const minify = s => s.replace(/^\s*\/\/[^\n]*$/gm, '').replace(/\s+/g, ' ').trim
 /** The bookmarklet as a javascript: URL, plus a copy/paste snippet for the fallback. */
 r.get('/bookmarklet', ...signedIn, (req, res) => {
   const origin = originFor(req);
+  const token = connectToken();
   res.json({
-    href: `javascript:${encodeURIComponent(minify(BOOKMARKLET(origin)))}`,
-    console_snippet: minify(BOOKMARKLET(origin)),
+    href: `javascript:${encodeURIComponent(minify(BOOKMARKLET(origin, token)))}`,
+    console_snippet: minify(BOOKMARKLET(origin, token)),
     // What the paste box wants: dump the cookies to the clipboard, no posting involved.
     // Works in every browser's console, including ones that refuse bookmarklets.
     copy_snippet: 'copy(document.cookie)',
@@ -197,15 +241,19 @@ const braceSwid = v => (v.startsWith('{') ? v : `{${v}}`);
 /**
  * Store cookies from the bookmarklet or the paste box.
  *
- * Validates against ESPN *before* writing anything. Two reasons that matters: garbage
- * never gets persisted and silently breaks every later sync, and a failed attempt can
- * no longer destroy credentials that were working — an unauthenticated write endpoint
- * that overwrites every league's cookies with whatever it receives is a genuine footgun
- * (it wiped a real set during development).
+ * Gated by cookieWriteAuthorized (a session, or the per-install token only a signed-in
+ * caller could ever have gotten from /bookmarklet) before anything else runs — see the
+ * comment above signedIn for why "validates against ESPN" alone stopped being enough
+ * once this could sit at a stable public URL. Still validates against ESPN *before*
+ * writing on top of that: garbage never gets persisted and silently breaks every later
+ * sync, and a failed attempt can no longer destroy credentials that were working.
  */
 r.options('/cookies', captureCors);
 r.post('/cookies', captureCors, async (req, res, next) => {
   try {
+    if (!cookieWriteAuthorized(req)) {
+      return res.status(401).json({ error: 'authentication required' });
+    }
     let espn_s2 = (req.body?.espn_s2 ?? '').trim();
     let swidRaw = (req.body?.swid ?? '').trim();
 

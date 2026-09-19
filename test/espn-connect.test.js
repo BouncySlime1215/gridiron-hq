@@ -123,12 +123,61 @@ test('a preflight from an unrelated site gets no cross-origin grant', async () =
 
 /* ------------------------------------------------------------- capture + guard */
 
+// POST /cookies used to have no guard at all — reasonable on a Mac behind a private,
+// ephemeral phone tunnel, but not once this can sit at a stable public hostname (a
+// Fly.io deploy): anyone who finds the URL has their own real, valid ESPN cookies for
+// free, so "ESPN validates it" filters nothing, and an unauthenticated write clobbers
+// the single app_settings espn_s2/swid pair everyone else reads as the account of
+// record. Every test below that isn't specifically checking the anonymous case now
+// carries the session token, matching what the paste box's api() actually sends.
+const AUTH = { authorization: `Bearer ${TEST_TOKEN}` };
+
+test('anonymous POST /cookies (no session, no bookmarklet token) is refused and writes nothing', async () => {
+  resetState();
+  stubEspn({ leagues: [{ league_id: '1', name: 'Should never be seen' }] });
+  const res = await realFetch(`${base}/cookies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ espn_s2: GOOD_S2, swid: GOOD_SWID })
+  });
+  assert.equal(res.status, 401);
+  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`), undefined,
+    'an anonymous caller must never be able to write the account of record');
+});
+
+test('the token baked into a signed-in caller\'s bookmarklet authorizes the cookie POST with no session at all', async () => {
+  resetState();
+  const bm = await (await realFetch(`${base}/bookmarklet`, { headers: AUTH })).json();
+  const token = new URL(decodeURIComponent(bm.href).replace(/^javascript:/, '').match(/fetch\('([^']+)'/)[1]).searchParams.get('t');
+  assert.ok(token, 'the bookmarklet must carry the connect token in its POST URL');
+
+  stubEspn({ leagues: [{ league_id: '1458727014', name: 'DMV League' }] });
+  const res = await realFetch(`${base}/cookies?t=${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ espn_s2: GOOD_S2, swid: GOOD_SWID })
+  });
+  const body = await res.json();
+  assert.equal(body.ok, true, 'this is exactly how the real bookmarklet calls it — from espn.com, no session token');
+  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`).value, GOOD_S2);
+});
+
+test('a wrong token is refused just like no token at all', async () => {
+  resetState();
+  const res = await realFetch(`${base}/cookies?t=not-the-real-token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ espn_s2: GOOD_S2, swid: GOOD_SWID })
+  });
+  assert.equal(res.status, 401);
+});
+
 test('valid cookies are stored and the discovered leagues come back', async () => {
   resetState();
   stubEspn({ leagues: [{ league_id: '1458727014', name: 'DMV League' }] });
   const res = await realFetch(`${base}/cookies`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...AUTH },
     body: JSON.stringify({ espn_s2: GOOD_S2, swid: GOOD_SWID })
   });
   const body = await res.json();
@@ -142,7 +191,7 @@ test('the paste box accepts one messy blob and connects from it', async () => {
   stubEspn({ leagues: [] });
   const res = await realFetch(`${base}/cookies`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...AUTH },
     body: JSON.stringify({ raw: `_ga=GA1.2.1; SWID=${GOOD_SWID}; espn_s2=${GOOD_S2}; s_ecid=xyz` })
   });
   assert.equal((await res.json()).ok, true);
@@ -154,7 +203,7 @@ test('cookies ESPN rejects are never persisted', async () => {
   stubEspn({ ok: false, status: 401 });
   const res = await realFetch(`${base}/cookies`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...AUTH },
     body: JSON.stringify({ espn_s2: 'bogus', swid: '{bogus}' })
   });
   assert.equal(res.status, 400);
@@ -167,7 +216,7 @@ test('an unrecognised SWID (ESPN answers 404, not 401) still reads as a credenti
   stubEspn({ ok: false, status: 404 });
   const res = await realFetch(`${base}/cookies`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...AUTH },
     body: JSON.stringify({ espn_s2: 'nope', swid: '{11111111-2222-3333-4444-555555555555}' })
   });
   const body = await res.json();
@@ -182,7 +231,7 @@ test('a failed reconnect leaves a working connection completely untouched', asyn
   // Establish a good connection first.
   stubEspn({ leagues: [{ league_id: '999', name: 'Existing League' }] });
   await realFetch(`${base}/cookies`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...AUTH },
     body: JSON.stringify({ espn_s2: GOOD_S2, swid: GOOD_SWID })
   });
   run(`INSERT INTO leagues (platform, league_id, season, name, espn_s2, swid)
@@ -192,7 +241,7 @@ test('a failed reconnect leaves a working connection completely untouched', asyn
   // an unvalidated write used to overwrite every league's cookies with whatever arrived.
   stubEspn({ ok: false, status: 401 });
   const res = await realFetch(`${base}/cookies`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...AUTH },
     body: JSON.stringify({ espn_s2: 'probe', swid: '{probe}' })
   });
   const body = await res.json();
@@ -212,7 +261,7 @@ test('connecting a second ESPN account does not overwrite the first account\'s l
 
   stubEspn({ leagues: [] });
   await realFetch(`${base}/cookies`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...AUTH },
     body: JSON.stringify({ espn_s2: 'account-b-s2', swid: OTHER_SWID })
   });
 
@@ -223,7 +272,7 @@ test('connecting a second ESPN account does not overwrite the first account\'s l
 test('a paste with nothing usable in it is a clear 400, not a silent success', async () => {
   resetState();
   const res = await realFetch(`${base}/cookies`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...AUTH },
     body: JSON.stringify({ raw: 'just some random text I copied' })
   });
   assert.equal(res.status, 400);
@@ -269,8 +318,8 @@ test('the emitted bookmarklet is syntactically valid JavaScript', async () => {
   const source = decodeURIComponent(body.href).replace(/^javascript:/, '');
   assert.doesNotThrow(() => new Function(source), 'bookmarklet must parse as JavaScript');
   assert.doesNotThrow(() => new Function(body.console_snippet), 'console fallback must parse too');
-  // And the POST target must have survived minification intact.
-  assert.match(source, /fetch\('http:\/\/127\.0\.0\.1:\d+\/api\/espn-connect\/cookies'/);
+  // And the POST target, including its connect token, must have survived minification.
+  assert.match(source, /fetch\('http:\/\/127\.0\.0\.1:\d+\/api\/espn-connect\/cookies\?t=[^']+'/);
 });
 
 /* --------------------------------------------------------- membership grant */

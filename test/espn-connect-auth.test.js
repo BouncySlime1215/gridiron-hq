@@ -1,18 +1,22 @@
 /**
- * The ESPN-connect and page-explain routes are reachable through the public tunnel.
+ * The ESPN-connect and page-explain routes are reachable through the public tunnel —
+ * and, as of the Fly.io self-host, potentially a stable public hostname, not just an
+ * ephemeral tunnel URL.
  *
  * Both routers are mounted in server/index.js with no auth wrapper
  * (`app.use('/api/espn-connect', espnConnectRouter)`, `app.use('/api/betting',
  * bettingHubRouter)`), so these tests mount them exactly that way and check the
  * guards the routers now carry themselves:
- *   - anyone with the tunnel URL could list the leagues and cookie previews
- *     (GET /status), wipe the ESPN cookies (DELETE /cookies), rewrite which roster is
- *     Nick's (POST /add upserts my_team_id), or call ESPN with his cookies
- *     (GET /discover);
+ *   - anyone with the URL could list the leagues and cookie previews (GET /status),
+ *     wipe the ESPN cookies (DELETE /cookies), rewrite which roster is Nick's
+ *     (POST /add upserts my_team_id), or call ESPN with his cookies (GET /discover);
  *   - anyone could run the Claude page assistant on Nick's API key with a 100 kB
  *     prompt (POST /betting/explain/page) and read the stored answers.
- * The bookmarklet's own cross-origin POST /cookies (and its preflight) stays open:
- * it runs on espn.com and cannot carry the app's session token.
+ * POST /cookies (and its preflight) is a special case, covered in its own test
+ * below and in more detail in test/espn-connect.test.js: it can't require a session
+ * outright (the bookmarklet runs on espn.com and never had one), so it instead
+ * requires either a session OR the per-install token that only a signed-in caller's
+ * own /bookmarklet response ever contains.
  */
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -96,6 +100,13 @@ test('anonymous callers cannot read, wipe, rebind or use the ESPN connection', a
 test('the bookmarklet preflight stays open for espn.com', async () => {
   const res = await request('OPTIONS', '/api/espn-connect/cookies', { headers: { origin: 'https://fantasy.espn.com' } });
   assert.equal(res.status, 204);
+});
+
+test('POST /cookies with no session and no connect token is refused, not silently accepted', async () => {
+  const res = await request('POST', '/api/espn-connect/cookies', { body: { espn_s2: 'x', swid: '{x}' } });
+  assert.equal(res.status, 401);
+  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`)?.value, 'AEBsecretS2value1234567890',
+    'the real stored connection must be untouched by an anonymous attempt');
 });
 
 test('status, for a signed-in caller, reports the connection without cookie previews', async () => {

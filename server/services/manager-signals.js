@@ -10,8 +10,10 @@
  *
  * Sources today (SIGNAL_SOURCES below is the contract; every row names one):
  *   chat      - the labeled iMessage corpus (private DB, ~15k messages) —
- *               league 4 only, and only for identities Nick confirmed or
- *               that matched on the exact full name
+ *               only in a league that has a confirmed chat identity, and only
+ *               for identities Nick confirmed or that matched on the exact
+ *               full name. Which league that is comes from the data, not from
+ *               a number written here: see refreshManagerData.
  *   tx        - league_transactions_raw, forward-captured since 2026-09-17
  *   roster    - the synced ESPN payload (lineup discipline, roster shape)
  *   standings - the synced ESPN record and the last decided matchup
@@ -71,7 +73,7 @@ export const SIGNAL_SOURCES = Object.freeze({
     // study/features/archetypes.md: no draft metric survived a year-over-year
     // repeatability test. Context for a human, never an input to a price.
     priceable: false },
-  chat: { label: 'League chat (private, league 4)', refreshed: 'every refresh tick', priceable: true },
+  chat: { label: 'League chat (private)', refreshed: 'every refresh tick', priceable: true },
   nick: { label: "Nick's own read (prior, n=3)", refreshed: 'edited in code', priceable: true },
 });
 
@@ -439,13 +441,22 @@ export function buildManagerSignals(leagueId, opts = {}) {
  * its rows are left untouched: rebuilding it without chat would silently strip
  * every chat read the trade finder uses.
  */
-export function refreshManagerData({ leagueIds = null } = {}) {
+export function refreshManagerData({ leagueIds = null, confirmations = {} } = {}) {
   const started = Date.now();
   const leagues = rows(`SELECT id, name, (payload IS NOT NULL) AS synced FROM leagues
                         WHERE platform = 'espn' ORDER BY id`)
     .filter(l => !leagueIds || leagueIds.includes(l.id));
   const chatLeagues = new Set(rows(`SELECT DISTINCT league_id FROM league_member_identity
                                     WHERE confidence = 'confirmed' AND chat_name IS NOT NULL`).map(r => r.league_id));
+  // Which league owns the corpus is derived from confirmed identities, and
+  // those rows are only ever written by this function — so on a machine where
+  // it has never run, every league looks chat-free and a freshly uploaded
+  // corpus attaches to nothing at all. `confirmations` is the way in: a league
+  // named here is treated as a chat league for this run, and matchIdentities
+  // stores its rows as 'confirmed', so every later run finds it by itself.
+  const seeded = new Map(Object.entries(confirmations ?? {})
+    .map(([id, map]) => [Number(id), map && typeof map === 'object' ? map : {}])
+    .filter(([id, map]) => Number.isFinite(id) && Object.keys(map).length));
   const chat = openChatDb();
   try {
     // Read on first use, inside the chat league's own try: the rollup drops and
@@ -458,10 +469,17 @@ export function refreshManagerData({ leagueIds = null } = {}) {
     for (const lg of leagues) {
       const name = String(lg.name ?? '').trim();
       if (!lg.synced) { out.push({ league_id: lg.id, name, skipped: 'league not synced' }); continue; }
-      const corpus = chatLeagues.has(lg.id);
+      const corpus = chatLeagues.has(lg.id) || seeded.has(lg.id);
       try {
-        if (corpus && !chat) throw new Error(`chat corpus expected (confirmed chat identities) but no chat DB at ${chatDbPath()}`);
-        const ident = matchIdentities(lg.id, { chatNames: corpus ? chatNamesNow() : [] });
+        if (corpus && !chat) {
+          throw new Error(`${seeded.has(lg.id) ? 'chat identities were confirmed for this league'
+            : 'this league has confirmed chat identities'}, but there is no chat DB at ${chatDbPath()} `
+            + '— upload the corpus before naming who is who');
+        }
+        const ident = matchIdentities(lg.id, {
+          chatNames: corpus ? chatNamesNow() : [],
+          confirmations: seeded.get(lg.id) ?? {},
+        });
         const sig = buildManagerSignals(lg.id, { chat: corpus ? chat : null });
         out.push({
           league_id: lg.id, name, chat_corpus: corpus,

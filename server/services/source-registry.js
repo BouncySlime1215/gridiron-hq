@@ -36,6 +36,21 @@ import { lastRun, minutesSince, JOBS as SCHEDULED_JOBS } from './scheduler.js';
  * meaningful: it is the budget confidence() uses to decide how much to trust
  * data that was never freshened, not a trigger for anything automatic.
  */
+// MOVED TO scheduler.js's JOBS on 2026-09-19, and deleted from here because
+// allSources() concatenates both lists with no dedup (a source left in both
+// places is listed twice, with two different cadences):
+//
+//   nflverse_crosswalk, nflverse_weekly_usage, nflverse_snap_counts,
+//   espn_depth_chart, espn_season_stats, sleeper_players
+//
+// Every one of them is a core fantasy feed, and every one of them had never
+// run on the deployed app. "No timer, by design" below is a defensible rule
+// for a multi-season play-by-play backfill; it was never defensible for the
+// player ID crosswalk, and the result was a players table of 448 seed rows
+// with no external ids and empty usage, snap and projection tables. Depth
+// charts moved to ESPN's per-team feed rather than nflverse's, whose 2026
+// file was measured at 51 MB in week 2 and grows weekly — see
+// refreshEspnDepthChart in scheduler.js.
 export const MANUAL_SOURCES = {
   nfl_rookie_college: {
     label: 'SportsDataverse play-level college production and opponent strength',
@@ -44,27 +59,9 @@ export const MANUAL_SOURCES = {
     failureMode: 'per-run failure is recorded; draft/combine prior remains available and college fields stay missing',
     maxAgeMinutes: 30 * 24 * 60
   },
-  nflverse_crosswalk: {
-    label: 'nflverse player ID crosswalk (players.csv)',
-    cadence: 'irregular — nflverse cuts a new release a few times a season',
-    cutoff: 'point-in-time identity mapping, not a time series; a stale copy is only wrong for rookies added since the last pull',
-    failureMode: 'throws; gsis_id stays unset for anyone new until the next successful run',
-    maxAgeMinutes: 7 * 24 * 60
-  },
-  nflverse_weekly_usage: {
-    label: 'nflverse weekly player usage (stats_player_week)',
-    cadence: 'weekly during the season — settles a day or two after each week\'s games',
-    cutoff: 'final once posted; nflverse does not revise completed weeks',
-    failureMode: 'per-season failures are caught and reported inline; other seasons still sync',
-    maxAgeMinutes: 3 * 24 * 60
-  },
-  nflverse_snap_counts: {
-    label: 'nflverse snap counts',
-    cadence: 'weekly during the season',
-    cutoff: 'final once posted',
-    failureMode: 'per-season failures are caught and reported inline; other seasons still sync',
-    maxAgeMinutes: 3 * 24 * 60
-  },
+
+
+
   nflverse_pbp: {
     label: 'nflverse play-by-play (feeds nfl_player_week_features)',
     cadence: 'weekly during the season; each pull is a full-season file',
@@ -156,13 +153,7 @@ export const MANUAL_SOURCES = {
     failureMode: 'per-team fetch failures are swallowed by Promise.allSettled',
     maxAgeMinutes: 7 * 24 * 60
   },
-  espn_depth_chart: {
-    label: 'ESPN core-API depth charts (slot-level, nfldata.js)',
-    cadence: 'weekly, more often around injuries',
-    cutoff: 'as of the pull',
-    failureMode: 'per-team fetch failures are swallowed by Promise.allSettled',
-    maxAgeMinutes: 2 * 24 * 60
-  },
+
   overthecap_cap: {
     label: 'OverTheCap salary cap space (HTML scrape)',
     cadence: 'daily-ish; cap moves on transactions',
@@ -170,13 +161,7 @@ export const MANUAL_SOURCES = {
     failureMode: 'throws outright if fewer than 30/32 teams parse — a layout change is treated as a hard failure, not silently trusted',
     maxAgeMinutes: 24 * 60
   },
-  espn_season_stats: {
-    label: 'ESPN season projections + prior-year actuals',
-    cadence: 'projections move through the offseason; actuals are final once the season ends',
-    cutoff: 'projected rows are ESPN\'s current opinion, not a completed fact',
-    failureMode: 'throws',
-    maxAgeMinutes: 7 * 24 * 60
-  },
+
   nfl_top100: {
     label: 'NFL Top 100 list (Wikipedia)',
     cadence: 'revealed a few players at a time, June–September; static the rest of the year',
@@ -191,13 +176,7 @@ export const MANUAL_SOURCES = {
     failureMode: 'throws',
     maxAgeMinutes: 24 * 60
   },
-  sleeper_players: {
-    label: 'Sleeper player universe (search_rank + injury flag)',
-    cadence: 'daily',
-    cutoff: 'as of the pull',
-    failureMode: 'throws',
-    maxAgeMinutes: 24 * 60
-  },
+
   fantasycalc_values: {
     label: 'FantasyCalc redraft trade values (global, league-agnostic)',
     cadence: 'daily; values move with real trades',

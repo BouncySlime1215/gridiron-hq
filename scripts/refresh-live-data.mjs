@@ -63,6 +63,16 @@ export const FANTASY_LIVE_JOBS = [
   // reads; heavier work only fires when a newly finalized week is actually ahead).
   'nfl_model_growth',   // finalized-week ingest, shadow settlement, next-week fit — 6h maxAge
   'ffopportunity',      // weekly expected-fantasy-points benchmark — 3-day maxAge
+  // 2026-09-19: scripts/build-manager-archetypes.mjs was in no allowlist at all —
+  // not here, not in package.json — so `manager_archetypes` stayed empty and the
+  // `draft` and `outcome` signal sources silently never appeared for any league.
+  // It is registered in scheduler.js as a job now (a child process, 24h maxAge),
+  // which is what lets this loop run it by name. It must come BEFORE the
+  // manager_signals step below, which copies this league-season's draft and
+  // outcome rows into manager_signals. Its `--jev` stage is NOT run here: that
+  // calls a paid gateway and needs AI_GATEWAY_API_KEY, so it stays opt-in
+  // (`npm run build:manager-archetypes -- --jev`).
+  'manager_archetypes',
 ];
 
 /**

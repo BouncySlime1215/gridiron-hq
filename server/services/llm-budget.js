@@ -9,9 +9,13 @@
  * only reads.
  *
  * Budget keys: a call's feature name up to the first colon. `coach`,
- * `coach:answer` and `coach:route` all draw on the `coach` budget;
- * `trade_proposals:league-4` on `trade_proposals`. A feature with no default and
- * no setting has no budget ("others unchanged").
+ * `coach:answer` and `coach:route` all draw on the `coach` budget. A feature with
+ * no default and no setting has no budget ("others unchanged").
+ *
+ * One family is an exception, and `budgetScopeFor` is where it is written down:
+ * `trade_proposals` is budgeted PER LEAGUE, so `trade_proposals:league-4` holds
+ * its own $0.50 a day. Its scopes are separate questions about separate leagues,
+ * and sharing one pot meant the first league opened each day could spend it all.
  *
  * The day is the server's local calendar day (Nick's), not UTC, so "today's
  * Coach budget" resets at his midnight.
@@ -123,9 +127,49 @@ export function estimateCallCostUsd({ model, maxTokens, request, cacheTtl = null
 
 // ---------------------------------------------------------------- budgets
 
+/** The FAMILY a feature belongs to: its name up to the first colon. */
 export const budgetKeyFor = feature => String(feature ?? '').split(':')[0];
 
-const labelFor = key => LABELS[key] ?? key;
+/**
+ * Families whose allowance is per scope rather than shared across the family.
+ *
+ * `trade_proposals` is the one, because its scope is a league and its five
+ * leagues are five unrelated questions: one league's slate being written up is
+ * no reason for another league's page to go empty. Every other feature keeps the
+ * family behaviour exactly — `coach` and `coach:answer` still draw on one $1 a
+ * day, and a feature listed nowhere still has no budget at all.
+ */
+const PER_SCOPE_BUDGET_FAMILIES = Object.freeze(new Set(['trade_proposals']));
+
+/**
+ * The key a call's allowance is actually held and counted against: the family
+ * for everything, EXCEPT a per-scope family, which gets `family:scope`.
+ *
+ * This is the per-league budget fix of 2026-09-19. `reserveBudget` used
+ * `budgetKeyFor`, so `trade_proposals:league-1` … `league-5` all drew on one
+ * $0.50 a day — the first league to be opened could spend the lot and the other
+ * four got a budget refusal they had done nothing to earn. `budgetKeyFor` itself
+ * is unchanged, because it is what answers "which budget setting is this?" and
+ * `trade_proposals` is still that setting. Only the pot is per league.
+ *
+ * `family:scope` and nothing deeper: `trade_proposals:league-4:retry` shares
+ * league 4's allowance rather than minting a sixth pot.
+ */
+export function budgetScopeFor(feature) {
+  const name = String(feature ?? '');
+  const family = budgetKeyFor(name);
+  if (!PER_SCOPE_BUDGET_FAMILIES.has(family)) return family;
+  const scope = name.slice(family.length + 1).split(':')[0];
+  return scope ? `${family}:${scope}` : family;
+}
+
+/** `trade proposals (league 4)` — a scope wears its family's label plus its own name. */
+function labelFor(key) {
+  if (Object.hasOwn(LABELS, key)) return LABELS[key];
+  const family = budgetKeyFor(key);
+  if (family === key || !Object.hasOwn(LABELS, family)) return key;
+  return `${LABELS[family]} (${key.slice(family.length + 1).replace(/^league-/, 'league ')})`;
+}
 
 function validateKey(key) {
   if (typeof key !== 'string' || !BUDGET_KEY_RE.test(key)) {
@@ -134,22 +178,44 @@ function validateKey(key) {
   return key;
 }
 
-/** `{key, label, budget_usd, source}`; source is 'setting', 'default' or 'none' (budget_usd null). */
+/** The setting for one key, as dollars, or null when Nick has not set one. */
+function settingFor(k) {
+  const stored = row('SELECT value FROM app_settings WHERE key = ?', SETTING_PREFIX + k)?.value;
+  if (stored == null) return null;
+  const usd = Number(stored);
+  if (!Number.isFinite(usd) || usd < 0) {
+    // Only a hand edit can put this here (setDailyBudget validates); refusing
+    // loudly beats silently running without the cap Nick set.
+    throw httpError(`The daily budget setting ${SETTING_PREFIX + k} holds "${stored}", which is not a dollar amount — fix or clear it in Settings.`, 500);
+  }
+  return usd;
+}
+
+/**
+ * `{key, label, budget_usd, source}`; source is 'setting', 'default' or 'none'
+ * (budget_usd null).
+ *
+ * A per-scope key (`trade_proposals:league-4`) has no setting of its own — the
+ * settings hook takes family names only — so it inherits its family's amount and
+ * gets THAT MUCH EACH. Raising `trade_proposals` to $0.75 raises every league to
+ * $0.75, which is the only reading of "the daily trade-proposals budget" that
+ * does not depend on how many leagues Nick happens to have.
+ */
 export function getDailyBudget(key) {
   const k = String(key);
   const label = labelFor(k);
-  const stored = row('SELECT value FROM app_settings WHERE key = ?', SETTING_PREFIX + k)?.value;
-  if (stored != null) {
-    const usd = Number(stored);
-    if (!Number.isFinite(usd) || usd < 0) {
-      // Only a hand edit can put this here (setDailyBudget validates); refusing
-      // loudly beats silently running without the cap Nick set.
-      throw httpError(`The daily budget setting ${SETTING_PREFIX + k} holds "${stored}", which is not a dollar amount — fix or clear it in Settings.`, 500);
-    }
-    return { key: k, label, budget_usd: usd, source: 'setting' };
-  }
+  const own = settingFor(k);
+  if (own != null) return { key: k, label, budget_usd: own, source: 'setting' };
   if (Object.hasOwn(DEFAULT_DAILY_BUDGETS_USD, k)) {
     return { key: k, label, budget_usd: DEFAULT_DAILY_BUDGETS_USD[k], source: 'default' };
+  }
+  const family = budgetKeyFor(k);
+  if (family !== k && PER_SCOPE_BUDGET_FAMILIES.has(family)) {
+    const inherited = settingFor(family);
+    if (inherited != null) return { key: k, label, budget_usd: inherited, source: 'setting' };
+    if (Object.hasOwn(DEFAULT_DAILY_BUDGETS_USD, family)) {
+      return { key: k, label, budget_usd: DEFAULT_DAILY_BUDGETS_USD[family], source: 'default' };
+    }
   }
   return { key: k, label, budget_usd: null, source: 'none' };
 }
@@ -204,11 +270,21 @@ export function budgetStatus(key) {
   };
 }
 
-/** Every default budget plus every feature Nick has set one for, with today's spend. */
+/**
+ * Every default budget plus every feature Nick has set one for, with today's
+ * spend — and one row per per-scope pot that has actually been spent against
+ * today, since that pot, not the family, is what a call is held against. Without
+ * those rows the Dev Hub showed five leagues' trade-proposal spend against one
+ * league's $0.50 and read as permanently overdrawn.
+ */
 export function listBudgets() {
   const configured = rows('SELECT key FROM app_settings WHERE key LIKE ?', `${SETTING_PREFIX}%`)
     .map(r => r.key.slice(SETTING_PREFIX.length));
-  const keys = [...new Set([...Object.keys(DEFAULT_DAILY_BUDGETS_USD), ...configured])].sort();
+  const scopedToday = rows(`SELECT DISTINCT feature FROM ai_usage
+                            WHERE created_at >= datetime('now', 'localtime', 'start of day', 'utc')`)
+    .map(r => budgetScopeFor(r.feature))
+    .filter(k => k.includes(':'));
+  const keys = [...new Set([...Object.keys(DEFAULT_DAILY_BUDGETS_USD), ...configured, ...scopedToday])].sort();
   return keys.map(budgetStatus);
 }
 
@@ -241,7 +317,8 @@ export class LlmBudgetError extends Error {
  * failed). Unbudgeted features get a no-op release.
  */
 export function reserveBudget(feature, estimateUsd) {
-  const key = budgetKeyFor(feature);
+  // The pot, which for a per-scope family is this league's own (budgetScopeFor).
+  const key = budgetScopeFor(feature);
   const { label, budget_usd: budgetUsd } = getDailyBudget(key);
   if (budgetUsd == null) return () => {};
   const spentUsd = spentTodayUsd(key);

@@ -2,15 +2,33 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 let localSessionPromise: Promise<string | null> | null = null;
 
+/** Routes that must never bounce the browser to a sign-in screen. */
+const AUTH_ROUTES = ['/sign-in', '/pair'];
+
+function onAuthRoute() {
+  return typeof window !== 'undefined' && AUTH_ROUTES.some(p => window.location.pathname.startsWith(p));
+}
+
 /**
- * A browser that is not on the Mac (the phone, through the tunnel) cannot be
- * auto-provisioned; the server says so with 403 + {pairing:true}. Send it to
- * the pairing screen once, remembering where it was going.
+ * A browser that is not on the Mac cannot be auto-provisioned; the server says
+ * so with 403 + {pairing:true}. Where it goes next depends on what this
+ * deployment offers.
+ *
+ * On the hosted app that is Google sign-in. On a Mac reached through a tunnel
+ * it is still the 8-digit pairing code, which is the faster path when the
+ * person is standing at the machine that minted it. Asking
+ * `/api/auth/providers` is what tells the two apart, rather than guessing
+ * from the hostname.
  */
-function goPair() {
-  if (typeof window === 'undefined' || window.location.pathname === '/pair') return;
+async function goSignIn() {
+  if (typeof window === 'undefined' || onAuthRoute()) return;
   const next = window.location.pathname + window.location.search;
-  window.location.assign(`/pair?next=${encodeURIComponent(next)}`);
+  let google = false;
+  try {
+    const res = await fetch('/api/auth/providers');
+    if (res.ok) google = (await res.json()).google === true;
+  } catch { /* fall through to pairing, which needs no server capability */ }
+  window.location.assign(`${google ? '/sign-in' : '/pair'}?next=${encodeURIComponent(next)}`);
 }
 
 async function provisionLocalSession() {
@@ -19,7 +37,7 @@ async function provisionLocalSession() {
     localSessionPromise = fetch('/api/auth/local-session', { method: 'POST' })
       .then(async res => {
         const body = await res.json().catch(() => ({}));
-        if (res.status === 403 && body.pairing) { goPair(); return null; }
+        if (res.status === 403 && body.pairing) { void goSignIn(); return null; }
         if (!res.ok) return null;
         const token = typeof body.token === 'string' ? body.token : null;
         if (token) setAuthToken(token);
@@ -44,8 +62,14 @@ export async function api<T = any>(path: string, opts?: RequestInit, retried = f
     }
   });
   if (res.status === 401 && !retried && path !== '/auth/local-session') {
+    // A token that has expired or been revoked is worse than no token: it
+    // keeps being sent, keeps being rejected, and nothing ever clears it.
+    if (token) setAuthToken(null);
     const provisioned = await provisionLocalSession();
     if (provisioned) return api<T>(path, opts, true);
+    // Loopback provisioning is unavailable on a hosted deployment, so a 401
+    // there means "sign in", not "this page is broken".
+    if (!onAuthRoute()) void goSignIn();
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

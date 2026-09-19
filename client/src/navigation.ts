@@ -29,6 +29,7 @@ export const NAV_GROUPS: NavGroup[] = [
     { to: '/league', label: 'League Hub', icon: 'L', end: true },
     { to: '/lineup', label: 'Start/Sit', icon: 'S' },
     { to: '/trade-lab', label: 'Trade Lab', icon: 'T' },
+    { to: '/trade-brain', label: 'Trade Brain', icon: 'B' },
     { to: '/draft', label: 'Draft', icon: 'D', live: true }
   ]},
   { label: 'Intelligence', question: 'Understand football', items: [
@@ -45,32 +46,32 @@ const NAV_NOTES: Record<string, string> = {
   '/league': 'Roster, sync health and league-wide analysis',
   '/draft': 'Mock, live and recap modes',
   '/trade-lab': 'Trade construction and impact',
+  '/trade-brain': 'Who actually trades with you, and the message to send them',
   '/lineup': 'Weekly start/sit calls with the reasoning',
   '/news': 'Attributed news and fantasy impact',
   '/teams': 'Whiteboard schemes and team context',
-  '/betting/nfl/wong': "Six-point teasers: this week's board, one-click tracking, season projection",
   '/settings': 'Connections and local API configuration'
 };
 
 /**
- * Real pages worth jumping to that intentionally have no sidebar slot —
- * mostly subviews of the NFL betting desk, which owns a single nav entry and
- * routes internally. Reachable by clicking through; tedious to reach that way.
+ * Real pages worth jumping to that intentionally have no sidebar slot.
+ * Reachable by clicking through; tedious to reach that way.
+ *
+ * Every entry here must resolve to something. Eight did not: seven
+ * `/betting/nfl/*` subviews and `/edge` were listed long after the routes
+ * themselves were removed (App.tsx has no `/betting` or `/edge` route), so the
+ * palette's own "jump to" list sent the user to NotFound — a dead link a user
+ * hits, not a stale comment. They are gone, along with the `/betting/nfl/wong`
+ * note above. The rest are redirects into a hub's own view, which is a real
+ * destination; `/rankings` and `/projections` are the weakest of those, since
+ * both land on League Hub without a view of their own.
  */
 export const DEEP_DESTINATIONS: readonly (readonly [string, string, string])[] = [
-  ['Research Lab', '/betting/nfl/research', 'Experiments, negative results and the agent master plan'],
-  ['Execution Ledger', '/betting/nfl/ledger', 'Exact-contract accept/settle path with real realized P&L'],
-  ['NFL Auto Picks', '/betting/nfl/auto-picks', "The model's graded record, not what it would bet now"],
-  ['Forward Ledger', '/betting/nfl/forward', "This week's frozen picks and their settlement"],
-  ['NFL Props', '/betting/nfl/props', 'Player prop board and ticket builder'],
-  ['Live Games', '/betting/nfl/watch', 'In-game state against the pre-game read'],
-  ['Model Operations', '/betting/nfl/operations', 'Runs, gates and engine health'],
   ['Rankings', '/rankings', 'Your rankings and tiers'],
   ['Projections', '/projections', 'Weekly and rest-of-season projections'],
   ['Saved Drafts', '/drafts', 'Past mock and live draft recaps'],
   ['Live Draft Room', '/live-draft', 'Mirror an in-progress ESPN draft'],
-  ['My Team', '/my-team', 'Your roster at a glance'],
-  ['Edge', '/edge', 'Where the model disagrees with consensus']
+  ['My Team', '/my-team', 'Your roster at a glance']
 ] as const;
 
 /** Every palette destination: the sidebar, in nav order, then the deep pages. */
@@ -82,9 +83,9 @@ export const DESTINATIONS: readonly (readonly [string, string, string])[] = [
 
 /**
  * The human name for whatever route is showing, used in the header.
- * Longest-prefix wins so `/betting/nfl/research` resolves to Research Lab
- * rather than to NFL, which a plain `startsWith` scan in list order would
- * have picked instead.
+ * Longest-prefix wins so a nested route resolves to the most specific
+ * destination that covers it, rather than to the first one a plain
+ * `startsWith` scan in list order happened to match.
  */
 export function destinationLabel(pathname: string) {
   const exact = DESTINATIONS.find(([, path]) => path === pathname);

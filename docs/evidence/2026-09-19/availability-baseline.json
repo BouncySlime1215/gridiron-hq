@@ -1,0 +1,965 @@
+{
+  "base": "https://gridiron-hq.fly.dev",
+  "captured_at": "2026-09-19T20:31:56.379Z",
+  "leagues": [
+    {
+      "league_id": 1,
+      "captured_at": "2026-09-19T20:31:56.379Z",
+      "rosters": {
+        "status": 200,
+        "ms": 40664,
+        "attempts": 1
+      },
+      "my_team_id": "1",
+      "model_context_basis": {
+        "basis": "constants",
+        "missing": [
+          "nfl_availability_rates",
+          "nfl_availability_role_rates"
+        ],
+        "stamp": "absent|absent"
+      },
+      "target_id": 142,
+      "target_name": "Jahmyr Gibbs",
+      "injured_target_id": 16,
+      "injured_target_name": "Bijan Robinson",
+      "offer": {
+        "status": 200,
+        "ms": 12015,
+        "attempts": 1
+      },
+      "handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.62,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.5895,
+          0.6496
+        ],
+        "horizon_now": 0.567,
+        "horizon_playoff": 0.433,
+        "target": {
+          "id": 142,
+          "name": "Jahmyr Gibbs",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.805,
+          "value": 10700,
+          "adj_ppg": 14.77,
+          "ppg": 15.41,
+          "ros_ppg": 15.41,
+          "floor": 0,
+          "ceiling": 23.3
+        },
+        "their_cost": 5.83,
+        "upside_ppg": 3.96,
+        "upside_ppg_horizon": 3.607,
+        "offers": 3,
+        "error": null,
+        "open_with": {
+          "i_give": "Javonte Williams + Kyren Williams + Marvin Harrison Jr.",
+          "give_value": 11136,
+          "ratio": 1.04,
+          "my_ppg_delta": 3.53,
+          "their_ppg_delta": -3.53,
+          "horizon_value": 3.363,
+          "efficiency": 0.03,
+          "acceptance": null,
+          "counterparty_data": false,
+          "receptiveness": 1,
+          "manager_factor": 1,
+          "perception_factor": 1,
+          "tier": "fair",
+          "chat_msgs": 0,
+          "perception_delta": null
+        },
+        "response_digest": "362cdb60753762cb"
+      },
+      "injured_offer": {
+        "status": 200,
+        "ms": 12182,
+        "attempts": 1
+      },
+      "injured_handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.62,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.5895,
+          0.6496
+        ],
+        "horizon_now": 0.567,
+        "horizon_playoff": 0.433,
+        "target": {
+          "id": 16,
+          "name": "Bijan Robinson",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.833,
+          "value": 10239,
+          "adj_ppg": 14.37,
+          "ppg": 14.88,
+          "ros_ppg": 14.88,
+          "floor": 0,
+          "ceiling": 22.7
+        },
+        "their_cost": 7.03,
+        "upside_ppg": 3.56,
+        "upside_ppg_horizon": 3.162,
+        "offers": 2,
+        "error": null,
+        "open_with": {
+          "i_give": "Javonte Williams + Caleb Williams + Jaylen Waddle",
+          "give_value": 10493,
+          "ratio": 1.02,
+          "my_ppg_delta": 3.56,
+          "their_ppg_delta": -4.65,
+          "horizon_value": 3.162,
+          "efficiency": 0.03,
+          "acceptance": null,
+          "counterparty_data": false,
+          "receptiveness": 1,
+          "manager_factor": 1,
+          "perception_factor": 1,
+          "tier": "fair",
+          "chat_msgs": 0,
+          "perception_delta": null
+        },
+        "response_digest": "abbb033714f305ad"
+      },
+      "lineup": {
+        "status": 200,
+        "ms": 6183,
+        "attempts": 1
+      },
+      "lineup_handle": {
+        "availability_basis": "constants",
+        "availability_note_present": false,
+        "availability_note": null,
+        "warnings": [
+          {
+            "player": "De'Von Achane",
+            "issue": "about 74% likely to play this week",
+            "slot": "RB",
+            "basis": null
+          },
+          {
+            "player": "Kyren Williams",
+            "issue": "about 70% likely to play this week",
+            "slot": "RB",
+            "basis": null
+          },
+          {
+            "player": "Javonte Williams",
+            "issue": "about 75% likely to play this week",
+            "slot": "FLEX",
+            "basis": null
+          }
+        ],
+        "warning_count": 3,
+        "coin_flips": 3
+      }
+    },
+    {
+      "league_id": 2,
+      "captured_at": "2026-09-19T20:33:07.463Z",
+      "rosters": {
+        "status": 200,
+        "ms": 1988,
+        "attempts": 1
+      },
+      "my_team_id": "4",
+      "model_context_basis": {
+        "basis": "constants",
+        "missing": [
+          "nfl_availability_rates",
+          "nfl_availability_role_rates"
+        ],
+        "stamp": "absent|absent"
+      },
+      "target_id": 142,
+      "target_name": "Jahmyr Gibbs",
+      "injured_target_id": 88,
+      "injured_target_name": "Ja'Marr Chase",
+      "offer": {
+        "status": 200,
+        "ms": 20164,
+        "attempts": 1
+      },
+      "handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.63,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.6027,
+          0.6623
+        ],
+        "horizon_now": 0.632,
+        "horizon_playoff": 0.368,
+        "target": {
+          "id": 142,
+          "name": "Jahmyr Gibbs",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.805,
+          "value": 10787,
+          "adj_ppg": 14.77,
+          "ppg": 15.41,
+          "ros_ppg": 15.41,
+          "floor": 0,
+          "ceiling": 23.3
+        },
+        "their_cost": 7.79,
+        "upside_ppg": 3.87,
+        "upside_ppg_horizon": 3.948,
+        "offers": 3,
+        "error": null,
+        "open_with": {
+          "i_give": "Chase Brown + Emeka Egbuka + Deebo Samuel Sr.",
+          "give_value": 10763,
+          "ratio": 1,
+          "my_ppg_delta": 3.69,
+          "their_ppg_delta": -3.77,
+          "horizon_value": 3.645,
+          "efficiency": 0.034,
+          "acceptance": null,
+          "counterparty_data": false,
+          "receptiveness": 1,
+          "manager_factor": 1,
+          "perception_factor": 1,
+          "tier": "fair",
+          "chat_msgs": 0,
+          "perception_delta": null
+        },
+        "response_digest": "98d4ed3d4ea7a407"
+      },
+      "injured_offer": {
+        "status": 200,
+        "ms": 14183,
+        "attempts": 1
+      },
+      "injured_handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.63,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.6027,
+          0.6623
+        ],
+        "horizon_now": 0.632,
+        "horizon_playoff": 0.368,
+        "target": {
+          "id": 88,
+          "name": "Ja'Marr Chase",
+          "position": "WR",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.823,
+          "value": 9065,
+          "adj_ppg": 11.15,
+          "ppg": 11.55,
+          "ros_ppg": 11.55,
+          "floor": 0,
+          "ceiling": 18.3
+        },
+        "their_cost": 3.4,
+        "upside_ppg": 3.25,
+        "upside_ppg_horizon": 2.977,
+        "offers": 4,
+        "error": null,
+        "open_with": {
+          "i_give": "Emeka Egbuka + Jadarian Price + Stefon Diggs",
+          "give_value": 6871,
+          "ratio": 0.76,
+          "my_ppg_delta": 1.22,
+          "their_ppg_delta": 0.24,
+          "horizon_value": 1.305,
+          "efficiency": 0.019,
+          "acceptance": null,
+          "counterparty_data": false,
+          "receptiveness": 1,
+          "manager_factor": 1,
+          "perception_factor": 1,
+          "tier": "fair",
+          "chat_msgs": 0,
+          "perception_delta": null
+        },
+        "response_digest": "f2a7841cba7fd4f9"
+      },
+      "lineup": {
+        "status": 200,
+        "ms": 6759,
+        "attempts": 1
+      },
+      "lineup_handle": {
+        "availability_basis": "constants",
+        "availability_note_present": false,
+        "availability_note": null,
+        "warnings": [
+          {
+            "player": "Harold Fannin Jr.",
+            "issue": "about 64% likely to play this week",
+            "slot": "TE",
+            "basis": null
+          },
+          {
+            "player": "Chase Brown",
+            "issue": "about 75% likely to play this week",
+            "slot": "FLEX",
+            "basis": null
+          }
+        ],
+        "warning_count": 2,
+        "coin_flips": 4
+      }
+    },
+    {
+      "league_id": 3,
+      "captured_at": "2026-09-19T20:33:50.585Z",
+      "rosters": {
+        "status": 200,
+        "ms": 2072,
+        "attempts": 1
+      },
+      "my_team_id": "5",
+      "model_context_basis": {
+        "basis": "constants",
+        "missing": [
+          "nfl_availability_rates",
+          "nfl_availability_role_rates"
+        ],
+        "stamp": "absent|absent"
+      },
+      "target_id": 142,
+      "target_name": "Jahmyr Gibbs",
+      "injured_target_id": 16,
+      "injured_target_name": "Bijan Robinson",
+      "offer": {
+        "status": 200,
+        "ms": 21619,
+        "attempts": 1
+      },
+      "handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.26,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.2328,
+          0.287
+        ],
+        "horizon_now": 0.806,
+        "horizon_playoff": 0.194,
+        "target": {
+          "id": 142,
+          "name": "Jahmyr Gibbs",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.805,
+          "value": 10787,
+          "adj_ppg": 14.77,
+          "ppg": 15.41,
+          "ros_ppg": 15.41,
+          "floor": 0,
+          "ceiling": 23.3
+        },
+        "their_cost": 5.96,
+        "upside_ppg": 4.83,
+        "upside_ppg_horizon": 4.708,
+        "offers": 1,
+        "error": null,
+        "open_with": {
+          "i_give": "Chase Brown + Ladd McConkey + Devaughn Vele",
+          "give_value": 10751,
+          "ratio": 1,
+          "my_ppg_delta": 3.77,
+          "their_ppg_delta": -3.77,
+          "horizon_value": 3.704,
+          "efficiency": 0.034,
+          "acceptance": null,
+          "counterparty_data": false,
+          "receptiveness": 1,
+          "manager_factor": 1,
+          "perception_factor": 1,
+          "tier": "fair",
+          "chat_msgs": 0,
+          "perception_delta": null
+        },
+        "response_digest": "60977fc82949c9e5"
+      },
+      "injured_offer": {
+        "status": 200,
+        "ms": 13521,
+        "attempts": 1
+      },
+      "injured_handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.26,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.2328,
+          0.287
+        ],
+        "horizon_now": 0.806,
+        "horizon_playoff": 0.194,
+        "target": {
+          "id": 16,
+          "name": "Bijan Robinson",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.833,
+          "value": 10322,
+          "adj_ppg": 14.37,
+          "ppg": 14.88,
+          "ros_ppg": 14.88,
+          "floor": 0,
+          "ceiling": 22.7
+        },
+        "their_cost": 7.87,
+        "upside_ppg": 4.43,
+        "upside_ppg_horizon": 4.291,
+        "offers": 3,
+        "error": null,
+        "open_with": {
+          "i_give": "Chase Brown + Ladd McConkey + Dontayvion Wicks",
+          "give_value": 10474,
+          "ratio": 1.01,
+          "my_ppg_delta": 3.37,
+          "their_ppg_delta": -3.28,
+          "horizon_value": 3.288,
+          "efficiency": 0.031,
+          "acceptance": null,
+          "counterparty_data": false,
+          "receptiveness": 1,
+          "manager_factor": 1,
+          "perception_factor": 1,
+          "tier": "fair",
+          "chat_msgs": 0,
+          "perception_delta": null
+        },
+        "response_digest": "0ea4db8b40651bfb"
+      },
+      "lineup": {
+        "status": 200,
+        "ms": 7551,
+        "attempts": 1
+      },
+      "lineup_handle": {
+        "availability_basis": "constants",
+        "availability_note_present": false,
+        "availability_note": null,
+        "warnings": [
+          {
+            "player": "Jayden Daniels",
+            "issue": "about 57% likely to play this week",
+            "slot": "QB",
+            "basis": null
+          },
+          {
+            "player": "De'Von Achane",
+            "issue": "about 74% likely to play this week",
+            "slot": "RB",
+            "basis": null
+          },
+          {
+            "player": "Chase Brown",
+            "issue": "about 75% likely to play this week",
+            "slot": "FLEX",
+            "basis": null
+          },
+          {
+            "player": "Bucky Irving",
+            "issue": "about 65% likely to play this week",
+            "slot": "FLEX",
+            "basis": null
+          }
+        ],
+        "warning_count": 4,
+        "coin_flips": 1
+      }
+    },
+    {
+      "league_id": 4,
+      "captured_at": "2026-09-19T20:34:35.375Z",
+      "rosters": {
+        "status": 200,
+        "ms": 10133,
+        "attempts": 1
+      },
+      "my_team_id": "8",
+      "model_context_basis": {
+        "basis": "constants",
+        "missing": [
+          "nfl_availability_rates",
+          "nfl_availability_role_rates"
+        ],
+        "stamp": "absent|absent"
+      },
+      "target_id": 142,
+      "target_name": "Jahmyr Gibbs",
+      "injured_target_id": 16,
+      "injured_target_name": "Bijan Robinson",
+      "offer": {
+        "status": 200,
+        "ms": 11911,
+        "attempts": 1
+      },
+      "handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.24,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.2146,
+          0.2674
+        ],
+        "horizon_now": 0.758,
+        "horizon_playoff": 0.242,
+        "target": {
+          "id": 142,
+          "name": "Jahmyr Gibbs",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.805,
+          "value": 10700,
+          "adj_ppg": 14.77,
+          "ppg": 15.41,
+          "ros_ppg": 15.41,
+          "floor": 0,
+          "ceiling": 23.3
+        },
+        "their_cost": 6.49,
+        "upside_ppg": 3.87,
+        "upside_ppg_horizon": 3.94,
+        "offers": 4,
+        "error": null,
+        "open_with": {
+          "i_give": "Nico Collins + Zay Flowers + Matthew Golden",
+          "give_value": 10659,
+          "ratio": 1,
+          "my_ppg_delta": 3.87,
+          "their_ppg_delta": -6.49,
+          "horizon_value": 3.549,
+          "efficiency": 0.033,
+          "acceptance": null,
+          "counterparty_data": false,
+          "receptiveness": 1,
+          "manager_factor": 1,
+          "perception_factor": 1,
+          "tier": "fair",
+          "chat_msgs": 0,
+          "perception_delta": null
+        },
+        "response_digest": "d40107b16731b145"
+      },
+      "injured_offer": {
+        "status": 200,
+        "ms": 43335,
+        "attempts": 1
+      },
+      "injured_handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.24,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.2146,
+          0.2674
+        ],
+        "horizon_now": 0.758,
+        "horizon_playoff": 0.242,
+        "target": {
+          "id": 16,
+          "name": "Bijan Robinson",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.833,
+          "value": 10239,
+          "adj_ppg": 14.37,
+          "ppg": 14.88,
+          "ros_ppg": 14.88,
+          "floor": 0,
+          "ceiling": 22.7
+        },
+        "their_cost": 4.87,
+        "upside_ppg": 3.47,
+        "upside_ppg_horizon": 3.517,
+        "offers": 4,
+        "error": null,
+        "open_with": {
+          "i_give": "Nico Collins + Bucky Irving + Matthew Golden",
+          "give_value": 10226,
+          "ratio": 1,
+          "my_ppg_delta": 3.47,
+          "their_ppg_delta": -4.43,
+          "horizon_value": 3.457,
+          "efficiency": 0.034,
+          "acceptance": null,
+          "counterparty_data": false,
+          "receptiveness": 1,
+          "manager_factor": 1,
+          "perception_factor": 1,
+          "tier": "fair",
+          "chat_msgs": 0,
+          "perception_delta": null
+        },
+        "response_digest": "95b671a1bf96e55e"
+      },
+      "lineup": {
+        "status": 200,
+        "ms": 6863,
+        "attempts": 1
+      },
+      "lineup_handle": {
+        "availability_basis": "constants",
+        "availability_note_present": false,
+        "availability_note": null,
+        "warnings": [
+          {
+            "player": "Jayden Daniels",
+            "issue": "about 57% likely to play this week",
+            "slot": "QB",
+            "basis": null
+          },
+          {
+            "player": "Jonathan Taylor",
+            "issue": "about 74% likely to play this week",
+            "slot": "RB",
+            "basis": null
+          },
+          {
+            "player": "Tyler Warren",
+            "issue": "about 67% likely to play this week",
+            "slot": "TE",
+            "basis": null
+          }
+        ],
+        "warning_count": 3,
+        "coin_flips": 1
+      }
+    },
+    {
+      "league_id": 5,
+      "captured_at": "2026-09-19T20:35:47.667Z",
+      "rosters": {
+        "status": 200,
+        "ms": 1926,
+        "attempts": 1
+      },
+      "my_team_id": "4",
+      "model_context_basis": {
+        "basis": "constants",
+        "missing": [
+          "nfl_availability_rates",
+          "nfl_availability_role_rates"
+        ],
+        "stamp": "absent|absent"
+      },
+      "target_id": 142,
+      "target_name": "Jahmyr Gibbs",
+      "injured_target_id": 16,
+      "injured_target_name": "Bijan Robinson",
+      "offer": {
+        "status": 200,
+        "ms": 24664,
+        "attempts": 1
+      },
+      "handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.9,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.8755,
+          0.9134
+        ],
+        "horizon_now": 0.546,
+        "horizon_playoff": 0.454,
+        "target": {
+          "id": 142,
+          "name": "Jahmyr Gibbs",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.805,
+          "value": 10787,
+          "adj_ppg": 14.77,
+          "ppg": 15.41,
+          "ros_ppg": 15.41,
+          "floor": 0,
+          "ceiling": 23.3
+        },
+        "their_cost": 5.43,
+        "upside_ppg": 5.48,
+        "upside_ppg_horizon": 5.511,
+        "offers": 2,
+        "error": null,
+        "open_with": {
+          "i_give": "Jonathan Taylor + Tyler Warren",
+          "give_value": 11223,
+          "ratio": 1.04,
+          "my_ppg_delta": 1.08,
+          "their_ppg_delta": -1.13,
+          "horizon_value": 0.864,
+          "efficiency": 0.008,
+          "acceptance": null,
+          "counterparty_data": false,
+          "receptiveness": 1,
+          "manager_factor": 1,
+          "perception_factor": 1,
+          "tier": "fair",
+          "chat_msgs": 0,
+          "perception_delta": null
+        },
+        "response_digest": "a85a51e05e329a86"
+      },
+      "injured_offer": {
+        "status": 200,
+        "ms": 22700,
+        "attempts": 1
+      },
+      "injured_handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.9,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.8755,
+          0.9134
+        ],
+        "horizon_now": 0.546,
+        "horizon_playoff": 0.454,
+        "target": {
+          "id": 16,
+          "name": "Bijan Robinson",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.833,
+          "value": 10322,
+          "adj_ppg": 14.37,
+          "ppg": 14.88,
+          "ros_ppg": 14.88,
+          "floor": 0,
+          "ceiling": 22.7
+        },
+        "their_cost": 5.56,
+        "upside_ppg": 5.08,
+        "upside_ppg_horizon": 5.061,
+        "offers": 2,
+        "error": null,
+        "open_with": {
+          "i_give": "Jonathan Taylor + Courtland Sutton",
+          "give_value": 9588,
+          "ratio": 0.93,
+          "my_ppg_delta": 0.73,
+          "their_ppg_delta": 0.22,
+          "horizon_value": 0.564,
+          "efficiency": 0.006,
+          "acceptance": null,
+          "counterparty_data": false,
+          "receptiveness": 1,
+          "manager_factor": 1,
+          "perception_factor": 1,
+          "tier": "fair",
+          "chat_msgs": 0,
+          "perception_delta": null
+        },
+        "response_digest": "71f4a78dc8df8bed"
+      },
+      "lineup": {
+        "status": 200,
+        "ms": 7569,
+        "attempts": 1
+      },
+      "lineup_handle": {
+        "availability_basis": "constants",
+        "availability_note_present": false,
+        "availability_note": null,
+        "warnings": [
+          {
+            "player": "Jonathan Taylor",
+            "issue": "about 74% likely to play this week",
+            "slot": "RB",
+            "basis": null
+          }
+        ],
+        "warning_count": 1,
+        "coin_flips": 3
+      }
+    }
+  ],
+  "note": "Baseline taken from the live app before scripts/fit-availability.mjs ran and before any of the 2026-09-19 pull requests deployed. Re-read with --compare to produce the after-difference; it re-reads the same target players by id. Every league reads basis constants, stamp absent|absent."
+}

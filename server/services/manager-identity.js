@@ -164,6 +164,19 @@ export function identityMap(leagueId) {
 }
 
 /**
+ * Every stored identity row for one league, trusted or not — who ESPN says each
+ * roster is, and how (if at all) that was joined to the chat. The read API
+ * (GET /api/trades/:leagueId/managers/signals) needs the untrusted rows too: a
+ * manager whose chat name is only a `likely` guess still has a name and a team,
+ * and hiding the row would hide the warning with it.
+ */
+export function identityRows(leagueId) {
+  return rows(`SELECT roster_id, espn_member_id, espn_name, team_name, chat_name, match_method, confidence, note,
+                      updated_at
+               FROM league_member_identity WHERE league_id = ? ORDER BY roster_id`, leagueId);
+}
+
+/**
  * Rows a human should look at before the profile is trusted. A league with no
  * chat corpus has nothing to match, so its rows are not warnings.
  */

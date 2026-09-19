@@ -269,6 +269,21 @@ export async function syncDepthCharts(seasons) {
   if (failures.length === seasons.length) {
     throw new Error(`Every depth-chart season failed: ${failures.map(x => `${x.season}: ${x.error}`).join('; ')}`);
   }
+  // A season through 2024 dates its rows from `game_lines`, because the old
+  // release carries a week rather than a publication timestamp. With no schedule
+  // loaded, every row is dropped for want of an availability boundary and the
+  // fetch still succeeds, so this used to return `rows: 0, failures: []` and
+  // report six seasons loaded — a source that silently produced nothing while
+  // calling itself healthy. Downloading rows and storing none is a failure and
+  // now says so, naming the dependency rather than the symptom.
+  if (total === 0 && failures.length < seasons.length) {
+    const scheduleRows = rows('SELECT COUNT(*) AS c FROM game_lines WHERE gameday IS NOT NULL')[0]?.c ?? 0;
+    throw new Error('Depth charts downloaded but stored 0 rows'
+      + (scheduleRows === 0
+        ? ': game_lines is empty, so seasons through 2024 have no game day to date their charts from. '
+          + 'Sync the schedule first (gamescript.js#syncHistoricalLines).'
+        : `: ${scheduleRows} scheduled games are loaded, so the cause is upstream of the date join.`));
+  }
   return { rows: total, seasons_requested: seasons.length,
     seasons_loaded: seasons.length - failures.length, failures };
 }

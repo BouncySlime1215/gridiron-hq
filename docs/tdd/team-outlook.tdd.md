@@ -183,3 +183,99 @@ replay leagues and is not claimed.
   week 1 and week 13 boundaries; and a team with zero games played.
 - The gate's own verdict printed per week and per season, so a reader sees which
   baseline was strongest and by how much, rather than being told it passed.
+
+---
+
+## 7. ADDENDUM, written after the fit — what happened
+
+Everything above this line is the rule as it stood before anything was fitted, and nothing
+above it has been edited. This section records the result and four things found on the way,
+so the changes are visible as changes rather than absorbed into the rule.
+
+### 7.1 The gate FAILED. G3, calibration.
+
+| condition | result |
+|---|---|
+| **G1** combined beats all four baselines, weeks 2-8, both seasons | **pass**, 14 of 14 |
+| **G2** advantage over the strongest baseline, 90% interval excluding zero, clustered by league | **pass**, 14 of 14 |
+| **G3** expected calibration error at most 0.03 | **FAIL** — 4-5 of 7 weeks in 2024 exceed it; all 7 in 2025 pass |
+| **G4** fitted signs | **pass**, 7 of 7 |
+
+The combined model is clearly the better *ordering*: it beats the strongest baseline by
+0.013 to 0.033 Brier at every week in both held-out seasons, every interval excluding zero.
+It is not calibrated to the standard this document set, on one of the two test seasons.
+
+**No calibration layer is permitted.** Section 2 keys the isotonic layer on the **fit**
+seasons' ECE, and that is 0.0047 to 0.0211 — inside 0.03 at every week. Fitting a layer in
+response to 2024's number would be fitting on held-out data, which section 2 forbids in
+advance precisely so this moment has no discretion in it.
+
+**The failure is systematic, not noise.** At the worst week (2024 week 4, ECE 0.050) the
+reliability table's gap is positive in 8 of 10 deciles and the mean prediction is 0.513
+against an observed 0.545. The model is under-confident on 2024 by about three points
+across the board. Checked and ruled out as a cause: the data is consistent — each season's
+playoff rate matches its declared playoff share to within 0.002, and the count of
+`made_playoffs` equals `playoff_teams` in every league but four of 953.
+
+### 7.2 The pre-registered fallback is worse than what it replaces. That is a defect in this document.
+
+Section 3 says the model that ships on failure is the best single validated signal, which is
+the all-play record. Measured: all-play's own ECE is 0.018 to 0.043, missing 0.03 at **12 of
+14** week-seasons against the combined model's 4-5 of 14.
+
+So the stopping rule, as written, hands over something calibrated *worse* than the thing it
+rejected. I wrote that clause assuming a simpler model would be better behaved, and it is
+not. Naming it is the honest response; quietly preferring the combined model because the
+fallback turned out badly would be exactly the gate-shopping the pre-registration exists to
+prevent. What follows from it:
+
+- **The probability does not ship as a calibrated number.** Nothing may present it as meeting
+  a calibration standard, and any surface showing it shows its measured error.
+- **The ordering ships**, because the ordering is what G1 and G2 validated and both passed
+  everywhere. The verdict's own separation is measured directly on held-out seasons and holds
+  in both: 2024 week 6 reads fine 75.0% / watch 32.1% / act_candidate 12.7%, and 2025 week 6
+  reads 73.9% / 31.0% / 9.9%.
+- **The crawl was incomplete when this ran** (about 1,000 league-seasons, still growing, and
+  2024 had 169 leagues at week 4 against 2025's 321). The unchanged rule will be re-run once
+  the crawl finishes and whatever it says will be reported. Re-running an unchanged rule on
+  more data is not gate-shopping; changing the rule would be, and it is not being changed.
+
+### 7.3 Abandoned leagues were corrupting the foundation
+
+Found by a robustness check, not by the gate. Sleeper's public API returns leagues nobody
+played: five league-seasons are zero for every single team-week, fifty more for over half of
+theirs, and they carry `champion` flags on whichever roster the bracket advanced. Two rules
+now apply in `league-history.js`, both stated as facts about the data rather than about any
+outcome: a team-week of exactly zero is a missing observation, and a league-season more than
+half zeros is discarded whole.
+
+This moved `k` from 7.35 to about 7.6, which is *toward* believing an early record less.
+A dataset defect that was making the model more confident is the worst kind to leave in a
+model whose subject is not being too confident too early.
+
+### 7.4 Two corrections to the design above
+
+- **`real` is a remainder and is labelled as one.** Section 4 calls the third term "the
+  roster and the schedule". It cannot be: no roster in this population is priced (section 1).
+  The service returns it with `real_is` stating that it is the believed performance signal net
+  of luck and noise. Giving a residual a physical name it has not earned is how a number
+  becomes untrue.
+- **G4 is weaker than it looks, and passing it is worth less than it appears.** An individual
+  coefficient's sign is only identified when features are not collinear. `all_play_pct` and
+  `win_pct` correlate 0.66, and on a synthetic fixture built with the two as noisier copies of
+  one latent strength, the fit put −1.50 on the noisier one and G4 correctly failed a model
+  that was not wrong. On the real panel it passes at all seven weeks with win_pct between
+  +0.99 and +4.53, so the condition did not bite here — but it would not have caught a
+  defect hiding behind collinearity either.
+
+### 7.5 A defect in the fit itself, caught by a test rather than by a number
+
+`solve` returned `row[n] / row[i][i]`, which indexes into a number and yields `undefined`, so
+every coefficient came back `NaN`. Nothing threw. And `signCheck` then **passed** that fit,
+because every comparison against `NaN` is false, so a check written as `got < 0` / `got > 0`
+reports a model of pure NaN as correctly signed.
+
+Two defects compounding: a silent arithmetic error, and a gate that could not see it. Both
+are fixed, `fitLogistic` now refuses to return a non-finite fit at all, and
+`test/team-outlook.test.js` carries a regression test for each. Worth stating plainly because
+the first run of the gate reported "42 conditions failed" and looked like a result.

@@ -97,12 +97,42 @@ export function historyStatus() {
  * pooling those with regular weeks would mix a game against a seeded opponent into a
  * measure of regular-season form -- and would count only playoff teams' later weeks,
  * which selects on the outcome being predicted.
+ *
+ * ABANDONED LEAGUES ARE NOT LEAGUES, and excluding them is not optional. Sleeper's public
+ * API returns a league that nobody played: every team-week zero, fourteen weeks of it, a
+ * `champion` flag on whichever roster the bracket happened to advance. Five league-seasons
+ * in the crawl are zero for every single team-week, fifty more are zero for over half of
+ * theirs. Their outcomes are not football, and left in they biased `k` downward -- pooled
+ * with them k was 7.35, without them 8.42, which moves the week-2 weight on a team's own
+ * record by two points in the direction of believing an early start more. A dataset defect
+ * that makes the model MORE confident is the worst kind to leave in a model whose whole
+ * subject is not being too confident too early.
+ *
+ * Two rules, both of them statements about the data rather than about any outcome:
+ *
+ * 1. A team-week of exactly zero is a MISSING observation, not an observation of zero. A
+ *    fantasy team with a submitted lineup does not score 0.00; a team that scores 0 had no
+ *    lineup, or the week was never played. Averaging it in as a real bad week both drags
+ *    the league's scoring scale down and inflates that team's within-team variance.
+ * 2. A league-season more than half of whose team-weeks are zero was abandoned, and every
+ *    row of it goes, including its surviving weeks and its champion.
+ *
+ * The distribution justifies treating this as a defect and not a tail: of 939 league-seasons
+ * 819 have no zero week at all and average 125.5 points, while the 55 caught by rule 2
+ * average 12.1. Leagues in between are ones where one manager quit mid-season, which is real
+ * football; rule 1 removes that manager's empty weeks and keeps the league.
+ *
+ * Not filtered, and stated because it was checked rather than assumed: two league-seasons
+ * contain a negative team-week. Leagues with negative scoring can genuinely produce one, two
+ * of 939 cannot move any estimate, and inventing a third rule for them would be tuning.
  */
+const ZERO_WEEK_ABANDON_SHARE = 0.5;
+
 function regularSeasonWeeks(seasons) {
   const filter = seasons?.length
     ? `AND l.season IN (${seasons.map(() => '?').join(',')})` : '';
-  return rows(`SELECT l.season, l.league_id, l.num_teams, l.playoff_teams,
-      tw.roster_id, tw.week, tw.points,
+  const all = rows(`SELECT l.season, l.league_id, l.num_teams, l.playoff_teams,
+      tw.roster_id, tw.week, tw.points, tw.opponent_roster_id,
       ts.made_playoffs, ts.champion, ts.wins, ts.points_for
     FROM sh_team_weeks tw
     JOIN sh_leagues l ON l.league_id = tw.league_id
@@ -111,6 +141,57 @@ function regularSeasonWeeks(seasons) {
       AND tw.week < l.playoff_week_start
       AND tw.points IS NOT NULL ${filter}
     ORDER BY l.league_id, tw.roster_id, tw.week`, ...(seasons ?? []));
+
+  // Rule 2 is judged on the league's WHOLE regular season, before rule 1 drops anything,
+  // so the share is of what the league was supposed to have played.
+  const tally = new Map();
+  for (const r of all) {
+    const t = tally.get(r.league_id) ?? { n: 0, zeros: 0 };
+    t.n++; if (r.points === 0) t.zeros++;
+    tally.set(r.league_id, t);
+  }
+  const abandoned = new Set();
+  for (const [id, t] of tally) if (t.zeros / t.n > ZERO_WEEK_ABANDON_SHARE) abandoned.add(id);
+
+  return all.filter(r => r.points !== 0 && !abandoned.has(r.league_id));
+}
+
+/**
+ * What the two data-quality rules above removed, so a reader can see the size of it rather
+ * than trust that it was small.
+ */
+export function excludedByDataQuality(seasons = null) {
+  const filter = seasons?.length
+    ? `AND l.season IN (${seasons.map(() => '?').join(',')})` : '';
+  const all = rows(`SELECT l.league_id, tw.points
+    FROM sh_team_weeks tw
+    JOIN sh_leagues l ON l.league_id = tw.league_id
+    WHERE l.playoff_week_start IS NOT NULL
+      AND tw.week < l.playoff_week_start
+      AND tw.points IS NOT NULL ${filter}`, ...(seasons ?? []));
+  const tally = new Map();
+  for (const r of all) {
+    const t = tally.get(r.league_id) ?? { n: 0, zeros: 0 };
+    t.n++; if (r.points === 0) t.zeros++;
+    tally.set(r.league_id, t);
+  }
+  let abandonedLeagues = 0, abandonedRows = 0, zeroRows = 0;
+  for (const t of tally.values()) {
+    if (t.zeros / t.n > ZERO_WEEK_ABANDON_SHARE) { abandonedLeagues++; abandonedRows += t.n; }
+    else zeroRows += t.zeros;
+  }
+  return {
+    rule: {
+      zero_week_is_missing: 'a team-week of exactly 0 is treated as no observation',
+      abandoned_league_share: ZERO_WEEK_ABANDON_SHARE
+    },
+    leagues_total: tally.size,
+    abandoned_leagues: abandonedLeagues,
+    abandoned_team_weeks: abandonedRows,
+    zero_team_weeks_in_kept_leagues: zeroRows,
+    team_weeks_total: all.length,
+    team_weeks_kept: all.length - abandonedRows - zeroRows
+  };
 }
 
 /**
@@ -123,6 +204,14 @@ function regularSeasonWeeks(seasons) {
  * question. Ties count a half, as they do in a record.
  *
  * `points_z` is the team's score that week in league-season z-units.
+ *
+ * `win_pct` is the actual head-to-head record, recomputed week by week from the scheduled
+ * opponent's score. It is deliberately not taken from `sh_team_seasons.wins`, which is the
+ * season total: a row at week 3 carrying it would be reading the outcome it predicts.
+ *
+ * `games_back` is the distance in wins to the team sitting on the playoff line, as the
+ * standings stood at the end of week w. `win_pct` cannot express this on its own -- 2-1 is
+ * comfortable where six of twelve qualify and outside the line where four of eight do.
  *
  * Cumulative fields are the mean over weeks 1..w, so a row at week 3 knows nothing about
  * week 4. Nothing here reads a later week, which is what makes the panel usable as a
@@ -165,6 +254,12 @@ export function weeklyPanel({ seasons = null } = {}) {
     }
   }
 
+  // The head-to-head result of each week, from the scheduled opponent's score in the
+  // same week. `sh_team_seasons.wins` is the SEASON total and so is unusable here: a
+  // row at week 3 that carried it would be reading the outcome it is meant to predict.
+  const pointsOf = new Map();
+  for (const r of raw) pointsOf.set(`${r.league_id}|${r.week}|${r.roster_id}`, r.points);
+
   const out = [];
   const byTeam = new Map();
   for (const r of raw) {
@@ -174,13 +269,25 @@ export function weeklyPanel({ seasons = null } = {}) {
   for (const [, weeks] of byTeam) {
     weeks.sort((a, b) => a.week - b.week);
     const totalWeeks = weeks.length;
-    let sumZ = 0, apWins = 0, apGames = 0;
+    let sumZ = 0, apWins = 0, apGames = 0, wins = 0, headToHead = 0, sumPoints = 0;
     for (let i = 0; i < weeks.length; i++) {
       const r = weeks[i];
       const s = scale.get(r.league_id);
       const z = s.sd > 0 ? (r.points - s.mean) / s.sd : 0;
       const ap = allPlay.get(`${r.league_id}|${r.week}|${r.roster_id}`) ?? { wins: 0, games: 0 };
-      sumZ += z; apWins += ap.wins; apGames += ap.games;
+      sumZ += z; apWins += ap.wins; apGames += ap.games; sumPoints += r.points;
+
+      // A week with no opponent on file (a bye in an odd-sized league, or a gap in the
+      // crawl) is not a loss and not a win: it does not count as a game played. Scoring
+      // it as a loss would penalise the team for a missing row.
+      const oppPoints = r.opponent_roster_id == null
+        ? null : pointsOf.get(`${r.league_id}|${r.week}|${r.opponent_roster_id}`) ?? null;
+      if (oppPoints != null) {
+        headToHead += 1;
+        if (r.points > oppPoints) wins += 1;
+        else if (r.points === oppPoints) wins += 0.5;
+      }
+
       out.push({
         season: r.season, league_id: r.league_id, roster_id: r.roster_id,
         num_teams: r.num_teams, playoff_teams: r.playoff_teams,
@@ -189,11 +296,35 @@ export function weeklyPanel({ seasons = null } = {}) {
         // Known at week w.
         mean_points_z: +(sumZ / (i + 1)).toFixed(4),
         all_play_pct: apGames ? +(apWins / apGames).toFixed(4) : null,
+        win_pct: headToHead ? +(wins / headToHead).toFixed(4) : null,
+        wins_so_far: wins,
+        head_to_head_games: headToHead,
+        points_so_far: +sumPoints.toFixed(2),
+        // Filled below, once every team in the league-week is known.
+        games_back: null,
         // The outcome. Never an input.
         made_playoffs: r.made_playoffs ? 1 : 0,
         champion: r.champion ? 1 : 0
       });
     }
+  }
+
+  // Distance to the playoff line, in wins, as the standings stood at the end of week w.
+  // `win_pct` alone cannot express it: 2-1 is comfortable in a league that takes six of
+  // twelve and is outside the line in one that takes four of eight.
+  const outByLeagueWeek = new Map();
+  for (const row of out) {
+    const key = `${row.league_id}|${row.week}`;
+    (outByLeagueWeek.get(key) ?? outByLeagueWeek.set(key, []).get(key)).push(row);
+  }
+  for (const list of outByLeagueWeek.values()) {
+    // Standings order: wins, then points as the near-universal tiebreak. Points here are
+    // cumulative through week w, not the season total, for the same reason as above.
+    const ranked = [...list].sort((a, b) =>
+      b.wins_so_far - a.wins_so_far || b.points_so_far - a.points_so_far);
+    const cut = Math.min(list[0].playoff_teams ?? ranked.length, ranked.length) - 1;
+    const line = ranked[Math.max(0, cut)];
+    for (const row of list) row.games_back = +(line.wins_so_far - row.wins_so_far).toFixed(1);
   }
   return out;
 }

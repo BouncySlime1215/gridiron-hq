@@ -18,6 +18,9 @@ First, because both of these have already produced a wrong answer here.
 - **COLUMNS WRITTEN THROUGH A BUILT COLUMN LIST ARE INVISIBLE.** An INSERT whose columns come from a JavaScript array, or an INSERT ... SELECT *, names no column this scan can read, so every column of that table is left alone rather than reported on evidence that does not exist. It found five such tables and said nothing about any of their columns.
 - **A PARAMETER BUILT AT RUNTIME LOOKS UNPASSED.** The rule reads query strings out of source text. A caller that assembles one from variables would be missed, and the parameter would be reported as never passed when it is.
 - **AN EDGE CAN CHANGE WITHOUT A DEPLOY.** scripts/fit-availability.mjs writes two tables and three live consumers price differently from that moment on, with no code change at all. The script, the tables and the consumers are all on this graph, but nothing here says that running it alters a process already serving requests. Same family as ROWS, NOT WRITERS: the shape of the wiring is not the state of it.
+- **A CONSTANT IS NOT A FINDING UNTIL SOMEBODY READS UPWARDS.** constant-standing-in-for-a-model finds a typed number defaulting a fitted column. It cannot decide whether that default is reachable, because the filter that decides it is usually twenty lines earlier and sometimes in another function. On 2026-09-19 season-sim.js:226 was reported and repeated as the strongest case of the category; the roster is filtered to the covered positions at :201 and the fallback cannot fire for the positions that mattered. The line was real and the conclusion was invented. Treat every hit as a lead to read, never a fact to relay.
+- **SERVED-BUT-NOT-RENDERED ONLY READS res.**json. A field a service attaches to an object the route spreads is on the wire and not in this rule. Walking into the services made it 1,435 findings of which almost none were payload fields, so the rule takes the narrow, certain source and says so rather than being comprehensive and ignored.
+- **A LINE NUMBER IS WORTHLESS WITHOUT ITS TREE.** On 2026-09-19 three threads cited contingency.js at :117, :835 and :836 for the same statement, each correct for the branch it had read. This map names the tree it read at the top of every artifact; quoting a line from it without that name is how the same hour gets spent twice.
 - **THIS IS A SOURCE TREE, NOT THE RUNNING APP.** Every count and every edge here describes the checkout it was run in, named at the top of the file. On 2026-09-19 the deployed binary was ahead of main on contingency.js, serving three fields main does not have. Never read this map as a statement about what production is doing.
 
 ## How to read it
@@ -31,7 +34,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 
 **10 missing feed** — a surface depends on something nothing produces.
 **2033 orphan** — something produced that reaches no surface.
-147 context rows, listed because they are worth knowing and are usually fine.
+222 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
 
@@ -66,7 +69,7 @@ The missing-feed list in full, because it is short and it is the one that matter
   - writer scripts/nfl-2022-2025-rebuild.mjs:49, reader server/services/nfl-rebuild-progress.js:8, reader scripts/nfl-2022-2025-rebuild.mjs:85, reader scripts/nfl-2022-2025-rebuild.mjs:95
   - reached from /api/nfl-betting
 
-**76 should be wired** — nothing is broken enough to fail a test, and the code is answering from the wrong place, with a default, or from a column that is null on every row. This family is the one to read when the question is "what did we forget to connect", rather than "what is connected".
+**151 should be wired** — nothing is broken enough to fail a test, and the code is answering from the wrong place, with a default, or from a column that is null on every row. This family is the one to read when the question is "what did we forget to connect", rather than "what is connected".
 
 - **auth_sessions.revoked_at** `[column-read-never-written]` — declared on auth_sessions and read on a live surface, and no INSERT or UPDATE in the repository ever sets it — so it is null on every row and the reader's fallback is what runs
   - server/platform/auth.js:19, server/routes/local-auth.js:50, server/routes/local-auth.js:120
@@ -106,31 +109,31 @@ The missing-feed list in full, because it is short and it is the one that matter
   - server/services/offseason-model.js:1048, server/services/offseason-model.js:1599
 - **walkForward() vs walkForwardV2()** `[two-names-different-sources]` — both are exported from this module and the names read as the same thing, but walkForwardV2() reads off_player_season_features and walkForward() does not. Whoever reaches for the shorter name gets an answer from a different source, with no error
   - server/services/offseason-model.js:1048, server/services/offseason-model.js:1432
-- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/news-fantasy-impact.js:87
-- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/role-scenario-engine.js:124
-- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/roster-risk.js:257
-- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/season-sim.js:226
-- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **active_probability ?? 0.92** `[constant-standing-in-for-a-model]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/trade-engine.js:346
-- **clock_seconds ?? 900** `[constant-standing-in-for-a-model]` — 900 is used wherever clock_seconds is absent, and clock_seconds is a column the app fits and stores in nfl_play_by_play. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **clock_seconds ?? 900** `[constant-standing-in-for-a-model]` — 900 is used wherever clock_seconds is absent, and clock_seconds is a column the app fits and stores in nfl_play_by_play. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/nfl-espn-pbp.js:294
-- **experience ?? 99** `[constant-standing-in-for-a-model]` — 99 is used wherever experience is absent, and experience is a column the app fits and stores in roster_players. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **experience ?? 99** `[constant-standing-in-for-a-model]` — 99 is used wherever experience is absent, and experience is a column the app fits and stores in roster_players. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/routes/nfldata.js:334
-- **home_rest ?? 7** `[constant-standing-in-for-a-model]` — 7 is used wherever home_rest is absent, and home_rest is a column the app fits and stores in off_schedule_games. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **home_rest ?? 7** `[constant-standing-in-for-a-model]` — 7 is used wherever home_rest is absent, and home_rest is a column the app fits and stores in off_schedule_games. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/nfl-specialists.js:220
-- **importance ?? 2** `[constant-standing-in-for-a-model]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **importance ?? 2** `[constant-standing-in-for-a-model]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/news/store.js:31
-- **importance ?? 2** `[constant-standing-in-for-a-model]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **importance ?? 2** `[constant-standing-in-for-a-model]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/routes/news.js:76
-- **pick_seconds ?? 90** `[constant-standing-in-for-a-model]` — 90 is used wherever pick_seconds is absent, and pick_seconds is a column the app fits and stores in drafts. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **pick_seconds ?? 90** `[constant-standing-in-for-a-model]` — 90 is used wherever pick_seconds is absent, and pick_seconds is a column the app fits and stores in drafts. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/draft/store.js:86
-- **unavailable_probability ?? 0.42** `[constant-standing-in-for-a-model]` — 0.42 is used wherever unavailable_probability is absent, and unavailable_probability is a column the app fits and stores in nfl_news_signals, nfl_news_signals_new, nfl_news_signals_old. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **unavailable_probability ?? 0.42** `[constant-standing-in-for-a-model]` — 0.42 is used wherever unavailable_probability is absent, and unavailable_probability is a column the app fits and stores in nfl_news_signals, nfl_news_signals_new, nfl_news_signals_old. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/nfl-postgame-truth.js:515
-- **yes_price ?? 0.5** `[constant-standing-in-for-a-model]` — 0.5 is used wherever yes_price is absent, and yes_price is a column the app fits and stores in prediction_market_quotes, prediction_market_flow. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **yes_price ?? 0.5** `[constant-standing-in-for-a-model]` — 0.5 is used wherever yes_price is absent, and yes_price is a column the app fits and stores in prediction_market_quotes, prediction_market_flow. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/prediction-markets.js:466
 - **days** `[parameter-never-passed]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
   - server/routes/dev.js:58
@@ -148,7 +151,35 @@ The missing-feed list in full, because it is short and it is the one that matter
   - server/routes/drafts.js:909
 - **test_season** `[parameter-never-passed]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
   - server/routes/model.js:688
-- ...and 36 more in betting code, tagged and out of scope for work.
+- **cooldown_ms** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/news.js:95, route:DELETE /api/news/:id (0 hops), route:GET /api/news (0 hops)
+- **draft_complete** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/drafts.js:562, route:DELETE /api/drafts/:id (0 hops), route:DELETE /api/drafts/:id/picks/last (0 hops)
+- **expires_in_days** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/local-auth.js:92, route:GET /api/auth/pairing-info (0 hops), route:GET /api/auth/tunnel-url (0 hops)
+- **game_script** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/model.js:451, route:GET /api/model/:leagueId/simulate (0 hops), route:GET /api/model/accuracy (0 hops)
+- **gamescript_fitted** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/model.js:597, route:GET /api/model/:leagueId/simulate (0 hops), route:GET /api/model/accuracy (0 hops)
+- **href_bytes** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/draft-capture.js:73, route:GET /api/drafts/:id/capture-bookmarklet (0 hops)
+- **key_source** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/draft-capture.js:73, route:GET /api/drafts/:id/capture-bookmarklet (0 hops)
+- **last_result** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/news.js:95, route:DELETE /api/news/:id (0 hops), route:GET /api/news (0 hops)
+- **teams_with_stale_names** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/analysis.js:200, route:GET /api/analysis/validate (0 hops), route:POST /api/analysis/refresh (0 hops)
+- **total_flags** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/analysis.js:200, route:GET /api/analysis/validate (0 hops), route:POST /api/analysis/refresh (0 hops)
+- **usage_history** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/model.js:451, route:GET /api/model/:leagueId/simulate (0 hops), route:GET /api/model/accuracy (0 hops)
+- **weekly_availability** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/model.js:451, route:GET /api/model/:leagueId/simulate (0 hops), route:GET /api/model/accuracy (0 hops)
+- **weekly_projection** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/model.js:451, route:GET /api/model/:leagueId/simulate (0 hops), route:GET /api/model/accuracy (0 hops)
+- **weekly_projection** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/players.js:76, route:GET /api/players (0 hops), route:GET /api/players/:id (0 hops)
+- ...and 97 more in betting code, tagged and out of scope for work.
 
 | rule | family | fantasy | betting | shared |
 | --- | --- | --: | --: | --: |
@@ -157,6 +188,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `two-names-different-sources` | should-wire | 2 | 1 | 6 |
 | `constant-standing-in-for-a-model` | should-wire | 5 | 0 | 8 |
 | `parameter-never-passed` | should-wire | 4 | 35 | 4 |
+| `served-but-not-rendered` | should-wire | 3 | 61 | 11 |
 | `table-hand-fed` | missing-feed | 6 | 0 | 4 |
 | `cache-blind-to-its-inputs` | staleness | 0 | 0 | 3 |
 | `table-in-another-database` | context | 2 | 0 | 8 |
@@ -223,31 +255,31 @@ The missing-feed list in full, because it is short and it is the one that matter
 
 ### `constant-standing-in-for-a-model` — SHOULD WIRE (13)
 
-- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/news-fantasy-impact.js:87
-- **active_probability ?? 0.92** `[shared]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **active_probability ?? 0.92** `[shared]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/role-scenario-engine.js:124
-- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/roster-risk.js:257
-- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/season-sim.js:226
-- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **active_probability ?? 0.92** `[fantasy]` — 0.92 is used wherever active_probability is absent, and active_probability is a column the app fits and stores in model_predictions. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/trade-engine.js:346
-- **clock_seconds ?? 900** `[shared]` — 900 is used wherever clock_seconds is absent, and clock_seconds is a column the app fits and stores in nfl_play_by_play. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **clock_seconds ?? 900** `[shared]` — 900 is used wherever clock_seconds is absent, and clock_seconds is a column the app fits and stores in nfl_play_by_play. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/nfl-espn-pbp.js:294
-- **experience ?? 99** `[shared]` — 99 is used wherever experience is absent, and experience is a column the app fits and stores in roster_players. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **experience ?? 99** `[shared]` — 99 is used wherever experience is absent, and experience is a column the app fits and stores in roster_players. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/routes/nfldata.js:334
-- **home_rest ?? 7** `[shared]` — 7 is used wherever home_rest is absent, and home_rest is a column the app fits and stores in off_schedule_games. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **home_rest ?? 7** `[shared]` — 7 is used wherever home_rest is absent, and home_rest is a column the app fits and stores in off_schedule_games. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/nfl-specialists.js:220
-- **importance ?? 2** `[shared]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **importance ?? 2** `[shared]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/news/store.js:31
-- **importance ?? 2** `[shared]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **importance ?? 2** `[shared]` — 2 is used wherever importance is absent, and importance is a column the app fits and stores in news_items. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/routes/news.js:76
-- **pick_seconds ?? 90** `[fantasy]` — 90 is used wherever pick_seconds is absent, and pick_seconds is a column the app fits and stores in drafts. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **pick_seconds ?? 90** `[fantasy]` — 90 is used wherever pick_seconds is absent, and pick_seconds is a column the app fits and stores in drafts. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/draft/store.js:86
-- **unavailable_probability ?? 0.42** `[shared]` — 0.42 is used wherever unavailable_probability is absent, and unavailable_probability is a column the app fits and stores in nfl_news_signals, nfl_news_signals_new, nfl_news_signals_old. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **unavailable_probability ?? 0.42** `[shared]` — 0.42 is used wherever unavailable_probability is absent, and unavailable_probability is a column the app fits and stores in nfl_news_signals, nfl_news_signals_new, nfl_news_signals_old. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/nfl-postgame-truth.js:515
-- **yes_price ?? 0.5** `[shared]` — 0.5 is used wherever yes_price is absent, and yes_price is a column the app fits and stores in prediction_market_quotes, prediction_market_flow. Every row the fit does not cover is priced on the typed number instead, and nothing in the output says which one produced it
+- **yes_price ?? 0.5** `[shared]` — 0.5 is used wherever yes_price is absent, and yes_price is a column the app fits and stores in prediction_market_quotes, prediction_market_flow. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. Read what populates the collection just above this line: if the rows were already filtered to the population the fit covers, the number is unreachable and this is not a finding. season-sim.js:226 looked exactly like the worst case and is filtered at :201
   - server/services/prediction-markets.js:466
 
 ### `parameter-never-passed` — SHOULD WIRE (43)
@@ -338,6 +370,130 @@ The missing-feed list in full, because it is short and it is the one that matter
   - server/routes/betting-hub.js:553
 - **window_hours** `[betting]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
   - server/routes/betting-hub.js:525
+
+### `served-but-not-rendered` — SHOULD WIRE (75)
+
+- **actual_count** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/props.js:193, route:GET /api/props/auto-picks (0 hops), route:GET /api/props/board (0 hops)
+- **actual_nrfi** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/props.js:193, route:GET /api/props/auto-picks (0 hops), route:GET /api/props/board (0 hops)
+- **american_price** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-market.js:252, route:DELETE /api/nfl-market/bets/:id (0 hops), route:GET /api/nfl-market/accuracy (0 hops)
+- **bias_audit** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:245, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **blocked_count** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/execution-slate.js:106, route:GET /api/execution-slate/opportunities (0 hops), route:POST /api/execution-slate/recommend (0 hops)
+- **blocked_reasons** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:359, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **board_captured_at** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:359, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **book_latency** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/betting-hub.js:396, route:GET /api/betting/abstentions (0 hops), route:GET /api/betting/audits (0 hops)
+- **book_push_rule** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:305, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **brier_score** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/props.js:209, route:GET /api/props/auto-picks (0 hops), route:GET /api/props/board (0 hops)
+- **capture_triggers** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/betting-hub.js:396, route:GET /api/betting/abstentions (0 hops), route:GET /api/betting/audits (0 hops)
+- **cooldown_ms** `[shared]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/news.js:95, route:DELETE /api/news/:id (0 hops), route:GET /api/news (0 hops)
+- **decision_audit** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-market.js:469, route:DELETE /api/nfl-market/bets/:id (0 hops), route:GET /api/nfl-market/accuracy (0 hops)
+- **draft_complete** `[fantasy]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/drafts.js:562, route:DELETE /api/drafts/:id (0 hops), route:DELETE /api/drafts/:id/picks/last (0 hops)
+- **drives_with_plays** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:1530, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **duration_ms** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:267, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **edge_points** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-market.js:252, route:DELETE /api/nfl-market/bets/:id (0 hops), route:GET /api/nfl-market/accuracy (0 hops)
+- **eligible_candidates** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-market.js:469, route:DELETE /api/nfl-market/bets/:id (0 hops), route:GET /api/nfl-market/accuracy (0 hops)
+- **engine_version** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:670, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **evidence_note** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-market.js:252, route:DELETE /api/nfl-market/bets/:id (0 hops), route:GET /api/nfl-market/accuracy (0 hops)
+- **evidence_status** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-market.js:252, route:DELETE /api/nfl-market/bets/:id (0 hops), route:GET /api/nfl-market/accuracy (0 hops)
+- **expert_council** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:280, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **expires_in_days** `[shared]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/local-auth.js:92, route:GET /api/auth/pairing-info (0 hops), route:GET /api/auth/tunnel-url (0 hops)
+- **game_script** `[shared]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/model.js:451, route:GET /api/model/:leagueId/simulate (0 hops), route:GET /api/model/accuracy (0 hops)
+- **games_on_slate** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/betting-hub.js:419, route:GET /api/betting/abstentions (0 hops), route:GET /api/betting/audits (0 hops)
+- **gamescript_fitted** `[shared]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/model.js:597, route:GET /api/model/:leagueId/simulate (0 hops), route:GET /api/model/accuracy (0 hops)
+- **href_bytes** `[fantasy]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/draft-capture.js:73, route:GET /api/drafts/:id/capture-bookmarklet (0 hops)
+- **implied_probability** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-market.js:252, route:DELETE /api/nfl-market/bets/:id (0 hops), route:GET /api/nfl-market/accuracy (0 hops)
+- **key_source** `[fantasy]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/draft-capture.js:73, route:GET /api/drafts/:id/capture-bookmarklet (0 hops)
+- **last_result** `[shared]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/news.js:95, route:DELETE /api/news/:id (0 hops), route:GET /api/news (0 hops)
+- **market_margin** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:1820, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **mlb_cheapest** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/betting-hub.js:377, route:GET /api/betting/abstentions (0 hops), route:GET /api/betting/audits (0 hops)
+- **model_margin** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:1820, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **model_probability** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-market.js:252, route:DELETE /api/nfl-market/bets/:id (0 hops), route:GET /api/nfl-market/accuracy (0 hops)
+- **nfl_cheapest** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/betting-hub.js:377, route:GET /api/betting/abstentions (0 hops), route:GET /api/betting/audits (0 hops)
+- **odds_cache** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:1082, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **open_tickets** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:663, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **paper_tickets** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:663, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **parlay_api** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/mlb.js:159, route:GET /api/mlb/auto-picks (0 hops), route:GET /api/mlb/board (0 hops)
+- **placed_profit_units** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:663, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **placed_tickets** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:663, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **play_influence** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:1251, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **play_model** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:1530, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **price_note** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/betting-hub.js:419, route:GET /api/betting/abstentions (0 hops), route:GET /api/betting/audits (0 hops)
+- **profile_fell_back** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:1530, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **prop_calibration** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:348, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **prop_premium** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/betting-hub.js:377, route:GET /api/betting/abstentions (0 hops), route:GET /api/betting/audits (0 hops)
+- **push_rule_note** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:305, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **qualifying_legs** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:359, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **quoted_price** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/betting-hub.js:419, route:GET /api/betting/abstentions (0 hops), route:GET /api/betting/audits (0 hops)
+- **refreshed_at** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:267, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **requested_date** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/mlb.js:136, route:GET /api/mlb/auto-picks (0 hops), route:GET /api/mlb/board (0 hops)
+- **safe_endpoint** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:955, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- **scope_note** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/execution-slate.js:106, route:GET /api/execution-slate/opportunities (0 hops), route:POST /api/execution-slate/recommend (0 hops)
+- **season_summary** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:663, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **season_window** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:663, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **selected_model** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/props.js:209, route:GET /api/props/auto-picks (0 hops), route:GET /api/props/board (0 hops)
+- **stale_legs** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:359, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **stale_reason** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/wong.js:267, route:GET /api/betting/wong/board (0 hops), route:GET /api/betting/wong/combos (0 hops)
+- **team_cards** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
+  - server/routes/nfl-betting.js:1082, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
+- _… 15 more in wiring-map.json_
 
 ### `table-hand-fed` — MISSING FEED (10)
 

@@ -1270,7 +1270,7 @@ function findings(model, ann) {
 const PRODUCER = /^(sync|build|fit|refresh|collect|import|backfill|ingest|seed|load|pull|fetch|compute|rebuild)[A-Z]/;
 
 function shouldBeWired(model, ann, add) {
-  const { files, fnReach, columns, tables, reach, reachNames } = model;
+  const { files, fnReach, columns, tables, reach, reachNames, importsOf } = model;
   const ignored = new Set(ann.expected_orphans ?? []);
 
   // 1. TWO NAMES FOR ONE THING, READING DIFFERENT DATA.
@@ -1441,13 +1441,80 @@ function shouldBeWired(model, ann, add) {
       add({ kind: 'should-wire', rule: 'constant-standing-in-for-a-model', scope: scopeOfFile(f.path),
         subject: `${field} ?? ${literal}`,
         detail: `${literal} is used wherever ${field} is absent, and ${field} is a column the app fits `
-          + `and stores in ${owners.slice(0, 3).join(', ')}. Every row the fit does not cover is priced `
-          + `on the typed number instead, and nothing in the output says which one produced it`,
+          + `and stores in ${owners.slice(0, 3).join(', ')}. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. `
+          + `Read what populates the collection just above this line: if the rows were already filtered `
+          + `to the population the fit covers, the number is unreachable and this is not a finding. `
+          + `season-sim.js:226 looked exactly like the worst case and is filtered at :201`,
         evidence: [`${f.path}:${lineOf(f.code, m.index)}`] });
     }
   }
 
-  // 5. A PRODUCER NOBODY RUNS.
+  // 5. A FIELD THE SERVER SENDS THAT NO PAGE EVER MENTIONS.
+  //    Proposed by the UI-rebuild thread, which is the thread that keeps
+  //    finding these by hand: `route-no-caller` catches a whole endpoint
+  //    nobody calls, but a field added to a payload that IS called is
+  //    invisible. It costs work on every request, it makes the API look like
+  //    it supports something it does not, and the screen that was supposed to
+  //    show it never shipped. Route-exists is not surface-reads, and neither
+  //    is field-exists.
+  const rendered = new Set();
+  for (const f of files.values()) {
+    if (f.tree !== 'client' && f.tree !== 'extension') continue;
+    for (const w of f.raw.match(/[A-Za-z_][\w]*/g) ?? []) rendered.add(w);
+  }
+  // Only keys that are ACTUALLY ON A RESPONSE. The first attempt took every
+  // object key in every module within three hops of a route and produced 4,187
+  // findings, almost all of them internal bookkeeping — a number that means the
+  // rule gets skimmed once and never read again. Two precise sources instead:
+  // the object a route hands to res.json, and the object a payload builder
+  // returns, where a payload builder is an exported function of a module a
+  // route imports directly.
+  const spanFrom = (code, open) => {
+    let depth = 0;
+    for (let i = open; i < code.length; i++) {
+      if (code[i] === '{') depth++;
+      else if (code[i] === '}') { depth--; if (depth === 0) return code.slice(open, i + 1); }
+    }
+    return '';
+  };
+  const payloadSpans = new Map();      // file -> [{ text, at }]
+  const push = (file, text, at) => {
+    if (!text) return;
+    if (!payloadSpans.has(file)) payloadSpans.set(file, []);
+    payloadSpans.get(file).push({ text, at });
+  };
+  const routeFiles = [...files.values()].filter(f => f.path.startsWith('server/routes/'));
+  for (const f of routeFiles) {
+    for (const m of f.code.matchAll(/\bres\.json\s*\(/g)) {
+      const open = f.code.indexOf('{', m.index);
+      if (open === -1 || open > m.index + 60) continue;   // res.json(someVariable)
+      push(f.path, spanFrom(f.code, open), open);
+    }
+  }
+  // Deliberately NOT walking into the services a route imports. Taking every
+  // object an exported function returns gave 1,435 findings outside betting,
+  // most of them internal shapes that never leave the process, and a list that
+  // long is a list nobody reads. What a route hands to res.json is the one
+  // place a field is unambiguously on the wire. The cost is stated in LIMITS:
+  // a field a service adds to an object the route spreads is not seen here.
+  for (const [file, spans] of payloadSpans) {
+    const seen = new Set();
+    for (const { text, at } of spans) {
+      for (const m of text.matchAll(/(?:^|[{,]\s*)([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\s*:/gm)) {
+        const key = m[1];
+        if (key.length < 10 || rendered.has(key) || seen.has(key)) continue;
+        if (ignored.has(`field:${key}`)) continue;
+        seen.add(key);
+        add({ kind: 'should-wire', rule: 'served-but-not-rendered', scope: scopeOfFile(file), subject: key,
+          detail: `sent on a payload a page does fetch, and no file under client/src or the extension `
+            + `mentions this name anywhere — so it is computed on every request and nothing shows it`,
+          evidence: [`${file}:${lineOf(files.get(file).code, at)}`,
+            ...surfacesOf(reachNames, file, CLOSE_HOPS).filter(x => x.startsWith('route:')).slice(0, 2)] });
+      }
+    }
+  }
+
+  // 6. A PRODUCER NOBODY RUNS.
   //    A function whose name says it fills something, which writes a table a
   //    live surface reads, and which nothing calls. The table is not empty by
   //    accident; there is simply no path that fills it.
@@ -1578,6 +1645,21 @@ const LIMITS = [
   + 'The script, the tables and the consumers are all on this graph, but nothing here says that '
   + 'running it alters a process already serving requests. Same family as ROWS, NOT WRITERS: the '
   + 'shape of the wiring is not the state of it.',
+  'A CONSTANT IS NOT A FINDING UNTIL SOMEBODY READS UPWARDS. constant-standing-in-for-a-model '
+  + 'finds a typed number defaulting a fitted column. It cannot decide whether that default is '
+  + 'reachable, because the filter that decides it is usually twenty lines earlier and sometimes '
+  + 'in another function. On 2026-09-19 season-sim.js:226 was reported and repeated as the '
+  + 'strongest case of the category; the roster is filtered to the covered positions at :201 and '
+  + 'the fallback cannot fire for the positions that mattered. The line was real and the '
+  + 'conclusion was invented. Treat every hit as a lead to read, never a fact to relay.',
+  'SERVED-BUT-NOT-RENDERED ONLY READS res.json. A field a service attaches to an object '
+  + 'the route spreads is on the wire and not in this rule. Walking into the services made it '
+  + '1,435 findings of which almost none were payload fields, so the rule takes the narrow, '
+  + 'certain source and says so rather than being comprehensive and ignored.',
+  'A LINE NUMBER IS WORTHLESS WITHOUT ITS TREE. On 2026-09-19 three threads cited '
+  + 'contingency.js at :117, :835 and :836 for the same statement, each correct for the branch '
+  + 'it had read. This map names the tree it read at the top of every artifact; quoting a line '
+  + 'from it without that name is how the same hour gets spent twice.',
   'THIS IS A SOURCE TREE, NOT THE RUNNING APP. Every count and every edge here describes the '
   + 'checkout it was run in, named at the top of the file. On 2026-09-19 the deployed binary '
   + 'was ahead of main on contingency.js, serving three fields main does not have. Never read '
@@ -1590,6 +1672,7 @@ const SEVERITY = {
   'edge-behind-an-off-flag': 3.5,
   'column-read-never-written': 1.2, 'producer-with-no-caller': 1.4,
   'two-names-different-sources': 1.6, 'constant-standing-in-for-a-model': 1.7, 'parameter-never-passed': 1.8,
+  'served-but-not-rendered': 1.9,
   'module-only-tested': 4, 'module-imported-by-nothing': 5,
   'module-reaches-no-surface': 5, 'field-attached-never-read': 6, 'value-computed-never-used': 7,
   'table-never-read': 8, 'export-only-tested': 9, 'export-imported-by-nothing': 10, 'route-no-caller': 11,

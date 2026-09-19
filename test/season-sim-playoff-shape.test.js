@@ -204,3 +204,54 @@ test('the minimum-games constant is the one the basis actually uses', () => {
   assert.equal(atThreshold.through, 2026);
   assert.equal(below.through, 2025);
 });
+
+/**
+ * THE BASIS HAS TO BE MEASURED FROM THE DATA, NOT FROM THE CALENDAR.
+ *
+ * `simProjectionBasis` derived everything from `fromWeek - 1`: how many games had been
+ * played, and therefore which projection world to use. It never asked whether the usage
+ * log held those weeks. That is not a labelling nit here, because of the measurement this
+ * threshold exists for: switching to this season's log on ONE game makes projections
+ * measurably worse (Ja'Marr Chase 17.1 to 12.5 points a game on one week of evidence).
+ *
+ * nflverse settles a week's stats a day or two after the games -- `scheduler.js`'s
+ * `nflverse_weekly_usage` header says so and polls every six hours for exactly that
+ * reason. So the calendar routinely runs ahead of the log, and a calendar-only gate
+ * selects the basis that measured WORSE while reporting a week count it does not have.
+ * It also reads "2026 through week 2" against an empty 2026 log, which is what a fresh
+ * volume or a machine in its first hours after a deploy actually has.
+ */
+test('the log being behind the calendar is what decides the basis, not the week number', () => {
+  // Week 6 on the calendar, one week actually synced. One game measured WORSE than last
+  // season, so this must not switch -- and it must say why rather than claiming five weeks.
+  const behind = simProjectionBasis(6, 2026, 1);
+  assert.equal(behind.through, 2025, 'one logged week does not outweigh a complete season');
+  assert.equal(behind.throughWeek, null);
+  assert.match(behind.basis, /too little to outweigh/);
+});
+
+test('an empty log for this season says so, instead of naming a week it cannot read', () => {
+  const empty = simProjectionBasis(3, 2026, 0);
+  assert.equal(empty.through, 2025);
+  assert.equal(empty.throughWeek, null);
+  assert.match(empty.basis, /usage log is empty/);
+  // The old behaviour: "2026 through week 2", resting on 2021-2025 rows and nothing else.
+  assert.doesNotMatch(empty.basis, /2026 through week/);
+});
+
+test('a log behind the calendar but past the threshold reads this season and states the gap', () => {
+  const partial = simProjectionBasis(6, 2026, 3);
+  assert.equal(partial.through, 2026);
+  // The cutoff stays the calendar's, which is leak-safe and reads every row that exists up
+  // to it. Using the logged COUNT as the cutoff would drop week 4 from a log of 1, 3, 4.
+  assert.equal(partial.throughWeek, 5);
+  assert.match(partial.basis, /only 3 of those 5 weeks/);
+});
+
+test('the logged count can never push the cutoff past the week being simulated', () => {
+  // A log claiming more weeks than the calendar allows must not widen the window.
+  for (const w of [1, 2, 3, 8, 14]) {
+    const b = simProjectionBasis(w, 2026, 99);
+    if (b.throughWeek != null) assert.ok(b.throughWeek < w, `week ${w} cutoff ${b.throughWeek}`);
+  }
+});

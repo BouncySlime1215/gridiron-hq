@@ -290,6 +290,22 @@ How to read the above:
                               availability at any remove, so this is the fit, not
                               the manager layer.
 
+  ATTRIBUTION                 Only target.active_probability and the valuations
+                              derived from it are the fit's alone. The playoff odds
+                              and the horizon are ALSO moved by two simulator
+                              defects being fixed separately: the route default
+                              that simulates from week 1 (model.js:527) and the
+                              hardcoded bracket weeks (season-sim.js:195 uses
+                              PLAYOFF_WEEKS = [15, 16, 17], which is only right for
+                              a 14-week regular season, while the regular season
+                              itself is read from matchupPeriodCount at :77). If
+                              the fit and those fixes land in the same window, a
+                              playoff-odds difference cannot be attributed to
+                              either; active_probability still can. This script's
+                              own reads are not affected by the route default,
+                              because trade-engine.js:1317 passes the served week
+                              explicitly.
+
   everything unchanged        Suspect the reading before the fit. A route that
                               memoises without a data fingerprint returns the old
                               answer rather than failing — which is why this script

@@ -30,6 +30,45 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
       charged as separate P(accept) terms although D4 lists them, because
       `playerValuation` already prices both into `perception_delta`. Two tests
       pin this by adding each on top and asserting the band does not move.
+    - **INDEPENDENT VERIFY: `confirmed_with_fixes`.** RED `c2a6195`, GREEN
+      `bd06648`, 22/22 (was 16). It found four real defects the self-verify had
+      missed, each fixed test-first:
+      1. The band published **certainty and impossibility at its edges** —
+         floor/ceiling were enforced on `mid` only, so the extremes produced
+         `high: 1` and `low: 0`. The clamp also ate width, making the band
+         *narrower* for a reason that was not evidence.
+      2. An `accept_rate` with **`n = 0` still anchored the band** — centring on
+         a rate with no sample and reporting `heuristic_anchored` with a
+         narrower width than the honest unanchored case, while its own
+         `anchor.why` said in the same output that there was no rate to anchor
+         on. Self-contradicting.
+      3. A **false reason for dropping real evidence**: receptiveness could be
+         discarded citing "his 30 decided offers are already the anchor" when
+         there was no usable rate and the band was sitting on the declared
+         starting point.
+      4. **Silent drops** — an effect under 0.001 vanished from both `factors`
+         and `inert`, making "read, and it is neutral" indistinguishable from
+         "no data", which is the first rule `counterparty-pricing.js` states.
+    - **It also falsified this stage's own prose.** `ANCHOR_BLEND_N = 15` is
+      correct, but the claim it rested on is not: `counterparty-pricing.js:185-196`
+      adds Nick's priors and the post-loss window AFTER the blend, so
+      receptiveness is never simply the accept rate. Above n=15 the band now
+      discards those two independent signals; below it, the chat part is
+      discounted twice. **Both errors under-charge, which is the safe direction,
+      but neither is exact.** The exact fix means inverting that file's
+      `:175-199` contract — not done, and written into the module header rather
+      than left implied.
+    - **Ablation control removed (`5851e22`).** The engine forwarded its
+      valuation `zero` array into the band, but the two vocabularies are
+      disjoint sets — verified by listing both — so it could never match a
+      source. It read like a control and was a no-op. The ablation does still
+      reach the band through its inputs (`zero` is applied in `counterpartyLayer`
+      and `readDeal`, which receptiveness and `perception_delta` are built
+      from); what the engine genuinely cannot suppress is `says_no_holds`.
+    - **Reported, not fixed:** `offerFor`/`offerForMany` get no acceptance band
+      AND no edge test — their ladder rungs carry `accept_rate`/`perception_delta`
+      with no acceptance verdict. The anchor's minimum (`n > 0`) is also unlinked
+      from the upstream gate that only emits a rate at `decided >= 5`.
   - **`build:sendable-proposals` — LANDED (code), UNEXERCISED (the call).**
     RED `fd70334`, GREEN `abac2c5`, wiring `ace0101`; 18/18; evidence
     `docs/tdd/sendable-proposals.tdd.md`. `GET /api/trades/:leagueId/proposals`,

@@ -59,7 +59,7 @@
  */
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import { processSpan, spanWarning } from './lib/capture-span.mjs';
+import { processSpan, spanWarning, readCrossedRestart } from './lib/capture-span.mjs';
 
 const BASE = process.env.GRIDIRON_BASE_URL ?? 'https://gridiron-hq.fly.dev';
 const TOKEN = process.env.GRIDIRON_FLY_TOKEN ?? '';
@@ -127,7 +127,15 @@ async function processIdentity () {
     return { read: false, status: res.status,
       detail: res.text ?? 'a 200 with no uptime_s: the health shape changed' };
   }
-  return { read: true, uptime_s: res.body.uptime_s,
+  // The read proves its own validity before it is used for anything. Fly's edge
+  // replays a held request into the machine that comes up, so a 200 can be
+  // answered by a process that did not exist when the request was sent.
+  if (readCrossedRestart(res.body.uptime_s, res.ms)) {
+    return { read: false, crossed_restart: true, uptime_s: res.body.uptime_s, ms: res.ms,
+      detail: `answered by a process ${res.body.uptime_s}s old after ${Math.round(res.ms / 1000)}s `
+        + 'in flight, so the app restarted while this read was open' };
+  }
+  return { read: true, uptime_s: res.body.uptime_s, ms: res.ms,
     started_at: new Date(Date.now() - res.body.uptime_s * 1000).toISOString() };
 }
 

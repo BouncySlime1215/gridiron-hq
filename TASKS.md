@@ -107,10 +107,61 @@ Last updated: 2026-09-19, new cloud session on `cursor/betting-model-audit-fixes
        every run. That is the "did the suite get faster" half of blocker 1,
        answered with a number.
 
-       The 3 remaining failures are `prop-clv-free-capture`, and the 3
-       "cancelled" are `report-cache` — the two groups an agent is root-causing.
-       Nothing else in the suite fails. `npm run check`'s other four stages are
-       green here too: typecheck 0, lint 0, build 0, start:smoke 0.
+       ~~The 3 remaining failures are `prop-clv-free-capture`, and the 3
+       "cancelled" are `report-cache`~~ — **both groups are now root-caused and
+       fixed** (`1238a39`, `9c38470`, `da27ce0`, `b0c6e4f`). `npm run check`'s
+       other four stages are green here too: typecheck 0, lint 0, build 0,
+       start:smoke 0.
+
+    1b. **Neither of the last two groups was what the docs said, and one of them
+        was not a pre-existing failure at all.** An independent agent
+        root-caused both; every claim below was then re-verified here directly.
+
+        - **`prop-clv-free-capture` (3) was a TIME BOMB, not a pre-existing
+          failure.** It was green and detonated at **2026-09-17T12:00:00Z**.
+          `captureFreePropMarket()` scans quotes within `sinceHours` (default 14
+          days) **of `Date.now()`**, while the fixtures are pinned to absolute
+          dates (`2026-09-03T12:00/13:00/14:00Z`) because the season/week
+          assertions need a real kickoff in `game_lines`. Fourteen days on, they
+          fell out of the window, the function returned `{skipped:true}` — a
+          shape with no `stored` key — and three assertions read `undefined`.
+          Today's cutoff is `2026-09-05T07:56Z`: the three 2026-09-03 fixtures
+          are outside it, the 2026-09-10 one is inside, which is exactly which
+          three failed. **`53c408e`, the commit cited as their provenance in
+          `PIPELINE_REPORT.md:96` and repeated in `CLOUD-MIGRATION.md`, does not
+          exist on any ref in this repo.** The repo's own archive shows all four
+          passing on 2026-09-10
+          (`docs/evidence/2026-09-10/slice-final/baseline-suite-before.txt:1248`).
+          Fixed at the seam: `captureFreePropMarket()` takes an injectable `now`
+          like `sharpLag()` does, the test pins every call site, and a new test
+          exercises the 14-day boundary from both sides. Verified 5/5 with the
+          system clock faked five years forward. Not a product bug — producer
+          and consumer share an hourly cadence and are enabled together.
+        - **`report-cache` (3 "cancelled") was a real code defect**, latent since
+          the file was written and unmasked by this box's Node, not by any code
+          change (the original tree fails identically here; the archive shows it
+          passing the day it landed). `worker.unref()` on a promise that can only
+          settle from that worker's events meant a caller who awaited it could
+          exit silently with the promise pending. Removed.
+        - **A third defect, previously unknown, found in the same function.** The
+          `exit` handler guarded on `inflight.has(name)` — keyed by report NAME,
+          so it answered "is some run in flight", not "is MY run unsettled". A
+          finished worker's late `exit` therefore ran the PREVIOUS job's
+          `finish()`: `payload_json` NULLed on a report that had just succeeded,
+          `error` set to `worker exited with code 0`, and the newer run's
+          in-flight entry deleted. Reproduced test-first, then fixed with a
+          per-worker latch. Not a wrong number on any page Nick sees (nothing in
+          `client/src` reads these), but an API consumer sees a success served as
+          a failure with an empty body, and on `football_first_fit` (~90s) or
+          `abstention_audit` (~66s) the bad row persists for the whole second run.
+
+    1c. **The method finding, which outlives all three bugs.** "It fails on an
+        older commit too, so it is pre-existing" is invalid, and it is what put
+        three green tests on a known-failures list for two days. A time bomb
+        fails on every older tree, because what changed is the date, not the
+        code. Running an old tree proves *not introduced by this diff*; it never
+        proves *not introduced by time*. This session repeated the same mistake
+        before catching it — it was asserted on PR #6 and corrected there.
     2. **Two independent verify agents are running** (per A3): one adversarially
        re-checking all three commits, one root-causing the remaining
        `prop-clv-free-capture` (3) and `report-cache` (3). Neither had reported

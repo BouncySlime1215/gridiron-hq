@@ -292,8 +292,22 @@ Two further corrections to what this section implied:
   guard's RED commit (`cc12a22`) caught by capturing a real Anthropic
   `request_id` from inside the suite.
 
-The remaining 3 (`prop-clv-free-capture`) are the genuinely pre-existing
-failures and are unaffected by any of the above.
+~~The remaining 3 (`prop-clv-free-capture`) are the genuinely pre-existing
+failures and are unaffected by any of the above.~~ **WRONG too, corrected the
+same day (`b0c6e4f`).** They were green and detonated at
+**2026-09-17T12:00:00Z**: `captureFreePropMarket()` scans a window relative to
+`Date.now()` while the fixtures are pinned to absolute dates, so 14 days on they
+aged out and the function returned `{skipped:true}` with no `stored` key. Also
+`53c408e`, cited as their provenance, **does not exist on any ref in this
+repo**, and this file's own archive shows all four passing on 2026-09-10
+(`docs/evidence/2026-09-10/slice-final/baseline-suite-before.txt:1248`). Fixed;
+5/5, and still 5/5 with the clock faked five years forward.
+
+**The method that produced "pre-existing" is the durable finding.** It was:
+check out an older tree, run it, see the same failures. That cannot tell a time
+bomb from an old bug — a time bomb fails on every older tree, because what
+changed is the date, not the code. It proves *not introduced by this diff*,
+never *not introduced by time*.
 
 ---
 

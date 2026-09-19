@@ -11,7 +11,7 @@ export default defineConfig({
     // session) can run alongside the usual one without a port clash.
     port: Number(process.env.VITE_CLIENT_PORT) || 5178,
     proxy: {
-      '/api': process.env.VITE_API_PROXY || 'http://localhost:5177'
+      '/api': process.env.VITE_API_PROXY || 'http://127.0.0.1:5177'
     }
   }
 });

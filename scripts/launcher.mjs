@@ -212,7 +212,8 @@ function startTunnel(appPort) {
   // starting the app's tunnel unless someone ran `npm run tunnel` by hand.
   // Found 2026-09-07 chasing why /api/auth/tunnel-url stayed null despite
   // /start reporting success.
-  if (processRunning(`cloudflared tunnel --url http://localhost:${appPort}`)) return 'already running';
+  // The URL here must match what tunnel.mjs actually passes to cloudflared.
+  if (processRunning(`cloudflared tunnel --url http://127.0.0.1:${appPort}`)) return 'already running';
   try {
     const nodeBin = resolveNodeBin();
     const out = fs.openSync(path.join(LOG_DIR, 'tunnel.log'), 'a');

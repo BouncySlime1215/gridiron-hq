@@ -141,7 +141,10 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
 }
 
 app.listen(PORT, '127.0.0.1', () => {
-  console.log(`Gridiron HQ listening on http://localhost:${PORT}`);
+  // Printed as 127.0.0.1, matching the address actually bound above: on macOS
+  // "localhost" resolves to ::1 first, so the advertised URL would refuse the
+  // connection while the server was up.
+  console.log(`Gridiron HQ listening on http://127.0.0.1:${PORT}`);
   // Warm the evidence layers (career lines, preseason curve, offseason
   // adjustments, in-house projections) off the request path: cold they cost
   // ~4.5s on the first board read, which on draft night would land on the

@@ -10,7 +10,14 @@ import { clientBuildStatus, writeBuildMarker } from './client-build-check.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = process.env.API_PORT || 5177;
-const URL = `http://localhost:${PORT}`;
+// Loopback is addressed as 127.0.0.1, never "localhost", for every request this
+// repo makes to its own server. server/index.js binds 127.0.0.1 explicitly, and
+// on macOS "localhost" resolves to the IPv6 ::1 first, where nothing is
+// listening — so a localhost probe gets ECONNREFUSED against a server that is
+// up and healthy. That cost a real evening: start.mjs printed "Gridiron HQ
+// listening", its own readiness poll never succeeded, and after 30s it reported
+// "did not come online" and SIGTERMed the working server.
+const URL = `http://127.0.0.1:${PORT}`;
 const IS_WIN = process.platform === 'win32';
 
 const isReady = async () => {

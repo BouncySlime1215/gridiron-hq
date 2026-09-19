@@ -33,7 +33,8 @@ const freePort = () => new Promise(resolve => {
 });
 
 const PORT = await freePort();
-const BASE = `http://localhost:${PORT}`;
+// 127.0.0.1, not localhost — see the note in scripts/start.mjs.
+const BASE = `http://127.0.0.1:${PORT}`;
 
 const server = spawn(process.execPath, ['--env-file-if-exists=.env', 'server/index.js'],
   { cwd: ROOT, env: { ...process.env, API_PORT: String(PORT) }, stdio: ['ignore', 'ignore', 'inherit'] });

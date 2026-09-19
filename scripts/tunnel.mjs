@@ -14,7 +14,9 @@
 import { spawn, spawnSync } from 'node:child_process';
 
 const PORT = process.env.API_PORT || 5177;
-const LOCAL = `http://localhost:${PORT}`;
+// 127.0.0.1, not localhost — see the note in scripts/start.mjs. Keep this in
+// step with launcher.mjs's startTunnel(), which matches on this exact string.
+const LOCAL = `http://127.0.0.1:${PORT}`;
 
 // launchd (the launcher spawns this) runs with a minimal PATH that doesn't
 // include Homebrew, so the bare command name resolves in a terminal but not here.

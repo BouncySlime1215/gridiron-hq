@@ -213,7 +213,7 @@ The only scheduled QBR job is `nfl_qbr_weather` (`scheduler.js:1216`), which cal
 | # | State | What it needs |
 |---|---|---|
 | 8 | CI cancelled at 15:58Z, re-run queued | A green run. It changes only `CLAUDE.md` and `.claude/skills/`, so this is a formality — but it has never had one. |
-| 33 | CI **failed** at 19:52Z: 2,808 tests, 1 failure | Resolution. That single failure did **not** reproduce in the merged train, where the same code passed as part of 2,928 green tests, so it is either a flake or something a later merge covers. A re-run has been queued. It is in the sequence on the strength of the train result, and if the re-run fails the same way the owning thread should look before this lands. |
+| 33 | CI **failed** at 19:52Z: 2,808 tests, 1 failure | Probably nothing, and a re-run is queued to confirm. That single failure did **not** reproduce in the merged train, where the same code passed inside 2,928 green tests. It also matches a known repo-wide signature: a test file whose every test passes but whose `after` hook throws `ENOTEMPTY` on `fs.rmSync`, because a worker thread re-runs `server/db/index.js` and re-creates the database directory mid-removal. That is environmental and predates the whole stack. It is in the sequence on the strength of the train result; if the re-run fails differently, the owning thread should look before this lands. |
 | 34 | Green, wrong base | Rebasing off PR #6's branch. See section 2. |
 
 Every other pull request in the train has a completed, green
@@ -249,8 +249,11 @@ What each line decides:
   provenance (see step 1 below).
 - **`nfl_qbr_weekly` by season** — which of the three #15 gate verdicts applies.
   Empty passes, 2025-2026 only passes, 2021-2026 fully backfilled **fails**.
-- **`nfl_ffopportunity_weekly` by season** — whether #28's job is a no-op or a
-  three-season backfill on first run.
+- **`nfl_ffopportunity_weekly` by season** — the before-reading for post-deploy
+  check 5. #28's own writer is idempotent (`INSERT ON CONFLICT DO UPDATE`, and its
+  season selector skips seasons the table already holds), so this is not about
+  whether #28 is safe to run. It is about spotting a season left half-written by
+  an earlier memory kill, which that same selector will then never revisit.
 - **`player_week_usage` by season** — the before-reading for post-deploy check 2.
 - **the three table counts** — confirms the two availability tables and
   `shrinkage_fits` are empty, which is what makes steps 7 and 9 additions rather
@@ -371,12 +374,19 @@ asks whether the thing that was supposed to be produced now exists.
    every `/api/trades/:leagueId` route. Load a trade page for each of the five
    leagues and confirm none returns 403. This is the single highest-risk change in
    the train for existing behaviour.
-5. **`evidence_daemon` is still failing, and that is expected.** It has run 29
+5. **`nfl_ffopportunity_weekly` has plausible week counts per season, not merely
+   rows.** Count rows *per season* and check the week span, rather than checking
+   the table is non-empty. A sync killed by the machine's memory leaves a season
+   holding a handful of rows, and the season selector treats any season with at
+   least one row as complete — so that season is then never backfilled and the
+   gap is permanent and silent. The deploy is the moment anyone will look at
+   this. Fixing the selector is a follow-up pull request, not part of this train.
+6. **`evidence_daemon` is still failing, and that is expected.** It has run 29
    times and failed 29 times, always on its budget. #32 makes that failure cheap
    and therefore quiet. It is betting-side and nobody is fixing it. **Do not read
    a clean scheduler tier as evidence that it started working** — check its own
    `sync_log` row.
-6. **Take the reading again**, same command as step 2, to `~/sim-after-deploy.json`.
+7. **Take the reading again**, same command as step 2, to `~/sim-after-deploy.json`.
    This separates every code change in the train from the data write in step 9.
 
 ### 7. Database write 1, dry run — the opportunity promotion gate

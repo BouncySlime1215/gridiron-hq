@@ -285,7 +285,7 @@ test('a missing signal falls back to neutral rather than to zero', () => {
   const n = neutralFeatures({ week: 2, games: 2, num_teams: 10, playoff_teams: 5, mean_points_z: 2, all_play_pct: 0.9, win_pct: 0.9 }, 7.6);
   assert.equal(n.all_play_pct, 0.5);
   assert.equal(n.points_shrunk, 0);
-  // Structure is kept in the neutral state: preseason still knows the league's format.
+  // Structure is kept in the neutral state: the no-results baseline still knows the format.
   assert.equal(n.playoff_share, 0.5);
 });
 

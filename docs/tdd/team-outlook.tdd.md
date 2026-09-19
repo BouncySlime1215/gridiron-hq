@@ -279,3 +279,44 @@ Two defects compounding: a silent arithmetic error, and a gate that could not se
 are fixed, `fitLogistic` now refuses to return a non-finite fit at all, and
 `test/team-outlook.test.js` carries a regression test for each. Worth stating plainly because
 the first run of the gate reported "42 conditions failed" and looked like a result.
+
+### 7.6 A field name that was read as a claim we cannot make
+
+`decompose()` returned the neutral-state probability as `preseason`. Section 4 above
+uses the same word, and it is wrong there too — but section 4 is pre-registration and
+does not get edited after the fact, so the correction lives here.
+
+The UI thread read the field name, not the header above it, and wrote *"only 12% of
+that is what has actually happened — the rest is the preseason picture"* into its
+design copy. A reader takes that as **our preseason projection of this roster**. There
+is no such thing in this payload.
+
+There is a per-player preseason model (`preseason-model.js`, surfaced through
+`lineup-brain.js` and `draft-assist.js`), so the word is not unused in this codebase —
+which makes the collision worse, not better. But it cannot be summed into a team's
+preseason strength, for two reasons already measured: it covers skill positions only,
+as does the projection engine (`projections.js:292` and `:300`, origin/main at 791b131,
+both select `p.position IN ('QB','RB','WR','TE')`, so no row exists for a kicker or a
+defence at all), and `players.sleeper_id` is populated for 751 of 8,556 players, so a
+Sleeper roster cannot be priced against it without scoring a team badly for having
+unmapped stars. That is the same measurement that kept projected lineup strength out of
+the feature set in §1.
+
+What the number actually is: this same fitted model with every result-derived feature
+at its neutral value — what it says about a team in this league, at this week, whose
+results we have not seen. It contains no information about who the players are.
+
+Renamed to `no_results_yet`, with a test that fails if anything reintroduces the old
+name. Nothing read the field yet, so no alias was kept.
+
+**The general lesson, which is the reason this is written down.** A field name is read
+by consumers who will never read the header above it, so the name has to carry the
+claim by itself. The header here was already correct and explicit, and it did not stop
+the misreading — the header is read by whoever edits the function, and the name is read
+by whoever consumes it. This is the same shape as the rest of §7: a thing that looked
+right to the person who wrote it and said something else to the person who used it.
+
+Also corrected in passing: `weight_on_results` is a property of the league format and
+the week, `games / (games + k)`, not of the team. Every team in a 12-team league at
+week 2 gets the same value. Any surface that places it where it reads as team-specific
+is making a different and false claim.

@@ -232,7 +232,18 @@ export function signCheck(weekFit) {
 }
 
 /**
- * The change since preseason, split three ways.
+ * The change since we knew nothing about this team, split three ways.
+ *
+ * `no_results_yet` IS NOT A PRESEASON FORECAST. It is this same fitted model with every
+ * result-derived feature at its neutral value: what the model says about a team in this
+ * league, at this week, whose results we have not seen. It carries no projection of the
+ * roster and no preseason ranking. A per-player preseason model does exist
+ * (`preseason-model.js`), which makes the name collision worse rather than better, but it
+ * cannot be summed into a team's strength: skill positions only, and `players.sleeper_id`
+ * covers 751 of 8,556 players. See the module header and tdd 7.6. It was called
+ * `preseason` until the UI thread read that name and wrote "the rest is the preseason
+ * picture", which a reader takes as our projection. A field name is read by consumers who
+ * will not read this header, so the name carries the claim on its own.
  *
  * `luck` and `noise` are each defined exactly as the plan defines them -- luck is the
  * record against the all-play record, noise is the scoring the posterior does not yet
@@ -271,7 +282,7 @@ export function decompose(fit, row) {
   const real = total - luck - noise;
   const games = row.games ?? 0;
   return {
-    preseason: +pNeutral.toFixed(4),
+    no_results_yet: +pNeutral.toFixed(4),
     now: +pActual.toFixed(4),
     total: +total.toFixed(4),
     luck: +luck.toFixed(4),

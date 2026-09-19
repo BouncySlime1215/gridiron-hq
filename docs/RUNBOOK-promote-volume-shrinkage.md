@@ -36,14 +36,36 @@ Running them against any other copy of the database fits and activates a vector
 for that copy and leaves the live app untouched, which is a silent no-op rather
 than an error — so check the path before assuming a run took effect.
 
+## The precondition that is easy to miss
+
+`projections.js:230` feeds a QB structural head from `nfl_qbr_weekly`, and **the
+gate's verdict depends on how much of that table is populated.** Measured three
+ways on 2026-09-19:
+
+| `nfl_qbr_weekly` | gate |
+|---|---|
+| empty everywhere | passes |
+| 2021-2026 fully backfilled | **fails** — the 2025 ensemble gain is no longer significant |
+| 2025-2026 only | passes |
+
+The live database was read at 16:38Z and holds 0 rows for 2021-2024, 540 for 2025
+and 34 for 2026 — the third row, which passes. But another thread is backfilling
+QBR, and if 2021-2024 lands before this promotion the gate has to be re-read and
+may come back false. **Check `nfl_qbr_weekly` coverage before step 1 and record
+what it was**, so a later reader knows which of the three verdicts they are
+looking at.
+
 ## Preconditions
 
 1. The app answers. As of 16:30Z on 2026-09-19 `gridiron-hq.fly.dev` had not
    returned a byte for 25 minutes on any path, including the bare homepage.
-2. The live database holds `player_week_usage` for 2021-2025. The gate replays
-   three full seasons; it cannot run on a partial history. **Check this first** —
-   if the live rows differ materially from the rebuild these numbers came from,
-   the gate's verdict is not transferable and it has to be re-read on the day.
+2. The live database holds `player_week_usage` for 2021-2025. **Verified
+   2026-09-19 16:38Z:** 7,659 / 7,945 / 8,436 / 8,675 / 8,857 rows for 2021-2025,
+   18 weeks and 32 teams each. Note 2026 is **0 rows** — the current season has no
+   usage data on the live app at all, which does not block the gate (it replays
+   2023-2025) but does mean this week's projections have no 2026 usage under them.
+   That is somebody else's fix; it is recorded here so it is not mistaken for a
+   consequence of this change.
 3. Nobody else is mid-sync. The gate is read-heavy and takes about 90 seconds on
    a warm machine; a synchronous backfill running alongside it will block both.
 

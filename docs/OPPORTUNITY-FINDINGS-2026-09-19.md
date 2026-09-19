@@ -73,7 +73,9 @@ Structural head, walk-forward:
 
 **`scripts/promote-volume-shrinkage.mjs --dry-run` passes all five of its
 pre-registered gate conditions on this data**, including the two that matter for
-what a user sees:
+what a user sees. (This run had `nfl_qbr_weekly` empty; see the section below,
+which repeats it under the live database's actual QBR state and under a full
+backfill, because the answer is not the same in all three.)
 
 | | 2024 | 2025 |
 |---|---|---|
@@ -86,6 +88,36 @@ Both ensemble differences are significant under a player-clustered paired
 bootstrap. The re-fitted weights move the structural head from 0.20–0.25 up to
 0.50–0.55, which is the docstring's own prediction that a better head should earn
 more weight.
+
+### The verdict depends on whether QBR is loaded — checked, not assumed
+
+`projections.js:230` documents a walk-forward-validated QB structural head fed by
+`nfl_qbr_weekly`. The rebuild above had that table empty, so the head was inert
+in every number on this page. Running the same gate with QBR loaded for all six
+seasons changes the answer:
+
+| `nfl_qbr_weekly` state | 2025 structural head | 2025 ensemble | gate |
+|---|---|---|---|
+| empty everywhere (first rebuild) | 4.638 → 4.519 | 4.362 → 4.341, significant | **passes** |
+| 2021-2026 fully loaded | 4.758 → 4.394 | 4.363 → 4.347, **not** significant | **fails (3)** |
+| 2025-2026 only — **what the live app has** | 4.758 → 4.394 | 4.364 → 4.343, significant | **passes** |
+
+The live database was read on 2026-09-19 at 16:38Z: `nfl_qbr_weekly` holds 0 rows
+for 2021-2024, 540 for 2025 and 34 for 2026. That third row is therefore the one
+that describes production, and it passes.
+
+Two things follow, and the second is the one that matters operationally.
+
+The shrinkage fix is directionally right in **every** configuration — the
+structural head is better in all three seasons and significant in all three, and
+feeding the QB head actually widens the head-level gap (2025: −0.119 without QBR,
+−0.364 with it). What narrows is the *net ensemble* benefit, because the ensemble
+re-fit can lean on other heads once the QB head carries real information.
+
+**So backfilling QBR for 2021-2024 would stop this gate passing.** Another thread
+is pulling exactly that (2,754 rows, `syncQbr`). If that lands on the live
+database before the promotion, the gate has to be re-read and may well come back
+false on condition 3. Promote first, or accept that it needs re-deciding after.
 
 **This is a database write, not a code change.** The gate script, the fitter, the
 cutoff-safety guard and the recency-units guard all already exist and are

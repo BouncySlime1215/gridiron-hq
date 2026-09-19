@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, useApi } from '../api';
+import { useDeployment } from '../state/deployment';
 
 /**
  * One-click ESPN connection.
@@ -19,6 +20,7 @@ import { api, useApi } from '../api';
  */
 export default function EspnConnect() {
   const { data: status, refetch } = useApi<any>('/espn-connect/status');
+  const deployment = useDeployment();
   const { data: bm } = useApi<any>('/espn-connect/bookmarklet');
   const [discovered, setDiscovered] = useState<any[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -227,9 +229,17 @@ export default function EspnConnect() {
               </div>
             </div>
           )}
+          {/* A claim about where someone's credentials end up has to be true of
+              the install they are looking at. On the Mac the database is on
+              that disk; on the hosted app it is a server volume, and saying
+              "only on this machine" there is wrong about the one thing a reader
+              would most want to be right. */}
           <p className="text-[10px] text-slate-400 mt-3">
-            Your cookies are checked against ESPN and stored only on this machine. Nothing is
-            sent anywhere else, and a failed attempt never touches a connection that already works.
+            Your cookies are checked against ESPN and stored
+            {deployment && !deployment.local
+              ? ' in this install\u2019s own database on the server'
+              : ' only on this machine'}
+            . They go nowhere else, and a failed attempt never touches a connection that already works.
           </p>
         </>
       )}

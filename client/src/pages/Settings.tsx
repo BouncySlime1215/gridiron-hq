@@ -3,6 +3,7 @@ import EspnConnect from '../components/EspnConnect';
 import PhoneAccess from '../components/PhoneAccess';
 import LeagueChatPull from '../components/LeagueChatPull';
 import { api } from '../api';
+import { useDeployment } from '../state/deployment';
 
 /**
  * This page used to also carry a manual "League ID / season / espn_s2 / SWID" form
@@ -16,14 +17,40 @@ import { api } from '../api';
 export default function Settings() {
   const [msg, setMsg] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  // Which of the two installs this is. Everything below that describes sign-in
+  // or where data lives reads this rather than asserting the Mac.
+  const deployment = useDeployment();
 
   return (
     <div className="max-w-2xl">
-      <div className="card p-5 mb-4 space-y-3">
-        <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-600" /><h1 className="text-xl font-bold">Local sign-in is automatic</h1></div>
-        <p className="text-xs leading-5 text-slate-600">Gridiron HQ provisions this browser when it connects from your own Mac. There is no bearer token to copy or paste. Protected league, draft, trade and Model Lab calls still require a real session; the server only issues it over the loopback interface.</p>
-      </div>
-      <PhoneAccess />
+      {deployment && (
+        <div className="card p-5 mb-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-600" />
+            <h1 className="text-xl font-bold">
+              {deployment.local ? 'Local sign-in is automatic' : 'You are signed in with Google'}
+            </h1>
+          </div>
+          {deployment.local ? (
+            <p className="text-xs leading-5 text-slate-600">
+              Gridiron HQ provisions this browser when it connects from your own Mac. There is no bearer
+              token to copy or paste. Protected league, draft, trade and Model Lab calls still require a
+              real session; the server only issues it over the loopback interface.
+            </p>
+          ) : (
+            <p className="text-xs leading-5 text-slate-600">
+              This is the hosted app, so the automatic loopback sign-in does not apply here — a Google
+              account does. Your leagues, rosters and model data live on the server rather than on this
+              device, and anyone else invited to this install sees the same leagues.
+            </p>
+          )}
+        </div>
+      )}
+      {/* Pairing codes and the tunnel address only exist on the Mac: the
+          endpoints behind this card refuse anything that is not direct
+          loopback, so on the hosted app it rendered a failed request and a set
+          of instructions for a machine the reader is not sitting at. */}
+      {deployment?.local && <PhoneAccess />}
       <LeagueChatPull />
       <EspnConnect />
       <h1 className="text-2xl font-bold mb-1">ESPN Settings</h1>

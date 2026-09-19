@@ -76,6 +76,41 @@ startDraftClockJob();
 // (draft-ingest.js) for why.
 startDraftFinalizeJob();
 
+/**
+ * Liveness, for the host's health check — deliberately the cheapest route that
+ * can still FAIL when the app is broken.
+ *
+ * `fly.toml` used to carry a TCP check and nothing else. A TCP check is
+ * answered by the kernel's listen backlog, which keeps accepting connections
+ * perfectly well while Node's event loop is blocked, so a wedged process looks
+ * healthy forever: Fly went on routing traffic to it and never restarted it.
+ * That is how the app stayed down rather than recovering by itself.
+ *
+ * So this must execute JavaScript on the event loop and touch SQLite
+ * synchronously, because those are the two things that actually wedge (see
+ * runJobOffThread in services/scheduler.js). A check that only proved a socket
+ * was open would reproduce the original bug.
+ *
+ * Unauthenticated on purpose: a health check cannot hold a bearer token, and
+ * this discloses nothing but uptime. It is mounted above every authenticated
+ * router so no auth failure can ever mask a liveness answer.
+ */
+app.get('/api/health', async (req, res) => {
+  try {
+    const { db } = await import('./db/index.js');
+    // One prepared read against a table that always exists. Proves the event
+    // loop is turning AND that a synchronous SQLite call can complete, which
+    // together are what "the app can serve a request" actually means here.
+    db.prepare('SELECT 1').get();
+    res.json({ ok: true, uptime_s: Math.round(process.uptime()) });
+  } catch (error) {
+    // 503, not 500: this is the signal that should make the host replace the
+    // machine, and an error handler that returned 200 would be the TCP check
+    // all over again.
+    res.status(503).json({ ok: false, error: error.message });
+  }
+});
+
 // Public only on the loopback interface. It removes the fresh-install token
 // paste step while all protected route families remain bearer-authenticated.
 app.use('/api/auth', localAuthRouter);

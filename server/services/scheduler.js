@@ -17,6 +17,7 @@
  * cheap: the MLB schedule is one request for a whole season, and refreshes are
  * skipped entirely when the data is already fresh.
  */
+import { Worker } from 'node:worker_threads';
 import { db, rows, run, row } from '../db/index.js';
 
 /**
@@ -1036,6 +1037,83 @@ const DEFAULT_JOB_TIMEOUT_MS = 120_000;
 // before a full second, so 750ms is "found it" territory, not noise.
 const SLOW_JOB_WARN_MS = 750;
 
+/** The original inline budget: abandon the promise so the rest of the tier can run. */
+function withJobTimeout(promise, name, timeoutMs) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(
+        `job '${name}' exceeded its ${Math.round(timeoutMs / 1000)}s budget and was abandoned so the ` +
+        'rest of the tier could run')), timeoutMs);
+      timer.unref?.();
+    })
+  ]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Run one job in a worker thread, so its CPU and its synchronous SQLite calls
+ * are not on the thread serving HTTP.
+ *
+ * THIS IS THE FIX FOR A REAL OUTAGE, not a tidiness exercise. `server/index.js`
+ * starts this scheduler with `intervalMinutes: 5`, so the background tier is
+ * ATTEMPTED every five minutes — the 30-minute default this file's own comments
+ * describe is overridden at the call site. Switching AUTO_HEAVY_SYNC on adds
+ * eleven heavy jobs (season simulations, model refits, LLM writeups, each
+ * budgeted in minutes) to that pass, sequentially, on the main thread. The
+ * first such pass blocks the event loop past any client's timeout, and the
+ * in-flight guard below only stops a SECOND pass stacking up — it does nothing
+ * to make the app answer while the first one runs. `fly.toml`'s check was TCP
+ * only, so the kernel's listen backlog kept answering and Fly never restarted
+ * the wedged process. Both halves are fixed together; see the HTTP check there
+ * and `/api/health` in server/index.js.
+ *
+ * The worker opens its own SQLite connection. WAL gives it a concurrent
+ * reader for free; writes still serialize against the main thread under the
+ * 15s busy_timeout in db/index.js, so this moves the parse-and-compute cost
+ * off the request thread but does not make two writers free. A job that holds
+ * one enormous write transaction can still stall main-thread WRITES for its
+ * duration — reads, which are nearly all of request handling, stay served.
+ *
+ * Timeout terminates the thread rather than merely abandoning a promise: an
+ * abandoned worker would keep burning CPU and holding its connection open,
+ * which is worse than the inline case it replaces.
+ */
+function runJobOffThread(name, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./job-worker.js', import.meta.url), {
+      // A job may name its work explicitly with a serializable
+      // `worker: { module, fn, args }` descriptor. Otherwise the worker looks
+      // the job up in its own import of this file, which is what lets every
+      // existing heavy job go off-thread without being restructured.
+      workerData: JOBS[name]?.worker ? { ...JOBS[name].worker } : { job: name },
+      env: process.env
+    });
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      worker.terminate().catch(() => {});
+      reject(new Error(`job '${name}' exceeded its ${Math.round(timeoutMs / 1000)}s budget in a worker ` +
+        'thread and the thread was terminated'));
+    }, timeoutMs);
+    timer.unref?.();
+    const finish = (err, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (err) reject(err instanceof Error ? err : new Error(err)); else resolve(value);
+    };
+    worker.once('message', msg => finish(msg.error ?? null, msg.value));
+    worker.once('error', err => finish(err));
+    // A worker that dies without posting anything — OOM-killed mid-parse is the
+    // case this app actually hits — must still resolve into a recorded error,
+    // not leave the job looking like it is permanently mid-run.
+    worker.once('exit', code => finish(code === 0 ? null : new Error(
+      `job '${name}' worker exited with code ${code} without reporting (an OOM kill looks like this)`)));
+  });
+}
+
 export async function runIfStale(name, { force = false } = {}) {
   const job = JOBS[name];
   if (!job) return { job: name, error: 'unknown job' };
@@ -1064,16 +1142,16 @@ export async function runIfStale(name, { force = false } = {}) {
     // capture for the life of the process. A timeout converts that into a
     // recorded error and lets the loop reach the jobs behind it.
     const timeoutMs = job.timeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
-    let timer;
-    const detail = await Promise.race([
-      job.run(),
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(
-          `job '${name}' exceeded its ${Math.round(timeoutMs / 1000)}s budget and was abandoned so the ` +
-          'rest of the tier could run')), timeoutMs);
-        timer.unref?.();
-      })
-    ]).finally(() => clearTimeout(timer));
+    // A job declared `offThread` runs in a worker; everything else keeps the
+    // original inline path exactly as it was. See runJobOffThread above.
+    // The heavy tier goes off-thread by default rather than job-by-job, so a
+    // heavy job added later cannot quietly reintroduce the outage by
+    // forgetting the flag. An individual job can still opt out with
+    // `offThread: false` if it genuinely needs main-thread state.
+    const offThread = job.offThread ?? job.tier === 'heavy';
+    const detail = offThread
+      ? await runJobOffThread(name, timeoutMs)
+      : await withJobTimeout(job.run(), name, timeoutMs);
     // A job that chose not to do its work (reserve hold, no key, no due window)
     // is not healthy; recording it as 'ok' told every freshness view that a
     // capture happened when nothing did.
@@ -1086,8 +1164,14 @@ export async function runIfStale(name, { force = false } = {}) {
     // this is the number to read off Nick's real box, not this sandbox's.
     const durationMs = Date.now() - startedAt;
     if (durationMs >= SLOW_JOB_WARN_MS) {
-      console.warn(`[scheduler] '${name}' took ${(durationMs / 1000).toFixed(1)}s ` +
-        '— every request was blocked for that long while it ran');
+      // An off-thread job took this long but did NOT block anything, so it must
+      // not print the line that sends someone hunting for a freeze. Keeping one
+      // message for both cases is how a fixed problem goes on being reported.
+      console.warn(offThread
+        ? `[scheduler] '${name}' took ${(durationMs / 1000).toFixed(1)}s in a worker thread ` +
+          '— requests were served normally throughout'
+        : `[scheduler] '${name}' took ${(durationMs / 1000).toFixed(1)}s ` +
+          '— every request was blocked for that long while it ran');
     }
     return { job: name, ran: true, detail, duration_ms: durationMs };
   } catch (e) {

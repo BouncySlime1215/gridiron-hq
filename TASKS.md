@@ -197,6 +197,32 @@ Last updated: 2026-09-19, new cloud session on `cursor/betting-model-audit-fixes
        both overturned something this session had written down and believed
        (see the two corrections above, and the newest B3 entry).
 
+    3b. **A flaky test shipped to CI, caught by CI, fixed at the cause
+        (`b382417`).** The regression test added in `9c38470` was green locally
+        every time and failed in CI on `9c67f88` — **both** of that run's
+        failures were it:
+        - `not ok 2216` the assertion itself (`false !== true`). It slept 60ms
+          then read the row once. `policy_contract` recomputes in milliseconds,
+          so that read either lands after the second run finished (nothing to
+          see) or races it. A faster or slower box decides.
+        - `not ok 2217` the file, `hookFailed`, `ENOTEMPTY` from `fs.rmSync` in
+          teardown: a worker still tearing down recreates SQLite's `-wal`/`-shm`
+          beside the database while rimraf walks it. `force: true` does **not**
+          cover that — it suppresses "missing", not "something appeared".
+          Reproduced here about 1 run in 20.
+
+        Fixed by sampling the stored row every 1ms across the whole second run
+        instead of sleeping through it, dropping the `refreshing` assertion
+        (a timing fact, not a correctness one), and retrying the teardown on
+        ENOTEMPTY rather than sleeping.
+
+        **Validated both directions, which the first version never was:**
+        15 runs clean with the fix in, **8 of 8 caught with the latch reverted**.
+        A regression test that only ever passes proves nothing about the
+        regression — running it against the reverted fix is the cheap check that
+        would have caught this before it reached CI, and is worth making
+        routine.
+
     4. **WHAT STILL GATES `WA -> Done` AND WO+WB — neither can be settled from a
        cloud box, and neither is a judgement call.**
        - **B1's State column needs WA's RUN RECORD**, not its blockers being

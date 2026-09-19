@@ -27,13 +27,22 @@ HTTP, so they have to run **on the machine holding the live volume** — a shell
 the Fly machine, with `GRIDIRON_DB_PATH` pointing at `/data/data.sqlite` as the
 app itself uses it. There is no route that triggers either of them.
 
-**Check the script is actually on the machine first.**
-`scripts/promote-volume-shrinkage.mjs` does not exist on `main` — it lives only
-on the branch stack (`claude/project-thread-3ldl77-docs` and its ancestors), and
-the live app runs code that is not `main` either. If the deployed image predates
-that stack, the script is not on the machine and step 1 cannot run there at all
-until the branch is deployed. `ls scripts/promote-volume-shrinkage.mjs` in the
-shell settles it in one command; do that before anything else.
+**Check the script is actually on the machine first — but it probably is.**
+`scripts/promote-volume-shrinkage.mjs` does not exist on `main`; it lives only on
+the branch stack. Measured over HTTP on 2026-09-19, read-only:
+
+- `GET /api/league-chat` returns **401**, and a nonsense path returns **404**.
+  That route is mounted only by `server/index.js` on the stack, so the deployed
+  build is the stack, not `main`.
+- The stack's `Dockerfile` runtime stage does `COPY scripts ./scripts`, so a
+  build from that branch puts the script at `/app/scripts/`.
+
+The one gap HTTP cannot close: `/api/league-chat` arrived in `cfa0e6f`, and the
+promotion script in `75c47b8`, which is later on the same branch and adds no
+route. So a build pinned between those two would serve league-chat without
+carrying the script. `ls /app/scripts/promote-volume-shrinkage.mjs` in the shell
+settles it in one second — do that before anything else, but expect it to be
+there.
 
 That means whoever runs this needs `fly ssh console` access. `GRIDIRON_FLY_TOKEN`
 is an application bearer token, not a Fly API token, so it does not grant that,

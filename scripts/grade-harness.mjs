@@ -1,5 +1,5 @@
 process.env.SCHEDULER_DISABLED='1';
-const R='/Users/nick_matta/Documents/GitHub/gridiron-hq/server/services/';
+const R = new URL('../server/services/', import.meta.url).href;
 const { replaySeasonWeekly } = await import(R+'weekly-backtest.js');
 const { activeKVector } = await import(R+'shrinkage-fit.js');
 const { WEEKLY_ROLE_RECENCY, weeklyEnsemblePrediction } = await import(R+'weekly-ensemble.js');

@@ -164,6 +164,28 @@ export default function Lineup() {
               This lineup is the highest-average one: {d.objective_fallback}.
             </p>
           )}
+          {/* The Clear / Lean / Coin flip labels are thresholds on a MEAN weekly
+              margin. A gap between two ceilings (or two floors) is a wider and
+              differently shaped quantity, so those labels are not calibrated
+              for it — the server has said so in `confidence_basis` since the
+              objectives shipped and the page has never repeated it, which left
+              the chips looking equally trustworthy on all three views. */}
+          {typeof d.confidence_basis === 'string' && d.confidence_basis.startsWith('uncalibrated_for_') && (
+            <p role="status" className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-sm leading-6 text-slate-300">
+              Clear, Lean and Coin flip are set on average weekly points. You are looking at{' '}
+              {d.objective_used === 'ceiling' ? 'good-week ceilings' : 'bad-week floors'}, where the gaps
+              are wider, so read those labels as rough here rather than as the same call.
+            </p>
+          )}
+          {d.objective_held_out?.length > 0 && (
+            <p className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-sm leading-6 text-slate-300">
+              {d.objective_held_out.length === 1
+                ? `${d.objective_held_out[0].name} could not be ranked this way: ${d.objective_held_out[0].why}.`
+                : `${d.objective_held_out.length} players could not be ranked this way — ` +
+                  `${d.objective_held_out.map((p: any) => p.name).join(', ')} — because there is no ` +
+                  `${objective} distribution on file for them.`}
+            </p>
+          )}
           {d.objectives?.find((o: any) => o.id === objective) && (
             <p className="mt-3 border-t border-white/10 pt-3 text-sm leading-6 text-slate-300">
               {d.objectives.find((o: any) => o.id === objective).when}

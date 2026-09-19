@@ -17,6 +17,7 @@ import { readFile } from 'node:fs/promises';
 
 const {
   acceptGuard, NEVER_BASELINE, GRANDFATHERED,
+  foreignOnlyFile,
   scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations,
   foreignHandles, handleFor, gatedRegions, blindCaches,
@@ -413,4 +414,54 @@ test('every page-never-routed finding is baselined or the gate would be red on a
     assert.ok(accepted.includes(`client/src/pages/${f}.tsx`),
       `${f}.tsx is a known unrouted page and must be baselined, not left to fail the build on arrival`);
   }
+});
+
+
+/*
+ * A SECOND DATABASE WRAPPED IN A LOCAL HELPER IS STILL A SECOND DATABASE.
+ *
+ * Found by running the check against PR #42 before it landed, which is the
+ * whole argument for doing that. league-history.js opens its own read-only
+ * DatabaseSync and then queries it through a LOCAL rows() helper, so every SQL
+ * literal in it is handed to a name handleFor has never seen. Falling back to
+ * 'app' invented app-side reads of tables that live in another file: the writer
+ * (collect-sleeper-history.mjs) was correctly read as foreign, the readers were
+ * not, and three tables with a writer sitting in the repository were reported as
+ * "written by nothing". Same shape as the league-chat false alarm that this tool
+ * already carries as a printed limit, one level of indirection deeper — which is
+ * why the limit alone was not enough and the inference had to be made.
+ */
+const fileOf = text => ({ path: 'server/services/x.js', text, code: text, strings: [] });
+
+test('a file with its own handle and no app-db import is foreign throughout', () => {
+  const f = fileOf(`import { DatabaseSync } from 'node:sqlite';
+    const db = new DatabaseSync(DB_PATH, { readOnly: true });
+    function rows(sql, ...a) { return db.prepare(sql).all(...a); }
+    const x = rows(\`SELECT * FROM sh_team_weeks\`);`);
+  const foreign = foreignHandles(f);
+  assert.ok(foreign.has('db'));
+  assert.equal(foreignOnlyFile(f, foreign), true);
+  f.foreignOnlyFile = true;
+  // The query goes through rows(), which is neither an app helper nor a handle.
+  const at = f.text.indexOf('SELECT * FROM sh_team_weeks');
+  assert.notEqual(handleFor(f, at, foreign).handle, 'app',
+    'an unattributed query in a foreign-only file must not be credited to the app database');
+});
+
+test('a file holding BOTH handles still needs per-query attribution', () => {
+  // Conservative on purpose: importing the app db at all disqualifies the file,
+  // because such a module really can query either database.
+  const f = fileOf(`import { rows } from '../db/index.js';
+    import { DatabaseSync } from 'node:sqlite';
+    const other = new DatabaseSync('x.sqlite');
+    const a = rows(\`SELECT * FROM players\`);`);
+  const foreign = foreignHandles(f);
+  assert.ok(foreign.has('other'));
+  assert.equal(foreignOnlyFile(f, foreign), false);
+});
+
+test('a file with no handle of its own is the app database, as before', () => {
+  const f = fileOf(`import { rows } from '../db/index.js';
+    const a = rows(\`SELECT * FROM players\`);`);
+  assert.equal(foreignOnlyFile(f, foreignHandles(f)), false);
 });

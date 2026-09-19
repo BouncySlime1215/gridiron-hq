@@ -246,10 +246,39 @@ function handleFor(file, offset, foreign) {
   const viaHelper = before.match(/([A-Za-z_$][\w$]*)\s*\(\s*$/);
   if (viaHelper && APP_HELPERS.has(viaHelper[1])) return { handle: 'app', where: null };
   if (viaHelper && foreign.has(viaHelper[1])) return { handle: viaHelper[1], where: foreign.get(viaHelper[1]) };
-  // A DDL block or a query we could not attribute. The app's own database is
-  // the right default: every other handle in this repository is opened
-  // read-only, so an unattributed WRITE is the app's by construction.
+  // A DDL block or a query we could not attribute.
+  //
+  // Defaulting to 'app' is right almost everywhere, but NOT in a file that
+  // opens its own handle and never imports the app's database module. Such a
+  // file cannot be querying the app database — there is no handle for it to use
+  // — so attributing its queries to 'app' invents an app-side read of a table
+  // that lives in a second file. That produced a false missing-feed on the
+  // sleeper-history tables: league-history.js opens its own read-only
+  // DatabaseSync and then wraps it in a LOCAL rows() helper, so every query goes
+  // through a name this function has never heard of. The writer
+  // (collect-sleeper-history.mjs) was correctly attributed as foreign, the
+  // readers were not, and a table with a writer right there in the repository
+  // was reported as written by nothing. Same shape as the league-chat false
+  // alarm, one level of indirection deeper.
+  if (file.foreignOnlyFile) {
+    const [name, where] = [...foreign.entries()][0];
+    return { handle: name, where };
+  }
+  // Otherwise the app's own database is the right default: every other handle in
+  // this repository is opened read-only, so an unattributed WRITE is the app's
+  // by construction.
   return { handle: 'app', where: null };
+}
+
+/**
+ * True when a file opens at least one DatabaseSync of its own and never imports
+ * the app's database module — so no query in it can be against the app database.
+ * Deliberately conservative: importing db/index.js at all disqualifies the file,
+ * because a module holding both handles needs per-query attribution.
+ */
+function foreignOnlyFile(file, foreign) {
+  if (!foreign.size) return false;
+  return !/from\s+['"][^'"]*db\/index(\.js)?['"]/.test(file.text);
 }
 
 // ---------------------------------------------------------------------------
@@ -815,6 +844,7 @@ function build() {
       const { imports, exports } = moduleEdges(text);
       const file = { path: rel, tree: kind, raw, code, text, strings };
       const foreign = foreignHandles(file);
+      file.foreignOnlyFile = foreignOnlyFile(file, foreign);
       files.set(rel, {
         path: rel, tree: kind, raw, code, text, strings, imports, exports,
         foreign_handles: [...foreign.keys()],
@@ -2031,7 +2061,7 @@ function toMarkdown(model, found, ann) {
 // running the CLI, and so another script can ask the map a question.
 // ---------------------------------------------------------------------------
 
-export { NEVER_BASELINE, GRANDFATHERED };
+export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

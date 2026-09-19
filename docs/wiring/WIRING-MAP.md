@@ -33,7 +33,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 ## Findings
 
 **10 missing feed** — a surface depends on something nothing produces.
-**2069 orphan** — something produced that reaches no surface.
+**2070 orphan** — something produced that reaches no surface.
 230 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
@@ -208,7 +208,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `value-computed-never-used` | orphan | 15 | 15 | 64 |
 | `table-never-read` | orphan | 0 | 4 | 13 |
 | `export-only-tested` | orphan | 71 | 90 | 200 |
-| `export-imported-by-nothing` | orphan | 132 | 271 | 623 |
+| `export-imported-by-nothing` | orphan | 132 | 271 | 624 |
 | `route-no-caller` | orphan | 52 | 331 | 79 |
 
 ### `column-read-never-written` — SHOULD WIRE (3)
@@ -516,8 +516,8 @@ The missing-feed list in full, because it is short and it is the one that matter
   - read in: server/services/manager-archetypes.js, scripts/build-manager-archetypes.mjs, scripts/luck-panel.mjs
 - **league_transactions_raw** `[fantasy]` — read on a served surface, but every writer is a script someone has to remember to run
   - writer scripts/collect-league-transactions.mjs:34, reader server/services/counterparty-pricing.js:815, reader server/services/manager-signals.js:168, reader server/services/trade-tactics.js:232, reader server/services/trade-tactics.js:385
-  - wired into (≤3 hops): routes /api/league-chat@1 /api/trades@1 /api/model@2 /api/players@2 /api/accolades@3 /api/aggregates@3 /api/betting@3 /api/dev@3; jobs espn_line_watch@3 polymarket_line_watch@3; scripts scripts/build-negotiation-profiles.mjs@0 scripts/collect-league-transactions.mjs@0 scripts/refresh-live-data.mjs@0
-  - read in: server/services/counterparty-pricing.js, server/services/manager-signals.js, server/services/trade-tactics.js, scripts/build-negotiation-profiles.mjs, scripts/collect-league-transactions.mjs, scripts/refresh-live-data.mjs
+  - wired into (≤3 hops): routes /api/league-chat@1 /api/trades@1 /api/model@2 /api/players@2 /api/accolades@3 /api/aggregates@3 /api/betting@3 /api/dev@3; jobs espn_line_watch@3 polymarket_line_watch@3; scripts scripts/collect-league-transactions.mjs@0 scripts/build-manager-signals.mjs@1 scripts/build-negotiation-profiles.mjs@1
+  - read in: server/services/counterparty-pricing.js, server/services/manager-signals.js, server/services/trade-tactics.js, scripts/collect-league-transactions.mjs
   - **ASSERTED**: `node scripts/collect-league-transactions.mjs`, run by hand per league.
 - **nfl_availability_rates** `[fantasy]` — read on a served surface, but every writer is a script someone has to remember to run
   - writer scripts/fit-availability.mjs:412, writer scripts/fit-availability.mjs:414, reader server/services/contingency.js:568, reader scripts/availability-decision-calibration.mjs:222, reader scripts/fit-availability.mjs:60
@@ -1070,14 +1070,14 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/services/nfl-execution-clv.js` | 5 |
 | _… 118 more files_ | 234 |
 
-### `export-imported-by-nothing` — ORPHAN (1026)
+### `export-imported-by-nothing` — ORPHAN (1027)
 
 Grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
 | `server/services/offseason-model.js` | 44 |
-| `scripts/wiring-map.mjs` | 36 |
+| `scripts/wiring-map.mjs` | 37 |
 | `server/betting/nfl/strategy/margin-distribution.js` | 25 |
 | `server/betting/nfl/strategy/teaser-staking.js` | 24 |
 | `server/services/offseason-data.js` | 24 |

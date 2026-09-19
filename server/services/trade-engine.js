@@ -90,6 +90,7 @@ import { counterpartyLayer, readDeal, counterpartyDataKey, playerValuation, self
 // Nick on our own numbers never reaches the list, whatever the other manager
 // thinks of it (master plan 00 D4, "a gift, not a trade").
 import { edgeTest, tacticsForDeal, timingRead, vetoClimate } from './trade-tactics.js';
+import { acceptanceBand } from './trade-acceptance.js';
 // tradeIdeas() only: this roster's real P(make playoffs), which is what turns the
 // horizon from a 0.5 prior into a number. season-sim.js imports assetUniverse /
 // loadRosters / lineupSlots from THIS file, so the two modules form a cycle.
@@ -1879,6 +1880,14 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     });
     d.tactics = out.tactics;
     d.tactics_absent = out.tactics_absent;
+    // How likely he is to say yes, as a band. Attached HERE, on `shown`, and
+    // nowhere earlier: everything in this list has already passed the edge
+    // test, so an idea that is a gift never carries an acceptance number at
+    // all. The band reads `d.counterparty` — it does not re-price anything,
+    // because need fit and the profile roster read are already inside that
+    // block's `perception_delta` (see trade-acceptance.js's header).
+    d.acceptance = acceptanceBand({ counterparty: d.counterparty, edge: d.edge,
+      profile: cp?.negotiation ?? null, zero });
   }
 }
 

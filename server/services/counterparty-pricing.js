@@ -565,6 +565,10 @@ export function readDeal({ theirGive, theirGet, managerProfile, zero = [] }) {
       ...get.reasons.map(r => ({ ...r, side: 'they_get' }))],
     chat_msgs: managerProfile?.chat_msgs ?? 0,
     accept_rate: managerProfile?.accept_rate ?? null,
+    // The sample the rate rests on. It was computed on the layer (`:210`) and
+    // stopped here, so no caller could tell four decided offers from sixty —
+    // which is the whole difference between a usable anchor and a coincidence.
+    accept_rate_n: managerProfile?.accept_rate_n ?? 0,
     word_credibility: managerProfile?.stance?.credibility?.credibility ?? null,
     word_note: managerProfile?.stance?.note ?? null,
   };

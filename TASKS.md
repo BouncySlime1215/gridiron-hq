@@ -7,24 +7,45 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
 
 ## Active
 
-- **Fly.io self-host — in progress, 2026-09-19. NOT yet confirmed deployed.**
-  Nick chose self-host (not full Phase 11 multi-user) after the scheduler fix.
-  Shipped: `6b0e06a` (Dockerfile, fly.toml, `.dockerignore`, `server/index.js`
-  binds `HOST` env var — 0.0.0.0 in prod, still 127.0.0.1 locally), `d1ba0f7`
-  (real security fix — `POST /espn-connect/cookies` was deliberately
-  unauthenticated for the bookmarklet, harmless behind a private tunnel but a
-  free anonymous-hijack on a public hostname; now token-gated, 29/29 tests
-  pass), `69f86ba` (hardened the loopback check against Fly's own proxy
-  headers, defensively). Full detail: memory `gridiron-hq-fly-self-host` and
-  `gridiron-hq-fly-security-gaps`. **Never docker-build-tested** (no docker
-  daemon in the cloud sandbox) and Nick had not gotten a successful
-  `fly deploy` as of this note — he ran `fly ssh console` before `fly launch`
-  and hit "app name missing". **Also still true: no real remote login path**
-  — `local-session` and `pairing-code` both require direct loopback, so a
-  first login on the real Fly URL needs the `fly ssh console` + curl
-  workaround given to Nick in the thread, not a real fix. Next session: check
-  whether `fly launch`/`fly deploy` actually succeeded before assuming any of
-  this runs.
+- **Fly.io self-host — LIVE, confirmed 2026-09-19 04:58Z.** App name
+  `gridiron-hq`, URL **https://gridiron-hq.fly.dev/**. Nick logged in and saw
+  the app's real UI (ESPN-connect onboarding modal, expected on a fresh empty
+  DB). Shipped: `6b0e06a` (Dockerfile, fly.toml, `.dockerignore`,
+  `server/index.js` binds `HOST` env var — 0.0.0.0 in prod, still 127.0.0.1
+  locally), `9a42219` (`server/db/index.js` `mkdirSync`s the DB's parent dir
+  before opening it — a fresh Fly volume mount has no pre-existing directory
+  and `DatabaseSync` throws instead of creating one), `d1ba0f7` (real security
+  fix — `POST /espn-connect/cookies` was deliberately unauthenticated for the
+  bookmarklet, harmless behind a private tunnel but a free anonymous-hijack on
+  a public hostname; now token-gated, 29/29 tests pass), `69f86ba` (hardened
+  the loopback check against Fly's own proxy headers, defensively). Full
+  detail: memory `gridiron-hq-fly-self-host` and `gridiron-hq-fly-security-gaps`.
+  **Never docker-build-tested locally** (no docker daemon in the cloud
+  sandbox) — `fly deploy` was the real first build test, and it passed.
+
+  **Redeploying / picking this up cold — exact steps:**
+  1. `git pull` on the Mac first. If it fails with "untracked working tree
+     files would be overwritten" on `.dockerignore`/`Dockerfile`/`fly.toml`,
+     those are stale local copies from the Fly web "Launch" UI — move them
+     aside (`mv fly.toml fly.toml.local-backup`, same for the other two) and
+     pull again.
+  2. `fly deploy -a gridiron-hq` (the app already exists; a bare `fly deploy`
+     fails with "missing an app name" unless `fly.toml` has `app = "..."` in it).
+  3. Watch `fly logs -a gridiron-hq` or the dashboard for the health check to
+     go passing and `Gridiron HQ listening on http://0.0.0.0:5177`.
+
+  **No real remote login exists yet** (`local-session`/`pairing-code` both
+  require direct loopback — see `gridiron-hq-fly-security-gaps`). To get a
+  session token onto a fresh browser:
+  ```
+  fly ssh console -a gridiron-hq -C "node -e \"fetch('http://127.0.0.1:5177/api/auth/local-session',{method:'POST'}).then(r=>r.json()).then(o=>console.log(o.token))\""
+  ```
+  (the container is `node:22-slim` — **no `curl` binary**, must use node's
+  fetch). Copy the printed token straight into the browser's own console —
+  never paste a live token into chat/a doc/a commit. In that console:
+  `localStorage.setItem('gridiron_session_token', '<token>')`, then reload.
+  Chrome's DevTools blocks pasting into the console by default — type
+  `allow pasting` and press Enter once first, or the paste silently no-ops.
 
 - **`npm start` was broken for everyone; fixed 2026-09-19.** Two independent bugs,
   both found live on Nick's Mac, both pushed to this branch.

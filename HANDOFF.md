@@ -75,8 +75,18 @@ npm start` remains the immediate workaround if it's still bad.
   `Boolean(process.env.X)` before it makes a request, so the injector never gets
   a request to decorate.
 
-**Open, awaiting Nick's word:** WF / Phase 11 (Fly.io hosting) is what would make
-the app genuinely laptop-independent. He was offered it and has not answered.
+**2026-09-19 update — Fly.io self-host is LIVE.** Confirmed 04:58Z:
+**https://gridiron-hq.fly.dev/**, app name `gridiron-hq`. Nick logged in and
+saw the real app UI. Full redeploy steps, the no-curl/node-fetch login
+bootstrap, and gotchas hit along the way (Chrome's console paste-block, a
+stale local `fly.toml` blocking `git pull`) are in the first **Active**
+entry of `TASKS.md` — read that before touching Fly again. Still open: real
+remote login (Phase 11) — today's workaround is SSH-bootstrapping a session
+token by hand, one person, one time per browser.
+
+**Open, awaiting Nick's word:** full WF / Phase 11 (Google sign-in,
+per-user Claude keys, real remote login) is what would replace that
+workaround. He was offered it and has not answered.
 
 ## Where things stand
 

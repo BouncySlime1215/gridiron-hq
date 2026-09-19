@@ -75,9 +75,21 @@ ways on 2026-09-19:
 | 2025-2026 only | passes |
 
 The live database was read at 16:38Z and holds 0 rows for 2021-2024, 540 for 2025
-and 34 for 2026 — the third row, which passes. But another thread is backfilling
-QBR, and if 2021-2024 lands before this promotion the gate has to be re-read and
-may come back false. **Check `nfl_qbr_weekly` coverage before step 1 and record
+and 34 for 2026 — the third row, which passes.
+
+**Deploying cannot flip this**, verified in code twice independently: the only
+writer of `nfl_qbr_weekly` is `syncQbr` in `nfl-qbr.js`, its only scheduled
+caller passes `[season-1, season]` (2025 and 2026), and neither
+`/api/model/sync` nor `syncAllAdvanced` calls it. Only a deliberate 2021-2024
+backfill flips it, so this is a "do not run that before this" constraint, not a
+deploy-ordering one.
+
+Beware when re-checking that: **there are two exported functions called
+`syncQbr`.** The one in `offseason-data.js` writes `off_qbr_season`, a
+season-level table that has nothing to do with this, and it is called with no
+arguments so its default reaches back to 2015. Grepping the name alone turns up
+both and invites the wrong conclusion in either direction; the question is which
+module, not which name. **Check `nfl_qbr_weekly` coverage before step 1 and record
 what it was**, so a later reader knows which of the three verdicts they are
 looking at.
 

@@ -13,6 +13,7 @@ import { buildProjections, seasonDistribution } from '../services/projections.js
 import { buildPlayerWeekEngine, playerWeekDistribution, clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
 import { compare, actuals, gradePoint, gradeDistribution, baselines, weeklyDecisionBacktest } from '../services/backtest.js';
 import { simulateSeason, tradeImpact } from '../services/season-sim.js';
+import { leagueCurrentWeek } from '../services/league-week.js';
 import { fitCorrelations, correlationTable, clearCorrelationCache } from '../services/correlation.js';
 import { fitGameScript, gameScriptFor, syncHistoricalLines, syncCurrentLines, linesFor, clearGameScriptCache } from '../services/gamescript.js';
 import { availability, weeklyAvailability, cascades, handcuffValue } from '../services/contingency.js';
@@ -522,10 +523,28 @@ r.get('/:leagueId/simulate', requireAuthenticated, (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     if (!lg.payload) return res.status(400).json({ error: 'league not synced yet' });
     const runs = Math.min(6000, Number(req.query.runs) || 2000);
-    const key = `sim:${lg.id}:${runs}:${req.query.from_week ?? 1}`;
+    // Default to the league's REAL current week, not 1. `league-week.js` says it in
+    // its own header -- "Never a hard-coded 1 -- that is how the app spent two weeks
+    // showing week-1 lineups (2026-09-17)" -- and migration 056 exists to make that
+    // possible, and this route defaulted to 1 anyway. Neither UI caller passes
+    // from_week (Model.tsx and MyTeam.tsx both request `?runs=N` only), so every
+    // playoff and title number on screen was simulated with the real standings
+    // thrown away: `simulateSeason` only carries in a record when fromWeek > 1
+    // (season-sim.js#initialRecords). trade-engine.js:1318 passes the real week and
+    // was always right, which is why this never showed up as an inconsistency in
+    // the sim itself.
+    //
+    // Measured on league 5 before the change, paired on one seed, from_week 1 vs 2:
+    // playoff odds moved by 9.5 points on average and 15.3 at most across 10 teams,
+    // from discarding a single played week. It grows with every week of the season.
+    //
+    // An explicit `from_week` still wins, so a deliberate from-scratch run and the
+    // replay harnesses are unaffected.
+    const fromWeek = Number(req.query.from_week) || leagueCurrentWeek(lg);
+    const key = `sim:${lg.id}:${runs}:${fromWeek}`;
     const seed = req.query.seed ?? null;
     res.json(withRandomSeed(seed, () => memo(`${key}:seed:${seed ?? 'random'}`, () => simulateSeason(lg, {
-      runs, fromWeek: Number(req.query.from_week) || 1, scoring: scoringFor(lg)
+      runs, fromWeek, scoring: scoringFor(lg)
     }))));
   } catch (e) { next(e); }
 });
@@ -542,7 +561,13 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
       theirTeamId: their_team_id,
       iGive: i_give, iGet: i_get,
       runs: Math.min(3000, Number(req.body?.runs) || 1200),
-      fromWeek: Number(req.body?.from_week) || 1,
+      // Same defect as /simulate above, and it matters more here: a trade is judged on
+      // the title-odds difference it makes, so evaluating it from week 1 asks what the
+      // deal would have been worth to a team with no record, which is not the team
+      // being offered it. `tradeImpact` pairs its two runs on common random numbers,
+      // so the DIFFERENCE was still meaningful; the standings it was differenced
+      // against were the wrong ones.
+      fromWeek: Number(req.body?.from_week) || leagueCurrentWeek(lg),
       seed: req.body?.seed ?? null,
       scoring: scoringFor(lg)
     }));

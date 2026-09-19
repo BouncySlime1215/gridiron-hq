@@ -8,6 +8,20 @@ primary_region = "iad"
   HOST = "0.0.0.0"
   # The scheduler fix from tonight (nfl_prop_feeds/beat_the_close off the
   # live tier) is what makes always-on hosting practical; leave it enabled.
+  #
+  # Which NFL season this deployment is playing. It was unset, and 79 sites
+  # read it as `Number(process.env.NFL_SEASON) || <fallback>` in two different
+  # fallbacks: some hard-code 2026, the rest use the calendar year. Unset, both
+  # give 2026 during the 2026 calendar year, so nothing is visibly wrong today
+  # -- and on 2027-01-01, mid-playoffs, the calendar-year sites silently become
+  # 2027 while the hard-coded ones stay 2026, splitting the app's idea of the
+  # season in half. Setting it here makes every site agree.
+  #
+  # BUMP THIS EACH SEPTEMBER. That is the cost of pinning it, and it is the
+  # cheaper of the two failures: a stale pin is one wrong number everywhere,
+  # which shows up immediately, rather than two right-looking numbers that
+  # disagree.
+  NFL_SEASON = "2026"
 
 [[mounts]]
   source = "gridiron_data"

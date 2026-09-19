@@ -2413,16 +2413,19 @@ as well as 2026, every time:
   `nfl-event-archive.js:204-210` runs injuries, materialisation, trades and
   then weekly roster events across both seasons.
 
-**One distinction inside that, which matters for the 503 and was not in the
-version handed to me.** The snap-counts write is a single long *exclusive*
-transaction, so it is the candidate that can make `SELECT 1` throw after the
-15-second `busy_timeout`. The weekly-roster writer is not: `syncWeeklyRosterEvents`
+**One distinction inside that, which matters for the 503, and it runs the
+opposite way to the intuition.** The snap-counts write is a single long
+*exclusive* transaction. The weekly-roster writer is not: `syncWeeklyRosterEvents`
 (`nfl-event-archive.js:150-199`) calls `insertEvent` per row in a tight
-synchronous loop with **no `BEGIN`/`COMMIT` anywhere in the file**, so each row
-autocommits. That blocks the event loop just as hard — it is the same unyielding
-loop — while holding no long lock. **So of the two, only the snap-counts
-transaction explains both halves of what was measured**, and a fix that moved
-only the roster loop would still leave the 503.
+synchronous loop with **no `BEGIN`/`COMMIT` anywhere in the file**
+(`grep -c` returns 0), so each row autocommits — and per-row autocommit is the
+**slower** of the two for the same row count, because every commit is its own
+fsync. So **the writer that holds no lock blocks the thread for longer, and the
+writer that blocks for less wall time is the only one that can make `SELECT 1`
+exceed the 15-second `busy_timeout` and throw.** Both matter and they fail
+differently: the roster loop is the worse cause of the queueing, the snap-counts
+transaction is the only candidate for the 503. A fix that moved only the archive
+off-thread would leave the 503 exactly where it is.
 
 **Why it never finishes and never gives up.** Both writers use
 `ON CONFLICT … DO UPDATE`, so each restart rewrites the same 2025 rows and makes
@@ -2465,8 +2468,22 @@ timer rather than as proof of it.
 **Restart timeline, start to start**, assembled from `uptime_s` alone with no
 terminal: 22:09:00, 22:12:07, 22:14:51, 22:19:03, 22:27:34, 22:33:17, and
 ~22:39:15 — the last read here, from a request issued at 22:38:59Z that came
-back with `uptime_s: 13` after 29.1 seconds. The 511-second gap in the middle is
-out of family and may be a stopped machine rather than a life.
+back with `uptime_s: 13` after 29.1 seconds.
+
+**Every count taken this way is a floor, and the overnight figure must be
+reported as one.** The only continuous observer is a poll every 300 seconds
+against a cycle of roughly 160, so it misses restarts by construction: eight
+starts were observed between 22:09:00 and 22:44:08 where the true figure is
+nearer thirteen. Gaps that look out of family — the 511-second one above — are
+more likely a missed sample than a stopped machine, and the honest phrasing in
+the morning is **"at least N restarts"**, never N.
+
+**A read that crossed a restart is void as a capture and useful as a clock.**
+Its content cannot be attributed to the process that received the request, so a
+capture must discard it — but the `uptime_s` on the response is the *new*
+process's uptime at the moment it answered, so the derived start is sound, and
+it pins a restart inside a known window. That makes a crossed read better
+evidence for this timeline than a clean one.
 
 **None of this changes the fix**, which is the point worth holding: the command
 below stops the boot chain, both fixed timers and every tier at once, so it does

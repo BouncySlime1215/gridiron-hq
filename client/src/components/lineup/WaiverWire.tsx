@@ -43,6 +43,13 @@ export interface WaiverBoard {
   held_back?: HeldBack[]; held_back_count?: number;
   teamless_excluded?: number;
   note?: string;
+  /**
+   * Which availability model priced every `active_probability` on this board
+   * ('role' is the fitted one). waiver-wire.js has served this since the fit
+   * landed and nothing read it, so a hand-set fallback and a measured rate were
+   * printed in the same words. The chips below say which.
+   */
+  availability_basis?: { basis?: string; missing?: string[]; stamp?: string | null } | null;
 }
 
 /** A free agent who would help this week, but only by cutting someone worth more over the season. */
@@ -121,6 +128,11 @@ function Body({ data, loading, error, onRetry, out }: {
   const drop = sharedDrop(shown.map(r => r.drop_candidate));
   const rosDrop = sharedDrop(stashes.map(r => r.ros_drop_candidate));
   const weekDropName = sharedDrop(immediate.map(r => r.drop_candidate))?.player ?? null;
+  // Whether these percentages are a measured rate or the hand-set fallback. Same
+  // rule and same word as the lineup rows above, so one page does not describe
+  // the same number two ways. The reason, when it is not measured, is on the
+  // page-level panel this board sits under.
+  const measured = data.availability_basis?.basis === 'role';
 
   return (
     <>
@@ -143,6 +155,7 @@ function Body({ data, loading, error, onRetry, out }: {
             <div className="mt-2 divide-y divide-slate-100">
               {shown.map((r, i) => (
                 <ClaimRow key={`${r.player}-${i}`} r={r} value={r.upgrade} valueLabel="this week"
+                  measured={measured}
                   sub={`Projects ${fmt(r.projected_ppg)} this week`}
                   hole={fillsHole(r)} marginal={r.upgrade < 1}
                   perRowDrop={drop ? null : r.drop_candidate
@@ -213,6 +226,7 @@ function Body({ data, loading, error, onRetry, out }: {
             <div className="mt-2 divide-y divide-slate-200">
               {stashes.map((r, i) => (
                 <ClaimRow key={`${r.player}-${i}`} r={r} value={r.ros_upgrade ?? 0} valueLabel="a week, rest of season"
+                  measured={measured}
                   sub={`Rest of season ${fmt(r.ros_ppg)} a week · this week ${fmt(r.projected_ppg)}`}
                   hole={false} marginal={false}
                   perRowDrop={rosDrop ? null : r.ros_drop_candidate
@@ -257,9 +271,9 @@ function DropLine({ label, who, pos, detail, differs }: {
   );
 }
 
-function ClaimRow({ r, value, valueLabel, sub, hole, marginal, perRowDrop }: {
+function ClaimRow({ r, value, valueLabel, sub, hole, marginal, perRowDrop, measured }: {
   r: WaiverRow; value: number; valueLabel: string; sub: string;
-  hole: boolean; marginal: boolean; perRowDrop: string | null;
+  hole: boolean; marginal: boolean; perRowDrop: string | null; measured: boolean;
 }) {
   // The injury report's status (Questionable / Doubtful / Out); its "Note" rows and
   // blanks carry no designation, so they get no chip.
@@ -294,7 +308,7 @@ function ClaimRow({ r, value, valueLabel, sub, hole, marginal, perRowDrop }: {
               // otherwise from the availability model (contingency.js). It is the
               // number this week's projection is multiplied by, not a share of weeks.
               <Chip cls="bg-amber-50 text-amber-900 ring-amber-200">
-                {`about ${plays}% to play this week`}
+                {`about ${plays}% to play this week${measured ? '' : ' (assumed)'}`}
               </Chip>
             )}
           </div>

@@ -1737,7 +1737,15 @@ Then:
    1. **The placeholder warnings clear.** Healthy-prior starters go up hard —
       `contingency.js:652-657` records the documented case, "Healthy starters
       actually played 94.5%; the old path said 0.708, this 0.952". **The counts
-      3 / 2 / 4 / 3 / 1 should fall.**
+      should fall — but not from 3 / 2 / 4 / 3 / 1.** Those were taken before
+      the deploy and the deploy itself moved the set: league 1 already reads 2,
+      and Achane dropped off before any fit ran. **Re-baseline the counts off
+      the mid-window capture and treat the pre-deploy figures as history rather
+      than as a target.** This is the third number in this document that was
+      measured once and then carried forward as though it were fixed — see the
+      condition on 0.324 below, and the withdrawn claim that the designated band
+      was empty. The pattern is worth naming: **a measurement is only a baseline
+      while nothing has changed underneath it, and something always has.**
    2. **The genuine designation gets worse.** Puka Nacua should drop **below
       0.324** — `lineup-brain.js:628-633` says the fitted event overstates
       availability least for exactly those players, "the band where the fit moves
@@ -2053,6 +2061,59 @@ it.
 Every command in order, for the moment the decision is made. Nothing here is a
 description; each line is meant to be pasted. Steps 1-2 are read-only. **Step 3
 is the first irreversible action in the whole plan.**
+
+### 7.0 Who can run what, once the app is up
+
+The deploy landed at 22:09Z and Nick went to bed at 22:08Z. From here the sheet
+divides in two, and the division is not by importance — it is by whether a step
+needs a terminal on Nick's machine.
+
+**Runnable tonight, by a thread, read-only over HTTP with the bearer token.**
+None of these writes anything, none needs a decision at the time, and all of
+them are the baseline the morning's after-reads are compared against:
+
+| Step | What it reads | Thread |
+| --- | --- | --- |
+| the three deterministic reads | `?seed=1&runs=2000&from_week=2`, with the 2026 usage count beside each | Trade Brain |
+| mid-window capture | the full pre-fit availability picture | Trade Brain |
+| the deploy marker | `GET /api/trades/3/managers/signals` | Trade Brain |
+| scheduler status | `scheduled_now`, `due_after_minutes` over HTTP | scheduler |
+| chat status | whether the corpus is present | chat sync |
+| `heavy_enabled` | whether the unset was run | Trade Brain |
+
+**Needs Nick's terminal, so it waits for the morning.** Anything running a
+script on the machine, touching secrets, or restarting it: the step 7 dry run
+(`--report=/tmp/fit.json`), the step 8 promotion and the ensemble re-fit, the
+restart that follows it, the step 10 availability fit, the completeness script,
+`npm run chat:sync`, the `COUNT(*)` reads that need `fly ssh console`, and
+putting `AUTO_HEAVY_SYNC` back last. **No database write happens tonight.**
+
+### 7.0a Bracket every read with `uptime_s`, and void it if the machine restarted
+
+`GET /api/health` is unauthenticated and returns `{"ok":true,"uptime_s":<n>}`.
+Read it immediately before and immediately after every capture.
+
+**If `uptime_s` at the end is smaller than the number of seconds the capture
+took, the machine restarted during it and the read is void.** Re-run it. This
+replaces believing that nothing restarted with detecting it after the fact, and
+it costs one request.
+
+It is not hypothetical. **The machine restarted at 22:12:07Z**, three minutes
+after the app was first seen up at 22:09Z — read off `uptime_s: 53` at
+22:13:00Z, with the transition caught directly as a 36.6-second empty-body 502
+at 22:11:35Z followed by 200s in 0.15s. `fly secrets unset AUTO_HEAVY_SYNC`
+restarts the machine and the timing fits, so it is almost certainly Nick's own
+step rather than a fault.
+
+**Why a restart is worse here than the usual lost warm cache.**
+`routes/model.js` memoises `proj:` at `:404` and `:426` and `player-week:` at
+`:443` under keys carrying **no seed and no fit id**. A restart busts them. So a
+capture spanning a restart serves its early rows from one memo generation and
+its later rows from another, with nothing in the file marking the seam — and
+because the seam falls in the middle of a player list rather than at its edges,
+it reads as a real effect rather than as damage. This matters most tomorrow,
+when the step 8 restart is deliberate and every after-read must sit wholly on
+one side of it.
 
 ### Read-only, safe to run now
 

@@ -5,8 +5,37 @@ eight threads. None of it is deployed: `gridiron-hq.fly.dev` is running a build
 that predates all of them. This file is the ordered sequence for landing them,
 the evidence that the sequence works, and the deploy plan that follows it.
 
-**Nothing here has been merged or deployed.** Everything below was proved on a
-throwaway scratch branch built from `main`, which has been discarded.
+**Nothing here has been merged or deployed by this session.** Everything below
+was proved by merging the twenty-six branches onto a scratch branch built from
+`main` and running the repository's own checks against the result.
+
+**The proved tree is published as `claude/release-train-2yv3x6-proof`** so it
+can be landed without re-merging anything: commit
+`791b131f24824b8c3eb7dd2172165b5ab55c2b04`, tree
+`1b2341aa116031e40c9b10abf1ff9270e150a347`. That tree hash is the whole proof —
+the merge commits can be rebuilt and will differ, the tree will not, and the
+tree is what gets built and deployed. Check it before pushing, and treat a
+mismatch as a stop.
+
+## How to read the code references in this file
+
+**Every `file.js:NNN` in this document is read from the tree that ships**, not
+from any working checkout. Verify with `git show <proof-ref>:<path>`, and after
+the train lands with `origin/main`.
+
+This is not pedantry. The branch carrying *this document* has `main`'s `server/`
+— the code being replaced. On the evening this was written its
+`contingency.js` was **323 lines**, against **1,093** on the merged tree, so
+every offset past the first few hundred lines was wrong by hundreds of lines
+while still landing on plausible-looking code. Four line numbers went into
+circulation that way in one hour, and one session confidently told another its
+correct numbers were stale.
+
+A wrong line number is worse than no line number, because it sends the reader to
+real code that reads closely enough to be believed, and nothing errors. So:
+**cite the ref alongside the line**, prefer function names in prose, and when two
+readings disagree, establish which tree each was read from before deciding which
+is wrong. The larger file is usually the merged one.
 
 ## Summary
 
@@ -633,14 +662,76 @@ fingerprint is safe; the one that merely memoises is not.
 
 ### 3. Deploy
 
+**One read-only check first, and it can fail the deploy outright if it is
+skipped.**
+
+```
+fly ssh console -a gridiron-hq -C "df -h /data"
+```
+
+**Needs about 2.5 GB in `Avail`.** If it has less, stop and extend the volume
+before deploying. Do not look for a way to skip the snapshot.
+
+Where that number comes from, read off the shipping tree rather than reasoned
+about. `main` carries 52 migration files and the proved tree carries 63, so
+**11 new migrations land in this deploy** (`053` through `062`, with two files
+sharing the number `062`). `runMigrations` computes `pendingCount = 11`, which
+is greater than zero, so it calls `backupBeforeMigration` — a `VACUUM INTO`
+snapshot of the live database taken before anything changes. That function calls
+`assertRoomForSnapshot` first, and `SNAPSHOT_HEADROOM_BYTES = 2 * 1024 ** 3`
+(`server/db/index.js`), so it demands **the database's full size plus 2 GB**.
+The database is 445 MB. All of it runs inside `await runMigrations()`, which is
+**before `app.listen`**.
+
+So on a volume under roughly 3 GB the new machine throws on start, never
+listens, and the deploy fails. It fails in the safe direction — nothing is
+written, the snapshot is declined rather than half-taken, Fly keeps the previous
+release — but the error is about disk and says nothing about any of the 26 pull
+requests, which is a bad thing to be reading for the first time at midnight.
+
 ```
 fly deploy -a gridiron-hq
 ```
 
 Migrations run automatically at boot, before `app.listen` — there is no separate
-release command. Expect a longer boot than usual: three new migrations plus seed
-reconciliation against the volume. `fly.toml`'s health check has a 60-second
-grace period for exactly this.
+release command.
+
+**Expect a slow first boot, and expect it to look like a hang.** In order:
+
+1. The build: two `npm ci` runs (full, then `--omit=dev`) plus the Vite client
+   build. No measured figure for this app — assume several minutes.
+2. The new image tag prints when the build pushes. **Copy it.** It is the
+   rollback target for the *next* deploy, the way
+   `deployment-01M2VZ9JRYSXVHCRWJ83V360QH` is tonight's. Step 11 still points at
+   tonight's, which is correct.
+3. The snapshot, which is the slow part and the reassuring one:
+
+       [db] backing up /data/data.sqlite to /data/data.sqlite.pre-migration-<stamp>.bak before new migrations…
+       [db] backup complete in <n>ms
+
+   A `VACUUM INTO` of 445 MB on a 2 GB machine, with health checks failing the
+   whole time because nothing is listening yet. **This is the shape of a good
+   deploy.** Then the 11 migrations, each in its own `BEGIN IMMEDIATE`.
+4. `Gridiron HQ listening on http://localhost:5177`, then
+   `Evidence layers warm in <n>ms` — or `Evidence warm-up skipped: …`, which is
+   logged, never fatal, and not a failure signal.
+5. Health green, plus the usual 60-180s cold start on top. A failing Fly health
+   check does **not** restart the machine, so a red check is information rather
+   than a loop. Conclude nothing under 300 seconds.
+
+Do not run `fly deploy` a second time because the first looks slow, and do not
+`fly apps restart` mid-migration.
+
+**The snapshot will genuinely be taken, checked rather than assumed.** Team
+memory carries a real hazard here: `migrate.js` computes `pendingCount` from the
+*filename* but applies under `mod.name ?? basename`, so a file whose `name`
+export diverges from its basename leaves `pendingCount` at 0, skips the
+snapshot, and still runs `up()` against the live database with nothing in the
+output saying the snapshot was skipped. All 11 new files were read: every one
+exports a `name` equal to its basename. The hazard is latent tonight, not live.
+That also makes the duplicated `062` harmless — duplicate *numbers* are
+cosmetic, duplicate `name` exports are the silent-data-loss case, and there are
+none.
 
 ### 4. Watch the first boot, not the settled machine
 
@@ -782,6 +873,29 @@ fly ssh console -a gridiron-hq
 cd /app && node scripts/promote-volume-shrinkage.mjs --dry-run
 ```
 
+**Read the gate's own `n` before you read its verdict.** The production vector
+was validated against a rebuild of 5,801 / 5,864 / 6,037 usage rows and
+577 / 589 / 610 distinct players for 2023 / 2024 / 2025 — the opportunity thread
+downloaded the nflverse source files and counted, so that is the ceiling the
+source itself allows, not an estimate. Live cannot exceed it.
+
+The reason live's raw `player_week_usage` count looks larger is benign and now
+settled: `syncWeeklyUsage` (`nflverse.js:228`, insert loop `:255-262`) writes
+every REG row whose `gsis_id` matches a `players` row with **no position
+filter**, while `history()` (`projections.js:285`) filters to `QB/RB/WR/TE` at
+`:292` and `:300`. The surplus is defenders and linemen, and the grader drops
+them. So the question is never "why are there extra rows" — it is whether the
+*graded* population is the size the vector was fit for.
+
+Read the printed `n` against the ceiling:
+
+- **At or just below it** — proceed. This is the expected reading.
+- **Materially below it** — stop and understand it first. That means live's
+  `players` table is missing fantasy players, and a gate can pass cleanly on a
+  thinner population than the one it was written for.
+- **Above it** — stop. A premise is wrong, because the source files do not
+  contain that many graded rows.
+
 Writes nothing. Prints the fitted vector, the `nfl_qbr_weekly` coverage, and five
 pre-registered conditions. About 90 seconds on a warm machine. **All five must
 read `true`.** If any is false, stop; do not promote and do not argue with the
@@ -799,9 +913,61 @@ node scripts/promote-weekly-ensemble.mjs
 
 The first writes one row to `shrinkage_fits` and six to `shrinkage_k`, in one
 transaction, and sets `active = 1`. The second inserts one row into
-`weekly_ensemble_fits`. **Run both in the same sitting**: step 1 alone is a
-measured wash, and the whole improvement comes from the second. Stopping between
-them leaves the app parked in a middle state that delivers nothing.
+`weekly_ensemble_fits`.
+
+**Run both in the same sitting, and treat the second as mandatory rather than a
+follow-up.** The weekly ensemble weights were fitted against the old head's
+scale. Running the first without the second leaves the app in a configuration
+the gate never validated — not merely a smaller improvement, an unvalidated one.
+If anything fails between them, roll back from that state (see step 11) rather
+than sit in it overnight.
+
+**Rollback for this write, cleaner than an `UPDATE`.** Both tables are empty
+today, so the exact prior state is restored by
+`DELETE FROM shrinkage_k; DELETE FROM shrinkage_fits;` — no value has to be
+remembered or restored, and there is no "previous active row" to reinstate.
+
+#### The split this write makes visible, and what Nick will see
+
+**Measured end to end by the opportunity thread on a scratch `VACUUM INTO` copy,
+nothing written anywhere real.** This is the most important reading note in the
+whole sheet, because the surprise arrives the same night and looks exactly like
+a bug.
+
+The promoted vector reaches **exactly one code path**. `activeKVectorFor` returns
+it only under `WEEKLY_ROLE_RECENCY`, and the only production caller passing that
+is `player-week-engine.js`. Every other `buildProjections` caller — draft-assist,
+season-sim, ros-projection, preseason-model, ceiling-lineup, week-postmortem,
+`routes/model.js` — runs on default recency, gets `null`, and keeps the old
+hand-picked constants.
+
+What that measures out to: **0 of 1,130 season-long projections move; 1,155 of
+1,174 weekly projections move.** At a week-2 cutoff with zero 2026 usage rows,
+startable players move **+4.71 ppg on average** (151 of 156 upward, max +15.39),
+with top-N churn of 5/24 QB, 6/48 RB, 3/60 WR, 2/24 TE. Against 2025 actuals the
+level check is startable MAE **5.22 → 2.32** and bias **−5.18 → −0.90**: the old
+constants under-project every startable player by about five points a week.
+
+**So Start/Sit will show a player at ~29 while the draft board, the ROS list, the
+season sim and the playoff odds keep showing ~13 for the same player, the same
+night.** That split is not introduced by this write — the season-long path runs
+the old constants today and carries on doing so — but this is when it becomes
+visible. Anyone who sees it without this paragraph will reasonably report it as
+a regression caused by the deploy.
+
+The options, and they are Nick's to pick:
+
+1. Promote as planned, accept the split, fix the season-long path next train.
+2. The same, plus the season-long surfaces get labelled so the number is not
+   read as authoritative.
+3. Hold this write until the season-long path can take the fit. That is new
+   modelling work, not a configuration change.
+
+**Recommended: 1 with 2.** The weekly numbers are measurably much better and
+holding them back to preserve consistency would be preferring a uniformly wrong
+app to a partly fixed one. But the labelling is not optional garnish — an
+unexplained 29-versus-13 is exactly the kind of thing that costs trust in every
+other number on the page.
 
 ### 9. Database write 2, dry run — the availability fit
 
@@ -852,7 +1018,7 @@ that is step 10's first paragraph.
 **This is the most carefully staged step in the plan, and it is bigger than its
 runbook implies.** Only `contingency.js` reads the two tables, and the honest
 statement is: **running this script changes every trade and lineup surface, with
-no code deploy and no pull request.** `season-sim.js:212` reads it once per
+no code deploy and no pull request.** `season-sim.js:226` reads it once per
 simulated week, which is what prices playoff and title odds;
 `trade-engine.js:304` multiplies this week's ppg by `active_probability`
 outright and seeds the player-week distribution with it; the trade horizon
@@ -1013,15 +1179,69 @@ Then:
    `manager-signals.js`, `counterparty-pricing.js` and `trade-acceptance.js` hold
    no reference to availability at any remove.
 
+   **The role layer will be running on last season's roles, and the gate cannot
+   see it.** Verified on the shipping tree: `roleStates(season, week)`
+   (`contingency.js:324`) reads
+   `(season = 2025 OR (season = 2026 AND week < 2))`. With `player_week_usage`
+   empty for 2026 — which it is, and which #20/#31 are what fill it — that window
+   is **2025 alone**. So:
+
+   - A player healthy at the end of 2025 reads `g0` even if he has missed both
+     2026 games.
+   - A player whose last 2025 appearance was week 14 or earlier gets `gap >= 4`,
+     no role cell, and non-role pricing — while `availability_basis` still
+     reports `role`.
+   - Rookies are not in the map at all.
+
+   The gate is scored on 2025 with *that* season's in-season roles, so **a clean
+   gate pass is entirely consistent with a weaker role layer in production**.
+   This is not a reason to hold the write; it is a reason not to read a passing
+   gate as a statement about live.
+
+   Two concrete consequences for the sheet, and the second one is a sequencing
+   constraint rather than a note:
+
+   1. **Record the 2026 `player_week_usage` row count beside every reading.**
+      Without it, a reading cannot be placed on either side of the backfill.
+   2. **Take all three readings on the same side of that backfill** — either all
+      three before any 2026 usage lands, or land the usage first and take the
+      before-reads after it. One either side and the backfill and the fit produce
+      the same direction of change with nothing to separate them. `_roleCache` is
+      keyed on the row counts of exactly this window (`contingency.js:327-331`),
+      so it self-invalidates the moment usage lands and gives no warning that the
+      ground moved.
+
+   The fit itself is unaffected: `FIT_SEASONS = [2021, 2022, 2023, 2024]`
+   (`scripts/fit-availability.mjs:48`) and `TEST_SEASON = 2025` (`:49`), so an
+   empty 2026 table can neither block the fit nor move the gate.
+
    Baseline captured live tonight, every league reading basis `constants` and
    stamp `absent|absent`: playoff odds 0.62 (league 1), 0.63 (league 2), 0.26
-   (league 3), 0.24 (league 4), all on Gibbs at 0.805.
+   (league 3), 0.24 (league 4), 0.90 (league 5), all on Gibbs at 0.805.
+
+   **The simulator scores no kickers and no defences, and that matters more for
+   the point totals than for the odds.** `SCORED` holds only QB/RB/WR/TE
+   (`season-sim.js:32`, `:96`, `:106`, `:202`), while all five leagues start a K
+   and a D/ST. So every simulated weekly total is short two starters. Two
+   consequences, and they are not the same size:
+
+   - **Any projected points TOTAL the simulator reports is unambiguously wrong**,
+     low by whatever K and D/ST would have contributed — typically two slots a
+     side. Distrust those outright; do not quote them anywhere.
+   - **The odds are approximate rather than wrong.** The omission is symmetric
+     across both sides of a matchup and K/DEF are low-variance, so the margin
+     distribution shifts little. The direction is unquantified and there is no
+     number for it here, so treat 0.62 / 0.63 / 0.26 / 0.24 / 0.90 as a
+     comparison baseline rather than as the leagues' real playoff probabilities.
+
+   Neither weakens tonight's delta: the same simulator runs before and after, so
+   whatever it omits, it omits identically on both readings.
 
    **Read the three instruments in this order, because they are not equally
    sensitive.** The simulate reading first, `current_week_ppg` second, the trade
    value last.
 
-   - `season-sim.js:212` applies `weeklyAvailability` per simulated week to every
+   - `season-sim.js:226` applies `weeklyAvailability` per simulated week to every
      player across every remaining week, with nothing damping it, so the effect
      compounds. **Strongest instrument.**
    - `current_week_ppg` (on the trade response at `trade-engine.js:449`) is the
@@ -1077,24 +1297,62 @@ Then:
    floor from the spread across all five rather than from one repeat, and take
    the three readings promptly rather than at leisure.
 
-   **Kickers and defences will not move, and that is correct.**
-   `weeklyAvailability` selects `WHERE p.position IN ('QB','RB','WR','TE')`
-   (`contingency.js:889`), so K and DEF are never in the map at all and keep the
-   `0.92` fallback at `:901` — a typed-in number, multiplied into their point
-   totals, after as well as before. Spot-check a skill-position player. An
-   unmoved kicker is the position filter, not a failed write. (#27's page-level
-   line says the chances on the page are measured, which is true of the rows the
-   fit covers and not of those two; the UI thread is labelling them "never
-   measured" in the next train.)
+   **Kickers and defences will not move, and the surface where you could see it
+   is narrower than three drafts of this section claimed.**
+   `weeklyAvailability` (`contingency.js:885` on the shipping tree) selects
+   `WHERE p.position IN ('QB','RB','WR','TE')` at `:889`, so K and DEF are never
+   in the map it returns and every consumer falls back to a typed-in `0.92`.
 
-   **And that constant reverses direction at the deploy, which is the part worth
-   warning about.** Today a healthy RB reads 0.805 against a typed-in 0.92, so
-   kickers and defences are over-valued by about eleven points relative to
-   everyone around them. After the fit a healthy starter reads ~0.952 and they
+   Where that constant can actually be seen, narrowed by the UI thread and
+   confirmed here on the merged tree:
+
+   - **Not in any lineup decision.** `lineupSlots` (`trade-engine.js:539`)
+     filters `roster_positions` to `SCORED` at `:542`, and `bestLineup` (`:611`)
+     filters candidates to `SCORED` at `:615` and slots again at `:636`. A
+     kicker is never placed, so the constant cannot move a Start/Sit call.
+   - **Not in the playoff odds.** The simulator excludes K and DEF entirely
+     (below).
+   - **It survives in exactly two places:** the Start/Sit *bench list* display,
+     where a kicker's `week_points` is built on `0.92` beside fitted numbers,
+     and kicker/DEF **trade value** through `decisionPpg`.
+
+   And the skill-only lineup and skill-only simulator are a **deliberate
+   modelling scope with the reason written in the code** — `trade-engine.js:123`,
+   "K and D/ST are near-random week to week", restated at `:2781-2782` — not a
+   defect somebody forgot. Do not file it as one.
+
+   **`season-sim.js:226` is not a K/DEF site, and an earlier draft of this
+   section said it was.** The simulator never sees a kicker or a defence:
+   `SCORED = new Set(['QB','RB','WR','TE'])` at `:32`, non-SCORED lineup slots
+   skipped at `:106`, and the player pool filtered at `:96` and `:202`. Its
+   `?? 0.92` is the *missing-row* fallback for a fantasy-position player the fit
+   did not cover — worth knowing for a different reason, and not the same defect.
+   There is also a second `?? 0.92` in `trade-engine.js` at **:2827**, in
+   swap/gap logic nobody has traced; "the only reachable 0.92" is not a settled
+   claim and should not travel as one.
+
+   **And the constant reverses direction at the deploy, which is the part worth
+   warning about.** Today a healthy RB reads 0.805 against a typed-in 0.92, so in
+   Trade Lab kickers and defences are over-valued by about eleven points relative
+   to everyone around them. After the fit a healthy starter reads ~0.952 and they
    are under-valued by about three. The constant does not merely fail to move —
-   **it flips sign**, so a kicker can rank differently on Monday than on Sunday
-   with nothing about the kicker having changed. Not a blocker, and exactly the
-   sentence that stops an hour of hunting for a bug that is not there.
+   **it flips sign**. Not a blocker, and exactly the sentence that stops an hour
+   of hunting for a bug that is not there. It touches neither the playoff odds
+   nor any lineup ranking, for the reasons above.
+
+   **The strongest post-write check is not a percentage — it is which players get
+   flagged.** Two thresholds read `active_probability` directly, on the shipping
+   tree: `< 0.75` in `lineup-brain.js:553` (Start/Sit's "check before kickoff"
+   list) and `< 0.6` in `role-scenario-engine.js:141`. Healthy starters move up
+   (0.805 → ~0.952) and go silent; the designated band moves down and furthest.
+   So the **set** of flagged players should visibly change, shifting toward
+   players who warrant the flag.
+
+   Expect *more* warnings immediately after the write, not fewer, and read that
+   as the fit working rather than as a regression. No count is predicted here —
+   the dry run's distribution is the real number. **A write that leaves the
+   flagged set identical deserves a second look**, because that is the one
+   outcome the write cannot plausibly produce.
 
    **Everything reading unchanged is the result to distrust, not the reassuring
    one.** Three ways this verification could have produced a convincing null, all
@@ -1156,6 +1414,12 @@ One statement each. `activeKVector()` returns null with no active row and
 `pickK()` falls through to the hand-picked literals. No fit row is destroyed, so
 both are reversible in either direction.
 
+**Cleaner still, and the one to prefer:** both tables are empty before step 8,
+so `DELETE FROM shrinkage_k; DELETE FROM shrinkage_fits;` restores the exact
+prior state — nothing to remember, and no "previous active row" to reinstate.
+The `UPDATE` form above is correct and keeps the fit rows for inspection; the
+`DELETE` form is the true undo. Either works.
+
 **The deploy. The reference is captured, so this is one paste and not a search:**
 
 ```
@@ -1178,7 +1442,7 @@ need it.
 Redeploying the captured image rather than rebuilding from a commit. The running
 build is now known to be a clean checkout somewhere in an eleven-commit window
 (step 1), but a window is not a build, so the image is what gets redeployed.
-Migrations are additive and the three new ones drop nothing, so an older image
+Migrations are additive and the eleven new ones drop nothing, so an older image
 boots against the migrated volume without a schema rollback. If a migration does
 need undoing, `npm run db:rollback` takes one at a time, newest first — and pass
 the name explicitly, because bare it takes the last-sorted file, which is now
@@ -1283,7 +1547,19 @@ git push origin main
 ### Deploy
 
 ```
-# 6. Deploy. Migrations run at boot, before app.listen.
+# 5a. HARD PRECONDITION, read-only. 11 new migrations means migrate.js takes a
+#     VACUUM INTO snapshot at boot, and assertRoomForSnapshot demands the
+#     database's size + 2 GB. The database is 445 MB, so this needs ~2.5 GB
+#     in Avail. Under that, the machine throws before app.listen and the
+#     deploy fails on disk, saying nothing about any of the 26 pull requests.
+#     Fix is `fly volumes extend`, not skipping the snapshot.
+fly ssh console -a gridiron-hq -C "df -h /data"
+
+# 6. Deploy. Migrations run at boot, before app.listen. Expect a slow first
+#    boot: the snapshot of a 445 MB file runs before anything listens, so
+#    health checks fail throughout it. Watch for
+#    "[db] backup complete in <n>ms" — that is the good path, not a stall.
+#    Copy the new deployment- tag it prints; it is the NEXT deploy's rollback.
 fly deploy -a gridiron-hq
 
 # 7. Watch the first boot — this is when the concurrency bug used to fire hardest.

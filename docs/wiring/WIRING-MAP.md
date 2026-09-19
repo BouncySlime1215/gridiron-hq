@@ -26,7 +26,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 ## Findings
 
 **10 missing feed** — a surface depends on something nothing produces.
-**2027 orphan** — something produced that reaches no surface.
+**2028 orphan** — something produced that reaches no surface.
 71 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
@@ -76,7 +76,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `value-computed-never-used` | orphan | 15 | 15 | 61 |
 | `table-never-read` | orphan | 0 | 4 | 13 |
 | `export-only-tested` | orphan | 66 | 90 | 208 |
-| `export-imported-by-nothing` | orphan | 136 | 271 | 587 |
+| `export-imported-by-nothing` | orphan | 136 | 271 | 588 |
 | `route-no-caller` | orphan | 52 | 331 | 69 |
 
 ### `table-hand-fed` — MISSING FEED (10)
@@ -100,6 +100,7 @@ The missing-feed list in full, because it is short and it is the one that matter
   - writer server/services/manager-archetypes.js:561, writer server/services/manager-archetypes.js:563, writer server/services/manager-archetypes.js:563, reader server/services/manager-archetypes.js:698, reader server/services/manager-archetypes.js:802
   - wired into (≤3 hops): routes /api/league-chat@1 /api/model@3 /api/players@3 /api/trades@3; scripts scripts/build-manager-archetypes.mjs@0 scripts/refresh-live-data.mjs@0 scripts/build-manager-signals.mjs@1
   - read in: server/services/manager-archetypes.js, server/services/manager-signals.js, scripts/build-manager-archetypes.mjs, scripts/refresh-live-data.mjs
+  - **ASSERTED**: Written by server/services/manager-archetypes.js:561-563, driven by scripts/build-manager-archetypes.mjs. No chat dependency — it replays league-seasons out of the app's own database, so it works whether or not a corpus ever arrives. PR #26 registers it as a scheduled job (scheduler.js, heavy tier, 24h).
 - **nfl_availability_rates** `[fantasy]` — read on a served surface, but every writer is a script someone has to remember to run
   - writer scripts/fit-availability.mjs:412, writer scripts/fit-availability.mjs:414, reader server/services/contingency.js:568, reader scripts/availability-decision-calibration.mjs:222, reader scripts/fit-availability.mjs:60
   - wired into (≤3 hops): routes /api/model@1 /api/dev@2 /api/leagues@2 /api/news@2 /api/players@2 /api/trades@2 /api/accolades@3 /api/aggregates@3; jobs espn_line_watch@3 polymarket_line_watch@3; scripts scripts/availability-decision-calibration.mjs@0 scripts/fit-availability.mjs@0 scripts/fit-posture-calibration.mjs@1
@@ -640,7 +641,7 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/services/nfl-execution-clv.js` | 5 |
 | _… 115 more files_ | 230 |
 
-### `export-imported-by-nothing` — ORPHAN (994)
+### `export-imported-by-nothing` — ORPHAN (995)
 
 Grouped by file, heaviest first. Full list in `wiring-map.json`.
 
@@ -660,10 +661,10 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/services/alt-spread-import.js` | 16 |
 | `server/betting/nfl/strategy/t60-runner.js` | 15 |
 | `server/services/nfl-ensemble-rank.js` | 15 |
+| `scripts/wiring-map.mjs` | 14 |
 | `server/services/consensus-weights.js` | 14 |
 | `server/services/draft-abstention-audit.js` | 14 |
 | `server/services/nfl-weekly-feature-store-v2.js` | 14 |
-| `scripts/wiring-map.mjs` | 13 |
 | `server/services/joint-score-backtest.js` | 13 |
 | `server/services/ros-projection.js` | 12 |
 | _… 222 more files_ | 626 |
@@ -705,11 +706,11 @@ Everything else in this file is derived.
 - **nfl_availability_role_rates** — ASSERTED producer: Same script, and only if its pre-registered gate passes on held-out 2025. A failed gate writes zero rows on purpose; an empty table is a legitimate outcome, not a bug.
 - **espn_player_market** — ASSERTED producer: syncEspnMarket() exists and nothing calls it. Not a deliberate manual step — an unfinished one.
 - **league_roster_snapshots** — ASSERTED producer: `node scripts/collect-roster-snapshots.mjs`, run by hand per league.
-- **league_season_teams** — ASSERTED producer: `node scripts/backfill-league-history.mjs`, a one-off backfill.
 - **league_transactions_raw** — ASSERTED producer: `node scripts/collect-league-transactions.mjs`, run by hand per league.
 - **negotiation_profiles** — ASSERTED producer: Lives in the CHAT database, not the app's — built by scripts/build-negotiation-profiles.mjs on the Mac and delivered inside the corpus file.
 - **nfl_rebuild_progress** — ASSERTED producer: Written by the 2022-2025 rebuild script while it runs. Correctly manual.
 - **nfl_rebuild_checkpoints** — ASSERTED producer: Written by the 2022-2025 rebuild script while it runs. Correctly manual.
+- **manager_archetypes** — ASSERTED producer: Written by server/services/manager-archetypes.js:561-563, driven by scripts/build-manager-archetypes.mjs. No chat dependency — it replays league-seasons out of the app's own database, so it works whether or not a corpus ever arrives. PR #26 registers it as a scheduled job (scheduler.js, heavy tier, 24h).
 
 - **league_member_identity** — ASSERTED note: The walker sees a writer (manager-identity.js) reachable from a route and calls the table fed. It is not, in the way that matters: a row only becomes usable to the Trade Brain when its `confidence` is 'confirmed' or 'exact' (TRUSTED_CONFIDENCE), and 'confirmed' is only ever set from the `confirmations` argument, which a person has to supply. Name matching cannot bootstrap it, because chat handles are not ESPN names. A value-level dependency like this one is outside what an import-and-SQL walker can prove, which is why it is written down here.
 - **espn_settings** — ASSERTED note: Read once at server/db/index.js:228 to migrate a pre-multi-league row into `leagues`. Nothing writes it any more and nothing should. Kept as a legacy read.

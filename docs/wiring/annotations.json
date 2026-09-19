@@ -5,11 +5,11 @@
     "nfl_availability_role_rates": "Same script, and only if its pre-registered gate passes on held-out 2025. A failed gate writes zero rows on purpose; an empty table is a legitimate outcome, not a bug.",
     "espn_player_market": "syncEspnMarket() exists and nothing calls it. Not a deliberate manual step \u2014 an unfinished one.",
     "league_roster_snapshots": "`node scripts/collect-roster-snapshots.mjs`, run by hand per league.",
-    "league_season_teams": "`node scripts/backfill-league-history.mjs`, a one-off backfill.",
     "league_transactions_raw": "`node scripts/collect-league-transactions.mjs`, run by hand per league.",
     "negotiation_profiles": "Lives in the CHAT database, not the app's \u2014 built by scripts/build-negotiation-profiles.mjs on the Mac and delivered inside the corpus file.",
     "nfl_rebuild_progress": "Written by the 2022-2025 rebuild script while it runs. Correctly manual.",
-    "nfl_rebuild_checkpoints": "Written by the 2022-2025 rebuild script while it runs. Correctly manual."
+    "nfl_rebuild_checkpoints": "Written by the 2022-2025 rebuild script while it runs. Correctly manual.",
+    "manager_archetypes": "Written by server/services/manager-archetypes.js:561-563, driven by scripts/build-manager-archetypes.mjs. No chat dependency \u2014 it replays league-seasons out of the app's own database, so it works whether or not a corpus ever arrives. PR #26 registers it as a scheduled job (scheduler.js, heavy tier, 24h)."
   },
   "expected_orphans": [
     "table:espn_settings"
@@ -23,7 +23,6 @@
   "accepted_missing_feeds": [
     "espn_player_market",
     "league_roster_snapshots",
-    "league_season_teams",
     "league_transactions_raw",
     "manager_archetypes",
     "nfl_availability_rates",

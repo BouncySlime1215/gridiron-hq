@@ -15,6 +15,15 @@ variance-components fitter estimates those at roughly 0.18-0.28 and 1.3-2.9. No
 fit has ever been persisted, so `activeKVector()` returns null and production has
 always taken the hand-picked branch.
 
+**One caveat on that last sentence, stated plainly because the whole case rests
+on it.** "No fit has ever been persisted" was verified on the rebuilt database
+this work was done against, **not on the live one** — no route exposes
+`shrinkage_fits`, so it could not be checked from a cloud session. If the live
+table already holds an active fit, then the "before" numbers everywhere in this
+runbook describe a configuration the app is not running, and step 2 is an
+overwrite rather than a first write. The diagnostic below settles it in the same
+breath as everything else; do not skip it on the strength of this document.
+
 Everything needed already exists and is correct — the fitter, the pre-registered
 gate, the cutoff-safety guard that re-fits when a stored fit would see the season
 being graded, and the recency-units guard that keeps the vector off the

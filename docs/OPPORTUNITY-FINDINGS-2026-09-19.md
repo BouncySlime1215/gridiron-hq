@@ -121,7 +121,11 @@ false on condition 3. Promote first, or accept that it needs re-deciding after.
 
 **This is a database write, not a code change.** The gate script, the fitter, the
 cutoff-safety guard and the recency-units guard all already exist and are
-correct. What is missing is that `shrinkage_fits` and `shrinkage_k` are empty.
+correct. What is missing is that `shrinkage_fits` and `shrinkage_k` are empty —
+**measured on this rebuild, not on the live database**, which exposes no route
+for those tables. If production already carries an active fit, the "before" arm
+of every comparison here is not what production is running. Worth one query
+before relying on any of it.
 Running `node scripts/promote-volume-shrinkage.mjs` (without `--dry-run`) against
 the live database, then re-running `scripts/promote-weekly-ensemble.mjs`, is the
 whole change. It moves live start/sit output, so it is deliberately not done from

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
+import { assertLeagueMember } from '../platform/auth.js';
 import { vorBoard, volatility } from './edge.js';
 import { deriveFormat } from '../services/format.js';
 import { pickInventory } from '../services/picks.js';
@@ -193,6 +194,10 @@ export function analyzeLeague(lg) {
 
 r.get('/:leagueId/analysis', (req, res) => {
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.leagueId);
+  // The only route in this file that names a league, and it looked one up by
+  // id alone — so it answered for any league in the database, not the
+  // caller's. Same membership rule the rest of the app uses.
+  if (lg) assertLeagueMember(req.auth?.userId, lg.id);
   if (!lg?.payload) return res.status(400).json({ error: 'league not synced yet' });
   const a = analyzeLeague(lg);
   if (!a.teams.some(t => t.players.length)) {

@@ -42,6 +42,24 @@ function requireDirectLoopback(req, res, next) {
   next();
 }
 
+/**
+ * Make this user commissioner of every league NOBODY owns yet.
+ *
+ * This used to be every league in the database, no predicate, which is right
+ * on a fresh single-user install and wrong the moment a second account
+ * exists: the endpoint below is reachable in production from inside the
+ * container over `fly ssh console`, so the loop would quietly make the local
+ * owner commissioner of an invited user's league too. Unclaimed leagues are
+ * still claimed, so the fresh-install path is unchanged.
+ */
+export function claimUnownedLeagues(userId) {
+  for (const lg of rows(`SELECT id FROM leagues WHERE id NOT IN
+    (SELECT league_id FROM league_memberships)`)) {
+    run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?,'commissioner')
+         ON CONFLICT(league_id,user_id) DO UPDATE SET role='commissioner'`, lg.id, userId);
+  }
+}
+
 function issueSession(userId, days) {
   const token = crypto.randomBytes(32).toString('base64url');
   run(`INSERT INTO auth_sessions (user_id, token_hash, expires_at)
@@ -73,16 +91,16 @@ r.post('/local-session', (req, res) => {
          ON CONFLICT(subject) DO UPDATE SET display_name=excluded.display_name`, LOCAL_SUBJECT);
     const userId = row('SELECT id FROM users WHERE subject = ?', LOCAL_SUBJECT).id;
 
-    for (const lg of rows('SELECT id FROM leagues')) {
-      run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (?,?,'commissioner')
-           ON CONFLICT(league_id,user_id) DO UPDATE SET role='commissioner'`, lg.id, userId);
-    }
+    claimUnownedLeagues(userId);
     run(`INSERT OR IGNORE INTO model_permissions (user_id, permission) VALUES (?, 'model:*')`, userId);
 
     // Bind already-confirmed local drafts to the owner when the slot is known.
     // Unconfirmed slots remain unowned so the UI must still ask instead of guessing.
-    for (const draft of rows(`SELECT id, my_slot FROM drafts
-      WHERE league_row_id IS NOT NULL AND my_slot_confirmed=1 AND my_slot IS NOT NULL`)) {
+    // Likewise scoped to drafts in leagues this user is actually in, rather
+    // than every draft in the database.
+    for (const draft of rows(`SELECT d.id, d.my_slot FROM drafts d
+      JOIN league_memberships m ON m.league_id = d.league_row_id AND m.user_id = ?
+      WHERE d.league_row_id IS NOT NULL AND d.my_slot_confirmed=1 AND d.my_slot IS NOT NULL`, userId)) {
       run(`INSERT OR IGNORE INTO draft_team_ownership (draft_id, team_slot, user_id)
            VALUES (?,?,?)`, draft.id, draft.my_slot, userId);
     }

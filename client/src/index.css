@@ -212,6 +212,10 @@ a.border-slate-800, a.border-slate-900 { border-color: var(--accent) !important;
 .text-crit { color: var(--crit) !important; }
 .bg-crit-tint { background-color: var(--crit-tint) !important; }
 .border-crit { border-color: var(--crit) !important; }
+/* Third step between good and crit: "this number is real but the data behind it
+   is incomplete". The --warn token was defined above and had no utility class,
+   so callers had nothing to reach for and degraded data got styled as crit. */
+.text-warn { color: var(--warn) !important; }
 
 /* Direct hex, not @apply text-emerald-600 — that class name is one of the ones
    remapped to the brand accent above, and RB's identity color must not follow it. */

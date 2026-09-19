@@ -532,8 +532,13 @@ function gameExperts(season, week, targetIndex, data = dataset(), { auditRunId =
     unit_scores: roster.unit_scores, coverage: roster.coverage, preseason_context: roster.preseason_context,
     cutoff_policy: roster.cutoff_policy, reason: roster.reason });
   const unitEdges = availability?.unit_edges ?? null;
-  const playerOpportunity = unitEdges ? (unitEdges.offense ?? 0) * 0.55 + (unitEdges.defense ?? 0) * 0.35
-    + (unitEdges.special_teams ?? 0) * 0.1 : null;
+  // A `playerOpportunity` scalar used to be computed here as a 0.55/0.35/0.1
+  // recombination of those unit edges. It was assigned and never read — a
+  // repo-wide search found the identifier exactly once, its own declaration —
+  // and despite the name it measured an injury-burden differential, not usage.
+  // The weights were uncited and collinear with player_builder's own shadow
+  // margin adjustment. Removed rather than wired: the opportunity work lives in
+  // opportunity-model.js, on the fantasy side, against real usage data.
   const experts = [
     output('rulebook', { forecast: median(simple), uncertainty: sd(simple), observed: simple.length > 0,
       missingReason: 'no cutoff-safe simple football priors', detail: { components: simple.length } }),

@@ -33,7 +33,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 ## Findings
 
 **10 missing feed** — a surface depends on something nothing produces.
-**2070 orphan** — something produced that reaches no surface.
+**2001 orphan** — something produced that reaches no surface.
 230 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
@@ -205,10 +205,10 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `module-imported-by-nothing` | orphan | 0 | 0 | 11 |
 | `module-reaches-no-surface` | orphan | 0 | 4 | 13 |
 | `field-attached-never-read` | orphan | 4 | 18 | 39 |
-| `value-computed-never-used` | orphan | 15 | 15 | 64 |
+| `value-computed-never-used` | orphan | 0 | 4 | 19 |
 | `table-never-read` | orphan | 0 | 4 | 13 |
 | `export-only-tested` | orphan | 71 | 90 | 200 |
-| `export-imported-by-nothing` | orphan | 132 | 271 | 624 |
+| `export-imported-by-nothing` | orphan | 132 | 271 | 626 |
 | `route-no-caller` | orphan | 52 | 331 | 79 |
 
 ### `column-read-never-written` — SHOULD WIRE (3)
@@ -881,129 +881,54 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
   - server/services/line-move-study.js:209
 - _… 1 more in wiring-map.json_
 
-### `value-computed-never-used` — ORPHAN (94)
+### `value-computed-never-used` — ORPHAN (23)
 
 - **__internal (server/services/props-total-consistency.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
   - server/services/props-total-consistency.js:261
-- **absentRank (server/services/opportunity-redistribution.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/opportunity-redistribution.js:133
-- **ACTION_NETWORK_BOOK_IDS (server/services/prop-feeds.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
-  - server/services/prop-feeds.js:53
-- **allowLine (server/routes/drafts.js)** `[fantasy]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/drafts.js:1085
-- **ARCHIVE_MATCH (server/migrations/052_line_snapshot_receipt_clock.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/migrations/052_line_snapshot_receipt_clock.js:64
-- **backedName (server/services/pick-reasoning.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
-  - server/services/pick-reasoning.js:149
-- **boardLine (server/routes/drafts.js)** `[fantasy]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/drafts.js:1026
-- **CALIBRATION_VERSION (server/services/nfl-forecast-identity.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/nfl-forecast-identity.js:106
 - **CAREER_POSITIONS (server/services/player-career.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/services/player-career.js:322
 - **CARRYOVER_FROM_WEEK (server/services/football-first.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/services/football-first.js:142
-- **controller (server/services/shadow-ledger.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/shadow-ledger.js:25
 - **dataPath (server/platform/paths.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/platform/paths.js:67
 - **docsPath (server/platform/paths.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/platform/paths.js:70
-- **DRAFT_WINDOW_AFTER_HOURS (server/services/scheduler.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/scheduler.js:41
-- **DRAFT_WINDOW_BEFORE_MIN (server/services/scheduler.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/scheduler.js:40
 - **DRIVER_LABEL (server/services/preseason-model.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/services/preseason-model.js:490
-- **ESPN_TRANSACTIONS (server/services/nfl-transactions.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/nfl-transactions.js:28
-- **excludedKey (server/services/nfl-ensemble.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/nfl-ensemble.js:2389
-- **excludeKey (server/services/trade-engine.js)** `[fantasy]` — assigned once and never referenced again anywhere in the repository
-  - server/services/trade-engine.js:1415
-- **familyKey (server/services/nfl-ensemble.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/nfl-ensemble.js:2391
-- **FINALIZE_AFTER_HOURS (server/services/draft-ingest.js)** `[fantasy]` — assigned once and never referenced again anywhere in the repository
-  - server/services/draft-ingest.js:271
-- **FLOW_TTL_MINUTES (server/routes/google-auth.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/google-auth.js:14
-- **fmtFactor (server/routes/nfl-betting.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/nfl-betting.js:485
-- **fmtLine (server/services/nfl-replay.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/nfl-replay.js:414
-- **fmtPlayer (server/routes/trades.js)** `[fantasy]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/trades.js:1031
-- **fmtRisk (server/routes/trades.js)** `[fantasy]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/trades.js:1046
-- **fmtUnit (server/routes/analysis.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/analysis.js:27
-- **FPI_URL (server/services/nfl-external-ratings.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/nfl-external-ratings.js:39
-- **gameContextKey (server/services/nfl-ensemble.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/nfl-ensemble.js:2404
-- **GAMMA (server/services/polymarket.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
-  - server/services/polymarket.js:34
-- **goneClause (server/routes/nfldata.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/nfldata.js:80
-- **gonePlaceholders (server/routes/nfldata.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/nfldata.js:79
 - **governanceProtocol (server/services/model-governance.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/services/model-governance.js:204
-- **gRank (server/services/opportunity-redistribution.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/opportunity-redistribution.js:215
-- **HANDOFF_TTL_SECONDS (server/routes/google-auth.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/google-auth.js:15
-- **HISTORICAL_FORECAST_API (server/services/nfl-weather-history.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/nfl-weather-history.js:26
 - **INSIDER_HANDLES (server/news/twitter-ingest.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/news/twitter-ingest.js:117
 - **JOINT_SCORE_VERDICT (server/services/nfl-joint-score.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/services/nfl-joint-score.js:920
-- **KALSHI (server/services/prediction-markets.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/prediction-markets.js:36
-- **legacyActor (server/migrations/009_authoritative_actor_and_ownership_guards.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/migrations/009_authoritative_actor_and_ownership_guards.js:29
 - **MARGIN_MODEL_VERDICT (server/betting/nfl/strategy/margin-distribution.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
   - server/betting/nfl/strategy/margin-distribution.js:1642
 - **MATCHUP_EVIDENCE (server/services/matchups.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/services/matchups.js:76
-- **MLB_BASE (server/services/mlb-pregame.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
-  - server/services/mlb-pregame.js:9
 - **mlbPlayerProps (server/services/parlay-api.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
   - server/services/parlay-api.js:187
-- **modeText (server/services/player-week-engine.js)** `[fantasy]` — assigned once and never referenced again anywhere in the repository
-  - server/services/player-week-engine.js:736
-- **MOVE_UNION (server/services/signal-latency.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/signal-latency.js:57
-- **MOVER_RETENTION (server/services/draft-assist.js)** `[fantasy]` — assigned once and never referenced again anywhere in the repository
-  - server/services/draft-assist.js:51
-- **needLine (server/routes/drafts.js)** `[fantasy]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/drafts.js:1014
-- **newsText (server/routes/analysis.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/analysis.js:38
-- **normalizedHeadline (server/news/normalize.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/news/normalize.js:16
-- **ODDSTRADER_PAIDS (server/services/book-feeds.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
-  - server/services/book-feeds.js:96
-- **OFFSEASON_CYCLE_SOURCE (server/services/nfl-offseason-cycle.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/nfl-offseason-cycle.js:37
 - **OL_SLOTS (server/routes/nfldata.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/routes/nfldata.js:434
 - **OPPORTUNITY_STATS (server/services/opportunity-model.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
   - server/services/opportunity-model.js:30
 - **ORDER_INDEX (server/services/nfl-execution-lifecycle.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
   - server/services/nfl-execution-lifecycle.js:72
-- **ORIGINAL_LIST (server/migrations/027_decision_tape.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/migrations/027_decision_tape.js:69
-- **otherName (server/services/pick-reasoning.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
-  - server/services/pick-reasoning.js:150
-- **overrideKey (server/services/nfl-ensemble.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
-  - server/services/nfl-ensemble.js:2396
-- **OWNER (server/routes/props.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
-  - server/routes/props.js:25
-- **paids (server/services/odds-archive.js)** `[betting]` — assigned once and never referenced again anywhere in the repository
-  - server/services/odds-archive.js:40
-- _… 34 more in wiring-map.json_
+- **PARAM_NAMES (server/services/nfl-joint-score.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
+  - server/services/nfl-joint-score.js:562
+- **PYTHON_EMITTER_SNIPPET (server/services/alt-spread-import.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
+  - server/services/alt-spread-import.js:320
+- **SECONDARY_STATS (server/services/opportunity-model.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
+  - server/services/opportunity-model.js:38
+- **TD_FEATURE_KEYS (server/services/td-features.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
+  - server/services/td-features.js:43
+- **toGsis (server/services/player-ids.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
+  - server/services/player-ids.js:111
+- **toInternal (server/services/player-ids.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
+  - server/services/player-ids.js:113
+- **V2_EXCLUDED (server/services/offseason-model.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
+  - server/services/offseason-model.js:1295
+- **WALK_FORWARD_VERDICT (server/services/nfl-preseason-blend.js)** `[shared]` — assigned once and never referenced again anywhere in the repository
+  - server/services/nfl-preseason-blend.js:410
 
 ### `table-never-read` — ORPHAN (17)
 
@@ -1070,14 +995,14 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/services/nfl-execution-clv.js` | 5 |
 | _… 118 more files_ | 234 |
 
-### `export-imported-by-nothing` — ORPHAN (1027)
+### `export-imported-by-nothing` — ORPHAN (1029)
 
 Grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
 | `server/services/offseason-model.js` | 44 |
-| `scripts/wiring-map.mjs` | 37 |
+| `scripts/wiring-map.mjs` | 39 |
 | `server/betting/nfl/strategy/margin-distribution.js` | 25 |
 | `server/betting/nfl/strategy/teaser-staking.js` | 24 |
 | `server/services/offseason-data.js` | 24 |

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
+import { startLoopWatchdog } from './platform/loop-watchdog.js';
 
 const PORT = Number(process.env.API_PORT) || 5177;
 try {
@@ -104,9 +105,12 @@ app.get('/api/health', async (req, res) => {
     db.prepare('SELECT 1').get();
     res.json({ ok: true, uptime_s: Math.round(process.uptime()) });
   } catch (error) {
-    // 503, not 500: this is the signal that should make the host replace the
-    // machine, and an error handler that returned 200 would be the TCP check
-    // all over again.
+    // 503, not 500: this is the signal that takes the machine out of the
+    // routing pool, and an error handler that returned 200 would be the TCP
+    // check all over again. Note that a failing Fly health check stops traffic
+    // being routed here but does NOT restart the machine -- health checks and
+    // the restart policy are independent, and only a process exit triggers a
+    // restart. platform/loop-watchdog.js is what supplies that exit.
     res.status(503).json({ ok: false, error: error.message });
   }
 });
@@ -183,6 +187,12 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
 const HOST = process.env.HOST || '127.0.0.1';
 app.listen(PORT, HOST, () => {
   console.log(`Gridiron HQ listening on http://${HOST}:${PORT}`);
+  // Started only once we are actually serving, and armed later still. A
+  // blocked event loop cannot answer /api/health, and a failing health check
+  // does not restart a Fly machine -- only a process exit does. So this is the
+  // half that turns "the host can see we are wedged" into "the host replaces
+  // us". See platform/loop-watchdog.js.
+  startLoopWatchdog();
   // Warm the evidence layers (career lines, preseason curve, offseason
   // adjustments, in-house projections) off the request path: cold they cost
   // ~4.5s on the first board read, which on draft night would land on the

@@ -213,11 +213,16 @@ function findHandle (body) {
 
 /**
  * Two targets, because the constants are wrong by very different amounts depending
- * on what the injury report says. A healthy starter is priced about fifteen points
- * low; a Doubtful player is held at the 0.15 constant against a measured 0.004, and
- * an Out player at 0.01 against 0.001 (contingency.js:679-695 against the fit's own
- * held-out numbers). A baseline of healthy players alone would miss the largest
- * movement the fit produces, and it is the one that moves DOWN.
+ * on what the injury report says, and a baseline of healthy players alone would miss
+ * the largest movement the fit produces — which is also the only one that moves DOWN.
+ *
+ * Read the designated-player figures with the definition in hand. The fit's event is
+ * RECORDED USAGE — a target, a carry or an attempt (scripts/fit-availability.mjs:16-20,
+ * "deliberately not 'dressed'") — so its absolute levels are lower than any published
+ * "percent who played" figure by construction. The hand-set 0.15 for Doubtful is an
+ * estimate of whether he suits up; the measured 0.004 is how often he touches the
+ * ball. The gap is real and partly definitional, and a reader who takes 0.001 for Out
+ * as a claim about dressing will think the model is broken.
  *
  * Both picks are stable: most valuable first, player id as the tiebreak.
  */
@@ -368,7 +373,11 @@ How to read the above:
   target.active_probability   Expected to RISE for a healthy player, by roughly ten
                               to fifteen points. The constants price a healthy
                               starter far too low; that is the defect being fixed,
-                              not a regression.
+                              not a regression. It is also the right quantity for the
+                              first time: this number multiplies projected points
+                              (trade-engine.js:359), so what the engine needs is how
+                              often he records a touch, which is what the fit
+                              measures and not what the constants estimated.
 
   lineup.warnings[*]          The surface Nick reads. It prints a percentage only
                               for players it is already worried about, so these are
@@ -389,6 +398,11 @@ How to read the above:
                               where the fit moves most and the one place it moves
                               DOWN. A player on the report losing most of his trade
                               value on fit day is the fix, not a bug.
+                              Both halves of that comparison are not the same event:
+                              the fitted number is how often he RECORDS A TOUCH, the
+                              constant was an estimate of whether he dresses. So the
+                              drop is expected and partly definitional. Do not quote
+                              0.001 as "one in a thousand chance of playing".
 
   playoff_odds, horizon_*     Expected to move, and by more than the availability
                               number alone suggests, because the seeded season

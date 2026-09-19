@@ -29,7 +29,7 @@ LLM spend: $0 — the caller is injected in every test.
 
 | System | What the audit found | Decision |
 |---|---|---|
-| `llm-budget.js` | **Already ships `trade_proposals: 0.50`** in `DEFAULT_DAILY_BUDGETS_USD` (`:39`) with a documented `trade_proposals:league-<id>` key convention (`:11-14`), enforced once at `claude.js:241` via `reserveBudget`. It has **no production consumer** — built for this stage and dead until now. | **Use it as-is.** Pass `feature: 'trade_proposals:league-<id>'` and the per-league daily cap is enforced for free. No new budget code. |
+| `llm-budget.js` | **Already ships `trade_proposals: 0.50`** in `DEFAULT_DAILY_BUDGETS_USD` (`:39`) with a documented `trade_proposals:league-<id>` key convention (`:11-14`), enforced once at `claude.js:241` via `reserveBudget`. It has **no production consumer** — built for this stage and dead until now. | **Use it as-is.** Pass `feature: 'trade_proposals:league-<id>'`; no new budget code. **Correction, from the independent verify:** the key resolves (`budgetKeyFor('trade_proposals:league-4')` → `trade_proposals`) but the cap is **NOT per-league** — `spentTodayUsd` sums every `trade_proposals:*` key, so $0.50/day is shared across all five leagues, roughly ten calls a day in total. An earlier version of this file and of the service comment both claimed a per-league cap. They were wrong. |
 | `compute-cache.js` | An in-memory `Map` keyed on a data fingerprint. Correct for recomputable answers; wrong here, because a restart would re-spend real money against a $0.50/day cap. | **Do not use** for this. |
 | Migration `057_ai_usage_cost_and_cache` | Despite the name there is **no response-cache table** — its "cache" is prompt-cache *token accounting* (`cache_read_input_tokens`). | Noted so the next reader does not go looking for a table that was never there. |
 | `nfl_news_event_extraction_cache` (migration 019, read/written `nfl-news-events.js:78,83`) | A real persisted LLM cache already in this codebase, keyed `(content_hash, extractor_version)`. | **Follow this pattern** rather than inventing a second one. Content-keyed beats day-keyed: an unchanged slate does not re-spend, and a changed prompt invalidates by construction instead of by someone remembering to bump a date. |
@@ -48,6 +48,12 @@ LLM spend: $0 — the caller is injected in every test.
 - **G3 the cache is persisted and content-keyed.** An unchanged slate returns the
   stored answer and spends nothing. A changed slate, or a changed prompt version,
   is a miss. A process restart does not re-spend.
+  **PARTLY UNPROVEN.** The content-keying half is tested against an injected
+  in-memory cache. The *persisted* half is not: `dbCache` and migration 060 have
+  **zero test coverage**, because there is no database in this box to exercise
+  them against. "A restart does not re-spend" is therefore a claim this file
+  makes and does not evidence — it belongs on the Mac list, not in the passed
+  column.
 - **G4 honest degradation.** No ideas, no API key, a malformed response, or a
   response with the wrong shape each produce a stated reason and no proposals —
   never a partial parse presented as a result.
@@ -80,6 +86,51 @@ class of bug in the other direction would have silently let fabricated numbers
 through, and nothing downstream would have noticed. The tests that caught it were
 the ones asserting that legitimate content passes, not the ones asserting that
 bad content fails.
+
+## Independent verify: `issues_unfixed`
+
+RED `1abdeb9`, GREEN `9b867ab`, 38/38 (was 18). It **got fabricated numbers and
+a fabricated player past `verifyProposals`**, which is the one thing this stage
+exists to prevent. What it found, fixed test-first:
+
+1. **Numbers returned as JSON were never checked at all.** `proseOf` collected
+   strings only, so `{ask: 4800}` and `data_used: {my_ppg_gain: 4.8}` — both
+   shapes the prompt explicitly asks for — verified clean.
+2. **`n*100` licensed a fabrication.** A `ppg_delta` of 2.4 permitted "240",
+   so "he is averaging 240 receiving yards a game" passed. Now offered only
+   for |n| ≤ 1, where a rate-as-percentage is the plausible rendering.
+3. **A surname on its own was free.** `prose.includes(name)` never matches
+   "Mahomes" against "Patrick Mahomes" — and the fixture's own opener reads
+   "Waddle for Achane", so the single form a model actually writes in was the
+   one form unchecked. Lower case, a line break and a typographic apostrophe
+   (`De’Von` vs `De'Von`) all behaved the same way; the apostrophe case
+   rejected *correct* proposals rather than letting bad ones through.
+4. Also: nested `idea_ids` hid whole sentences from the scan; `.85` was
+   invisible; `3,400` parsed as 3 and 400; a `package` sent as prose skipped
+   the name check entirely; `''`/`[]`/`{}` satisfied a required field; and a
+   corrupt cache row returned an empty success with no reason.
+
+### Three defects it reported outside its own files, fixed in `768d05b`
+
+- **`findTrades` deals had no `id`.** Every proposal cited an idea whose id was
+  `undefined`, so the stage was **non-functional in production**: 3 route hits
+  → 3 paid calls → 0 proposals, all rejected as untraceable, and refusals are
+  not cached so each page load paid again.
+- **The route's universe came from the returned deals only**, which is blind to
+  the real failure mode — a proposal offering a player who exists in the league
+  but is in none of the cited ideas.
+- **`?limit` was caller-controlled** and feeds a slate-hashed cache key: twelve
+  values, twelve keys, twelve paid calls on one league on one day.
+
+### Still open by design, and said out loud
+
+Number-words ("nine straight weeks"), the `FREE_NUMBERS` 0/1/2 allowance,
+numbers as object keys, and what a number *means* — 0.31 being present in the
+ideas makes "31% target share" verify even if the real 0.31 was something else
+entirely. The cost of the new strictness runs the other way: a capitalised
+common word at the start of a sentence can collide with a league surname
+("Love the roster…") and reject a good proposal. That direction is visible
+immediately; the other is not.
 
 ## What this does NOT establish
 

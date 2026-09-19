@@ -21,6 +21,24 @@
  * sentence is not trustworthy either. The original text is kept on the reject
  * so a reviewer sees what the model actually said.
  *
+ * **What it still cannot catch, stated so nobody reads it as airtight.**
+ * (1) A player it has never heard of. Names are recognised against the
+ *     `universe` the caller supplies; anything outside it is invisible, so the
+ *     universe must be EVERY player in the league, not just the ones in the
+ *     ideas. A wholly invented person — a name no league holds — is outside any
+ *     universe and passes.
+ * (2) What a number MEANS. It checks that a number appears in the cited ideas,
+ *     never that it is being used for the thing it measures: an acceptance
+ *     probability of 0.31 makes "31" a verified number, and "he is a 31% target
+ *     share guy" then verifies clean.
+ * (3) Numbers written as words. "nine straight double-digit weeks" contains no
+ *     digits and is not scanned.
+ * (4) Claims made with 0, 1 or 2, which are free (FREE_NUMBERS) so that "2 for
+ *     1" does not need an idea to contain a 2. "He has missed 2 games" is an
+ *     invented injury that costs nothing to make.
+ * Each of these is a sentence Nick could send believing we computed it. They
+ * are open, not solved.
+ *
  * **Cost.** The budget key is `trade_proposals:league-<id>` — already declared
  * in `llm-budget.js` with a $0.50/day default and enforced inside `callClaude`,
  * so this file adds no budget logic of its own. The cache is content-keyed the
@@ -48,14 +66,21 @@ const FREE_NUMBERS = new Set([0, 1, 2]);
  * Every number the source ideas actually contain, at the precisions a writer
  * might reasonably render them: 2.4 may appear as "2.4", "2.40" or "+2.4", and
  * a percentage as "6" or "6.0".
+ *
+ * The percentage form is offered only for values that could BE a rate (|n| <=
+ * 1). Offering it for everything meant a lineup gain of 2.4 points a week also
+ * licensed the digits 240, and "he is averaging 240 receiving yards a game"
+ * verified clean.
  */
 function allowedNumbers(ideas) {
   const out = new Set(FREE_NUMBERS);
   const push = n => {
     if (!Number.isFinite(n)) return;
     for (const dp of [0, 1, 2, 3]) out.add(+n.toFixed(dp));
-    out.add(+(n * 100).toFixed(0));   // a rate written as a percentage
-    out.add(+(n * 100).toFixed(1));
+    if (Math.abs(n) <= 1) {          // a rate, and only a rate, may be a percentage
+      out.add(+(n * 100).toFixed(0));
+      out.add(+(n * 100).toFixed(1));
+    }
   };
   const walk = v => {
     if (v == null) return;
@@ -74,29 +99,98 @@ function allowedNumbers(ideas) {
  * identifier like `idea-1` is one token, not a reference to negative one. The
  * first version of this read `idea-1` as -1 and rejected five correct proposals
  * for "inventing" a number that was never in the text.
+ *
+ * Two forms the first version missed, in opposite directions: `.85` written
+ * without its leading zero produced no token at all (so it was never checked),
+ * and `3,400` produced the two tokens 3 and 400 (so a correct proposal was
+ * rejected for inventing both). A thousands separator is removed before the
+ * scan; only `\d,\d\d\d` is a separator, so "in 2023, 400 yards" is untouched.
  */
 function numbersIn(text) {
-  return (String(text).match(/(?<![\w.])-?\d+(?:\.\d+)?/g) ?? [])
+  const cleaned = String(text).replace(/(\d),(?=\d{3}(?!\d))/g, '$1');
+  return (cleaned.match(/(?<![\w.])-?(?:\d+(?:\.\d+)?|\.\d+)/g) ?? [])
     .map(Number).filter(Number.isFinite);
 }
 
 /**
- * Keys that are structure, not something Nick reads. They are checked by their
- * own rules above and must not be scanned for prose numbers.
+ * Keys that are structure, not something Nick reads. `idea_ids` is checked by
+ * its own rule against the supplied ideas, so scanning it for prose numbers
+ * read `idea-1` as a claim about the number 1.
+ *
+ * Skipped at the TOP LEVEL ONLY. Skipping it at every depth meant a whole
+ * sentence hid under `data_used: { idea_ids: "he is averaging 27.4 ppg" }`.
  */
 const NOT_PROSE = new Set(['idea_ids']);
 
-/** Every string a proposal puts in front of Nick. */
-function proseOf(proposal) {
-  const out = [];
+/**
+ * Everything in a proposal that carries a claim: the strings Nick reads, and
+ * the bare numbers too.
+ *
+ * The numbers matter as much as the prose. The prompt asks for `ask / fair /
+ * floor` and `data_used  which numbers you leaned on` — a model answering
+ * those with JSON numbers rather than sentences was, in the first version,
+ * never checked at all, because only strings were collected.
+ */
+function readableOf(proposal) {
+  const strings = [];
+  const numbers = [];
   const walk = v => {
-    if (typeof v === 'string') out.push(v);
+    if (typeof v === 'string') strings.push(v);
+    else if (typeof v === 'number') numbers.push(v);
     else if (Array.isArray(v)) v.forEach(walk);
-    else if (v && typeof v === 'object') {
-      for (const [k, val] of Object.entries(v)) if (!NOT_PROSE.has(k)) walk(val);
-    }
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
-  walk(proposal);
+  if (typeof proposal === 'string') strings.push(proposal);
+  else if (typeof proposal === 'number') numbers.push(proposal);
+  else if (proposal && typeof proposal === 'object') {
+    for (const [k, val] of Object.entries(proposal)) if (!NOT_PROSE.has(k)) walk(val);
+  }
+  return { strings, numbers };
+}
+
+/** Suffixes that are part of a name but never the surname. */
+const NAME_SUFFIXES = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v']);
+
+/**
+ * One spelling for one player: accents stripped, every apostrophe variant
+ * dropped, punctuation flattened, lower case. "De’Von Achane", "De'Von
+ * Achane" and "devon  achane" all become `devon achane`.
+ *
+ * Without this, a model rendering De'Von with a typographic apostrophe read as
+ * an invented player and a correct proposal was thrown away, while `patrick
+ * mahomes` in lower case read as no player at all and went through.
+ */
+function normalizeName(text) {
+  return String(text).normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[‘’ʼ´`']/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** The last real token of a normalized name: `amon ra st brown` -> `brown`. */
+function surnameOf(normalized) {
+  const parts = normalized.split(' ').filter(Boolean);
+  while (parts.length > 1 && NAME_SUFFIXES.has(parts.at(-1))) parts.pop();
+  return parts.at(-1) ?? '';
+}
+
+/**
+ * Every capitalised word in the prose, normalized.
+ *
+ * This is how a surname on its own is caught. Nick's league-mates are texted
+ * by surname — the fixture's own opener is "Waddle for Achane" — so matching
+ * full names only left the one form the model actually writes in unchecked.
+ * Requiring a capital is what keeps "I'd love to do this" from reading as a
+ * mention of Jordan Love; a capitalised common word at the start of a sentence
+ * can still cost a good proposal, which fails in the visible direction.
+ */
+function capitalisedWords(strings) {
+  const out = new Set();
+  for (const s of strings) {
+    for (const w of String(s).match(/[A-Z][A-Za-zÀ-ɏ'’-]+/g) ?? []) {
+      const n = normalizeName(w);
+      if (n) out.add(n);
+    }
+  }
   return out;
 }
 
@@ -121,7 +215,17 @@ export function verifyProposals(proposals, ideas, { universe = [] } = {}) {
 
     // ---------------------------------------------------- the shape (G6)
     for (const field of REQUIRED_PROPOSAL_FIELDS) {
-      if (proposal?.[field] == null) violations.push(`missing required field: ${field}`);
+      // An empty string, [] or {} is as missing as an absent key: a proposal
+      // with `opener: ""` has no opening message, whatever the shape says.
+      if (isEmpty(proposal?.[field])) violations.push(`missing required field: ${field}`);
+    }
+    // The package is the one field with a shape of its own. Allowed to be a
+    // prose string, it skips the name check below entirely and the swap hides
+    // in a sentence: "Waddle plus a bench flier for Achane".
+    const pkg = proposal?.package;
+    if (pkg != null && (typeof pkg !== 'object' || Array.isArray(pkg)
+      || !Array.isArray(pkg.i_give) || !Array.isArray(pkg.i_get))) {
+      violations.push('package must be { i_give: [names], i_get: [names] }, not prose');
     }
 
     // ------------------------------------- it must trace to real ideas (G5)
@@ -144,34 +248,75 @@ export function verifyProposals(proposals, ideas, { universe = [] } = {}) {
     const allowed = allowedNumbers(sources);
 
     // ------------------------------------------- no invented players (G1)
-    const named = new Set([
-      ...(proposal?.package?.i_give ?? []).map(String),
-      ...(proposal?.package?.i_get ?? []).map(String),
-    ]);
-    // A name can also arrive in prose, which is where a throw-in gets smuggled in.
-    const prose = proseOf(proposal).join(' \u0000 ');
-    for (const name of universe) {
-      if (prose.includes(name)) named.add(String(name));
+    const { strings, numbers } = readableOf(proposal);
+    const allowedSpellings = new Set([...allowedPlayers].map(normalizeName));
+
+    // Every spelling worth recognising: the players this proposal may name, and
+    // every other player in the league, so one swapped in is caught too.
+    const canonical = new Map();                 // normalized full name -> as written
+    for (const name of [...allowedPlayers, ...(universe ?? [])]) {
+      const n = normalizeName(name);
+      if (n && !canonical.has(n)) canonical.set(n, String(name));
     }
-    for (const name of named) {
-      if (!allowedPlayers.has(name)) {
-        violations.push(`names ${name}, who is in none of the ideas it cites`);
+    const bySurname = new Map();                 // surname -> {normalized full names}
+    for (const full of canonical.keys()) {
+      const s = surnameOf(full);
+      if (!s) continue;
+      if (!bySurname.has(s)) bySurname.set(s, new Set());
+      bySurname.get(s).add(full);
+    }
+
+    // A name in the structured package is checked by its spelling, not its
+    // bytes, so a typographic apostrophe is the same player rather than an
+    // invented one.
+    for (const raw of [...(pkg?.i_give ?? []), ...(pkg?.i_get ?? [])]) {
+      const n = normalizeName(raw);
+      if (!allowedSpellings.has(n)) {
+        violations.push(`names ${String(raw)}, who is in none of the ideas it cites`);
       }
+    }
+
+    // A name can also arrive in prose, which is where a throw-in gets smuggled
+    // in — as a full name in any case or spacing, or as a bare surname.
+    const blob = ` ${normalizeName(strings.join(' \u0000 '))} `;
+    for (const [full, asWritten] of canonical) {
+      if (blob.includes(` ${full} `) && !allowedSpellings.has(full)) {
+        violations.push(`names ${asWritten}, who is in none of the ideas it cites`);
+      }
+    }
+    for (const word of capitalisedWords(strings)) {
+      const candidates = bySurname.get(word);
+      // Ambiguity resolves in favour of the proposal: if any player with this
+      // surname IS in the cited ideas, the sentence is about him.
+      if (!candidates || [...candidates].some(full => allowedSpellings.has(full))) continue;
+      violations.push(`names ${[...candidates].map(f => canonical.get(f)).join(' / ')}, `
+        + 'who is in none of the ideas it cites');
     }
 
     // ------------------------------------------- no invented numbers (G1)
-    for (const text of proseOf(proposal)) {
-      for (const n of numbersIn(text)) {
-        if (!allowed.has(n)) {
-          violations.push(`uses the number ${n}, which appears in none of the ideas it cites`);
-        }
+    // Both the numbers written into sentences and the ones returned as JSON:
+    // `ask: 4800` is a number Nick reads off the card like any other.
+    const claimed = [...numbers];
+    for (const text of strings) claimed.push(...numbersIn(text));
+    for (const n of claimed) {
+      if (!allowed.has(n)) {
+        violations.push(`uses the number ${n}, which appears in none of the ideas it cites`);
       }
     }
 
-    if (violations.length) rejected.push({ proposal, violations });
+    if (violations.length) rejected.push({ proposal, violations: [...new Set(violations)] });
     else ok.push(proposal);
   }
   return { ok, rejected };
+}
+
+/** Absent, blank, or an empty list or object — none of which is a field. */
+function isEmpty(v) {
+  if (v == null) return true;
+  if (typeof v === 'string') return !v.trim();
+  if (Array.isArray(v)) return !v.length;
+  if (typeof v === 'object') return !Object.keys(v).length;
+  return false;
 }
 
 /**
@@ -181,14 +326,16 @@ export function verifyProposals(proposals, ideas, { universe = [] } = {}) {
  * ask invalidates everything without anyone remembering to clear a table.
  */
 export function cacheKeyFor(leagueId, ideas) {
+  // The key hashes THE PROMPT, not a hand-picked subset of each idea. The first
+  // version listed the fields it thought mattered and left out `partner`, the
+  // tactics and the acceptance basis — all of which the prompt shows the model
+  // and the model writes its reasoning from. A slate whose tactic had changed
+  // from "sell the crush" to "he just lost by 40" hashed identically and was
+  // served the old answer, still saying send it now for the old reason.
   const material = JSON.stringify({
     v: PROMPT_VERSION,
     league: String(leagueId),
-    ideas: (ideas ?? []).map(i => ({
-      id: i.id, give: (i.i_give ?? []).map(p => [p.name, p.value]),
-      get: (i.i_get ?? []).map(p => [p.name, p.value]),
-      me: i.me, their_value_pct: i.their_value_pct, acceptance: i.acceptance?.band ?? null,
-    })),
+    prompt: proposalsPrompt(ideas ?? []),
   });
   return crypto.createHash('sha256').update(material).digest('hex');
 }
@@ -248,12 +395,15 @@ export function proposalsPrompt(ideas) {
 }
 
 /**
- * The production caller: one Sonnet call, budgeted per league.
+ * The production caller: one Sonnet call, under the trade-proposals budget.
  *
- * `feature` carries the league id because `llm-budget.js` resolves
- * `trade_proposals:league-4` to the `trade_proposals` budget — so each league
- * gets its own daily cap without any budget code here. `callClaude` enforces it
- * and throws when it is spent, which `proposalsFor` surfaces as a refusal.
+ * `feature` carries the league id so the spend is attributable per league in
+ * `ai_usage`. It is NOT a per-league cap: `budgetKeyFor` takes the feature name
+ * up to the first colon (`llm-budget.js:126`), so every league draws on the one
+ * `trade_proposals` budget — $0.50 a day across all five, not each. `callClaude`
+ * enforces it and throws when it is spent, which `proposalsFor` surfaces as a
+ * refusal. Raising it per league would need a real per-league key, which is a
+ * change to `llm-budget.js`, not to this file.
  */
 export function liveCaller(callClaude) {
   return async ({ leagueId, ideas }) => callClaude({
@@ -313,9 +463,29 @@ export async function proposalsFor(leagueId, { ideas = [], universe = [], call, 
     return none('no model caller was supplied', { refused: true });
   }
 
+  // Every proposal has to cite the idea it came from, so a slate whose ideas
+  // carry no usable id cannot produce a single valid proposal. Refusing here
+  // costs nothing; not refusing pays for a call whose every answer is then
+  // rejected, and the refusal is not cached, so the next page load pays again.
+  const ids = ideas.map(i => (i?.id == null ? '' : String(i.id).trim()));
+  if (ids.some(id => !id)) {
+    return none(`${ids.filter(id => !id).length} of ${ideas.length} idea(s) arrived without an id, `
+      + 'so no proposal could be traced back to the package that passed the edge test', { refused: true });
+  }
+  if (new Set(ids).size !== ids.length) {
+    return none('two ideas in this slate share an id, so a proposal citing it could be checked '
+      + 'against the wrong package', { refused: true });
+  }
+
   const key = cacheKeyFor(leagueId, ideas);
   const hit = cache?.get?.(key) ?? null;
-  if (hit) return { proposals: hit.proposals ?? [], rejected: hit.rejected ?? [], reason: hit.reason ?? null, source: 'cache' };
+  // Only a real payload is a hit. A row that parses but is not one — a corrupt
+  // or foreign write — otherwise returned an empty list with no reason at all,
+  // which reads on the page as "no good trades today".
+  if (hit && Array.isArray(hit.proposals) && hit.proposals.length) {
+    return { proposals: hit.proposals, rejected: hit.rejected ?? [], reason: hit.reason ?? null,
+      source: 'cache' };
+  }
 
   let raw;
   try {

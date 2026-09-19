@@ -4,7 +4,29 @@ This is a curated snapshot on top of the automatic switch report (which already
 captures PIDs, transcripts, and raw git state). Read this first for the "why";
 use `docs/FANTASY-ENGINE-MASTER-PLAN.md` part A5 for the mechanical recovery steps.
 
-## 2026-09-19 — cloud keys thread (read this first if you are picking up cold)
+## 2026-09-19, later — WA Trade Brain resumed overnight (newest; read this first)
+
+A second cloud session picked the work up cold from this doc and `TASKS.md`
+while Nick's laptop was off. Where to look, in order: `TASKS.md`'s first
+**Active** entry (what is in flight and what only the Mac can settle), then the
+newest **B3** status-log entry in the master plan (the structural audit taken at
+that boundary, including the corrected read of migration 057 and the existing
+`nfl_news_event_extraction_cache` pattern that `build:sendable-proposals`
+should follow instead of inventing a cache).
+
+**The one thing to carry into any Mac session:** nothing from that overnight run
+is verified against real data. A cloud box is a fresh clone with no
+`server/data.sqlite` and no chat DB, so it is fixture-verified only and must not
+be promoted past "tested". `TASKS.md` lists the five items that need the Mac,
+including the real accept-rate anchor and a live re-run of the two Trade Brain
+bugs that are currently recorded closed on a code reading alone.
+
+**Also open:** the `AI_GATEWAY_API_KEY` Nick created for Jev on 2026-09-19 was
+exposed in a screenshot in chat the same night. He was asked to rotate it and
+revoke the exposed one; **that revocation was never confirmed from inside the
+session.** Verify it before assuming it is closed.
+
+## 2026-09-19 — cloud keys thread (the earlier thread this night)
 
 Written by the thread session that handled Nick's "check the keys work / what do
 I need to do so I can shut the laptop" run. Everything below is committed and

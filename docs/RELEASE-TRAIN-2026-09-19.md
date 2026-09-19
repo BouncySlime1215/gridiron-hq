@@ -1529,19 +1529,40 @@ Then:
    surface he actually opens.
 
    **Most of those are not injuries. They are the durability prior showing
-   through**, and the arithmetic proves it rather than suggesting it. `active`
-   starts as the prior (`contingency.js:637`). The questionable branch is
-   `Math.min(0.75, Math.max(0.45, active * 0.70))`; since `active` is a
-   probability, `active * 0.70` can never exceed 0.70, so **the 0.75 cap can
-   never bind and no reading between 0.70 and 0.96 can come from the questionable
-   path at all**. That rules it out for 0.70, 0.74 and 0.75 outright — most of the
-   list. (A questionable player with a full practice jumps to 0.96 via
-   `Math.max(active, 0.96)`, which is the only way past 0.70.) 0.57, 0.64, 0.65
-   and 0.67 are arithmetically reachable through questionable but only on an
-   implausibly high prior, so do not claim them either way without a per-player
-   read. The file says as much itself at `:620-625`: "a hand-set constant and a
-   career durability prior, not a measured rate", and "a known-low placeholder,
-   not as a reason to sit anybody".
+   through**, and the arithmetic proves it rather than suggesting it.
+
+   `active` starts as the prior (`contingency.js:638`), and the prior is itself
+   bounded: `available` is `Math.max(0.05, Math.min(0.99, rate * penalty))`, so
+   **`active` enters the branch at 0.99 or below**. The questionable branch is
+   `Math.min(0.75, Math.max(0.45, active * 0.70))`, so its output runs from
+   `Math.max(0.45, …)` at the bottom to `0.99 * 0.70 = 0.693` at the top. The
+   practice block then applies: DNP `* 0.72`, limited `* 0.92`, or full
+   `Math.max(active, 0.96)` — the full-practice guard excludes only doubtful, so
+   it fires for questionable too.
+
+   **The questionable path therefore yields `[0.324, 0.693]`, plus the single
+   value `0.96`.** The 0.75 cap can never bind, and **`(0.693, 0.96)` is
+   unreachable** — which rules out 0.70, 0.74 and 0.75 outright, most of the
+   list. Those are durability priors on players carrying no report at all.
+
+   Do not shorten this to "questionable implies ≤ 0.70". It is wrong twice: the
+   bound is 0.693, and 0.96 is reachable. Somebody will try to use the loose
+   version as a general rule.
+
+   0.57, 0.64, 0.65 and 0.67 sit inside `[0.324, 0.693]` and so are reachable
+   through questionable, but only on an implausibly high prior — do not claim
+   them either way without a per-player read. The file says as much itself at
+   `:620-625`: "a hand-set constant and a career durability prior, not a measured
+   rate", and "a known-low placeholder, not as a reason to sit anybody".
+
+   **And 0.324 is the FLOOR of that set, which is exactly Nacua's number.** He is
+   not merely low; he is at the worst value the constants can express for a
+   questionable player — `Math.max(0.45, …)` bottoming out at 0.45, then DNP's
+   0.72. So **there is no constants path that can produce a lower number for
+   him.** "Nacua drops below 0.324" is a check the current code structurally
+   cannot satisfy, which makes any drop at all unambiguously the fit rather than
+   something else moving underneath. That is the cleanest single test in this
+   document.
 
    So expect **two opposite movements in the same dry run**, both landing on his
    screen:

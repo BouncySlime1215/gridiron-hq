@@ -1876,11 +1876,91 @@ need it.
 Redeploying the captured image rather than rebuilding from a commit. The running
 build is now known to be a clean checkout somewhere in an eleven-commit window
 (step 1), but a window is not a build, so the image is what gets redeployed.
-Migrations are additive and the eleven new ones drop nothing, so an older image
-boots against the migrated volume without a schema rollback. If a migration does
-need undoing, `npm run db:rollback` takes one at a time, newest first — and pass
-the name explicitly, because bare it takes the last-sorted file, which is now
-`062_league_payload_season`.
+
+**An earlier version of this paragraph said the eleven migrations are additive
+and drop nothing, so an older image boots against the migrated volume without a
+schema rollback. That was asserted rather than checked, and it is wrong.** Three
+of them write in `up()`, read off `origin/main` at `791b131`:
+
+| Migration | What `up()` does beyond adding |
+| --- | --- |
+| `053_nfl_news_signals_versioning.js:55` | rebuilds the table — `DROP TABLE nfl_news_signals`, then renames a newly built one into its place |
+| `055_repair_pinnacle_placeholder_openers.js:84` | `UPDATE game_lines SET open_spread …` and `… open_total …` over existing rows — a data repair |
+| `061_sync_log_consecutive_failures.js:19` | `UPDATE sync_log SET consecutive_failures = 1 WHERE last_status = 'error'` |
+
+**So the image reference rolls back code and does not roll back rows**, and the
+two `UPDATE`s are not recoverable by running the migration's own `down()`
+either: `055`'s `down()` drops the `open_*_source` columns it added but leaves
+the overwritten `open_spread` and `open_total` values in place, and `061`'s
+drops its column. A `down()` undoes a schema change; it cannot remember what a
+value was before it was overwritten.
+
+What that means in practice, and it is narrower than it sounds. An older image
+booting against the migrated volume is fine for `053`, since the rebuilt table
+keeps its old columns and only adds to them, and for `061`, since `sync_log`
+counters are operational rather than meaningful. The one that genuinely loses
+something is `055`, which overwrites opener values that were there before — and
+those are betting rows, out of scope for this project by Nick's instruction,
+which is the only reason this is a footnote rather than a blocker.
+
+**The complete rollback is therefore the image plus the pre-migration snapshot**,
+`/data/data.sqlite.pre-migration-<stamp>.bak`, and that half is destructive: it
+discards everything written since the snapshot was taken. It is a decision for
+Nick with the specific migration named, not a command to have ready. If a
+migration throws, get its name out of the log first — the answer for one named
+migration is a much smaller question than the general case, and for most of the
+eleven the image alone is enough.
+
+If a single migration does need undoing, `npm run db:rollback` takes one at a
+time, newest first — and pass the name explicitly, because bare it takes the
+last-sorted file, which is now `062_league_payload_season`.
+
+### 11a. What the first deploy attempt actually did, 21:2xZ
+
+Recorded because the next person will want to know whether anything was left
+half-done. Nick's paste of the deploy output, 21:59Z:
+
+```
+image: registry.fly.io/gridiron-hq:deployment-01M2XRT9094HFEB29SXRG1NMSD
+image size: 85 MB
+Updating existing machines in 'gridiron-hq' with rolling strategy
+✔ Cleared lease for 84ed41eae1dd68
+Error: failed to update machine 84ed41eae1dd68: Unrecoverable error: timeout
+reached waiting for health checks to pass for machine 84ed41eae1dd68
+```
+
+Four things this settles and one it does not.
+
+It settles that **the build succeeded and the image reached the machine**, so no
+theory about the 26 pull requests failing to compile survives. It settles that
+**the machine was updated in place**, which is why nothing is serving at all —
+there is no previous release beside it, exactly as 3 now says. It settles that
+`deployment-01M2XRT9094HFEB29SXRG1NMSD` is **not a rollback target**: it is the
+tag of a release that never became healthy. The rollback target is still
+`01M2VZ9JRYSXVHCRWJ83V360QH`. And the trailing
+`net/http: request canceled` on flyctl's final GET to the machines API is
+**flyctl's own in-flight poll being cancelled when its wait deadline expired** —
+the tail of the same timeout, not a second failure, not an API outage, and not a
+machine stuck mid-update. Do not chase it.
+
+What it does not settle is which of the boot causes in 4b fired, because every
+one of them ends in health checks never passing. The error is downstream of all
+four and discriminates between none.
+
+**One thing does move the ranking, against what 3a argues.** The app answered a
+502 with an empty body for more than thirty minutes. A merely slow boot heals:
+if the app had listened at 90 or 150 seconds, the next check at a 15-second
+interval passes and routing resumes without anyone doing anything. It did not.
+So the app is most likely not listening at all, which puts the disk gate and a
+migration throw back in front of the grace period. **3a is still worth pulling
+before the retry** — for the reason that has not changed, that extending the
+volume makes the next boot *longer* because the snapshot then actually runs —
+but it is probably not what killed this attempt. That fix is PR #49.
+
+The branch to keep open either way: the app can be listening and still answer
+502 if `/api/health` itself returns non-200, since it makes a synchronous SQLite
+read. In the log that looks like the listening line present and nothing after
+it.
 
 ## 7. The run sheet
 

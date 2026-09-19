@@ -633,8 +633,25 @@ r.get('/status', (req, res) => {
 /** Pull everything the engine needs and refit every model. */
 r.post('/sync', requireModelPermission('model:train'), async (req, res, next) => {
   try {
+    // THE CURRENT SEASON HAS TO BE IN THIS LIST.
+    //
+    // It was `[SEASON - 5 ... SEASON - 1]`, which with SEASON=2026 is 2021
+    // through 2025 — every completed season and never the one being played.
+    // This one list drives play-by-play, nflverse usage, the advanced feeds and
+    // ffopportunity, and scripts/bootstrap-data.mjs calls this route with no
+    // `seasons` parameter at all, so the default is what actually runs. That is
+    // why `player_week_usage` and `player_week_snaps` held roughly 8,000 rows
+    // for each prior year and zero for 2026 on the live app, while the sources
+    // themselves reported `ok`: the sync genuinely succeeded, at fetching
+    // seasons that had not changed.
+    //
+    // Still five seasons, not six. The window slides forward rather than
+    // growing, so this costs no more than it did — and the season that drops
+    // off is a completed one nflverse never revises, which was being re-fetched
+    // and re-upserted to arrive at the rows already stored. Dropping it from
+    // the fetch list does not remove it from the database.
     const seasons = (req.query.seasons ? String(req.query.seasons).split(',').map(Number)
-      : [SEASON - 5, SEASON - 4, SEASON - 3, SEASON - 2, SEASON - 1]).filter(Boolean);
+      : [SEASON - 4, SEASON - 3, SEASON - 2, SEASON - 1, SEASON]).filter(Boolean);
     const out = { seasons };
     out.play_by_play = [];
     for (const season of seasons) out.play_by_play.push(await syncPbpSeason(season));

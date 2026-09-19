@@ -202,7 +202,7 @@ test('J1b a low chance to play is worded as this week, not as a share of weeks',
   const call = lineupCall(lg.id, { providers: {} });
   const w = call.warnings.find(x => x.player === 'Back One');
   assert.ok(w, 'a starter under 75% to play is flagged');
-  assert.match(w.issue, /19% likely to play this week/);
+  assert.match(w.issue, /19% likely to suit up and see the ball this week/);
   assert.doesNotMatch(w.issue, /of weeks/);
 });
 

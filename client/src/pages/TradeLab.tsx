@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
 import TradeCard, { PlayerPill, num } from '../components/TradeCard';
@@ -108,6 +109,13 @@ export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
       <p className="text-sm text-slate-500 mb-4">
         Every deal is rebuilt for the live NFL week from the shared player model, injury availability,
         current matchup and remaining schedule. Market value is a separate price check, not the projection.
+      </p>
+      {/* This page is about a deal; who will actually sign one is a different
+          question and now has its own surface. */}
+      <p className="text-sm text-slate-500 mb-4">
+        Who actually trades with you — your read of each manager, the signals we measured about them,
+        and an AI-written opener you can paste into the league chat — is in{' '}
+        <Link className="font-semibold text-emerald-700" to="/trade-brain">Trade Brain</Link>.
       </p>
       {rosters?.model_context && <div className="mb-4 inline-flex rounded-full bg-sky-50 px-3 py-1 text-[11px] font-bold text-sky-800 ring-1 ring-sky-200">
         Week {rosters.model_context.week} · cutoff {rosters.model_context.cutoff} · refreshes after every completed week

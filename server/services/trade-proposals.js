@@ -39,19 +39,34 @@
  * Each of these is a sentence Nick could send believing we computed it. They
  * are open, not solved.
  *
- * **Cost.** The budget key is `trade_proposals:league-<id>` — already declared
- * in `llm-budget.js` with a $0.50/day default and enforced inside `callClaude`,
- * so this file adds no budget logic of its own. The cache is content-keyed the
- * way `nfl_news_event_extraction_cache` is: an unchanged slate returns the
- * stored answer and spends nothing, a changed slate or a bumped PROMPT_VERSION
- * is a miss, and a refusal is never cached so a bad night does not become a
- * permanently empty Trade Lab.
+ * **Cost.** The budget key is `trade_proposals:league-<id>`, declared in
+ * `llm-budget.js` with a $0.50/day default and enforced inside `callClaude`, so
+ * this file adds no budget logic of its own. Since 2026-09-19 that $0.50 is per
+ * LEAGUE rather than shared across all of them (`budgetScopeFor`). The cache is
+ * content-keyed the way `nfl_news_event_extraction_cache` is: an unchanged slate
+ * returns the stored answer and spends nothing, and a changed slate or a bumped
+ * PROMPT_VERSION is a miss.
+ *
+ * A failure is never cached AS PROPOSALS, and a call that threw is not cached at
+ * all — the budget resets, keys get pasted in, overloaded APIs recover. What IS
+ * remembered, for `FAILED_SLATE_TTL_MS` and under a key of its own, is a slate
+ * whose answer arrived and could not be used: cut off, declined, unreadable,
+ * the wrong shape, or every proposal rejected. That verdict cannot change while
+ * the slate and the parser are the same, so paying for it twice buys nothing.
+ * See `proposalsFor` for the three bounds that keep it from sticking.
  */
 import crypto from 'node:crypto';
 import { row, run } from '../db/index.js';
 
 /** Bumping this invalidates every cached answer by construction. */
 export const PROMPT_VERSION = 'trade-proposals-v1';
+
+/**
+ * How long a slate the model could not answer usably is remembered, so the same
+ * unanswerable slate is paid for once rather than on every page load. Bounded on
+ * purpose: see `FAILURE_RECORD_VERSION`.
+ */
+export const FAILED_SLATE_TTL_MS = 6 * 60 * 60 * 1000;
 
 /**
  * How many ideas the model is shown — D4's "the top ~12 numeric ideas".
@@ -405,23 +420,103 @@ export function proposalsPrompt(ideas) {
 }
 
 /**
- * The production caller: one Sonnet call, under the trade-proposals budget.
+ * Every way the answer we paid for can be unusable, each its own `problem` code
+ * so the page can say which one happened. `reason` is the sentence Nick reads;
+ * the code is what a test or a log line can be precise about.
  *
- * `feature` carries the league id so the spend is attributable per league in
- * `ai_usage`. It is NOT a per-league cap: `budgetKeyFor` takes the feature name
- * up to the first colon (`llm-budget.js:126`), so every league draws on the one
- * `trade_proposals` budget — $0.50 a day across all five, not each. `callClaude`
- * enforces it and throws when it is spent, which `proposalsFor` surfaces as a
- * refusal. Raising it per league would need a real per-league key, which is a
- * change to `llm-budget.js`, not to this file.
+ * These are distinguished because they are different events with different
+ * fixes: `truncated` means raise maxTokens or shrink the slate, `declined`
+ * means the model would not answer this slate at all, `no_text` means it
+ * answered with something that was not text (thinking or a tool call only),
+ * `unreadable` means it wrote prose where JSON was asked for, `not_a_list`
+ * means it wrote JSON of the wrong shape, and `all_rejected` means it wrote
+ * proposals that invented a player or a number. One generic "malformed
+ * response" for all six is what made the live bug invisible.
+ */
+export const RESPONSE_PROBLEMS = Object.freeze(['truncated', 'declined', 'no_text', 'unreadable',
+  'not_a_list', 'all_rejected', 'call_failed']);
+
+/** Fenced output is formatting, not content: ```json ... ``` (or an unclosed fence when truncated). */
+function stripFence(text) {
+  let t = String(text).trim();
+  if (!t.startsWith('```')) return t;
+  t = t.replace(/^```[a-zA-Z0-9_+-]*[ \t]*\r?\n?/, '');
+  return t.replace(/\s*```\s*$/, '').trim();
+}
+
+/**
+ * Read whatever the injected caller handed back into one shape `proposalsFor`
+ * can act on: `{ kind: 'model-text', text, truncated, cost_usd }`, or a
+ * pre-parsed `{ value }`, or a `{ problem, reason }` that no parsing can fix.
+ *
+ * This is the fix for the live bug of 2026-09-19. `callClaude` returns an
+ * Anthropic Message — `{ id, type: 'message', content: [{ type: 'text', text }],
+ * stop_reason, usage, cost_usd }` — and `liveCaller` returned it unchanged, so
+ * `proposalsFor` saw an object that was neither a string nor an array, failed
+ * its `Array.isArray` check, and answered "the model response was not a list of
+ * proposals" on every single live request. The call was made and paid for; the
+ * answer inside `content[0].text` was thrown away. `claude.js#parseJson` had
+ * done this correctly for every other feature since the start.
+ *
+ * Idempotent, so it is safe to apply in `liveCaller` and again in
+ * `proposalsFor` — the second caller wired straight to `callClaude` should not
+ * burn the budget the way the first one did.
+ */
+export function readModelResponse(raw) {
+  const problem = (code, reason, cost = null) => ({ problem: code, reason, cost_usd: cost });
+
+  if (raw == null) return problem('no_text', 'the model call came back empty, with no answer in it at all');
+  if (typeof raw === 'string') return { kind: 'model-text', text: stripFence(raw), truncated: false, cost_usd: null };
+  if (Array.isArray(raw)) return { value: raw, cost_usd: null };
+  if (typeof raw !== 'object') {
+    return problem('unreadable', `the model call came back as a ${typeof raw}, which is not an answer`);
+  }
+  // Already read once (liveCaller), or already a problem: hand it straight back.
+  if (raw.kind === 'model-text' || typeof raw.problem === 'string') return raw;
+
+  const cost = Number.isFinite(raw.cost_usd) ? raw.cost_usd : null;
+  const content = Array.isArray(raw.content) ? raw.content : null;
+  // Not a Message at all — a plain object the model or a caller produced. Left
+  // as a value so the shape check below names what is wrong with it.
+  if (!content) return { value: raw, cost_usd: cost };
+
+  if (raw.stop_reason === 'refusal' || content.some(b => b?.type === 'refusal')) {
+    return problem('declined', 'the model declined to write up this slate, so there is nothing to check '
+      + '— the call was made and paid for, but it returned no proposals', cost);
+  }
+  const texts = content.filter(b => b?.type === 'text' && typeof b.text === 'string' && b.text.trim());
+  if (!texts.length) {
+    const kinds = [...new Set(content.map(b => b?.type ?? 'unknown'))];
+    if (raw.stop_reason === 'max_tokens') {
+      return problem('truncated', 'the model ran out of output room before it wrote any proposals at all, '
+        + 'so the answer was cut off with nothing usable in it', cost);
+    }
+    return problem('no_text', 'the model answered with no text at all '
+      + `(${kinds.length ? kinds.join(', ') : 'an empty answer'}), so there is nothing to read`, cost);
+  }
+  // Several text blocks are one answer split up, and a thinking block before
+  // them is not part of it: join the text in order and skip everything else.
+  return { kind: 'model-text', text: stripFence(texts.map(b => b.text).join('')),
+    truncated: raw.stop_reason === 'max_tokens', cost_usd: cost };
+}
+
+/**
+ * The production caller: one Sonnet call, under this league's own budget, read
+ * into something `proposalsFor` can parse.
+ *
+ * `feature` carries the league id, which is both how the spend is attributed in
+ * `ai_usage` and — since the per-league budget fix — the budget it is held
+ * against: `llm-budget.js#budgetScopeFor` gives `trade_proposals:league-4` its
+ * own $0.50 a day instead of a fifth of one shared pot. `callClaude` enforces it
+ * and throws when it is spent, which `proposalsFor` surfaces as a refusal.
  */
 export function liveCaller(callClaude) {
-  return async ({ leagueId, ideas }) => callClaude({
+  return async ({ leagueId, ideas }) => readModelResponse(await callClaude({
     feature: `trade_proposals:league-${leagueId}`,
     model: 'claude-sonnet-5',
     maxTokens: 4000,
     prompt: proposalsPrompt(ideas),
-  });
+  }));
 }
 
 /**
@@ -454,16 +549,45 @@ export function dbCache(leagueId) {
 }
 
 /**
+ * A slate the model could not answer usably is remembered under this suffix,
+ * next to (never instead of) the slate's own answer key, so a failure can never
+ * be mistaken for a payload.
+ */
+const failureKeyFor = key => `${key}.failed`;
+
+/**
+ * Stamped into every remembered failure and checked on the way back out: a
+ * record written by different parsing code is ignored, so shipping a fix to
+ * `readModelResponse` retries every slate the old code could not read instead of
+ * serving its verdict for another six hours. Bump it with any change to how a
+ * response is read.
+ */
+export const FAILURE_RECORD_VERSION = 'trade-proposals-parse-v2';
+
+/**
  * The whole pass for one league.
  *
  * `call` is injected so this is testable without a key and without spending:
- * production passes a thunk around `callClaude` with
- * `feature: 'trade_proposals:league-<id>'`, which is where the daily budget is
- * enforced. A refusal from it — budget spent, no key, the model unreachable —
- * comes back as `refused: true` with the reason, never as an empty success that
- * reads like "no good trades today".
+ * production passes `liveCaller(callClaude)`, whose feature key
+ * `trade_proposals:league-<id>` is where this league's daily budget is enforced.
+ * A refusal from it — budget spent, no key, the model unreachable — comes back
+ * as `refused: true` with the reason, never as an empty success that reads like
+ * "no good trades today".
+ *
+ * **Two classes of failure, handled differently, because they are different.**
+ * A call that THREW (budget, key, network, overload) says nothing about this
+ * slate: it is never remembered, and the next page load may try again. A call
+ * that came back and could not be used — cut off, declined, prose instead of
+ * JSON, JSON of the wrong shape, or proposals that all failed the verifier —
+ * will do exactly the same thing next time for the same slate, so it is
+ * remembered for `FAILED_SLATE_TTL_MS` and the second request costs one cache
+ * read and no model call. Bounded three ways so it cannot become a permanently
+ * empty Trade Lab: the TTL, the slate hash (any change to the ideas is a new
+ * question), and `FAILURE_RECORD_VERSION` (any change to the parser retries
+ * everything). Successful answers are still the only thing cached as proposals.
  */
-export async function proposalsFor(leagueId, { ideas = [], universe = [], call, cache = null } = {}) {
+export async function proposalsFor(leagueId, { ideas = [], universe = [], call, cache = null,
+  now = Date.now() } = {}) {
   const none = (reason, extra = {}) => ({ proposals: [], rejected: [], reason, source: 'none', ...extra });
 
   if (!ideas.length) {
@@ -497,31 +621,82 @@ export async function proposalsFor(leagueId, { ideas = [], universe = [], call, 
       source: 'cache' };
   }
 
+  // This exact slate already came back unusable, recently, from this parser:
+  // paying again buys the same answer. One cache read, no model call.
+  const failure = cache?.get?.(failureKeyFor(key)) ?? null;
+  if (failure?.v === FAILURE_RECORD_VERSION && Number.isFinite(failure.at)
+    && now - failure.at < FAILED_SLATE_TTL_MS) {
+    return { proposals: [], rejected: failure.rejected ?? [], source: 'cache', refused: true,
+      problem: failure.problem, attempts: failure.attempts ?? 1, cost_usd: null,
+      retry_after: new Date(failure.at + FAILED_SLATE_TTL_MS).toISOString(),
+      reason: `${failure.reason} — this slate was already sent once and came back the same way, so it `
+        + 'was not paid for again; it will be tried again once the slate changes or the hold expires' };
+  }
+
   let raw;
   try {
     raw = await call({ leagueId, ideas, key });
   } catch (error) {
-    // A refusal is never cached: the budget resets tomorrow, and a transient
-    // failure must not leave this league with a permanently empty Trade Lab.
-    return none(`the model call was refused: ${error?.message ?? String(error)}`, { refused: true });
+    // Never remembered: the budget resets at midnight, a key gets pasted in, an
+    // overloaded API recovers. None of that is a fact about this slate, and a
+    // transient failure must not leave this league with an empty Trade Lab.
+    return none(`the model call was refused: ${error?.message ?? String(error)}`,
+      { refused: true, problem: 'call_failed' });
   }
 
+  const read = readModelResponse(raw);
+  const cost = read.cost_usd ?? null;
+
+  /**
+   * The answer arrived, cost money, and cannot be used. Remember it against the
+   * slate hash so the next page load is free, and hand back the honest reason
+   * with its problem code.
+   */
+  const unusable = (problem, reason, rejected = []) => {
+    const attempts = (failure?.v === FAILURE_RECORD_VERSION ? (failure.attempts ?? 0) : 0) + 1;
+    const at = now;
+    // The one line that makes a discarded paid call visible in the logs; the
+    // response says the same thing, but nobody is watching the response when
+    // the page just looks empty.
+    console.warn(`[trade-proposals] league ${leagueId}: paid for a response that cannot be used `
+      + `(${problem}, attempt ${attempts}${cost == null ? '' : `, $${cost.toFixed(4)}`}) — ${reason}`);
+    cache?.set?.(failureKeyFor(key), { v: FAILURE_RECORD_VERSION, problem, reason, rejected, attempts, at });
+    return { proposals: [], rejected, source: 'model', refused: true, problem, attempts, cost_usd: cost,
+      retry_after: new Date(at + FAILED_SLATE_TTL_MS).toISOString(), reason };
+  };
+
+  if (read.problem) return unusable(read.problem, read.reason);
+
   let parsed;
-  try {
-    parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-  } catch {
-    return none('the model response could not be read as JSON, so nothing from it is trusted',
-      { refused: true });
+  if ('value' in read) {
+    parsed = read.value;
+  } else {
+    try {
+      parsed = JSON.parse(read.text);
+    } catch {
+      // A cut-off answer and a model that wrote prose are different problems
+      // with different fixes, and a single "malformed response" for both is how
+      // a truncated slate looks like a broken model for a week.
+      return read.truncated
+        ? unusable('truncated', 'the model ran out of output room part-way through, so its list of '
+          + 'proposals was cut off mid-answer and could not be read — nothing from a half-written '
+          + 'proposal is trusted')
+        : unusable('unreadable', 'the model response could not be read as JSON, so nothing from it '
+          + 'is trusted');
+    }
   }
   if (!Array.isArray(parsed)) {
-    return none('the model response was not a list of proposals', { refused: true });
+    return unusable('not_a_list', 'the model response was not a list of proposals');
   }
 
   const { ok, rejected } = verifyProposals(parsed, ideas, { universe });
   if (!ok.length) {
-    return { proposals: [], rejected, source: 'model', refused: true,
-      reason: `every proposal failed verification and was rejected — ${rejected.length} in total, `
-        + 'most likely an invented player or number; see each one\'s violations' };
+    // Not a parse problem — the verifier did its job. Still the same answer next
+    // time for the same slate, so it is remembered like the others, with the
+    // violations kept so the page can show what was actually wrong.
+    return unusable('all_rejected',
+      `every proposal failed verification and was rejected — ${rejected.length} in total, `
+        + 'most likely an invented player or number; see each one\'s violations', rejected);
   }
 
   const result = { proposals: ok, rejected,

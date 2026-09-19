@@ -29,7 +29,29 @@ primary_region = "iad"
     port = 443
     handlers = ["tls", "http"]
 
-  [[services.tcp_checks]]
+  # An HTTP check, NOT a TCP one.
+  #
+  # This was `[[services.tcp_checks]]`, and that is why a wedged app stayed
+  # wedged. A TCP check is satisfied by the kernel accepting a connection onto
+  # the listen backlog, which happens whether or not Node's event loop is
+  # turning — so when the heavy scheduler tier blocked the loop (see
+  # runJobOffThread in server/services/scheduler.js), Fly saw a healthy machine,
+  # kept routing to it, and never restarted it. The app answered nothing for as
+  # long as the block lasted and nothing on the platform noticed.
+  #
+  # `/api/health` executes JavaScript and makes a synchronous SQLite call, so
+  # this check fails exactly when the app cannot serve a request. It is
+  # unauthenticated because a health check cannot carry a bearer token.
+  #
+  # timeout 5s: generous enough to ride out a brief main-thread pause without
+  # bouncing the machine, short enough that a real wedge is caught within a
+  # couple of intervals. grace_period 60s: boot runs migrations and seed
+  # reconciliation against the volume before `app.listen`, and a restart loop
+  # caused by an impatient check would be worse than the bug being fixed.
+  [[services.http_checks]]
     interval = "15s"
-    timeout = "2s"
-    grace_period = "30s"
+    timeout = "5s"
+    grace_period = "60s"
+    method = "get"
+    path = "/api/health"
+    protocol = "http"

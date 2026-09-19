@@ -7,6 +7,26 @@ import { availabilityBasis, weeklyAvailability } from './contingency.js';
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
 /** What a player the availability fit does not cover is priced at. A constant, not a rate. */
 const UNFITTED_ACTIVE = 0.92;
+
+/**
+ * Which model priced THIS player — which is not always the one the process is on.
+ *
+ * `playerActiveProbability` reaches the fitted role cell only when the player has a
+ * `gap_bucket` AND the lookup hits; everyone else falls through to the pooled rates,
+ * and past those to the hand-set constants. So a process whose basis is 'role' still
+ * prices some players pooled, and reporting the process basis per card would be the
+ * same overstatement this field exists to remove, one level up.
+ *
+ * `weeklyAvailability` already records the answer per player, in `source`. That string
+ * is the only per-player record of it, which is why this reads it rather than the basis.
+ */
+function basisForRow(availabilityRow) {
+  if (!availabilityRow) return 'unfitted_position';
+  const source = String(availabilityRow.source ?? '');
+  if (source.startsWith('fitted availability by role')) return 'role';
+  if (source.startsWith('fitted availability (')) return 'pooled';
+  return 'constants';
+}
 const round = (value, digits = 1) => value == null || !Number.isFinite(value) ? null : +value.toFixed(digits);
 
 function nextTeamGame(team, publishedAt) {
@@ -131,9 +151,9 @@ export function newsFantasyTracker(signals) {
         baseline_active_probability: round(baselineActive * 100),
         active_probability: round(activeProbability * 100),
         // Which model priced the chance to play this card shows: the fitted role
-        // layer, the pooled rates, no fit at all, or — for a position the fit does
-        // not cover — nothing, in which case the number above is UNFITTED_ACTIVE.
-        availability_basis: availabilityRow ? basis.basis : 'unfitted_position',
+        // layer, the pooled rates, the hand-set constants, or — for a position the
+        // fit does not cover — nothing, in which case it is UNFITTED_ACTIVE.
+        availability_basis: basisForRow(availabilityRow),
         note: 'What-if scenario from a timestamped claim; it does not alter production picks until forward calibration passes.'
       },
       tracking: {

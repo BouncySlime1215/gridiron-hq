@@ -93,12 +93,12 @@ function SignalFeed() {
           the full explanation; this does not restate it. */}
       {data?.availability_basis && data.availability_basis.basis !== 'role' && (
         <p className="mb-4 text-xs leading-5 text-amber-900">
-          Every chance to play on this page is a{' '}
-          {data.availability_basis.basis === 'constants' ? 'hand-set constant' : 'pooled injury-report rate'},
-          not a rate measured from real usage
+          The fitted chance-to-play role layer is not running
           {data.availability_basis.missing?.length
             ? ` — ${data.availability_basis.missing.join(' and ')} not loaded` : ''}
-          . It multiplies into every projected-points figure below.{' '}
+          , so every number marked assumed below is a{' '}
+          {data.availability_basis.basis === 'constants' ? 'hand-set constant' : 'pooled injury-report rate or a hand-set constant'},
+          not a rate measured from real usage. It multiplies into every projected-points figure below.{' '}
           <Link className="font-semibold text-emerald-700" to="/lineup">Start/Sit</Link> says what that
           changes and how to fix it.
         </p>

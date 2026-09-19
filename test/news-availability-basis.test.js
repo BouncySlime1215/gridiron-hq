@@ -56,14 +56,18 @@ mock.module('../server/services/player-week-engine.js', {
 });
 
 /** Whatever the fit is currently doing, stated by the same two values the real module returns. */
-let availabilityState = { basis: 'role', missing: [], stamp: 'fixture', rate: 0.87 };
+let availabilityState = { basis: 'role', missing: [], stamp: 'fixture', rate: 0.87,
+  source: 'fitted availability by role (starter/noreport/full, n=812)' };
 
 mock.module('../server/services/contingency.js', {
   namedExports: {
     availabilityBasis: () => ({ ...availabilityState, missing: [...availabilityState.missing] }),
     // Only the four positions the real function selects, so the kicker is absent
-    // from the map exactly as he is in production.
-    weeklyAvailability: () => new Map([[11, { player_id: 11, active_probability: availabilityState.rate }]])
+    // from the map exactly as he is in production. `source` is verbatim the string
+    // playerActiveProbability builds, because that string is what is read.
+    weeklyAvailability: () => new Map([[11, {
+      player_id: 11, active_probability: availabilityState.rate, source: availabilityState.source
+    }]])
   }
 });
 
@@ -76,7 +80,8 @@ const signalFor = player => ({
 });
 
 test('a card priced by the fitted role layer says so, and is not marked assumed', () => {
-  availabilityState = { basis: 'role', missing: [], stamp: 'fixture', rate: 0.87 };
+  availabilityState = { basis: 'role', missing: [], stamp: 'fixture', rate: 0.87,
+    source: 'fitted availability by role (starter/noreport/full, n=812)' };
   const out = newsFantasyTracker([signalFor(RECEIVER)]);
   const card = out.signals[0].fantasy_model;
   assert.equal(card.available, true);
@@ -88,7 +93,8 @@ test('a card priced by the fitted role layer says so, and is not marked assumed'
 test('with no fit on file the same card carries the basis that priced it', () => {
   // The percentage moves and nothing else about the card does, which is the whole
   // reason the basis has to be served: 62% and 87% are the same kind of thing on screen.
-  availabilityState = { basis: 'constants', missing: ['availability_fits', 'availability_role_rates'], stamp: null, rate: 0.62 };
+  availabilityState = { basis: 'constants', missing: ['availability_fits', 'availability_role_rates'], stamp: null,
+    rate: 0.62, source: 'weekly injury report + durability prior' };
   const out = newsFantasyTracker([signalFor(RECEIVER)]);
   assert.equal(out.signals[0].fantasy_model.active_probability, 62);
   assert.equal(out.signals[0].fantasy_model.availability_basis, 'constants');
@@ -100,7 +106,8 @@ test('a position the fit does not cover is named, not quietly priced at the cons
   // The kicker has no row in the availability map on any basis, so his number is
   // UNFITTED_ACTIVE. Reporting the process basis here would be a lie of a second
   // kind: the role layer can be running perfectly and still not price him.
-  availabilityState = { basis: 'role', missing: [], stamp: 'fixture', rate: 0.87 };
+  availabilityState = { basis: 'role', missing: [], stamp: 'fixture', rate: 0.87,
+    source: 'fitted availability by role (starter/noreport/full, n=812)' };
   const out = newsFantasyTracker([signalFor(KICKER)]);
   const card = out.signals[0].fantasy_model;
   assert.equal(card.available, true);
@@ -112,8 +119,31 @@ test('a position the fit does not cover is named, not quietly priced at the cons
 test('the page is told the basis even when no card could be modelled', () => {
   // Otherwise the note explaining a degraded basis disappears exactly when the
   // feed is emptiest, which is when a reader is most likely to trust what is left.
-  availabilityState = { basis: 'pooled', missing: ['availability_role_rates'], stamp: 'fixture', rate: 0.55 };
+  availabilityState = { basis: 'pooled', missing: ['availability_role_rates'], stamp: 'fixture', rate: 0.55,
+    source: 'fitted availability (QUE/limited, n=1204)' };
   const out = newsFantasyTracker([]);
   assert.equal(out.signals.length, 0);
   assert.equal(out.availability_basis.basis, 'pooled');
+});
+
+test('a player the role layer did not price is not labelled with the process basis', () => {
+  // The correction that produced basisForRow. playerActiveProbability reaches the
+  // fitted role cell only when the player has a gap_bucket AND the lookup hits;
+  // everyone else drops to the pooled rates. So the process can be on 'role' while
+  // THIS player was priced pooled, and reporting the process basis for him would be
+  // the same overstatement the field exists to remove, one level up.
+  availabilityState = { basis: 'role', missing: [], stamp: 'fixture', rate: 0.71,
+    source: 'fitted availability (QUE/limited, n=1204) x KC' };
+  const out = newsFantasyTracker([signalFor(RECEIVER)]);
+  assert.equal(out.availability_basis.basis, 'role', 'the process is on the role layer');
+  assert.equal(out.signals[0].fantasy_model.availability_basis, 'pooled',
+    'but this player was not, and the card has to say so');
+});
+
+test('a player with no fit of any kind reads as constants, not as the process basis', () => {
+  // Past the pooled rates is the hand-set chain: report status and durability prior.
+  availabilityState = { basis: 'role', missing: [], stamp: 'fixture', rate: 0.80,
+    source: 'durability prior only' };
+  const out = newsFantasyTracker([signalFor(RECEIVER)]);
+  assert.equal(out.signals[0].fantasy_model.availability_basis, 'constants');
 });

@@ -680,13 +680,24 @@ fly ssh console -a gridiron-hq -C "df -h /data"
 ```
 
 **Needs about 2.5 GB in `Avail`.** If it has less, stop and extend the volume
-before deploying. Do not look for a way to skip the snapshot.
+before deploying. Do not look for a way to skip the snapshot — and in
+particular, **if `df` shows a `.bak` beside the database, that file is not
+debris and deleting it is not how you make room.** See below: it is the only
+row-level rollback this deploy has. If one is there at all it means a previous
+attempt already reached the migration step, which is itself worth knowing before
+you do anything else.
 
 Where that number comes from, read off the shipping tree rather than reasoned
-about. `main` carries 52 migration files and the proved tree carries 63, so
-**11 new migrations land in this deploy** (`053` through `062`, with two files
-sharing the number `062`). `runMigrations` computes `pendingCount = 11`, which
-is greater than zero, so it calls `backupBeforeMigration` — a `VACUUM INTO`
+about. The build that was deployed before tonight carries 52 migration files and
+the tree being deployed carries 63, so **about 11 new migrations land in this
+deploy** (`053` through `062`, with two files sharing the number `062`).
+`runMigrations` computes `pendingCount` by counting migration files that have no
+row in the live database's `schema_migrations`, so the exact number is a
+property of the machine rather than of either tree — and the deployed binary was
+branch work rather than `main`, so it could have applied something outside the
+63. **That is why the count is written as "about 11": what the disk gate turns
+on is only that it is greater than zero, which nothing about tonight puts in
+doubt.** Being greater than zero, it calls `backupBeforeMigration` — a `VACUUM INTO`
 snapshot of the live database taken before anything changes. That function calls
 `assertRoomForSnapshot` first, and `SNAPSHOT_HEADROOM_BYTES = 2 * 1024 ** 3`
 (`server/db/index.js`), so it demands **the database's full size plus 2 GB**.
@@ -803,7 +814,10 @@ What to look for, most likely first:
    inside `await runMigrations()`, which is **before `app.listen`**, so the
    process exits, Fly restarts it, and it exits again. **A crash loop presents
    as a persistent edge 502**, which is exactly this symptom. Fix is
-   `fly volumes extend`, then redeploy — never a way to skip the snapshot.
+   `fly volumes extend`, then redeploy — never a way to skip the snapshot, and
+   never by deleting a `.bak` to free the space the snapshot needs. If one is
+   on the volume it is a rollback point from an attempt that got further than
+   this one.
 2. **A migration throwing.** Each runs in its own `BEGIN IMMEDIATE`, so the
    failure rolls back cleanly, but it still exits before `app.listen`. The log
    names it. The snapshot was already taken by then, so
@@ -1879,7 +1893,9 @@ git push origin main
 #     database's size + 2 GB. The database is 445 MB, so this needs ~2.5 GB
 #     in Avail. Under that, the machine throws before app.listen and the
 #     deploy fails on disk, saying nothing about any of the 26 pull requests.
-#     Fix is `fly volumes extend`, not skipping the snapshot.
+#     Fix is `fly volumes extend`, not skipping the snapshot, and NEVER by
+#     deleting a .bak to make room: that file is the row-level rollback, and
+#     its presence means an earlier attempt already reached the migrations.
 fly ssh console -a gridiron-hq -C "df -h /data"
 
 # 6. Deploy. Migrations run at boot, before app.listen. Expect a slow first

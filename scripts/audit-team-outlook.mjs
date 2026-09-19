@@ -20,7 +20,7 @@
  * the availability gate clusters by player.
  */
 import { weeklyPanel, varianceComponents, historyStatus, excludedByDataQuality, shrinkToLeague }
-  from '../server/services/league-history.js';
+  from '../server/services/history-corpus.js';
 import { fitOutlook, predictOutlook, signCheck, OUTLOOK_GATE, OUTLOOK_FEATURES, fitThresholds, verdictFor, decompose }
   from '../server/services/team-outlook.js';
 import { pairedBootstrapDiff } from '../server/services/backtest-significance.js';

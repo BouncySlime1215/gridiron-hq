@@ -1,5 +1,5 @@
 /**
- * The league-history reader.
+ * The crawled-corpus reader.
  *
  * The real file is a derived artifact built by a crawl and is not in the repository, so
  * every test here builds its own fixture database and points the module at it through
@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-league-history-'));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-history-corpus-'));
 
 const SCHEMA = [
   `CREATE TABLE sh_leagues (league_id TEXT PRIMARY KEY, season INTEGER NOT NULL, num_teams INTEGER,
@@ -69,7 +69,7 @@ function fixture(name, leagues) {
 async function load(file) {
   process.env.GRIDIRON_LEAGUE_HISTORY_PATH = file ?? path.join(temp, 'does-not-exist.sqlite');
   // A cache-busting query keeps each test's handle independent of the others'.
-  const mod = await import(`../server/services/league-history.js?t=${Math.random()}`);
+  const mod = await import(`../server/services/history-corpus.js?t=${Math.random()}`);
   mod.resetLeagueHistory();
   return mod;
 }

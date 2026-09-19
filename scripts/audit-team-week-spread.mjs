@@ -26,7 +26,7 @@
  * different platform. That is about as close as two independent measurements come, and it
  * is the one number in this area that nobody now has to take on trust.
  *
- * Abandoned leagues and zero weeks are excluded on the same two rules `league-history.js`
+ * Abandoned leagues and zero weeks are excluded on the same two rules `history-corpus.js`
  * applies, and for the same reason: a league nobody played has a spread, and it is not a
  * fantasy team's spread.
  */
@@ -49,7 +49,7 @@ const rows = db.prepare(`
     AND tw.week < l.playoff_week_start`).all();
 db.close();
 
-// THREE data-quality rules. The first two are league-history.js's, applied identically.
+// THREE data-quality rules. The first two are history-corpus.js's, applied identically.
 // The third is this script's own, and it was added because the first version of this audit
 // reported a pooled within-team spread of 517 points and a 10-team PPR mean score of 1,539.
 //

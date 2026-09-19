@@ -20,7 +20,7 @@
  * crosswalk would score a team badly for having unmapped stars -- an error correlated
  * with player profile rather than noise. Everything gated here is computed without it.
  */
-import { shrinkToLeague } from './league-history.js';
+import { shrinkToLeague } from './history-corpus.js';
 
 /**
  * The features, in order. Every one of them is known at the end of week w.

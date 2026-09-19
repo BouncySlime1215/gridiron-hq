@@ -40,7 +40,7 @@
  * teams making the playoffs is a different question from 6 of 14 and pooling them would
  * credit a model for learning the league format.
  */
-import { weeklyPanel, varianceComponents, shrinkToLeague, historyStatus } from '../server/services/league-history.js';
+import { weeklyPanel, varianceComponents, shrinkToLeague, historyStatus } from '../server/services/history-corpus.js';
 
 const JSON_OUT = process.argv.includes('--json');
 const FIT_SEASONS = [2021, 2022, 2023];

@@ -1,5 +1,20 @@
 /**
- * The league-history dataset: real completed redraft seasons, read one way.
+ * The crawled league corpus: real completed redraft seasons, read one way.
+ *
+ * NAMED FOR WHAT IT IS, after two collisions worth recording so nobody re-walks them.
+ * This was `league-history.js` until a different module of that name appeared -- one that
+ * fetches ESPN league history over HTTP and WRITES it to the app database (PR #47,
+ * migration 064). Two modules, one name, opposite directions, zero shared functions: git
+ * reported add/add, and picking a side in that conflict would have lost one of them
+ * outright. That name was the ESPN side's before either of us arrived, since
+ * `scripts/backfill-league-history.mjs` and `test/helpers/seed-league-history.js` already
+ * used it.
+ *
+ * `sleeper-history.js` was the obvious second choice and is ALSO taken, by the pure
+ * parsing layer this corpus is built with. Two files called `sleeper-*history*` sitting
+ * beside each other would have moved the confusion rather than removed it, so: the crawler
+ * is `collect-sleeper-history.mjs`, the parser it uses is `sleeper-history.js`, and this is
+ * the read-only reader of the database they produce.
  *
  * WHAT IT IS FOR. Team Outlook has to answer "where do we stand, and how much of that
  * is real" at week 2, when almost nothing has happened. That is a question about

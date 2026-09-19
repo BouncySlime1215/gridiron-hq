@@ -356,3 +356,38 @@ the move this document exists to prevent, whatever the motive.
 to the panel, re-fit `k`, and re-run all four conditions as one pre-registered exercise, and
 report both populations side by side. Not before, and never as a tidy-up inside another
 change.
+
+### 7.8 The reader was renamed, twice over, and §1 still names the old path
+
+`docs/tdd/team-outlook.tdd.md` §1 cites `server/services/league-history.js` as the only
+code that reads the crawled corpus. That file is now
+**`server/services/history-corpus.js`**. §1 is pre-registration and is not edited after the
+fact, so the correction lives here.
+
+Two collisions, in order:
+
+1. A different module called `league-history.js` arrived in PR #47 — it fetches ESPN league
+   history over HTTP and **writes** it to the app database, behind migration 064. Two
+   modules, one name, opposite directions, zero shared function names. Git reported
+   `add/add`, so resolving that conflict either way would have lost one module outright.
+   The name was the ESPN side's before either arrived:
+   `scripts/backfill-league-history.mjs` and `test/helpers/seed-league-history.js` were
+   already using it.
+2. `sleeper-history.js`, the obvious second choice and the one suggested, is **also taken**
+   — by the pure parsing layer this corpus is built with. Two files named
+   `sleeper-*history*` next to each other would have moved the confusion rather than
+   removed it.
+
+So the three now read as what they each are: `collect-sleeper-history.mjs` crawls,
+`sleeper-history.js` parses, `history-corpus.js` reads the database they produce.
+
+Nothing about the module's contents, contract or measurements changed — the rename is the
+whole diff, plus `test/league-history.test.js` becoming `test/history-corpus.test.js`. The
+"one reader, one contract" rule of §1 still holds under the new name: `history-corpus.js`
+is the only code that opens `data/derived/sleeper_history.sqlite`.
+
+**Worth noticing rather than just fixing.** Two independent threads each wrote a module for
+"league history" without either being wrong about the name, because the phrase describes two
+different datasets in this project: the public crawl and Nick's own ESPN leagues. A name
+that reads as obvious to its author is not evidence that it is unclaimed, and the only thing
+that surfaced this was a merge someone ran on purpose. Neither module's tests could have.

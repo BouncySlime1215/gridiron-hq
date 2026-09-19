@@ -20,16 +20,30 @@ child.stdout.on('data', chunk => { output += chunk; });
 child.stderr.on('data', chunk => { output += chunk; });
 
 try {
-  let response;
+  // Wait on an unauthenticated route: /api/teams is bearer-authenticated
+  // (server/index.js), so polling it without a token only ever yields 401 and
+  // this loop would spend all 80 attempts before failing on a healthy server.
+  let up = false;
   for (let attempt = 0; attempt < 80; attempt++) {
     if (child.exitCode != null) throw new Error(`application exited with code ${child.exitCode}\n${output}`);
     try {
-      response = await fetch(`http://127.0.0.1:${port}/api/teams`, { signal: AbortSignal.timeout(500) });
-      if (response.ok) break;
+      await fetch(`http://127.0.0.1:${port}/api/model/status`, { signal: AbortSignal.timeout(500) });
+      up = true;
+      break;
     } catch { /* application is still starting */ }
     await new Promise(resolve => setTimeout(resolve, 125));
   }
-  if (!response?.ok) throw new Error(`application did not answer /api/teams successfully\n${output}`);
+  if (!up) throw new Error(`application never answered on 127.0.0.1:${port}\n${output}`);
+
+  // Then prove the seeded data really is servable, which is the point of this
+  // smoke. POST /api/auth/local-session mints a token for a direct loopback
+  // caller (server/routes/local-auth.js), which is exactly what this is.
+  const session = await (await fetch(`http://127.0.0.1:${port}/api/auth/local-session`,
+    { method: 'POST', signal: AbortSignal.timeout(5000) })).json();
+  if (!session?.token) throw new Error(`could not mint a local session\n${JSON.stringify(session)}\n${output}`);
+  const response = await fetch(`http://127.0.0.1:${port}/api/teams`,
+    { headers: { Authorization: `Bearer ${session.token}` }, signal: AbortSignal.timeout(5000) });
+  if (!response.ok) throw new Error(`application did not answer /api/teams successfully (${response.status})\n${output}`);
   const payload = await response.json();
   if (!Array.isArray(payload)) throw new Error('startup probe returned an unexpected payload');
   console.log(`Application startup smoke passed on isolated database (${payload.length} teams).`);

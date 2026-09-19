@@ -46,7 +46,8 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stop(); process
 // Wait for it to answer before firing anything at it.
 let up = false;
 for (let i = 0; i < 60 && !up; i++) {
-  try { up = (await fetch(`${BASE}/api/teams`, { signal: AbortSignal.timeout(1000) })).ok; }
+  // /api/model/status is unauthenticated, unlike /api/teams — see scripts/start.mjs.
+  try { await fetch(`${BASE}/api/model/status`, { signal: AbortSignal.timeout(3000) }); up = true; }
   catch { await new Promise(r => setTimeout(r, 500)); }
 }
 if (!up) { console.error('  Could not start the local server — skipping the data pull.'); stop(); process.exit(1); }

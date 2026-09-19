@@ -31,8 +31,11 @@ if (spawnSync(CLOUDFLARED, ['--version'], { stdio: 'ignore' }).error) {
 let ready = false;
 for (let attempt = 0; attempt < 10 && !ready; attempt++) {
   try {
-    const res = await fetch(`${LOCAL}/api/teams`, { signal: AbortSignal.timeout(8000) });
-    ready = res.ok;
+    // /api/model/status is unauthenticated; /api/teams is not and answers 401
+    // to this probe, which would make the app look permanently down. Any reply
+    // proves the server is listening.
+    await fetch(`${LOCAL}/api/model/status`, { signal: AbortSignal.timeout(8000) });
+    ready = true;
   } catch { /* retry */ }
   if (!ready) await new Promise(r => setTimeout(r, 1500));
 }

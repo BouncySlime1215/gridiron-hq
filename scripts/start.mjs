@@ -20,10 +20,25 @@ const PORT = process.env.API_PORT || 5177;
 const URL = `http://127.0.0.1:${PORT}`;
 const IS_WIN = process.platform === 'win32';
 
+/**
+ * Is the server answering?
+ *
+ * Probes /api/model/status, which is deliberately unauthenticated (see the note
+ * beside GET /api/model/status in server/routes/model.js). The old probe used
+ * /api/teams, which sits behind `legacyAuthenticated` (server/index.js) and so
+ * answers 401 to an unauthenticated caller — forever. `response.ok` was
+ * therefore always false, the poll below never succeeded, and after 60 attempts
+ * the launcher reported "did not come online" and SIGTERMed a server that had
+ * been up and healthy the whole time.
+ *
+ * Readiness here means "the HTTP server is listening and routing", so ANY reply
+ * counts, including an error status. Only a thrown request (nothing listening
+ * yet, or the timeout) means not-ready.
+ */
 const isReady = async () => {
   try {
-    const response = await fetch(`${URL}/api/teams`, { signal: AbortSignal.timeout(1000) });
-    return response.ok;
+    await fetch(`${URL}/api/model/status`, { signal: AbortSignal.timeout(3000) });
+    return true;
   } catch {
     return false;
   }

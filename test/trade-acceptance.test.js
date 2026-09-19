@@ -30,10 +30,13 @@
  * No database is touched: the band is a pure function of a deal's counterparty
  * block, its edge result and the manager's negotiation profile.
  */
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { acceptanceBand, ACCEPTANCE_SOURCES } from '../server/services/trade-acceptance.js';
+import { acceptanceBand, ACCEPTANCE_SOURCES, BAND_FLOOR, BAND_CEILING }
+  from '../server/services/trade-acceptance.js';
+import { VALUATION_SOURCES } from '../server/services/counterparty-pricing.js';
 
 /* ------------------------------------------------------------- fixtures */
 
@@ -263,4 +266,125 @@ test('the band stays inside [0,1] under the most extreme inputs on both sides', 
   }
   assert.ok(hot.band.mid < 1, 'certainty is never claimed');
   assert.ok(cold.band.mid > 0, 'impossibility is never claimed either');
+});
+
+/* ------------------------------------------------- independent verification */
+
+test('the band EDGES never claim certainty or impossibility either, and keep their width', () => {
+  // The module declares "a probability is never reported as certainty or
+  // impossibility" — but that was enforced on the midpoint alone, while low and
+  // high were clamped to [0, 1]. At the extremes the published band therefore
+  // read 0.906-1.000 ("he might certainly accept") and 0.000-0.084 ("he might
+  // certainly not"), and the clamp also silently ATE band width: 0.094 and 0.084
+  // wide where the evidence bought 0.127. Narrower must mean more evidence, never
+  // arithmetic running into a wall.
+  const hot = acceptanceBand({
+    counterparty: informed({ perception_delta: 500, receptiveness: 1.3, accept_rate: 1, accept_rate_n: 99 }),
+    edge: passes, profile: profileWith('rarely'),
+  });
+  const cold = acceptanceBand({
+    counterparty: informed({ perception_delta: -500, receptiveness: 0.7, accept_rate: 0, accept_rate_n: 99 }),
+    edge: passes, profile: profileWith('yes'),
+  });
+  const mid = acceptanceBand({ counterparty: informed({ accept_rate: 0.5, accept_rate_n: 99 }), edge: passes });
+  const width = b => +(b.band.high - b.band.low).toFixed(3);
+  for (const [name, r] of [['hot', hot], ['cold', cold]]) {
+    assert.ok(r.band.high <= BAND_CEILING, `${name}: the top of the band is not certainty`);
+    assert.ok(r.band.low >= BAND_FLOOR, `${name}: the bottom of the band is not impossibility`);
+    assert.ok(r.band.low <= r.band.mid && r.band.mid <= r.band.high, `${name}: still ordered`);
+    assert.equal(width(r), width(mid),
+      `${name}: the same ${99} decided offers must buy the same width wherever the band sits`);
+  }
+});
+
+test('an accept rate resting on zero decided offers is not treated as an anchor', () => {
+  // Today `manager-signals.js:206` withholds tx_accept_rate below five decisions,
+  // so a rate with n=0 cannot come off a real league — but that gate lives in a
+  // third module with nothing tying it to this one, and the band's own output
+  // already contradicted itself when handed that shape: it centred on 0.9,
+  // labelled itself `heuristic_anchored` and reported a band NARROWER (0.35) than
+  // the honest unanchored one (0.45), while `anchor.why` said in the same breath
+  // that there were "no decided offers ... so there is no accept rate to anchor on".
+  const ghost = acceptanceBand({ counterparty: informed({ accept_rate: 0.9, accept_rate_n: 0 }),
+    edge: passes });
+  const none = acceptanceBand({ counterparty: informed({ accept_rate: null, accept_rate_n: 0 }),
+    edge: passes });
+  assert.equal(ghost.basis, 'heuristic_unanchored',
+    'a rate with no sample behind it is not an observation, whatever it says');
+  assert.equal(ghost.band.mid, none.band.mid, 'it cannot pull the centre it has not earned');
+  assert.equal(ghost.band.high - ghost.band.low, none.band.high - none.band.low,
+    'and it cannot buy a narrower band than knowing nothing');
+  assert.ok(ghost.inert.some(i => i.source === 'anchor' && /0 decided offers|no decided offers/i.test(i.reason)),
+    'the rate we were handed is reported inert with its reason, not silently dropped');
+  assert.equal(ghost.anchor.accept_rate, 0.9, 'what we were handed is still reported');
+  assert.equal(ghost.anchor.usable, false);
+});
+
+test('receptiveness is only withheld when the band is ACTUALLY centred on the anchor', () => {
+  // The mirror of the case above. The skip reason asserts a fact — "his N decided
+  // offers are already the anchor this band is centred on" — and that sentence was
+  // printed whenever n >= 15, including when there was no usable rate and the band
+  // was centred on the declared 0.30 instead. Dropping real evidence with a false
+  // reason is worse than dropping it.
+  const r = acceptanceBand({
+    counterparty: informed({ accept_rate: null, accept_rate_n: 30, receptiveness: 1.3 }),
+    edge: passes,
+  });
+  assert.equal(r.basis, 'heuristic_unanchored');
+  assert.ok(r.factors.some(f => f.source === 'receptiveness'),
+    'nothing is carrying this evidence but receptiveness, so it must count');
+  assert.ok(!r.inert.some(i => i.source === 'receptiveness' && /centred on/.test(i.reason)),
+    'the band cannot say it is centred on an anchor it does not have');
+});
+
+test('a source that was read but moved the band by nothing is reported, not silently dropped', () => {
+  // counterparty-pricing.js\'s first rule: a source that does not fire is reported
+  // INERT WITH ITS REASON. Below the 0.001 reporting threshold this module dropped
+  // the source from `factors` AND from `inert`, so "we priced it and it read as
+  // neutral" was indistinguishable from "nothing priced it at all".
+  const flat = acceptanceBand({ counterparty: informed({ perception_delta: 0.1 }), edge: passes });
+  const named = flat.factors.map(f => f.source).concat(flat.inert.map(i => i.source));
+  assert.ok(named.includes('perception_delta'),
+    'a delta that was read and rounded to nothing still has to appear somewhere');
+  const why = flat.inert.find(i => i.source === 'perception_delta')?.reason ?? '';
+  assert.match(why, /0\.1|less than|below/i, 'and it says what it read and why it did not move');
+
+  const tiny = acceptanceBand({
+    counterparty: informed({ receptiveness: 1.02, accept_rate: 0.25, accept_rate_n: 14 }),
+    edge: passes,
+  });
+  assert.ok(tiny.factors.concat(tiny.inert).some(x => x.source === 'receptiveness'),
+    'the same holds for a receptiveness nudge discounted away by the anchor');
+});
+
+test('ANCHOR_BLEND_N cannot drift away from the blend it mirrors', () => {
+  // The band charges receptiveness only for the part the anchor does not already
+  // carry, using a constant copied from counterparty-pricing.js. A copied constant
+  // with nothing holding the two ends together is how the first double-charge got
+  // in. If that file\'s blend divisor changes, this fails here rather than quietly
+  // charging the accept rate twice again.
+  const src = readFileSync(new URL('../server/services/counterparty-pricing.js', import.meta.url), 'utf8');
+  const blend = src.match(/Math\.min\(1,\s*\(s\.samples\.tx_accept_rate \?\? 0\)\s*\/\s*(\d+)\)/);
+  assert.ok(blend, 'the accept-rate blend in counterparty-pricing.js still looks the way this band assumes');
+  const acceptance = readFileSync(new URL('../server/services/trade-acceptance.js', import.meta.url), 'utf8');
+  const mirrored = acceptance.match(/ANCHOR_BLEND_N\s*=\s*(\d+)/);
+  assert.ok(mirrored, 'the band still declares the constant it mirrors');
+  assert.equal(mirrored[1], blend[1],
+    'counterparty-pricing.js blends the accept rate into receptiveness over a different sample '
+    + 'than this band discounts it over — one of them is now double-charging');
+  // The discount also assumes 1.0 is receptiveness\'s no-information centre.
+  const range = src.match(/RECEPTIVENESS_RANGE = \[([\d.]+), ([\d.]+)\]/);
+  assert.ok(range && (Number(range[1]) + Number(range[2])) / 2 === 1,
+    'receptiveness is still centred on 1.00, which is what this band measures its deviation from');
+});
+
+test('G3 no price term from the valuation map is ever a band source in its own right', () => {
+  // positional_need and profile_roster_read are already inside perception_delta.
+  // The two "byte-identical band" tests above cannot catch a future re-add, because
+  // they only prove this function ignores fields it never reads. This does: the
+  // moment anyone declares a valuation source as an acceptance source, it fails.
+  for (const key of Object.keys(ACCEPTANCE_SOURCES)) {
+    assert.ok(!VALUATION_SOURCES[key],
+      `${key} is already priced into perception_delta; it cannot also be its own band term`);
+  }
 });

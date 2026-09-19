@@ -91,9 +91,15 @@ const WIDTH = Object.freeze({
   half_at_n: 12,
 });
 
-/** A probability is never reported as certainty or impossibility. */
-const FLOOR = 0.02;
-const CEILING = 0.97;
+/**
+ * A probability is never reported as certainty or impossibility — and that
+ * holds for the EDGES of the band, not only its midpoint. Exported so a test
+ * asserts the published invariant rather than a copy of these numbers.
+ */
+export const BAND_FLOOR = 0.02;
+export const BAND_CEILING = 0.97;
+const FLOOR = BAND_FLOOR;
+const CEILING = BAND_CEILING;
 
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 const round = x => +x.toFixed(3);

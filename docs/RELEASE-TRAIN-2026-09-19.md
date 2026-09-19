@@ -335,6 +335,19 @@ argument rolls back the *last-sorted* file, which is now
 `062_league_payload_season`, not whichever was conceptually last. Pass the name
 explicitly if it ever comes to that.
 
+**RENAME NOTHING DURING THE MERGE, and it is the one hard rule in this
+section.** `server/db/migrate.js` computes `pendingCount` from the **filename**
+(`:37-40`, `f.replace(/\.js$/, '')`) but applies each migration under the
+module's **`name` export** (`:47-51`, `mod.name ?? file…`). All 63 files agree
+today, which is why this has never fired. If someone renames a file during the
+merge and changes the filename without the `name` export — in the direction
+where the basename is already in `schema_migrations` and `mod.name` is not —
+then `pendingCount` is zero, so `backupBeforeMigration` is **skipped**, while
+`migrate()` still runs `up()`. That is a schema change against the live volume
+with no snapshot taken, and nothing in the output says so. If a rename is ever
+genuinely needed, change the filename and the `name` export together in one
+commit.
+
 **Decided: ship as is, do not renumber.** Renumbering branches minutes before a
 proved train merges adds risk and fixes nothing, because the next pick collides
 just as blindly. A timestamp prefix and a CI duplicate check go in as a follow-up
@@ -414,6 +427,57 @@ and `--no-warnings` keeps node's experimental-SQLite notice out of the output.
 second line fails on quoting, run `fly ssh console -a gridiron-hq` and paste the
 `node --no-warnings -e '…'` part at the container prompt.
 
+**It has been run, at 20:58Z, and here is what it said.** Kept because every step
+below rests on one of these lines, and because one of them overturned something
+this document believed all evening.
+
+```
+/app/.git: absent                    package.json version: 1.0.0
+promote-volume-shrinkage.mjs: present     promote-weekly-ensemble.mjs: present
+fit-availability.mjs: present             fit-posture-calibration.mjs: present
+refresh-live-data.mjs: present            verify-trade-brain-live.mjs: MISSING
+nfl_qbr_weekly:           2025=540/18wk  2026=34/2wk
+nfl_ffopportunity_weekly: 2021-2025 ≈5,650/22wk each, 2026=331/2wk
+player_week_usage:        2021-2025 7,659→8,857/18wk each, NO 2026 LINE
+nfl_availability_rates:      ERROR no such table
+nfl_availability_role_rates: ERROR no such table
+shrinkage_k: 0     manager_profiles: 0     shrinkage_fits: 0 rows, 0 active
+```
+
+**`fit-availability.mjs` is on the machine.** This document, and everyone working
+on it, had assumed the fit was a post-deploy step *because the script was not
+deployed*. That was wrong; it is there, and so are both promotion scripts. **The
+order does not change and the reason is now a better one:** the gate that decides
+whether the role table ships lives in `server/services/contingency.js`, not in
+the script (step 10), and the running build predates the whole train including
+#37. Running the fit today would fit under gate v1, write the pooled table alone,
+and do it with none of the merged code present — a live write whose result nobody
+could interpret. Deploy first, then fit. Now that someone *could* run it early,
+that has to be said rather than assumed.
+
+**`shrinkage_fits: 0 rows, 0 active` is the premise holding, not a missing
+prerequisite.** `promote-volume-shrinkage.mjs` fits *and* activates in one run —
+its header says "nothing it produced was ever persisted, so production has always
+run the hand-picked values", and "on a pass, the production vector is fit on
+seasons ≤ 2025 and activated". `shrinkage_k: 0` says the same from the other
+side. Steps 7 and 8 are unchanged.
+
+**Three more premises confirmed from inside the machine** rather than inferred:
+`nfl_qbr_weekly` holds 2025-2026 and nothing earlier, which is exactly the
+configuration in which the #15 gate passes; `nfl_ffopportunity_weekly` is full,
+so #28 is a no-op on this data; and both availability tables answer *no such
+table*, which is the missing-table state — so step 11's `DROP TABLE` is right and
+there is genuinely nothing to back up. `player_week_usage` has no 2026 line at
+all, which is the gap #20 and #31 close and what post-deploy check 3 compares
+against.
+
+**`verify-trade-brain-live.mjs: MISSING`** is expected — it arrives with #18 — and
+means post-deploy check 7 cannot run until after the deploy.
+
+**`/app/.git: absent` is expected** (the Dockerfile copies the tree without it)
+and `version: 1.0.0` is uninformative. Neither falsifies the commit window in
+step 1, which rests on the three route probes.
+
 What each line decides:
 
 - **`GRIDIRON_DB_PATH` and what is on `/data`** — which database file the scripts
@@ -422,8 +486,9 @@ What each line decides:
   activate a vector *for that copy* and leave the app untouched. That is a silent
   no-op, not an error, which makes it the most dangerous line here.
 - **`/app/.git` and the package version** — the only direct evidence about the
-  running build. Commit archaeology has already produced a contradiction (see
-  step 1), so this is what settles whether it means anything at all.
+  running build. The probe-based placement (step 1) now agrees with itself, so
+  this is confirmation rather than the tie-breaker it was written as. Keep it:
+  it costs nothing and it is the one line that could still falsify the window.
 - **scripts on disk** — all six, not just the promotion one. If
   `promote-volume-shrinkage.mjs` is present and `promote-weekly-ensemble.mjs` is
   not, someone promotes, cannot re-fit, and leaves the app parked in the middle
@@ -455,10 +520,39 @@ Everything from step 7 onward needs `fly ssh console`, which needs a real Fly
 platform token. `GRIDIRON_FLY_TOKEN` is an application bearer token and does not
 grant it, so no session here can run any of it.
 
-**The deployed build is of unknown provenance.** Two read-only probes place it in
-inconsistent positions on the branch stack, which is impossible for a clean
-deploy of one commit — so the image may not have been built from a clean commit
-at all. So the rollback below redeploys a captured *image*, not a commit.
+**The deployed build is an ordinary clean commit, in an eleven-commit window —
+corrected, and the correction is worth reading.** For most of the evening this
+document said the provenance was unknown, because two read-only probes placed
+the build in positions on the branch stack that no single commit could occupy:
+the live lineup response carries a top-level `availability_basis` but no
+`availability_note`, and on the stack both arrive together in `cfa0e6f`.
+
+**The contradiction was an artefact of running the archaeology against the
+squashed stack.** On the original lineage,
+`cursor/betting-model-audit-fixes-1c85`, those are two commits, not one:
+`0a657f6` adds the top-level `availability_basis` and `unavailable` and adds no
+`availability_note` at all; `78811b1`, twenty-four hours later, adds the note
+and the per-warning basis. Verified here rather than taken: `git show 0a657f6`
+adds zero `availability_note` lines, `78811b1` adds seven, `cfa0e6f` adds both,
+and the three are in the order `0a657f6` → `20a10a5` → `78811b1` on that branch.
+
+The window is **after `20a10a5`** — which mounts `/api/league-chat`, explaining
+the live 401 on that route — and **before `78811b1`**, whose parent already
+carries the retirement body that explains the live 410 on `/brain/plan`. All
+three probes now agree on one window, and only eleven commits in it touch
+`server/`.
+
+**The general lesson, which cost this project several hours tonight: when
+commit archaeology produces a contradiction, check which branch it ran against.
+A squash makes two commits look like one, and then any build between them reads
+as impossible.**
+
+**The rollback below still redeploys a captured *image*, not a commit**, and that
+does not change. "Somewhere in an eleven-commit window" is not a build, and
+narrowing it further costs live probes against a machine that answers in
+two-minute windows. What changes is the confidence: the running image is a clean
+checkout of some commit in that window, not something possibly built from a
+dirty tree.
 
 ### 1. Run the command in section 5, and keep the output
 
@@ -605,14 +699,34 @@ check asks whether the thing that was supposed to be produced now exists.
    `player_week_snaps` rows **for season 2026** — both are zero today — and check
    that each scheduled source has a `last_run` newer than the deploy. A source
    without a timer still shows today's sweep.
+
+   **Read those counts out of the database, not off any `/api/model/…` page, or
+   restart first.** `server/routes/model.js` memoises three values under
+   *constant* keys in the same fingerprint-free `Map` as the simulator:
+   `memo('handcuffs')` at `:569`, `memo('cascades')` at `:575`, and
+   `memo('avail')` at `:589`. A constant key means the first answer a process
+   computes is served until that process ends. `'avail'` is the one that bites
+   here — it memoises `availability()`, built from `player_week_usage`, which
+   holds zero rows for 2026 today, and #20 and #31 are in this train precisely
+   to start filling it. A machine that serves that route once before the backfill
+   lands keeps serving the pre-backfill answer for the life of the process, and
+   the natural reading of that is "the backfill did not work". `clearModelCache()`
+   runs on a league sync, `/api/dev/refresh-all` and the big nfldata sync — a
+   scheduled feed job is none of those. `memo(\`acc:${season}\`)` at `:479` has the
+   same shape, keyed only on season. `leagues.js:217-222` is the precedent and its
+   comment explains the hazard in the simulator's case; whoever fixes these three
+   should follow it. **Not a change for tonight** — this is a reading instruction,
+   not a pull request.
 4. **`nfl_ffopportunity_weekly` has plausible week counts per season**, not merely
    rows. Compare against the before-reading from section 5. A season showing one
    or two weeks is half-ingested and will never be completed, because the guard
    asks whether a season is present rather than complete. Fixing that guard is a
    follow-up pull request, not part of this train.
-5. **Migrations applied.** `schema_migrations` contains all three 061 rows:
-   `061_google_identity_and_invites`, `061_sync_log_consecutive_failures`,
-   `061_league_payload_season`.
+5. **Migrations applied.** `schema_migrations` contains all three new rows:
+   `061_sync_log_consecutive_failures`, `062_google_identity_and_invites` and
+   `062_league_payload_season`. Three rows, not two — the two `062`s are
+   different files with different `name` exports, and seeing only one of them
+   means a key collided. Section 3 has the sweep.
 6. **Sign-in did not lock anyone out.** #14 puts `assertLeagueMember` in front of
    every `/api/trades/:leagueId` route. Load a trade page for each of the five
    leagues and confirm none returns 403. This is the single highest-risk change in
@@ -708,6 +822,28 @@ Writes nothing, produces every gate number and the full ship/no-ship decision,
 and puts the verdict on file rather than only in a terminal. This exists so step
 10 is reading a result rather than making a judgement call.
 
+**Read one thing before reading any of the numbers: the fitted rate is not a
+chance of playing.** Its event is *recorded usage* — a target, a carry, an
+attempt. `fit-availability.mjs` says so in its own header at `:16-21`:
+"Deliberately not 'dressed'. A player who suits up and touches the ball zero
+times scores zero, and the number this model feeds is a fantasy projection, so
+the fantasy-relevant event is the right one." The header then warns, in its own
+words, that this "makes the absolute levels lower than published 'percent who
+played' figures".
+
+That matters most where the movement is largest. The constants hold a Doubtful
+player at 0.15 against a measured **0.004**, and an Out player at 0.01 against
+**0.001**. Those are not claims that a Doubtful player dresses 0.4% of the time.
+Without this paragraph beside them, the biggest single movement the fit produces
+reads like the model having gone mad. It also means the two arms are not quite
+the same quantity — the constants were hand-set as chances of playing, the
+fitted rates are usage rates — so the gate's comparison is valid as a
+forecasting question, but a reviewer eyeballing "0.15 became 0.004" is not
+looking at the same thing twice. The app's own label said "likely to play" and
+was wrong in exactly this way; #27 and #21 have fixed it to "likely to suit up
+and see the ball", which is true on every basis and so does not go stale when
+the tables are written.
+
 Expect the main gate to pass decisively — log loss 0.558 → 0.397, bootstrap CI90
 [-0.176, -0.147], calibration error 0.082 → 0.017 on 8,663 held-out rows. What
 to expect on the role table depends on which gate is in the deployed build, and
@@ -743,7 +879,7 @@ total — pricing a starter as more likely to play means his backup absorbs less
 and projects lower, so the effect is not uniformly upward and a handcuff falling
 in value on fit day would be correct rather than a regression. Moot today.
 
-### 10. Database write 2 — and the one decision that is Nick's
+### 10. Database write 2 — the availability fit
 
 ```
 node scripts/fit-availability.mjs
@@ -803,7 +939,30 @@ Then:
 
 1. **Confirm it landed.** `availability_basis.stamp` goes `absent|absent` →
    `139:<ts>|…`. No restart needed for this one: `contingency.js:543` re-reads
-   when the row count or `fitted_at` changes. `basis` lands on `pooled` under
+   when the row count or `fitted_at` changes.
+
+   **Two reads that work, and one that looks like it should and does not.**
+   Use `GET /api/model/availability?week=2` and
+   `GET /api/model/player/<id>?week=2`. Both go through
+   `weeklyAvailability(season, week)` — `model.js:585` and `:448` — which is
+   called directly with no memo wrapper, and `fittedAvailability()` invalidates
+   itself on the stamp (`contingency.js:559-561`). So both are fresh
+   immediately, with no restart. On the player route the surrounding projection
+   *is* memoised, but the `weeklyAvail` field beside it is not, so that number
+   is live even when the rest of the payload is cached.
+
+   **Do not use `GET /api/model/availability` without a week parameter.** It
+   takes a different branch entirely (`model.js:589`) and serves
+   `memo('avail', () => availability())` — and `availability()`
+   (`contingency.js:40-44`) reads `player_week_usage` and `player_metrics` to
+   build the career **durability prior**. It never touches either fitted table.
+   So that endpoint returns the same numbers after the write **even on a fresh
+   restart**: it is not a stale read, it is the wrong quantity. Two threads
+   found this from different directions — one that it caches under a constant
+   key, one that it reads the prior — and both are right; the second is the
+   reason a restart would not have rescued it. Using it as a verification read
+   would have said the fit failed when it succeeded, which is how a good deploy
+   gets rolled back. `basis` lands on `pooled` under
    gate v1 and `role` under v2 — both are legitimate; which one you get was
    decided by the build, and the step-9 report already said which.
 2. **Spot-check three players, not one, and expect them to move by different
@@ -818,9 +977,13 @@ Then:
    different answers that are both correct, which is the whole point. A healthy
    RB with no injury of any kind reads `active_probability` **0.805** (Jahmyr
    Gibbs, five leagues). The three players Start/Sit actually surfaces as
-   chance-to-play warnings on `GET /api/trades/1/lineup` read **70%, 74% and
-   75%** (De'Von Achane, Kyren Williams, Javonte Williams). Both are true because
-   they are different populations: the warning list is *selected* for the low end,
+   chance-to-play warnings carry the low end of the spread. The complete
+   baseline, captured across all five leagues and committed at
+   `docs/evidence/2026-09-19/availability-baseline.json` on #18, found
+   **thirteen warnings spanning 57% to 75%**: Jayden Daniels 57% with no injury
+   designation of any kind, Harold Fannin Jr. 64%, Bucky Irving 65%, Tyler
+   Warren 67%, Kyren Williams 70%, De'Von Achane 74%. Both readings are true
+   because they are different populations: the warning list is *selected* for the low end,
    since Start/Sit only raises a warning below a threshold. The 69.5% in the
    constants table is a cohort mean and is not what any individual player is
    served.
@@ -854,8 +1017,89 @@ Then:
    stamp `absent|absent`: playoff odds 0.62 (league 1), 0.63 (league 2), 0.26
    (league 3), 0.24 (league 4), all on Gibbs at 0.805.
 
+   **Read the three instruments in this order, because they are not equally
+   sensitive.** The simulate reading first, `current_week_ppg` second, the trade
+   value last.
+
+   - `season-sim.js:212` applies `weeklyAvailability` per simulated week to every
+     player across every remaining week, with nothing damping it, so the effect
+     compounds. **Strongest instrument.**
+   - `current_week_ppg` (on the trade response at `trade-engine.js:449`) is the
+     one place the effect appears undamped: `:359` multiplies the current-week
+     projection by `active_probability` outright, so a player going 0.70 → 0.95
+     moves that number by the full ratio, about **+36%**. Capture it explicitly.
+   - **The per-week decision number is the weak instrument and will look
+     disappointing.** `trade-engine.js:385` is `decisionPpg = 0.25 *
+     currentWeekPpg + 0.75 * rosPpg`, and `rosPpg` carries no availability term
+     at all — the comment at `:360` says so. **Only the first term carries it**,
+     so `adj_ppg` is attenuated roughly fivefold: at `currentWeekPpg ≈ rosPpg`, a
+     player going 0.70 → 0.95 moves it about **+7%** where his percentage moved
+     twenty-five points. Expect single digits and write that down before the run,
+     because a reviewer who sees 25 against 7 will reach for a bug.
+
+     **Say "the per-week numbers move less than the odds do", not "trade values
+     move less."** The attenuation above is measured; the *trade value's* own
+     sensitivity is not, and stays unmeasured until the second capture. A point
+     estimate here would be checkable and wrong against any individual player,
+     because the ratio depends on how his current-week rate compares to his
+     rest-of-season one — at `c/r` of 0.5, 1.0, 1.5 and 2.0 the same 0.70 → 0.95
+     gives +3.7%, +6.8%, +9.3% and +11.4%. If anyone wants a per-player
+     expectation on the night, both inputs are already on the trade response
+     (`trade-engine.js:449` and `:456`).
+
+   **One thing will be unobservable tonight, and it is the biggest effect the
+   script has.** The designated band — Doubtful, Out — is where the fit moves
+   furthest and the only band that moves *downward*. No player on any of the five
+   rosters currently carries an `nfl_injuries` row: the capture's
+   designation-flagged targets come back at 0.833 and 0.823 with a null report
+   status, because an ESPN roster flag is not an injury-report row and takes the
+   no-report path. So the largest single movement will have nothing to land on in
+   this baseline. Expected, and named here so nobody spends the evening hunting
+   for it.
+
+   **Use `value` as a control variable — this is the check that tells you
+   whether the measurement itself is sound.** A trade's `value` is
+   `m?.value ?? 0` off the `dynasty_values` table (`trade-engine.js:419`, loaded
+   at `:307-309`) — the FantasyCalc market price. The fit writes only the two
+   availability tables, and that path never reads them. So `value`,
+   `give_value`, `get_value` and `ratio` **must be byte-identical before and
+   after**. If they move, attribution is broken — something else changed under
+   the reading — and nothing else in it should be trusted. What *should* move:
+   `current_week_ppg` undamped, `adj_ppg` through the quarter weight, floor and
+   ceiling, `horizon_value`, `playoff_odds`, `acceptance` via `edge.passes`, and
+   efficiency (its numerator moves, its denominator cannot).
+
+   **Ignore single-league odds moves under about 0.02 until the drift floor is
+   known.** League 2 read 0.64 against a 0.63 baseline at the same seed with no
+   deploy in between. The sim is seeded but its *inputs* are not frozen:
+   `weeklyAvailability` reads `nfl_injuries`, which the live tier can refresh
+   underneath a sweep that takes twenty minutes across five leagues. Take the
+   floor from the spread across all five rather than from one repeat, and take
+   the three readings promptly rather than at leisure.
+
+   **Kickers and defences will not move, and that is correct.**
+   `weeklyAvailability` selects `WHERE p.position IN ('QB','RB','WR','TE')`
+   (`contingency.js:889`), so K and DEF are never in the map at all and keep the
+   `0.92` fallback at `:901` — a typed-in number, multiplied into their point
+   totals, after as well as before. Spot-check a skill-position player. An
+   unmoved kicker is the position filter, not a failed write. (#27's page-level
+   line says the chances on the page are measured, which is true of the rows the
+   fit covers and not of those two; the UI thread is labelling them "never
+   measured" in the next train.)
+
+   **And that constant reverses direction at the deploy, which is the part worth
+   warning about.** Today a healthy RB reads 0.805 against a typed-in 0.92, so
+   kickers and defences are over-valued by about eleven points relative to
+   everyone around them. After the fit a healthy starter reads ~0.952 and they
+   are under-valued by about three. The constant does not merely fail to move —
+   **it flips sign**, so a kicker can rank differently on Monday than on Sunday
+   with nothing about the kicker having changed. Not a blocker, and exactly the
+   sentence that stops an hour of hunting for a bug that is not there.
+
    **Everything reading unchanged is the result to distrust, not the reassuring
-   one.**
+   one.** Three ways this verification could have produced a convincing null, all
+   now closed: a cached simulate reading (step 2a), an attenuated trade reading
+   taken as the headline (above), and an absent designated band (above).
 3. **Restart first. This is a requirement of the reading, not a precaution.**
    `fly apps restart gridiron-hq` before you read anything. The fit is written
    from an ssh process, which cannot clear the app process's in-memory `Map`, so
@@ -912,18 +1156,33 @@ One statement each. `activeKVector()` returns null with no active row and
 `pickK()` falls through to the hand-picked literals. No fit row is destroyed, so
 both are reversible in either direction.
 
-**The deploy:**
+**The deploy. The reference is captured, so this is one paste and not a search:**
 
 ```
-fly deploy --image <the reference captured in step 1> -a gridiron-hq
+fly deploy --image registry.fly.io/gridiron-hq:deployment-01M2VZ9JRYSXVHCRWJ83V360QH -a gridiron-hq
 ```
 
-Redeploying the captured image, not rebuilding from a commit — because we do not
-know which commit the running build was made from. Migrations are additive and
-the three new ones drop nothing, so an older image boots against the migrated
-volume without a schema rollback. If a migration does need undoing,
-`npm run db:rollback` takes one at a time, newest first — with the caveat above
-about which of the three 061s it picks.
+The immutable form of the same image, if the tag is ever in doubt:
+
+```
+fly deploy --image registry.fly.io/gridiron-hq@sha256:caf1b40b59eeed6318c24363c607400dbf723dde50d40d8d3e9fd8bd097d0d36 -a gridiron-hq
+```
+
+Both were read off `fly image show -a gridiron-hq` before the deploy (machine
+`84ed41eae1dd68`). The shapes check out — a 26-character Crockford ULID and a
+64-character hex digest — but **copy the tag from your own terminal rather than
+from this document if you still have that output**, because a transcribed
+character is the one thing that would make the rollback fail at the moment you
+need it.
+
+Redeploying the captured image rather than rebuilding from a commit. The running
+build is now known to be a clean checkout somewhere in an eleven-commit window
+(step 1), but a window is not a build, so the image is what gets redeployed.
+Migrations are additive and the three new ones drop nothing, so an older image
+boots against the migrated volume without a schema rollback. If a migration does
+need undoing, `npm run db:rollback` takes one at a time, newest first — and pass
+the name explicitly, because bare it takes the last-sorted file, which is now
+`062_league_payload_season`.
 
 ## 7. The run sheet
 
@@ -952,9 +1211,15 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ### The merge — irreversible from here
 
 > **STOP. Everything above this line can be run and undone freely. Nothing below
-> it can.** Step 3 writes to the deployment branch; step 5 publishes it. Before
-> pasting either, be sure of two things: the image reference from step 1 is in
-> hand, and step 4 came back green.
+> it can.** Step 3 writes to the deployment branch; step 5 publishes it.
+>
+> Two gates, and they guard different steps. **Step 4 green gates the push in
+> step 5** — never push a red tree. **The image reference from step 1 gates the
+> deploy**, not the merge: landing the train on `main` deploys nothing, and if
+> `fly image show` comes back with nothing usable, the right answer is a merged
+> `main` and no deploy, because that reference is the only rollback that exists.
+> Do not let a missing image reference stop the merge, and do not let a merged
+> `main` imply the deploy is cleared.
 
 ```
 # 3. Land the train. Same order, same branches, as the run that was proved.
@@ -966,25 +1231,49 @@ for b in 3ldl77 3ldl77-deploy 3ldl77-server 3ldl77-client 3ldl77-docs \
          o3wt2p-current-season o3wt2p-live-tier o3wt2p-reentry \
          5f9c3y-honesty 5f9c3y-narration 5f9c3y-drafts \
          3xqh5l-proposals-live 3xqh5l-signals-api 3xqh5l-manager-read \
-         3xqh5l-brain-ui 3xqh5l w45mur n4052e; do
+         3xqh5l-brain-ui 3xqh5l f921do-gate-v2 w45mur n4052e; do
   git merge --no-edit "origin/claude/project-thread-$b" || { echo "STOPPED at $b"; break; }
 done
 ```
 
-Two notes on that loop. It stops at the first conflict rather than carrying on,
-because a half-merged deployment branch is worse than a stopped one. And it
-expects the two fixes in section 3 to have landed in their source pull requests
-first — without them it stops at `n4052e`, and the seven `manager-signals-api`
-tests fail. If they have not landed, resolve `scripts/start-smoke.mjs` in favour
-of the `HEAD` side (#17's probe, the one that checks `probe.ok`).
+Three notes on that loop.
+
+It **stops at the first conflict** rather than carrying on, because a half-merged
+deployment branch is worse than a stopped one.
+
+It expects nothing to be fixed by hand, and as of the final proof that is true:
+both section-3 breaks landed in their own source branches, so the loop runs
+clean end to end with no conflict and no patch. If you somehow hit the
+`start-smoke.mjs` conflict, that means a branch regressed — resolve in favour of
+the `HEAD` side (#17's probe, the one that checks `probe.ok`) and say so.
+
+`f921do-gate-v2` is **PR #37** and sits between `3xqh5l` and `w45mur`. It is the
+one branch in the loop that is not named after a project thread, and it is the
+one that decides whether deploy step 10 writes the role table. Leaving it out is
+a silent downgrade, not a smaller merge.
 
 ```
+# 4a. Prove you landed the tree that was tested. One second, and it is a
+#     stronger guarantee than re-running anything.
+git rev-parse HEAD^{tree}
+#     Must print: 1b2341aa116031e40c9b10abf1ff9270e150a347
+
 # 4. Verify before pushing. This is the same five checks CI runs.
 npm ci && npm run check
 ```
 
-**Do not push on a red result.** The proved run was 2,928 tests with 0 failures;
-anything else means a branch moved after the proof and needs looking at.
+**Step 4a is the important one.** That hash is the tree the suite ran green on.
+The merge loop re-merges, so its commit SHAs will differ from the proof run's —
+the *tree* will not, and the tree is what gets built and deployed. A match means
+you are holding byte-for-byte what was tested and step 4 is a formality. A
+mismatch does not mean anything is broken; it means a branch moved after the
+proof and the proof no longer describes what you are holding, which is exactly
+when step 4 stops being a formality.
+
+**Do not push on a red result.** Section 8 carries the proved count and the 22
+head SHAs it belongs to. Anything else means a branch moved after the proof —
+which happened six times on the evening this was written — and needs looking at
+rather than pushing through.
 
 ```
 # 5. Push.
@@ -1083,8 +1372,9 @@ fly deploy --image <ref> -a gridiron-hq
 
 ## 8. Evidence
 
-The sequence was proved three times tonight, because the branches kept moving
-and a proof that describes a stack which no longer exists is worth nothing. Each
+The sequence was proved four times tonight — five started — because the branches
+kept moving and a proof that describes a stack which no longer exists is worth
+nothing. Each
 run was a scratch branch built from `main` at `ffe4e72`, the merges done in the
 order in section 1, then `npm ci`, `npm run typecheck`, `npm run lint`,
 `npm test`, `npm run build`, `npm run start:smoke` — the same five steps the CI
@@ -1100,20 +1390,34 @@ gone: #26 had fixed the fixture in source. Break 1 survived exactly as predicted
 so #14's route was still deleted by hand. **2,933 tests, 2,892 passed, 0 failed,
 41 skipped.** Exit 0 on all five steps.
 
-**Run 3, the current one.** 22 merges, every branch at the head listed below,
-with PR #37 in and #14's own fix present. **No conflicts and no hand-applied
-fixes of any kind.** Merged tip `6f473ec`.
+**Run 3** — 22 merges, PR #37 in and #14's own fix present, merged tip
+`6f473ec`. **No conflicts and no hand-applied fixes of any kind**, and
+**2,950 tests, 2,909 passed, 0 failed, 41 skipped**, all five steps exit 0.
+Superseded within minutes: four branches moved while it ran.
 
-- **2950 tests, 2909 passed, 0 failed, 41 skipped.**
+**Run 4** — killed eight minutes from finishing, because #18 and #14 had already
+moved under it. Recorded because the honest cost of the treadmill belongs in the
+evidence: a proof is only worth the SHAs it names.
+
+**Run 5, the one that counts.** 22 merges, every branch at the head listed below.
+Merged tip `791b131`, **merged tree
+`1b2341aa116031e40c9b10abf1ff9270e150a347`**.
+
+- **2,950 tests, 2,909 passed, 0 failed, 41 skipped.**
 - `npm ci`, typecheck, lint, client build and start-up smoke all exit 0.
+- **Zero conflicts. Nothing fixed by hand.**
 
-Heads proved in run 3: #12 `d9b4a90`, #8 `d9cb4fd`, #24 `7da5974`, #17
+Heads proved in run 5: #12 `d9b4a90`, #8 `d9cb4fd`, #24 `7da5974`, #17
 `63e0886`, #19 `5f955fe`, #20 `e0c0659`, #28 `5adb6fe`, #29 `15625f3`, #31
-`b07f179`, #32 `56a85af`, #33 `0cf7cb3`, #21 `1955243`, #27 `f124b69`, #30
-`f030e2a`, #25 `356f166`, #26 `f12bedd`, #23 `dff747f`, #22 `3bb6d07`, #18
-`510771b`, #37 `c2f93c8`, #15 `9db53ff`, #14 `d7c9beb`.
+`b07f179`, #32 `56a85af`, #33 `0cf7cb3`, #21 `de5f570`, #27 `94c4b38`, #30
+`ab907e4`, #25 `356f166`, #26 `f12bedd`, #23 `dff747f`, #22 `3bb6d07`, #18
+`0dabe36`, #37 `c2f93c8`, #15 `9db53ff`, #14 `bef686d`.
 
 **This number describes those exact commits and nothing else.** If a branch
-moves, it needs re-running; that is not pedantry, it is the reason runs 2 and 3
-exist. Each scratch branch is a test fixture and has been thrown away — nothing
-here was pushed to any branch but this document's own.
+moves it needs re-running — that is not pedantry, it is why runs 2 through 5
+exist. **The tree hash is the cheap version of that check**, and it is why step
+4a is in the run sheet: whoever runs the merge can prove in one second that they
+landed what was tested, without re-running anything.
+
+Each scratch branch is a test fixture and has been thrown away. Nothing was
+pushed to any branch but this document's own.

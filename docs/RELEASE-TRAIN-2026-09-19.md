@@ -2434,6 +2434,19 @@ took, the machine restarted during it and the read is void.** Re-run it. This
 replaces believing that nothing restarted with detecting it after the fact, and
 it costs one request.
 
+**A single read can bracket itself, which is better still, and it was measured
+rather than reasoned at 22:39Z.** A `curl` issued at 22:38:59Z returned 200 with
+`uptime_s: 13` after **29.1 seconds**. A process 13 seconds old cannot have
+received a request issued 29 seconds earlier, so that request was held at the
+edge and replayed into a process that started *after it was sent*. **Whenever
+`uptime_s` is smaller than that same request's own elapsed time, the read
+crossed a restart** — no before-read needed, and `curl -w "%{time_total}"` is
+the whole instrument. The read immediately before it, at 22:38:14Z, was a
+**503 after 35.4 seconds**: the app's own catch (`health.js`), a live process
+that could not answer. So the two signatures sit either side of one restart —
+503-slow is the wedge, 200-with-impossible-`uptime_s` is the replay across it —
+and neither is the empty-body 502 that means no instance at all.
+
 It is not hypothetical. **The machine restarted at 22:12:07Z**, three minutes
 after the app was first seen up at 22:09Z — read off `uptime_s: 53` at
 22:13:00Z, with the transition caught directly as a 36.6-second empty-body 502

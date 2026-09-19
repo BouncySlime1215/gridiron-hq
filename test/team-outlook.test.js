@@ -313,3 +313,20 @@ test('the gate constants are frozen, because changing one changes the rule', () 
   assert.deepEqual([...OUTLOOK_GATE.weeks], [2, 3, 4, 5, 6, 7, 8]);
   assert.deepEqual([...OUTLOOK_GATE.baselines], ['base_rate', 'all_play_pct', 'points_shrunk', 'win_pct']);
 });
+
+test('the no-results baseline is not named preseason, because it is not a preseason forecast', () => {
+  const p = panel();
+  const fit = fitOutlook({ panel: p, k: 7.6 });
+  const d = decompose(fit, p.find(r => r.week === 4));
+
+  // The field is the fitted model with every RESULT-derived feature at its neutral value.
+  // It contains no projection of the roster and no preseason ranking -- there is none in
+  // this payload to contain. A UI thread read `preseason` and wrote "the preseason
+  // picture", which a reader takes as "our preseason projection". The name is the defect.
+  assert.ok('no_results_yet' in d, 'the baseline field is named for what it is');
+  assert.ok(!('preseason' in d), 'nothing may reintroduce the name that was misread');
+
+  // And the identity the renamed field has to keep holding.
+  assert.ok(Math.abs((d.now - d.no_results_yet) - d.total) <= 2e-4,
+    'total is still now minus the no-results baseline');
+});

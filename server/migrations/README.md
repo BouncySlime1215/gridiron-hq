@@ -105,7 +105,9 @@ Each file default-exports `{ name, up(db) }`, optionally `down(db)` for
 in lexicographic filename order.
 
 - Give it a `name` nothing else in this directory uses, and make it exactly the
-  filename without `.js`. Check, do not assume.
+  filename without `.js`. `npm run lint` checks both, plus that your number is
+  unused; `062` is exempt because those files have already run and rule 1
+  forbids renaming them.
 - Write `up()` so that running it twice is a no-op, even though it should never
   happen. Guard column additions with `PRAGMA table_info`, create with
   `IF NOT EXISTS`, and make backfills idempotent. That is cheap on the way in

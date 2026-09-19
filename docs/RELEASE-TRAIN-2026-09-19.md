@@ -2088,6 +2088,66 @@ restart that follows it, the step 10 availability fit, the completeness script,
 `npm run chat:sync`, the `COUNT(*)` reads that need `fly ssh console`, and
 putting `AUTO_HEAVY_SYNC` back last. **No database write happens tonight.**
 
+### 7.0b What actually happened after the deploy: the machine will not stay up
+
+**Written at 22:20Z, while it was still happening.** The deploy succeeded, the
+migrations applied, and the app serves correct answers — and it restarts every
+two to three minutes. Four process starts observed from HTTP alone, no terminal
+required:
+
+| Start (derived from `uptime_s`) | Life |
+| --- | --- |
+| ~22:09:00Z | ~178 s |
+| 22:12:07Z | ~164 s |
+| 22:14:51Z | ~115 s |
+| 22:19:04Z | — |
+
+**The signature that names the cause, measured at 22:18:23Z.**
+`GET /api/health` returned **503** — not 502 — with **35.3 seconds to first
+byte**, TCP connecting in under a millisecond. The distinction is the whole
+diagnosis:
+
+- **502 with an empty body** is Fly's edge answering with no instance behind it.
+  That was the disk-gate failure earlier tonight.
+- **503** comes from `healthHandler`'s own `catch` (`server/platform/health.js`),
+  which is reached only when `db.prepare('SELECT 1').get()` **throws**.
+
+`SELECT 1` does not fail for want of data. It fails on lock contention.
+`node:sqlite` is synchronous and single-writer, so **one long write blocks every
+read in the process**, and the health check is a read.
+
+**The loop, and why it does not settle.** Boot, serve normally for a minute or
+two, something begins a long write, every request queues behind it, health
+throws and answers 503, Fly evicts the machine from routing, the #29 watchdog
+exits the process after 60 seconds of a blocked loop, Fly restarts it — **and
+whatever runs at boot starts the same write again.** Every restart re-runs
+`bootJobs`, which is what makes it self-sustaining rather than self-correcting.
+
+**Prime suspect: the heavy tier running at boot.** Which makes `heavy_enabled`
+the single most valuable reading available. True means the fix is one line,
+`fly secrets unset AUTO_HEAVY_SYNC`, and it needs a terminal. False means a
+different writer and the machine log is the only way on.
+
+**Three things to be clear about, because two of them look like new faults and
+are not.** The 503 and the watchdog are the *detection*, working exactly as
+designed against a real wedge — see the rationale in `fly.toml` and in
+`health.js` for why a TCP check would have shown a healthy machine throughout.
+The deploy itself is not what failed: the tree is correct, the migrations
+applied, and the answers between wedges are real. And **no data is at risk** —
+nothing has written, and the database is as it was.
+
+**What it costs.** Tonight's baseline cannot be taken: a twenty-minute capture
+cannot complete inside a hundred-second life, and a partial one would stitch
+several processes together with the seams falling mid-list, where they read as
+effects. **And the two database writes must not be attempted until this is
+understood** — a fit running against a process that may exit mid-write is the
+one genuinely unsafe thing on this sheet. **Step 7 is no longer the morning's
+first item. Stabilising the app is.**
+
+One clock on it: Fly caps restarts, and this machine already hit
+`max restart count of 10` earlier tonight. If it hits the cap again it stops and
+stays stopped, and nothing can be read until someone is at a terminal.
+
 ### 7.0a Bracket every read with `uptime_s`, and void it if the machine restarted
 
 `GET /api/health` is unauthenticated and returns `{"ok":true,"uptime_s":<n>}`.

@@ -134,7 +134,18 @@ export function refreshReport(name, { force = false } = {}) {
       workerData: { module: spec.module, fn: spec.fn, args: spec.args },
       env: process.env
     });
+    // Whether THIS worker's result has been recorded. `inflight.has(name)` is
+    // not that question: it is keyed by report name, so once a newer run for
+    // the same report registers, a finished worker's late 'exit' reads it as
+    // "still in flight" and overwrites the newer run's state with this one's.
+    // A latch that belongs to this worker cannot be confused with another run.
+    let settled = false;
     const finish = (payload, error) => {
+      // 'exit' always follows 'message'/'error', so only the first result
+      // counts. A worker that dies WITHOUT posting anything is still recorded,
+      // because then 'exit' is the first call and the latch is open.
+      if (settled) return;
+      settled = true;
       run(`INSERT INTO nfl_cached_reports (report, fingerprint, computed_at, duration_ms, payload_json, error)
            VALUES (?,?,?,?,?,?)
            ON CONFLICT(report) DO UPDATE SET fingerprint=excluded.fingerprint, computed_at=excluded.computed_at,
@@ -146,7 +157,9 @@ export function refreshReport(name, { force = false } = {}) {
     worker.once('message', msg => finish(msg.error ? null : msg.value, msg.error ?? null));
     worker.once('error', err => finish(null, err.message));
     worker.once('exit', code => {
-      if (inflight.has(name)) finish(null, `worker exited with code ${code}`);
+      // No `inflight.has(name)` guard — see the latch above. This is a no-op
+      // when the worker already reported, and the only record when it did not.
+      finish(null, `worker exited with code ${code}`);
       reclaimWal();
     });
     // No `worker.unref()` here, deliberately.

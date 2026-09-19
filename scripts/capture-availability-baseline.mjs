@@ -59,6 +59,7 @@
  */
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { processSpan, spanWarning } from './lib/capture-span.mjs';
 
 const BASE = process.env.GRIDIRON_BASE_URL ?? 'https://gridiron-hq.fly.dev';
 const TOKEN = process.env.GRIDIRON_FLY_TOKEN ?? '';
@@ -105,6 +106,29 @@ async function get (path) {
     if (attempt < ATTEMPTS) await sleep(attempt * 5000);
   }
   return last;
+}
+
+/**
+ * Which process answered this capture.
+ *
+ * `/api/health` reports `uptime_s`, so wall clock minus uptime names the
+ * process a reading came from. That matters more than it looks. The memos in
+ * routes/model.js and draft-assist.js carry no fit id and no seed, so the only
+ * thing that busts them is a restart. A capture that spans one therefore mixes
+ * answers from two different caches — the leagues read before it memoised from
+ * the old state, the leagues read after it recomputed — and nothing in the
+ * output would say so. Compared against a baseline, a restart in the middle
+ * would read as the fit having moved something, which is precisely the
+ * conclusion this script exists to support and must therefore not manufacture.
+ */
+async function processIdentity () {
+  const res = await get('/api/health');
+  if (res.status !== 200 || !Number.isFinite(res.body?.uptime_s)) {
+    return { read: false, status: res.status,
+      detail: res.text ?? 'a 200 with no uptime_s: the health shape changed' };
+  }
+  return { read: true, uptime_s: res.body.uptime_s,
+    started_at: new Date(Date.now() - res.body.uptime_s * 1000).toISOString() };
 }
 
 /** A digest of the whole response, so a change anywhere shows even if no field below moved. */
@@ -346,6 +370,15 @@ const flatten = (value, prefix = '') => {
 };
 
 function report (before, after) {
+  // Movement is only attributable to the fit if each capture was answered by
+  // one process. Say so before the numbers rather than under them, because the
+  // numbers are what gets quoted.
+  const notes = [spanWarning(before.process_span, 'the baseline'),
+    spanWarning(after.process_span, 'this capture')].filter(Boolean);
+  if (notes.length) {
+    console.log('\nREAD THE COUNTS BELOW AS UNATTRIBUTED:');
+    for (const note of notes) console.log(`  ${note}`);
+  }
   let moved = 0, same = 0;
   for (const league of after.leagues) {
     const was = before.leagues.find(l => l.league_id === league.league_id);
@@ -507,6 +540,10 @@ const baseline = COMPARE ? JSON.parse(fs.readFileSync(COMPARE, 'utf8')) : null;
 const leagues = baseline ? baseline.leagues.map(l => l.league_id) : LEAGUES;
 const run = { base: BASE, captured_at: new Date().toISOString(), leagues: [] };
 
+// Read the process before and after, not once. One reading names a process; two
+// name whether it stayed the same one for the length of the capture.
+run.process_before = await processIdentity();
+
 for (const id of leagues) {
   const was = baseline?.leagues.find(l => l.league_id === id) ?? null;
   const league = await captureLeague(id, was?.target_id ?? null, was?.injured_target_id ?? null);
@@ -526,6 +563,9 @@ for (const id of leagues) {
         : `; ${league.lineup_error ?? 'no lineup reading'}`)}`);
 }
 
+run.process_after = await processIdentity();
+run.process_span = processSpan(run.process_before, run.process_after);
+
 if (baseline) report(baseline, run);
 if (OUT) { fs.writeFileSync(OUT, JSON.stringify(run, null, 2)); console.log(`\nwritten to ${OUT}`); }
 // ANY league failing is a failed run. `every` here meant four of five leagues
@@ -536,4 +576,14 @@ if (failed.length) {
   console.error(`\n${failed.length} of ${run.leagues.length} league(s) failed: `
     + failed.map(l => `${l.league_id} (${l.error})`).join('; '));
 }
-process.exitCode = failed.length ? 1 : 0;
+// A capture that spanned a restart is a failed capture even when every league
+// came back 200, because its leagues no longer share a memo state and a later
+// --compare would report the restart as movement. An unknown span is loud but
+// not fatal: the health route can be slow while the offer reads succeed, and
+// refusing there would make the script unusable exactly when it is needed. The
+// verdict is recorded either way, and report() refuses to count movement
+// against a capture whose span is not clean.
+const spanNote = spanWarning(run.process_span, 'this capture');
+if (spanNote) console.error(`\n${spanNote}`);
+const spanned = run.process_span?.known === true && run.process_span.same_process === false;
+process.exitCode = (failed.length || spanned) ? 1 : 0;

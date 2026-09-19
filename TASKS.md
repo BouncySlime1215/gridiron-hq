@@ -29,11 +29,26 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
     diagnosis came from the code plus Nick's terminal. **Run `npm run check` on
     the Mac to confirm the smoke fix.**
 
-- **Known: a heavy scheduler job blocks every request.** With the scheduler on,
-  the app accepted connections but never answered — Settings spun forever and
-  even `curl` hung. SQLite here is synchronous, so one long job freezes the
-  event loop. Workaround is `SCHEDULER_DISABLED=1 npm start`. Worth a real fix
-  (move heavy ingestion off the request thread); not attempted here.
+- **Scheduler freeze: diagnosed with real data, partially fixed 2026-09-19.**
+  With the scheduler on, the app accepted connections but felt unresponsive —
+  Settings spun and `curl` sometimes hung. `481e216` shipped instrumentation
+  (`[scheduler] '<job>' took Xs`, `[scheduler] <tier> tier pass took Xs total`,
+  threshold 750ms). Nick ran it and pasted real output: the `live` tier (every
+  90s) took **67.4s per pass**; `growth`'s `nfl_learned_shadow` took **72.5s**
+  on its own (it shells out to a Python subprocess to retrain a model, gated
+  hourly). Within the live tier, `nfl_prop_feeds` (19.7-28.6s) and
+  `beat_the_close` (20.2-22.0s) were the large majority of the 67.4s — both
+  only need hourly freshness (`maxAgeMinutes: 60`) but were being *checked*
+  every 90 seconds, stalling the tier's genuinely time-critical jobs (pick
+  watch, play-by-play, line watch) behind them whenever either was due.
+  *Fixed in `767d804`:* moved both to the `metered` tier (5-minute check
+  cadence — no meaningful freshness loss against an hour-scale budget), which
+  should cut the live tier's per-pass time roughly in half. **Not yet
+  confirmed live** — next step is Nick restarting with the scheduler on and
+  reporting the new live-tier pass duration. If it's still bad, the remaining
+  suspects are `polymarket` (15.3s/run, kept in `live` on purpose — it wants
+  3-minute freshness) and `nfl_learned_shadow`'s Python subprocess. Workaround
+  if needed in the meantime: `SCHEDULER_DISABLED=1 npm start`.
 
 - **Mac install is live as of 2026-09-19.** Repo is at
   `~/Documents/GitHub/gridiron-hq`. ESPN connected with the stored cookies, five

@@ -29,9 +29,32 @@ said `localhost` while the server binds `127.0.0.1`, which on macOS resolves to
 `~/Documents/GitHub/gridiron-hq`. ESPN is connected with five leagues, and the
 league chat is pulled locally (15,993 messages) rather than the uploaded
 snapshot. **Still to verify on the Mac: `npm run check`**, since a cloud box
-cannot boot the server to run `start:smoke`. **Known issue:** with the scheduler
-on, a heavy job blocks the synchronous SQLite calls and every request hangs —
-`SCHEDULER_DISABLED=1 npm start` is the workaround, a real fix is not done.
+cannot boot the server to run `start:smoke`.
+
+**2026-09-19 update — scheduler freeze, diagnosed and partially fixed.**
+Shipped `481e216`: `runIfStale` and each tier's pass now log
+`[scheduler] '<job>' took Xs` / `[scheduler] <tier> tier pass took Xs total`
+whenever either crosses 750ms, so a freeze names its own cause instead of
+needing a guess. Nick ran it live and pasted real output: the `live` tier
+(checked every 90s) regularly took **67.4s per pass**, and `growth`'s
+`nfl_learned_shadow` alone took **72.5s** (it shells out to a Python subprocess
+to retrain a model, gated to once an hour). Within the live tier, two jobs —
+`nfl_prop_feeds` (19.7-28.6s) and `beat_the_close` (20.2-22.0s) — were the
+large majority of the 67.4s. Both only carry an hour-scale staleness budget
+(`maxAgeMinutes: 60`), so checking them every 90 seconds bought nothing; it
+just meant the tier's genuinely time-critical jobs (pick watch, play-by-play,
+line watch) queued up behind whichever of the two happened to be due.
+
+**Fixed in `767d804`:** moved both to the `metered` tier (checked on the
+5-minute background cadence instead of every 90s) — same eventual freshness
+against an hourly budget, roughly half the live tier's per-pass time. **Not
+yet confirmed live** — next step is Nick restarting with the scheduler on and
+reporting whether the live-tier pass duration actually dropped, and whether
+the app still feels frozen at all (if it does, `polymarket`, still in the live
+tier at 15.3s/run because it deliberately wants 3-minute freshness, or
+`nfl_learned_shadow`'s Python subprocess are the remaining suspects — see the
+instrumentation output for whichever tier is slow next). `SCHEDULER_DISABLED=1
+npm start` remains the immediate workaround if it's still bad.
 
 **What Nick still has to do by hand, in order:**
 

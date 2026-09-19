@@ -135,7 +135,11 @@ async function refreshMlbBoxscores() {
  * now like every other data source in this file.
  */
 async function refreshPlayerRosters() {
-  if (liveDraftActive()) return { skipped: 'live draft in progress — see liveDraftActive()' };
+  // `runIfStale` records a skip only on `skipped === true` (see its comment on
+  // why a job that chose not to work is not healthy). A truthy string defeated
+  // that test, so this recorded 'ok' with a fresh timestamp having synced
+  // nothing — and then looked fresh for the next three hours.
+  if (liveDraftActive()) return { skipped: true, reason: 'live draft in progress — see liveDraftActive()' };
   const { syncPlayersFromESPN } = await import('../routes/espn.js');
   return syncPlayersFromESPN();
 }
@@ -185,7 +189,22 @@ async function refreshLeagueRosters() {
       results.push({ league_id: lg.id, ok: false, error: e.message });
     }
   }
-  return { leagues: results.length, failed: results.filter(r => !r.ok).length };
+  const failed = results.filter(r => !r.ok).length;
+  const skipped = results.filter(r => r.skipped).length;
+  const synced = results.filter(r => r.ok && !r.skipped).length;
+  // `leagues: results.length` was the loop count, identical whether every
+  // league synced, every league 401'd, or every one was skipped for a live
+  // draft. Nothing threw, so this recorded 'ok' at full confidence while no
+  // league had synced — the same shape as a job counting attempts instead of
+  // rows changed. nfldata.js:118 syncRosters is the pattern being copied here.
+  if (results.length > 0 && failed === results.length) {
+    throw new Error(`all ${failed} leagues failed to sync: ` +
+      results.map(r => `${r.league_id}: ${r.error}`).join('; ').slice(0, 400));
+  }
+  if (results.length > 0 && skipped === results.length) {
+    return { skipped: true, reason: 'every league was skipped', leagues: results.length, synced, failed, skipped };
+  }
+  return { status: failed ? 'partial' : 'ok', leagues: results.length, synced, failed, skipped };
 }
 
 /**
@@ -867,7 +886,7 @@ export const JOBS = {
       ]);
       const { season, week } = currentNflWeek();
       if (!Number.isFinite(season) || !Number.isFinite(week)) {
-        return { skipped: 'no current NFL week resolved' };
+        return { skipped: true, reason: 'no current NFL week resolved' };
       }
       return m.runT60Pass({ season, week, experimentId: T60_EXPERIMENT_ID });
     },
@@ -879,7 +898,7 @@ export const JOBS = {
         import('../betting/nfl/strategy/learned-shadow-runner.js'), import('./weekly-learning.js')
       ]);
       const { season, week } = currentNflWeek();
-      if (!Number.isFinite(season) || !Number.isFinite(week)) return { skipped: 'no current NFL week resolved' };
+      if (!Number.isFinite(season) || !Number.isFinite(week)) return { skipped: true, reason: 'no current NFL week resolved' };
       const result = await m.runLearnedShadowPass({ season, week });
       if (!result.ok) throw new Error(result.reason ?? 'learned shadow pass has failed observations');
       return result;

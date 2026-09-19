@@ -24,7 +24,7 @@ const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 r.get('/', (req, res) => {
   res.json(rows(`SELECT l.id, l.platform, l.league_id, l.season, l.name, l.my_team_id, l.team_count, l.ppr,
                         l.superflex, l.league_type, l.fetched_at, l.connection_status, l.sync_error,
-                        l.current_week, l.espn_s2 IS NOT NULL AS has_cookies
+                        l.current_week, l.payload_season, l.espn_s2 IS NOT NULL AS has_cookies
                  FROM leagues l JOIN league_memberships m ON m.league_id = l.id
                  WHERE m.user_id = ? ORDER BY l.id`, req.auth.userId));
 });
@@ -135,6 +135,13 @@ const rosterCount = data => (data.teams ?? []).reduce((s, t) => s + (t.roster?.e
 export async function syncEspnLeague(lg) {
   let data = await fetchEspn(lg, lg.season);
   let usedSeason = lg.season, fellBack = false;
+  // Read the matchup period from THIS season's response, before the pre-draft
+  // fallback below can reassign `data`. It used to be read afterwards, so a
+  // league that fell back wrote last season's final period — 17 or 18 — into
+  // `leagues.current_week`, and `leagueCurrentWeek()` trusts that column above
+  // everything else. The league then read as week 17 on every week-aware
+  // surface while `leagues.season` still said the current year.
+  const currentSeasonWeek = Number(data.status?.currentMatchupPeriod) || null;
   // Pre-draft leagues return empty rosters; fall back to last season so analysis
   // still has something real to work with.
   if (rosterCount(data) === 0) {
@@ -146,12 +153,16 @@ export async function syncEspnLeague(lg) {
   const lineup = data.settings?.rosterSettings?.lineupSlotCounts ?? {};
   const rosterPositions = Object.entries(lineup)
     .flatMap(([slot, n]) => Array(n).fill(ESPN_SLOT_NAME[slot]).filter(Boolean));
-  const currentWeek = Number(data.status?.currentMatchupPeriod) || null;
+  const currentWeek = currentSeasonWeek;
+  // `season_used` and `fell_back` were returned and then thrown away by the
+  // scheduled path (scheduler.js refreshLeagueRosters keeps only counts), so a
+  // league running on last season's rosters looked freshly connected to every
+  // reader except the one manual-sync message. Persist them.
   run(`UPDATE leagues SET name = ?, team_count = ?, payload = ?, roster_positions = ?,
-       league_type = ?, current_week = ?, fetched_at = datetime('now') WHERE id = ?`,
+       league_type = ?, current_week = ?, payload_season = ?, fetched_at = datetime('now') WHERE id = ?`,
     data.settings?.name ?? `ESPN ${lg.league_id}`, data.teams?.length ?? null,
     JSON.stringify(data), rosterPositions.length ? JSON.stringify(rosterPositions) : null,
-    leagueTypeFromPayload('espn', data), currentWeek, lg.id);
+    leagueTypeFromPayload('espn', data), currentWeek, usedSeason, lg.id);
   return { teams: data.teams?.length ?? 0, roster_players: rosterCount(data), season_used: usedSeason, fell_back: fellBack };
 }
 
@@ -325,7 +336,16 @@ r.get('/:id/analysis', (req, res) => {
   for (const [pos, share] of Object.entries(FLEX_SPLIT)) perTeam[pos] += flex * share;
 
   const { rosters, offered, matched, priced } = extractRosters(lg);
-  const league = { id: lg.id, name: lg.name, platform: lg.platform, my_team_id: lg.my_team_id };
+  const league = {
+    id: lg.id, name: lg.name, platform: lg.platform, my_team_id: lg.my_team_id,
+    // Freshness travels with the verdict. Without it a league last synced nine
+    // hours ago, or one running on last season's payload, produced an analysis
+    // that looked exactly like a fresh one.
+    synced_at: lg.fetched_at ?? null,
+    connection_status: lg.connection_status ?? null,
+    season: lg.season,
+    payload_season: lg.payload_season ?? null
+  };
   const coverage = { rostered_in_payload: offered, matched_to_player_table: matched, priced };
   if (matched === 0) {
     return res.json({

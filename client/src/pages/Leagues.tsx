@@ -148,6 +148,14 @@ export default function Leagues() {
         {!leaguesLoading && !leaguesError && leagues?.length === 0 && <p className="text-sm text-slate-500">No leagues connected yet.</p>}
       </div>
 
+      {analysis?.league?.payload_season != null
+        && analysis.league.payload_season !== analysis.league.season && (
+        <div className="card p-4 text-sm text-warn">
+          These rosters are from the {analysis.league.payload_season} season, not {analysis.league.season}.
+          ESPN returned no rosters for {analysis.league.season}, so the sync fell back to last year.
+        </div>
+      )}
+
       {(analysis?.empty || analysis?.values_missing) && (
         <div className="card p-6 text-sm text-slate-500">
           <p>{analysis.message}</p>

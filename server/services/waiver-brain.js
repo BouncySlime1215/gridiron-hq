@@ -333,11 +333,18 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
       why: `Lowest value on your bench on the horizon that matters, and you carry ` +
         `${countAt(p.position)} at ${p.position}.`
     })),
+    // The reassuring branch is a claim about the roster, so it may only be made
+    // when there was actually a search to fail. With an empty or unpriceable
+    // pool it reported a total data outage as good news, which is the most
+    // literal form of the app telling you something it does not know.
     note: upgrades.length
       ? 'Ranked on the same scale as trades. A waiver claim needs nobody to agree, so a smaller ' +
         'gain here often outranks a larger trade nobody will sign.'
-      : 'No free agent would crack your lineup. That is a good sign about the roster, not a failure ' +
-        'of the search.'
+      : available.length === 0
+        ? 'No free agent could be priced, so nothing was searched. That is missing data, not a verdict ' +
+          'on your roster.'
+        : 'No free agent would crack your lineup. That is a good sign about the roster, not a failure ' +
+          'of the search.'
   };
 }
 

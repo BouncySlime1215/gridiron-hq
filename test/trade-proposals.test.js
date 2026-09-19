@@ -26,7 +26,7 @@ import assert from 'node:assert/strict';
 
 import {
   verifyProposals, cacheKeyFor, proposalsFor, proposalsPrompt, liveCaller,
-  PROMPT_VERSION, REQUIRED_PROPOSAL_FIELDS,
+  PROMPT_VERSION, REQUIRED_PROPOSAL_FIELDS, FAILED_SLATE_TTL_MS, RESPONSE_PROBLEMS,
 } from '../server/services/trade-proposals.js';
 import { budgetKeyFor, DEFAULT_DAILY_BUDGETS_USD, PRICING } from '../server/services/llm-budget.js';
 
@@ -203,14 +203,17 @@ test('G4 a response whose proposals all fail verification returns none, and says
   assert.match(r.reason, /invent|verification|rejected/i);
 });
 
-test('G4 a failed run is not cached, so a later good run can still happen', async () => {
+test('G4 a TRANSIENT refusal is not cached, so a later good run can still happen', async () => {
+  // Budget spent, no key, the model unreachable: nothing about the slate is
+  // wrong, so the next page load is allowed to try again. Contrast G7 below,
+  // where the response itself can never parse and re-paying for it is waste.
   const cache = memCache();
   let called = 0;
-  const bad = async () => { called++; return 'not json'; };
+  const bad = async () => { called++; throw Object.assign(new Error('overloaded'), { status: 529 }); };
   await proposalsFor(4, { ideas: [idea()], universe, call: bad, cache });
   const good = async () => { called++; return JSON.stringify([proposal()]); };
   const r = await proposalsFor(4, { ideas: [idea()], universe, call: good, cache });
-  assert.equal(called, 2, 'a refusal must not poison the cache entry');
+  assert.equal(called, 2, 'a transient refusal must not poison the cache entry');
   assert.equal(r.proposals.length, 1);
 });
 
@@ -404,4 +407,214 @@ test('G2 liveCaller asks for a model we can price, on a key that has a real budg
   assert.ok(Object.hasOwn(DEFAULT_DAILY_BUDGETS_USD, budgetKeyFor(sent.feature)),
     `budgetKeyFor(${sent.feature}) must be a budgeted key, or the call is uncapped`);
   assert.ok(Object.hasOwn(PRICING, sent.model), `${sent.model} must be a priced model`);
+});
+
+/* ======================================================================
+ * G7: the envelope a real call actually returns (live bug, 2026-09-19).
+ *
+ * `callClaude` returns an Anthropic Message — `{ id, type: 'message', role,
+ * model, content: [{ type: 'text', text }], stop_reason, usage, cost_usd }` —
+ * and `liveCaller` handed that object straight to `proposalsFor`, which is
+ * neither a string nor an array, so `Array.isArray(parsed)` failed and every
+ * single live request returned "the model response was not a list of
+ * proposals" AFTER paying for the call. Thirty-eight passing tests missed it
+ * because every one of them stubbed the caller with a JSON STRING.
+ *
+ * So these drive the real envelope, and each way it can be malformed gets its
+ * own distinguishable reason: a truncated answer is a different problem from a
+ * model that declined, and Nick has to be able to tell them apart.
+ * ====================================================================== */
+
+/** A realistically shaped Anthropic message, as `callClaude` returns it. */
+const envelope = (text, over = {}) => ({
+  id: 'msg_01LiveEnvelope', type: 'message', role: 'assistant', model: 'claude-sonnet-5',
+  content: text == null ? [] : [{ type: 'text', text }],
+  stop_reason: 'end_turn', stop_sequence: null,
+  usage: { input_tokens: 7213, output_tokens: 1180, cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0 },
+  cost_usd: 0.0262,
+  ...over,
+});
+
+test('G7 a real Anthropic message through liveCaller produces real proposals', async () => {
+  const call = liveCaller(async () => envelope(JSON.stringify([proposal()])));
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache: memCache() });
+  assert.equal(r.proposals.length, 1, `the answer we paid for must not be discarded: ${r.reason}`);
+  assert.equal(r.source, 'model');
+  assert.ok(!r.refused, 'a good answer is not a refusal');
+});
+
+test('G7 proposalsFor also reads a raw message, so a caller wired straight to callClaude works', async () => {
+  // Defence in depth: the bug was in liveCaller, but the next caller that
+  // forgets to unwrap should not silently burn the budget either.
+  const r = await proposalsFor(4, { ideas: [idea()], universe, cache: memCache(),
+    call: async () => envelope(JSON.stringify([proposal()])) });
+  assert.equal(r.proposals.length, 1, r.reason);
+});
+
+test('G7 a leading thinking block and several text blocks are read, not tripped over', async () => {
+  const json = JSON.stringify([proposal()]);
+  const split = [{ type: 'thinking', thinking: 'Waddle for Achane is the only clean one.', signature: 'sig' },
+    { type: 'text', text: json.slice(0, 40) }, { type: 'text', text: json.slice(40) }];
+  const call = liveCaller(async () => envelope(null, { content: split }));
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache: memCache() });
+  assert.equal(r.proposals.length, 1, `text blocks join in order, thinking is skipped: ${r.reason}`);
+});
+
+test('G7 a fenced ```json answer is read', async () => {
+  const call = liveCaller(async () => envelope('```json\n' + JSON.stringify([proposal()]) + '\n```'));
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache: memCache() });
+  assert.equal(r.proposals.length, 1, `a fence is formatting, not a failure: ${r.reason}`);
+});
+
+test('G7 a max_tokens answer cut off mid-array says it was cut off, not that it was malformed', async () => {
+  const cut = JSON.stringify([proposal(), proposal()]).slice(0, 180);
+  const call = liveCaller(async () => envelope('```json\n' + cut, { stop_reason: 'max_tokens' }));
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache: memCache() });
+  assert.equal(r.proposals.length, 0, 'half a proposal is never trusted');
+  assert.equal(r.refused, true);
+  assert.equal(r.problem, 'truncated');
+  assert.match(r.reason, /cut off|ran out of (output )?room|output limit/i,
+    `the reason has to name the real problem: ${r.reason}`);
+});
+
+test('G7 a refusal with no text block says the model declined', async () => {
+  const call = liveCaller(async () => envelope(null, { stop_reason: 'refusal', content: [] }));
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache: memCache() });
+  assert.equal(r.refused, true);
+  assert.equal(r.problem, 'declined');
+  assert.match(r.reason, /declin/i, r.reason);
+});
+
+test('G7 an answer with no text block at all is its own problem, not a parse error', async () => {
+  const call = liveCaller(async () => envelope(null,
+    { content: [{ type: 'thinking', thinking: 'hmm', signature: 'sig' }] }));
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache: memCache() });
+  assert.equal(r.refused, true);
+  assert.equal(r.problem, 'no_text');
+  assert.match(r.reason, /no text/i, r.reason);
+});
+
+test('G7 the four failure modes are told apart, not flattened into one message', async () => {
+  const run = async over => {
+    const call = liveCaller(async () => (typeof over === 'string' ? envelope(over) : envelope(null, over)));
+    return proposalsFor(4, { ideas: [idea()], universe, call, cache: memCache() });
+  };
+  const seen = await Promise.all([
+    run('```json\n[{"opener": "half a'.padEnd(30, ' ')),            // unreadable JSON
+    run({ stop_reason: 'refusal', content: [] }),                    // declined
+    run({ content: [{ type: 'thinking', thinking: 'x', signature: 's' }] }), // no text
+    run(JSON.stringify({ proposals: [] })),                          // valid JSON, wrong shape
+  ]);
+  assert.deepEqual(seen.map(r => r.problem), ['unreadable', 'declined', 'no_text', 'not_a_list']);
+  assert.equal(new Set(seen.map(r => r.reason)).size, 4, 'four problems, four reasons');
+  for (const r of seen) {
+    assert.ok(RESPONSE_PROBLEMS.includes(r.problem), `${r.problem} is a declared problem code`);
+  }
+  for (const r of seen) assert.equal(r.proposals.length, 0);
+});
+
+test('G7 the cost of a wasted call is reported, so a discarded answer is not invisible', async () => {
+  const call = liveCaller(async () => envelope('not json at all'));
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache: memCache() });
+  assert.equal(r.cost_usd, 0.0262, 'the money was spent — say so');
+});
+
+/* -------------------------------- G7 fail closed: pay once per broken slate */
+
+test('G7 a structurally broken response does not buy a second call for the same slate', async () => {
+  const cache = memCache();
+  let called = 0;
+  const call = liveCaller(async () => { called++; return envelope(JSON.stringify({ proposals: [] })); });
+  const first = await proposalsFor(4, { ideas: [idea()], universe, call, cache });
+  const second = await proposalsFor(4, { ideas: [idea()], universe, call, cache });
+  assert.equal(called, 1, 'the same unparseable slate must not be paid for twice');
+  assert.equal(second.problem, first.problem, 'and the second answer says the same honest thing');
+  assert.equal(second.source, 'cache');
+  assert.equal(second.refused, true);
+  assert.match(second.reason, /not a list|list of proposals/i, second.reason);
+  assert.ok(second.retry_after, 'with a stated moment it will be tried again');
+});
+
+test('G7 a slate where every proposal is rejected is not paid for twice either', async () => {
+  const cache = memCache();
+  let called = 0;
+  const invented = proposal({ package: { i_give: ['Jaylen Waddle'], i_get: ['Patrick Mahomes'] } });
+  const call = liveCaller(async () => { called++; return envelope(JSON.stringify([invented])); });
+  const first = await proposalsFor(4, { ideas: [idea()], universe, call, cache });
+  const second = await proposalsFor(4, { ideas: [idea()], universe, call, cache });
+  assert.equal(called, 1);
+  assert.equal(first.rejected.length, 1);
+  assert.equal(second.rejected.length, 1, 'the violations survive, so the page still shows what was wrong');
+  assert.equal(second.source, 'cache');
+});
+
+test('G7 a changed slate is tried again even while the broken one is remembered', async () => {
+  const cache = memCache();
+  let called = 0;
+  // liveCaller hands callClaude's own arguments down, so the stub reads the
+  // slate off the prompt it was asked to send.
+  const call = liveCaller(async ({ prompt }) => {
+    called++;
+    return envelope(prompt.includes('"idea-2"')
+      ? JSON.stringify([proposal({ idea_ids: ['idea-2'] })]) : 'not json');
+  });
+  await proposalsFor(4, { ideas: [idea()], universe, call, cache });
+  await proposalsFor(4, { ideas: [idea()], universe, call, cache });
+  assert.equal(called, 1, 'the broken slate is remembered');
+  const other = idea({ id: 'idea-2' });
+  const r = await proposalsFor(4, { ideas: [other], universe, call, cache });
+  assert.equal(called, 2, 'a different slate is a different question');
+  assert.equal(r.proposals.length, 1, r.reason);
+});
+
+test('G7 the short-circuit expires, so a broken slate is not broken forever', async () => {
+  const cache = memCache();
+  let called = 0;
+  let answer = 'not json';
+  const call = liveCaller(async () => { called++; return envelope(answer); });
+  const t0 = Date.parse('2026-09-19T18:00:00Z');
+  await proposalsFor(4, { ideas: [idea()], universe, call, cache, now: t0 });
+  await proposalsFor(4, { ideas: [idea()], universe, call, cache, now: t0 + FAILED_SLATE_TTL_MS - 1 });
+  assert.equal(called, 1, 'inside the window it is not re-sent');
+  answer = JSON.stringify([proposal()]);
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache, now: t0 + FAILED_SLATE_TTL_MS + 1 });
+  assert.equal(called, 2, 'after the window one more attempt is allowed');
+  assert.equal(r.proposals.length, 1, r.reason);
+});
+
+test('G7 a budget refusal is still never remembered — nothing is wrong with the slate', async () => {
+  const cache = memCache();
+  let called = 0;
+  const call = async () => {
+    called++;
+    if (called === 1) throw Object.assign(new Error('Today\'s trade proposals budget is used'), { status: 429 });
+    return envelope(JSON.stringify([proposal()]));
+  };
+  const first = await proposalsFor(4, { ideas: [idea()], universe, call: liveCaller(call), cache });
+  assert.match(first.reason, /budget/i);
+  assert.equal(first.problem, 'call_failed');
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call: liveCaller(call), cache });
+  assert.equal(called, 2, 'tomorrow\'s budget must not be blocked by today\'s');
+  assert.equal(r.proposals.length, 1, r.reason);
+});
+
+test('G7 a remembered failure from an older parser version is ignored, so a fix takes effect', async () => {
+  const cache = memCache();
+  const key = cacheKeyFor(4, [idea()]);
+  cache.set(`${key}.failed`, { v: 'trade-proposals-parse-v0', problem: 'not_a_list',
+    reason: 'stale', attempts: 3, at: Date.now() });
+  let called = 0;
+  const call = liveCaller(async () => { called++; return envelope(JSON.stringify([proposal()])); });
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache });
+  assert.equal(called, 1, 'shipping a parser fix has to clear what the old one could not read');
+  assert.equal(r.proposals.length, 1, r.reason);
+});
+
+test('G7 verifyProposals is untouched by any of this — a live answer gets no free pass', () => {
+  // The safety net stays exactly as strict: this is the same invented-player
+  // case as G1, arriving through the live envelope rather than a test string.
+  const bad = proposal({ opener: 'Waddle for Achane, and I will throw in Mahomes.' });
+  const r = verifyProposals([bad], [idea()], { universe });
+  assert.equal(r.ok.length, 0, 'the envelope fix must not have loosened the verifier');
 });

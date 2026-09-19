@@ -1708,11 +1708,16 @@ const NEVER_BASELINE = new Map([
 // than no map.
 const GRANDFATHERED = new Map([
   ['producer-with-no-caller syncEspnMarket()',
-    'server/services/espn-market.js:18 — sole writer of espn_player_market, read at ZERO hops by '
-    + 'GET /api/aggregates and POST /api/aggregates/create-board (the draft board\'s ESPN ADP and '
-    + 'injury columns, the aggregates, the preseason model, and a consensus weight of 2). The worst '
-    + 'of the six by some distance: the readers are live fantasy surfaces, not betting. '
-    + 'Owner: the feature-audit thread. RETIRES WHEN: any caller lands.'],
+    'server/services/espn-market.js:18 — sole writer of espn_player_market, and nothing calls it under '
+    + 'any local alias. Read at ZERO hops by routes/aggregates.js:226 (GET /api/aggregates and '
+    + 'POST /api/aggregates/create-board), then by preseason-model.js:336, manager-archetypes.js:166 '
+    + '("the only consensus we hold for 2026"), consensus-weights.js:526 and espn-market.js:69/:76. '
+    + 'NOT draft-assist.js:590, which names the table in a provenance LABEL STRING and runs no query — '
+    + 'counted as a reader by two threads before anyone opened it. The worst of the six by some '
+    + 'distance: the readers are live fantasy surfaces, not betting, so it is in scope under the '
+    + '2026-09-19 fantasy-only call. Owner: the feature-audit thread (accepted; caller to land '
+    + 'post-deploy on a branch off main, together with the ESPN sync limit 800 -> 1,042, since a '
+    + 'caller fetching 800 of 1,042 is a second silent partial). RETIRES WHEN: any caller lands.'],
   ['producer-with-no-caller backfillNewsEntities()',
     'server/routes/espn.js:210 — writes news_items, read by GET /api/news and DELETE /api/news/:id '
     + 'at 2 hops. Fantasy-scope. Owner: unassigned. RETIRES WHEN: a caller lands, or the news '

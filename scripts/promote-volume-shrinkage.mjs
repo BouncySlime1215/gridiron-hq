@@ -264,6 +264,14 @@ const gate = {
  * whoever reads a pass knows which of those three they are looking at, rather
  * than having to find it in the runbook. See
  * docs/RUNBOOK-promote-volume-shrinkage.md. */
+/* Deliberately only QBR. `nfl_ffopportunity_weekly` was tested the same way on
+ * 2026-09-19 and is NOT an input: the gate produced a byte-identical production
+ * vector with that table holding 2021-2026, holding 2021-2025, and completely
+ * empty. Nothing reachable from weekly-backtest.js reads it (19 files traced; it
+ * appears only in the schema declaration and the scheduler's job list). Printing
+ * a coverage line for it would imply a sensitivity that does not exist, so if a
+ * future change to the ffopportunity feed is proposed, the answer is already
+ * measured: it cannot move this verdict. */
 const qbrRows = dbRows('SELECT season, COUNT(*) c FROM nfl_qbr_weekly GROUP BY season ORDER BY season');
 console.log('\nnfl_qbr_weekly coverage (the gate is sensitive to this):',
   qbrRows.length ? qbrRows.map(r => `${r.season}:${r.c}`).join(' ') : 'EMPTY — no rows in any season');

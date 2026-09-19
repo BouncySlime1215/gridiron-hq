@@ -1,0 +1,524 @@
+# TDD evidence: review-fixes
+
+Source: the step-1b review panel's findings (one reviewer per installed skill plus
+silent-failure-hunter and mle-reviewer), handed over as a list of 31 critical, high
+and medium findings on 9a7a809..79dbeb1. Journeys were derived from those findings
+during this run. Gates for this item were written before any fix, in
+`scratchpad/step1b/review-fixes/GATE.md`: this item moves no fitted constant, no gate
+threshold and no number a user sees today; anything that would is deferred with the
+gate it needs.
+
+Runner (every command below):
+
+    GRIDIRON_DB_PATH="$(mktemp -u "${TMPDIR:-/tmp}/gridiron-test-XXXXXX").sqlite" SCHEDULER_DISABLED=1 \
+      NODE_OPTIONS='--import ./test/offline-guard.mjs' node --experimental-test-module-mocks --test \
+      --test-concurrency=1 <file>
+
+## 1. The scheduled weekly retrain kept undoing the early-week blend (high)
+
+Journey: as Nick, I want weeks 2-4 to keep using the structural-only projection
+after the automatic retrain runs, so that a player's week-2 number is not 80% his
+week-1 score again.
+
+Found two defects, both reproduced:
+
+1. `retrainWeeklyWeights` saved a promoted fit with the four per-position vectors and
+   no `early` block, so the next week's `activeWeeklyWeightSet` served no early
+   buckets.
+2. It fit and graded the per-position vector on settled week 2-4 rows, where
+   production never serves that vector. The live table's only settled rows will be
+   2026 week 2 (1,183 rows). The RED run shows what would have happened: the
+   candidate `[1,0,0,0,0]` fit on week-2 rows beat fit-1's vector (MAE 0 vs 3.58 on
+   the synthetic rows), was promoted with no `early`, and would have been served at
+   weeks 5-18.
+
+Fix: `saveWeeklyFit` carries the newest stored early block onto any promoted fit
+that has none (the invariant lives in the store, so no caller can drop it), and the
+retrain drops rows inside the stored early window before fitting and grading. The
+pass rule (player-clustered paired bootstrap, rank, coverage band, sizes) is
+unchanged. The fix the early-week TDD doc suggested,
+`carryEarlyWeights(candidate, champion.weights)`, would not have worked: the champion
+is read at a week-5+ row, where `early` has already been stripped.
+
+| # | What is guaranteed | Test | Type | RED (3034218) | GREEN |
+|---|--------------------|------|------|---------------|-------|
+| 1 | A promoted retrain keeps the stored early buckets for weeks 2-4 | `weekly-retrain-early-carry.test.js: a promoted weekly retrain keeps the stored early-week buckets` | integration | FAIL (`early` undefined) | PASS |
+| 2 | `saveWeeklyFit` carries `early` onto a promoted fit without one; a rejected fit is stored as evaluated | `...: saveWeeklyFit carries the newest stored early block...` | unit | FAIL | PASS |
+| 3 | Week 2-4 rows neither fit nor grade the per-position vector; with only week-2 rows nothing is trained or stored | `...: settled rows inside the early-week window...` | integration | FAIL (promoted a week-2 fit) | PASS |
+| 4 | Rows outside the window still train (650 of 650 used, 180 week 2-4 rows ignored) | `...: rows outside the window still train...` | integration | FAIL (sample 830) | PASS |
+
+Regression: `model-integrity` 94/94, `weekly-early-week-blend` 19/19,
+`weekly-prediction-snapshot-mode-migration` 3/3.
+
+## 2. "Protect the floor" returned an arbitrary lineup (high; frontend-patterns and eval-harness)
+
+Journey: as Nick, when I press "Protect the floor" I want either a lineup that really
+protects the floor or to be told the floor cannot rank my players this week, so that
+I never bench Mahomes because of roster order.
+
+Reproduced: every live floor is 0 at 2026 week 2 (a did-not-play week scores 0 and no
+live chance to play exceeds 0.9, so every p10 is 0). The solver's sort is stable, so
+an all-tied key returns roster order.
+
+Fix (lineup-brain.js#lineupCall): a requested key on which every startable skill
+player has the same value is not optimised; the lineup is solved on week_points,
+`objective_used` says so and `objective_fallback` says why. Exact ties on a key that
+does rank players are broken by week_points (stable pre-sort), never roster order.
+Lineup.tsx now names the header by what was summed and shows the fallback note.
+The floor model itself is unchanged (see deferred: fake-floors sign-off).
+
+| # | What is guaranteed | Test | Type | RED (08a34ad) | GREEN |
+|---|--------------------|------|------|---------------|-------|
+| 1 | All-zero floors: floor request solves on week_points, says so, projection > 0, starts the 22.4 QB | `lineup-floor-objective.test.js: every floor 0...` | integration | FAIL (`objective_used` floor) | PASS |
+| 2 | Exact floor ties go to the higher week_points, not roster order | `...: exact floor ties are broken by week_points...` | integration | FAIL (backup QB started) | PASS |
+| 3 | Distinct floors: the floor-optimal lineup is unchanged (40.3) | `...: when floors rank the players...` | characterization | PASS | PASS |
+
+Live check on a VACUUM INTO copy of production taken 05:00 (script
+`scratchpad/step1b/review-fixes/floor-live.mjs`): in all 5 leagues the floor request
+now returns `objective_used: week_points` with the fallback note and the mean
+lineup (league 1: Mahomes, Jacobs, Achane, Chase, McLaurin, McBride, Javonte
+Williams, 83.75). Ceiling totals are unchanged (league 1 186.1).
+
+Regression: decision-leftovers-lineup 10/10, decision-inbox 17/17, lineup-evidence
+16/16, fantasy-workflows 7/7. `tsc --noEmit` clean.
+
+## 3. ESPN-connect and the page assistant answered anyone on the tunnel (high + medium; security-checklist, pre-existing)
+
+Journey: as Nick, I want only my own signed-in browsers to read, wipe or rebind my
+ESPN connection or spend my Anthropic credit, so that someone who learns the tunnel
+URL cannot turn every lineup into advice for another team.
+
+Reproduced with the routers mounted exactly as server/index.js mounts them (no
+wrapper): anonymous GET /api/espn-connect/status returned 200 with cookie
+previews; anonymous POST /api/betting/explain/page reached the model call.
+
+Fix: the routers carry their own guards. espn-connect: `legacyAuthenticated` on GET
+/bookmarklet, GET /status, DELETE /cookies, GET /discover, POST /add; /add takes the
+member from `req.auth`; /status no longer returns any part of either cookie (no client
+code read the previews). The bookmarklet's cross-origin POST /cookies and its OPTIONS
+preflight stay open (it runs on espn.com and cannot carry the token). betting-hub:
+the assistant needs a session, has its own 12/min per-user limit, and refuses a page
+summary over 16,000 characters or a question over 2,000 (413) before any model call;
+the audits list needs a session. The client's `api()` already sends the token and
+provisions one on a 401, so no page changes. Takes effect when the server restarts
+(not restarted here).
+
+| # | What is guaranteed | Test | Type | RED (f34ff16) | GREEN |
+|---|--------------------|------|------|---------------|-------|
+| 1 | Anonymous status/bookmarklet/discover/DELETE/add get 401 and change nothing | `espn-connect-auth.test.js: anonymous callers cannot...` | integration | FAIL (200) | PASS |
+| 2 | espn.com preflight still 204 | `...: the bookmarklet preflight stays open` | integration | PASS | PASS |
+| 3 | Signed-in status has no cookie fragment | `...: status, for a signed-in caller...` | integration | FAIL | PASS |
+| 4 | Assistant and audits need a session | `...: the page assistant and its stored answers require a session` | integration | FAIL | PASS |
+| 5 | Oversized summary or question is 413 before the model | `...: refuses an oversized prompt` | integration | FAIL (400 no key) | PASS |
+| 6 | Per-user limit at most 20/min (set 12) | `...: has its own per-user limit` | integration | FAIL | PASS |
+
+Existing tests updated to send a session: `espn-connect.test.js` (discover x2,
+bookmarklet x2) and `page-explain.test.js` (request helper). One expectation was
+deliberately reversed: "adding a league with no session token still succeeds" is now
+"...is refused and writes nothing", because the finding's point is that /add rewrites
+`my_team_id`. Regression: espn-connect 19/19, page-explain 7/7, draft-reconcile
+16/16, league-removal 8/8, legacy-route-security 5/5.
+
+Not done here (deferred): POST /cookies is still anonymous. Closing it means the
+bookmarklet must carry an install key, and every saved bookmarklet has to be dragged
+again; that is Nick's call.
+
+## 4. Lineup card: urgency rules had no tests; a bad team_id published a rival's swaps (high + medium; tdd-workflow, backend-patterns)
+
+Journeys: as Nick, I want each lineup swap's "how sure" number and urgency to stay
+the measured rule, so a refactor cannot quietly turn coin flips into "high". And I
+want my Decision Inbox to hold only my own lineup calls, whatever team the My Team
+selector points at.
+
+Characterization (tests written after the code, so RED is shown by mutation): eight
+tests pin P(right) = Phi(gap/14.5) at gaps 3, 4 and 10 (0.582 low, 0.609 medium,
+0.755 high), a swap into an empty IR-left slot priced at the newcomer's chance to
+play (0.8), retiring an open row as `superseded`, `activate_from_ir`, and
+`flagged_starters.espn_disagrees`. Each of six scratch mutations fails at least one
+of them (`scratchpad/step1b/review-fixes/mutations-lineup-diff.log`):
+
+| Mutation | Characterization tests failing |
+|----------|-------------------------------|
+| M1 urgency always 'high' | 3 (3.0 gap, 4.0 gap, retire) |
+| M2 sigma 14.5 -> 3 | 4 |
+| M3 versus-zero priced on the gap | 1 (empty-slot swap) |
+| M4 retire UPDATE disabled | 1 |
+| M5 on_ir forced false | 2 |
+| M6 espn_disagrees always false | 1 |
+
+Bug (RED at 33d5ab3, which also adds the only production change needed to test it:
+an optional injected `assets` argument): `lineupDiff(lg, 'not-a-team')` computed
+teams[0] and published it; a rival's team_id published the rival's swaps to Nick's
+inbox. Fix: an unknown team_id returns `{ error, not_found: true }` and the route
+answers 404; only the roster matching `leagues.my_team_id` publishes or retires; the
+swallowed inbox error is logged with league and dedup key. The dedup key for Nick's
+own roster is unchanged (`lineup:<league>:<my_team_id>`), so open rows keep matching.
+
+Live check on the snapshot (`diff-live.mjs`): `not-a-team` is not-found in all 5
+leagues and the open lineup rows stay at 2 (the reviewer's run wrote 3 new rows).
+
+Regression: all 14 files that import trade-engine or the trades route pass (125
+tests; list in `reg-trade-engine.log`). The stale "(>= 4pt threshold)" message in
+decision-inbox.test.js now states the Phi rule.
+
+## 5. Trade floor/ceiling (lineupSpread) had no tests; two comments said the fake-floors bug was live (high + medium; tdd-workflow, coding-standards, eval-harness)
+
+Journey: as Nick, I want every trade's floor and ceiling change to stay the lineup
+total's 10th/90th percentile, so a refactor cannot bring back the "everyone busts at
+once" floor.
+
+Characterization tests (`test/lineup-spread.test.js`, 5): (a) two priced starters give
+mean -/+ 1.2816 sd of the total, not the sum of floors; (b) no spread information gives
+floor null, coverage 0; (c) the floor is clamped at 0; (d) a same-team QB+WR pair adds
+one correlation term and widens sd, and with weekly models floor/ceiling are
+mean -/+ 1.2816 sd; (e) `evaluate().me.floor_delta` equals the difference of the two
+lineupSpread floors and no weekly model is read until the field is. The only
+production change is exporting the `WEEK_MARGINAL` symbol so a fixture can carry a
+weekly model.
+
+| Mutation (scratch copy) | Tests failing |
+|-------------------------|---------------|
+| S1 Z90 1.2816 -> 3 | 1 (d) — survived (a)-(c), where the quantile cancels; (d) was strengthened, then caught it |
+| S2 floor = sum of starters' floors | 1 (a) |
+| S3 correlation term dropped | 1 (d) |
+| S4 floor not clamped at 0 | 1 (c) |
+| S5 spreads computed eagerly in evaluate() | 1 (e) |
+
+Comments: `player-week-engine.js#playerWeekDistribution` said "the fix was held back"
+while the code applied it, and `trade-engine.js` (lineupSpread notes) said the engine
+still scored a sitting week as the shift. Both now state today's behaviour (a sitting
+week is 0 in both places), and `docs/tdd/fake-floors.tdd.md` now says SHIPPED at
+947d66c with the sign-off still owed (deferred to Nick). Checked on the snapshot: 0 of
+1,183 week-2 projections carry an ensemble shift above 0.05, so the fix changes no
+live number until week 5.
+
+Regression: player-week-distribution 12/12, fantasy-workflows 7/7, find-trades 3/3,
+trade-evidence 6/6.
+
+## 6. League-chat extractor: no tests, "night" measured in UTC, failures reported as ok, unknown handles lost (high + 3 medium; python-testing)
+
+Journeys: as Nick, I want the chat profile numbers that reach the negotiation prompts
+to mean what their names say, and a broken classifier run to show up as an ERROR in
+the refresh log instead of "ok".
+
+New suite `scripts/chat/test_extract_league_chat.py` (stdlib unittest, synthetic DBs
+only; run `python3 -m unittest discover -s scripts/chat -p 'test_*.py'`). RED at
+a8beb7f: 10 of 13 tests failed (the commit message says 11; the night-share test
+counts once, with 4 failing sub-cases). GREEN: 13/13.
+
+| # | What is guaranteed | RED | GREEN |
+|---|--------------------|-----|-------|
+| 1 | Resume by ROWID is idempotent | PASS | PASS |
+| 2 | A renamed group chat exits non-zero | PASS | PASS |
+| 3 | A group row from an unknown handle is stored unnamed and reported, not dropped below the watermark | FAIL | PASS |
+| 4 | Once the handle is added to participants, the unnamed row gets its name on the next run | FAIL | PASS |
+| 5 | LEAGUE_CHAT_SRC / LEAGUE_CHAT_OUT override the paths | FAIL | PASS |
+| 6 | A non-zero classifier exit is returned | FAIL | PASS |
+| 7 | main() still runs the rollup, then exits non-zero, when classify fails | FAIL | PASS |
+| 8 | classify runs for an unlabeled backlog even with no new rows | FAIL | PASS |
+| 9 | no backlog and no new rows: classifier not called | FAIL (no main) | PASS |
+| 10 | night_share = hours 0-5 on the Eastern clock, both sides of DST, both stored timestamp formats | FAIL (4 of 6 sub-cases) | PASS (7 sub-cases) |
+| 11 | Unnamed rows are in no profile | FAIL | PASS |
+| 12 | typedstream decoder: 1- and 2-byte lengths | PASS | PASS |
+| 13 | a truncated blob returns None instead of raising IndexError | FAIL | PASS |
+
+The classifier (`jev_league_chat.mts`) never sends an unnamed row or uses one as
+context, so the privacy scope (the nine members) is unchanged. Retrying ok=0 rows in
+the classifier and a sync_log row for Data Health are deferred (see the list).
+
+Smoke run of `rollup()` on a copy of the live `league_chat.sqlite` (the first attempt
+failed: the live rows are stored as `2025-08-16T01:54:14`, with a T; the parser now
+takes both forms and a test pins it): 10 profiles, 119 sentiment rows (same as live),
+backlog 0. **One number changes for users:** mean `night_share` across the 10
+managers goes 0.227 -> 0.030 (range 0.171-0.309 -> 0.000-0.092), because it now
+measures midnight-6am Eastern instead of 8pm-2am. It is a descriptive ratio, not a
+fitted model; it reaches `manager_signals.chat_night_share` and the negotiation
+prompts. The refresh loop picks this up on its next tick.
+
+## 7. The asset-universe cache served stale projections after a promotion, rollback, league sync or availability refit (medium; backend-patterns, clickhouse-io)
+
+Journey: as Nick, when a weight set is promoted or rolled back, a league syncs, or the
+availability model is refit, I want the next page to show the new numbers without a
+server restart.
+
+RED (730e75f): 4 of 5 fail. Fix: one list of every table `buildAssetUniverse` reads
+(`ASSET_INPUT_TABLES`, now also `leagues.fetched_at`, both availability tables and
+`player_week_snaps`), used by both the assetUniverse and findTrades fingerprints, plus
+the served weight set's id in the key (a rollback only clears a flag, which no row
+count or max id can see). contingency.js keys its fitted-availability lookup on the
+two tables' row count and newest `fitted_at` instead of holding it for the process.
+
+| # | What is guaranteed | RED | GREEN |
+|---|--------------------|-----|-------|
+| 1 | No change: the same cached object | PASS | PASS |
+| 2 | Promotion and rollback each rebuild | FAIL | PASS |
+| 3 | A league sync rebuilds | FAIL | PASS |
+| 4 | An availability refit (either table) or a snap load rebuilds | FAIL | PASS |
+| 5 | weeklyAvailability reads a refit made after its first read (0.592 -> 0.61) | FAIL | PASS |
+
+Cost, measured on the snapshot (league 1, 8,640 assets): a cached call went from
+3.1 ms to 8.1 ms (the `leagues` stamp reads past each 2 MB payload, 2.7 ms; snaps
+1.7 ms). A cold build is ~8.5-8.9 s either way. Regression: all 18 files that import
+trade-engine, contingency or the trades route pass (list in `reg-fp.log`).
+
+## 8. Silent failures in the rest-of-season inputs (medium; coding-standards / silent-failure)
+
+Journey: as Nick, if the rest-of-season model cannot read its inputs, I want the
+server log and the asset to say so, not a quiet return to the week-1-score numbers.
+
+RED (ac754a0): 5 of 5 fail. Fix: `inSeasonHistory` treats only a missing table as
+"no games" and otherwise logs (season, week) and raises; `rosPriorMap` logs a failed
+source and does not memoise a map built after a failure; `buildAssetUniverse` catches a
+ROS failure, logs it with league and week, keeps building, and marks each asset
+`ros_basis: { failed }`; `buildAvailabilityLookup` reports an unreadable role config
+(`configError` plus a warning) instead of silently switching to pooled positions.
+
+| # | What is guaranteed | Test | RED | GREEN |
+|---|--------------------|------|-----|-------|
+| 1 | A failed history query raises and is logged with the season | `ros-projection-failures.test.js` | FAIL | PASS |
+| 2 | buildRosProjections propagates it (no empty "no ROS" map) | same | FAIL | PASS |
+| 3 | A prior map built after a failure is recomputed next call; a clean one is cached | same | FAIL | PASS |
+| 4 | An unreadable role config is reported | same | FAIL | PASS |
+| 5 | A ROS failure is logged and marked on assets; the universe still builds | `ros-projection-failure-wiring.test.js` | FAIL (threw) | PASS |
+
+The test for #3 first counted buildProjections calls, which also counts the calls
+preseasonProjections makes; it was changed to compare the returned maps, and the
+revised file was re-run against HEAD's code in the scratch copy: 4 of 4 fail there.
+Regression: ros-projection 24/24, ros-projection-wiring 1/1, availability-role 17/17,
+asset-universe-fingerprint 5/5, decision-inbox 17/17, fantasy-workflows 7/7,
+find-trades 3/3, trade-evidence 6/6, decision-leftovers-waivers 7/7, post-draft-plan
+5/5, model-integrity 94/94.
+
+## 9. seasonEndingEspnIds cost ~0.8 s per league build for the same answer (medium; clickhouse-io)
+
+Journey: as Nick, I want a news refresh not to cost five near-second rebuilds of the
+same "who is out for the season" list.
+
+RED (2b21bda): 2 of 3 fail — 1,863 name normalisations for 60 players x 30 stories,
+and identical inputs recomputed every call. Fix: each severe story is normalised once;
+the result is memoised on the exact inputs (window, in-window severe stories' text and
+time, the roster, each league's fetched_at), so an in-place story edit is seen.
+
+| # | What is guaranteed | RED | GREEN |
+|---|--------------------|-----|-------|
+| 1 | Same answer (the named player flagged) | PASS | PASS |
+| 2 | Normalisations scale with players + stories, not their product | FAIL (1,863) | PASS |
+| 3 | Same inputs: no work; a new story or an in-place edit changes the answer | FAIL | PASS |
+
+On the snapshot (`se-live.mjs`, HEAD code from the scratch copy vs new): the same
+71 espn ids, identical; first call 773-829 ms -> 228 ms, repeat calls 9 ms.
+Regression: player-availability 15/15, decision-leftovers-waivers 7/7,
+fantasy-workflows 7/7, find-trades 3/3, trade-evidence 6/6, decision-inbox 17/17,
+ros-projection-wiring 1/1.
+
+## 10. Matchup card calibration had no tests (medium; tdd-workflow)
+
+Journey: as Nick, I want the card's win probability and "chase variance / protect the
+lead" stance to stay the fitted rule, so a refactor cannot bring back the old spread.
+
+Characterization tests (`test/posture-calibration.test.js`, 6, closed-form fixtures):
+the constants (1.63, 23, the positional CVs); `my_sd` = 1.63 x root-sum-square of
+projection x CV; win probability = Phi(edge / sqrt(sd1^2 + sd2^2)); the stance turns
+at exactly 23 (-22.9 neutral, -23.0 chase, +23 protect); a 0-point player adds no
+variance; the variance search (a superflex OP case where a receiver or a tight end
+trades half a point for spread) offers the healthy player and never the one flagged
+out. No production change.
+
+| Mutation (scratch copy) | Tests failing |
+|-------------------------|---------------|
+| P1 SPREAD_SCALE 1.63 -> 1.9 | 4 |
+| P2 MATERIAL_EDGE 23 -> 12 | 2 (constants, stance boundary) |
+| P3 spread from each player's own (ceiling - floor) / 2.56 | 4 |
+| P4 flagged players allowed into the swap pool | 1 |
+
+## 11. Matchup no-signal state had no tests (medium; tdd-workflow)
+
+Journey: as Nick, I want defense-vs-position and home/away to stay out of my
+projections until they pass the walk-forward test, whatever the history shows.
+
+Characterization tests (`test/matchups-no-signal.test.js`, 5) on seeded game logs where
+one defense allows twice the usual: `dvpFor` mult 1 / signal false / the reason, with
+the descriptive history intact; `scheduleOutlook` sos and playoff_sos 1, no best or
+worst, every game multiplier 1, bye still found; `dvpTable` display-only with applied
+multiplier 1; `GET /trades/dvp` reports signal false and the reason; a self-opponent
+schedule row is repaired from the other team's row. No production change.
+
+| Mutation (scratch copy) | Tests failing |
+|-------------------------|---------------|
+| X1 DVP_MULTIPLIER_ENABLED = true | 4 |
+| X2 scheduleOutlook's no-signal return removed | 1 |
+| X3 HOME_FIELD_MULTIPLIER_ENABLED = true | 2 |
+| X4 self-opponent repair removed | 1 |
+
+## 12. The weekly boom/bust shock was held only by a golden snapshot (medium; tdd-workflow)
+
+Journey: as the next person to refit WEEKLY_LEVEL, I want tests that say what must
+still hold (mean-preserving, per-position sigma, the `{ sigma }` override), not a
+snapshot that breaks on any refit.
+
+Property tests (`test/weekly-level.test.js`, 6): the closed-form shock mean with and
+without the downside multiplier (checked against an independent 200,000-draw
+simulation within 0.5%); the simulated mean equals the no-shock mean within 1%
+(100,000 draws — at 20,000 the first run differed by 1.3% by chance; measured at
+200,000 over three seeds: within 0.5%); default QB/WR draws equal explicit sigma
+0.30/0.20; `{ sigma: 0 }` switches the shock off for every position;
+`meanPreserving: false` moves the mean by exactly the shock mean (0.985 for a WR with
+downMult 1.6 — below 1, not above; my first draft of that assertion was wrong and was
+corrected before this commit). No production change.
+
+| Mutation (scratch copy) | Tests failing |
+|-------------------------|---------------|
+| B1 meanPreserving false by default | 1 (c) |
+| B2 weeklyLevelMean always 1 | 3 |
+| B3 byPosition ignored | 1 (d) |
+| B4 `{ sigma }` no longer overrides byPosition | 1 (e) |
+
+## 13. League Hub lineup card scrolled sideways at 375px (medium; frontend-patterns)
+
+Journey: as Nick on my phone, I want the week-2 "Caleb Williams over Patrick Mahomes
+(flagged out for the season or released)" row to fit the card.
+
+The repo has no client test runner, so the evidence is the reviewer's Vite harness,
+re-run: the real `LineupDiffCard` extracted from MyTeam.tsx, league 1 live data plus
+the Mahomes-shaped swap, rendered in the built-in browser at 375x812 and measured with
+`document.documentElement.scrollWidth` (harness in `scratchpad/step1b/review-fixes/harness`).
+
+| Build | scrollWidth / clientWidth | Overflowing elements |
+|-------|---------------------------|----------------------|
+| before (reviewer's copy of HEAD) | 379 / 375 | the nowrap "over" group and its reason span |
+| after (this change) | 375 / 375 | none |
+
+Fix: only the position and name stay `whitespace-nowrap`; the reason is its own
+`min-w-0 break-words` span inside a wrapping group, and in the screenshot it drops to
+its own line under "Patrick Mahomes". `tsc --noEmit` clean.
+
+## 14. Two rules written in several places: this week's number and "is he on IR" (medium x2; coding-standards)
+
+Reproduced by reading: the week-points formula is in lineup-brain.js#startSitWeekPoints
+and trade-engine.js#lineupDiffWeekPoints; the ESPN IR test is in irOnRoster,
+lineup-posture.js#rosterAssets, lineupDiff and waiver-wire.js. The import cycle is real
+too, and it showed up while writing this test: mocking `waiver-brain.js#vegasLift`
+reaches lineup-brain but not trade-engine, because waiver-brain imports trade-engine,
+which binds the real waiver-brain first.
+
+Not consolidated here (deferred, see the list): moving `vegasLift`,
+`startSitWeekPoints` and an ESPN-entry IR test into a leaf module also means rewriting
+the betting-line mocks in three test files that belong to other items, and today the
+copies agree, so there is no user-visible bug to fix. What this item adds is a guard
+that fails the moment a copy drifts: `test/lineup-surfaces-agree.test.js` (2 tests)
+prices one roster through the real vegasLift (the game-script model is mocked
+underneath it) and checks that the League Hub card's week points equal
+`startSitWeekPoints` for every starter, and that irOnRoster, the matchup card and the
+League Hub card exclude exactly the same two IR players.
+
+| Mutation (scratch copy) | Tests failing |
+|-------------------------|---------------|
+| A1 League Hub card drops the lift | 1 |
+| A2 League Hub card rounds to 0.1 | 1 |
+| A3 matchup card ignores INJURY_RESERVE | 1 |
+| A4 League Hub card ignores INJURY_RESERVE | 2 |
+
+## 15. Gate scripts graded whatever baseline was promoted on the day (medium x2; eval-harness)
+
+Journey: as whoever re-runs a gate, I want the same command to grade the same
+baseline it was registered against, and a cached dataset to be refused when the model
+that priced it has changed.
+
+RED (137c2d2): 3 of 3 fail (no read-by-id, no availability stamp). Fix:
+`weekly-weight-store.js#weeklyWeightSetById(id, { week })` and
+`contingency.js#availabilityFitStamp()`. Scripts:
+
+| Script | Before | After |
+|--------|--------|-------|
+| fit-ros-projection.mjs | baseline (a) = activeWeeklyWeightSet({2026, 3}) | `--baseline-fit`, default 1 (registered); another id prints a note and exits 2; the result file records the fit id and data hash |
+| fit-posture-calibration.mjs | centre = activeWeeklyWeightSet({2026, 3}); cache loaded unconditionally | `--center-fit`, default 1; the dataset records centre fit + availability stamp; a cache built under others is refused (exit 2) |
+| fit-weekly-coverage.mjs | centre = activeWeeklyWeightSet(tradeWeekContext()) — today's date | `--center-fit`, default 1; header records the draw-count sensitivity and the committed baseline file |
+| promote-early-week-weights.mjs | (a) = today's active position vectors | `--baseline-fit`, default 1 |
+
+Evidence on the snapshot: `fit-ros-projection.mjs --smoke` exits 0 with
+`blend_weights: fit-1`; the same run with `--baseline-fit 2` exits 2 and shows why the
+pin matters — pooled early d-a moves from -0.724 to -0.132 and b-a from -0.642 to
+-0.050, because fit-2's weeks 2-4 already are the structural head. The posture script
+refuses an unversioned cached dataset (exit 2, message names both versions). The
+coverage script starts with "Centring head: fit-1 (pinned by id)". The play-chance
+handoff now says to re-fit the posture spread after the role rates are written (the
+posture dataset was built at 00:01, six minutes before the live availability fit, and
+did not record which one priced it).
+
+Regression: pinned-baselines 3/3, weekly-early-week-blend 19/19,
+weekly-retrain-early-carry 4/4, model-integrity 94/94, availability-role 17/17,
+asset-universe-fingerprint 5/5, ros-projection-failures 4/4.
+
+## 16. Commit 11ab55c skipped the TDD cycle (medium; tdd-workflow)
+
+The retroactive tests are sections 4, 5, 10, 11, 12 and 14 above (all shown able to
+fail by mutation). What this section adds:
+
+- `server/services/gate-verdicts.js`: the ship rules of the weekly-coverage gate
+  (G1-G3) and the posture gate (log loss, ECE, bootstrap), moved out of the scripts
+  unchanged; both scripts now call them. RED (91aafb6): the module did not exist.
+  GREEN: `test/gate-verdicts.test.js` 2/2, pass/fail tables including the recorded
+  2025 runs (coverage B 0.782 / 0.111 / CRPS -0.0296 significant: PASS; A 0.772:
+  FAIL on G1; posture 0.6669 vs 0.6726, ECE 0.010 vs 0.039, CI [-0.0096, -0.0016]:
+  SHIP) and each rule's edges (band ends inclusive, calibration strictly lower, CRPS
+  worse only fails when significant, bootstrap error means not significant).
+- `docs/tdd/week2-numbers.tdd.md`: the six step-1 gate records copied verbatim from the
+  session scratch directory, the per-swap calibration result, and a table mapping each
+  gated behaviour to its retroactive tests and mutation counts.
+
+## 17. No eval graded the combined shipped state (high; eval-harness)
+
+Journey: as whoever promotes a fit or refits availability, I want one command that
+fails if any lineup objective in any league has nothing to rank on.
+
+`scripts/eval-lineup-objectives.mjs` runs `lineupCall` for every league x {mean,
+ceiling, floor} on a database copy (it refuses the live file: lineupCall also writes
+Decision Inbox rows) and fails a call that errors, totals 0, or has more than half of
+its contested margins exactly tied while claiming to have optimised the objective. An
+objective that falls back and says so passes. RED (b13b3f2): the script did not exist
+(5 of 5 fail). GREEN: `test/eval-lineup-objectives.test.js` 5/5.
+
+On the 05:00 snapshot: current code PASS 15 of 15; the same snapshot with
+lineup-brain.js from 79dbeb1 (before section 2) FAIL 10 of 15 — all five floor calls,
+"projected_points 0 ... 6 of 6 contested margins are exact ties on floor".
+
+Not done (deferred): wiring it into the promote scripts, and the p10-coverage check
+(does the card's floor cover week-w outcomes, did-not-play = 0, under the live
+P(play)), which needs the play-chance role layer live to mean anything.
+
+## Deferred, with the gate or decision each one needs
+
+| Finding | Reproduced | Why not here | What it needs |
+|---------|-----------|--------------|---------------|
+| Weekly coverage gate is draw-count and seed sensitive (high) | yes: 0.782 at 300 draws, 0.777 at seed 3, 0.778 at 2,000 | changing a gate's definition, and WEEKLY_LEVEL reads 0.778 (outside the band) at production's 2,000 draws | a new pre-registered gate: grade at 2,000 draws, band must hold for each of >= 3 seeds (pass^3) or a margin wider than the measured +/-0.004; then re-run the WEEKLY_LEVEL fit under it. Baseline recorded in `docs/evidence/baselines/2025-weekly-distribution-draws.json` |
+| Fake floors shipped after its registered gate failed (medium) | yes (doc said held back) | a decision the builder asked a person to make | Nick: keep 947d66c on G2 + D1 as a newly written gate, or revert until a like-for-like G1 exists. No week-2 number depends on it (0 of 1,183 shifts > 0.05) |
+| Waiver line calls an ESPN-OUT player healthy (medium) | yes: league 3 Charbonnet ESPN OUT, Start/Sit 8.05, 13 of 13 "likely to play" | moves availability outputs | gate on 2025: player-weeks whose pregame status was Out — observed play rate; if it is ~0, set P(play) near 0 when ESPN's OUT is fresher than the injury report, graded by log loss (player-clustered bootstrap) against the current availability |
+| ROS gate grades per game played; product has no availability term (medium) | yes: DNP-counted MAE, d worse than a at w6/8/10 in 2024 (3.06-3.28 vs 2.83-2.90) and 2025 (3.17-3.35 vs 3.03-3.07) | moves trade and waiver values | either an availability term on the ROS leg of decisionPpg and the waiver cut, gated on the DNP-counted target, or gate ROS on expected points per remaining team game; add w 12/14/16 "late not worse" before trusting playoff_ppg |
+| POST /api/espn-connect/cookies still anonymous (part of high) | yes | the bookmarklet runs on espn.com and cannot carry the session; closing it means an install key in the bookmarklet and re-dragging it | Nick's call on the bookmarklet UX |
+| One leaf module for week points and the IR test; break the waiver-brain <-> trade-engine cycle (medium x2) | yes, incl. the cycle bending test mocks | touches the lift mocks in 3 test files owned by other items; no user-visible bug while the copies agree | a refactor pass: `week-points.js` with vegasLift, startSitWeekPoints, an ESPN-entry IR test; tests mock gamescript.js#gameScriptFor. The drift guards in `test/lineup-surfaces-agree.test.js` must stay green |
+| SPREAD_SCALE production guard (part of medium) | yes (dataset predates the availability fit, no version recorded) | the fit's availability version is unknown | at the next posture refit (required after the play-chance role layer), store the availability stamp beside SPREAD_SCALE and add a test that fails when the live stamp differs |
+| Combined eval after every promotion; p10 coverage under live P(play) (part of high) | yes | wiring into promote scripts; p10 check needs the role layer live | call `scripts/eval-lineup-objectives.mjs` from the promote scripts; add the p10 coverage check once role rates are written |
+| Classifier: retry ok=0 rows; sync_log row for league_chat (part of medium) | yes (18 ok=0 rows, Data Health blind) | a retry re-sends rows to Jev (cost) and the 18 failures look deterministic | decide a retry policy (e.g. once after 1 h); write a sync_log row from refresh-live-data.mjs |
+
+## Verification (verification-loop)
+
+```
+VERIFICATION REPORT (HEAD 6303356 + this report, 2026-09-18 ~05:55)
+Build:     PASS  vite build of the client into a scratch outDir (client/dist, which the live
+                 server serves, was not touched)
+Types:     PASS  tsc --noEmit, 0 errors
+Lint:      PASS  scripts/lint.mjs, 795 files syntax-checked
+Tests:     2,376 pass / 3 fail / 39 skipped of 2,418 (full node suite, 310 s)
+           The 3 failures are test/prop-clv-free-capture.test.js and fail identically on
+           79dbeb1 (a git archive of the pre-review tree): pre-existing, not touched here.
+           Python: scripts/chat 13/13.
+Coverage:  new modules and changed functions, on the 13 files that exercise them (107/107):
+           gate-verdicts.js 100%, player-availability.js 100% lines, ros-projection.js 98.7%,
+           espn-connect.js 96.1%, weekly-weight-store.js 90.7%. eval-lineup-objectives.mjs
+           59.5%: the uncovered part is main(), run by hand on the snapshot (section 17).
+Security:  no secret patterns in the 79dbeb1..HEAD diff; two unauthenticated route families
+           closed (section 3)
+Diff:      46 files, 29 commits, all this item's (git commit --only, nothing pushed)
+Live:      nothing restarted; the web server on 5177 runs the old code until its next
+           restart. The chat extractor change is picked up by the refresh loop's next tick.
+```

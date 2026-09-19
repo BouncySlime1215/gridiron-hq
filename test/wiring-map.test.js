@@ -343,8 +343,18 @@ test('the protected list and its exceptions live in source, not in annotations.j
     assert.ok(!(ann.accepted_missing_feeds ?? []).includes(bare),
       `${bare} must not be baselined by its bare subject either`);
   }
-  assert.ok(!fields.includes('"NEVER_BASELINE":'),
-    'the protected-rule list must not be readable as data from the file it polices');
+  // A pointer explaining where the real list lives is fine and wanted. A list of
+  // RULES is not: the moment one is readable from here, deleting it silences the
+  // rule, which is the hole this whole design closes.
+  const pointer = ann._NEVER_BASELINE ?? {};
+  assert.deepEqual(Object.keys(pointer).filter(k => k !== '_why'), [],
+    '_NEVER_BASELINE in annotations.json is a pointer to the source, never a list');
+  for (const rule of NEVER_BASELINE.keys()) {
+    assert.ok(!Object.keys(pointer).includes(rule),
+      `${rule} must not be listed as data in the file it polices`);
+  }
+  assert.ok(fields.includes('scripts/wiring-map.mjs'),
+    'the pointer must say where the enforced list actually lives');
 });
 
 test('every grandfathered entry names an owner or a scope, and what retires it', () => {

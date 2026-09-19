@@ -2287,16 +2287,24 @@ of a dozen jobs is the one currently holding the lock."
    step 2 passes, that is what it will do, every time, correctly. Stabilise,
    prove `uptime_s` past 600, then capture — never the other way round.
 
-5. Ship the fix. Merge **#56** (the arming fix), the off-thread PR (number
-   pending) and **#52** (the one-line `fly.toml` setting `NFL_SEASON`, green),
-   then:
+5. Ship the fix. **Four PRs, in this order:** **#56** (the arming fix),
+   **#59** (takes the boot path off the request thread), **#52** (the one-line
+   `fly.toml` setting `NFL_SEASON`) and **#49** (raises the health-check grace
+   period). Then:
    ```
    fly deploy -a gridiron-hq
    ```
-   **All three are open as drafts against `main` at `791b131`, and GitHub will
-   not merge a draft** — each needs marking ready for review first. Checked
-   22:4xZ; that is one click each, and it is the kind of thing that reads as a
-   broken merge button at seven in the morning.
+   **All four are open as drafts, and GitHub will not merge a draft** — each
+   needs marking ready for review first. Checked 22:5xZ; one click each, and it
+   is the kind of thing that reads as a broken merge button at seven in the
+   morning.
+
+   **#59's base is #56's branch, not `main`, and this is the step that fails
+   silently.** Merging it while it still points there lands it on that branch
+   and not on `main`, and the deploy then ships #56 without the fix that matters.
+   GitHub retargets a stacked PR automatically only when the base branch is
+   **deleted** after merging, and nothing here is deleting branches. So merge
+   #56, then **change #59's base to `main` by hand** before merging it.
 
 6. Turn the scheduler back on and prove it holds:
    ```
@@ -2330,6 +2338,16 @@ second line of defence here; it is a number that never gets read.
 **And the fix does not depend on settling which of the two blockers lands the
 kill**, because `nfl-model-growth.js` holds no module-level state, so it moves
 off-thread cleanly whichever reading is right.
+
+**What to expect after the deploy, so it is not misread as the cycle
+continuing.** #59 stops the boot path blocking the event loop; it does not stop
+`nfl_model_growth` running on every boot. That needs a third change, because an
+errored job gets a five-minute retry window and `record()` stamps only after
+`run()` returns, so a killed job's `last_run_at` stays frozen and it is due
+again immediately. Off the request thread that work is CPU and a database lock
+rather than a kill. **So the app will be busy for a minute or two after each
+boot and will answer the whole time.** Slow is the fixed state here; dark is
+not.
 
 **Do not set `LOOP_WATCHDOG_THRESHOLD_MS`, and do not set
 `LOOP_WATCHDOG_DISABLED=1`.** Both are read from the environment, both would

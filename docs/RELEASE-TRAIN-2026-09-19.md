@@ -2278,6 +2278,22 @@ of a dozen jobs is the one currently holding the lock."
    fly secrets unset AUTO_HEAVY_SYNC -a gridiron-hq
    ```
 
+**One command settles which job it is, and it can be run at any point after the
+app is stable.** Four threads have been arguing the identity of the blocking
+job from timing arithmetic. It does not have to be argued.
+`nfl-model-growth.js:164-166` INSERTs a row with `status: 'running'` **before
+any work starts**, and `record()` only stamps completion afterwards, so a
+process killed mid-fit leaves that row behind permanently:
+
+```
+fly ssh console -a gridiron-hq -C "sqlite3 /data/data.sqlite 'SELECT id, started_at, status FROM nfl_model_growth_runs ORDER BY id DESC LIMIT 10;'"
+```
+
+**One `'running'` row per killed process start — roughly 90 seconds after each
+— proves it. No `'running'` rows kills the diagnosis outright** and sends the
+search back to the boot pass. Either way it costs one command, and it is
+evidence rather than arithmetic. Found by the Trade Brain thread.
+
 **Why two PRs rather than one.** The arming fix is necessary and not sufficient:
 the same jobs can still wedge on the 90-second live timer once the watchdog is
 legitimately armed, so the cycle re-forms at a slower period. The second moves
@@ -2343,6 +2359,17 @@ and for `last_status === 'error'` that is
 `RETRY_BASE_MINUTES = 5` (`:141`, `:171-173`). With `consecutive_failures` 1 and
 an age of 112 minutes, **it is due on every boot.** All verified on `791b131`.
 
+**The chain it runs, read off the shipping tree, because "a model fit" is too
+vague to act on.** `runNflModelGrowthCycle` (`nfl-model-growth.js:160`) checks
+its required sources, and `weekly_player_usage` — table `player_week_usage`,
+`required: true` (`:82-83`) — **has no 2026 rows on the live database**, so
+`coreLag` at `:181` is true. That opens the gate at `:186`, and the branch runs
+`syncNflverse` (`:187`) and then `syncPbpSeason` (`:188`) — a full-season
+play-by-play CSV parsed on the main thread. This is not a fit that got slow; it
+is a download-and-parse that should never have been on the thread serving HTTP,
+and it is due on every boot because its own last attempt errored.
+
+
 `setTimeout` at `:1751` is independent of the chain, which is fire-and-forget at
 `:1746`, so the two overlap. And `record()` only stamps after `job.run()`
 returns, so a process killed mid-job leaves `last_run_at` frozen — which is
@@ -2361,14 +2388,20 @@ only reason the wrong answer is not still sitting in this section.
 below stops the boot chain, both fixed timers and every tier at once, so it does
 not depend on the job being named.
 
-**One prediction for the small hours, so a change is not read as a new fault.**
-`nfl_model_growth` was last run 21:17:44Z with a six-hour staleness window, so
-it becomes stale at about **03:17Z** — and `:1751` fires
-`runIfStale('nfl_model_growth')` 90 seconds after every boot, on the main
-thread. Until 03:17 that timer hits a no-op. After it, every boot additionally
-runs a main-thread model fit at 90 seconds. The cycle may therefore get worse
-overnight, and the machine may stop for good on its restart cap. Neither is new
-and neither needs waking anybody.
+**A prediction this section carried until 22:4xZ is withdrawn, and the reason
+it was wrong is the same reason the job was excluded in the first place.** It
+said `nfl_model_growth` becomes stale at about 03:17Z and that the cycle would
+therefore get worse in the small hours. That reads staleness off
+`maxAgeMinutes`, and `runIfStale` does not use it: the gate is
+`age < nextDueMinutes` (`:1566-1567`), which for a job whose last status is
+`error` is five minutes. **The fit is already due on every boot and has been
+since about 21:23Z.** Nothing changes overnight, and nothing about it needs
+waking anybody. The general form is worth keeping: *two fields named for the
+same idea, one of them not the one the code branches on.*
+
+**What does not change either way:** the machine may still stop for good on
+Fly's restart cap, which it has hit once already tonight. That is a stopped
+machine rather than a damaged one, and the first command below starts it.
 
 ### 7.0d Found while looking at something else: two jobs that have never run
 

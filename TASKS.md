@@ -223,6 +223,50 @@ Last updated: 2026-09-19, new cloud session on `cursor/betting-model-audit-fixes
         would have caught this before it reached CI, and is worth making
         routine.
 
+    4a. **BOTH GATES ANSWERED 2026-09-19 ~14:30Z (Nick ran them on the Mac).**
+        - **Usage: PASSED.** `~/claude-handoff/usage.sh` -> *"Desktop account:
+          5-hour 3%, weekly 68% (measured 0 min ago) / OK to start a workflow."*
+          Down from the 96% TOO CLOSE reading this branch had been carrying.
+        - **WA's run record: THE RUN DIED, it never completed.** `wf_90ebcd25-088`'s
+          journal has **16** `"type":"result"` entries and its LAST entry is
+          `build:tactics-and-packages` -> `"status":"shipped"`. There is **no
+          result for `verify:tactics-and-packages`** — exactly where `HANDOFF.md`
+          recorded it as in-flight (agent `ac60b583127cb402a`). So WA expired at
+          that verify step, and everything after it (`value-and-acceptance`,
+          `sendable-proposals`, the integration pass) was completed by hand in
+          later sessions rather than by the workflow.
+        - **Consequence for B1, stated rather than fudged.** A5 asks for the run
+          record before `WA -> Done`. The record exists and says *died*, not
+          *completed*. Every WA work item is nonetheless finished and green, so
+          B1 moves to Done **on the work**, with the run's death recorded — not
+          on a completion that never happened.
+
+    4b. **TWO MAC ACTIONS, FOUND IN WA's OWN JOURNAL, THAT ARE NOT IN THE MAC
+        LIST BELOW — and they are the difference between "built" and "Nick can
+        use it".** The `build:tactics-and-packages` result says, verbatim:
+        *"**NOT LIVE.** The web server runs the old code. Nothing Nick sees
+        changes until the integration restart"* and *"`scripts/build-manager-signals.mjs`
+        has rows for league 4 only ... so without it four of five leagues get no
+        counterparty read at all."*
+        1. `node scripts/build-manager-signals.mjs` — one run. Without it the
+           Trade Brain has counterparty data for **league 4 only**; the other
+           four leagues get no read at all.
+        2. **Restart the server** (`SCHEDULER_DISABLED=1`, client rebuilt first,
+           per A2 rule 6). Until then the whole Trade Brain — tactics, the edge
+           test, the acceptance band, proposals — is inert in the running app.
+
+    4c. **WO+WB CANNOT MEANINGFULLY RUN IN A CLOUD BOX — it belongs on the Mac,
+        and the usage gate that just passed is the Mac's gate.** Checked, not
+        assumed: there is **no database of any kind here**. `server/data.sqlite`
+        absent, `data/line-history/nflverse.sqlite` (the ~11GB historical
+        archive) absent, no `*.sqlite` anywhere in the tree,
+        `GRIDIRON_CHAT_DB_PATH` unset. WO is backtests and calibration against
+        real finishes; WB is negotiation profiles over the 15,993-message chat
+        corpus and game-day checks against live ESPN. Every one of those needs
+        data this box does not have, so anything built here would be
+        fixture-verified only — the exact thing this file already warns must not
+        be promoted past "tested". Launch WO+WB where the data is.
+
     4. **WHAT STILL GATES `WA -> Done` AND WO+WB — neither can be settled from a
        cloud box, and neither is a judgement call.**
        - **B1's State column needs WA's RUN RECORD**, not its blockers being

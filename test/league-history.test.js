@@ -35,7 +35,10 @@ const SCHEMA = [
 /**
  * Build a fixture database at a fresh path.
  * `leagues`: [{ league_id, season, num_teams, playoff_teams, playoff_week_start,
- *               teams: [{ roster_id, made_playoffs, champion, weeks: { [week]: points } }] }]
+ *               teams: [{ roster_id, made_playoffs, champion, weeks: { [week]: points },
+ *                         opponents: { [week]: rosterId } }] }]
+ * `opponents` is optional; without it a week has no scheduled opponent and so no head-to-head
+ * result, which is itself a case under test.
  */
 function fixture(name, leagues) {
   const file = path.join(temp, `${name}.sqlite`);
@@ -46,13 +49,16 @@ function fixture(name, leagues) {
     (league_id, season, num_teams, playoff_teams, playoff_week_start) VALUES (?,?,?,?,?)`);
   const ts = db.prepare(`INSERT INTO sh_team_seasons
     (league_id, roster_id, made_playoffs, champion, points_for, wins) VALUES (?,?,?,?,?,?)`);
-  const tw = db.prepare(`INSERT INTO sh_team_weeks (league_id, roster_id, week, points) VALUES (?,?,?,?)`);
+  const tw = db.prepare(`INSERT INTO sh_team_weeks
+    (league_id, roster_id, week, points, opponent_roster_id) VALUES (?,?,?,?,?)`);
   for (const l of leagues) {
     lg.run(l.league_id, l.season, l.num_teams, l.playoff_teams, l.playoff_week_start);
     for (const t of l.teams) {
       const pf = Object.values(t.weeks).reduce((s, v) => s + v, 0);
       ts.run(l.league_id, t.roster_id, t.made_playoffs ? 1 : 0, t.champion ? 1 : 0, pf, 0);
-      for (const [week, points] of Object.entries(t.weeks)) tw.run(l.league_id, t.roster_id, Number(week), points);
+      for (const [week, points] of Object.entries(t.weeks)) {
+        tw.run(l.league_id, t.roster_id, Number(week), points, t.opponents?.[week] ?? null);
+      }
     }
   }
   db.close();
@@ -185,7 +191,11 @@ test('the outcome is carried but is never one of the known-at-week fields', asyn
   // The known-at-week fields are exactly these. If a future change adds an outcome
   // field to this list, this assertion is what catches it.
   const known = ['season', 'league_id', 'roster_id', 'num_teams', 'playoff_teams', 'week',
-    'games', 'weeks_left', 'points_z', 'mean_points_z', 'all_play_pct'];
+    'games', 'weeks_left', 'points_z', 'mean_points_z', 'all_play_pct',
+    // Added with the outlook model. Every one is cumulative through week w: the record is
+    // recomputed from each week's own opponent rather than read from the season total, and
+    // the standings behind games_back are the standings as they stood that week.
+    'win_pct', 'wins_so_far', 'head_to_head_games', 'points_so_far', 'games_back'];
   const outcomes = ['made_playoffs', 'champion'];
   assert.deepEqual(Object.keys(row).sort(), [...known, ...outcomes].sort());
 });
@@ -385,4 +395,135 @@ test('a league with a single week on file gets z = 0 rather than a divide by zer
     assert.equal(r.points_z, 0);
     assert.ok(Number.isFinite(r.mean_points_z));
   }
+});
+
+test('the record is recomputed from each week, not read from the season total', async () => {
+  // Team 1 loses week 1 (90 to 100) and wins week 2 (110 to 100). Its SEASON total in
+  // sh_team_seasons is deliberately set to a wrong, large number: if the panel ever reads
+  // that column instead of the weeks, this test fails. That matters because the season
+  // total is the outcome the model predicts, and a row at week 1 that carried it would be
+  // reading its own answer.
+  const file = fixture('record', [{
+    league_id: 'L1', season: 2024, num_teams: 2, playoff_teams: 1, playoff_week_start: 4,
+    teams: [
+      { roster_id: 1, made_playoffs: 1, champion: 0, weeks: { 1: 90, 2: 110, 3: 100 }, opponents: { 1: 2, 2: 2, 3: 2 } },
+      { roster_id: 2, made_playoffs: 0, champion: 0, weeks: { 1: 100, 2: 100, 3: 100 }, opponents: { 1: 1, 2: 1, 3: 1 } }
+    ]
+  }]);
+  const { weeklyPanel } = await load(file);
+  const rows = weeklyPanel({}).filter(r => r.roster_id === 1).sort((a, b) => a.week - b.week);
+  assert.equal(rows[0].win_pct, 0);      // 0 of 1
+  assert.equal(rows[1].win_pct, 0.5);    // 1 of 2
+  assert.equal(rows[2].wins_so_far, 1.5);  // week 3 is a tie, counting a half
+  assert.equal(rows[2].head_to_head_games, 3);
+  assert.equal(rows[2].win_pct, 0.5);    // 1.5 of 3
+});
+
+test('a week with no opponent on file is not a loss', async () => {
+  // A bye in an odd-sized league, or a gap in the crawl. Scoring it as a loss would punish
+  // a team for a missing row; it must simply not be a game played.
+  const file = fixture('bye', [{
+    league_id: 'L1', season: 2024, num_teams: 2, playoff_teams: 1, playoff_week_start: 4,
+    teams: [
+      { roster_id: 1, made_playoffs: 1, champion: 0, weeks: { 1: 120, 2: 120, 3: 120 }, opponents: { 1: 2, 3: 2 } },
+      { roster_id: 2, made_playoffs: 0, champion: 0, weeks: { 1: 100, 2: 100, 3: 100 }, opponents: { 1: 1, 3: 1 } }
+    ]
+  }]);
+  const { weeklyPanel } = await load(file);
+  const rows = weeklyPanel({}).filter(r => r.roster_id === 1).sort((a, b) => a.week - b.week);
+  assert.equal(rows[1].head_to_head_games, 1, 'week 2 was not a game');
+  assert.equal(rows[1].win_pct, 1, 'still 1 of 1, not 1 of 2');
+  assert.equal(rows[1].games, 2, 'but it IS a week of scoring, so games still advances');
+});
+
+test('games back is measured against the team on the playoff line, that week', async () => {
+  // Four teams, two qualify. After week 1: A and B win, C and D lose. The line is the
+  // SECOND team, so A and B are 0 back and C and D are 1 back.
+  const file = fixture('gamesback', [{
+    league_id: 'L1', season: 2024, num_teams: 4, playoff_teams: 2, playoff_week_start: 4,
+    teams: [
+      { roster_id: 1, made_playoffs: 1, champion: 0, weeks: { 1: 130, 2: 130 }, opponents: { 1: 3, 2: 3 } },
+      { roster_id: 2, made_playoffs: 1, champion: 0, weeks: { 1: 120, 2: 120 }, opponents: { 1: 4, 2: 4 } },
+      { roster_id: 3, made_playoffs: 0, champion: 0, weeks: { 1: 100, 2: 100 }, opponents: { 1: 1, 2: 1 } },
+      { roster_id: 4, made_playoffs: 0, champion: 0, weeks: { 1: 90, 2: 90 }, opponents: { 1: 2, 2: 2 } }
+    ]
+  }]);
+  const { weeklyPanel } = await load(file);
+  const wk1 = weeklyPanel({}).filter(r => r.week === 1);
+  const by = id => wk1.find(r => r.roster_id === id);
+  assert.equal(by(1).games_back, 0);
+  assert.equal(by(2).games_back, 0, 'the team ON the line is zero back');
+  assert.equal(by(3).games_back, 1);
+  assert.equal(by(4).games_back, 1);
+  // And by week 2 the winners are two ahead of the losers.
+  const wk2 = weeklyPanel({}).filter(r => r.week === 2);
+  assert.equal(wk2.find(r => r.roster_id === 3).games_back, 2);
+});
+
+test('a league-season more than half zeros is discarded whole, champion included', async () => {
+  // Sleeper returns leagues nobody played: every week zero, and a champion flag on whichever
+  // roster the bracket advanced. Its outcome is not football, and leaving it in biased k
+  // toward believing an early record MORE, which is the worst direction for this model.
+  const file = fixture('abandoned', [
+    {
+      league_id: 'DEAD', season: 2024, num_teams: 2, playoff_teams: 1, playoff_week_start: 4,
+      teams: [
+        { roster_id: 1, made_playoffs: 1, champion: 1, weeks: { 1: 0, 2: 0, 3: 0 }, opponents: { 1: 2, 2: 2, 3: 2 } },
+        { roster_id: 2, made_playoffs: 0, champion: 0, weeks: { 1: 0, 2: 0, 3: 0 }, opponents: { 1: 1, 2: 1, 3: 1 } }
+      ]
+    },
+    {
+      league_id: 'LIVE', season: 2024, num_teams: 2, playoff_teams: 1, playoff_week_start: 4,
+      teams: [
+        { roster_id: 1, made_playoffs: 1, champion: 1, weeks: { 1: 120, 2: 110, 3: 130 }, opponents: { 1: 2, 2: 2, 3: 2 } },
+        { roster_id: 2, made_playoffs: 0, champion: 0, weeks: { 1: 100, 2: 105, 3: 95 }, opponents: { 1: 1, 2: 1, 3: 1 } }
+      ]
+    }
+  ]);
+  const { weeklyPanel, excludedByDataQuality } = await load(file);
+  const rows = weeklyPanel({});
+  assert.equal(rows.some(r => r.league_id === 'DEAD'), false, 'not one row of the dead league survives');
+  assert.ok(rows.some(r => r.league_id === 'LIVE'));
+  const ex = excludedByDataQuality();
+  assert.equal(ex.abandoned_leagues, 1);
+  assert.equal(ex.abandoned_team_weeks, 6);
+  assert.equal(ex.leagues_total, 2);
+});
+
+test('a single quitting manager loses their empty weeks, and their league survives', async () => {
+  // This is the case the half-zero rule must NOT catch: one manager stops setting a lineup
+  // in a league that is otherwise real football.
+  const file = fixture('quitter', [{
+    league_id: 'L1', season: 2024, num_teams: 2, playoff_teams: 1, playoff_week_start: 5,
+    teams: [
+      { roster_id: 1, made_playoffs: 1, champion: 1, weeks: { 1: 120, 2: 110, 3: 130, 4: 125 }, opponents: { 1: 2, 2: 2, 3: 2, 4: 2 } },
+      { roster_id: 2, made_playoffs: 0, champion: 0, weeks: { 1: 100, 2: 105, 3: 0, 4: 0 }, opponents: { 1: 1, 2: 1, 3: 1, 4: 1 } }
+    ]
+  }]);
+  const { weeklyPanel, excludedByDataQuality } = await load(file);
+  const rows = weeklyPanel({});
+  assert.ok(rows.some(r => r.league_id === 'L1'), 'the league survives');
+  assert.equal(rows.filter(r => r.roster_id === 2).length, 2, 'the quitter keeps only their two real weeks');
+  assert.equal(rows.filter(r => r.roster_id === 1).length, 4, 'the other team keeps all four');
+  // The empty weeks are gone rather than averaged in as bad weeks, so the league's scoring
+  // scale is not dragged down by them.
+  const ex = excludedByDataQuality();
+  assert.equal(ex.abandoned_leagues, 0);
+  assert.equal(ex.zero_team_weeks_in_kept_leagues, 2);
+});
+
+test('a zero week is not counted as a head-to-head game against it either', async () => {
+  // Team 1 outscoring an absent opponent is not a win over a team that played. The
+  // opponent's zero week is a missing observation, so there is no game to win.
+  const file = fixture('zero-opponent', [{
+    league_id: 'L1', season: 2024, num_teams: 2, playoff_teams: 1, playoff_week_start: 4,
+    teams: [
+      { roster_id: 1, made_playoffs: 1, champion: 0, weeks: { 1: 120, 2: 110, 3: 115 }, opponents: { 1: 2, 2: 2, 3: 2 } },
+      { roster_id: 2, made_playoffs: 0, champion: 0, weeks: { 1: 100, 2: 0, 3: 105 }, opponents: { 1: 1, 2: 1, 3: 1 } }
+    ]
+  }]);
+  const { weeklyPanel } = await load(file);
+  const rows = weeklyPanel({}).filter(r => r.roster_id === 1).sort((a, b) => a.week - b.week);
+  assert.equal(rows[1].head_to_head_games, 1, 'week 2 had no opponent left to play');
+  assert.equal(rows[1].wins_so_far, 1);
 });

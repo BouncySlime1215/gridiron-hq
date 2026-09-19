@@ -243,10 +243,14 @@ function pickTargets (rosters) {
   const others = (rosters?.teams ?? []).filter(t => String(t.roster_id) !== mine);
   const all = others.flatMap(t => (t.players ?? []).map(p => ({ ...p, roster_id: t.roster_id })))
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0) || a.id - b.id);
-  const carrying = p => {
-    const i = String(p.injury ?? '').trim().toUpperCase();
-    return i && i !== 'ACTIVE' && i !== 'NORMAL';
-  };
+  // `injury` on this response is a 0/1 FLAG, not a designation string
+  // (trade-engine.js:440 sets it to 1 when the player is in the season-ending set or
+  // carries a non-probable report status). An earlier version of this stringified it
+  // and tested the result for emptiness, so "0" passed and every player looked
+  // injured — which is why the second target came back as simply the next most
+  // valuable player, priced ABOVE the healthy one. Test the flag.
+  const carrying = p => p.injury === 1 || p.injury === true
+    || (typeof p.injury === 'string' && !/^(0|active|normal)?$/i.test(p.injury.trim()));
   const top = all[0] ?? null;
   const hurt = all.find(p => carrying(p) && p.id !== top?.id) ?? null;
   return { top, hurt };

@@ -1,0 +1,427 @@
+{
+  "base": "https://gridiron-hq.fly.dev",
+  "captured_at": "2026-09-19T19:58:58.096Z",
+  "note": "Baseline taken before scripts/fit-availability.mjs ran. Merged from two runs (league 3 first, then 1/2/4/5) because the machine answers in short windows. Re-read with --compare to produce the after-difference.",
+  "leagues": [
+    {
+      "league_id": 1,
+      "captured_at": "2026-09-19T20:11:57.136Z",
+      "rosters": {
+        "status": 200,
+        "ms": 1927,
+        "attempts": 1
+      },
+      "my_team_id": "1",
+      "model_context_basis": {
+        "basis": "constants",
+        "missing": [
+          "nfl_availability_rates",
+          "nfl_availability_role_rates"
+        ],
+        "stamp": "absent|absent"
+      },
+      "target_id": 142,
+      "target_name": "Jahmyr Gibbs",
+      "offer": {
+        "status": 200,
+        "ms": 150736,
+        "attempts": 1
+      },
+      "handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.62,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.5895,
+          0.6496
+        ],
+        "horizon_now": 0.567,
+        "horizon_playoff": 0.433,
+        "target": {
+          "id": 142,
+          "name": "Jahmyr Gibbs",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.805,
+          "value": 10700,
+          "adj_ppg": 14.77,
+          "ppg": 15.41,
+          "ros_ppg": 15.41,
+          "floor": 0,
+          "ceiling": 23.3
+        },
+        "their_cost": 5.83,
+        "upside_ppg": 3.96,
+        "upside_ppg_horizon": 3.607,
+        "offers": 3,
+        "error": null,
+        "open_with": {
+          "i_give": "Javonte Williams + Kyren Williams + Marvin Harrison Jr.",
+          "give_value": 11136,
+          "ratio": 1.04,
+          "my_ppg_delta": 3.53,
+          "their_ppg_delta": -3.53,
+          "horizon_value": 3.363,
+          "efficiency": 0.03,
+          "acceptance": null,
+          "perception_delta": null
+        },
+        "response_digest": "362cdb60753762cb"
+      }
+    },
+    {
+      "league_id": 2,
+      "captured_at": "2026-09-19T20:14:29.825Z",
+      "rosters": {
+        "status": 200,
+        "ms": 11625,
+        "attempts": 1
+      },
+      "my_team_id": "4",
+      "model_context_basis": {
+        "basis": "constants",
+        "missing": [
+          "nfl_availability_rates",
+          "nfl_availability_role_rates"
+        ],
+        "stamp": "absent|absent"
+      },
+      "target_id": 142,
+      "target_name": "Jahmyr Gibbs",
+      "offer": {
+        "status": 200,
+        "ms": 187792,
+        "attempts": 1
+      },
+      "handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.63,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.6027,
+          0.6623
+        ],
+        "horizon_now": 0.632,
+        "horizon_playoff": 0.368,
+        "target": {
+          "id": 142,
+          "name": "Jahmyr Gibbs",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.805,
+          "value": 10787,
+          "adj_ppg": 14.77,
+          "ppg": 15.41,
+          "ros_ppg": 15.41,
+          "floor": 0,
+          "ceiling": 23.3
+        },
+        "their_cost": 7.79,
+        "upside_ppg": 3.87,
+        "upside_ppg_horizon": 3.948,
+        "offers": 3,
+        "error": null,
+        "open_with": {
+          "i_give": "Chase Brown + Emeka Egbuka + Deebo Samuel Sr.",
+          "give_value": 10763,
+          "ratio": 1,
+          "my_ppg_delta": 3.69,
+          "their_ppg_delta": -3.77,
+          "horizon_value": 3.645,
+          "efficiency": 0.034,
+          "acceptance": null,
+          "perception_delta": null
+        },
+        "response_digest": "98d4ed3d4ea7a407"
+      }
+    },
+    {
+      "league_id": 3,
+      "captured_at": "2026-09-19T19:58:58.096Z",
+      "rosters": {
+        "status": 200,
+        "ms": 102015,
+        "attempts": 1
+      },
+      "my_team_id": "5",
+      "model_context_basis": {
+        "basis": "constants",
+        "missing": [
+          "nfl_availability_rates",
+          "nfl_availability_role_rates"
+        ],
+        "stamp": "absent|absent"
+      },
+      "target_id": 142,
+      "target_name": "Jahmyr Gibbs",
+      "offer": {
+        "status": 200,
+        "ms": 143428,
+        "attempts": 3
+      },
+      "handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.26,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.2328,
+          0.287
+        ],
+        "horizon_now": 0.806,
+        "horizon_playoff": 0.194,
+        "target": {
+          "id": 142,
+          "name": "Jahmyr Gibbs",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.805,
+          "value": 10787,
+          "adj_ppg": 14.77,
+          "ppg": 15.41,
+          "ros_ppg": 15.41,
+          "floor": 0,
+          "ceiling": 23.3
+        },
+        "their_cost": 5.96,
+        "upside_ppg": 4.83,
+        "upside_ppg_horizon": 4.708,
+        "offers": 1,
+        "error": null,
+        "open_with": {
+          "i_give": "Chase Brown + Ladd McConkey + Devaughn Vele",
+          "give_value": 10751,
+          "ratio": 1,
+          "my_ppg_delta": 3.77,
+          "their_ppg_delta": -3.77,
+          "horizon_value": 3.704,
+          "efficiency": 0.034,
+          "acceptance": null,
+          "perception_delta": null
+        },
+        "response_digest": "60977fc82949c9e5"
+      }
+    },
+    {
+      "league_id": 4,
+      "captured_at": "2026-09-19T20:17:49.257Z",
+      "rosters": {
+        "status": 200,
+        "ms": 10218,
+        "attempts": 1
+      },
+      "my_team_id": "8",
+      "model_context_basis": {
+        "basis": "constants",
+        "missing": [
+          "nfl_availability_rates",
+          "nfl_availability_role_rates"
+        ],
+        "stamp": "absent|absent"
+      },
+      "target_id": 142,
+      "target_name": "Jahmyr Gibbs",
+      "offer": {
+        "status": 200,
+        "ms": 213915,
+        "attempts": 1
+      },
+      "handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.24,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.2146,
+          0.2674
+        ],
+        "horizon_now": 0.758,
+        "horizon_playoff": 0.242,
+        "target": {
+          "id": 142,
+          "name": "Jahmyr Gibbs",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.805,
+          "value": 10700,
+          "adj_ppg": 14.77,
+          "ppg": 15.41,
+          "ros_ppg": 15.41,
+          "floor": 0,
+          "ceiling": 23.3
+        },
+        "their_cost": 6.49,
+        "upside_ppg": 3.87,
+        "upside_ppg_horizon": 3.94,
+        "offers": 4,
+        "error": null,
+        "open_with": {
+          "i_give": "Nico Collins + Zay Flowers + Matthew Golden",
+          "give_value": 10659,
+          "ratio": 1,
+          "my_ppg_delta": 3.87,
+          "their_ppg_delta": -6.49,
+          "horizon_value": 3.549,
+          "efficiency": 0.033,
+          "acceptance": null,
+          "perception_delta": null
+        },
+        "response_digest": "d40107b16731b145"
+      }
+    },
+    {
+      "league_id": 5,
+      "captured_at": "2026-09-19T20:21:33.403Z",
+      "rosters": {
+        "status": 200,
+        "ms": 9412,
+        "attempts": 1
+      },
+      "my_team_id": "4",
+      "model_context_basis": {
+        "basis": "constants",
+        "missing": [
+          "nfl_availability_rates",
+          "nfl_availability_role_rates"
+        ],
+        "stamp": "absent|absent"
+      },
+      "target_id": 142,
+      "target_name": "Jahmyr Gibbs",
+      "offer": {
+        "status": 200,
+        "ms": 140809,
+        "attempts": 1
+      },
+      "handle": {
+        "availability_basis_flat": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "availability_basis": {
+          "basis": "constants",
+          "missing": [
+            "nfl_availability_rates",
+            "nfl_availability_role_rates"
+          ],
+          "stamp": "absent|absent"
+        },
+        "season": 2026,
+        "week": 2,
+        "playoff_odds": 0.9,
+        "playoff_odds_source": "season simulation, 1000 runs from week 2",
+        "playoff_odds_interval": [
+          0.8755,
+          0.9134
+        ],
+        "horizon_now": 0.546,
+        "horizon_playoff": 0.454,
+        "target": {
+          "id": 142,
+          "name": "Jahmyr Gibbs",
+          "position": "RB",
+          "injury_status": null,
+          "practice_status": null,
+          "active_probability": 0.805,
+          "value": 10787,
+          "adj_ppg": 14.77,
+          "ppg": 15.41,
+          "ros_ppg": 15.41,
+          "floor": 0,
+          "ceiling": 23.3
+        },
+        "their_cost": 5.43,
+        "upside_ppg": 5.48,
+        "upside_ppg_horizon": 5.511,
+        "offers": 2,
+        "error": null,
+        "open_with": {
+          "i_give": "Jonathan Taylor + Tyler Warren",
+          "give_value": 11223,
+          "ratio": 1.04,
+          "my_ppg_delta": 1.08,
+          "their_ppg_delta": -1.13,
+          "horizon_value": 0.864,
+          "efficiency": 0.008,
+          "acceptance": null,
+          "perception_delta": null
+        },
+        "response_digest": "a85a51e05e329a86"
+      }
+    }
+  ]
+}

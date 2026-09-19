@@ -187,15 +187,31 @@ function findHandle (body) {
   return { deals: (body?.deals ?? body?.ideas ?? []).length, top: out };
 }
 
-/** Most valuable player on someone else's roster: a stable pick, and one the engine will price. */
-function pickTarget (rosters) {
+/**
+ * Two targets, because the constants are wrong by very different amounts depending
+ * on what the injury report says. A healthy starter is priced about fifteen points
+ * low; a Doubtful player is held at the 0.15 constant against a measured 0.004, and
+ * an Out player at 0.01 against 0.001 (contingency.js:679-695 against the fit's own
+ * held-out numbers). A baseline of healthy players alone would miss the largest
+ * movement the fit produces, and it is the one that moves DOWN.
+ *
+ * Both picks are stable: most valuable first, player id as the tiebreak.
+ */
+function pickTargets (rosters) {
   const mine = String(rosters?.my_team_id ?? '');
   const others = (rosters?.teams ?? []).filter(t => String(t.roster_id) !== mine);
-  const all = others.flatMap(t => (t.players ?? []).map(p => ({ ...p, roster_id: t.roster_id })));
-  return all.sort((a, b) => (b.value ?? 0) - (a.value ?? 0) || a.id - b.id)[0] ?? null;
+  const all = others.flatMap(t => (t.players ?? []).map(p => ({ ...p, roster_id: t.roster_id })))
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0) || a.id - b.id);
+  const carrying = p => {
+    const i = String(p.injury ?? '').trim().toUpperCase();
+    return i && i !== 'ACTIVE' && i !== 'NORMAL';
+  };
+  const top = all[0] ?? null;
+  const hurt = all.find(p => carrying(p) && p.id !== top?.id) ?? null;
+  return { top, hurt };
 }
 
-async function captureLeague (leagueId, forcedTarget) {
+async function captureLeague (leagueId, forcedTarget, forcedHurt) {
   const out = { league_id: leagueId, captured_at: new Date().toISOString() };
   const rosters = await get(`/api/trades/${leagueId}/rosters`);
   out.rosters = { status: rosters.status, ms: rosters.ms, attempts: rosters.attempt };
@@ -206,13 +222,20 @@ async function captureLeague (leagueId, forcedTarget) {
   out.my_team_id = rosters.body.my_team_id ?? null;
   out.model_context_basis = rosters.body.model_context?.availability_basis ?? null;
 
-  const target = forcedTarget
-    ? (rosters.body.teams ?? []).flatMap(t => (t.players ?? []).map(p => ({ ...p, roster_id: t.roster_id })))
-      .find(p => p.id === forcedTarget) ?? { id: forcedTarget, roster_id: null }
-    : pickTarget(rosters.body);
+  const onRoster = id => (rosters.body.teams ?? [])
+    .flatMap(t => (t.players ?? []).map(p => ({ ...p, roster_id: t.roster_id })))
+    .find(p => p.id === id) ?? { id, roster_id: null };
+  const picked = pickTargets(rosters.body);
+  const target = forcedTarget ? onRoster(forcedTarget) : picked.top;
+  const hurt = forcedHurt ? onRoster(forcedHurt) : picked.hurt;
   if (!target) { out.error = 'no player on another roster to price'; return out; }
   out.target_id = target.id;
   out.target_name = target.name ?? null;
+  out.injured_target_id = hurt?.id ?? null;
+  out.injured_target_name = hurt?.name ?? null;
+  // Said rather than left blank: a league where nobody worth trading for is on the
+  // report has no injured reading, and that is not the same as one being missed.
+  if (!hurt) out.injured_target_note = 'no player on another roster carries an injury designation';
 
   const offer = await get(`/api/trades/${leagueId}/offer`
     + `?team_id=${encodeURIComponent(out.my_team_id ?? '')}&player_id=${target.id}`);
@@ -222,6 +245,15 @@ async function captureLeague (leagueId, forcedTarget) {
     return out;
   }
   out.handle = handleFor(offer.body);
+
+  if (hurt) {
+    const hurtOffer = await get(`/api/trades/${leagueId}/offer`
+      + `?team_id=${encodeURIComponent(out.my_team_id ?? '')}&player_id=${hurt.id}`);
+    out.injured_offer = { status: hurtOffer.status, ms: hurtOffer.ms, attempts: hurtOffer.attempt };
+    if (hurtOffer.status === 200 && hurtOffer.body) out.injured_handle = handleFor(hurtOffer.body);
+    else out.injured_error = `injured-target offer failed: ${hurtOffer.status}`
+      + `${hurtOffer.hung ? ' (no response)' : ''}`;
+  }
 
   if (WITH_FIND) {
     const find = await get(`/api/trades/${leagueId}/find`
@@ -250,8 +282,10 @@ function report (before, after) {
     if (was.target_id !== league.target_id) {
       console.log(`  target mismatch: baseline priced ${was.target_id}, this run ${league.target_id}`);
     }
-    const b = new Map([...flatten(was.handle), ...flatten(was.find_handle, 'find.')]);
-    for (const [key, now] of [...flatten(league.handle), ...flatten(league.find_handle, 'find.')]) {
+    const b = new Map([...flatten(was.handle), ...flatten(was.injured_handle, 'injured.'),
+      ...flatten(was.find_handle, 'find.')]);
+    for (const [key, now] of [...flatten(league.handle),
+      ...flatten(league.injured_handle, 'injured.'), ...flatten(league.find_handle, 'find.')]) {
       const then = b.get(key);
       if (JSON.stringify(then) === JSON.stringify(now)) { same++; continue; }
       // A field this script did not record when the baseline was taken is not a
@@ -291,6 +325,13 @@ How to read the above:
                               to fifteen points. The constants price a healthy
                               starter far too low; that is the defect being fixed,
                               not a regression.
+
+  injured.target.*            Expected to FALL, and by far more. The constants hold
+                              a Doubtful player at 0.15 against a measured 0.004 and
+                              an Out player at 0.01 against 0.001, so the injured
+                              reading is where the fit moves most, and it moves
+                              DOWN. A player on the report losing most of his trade
+                              value on fit day is the fix, not a bug.
 
   playoff_odds, horizon_*     Expected to move, and by more than the availability
                               number alone suggests, because the seeded season
@@ -347,14 +388,18 @@ const leagues = baseline ? baseline.leagues.map(l => l.league_id) : LEAGUES;
 const run = { base: BASE, captured_at: new Date().toISOString(), leagues: [] };
 
 for (const id of leagues) {
-  const forced = baseline?.leagues.find(l => l.league_id === id)?.target_id ?? null;
-  const league = await captureLeague(id, forced);
+  const was = baseline?.leagues.find(l => l.league_id === id) ?? null;
+  const league = await captureLeague(id, was?.target_id ?? null, was?.injured_target_id ?? null);
   run.leagues.push(league);
   const basis = league.handle?.availability_basis?.basis ?? league.model_context_basis?.basis ?? '?';
   console.log(`league ${id}: ${league.error ? `FAILED — ${league.error}`
     : `${league.target_name} priced, basis ${basis}, `
       + `active_probability ${league.handle?.target?.active_probability}, `
-      + `playoff odds ${league.handle?.playoff_odds}`}`);
+      + `playoff odds ${league.handle?.playoff_odds}`
+      + (league.injured_handle
+        ? `; ${league.injured_target_name} (${league.injured_handle.target.injury_status ?? 'on the report'}) `
+          + `at ${league.injured_handle.target.active_probability}`
+        : `; ${league.injured_target_note ?? league.injured_error ?? 'no injured reading'}`)}`);
 }
 
 if (baseline) report(baseline, run);

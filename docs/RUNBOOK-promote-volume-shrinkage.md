@@ -27,6 +27,14 @@ HTTP, so they have to run **on the machine holding the live volume** — a shell
 the Fly machine, with `GRIDIRON_DB_PATH` pointing at `/data/data.sqlite` as the
 app itself uses it. There is no route that triggers either of them.
 
+**Check the script is actually on the machine first.**
+`scripts/promote-volume-shrinkage.mjs` does not exist on `main` — it lives only
+on the branch stack (`claude/project-thread-3ldl77-docs` and its ancestors), and
+the live app runs code that is not `main` either. If the deployed image predates
+that stack, the script is not on the machine and step 1 cannot run there at all
+until the branch is deployed. `ls scripts/promote-volume-shrinkage.mjs` in the
+shell settles it in one command; do that before anything else.
+
 That means whoever runs this needs `fly ssh console` access. `GRIDIRON_FLY_TOKEN`
 is an application bearer token, not a Fly API token, so it does not grant that,
 and `flyctl` is not installed in the cloud session. Nick has the access; a cloud
@@ -57,8 +65,13 @@ looking at.
 
 ## Preconditions
 
-1. The app answers. As of 16:30Z on 2026-09-19 `gridiron-hq.fly.dev` had not
-   returned a byte for 25 minutes on any path, including the bare homepage.
+1. The app answers — and note it answers *intermittently*. It returned a full
+   16 KB report at 16:38Z on 2026-09-19, then timed out again at 80 seconds on a
+   different path shortly after, having been dead for 25 minutes before that. A
+   separate thread traced this to heavy scheduler jobs blocking the main thread,
+   which a TCP-only health check cannot see. One successful response is therefore
+   not evidence the machine is healthy enough for a 90-second read-heavy gate;
+   make sure it is responding steadily before starting, and expect to retry.
 2. The live database holds `player_week_usage` for 2021-2025. **Verified
    2026-09-19 16:38Z:** 7,659 / 7,945 / 8,436 / 8,675 / 8,857 rows for 2021-2025,
    18 weeks and 32 teams each. Note 2026 is **0 rows** — the current season has no

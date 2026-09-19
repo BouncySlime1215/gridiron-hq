@@ -7,6 +7,25 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
 
 ## Active
 
+- **Fly.io self-host — in progress, 2026-09-19. NOT yet confirmed deployed.**
+  Nick chose self-host (not full Phase 11 multi-user) after the scheduler fix.
+  Shipped: `6b0e06a` (Dockerfile, fly.toml, `.dockerignore`, `server/index.js`
+  binds `HOST` env var — 0.0.0.0 in prod, still 127.0.0.1 locally), `d1ba0f7`
+  (real security fix — `POST /espn-connect/cookies` was deliberately
+  unauthenticated for the bookmarklet, harmless behind a private tunnel but a
+  free anonymous-hijack on a public hostname; now token-gated, 29/29 tests
+  pass), `69f86ba` (hardened the loopback check against Fly's own proxy
+  headers, defensively). Full detail: memory `gridiron-hq-fly-self-host` and
+  `gridiron-hq-fly-security-gaps`. **Never docker-build-tested** (no docker
+  daemon in the cloud sandbox) and Nick had not gotten a successful
+  `fly deploy` as of this note — he ran `fly ssh console` before `fly launch`
+  and hit "app name missing". **Also still true: no real remote login path**
+  — `local-session` and `pairing-code` both require direct loopback, so a
+  first login on the real Fly URL needs the `fly ssh console` + curl
+  workaround given to Nick in the thread, not a real fix. Next session: check
+  whether `fly launch`/`fly deploy` actually succeeded before assuming any of
+  this runs.
+
 - **`npm start` was broken for everyone; fixed 2026-09-19.** Two independent bugs,
   both found live on Nick's Mac, both pushed to this branch.
   - *`5983e9e` — the one that actually blocked startup.* `start.mjs`'s readiness

@@ -149,7 +149,28 @@ export function refreshReport(name, { force = false } = {}) {
       if (inflight.has(name)) finish(null, `worker exited with code ${code}`);
       reclaimWal();
     });
-    worker.unref();
+    // No `worker.unref()` here, deliberately.
+    //
+    // This promise can only settle from the three handlers above, so the worker
+    // is the only thing keeping the event loop alive while a report computes.
+    // Unref'ing it told Node the loop need not stay up for it, so any caller
+    // that awaited `refreshReport()` in a process with nothing else ref'd got a
+    // silent exit with the promise still pending — Node reports that as
+    // "Promise resolution is still pending but the event loop has already
+    // resolved". That breaks this function's own contract one line up
+    // ("Resolves when stored") and makes `refreshStaleReports()` unsafe to
+    // await anywhere but inside the running server.
+    //
+    // It hid because `server/index.js`'s `app.listen()` handle is ref'd and
+    // holds the loop open, so in production the message always arrived. The
+    // trap is a standalone runner: adding `nfl_reports` to
+    // `scripts/refresh-live-data.mjs`'s job list would exit mid-report and
+    // store nothing, silently.
+    //
+    // unref() bought nothing anyway — the listener already keeps the process
+    // alive and there is no graceful-shutdown handler for it to avoid
+    // delaying. (Contrast `nfl-ai-replay.js`, which unrefs a genuinely
+    // detached `fork()` it never awaits. That one is correct.)
   });
   inflight.set(name, job);
   return job;

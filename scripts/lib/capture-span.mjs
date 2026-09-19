@@ -22,8 +22,39 @@
  */
 export const RESTART_TOLERANCE_MS = 60000;
 
+/**
+ * Whether one health read outlived the process that answered it.
+ *
+ * Fly's edge holds a request against a machine that is going down and replays
+ * it into the machine that comes up, so a read issued before a restart can be
+ * answered after one, with a 200 and no sign of what happened. The tell is in
+ * the response itself: if the process reports less uptime than the request
+ * spent in flight, it did not exist when the request was sent. That makes a
+ * single read prove its own validity, with nothing to compare it against —
+ * which matters because the bracket below can only catch a restart BETWEEN two
+ * reads, never one inside a single slow one.
+ *
+ * Both are needed, and they catch different things. Keep both.
+ */
+export function readCrossedRestart (uptimeS, elapsedMs) {
+  if (!Number.isFinite(uptimeS) || !Number.isFinite(elapsedMs)) return false;
+  // `uptime_s` is rounded to whole seconds (server/platform/health.js:45), so a
+  // read that took 900ms against a process 1s old is not evidence of anything.
+  // Only a process strictly younger than the request's own flight time is.
+  return uptimeS * 1000 < elapsedMs - 1000;
+}
+
 /** Compare two process readings taken at the ends of one capture. */
 export function processSpan (before, after) {
+  // A crossed read is checked FIRST, and deliberately reports `known: true`.
+  // A reading whose own response proves a restart happened during it is not a
+  // failed reading — it is a successful detection, and the strongest one this
+  // module produces. Ordering it after the `read` check below would file it as
+  // "could not tell", which is the opposite of what it established.
+  if (before?.crossed_restart === true || after?.crossed_restart === true) {
+    return { known: true, same_process: false, crossed_restart: true,
+      drift_ms: null, tolerance_ms: RESTART_TOLERANCE_MS };
+  }
   if (!before?.read || !after?.read) {
     return { known: false,
       reason: 'the health read failed at one or both ends, so this capture cannot say '
@@ -31,7 +62,7 @@ export function processSpan (before, after) {
   }
   const driftMs = Math.abs(Date.parse(after.started_at) - Date.parse(before.started_at));
   return { known: true, same_process: driftMs <= RESTART_TOLERANCE_MS,
-    drift_ms: driftMs, tolerance_ms: RESTART_TOLERANCE_MS };
+    crossed_restart: false, drift_ms: driftMs, tolerance_ms: RESTART_TOLERANCE_MS };
 }
 
 /**
@@ -43,6 +74,11 @@ export function processSpan (before, after) {
  */
 export function spanWarning (span, label) {
   if (!span) return `${label}: no process reading was taken, so its comparability is unestablished`;
+  // Before the generic "could not tell", because this one did tell.
+  if (span.crossed_restart) {
+    return `${label}: a health read was answered by a process younger than the request itself, `
+      + 'so the app restarted while that read was in flight';
+  }
   if (!span.known) return `${label}: ${span.reason}`;
   if (!span.same_process) {
     return `${label}: the app restarted mid-capture (derived start moved ${Math.round(span.drift_ms / 1000)}s), `

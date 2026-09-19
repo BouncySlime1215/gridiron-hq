@@ -6,7 +6,15 @@ import { PageError, PageLoading } from '../components/PageState';
 
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE'];
 
-function StatusPill({ status, ratio }: { status: string; ratio: number }) {
+function StatusPill({ status, ratio }: { status: string; ratio: number | null }) {
+  // 'unknown' means nobody in the league has a trade value at this position, so
+  // there is no ratio to show. It used to arrive as a ratio of 0, which read as
+  // a bright red NEED 0% for every team at once.
+  if (status === 'unknown' || ratio == null) {
+    return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-400">
+      NOT PRICED
+    </span>;
+  }
   const style = status === 'need' ? 'bg-crit-tint text-crit'
     : status === 'surplus' ? 'bg-good-tint text-good'
     : 'bg-slate-100 text-slate-500';
@@ -140,15 +148,30 @@ export default function Leagues() {
         {!leaguesLoading && !leaguesError && leagues?.length === 0 && <p className="text-sm text-slate-500">No leagues connected yet.</p>}
       </div>
 
-      {analysis?.empty && (
-        <div className="card p-6 text-sm text-slate-500">{analysis.message}</div>
+      {(analysis?.empty || analysis?.values_missing) && (
+        <div className="card p-6 text-sm text-slate-500">
+          <p>{analysis.message}</p>
+          {analysis.coverage?.rostered_in_payload > 0 && (
+            <p className="mt-2 text-xs text-slate-400">
+              {analysis.coverage.matched_to_player_table} of {analysis.coverage.rostered_in_payload} rostered
+              players matched the local player table, {analysis.coverage.priced} of them with a trade value.
+            </p>
+          )}
+        </div>
       )}
 
-      {analysis && !analysis.empty && (
+      {analysis && !analysis.empty && !analysis.values_missing && (
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-200">
             <h2 className="font-bold text-sm">{analysis.league.name} — roster strength by position</h2>
             <p className="text-xs text-slate-500">Starter value vs league average, priced off real FantasyCalc trade values. Under 80% = need, over 115% = surplus.</p>
+            {analysis.coverage && analysis.coverage.matched_to_player_table < analysis.coverage.rostered_in_payload && (
+              <p className="text-xs text-warn mt-1">
+                Only {analysis.coverage.matched_to_player_table} of {analysis.coverage.rostered_in_payload} rostered
+                players matched the local player table — the rest are missing from the rows below, so depth and
+                starter value are both understated.
+              </p>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">

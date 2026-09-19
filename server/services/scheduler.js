@@ -879,6 +879,86 @@ async function refreshNflDecisionLedger() {
  */
 const T60_EXPERIMENT_ID = 'nfl-spread-t60-prospective-v1';
 
+/**
+ * The nflverse player ID crosswalk: espn_id -> gsis_id.
+ *
+ * The hinge of the whole fantasy chain. `players.gsis_id` is what weekly usage
+ * is keyed on, and on the live app it was null on every row — which is why
+ * every nflverse-derived table was empty even though the feeds were reachable.
+ * players.csv is ~7 MB, hence offThread.
+ */
+async function refreshNflverseCrosswalk() {
+  const { syncCrosswalk } = await import('./nflverse.js');
+  // The crosswalk matches on espn_id, so it can do nothing until the ESPN
+  // player sync above has populated some. Reporting that as a skip with the
+  // reason beats throwing: an error here would start a backoff over a
+  // precondition that is about to be satisfied by another job.
+  const withEspnId = row('SELECT COUNT(*) n FROM players WHERE espn_id IS NOT NULL')?.n ?? 0;
+  if (!withEspnId) return { skipped: 'no player carries an espn_id yet — player_rosters must land first' };
+  return syncCrosswalk();
+}
+
+/**
+ * Weekly player usage for the CURRENT season only.
+ *
+ * Deliberately not the multi-season backfill that /api/nfl/nflverse/sync runs:
+ * this is the in-season job, and each season is its own file (about 0.5 MB in
+ * week 2, a few MB by January). The backfill stays a manual, on-demand call.
+ * Six hours because nflverse settles a week's stats a day or two after the
+ * games; a six-hour check lands within hours of the file appearing and costs
+ * one conditional download when it has not.
+ */
+async function refreshNflverseWeeklyUsage() {
+  const { syncWeeklyUsage } = await import('./nflverse.js');
+  const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+  const mapped = row('SELECT COUNT(*) n FROM players WHERE gsis_id IS NOT NULL')?.n ?? 0;
+  // syncWeeklyUsage throws on this condition; catching it here instead keeps
+  // an ordering gap out of the error log and off the failure backoff.
+  if (!mapped) return { skipped: 'no player carries a gsis_id yet — nflverse_crosswalk must land first' };
+  return syncWeeklyUsage(season);
+}
+
+/** Snap counts for the current season — matched on name+position, so no gsis_id needed. */
+async function refreshNflverseSnapCounts() {
+  const { syncSnapCounts } = await import('./nflverse.js');
+  const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+  return syncSnapCounts(season);
+}
+
+/**
+ * ESPN's slot-level depth charts, NOT nflverse's.
+ *
+ * Measured 2026-09-19 before choosing: nflverse's own depth_charts_2026.csv is
+ * already 51 MB in week 2 and grows every week, because it carries a row per
+ * player per team per game. Putting that on a timer on a 2 GB machine is how
+ * the OOM kills come back. ESPN's core API is per team, small, and is what the
+ * app already reads for slot_code.
+ */
+async function refreshEspnDepthChart() {
+  const { syncDepthChart } = await import('../routes/nfldata.js');
+  return syncDepthChart();
+}
+
+/** ESPN season projections and prior-year actuals — the projection source the lineup tools read. */
+async function refreshEspnSeasonStats() {
+  const { syncStats } = await import('../routes/stats.js');
+  return syncStats();
+}
+
+/**
+ * Sleeper's player universe: a second, independent read of who exists, plus
+ * the only source of `sleeper_id` and the injury flag.
+ */
+async function refreshSleeperPlayers() {
+  const { syncSleeper } = await import('../routes/aggregates.js');
+  const result = await syncSleeper();
+  // This job exists to write rows. Matching nothing means the player table it
+  // joins against is empty or unrecognizable, which is a broken state and not
+  // a successful sync, however cleanly the fetch returned.
+  if (!result?.matched) return { ...result, error: 'matched no players — the player universe is empty or unmatched' };
+  return result;
+}
+
 export const JOBS = {
   mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, tier: 'live', label: 'MLB schedule and results' },
   mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, tier: 'heavy', label: 'MLB player game logs' },
@@ -887,6 +967,48 @@ export const JOBS = {
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, tier: 'heavy', label: "Tomorrow's MLB picks" },
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live',
     label: 'Player team assignments — the actual fix for stale roster spots' },
+  /*
+   * THE FANTASY INGESTION CHAIN.
+   *
+   * Everything below was registered in source-registry.js's MANUAL_SOURCES —
+   * "runs when someone calls its /sync route, no timer, by design". Nobody
+   * ever called those routes, so on the deployed app the player universe was
+   * 448 seed rows with no external ids on any of them, and `player_week_usage`,
+   * `player_week_snaps` and the projections were empty. AUTO_HEAVY_SYNC was
+   * never the reason: these were not gated behind a flag, they were not
+   * scheduled at all, so switching that flag on changed nothing for any of
+   * them.
+   *
+   * ORDER MATTERS AND IS LOAD-BEARING. A tier runs its jobs in the order they
+   * appear in this object (see jobsInTier), and this chain has real
+   * dependencies: `player_rosters` above puts espn_id on players, the
+   * crosswalk maps espn_id to gsis_id, and weekly usage is keyed on gsis_id
+   * and throws outright without it. Keep these five in this order.
+   *
+   * They are 'growth', not 'heavy', deliberately. 'heavy' means "only when
+   * AUTO_HEAVY_SYNC is set", and putting the core fantasy feeds behind an
+   * opt-in flag is how they came to have never run. What they actually need is
+   * not to block the request thread, and that is `offThread`, which is a
+   * separate property for exactly this reason.
+   */
+  nflverse_crosswalk: {
+    run: refreshNflverseCrosswalk, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
+    label: 'nflverse player ID crosswalk (gsis_id — every weekly stat is keyed on it)' },
+  nflverse_weekly_usage: {
+    run: refreshNflverseWeeklyUsage, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
+    label: 'nflverse weekly player usage for the current season' },
+  nflverse_snap_counts: {
+    run: refreshNflverseSnapCounts, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
+    label: 'nflverse snap counts for the current season' },
+  espn_depth_chart: {
+    run: refreshEspnDepthChart, maxAgeMinutes: 12 * 60, tier: 'growth',
+    label: 'ESPN slot-level depth charts (32 teams)' },
+  espn_season_stats: {
+    run: refreshEspnSeasonStats, maxAgeMinutes: 24 * 60, tier: 'growth',
+    label: 'ESPN season projections and prior-year actuals' },
+  sleeper_players: {
+    run: refreshSleeperPlayers, maxAgeMinutes: 24 * 60, tier: 'growth',
+    label: 'Sleeper player universe (sleeper_id, overall rank, injury flag)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
   league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live',

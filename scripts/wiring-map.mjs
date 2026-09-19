@@ -526,8 +526,41 @@ function identifierCounts(code) {
  * therefore reads as declared-and-abandoned unless those parts are counted
  * back in.
  */
-function valueUsageCounts({ code }) {
-  return identifierCounts(code);
+function valueUsageCounts({ code, strings = [] }) {
+  const counts = identifierCounts(code);
+  for (const [w, c] of identifierCounts(interpolations(strings))) {
+    counts.set(w, (counts.get(w) ?? 0) + c);
+  }
+  return counts;
+}
+
+/**
+ * The `${...}` bodies of template literals, joined as code.
+ *
+ * Brace-matched rather than regex-matched, because an interpolation can hold
+ * an object literal or a nested ternary: `${x ? { a: 1 } : y}` ends at the LAST
+ * brace, not the first. A nested template's own interpolation is reached on a
+ * later pass of the scan, which is why the counts are additive and not exact —
+ * over-counting a name only ever silences this rule, and a value wrongly called
+ * abandoned is far more expensive than one wrongly left alone.
+ */
+function interpolations(strings) {
+  const out = [];
+  for (const s of strings) {
+    const body = s.text ?? '';
+    for (let i = body.indexOf('${'); i !== -1; i = body.indexOf('${', i + 2)) {
+      let j = i + 2, depth = 1;
+      while (j < body.length && depth > 0) {
+        if (body[j] === '{') depth++;
+        else if (body[j] === '}') depth--;
+        j++;
+      }
+      // An unterminated interpolation means the scan ended mid-literal; take
+      // what is there rather than dropping the whole file's counts.
+      out.push(body.slice(i + 2, depth === 0 ? j - 1 : body.length));
+    }
+  }
+  return out.join('\n');
 }
 
 
@@ -2075,7 +2108,7 @@ function toMarkdown(model, found, ann) {
 // running the CLI, and so another script can ask the map a question.
 // ---------------------------------------------------------------------------
 
-export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts };
+export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

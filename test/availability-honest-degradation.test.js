@@ -205,3 +205,16 @@ test('the Start/Sit page renders the note instead of leaving it on the wire', ()
   assert.match(src, /availability_note/, 'the lineup page reads the degradation note');
   assert.match(src, /\.reason/, 'and renders its reason, not just its existence');
 });
+
+test('the Start/Sit page labels the fitted state too, not only the broken one', () => {
+  // The asymmetry this closes: a degraded percentage got a panel and a fitted one got
+  // nothing, so "74% likely to play" rendered identically whether it was measured or a
+  // hand-set constant standing in for a measurement. The reader could not tell them
+  // apart from the number, which is the same defect the panel exists to prevent —
+  // it was simply waiting for the next time the tables went missing.
+  const src = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
+  assert.match(src, /availability_basis\?\.basis === 'role'/,
+    'the page reads the basis, not just the absence of a note');
+  assert.match(src, /measured rate from the fitted availability/,
+    'and says so on the fitted path instead of rendering nothing');
+});

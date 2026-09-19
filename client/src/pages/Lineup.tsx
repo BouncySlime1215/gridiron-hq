@@ -157,9 +157,15 @@ export default function Lineup() {
       {/* Honest degradation, not a confident wrong number. Every "x% likely to play" on
           this page comes from the fitted availability model; when that model is not the
           validated role layer the percentages are systematically low for healthy
-          starters (a starter with no injury at all reads ~57%), so the page says which
-          model is talking and why before anyone acts on one. */}
-      {d?.availability_note && (
+          starters (a starter with no injury at all reads ~57% against an actual 94.5%),
+          so the page says which model is talking and why before anyone acts on one.
+
+          It says so in BOTH states, which is the point. A percentage that looks measured
+          and is not is the defect; a percentage that IS measured and goes unlabelled is
+          the same defect waiting for the next time the tables go missing, because the
+          reader has no way to tell the two apart from the number alone. So the fitted
+          path gets a line too — quieter, since nothing is wrong, but present. */}
+      {d?.availability_note ? (
         <section role="status"
           className="tr-rise rounded-2xl border border-slate-300 bg-slate-50 p-4" style={{ animationDelay: '70ms' }}>
           <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">
@@ -171,7 +177,12 @@ export default function Lineup() {
           <p className="mt-1 text-sm leading-6 text-slate-600">{d.availability_note.effect}.</p>
           <p className="mt-1 text-xs leading-5 text-slate-500">To fix: {d.availability_note.fix}.</p>
         </section>
-      )}
+      ) : d?.availability_basis?.basis === 'role' ? (
+        <p role="status" className="text-xs leading-5 text-slate-500">
+          Every chance to play on this page is a measured rate from the fitted availability
+          model, fit on 2021&ndash;2024 and validated on a held-out 2025.
+        </p>
+      ) : null}
 
       {d?.warnings?.length > 0 && (
         <section className="tr-rise rounded-2xl border border-amber-200 bg-amber-50/60 p-4" style={{ animationDelay: '80ms' }}>

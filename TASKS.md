@@ -180,8 +180,43 @@ Last updated: 2026-09-19, new cloud session on `cursor/betting-model-audit-fixes
        `prop-clv-free-capture` (3) and `report-cache` (3). Neither had reported
        at the time of writing. **Do not record either as clean without its
        verdict** — that is exactly the gap that left blocker 1 open overnight.
-    3. **WA integration / final verify pass** still has not started. It is the
-       last WA item; after it, B1's State column goes WA -> Done and WO+WB opens.
+    3. ~~**WA integration / final verify pass** still has not started.~~ **DONE,
+       and the suite is fully green for the first time.** `npm run check`, all
+       five stages, on `eaf2be8`:
+
+       | stage | result |
+       |---|---|
+       | typecheck | 0 |
+       | lint | 0 (837 files) |
+       | test | **2,769 tests / 2,728 pass / 0 fail / 0 cancelled / 41 skip**, 418s |
+       | build | 0 |
+       | start:smoke | 0 — "startup smoke passed on isolated database (32 teams)" |
+
+       **21 failures + 3 cancelled at the start of this session -> zero**, and
+       roughly 4x faster. Both independent verify agents have now reported, and
+       both overturned something this session had written down and believed
+       (see the two corrections above, and the newest B3 entry).
+
+    4. **WHAT STILL GATES `WA -> Done` AND WO+WB — neither can be settled from a
+       cloud box, and neither is a judgement call.**
+       - **B1's State column needs WA's RUN RECORD**, not its blockers being
+         closed. A5/A2 are explicit: "its own completion, not just its latest
+         commit". That record is workflow `wf_90ebcd25-088`, whose journal lives
+         under `~/.claude/projects/-Users-nick-matta-Claude/...` on the Mac. The
+         three blockers this session closed were the *code* half of WA's tail;
+         they are not the run record and must not be recorded as it. **B1 is
+         deliberately left `Running`.**
+       - **The usage gate cannot be run here.** A2 rule 10: "before launching ANY
+         workflow, run `~/claude-handoff/usage.sh` — TOO CLOSE means do not
+         launch." `~/claude-handoff/` **does not exist in a cloud box** (checked,
+         not assumed). The last recorded reading was **96%, TOO CLOSE**. So the
+         rule's own answer for an unknown reading is the conservative one: do not
+         launch WO+WB from here.
+       - **What this session did instead of launching:** finished WA's tail to a
+         green `npm run check`, closed both blockers, root-caused the last six
+         failures, and fixed three defects nobody had found (a worker-lifetime
+         contract break, a data-corruption race in `nfl_cached_reports`, and a
+         test time bomb). WO+WB is prepped, not started.
 
 - **STOPPED CLEANLY 2026-09-19, ~06:50Z, at Nick's request ("stop all the work
   safely — starting a new session"). Read this first.**

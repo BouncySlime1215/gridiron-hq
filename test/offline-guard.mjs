@@ -73,6 +73,55 @@ process.env.GRIDIRON_MARKET_CORRECTION_LOOKUP ??= '/nonexistent/market-correctio
 // synthetic ensemble fixture's key space in any fixture-based test.
 process.env.GRIDIRON_TEAMRANKINGS_LOOKUP ??= '/nonexistent/teamrankings-lookup.json';
 
+/**
+ * Same discipline again, for the environment itself.
+ *
+ * The network guard above makes it impossible to REACH a provider. It does
+ * nothing about code that only asks whether a provider is CONFIGURED, and this
+ * repo asks that constantly: every feed gates on `Boolean(process.env.X)`
+ * before it builds a request, and `getApiKey()` reads
+ * GRIDIRON_ANTHROPIC_API_KEY, then ANTHROPIC_API_KEY, then app_settings. So a
+ * box with keys in it ran a different suite from a box without, on the same
+ * commit — six tests' worth, measured both ways before this was written.
+ *
+ * Two of those tests assert a not-configured path directly. The third is
+ * collateral: `startAiBlindReplay()` throws when there is no key, and *runs*
+ * when there is one — forking a detached worker that writes to the same
+ * database the suite is reading. A credential in the environment was enough to
+ * start real background work in the middle of a test run.
+ *
+ * Clearing is the right verb, not `??=`. The two lookups above are redirected
+ * to a path that cannot exist because the code needs *a* value; a credential
+ * needs to be absent, because absent is what every one of these call sites
+ * tests for. A placeholder would read as configured and be worse than the
+ * real key.
+ *
+ * This runs at `--import` time, before any test module is evaluated, so a test
+ * that wants a key can still set one and be the only thing that decided it —
+ * `nfl-news-events.test.js:21` and `page-explain.test.js` already work this
+ * way, and both keep working, because this removes only what the box supplied.
+ *
+ * The list is credentials, by hand, from
+ * `grep -rhoE 'process\.env\.[A-Z0-9_]*(KEY|TOKEN|SECRET)[A-Z0-9_]*' server/ scripts/`,
+ * minus LAUNCHER_KEY_FILE, which is a path that test/launcher.test.js sets for
+ * itself. It is not a `*_KEY`-shaped regex on purpose: a pattern would sweep up
+ * the next path or feature flag someone names that way and break a passing test
+ * from a distance.
+ */
+export const PROVIDER_CREDENTIAL_ENV = Object.freeze([
+  'AI_GATEWAY_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'CFBD_API_KEY',
+  'GRIDIRON_ANTHROPIC_API_KEY',
+  'ODDS_API_KEY',
+  'PARLAY_API_KEY',
+  'PFF_API_TOKEN',
+  'SPORTSGAMEODDS_API_KEY',
+  'TWITTERAPI_IO_KEY',
+]);
+
+for (const name of PROVIDER_CREDENTIAL_ENV) delete process.env[name];
+
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0']);
 
 /**

@@ -25,8 +25,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  verifyProposals, cacheKeyFor, proposalsFor, PROMPT_VERSION, REQUIRED_PROPOSAL_FIELDS,
+  verifyProposals, cacheKeyFor, proposalsFor, proposalsPrompt, liveCaller,
+  PROMPT_VERSION, REQUIRED_PROPOSAL_FIELDS,
 } from '../server/services/trade-proposals.js';
+import { budgetKeyFor, DEFAULT_DAILY_BUDGETS_USD, PRICING } from '../server/services/llm-budget.js';
 
 /* ------------------------------------------------------------- fixtures */
 
@@ -217,3 +219,189 @@ function memCache() {
   const m = new Map();
   return { get: k => m.get(k) ?? null, set: (k, v) => { m.set(k, v); } };
 }
+
+/* ======================================================================
+ * Adversarial second pass (verify:sendable-proposals, 2026-09-19).
+ *
+ * Every test below is a way a fabricated player or number reached Nick past
+ * the first version of the verifier. They were written as a batch of repros
+ * BEFORE the fixes, and each one names the smuggle it closes. The point of
+ * this file is not that good proposals pass — it is that bad ones cannot.
+ * ====================================================================== */
+
+/* ------------------------------------------- V: players, however they are written */
+
+test('V a surname on its own is caught — league-mates are texted by surname, not by full name', () => {
+  // The fixture's own opener says "Waddle for Achane". If only full names are
+  // matched, the ONE form the model actually writes in is the one that is free.
+  const bad = proposal({ opener: 'Waddle for Achane? I can add Mahomes if you need a QB.' });
+  const r = verifyProposals([bad], [idea()], { universe });
+  assert.equal(r.ok.length, 0, 'a surname is a name');
+  assert.ok(r.rejected[0].violations.some(v => /Mahomes/.test(v)));
+});
+
+test('V a name in a different case is caught', () => {
+  const bad = proposal({ opener: 'waddle for achane, plus patrick mahomes on my side.' });
+  const r = verifyProposals([bad], [idea()], { universe });
+  assert.equal(r.ok.length, 0);
+  assert.ok(r.rejected[0].violations.some(v => /Mahomes/i.test(v)));
+});
+
+test('V a name split by a line break or an odd space is caught', () => {
+  for (const gap of ['\n', ' ', '  ']) {
+    const bad = proposal({ opener: `Waddle for Achane, and I will add Patrick${gap}Mahomes.` });
+    const r = verifyProposals([bad], [idea()], { universe });
+    assert.equal(r.ok.length, 0, `a ${JSON.stringify(gap)} between the names is still the name`);
+  }
+});
+
+test('V the surnames of players that ARE in the cited ideas still pass', () => {
+  // The strict direction has a cost too: this is the guard that the fix above
+  // does not start rejecting every ordinary sentence Nick would actually send.
+  const good = proposal({ opener: 'Waddle for Achane straight up?',
+    why_they_say_yes: 'Achane is the upside swing and Waddle is the safer week.' });
+  const r = verifyProposals([good], [idea()], { universe });
+  assert.equal(r.rejected.length, 0, `unexpected: ${JSON.stringify(r.rejected)}`);
+});
+
+test('V a typographic apostrophe is the same player, not an invented one', () => {
+  // A model writing prose renders De'Von as De’Von. Exact string matching calls
+  // that a fabricated player and throws away a correct proposal.
+  const good = proposal({ package: { i_give: ['Jaylen Waddle'], i_get: ['De’Von Achane'] } });
+  const r = verifyProposals([good], [idea()], { universe });
+  assert.equal(r.rejected.length, 0, `unexpected: ${JSON.stringify(r.rejected)}`);
+});
+
+test('V the package must be structured, so a swap cannot hide in a prose string', () => {
+  const bad = proposal({ package: 'Waddle plus a bench flier for Achane' });
+  const r = verifyProposals([bad], [idea()], { universe });
+  assert.equal(r.ok.length, 0, 'an unstructured package skips the name check entirely');
+  assert.ok(r.rejected[0].violations.some(v => /package/.test(v)));
+});
+
+/* ---------------------------------------------- V: numbers, wherever they are put */
+
+test('V a number returned as JSON rather than inside a sentence is still verified', () => {
+  // The prompt asks for "ask / fair / floor" and "which numbers you leaned on".
+  // A model answering those with JSON numbers was never checked at all.
+  const bad = proposal({ ask: 4800, fair: 4200, floor: 3900 });
+  const r = verifyProposals([bad], [idea()], { universe });
+  assert.equal(r.ok.length, 0, 'a number is a number whether or not it is quoted');
+  assert.ok(r.rejected[0].violations.some(v => /4800/.test(v)));
+});
+
+test('V a fabricated number nested in data_used is caught', () => {
+  const bad = proposal({ data_used: { their_value_gain_pct: 23, my_ppg_gain: 4.8 } });
+  const r = verifyProposals([bad], [idea()], { universe });
+  assert.equal(r.ok.length, 0);
+  assert.ok(r.rejected[0].violations.some(v => /23|4\.8/.test(v)));
+});
+
+test('V a real number returned as JSON still passes', () => {
+  const good = proposal({ data_used: { my_ppg_gain: 2.4, their_value_pct: 6 } });
+  const r = verifyProposals([good], [idea()], { universe });
+  assert.equal(r.rejected.length, 0, `unexpected: ${JSON.stringify(r.rejected)}`);
+});
+
+test('V nothing hides under a nested idea_ids key', () => {
+  // idea_ids is skipped as structure — but only the real one at the top level.
+  const bad = proposal({ data_used: { idea_ids: 'He is averaging 27.4 ppg over his last three.' } });
+  const r = verifyProposals([bad], [idea()], { universe });
+  assert.equal(r.ok.length, 0);
+  assert.ok(r.rejected[0].violations.some(v => /27\.4/.test(v)));
+});
+
+test('V a ppg delta does not license the same digits as a yardage claim', () => {
+  // me.ppg_delta is 2.4, and every number was allowed at n*100 "as a percentage",
+  // which quietly made 240 a verified number.
+  const bad = proposal({ risk: 'He is averaging 240 receiving yards a game, so this may not hold.' });
+  const r = verifyProposals([bad], [idea()], { universe });
+  assert.equal(r.ok.length, 0, '2.4 points a week is not 240 of anything');
+  assert.ok(r.rejected[0].violations.some(v => /240/.test(v)));
+});
+
+test('V a real RATE may still be written as a percentage', () => {
+  const good = proposal({ why_they_say_yes: 'He says yes about 31% of the time on deals like this.' });
+  const r = verifyProposals([good], [idea()], { universe });
+  assert.equal(r.rejected.length, 0, `0.31 written as 31% is the same number: ${JSON.stringify(r.rejected)}`);
+});
+
+test('V a decimal written without its leading zero is read, not skipped', () => {
+  const bad = proposal({ why_they_say_yes: 'You win this trade .85 of the time.' });
+  const r = verifyProposals([bad], [idea()], { universe });
+  assert.equal(r.ok.length, 0, '.85 is a number even though it does not start with a digit');
+});
+
+test('V a real value written with a thousands separator is not read as two numbers', () => {
+  const good = proposal({ data_used: ['his value is 3,400 against my 3,200'] });
+  const r = verifyProposals([good], [idea()], { universe });
+  assert.equal(r.rejected.length, 0, `unexpected: ${JSON.stringify(r.rejected)}`);
+});
+
+/* ------------------------------------------------------------- V: the shape (G6) */
+
+test('V an empty required field is as missing as an absent one', () => {
+  for (const [field, empty] of [['opener', ''], ['risk', '   '], ['data_used', []], ['timing', {}]]) {
+    const r = verifyProposals([proposal({ [field]: empty })], [idea()], { universe });
+    assert.equal(r.ok.length, 0, `${field} = ${JSON.stringify(empty)} is not a ${field}`);
+    assert.ok(r.rejected[0].violations.some(v => v.includes(field)));
+  }
+});
+
+/* ----------------------------------------------------- V: the cache and the wiring */
+
+test('V the cache key covers everything the prompt shows the model', () => {
+  // A key that hashes a subset of the prompt serves yesterday's answer for a
+  // slate whose reasoning has changed — the partner, the tactic, the timing.
+  const a = idea();
+  const b = idea({ partner: 'Dan', partner_id: '7',
+    tactics: [{ key: 'post_loss', why: 'he just lost by 40' }] });
+  assert.notEqual(proposalsPrompt([a]), proposalsPrompt([b]), 'the model is shown different things');
+  assert.notEqual(cacheKeyFor(4, [a]), cacheKeyFor(4, [b]),
+    'so it must not be served the other one from cache');
+});
+
+test('V ideas that arrive without a usable id are refused BEFORE the model is called', () => {
+  // findTrades' deals carry no `id` (trade-engine.js:1656). Handed those, every
+  // proposal is untraceable and rejected — after paying for the call, and the
+  // refusal is not cached, so the next page load pays again.
+  let called = 0;
+  const call = async () => { called++; return '[]'; };
+  const noId = { ...idea() }; delete noId.id;
+  return proposalsFor(4, { ideas: [noId], universe, call, cache: memCache() }).then(r => {
+    assert.equal(called, 0, 'an untraceable slate must not be paid for');
+    assert.equal(r.proposals.length, 0);
+    assert.equal(r.refused, true);
+    assert.match(r.reason, /id/i, 'the reason says what is wrong with the slate');
+  });
+});
+
+test('V two ideas sharing one id are refused, not silently collapsed', async () => {
+  let called = 0;
+  const call = async () => { called++; return '[]'; };
+  const r = await proposalsFor(4, { ideas: [idea(), idea()], universe, call, cache: memCache() });
+  assert.equal(called, 0);
+  assert.equal(r.refused, true, 'one id cannot stand for two different packages');
+});
+
+test('V a cached row that is not a proposals payload is a miss, not an empty success', async () => {
+  let called = 0;
+  const cache = { get: () => ({}), set: () => { called += 0; } };
+  const call = async () => { called++; return JSON.stringify([proposal()]); };
+  const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache });
+  assert.equal(called, 1, 'a corrupt row costs one re-spend, it does not empty Trade Lab');
+  assert.equal(r.proposals.length, 1);
+  assert.notEqual(r.source, 'cache');
+});
+
+test('G2 liveCaller asks for a model we can price, on a key that has a real budget', async () => {
+  // If the feature string ever drifts off `trade_proposals:...`, budgetKeyFor
+  // resolves to a key with no default budget and reserveBudget becomes a no-op:
+  // the daily cap silently stops existing. This pins that it resolves.
+  let sent = null;
+  await liveCaller(async args => { sent = args; return '[]'; })({ leagueId: 4, ideas: [idea()] });
+  assert.match(sent.feature, /^trade_proposals:league-4$/);
+  assert.ok(Object.hasOwn(DEFAULT_DAILY_BUDGETS_USD, budgetKeyFor(sent.feature)),
+    `budgetKeyFor(${sent.feature}) must be a budgeted key, or the call is uncapped`);
+  assert.ok(Object.hasOwn(PRICING, sent.model), `${sent.model} must be a priced model`);
+});

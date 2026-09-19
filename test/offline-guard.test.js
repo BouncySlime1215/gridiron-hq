@@ -130,3 +130,80 @@ test('localhost is still reachable — over fetch, over http.request, and over a
     await once(server, 'close');
   }
 });
+
+/* ------------------------------------------------ ambient credentials
+ * The guard makes the network hermetic. It did not make the ENVIRONMENT
+ * hermetic, and that gap cost a session.
+ *
+ * Measured, not supposed: on a box carrying this project's real keys,
+ * `test/model-integrity.test.js` fails 3 of 94 and
+ * `test/nfl-prospective-collection.test.js` fails 3 of 9. Strip the keys from
+ * the same commit and both files pass 94/94 and 9/9. The suite's result was a
+ * property of which machine ran it.
+ *
+ * Two of those were tests asserting a not-configured path —
+ * `startAiBlindReplay()` must throw "No Claude API key configured",
+ * `evidenceDaemonStatus().odds_feed` must be false — which are true only where
+ * nobody added the key. The third was worse: once `startAiBlindReplay()` stops
+ * throwing it runs, inserting a row and forking a detached worker that
+ * reconstructs ensembles against the same SQLite file, which corrupts the
+ * unrelated test 14 cases later ("historical ensemble weights…"). That one
+ * passes in isolation and fails in file order — the signature of state
+ * escaping a test, not of a bug in the test that reports it.
+ *
+ * So the credentials are cleared here, at the same seam and for the same
+ * reason as the two research-export paths above: a suite whose verdict depends
+ * on the box it runs on cannot be used as a baseline, and a "14 known
+ * failures" number is worth nothing if it is really "14 on that laptop".
+ *
+ * A test that wants a key sets its own, after this module has run —
+ * `nfl-news-events.test.js` and `page-explain.test.js` both already do.
+ * Clearing here never fights them; it only removes what the box supplied.
+ */
+test('the guard clears ambient provider credentials, whatever the box supplied', async () => {
+  const { PROVIDER_CREDENTIAL_ENV } = await import('./offline-guard.mjs');
+  assert.ok(PROVIDER_CREDENTIAL_ENV.length > 0, 'the guard names no credentials at all');
+  for (const name of PROVIDER_CREDENTIAL_ENV) {
+    assert.equal(process.env[name], undefined,
+      `${name} is still visible to the test run — this box does not run the suite the same way an empty one does`);
+  }
+});
+
+/**
+ * The assertion above passes for free on a box that never had the keys, which
+ * is exactly the box where the bug hid. This one proves the mechanism instead
+ * of the ambient state: a child process is given real-looking credentials and
+ * must not be able to see them once the guard has loaded.
+ */
+test('a box that really has the keys still starts the run without them', async () => {
+  const { PROVIDER_CREDENTIAL_ENV } = await import('./offline-guard.mjs');
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+
+  const planted = Object.fromEntries(PROVIDER_CREDENTIAL_ENV.map(n => [n, `planted-${n}`]));
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    ['--import', './test/offline-guard.mjs', '-e',
+      'console.log(JSON.stringify(Object.fromEntries(' +
+      `${JSON.stringify(PROVIDER_CREDENTIAL_ENV)}.map(n => [n, process.env[n] ?? null]))))`],
+    { cwd: process.cwd(), env: { ...process.env, ...planted } });
+
+  const seen = JSON.parse(stdout);
+  const leaked = Object.entries(seen).filter(([, v]) => v !== null).map(([k]) => k);
+  assert.deepEqual(leaked, [],
+    `the guard let real credentials through to the run: ${leaked.join(', ')}`);
+});
+
+/**
+ * `LAUNCHER_KEY_FILE` is a path, not a secret, and `test/launcher.test.js:39`
+ * sets it itself. Clearing it would break a passing test for no gain, so the
+ * list is deliberately credentials only — pinned here so a later edit that
+ * sweeps in every `*_KEY*` name fails loudly instead of quietly.
+ */
+test('the cleared list is credentials only, not every name that looks like one', async () => {
+  const { PROVIDER_CREDENTIAL_ENV } = await import('./offline-guard.mjs');
+  assert.ok(!PROVIDER_CREDENTIAL_ENV.includes('LAUNCHER_KEY_FILE'),
+    'LAUNCHER_KEY_FILE is a file path that test/launcher.test.js sets for itself');
+  assert.ok(!PROVIDER_CREDENTIAL_ENV.includes('GRIDIRON_DB_PATH'),
+    'GRIDIRON_DB_PATH is how the suite points itself at a scratch database');
+});

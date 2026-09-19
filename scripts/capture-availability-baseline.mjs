@@ -150,6 +150,18 @@ function handleFor (offer) {
       // Acceptance is edge-derived, so it moves when valuations move even though
       // nothing in the counterparty layer reads availability.
       acceptance: open.counterparty?.acceptance ?? open.acceptance ?? null,
+      // The counterparty block is this stack's OWN fingerprint, and it is disjoint
+      // from availability: counterparty_data is false everywhere today because no
+      // manager signals have ever been built on the machine, so receptiveness is a
+      // flat 1 and perception_factor a flat 1.000. When the signals route and the
+      // manager read deploy, these become real numbers and every deal score moves —
+      // for a reason that has nothing to do with the availability fit.
+      counterparty_data: open.counterparty?.counterparty_data ?? null,
+      receptiveness: num(open.counterparty?.receptiveness),
+      manager_factor: num(open.counterparty?.manager_factor),
+      perception_factor: num(open.counterparty?.perception_factor),
+      tier: open.counterparty?.tier ?? null,
+      chat_msgs: num(open.counterparty?.chat_msgs),
       perception_delta: num(open.counterparty?.perception_delta)
     } : null,
     response_digest: digest(offer ?? null)
@@ -242,6 +254,13 @@ function report (before, after) {
     for (const [key, now] of [...flatten(league.handle), ...flatten(league.find_handle, 'find.')]) {
       const then = b.get(key);
       if (JSON.stringify(then) === JSON.stringify(now)) { same++; continue; }
+      // A field this script did not record when the baseline was taken is not a
+      // measured change, and printing it as one would pad the count with the
+      // script's own history.
+      if (!b.has(key)) {
+        console.log(`  ${key}: ${JSON.stringify(now)} (not recorded in the baseline)`);
+        continue;
+      }
       moved++;
       const delta = Number.isFinite(then) && Number.isFinite(now)
         ? ` (${now - then > 0 ? '+' : ''}${+(now - then).toFixed(4)})` : '';
@@ -305,6 +324,13 @@ How to read the above:
                               own reads are not affected by the route default,
                               because trade-engine.js:1317 passes the served week
                               explicitly.
+
+  open_with.counterparty.*    This block is THIS stack's fingerprint and moves for
+                              its own reasons: counterparty_data false -> true,
+                              receptiveness and perception_factor away from a flat
+                              1, once the signals route ships and a build has run.
+                              None of it is availability. Read it to separate the
+                              Trade Brain's own effect from the fit's.
 
   everything unchanged        Suspect the reading before the fit. A route that
                               memoises without a data fingerprint returns the old

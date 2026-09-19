@@ -1909,12 +1909,30 @@ if (INVOKED_DIRECTLY) {
     // opinions — so they gate too. The other two describe a shape that is
     // often deliberate, and a gate that fails on opinions gets switched off.
     const GATING = new Set(['column-read-never-written', 'producer-with-no-caller']);
+    // A WHOLE NEW MODULE that reaches no surface gates as well, which is the
+    // only orphan rule that does. The rest of the orphan family is judgement:
+    // deleting a dead export is a call somebody has to make, and 992 of them
+    // cannot each be a build failure. A new FILE is different. Something was
+    // designed, written, tested, documented and connected to nothing, and the
+    // suite went green because every test it has imports it directly. That is
+    // the exact failure this project keeps hitting, and prose has not stopped
+    // it: three defects were written down tonight and acted on by nobody.
+    //
+    // The escape hatch is deliberate rather than silent. Landing a module
+    // unwired on purpose — the first half of a two-PR sequence, a research
+    // module — means adding `module:<path>` to expected_orphans with a reason.
+    // That is one line in a review, which is the point: somebody says out loud
+    // that it is not wired yet, instead of nothing happening.
+    const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested']);
     const accepted = ann.accepted_missing_feeds ?? [];
+    const orphanOk = new Set((ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []));
     const blocking = found.filter(f =>
-      (f.kind === 'missing-feed' || (f.kind === 'should-wire' && GATING.has(f.rule)))
+      (f.kind === 'missing-feed' || (f.kind === 'should-wire' && GATING.has(f.rule))
+        || (NEW_ORPHAN.has(f.rule) && !orphanOk.has(f.subject) && !orphanOk.has(`module:${f.subject}`)))
       && !accepted.includes(f.subject) && !accepted.includes(`${f.rule} ${f.subject}`));
     if (blocking.length) {
-      console.error(`\n${blocking.length} MISSING FEED finding(s) — a surface depends on something nothing produces:`);
+      console.error(`\n${blocking.length} blocking finding(s) — something a surface needs that nothing `
+        + 'produces, or something built and wired to nothing:');
       for (const f of blocking) console.error(`  ${f.rule} ${f.subject} — ${f.detail}`);
     console.error('\nBefore treating any of these as broken, read what this map cannot see:');
     for (const l of LIMITS) console.error(`  * ${l.split('.')[0]}.`);

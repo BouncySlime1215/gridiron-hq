@@ -302,3 +302,106 @@ test('migration 063 hands the install-wide pair to the account that owns the lea
       `app_settings.${key} must not survive the migration`);
   }
 });
+
+/**
+ * Everything above this line tests the RESOLVER. That is the producer, and a
+ * producer that refuses correctly proves nothing about whether its callers
+ * actually go through it — the bug being fixed was two call sites that each
+ * had their own copy of the lookup. So this tests the CONSUMER: the function
+ * that really talks to ESPN, with the network watched.
+ *
+ * The assertion that matters is not that it throws. It is that `fetch` is
+ * never reached. A private ESPN league fetched with no cookies does not fail:
+ * ESPN answers 200 with a thin public payload, and the reconciler writes that
+ * down as though the draft were empty. A loud failure here is the only thing
+ * standing between "not connected" and "connected, and the league is empty".
+ */
+test('the draft fetch never reaches ESPN for a league with no connection', async () => {
+  reset();
+  const { fetchDraftDetail } = await import('../server/services/espn-draft.js');
+  const orphan = league({ id: 61, name: 'Nobody Connected', owner: GUEST, role: 'member' });
+
+  let calls = 0;
+  globalThis.fetch = async (...args) => { calls++; return realFetch(...args); };
+  let err = null;
+  try { await fetchDraftDetail(9061, 2026, orphan); } catch (e) { err = e; }
+  globalThis.fetch = realFetch;
+
+  assert.ok(err instanceof EspnCredentialsMissing,
+    'a missing connection must be its own error, not an empty-looking draft');
+  assert.equal(calls, 0, 'ESPN must not be asked anonymously: a 200 with a thin payload is worse than a throw');
+  assert.match(err.message, /Nobody Connected/, 'the message names the league, not just "ESPN"');
+  assert.equal(err.status, 409);
+});
+
+/**
+ * `down()`, exercised rather than asserted.
+ *
+ * A rollback here is not a code rollback. Dropping `espn_credentials` without
+ * putting the pair back where the pre-063 code reads it would leave an older
+ * image running and disconnected, and there is no source to re-derive a
+ * cookie pair from — it lives in Nick's browser, or nowhere.
+ */
+test('migration 063 down() puts the pair back where the old code reads it', async () => {
+  const { up, down } = await import('../server/migrations/063_espn_credentials.js');
+  reset();
+  run(`DELETE FROM app_settings WHERE key IN ('espn_s2','swid','espn_connect_token')`);
+  run(`DELETE FROM espn_credentials`);
+
+  // Not borrowed from the test above it: this test owns its own fixture.
+  if (!row(`SELECT 1 FROM users WHERE subject='gridiron-local-owner'`)) {
+    run(`INSERT INTO users (subject, display_name) VALUES ('gridiron-local-owner', 'Owner')`);
+  }
+  const ownerId = row(`SELECT id FROM users WHERE subject='gridiron-local-owner'`).id;
+  run(`INSERT INTO espn_credentials (user_id, espn_s2, swid, connect_token, updated_at)
+       VALUES (?,?,?,?,datetime('now'))`, ownerId, NICK_S2, NICK_SWID, 'token-before-rollback');
+
+  down(db);
+
+  const setting = k => row(`SELECT value FROM app_settings WHERE key = ?`, k)?.value ?? null;
+  assert.equal(setting('espn_s2'), NICK_S2, 'an older image boots still connected');
+  assert.equal(setting('swid'), NICK_SWID);
+  assert.equal(setting('espn_connect_token'), 'token-before-rollback',
+    'and the bookmarklet in the bookmarks bar still matches');
+  assert.equal(row(`SELECT name FROM sqlite_master WHERE type='table' AND name='espn_credentials'`), undefined,
+    'the table is gone, so the pre-063 code cannot half-read it');
+
+  // And forward again, which is the real shape of a recovery: roll back,
+  // fix, redeploy. The pair has to survive the round trip, not just one leg.
+  up(db);
+  const carried = row('SELECT * FROM espn_credentials WHERE user_id = ?', ownerId);
+  assert.equal(carried.espn_s2, NICK_S2, 'up-down-up is not a disconnection');
+  assert.equal(carried.connect_token, 'token-before-rollback');
+});
+
+/**
+ * The fallback branch of the migration, which nothing else covers.
+ *
+ * `gridiron-local-owner` exists on this deployment, so the primary branch is
+ * the one that will actually run tonight. But the fallback is what runs on any
+ * database that never went through the loopback path, and an untested branch
+ * in a migration is a branch that gets discovered during a deploy.
+ */
+test('migration 063 falls back to the commissioner when there is no local owner', async () => {
+  const { up } = await import('../server/migrations/063_espn_credentials.js');
+  reset();
+  run(`DELETE FROM espn_credentials`);
+  run(`DELETE FROM app_settings WHERE key IN ('espn_s2','swid','espn_connect_token')`);
+
+  // No `gridiron-local-owner` row at all: rename it out of the way.
+  run(`UPDATE users SET subject='was-local-owner' WHERE subject='gridiron-local-owner'`);
+  try {
+    league({ id: 71, name: 'Older League', owner: NICK, fetched: '2026-09-01T00:00:00Z' });
+    league({ id: 72, name: 'Most Recent League', owner: GUEST, fetched: '2026-09-18T00:00:00Z' });
+    run(`INSERT INTO app_settings (key, value) VALUES ('espn_s2', ?), ('swid', ?)`, NICK_S2, NICK_SWID);
+
+    up(db);
+
+    assert.equal(row(`SELECT espn_s2 FROM espn_credentials WHERE user_id = ?`, GUEST)?.espn_s2, NICK_S2,
+      'the commissioner of the most recently fetched ESPN league takes ownership');
+    assert.equal(row(`SELECT 1 AS found FROM espn_credentials WHERE user_id = ? AND espn_s2 IS NOT NULL`, NICK)?.found,
+      undefined, 'and nobody else receives a copy of the pair');
+  } finally {
+    run(`UPDATE users SET subject='gridiron-local-owner' WHERE subject='was-local-owner'`);
+  }
+});

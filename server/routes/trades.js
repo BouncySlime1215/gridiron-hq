@@ -564,7 +564,32 @@ r.post('/managers/rebuild', requirePlatformAdmin, (req, res, next) => {
     if (ids && !ids.length) {
       return res.status(400).json({ error: 'league_ids was given but holds no usable league id' });
     }
-    const out = refreshManagerData(ids ? { leagueIds: ids } : {});
+    // Which league owns the chat corpus is read from confirmed identities, and
+    // nothing but this route and the build script ever writes one. On a box
+    // where neither has run, an uploaded corpus attaches to no league at all,
+    // so the first run needs to be told who is who: a roster id to the name
+    // that person posts under. matchIdentities stores those as 'confirmed',
+    // so it only has to be said once.
+    const confirmations = req.body?.confirmations;
+    if (confirmations != null && (typeof confirmations !== 'object' || Array.isArray(confirmations))) {
+      return res.status(400).json({ error: 'confirmations must be an object of league id -> { roster_id: chat name }' });
+    }
+    for (const [leagueId, map] of Object.entries(confirmations ?? {})) {
+      if (!Number.isFinite(Number(leagueId)) || typeof map !== 'object' || map == null || Array.isArray(map)) {
+        return res.status(400).json({ error: `confirmations["${leagueId}"] must be an object of roster_id -> chat name` });
+      }
+      for (const [rosterId, chatName] of Object.entries(map)) {
+        if (typeof chatName !== 'string' || !chatName.trim()) {
+          return res.status(400).json({
+            error: `confirmations["${leagueId}"]["${rosterId}"] must be the name that person posts under`,
+          });
+        }
+      }
+    }
+    const out = refreshManagerData({
+      ...(ids ? { leagueIds: ids } : {}),
+      ...(confirmations ? { confirmations } : {}),
+    });
     res.json({
       status: out.status, chat_db: out.chat_db, ms: out.ms, requested: ids,
       leagues: (out.leagues ?? []).map(l => ({

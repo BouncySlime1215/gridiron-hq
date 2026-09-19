@@ -276,6 +276,21 @@ const qbrRows = dbRows('SELECT season, COUNT(*) c FROM nfl_qbr_weekly GROUP BY s
 console.log('\nnfl_qbr_weekly coverage (the gate is sensitive to this):',
   qbrRows.length ? qbrRows.map(r => `${r.season}:${r.c}`).join(' ') : 'EMPTY — no rows in any season');
 
+/* Counts, not season names, and weeks alongside them. A half-ingested season is
+ * what an OOM-killed sync leaves behind, and it is invisible to any check that
+ * asks which seasons exist rather than how much of each one does. The gate would
+ * grade a season with three weeks in it without complaint and report a verdict
+ * that looks exactly like a real one. Expect ~18 weeks and several thousand rows
+ * for a complete season; anything far below that means the replay is standing on
+ * a partial history and the verdict should not be trusted. */
+const usageRows = dbRows(
+  `SELECT season, COUNT(*) c, COUNT(DISTINCT week) w FROM player_week_usage
+    WHERE season IN (${SEASONS.join(',')}) GROUP BY season ORDER BY season`);
+const missing = SEASONS.filter(s => !usageRows.some(r => Number(r.season) === s));
+console.log('player_week_usage in the graded seasons:',
+  usageRows.map(r => `${r.season}:${r.c} rows/${r.w} weeks`).join('  ') || 'NONE',
+  missing.length ? `— MISSING ENTIRELY: ${missing.join(', ')}` : '');
+
 console.log('\nGATE', JSON.stringify(gate, null, 2));
 const pass = Object.values(gate).every(Boolean);
 if (!pass) { console.log('GATE FAILED — nothing written; production keeps the hand-picked constants.'); process.exit(1); }

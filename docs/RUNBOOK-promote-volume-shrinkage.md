@@ -90,8 +90,13 @@ looking at.
    which a TCP-only health check cannot see. One successful response is therefore
    not evidence the machine is healthy enough for a 90-second read-heavy gate;
    make sure it is responding steadily before starting, and expect to retry.
-2. The live database holds `player_week_usage` for 2021-2025. **Verified
-   2026-09-19 16:38Z:** 7,659 / 7,945 / 8,436 / 8,675 / 8,857 rows for 2021-2025,
+2. The live database holds `player_week_usage` for 2021-2025 — **and holds all of
+   each season, not merely some of it.** Step 1 now prints row and week counts
+   for each graded season and names any that is missing, so you do not have to
+   take this on trust; expect 18 weeks and several thousand rows each. A
+   half-ingested season is what an OOM-killed sync leaves behind, and before this
+   the gate would have graded one without complaint and returned a verdict that
+   looked exactly like a real one. **Verified 2026-09-19 16:38Z:** 7,659 / 7,945 / 8,436 / 8,675 / 8,857 rows for 2021-2025,
    18 weeks and 32 teams each. Note 2026 is **0 rows** — the current season has no
    usage data on the live app at all, which does not block the gate (it replays
    2023-2025) but does mean this week's projections have no 2026 usage under them.

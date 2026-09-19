@@ -15,7 +15,7 @@ const settings = [];
 for (const seasonDecay of [0.35, 0.20, 0.10, 0.05, 0]) {
   for (const weekHalfLife of [null, 12, 8, 5, 3]) settings.push({ seasonDecay, weekHalfLife });
 }
-const common = { startWeek: 5, endWeek: 18, distributions: false, kOverride: activeKVector() };
+const common = { startWeek: 5, endWeek: 18, distributions: false, kOverride: undefined /* cutoff-safe default: shrinkage-fit.js cutoffSafeKVector */ };
 const replay = (season, roleRecency, distributions = false) => replaySeasonWeekly(season, {
   ...common, roleRecency, distributions, runs: distributions ? 300 : 200
 });

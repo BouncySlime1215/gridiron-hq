@@ -34,13 +34,21 @@
  *     the same sample (cheap: pure in-process Monte Carlo, no DB, no
  *     ensemble fit).
  */
+import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { writeFileSync } from 'node:fs';
 
+// The marker below identified the production database by its old Artifacts path. That file was
+// deleted on 2026-09-16 and the real database now lives at server/data.sqlite, so the marker
+// stopped matching it -- leaving this worker free to run against production. Resolve the real
+// path and refuse it directly; the old marker stays as a catch for stale env values.
 const dbPath = process.env.GRIDIRON_DB_PATH;
 const REAL_MARKER = 'fantasy-football-dashboard/server/data.sqlite';
-if (!dbPath || dbPath.includes(REAL_MARKER)) {
-  throw new Error('Refusing to run: GRIDIRON_DB_PATH must point at a /tmp validation snapshot, not the real database.');
+const REAL_DB = new URL('../server/data.sqlite', import.meta.url).pathname;
+if (!dbPath
+    || path.resolve(dbPath) === path.resolve(REAL_DB)
+    || dbPath.includes(REAL_MARKER)) {
+  throw new Error('Refusing to run: GRIDIRON_DB_PATH must point at a validation snapshot, not the real database.');
 }
 if (!existsSync(dbPath)) {
   throw new Error(`GRIDIRON_DB_PATH does not exist: ${dbPath}. Run scripts/_prepare-validation-db.mjs first.`);

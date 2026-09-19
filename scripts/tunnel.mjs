@@ -14,7 +14,9 @@
 import { spawn, spawnSync } from 'node:child_process';
 
 const PORT = process.env.API_PORT || 5177;
-const LOCAL = `http://localhost:${PORT}`;
+// 127.0.0.1, not localhost — see the note in scripts/start.mjs. Keep this in
+// step with launcher.mjs's startTunnel(), which matches on this exact string.
+const LOCAL = `http://127.0.0.1:${PORT}`;
 
 // launchd (the launcher spawns this) runs with a minimal PATH that doesn't
 // include Homebrew, so the bare command name resolves in a terminal but not here.
@@ -29,8 +31,11 @@ if (spawnSync(CLOUDFLARED, ['--version'], { stdio: 'ignore' }).error) {
 let ready = false;
 for (let attempt = 0; attempt < 10 && !ready; attempt++) {
   try {
-    const res = await fetch(`${LOCAL}/api/teams`, { signal: AbortSignal.timeout(8000) });
-    ready = res.ok;
+    // /api/model/status is unauthenticated; /api/teams is not and answers 401
+    // to this probe, which would make the app look permanently down. Any reply
+    // proves the server is listening.
+    await fetch(`${LOCAL}/api/model/status`, { signal: AbortSignal.timeout(8000) });
+    ready = true;
   } catch { /* retry */ }
   if (!ready) await new Promise(r => setTimeout(r, 1500));
 }

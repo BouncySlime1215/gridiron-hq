@@ -1,0 +1,4806 @@
+{
+ "rows": [
+  {
+   "id": "T02",
+   "rep": 2,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.11,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.02,
+   "sound_mean": 0.39,
+   "sound_probs": {
+    "fatally_flawed": 0.61,
+    "serious_gaps": 0.39,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0.01,
+    "market_backtest": 0.98,
+    "code_defect": 0,
+    "refutation": 0.01
+   },
+   "tokens": 1392
+  },
+  {
+   "id": "T01",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.09,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.14,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.44,
+   "sound_probs": {
+    "fatally_flawed": 0.62,
+    "serious_gaps": 0.33,
+    "adequate": 0.05,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0,
+    "market_backtest": 0.99,
+    "code_defect": 0,
+    "other": 0.01
+   },
+   "tokens": 1554
+  },
+  {
+   "id": "T01",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.09,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.12,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.43,
+   "sound_probs": {
+    "fatally_flawed": 0.62,
+    "serious_gaps": 0.33,
+    "adequate": 0.05,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0.01,
+    "code_defect": 0,
+    "market_backtest": 0.99,
+    "refutation": 0
+   },
+   "tokens": 1554
+  },
+  {
+   "id": "T01",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.14,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.5,
+   "sound_probs": {
+    "fatally_flawed": 0.56,
+    "serious_gaps": 0.38,
+    "adequate": 0.06,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "market_backtest": 0.99,
+    "refutation": 0,
+    "other": 0.01
+   },
+   "tokens": 1554
+  },
+  {
+   "id": "T02",
+   "rep": 0,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.11,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.43,
+   "sound_probs": {
+    "fatally_flawed": 0.57,
+    "serious_gaps": 0.43,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0.01,
+    "refutation": 0.01,
+    "market_backtest": 0.98,
+    "code_defect": 0
+   },
+   "tokens": 1392
+  },
+  {
+   "id": "T02",
+   "rep": 1,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.1,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.46,
+   "sound_probs": {
+    "fatally_flawed": 0.54,
+    "serious_gaps": 0.46,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0.01,
+    "code_defect": 0,
+    "market_backtest": 0.98,
+    "refutation": 0.01
+   },
+   "tokens": 1392
+  },
+  {
+   "id": "T03",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.11,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.29,
+   "multiplicity_corrected": 0.7,
+   "sound_mean": 0.66,
+   "sound_probs": {
+    "fatally_flawed": 0.36,
+    "serious_gaps": 0.63,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.02,
+    "refutation": 0.98,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1439
+  },
+  {
+   "id": "T03",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.11,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.25,
+   "multiplicity_corrected": 0.7,
+   "sound_mean": 0.71,
+   "sound_probs": {
+    "fatally_flawed": 0.3,
+    "serious_gaps": 0.6900000000000001,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0.98,
+    "code_defect": 0,
+    "market_backtest": 0.02
+   },
+   "tokens": 1439
+  },
+  {
+   "id": "T03",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.1,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.26,
+   "multiplicity_corrected": 0.72,
+   "sound_mean": 0.73,
+   "sound_probs": {
+    "fatally_flawed": 0.28,
+    "serious_gaps": 0.71,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.02,
+    "code_defect": 0,
+    "refutation": 0.98,
+    "other": 0
+   },
+   "tokens": 1439
+  },
+  {
+   "id": "T04",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 0.33,
+   "sound_probs": {
+    "fatally_flawed": 0.67,
+    "serious_gaps": 0.33,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0.94,
+    "market_backtest": 0.06,
+    "code_defect": 0
+   },
+   "tokens": 1398
+  },
+  {
+   "id": "T05",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.14,
+   "game_clustered": 0.92,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.12,
+   "sound_mean": 0.65,
+   "sound_probs": {
+    "fatally_flawed": 0.37,
+    "serious_gaps": 0.61,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0,
+    "market_backtest": 1,
+    "code_defect": 0
+   },
+   "tokens": 1771
+  },
+  {
+   "id": "T06A",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.46,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.2,
+   "sound_probs": {
+    "fatally_flawed": 0.81,
+    "serious_gaps": 0.19,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 1,
+    "refutation": 0,
+    "code_defect": 0,
+    "other": 0
+   },
+   "tokens": 1426
+  },
+  {
+   "id": "T05",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.15,
+   "game_clustered": 0.92,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.1,
+   "sound_mean": 0.72,
+   "sound_probs": {
+    "fatally_flawed": 0.31,
+    "serious_gaps": 0.66,
+    "adequate": 0.03,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0,
+    "other": 0,
+    "code_defect": 0,
+    "market_backtest": 1
+   },
+   "tokens": 1771
+  },
+  {
+   "id": "T04",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.07,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.08,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 0.29,
+   "sound_probs": {
+    "fatally_flawed": 0.71,
+    "serious_gaps": 0.29,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.06,
+    "code_defect": 0,
+    "refutation": 0.94,
+    "other": 0
+   },
+   "tokens": 1398
+  },
+  {
+   "id": "T04",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.07,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 0.33,
+   "sound_probs": {
+    "fatally_flawed": 0.67,
+    "serious_gaps": 0.33,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.91,
+    "code_defect": 0,
+    "market_backtest": 0.09,
+    "other": 0
+   },
+   "tokens": 1398
+  },
+  {
+   "id": "T05",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.14,
+   "game_clustered": 0.92,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.1,
+   "sound_mean": 0.72,
+   "sound_probs": {
+    "fatally_flawed": 0.31,
+    "serious_gaps": 0.67,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 1,
+    "refutation": 0,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1771
+  },
+  {
+   "id": "T06A",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.5,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.31,
+   "sound_probs": {
+    "fatally_flawed": 0.7,
+    "serious_gaps": 0.29,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0,
+    "market_backtest": 1,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1426
+  },
+  {
+   "id": "T06B",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.11,
+   "game_clustered": 0.14,
+   "has_baseline_control": 0.25,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.34,
+   "sound_probs": {
+    "fatally_flawed": 0.09,
+    "serious_gaps": 0.52,
+    "adequate": 0.36,
+    "rigorous": 0.03,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.4,
+    "other": 0,
+    "refutation": 0.6,
+    "code_defect": 0
+   },
+   "tokens": 1729
+  },
+  {
+   "id": "T06B",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.09,
+   "game_clustered": 0.2,
+   "has_baseline_control": 0.26,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.39,
+   "sound_probs": {
+    "fatally_flawed": 0.08,
+    "serious_gaps": 0.5,
+    "adequate": 0.38,
+    "rigorous": 0.04,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.64,
+    "code_defect": 0,
+    "other": 0,
+    "market_backtest": 0.36
+   },
+   "tokens": 1729
+  },
+  {
+   "id": "T07",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.19,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.89,
+   "sound_probs": {
+    "fatally_flawed": 0.21,
+    "serious_gaps": 0.7,
+    "adequate": 0.09,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.05,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.95
+   },
+   "tokens": 1456
+  },
+  {
+   "id": "T06A",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.09,
+   "game_clustered": 0.4,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.28,
+   "sound_probs": {
+    "fatally_flawed": 0.73,
+    "serious_gaps": 0.26,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0,
+    "market_backtest": 1
+   },
+   "tokens": 1426
+  },
+  {
+   "id": "T08",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.16,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.87,
+   "sound_probs": {
+    "fatally_flawed": 0.2,
+    "serious_gaps": 0.74,
+    "adequate": 0.06,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 0,
+    "market_backtest": 0.76,
+    "refutation": 0.24
+   },
+   "tokens": 1505
+  },
+  {
+   "id": "T07",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.19,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.97,
+   "sound_probs": {
+    "fatally_flawed": 0.16,
+    "serious_gaps": 0.72,
+    "adequate": 0.12,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "market_backtest": 0.04,
+    "refutation": 0.96,
+    "code_defect": 0
+   },
+   "tokens": 1456
+  },
+  {
+   "id": "T09",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.13,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.08,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.91,
+   "sound_probs": {
+    "fatally_flawed": 0.13,
+    "serious_gaps": 0.83,
+    "adequate": 0.04,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0.62,
+    "market_backtest": 0.38,
+    "code_defect": 0
+   },
+   "tokens": 1441
+  },
+  {
+   "id": "T08",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.17,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.9,
+   "sound_probs": {
+    "fatally_flawed": 0.17,
+    "serious_gaps": 0.77,
+    "adequate": 0.06,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0.24,
+    "code_defect": 0,
+    "market_backtest": 0.76
+   },
+   "tokens": 1505
+  },
+  {
+   "id": "T06B",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.11,
+   "game_clustered": 0.18,
+   "has_baseline_control": 0.3,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.33,
+   "sound_probs": {
+    "fatally_flawed": 0.07,
+    "serious_gaps": 0.56,
+    "adequate": 0.33,
+    "rigorous": 0.03,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.7,
+    "market_backtest": 0.3
+   },
+   "tokens": 1729
+  },
+  {
+   "id": "T08",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.16,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.92,
+   "sound_probs": {
+    "fatally_flawed": 0.16,
+    "serious_gaps": 0.77,
+    "adequate": 0.07,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.31,
+    "market_backtest": 0.69,
+    "code_defect": 0,
+    "other": 0
+   },
+   "tokens": 1505
+  },
+  {
+   "id": "T09",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.13,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.1,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.9,
+   "sound_probs": {
+    "fatally_flawed": 0.13,
+    "serious_gaps": 0.84,
+    "adequate": 0.03,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0.62,
+    "market_backtest": 0.38,
+    "other": 0
+   },
+   "tokens": 1441
+  },
+  {
+   "id": "T09",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.15,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.1,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.9,
+   "sound_probs": {
+    "fatally_flawed": 0.14,
+    "serious_gaps": 0.83,
+    "adequate": 0.03,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "market_backtest": 0.41,
+    "refutation": 0.58,
+    "other": 0.01
+   },
+   "tokens": 1441
+  },
+  {
+   "id": "T10",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.23,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.74,
+   "sound_probs": {
+    "fatally_flawed": 0.13,
+    "serious_gaps": 0.2,
+    "adequate": 0.47000000000000003,
+    "rigorous": 0.2,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.21,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.79
+   },
+   "tokens": 1442
+  },
+  {
+   "id": "T07",
+   "rep": 0,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.18,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.08,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.94,
+   "sound_probs": {
+    "fatally_flawed": 0.17,
+    "serious_gaps": 0.72,
+    "adequate": 0.11,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.05,
+    "other": 0,
+    "refutation": 0.95,
+    "code_defect": 0
+   },
+   "tokens": 1456
+  },
+  {
+   "id": "T10",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.2,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.81,
+   "sound_probs": {
+    "fatally_flawed": 0.12,
+    "serious_gaps": 0.18,
+    "adequate": 0.47,
+    "rigorous": 0.22,
+    "exemplary": 0.01
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.83,
+    "market_backtest": 0.17,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1442
+  },
+  {
+   "id": "T10",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.23,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.08,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.75,
+   "sound_probs": {
+    "fatally_flawed": 0.12,
+    "serious_gaps": 0.21,
+    "adequate": 0.47,
+    "rigorous": 0.19,
+    "exemplary": 0.01
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 0,
+    "market_backtest": 0.2,
+    "refutation": 0.8
+   },
+   "tokens": 1442
+  },
+  {
+   "id": "T11",
+   "rep": 0,
+   "has_placebo": 0.51,
+   "is_price_aware": 0.2,
+   "game_clustered": 0.1,
+   "has_baseline_control": 0.74,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 1.11,
+   "sound_probs": {
+    "fatally_flawed": 0.02,
+    "serious_gaps": 0.85,
+    "adequate": 0.13,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "market_backtest": 0.06,
+    "refutation": 0.94,
+    "code_defect": 0
+   },
+   "tokens": 1466
+  },
+  {
+   "id": "T11",
+   "rep": 1,
+   "has_placebo": 0.52,
+   "is_price_aware": 0.21,
+   "game_clustered": 0.1,
+   "has_baseline_control": 0.75,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 1.1,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.84,
+    "adequate": 0.13,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.94,
+    "other": 0,
+    "market_backtest": 0.06,
+    "code_defect": 0
+   },
+   "tokens": 1466
+  },
+  {
+   "id": "T11",
+   "rep": 2,
+   "has_placebo": 0.57,
+   "is_price_aware": 0.19,
+   "game_clustered": 0.1,
+   "has_baseline_control": 0.76,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 1.11,
+   "sound_probs": {
+    "fatally_flawed": 0.02,
+    "serious_gaps": 0.85,
+    "adequate": 0.13,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.05,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.95
+   },
+   "tokens": 1466
+  },
+  {
+   "id": "T12",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.25,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.89,
+   "sound_probs": {
+    "fatally_flawed": 0.13,
+    "serious_gaps": 0.85,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "market_backtest": 0.44,
+    "refutation": 0.56,
+    "other": 0
+   },
+   "tokens": 1446
+  },
+  {
+   "id": "T12",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.26,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.08,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.87,
+   "sound_probs": {
+    "fatally_flawed": 0.16,
+    "serious_gaps": 0.82,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.43,
+    "other": 0,
+    "refutation": 0.57,
+    "code_defect": 0
+   },
+   "tokens": 1446
+  },
+  {
+   "id": "T13",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.81,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.96,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.82,
+   "sound_probs": {
+    "fatally_flawed": 0,
+    "serious_gaps": 0.21,
+    "adequate": 0.76,
+    "rigorous": 0.03,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.7,
+    "refutation": 0.3,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1652
+  },
+  {
+   "id": "T12",
+   "rep": 0,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.25,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.85,
+   "sound_probs": {
+    "fatally_flawed": 0.16,
+    "serious_gaps": 0.83,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.46,
+    "other": 0,
+    "refutation": 0.54,
+    "code_defect": 0
+   },
+   "tokens": 1446
+  },
+  {
+   "id": "T13",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.82,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.96,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.85,
+   "sound_probs": {
+    "fatally_flawed": 0,
+    "serious_gaps": 0.18,
+    "adequate": 0.78,
+    "rigorous": 0.04,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.26,
+    "market_backtest": 0.74,
+    "code_defect": 0,
+    "other": 0
+   },
+   "tokens": 1652
+  },
+  {
+   "id": "T13",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.81,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.96,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.89,
+   "sound_probs": {
+    "fatally_flawed": 0,
+    "serious_gaps": 0.15,
+    "adequate": 0.81,
+    "rigorous": 0.04,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0.29,
+    "market_backtest": 0.71,
+    "other": 0
+   },
+   "tokens": 1652
+  },
+  {
+   "id": "T15",
+   "rep": 0,
+   "has_placebo": 0.05,
+   "is_price_aware": 0.34,
+   "game_clustered": 0.81,
+   "has_baseline_control": 0.88,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 1.94,
+   "sound_probs": {
+    "fatally_flawed": 0.06,
+    "serious_gaps": 0.18,
+    "adequate": 0.56,
+    "rigorous": 0.17,
+    "exemplary": 0.03
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.86,
+    "code_defect": 0,
+    "market_backtest": 0.14,
+    "other": 0
+   },
+   "tokens": 1464
+  },
+  {
+   "id": "T14",
+   "rep": 1,
+   "has_placebo": 0.1,
+   "is_price_aware": 0.86,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.29,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 1.99,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.22,
+    "adequate": 0.53,
+    "rigorous": 0.24,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.13,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.87
+   },
+   "tokens": 1478
+  },
+  {
+   "id": "T15",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.35,
+   "game_clustered": 0.82,
+   "has_baseline_control": 0.87,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 1.86,
+   "sound_probs": {
+    "fatally_flawed": 0.06,
+    "serious_gaps": 0.23,
+    "adequate": 0.52,
+    "rigorous": 0.16,
+    "exemplary": 0.03
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "market_backtest": 0.07,
+    "other": 0,
+    "refutation": 0.93
+   },
+   "tokens": 1464
+  },
+  {
+   "id": "T14",
+   "rep": 0,
+   "has_placebo": 0.11,
+   "is_price_aware": 0.86,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.3,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 1.94,
+   "sound_probs": {
+    "fatally_flawed": 0.02,
+    "serious_gaps": 0.24,
+    "adequate": 0.53,
+    "rigorous": 0.21,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.09,
+    "other": 0,
+    "refutation": 0.91,
+    "code_defect": 0
+   },
+   "tokens": 1478
+  },
+  {
+   "id": "T16",
+   "rep": 0,
+   "has_placebo": 0.05,
+   "is_price_aware": 0.56,
+   "game_clustered": 0.6,
+   "has_baseline_control": 0.93,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 2.19,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.16,
+    "adequate": 0.47,
+    "rigorous": 0.34,
+    "exemplary": 0.02
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0,
+    "other": 0,
+    "market_backtest": 1
+   },
+   "tokens": 1733
+  },
+  {
+   "id": "T15",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.35,
+   "game_clustered": 0.82,
+   "has_baseline_control": 0.89,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 1.96,
+   "sound_probs": {
+    "fatally_flawed": 0.05,
+    "serious_gaps": 0.19,
+    "adequate": 0.55,
+    "rigorous": 0.17,
+    "exemplary": 0.04
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.06,
+    "refutation": 0.94,
+    "code_defect": 0,
+    "other": 0
+   },
+   "tokens": 1464
+  },
+  {
+   "id": "T17",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.89,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.45,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.5,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.55,
+    "adequate": 0.39,
+    "rigorous": 0.03,
+    "exemplary": 0.02
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "market_backtest": 1,
+    "refutation": 0,
+    "code_defect": 0
+   },
+   "tokens": 1809
+  },
+  {
+   "id": "T17",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.89,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.45,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.52,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.52,
+    "adequate": 0.42,
+    "rigorous": 0.03,
+    "exemplary": 0.02
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "market_backtest": 1,
+    "other": 0,
+    "refutation": 0
+   },
+   "tokens": 1809
+  },
+  {
+   "id": "T14",
+   "rep": 2,
+   "has_placebo": 0.09,
+   "is_price_aware": 0.87,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.31,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 2.02,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.22,
+    "adequate": 0.52,
+    "rigorous": 0.25,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 0,
+    "market_backtest": 0.09,
+    "refutation": 0.91
+   },
+   "tokens": 1478
+  },
+  {
+   "id": "T16",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.54,
+   "game_clustered": 0.62,
+   "has_baseline_control": 0.92,
+   "multiplicity_corrected": 0.09,
+   "sound_mean": 2.13,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.2,
+    "adequate": 0.45999999999999996,
+    "rigorous": 0.31,
+    "exemplary": 0.02
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0,
+    "market_backtest": 1,
+    "code_defect": 0
+   },
+   "tokens": 1733
+  },
+  {
+   "id": "T16",
+   "rep": 2,
+   "has_placebo": 0.05,
+   "is_price_aware": 0.56,
+   "game_clustered": 0.61,
+   "has_baseline_control": 0.93,
+   "multiplicity_corrected": 0.09,
+   "sound_mean": 2.1,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.2,
+    "adequate": 0.49,
+    "rigorous": 0.28,
+    "exemplary": 0.02
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0,
+    "market_backtest": 1,
+    "other": 0
+   },
+   "tokens": 1733
+  },
+  {
+   "id": "T17",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.9,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.46,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.5,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.55,
+    "adequate": 0.38,
+    "rigorous": 0.03,
+    "exemplary": 0.02
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0,
+    "other": 0,
+    "market_backtest": 1
+   },
+   "tokens": 1809
+  },
+  {
+   "id": "T18",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.57,
+   "game_clustered": 0.11,
+   "has_baseline_control": 0.34,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.87,
+   "sound_probs": {
+    "fatally_flawed": 0.19,
+    "serious_gaps": 0.75,
+    "adequate": 0.06,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "market_backtest": 1,
+    "refutation": 0,
+    "other": 0
+   },
+   "tokens": 1387
+  },
+  {
+   "id": "T18",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.53,
+   "game_clustered": 0.11,
+   "has_baseline_control": 0.37,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.88,
+   "sound_probs": {
+    "fatally_flawed": 0.19,
+    "serious_gaps": 0.75,
+    "adequate": 0.06,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "market_backtest": 1,
+    "refutation": 0,
+    "code_defect": 0
+   },
+   "tokens": 1387
+  },
+  {
+   "id": "T19",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.82,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1,
+   "sound_probs": {
+    "fatally_flawed": 0.05,
+    "serious_gaps": 0.9,
+    "adequate": 0.05,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 1,
+    "refutation": 0,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1434
+  },
+  {
+   "id": "T19",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.82,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.99,
+   "sound_probs": {
+    "fatally_flawed": 0.05,
+    "serious_gaps": 0.91,
+    "adequate": 0.04,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0,
+    "market_backtest": 1,
+    "code_defect": 0,
+    "other": 0
+   },
+   "tokens": 1434
+  },
+  {
+   "id": "T19",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.81,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.95,
+   "sound_probs": {
+    "fatally_flawed": 0.08,
+    "serious_gaps": 0.89,
+    "adequate": 0.03,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 1,
+    "refutation": 0,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1434
+  },
+  {
+   "id": "T20",
+   "rep": 1,
+   "has_placebo": 0.56,
+   "is_price_aware": 0.25,
+   "game_clustered": 0.13,
+   "has_baseline_control": 0.3,
+   "multiplicity_corrected": 0.94,
+   "sound_mean": 1.37,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.61,
+    "adequate": 0.38,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0.94,
+    "other": 0,
+    "market_backtest": 0.06
+   },
+   "tokens": 1513
+  },
+  {
+   "id": "T20",
+   "rep": 0,
+   "has_placebo": 0.57,
+   "is_price_aware": 0.25,
+   "game_clustered": 0.12,
+   "has_baseline_control": 0.29,
+   "multiplicity_corrected": 0.95,
+   "sound_mean": 1.4,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.59,
+    "adequate": 0.4,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0.95,
+    "code_defect": 0,
+    "market_backtest": 0.05
+   },
+   "tokens": 1513
+  },
+  {
+   "id": "T20",
+   "rep": 2,
+   "has_placebo": 0.54,
+   "is_price_aware": 0.24,
+   "game_clustered": 0.14,
+   "has_baseline_control": 0.3,
+   "multiplicity_corrected": 0.95,
+   "sound_mean": 1.35,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.63,
+    "adequate": 0.36,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.88,
+    "other": 0,
+    "market_backtest": 0.12,
+    "code_defect": 0
+   },
+   "tokens": 1513
+  },
+  {
+   "id": "T18",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.58,
+   "game_clustered": 0.11,
+   "has_baseline_control": 0.36,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.91,
+   "sound_probs": {
+    "fatally_flawed": 0.15,
+    "serious_gaps": 0.79,
+    "adequate": 0.06,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0,
+    "other": 0,
+    "code_defect": 0,
+    "market_backtest": 1
+   },
+   "tokens": 1387
+  },
+  {
+   "id": "T21",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.89,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.08,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.87,
+    "adequate": 0.1,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "market_backtest": 1,
+    "refutation": 0,
+    "other": 0
+   },
+   "tokens": 1570
+  },
+  {
+   "id": "T22",
+   "rep": 0,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.33,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.96,
+   "multiplicity_corrected": 0.92,
+   "sound_mean": 1.71,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.32,
+    "adequate": 0.57,
+    "rigorous": 0.06,
+    "exemplary": 0.02
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.8,
+    "market_backtest": 0.2,
+    "code_defect": 0,
+    "other": 0
+   },
+   "tokens": 1656
+  },
+  {
+   "id": "T21",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.9,
+   "game_clustered": 0.09,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.05,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.89,
+    "adequate": 0.08,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 1,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0
+   },
+   "tokens": 1570
+  },
+  {
+   "id": "T21",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.89,
+   "game_clustered": 0.09,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.06,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.88,
+    "adequate": 0.09,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 1,
+    "refutation": 0,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1570
+  },
+  {
+   "id": "T22",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.32,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.96,
+   "multiplicity_corrected": 0.93,
+   "sound_mean": 1.65,
+   "sound_probs": {
+    "fatally_flawed": 0.04,
+    "serious_gaps": 0.35,
+    "adequate": 0.54,
+    "rigorous": 0.05,
+    "exemplary": 0.02
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.17,
+    "other": 0,
+    "refutation": 0.83,
+    "code_defect": 0
+   },
+   "tokens": 1656
+  },
+  {
+   "id": "T23A",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.07,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.83,
+   "multiplicity_corrected": 0.79,
+   "sound_mean": 0.01,
+   "sound_probs": {
+    "fatally_flawed": 1,
+    "serious_gaps": 0,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 1,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0
+   },
+   "tokens": 1816
+  },
+  {
+   "id": "T22",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.34,
+   "game_clustered": 0.09,
+   "has_baseline_control": 0.96,
+   "multiplicity_corrected": 0.93,
+   "sound_mean": 1.67,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.35,
+    "adequate": 0.55,
+    "rigorous": 0.05,
+    "exemplary": 0.02
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0.86,
+    "market_backtest": 0.14,
+    "other": 0
+   },
+   "tokens": 1656
+  },
+  {
+   "id": "T23B",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.09,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.48,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1,
+   "sound_probs": {
+    "fatally_flawed": 0.08,
+    "serious_gaps": 0.85,
+    "adequate": 0.07,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.99,
+    "code_defect": 0,
+    "refutation": 0.01,
+    "other": 0
+   },
+   "tokens": 1559
+  },
+  {
+   "id": "T23A",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.07,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.82,
+   "multiplicity_corrected": 0.79,
+   "sound_mean": 0.01,
+   "sound_probs": {
+    "fatally_flawed": 1,
+    "serious_gaps": 0,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0,
+    "market_backtest": 1,
+    "code_defect": 0
+   },
+   "tokens": 1816
+  },
+  {
+   "id": "T23A",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.07,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.83,
+   "multiplicity_corrected": 0.8,
+   "sound_mean": 0.01,
+   "sound_probs": {
+    "fatally_flawed": 1,
+    "serious_gaps": 0,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0,
+    "market_backtest": 1,
+    "other": 0
+   },
+   "tokens": 1816
+  },
+  {
+   "id": "T23B",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.42,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.04,
+   "sound_probs": {
+    "fatally_flawed": 0.06,
+    "serious_gaps": 0.85,
+    "adequate": 0.09,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.98,
+    "refutation": 0.02,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1559
+  },
+  {
+   "id": "T23B",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.46,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.05,
+   "sound_probs": {
+    "fatally_flawed": 0.06,
+    "serious_gaps": 0.84,
+    "adequate": 0.1,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.98,
+    "other": 0,
+    "refutation": 0.02,
+    "code_defect": 0
+   },
+   "tokens": 1559
+  },
+  {
+   "id": "T23C",
+   "rep": 0,
+   "has_placebo": 0.05,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.88,
+   "multiplicity_corrected": 0.93,
+   "sound_mean": 1.52,
+   "sound_probs": {
+    "fatally_flawed": 0.15,
+    "serious_gaps": 0.43,
+    "adequate": 0.25,
+    "rigorous": 0.1,
+    "exemplary": 0.07
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 1,
+    "other": 0,
+    "refutation": 0,
+    "code_defect": 0
+   },
+   "tokens": 1706
+  },
+  {
+   "id": "T23C",
+   "rep": 2,
+   "has_placebo": 0.05,
+   "is_price_aware": 0.1,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.89,
+   "multiplicity_corrected": 0.93,
+   "sound_mean": 1.67,
+   "sound_probs": {
+    "fatally_flawed": 0.11,
+    "serious_gaps": 0.39,
+    "adequate": 0.29,
+    "rigorous": 0.13,
+    "exemplary": 0.08
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 1,
+    "refutation": 0,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1706
+  },
+  {
+   "id": "T23C",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.13,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.88,
+   "multiplicity_corrected": 0.93,
+   "sound_mean": 1.51,
+   "sound_probs": {
+    "fatally_flawed": 0.17,
+    "serious_gaps": 0.38,
+    "adequate": 0.28,
+    "rigorous": 0.1,
+    "exemplary": 0.07
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0,
+    "market_backtest": 1,
+    "code_defect": 0,
+    "other": 0
+   },
+   "tokens": 1706
+  },
+  {
+   "id": "T23D",
+   "rep": 0,
+   "has_placebo": 0.16,
+   "is_price_aware": 0.23,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.26,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 2.08,
+   "sound_probs": {
+    "fatally_flawed": 0.3,
+    "serious_gaps": 0.04,
+    "adequate": 0.14,
+    "rigorous": 0.31,
+    "exemplary": 0.21
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0.02,
+    "market_backtest": 0.43,
+    "other": 0,
+    "refutation": 0.55
+   },
+   "tokens": 1694
+  },
+  {
+   "id": "T23E",
+   "rep": 2,
+   "has_placebo": 0.97,
+   "is_price_aware": 0.22,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.94,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 2.22,
+   "sound_probs": {
+    "fatally_flawed": 0.35,
+    "serious_gaps": 0.06,
+    "adequate": 0.06,
+    "rigorous": 0.08,
+    "exemplary": 0.45
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.36,
+    "refutation": 0.64,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1731
+  },
+  {
+   "id": "T23E",
+   "rep": 1,
+   "has_placebo": 0.97,
+   "is_price_aware": 0.22,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.94,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 2.19,
+   "sound_probs": {
+    "fatally_flawed": 0.36,
+    "serious_gaps": 0.06,
+    "adequate": 0.06,
+    "rigorous": 0.08,
+    "exemplary": 0.44
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0.01,
+    "refutation": 0.57,
+    "market_backtest": 0.42,
+    "code_defect": 0
+   },
+   "tokens": 1731
+  },
+  {
+   "id": "T23D",
+   "rep": 2,
+   "has_placebo": 0.13,
+   "is_price_aware": 0.2,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.27,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 2.03,
+   "sound_probs": {
+    "fatally_flawed": 0.33,
+    "serious_gaps": 0.03,
+    "adequate": 0.12,
+    "rigorous": 0.3,
+    "exemplary": 0.22
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.53,
+    "other": 0,
+    "refutation": 0.46,
+    "code_defect": 0.01
+   },
+   "tokens": 1694
+  },
+  {
+   "id": "T23D",
+   "rep": 1,
+   "has_placebo": 0.15,
+   "is_price_aware": 0.26,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.28,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 2.01,
+   "sound_probs": {
+    "fatally_flawed": 0.33,
+    "serious_gaps": 0.04,
+    "adequate": 0.13,
+    "rigorous": 0.29,
+    "exemplary": 0.21
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.45,
+    "market_backtest": 0.54,
+    "other": 0,
+    "code_defect": 0.01
+   },
+   "tokens": 1694
+  },
+  {
+   "id": "T23E",
+   "rep": 0,
+   "has_placebo": 0.97,
+   "is_price_aware": 0.22,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.94,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 2.39,
+   "sound_probs": {
+    "fatally_flawed": 0.31,
+    "serious_gaps": 0.05,
+    "adequate": 0.06,
+    "rigorous": 0.08,
+    "exemplary": 0.5
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.29,
+    "code_defect": 0,
+    "refutation": 0.71,
+    "other": 0
+   },
+   "tokens": 1731
+  },
+  {
+   "id": "T23F",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.72,
+   "game_clustered": 0.5,
+   "has_baseline_control": 0.35,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 2.13,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.21,
+    "adequate": 0.39999999999999997,
+    "rigorous": 0.31,
+    "exemplary": 0.05
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0.73,
+    "market_backtest": 0.27,
+    "code_defect": 0
+   },
+   "tokens": 1568
+  },
+  {
+   "id": "T23F",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.73,
+   "game_clustered": 0.48,
+   "has_baseline_control": 0.37,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 2.21,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.19,
+    "adequate": 0.39,
+    "rigorous": 0.31,
+    "exemplary": 0.08
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.25,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.75
+   },
+   "tokens": 1568
+  },
+  {
+   "id": "T23F",
+   "rep": 0,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.69,
+   "game_clustered": 0.49,
+   "has_baseline_control": 0.38,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 2.2,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.2,
+    "adequate": 0.37,
+    "rigorous": 0.33,
+    "exemplary": 0.07
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0.73,
+    "market_backtest": 0.27,
+    "other": 0
+   },
+   "tokens": 1568
+  },
+  {
+   "id": "T23G",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.53,
+   "game_clustered": 0.97,
+   "has_baseline_control": 0.25,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 2.82,
+   "sound_probs": {
+    "fatally_flawed": 0.02,
+    "serious_gaps": 0.17,
+    "adequate": 0.22,
+    "rigorous": 0.15,
+    "exemplary": 0.44
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.37,
+    "market_backtest": 0.63,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1901
+  },
+  {
+   "id": "SA1",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.13,
+   "game_clustered": 0.37,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.99,
+   "sound_probs": {
+    "fatally_flawed": 0.25,
+    "serious_gaps": 0.56,
+    "adequate": 0.16,
+    "rigorous": 0.01,
+    "exemplary": 0.02
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.28,
+    "market_backtest": 0.69,
+    "code_defect": 0.02,
+    "other": 0.01
+   },
+   "tokens": 1703
+  },
+  {
+   "id": "T23G",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.58,
+   "game_clustered": 0.96,
+   "has_baseline_control": 0.27,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 2.89,
+   "sound_probs": {
+    "fatally_flawed": 0.02,
+    "serious_gaps": 0.16,
+    "adequate": 0.2,
+    "rigorous": 0.15,
+    "exemplary": 0.47
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.67,
+    "other": 0,
+    "refutation": 0.33,
+    "code_defect": 0
+   },
+   "tokens": 1901
+  },
+  {
+   "id": "T23G",
+   "rep": 0,
+   "has_placebo": 0.05,
+   "is_price_aware": 0.55,
+   "game_clustered": 0.97,
+   "has_baseline_control": 0.26,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 2.92,
+   "sound_probs": {
+    "fatally_flawed": 0.02,
+    "serious_gaps": 0.14,
+    "adequate": 0.21,
+    "rigorous": 0.15,
+    "exemplary": 0.48
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.25,
+    "market_backtest": 0.75,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1901
+  },
+  {
+   "id": "SA1",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.23,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.01,
+   "sound_probs": {
+    "fatally_flawed": 0.24,
+    "serious_gaps": 0.57,
+    "adequate": 0.16,
+    "rigorous": 0.01,
+    "exemplary": 0.02
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.57,
+    "other": 0,
+    "refutation": 0.41,
+    "code_defect": 0.02
+   },
+   "tokens": 1703
+  },
+  {
+   "id": "SA1",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.14,
+   "game_clustered": 0.34,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1,
+   "sound_probs": {
+    "fatally_flawed": 0.23,
+    "serious_gaps": 0.58,
+    "adequate": 0.16,
+    "rigorous": 0.01,
+    "exemplary": 0.02
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0.02,
+    "refutation": 0.35,
+    "market_backtest": 0.63,
+    "other": 0
+   },
+   "tokens": 1703
+  },
+  {
+   "id": "T24",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.49,
+   "game_clustered": 0.32,
+   "has_baseline_control": 0.15,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.39,
+   "sound_probs": {
+    "fatally_flawed": 0.08,
+    "serious_gaps": 0.54,
+    "adequate": 0.3,
+    "rigorous": 0.08,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.94,
+    "refutation": 0.06,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1808
+  },
+  {
+   "id": "T24",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.49,
+   "game_clustered": 0.32,
+   "has_baseline_control": 0.12,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.43,
+   "sound_probs": {
+    "fatally_flawed": 0.08,
+    "serious_gaps": 0.51,
+    "adequate": 0.32,
+    "rigorous": 0.09,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0.05,
+    "market_backtest": 0.95,
+    "other": 0
+   },
+   "tokens": 1808
+  },
+  {
+   "id": "T24",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.46,
+   "game_clustered": 0.32,
+   "has_baseline_control": 0.12,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.41,
+   "sound_probs": {
+    "fatally_flawed": 0.08,
+    "serious_gaps": 0.53,
+    "adequate": 0.31,
+    "rigorous": 0.08,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.94,
+    "other": 0,
+    "refutation": 0.06,
+    "code_defect": 0
+   },
+   "tokens": 1808
+  },
+  {
+   "id": "T25A",
+   "rep": 0,
+   "has_placebo": 0.8,
+   "is_price_aware": 0.07,
+   "game_clustered": 0.12,
+   "has_baseline_control": 0.47,
+   "multiplicity_corrected": 0.97,
+   "sound_mean": 1.8,
+   "sound_probs": {
+    "fatally_flawed": 0.04,
+    "serious_gaps": 0.25,
+    "adequate": 0.59,
+    "rigorous": 0.12,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0.97,
+    "market_backtest": 0.01,
+    "other": 0.02
+   },
+   "tokens": 1587
+  },
+  {
+   "id": "T25A",
+   "rep": 1,
+   "has_placebo": 0.74,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.12,
+   "has_baseline_control": 0.44,
+   "multiplicity_corrected": 0.97,
+   "sound_mean": 1.91,
+   "sound_probs": {
+    "fatally_flawed": 0.05,
+    "serious_gaps": 0.19,
+    "adequate": 0.58,
+    "rigorous": 0.18,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.96,
+    "market_backtest": 0.01,
+    "code_defect": 0,
+    "other": 0.03
+   },
+   "tokens": 1587
+  },
+  {
+   "id": "T25B",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.13,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.08,
+   "multiplicity_corrected": 0.17,
+   "sound_mean": 0.48,
+   "sound_probs": {
+    "fatally_flawed": 0.53,
+    "serious_gaps": 0.46,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0.06,
+    "market_backtest": 0.93,
+    "refutation": 0.01,
+    "code_defect": 0
+   },
+   "tokens": 1668
+  },
+  {
+   "id": "T25B",
+   "rep": 0,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.09,
+   "multiplicity_corrected": 0.15,
+   "sound_mean": 0.42,
+   "sound_probs": {
+    "fatally_flawed": 0.59,
+    "serious_gaps": 0.4,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0.05,
+    "refutation": 0.01,
+    "market_backtest": 0.93,
+    "code_defect": 0
+   },
+   "tokens": 1668
+  },
+  {
+   "id": "T25A",
+   "rep": 2,
+   "has_placebo": 0.78,
+   "is_price_aware": 0.07,
+   "game_clustered": 0.16,
+   "has_baseline_control": 0.46,
+   "multiplicity_corrected": 0.97,
+   "sound_mean": 1.87,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.21,
+    "adequate": 0.61,
+    "rigorous": 0.15,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.01,
+    "other": 0.03,
+    "refutation": 0.96,
+    "code_defect": 0
+   },
+   "tokens": 1587
+  },
+  {
+   "id": "T25B",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.08,
+   "multiplicity_corrected": 0.15,
+   "sound_mean": 0.45,
+   "sound_probs": {
+    "fatally_flawed": 0.56,
+    "serious_gaps": 0.43,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.01,
+    "other": 0.05,
+    "market_backtest": 0.93,
+    "code_defect": 0
+   },
+   "tokens": 1668
+  },
+  {
+   "id": "T25C",
+   "rep": 0,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.72,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 1.04,
+   "sound_probs": {
+    "fatally_flawed": 0.16,
+    "serious_gaps": 0.65,
+    "adequate": 0.18,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.03,
+    "refutation": 0.97,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1625
+  },
+  {
+   "id": "PM1",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.36,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.37,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.88,
+   "sound_probs": {
+    "fatally_flawed": 0.13,
+    "serious_gaps": 0.17,
+    "adequate": 0.44,
+    "rigorous": 0.23,
+    "exemplary": 0.03
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.07,
+    "refutation": 0.93,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1582
+  },
+  {
+   "id": "PM1",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.35,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.37,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.68,
+   "sound_probs": {
+    "fatally_flawed": 0.18,
+    "serious_gaps": 0.2,
+    "adequate": 0.42,
+    "rigorous": 0.17,
+    "exemplary": 0.03
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "market_backtest": 0.06,
+    "refutation": 0.94,
+    "code_defect": 0
+   },
+   "tokens": 1582
+  },
+  {
+   "id": "PM1",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.36,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.35,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.58,
+   "sound_probs": {
+    "fatally_flawed": 0.19,
+    "serious_gaps": 0.22,
+    "adequate": 0.43,
+    "rigorous": 0.14,
+    "exemplary": 0.02
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.06,
+    "refutation": 0.94,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1582
+  },
+  {
+   "id": "T25C",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.09,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.71,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 1.08,
+   "sound_probs": {
+    "fatally_flawed": 0.12,
+    "serious_gaps": 0.69,
+    "adequate": 0.19,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.03,
+    "other": 0,
+    "refutation": 0.97,
+    "code_defect": 0
+   },
+   "tokens": 1625
+  },
+  {
+   "id": "PM2",
+   "rep": 1,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.25,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.24,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.29,
+   "sound_probs": {
+    "fatally_flawed": 0.81,
+    "serious_gaps": 0.1,
+    "adequate": 0.07,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0.89,
+    "market_backtest": 0.11,
+    "other": 0
+   },
+   "tokens": 1469
+  },
+  {
+   "id": "PM2",
+   "rep": 0,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.25,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.2,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.27,
+   "sound_probs": {
+    "fatally_flawed": 0.82,
+    "serious_gaps": 0.11,
+    "adequate": 0.06,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.9,
+    "market_backtest": 0.1,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1469
+  },
+  {
+   "id": "T25C",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.09,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.73,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 1.15,
+   "sound_probs": {
+    "fatally_flawed": 0.12,
+    "serious_gaps": 0.63,
+    "adequate": 0.24,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0.97,
+    "market_backtest": 0.03,
+    "other": 0
+   },
+   "tokens": 1625
+  },
+  {
+   "id": "PM2",
+   "rep": 2,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.27,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.18,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.26,
+   "sound_probs": {
+    "fatally_flawed": 0.83,
+    "serious_gaps": 0.1,
+    "adequate": 0.06,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 0,
+    "market_backtest": 0.1,
+    "refutation": 0.9
+   },
+   "tokens": 1469
+  },
+  {
+   "id": "SB1",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.1,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.12,
+   "sound_probs": {
+    "fatally_flawed": 0.9,
+    "serious_gaps": 0.08,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.48,
+    "refutation": 0.52,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1524
+  },
+  {
+   "id": "SB1",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.1,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.12,
+   "sound_probs": {
+    "fatally_flawed": 0.9,
+    "serious_gaps": 0.08,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.4,
+    "refutation": 0.6,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1524
+  },
+  {
+   "id": "SB3",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.78,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.44,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.37,
+   "sound_probs": {
+    "fatally_flawed": 0.06,
+    "serious_gaps": 0.54,
+    "adequate": 0.38,
+    "rigorous": 0.02,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.13,
+    "refutation": 0.87,
+    "code_defect": 0,
+    "other": 0
+   },
+   "tokens": 1450
+  },
+  {
+   "id": "SB2",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.24,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.27,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 1.03,
+   "sound_probs": {
+    "fatally_flawed": 0.08,
+    "serious_gaps": 0.82,
+    "adequate": 0.1,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.38,
+    "refutation": 0.62,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1439
+  },
+  {
+   "id": "SB2",
+   "rep": 0,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.26,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.28,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.08,
+   "sound_probs": {
+    "fatally_flawed": 0.08,
+    "serious_gaps": 0.77,
+    "adequate": 0.14,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.37,
+    "other": 0,
+    "refutation": 0.63,
+    "code_defect": 0
+   },
+   "tokens": 1439
+  },
+  {
+   "id": "SB2",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.24,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.29,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.07,
+   "sound_probs": {
+    "fatally_flawed": 0.07,
+    "serious_gaps": 0.8,
+    "adequate": 0.13,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.73,
+    "market_backtest": 0.27
+   },
+   "tokens": 1439
+  },
+  {
+   "id": "SB3",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.76,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.45,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.35,
+   "sound_probs": {
+    "fatally_flawed": 0.06,
+    "serious_gaps": 0.54,
+    "adequate": 0.38,
+    "rigorous": 0.02,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.89,
+    "market_backtest": 0.11,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1450
+  },
+  {
+   "id": "SB4",
+   "rep": 0,
+   "has_placebo": 0.81,
+   "is_price_aware": 0.84,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.77,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.19,
+   "sound_probs": {
+    "fatally_flawed": 0.05,
+    "serious_gaps": 0.72,
+    "adequate": 0.23,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "market_backtest": 0.05,
+    "refutation": 0.95,
+    "other": 0
+   },
+   "tokens": 1450
+  },
+  {
+   "id": "SB3",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.77,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.41,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.35,
+   "sound_probs": {
+    "fatally_flawed": 0.07,
+    "serious_gaps": 0.54,
+    "adequate": 0.37,
+    "rigorous": 0.02,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0.89,
+    "code_defect": 0,
+    "market_backtest": 0.11
+   },
+   "tokens": 1450
+  },
+  {
+   "id": "SB4",
+   "rep": 2,
+   "has_placebo": 0.8,
+   "is_price_aware": 0.84,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.75,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.17,
+   "sound_probs": {
+    "fatally_flawed": 0.05,
+    "serious_gaps": 0.74,
+    "adequate": 0.21,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.95,
+    "market_backtest": 0.05,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1450
+  },
+  {
+   "id": "SB4",
+   "rep": 1,
+   "has_placebo": 0.81,
+   "is_price_aware": 0.85,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.79,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.17,
+   "sound_probs": {
+    "fatally_flawed": 0.04,
+    "serious_gaps": 0.75,
+    "adequate": 0.21,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.04,
+    "refutation": 0.96,
+    "code_defect": 0,
+    "other": 0
+   },
+   "tokens": 1450
+  },
+  {
+   "id": "SB5",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.32,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.27,
+   "sound_probs": {
+    "fatally_flawed": 0.74,
+    "serious_gaps": 0.24,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.74,
+    "other": 0.01,
+    "code_defect": 0,
+    "refutation": 0.25
+   },
+   "tokens": 1474
+  },
+  {
+   "id": "SB5",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.29,
+   "game_clustered": 0.06,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.24,
+   "sound_probs": {
+    "fatally_flawed": 0.77,
+    "serious_gaps": 0.22,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.27,
+    "market_backtest": 0.72,
+    "code_defect": 0,
+    "other": 0.01
+   },
+   "tokens": 1474
+  },
+  {
+   "id": "SB1",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.11,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.12,
+   "sound_probs": {
+    "fatally_flawed": 0.89,
+    "serious_gaps": 0.09,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "market_backtest": 0.42,
+    "refutation": 0.58,
+    "code_defect": 0
+   },
+   "tokens": 1524
+  },
+  {
+   "id": "SB5",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.32,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.29,
+   "sound_probs": {
+    "fatally_flawed": 0.72,
+    "serious_gaps": 0.26,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.72,
+    "refutation": 0.27,
+    "code_defect": 0,
+    "other": 0.01
+   },
+   "tokens": 1474
+  },
+  {
+   "id": "SB6",
+   "rep": 0,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.36,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.39,
+   "multiplicity_corrected": 0.79,
+   "sound_mean": 2.52,
+   "sound_probs": {
+    "fatally_flawed": 0.07,
+    "serious_gaps": 0.22,
+    "adequate": 0.19,
+    "rigorous": 0.16,
+    "exemplary": 0.36
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.64,
+    "market_backtest": 0.35,
+    "other": 0.01,
+    "code_defect": 0
+   },
+   "tokens": 1760
+  },
+  {
+   "id": "SC1",
+   "rep": 1,
+   "has_placebo": 0.92,
+   "is_price_aware": 0.13,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.81,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.47,
+   "sound_probs": {
+    "fatally_flawed": 0.05,
+    "serious_gaps": 0.45,
+    "adequate": 0.48,
+    "rigorous": 0.02,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.1,
+    "market_backtest": 0.87,
+    "other": 0.03,
+    "code_defect": 0
+   },
+   "tokens": 1604
+  },
+  {
+   "id": "SB6",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.41,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.42,
+   "multiplicity_corrected": 0.83,
+   "sound_mean": 2.53,
+   "sound_probs": {
+    "fatally_flawed": 0.06,
+    "serious_gaps": 0.22,
+    "adequate": 0.21,
+    "rigorous": 0.16,
+    "exemplary": 0.35
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.31,
+    "refutation": 0.68,
+    "other": 0.01,
+    "code_defect": 0
+   },
+   "tokens": 1760
+  },
+  {
+   "id": "SC1",
+   "rep": 0,
+   "has_placebo": 0.92,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.83,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 1.47,
+   "sound_probs": {
+    "fatally_flawed": 0.04,
+    "serious_gaps": 0.47,
+    "adequate": 0.48,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0.05,
+    "code_defect": 0,
+    "market_backtest": 0.87,
+    "refutation": 0.08
+   },
+   "tokens": 1604
+  },
+  {
+   "id": "P1",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.13,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.1,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.4,
+   "sound_probs": {
+    "fatally_flawed": 0.6,
+    "serious_gaps": 0.4,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0.95,
+    "code_defect": 0,
+    "market_backtest": 0.05
+   },
+   "tokens": 1410
+  },
+  {
+   "id": "SE1",
+   "rep": 0,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.09,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.18,
+   "sound_probs": {
+    "fatally_flawed": 0.82,
+    "serious_gaps": 0.18,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "other",
+   "kind_probs": {
+    "code_defect": 0,
+    "refutation": 0,
+    "other": 1,
+    "market_backtest": 0
+   },
+   "tokens": 1463
+  },
+  {
+   "id": "SE1",
+   "rep": 2,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.19,
+   "sound_probs": {
+    "fatally_flawed": 0.81,
+    "serious_gaps": 0.19,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "other",
+   "kind_probs": {
+    "refutation": 0,
+    "market_backtest": 0,
+    "code_defect": 0,
+    "other": 1
+   },
+   "tokens": 1463
+  },
+  {
+   "id": "P1",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.11,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.37,
+   "sound_probs": {
+    "fatally_flawed": 0.63,
+    "serious_gaps": 0.37,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.96,
+    "market_backtest": 0.04,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1410
+  },
+  {
+   "id": "P1",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.13,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.1,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.36,
+   "sound_probs": {
+    "fatally_flawed": 0.64,
+    "serious_gaps": 0.36,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.04,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.96
+   },
+   "tokens": 1410
+  },
+  {
+   "id": "SC1",
+   "rep": 2,
+   "has_placebo": 0.93,
+   "is_price_aware": 0.14,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.81,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 1.43,
+   "sound_probs": {
+    "fatally_flawed": 0.05,
+    "serious_gaps": 0.49,
+    "adequate": 0.45,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.09,
+    "code_defect": 0,
+    "market_backtest": 0.87,
+    "other": 0.04
+   },
+   "tokens": 1604
+  },
+  {
+   "id": "SB6",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.37,
+   "game_clustered": 0.07,
+   "has_baseline_control": 0.38,
+   "multiplicity_corrected": 0.83,
+   "sound_mean": 2.52,
+   "sound_probs": {
+    "fatally_flawed": 0.07,
+    "serious_gaps": 0.21,
+    "adequate": 0.2,
+    "rigorous": 0.17,
+    "exemplary": 0.35
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0.01,
+    "code_defect": 0,
+    "market_backtest": 0.36,
+    "refutation": 0.63
+   },
+   "tokens": 1760
+  },
+  {
+   "id": "SE1",
+   "rep": 1,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.07,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.18,
+   "sound_probs": {
+    "fatally_flawed": 0.82,
+    "serious_gaps": 0.18,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "other",
+   "kind_probs": {
+    "other": 1,
+    "code_defect": 0,
+    "market_backtest": 0,
+    "refutation": 0
+   },
+   "tokens": 1463
+  },
+  {
+   "id": "P2",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.14,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.91,
+   "sound_probs": {
+    "fatally_flawed": 0.1,
+    "serious_gaps": 0.9,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.97,
+    "market_backtest": 0.03,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1409
+  },
+  {
+   "id": "P2",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.13,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.92,
+   "sound_probs": {
+    "fatally_flawed": 0.09,
+    "serious_gaps": 0.9,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "market_backtest": 0.02,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.98
+   },
+   "tokens": 1409
+  },
+  {
+   "id": "P2",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.16,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.92,
+   "sound_probs": {
+    "fatally_flawed": 0.09,
+    "serious_gaps": 0.9,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0.96,
+    "code_defect": 0,
+    "market_backtest": 0.04
+   },
+   "tokens": 1409
+  },
+  {
+   "id": "P3",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.14,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.99,
+   "sound_probs": {
+    "fatally_flawed": 0.1,
+    "serious_gaps": 0.81,
+    "adequate": 0.09,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.95,
+    "code_defect": 0,
+    "market_backtest": 0.05,
+    "other": 0
+   },
+   "tokens": 1438
+  },
+  {
+   "id": "P3",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.11,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.97,
+   "sound_probs": {
+    "fatally_flawed": 0.12,
+    "serious_gaps": 0.8,
+    "adequate": 0.08,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 0,
+    "market_backtest": 0.07,
+    "refutation": 0.93
+   },
+   "tokens": 1438
+  },
+  {
+   "id": "P3",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.13,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.98,
+   "sound_probs": {
+    "fatally_flawed": 0.1,
+    "serious_gaps": 0.83,
+    "adequate": 0.07,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.92,
+    "code_defect": 0,
+    "market_backtest": 0.08,
+    "other": 0
+   },
+   "tokens": 1438
+  },
+  {
+   "id": "P4",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.6,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.39,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.68,
+   "sound_probs": {
+    "fatally_flawed": 0.77,
+    "serious_gaps": 0.04,
+    "adequate": 0.03,
+    "rigorous": 0.05,
+    "exemplary": 0.11
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.22,
+    "market_backtest": 0.78,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1522
+  },
+  {
+   "id": "P4",
+   "rep": 1,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.63,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.4,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.72,
+   "sound_probs": {
+    "fatally_flawed": 0.77,
+    "serious_gaps": 0.03,
+    "adequate": 0.03,
+    "rigorous": 0.05,
+    "exemplary": 0.12
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.77,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.23
+   },
+   "tokens": 1522
+  },
+  {
+   "id": "P5",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.1,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.16,
+   "sound_probs": {
+    "fatally_flawed": 0.85,
+    "serious_gaps": 0.15,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.9,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.1
+   },
+   "tokens": 1361
+  },
+  {
+   "id": "P5",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.1,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.15,
+   "sound_probs": {
+    "fatally_flawed": 0.85,
+    "serious_gaps": 0.15,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.07,
+    "market_backtest": 0.93,
+    "code_defect": 0,
+    "other": 0
+   },
+   "tokens": 1361
+  },
+  {
+   "id": "P5",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.1,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.17,
+   "sound_probs": {
+    "fatally_flawed": 0.83,
+    "serious_gaps": 0.17,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.92,
+    "other": 0,
+    "refutation": 0.08,
+    "code_defect": 0
+   },
+   "tokens": 1361
+  },
+  {
+   "id": "P6",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.15,
+   "game_clustered": 0.09,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.08,
+   "sound_probs": {
+    "fatally_flawed": 0.92,
+    "serious_gaps": 0.08,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 1,
+    "refutation": 0,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1478
+  },
+  {
+   "id": "P4",
+   "rep": 0,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.59,
+   "game_clustered": 0.08,
+   "has_baseline_control": 0.38,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.77,
+   "sound_probs": {
+    "fatally_flawed": 0.74,
+    "serious_gaps": 0.04,
+    "adequate": 0.04,
+    "rigorous": 0.07,
+    "exemplary": 0.11
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.77,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.23
+   },
+   "tokens": 1522
+  },
+  {
+   "id": "P6",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.15,
+   "game_clustered": 0.09,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.08,
+   "sound_probs": {
+    "fatally_flawed": 0.92,
+    "serious_gaps": 0.08,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0,
+    "market_backtest": 1,
+    "code_defect": 0
+   },
+   "tokens": 1478
+  },
+  {
+   "id": "P7",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.17,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.18,
+   "sound_probs": {
+    "fatally_flawed": 0.88,
+    "serious_gaps": 0.09,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0.01
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "other": 0,
+    "market_backtest": 0.15,
+    "code_defect": 0,
+    "refutation": 0.85
+   },
+   "tokens": 1508
+  },
+  {
+   "id": "P7",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.18,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.18,
+   "sound_probs": {
+    "fatally_flawed": 0.88,
+    "serious_gaps": 0.09,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0.01
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "refutation": 0.91,
+    "market_backtest": 0.09,
+    "other": 0,
+    "code_defect": 0
+   },
+   "tokens": 1508
+  },
+  {
+   "id": "FT1",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.15,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 0.51,
+   "sound_probs": {
+    "fatally_flawed": 0.65,
+    "serious_gaps": 0.21,
+    "adequate": 0.13,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "code_defect": 0,
+    "market_backtest": 0.89,
+    "refutation": 0.03,
+    "other": 0.08
+   },
+   "tokens": 1613
+  },
+  {
+   "id": "P6",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.17,
+   "game_clustered": 0.09,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.08,
+   "sound_probs": {
+    "fatally_flawed": 0.92,
+    "serious_gaps": 0.08,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0,
+    "code_defect": 0,
+    "market_backtest": 1
+   },
+   "tokens": 1478
+  },
+  {
+   "id": "FT1",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.14,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 0.52,
+   "sound_probs": {
+    "fatally_flawed": 0.64,
+    "serious_gaps": 0.21,
+    "adequate": 0.14,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.02,
+    "market_backtest": 0.93,
+    "other": 0.05,
+    "code_defect": 0
+   },
+   "tokens": 1613
+  },
+  {
+   "id": "P7",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.16,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.16,
+   "sound_probs": {
+    "fatally_flawed": 0.89,
+    "serious_gaps": 0.09,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0.01
+   },
+   "kind": "refutation",
+   "kind_probs": {
+    "code_defect": 0,
+    "market_backtest": 0.12,
+    "other": 0,
+    "refutation": 0.88
+   },
+   "tokens": 1508
+  },
+  {
+   "id": "F01a",
+   "rep": 0,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.1,
+   "sound_mean": 2.23,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.13,
+    "adequate": 0.45,
+    "rigorous": 0.39,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 1,
+    "market_backtest": 0,
+    "refutation": 0
+   },
+   "tokens": 1505
+  },
+  {
+   "id": "F01a",
+   "rep": 1,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.1,
+   "sound_mean": 2.17,
+   "sound_probs": {
+    "fatally_flawed": 0.03,
+    "serious_gaps": 0.14,
+    "adequate": 0.47,
+    "rigorous": 0.35,
+    "exemplary": 0.01
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0,
+    "code_defect": 1,
+    "market_backtest": 0
+   },
+   "tokens": 1505
+  },
+  {
+   "id": "F01a",
+   "rep": 2,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.11,
+   "sound_mean": 2.23,
+   "sound_probs": {
+    "fatally_flawed": 0.02,
+    "serious_gaps": 0.13,
+    "adequate": 0.45,
+    "rigorous": 0.39,
+    "exemplary": 0.01
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 1,
+    "refutation": 0,
+    "market_backtest": 0
+   },
+   "tokens": 1505
+  },
+  {
+   "id": "FT1",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.16,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.07,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 0.53,
+   "sound_probs": {
+    "fatally_flawed": 0.64,
+    "serious_gaps": 0.21,
+    "adequate": 0.14,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.03,
+    "market_backtest": 0.93,
+    "code_defect": 0,
+    "other": 0.04
+   },
+   "tokens": 1613
+  },
+  {
+   "id": "F01b",
+   "rep": 1,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 2.61,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.04,
+    "adequate": 0.28,
+    "rigorous": 0.66,
+    "exemplary": 0.01
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "refutation": 0,
+    "market_backtest": 0,
+    "code_defect": 1,
+    "other": 0
+   },
+   "tokens": 1467
+  },
+  {
+   "id": "F01b",
+   "rep": 2,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.09,
+   "sound_mean": 2.61,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.04,
+    "adequate": 0.29,
+    "rigorous": 0.65,
+    "exemplary": 0.01
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 1,
+    "market_backtest": 0,
+    "refutation": 0
+   },
+   "tokens": 1467
+  },
+  {
+   "id": "F01c",
+   "rep": 0,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.07,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.18,
+   "sound_probs": {
+    "fatally_flawed": 0.26,
+    "serious_gaps": 0.37,
+    "adequate": 0.32,
+    "rigorous": 0.05,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "market_backtest": 0,
+    "refutation": 0,
+    "other": 0,
+    "code_defect": 1
+   },
+   "tokens": 1453
+  },
+  {
+   "id": "F01b",
+   "rep": 0,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.07,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.09,
+   "sound_mean": 2.64,
+   "sound_probs": {
+    "fatally_flawed": 0.01,
+    "serious_gaps": 0.03,
+    "adequate": 0.25,
+    "rigorous": 0.7,
+    "exemplary": 0.01
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "refutation": 0,
+    "other": 0,
+    "code_defect": 1,
+    "market_backtest": 0
+   },
+   "tokens": 1467
+  },
+  {
+   "id": "F01c",
+   "rep": 1,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.09,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.12,
+   "sound_probs": {
+    "fatally_flawed": 0.29,
+    "serious_gaps": 0.35000000000000003,
+    "adequate": 0.32,
+    "rigorous": 0.04,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0,
+    "market_backtest": 0,
+    "refutation": 0,
+    "code_defect": 1
+   },
+   "tokens": 1453
+  },
+  {
+   "id": "F04a",
+   "rep": 1,
+   "has_placebo": 0.01,
+   "is_price_aware": 0.17,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.09,
+   "sound_mean": 0.68,
+   "sound_probs": {
+    "fatally_flawed": 0.38,
+    "serious_gaps": 0.57,
+    "adequate": 0.04,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "code_defect": 0.93,
+    "refutation": 0,
+    "other": 0.06,
+    "market_backtest": 0.01
+   },
+   "tokens": 1530
+  },
+  {
+   "id": "F04a",
+   "rep": 0,
+   "has_placebo": 0.01,
+   "is_price_aware": 0.16,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 0.72,
+   "sound_probs": {
+    "fatally_flawed": 0.33,
+    "serious_gaps": 0.62,
+    "adequate": 0.04,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0.06,
+    "refutation": 0,
+    "market_backtest": 0.01,
+    "code_defect": 0.93
+   },
+   "tokens": 1530
+  },
+  {
+   "id": "F04a",
+   "rep": 2,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.18,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.08,
+   "sound_mean": 0.67,
+   "sound_probs": {
+    "fatally_flawed": 0.37,
+    "serious_gaps": 0.6,
+    "adequate": 0.03,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0.1,
+    "code_defect": 0.89,
+    "market_backtest": 0.01,
+    "refutation": 0
+   },
+   "tokens": 1530
+  },
+  {
+   "id": "F01c",
+   "rep": 2,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.08,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.06,
+   "sound_mean": 1.15,
+   "sound_probs": {
+    "fatally_flawed": 0.26,
+    "serious_gaps": 0.37,
+    "adequate": 0.32,
+    "rigorous": 0.05,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "refutation": 0,
+    "market_backtest": 0,
+    "code_defect": 1,
+    "other": 0
+   },
+   "tokens": 1453
+  },
+  {
+   "id": "F06a",
+   "rep": 0,
+   "has_placebo": 0.05,
+   "is_price_aware": 0.19,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.12,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 1.82,
+   "sound_probs": {
+    "fatally_flawed": 0.19,
+    "serious_gaps": 0.23,
+    "adequate": 0.22,
+    "rigorous": 0.3,
+    "exemplary": 0.06
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "refutation": 0.07,
+    "market_backtest": 0.02,
+    "code_defect": 0.61,
+    "other": 0.3
+   },
+   "tokens": 1612
+  },
+  {
+   "id": "F06b",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.21,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.39,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.91,
+   "sound_probs": {
+    "fatally_flawed": 0.09,
+    "serious_gaps": 0.91,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.02,
+    "code_defect": 0,
+    "market_backtest": 0.98,
+    "other": 0
+   },
+   "tokens": 1447
+  },
+  {
+   "id": "F06a",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.19,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.12,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 1.74,
+   "sound_probs": {
+    "fatally_flawed": 0.2,
+    "serious_gaps": 0.22,
+    "adequate": 0.25,
+    "rigorous": 0.28,
+    "exemplary": 0.05
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "market_backtest": 0.02,
+    "refutation": 0.12,
+    "other": 0.25,
+    "code_defect": 0.61
+   },
+   "tokens": 1612
+  },
+  {
+   "id": "F06a",
+   "rep": 1,
+   "has_placebo": 0.05,
+   "is_price_aware": 0.2,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.13,
+   "multiplicity_corrected": 0.07,
+   "sound_mean": 1.82,
+   "sound_probs": {
+    "fatally_flawed": 0.18,
+    "serious_gaps": 0.22,
+    "adequate": 0.25,
+    "rigorous": 0.29,
+    "exemplary": 0.06
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0.3,
+    "code_defect": 0.57,
+    "market_backtest": 0.02,
+    "refutation": 0.11
+   },
+   "tokens": 1612
+  },
+  {
+   "id": "F06b",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.22,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.36,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.92,
+   "sound_probs": {
+    "fatally_flawed": 0.09,
+    "serious_gaps": 0.91,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.02,
+    "market_backtest": 0.98
+   },
+   "tokens": 1447
+  },
+  {
+   "id": "F06c",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.12,
+   "sound_probs": {
+    "fatally_flawed": 0.88,
+    "serious_gaps": 0.12,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.13,
+    "market_backtest": 0.7,
+    "code_defect": 0.01,
+    "other": 0.16
+   },
+   "tokens": 1425
+  },
+  {
+   "id": "F06c",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.11,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.11,
+   "sound_probs": {
+    "fatally_flawed": 0.89,
+    "serious_gaps": 0.11,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.13,
+    "market_backtest": 0.68,
+    "other": 0.18,
+    "code_defect": 0.01
+   },
+   "tokens": 1425
+  },
+  {
+   "id": "F06c",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.06,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.11,
+   "sound_probs": {
+    "fatally_flawed": 0.89,
+    "serious_gaps": 0.11,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "refutation": 0.13,
+    "other": 0.21,
+    "market_backtest": 0.65,
+    "code_defect": 0.01
+   },
+   "tokens": 1425
+  },
+  {
+   "id": "F07a",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.15,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 2.45,
+   "sound_probs": {
+    "fatally_flawed": 0.1,
+    "serious_gaps": 0.1,
+    "adequate": 0.14,
+    "rigorous": 0.59,
+    "exemplary": 0.07
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0,
+    "refutation": 0.01,
+    "market_backtest": 0,
+    "code_defect": 0.99
+   },
+   "tokens": 1527
+  },
+  {
+   "id": "F06b",
+   "rep": 2,
+   "has_placebo": 0.04,
+   "is_price_aware": 0.23,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.28,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.92,
+   "sound_probs": {
+    "fatally_flawed": 0.09,
+    "serious_gaps": 0.91,
+    "adequate": 0,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "market_backtest",
+   "kind_probs": {
+    "market_backtest": 0.97,
+    "other": 0,
+    "code_defect": 0,
+    "refutation": 0.03
+   },
+   "tokens": 1447
+  },
+  {
+   "id": "F07a",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.15,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 2.42,
+   "sound_probs": {
+    "fatally_flawed": 0.09,
+    "serious_gaps": 0.12,
+    "adequate": 0.15,
+    "rigorous": 0.57,
+    "exemplary": 0.07
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 0.99,
+    "market_backtest": 0,
+    "refutation": 0.01
+   },
+   "tokens": 1527
+  },
+  {
+   "id": "F07a",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.14,
+   "game_clustered": 0.05,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 2.43,
+   "sound_probs": {
+    "fatally_flawed": 0.09,
+    "serious_gaps": 0.12,
+    "adequate": 0.14,
+    "rigorous": 0.58,
+    "exemplary": 0.07
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "code_defect": 0.99,
+    "market_backtest": 0,
+    "refutation": 0.01,
+    "other": 0
+   },
+   "tokens": 1527
+  },
+  {
+   "id": "F16a",
+   "rep": 0,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.21,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.82,
+   "sound_probs": {
+    "fatally_flawed": 0.25,
+    "serious_gaps": 0.69,
+    "adequate": 0.05,
+    "rigorous": 0,
+    "exemplary": 0.01
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "market_backtest": 0.03,
+    "other": 0.03,
+    "code_defect": 0.91,
+    "refutation": 0.03
+   },
+   "tokens": 1821
+  },
+  {
+   "id": "F16a",
+   "rep": 1,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.22,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.05,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.83,
+   "sound_probs": {
+    "fatally_flawed": 0.25,
+    "serious_gaps": 0.68,
+    "adequate": 0.06,
+    "rigorous": 0,
+    "exemplary": 0.01
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "market_backtest": 0.03,
+    "code_defect": 0.91,
+    "refutation": 0.03,
+    "other": 0.03
+   },
+   "tokens": 1821
+  },
+  {
+   "id": "F16a",
+   "rep": 2,
+   "has_placebo": 0.03,
+   "is_price_aware": 0.22,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.8,
+   "sound_probs": {
+    "fatally_flawed": 0.27,
+    "serious_gaps": 0.67,
+    "adequate": 0.05,
+    "rigorous": 0,
+    "exemplary": 0.01
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0.03,
+    "refutation": 0.03,
+    "market_backtest": 0.04,
+    "code_defect": 0.9
+   },
+   "tokens": 1821
+  },
+  {
+   "id": "F18a",
+   "rep": 1,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.11,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.04,
+   "sound_mean": 0.93,
+   "sound_probs": {
+    "fatally_flawed": 0.32,
+    "serious_gaps": 0.44,
+    "adequate": 0.24,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "other",
+   "kind_probs": {
+    "other": 0.51,
+    "refutation": 0.01,
+    "code_defect": 0.48,
+    "market_backtest": 0
+   },
+   "tokens": 1567
+  },
+  {
+   "id": "F18a",
+   "rep": 0,
+   "has_placebo": 0.02,
+   "is_price_aware": 0.11,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.93,
+   "sound_probs": {
+    "fatally_flawed": 0.33,
+    "serious_gaps": 0.42,
+    "adequate": 0.24,
+    "rigorous": 0.01,
+    "exemplary": 0
+   },
+   "kind": "other",
+   "kind_probs": {
+    "other": 0.5,
+    "refutation": 0.01,
+    "code_defect": 0.49,
+    "market_backtest": 0
+   },
+   "tokens": 1567
+  },
+  {
+   "id": "F18b",
+   "rep": 0,
+   "has_placebo": 0.01,
+   "is_price_aware": 0.18,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.41,
+   "sound_probs": {
+    "fatally_flawed": 0.6,
+    "serious_gaps": 0.38,
+    "adequate": 0.02,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "other": 0,
+    "code_defect": 1,
+    "market_backtest": 0,
+    "refutation": 0
+   },
+   "tokens": 1518
+  },
+  {
+   "id": "F18b",
+   "rep": 2,
+   "has_placebo": 0.01,
+   "is_price_aware": 0.18,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.36,
+   "sound_probs": {
+    "fatally_flawed": 0.65,
+    "serious_gaps": 0.34,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "market_backtest": 0,
+    "refutation": 0,
+    "code_defect": 1,
+    "other": 0
+   },
+   "tokens": 1518
+  },
+  {
+   "id": "F18a",
+   "rep": 2,
+   "has_placebo": 0.01,
+   "is_price_aware": 0.12,
+   "game_clustered": 0.04,
+   "has_baseline_control": 0.03,
+   "multiplicity_corrected": 0.05,
+   "sound_mean": 0.87,
+   "sound_probs": {
+    "fatally_flawed": 0.35,
+    "serious_gaps": 0.43,
+    "adequate": 0.22,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "code_defect": 0.53,
+    "refutation": 0.01,
+    "market_backtest": 0,
+    "other": 0.46
+   },
+   "tokens": 1567
+  },
+  {
+   "id": "F18b",
+   "rep": 1,
+   "has_placebo": 0.01,
+   "is_price_aware": 0.2,
+   "game_clustered": 0.03,
+   "has_baseline_control": 0.04,
+   "multiplicity_corrected": 0.03,
+   "sound_mean": 0.4,
+   "sound_probs": {
+    "fatally_flawed": 0.62,
+    "serious_gaps": 0.37,
+    "adequate": 0.01,
+    "rigorous": 0,
+    "exemplary": 0
+   },
+   "kind": "code_defect",
+   "kind_probs": {
+    "market_backtest": 0,
+    "refutation": 0,
+    "code_defect": 1,
+    "other": 0
+   },
+   "tokens": 1518
+  }
+ ],
+ "tokens": 298059,
+ "failed": 0
+}

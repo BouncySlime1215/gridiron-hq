@@ -3,9 +3,19 @@
 // clamp-bias bug in teamBottomUpDistribution — does not need ensembleLine, so
 // it is fast (buildPlayerWeekEngine only) and reuses the exact TEST_POINTS
 // and calibration/sigmas the full walk-forward run used.
+import path from 'node:path';
+
+// This guard stops a walk-forward re-check from running against the production database.
+// It used to identify that database by the Artifacts path, which was deleted on 2026-09-16 --
+// so after the move to server/data.sqlite the guard silently stopped matching the real file
+// and would have waved production straight through. Compare against the resolved real path,
+// and keep the old marker so a stale GRIDIRON_DB_PATH is still refused.
 const dbPath = process.env.GRIDIRON_DB_PATH;
-if (!dbPath || dbPath.includes('fantasy-football-dashboard/server/data.sqlite')) {
-  throw new Error('Refusing: GRIDIRON_DB_PATH must point at the /tmp validation snapshot.');
+const REAL_DB = new URL('../server/data.sqlite', import.meta.url).pathname;
+if (!dbPath
+    || path.resolve(dbPath) === path.resolve(REAL_DB)
+    || dbPath.includes('fantasy-football-dashboard/server/data.sqlite')) {
+  throw new Error('Refusing: GRIDIRON_DB_PATH must point at a validation snapshot, not the real database.');
 }
 const { rows } = await import('../server/db/index.js');
 const { buildPlayerWeekEngine, clearPlayerWeekEngineCache } = await import('../server/services/player-week-engine.js');

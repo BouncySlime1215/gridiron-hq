@@ -781,8 +781,35 @@ export function roleGateDecision(gateRows, gate = ROLE_GATE) {
  * 10-bin ECE is reported per cell for both arms and gated only overall (roleGateDecision):
  * on 50-300 rows a 10-bin ECE is mostly sampling noise. Smaller cells are reported only.
  */
+/*
+ * G2-v2, restructured 2026-09-19. The rule was written out in full and committed
+ * before the fit was re-run under it: docs/tdd/play-chance-gate-v2.md.
+ *
+ * WHY IT CHANGED. v1 applied two conditions per cell, and they disagreed about
+ * whether cell size matters. The calibration condition scaled its tolerance with the
+ * cell's own sampling error (`max(calibrationFloor, 2 * SE)`, below). The log-loss
+ * condition was a flat `candidate <= current + 0.02` for every cell, whatever its
+ * size. So the half that ignored cell size was the half that could veto the whole
+ * fit, which puts the loosest evidentiary standard and the greatest power to fire at
+ * random in the same place: the smallest gated cell.
+ *
+ * WHAT CHANGED. Exactly one condition. The log-loss check now asks whether the cell's
+ * own data can distinguish a degradation larger than `logLossSlack` from noise, using
+ * the same bootstrap, clustering, draw count and seed the main gate's check 1 already
+ * uses. `minCell` is NOT raised and `logLossSlack` is NOT widened; the same number is
+ * used, and only the question asked of it changes. This is a relaxation of a noisy
+ * cell's veto and the doc says so plainly rather than dressing it up.
+ *
+ * `logLossBootstrap: false` restores v1 exactly, which is how the tests prove the
+ * diff is confined to this one condition.
+ */
 export const DESIGNATION_ROLE_GATE = Object.freeze({
   minCell: 50, logLossSlack: 0.02, calibrationFloor: 0.03, bins: 10,
+  logLossBootstrap: true, bootstrapIterations: 2000, bootstrapSeed: 20260918,
+  // pairedBootstrapDiff refuses below 10 paired rows. With minCell at 50 no gated
+  // cell reaches the fallback; it exists so a cell that could not be evaluated can
+  // never be silently passed.
+  minBootstrapRows: 10,
   designations: Object.freeze(['noreport', 'none', 'questionable', 'doubtful', 'out']),
   roles: Object.freeze(['*', 'starter', 'rotation', 'depth', 'fringe', 'unknown'])
 });
@@ -806,13 +833,39 @@ export function designationRoleGate(gateRows, gate = DESIGNATION_ROLE_GATE) {
     const tolerance = Math.max(gate.calibrationFloor, 2 * Math.sqrt(actual * (1 - actual) / n));
     const biasCurrent = Math.abs(meanCurrent - actual), biasCandidate = Math.abs(meanCandidate - actual);
     const gated = n >= gate.minCell;
-    const logLossPass = cand.log_loss <= cur.log_loss + gate.logLossSlack;
+
+    // G2-v2: the cell vetoes on log loss only when its own data can distinguish a
+    // degradation larger than `logLossSlack` from noise at 90%. `pairedBootstrapDiff`
+    // bootstraps (B - A), so current is A and candidate is B and a positive diff is a
+    // degradation; failing requires the whole 90% interval to sit above the slack.
+    // The point comparison below is v1, kept for the un-bootstrappable fallback and
+    // for `logLossBootstrap: false`.
+    const pointPass = cand.log_loss <= cur.log_loss + gate.logLossSlack;
+    let bootstrap = null;
+    if (gate.logLossBootstrap && n >= (gate.minBootstrapRows ?? 10)) {
+      bootstrap = pairedBootstrapDiff(
+        list.map(r => rowLogLoss(r.p_current, r.y)),
+        list.map(r => rowLogLoss(r.p_candidate, r.y)),
+        { iterations: gate.bootstrapIterations, seed: gate.bootstrapSeed,
+          groups: list.map(r => r.player_id) }
+      );
+      // An `error` from the helper means it declined to bootstrap; fall back rather
+      // than read a ci90 that is not there.
+      if (bootstrap?.error) bootstrap = null;
+    }
+    const logLossPass = bootstrap ? !(bootstrap.ci90[0] > gate.logLossSlack) : pointPass;
     const calibrationPass = biasCandidate <= tolerance || biasCandidate <= biasCurrent;
     return {
       designation, role, n, actual, mean_current: meanCurrent, mean_candidate: meanCandidate,
       log_loss_current: cur.log_loss, log_loss_candidate: cand.log_loss,
       ece_current: cur.ece, ece_candidate: cand.ece, tolerance, gated,
       log_loss_pass: logLossPass, calibration_pass: calibrationPass,
+      // Reported so a reader can see which rule decided the cell and on what evidence,
+      // rather than having to trust that the bootstrap ran.
+      log_loss_basis: bootstrap ? 'bootstrap_ci90' : 'point_estimate',
+      log_loss_point_pass: pointPass,
+      log_loss_ci90: bootstrap ? bootstrap.ci90 : null,
+      log_loss_mean_diff: bootstrap ? bootstrap.mean_diff : null,
       pass: !gated || (logLossPass && calibrationPass)
     };
   }).sort((a, b) => order(gate.designations, a.designation) - order(gate.designations, b.designation)

@@ -289,8 +289,19 @@ test('statementTables separates what a statement reads from what it writes', () 
  * Raised by the Opportunity thread on 2026-09-19: an uncalled producer whose
  * table has live readers is the failure this repository keeps hitting, and it
  * is the one most likely to be accepted away the moment it is inconvenient.
- * The protection is only real if the three ways round it are closed, so each
- * one below is an attack, not a happy path.
+ *
+ * Every case below is an ATTACK, not a happy path, and that is deliberate. The
+ * bare-subject dodge passed the first implementation, which tested the rule name
+ * as a prefix: an entry reading "syncEspnMarket()" rather than
+ * "producer-with-no-caller syncEspnMarket()" silenced the rule cleanly. That is
+ * the same defect as a completeness checker deriving its expectation from the
+ * table it is checking — the check is built from the same assumption as the
+ * thing it checks, so it passes the exact case it exists to catch, and no amount
+ * of reading it finds that. Only running it against a copy somebody broke on
+ * purpose does. So: four attacks, one control proving an unprotected rule is
+ * still baselineable (a gate that blocks everything gets switched off), and one
+ * test that fails if a future GRANDFATHERED entry omits its owner, its citation
+ * or its retirement condition.
  */
 const SYNC = { rule: 'producer-with-no-caller', subject: 'syncEspnMarket()' };
 

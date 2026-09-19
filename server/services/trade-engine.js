@@ -487,6 +487,21 @@ function buildAssetUniverse(lg, formatKey, target) {
         weight_in_season: ros.weight_in_season == null ? null : +ros.weight_in_season.toFixed(3)
       } : rosFailure ? { failed: rosFailure } : null,
       active_probability: +activeProbability.toFixed(3),
+      // WHICH model priced THIS player, as opposed to which model the process
+      // ran. They are not the same fact, and the difference is what was being
+      // printed wrong. `availabilityBasis()` in `context` below is a property of
+      // the process: it says the fit tables are present and the role layer is
+      // in use. But `playerActiveProbability` reaches the fitted role cell only
+      // when that player has a role cell to reach (contingency.js), and drops to
+      // the pooled rates or to the hand-set chain when he does not. So a screen
+      // reading the process basis prints a measured-sounding number for a player
+      // nobody measured. `weeklyAvailability` already works this out per player
+      // and this is the only place that record reaches an asset.
+      //
+      // Null for K and DEF, which `weeklyAvailability` does not cover at all —
+      // the honest answer for a position with no model, and distinct from a
+      // position that has one and fell through it.
+      availability_source: availability?.source ?? null,
       injury_status: availability?.report_status ?? null,
       practice_status: availability?.practice_status ?? null,
       model_cutoff: weekProjection?.player_week_engine?.cutoff ?? `${target.season}-W${Math.max(0, target.week - 1)}`,

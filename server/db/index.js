@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { statSync, statfsSync } from 'node:fs';
+import { statSync, statfsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { up as applyLegacySchema } from '../migrations/000_legacy_schema.js';
@@ -10,6 +10,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.GRIDIRON_DB_PATH || path.join(__dirname, '..', 'data.sqlite');
 
 export const dbPath = DB_PATH;
+// A fresh Fly volume mount (GRIDIRON_DB_PATH=/data/data.sqlite) is an empty
+// directory, not a missing one, so this is normally a no-op — but nothing
+// upstream of this module guaranteed the directory exists, and DatabaseSync
+// throws synchronously (crashing the whole process at import time) rather
+// than creating it, which is indistinguishable from any other boot failure
+// on a host with no interactive terminal to see the exception in.
+mkdirSync(path.dirname(DB_PATH), { recursive: true });
 export const db = new DatabaseSync(DB_PATH);
 
 db.exec(`

@@ -2257,10 +2257,33 @@ of a dozen jobs is the one currently holding the lock."
 3. **Then take the baseline**, which turns last night's loss into a delay rather
    than a write-off. A scheduler-disabled app is not a degraded one for this
    purpose — it is a *quiet* one, which is the ideal condition for a capture
-   that has to be compared against something taken twenty minutes later.
+   that has to be compared against something taken twenty minutes later. Threads
+   only, read-only, no terminal needed.
 
-4. Merge the scheduler thread's fix PR and deploy, then unset
-   `SCHEDULER_DISABLED` once the fix is proved.
+4. Ship the fix. Merge the arming PR and the off-thread PR, then:
+   ```
+   fly deploy -a gridiron-hq
+   ```
+
+5. Turn the scheduler back on and prove it holds:
+   ```
+   fly secrets unset SCHEDULER_DISABLED -a gridiron-hq
+   ```
+   then step 2 again. **Only after this passes does the run sheet resume at
+   step 7.** Re-enabling without re-proving is how a fix that half-works gets
+   believed.
+
+6. Then, and only then, the run sheet's own step:
+   ```
+   fly secrets unset AUTO_HEAVY_SYNC -a gridiron-hq
+   ```
+
+**Why two PRs rather than one.** The arming fix is necessary and not sufficient:
+the same jobs can still wedge on the 90-second live timer once the watchdog is
+legitimately armed, so the cycle re-forms at a slower period. The second moves
+the boot pass and the live tier off-thread, with a test that fails if
+main-thread boot work can exceed the watchdog threshold — which is what stops
+this re-forming the next time somebody adds a job.
 
 **Do not set `LOOP_WATCHDOG_THRESHOLD_MS`, and do not set
 `LOOP_WATCHDOG_DISABLED=1`.** Both are read from the environment, both would

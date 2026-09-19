@@ -778,6 +778,51 @@ fly logs -a gridiron-hq
 What good looks like: no `still running when its next pass was due` warnings
 stacking up, and `/api/health` answering within the grace period.
 
+### 4b. If it does not come back: reading a persistent 502
+
+**Observed on the night, 21:26Z to at least 21:47Z.** `GET /api/health` returned
+**502 with an empty body after 64 seconds**. Written down here because the
+reasoning is reusable and the instinct it corrects is strong.
+
+**An edge 502 with an empty body is not a slow boot.** It is Fly saying no
+machine is serving. A machine that is up but still migrating refuses the
+connection or hangs — it does not produce an edge 502. So the machine is either
+not running or dying on start, and the 300-second cold-start rule has stopped
+being the explanation.
+
+One command answers it:
+
+```
+fly logs -a gridiron-hq
+```
+
+What to look for, most likely first:
+
+1. **`Refusing to migrate: a pre-migration snapshot of 0.4 GB needs about
+   2.4 GB free, and X GB is available of Y GB.`** `assertRoomForSnapshot` throws
+   inside `await runMigrations()`, which is **before `app.listen`**, so the
+   process exits, Fly restarts it, and it exits again. **A crash loop presents
+   as a persistent edge 502**, which is exactly this symptom. Fix is
+   `fly volumes extend`, then redeploy — never a way to skip the snapshot.
+2. **A migration throwing.** Each runs in its own `BEGIN IMMEDIATE`, so the
+   failure rolls back cleanly, but it still exits before `app.listen`. The log
+   names it. The snapshot was already taken by then, so
+   `/data/data.sqlite.pre-migration-<stamp>.bak` is the restore point.
+3. **Still building.** If the build were the answer, the *previous* release
+   should still be serving. A 502 argues against it.
+4. **OOM.** The machine is 2 GB and has been OOM-killed at 1 GB historically.
+   The log says `Out of memory` plainly.
+
+**Do not redeploy to try to clear it.** If it is a crash loop, a second deploy
+loops the same way and buries the first error further up the log. Read the log
+first. This is the one place where the bias to action is wrong: the failure is
+already recorded and re-running it only makes it harder to read.
+
+**What is safe while this is happening:** nothing has been written to the
+database beyond the migrations, because every database-write step in this plan
+comes after a green health check. If the snapshot was taken it is on the volume.
+Nothing is lost by waiting to read the log.
+
 ### 5. Unset the heavy-sync flag
 
 ```
@@ -1532,7 +1577,9 @@ Then:
    through**, and the arithmetic proves it rather than suggesting it.
 
    `active` starts as the prior (`contingency.js:638`), and the prior is itself
-   bounded: `available` is `Math.max(0.05, Math.min(0.99, rate * penalty))`, so
+   bounded: `prior` is `base.get(p.id)?.available ?? 0.92` (`contingency.js:901`) and
+   `available` is `+Math.max(0.05, Math.min(0.99, rate * penalty)).toFixed(3)`
+   (`:80`), so
    **`active` enters the branch at 0.99 or below**. The questionable branch is
    `Math.min(0.75, Math.max(0.45, active * 0.70))`, so its output runs from
    `Math.max(0.45, …)` at the bottom to `0.99 * 0.70 = 0.693` at the top. The

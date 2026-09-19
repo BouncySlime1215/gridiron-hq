@@ -1785,6 +1785,15 @@ function findTradesUncached(lg, {
   return { mode: 'league', me: { roster_id: me.roster_id, owner: me.owner }, slots,
            model_context: assets.context, considered: deals.length,
            excluded_never_trade: [...blockedManagers], deals: shown,
+           // Every player on a roster in this league. Exposed because anything
+           // checking generated prose for an invented player needs the names
+           // that EXIST but are not in the deal — a proposal offering a player
+           // from another team in the league is the failure mode, and a universe
+           // built from the returned deals alone cannot see it. Built here from
+           // the rosters this run already loaded rather than re-derived by the
+           // caller, so there is one source for it.
+           league_player_names: [...new Set(teams.flatMap(t =>
+             (t.players ?? []).map(p => p?.name).filter(Boolean)))],
            // What the edge test took away, and why — reported rather than
            // silently absent, because "the engine found nothing" and "the engine
            // found three things that were not good for you" are different answers.
@@ -1880,6 +1889,13 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     });
     d.tactics = out.tactics;
     d.tactics_absent = out.tactics_absent;
+    // A stable identity for this idea, so a consumer can cite one and be checked
+    // against it. `ideaKey` is the same key the dedupe above already treats as
+    // this idea's identity, so two names for one thing cannot drift apart.
+    // Without it every idea arrived with `id: undefined` and anything verifying
+    // a citation against it — the proposals pass does exactly that — rejected
+    // every proposal as untraceable, after paying for it.
+    d.id = ideaKey(d);
     // How likely he is to say yes, as a band. Attached HERE, on `shown`, and
     // nowhere earlier: everything in this list has already passed the edge
     // test, so an idea that is a gift never carries an acceptance number at

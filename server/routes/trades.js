@@ -22,7 +22,7 @@ import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { brainState, managerProfiles, setManagerProfile } from '../services/league-brain.js';
-import { proposalsFor, liveCaller, dbCache } from '../services/trade-proposals.js';
+import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE } from '../services/trade-proposals.js';
 import { waiverUpgrades, freeAgents } from '../services/waiver-brain.js';
 import { byeOutlook, byePatches, fragility } from '../services/roster-risk.js';
 import { positionLiquidity } from '../services/position-liquidity.js';
@@ -580,13 +580,18 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
     const found = findTrades(lg, {
       myTeamId: req.query.team_id,
       requireMutual: req.query.mutual !== '0',
-      limit: Math.min(12, Number(req.query.limit) || 12),
+      // Fixed at D4's "top ~12", deliberately NOT caller-controlled. The cache
+      // key is a hash of the slate, so a caller free to vary the limit could
+      // mint a fresh key per value — 12 distinct keys, 12 paid Sonnet calls for
+      // the same league on the same day, against a budget that is not per-league.
+      limit: PROPOSAL_SLATE_SIZE,
     });
     const ideas = found?.deals ?? [];
-    // Every name in the league, so a player smuggled into an opener is caught
-    // and not just one swapped into the structured package.
-    const universe = [...new Set(ideas.flatMap(d =>
-      [...(d.i_give ?? []), ...(d.i_get ?? [])].map(p => p?.name).filter(Boolean)))];
+    // Every player on a roster in this league, not merely the ones in the
+    // returned deals. The failure mode this guards against is a proposal
+    // offering someone who exists in the league but is in no idea here — and a
+    // universe built from the deals themselves is blind to exactly that.
+    const universe = found?.league_player_names ?? [];
     res.json(await proposalsFor(lg.id, {
       ideas, universe, call: liveCaller(callClaude), cache: dbCache(lg.id),
     }));

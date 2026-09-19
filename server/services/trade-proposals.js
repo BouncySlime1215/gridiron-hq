@@ -53,6 +53,16 @@ import { row, run } from '../db/index.js';
 /** Bumping this invalidates every cached answer by construction. */
 export const PROMPT_VERSION = 'trade-proposals-v1';
 
+/**
+ * How many ideas the model is shown — D4's "the top ~12 numeric ideas".
+ *
+ * Fixed rather than caller-controlled, and the route must not expose it. The
+ * cache key is a hash of the slate, so a caller free to vary this could mint a
+ * distinct key per value and pay for a fresh Sonnet call each time, on the same
+ * league, on the same day.
+ */
+export const PROPOSAL_SLATE_SIZE = 12;
+
 /** The fields D4 names. A proposal missing any of them is not a proposal. */
 export const REQUIRED_PROPOSAL_FIELDS = Object.freeze([
   'idea_ids', 'package', 'why_they_say_yes', 'opener', 'ask', 'fair', 'floor', 'timing', 'risk',

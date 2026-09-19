@@ -705,10 +705,56 @@ The database is 445 MB. All of it runs inside `await runMigrations()`, which is
 **before `app.listen`**.
 
 So on a volume under roughly 3 GB the new machine throws on start, never
-listens, and the deploy fails. It fails in the safe direction — nothing is
-written, the snapshot is declined rather than half-taken, Fly keeps the previous
-release — but the error is about disk and says nothing about any of the 26 pull
+listens, and the deploy fails. **The database fails in the safe direction** —
+nothing is written and the snapshot is declined rather than half-taken, because
+`assertRoomForSnapshot` is called at `server/db/index.js:123` and the
+`VACUUM INTO` is at `:129`, so the refusal is strictly before the copy begins.
+The error is nonetheless about disk and says nothing about any of the 26 pull
 requests, which is a bad thing to be reading for the first time at midnight.
+
+**What is not safe in the same way is the serving app, and an earlier draft of
+this section said it was.** It claimed Fly keeps the previous release. This app
+runs a single machine, `84ed41eae1dd68`, which `fly deploy` updates in place —
+so the previous release is not standing beside the new one waiting to take over.
+Whether anything serves after a failed boot depends on whether the deploy rolled
+the image back, which is not something to assume from here. Read
+`fly status` and `fly releases` rather than trusting this paragraph. The
+database claim above stands on its own and does not depend on this one.
+
+### 3a. The health check's grace period is shorter than this boot
+
+This is a second candidate for a failed deploy, independent of disk, and it
+would have bitten even on a volume with room.
+
+`fly.toml` sets `grace_period = "60s"` on the `/api/health` check
+(`[[services.http_checks]]`, with `interval = "15s"`). The measured cold start
+for this app **before** tonight is 60 to 180 seconds, and tonight's boot adds
+eleven migrations and a `VACUUM INTO` of a 445 MB database ahead of
+`app.listen`. So the check starts counting failures while a perfectly healthy
+machine is still doing exactly what it is supposed to be doing.
+
+The comment sitting above that value makes the argument against it: it says the
+grace period exists because boot runs migrations and seed reconciliation before
+`app.listen`, and that a restart loop caused by an impatient check would be
+worse than the bug being fixed. The number chosen does not match the reasoning
+written beside it.
+
+**Why this produces the same symptom as a crash loop and is not one.** A failing
+health check never restarts a machine — only a process exit does. It removes the
+machine from routing, and Fly's edge then answers a 502 with an empty body,
+which is indistinguishable over HTTP from having no instance at all. On a
+multi-machine app that would be a transient window that heals when the app
+finally listens. On a single machine updated in place there is nothing else to
+route to, and if the deploy gave up on the unhealthy machine, nothing comes back
+on its own.
+
+**Consequence for the run sheet: this wants raising before the next deploy
+attempt is made, whatever the log says the first one died of.** If it is the
+cause, the deploy cannot succeed without it. If the disk gate is the cause,
+extending the volume makes the boot *longer* — the snapshot then actually runs —
+so a 60 second grace period is if anything more likely to fail on the retry than
+it was on the first attempt. It is one line of configuration touching no product
+code.
 
 ```
 fly deploy -a gridiron-hq
@@ -853,6 +899,26 @@ What to look for, most likely first:
    should still be serving. A 502 argues against it.
 4. **OOM.** The machine is 2 GB and has been OOM-killed at 1 GB historically.
    The log says `Out of memory` plainly.
+5. **The port guard.** `server/index.js:9-14` wraps `assertPortAvailable(PORT)`
+   in a try/catch that prints `error.message` and calls `process.exit(1)` —
+   before migrations, before anything. One line in the log and the process is
+   gone, which is a crash loop with almost nothing in it to read.
+6. **The grace period, covered in 3a.** This one is not a crash and leaves a
+   *different* signature: the log reaches
+   `Gridiron HQ listening on http://0.0.0.0:5177` and then stops, with no error
+   after it. A machine that got that far and is still 502 was removed from
+   routing rather than killed.
+
+**Read the log for the last marker it reached, in this order**, because each one
+names a different failure and they are mutually exclusive:
+
+| Last thing in the log | What died | Fix |
+| --- | --- | --- |
+| `Refusing to migrate: a pre-migration snapshot of …` | the disk gate | `fly volumes extend` |
+| `[db] backing up … before …` and nothing after | the `VACUUM INTO` itself, mid-write | read `df` again; the partial file is not a rollback |
+| `[db] backup complete in <n>ms`, then a stack trace | one of the migrations | name it before retrying anything |
+| `Gridiron HQ listening on …`, then nothing | nothing — it booted | routing, not boot; see 3a |
+| one line about a port, then nothing | `assertPortAvailable` | read the message; it names the port |
 
 **Do not redeploy to try to clear it.** If it is a crash loop, a second deploy
 loops the same way and buries the first error further up the log. Read the log

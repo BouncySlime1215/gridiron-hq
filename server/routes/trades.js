@@ -7,6 +7,7 @@
  */
 import { Router } from 'express';
 import { row, rows } from '../db/index.js';
+import { assertLeagueMember } from '../platform/auth.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
   findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
@@ -22,6 +23,14 @@ import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { brainState, managerProfiles, setManagerProfile } from '../services/league-brain.js';
+// The measured manager layer: what has been observed about each counterparty, as
+// opposed to `manager_profiles`, which is the tier Nick set by hand.
+import { SIGNAL_SOURCES, refreshManagerData } from '../services/manager-signals.js';
+import { identityMap, identityRows, identityWarnings } from '../services/manager-identity.js';
+import { counterpartyLayer, RECEPTIVENESS_RANGE } from '../services/counterparty-pricing.js';
+// Every other route in this file is a read behind a bearer session; the one that
+// triggers work needs the administrator grant on top (server/platform/legacy-access.js).
+import { requirePlatformAdmin } from '../platform/legacy-access.js';
 import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE } from '../services/trade-proposals.js';
 import { waiverUpgrades, freeAgents } from '../services/waiver-brain.js';
 import { byeOutlook, byePatches, fragility } from '../services/roster-risk.js';
@@ -61,10 +70,25 @@ function excludeSet(req) {
   return ids.length ? new Set(ids) : null;
 }
 
-/** Shared preamble: every route needs a synced league. */
+/**
+ * Shared preamble: every route needs a synced league THE CALLER IS IN.
+ *
+ * The membership check is here rather than on each route because this helper
+ * is the single door all 32 league-scoped routes in this file go through, and
+ * a rule enforced in one place cannot be forgotten by route 33. Until now it
+ * looked up the league by id alone, so any authenticated user could read — and
+ * through POST /:leagueId/brain/managers/:rosterId, write — any league in the
+ * database. That was invisible while there was exactly one account and is the
+ * first thing that matters once there are two.
+ *
+ * `assertLeagueMember` throws AuthorizationError, which the error handler in
+ * server/index.js turns into a 403; that is the same answer leagues.js,
+ * model.js and drafts.js already give, so a caller sees one consistent story.
+ */
 function league(req, res) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.leagueId);
   if (!lg) { res.status(404).json({ error: 'league not found' }); return null; }
+  assertLeagueMember(req.auth?.userId, lg.id);
   if (!lg.payload) { res.status(400).json({ error: 'league not synced yet — sync it on the My Leagues page' }); return null; }
   return lg;
 }
@@ -357,6 +381,251 @@ r.post('/:leagueId/brain/managers/:rosterId', (req, res, next) => {
     });
     if (out.error) return res.status(400).json(out);
     res.json(out);
+  } catch (e) { next(e); }
+});
+
+/* ------------------------------------------------- the measured manager layer */
+
+/**
+ * THE READ SIDE OF THE SIGNAL LAYER.
+ *
+ * `/brain/managers` above serves `manager_profiles`: the tier Nick typed in. This
+ * serves what has actually been MEASURED about each manager — manager_signals
+ * (roster, standings, transactions, draft, outcome, chat, Nick's priors), the
+ * identity joins those rest on, and the receptiveness the trade finder prices
+ * with. Until now none of it was readable anywhere: it reached the client only
+ * embedded inside each deal's `counterparty` block, so a page could not show a
+ * manager read at all, let alone say what it rests on.
+ *
+ * DEGRADES HONESTLY, BY CONSTRUCTION. Four of the five leagues have no chat
+ * corpus and none of them has signals until the build has run, so `available`
+ * and `reason` carry that in the same words counterparty-pricing.js already uses
+ * rather than shipping an empty page that looks like a finding. Nothing is
+ * synthesised here: every number in `signals` is a stored row, with the sample it
+ * rests on and whether its source may price anything. A metric withheld at build
+ * time for sample size (`tx_accept_rate` below five decided offers) is simply not
+ * in the table, so it cannot appear here as if it had been measured.
+ */
+const NO_MANAGER_SIGNALS_REASON =
+  'no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it';
+
+/**
+ * `res.json()` turns a Map or a Set into `{}` — silently, with a 200. That bug
+ * has already happened in this codebase (valuationMap and counterpartyLayer both
+ * hand back Maps of Maps, and `owned` is a Set), and this payload is assembled
+ * out of exactly those objects. So everything served below goes through here:
+ * a Map becomes an object, a Set an array, and nothing reaches the client as an
+ * empty object that was really data.
+ */
+function jsonSafe(value) {
+  if (value instanceof Map) return Object.fromEntries([...value].map(([k, v]) => [String(k), jsonSafe(v)]));
+  if (value instanceof Set) return [...value].map(jsonSafe);
+  if (Array.isArray(value)) return value.map(jsonSafe);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, jsonSafe(v)]));
+  }
+  return value;
+}
+
+/**
+ * One stored signal, with what its source is allowed to be used for and why.
+ *
+ * `priceable` is LOAD-BEARING, not decoration. The `manager_signals` table has no
+ * such column — SIGNAL_SOURCES carries it per source — so the join has to happen
+ * here, and a consumer left to guess from the sample size alone would print a
+ * draft-sourced metric with a big `n` as a measured fact. `draft` is the one
+ * declared source with `priceable: false`, because no draft metric survived the
+ * year-over-year repeatability test, and that is exactly the number this layer
+ * exists to stop anyone pricing on.
+ *
+ * `why` is derived from the same registry (its label and its refresh cadence),
+ * never written per metric: there is no per-metric explanation in the data, and
+ * inventing one would be the first thing here to quietly stop being true.
+ */
+function signalOf(r) {
+  const spec = SIGNAL_SOURCES[r.source] ?? null;
+  const priceable = spec?.priceable ?? false;
+  return {
+    metric: r.metric, value: r.value, n: r.n, source: r.source, priceable,
+    why: spec
+      ? `${spec.label}; refreshed ${spec.refreshed}${priceable ? '' : ' — context only, never priced'}`
+      : `source '${r.source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`,
+  };
+}
+
+async function managerSignalsPayload(lg, { week = null } = {}) {
+  const leagueId = lg.id;
+  const season = lg.season ?? null;
+  const signalRows = rows(`SELECT roster_id, metric, value, n, source, computed_at FROM manager_signals
+                           WHERE league_id = ? ORDER BY roster_id, source, metric`, leagueId);
+  const computedAt = signalRows.reduce((max, r) => (max == null || r.computed_at > max ? r.computed_at : max), null);
+  const byRoster = new Map();
+  for (const r of signalRows) {
+    if (!byRoster.has(r.roster_id)) byRoster.set(r.roster_id, []);
+    byRoster.get(r.roster_id).push(signalOf(r));
+  }
+
+  // The synced payload is the roster set of record — a manager with no signals
+  // yet still belongs in the list, saying so. A league whose payload cannot be
+  // read falls back to whatever rows exist rather than answering with nothing.
+  let payload = null;
+  try { payload = JSON.parse(lg.payload); } catch { payload = null; }
+  const teams = payload?.teams ?? [];
+  const memberName = new Map((payload?.members ?? []).map(m => [m.id,
+    `${m.firstName ?? ''} ${m.lastName ?? ''}`.trim() || m.displayName || null]));
+  const teamById = new Map(teams.map(t => [String(t.id), t]));
+  const idents = new Map(identityRows(leagueId).map(r => [String(r.roster_id), r]));
+  const profiles = new Map(rows('SELECT roster_id, tradeability, owner FROM manager_profiles WHERE league_id = ?',
+    leagueId).map(r => [String(r.roster_id), r]));
+  // Trusted chat identities only — a `likely` name match is not a corpus, it is
+  // a warning (identityWarnings), and attributing chat to it is the one failure
+  // manager-identity.js exists to prevent.
+  const chatIdentities = identityMap(leagueId);
+
+  // Receptiveness and the negotiation profile come from the layer the trade
+  // finder itself prices with, so this page and a trade card cannot disagree.
+  // `rosterContext: new Map()` deliberately skips deriveRosterNeeds, which runs
+  // the whole league analysis (assetUniverse and a lineup solve per team) for
+  // positional needs this contract does not carry.
+  let layer = null;
+  let layerError = null;
+  if (signalRows.length) {
+    try { layer = counterpartyLayer(leagueId, { season, week, rosterContext: new Map() }); }
+    catch (e) { layerError = String(e?.message ?? e); }
+  }
+  // The archetype store is the weekly feature warehouse; it is imported here,
+  // lazily, rather than at the top of the trade path (the same line
+  // counterparty-pricing.js draws) and an absent store is simply no archetype.
+  let archetypes = new Map();
+  try {
+    const { archetypesFor } = await import('../services/manager-archetypes.js');
+    archetypes = archetypesFor(leagueId, season);
+  } catch { archetypes = new Map(); }
+
+  const rosterIds = teams.length
+    ? teams.map(t => String(t.id))
+    : [...new Set([...idents.keys(), ...byRoster.keys()])].sort((a, b) => Number(a) - Number(b));
+
+  const managers = rosterIds.map(id => {
+    const team = teamById.get(id) ?? null;
+    const ident = idents.get(id) ?? null;
+    const mp = layer?.get(id) ?? null;
+    return {
+      roster_id: id,
+      owner: memberName.get((team?.owners ?? [])[0]) ?? ident?.espn_name ?? profiles.get(id)?.owner
+        ?? team?.name ?? null,
+      corpus: chatIdentities.has(id),
+      // null, not 'fair': "nobody has said" and "he was judged tradeable" are
+      // different facts, and league-brain.js's default hides the difference.
+      tradeability_set: profiles.get(id)?.tradeability ?? null,
+      archetype: archetypes.get(id) ?? null,
+      receptiveness: mp ? {
+        value: mp.receptiveness, range: RECEPTIVENESS_RANGE,
+        chat_msgs: mp.chat_msgs, chat_weight: mp.chat_weight,
+        open_to_trade_pct: mp.open_to_trade_pct, trade_talk_pct: mp.trade_talk_pct,
+        accept_rate: mp.accept_rate, accept_rate_n: mp.accept_rate_n,
+        untouchable_rate: mp.untouchable_rate ?? null,
+        word_stance: mp.stance?.stance ?? null, word_note: mp.stance?.note ?? null,
+        priors: mp.priors ?? {},
+        factors: mp.receptiveness_factors ?? [],
+      } : null,
+      negotiation: mp?.negotiation ? { messages_read: mp.negotiation_n ?? 0, profile: mp.negotiation } : null,
+      signals: byRoster.get(id) ?? [],
+    };
+  });
+
+  return jsonSafe({
+    league: { id: leagueId, name: lg.name ?? null, season, week: week ?? null },
+    available: signalRows.length > 0,
+    reason: signalRows.length
+      // A layer that could not be built is reported rather than left as a silent
+      // null receptiveness; the stored signals below it are still measured.
+      ? (layerError ? `the signals are built, but the receptiveness layer failed: ${layerError}` : null)
+      : NO_MANAGER_SIGNALS_REASON,
+    computed_at: computedAt,
+    sources: SIGNAL_SOURCES,
+    identity_warnings: identityWarnings(leagueId),
+    managers,
+  });
+}
+
+/** What has been measured about every manager in one league, and what it rests on. */
+r.get('/:leagueId/managers/signals', async (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    let week = null;
+    try { week = leagueCurrentWeek(lg); } catch { week = null; }
+    res.json(await managerSignalsPayload(lg, { week }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * REBUILD THE LAYER — the only route in this file that makes work happen, so the
+ * only one behind the administrator grant (`/api/trades` mounts
+ * legacyAuthenticated, which is a valid session and nothing more).
+ *
+ * `{ "league_ids": [4] }` narrows it; omitted, every ESPN league is rebuilt.
+ * Safe to call repeatedly: the service rewrites a league only when its result
+ * differs from what is stored, so an idle re-run leaves every timestamp alone
+ * (`unchanged: true`). One failing league never fails the call — the service
+ * isolates each league in its own try/catch and this reports what it said.
+ */
+r.post('/managers/rebuild', requirePlatformAdmin, (req, res, next) => {
+  try {
+    const raw = req.body?.league_ids;
+    if (raw != null && !Array.isArray(raw)) {
+      return res.status(400).json({ error: 'league_ids must be an array of league ids' });
+    }
+    const ids = raw == null ? null : raw.map(Number).filter(Number.isFinite);
+    if (ids && !ids.length) {
+      return res.status(400).json({ error: 'league_ids was given but holds no usable league id' });
+    }
+    // Which league owns the chat corpus is read from confirmed identities, and
+    // nothing but this route and the build script ever writes one. On a box
+    // where neither has run, an uploaded corpus attaches to no league at all,
+    // so the first run needs to be told who is who: a roster id to the name
+    // that person posts under. matchIdentities stores those as 'confirmed',
+    // so it only has to be said once.
+    const confirmations = req.body?.confirmations;
+    if (confirmations != null && (typeof confirmations !== 'object' || Array.isArray(confirmations))) {
+      return res.status(400).json({ error: 'confirmations must be an object of league id -> { roster_id: chat name }' });
+    }
+    for (const [leagueId, map] of Object.entries(confirmations ?? {})) {
+      if (!Number.isFinite(Number(leagueId)) || typeof map !== 'object' || map == null || Array.isArray(map)) {
+        return res.status(400).json({ error: `confirmations["${leagueId}"] must be an object of roster_id -> chat name` });
+      }
+      for (const [rosterId, chatName] of Object.entries(map)) {
+        if (typeof chatName !== 'string' || !chatName.trim()) {
+          return res.status(400).json({
+            error: `confirmations["${leagueId}"]["${rosterId}"] must be the name that person posts under`,
+          });
+        }
+      }
+    }
+    const out = refreshManagerData({
+      ...(ids ? { leagueIds: ids } : {}),
+      ...(confirmations ? { confirmations } : {}),
+    });
+    res.json({
+      status: out.status, chat_db: out.chat_db, ms: out.ms, requested: ids,
+      leagues: (out.leagues ?? []).map(l => ({
+        league_id: l.league_id, name: l.name ?? null,
+        // Exactly one of these three is the story for a league: it was not
+        // eligible, it failed, or it built.
+        skipped: l.skipped ?? null,
+        error: l.error ?? null,
+        chat_corpus: l.chat_corpus ?? false,
+        unchanged: l.unchanged ?? null,
+        signals: l.signals ?? 0,
+        player_views: l.player_views ?? 0,
+        rosters: l.rosters ?? 0,
+        rosters_with_signals: l.rosters_with_signals ?? 0,
+        rosters_with_chat: l.rosters_with_chat ?? 0,
+        by_source: l.by_source ?? null,
+        identities: l.identities ?? null,
+        archetypes: l.archetypes ?? null,
+      })),
+    });
   } catch (e) { next(e); }
 });
 

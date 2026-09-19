@@ -56,3 +56,132 @@ export interface SideRisk { out: PackageRisk; in: PackageRisk; read: string | nu
 export function hasEvidence(p: TradePlayer | null | undefined): boolean {
   return !!(p?.career?.seasons?.length || p?.career?.headline || p?.preseason?.points != null || p?.offseason);
 }
+
+/* ------------------------------------------------------------ manager read */
+
+/**
+ * The counterparty read on one deal (server/services/counterparty-pricing.js,
+ * `readDeal()` + `serializeManagerRead()`, merged onto every idea at
+ * trade-engine.js's `counterparty:` block).
+ *
+ * Every field is optional, and `counterparty_data` is the one that says whether
+ * there is a read at all: four of the five leagues have no chat corpus, and for
+ * those the engine ships a declared no-information block rather than nothing, so
+ * a page can say WHY it is quiet instead of looking broken.
+ */
+
+/** One named, capped contribution to receptiveness, with the sample behind it. */
+export interface ReceptivenessFactor {
+  source: string;
+  label: string;
+  /** null when the source was read but never reduced to a number. Never render as measured. */
+  effect?: number | null;
+  /** The sample. 0 means "no observations" — not "an effect of zero". */
+  n?: number | null;
+  cap?: number | null;
+  fitted?: false;
+  why?: string | null;
+}
+
+/** How this manager has talked about one player in this deal. */
+export interface ManagerPlayerRead {
+  player: string | null;
+  owns?: boolean | null;
+  mentions?: number | null;
+  sentiment?: number | null;
+  verdict?: string | null;
+  confidence?: string | null;
+  why?: string | null;
+  action?: string | null;
+  /** He called the player untouchable: 'held' if his word has held, 'not_held' if it has not. */
+  declared?: 'held' | 'not_held' | null;
+}
+
+/** The model's whole-corpus read, cut to what a card shows. */
+export interface NegotiationRead {
+  headline?: string | null;
+  how_to_approach?: string | null;
+  best_bait?: string | null;
+  confidence?: string | null;
+  no_holds?: string | null;
+  praise_means?: string | null;
+  inflation?: string | null;
+  what_moves_him?: string[];
+  what_shuts_him_down?: string[];
+}
+
+export interface Counterparty {
+  counterparty_data?: boolean;
+  receptiveness?: number | null;
+  tier?: string | null;
+  chat_msgs?: number | null;
+  chat_weight?: number | null;
+  open_to_trade_pct?: number | null;
+  trade_talk_pct?: number | null;
+  accept_rate?: number | null;
+  accept_rate_n?: number | null;
+  perception_informed?: boolean;
+  perception_delta?: number | null;
+  priors?: Record<string, number> | null;
+  untouchable_rate?: number | null;
+  needs?: string[] | null;
+  surplus?: string[] | null;
+  window?: { label?: string | null; stance?: string | null } | null;
+  luck?: { value: number; n: number } | null;
+  negotiation?: NegotiationRead | null;
+  negotiation_n?: number | null;
+  receptiveness_factors?: ReceptivenessFactor[];
+  asking_for_declared?: string[];
+  word_stance?: string | null;
+  word_note?: string | null;
+  word_stance_note?: string | null;
+  word_credibility?: number | null;
+  player_reads?: ManagerPlayerRead[];
+}
+
+/** P(accept) as a band, never a point (server/services/trade-acceptance.js). */
+export interface Acceptance {
+  band: { low: number; mid: number; high: number } | null;
+  basis?: string | null;
+  why?: string | null;
+  fitted?: false;
+  anchor?: { accept_rate: number | null; n: number; usable: boolean; why?: string | null } | null;
+  factors?: { source: string; label: string; effect: number; why?: string | null }[];
+  inert?: { source: string; reason: string }[];
+}
+
+/** One suggested approach (server/services/trade-tactics.js). */
+export interface Tactic {
+  key: string;
+  label: string;
+  effect?: number | null;
+  effect_net?: number | null;
+  n?: number | null;
+  why?: string | null;
+  numbers?: Record<string, number | null> | null;
+  players?: { player?: string; centrepiece?: boolean }[];
+}
+
+/** A tactic that did NOT fire, with the reason — reported, never hidden. */
+export interface TacticAbsent { key: string; reason: string }
+
+/** The slice of a scored deal the manager panel reads. */
+export interface ManagerReadDeal {
+  counterparty?: Counterparty | null;
+  acceptance?: Acceptance | null;
+  tactics?: Tactic[] | null;
+  tactics_absent?: TacticAbsent[] | null;
+  /** The hand-set tradeability tier. Reported as an override signal, not derived. */
+  manager_tradeability?: string | null;
+}
+
+/** True when the engine actually had a counterparty read for this manager. */
+export function hasManagerData(cp: Counterparty | null | undefined): boolean {
+  return cp?.counterparty_data === true;
+}
+
+/** True when the panel has anything at all to say — a read, a band, or a tactic. */
+export function hasManagerRead(deal: ManagerReadDeal | null | undefined): boolean {
+  return !!(deal?.counterparty || deal?.acceptance || deal?.tactics?.length
+    || deal?.tactics_absent?.length || deal?.manager_tradeability);
+}

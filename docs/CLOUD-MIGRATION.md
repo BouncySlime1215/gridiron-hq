@@ -138,22 +138,37 @@ The server decides which of those you get (`extractionCapability()`), not the
 client guessing from the hostname, so the button is never offered where it
 cannot work and the reason given is always the real one.
 
-Moving the file between boxes:
+**Or skip the button entirely.** The app is hosted now, so the pull and the
+upload are one command on the Mac:
 
 ```bash
-# In a Claude cloud session today: get the file into the box by whatever means
-# the session offers (an upload into the workspace), then install it.
+npm run chat:sync
+```
+
+That extracts incrementally, classifies, rebuilds the rollups, refuses to send
+a corpus that is missing or empty, and prints one line saying how many messages
+are live on the app. It checks the host and the token *before* extracting, so a
+dead token costs a second rather than a ten-minute run. `--full` rebuilds from
+scratch, `--no-upload` stops after validating, and `--host=` points it at a
+local app instead of the deployment.
+
+`/api/league-chat/upload` sits behind the same bearer auth as the rest of
+`/api`, so the sync needs a session token in `GRIDIRON_FLY_TOKEN` (environment
+or `.env`); `scripts/chat-sync.mjs` prints the command that mints one when it
+is missing or expired.
+
+Moving the file by hand, when something is wrong with the above:
+
+```bash
+# get the file into the box however the session offers, then install it
 node scripts/import-league-chat.mjs <path-to-uploaded-file>
 node scripts/import-league-chat.mjs --verify
 ```
 
-The HTTP route exists and is tested, but **it needs a reachable address, which a
-Claude cloud session does not have** (see the note at the top). Once the app is
-hosted — Phase 11 — this is the one-liner from the Mac after a pull:
-
 ```bash
-# only once there is a real <cloud-url>
-curl -X POST <cloud-url>/api/league-chat/upload \
+# the raw HTTP equivalent of what chat:sync does
+curl -X POST https://gridiron-hq.fly.dev/api/league-chat/upload \
+     -H "Authorization: Bearer $GRIDIRON_FLY_TOKEN" \
      -H 'Content-Type: application/octet-stream' \
      --data-binary @data/derived/league_chat.sqlite
 ```

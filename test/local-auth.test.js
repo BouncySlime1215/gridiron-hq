@@ -11,7 +11,7 @@ const { db, row, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 await import('../server/services/espn-draft.js');
-const { default: localAuthRouter, isLoopback } = await import('../server/routes/local-auth.js');
+const { default: localAuthRouter, isLoopback, claimUnownedLeagues } = await import('../server/routes/local-auth.js');
 const { default: leaguesRouter } = await import('../server/routes/leagues.js');
 const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
 const express = (await import('express')).default;
@@ -74,4 +74,29 @@ test('GET /leagues/:id/data never echoes the ESPN session cookies', async () => 
   const body = await response.json();
   assert.equal('espn_s2' in body, false, 'espn_s2 must not appear in the response body');
   assert.equal('swid' in body, false, 'swid must not appear in the response body');
+});
+
+test('loopback provisioning claims only unowned leagues, never another account\'s', () => {
+  // This endpoint is reachable in production from inside the container over
+  // `fly ssh console`, so "commissioner of every league in the database" stops
+  // being harmless the moment a second account exists.
+  run(`INSERT INTO users (subject, display_name) VALUES ('invited-friend','Friend')`);
+  const friend = row('SELECT last_insert_rowid() AS id').id;
+  run(`INSERT INTO leagues (platform, league_id, season, name)
+       VALUES ('espn','55555',2026,'Friend League')`);
+  const friendsLeague = row('SELECT last_insert_rowid() AS id').id;
+  run(`INSERT INTO league_memberships (league_id, user_id, role)
+       VALUES (?,?,'commissioner')`, friendsLeague, friend);
+
+  run(`INSERT INTO leagues (platform, league_id, season, name)
+       VALUES ('espn','66666',2026,'Unclaimed League')`);
+  const unowned = row('SELECT last_insert_rowid() AS id').id;
+
+  claimUnownedLeagues(row(`SELECT id FROM users WHERE subject='gridiron-local-owner'`).id);
+  const owner = row(`SELECT id FROM users WHERE subject='gridiron-local-owner'`).id;
+
+  assert.ok(row('SELECT 1 FROM league_memberships WHERE league_id=? AND user_id=?', unowned, owner),
+    'an unclaimed league is still claimed, so a fresh install is unchanged');
+  assert.equal(row('SELECT COUNT(*) AS n FROM league_memberships WHERE league_id=? AND user_id=?',
+    friendsLeague, owner).n, 0, "the loopback owner must not annex an invited user's league");
 });

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, headshotUrl } from '../api';
 import { usePlayerCard } from './PlayerCard';
 import { Headshot } from './PlayerRow';
+import ManagerRead from './trade/ManagerRead';
 import PlayerEvidence from './trade/PlayerEvidence';
 import RiskStrip from './trade/RiskStrip';
 import { hasEvidence } from './trade/types';
@@ -228,7 +229,6 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         <span className={`text-[11px] ${FAIRNESS_TONE[deal.fairness] ?? 'text-[var(--muted)]'}`}>
           {deal.fairness}
         </span>
-        {deal.manager_tradeability === 'hard' && <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800">HARD TO TRADE WITH</span>}
         {deal.joint_ppg != null && (
           <span className="text-[10px] text-[var(--muted)]" title="Combined lineup gain — the surplus that makes a trade possible at all">
             joint {num(deal.joint_ppg)}
@@ -285,6 +285,14 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           <SideBox s={deal.them} mine={false} />
         </div>
       )}
+
+      {/* The other manager: receptiveness and the factors behind it, P(accept) as a
+          band, his negotiation profile, and the suggested approach next to the
+          approaches there was no data to judge. The hand-set 'hard to trade with'
+          tier used to be the only thing on this card that mentioned him at all; it
+          now lives inside this panel, where it reads as the override it is. A
+          league with no chat corpus gets one honest line instead. */}
+      <ManagerRead deal={deal} compact={compact} />
 
       <div className="flex items-center gap-2 mt-3 flex-wrap">
         <button className="btn-ghost text-xs" onClick={odds} disabled={oddsBusy}>

@@ -6,6 +6,16 @@ Walked 912 files, 303 tables, 750 surfaces (534 routes, 54 scheduler jobs).
 Everything below is derived from the source. Edges a walker cannot see are
 in `annotations.json` and marked **ASSERTED** where they appear.
 
+## What this map cannot see
+
+First, because both of these have already produced a wrong answer here.
+
+- **ROWS, NOT WRITERS.** It can tell you whether code writes a table. It cannot tell you whether the rows are any good. league_member_identity has a writer reachable from a route, so this map calls it fed — and it is not, because a row only counts once its confidence is "confirmed", which only a person can set. A clean bill of health here is not evidence a surface has data.
+- **WHOLE-FILE REPLACEMENT IS INVISIBLE.** A table filled by replacing an entire database file has no writer this map can find. Rows marked table-in-another-database are exactly that case and are NOT missing feeds. This map reported four of them as broken once; they were fine.
+- **REACHABILITY IS NOT A CALL GRAPH.** Hop distance says a route imports something that imports the module. It does not prove the route calls it. Edges behind an off-by-default flag are listed separately (edge-behind-an-off-flag) because they are real as code and false as behaviour.
+- **DYNAMIC NAMES ARE INVISIBLE.** A table or module reached only through an interpolated identifier does not appear at all.
+- **ROUTES MATCH BY SHAPE.** /a/:id and /a/:other are the same path here.
+
 ## How to read it
 
 - **MISSING FEED** — a surface depends on something nothing produces. This is the one that hurts users: the page still renders, using a default or a constant, and looks fine.
@@ -15,24 +25,12 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 
 ## Findings
 
-**15 missing feed** — a surface depends on something nothing produces.
-**2024 orphan** — something produced that reaches no surface.
-57 context rows, listed because they are worth knowing and are usually fine.
+**10 missing feed** — a surface depends on something nothing produces.
+**2027 orphan** — something produced that reaches no surface.
+71 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
 
-- **jev_chat_signals** `[shared]` — read in 3 file(s), written by nothing in the repository
-  - server/services/bluff-detector.js:101, server/services/bluff-detector.js:101, server/services/bluff-detector.js:115, server/services/manager-signals.js:110
-  - reached from /api/league-chat /api/model /api/players /api/trades
-- **manager_chat_profile** `[fantasy]` — read in 2 file(s), written by nothing in the repository
-  - server/services/manager-signals.js:131, server/services/manager-signals.js:456, scripts/build-negotiation-profiles.mjs:342
-  - reached from /api/league-chat /api/model /api/players /api/trades
-- **manager_player_sentiment** `[fantasy]` — read in 1 file(s), written by nothing in the repository
-  - server/services/manager-signals.js:376
-  - reached from /api/league-chat /api/model /api/players /api/trades
-- **messages** `[shared]` — read in 6 file(s), written by nothing in the repository
-  - server/routes/league-chat.js:102, server/services/bluff-detector.js:101, server/services/bluff-detector.js:115, server/services/league-chat-sync.js:104
-  - reached from /api/league-chat /api/model /api/players /api/trades
 - **espn_player_market** `[fantasy]` — read on a served surface, but every writer is a script someone has to remember to run
   - writer server/services/espn-market.js:45, reader server/routes/aggregates.js:216, reader server/services/consensus-weights.js:526, reader server/services/espn-market.js:69
   - reached from /api/aggregates /api/drafts /api/leagues /api/players /api/model /api/trades /api/accolades /api/betting /api/dev /api/espn /api/mlb /api/nfl /api/nfl-betting /api/stats
@@ -45,9 +43,6 @@ The missing-feed list in full, because it is short and it is the one that matter
 - **manager_archetypes** `[fantasy]` — read on a served surface, but every writer is a script someone has to remember to run
   - writer server/services/manager-archetypes.js:561, writer server/services/manager-archetypes.js:563, writer server/services/manager-archetypes.js:563, reader server/services/manager-archetypes.js:698
   - reached from /api/league-chat /api/model /api/players /api/trades
-- **negotiation_profiles** `[shared]` — read on a served surface, but every writer is a script someone has to remember to run
-  - writer scripts/build-negotiation-profiles.mjs:434, writer scripts/build-negotiation-profiles.mjs:434, reader server/services/counterparty-pricing.js:808, reader server/services/counterparty-pricing.js:928
-  - reached from /api/model /api/players /api/trades /api/accolades /api/aggregates /api/betting /api/dev /api/drafts /api/espn /api/leagues /api/mlb /api/nfl /api/nfl-betting /api/stats
 - **nfl_availability_rates** `[fantasy]` — read on a served surface, but every writer is a script someone has to remember to run
   - writer scripts/fit-availability.mjs:412, writer scripts/fit-availability.mjs:414, reader server/services/contingency.js:568, reader scripts/availability-decision-calibration.mjs:222
   - reached from /api/model /api/dev /api/leagues /api/news /api/players /api/trades /api/accolades /api/aggregates /api/betting /api/drafts /api/espn /api/mlb /api/nfl /api/nfl-betting /api/nfl-market /api/stats
@@ -69,43 +64,22 @@ The missing-feed list in full, because it is short and it is the one that matter
 
 | rule | family | fantasy | betting | shared |
 | --- | --- | --: | --: | --: |
-| `table-never-written` | missing-feed | 2 | 0 | 2 |
-| `table-hand-fed` | missing-feed | 6 | 0 | 5 |
+| `table-hand-fed` | missing-feed | 6 | 0 | 4 |
+| `cache-blind-to-its-inputs` | staleness | 0 | 0 | 3 |
+| `table-in-another-database` | context | 2 | 0 | 8 |
 | `table-never-scheduled` | context | 11 | 9 | 37 |
+| `edge-behind-an-off-flag` | context | 1 | 0 | 0 |
 | `module-only-tested` | orphan | 3 | 8 | 6 |
 | `module-imported-by-nothing` | orphan | 1 | 0 | 14 |
 | `module-reaches-no-surface` | orphan | 0 | 4 | 12 |
 | `field-attached-never-read` | orphan | 4 | 18 | 39 |
 | `value-computed-never-used` | orphan | 15 | 15 | 61 |
-| `table-never-read` | orphan | 0 | 4 | 16 |
-| `export-only-tested` | orphan | 66 | 90 | 204 |
-| `export-imported-by-nothing` | orphan | 136 | 271 | 585 |
+| `table-never-read` | orphan | 0 | 4 | 13 |
+| `export-only-tested` | orphan | 66 | 90 | 208 |
+| `export-imported-by-nothing` | orphan | 136 | 271 | 587 |
 | `route-no-caller` | orphan | 52 | 331 | 69 |
 
-### `table-never-written` — MISSING FEED (4)
-
-- **jev_chat_signals** `[shared]` — read in 3 file(s), written by nothing in the repository
-  - server/services/bluff-detector.js:101, server/services/bluff-detector.js:101, server/services/bluff-detector.js:115, server/services/manager-signals.js:110, scripts/build-negotiation-profiles.mjs:65
-  - wired into (≤3 hops): routes /api/league-chat@1 /api/model@3 /api/players@3 /api/trades@3; scripts scripts/build-negotiation-profiles.mjs@0 scripts/build-manager-signals.mjs@1 scripts/refresh-live-data.mjs@1
-  - read in: server/services/bluff-detector.js, server/services/manager-signals.js, scripts/build-negotiation-profiles.mjs
-  - **ASSERTED**: Same external corpus as `messages`. Classification runs during the chat sync, so it exists only where the corpus does.
-- **manager_chat_profile** `[fantasy]` — read in 2 file(s), written by nothing in the repository
-  - server/services/manager-signals.js:131, server/services/manager-signals.js:456, scripts/build-negotiation-profiles.mjs:342
-  - wired into (≤3 hops): routes /api/league-chat@1 /api/model@3 /api/players@3 /api/trades@3; scripts scripts/build-negotiation-profiles.mjs@0 scripts/build-manager-signals.mjs@1 scripts/refresh-live-data.mjs@1
-  - read in: server/services/manager-signals.js, scripts/build-negotiation-profiles.mjs
-  - **ASSERTED**: Same external corpus as `messages`.
-- **manager_player_sentiment** `[fantasy]` — read in 1 file(s), written by nothing in the repository
-  - server/services/manager-signals.js:376
-  - wired into (≤3 hops): routes /api/league-chat@1 /api/model@3 /api/players@3 /api/trades@3; scripts scripts/build-manager-signals.mjs@1 scripts/build-negotiation-profiles.mjs@1 scripts/refresh-live-data.mjs@1
-  - read in: server/services/manager-signals.js
-  - **ASSERTED**: Same external corpus as `messages`.
-- **messages** `[shared]` — read in 6 file(s), written by nothing in the repository
-  - server/routes/league-chat.js:102, server/services/bluff-detector.js:101, server/services/bluff-detector.js:115, server/services/league-chat-sync.js:104, server/services/manager-signals.js:109
-  - wired into (≤3 hops): routes /api/league-chat@0 /api/model@3 /api/players@3 /api/trades@3; scripts scripts/build-negotiation-profiles.mjs@0 scripts/import-league-chat.mjs@0 scripts/build-manager-signals.mjs@1
-  - read in: server/routes/league-chat.js, server/services/bluff-detector.js, server/services/league-chat-sync.js, server/services/manager-signals.js, scripts/build-negotiation-profiles.mjs, scripts/import-league-chat.mjs
-  - **ASSERTED**: Produced on Nick's Mac, not by this repository. league-chat-sync.js reads a SEPARATE SQLite file (messagesDbPath()) and copies from it; `npm run chat:sync` is the human step. 16,023 messages exist there as of 2026-09-19 and zero of them are on the server.
-
-### `table-hand-fed` — MISSING FEED (11)
+### `table-hand-fed` — MISSING FEED (10)
 
 - **espn_player_market** `[fantasy]` — read on a served surface, but every writer is a script someone has to remember to run
   - writer server/services/espn-market.js:45, reader server/routes/aggregates.js:216, reader server/services/consensus-weights.js:526, reader server/services/espn-market.js:69, reader server/services/espn-market.js:76
@@ -126,11 +100,6 @@ The missing-feed list in full, because it is short and it is the one that matter
   - writer server/services/manager-archetypes.js:561, writer server/services/manager-archetypes.js:563, writer server/services/manager-archetypes.js:563, reader server/services/manager-archetypes.js:698, reader server/services/manager-archetypes.js:802
   - wired into (≤3 hops): routes /api/league-chat@1 /api/model@3 /api/players@3 /api/trades@3; scripts scripts/build-manager-archetypes.mjs@0 scripts/refresh-live-data.mjs@0 scripts/build-manager-signals.mjs@1
   - read in: server/services/manager-archetypes.js, server/services/manager-signals.js, scripts/build-manager-archetypes.mjs, scripts/refresh-live-data.mjs
-- **negotiation_profiles** `[shared]` — read on a served surface, but every writer is a script someone has to remember to run
-  - writer scripts/build-negotiation-profiles.mjs:434, writer scripts/build-negotiation-profiles.mjs:434, reader server/services/counterparty-pricing.js:808, reader server/services/counterparty-pricing.js:928, reader scripts/build-negotiation-profiles.mjs:363
-  - wired into (≤3 hops): routes /api/model@2 /api/players@2 /api/trades@2 /api/accolades@3 /api/aggregates@3 /api/betting@3 /api/dev@3 /api/drafts@3; jobs espn_line_watch@3 polymarket_line_watch@3; scripts scripts/build-negotiation-profiles.mjs@0 scripts/eval-lineup-objectives.mjs@3 scripts/fit-posture-calibration.mjs@3
-  - read in: server/services/counterparty-pricing.js, scripts/build-negotiation-profiles.mjs
-  - **ASSERTED**: `node scripts/build-negotiation-profiles.mjs`, which needs the chat corpus above, so it inherits that gap.
 - **nfl_availability_rates** `[fantasy]` — read on a served surface, but every writer is a script someone has to remember to run
   - writer scripts/fit-availability.mjs:412, writer scripts/fit-availability.mjs:414, reader server/services/contingency.js:568, reader scripts/availability-decision-calibration.mjs:222, reader scripts/fit-availability.mjs:60
   - wired into (≤3 hops): routes /api/model@1 /api/dev@2 /api/leagues@2 /api/news@2 /api/players@2 /api/trades@2 /api/accolades@3 /api/aggregates@3; jobs espn_line_watch@3 polymarket_line_watch@3; scripts scripts/availability-decision-calibration.mjs@0 scripts/fit-availability.mjs@0 scripts/fit-posture-calibration.mjs@1
@@ -160,6 +129,35 @@ The missing-feed list in full, because it is short and it is the one that matter
   - read in: server/services/nfl-rebuild-progress.js, scripts/nfl-2022-2025-rebuild.mjs
   - **ASSERTED**: Written by the 2022-2025 rebuild script while it runs. Correctly manual.
 
+### `cache-blind-to-its-inputs` — STALENESS (3)
+
+- **server/routes/model.js** `[shared]` — memoises 3 value(s) under a CONSTANT key, in a module that reads 10 table(s). There is no input in the key, so the first answer of the process is served until the process ends, whatever is written underneath it
+  - 'handcuffs', 'cascades', 'avail'
+- **server/services/nfl-weekly-feature-store-v2.js** `[shared]` — memoises 1 value(s) under a CONSTANT key, in a module that reads 13 table(s). There is no input in the key, so the first answer of the process is served until the process ends, whatever is written underneath it
+  - 'nflverse:participation'
+- **server/services/preseason-model.js** `[shared]` — memoises 2 value(s) under a CONSTANT key, in a module that reads 10 table(s). There is no input in the key, so the first answer of the process is served until the process ends, whatever is written underneath it
+  - 'names', 'bio'
+
+### `table-in-another-database` — CONTEXT (10)
+
+- **jev_chat_signals** `[shared]` — not in the app's database — every query against it runs on a separate handle opened on another file, CHAT_DB. Whatever fills it does so by replacing that file, which this map cannot see and must not report as a missing writer
+  - server/services/bluff-detector.js:101, server/services/bluff-detector.js:101, server/services/bluff-detector.js:115, server/services/manager-signals.js:110
+- **manager_chat_profile** `[fantasy]` — not in the app's database — every query against it runs on a separate handle opened on another file, CHAT_DB. Whatever fills it does so by replacing that file, which this map cannot see and must not report as a missing writer
+  - server/services/manager-signals.js:131, server/services/manager-signals.js:456, scripts/build-negotiation-profiles.mjs:342
+- **manager_player_sentiment** `[fantasy]` — not in the app's database — every query against it runs on a separate handle opened on another file. Whatever fills it does so by replacing that file, which this map cannot see and must not report as a missing writer
+  - server/services/manager-signals.js:376
+- **messages** `[shared]` — not in the app's database — every query against it runs on a separate handle opened on tmp, another file, file, CHAT_DB. Whatever fills it does so by replacing that file, which this map cannot see and must not report as a missing writer
+  - server/routes/league-chat.js:102, server/services/bluff-detector.js:101, server/services/bluff-detector.js:115, server/services/league-chat-sync.js:104
+- **negotiation_profiles** `[shared]` — not in the app's database — every query against it runs on a separate handle opened on another file, CHAT_DB. Whatever fills it does so by replacing that file, which this map cannot see and must not report as a missing writer
+  - server/services/counterparty-pricing.js:808, server/services/counterparty-pricing.js:928, scripts/build-negotiation-profiles.mjs:363
+- **sh_crawl** `[shared]` — not in the app's database — every query against it runs on a separate handle opened on dbPath. Whatever fills it does so by replacing that file, which this map cannot see and must not report as a missing writer
+  - scripts/collect-sleeper-history.mjs:78, scripts/collect-sleeper-history.mjs:79, scripts/collect-sleeper-history.mjs:80
+- **sh_leagues** `[shared]` — not in the app's database — every query against it runs on a separate handle opened on dbPath. Whatever fills it does so by replacing that file, which this map cannot see and must not report as a missing writer
+  - scripts/collect-sleeper-history.mjs:81, scripts/collect-sleeper-history.mjs:82
+- **sh_team_seasons** `[shared]` — not in the app's database — every query against it runs on a separate handle opened on dbPath. Whatever fills it does so by replacing that file, which this map cannot see and must not report as a missing writer
+- **sh_team_weeks** `[shared]` — not in the app's database — every query against it runs on a separate handle opened on dbPath. Whatever fills it does so by replacing that file, which this map cannot see and must not report as a missing writer
+- **sh_transactions** `[shared]` — not in the app's database — every query against it runs on a separate handle opened on dbPath. Whatever fills it does so by replacing that file, which this map cannot see and must not report as a missing writer
+
 ### `table-never-scheduled` — CONTEXT (57)
 
 Grouped by file, heaviest first. Full list in `wiring-map.json`.
@@ -187,6 +185,11 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `writer server/services/mlb-experiments.js` | 1 |
 | `writer server/services/mlb-calibration.js` | 1 |
 | _… 21 more files_ | 21 |
+
+### `edge-behind-an-off-flag` — CONTEXT (1)
+
+- **applyRedistribution() in server/services/player-week-engine.js** `[fantasy]` — runs only when `redistributeVolume` is true, and the only thing that sets it true is scripts/eval-redistribution.mjs — so this is code the running app never reaches, however real the import edge looks
+  - server/services/player-week-engine.js:189
 
 ### `module-only-tested` — ORPHAN (17)
 
@@ -572,7 +575,7 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
   - server/migrations/047_backfill_open_spread_pinnacle_2022_2025.js:89
 - _… 31 more in wiring-map.json_
 
-### `table-never-read` — ORPHAN (20)
+### `table-never-read` — ORPHAN (17)
 
 - **legacy_draft_quarantine** `[shared]` — written by 2 file(s), read by nothing
   - server/migrations/007_model_permissions_and_upgrade_guard.js:4, server/migrations/007_model_permissions_and_upgrade_guard.js:33, server/platform/provision-auth.js:52
@@ -608,20 +611,14 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
   - server/services/nfelo.js:220, server/services/nfelo.js:220
 - **schema_preflight** `[shared]` — written by 1 file(s), read by nothing
   - server/db/preflight.js:268
-- **sh_team_seasons** `[shared]` — written by 1 file(s), read by nothing
-  - scripts/collect-sleeper-history.mjs:84, scripts/collect-sleeper-history.mjs:84
-- **sh_team_weeks** `[shared]` — written by 1 file(s), read by nothing
-  - scripts/collect-sleeper-history.mjs:85, scripts/collect-sleeper-history.mjs:85
-- **sh_transactions** `[shared]` — written by 1 file(s), read by nothing
-  - scripts/collect-sleeper-history.mjs:86, scripts/collect-sleeper-history.mjs:86
 
-### `export-only-tested` — ORPHAN (360)
+### `export-only-tested` — ORPHAN (364)
 
 Grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
-| `scripts/wiring-map.mjs` | 10 |
+| `scripts/wiring-map.mjs` | 14 |
 | `server/services/lineup-brain.js` | 9 |
 | `server/services/execution-slate-reasoning.js` | 8 |
 | `server/services/nfl-sim-shape-calibration.js` | 8 |
@@ -643,7 +640,7 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/services/nfl-execution-clv.js` | 5 |
 | _… 115 more files_ | 230 |
 
-### `export-imported-by-nothing` — ORPHAN (992)
+### `export-imported-by-nothing` — ORPHAN (994)
 
 Grouped by file, heaviest first. Full list in `wiring-map.json`.
 
@@ -666,9 +663,9 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/services/consensus-weights.js` | 14 |
 | `server/services/draft-abstention-audit.js` | 14 |
 | `server/services/nfl-weekly-feature-store-v2.js` | 14 |
+| `scripts/wiring-map.mjs` | 13 |
 | `server/services/joint-score-backtest.js` | 13 |
 | `server/services/ros-projection.js` | 12 |
-| `scripts/wiring-map.mjs` | 11 |
 | _… 222 more files_ | 626 |
 
 ### `route-no-caller` — ORPHAN (452)
@@ -704,22 +701,19 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 The few things a walker cannot see, written down by hand in `annotations.json`.
 Everything else in this file is derived.
 
-- **messages** — ASSERTED producer: Produced on Nick's Mac, not by this repository. league-chat-sync.js reads a SEPARATE SQLite file (messagesDbPath()) and copies from it; `npm run chat:sync` is the human step. 16,023 messages exist there as of 2026-09-19 and zero of them are on the server.
-- **jev_chat_signals** — ASSERTED producer: Same external corpus as `messages`. Classification runs during the chat sync, so it exists only where the corpus does.
-- **manager_chat_profile** — ASSERTED producer: Same external corpus as `messages`.
-- **manager_player_sentiment** — ASSERTED producer: Same external corpus as `messages`.
 - **nfl_availability_rates** — ASSERTED producer: Produced by `node scripts/fit-availability.mjs` over a shell on the machine. There is no route and no job that runs it, by design: it is a 5-season fit with a 2,000-draw bootstrap.
 - **nfl_availability_role_rates** — ASSERTED producer: Same script, and only if its pre-registered gate passes on held-out 2025. A failed gate writes zero rows on purpose; an empty table is a legitimate outcome, not a bug.
 - **espn_player_market** — ASSERTED producer: syncEspnMarket() exists and nothing calls it. Not a deliberate manual step — an unfinished one.
 - **league_roster_snapshots** — ASSERTED producer: `node scripts/collect-roster-snapshots.mjs`, run by hand per league.
 - **league_season_teams** — ASSERTED producer: `node scripts/backfill-league-history.mjs`, a one-off backfill.
 - **league_transactions_raw** — ASSERTED producer: `node scripts/collect-league-transactions.mjs`, run by hand per league.
-- **negotiation_profiles** — ASSERTED producer: `node scripts/build-negotiation-profiles.mjs`, which needs the chat corpus above, so it inherits that gap.
+- **negotiation_profiles** — ASSERTED producer: Lives in the CHAT database, not the app's — built by scripts/build-negotiation-profiles.mjs on the Mac and delivered inside the corpus file.
 - **nfl_rebuild_progress** — ASSERTED producer: Written by the 2022-2025 rebuild script while it runs. Correctly manual.
 - **nfl_rebuild_checkpoints** — ASSERTED producer: Written by the 2022-2025 rebuild script while it runs. Correctly manual.
 
 - **league_member_identity** — ASSERTED note: The walker sees a writer (manager-identity.js) reachable from a route and calls the table fed. It is not, in the way that matters: a row only becomes usable to the Trade Brain when its `confidence` is 'confirmed' or 'exact' (TRUSTED_CONFIDENCE), and 'confirmed' is only ever set from the `confirmations` argument, which a person has to supply. Name matching cannot bootstrap it, because chat handles are not ESPN names. A value-level dependency like this one is outside what an import-and-SQL walker can prove, which is why it is written down here.
 - **espn_settings** — ASSERTED note: Read once at server/db/index.js:228 to migrate a pre-multi-league row into `leagues`. Nothing writes it any more and nothing should. Kept as a legacy read.
+- **the chat corpus** — ASSERTED note: messages, jev_chat_signals, manager_chat_profile, manager_player_sentiment and negotiation_profiles are NOT in the app's database. They are Nick's iMessage corpus, a separate SQLite file opened read-only via chatDbPath()/messagesDbPath(), built on his Mac and delivered whole through POST /api/league-chat/upload (which refuses a corpus with an empty messages table). The map reported all four as 'written by nothing' before it learned to tell the two handles apart; they were fine. Both consuming surfaces already refuse and name the gap when the corpus is absent.
 
 ## Tables: who fills them, who reads them, what moves
 

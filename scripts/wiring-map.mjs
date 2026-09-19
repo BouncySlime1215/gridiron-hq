@@ -91,7 +91,7 @@ function scan(src) {
       const start = i; i++;
       while (i < n && src[i] !== c) { if (src[i] === '\\') i++; i++; }
       i = Math.min(i + 1, n);
-      strings.push({ text: src.slice(start + 1, i - 1), line: lineAt(start) });
+      strings.push({ text: src.slice(start + 1, i - 1), line: lineAt(start), at: start });
       blank(start, i); continue;
     }
     if (c === '`') {
@@ -109,7 +109,7 @@ function scan(src) {
         i++;
       }
       i = Math.min(i + 1, n);
-      strings.push({ text: src.slice(start + 1, i - 1), line: lineAt(start) });
+      strings.push({ text: src.slice(start + 1, i - 1), line: lineAt(start), at: start });
       blank(start, i); continue;
     }
     if (c === '/' && /[(,=:[!&|?{};+\-*%~^<>]|^$|return|typeof|case|in|of|do|else/.test(prevSignificant)) {
@@ -175,10 +175,13 @@ function looksSql(t) {
   return /\b(SELECT|INSERT|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE|REPLACE\s+INTO)\b/i.test(t);
 }
 
-function sqlEdges(strings) {
+function sqlEdges(strings, attribute = () => ({ handle: 'app', where: null })) {
   const creates = [], writes = [], reads = [];
-  for (const { text, line } of strings) {
+  for (const { text, line, at } of strings) {
     if (!looksSql(text)) continue;
+    const { handle, where } = attribute(at);
+    const tag = (arr, from) => { for (let i = from; i < arr.length; i++) { arr[i].handle = handle; arr[i].opened_on = where; } };
+    const c0 = creates.length, w0 = writes.length, r0 = reads.length;
     collect(RE_CREATE, text, creates, line);
     collect(RE_ALTER, text, creates, line);
     collect(RE_INSERT, text, writes, line);
@@ -191,8 +194,62 @@ function sqlEdges(strings) {
     const readable = text.replace(/\bDELETE\s+FROM\b/gi, 'DELETE      ');
     collect(RE_FROM, readable, reads, line);
     collect(RE_JOIN, readable, reads, line);
+    tag(creates, c0); tag(writes, w0); tag(reads, r0);
   }
   return { creates, writes, reads };
+}
+
+
+// ---------------------------------------------------------------------------
+// Which database a query runs against.
+//
+// This repository talks to TWO SQLite files. The app's own, through the `db`,
+// `rows`, `row` and `run` helpers exported by server/db/index.js — and a second
+// one, the league chat corpus, opened read-only with its own DatabaseSync
+// handle from chatDbPath()/messagesDbPath(). Without this distinction the map
+// pools both into one namespace and reports the corpus tables as "read by the
+// app and written by nothing", which is a false alarm: they are filled by
+// replacing the whole file through POST /api/league-chat/upload. A map that
+// cries wolf gets switched off, and its true findings go with it.
+// ---------------------------------------------------------------------------
+
+const APP_HELPERS = new Set(['rows', 'row', 'run', 'db']);
+
+/** Handle names in this file that are NOT the app's database. */
+function foreignHandles(file) {
+  const names = new Map();   // identifier -> the path expression it was opened on
+  // server/db/index.js is where the app's own handle is opened. Its DatabaseSync
+  // IS the app database, not a second one.
+  if (file.path === 'server/db/index.js') return names;
+  for (const m of file.text.matchAll(
+    /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?(?:new\s+DatabaseSync|openChatDb)\s*\(\s*([^,)]*)/g)) {
+    names.set(m[1], (m[2] || '').trim() || 'another file');
+  }
+  for (const m of file.text.matchAll(/([A-Za-z_$][\w$]*)\s*=\s*new\s+DatabaseSync\s*\(\s*([^,)]*)/g)) {
+    if (!names.has(m[1])) names.set(m[1], (m[2] || '').trim() || 'another file');
+  }
+  return names;
+}
+
+/**
+ * The handle a SQL literal was handed to: 'app', or the name of a local
+ * DatabaseSync. Read by looking back from the string to the call that takes it.
+ */
+function handleFor(file, offset, foreign) {
+  const before = file.text.slice(Math.max(0, offset - 120), offset);
+  const viaMethod = before.match(/([A-Za-z_$][\w$]*)\s*\.\s*(?:prepare|exec|run|all|get)\s*\(\s*$/);
+  if (viaMethod) {
+    const name = viaMethod[1];
+    if (foreign.has(name)) return { handle: name, where: foreign.get(name) };
+    return { handle: 'app', where: null };
+  }
+  const viaHelper = before.match(/([A-Za-z_$][\w$]*)\s*\(\s*$/);
+  if (viaHelper && APP_HELPERS.has(viaHelper[1])) return { handle: 'app', where: null };
+  if (viaHelper && foreign.has(viaHelper[1])) return { handle: viaHelper[1], where: foreign.get(viaHelper[1]) };
+  // A DDL block or a query we could not attribute. The app's own database is
+  // the right default: every other handle in this repository is opened
+  // read-only, so an unattributed WRITE is the app's by construction.
+  return { handle: 'app', where: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +482,123 @@ function identifierCounts(code) {
   return counts;
 }
 
+
+// ---------------------------------------------------------------------------
+// Gated edges. A call sitting behind a parameter that defaults to false, which
+// only a script or a test ever turns on, is real as code and false as
+// behaviour. Drawing it is how a map states confidently that the projection
+// engine prices availability when the running app never takes that branch.
+// ---------------------------------------------------------------------------
+
+/** `{ start, end }` of the body of `function NAME(...) { ... }`, or null. */
+function bodyRange(code, name) {
+  const re = new RegExp(`\\bfunction\\s+${name}\\s*\\(`, 'g');
+  const m = re.exec(code);
+  if (!m) return null;
+  const open = code.indexOf('{', m.index);
+  if (open === -1) return null;
+  let depth = 0;
+  for (let i = open; i < code.length; i++) {
+    if (code[i] === '{') depth++;
+    else if (code[i] === '}') { depth--; if (depth === 0) return { start: open, end: i }; }
+  }
+  return null;
+}
+
+/**
+ * Regions of each file that only run when an off-by-default flag is on.
+ *
+ * Found by: a call guarded by a bare identifier (`if (flag) doIt()`,
+ * `flag && doIt()`), where that identifier has a `= false` or `= null` default
+ * somewhere, and every place in the repository that passes it true lives under
+ * scripts/ or test/. The guarded function's whole body is then gated, provided
+ * every call to it in that file is guarded the same way.
+ */
+function gatedRegions(files) {
+  const enabledIn = new Map();   // flag -> [files that set it true]
+  const defaulted = new Set();   // flags with a false/null default
+  for (const f of files.values()) {
+    for (const m of f.code.matchAll(/\b([a-z][\w]*)\s*=\s*(?:false|null)\s*[,}]/g)) defaulted.add(m[1]);
+    for (const m of f.code.matchAll(/\b([a-z][\w]*)\s*:\s*true\b/g)) {
+      if (!enabledIn.has(m[1])) enabledIn.set(m[1], []);
+      enabledIn.get(m[1]).push(f.path);
+    }
+  }
+
+  const out = new Map();   // file -> [{ flag, callee, start, end }]
+  for (const f of files.values()) {
+    if (f.tree === 'test') continue;
+    const guards = [
+      ...f.code.matchAll(/\bif\s*\(\s*([a-z][\w]*)\s*\)\s*([A-Za-z_$][\w$]*)\s*\(/g),
+      ...f.code.matchAll(/\b([a-z][\w]*)\s*&&\s*([A-Za-z_$][\w$]*)\s*\(/g),
+    ];
+    for (const g of guards) {
+      const [, flag, callee] = g;
+      if (!defaulted.has(flag)) continue;
+      const enablers = enabledIn.get(flag) ?? [];
+      // Enabled anywhere the app actually runs? Then it is a live edge.
+      if (enablers.some(p => !/^(scripts|test)\//.test(p))) continue;
+      const range = bodyRange(f.code, callee);
+      if (!range) continue;
+      // Every call to the callee in this file must be guarded, or the body runs
+      // on some other path too.
+      const calls = [...f.code.matchAll(new RegExp(`\\b${callee}\\s*\\(`, 'g'))]
+        .filter(c => c.index !== range.start && !f.code.slice(Math.max(0, c.index - 20), c.index).includes('function'));
+      const guarded = calls.every(c => {
+        const before = f.code.slice(Math.max(0, c.index - 40), c.index);
+        return new RegExp(`(?:if\\s*\\(\\s*${flag}\\s*\\)\\s*|${flag}\\s*&&\\s*)$`).test(before);
+      });
+      if (!guarded || !calls.length) continue;
+      if (!out.has(f.path)) out.set(f.path, []);
+      out.get(f.path).push({
+        flag, callee, start: range.start, end: range.end,
+        line: lineOf(f.code, range.start),
+        enabled_by: enablers.length ? enablers : ['nothing in the repository'],
+      });
+    }
+  }
+  return out;
+}
+
+/** Is `line` inside a region of `file` that only a script can switch on? */
+function gateFor(gated, file, line, code) {
+  for (const r of gated.get(file) ?? []) {
+    if (line >= lineOf(code, r.start) && line <= lineOf(code, r.end)) return r;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Staleness. Two modules can read the same table and behave in opposite ways:
+// one names it in a cache fingerprint and recomputes when it changes, the other
+// memoises on a bare key and serves the pre-change answer for the life of the
+// process. On a data-flow map they look identical, and the second is the
+// dangerous one — it is how a verification step returns "no change" and is
+// believed.
+// ---------------------------------------------------------------------------
+
+const FRESHNESS = /fingerprint|stamp|fitted_at|updated_at|computed_at|version|digest|mtime|etag/i;
+
+function blindCaches(file) {
+  const caches = [...file.code.matchAll(/^(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*new Map\(\)/gm)].map(m => m[1]);
+  if (!caches.length) return [];
+  const keys = [];
+  for (const name of caches) {
+    for (const m of file.text.matchAll(new RegExp(`\\b${name}\\.set\\(([^,]{0,120}),`, 'g'))) keys.push(m[1]);
+  }
+  for (const m of file.text.matchAll(/\bmemo\(([^,]{0,120}),/g)) keys.push(m[1]);
+  if (!keys.length) return [];
+  if (keys.some(k => FRESHNESS.test(k))) return [];
+  // Only the unambiguous case is reported. A CONSTANT key means "compute once
+  // per process and never again" — there is no input in the key at all, so no
+  // write to anything can ever dislodge it. A key built from request arguments
+  // is a judgement call (it may be cleared, it may be short-lived), and a map
+  // that reports judgement calls as defects gets switched off.
+  const constant = keys.filter(k => /^\s*['"][^'"$`]+['"]\s*$/.test(k));
+  if (!constant.length) return [];
+  return [{ caches, keys: [...new Set(constant.map(k => k.trim()))].slice(0, 8), constant: constant.length }];
+}
+
 // ---------------------------------------------------------------------------
 // Scope. Nick has ruled out betting FEATURES, not knowing what connects to
 // what, so the betting half is mapped and then tagged, rather than skipped. A
@@ -453,9 +627,12 @@ function build() {
       const raw = fs.readFileSync(abs, 'utf8');
       const { code, text, strings } = scan(raw);
       const { imports, exports } = moduleEdges(text);
+      const file = { path: rel, tree: kind, raw, code, text, strings };
+      const foreign = foreignHandles(file);
       files.set(rel, {
         path: rel, tree: kind, raw, code, text, strings, imports, exports,
-        sql: sqlEdges(strings),
+        foreign_handles: [...foreign.keys()],
+        sql: sqlEdges(strings, at => handleFor(file, at, foreign)),
         routes: rel.startsWith('server/routes/') ? routeHandlers(text) : [],
         calls: kind === 'client' || kind === 'extension' ? clientCalls(text) : [],
         scope: scopeOfFile(rel),
@@ -574,6 +751,9 @@ function build() {
     }
   }
 
+  // Which regions of which files only run behind an off-by-default flag.
+  const gated = gatedRegions(files);
+
   // Tables.
   const tableUniverse = new Set();
   for (const f of files.values()) for (const c of f.sql.creates) tableUniverse.add(c.table);
@@ -586,11 +766,13 @@ function build() {
     for (const kind of ['creates', 'writes', 'reads']) {
       for (const e of f.sql[kind]) {
         if (!tableUniverse.has(e.table)) continue;
-        tableEntry(e.table)[kind].push({ file: f.path, line: e.line, tree: f.tree });
+        const gate = gateFor(gated, f.path, e.line, f.code);
+        tableEntry(e.table)[kind].push({ file: f.path, line: e.line, tree: f.tree,
+          gated_by: gate ? gate.flag : null, handle: e.handle ?? 'app', opened_on: e.opened_on ?? null });
       }
     }
   }
-  return { files, importsOf, importedBy, surfaces, mounts, mountByFile, jobs, tables, reach, reachNames };
+  return { files, importsOf, importedBy, surfaces, mounts, mountByFile, jobs, tables, reach, reachNames, gated };
 }
 
 // ---------------------------------------------------------------------------
@@ -655,6 +837,7 @@ function annotations(file) {
 
 function findings(model, ann) {
   const { files, importedBy, tables, reach, reachNames, surfaces, mountByFile } = model;
+  void mountByFile;
   const out = [];
   const add = (f) => out.push(f);
   const ignored = new Set(ann.expected_orphans ?? []);
@@ -662,8 +845,27 @@ function findings(model, ann) {
 
   // ---- tables ----------------------------------------------------------
   for (const t of tables.values()) {
-    const readers = t.reads.filter(r => r.tree !== 'test');
-    const writers = t.writes.filter(w => w.tree !== 'test');
+    const allReaders = t.reads.filter(r => r.tree !== 'test');
+    const allWriters = t.writes.filter(w => w.tree !== 'test');
+    // A table only counts as the app's if the APP's handle touches it. The
+    // league chat corpus is a second SQLite file opened read-only on its own
+    // handle; its tables have no writer here and are not supposed to.
+    const foreignOnly = allReaders.concat(allWriters).length > 0
+      && allReaders.concat(allWriters).every(e => e.handle && e.handle !== 'app');
+    if (foreignOnly) {
+      const via = [...new Set(allReaders.concat(allWriters).map(e => e.opened_on).filter(Boolean))];
+      t.database = via[0] ?? 'a second database handle';
+      if (!ignored.has(`table:${t.table}`)) {
+        add({ kind: 'context', rule: 'table-in-another-database', scope: t.scope, subject: t.table,
+          detail: `not in the app's database — every query against it runs on a separate handle `
+            + `opened on ${via.join(', ') || 'another file'}. Whatever fills it does so by replacing `
+            + `that file, which this map cannot see and must not report as a missing writer`,
+          evidence: allReaders.slice(0, 4).map(r => `${r.file}:${r.line}`) });
+      }
+      continue;
+    }
+    const readers = allReaders.filter(r => !r.handle || r.handle === 'app');
+    const writers = allWriters.filter(w => !w.handle || w.handle === 'app');
     const readerFiles = [...new Set(readers.map(r => r.file))];
     const writerFiles = [...new Set(writers.map(w => w.file))];
     const readerKinds = new Set(readerFiles.flatMap(f => [...(reach.get(f) ?? [])]));
@@ -784,6 +986,43 @@ function findings(model, ann) {
     }
   }
 
+  // ---- gated edges -----------------------------------------------------
+  for (const [file, regions] of model.gated) {
+    for (const r of regions) {
+      if (ignored.has(`gate:${file}#${r.flag}`)) continue;
+      const f = files.get(file);
+      const inside = [];
+      for (const kind of ['reads', 'writes']) {
+        for (const e of f.sql[kind]) {
+          if (e.line >= lineOf(f.code, r.start) && e.line <= lineOf(f.code, r.end)) inside.push(e.table);
+        }
+      }
+      add({ kind: 'context', rule: 'edge-behind-an-off-flag', scope: f.scope,
+        subject: `${r.callee}() in ${file}`,
+        detail: `runs only when \`${r.flag}\` is true, and the only thing that sets it true is `
+          + `${r.enabled_by.join(', ')} — so this is code the running app never reaches, `
+          + `however real the import edge looks`,
+        evidence: [`${file}:${r.line}`],
+        gated_tables: [...new Set(inside)] });
+    }
+  }
+
+  // ---- caches that cannot see their own inputs -------------------------
+  for (const f of files.values()) {
+    if (f.tree === 'test' || !f.path.startsWith('server/')) continue;
+    const readsTables = [...tables.values()]
+      .filter(t => t.reads.some(r => r.file === f.path)).map(t => t.table);
+    if (!readsTables.length) continue;
+    for (const c of blindCaches(f)) {
+      if (ignored.has(`cache:${f.path}`)) continue;
+      add({ kind: 'staleness', rule: 'cache-blind-to-its-inputs', scope: f.scope, subject: f.path,
+        detail: `memoises ${c.constant} value(s) under a CONSTANT key, in a module that reads `
+          + `${readsTables.length} table(s). There is no input in the key, so the first answer of `
+          + `the process is served until the process ends, whatever is written underneath it`,
+        evidence: c.keys, reads: readsTables.slice(0, 8) });
+    }
+  }
+
   // ---- routes and client calls ----------------------------------------
   const routePaths = surfaces.filter(s => s.kind === 'route');
   const matches = (routePath, callPath) => {
@@ -876,9 +1115,37 @@ function blastRadius(model, subject) {
 // Output.
 // ---------------------------------------------------------------------------
 
+
+/**
+ * What this map cannot see. Printed with every run, and written into every
+ * artifact, because the person who runs it in six months will not have read the
+ * pull request that introduced it — and both of these have already produced a
+ * wrong answer in this repository, in opposite directions.
+ */
+const LIMITS = [
+  'ROWS, NOT WRITERS. It can tell you whether code writes a table. It cannot tell you '
+  + 'whether the rows are any good. league_member_identity has a writer reachable from a '
+  + 'route, so this map calls it fed — and it is not, because a row only counts once its '
+  + 'confidence is "confirmed", which only a person can set. A clean bill of health here '
+  + 'is not evidence a surface has data.',
+  'WHOLE-FILE REPLACEMENT IS INVISIBLE. A table filled by replacing an entire database '
+  + 'file has no writer this map can find. Rows marked table-in-another-database are '
+  + 'exactly that case and are NOT missing feeds. This map reported four of them as broken '
+  + 'once; they were fine.',
+  'REACHABILITY IS NOT A CALL GRAPH. Hop distance says a route imports something that '
+  + 'imports the module. It does not prove the route calls it. Edges behind an '
+  + 'off-by-default flag are listed separately (edge-behind-an-off-flag) because they are '
+  + 'real as code and false as behaviour.',
+  'DYNAMIC NAMES ARE INVISIBLE. A table or module reached only through an interpolated '
+  + 'identifier does not appear at all.',
+  'ROUTES MATCH BY SHAPE. /a/:id and /a/:other are the same path here.',
+];
+
 const SEVERITY = {
   'table-never-written': 1, 'client-call-without-route': 1, 'table-hand-fed': 2,
-  'table-never-scheduled': 3, 'module-only-tested': 4, 'module-imported-by-nothing': 5,
+  'cache-blind-to-its-inputs': 2.5, 'table-in-another-database': 2.8, 'table-never-scheduled': 3,
+  'edge-behind-an-off-flag': 3.5,
+  'module-only-tested': 4, 'module-imported-by-nothing': 5,
   'module-reaches-no-surface': 5, 'field-attached-never-read': 6, 'value-computed-never-used': 7,
   'table-never-read': 8, 'export-only-tested': 9, 'export-imported-by-nothing': 10, 'route-no-caller': 11,
 };
@@ -887,6 +1154,7 @@ function toJson(model, found, ann) {
   const { files, tables, surfaces, jobs, mounts, reachNames } = model;
   return {
     generated_by: 'scripts/wiring-map.mjs',
+    cannot_see: LIMITS,
     generated_at: new Date().toISOString(),
     derived: true,
     branch: process.env.WIRING_MAP_BRANCH ?? null,
@@ -931,6 +1199,12 @@ function toMarkdown(model, found, ann) {
   p();
   p('Everything below is derived from the source. Edges a walker cannot see are');
   p('in `annotations.json` and marked **ASSERTED** where they appear.');
+  p();
+  p('## What this map cannot see');
+  p();
+  p('First, because both of these have already produced a wrong answer here.');
+  p();
+  for (const l of LIMITS) p(`- **${l.split('.')[0]}.**${l.slice(l.indexOf('.') + 1)}`);
   p();
   p('## How to read it');
   p();
@@ -1066,7 +1340,8 @@ function toMarkdown(model, found, ann) {
 
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
-  toJson, toMarkdown, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS };
+  toJson, toMarkdown, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,
+  foreignHandles, handleFor, gatedRegions, blindCaches, bodyRange, LIMITS };
 
 // ---------------------------------------------------------------------------
 // CLI. Skipped on import, so the module above is testable.
@@ -1123,6 +1398,8 @@ if (INVOKED_DIRECTLY) {
         if (w) console.log(`    wired into: ${w}`);
       }
     }
+    console.log('\nWHAT THIS MAP CANNOT SEE — read before acting on anything above:');
+    for (const l of LIMITS) console.log(`  * ${l.replace(/(.{96}) /g, '$1\n    ')}`);
     console.log(`\n${found.length} findings `
       + `(${found.filter(f => f.kind === 'missing-feed').length} missing feed, `
       + `${found.filter(f => f.kind === 'orphan').length} orphan)`);
@@ -1144,6 +1421,8 @@ if (INVOKED_DIRECTLY) {
     if (blocking.length) {
       console.error(`\n${blocking.length} MISSING FEED finding(s) — a surface depends on something nothing produces:`);
       for (const f of blocking) console.error(`  ${f.rule} ${f.subject} — ${f.detail}`);
+    console.error('\nBefore treating any of these as broken, read what this map cannot see:');
+    for (const l of LIMITS) console.error(`  * ${l.split('.')[0]}.`);
       process.exit(1);
     }
     console.log('no missing-feed findings');

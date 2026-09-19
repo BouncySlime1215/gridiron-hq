@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 const {
   scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations,
+  foreignHandles, handleFor, gatedRegions, blindCaches,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -42,18 +43,18 @@ test('scan survives a quote inside a regex literal', () => {
 test('sqlEdges reads INSERT OR IGNORE, not just INSERT INTO', () => {
   // This exact gate was wrong once and hid 21 real writers, which turned 21
   // healthy tables into "written by nothing" findings.
-  const { writes } = sqlEdges([{ text: 'INSERT OR IGNORE INTO nfl_feature_revisions (a) VALUES (?)', line: 3 }]);
-  assert.deepEqual(writes, [{ table: 'nfl_feature_revisions', line: 3 }]);
+  const { writes } = sqlEdges([{ text: 'INSERT OR IGNORE INTO nfl_feature_revisions (a) VALUES (?)', line: 3, at: 0 }]);
+  assert.deepEqual(writes.map(w => [w.table, w.line]), [['nfl_feature_revisions', 3]]);
 });
 
 test('sqlEdges separates DELETE FROM from a read', () => {
-  const { writes, reads } = sqlEdges([{ text: 'DELETE FROM nfl_availability_rates', line: 1 }]);
+  const { writes, reads } = sqlEdges([{ text: 'DELETE FROM nfl_availability_rates', line: 1, at: 0 }]);
   assert.deepEqual(writes.map(w => w.table), ['nfl_availability_rates']);
   assert.deepEqual(reads, [], 'a delete is not a read');
 });
 
 test('sqlEdges counts INSERT ... SELECT as both a write and a read', () => {
-  const { writes, reads } = sqlEdges([{ text: 'INSERT INTO a SELECT x FROM b JOIN c ON 1', line: 1 }]);
+  const { writes, reads } = sqlEdges([{ text: 'INSERT INTO a SELECT x FROM b JOIN c ON 1', line: 1, at: 0 }]);
   assert.deepEqual(writes.map(w => w.table), ['a']);
   assert.deepEqual(reads.map(r => r.table).sort(), ['b', 'c']);
 });
@@ -136,4 +137,69 @@ test('declarations sees a computed value that is never used again', () => {
   const decls = declarations('const playerOpportunity = a * 0.55 + b * 0.35;');
   assert.equal(decls.has('playerOpportunity'), true);
   assert.equal(decls.get('playerOpportunity'), 1);
+});
+
+test('sqlEdges attributes a query to the handle that ran it', () => {
+  // The whole reason this exists: the league chat corpus is a SECOND SQLite
+  // file opened on its own handle. Pooling both databases into one namespace
+  // reported four corpus tables as "read by the app and written by nothing",
+  // which was a false alarm — they are filled by replacing the file.
+  const src = [
+    "const chat = new DatabaseSync(chatDbPath(), { readOnly: true });",
+    "const a = chat.prepare('SELECT x FROM messages').all();",
+    "const b = rows('SELECT y FROM players');",
+  ].join('\n');
+  const file = { path: 'server/services/x.js', text: src, strings: scan(src).strings };
+  const foreign = foreignHandles(file);
+  assert.ok(foreign.has('chat'));
+  const { reads } = sqlEdges(file.strings, at => handleFor(file, at, foreign));
+  const byTable = Object.fromEntries(reads.map(r => [r.table, r.handle]));
+  assert.equal(byTable.messages, 'chat', 'a corpus read must not be attributed to the app');
+  assert.equal(byTable.players, 'app');
+});
+
+test("server/db/index.js's own DatabaseSync is the app database, not a second one", () => {
+  const src = "export const db = new DatabaseSync(DB_PATH);";
+  assert.equal(foreignHandles({ path: 'server/db/index.js', text: src }).size, 0);
+  assert.equal(foreignHandles({ path: 'server/services/other.js', text: src }).size, 1);
+});
+
+test('gatedRegions finds a call only a script can switch on', () => {
+  // Real case: player-week-engine.js reads the availability tables inside
+  // applyRedistribution, behind `redistributeVolume = false`, which only
+  // scripts/eval-redistribution.mjs ever sets true. Real as code, false as
+  // behaviour — and drawing it cost a wrong sentence in a release plan.
+  const engine = [
+    'function applyRedistribution(out) {',
+    "  const a = rows('SELECT p_active FROM nfl_availability_rates');",
+    '  return a;',
+    '}',
+    'export function build({ redistributeVolume = false } = {}) {',
+    '  if (redistributeVolume) applyRedistribution(out);',
+    '}',
+  ].join('\n');
+  const mk = (path, src) => ({ path, tree: path.startsWith('test/') ? 'test' : 'x', code: scan(src).code });
+  const files = new Map([
+    ['server/e.js', mk('server/e.js', engine)],
+    ['scripts/eval.mjs', mk('scripts/eval.mjs', 'build({ redistributeVolume: true });')],
+  ]);
+  const gated = gatedRegions(files);
+  assert.equal(gated.get('server/e.js')?.[0]?.flag, 'redistributeVolume');
+  assert.equal(gated.get('server/e.js')[0].callee, 'applyRedistribution');
+  assert.deepEqual(gated.get('server/e.js')[0].enabled_by, ['scripts/eval.mjs']);
+});
+
+test('gatedRegions leaves the edge alone when the app itself switches it on', () => {
+  const engine = [
+    'function applyRedistribution(out) { return out; }',
+    'export function build({ redistributeVolume = false } = {}) {',
+    '  if (redistributeVolume) applyRedistribution(out);',
+    '}',
+  ].join('\n');
+  const mk = (path, src) => ({ path, tree: 'x', code: scan(src).code });
+  const files = new Map([
+    ['server/e.js', mk('server/e.js', engine)],
+    ['server/routes/r.js', mk('server/routes/r.js', 'build({ redistributeVolume: true });')],
+  ]);
+  assert.equal(gatedRegions(files).size, 0, 'a flag the server turns on is a live edge');
 });

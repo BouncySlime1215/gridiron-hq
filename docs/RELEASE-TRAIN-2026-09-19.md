@@ -1627,6 +1627,40 @@ Then:
    cached dataset built under another availability fit, so it will say if it is
    stale rather than quietly using it.
 
+### 10a. Put the heavy tier back — last, and only after every after-read
+
+```
+fly secrets set AUTO_HEAVY_SYNC=1 -a gridiron-hq
+```
+
+**The scheduler thread is right that the flag is no longer the hazard it was,
+and this sheet is right to keep it off until the measuring is done. Those are
+two different reasons and both hold.**
+
+*Why re-enabling is now safe*, verified on `791b131`: `scheduler.js:1605` reads
+`const offThread = job.offThread ?? job.tier === 'heavy'`. **The heavy tier
+defaults to off-thread** — no job needs to declare it, and none of the twelve
+does. That is #17's change, and it removes the original hazard, which was
+eleven long jobs parsing megabytes on the HTTP thread. #33's per-tier
+re-entrancy guard (`if (inFlight) … skipping this one`) closes the second.
+
+*Why it still stays off until the end*, and this is a different argument: the
+reason to unset it tonight is **not** the request thread, it is that those jobs
+**change data underneath the readings**. Off-thread is not free — `node:sqlite`
+is synchronous and single-writer, so a worker doing a large batch still takes
+the write lock, and more to the point a refreshed `nfl_injuries` moves
+`weeklyAvailability` and therefore moves the exact numbers being attributed to
+the fit. Same objection as restarting at step 10, arriving by a different route.
+
+**So: re-enable only after every after-read is captured. Never inside the
+capture window.** Note that `fly secrets set` **restarts the machines again** —
+harmless once the measuring is done, and it clears the memo caches on the way
+out, but it is a restart and it must not land mid-capture.
+
+If anything about the deploy still looks unsettled, leave it off and set it
+tomorrow. Nothing degrades while it is unset; the jobs simply run on their next
+pass once it is back.
+
 ### 11. Rollback
 
 **The availability fit — and note this is `DROP`, not `DELETE`:**
@@ -1859,20 +1893,36 @@ node scripts/fit-posture-calibration.mjs --rebuild
 ```
 
 ```
-# 18. Clear the memo cache FIRST. The fit was written from an ssh process and
-#     cannot clear the app process's Map, so without this step 19 returns step
-#     12's cached answer and the fit looks like it did nothing. See step 2a.
-fly apps restart gridiron-hq
-curl -sS --max-time 300 https://gridiron-hq.fly.dev/api/health
-
-# 19. The reading a third time. Seeds 1 and 2 compare exactly against step 12;
-#     seed 3 has never been used, so it answers even if the restart did not take.
-#     Take these promptly: the restart re-runs bootJobs, and weeklyAvailability
-#     reads nfl_injuries (contingency.js:837), which the live tier may refresh.
-for S in 1 2 3; do
+# 18. NO RESTART HERE. Use an unused seed instead. The simulate memo key
+#     carries the seed (routes/model.js:527), so a fresh seed is computed
+#     rather than served; fittedAvailability self-invalidates on row count
+#     and fitted_at; trade-engine fingerprints on fitted_at; and the ?week=
+#     routes call weeklyAvailability directly with no memo. A restart here
+#     would re-run bootJobs, refresh nfl_injuries, and move the very numbers
+#     the fit is being measured on. (Step 8 is the opposite case: proj: and
+#     player-week: do NOT carry the seed, so that one needs the restart.)
+#
+#     Seeds 4 and 5 have never been used, so nothing can be served stale.
+for S in 4 5; do
   curl -s -H "Authorization: Bearer $TOKEN" \
     "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=$S&runs=2000&from_week=2" > ~/sim-after-fit-s$S.json
 done
+
+# 19. The two reads that actually show the fit, neither of them memoised.
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://gridiron-hq.fly.dev/api/model/availability?week=2" > ~/avail-after-fit.json
+#     Puka Nacua is the cleanest test in the plan: 0.324 is the FLOOR of the
+#     constants' questionable range, so no constants path can go lower. Any
+#     drop at all is unambiguously the fit.
+
+# 20. Count the Start/Sit warnings again, per league. Before: 3 / 2 / 4 / 3 / 1.
+#     They should FALL. A new chip on a healthy-prior starter is a finding.
+
+# 21. LAST. Put the heavy tier back, only once every read above is captured.
+#     fly secrets set restarts the machines again, so it must not land
+#     mid-capture. If anything still looks unsettled, leave it and do it
+#     tomorrow; nothing degrades while it is unset.
+fly secrets set AUTO_HEAVY_SYNC=1 -a gridiron-hq
 ```
 
 ### Undo
@@ -1883,7 +1933,7 @@ DROP TABLE nfl_availability_rates;
 DROP TABLE nfl_availability_role_rates;
 
 -- Write 1.
-UPDATE shrinkage_fits SET active = 0;
+DELETE FROM shrinkage_k; DELETE FROM shrinkage_fits;   -- true undo: both empty before step 8
 UPDATE weekly_ensemble_fits SET promoted = 0 WHERE id = <the new id>;
 ```
 

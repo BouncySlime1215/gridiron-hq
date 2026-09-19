@@ -295,6 +295,15 @@ async function captureLeague (leagueId, forcedTarget, forcedHurt) {
     return out;
   }
   out.handle = handleFor(offer.body);
+  // A 200 is not an answer. The whole point of this capture is the availability
+  // basis, so a response that carries no basis has told us nothing while looking
+  // like a successful read — record that as the failure it is rather than a
+  // handle full of nulls. (A basis of `constants` is a real answer; absent is not.)
+  if (!out.handle.availability_basis && !out.handle.availability_basis_flat) {
+    out.error = 'offer returned 200 but carried no availability basis — '
+      + 'the response shape changed, or this build predates the basis field';
+    return out;
+  }
 
   if (hurt) {
     const hurtOffer = await get(`/api/trades/${leagueId}/offer`
@@ -519,4 +528,12 @@ for (const id of leagues) {
 
 if (baseline) report(baseline, run);
 if (OUT) { fs.writeFileSync(OUT, JSON.stringify(run, null, 2)); console.log(`\nwritten to ${OUT}`); }
-process.exitCode = run.leagues.every(l => l.error) ? 1 : 0;
+// ANY league failing is a failed run. `every` here meant four of five leagues
+// could fail and the process would still exit 0, which is the same
+// healthy-looking-and-not-working shape this capture exists to catch.
+const failed = run.leagues.filter(l => l.error);
+if (failed.length) {
+  console.error(`\n${failed.length} of ${run.leagues.length} league(s) failed: `
+    + failed.map(l => `${l.league_id} (${l.error})`).join('; '));
+}
+process.exitCode = failed.length ? 1 : 0;

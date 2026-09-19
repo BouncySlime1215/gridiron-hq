@@ -10,11 +10,16 @@
  * The cookies never leave the machine: the bookmarklet runs in the user's browser and
  * posts to their own local install. Nothing is sent anywhere but ESPN's API.
  */
-import crypto from 'node:crypto';
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { legacyAuthenticated } from '../platform/legacy-access.js';
 import { resolveAuthenticatedUser } from '../platform/auth.js';
+import {
+  braceSwid, clearCredentials, connectTokenForUser, credentialsForUser,
+  saveCredentials, userForConnectToken
+} from '../platform/espn-credentials.js';
+// braceSwid lives with the credentials now: ESPN's API wants the SWID in braces and the
+// cookie sometimes already has them, and that had been written out in two places.
 
 /*
  * Every route here except the bookmarklet's own POST /cookies (and its preflight)
@@ -26,48 +31,42 @@ import { resolveAuthenticatedUser } from '../platform/auth.js';
  * or call ESPN with his cookies (GET /discover). The client's api() already sends the
  * session token on all of these.
  *
- * POST /cookies itself is gated a different way (see cookieWriteAuthorized below):
+ * POST /cookies itself is gated a different way (see cookieWriteOwner below):
  * it still can't require a session outright, because the whole reason it exists is
  * that the bookmarklet runs ON espn.com and never had a session to send. Originally
  * this route also validated with ESPN before writing and called that enough — true
  * for a Mac behind a private, ephemeral phone tunnel, but not for a stable public
  * hostname (a Fly.io deploy): anyone who finds the URL has their own real, valid ESPN
- * cookies for free, so "validates with ESPN" filters nothing, and an unauthenticated
- * write here overwrites the single global app_settings espn_s2/swid pair that
- * getCookies() below treats as the account of record — a costless way for a stranger
- * to boot Nick off his own connection. Now it also accepts a per-install token that
- * only a signed-in caller can ever obtain (baked into the bookmarklet at /bookmarklet,
- * itself session-gated), so a caller with neither a session nor that token is refused
- * before ESPN is ever asked.
+ * cookies for free, so "validates with ESPN" filters nothing. It then also required a
+ * token — but ONE token for the whole install, writing ONE global credential slot, so
+ * any holder could boot Nick off his own connection.
+ *
+ * Both halves are now per user (platform/espn-credentials.js). The token is minted for
+ * the account that generated the bookmarklet, and it can only ever write that account's
+ * credentials, so the worst a leaked token does is let someone put cookies on the row of
+ * the person who leaked it — which is the only thing that person could do with it too.
+ * A caller with neither a session nor a recognised token is still refused before ESPN is
+ * ever asked.
  */
 const signedIn = legacyAuthenticated;
 
 /**
- * A random per-install secret, generated on first use and persisted like the cookies
- * themselves. Its only job is proving "this POST came from a bookmarklet this install's
- * owner actually generated while signed in" — not a credential ESPN accepts, so leaking
- * it only lets someone submit cookies (still validated) for our own record, not read
- * anything.
+ * WHOSE cookies is this POST carrying?
+ *
+ * Returns a user id or null. The paste box sends the session bearer token, so the answer
+ * is simply the signed-in caller. The bookmarklet cannot: it runs on espn.com. It
+ * carries instead the token minted for the account that generated it, which is what
+ * names the owner on that path.
+ *
+ * The token is not a credential ESPN accepts and it reads nothing; its whole job is
+ * saying which row a validated pair belongs on. Token comparison is constant-time and
+ * lives in platform/espn-credentials.js.
  */
-function connectToken() {
-  const existing = row(`SELECT value FROM app_settings WHERE key = 'espn_connect_token'`)?.value;
-  if (existing) return existing;
-  const token = crypto.randomBytes(24).toString('base64url');
-  run(`INSERT INTO app_settings (key, value) VALUES ('espn_connect_token', ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`, token);
-  return token;
-}
-
-/** A signed-in caller (the paste box, which sends the session bearer token), or the bookmarklet carrying the token it was minted with. */
-function cookieWriteAuthorized(req) {
-  if (resolveAuthenticatedUser(req)) return true;
+function cookieWriteOwner(req) {
+  const user = resolveAuthenticatedUser(req);
+  if (user) return user.id ?? user.userId ?? null;
   const presented = typeof req.query?.t === 'string' ? req.query.t : '';
-  const expected = connectToken();
-  // Fixed-width buffers so timingSafeEqual never throws on a length mismatch — an
-  // over-long or empty presented value is simply padded/truncated to the same slot,
-  // never a crash, and still constant-time against the actual secret bytes.
-  const pad = s => Buffer.from(s.slice(0, 64).padEnd(64, '.'));
-  return presented.length > 0 && crypto.timingSafeEqual(pad(presented), pad(expected));
+  return userForConnectToken(presented);
 }
 
 const r = Router();
@@ -86,32 +85,29 @@ function originFor(req) {
 }
 
 /**
- * Cookies, wherever they actually live.
+ * THIS caller's cookies. Never anybody else's.
  *
- * There are two ways cookies get into this app: through this bookmarklet (written to
- * `app_settings`), or through the original manual paste-the-cookie form on the Settings
- * page (written directly onto a `leagues` row). A user who connected the old way and
- * never touches the bookmarklet would otherwise see "not connected" forever here, even
- * though everything already works — which is exactly the confusing state this file was
- * found in. Checking both makes "connected" mean what it says.
+ * What stood here read one install-wide pair and, failing that, took the cookies off
+ * whichever ESPN league had been fetched most recently — and then wrote them back into
+ * the global slot, so a single sync of one person's league could silently change the
+ * credentials every other code path used. It is that write-back, not the read, that made
+ * the old arrangement dangerous rather than merely sloppy.
+ *
+ * A user who connected through the old manual paste-the-cookie form has their pair on a
+ * `leagues` row rather than here, and they would otherwise see "not connected" forever.
+ * So that case is still honoured — but only for leagues this user is actually a member
+ * of, and it copies nothing anywhere.
  */
-function getCookies() {
-  const get = k => row(`SELECT value FROM app_settings WHERE key = ?`, k)?.value ?? null;
-  let s2 = get('espn_s2'), swid = get('swid');
-  if (s2 && swid) return { s2, swid, source: 'bookmarklet' };
+function getCookies(userId) {
+  const own = credentialsForUser(userId);
+  if (own.s2 && own.swid) return { ...own, source: 'account' };
 
-  const lg = row(`SELECT espn_s2, swid FROM leagues
-                  WHERE platform = 'espn' AND espn_s2 IS NOT NULL AND swid IS NOT NULL
-                  ORDER BY fetched_at DESC LIMIT 1`);
-  if (lg?.espn_s2 && lg?.swid) {
-    // Backfill so every code path agrees from here on, and the manual-form user gets
-    // the same "connected" fast path (Find my leagues, etc.) with no extra steps.
-    run(`INSERT INTO app_settings (key, value) VALUES ('espn_s2', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`, lg.espn_s2);
-    run(`INSERT INTO app_settings (key, value) VALUES ('swid', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`, lg.swid);
-    return { s2: lg.espn_s2, swid: lg.swid, source: 'manual form' };
-  }
+  const lg = row(`SELECT l.espn_s2, l.swid FROM leagues l
+                    JOIN league_memberships lm ON lm.league_id = l.id AND lm.user_id = ?
+                   WHERE l.platform = 'espn' AND l.espn_s2 IS NOT NULL AND l.swid IS NOT NULL
+                   ORDER BY l.fetched_at DESC LIMIT 1`, userId);
+  if (lg?.espn_s2 && lg?.swid) return { s2: lg.espn_s2, swid: lg.swid, source: 'manual form' };
+
   return { s2: null, swid: null, source: null };
 }
 
@@ -198,7 +194,9 @@ const minify = s => s.replace(/^\s*\/\/[^\n]*$/gm, '').replace(/\s+/g, ' ').trim
 /** The bookmarklet as a javascript: URL, plus a copy/paste snippet for the fallback. */
 r.get('/bookmarklet', ...signedIn, (req, res) => {
   const origin = originFor(req);
-  const token = connectToken();
+  // Minted for THIS account. Two people who each generate a bookmarklet get two
+  // different tokens, and each one can only ever write its own owner's credentials.
+  const token = connectTokenForUser(req.auth?.userId);
   res.json({
     href: `javascript:${encodeURIComponent(minify(BOOKMARKLET(origin, token)))}`,
     console_snippet: minify(BOOKMARKLET(origin, token)),
@@ -235,23 +233,21 @@ export function extractEspnCookies(text) {
   return { espn_s2: s2, swid };
 }
 
-/** ESPN's API wants the SWID in braces; the cookie sometimes already has them. */
-const braceSwid = v => (v.startsWith('{') ? v : `{${v}}`);
-
 /**
  * Store cookies from the bookmarklet or the paste box.
  *
- * Gated by cookieWriteAuthorized (a session, or the per-install token only a signed-in
- * caller could ever have gotten from /bookmarklet) before anything else runs — see the
- * comment above signedIn for why "validates against ESPN" alone stopped being enough
- * once this could sit at a stable public URL. Still validates against ESPN *before*
- * writing on top of that: garbage never gets persisted and silently breaks every later
- * sync, and a failed attempt can no longer destroy credentials that were working.
+ * Resolved to an owner by cookieWriteOwner (a session, or the token minted for one
+ * account at /bookmarklet) before anything else runs — see the comment above signedIn
+ * for why "validates against ESPN" alone stopped being enough once this could sit at a
+ * stable public URL. Still validates against ESPN *before* writing on top of that:
+ * garbage never gets persisted and silently breaks every later sync, and a failed
+ * attempt can no longer destroy credentials that were working.
  */
 r.options('/cookies', captureCors);
 r.post('/cookies', captureCors, async (req, res, next) => {
   try {
-    if (!cookieWriteAuthorized(req)) {
+    const ownerId = cookieWriteOwner(req);
+    if (!ownerId) {
       return res.status(401).json({ error: 'authentication required' });
     }
     let espn_s2 = (req.body?.espn_s2 ?? '').trim();
@@ -281,15 +277,18 @@ r.post('/cookies', captureCors, async (req, res, next) => {
       });
     }
 
-    run(`INSERT INTO app_settings (key, value) VALUES ('espn_s2', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`, espn_s2);
-    run(`INSERT INTO app_settings (key, value) VALUES ('swid', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`, swid);
+    saveCredentials(ownerId, espn_s2, swid);
     // Refresh saved leagues that belong to THIS ESPN account (or were never bound to
-    // one), not every ESPN league on the install — someone with leagues under two
-    // accounts would otherwise have the second connection silently break the first.
+    // one) AND that this user is a member of. The ESPN-account half was already here;
+    // the membership half is new, and it is the half that matters once there is more
+    // than one account. Without it, connecting ESPN would stamp your cookies onto every
+    // league in the database that happened to have a null swid — including leagues you
+    // have never heard of, whose next sync would then run as you.
     run(`UPDATE leagues SET espn_s2 = ?, swid = ?
-         WHERE platform = 'espn' AND (swid IS NULL OR swid = ?)`, espn_s2, swid, swid);
+          WHERE platform = 'espn'
+            AND (swid IS NULL OR swid = ?)
+            AND id IN (SELECT league_id FROM league_memberships WHERE user_id = ?)`,
+      espn_s2, swid, swid, ownerId);
 
     res.json({ ok: true, leagues_found: check.leagues.length, leagues: check.leagues });
   } catch (e) { next(e); }
@@ -301,17 +300,30 @@ r.post('/cookies', captureCors, async (req, res, next) => {
  * piece of a credential.
  */
 r.get('/status', ...signedIn, (req, res) => {
-  const { s2, swid, source } = getCookies();
+  const { s2, swid, source } = getCookies(req.auth?.userId);
   res.json({
     connected: !!(s2 && swid),
     source,
-    leagues: rows(`SELECT id, league_id, season, name, team_count FROM leagues WHERE platform='espn'`)
+    // This caller's leagues, not every ESPN league on the install. The unscoped
+    // version listed other accounts' league ids, names and sizes to anyone signed in.
+    leagues: rows(`SELECT l.id, l.league_id, l.season, l.name, l.team_count FROM leagues l
+                     JOIN league_memberships lm ON lm.league_id = l.id AND lm.user_id = ?
+                    WHERE l.platform = 'espn'`, req.auth?.userId)
   });
 });
 
+/**
+ * Disconnect ESPN — for the caller, and only the caller.
+ *
+ * This used to clear the global pair and then null the cookies on EVERY espn league
+ * row on the install. One person disconnecting would have disconnected everyone.
+ */
 r.delete('/cookies', ...signedIn, (req, res) => {
-  run(`DELETE FROM app_settings WHERE key IN ('espn_s2','swid')`);
-  run(`UPDATE leagues SET espn_s2 = NULL, swid = NULL WHERE platform = 'espn'`);
+  const userId = req.auth?.userId;
+  clearCredentials(userId);
+  run(`UPDATE leagues SET espn_s2 = NULL, swid = NULL
+        WHERE platform = 'espn'
+          AND id IN (SELECT league_id FROM league_memberships WHERE user_id = ?)`, userId);
   res.json({ ok: true });
 });
 
@@ -384,7 +396,7 @@ async function validateCookies(espn_s2, swid) {
 /** Re-run discovery on demand, using stored cookies from whichever source has them. */
 r.get('/discover', ...signedIn, async (req, res, next) => {
   try {
-    const { s2, swid } = getCookies();
+    const { s2, swid } = getCookies(req.auth?.userId);
     if (!s2 || !swid) return res.status(400).json({ error: 'no ESPN cookies stored yet — connect below first' });
     const checked = await validateCookies(s2, swid);
     if (!checked.ok) return res.status(400).json({ error: checked.reason });
@@ -397,7 +409,7 @@ r.post('/add', ...signedIn, async (req, res, next) => {
   try {
     const { league_id, season, my_team_id, name } = req.body ?? {};
     if (!league_id) return res.status(400).json({ error: 'league_id required' });
-    const { s2, swid } = getCookies();
+    const { s2, swid } = getCookies(req.auth?.userId);
     const yr = Number(season) || Number(process.env.NFL_SEASON) || new Date().getFullYear();
 
     run(`INSERT INTO leagues (platform, league_id, season, name, my_team_id, espn_s2, swid)

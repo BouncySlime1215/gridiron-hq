@@ -2287,24 +2287,30 @@ of a dozen jobs is the one currently holding the lock."
    step 2 passes, that is what it will do, every time, correctly. Stabilise,
    prove `uptime_s` past 600, then capture — never the other way round.
 
-5. Ship the fix. **Four PRs, in this order:** **#56** (the arming fix),
-   **#59** (takes the boot path off the request thread), **#52** (the one-line
-   `fly.toml` setting `NFL_SEASON`) and **#49** (raises the health-check grace
-   period). Then:
+5. Ship the fix. **Five PRs, in this order:** **#56** (the arming fix),
+   **#59** (takes the boot path off the request thread), **#61** (backs a job
+   off after it has killed the process, instead of handing it the process
+   again next boot), **#52** (the one-line `fly.toml` setting `NFL_SEASON`)
+   and **#49** (raises the health-check grace period). Then:
    ```
    fly deploy -a gridiron-hq
    ```
-   **All four are open as drafts, and GitHub will not merge a draft** — each
-   needs marking ready for review first. Checked 22:5xZ; one click each, and it
+   **All five are open as drafts, and GitHub will not merge a draft** — each
+   needs marking ready for review first. Checked 23:0xZ; one click each, and it
    is the kind of thing that reads as a broken merge button at seven in the
    morning.
 
-   **#59's base is #56's branch, not `main`, and this is the step that fails
-   silently.** Merging it while it still points there lands it on that branch
-   and not on `main`, and the deploy then ships #56 without the fix that matters.
-   GitHub retargets a stacked PR automatically only when the base branch is
-   **deleted** after merging, and nothing here is deleting branches. So merge
-   #56, then **change #59's base to `main` by hand** before merging it.
+   **#59 and #61 are stacked, and this is the step that fails silently.** #59's
+   base is #56's branch and #61's base is #59's, not `main`. Merging either
+   while it still points at the branch below lands it on that branch rather
+   than on `main`, and the deploy then ships without the fix that matters —
+   with every PR showing as merged. GitHub retargets a stacked PR automatically
+   only when the base branch is **deleted** after merging, and nothing here is
+   deleting branches. So: merge #56, **change #59's base to `main` by hand**,
+   merge it, **change #61's base to `main` by hand**, merge it. If the
+   scheduler thread rebases both onto `main` overnight this step disappears;
+   check the base each PR shows before merging rather than trusting either
+   version of this sentence.
 
 6. Turn the scheduler back on and prove it holds:
    ```
@@ -2345,14 +2351,21 @@ kill**, because `nfl-model-growth.js` holds no module-level state, so it moves
 off-thread cleanly whichever reading is right.
 
 **What to expect after the deploy, so it is not misread as the cycle
-continuing.** #59 stops the boot path blocking the event loop; it does not stop
-`nfl_model_growth` running on every boot. That needs a third change, because an
-errored job gets a five-minute retry window and `record()` stamps only after
-`run()` returns, so a killed job's `last_run_at` stays frozen and it is due
-again immediately. Off the request thread that work is CPU and a database lock
-rather than a kill. **So the app will be busy for a minute or two after each
-boot and will answer the whole time.** Slow is the fixed state here; dark is
-not.
+continuing.** #59 stops the boot path blocking the event loop, and off the
+request thread that work is CPU and a database lock rather than a kill — **so
+the app will be busy for a minute or two after a boot and will answer the whole
+time. Slow is the fixed state here; dark is not.**
+
+**And that window is bounded rather than permanent, which is #61's job.**
+`record()` stamps only after `run()` returns, so a job killed mid-run writes
+nothing at all and its `sync_log` row survives exactly as the previous attempt
+left it — which is why `last_run_at` has been frozen at 21:17:44Z with
+`consecutive_failures: 1` across every life tonight. That is not a job failing
+repeatedly; it is a job whose failure was never recorded once. #61 marks the
+attempt before it runs and rewrites the leftover row at the next boot, so one
+kill buys the ordinary five-minute backoff and the second boot does not re-run
+it. Without #61 the busy window recurs on every boot forever; with it, it
+recurs once and then backs off.
 
 **Do not set `LOOP_WATCHDOG_THRESHOLD_MS`, and do not set
 `LOOP_WATCHDOG_DISABLED=1`.** Both are read from the environment, both would

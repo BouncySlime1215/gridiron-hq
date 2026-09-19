@@ -20,6 +20,19 @@ key. New test in `test/llm-plumbing.test.js`; 31/31 pass, lint exit 0.
 (`npm run typecheck` fails in a cloud box on `client/src` only — React is not
 installed there. Not caused by this work; do not chase it.)
 
+**2026-09-19 update — the Mac install is live.** `npm start` was broken by two
+bugs found that night, both fixed and pushed (`5983e9e`, `0507265`): the
+launcher's readiness poll hit a bearer-authenticated route, read the 401 as
+"never came online" and SIGTERMed its own healthy server; and every loopback URL
+said `localhost` while the server binds `127.0.0.1`, which on macOS resolves to
+`::1` first. Details in `TASKS.md`. Repo on the Mac is
+`~/Documents/GitHub/gridiron-hq`. ESPN is connected with five leagues, and the
+league chat is pulled locally (15,993 messages) rather than the uploaded
+snapshot. **Still to verify on the Mac: `npm run check`**, since a cloud box
+cannot boot the server to run `start:smoke`. **Known issue:** with the scheduler
+on, a heavy job blocks the synchronous SQLite calls and every request hangs —
+`SCHEDULER_DISABLED=1 npm start` is the workaround, a real fix is not done.
+
 **What Nick still has to do by hand, in order:**
 
 1. Rotate the Anthropic key. The previous one was readable in a screenshot he

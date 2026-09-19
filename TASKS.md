@@ -7,6 +7,41 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
 
 ## Active
 
+- **`npm start` was broken for everyone; fixed 2026-09-19.** Two independent bugs,
+  both found live on Nick's Mac, both pushed to this branch.
+  - *`5983e9e` — the one that actually blocked startup.* `start.mjs`'s readiness
+    poll called `GET /api/teams`, which is behind `legacyAuthenticated`
+    (`server/index.js:82`) and answers 401 with no bearer token. `response.ok`
+    was false on all 60 attempts, so the launcher printed "did not come online"
+    and **SIGTERMed a healthy server**. Readiness now probes
+    `GET /api/model/status` (unauthenticated on purpose) and counts any HTTP
+    reply as up. Same wrong probe fixed in `tunnel.mjs` and `bootstrap-data.mjs`.
+    `start-smoke.mjs` had it too — so `npm run check` would have failed on a
+    healthy app — and now mints a loopback session via
+    `POST /api/auth/local-session` to keep its real assertion.
+  - *`0507265` — a second, latent one.* Everything addressed the server as
+    `localhost` while `server/index.js:143` binds `127.0.0.1`. On macOS
+    `localhost` resolves to `::1` first, so probes and the browser hit an
+    address nothing listens on. All loopback URLs are now `127.0.0.1`,
+    including the one the server advertises on boot.
+  - *Not verified in a cloud box:* its `node_modules` is incomplete, so the
+    server will not boot there and `start:smoke` cannot run. Lint passes; the
+    diagnosis came from the code plus Nick's terminal. **Run `npm run check` on
+    the Mac to confirm the smoke fix.**
+
+- **Known: a heavy scheduler job blocks every request.** With the scheduler on,
+  the app accepted connections but never answered — Settings spun forever and
+  even `curl` hung. SQLite here is synchronous, so one long job freezes the
+  event loop. Workaround is `SCHEDULER_DISABLED=1 npm start`. Worth a real fix
+  (move heavy ingestion off the request thread); not attempted here.
+
+- **Mac install is live as of 2026-09-19.** Repo is at
+  `~/Documents/GitHub/gridiron-hq`. ESPN connected with the stored cookies, five
+  leagues added (Matta - Kodsi Annual, DMV 23-24, Transfer portal, My 2026,
+  My 2025). League chat pulled on the machine itself — 15,993 messages,
+  515,790 classified, 10 managers, 122 player reads, reading "Up to date"
+  rather than the uploaded snapshot it showed before.
+
 - **Cloud keys and the laptop-closed run (2026-09-18/19 session). Code side done,
   one manual step left for Nick.**
   - *Done, merged to this branch as `cc6a788`.* `getApiKey()` now reads

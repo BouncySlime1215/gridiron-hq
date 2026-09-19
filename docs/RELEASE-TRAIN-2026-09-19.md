@@ -61,6 +61,17 @@ to touch it as little as possible. Here the opposite is true.
 
 ## 1. The order
 
+> **Note on PR numbers, added after the train landed.** #15's release content is
+> in `main` at `9db53ff`. The branch was then retargeted to `main` and **reused**
+> for follow-up work (completeness script and blast-radius probe, still draft),
+> so **"#15" now means the follow-up, not the merge-order item**. Every "#15" in
+> the order below refers to `9db53ff`, which shipped. The same applies to any PR
+> a thread reuses rather than closes: the tree is the authority, and
+> `git merge-base --is-ancestor <head> origin/main` is the check. GitHub shows
+> the twenty landed pull requests as "closed without merging" because `main`
+> moved by direct push; that is a UI artifact, not a statement about what
+> shipped.
+
 Twenty-six pull requests, merged bottom-first. Each line is a merge into the
 deployment branch.
 
@@ -961,28 +972,52 @@ today, so the exact prior state is restored by
 `DELETE FROM shrinkage_k; DELETE FROM shrinkage_fits;` — no value has to be
 remembered or restored, and there is no "previous active row" to reinstate.
 
-#### Restart the app after this write, before any after-reading
+#### Restart after THIS write. Do not restart around the availability fit.
 
 ```
 fly apps restart gridiron-hq
 ```
 
-**Non-optional, and the reason is the same trap as step 2a in a different
-place.** Both promotion scripts run as their own processes over `ssh`. The
-server's `routes/model.js` memo `Map`s are keyed without any fit identifier, so
-nothing a separate process writes can invalidate them. Without a restart the
-after-reading is served from the before-reading's cache, byte for byte, and the
-promotion reads as "changed nothing".
+Two threads disagreed about this step and **both were half right**. The memo
+keys on `791b131` settle it, and the answer is different for the two writes.
 
-**Do not use `POST /api/leagues/:id/sync` as the cache bust.** It re-syncs
-`dynasty_values`, which is the control variable this whole measurement depends
-on being identical before and after (see step 10). Busting the cache with the
-one call that moves the control destroys the attribution you are trying to
-protect. `/api/dev/refresh-all` is out for the same reason.
+**Restart is required here, at step 8, and a seed will not save you.** The
+promotion changes `buildProjections` output, and those results are memoised
+under `proj:${through}:${scoring}` (`routes/model.js:404`, `:426`) and
+`player-week:${SEASON}:${week}:${scoring}` (`:443`). **Neither key contains the
+seed.** The promote scripts run as their own processes over `ssh` and cannot
+invalidate an in-process `Map`, so without a restart the after-reading is the
+before-reading, byte for byte, and the promotion reads as "changed nothing".
 
-Take the after-reading promptly once it is back: a restart re-runs `bootJobs`,
-and several readings downstream depend on `nfl_injuries`, which those jobs can
-refresh underneath you.
+**Do NOT restart around the availability fit at step 10.** Nothing there needs
+it, and a restart actively damages the reading:
+
+- `fittedAvailability()` self-invalidates on row count and `fitted_at`
+  (`contingency.js:543`), so it is fresh immediately.
+- `trade-engine.js:224-225` puts both tables in its cache **fingerprint**
+  stamped on `fitted_at`, so it self-heals.
+- The simulate route's memo key **does** carry the seed
+  (`${key}:seed:${seed}`, `:527`), so an unused seed bypasses it for free.
+- `GET /api/model/availability?week=2` and `/api/model/player/<id>?week=2` call
+  `weeklyAvailability()` directly with no memo wrapper.
+
+And the harm: a restart re-runs `bootJobs`, which can refresh `nfl_injuries`,
+which `weeklyAvailability` reads — so it moves the very numbers the fit is being
+measured on. Restarting to defeat a cache that is already self-invalidating buys
+nothing and costs attribution.
+
+**If a restart happens anyway, re-baseline.** Take a fresh capture after the
+restart and before the next write, so the before/after pair straddles the write
+alone and not the restart.
+
+**Never use `POST /api/leagues/:id/sync` or `/api/dev/refresh-all` as the cache
+bust.** Both re-sync `dynasty_values`, which is the control variable this whole
+measurement depends on being identical before and after (step 10). Busting the
+cache with the one call that moves the control destroys the attribution you are
+protecting.
+
+Take the step 8 after-reading promptly once the app is back, for the same
+`bootJobs` reason that argues against restarting at step 10.
 
 #### The split this write makes visible, and what Nick will see
 
@@ -1475,19 +1510,62 @@ Then:
    D/ST are near-random week to week", restated at `:2781-2782`. Not a defect
    anyone forgot, and not something to file.
 
-   **The strongest post-write check is not a percentage — it is which players get
-   flagged.** Two thresholds read `active_probability` directly, on the shipping
-   tree: `< 0.75` in `lineup-brain.js:553` (Start/Sit's "check before kickoff"
-   list) and `< 0.6` in `role-scenario-engine.js:141`. Healthy starters move up
-   (0.805 → ~0.952) and go silent; the designated band moves down and furthest.
-   So the **set** of flagged players should visibly change, shifting toward
-   players who warrant the flag.
+   **A corollary worth knowing, because it turns a non-check into a real one:**
+   since `currentWeekPpg` is 0 for a kicker, `week_points` is 0 too, so **a
+   kicker cannot appear on the Start/Sit bench list at all** (it requires
+   `week_points > 0`). If one shows up there, that is a finding. And K/DEF trade
+   values not moving after the fit is not evidence of failure — it is the only
+   thing that can happen.
 
-   Expect *more* warnings immediately after the write, not fewer, and read that
-   as the fit working rather than as a regression. No count is predicted here —
-   the dry run's distribution is the real number. **A write that leaves the
-   flagged set identical deserves a second look**, because that is the one
-   outcome the write cannot plausibly produce.
+   **THE COUNTABLE CHECK. Three things must happen together, and an earlier
+   draft of this sheet predicted the opposite of one of them.**
+
+   Nick's own rosters carry **thirteen Start/Sit warnings** right now, all on
+   basis `constants`, captured live: **3 / 2 / 4 / 3 / 1** across leagues 1 to 5.
+   League 1 De'Von Achane 74%, Kyren Williams 70%, Javonte Williams 75%; league 2
+   Harold Fannin Jr. 64%, Chase Brown 75%; league 3 Jayden Daniels 57%, Achane
+   74%, Brown 75%, Bucky Irving 65%; league 4 Daniels 57%, Jonathan Taylor 74%,
+   Tyler Warren 67%; league 5 Taylor 74%. QB, RB, TE and FLEX starters — the
+   surface he actually opens.
+
+   **Most of those are not injuries. They are the durability prior showing
+   through**, and the arithmetic proves it rather than suggesting it. `active`
+   starts as the prior (`contingency.js:637`). The questionable branch is
+   `Math.min(0.75, Math.max(0.45, active * 0.70))`; since `active` is a
+   probability, `active * 0.70` can never exceed 0.70, so **the 0.75 cap can
+   never bind and no reading between 0.70 and 0.96 can come from the questionable
+   path at all**. That rules it out for 0.70, 0.74 and 0.75 outright — most of the
+   list. (A questionable player with a full practice jumps to 0.96 via
+   `Math.max(active, 0.96)`, which is the only way past 0.70.) 0.57, 0.64, 0.65
+   and 0.67 are arithmetically reachable through questionable but only on an
+   implausibly high prior, so do not claim them either way without a per-player
+   read. The file says as much itself at `:620-625`: "a hand-set constant and a
+   career durability prior, not a measured rate", and "a known-low placeholder,
+   not as a reason to sit anybody".
+
+   So expect **two opposite movements in the same dry run**, both landing on his
+   screen:
+
+   1. **The placeholder warnings clear.** Healthy-prior starters go up hard —
+      `contingency.js:652-657` records the documented case, "Healthy starters
+      actually played 94.5%; the old path said 0.708, this 0.952". **The counts
+      3 / 2 / 4 / 3 / 1 should fall.**
+   2. **The genuine designation gets worse.** Puka Nacua should drop **below
+      0.324** — `lineup-brain.js:628-633` says the fitted event overstates
+      availability least for exactly those players, "the band where the fit moves
+      furthest, and the only one that moves DOWN".
+   3. **Any new chip must be a designated player.** A new warning on a
+      healthy-prior starter is a finding, not the fit working.
+
+   **Removed from this sheet: "expect more warning chips after the write."** That
+   was the prediction before anyone counted what is on his rosters, and it is
+   backwards for twelve of the thirteen. Magnitudes are still the dry run's to
+   print; the directions are not guesses and are cited above.
+
+   **If the counts do not fall and Nacua does not drop, the role rates did not
+   land.** That is a countable check rather than a judgement call, which is the
+   point: a write that leaves the flagged set identical is the one outcome it
+   cannot plausibly produce.
 
    **Everything reading unchanged is the result to distrust, not the reassuring
    one.** Four ways this verification could have produced a convincing null, all

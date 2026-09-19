@@ -96,6 +96,7 @@ storeQuote('batch-away', { side: 'away', team: 'BAL', line: -PACKET_SPREAD, pric
 const { freezeT60Packet, PACKET_BOARD_INPUT_COVERAGE } = await import('../server/services/nfl-t60-packet.js');
 const { autoPickDecisionBoard, autoPickDecisionBoardForPacket, clearAutoPickBoardCache } =
   await import('../server/services/nfl-auto-picks.js');
+const { invalidateEnsembleCaches } = await import('../server/services/nfl-ensemble.js');
 
 test('freezing the packet captures the tape spread, distinct from the live game_lines spread', () => {
   const packet = freezeT60Packet({ season: SEASON, week: WEEK, home: 'KC', away: 'BAL', kickoff: KICKOFF, mode: 'prospective' });
@@ -132,8 +133,11 @@ test('the packet-sourced board runs on the FROZEN quote, not whatever game_lines
   // from the packet is named on the result.
   assert.equal(d.feature_snapshot.data_provenance.market_quote, 'frozen_packet');
   assert.equal(d.feature_snapshot.data_provenance.market_spread_and_total.home_spread, 'frozen_packet');
-  assert.equal(d.feature_snapshot.data_provenance.game_context, 'game_lines',
-    'weather/rest/div/neutral context is genuinely not in this packet\'s schema yet, and that must say so');
+  // WP15/D3: game_context is now genuinely in this packet's schema (the
+  // packet's own game_lines row, frozen at freeze time) and this board
+  // actually consumed it -- see the reproducibility test below for the
+  // property that matters (a later game_lines mutation cannot move it).
+  assert.equal(d.feature_snapshot.data_provenance.game_context, 'frozen_packet');
   assert.equal(packetBoard.packet_provenance.market_quote.book, 'testbook');
   assert.deepEqual(packetBoard.packet_provenance.schema_coverage, PACKET_BOARD_INPUT_COVERAGE);
 
@@ -145,6 +149,48 @@ test('the packet-sourced board runs on the FROZEN quote, not whatever game_lines
   const packetBoard2 = autoPickDecisionBoardForPacket(packet);
   assert.equal(packetBoard2.decisions[0].feature_snapshot.raw_forecast.market_margin, -PACKET_SPREAD,
     'independent of what the live table now says, per the VALIDATE requirement');
+});
+
+test('WP15/D3: the packet-sourced board is anchored to the FROZEN game_context, not whatever game_lines says right now', () => {
+  run(`UPDATE game_lines SET rest_days=17, div_game=1 WHERE season=? AND week=? AND team='KC'`, SEASON, WEEK);
+  run(`UPDATE game_lines SET rest_days=3 WHERE season=? AND week=? AND team='BAL'`, SEASON, WEEK);
+  invalidateEnsembleCaches();
+  const packet = freezeT60Packet({ season: SEASON, week: WEEK, home: 'KC', away: 'BAL', kickoff: KICKOFF, mode: 'prospective' });
+  const context = packet.sources.find(s => s.source === 'game_lines_context');
+  assert.equal(context.values.home_rest, 17);
+  assert.equal(context.values.away_rest, 3);
+  assert.equal(context.values.div_game, 1);
+
+  invalidateEnsembleCaches();
+  clearAutoPickBoardCache();
+  const packetBoard = autoPickDecisionBoardForPacket(packet);
+  const frozenMargin = packetBoard.decisions[0].feature_snapshot.model_trace.find(m => m.id === 'rest_travel').margin;
+
+  // Flip the live table to the OPPOSITE rest/division state AFTER freezing,
+  // and force every internal ensemble cache to recompute, so a broken
+  // override (silently reading game_lines again) has every opportunity to
+  // show it -- this is not merely surviving stale caching from the freeze.
+  run(`UPDATE game_lines SET rest_days=3, div_game=0 WHERE season=? AND week=? AND team='KC'`, SEASON, WEEK);
+  run(`UPDATE game_lines SET rest_days=17 WHERE season=? AND week=? AND team='BAL'`, SEASON, WEEK);
+  invalidateEnsembleCaches();
+  clearAutoPickBoardCache();
+  const packetBoard2 = autoPickDecisionBoardForPacket(packet);
+  const decision2 = packetBoard2.decisions[0];
+  const stillFrozenMargin = decision2.feature_snapshot.model_trace.find(m => m.id === 'rest_travel').margin;
+  assert.equal(stillFrozenMargin, frozenMargin,
+    'the frozen game_context must not move even after a full cache invalidation and an opposite live row');
+  assert.equal(decision2.feature_snapshot.data_provenance.game_context, 'frozen_packet');
+
+  // And prove the live board genuinely WOULD have moved -- otherwise this
+  // fixture's rest/division model might simply carry no observable weight,
+  // and the equality above would hold for the wrong reason (nothing here
+  // actually depends on rest/division at all).
+  const liveBoard = autoPickDecisionBoard(SEASON, WEEK);
+  const liveRestModel = liveBoard.decisions.find(d => d.matchup === 'BAL at KC')
+    .feature_snapshot.model_trace.find(m => m.id === 'rest_travel');
+  assert.notEqual(liveRestModel.margin, frozenMargin,
+    'the live board must actually reflect the flipped game_lines row, proving the frozen equality above was ' +
+    'the packet holding still -- not the model being blind to rest/division in this fixture');
 });
 
 test('a game with nothing eligible in the packet abstains honestly instead of reading game_lines', () => {

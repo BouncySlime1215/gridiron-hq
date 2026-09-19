@@ -576,3 +576,111 @@ test('the skill screen changes which components compete, and is reported', () =>
     `the screen ranked ${screened.skill_screen.top[0].id} above the only component with signal`);
   assert.ok(screened.selected.includes('useful'));
 });
+
+/* -------------------------------------------------------- WP12 split lineage */
+
+/*
+ * WP12's named deliverables that the bake-off did not previously produce: an
+ * immutable, content-addressed manifest of WHICH rows trained and tested at
+ * each cutoff, and an active refusal of a split that puts one game on both
+ * sides of it. The leakage properties themselves are already covered above;
+ * these cover the lineage artifacts and the guard.
+ */
+
+const manifestOpts = ids => ({ componentIdList: ids, reduction: { maxComponents: 3 } });
+
+test('WP12: every fitted cutoff carries a split manifest, one per cutoff, not a collapsed summary', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  const records = syntheticRecords({ n: 1600, ids, trueWeights: [0.4, 0, 0.2, 0], seed: 91 });
+  const testSeason = Math.max(...records.map(r => r.season));
+  const out = walkForwardCombination({ records, ...manifestOpts(ids), testSeasons: [testSeason] });
+
+  const season = out.seasons[0];
+  assert.ok(season.cutoffs > 1, 'weekly cadence must produce several cutoffs for this to mean anything');
+  assert.equal(season.split_manifests.length, season.cutoffs,
+    'a manifest missing for some cutoffs cannot answer what any given fit trained on');
+  for (const m of season.split_manifests) {
+    assert.ok(Number.isFinite(m.week), 'each manifest names its own cutoff');
+    assert.ok(m.train_rows > 0 && m.test_rows > 0);
+    assert.match(m.train_hash, /^[0-9a-f]{16}$/);
+    assert.match(m.test_hash, /^[0-9a-f]{16}$/);
+    assert.equal(m.train_row_ids, undefined, 'full id lists stay off by default');
+  }
+  // Training blocks grow as the walk-forward rolls forward; a flat count would
+  // mean the cutoffs are not actually advancing.
+  assert.ok(season.split_manifests.at(-1).train_rows > season.split_manifests[0].train_rows);
+
+  const detailed = walkForwardCombination({ records, ...manifestOpts(ids),
+    testSeasons: [testSeason], includeSplitRowIds: true });
+  const first = detailed.seasons[0].split_manifests[0];
+  assert.equal(first.train_row_ids.length, first.train_rows,
+    'the saved id list must actually cover every training row it claims');
+  assert.equal(first.test_row_ids.length, first.test_rows);
+  assert.deepEqual(first.train_row_ids, [...first.train_row_ids].sort(),
+    'ids are stored sorted, which is what makes the hash order-insensitive');
+});
+
+test('WP12: the split hash is a content address — order-insensitive, membership-sensitive', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  const records = syntheticRecords({ n: 1600, ids, trueWeights: [0.4, 0, 0.2, 0], seed: 92 });
+  const testSeason = Math.max(...records.map(r => r.season));
+  const opts = { ...manifestOpts(ids), testSeasons: [testSeason], refit: 'season' };
+
+  const base = walkForwardCombination({ records, ...opts });
+  // Same rows, different order: the split is the same split.
+  const shuffled = [...records].reverse();
+  const reordered = walkForwardCombination({ records: shuffled, ...opts });
+  assert.equal(reordered.seasons[0].split_manifests[0].train_hash,
+    base.seasons[0].split_manifests[0].train_hash,
+    'reordering the same rows must not change the split identity');
+
+  // One row genuinely removed from the training block: a different split.
+  const firstTrain = records.find(r => r.season < testSeason);
+  const dropped = records.filter(r => r !== firstTrain);
+  const changed = walkForwardCombination({ records: dropped, ...opts });
+  assert.notEqual(changed.seasons[0].split_manifests[0].train_hash,
+    base.seasons[0].split_manifests[0].train_hash,
+    'dropping a training row must change the split identity');
+});
+
+test('WP12: records that state no game identity report the straddle check as not verifiable, never as a pass', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  const records = syntheticRecords({ n: 1600, ids, trueWeights: [0.4, 0, 0.2, 0], seed: 93 });
+  const testSeason = Math.max(...records.map(r => r.season));
+  const out = walkForwardCombination({ records, ...manifestOpts(ids),
+    testSeasons: [testSeason], refit: 'season' });
+  assert.equal(out.seasons[0].split_manifests[0].game_grouping, 'not_verifiable_no_game_id',
+    'a check that could not run must say so rather than read as a clean result (R28)');
+});
+
+test('WP12: a game whose rows straddle the cutoff is REFUSED, not silently dropped', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  const records = syntheticRecords({ n: 1600, ids, trueWeights: [0.4, 0, 0.2, 0], seed: 94 })
+    .map(r => ({ ...r, game_id: `${r.season}|${r.week}|${r.home}|${r.away}` }));
+  const testSeason = Math.max(...records.map(r => r.season));
+  const testWeek = Math.min(...records.filter(r => r.season === testSeason).map(r => r.week));
+
+  // A second row for a held-out game, mis-dated to an earlier season the way a
+  // horizon/book row quoted long before kickoff would be. It carries the SAME
+  // game_id, so it belongs to a held-out game while sitting in the training block.
+  const victim = records.find(r => r.season === testSeason && r.week === testWeek);
+  const misdated = { ...victim, season: testSeason - 1, week: 1 };
+  const leaky = [...records, misdated];
+
+  assert.throws(
+    () => walkForwardCombination({ records: leaky, ...manifestOpts(ids),
+      testSeasons: [testSeason], refit: 'season' }),
+    /same-game leakage/,
+    'a game with rows on both sides of the cutoff must stop the run');
+});
+
+test('WP12: well-formed rows that DO state their game identity report the check as verified', () => {
+  const ids = ['a', 'b', 'c', 'd'];
+  const records = syntheticRecords({ n: 1600, ids, trueWeights: [0.4, 0, 0.2, 0], seed: 95 })
+    .map(r => ({ ...r, game_id: `${r.season}|${r.week}|${r.home}|${r.away}` }));
+  const testSeason = Math.max(...records.map(r => r.season));
+  const out = walkForwardCombination({ records, ...manifestOpts(ids),
+    testSeasons: [testSeason], refit: 'season' });
+  assert.equal(out.seasons[0].split_manifests[0].game_grouping, 'verified_by_game_id');
+  assert.ok(out.seasons[0].split_manifests[0].train_games > 0);
+});

@@ -903,13 +903,24 @@ test('historical ensemble weights exclude the season being predicted and all fut
   assert.ok(live.evaluated_weeks > at2023.evaluated_weeks,
     'future outcomes may affect live weights but not a historical prediction');
   const challengers = live.models.filter(model => model.challenger_only);
-  assert.equal(challengers.length, 9);
+  assert.equal(challengers.length, 21,
+    'ten as of market_correction_research, plus eight retired from the live blend 2026-09-16 '
+    + '(RUNBOOK Sec5, effective-rank gate), plus three new challenger signals added the same day '
+    + '(teamrankings_predictive, nfelo_rating, nfelo_qb_adjustment)');
   assert.ok(challengers.every(model => model.margin_weight === 0 && model.total_weight === 0),
     'newly proposed signals must be measured without silently changing the active blend');
+  // FINAL ORDER #1 (2026-09-16, RUNBOOK §10.1): `residual_joint_weight` is a
+  // THIRD, separate field from margin_weight/total_weight (the raw blend)
+  // -- it is what `ensembleLine`'s market_residual mode actually reads, so
+  // a challenger leaking nonzero weight here would be the exact defect the
+  // two assertions above already guard against, just on the correction path
+  // instead of the raw blend.
+  assert.ok(challengers.every(model => model.residual_joint_weight === 0),
+    'a challenger must never earn residual-correction weight on the champion (non-candidate) fit either');
   const allInputs = fitEnsemble({ includeChallengers: true });
   const candidateInputs = allInputs.models.filter(model => model.challenger_only);
   assert.equal(allInputs.input_mode, 'all-inputs');
-  assert.equal(candidateInputs.length, 9,
+  assert.equal(candidateInputs.length, 21,
     'the candidate unified engine retains every challenger input even when this fixture has no advanced rows');
   assert.ok(Math.abs(allInputs.models.reduce((sum, model) => sum + model.margin_weight, 0) - 1) < 0.001,
     'candidate margin influence remains a normalized convex blend');
@@ -923,10 +934,17 @@ test('historical ensemble weights exclude the season being predicted and all fut
     'sealed audit computation must not read through or mutate the persistent fit ledger');
   const candidateLine = ensembleLine(2026, 1, 'AAA', 'BBB', { includeChallengers: true });
   assert.equal(candidateLine.input_mode, 'all-inputs');
-  assert.equal(candidateLine.models.filter(model => model.challenger_only).length, 9);
+  assert.equal(candidateLine.models.filter(model => model.challenger_only).length, 21);
   const shadowWeek = challengerSignalWeek(2026, 1);
-  assert.equal(shadowWeek.version, 'nfl-challenger-signals-v2');
-  assert.ok(shadowWeek.games.every(game => game.signals.length === 9));
+  assert.equal(shadowWeek.version, 'nfl-challenger-signals-v4');
+  // Twenty-one challengers per game: the ten as of market_correction_research
+  // (which abstains -- null margin -- on any game with no lookup entry, the
+  // suite-wide default, but is still listed like any other abstaining
+  // challenger) plus eight retired from the live blend 2026-09-16 (RUNBOOK
+  // Sec5, effective-rank gate: R^2 > 0.95 redundant with another component)
+  // plus three new challenger signals added the same day (teamrankings_predictive,
+  // nfelo_rating, nfelo_qb_adjustment).
+  assert.ok(shadowWeek.games.every(game => game.signals.length === 21));
   const reliability = { version: 'test-reliability-s2026w0', target: { season: 2026, week: 1 },
     trained_through: { season: 2026, week: 0 }, adjusted: ['early_down_eff'],
     signals: [{ signal_id: 'early_down_eff', multiplier: 0.25 }] };
@@ -956,7 +974,12 @@ test('NFL feature-family ablations reblend the identical frozen model lines', ()
     ? models.reduce((s, x) => s + x.margin * x.margin_weight, 0) / weight
     : models.reduce((s, x) => s + x.margin, 0) / models.length;
   assert.ok(Math.abs(family.ensemble.projected_margin - expected) < 0.002);
-  assert.deepEqual(family.models.map(x => x.id), models.map(x => x.id));
+  // Compare on the same basis `models` was built on. `market_correction_research`
+  // is the first Market-family component that can abstain (null margin when a
+  // game has no precomputed lookup entry); an abstaining model is still on the
+  // family roster but contributes nothing to either blend, so the identity
+  // claim is over the models that actually produced a line.
+  assert.deepEqual(family.models.filter(x => x.margin != null).map(x => x.id), models.map(x => x.id));
 });
 
 test('game-script coefficients and neutral baseline cannot see beyond the predicted week', () => {

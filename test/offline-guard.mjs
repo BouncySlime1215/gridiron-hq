@@ -59,6 +59,20 @@ import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 
+// Same discipline for on-disk research exports as for the network: no test
+// reads the real `server/data/research/market-correction-lookup.json` unless
+// it explicitly points at a file of its own. 1,278 of that export's 3,044
+// real-game keys collide with the synthetic ensemble fixture's key space, so
+// without this every fixture-based ensemble test would silently measure real
+// research values mixed into a synthetic league. `??=` so an explicit setting
+// from outside the suite still wins.
+process.env.GRIDIRON_MARKET_CORRECTION_LOOKUP ??= '/nonexistent/market-correction-lookup.json';
+// Same isolation for the TeamRankings power-rating lookup
+// (`server/services/nfl-teamrankings-lookup.js`): the real export's keys are
+// real team codes across real seasons and would otherwise collide with the
+// synthetic ensemble fixture's key space in any fixture-based test.
+process.env.GRIDIRON_TEAMRANKINGS_LOOKUP ??= '/nonexistent/teamrankings-lookup.json';
+
 /**
  * Same discipline again, for the environment itself.
  *

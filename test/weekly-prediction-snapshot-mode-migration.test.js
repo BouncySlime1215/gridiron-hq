@@ -122,6 +122,12 @@ test('C: captureWeeklyPredictions no longer throws on a real pregame capture (en
 
   const stored = rows(`SELECT mode FROM weekly_prediction_snapshots WHERE season=2091 AND week=1 AND player_id=1`)[0];
   assert.ok(stored, 'the row must actually be persisted');
-  assert.ok(['position_ensemble', 'cold_start_structural_only'].includes(stored.mode),
-    `mode should be a recognized value, got ${stored.mode}`);
+  // The capture stores the mode that priced the row (weeklyEnsembleMode), plus the
+  // cold-start label for a player with no heads at all; it used to hard-code
+  // 'position_ensemble' for every row with heads (review-fixes-2, finding 8). A week-1
+  // row for a player whose only history is the prior season is a prior-season start.
+  assert.ok(['position_ensemble', 'cold_start_structural_only', 'cold_start_prior_season',
+    'structural_only_no_current_season_history', 'structural_fallback_no_weights_for_position']
+    .includes(stored.mode) || /^early_week_bucket_\d/.test(stored.mode),
+  `mode should be a recognized value, got ${stored.mode}`);
 });

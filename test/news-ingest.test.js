@@ -207,6 +207,70 @@ test('syncStructuredNewsSignals resolves each player in a multi-player story to 
   ]);
 });
 
+/*
+ * WP08/R1 (2026-09-15): nfl_news_signals is now append-only (migration 053).
+ * A re-sync of a genuinely revised story must ADD a version, never overwrite
+ * the old one -- this is the exact "changed Friday body" scenario C07 names
+ * for news_items.ingested_at, one layer over at the typed-claim layer.
+ */
+test('WP08/R1: a corrected re-sync adds a new version instead of overwriting the old one', () => {
+  const team = row(`SELECT id, abbr FROM nfl_teams LIMIT 1`);
+  run(`INSERT INTO players (name, position, team_id, fantasy_relevant) VALUES ('Zzyzx Versioned', 'WR', ?, 1)`, team.id);
+  const playerId = row(`SELECT id FROM players WHERE name='Zzyzx Versioned'`).id;
+  const identity = { players: [{ id: playerId, name: 'Zzyzx Versioned' }], teams: [] };
+  const url = 'https://www.espn.com/nfl/story/_/id/999997/versioning-test';
+
+  // Wednesday: reported questionable.
+  upsertNormalizedNewsItem(normalizeNewsItem({ source: 'ESPN', source_type: 'publisher',
+    source_url: url, published_at: new Date().toISOString(), headline: 'Injury report',
+    summary: 'WR Zzyzx Versioned is questionable with a hamstring injury.' }, { identity }),
+    { teamId: team.id });
+  syncStructuredNewsSignals({ sinceDays: 1 });
+  const afterFirst = rows(`SELECT id,status FROM nfl_news_signals WHERE source_url=? ORDER BY id`, url);
+  assert.equal(afterFirst.length, 1, 'the first sync writes exactly one version');
+  assert.equal(afterFirst[0].status, 'questionable');
+
+  // Re-syncing with NOTHING changed must be a no-op -- "repeating the same
+  // fetch does not duplicate versions" (WP08's own acceptance criterion).
+  const result2 = syncStructuredNewsSignals({ sinceDays: 1 });
+  assert.equal(result2.new_versions, 0, 'an unchanged re-sync creates no new version');
+  assert.equal(rows(`SELECT id FROM nfl_news_signals WHERE source_url=?`, url).length, 1);
+
+  // Friday: the SAME story, corrected -- now ruled out entirely.
+  upsertNormalizedNewsItem(normalizeNewsItem({ source: 'ESPN', source_type: 'publisher',
+    source_url: url, published_at: new Date().toISOString(), headline: 'Injury report',
+    summary: 'WR Zzyzx Versioned has been ruled out with a hamstring injury.' }, { identity }),
+    { teamId: team.id });
+  const result3 = syncStructuredNewsSignals({ sinceDays: 1 });
+  assert.equal(result3.new_versions, 1, 'a genuinely changed re-sync adds exactly one new version');
+
+  const allVersions = rows(`SELECT id,status FROM nfl_news_signals WHERE source_url=? ORDER BY id`, url);
+  assert.equal(allVersions.length, 2, 'the OLD version is retained, not overwritten');
+  assert.equal(allVersions[0].status, 'questionable', 'version 1 keeps its original content forever');
+  assert.equal(allVersions[1].status, 'out', 'version 2 is the correction');
+
+  // The current-version view sees only the LATEST version.
+  const current = rows(`SELECT status FROM nfl_news_signals_current WHERE source_url=?`, url);
+  assert.deepEqual(current.map(c => c.status), ['out']);
+
+  // A decision made now sees the corrected claim. The complementary property
+  // -- a decision made BEFORE the correction landed sees the ORIGINAL claim,
+  // not the future correction -- needs precise, non-racy created_at control
+  // and is covered directly in nfl-news-signal.test.js instead of relying on
+  // real wall-clock gaps between two syncStructuredNewsSignals calls here
+  // (datetime('now') has only whole-second resolution).
+  const asOfNow = playerNewsSignal('Zzyzx Versioned', { team: team.abbr, maxAgeDays: 1 });
+  assert.equal(asOfNow?.availability?.status, 'out', 'a decision made now sees the corrected claim');
+});
+
+test('WP08/R1: nfl_news_signals refuses an UPDATE or DELETE at the database level', () => {
+  const row1 = row(`SELECT id FROM nfl_news_signals LIMIT 1`);
+  assert.throws(() => run(`UPDATE nfl_news_signals SET status='out' WHERE id=?`, row1.id),
+    /append-only/);
+  assert.throws(() => run(`DELETE FROM nfl_news_signals WHERE id=?`, row1.id),
+    /append-only/);
+});
+
 test('manual news POST rejects the literal "AI analysis" as a source', async () => {
   const rejected = await request('/', { method: 'POST', token: 'news-ingest-token', body: { date: '2026-08-25', headline: 'Manual note', source: 'AI Analysis' } });
   assert.equal(rejected.status, 400);

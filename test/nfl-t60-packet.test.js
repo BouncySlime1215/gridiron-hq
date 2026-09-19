@@ -39,8 +39,16 @@ db.exec(`INSERT INTO nfl_teams (id,abbr,name,conference,division) VALUES
   (5,'SEA','Seattle Seahawks','NFC','West'),
   (6,'SF','San Francisco 49ers','NFC','West')`);
 
-const { freezeT60Packet, PACKET_VERSION, AVAILABILITY_CLAIMS, decisionTimeManifest, resolvePacketMarketQuote } =
-  await import('../server/services/nfl-t60-packet.js');
+const { freezeT60Packet, PACKET_VERSION, AVAILABILITY_CLAIMS, decisionTimeManifest, resolvePacketMarketQuote,
+  PACKET_BOARD_INPUT_COVERAGE } = await import('../server/services/nfl-t60-packet.js');
+// WP15/D3: freezeT60Packet now calls nfl-ensemble.js's featureAggregates(),
+// which caches its result per season/week at the module level (the same
+// cache the live ensembleLine path already relied on). A test that inserts
+// nfl_team_week_features rows for a season/week this file has already frozen
+// a packet for (GAME's season/week is shared across most tests here) must
+// invalidate that cache first, or it will see whatever an EARLIER test's
+// freeze already cached -- often an empty map, from before any rows existed.
+const { invalidateEnsembleCaches } = await import('../server/services/nfl-ensemble.js');
 const { recordRevision } = await import('../server/services/nfl-bitemporal.js');
 
 /**
@@ -207,6 +215,7 @@ test('a prospective packet REFUSES what a historical one may use', () => {
   // per-row receipt clock, so they can never qualify as prospective.
   run('INSERT INTO nfl_team_week_features (season,week,team,opponent,home,features) VALUES (?,?,?,?,?,?)',
     2026, 1, 'ATL', 'CAR', 1, '{}');
+  invalidateEnsembleCaches();
   const packet = freezeT60Packet(GAME);
   const features = sourceIn(packet, 'nfl_team_week_features');
   assert.equal(features.claim, 'availability_unknown');
@@ -741,4 +750,79 @@ test('timestamp of record: a single-sided quote uses the home side\'s own clock 
   ]);
   const resolved = resolvePacketMarketQuote(packet);
   assert.equal(resolved.quote_at, '2026-09-20T15:00:00Z');
+});
+
+/*
+ * WP15/D3 -- the packet now freezes real VALUES for game_context and
+ * team_features, not just a count, so a packet-sourced board can be scored
+ * without a live re-read of either table. This section proves the freeze
+ * itself; test/t60-packet-sourced-board.test.js proves the consuming board
+ * actually stays put after a live-table mutation.
+ */
+
+test('D3: game_lines_context freezes the actual weather/rest/division row, not a count', () => {
+  run(`INSERT INTO game_lines (season,week,team,opponent,home,spread,total,temp,wind,roof,
+       rest_days,div_game,neutral_site,open_spread,open_total)
+     VALUES (?,?,?,?,1,-3.5,44,?,?,?,?,?,?,?,?)`,
+    GAME.season, GAME.week, GAME.home, GAME.away, 28, 14, 'outdoors', 6, 1, 0, -3, 43.5);
+  run(`INSERT INTO game_lines (season,week,team,opponent,home,spread,total,rest_days)
+     VALUES (?,?,?,?,0,3.5,44,?)`, GAME.season, GAME.week, GAME.away, GAME.home, 7);
+
+  const packet = freezeT60Packet(GAME);
+  const context = sourceIn(packet, 'game_lines_context');
+  assert.ok(context, 'a new source entry, not folded into an existing one');
+  assert.deepEqual(context.values, {
+    temp: 28, wind: 14, roof: 'outdoors', home_rest: 6, div_game: 1, neutral_site: 0,
+    open_spread: -3, open_total: 43.5, away_rest: 7
+  });
+});
+
+test('D3: game_lines_context is a recorded missing observation when this game has no game_lines row at all', () => {
+  const packet = freezeT60Packet({ ...GAME, season: 2077, week: 1 });
+  const context = sourceIn(packet, 'game_lines_context');
+  assert.equal(context.claim, 'missing');
+  assert.equal(context.values, null);
+});
+
+test('D3: nfl_team_week_features freezes the actual per-team feature-aggregate map, not a count', () => {
+  run(`INSERT INTO nfl_team_week_features (season,week,team,opponent,home,features) VALUES (?,?,?,?,?,?)`,
+    GAME.season, GAME.week - 1, GAME.home, GAME.away, 1, JSON.stringify({ off_epa_per_play: 0.12 }));
+  run(`INSERT INTO nfl_team_week_features (season,week,team,opponent,home,features) VALUES (?,?,?,?,?,?)`,
+    GAME.season, GAME.week - 1, GAME.away, GAME.home, 0, JSON.stringify({ off_epa_per_play: -0.05 }));
+
+  invalidateEnsembleCaches();
+  const packet = freezeT60Packet(GAME);
+  const features = sourceIn(packet, 'nfl_team_week_features');
+  assert.ok(Array.isArray(features.values), 'a [team, aggregate] pair array, the shape ensembleLine\'s ' +
+    'teamFeaturesOverride expects straight from `new Map(values)`');
+  const asMap = new Map(features.values);
+  assert.equal(asMap.get(GAME.home)?.off_epa, 0.12);
+  assert.equal(asMap.get(GAME.away)?.off_epa, -0.05);
+  // Still un-evidenced-by-cutoff, same as before this stage -- freezing real
+  // values does not upgrade the claim (see the source's own note in
+  // nfl-t60-packet.js). A caller that wants both reproducibility AND a
+  // prospective claim for this source does not get the second one from D3.
+  assert.equal(features.claim, 'availability_unknown');
+});
+
+test('D3: nfl_quote_tape_totals captures a totals quote as its own source, distinct from the spread quote', () => {
+  storeQuote('batch-totals-capture', '2026-09-20T15:30:00Z', undefined,
+    { market: 'totals', line: 44.5, eventId: 'evt-total' });
+  const packet = freezeT60Packet(GAME);
+  const spreadQuote = sourceIn(packet, 'nfl_quote_tape');
+  const totalQuote = sourceIn(packet, 'nfl_quote_tape_totals');
+  assert.ok(totalQuote, 'a distinct source, not folded into nfl_quote_tape');
+  assert.equal(totalQuote.values[0].line, 44.5);
+  assert.equal(totalQuote.values[0].market, 'totals');
+  assert.ok(!spreadQuote.values.some(v => v.market === 'totals'),
+    'the two markets never contaminate each other\'s capture');
+});
+
+test('D3: PACKET_BOARD_INPUT_COVERAGE reports the new schema honestly, including the not-yet-wired total_market state', () => {
+  assert.equal(PACKET_BOARD_INPUT_COVERAGE.market_quote, 'in_schema');
+  assert.equal(PACKET_BOARD_INPUT_COVERAGE.game_context, 'in_schema');
+  assert.equal(PACKET_BOARD_INPUT_COVERAGE.team_features, 'in_schema');
+  assert.equal(PACKET_BOARD_INPUT_COVERAGE.total_market, 'in_schema_not_wired',
+    'captured as evidence, but not consumed by any decision until a totals contract exists (WP13)');
+  assert.equal(PACKET_BOARD_INPUT_COVERAGE.model_state, 'out_of_packet_scope');
 });

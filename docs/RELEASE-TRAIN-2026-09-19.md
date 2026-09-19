@@ -2281,6 +2281,11 @@ of a dozen jobs is the one currently holding the lock."
    purpose — it is a *quiet* one, which is the ideal condition for a capture
    that has to be compared against something taken twenty minutes later. Threads
    only, read-only, no terminal needed.
+   **The order matters and the failure looks like a bug.** The capture script
+   (#41) now reads `/api/health` at both ends and refuses a run that spanned a
+   restart, exiting non-zero with *the app restarted mid-capture*. Run before
+   step 2 passes, that is what it will do, every time, correctly. Stabilise,
+   prove `uptime_s` past 600, then capture — never the other way round.
 
 5. Ship the fix. Merge **#56** (the arming fix), the off-thread PR (number
    pending) and **#52** (the one-line `fly.toml` setting `NFL_SEASON`, green),

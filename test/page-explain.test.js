@@ -76,10 +76,19 @@ async function request(url, { body, method = 'GET' } = {}) {
 // to whichever handler the currently-running test has installed —
 // individual tests never call moduleMock.module themselves.
 let activeFetchHandler = null;
-const nodeFetchMock = moduleMock.module('node-fetch', { exports: { default: (url, init) => {
+// `defaultExport:`, NOT `exports: { default: ... }`. node:test's mock.module()
+// takes `defaultExport` and `namedExports`; `exports` is not an option it has,
+// so it was accepted, ignored, and the module's default became an empty object.
+// The SDK then did `this.fetch = nf.default` and died on `this.fetch.call is
+// not a function` — caught, wrapped by the SDK as its own generic
+// `APIConnectionError: Connection error.`, and read for weeks as "this box has
+// no API key" (docs/CLOUD-MIGRATION.md:266, TASKS.md). It was never the key:
+// with the mock inert every test here made a real call to api.anthropic.com,
+// and would have kept doing so on any box, the Mac included.
+const nodeFetchMock = moduleMock.module('node-fetch', { defaultExport: (url, init) => {
   if (!activeFetchHandler) throw new Error('Test forgot to install an Anthropic fetch mock before making a request');
   return activeFetchHandler(url, init);
-} } });
+} });
 test.after(() => nodeFetchMock.restore());
 
 function mockAnthropicFetch(paragraph, limitations = []) {

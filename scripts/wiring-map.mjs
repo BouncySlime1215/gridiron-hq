@@ -1679,6 +1679,82 @@ const LIMITS = [
   + 'this map as a statement about what production is doing.',
 ];
 
+// RULES NO ACCEPT LIST CAN SILENCE.
+//
+// This lives here, in the checker's own source, and NOT in annotations.json
+// — which is the whole point. A never-baseline list that the check reads out
+// of the file it is policing is silenceable by the same edit it exists to
+// prevent, and the moment somebody wants it quiet is the moment they notice
+// that. Here, quieting one of these is a change to this file: a reviewed
+// diff with a name on it, rather than a line in a data file.
+const NEVER_BASELINE = new Map([
+  ['producer-with-no-caller',
+    'An uncalled producer whose table has live readers is the failure this repository keeps '
+    + 'hitting, and it is invisible to everything else here: the table HAS a writer statically and '
+    + 'is dead only at runtime. Fix the caller.'],
+]);
+// The exceptions, which are also source and therefore also a reviewed diff.
+//
+// Every one of these was already true on the day this check was written. A
+// gate that is red the moment it arrives gets switched off, so they are
+// grandfathered — but NOT into annotations.json, because an exception in the
+// data file would be the hole the block above exists to close. They live
+// here, they silence the finding on their own (no accept-list entry is
+// needed or accepted), and they are printed on stdout on EVERY run so the
+// list cannot go quiet. Each names its owner and what retires it.
+//
+// Four of the six are betting-scope, which Nick has put out of scope; they
+// are listed rather than dropped, because a map with a hole in it is worse
+// than no map.
+const GRANDFATHERED = new Map([
+  ['producer-with-no-caller syncEspnMarket()',
+    'server/services/espn-market.js:18 — sole writer of espn_player_market, read at ZERO hops by '
+    + 'GET /api/aggregates and POST /api/aggregates/create-board (the draft board\'s ESPN ADP and '
+    + 'injury columns, the aggregates, the preseason model, and a consensus weight of 2). The worst '
+    + 'of the six by some distance: the readers are live fantasy surfaces, not betting. '
+    + 'Owner: the feature-audit thread. RETIRES WHEN: any caller lands.'],
+  ['producer-with-no-caller backfillNewsEntities()',
+    'server/routes/espn.js:210 — writes news_items, read by GET /api/news and DELETE /api/news/:id '
+    + 'at 2 hops. Fantasy-scope. Owner: unassigned. RETIRES WHEN: a caller lands, or the news '
+    + 'surface is shown to be fed by another writer.'],
+  ['producer-with-no-caller syncDraftRookieEvidence()',
+    'server/services/nfl-rookies.js:237 — writes nfl_rookie_evidence, reachable from boot and the '
+    + 'espn_line_watch job at 2 hops. Owner: unassigned. RETIRES WHEN: a caller lands.'],
+  ['producer-with-no-caller backfillGameVariance()',
+    'server/services/nfl-postgame-truth.js:571 — writes nfl_game_variance for the AI-replay routes. '
+    + 'BETTING SCOPE, out of scope by Nick\'s 2026-09-19 decision. RETIRES WHEN: betting is back in '
+    + 'scope and a caller lands.'],
+  ['producer-with-no-caller backfillHistoricalQuoteTape()',
+    'server/services/nfl-quote-tape.js:152 — writes nfl_quote_batches and nfl_quote_tape. BETTING '
+    + 'SCOPE. RETIRES WHEN: betting is back in scope and a caller lands.'],
+  ['producer-with-no-caller buildTotalCalibration()',
+    'server/services/nfl-total-calibration.js:308 — writes nfl_total_calibrations for the betting '
+    + 'abstention and audit routes. BETTING SCOPE. RETIRES WHEN: betting is back in scope and a '
+    + 'caller lands.'],
+]);
+
+/**
+ * Which accept-list entries the gate is allowed to honour.
+ *
+ * Pure, and exported, because the three ways round it are the whole point and a
+ * checker nobody has deliberately broken has not been tested: the long form
+ * ("<rule> <subject>"), the bare subject, and deleting a GRANDFATHERED line.
+ * All three are pinned in test/wiring-map.test.js.
+ */
+export function acceptGuard({ accepted = [], orphans = [], found = [] }) {
+  const protectedOf = new Map(found.filter(f => NEVER_BASELINE.has(f.rule)).map(f => [f.subject, f.rule]));
+  const refused = [];
+  const honour = entry => {
+    // A bare subject is matched against the findings it would actually silence,
+    // so the short form is not a way around the long one.
+    const rule = [...NEVER_BASELINE.keys()].find(r => entry.startsWith(`${r} `)) ?? protectedOf.get(entry);
+    if (!rule) return true;
+    refused.push([entry, rule]);
+    return false;
+  };
+  return { accepted: accepted.filter(honour), orphanOk: new Set(orphans.filter(honour)), refused };
+}
+
 const SEVERITY = {
   'table-never-written': 1, 'client-call-without-route': 1, 'table-hand-fed': 2,
   'cache-blind-to-its-inputs': 2.5, 'table-in-another-database': 2.8, 'table-never-scheduled': 3,
@@ -1919,6 +1995,7 @@ function toMarkdown(model, found, ann) {
 // running the CLI, and so another script can ask the map a question.
 // ---------------------------------------------------------------------------
 
+export { NEVER_BASELINE, GRANDFATHERED };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,
@@ -2025,12 +2102,28 @@ if (INVOKED_DIRECTLY) {
     // That is one line in a review, which is the point: somebody says out loud
     // that it is not wired yet, instead of nothing happening.
     const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested']);
-    const accepted = ann.accepted_missing_feeds ?? [];
-    const orphanOk = new Set((ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []));
+    const { accepted, orphanOk, refused } = acceptGuard({
+      accepted: ann.accepted_missing_feeds ?? [],
+      orphans: (ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []),
+      found,
+    });
+    for (const [key, why] of GRANDFATHERED) {
+      console.log(`STILL OPEN (grandfathered, not accepted): ${key}\n    ${why}`);
+    }
+    if (refused.length) {
+      console.error('\nACCEPT-LIST ENTRIES REFUSED — this rule cannot be silenced from annotations.json, '
+        + 'so the entry has no effect and the finding below still gates:');
+      for (const [entry, rule] of refused) {
+        console.error(`  "${entry}" names ${rule}. ${NEVER_BASELINE.get(rule)}`);
+      }
+      console.error('  Fix it, or add it to GRANDFATHERED in scripts/wiring-map.mjs with an owner and a '
+        + 'retirement condition — which is a code review, not a data edit.');
+    }
     const blocking = found.filter(f =>
       (f.kind === 'missing-feed' || (f.kind === 'should-wire' && GATING.has(f.rule))
         || (NEW_ORPHAN.has(f.rule) && !orphanOk.has(f.subject) && !orphanOk.has(`module:${f.subject}`)))
-      && !accepted.includes(f.subject) && !accepted.includes(`${f.rule} ${f.subject}`));
+      && !accepted.includes(f.subject) && !accepted.includes(`${f.rule} ${f.subject}`)
+      && !GRANDFATHERED.has(`${f.rule} ${f.subject}`));
     if (blocking.length) {
       console.error(`\n${blocking.length} blocking finding(s) — something a surface needs that nothing `
         + 'produces, or something built and wired to nothing:');

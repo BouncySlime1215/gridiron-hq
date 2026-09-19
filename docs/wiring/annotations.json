@@ -36,12 +36,6 @@
     "column-read-never-written draft_pick_quarantine.first_seen_at",
     "column-read-never-written players.bye_week",
     "column-read-never-written users.disabled_at",
-    "producer-with-no-caller backfillGameVariance()",
-    "producer-with-no-caller backfillHistoricalQuoteTape()",
-    "producer-with-no-caller backfillNewsEntities()",
-    "producer-with-no-caller buildTotalCalibration()",
-    "producer-with-no-caller syncDraftRookieEvidence()",
-    "producer-with-no-caller syncEspnMarket()",
     "league_season_teams"
   ],
   "_ACCEPTED_README": "accepted_missing_feeds is a RATCHET, not approval. Each entry is a gap that already existed when the check was turned on, so CI fails on anything NEW rather than on day one. Fixing one means deleting its line here. Nothing should ever be added to this list to make a build pass \u2014 add it only when turning the check on over existing debt. Entries with a rule name in front come from the should-wire family: a column nothing writes, or a producer nothing calls. They are real and they are pre-existing; the gate exists so the eleventh does not become the twelfth silently.",
@@ -90,7 +84,6 @@
     "server/services/opportunity-model.js": "O1 research model (PR #15). Deliberately unwired: measured against its own baselines in scripts/study-opportunity-volume.mjs and the effect is inside the noise on every head - RB carries -0.86% and -0.98% across two seasons, pooled 90% intervals [-0.077,+0.027] and [-0.092,+0.037], both straddling zero; the full sixteen-feature ridge is WORSE than an exponentially-weighted average of the player's own recent volume by +7.5% and +10.7%. The mechanism is real (a vacated same-position share carries a positive coefficient, 0.49 to 1.65 in log space, in every position and season); the payoff is not. Fourth attempt at this question in this repository, agreeing with the previous three. Promotion needs a season it has not been fitted on. RETIRE THIS ENTRY WHEN: a season the model has not seen, graded the same way, puts RB carries clear of zero on the pooled interval - 2026 once it finishes, not before. Wiring it earlier should fail this check rather than edit this line. See docs/OPPORTUNITY-FINDINGS-2026-09-19.md section 3. Owner: the Opportunity thread. NOTE: what actually shipped from O1 is the volume shrinkage constants, which land as a database write rather than a caller - projections.js shrinks share with K.share=6 and team volume with K.team_volume=10 against fitted values of 0.08-0.28 and 1.3-1.7. That is the real defect from this work and this map cannot see it, because a constant that should be a fitted row has no edge."
   },
   "_NEVER_BASELINE": {
-    "_why": "Findings that must not be silenced by adding them to accepted_missing_feeds or accepted_orphan_modules. Written down because the moment one of these is inconvenient is exactly when somebody will reach for the accept list.",
-    "producer-with-no-caller": "An uncalled producer whose table has live readers is the failure this project keeps hitting, and it is the most valuable of the four gating rules. Present case: syncEspnMarket() is the SOLE writer of espn_player_market, which has four live readers - the draft board's ESPN ADP and injury columns, the aggregates, the preseason model, and a consensus weight of 2. Nothing calls it. That is a genuine defect owned by the feature-audit thread, not an accepted orphan. Fix the caller; do not accept the finding."
+    "_why": "producer-with-no-caller CANNOT be silenced from this file. The list of protected rules, and the six grandfathered exceptions, live in NEVER_BASELINE and GRANDFATHERED in scripts/wiring-map.mjs - deliberately in the checker's own source and not here, because a never-baseline list that the check reads out of the file it is policing can be removed by the same edit it exists to prevent. Silencing one is a code review with a name on it, not a data edit. An entry added here naming that rule is refused, reported by name on every run, and has no effect. Raised by the Opportunity thread, 2026-09-19."
   }
 }

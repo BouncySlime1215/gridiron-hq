@@ -13,8 +13,10 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 const {
+  acceptGuard, NEVER_BASELINE, GRANDFATHERED,
   scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations,
   foreignHandles, handleFor, gatedRegions, blindCaches,
@@ -278,4 +280,78 @@ test('statementTables separates what a statement reads from what it writes', () 
   const t = statementTables('INSERT INTO a (x) SELECT x FROM b JOIN c ON c.id = b.id');
   assert.deepEqual([...t.writes], ['a']);
   assert.deepEqual([...t.reads].sort(), ['b', 'c']);
+});
+
+
+/*
+ * THE ACCEPT LIST MUST NOT BE ABLE TO SILENCE producer-with-no-caller.
+ *
+ * Raised by the Opportunity thread on 2026-09-19: an uncalled producer whose
+ * table has live readers is the failure this repository keeps hitting, and it
+ * is the one most likely to be accepted away the moment it is inconvenient.
+ * The protection is only real if the three ways round it are closed, so each
+ * one below is an attack, not a happy path.
+ */
+const SYNC = { rule: 'producer-with-no-caller', subject: 'syncEspnMarket()' };
+
+test('accept-list cannot silence a protected rule via the long form', () => {
+  const { accepted, refused } = acceptGuard({
+    accepted: ['producer-with-no-caller syncEspnMarket()', 'league_season_teams'],
+    found: [SYNC],
+  });
+  assert.deepEqual(accepted, ['league_season_teams'], 'the unprotected entry still works');
+  assert.equal(refused.length, 1);
+  assert.deepEqual(refused[0], ['producer-with-no-caller syncEspnMarket()', 'producer-with-no-caller']);
+});
+
+test('accept-list cannot silence a protected rule via the bare subject', () => {
+  // The dodge: drop the rule prefix so a prefix test would not match.
+  const { accepted, refused } = acceptGuard({ accepted: ['syncEspnMarket()'], found: [SYNC] });
+  assert.deepEqual(accepted, []);
+  assert.deepEqual(refused[0], ['syncEspnMarket()', 'producer-with-no-caller']);
+});
+
+test('the orphan accept list is guarded by the same rule as the missing-feed one', () => {
+  const { orphanOk, refused } = acceptGuard({
+    orphans: ['syncEspnMarket()', 'server/services/opportunity-model.js'],
+    found: [SYNC],
+  });
+  assert.ok(orphanOk.has('server/services/opportunity-model.js'));
+  assert.ok(!orphanOk.has('syncEspnMarket()'));
+  assert.equal(refused.length, 1);
+});
+
+test('an unprotected rule is still baselineable, so the gate stays usable', () => {
+  const found = [{ rule: 'column-read-never-written', subject: 'players.bye_week' }];
+  const { accepted, refused } = acceptGuard({
+    accepted: ['column-read-never-written players.bye_week'], found,
+  });
+  assert.equal(refused.length, 0);
+  assert.equal(accepted.length, 1);
+});
+
+test('the protected list and its exceptions live in source, not in annotations.json', async () => {
+  // The whole argument: a never-baseline list the check reads out of the file it
+  // polices can be deleted by the same edit it exists to prevent.
+  const ann = JSON.parse(await readFile(new URL('../docs/wiring/annotations.json', import.meta.url)));
+  const fields = JSON.stringify(ann);
+  assert.ok(NEVER_BASELINE.has('producer-with-no-caller'));
+  for (const key of GRANDFATHERED.keys()) {
+    assert.ok(!(ann.accepted_missing_feeds ?? []).includes(key),
+      `${key} is grandfathered in source and must not also sit in the accept list`);
+    const bare = key.slice('producer-with-no-caller '.length);
+    assert.ok(!(ann.accepted_missing_feeds ?? []).includes(bare),
+      `${bare} must not be baselined by its bare subject either`);
+  }
+  assert.ok(!fields.includes('"NEVER_BASELINE":'),
+    'the protected-rule list must not be readable as data from the file it polices');
+});
+
+test('every grandfathered entry names an owner or a scope, and what retires it', () => {
+  assert.ok(GRANDFATHERED.size > 0);
+  for (const [key, why] of GRANDFATHERED) {
+    assert.match(why, /RETIRES WHEN:/, `${key} must say what would retire it`);
+    assert.match(why, /Owner:|BETTING SCOPE/, `${key} must name an owner or its out-of-scope reason`);
+    assert.match(why, /\.js:\d+/, `${key} must cite the file and line it was found at`);
+  }
 });

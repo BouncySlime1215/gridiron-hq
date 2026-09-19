@@ -28,7 +28,8 @@ import {
   shrink, mean, quantile, percentiles,
   randGamma, randNegBinomial, randBinomial, randPoisson, randn, randBeta, random, normalCdf
 } from './stats-util.js';
-import { activeKVectorFor } from './shrinkage-fit.js';
+import { activeKVectorFor, activeFitMeta, isWeeklyRoleRecency, VOLUME_METRICS }
+  from './shrinkage-fit.js';
 import { qbrTrailingForPlayer } from './nfl-qbr.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -442,22 +443,92 @@ function positionalPriors(log) {
  *   is how the backtest compares the two on identical inputs.
  * @returns Map<player_id, projection>
  */
+/**
+ * The recency weights a `buildProjections` call resolves to.
+ *
+ * Opportunity and efficiency are different processes. `roleRecency` lets a caller shorten
+ * only the memory of volume while efficiency keeps the already-validated global history.
+ * Omitted means identical legacy behavior.
+ *
+ * Factored out so `projectionFitMeta` reports the recency the projections were actually
+ * built under rather than recomputing it beside them. Two copies of this derivation is how
+ * a label starts describing a call that did not happen.
+ */
+function resolveRecency(recency, roleRecency) {
+  const r = { ...RECENCY, ...recency };
+  return { r, rr: { ...r, ...roleRecency } };
+}
+
+/**
+ * The season whose games are being predicted: an in-season cutoff predicts later weeks of
+ * `through`, a season-boundary cutoff predicts `through + 1`.
+ */
+function predictingSeasonFor(through, throughWeek) {
+  return throughWeek != null ? through : through + 1;
+}
+
+/**
+ * WHICH SHRINKAGE CONSTANTS a `buildProjections` call with these arguments would use.
+ *
+ * Takes the same arguments as `buildProjections` and resolves them through the same two
+ * helpers, so a surface can state what produced a number without the number and the label
+ * being derived separately.
+ *
+ * `null` means no active fit, so everything ran on the hand-set constants. That is the live
+ * state today -- `shrinkage_fits` holds zero rows on the deployed volume -- and it has to
+ * render as a fact rather than as an absent field, because an absent field is invisible.
+ *
+ * `volume_k` IS THE PART THAT MATTERS, and it is why `activeFitMeta()` alone could not
+ * answer the question it was asked. `activeKVectorFor` withholds the VOLUME entries of the
+ * fitted vector from any caller that is not on weekly-role recency, and says so in its own
+ * header: those callers "keep the hand-picked constants they were validated with. They are
+ * not claimed to be right, only untested with the fitted k." Every season-long caller --
+ * the season simulator among them -- is in that position. So with an active fit the odds run
+ * on fitted efficiency constants and unvouched-for volume constants at the same time, and a
+ * field reporting only a fit id would have said the opposite.
+ *
+ * Nothing here is hardcoded per caller: `recency` and `volume_k` are read off the resolved
+ * vector, so a caller that later switches to weekly-role recency reports the change without
+ * anyone remembering to update this.
+ */
+export function projectionFitMeta({
+  through = SEASON - 1, throughWeek = null, kOverride, recency, roleRecency
+} = {}) {
+  // An explicit kOverride bypasses the fit entirely, so no fit describes the result.
+  if (kOverride !== undefined) {
+    return kOverride == null
+      ? { fit_id: null, applied: 'hand_set_forced', recency: null, volume_k: 'hand_set' }
+      : { fit_id: null, applied: 'caller_supplied_vector', recency: null, volume_k: null };
+  }
+  const meta = activeFitMeta();
+  if (!meta) return null;
+
+  const { rr } = resolveRecency(recency, roleRecency);
+  const vector = activeKVectorFor(rr, { predictingSeason: predictingSeasonFor(through, throughWeek) });
+  if (!vector) return null;
+
+  const volumeNames = new Set(VOLUME_METRICS.map(([m]) => m));
+  const metrics = Object.keys(vector).sort();
+  return {
+    fit_id: meta.id,
+    fitted_at: meta.fitted_at ?? null,
+    through_season: meta.through_season,
+    recency: isWeeklyRoleRecency(rr) ? 'weekly_role' : 'season_long',
+    volume_k: metrics.some(m => volumeNames.has(m)) ? 'fitted' : 'hand_set',
+    fitted_metrics: metrics
+  };
+}
+
 export function buildProjections({
   through = SEASON - 1, throughWeek = null, scoring = PPR, kOverride, recency,
   roleRecency, qbrSignal = QBR_SIGNAL
 } = {}) {
-  const r = { ...RECENCY, ...recency };
-  // Opportunity and efficiency are different processes. `roleRecency` lets an
-  // experiment shorten only the memory of volume while efficiency keeps the
-  // already-validated global history. Omitted means identical legacy behavior.
-  const rr = { ...r, ...roleRecency };
+  const { r, rr } = resolveRecency(recency, roleRecency);
   // The active fitted vector, filtered to the recency it was fitted under: the
   // volume k only applies when volume evidence is accumulated the way it was
   // during the fit (see shrinkage-fit.js#activeKVectorFor). An explicit
   // kOverride — the backtest's way of comparing vectors — is used verbatim.
-  // The season whose games are being predicted: an in-season cutoff predicts later
-  // weeks of `through`; a season-boundary cutoff predicts `through + 1`.
-  const predictingSeason = throughWeek != null ? through : through + 1;
+  const predictingSeason = predictingSeasonFor(through, throughWeek);
   const k = kOverride === undefined ? activeKVectorFor(rr, { predictingSeason }) : kOverride;
   const log = history(through, throughWeek);
   if (!log.length) return new Map();

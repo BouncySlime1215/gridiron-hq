@@ -535,7 +535,11 @@ export function activeKVectorFor(rr, { predictingSeason } = {}) {
  */
 const walkForwardCache = new Map();
 export function activeFitMeta() {
-  return rows('SELECT id, through_season FROM shrinkage_fits WHERE active = 1 ORDER BY id DESC LIMIT 1')[0] ?? null;
+  // `fitted_at` is selected for reporting only -- `cutoffSafeKVector` uses id and
+  // through_season. A surface that names which constants produced a number needs to say
+  // WHEN they were fitted, and a second query for one column beside this one is how the
+  // two answers start disagreeing.
+  return rows('SELECT id, fitted_at, through_season FROM shrinkage_fits WHERE active = 1 ORDER BY id DESC LIMIT 1')[0] ?? null;
 }
 export function cutoffSafeKVector(predictingSeason) {
   const meta = activeFitMeta();

@@ -19,7 +19,7 @@
  */
 import { rows } from '../db/index.js';
 import { PPR } from './scoring.js';
-import { buildProjections, sampleWeeks } from './projections.js';
+import { buildProjections, projectionFitMeta, sampleWeeks } from './projections.js';
 import { correlatedSampler } from './correlation.js';
 import { gameMultiplier, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 import { deriveFormat } from './format.js';
@@ -357,9 +357,12 @@ export function simulateSeason(lg, {
   let teams = loadRosters(lg, assets);
   const slots = lineupSlots(lg);
   const projBasis = simProjectionBasis(fromWeek, SEASON, loggedWeeks(SEASON, fromWeek));
-  const proj = projections ?? buildProjections({
-    through: projBasis.through, throughWeek: projBasis.throughWeek, scoring
-  });
+  // One options object for both, so the projections and the label describing them cannot be
+  // derived from different arguments. A caller that supplies its own `projections` gets a
+  // null fit meta rather than a description of a call this function did not make.
+  const projOpts = { through: projBasis.through, throughWeek: projBasis.throughWeek, scoring };
+  const proj = projections ?? buildProjections(projOpts);
+  const projFit = projections ? null : projectionFitMeta(projOpts);
 
   if (overrides) {
     teams = teams.map(t => overrides.has(t.roster_id)
@@ -552,6 +555,10 @@ export function simulateSeason(lg, {
     // odds built off this season's games so far are different numbers, and a reader cannot
     // tell them apart from the value alone.
     projection_basis: projBasis.basis,
+    // Which shrinkage constants produced those projections. `null` means no active fit, so
+    // everything ran on the hand-set constants -- the live state today. See
+    // projections.js#projectionFitMeta for why the fit id alone does not answer this.
+    projection_fit: projFit,
     odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
     teams: out
   };

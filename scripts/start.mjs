@@ -4,19 +4,46 @@
  * server, then open a browser once it is actually answering.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { clientBuildStatus, writeBuildMarker } from './client-build-check.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = process.env.API_PORT || 5177;
-const URL = `http://localhost:${PORT}`;
+// Loopback is addressed as 127.0.0.1, never "localhost", for every request this
+// repo makes to its own server. server/index.js binds 127.0.0.1 explicitly, and
+// on macOS "localhost" resolves to the IPv6 ::1 first, where nothing is
+// listening — so a localhost probe gets ECONNREFUSED against a server that is
+// up and healthy. That cost a real evening: start.mjs printed "Gridiron HQ
+// listening", its own readiness poll never succeeded, and after 30s it reported
+// "did not come online" and SIGTERMed the working server.
+const URL = `http://127.0.0.1:${PORT}`;
 const IS_WIN = process.platform === 'win32';
 
+/**
+ * Is the server answering?
+ *
+ * Probes /api/health, the same route fly.toml's HTTP check uses, so the
+ * launcher waits on the production liveness path rather than a different one
+ * that happens to be public. The old probe used /api/teams, which sits behind
+ * `legacyAuthenticated` (server/index.js) and so answers 401 to an
+ * unauthenticated caller — forever. `response.ok` was therefore always false,
+ * the poll below never succeeded, and after 60 attempts the launcher reported
+ * "did not come online" and SIGTERMed a server that had been up and healthy
+ * the whole time.
+ *
+ * Readiness here means "the HTTP server is listening and routing", so ANY reply
+ * counts, including an error status. Only a thrown request (nothing listening
+ * yet, or the timeout) means not-ready.
+ */
 const isReady = async () => {
   try {
-    const response = await fetch(`${URL}/api/teams`, { signal: AbortSignal.timeout(1000) });
-    return response.ok;
+    // A 503 from /api/health means the process is listening but cannot serve —
+    // boot runs migrations and seed reconciliation against the volume before
+    // the database answers. Treating any reply as ready would open the browser
+    // on an app that is still coming up.
+    const probe = await fetch(`${URL}/api/health`, { signal: AbortSignal.timeout(3000) });
+    return probe.ok && (await probe.json())?.ok === true;
   } catch {
     return false;
   }
@@ -38,48 +65,17 @@ if (await isReady()) {
   process.exit(0);
 }
 
-/**
- * Newest mtime across everything that feeds the build, so a stale dist/ (built
- * before a `git pull` landed client changes) gets caught the same way a missing
- * one does. Comparing directory mtimes isn't enough — editing a file inside a
- * folder doesn't bump the folder's own mtime — so this walks every file.
- */
-function newestMtimeMs(entry) {
-  let newest = 0;
-  const stack = [entry];
-  while (stack.length) {
-    const p = stack.pop();
-    let st;
-    try { st = fs.statSync(p); } catch { continue; }
-    if (st.isDirectory()) {
-      if (path.basename(p) === 'node_modules') continue;
-      for (const child of fs.readdirSync(p)) stack.push(path.join(p, child));
-    } else if (st.mtimeMs > newest) {
-      newest = st.mtimeMs;
-    }
-  }
-  return newest;
-}
-
-const DIST = path.join(ROOT, 'client', 'dist');
-const BUILD_MARKER = path.join(DIST, '.source-mtime');
-const sourceMtime = Math.max(
-  newestMtimeMs(path.join(ROOT, 'client', 'src')),
-  newestMtimeMs(path.join(ROOT, 'client', 'index.html')),
-  newestMtimeMs(path.join(ROOT, 'client', 'vite.config.ts')),
-  newestMtimeMs(path.join(ROOT, 'package.json'))
-);
-const builtMtime = fs.existsSync(BUILD_MARKER) ? Number(fs.readFileSync(BUILD_MARKER, 'utf8')) || 0 : 0;
-
 // A fresh clone has no build; a `git pull` that touched client/ leaves a stale one.
 // Either way, rather than serve a broken or out-of-date interface, rebuild first.
-if (!fs.existsSync(path.join(DIST, 'index.html')) || sourceMtime > builtMtime) {
-  console.log(builtMtime ? 'Interface changed since the last build — rebuilding…'
+// The check is shared with the phone launcher (scripts/client-build-check.mjs).
+const build = clientBuildStatus(ROOT);
+if (build.needed) {
+  console.log(build.builtMtime ? 'Interface changed since the last build — rebuilding…'
     : 'Building the interface (first run only)…');
   const r = spawnSync(IS_WIN ? 'npm.cmd' : 'npm', ['run', 'build'],
     { cwd: ROOT, stdio: 'inherit', shell: IS_WIN });
   if (r.status !== 0) { console.error('Build failed.'); process.exit(1); }
-  fs.writeFileSync(BUILD_MARKER, String(sourceMtime));
+  writeBuildMarker(ROOT, build.sourceMtime);
 }
 
 const server = spawn(process.execPath, ['--env-file-if-exists=.env', 'server/index.js'],

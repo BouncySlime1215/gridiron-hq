@@ -69,7 +69,40 @@ import { createHash } from 'node:crypto';
 //
 // A weight, slope or calibration fitted under v9, v10 or v11 describes a
 // different estimator and may not be reused as though it reflected this one.
-export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v12-raw-blend-joint-ridge-regression';
+//
+// v13 (2026-09-16, FINAL ORDER #1, RUNBOOK §10.1): `market_residual`'s
+// served line no longer comes from each component's own one-at-a-time
+// residual slope fit (`residual_weight`/`residual_slope`, still computed
+// and still reported per component, but no longer read by `ensembleLine`)
+// -- it comes from `jointResidualFit`'s single joint ridge regression of
+// the realised market residual on every eligible component's own departure
+// from the market, simultaneously, gated on ONE population-level
+// out-of-fold DM test rather than one per component. An artifact fitted
+// under v12 or earlier has no `residual_joint_weight` field at all and
+// must not be reused as though it described this estimator.
+//
+// v14 (2026-09-16, FINAL ORDER #4, RUNBOOK §10.4): the fit result now carries
+// the multiplicity correction -- `residual_dm_p_holm` and
+// `residual_diagnostic_passed_holm` per component, plus a
+// `residual_multiplicity` block with the family size and the raw-vs-corrected
+// pass counts. A v13 artifact has none of those fields, and because
+// `fitEnsemble` reloads a persisted artifact verbatim, reusing one returns
+// `undefined` for every corrected number rather than an error. That is
+// exactly the silent-staleness this version string exists to prevent -- and
+// it caught this change in testing, which is the only reason it is here.
+//
+// v15 (2026-09-16): component point conversion. `calibrate` was frozen at one
+// boundary (seasons before 2022) for every fit, so no conversion ever learned
+// from 2022 on and live 2026 games used a pre-2022 one. Each graded game now
+// uses a conversion trained only on seasons before its own. `opp_adjusted`,
+// whose hand-picked x65 ran about twice too large in every 2022-25 season,
+// now gets a fitted conversion too. Component margins, and therefore weights
+// and the stored `calibration`, differ from v14.
+//
+// v16 (2026-09-16): teamWeeks() drops the duplicate 'LA' Rams rows stored
+// beside 'LAR' for 2021-2025, which had counted the Rams twice in league-wide
+// feature averages (e.g. opp_adjusted's league baseline).
+export const ENSEMBLE_FIT_VERSION = 'nfl-ensemble-fit-v16-rams-dedupe';
 const CALIBRATION_VERSION = 'cover-logit-v3-graph-bound';
 const sorted = values => [...new Set(values ?? [])].sort();
 

@@ -31,12 +31,29 @@ const snap = (capturedAt, book, side, line, price, provider = 'underdog') => run
   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, capturedAt, 'nfl:2026-09-10:NE@SEA', '2026-09-10T00:20:00Z',
   'Seattle Seahawks', 'New England Patriots', book, 'player_reception_yds', 'Test Player', side, line, String(line), price, provider, null, 0);
 
+// captureFreePropMarket() only scans quotes captured within `sinceHours` of
+// now (default 14 days). Every fixture below is pinned to an absolute date,
+// because the season/week assertions are only meaningful against a real
+// kickoff in game_lines — so the scan window has to be pinned too.
+//
+// It was not, and this file detonated on 2026-09-17T12:00:00Z, exactly 14 days
+// after its 2026-09-03T12:00Z fixtures: the quotes fell out of the window,
+// captureFreePropMarket() returned {skipped:true} with no `stored` key, and
+// three assertions started reading `undefined`. The three were then recorded
+// as "known pre-existing failures" for two days, on the strength of a check
+// that cannot tell a time bomb from an old bug — they reproduce on any older
+// commit too, because what changed was the date, not the code.
+//
+// `at` is the clock these tests run against, not a lookback: pinning it keeps
+// the fixtures inside the window no matter when the suite runs.
+const SCAN = { now: Date.parse('2026-09-10T06:00:00Z') };
+
 test('a captured batch is copied into nfl_prop_clv with a real devigged probability and the resolved week', () => {
   const at = '2026-09-03T12:00:00Z';
   snap(at, 'underdog', 'Over', 45.5, -112);
   snap(at, 'underdog', 'Under', 45.5, -112);
 
-  const result = clv.captureFreePropMarket();
+  const result = clv.captureFreePropMarket(SCAN);
   assert.equal(result.stored, 2);
   const stored = rows(`SELECT * FROM nfl_prop_clv WHERE captured_at=?`, at).sort((a, b) => a.side.localeCompare(b.side));
   assert.equal(stored.length, 2);
@@ -59,7 +76,7 @@ test('two batches captured an hour apart are devigged independently, never mixed
   snap(t2, 'draftkings', 'Over', 45.5, -110);
   snap(t2, 'draftkings', 'Under', 45.5, -110);
 
-  clv.captureFreePropMarket();
+  clv.captureFreePropMarket(SCAN);
   const t1Over = rows(`SELECT implied_probability FROM nfl_prop_clv WHERE captured_at=? AND book='draftkings' AND side='Over'`, t1)[0];
   const t2Over = rows(`SELECT implied_probability FROM nfl_prop_clv WHERE captured_at=? AND book='draftkings' AND side='Over'`, t2)[0];
   assert.ok(Math.abs(t1Over.implied_probability - 0.7321) < 0.005, 'Shin no-vig -300 vs +250 is about 73.2%');
@@ -68,7 +85,7 @@ test('two batches captured an hour apart are devigged independently, never mixed
 
 test('re-running is idempotent: no duplicate rows, and settled/CLV fields already written are not clobbered', () => {
   const before = rows(`SELECT COUNT(*) n FROM nfl_prop_clv`)[0].n;
-  const again = clv.captureFreePropMarket();
+  const again = clv.captureFreePropMarket(SCAN);
   assert.equal(again.stored, 0, 'every row from the earlier runs already exists under the same primary key');
   const after = rows(`SELECT COUNT(*) n FROM nfl_prop_clv`)[0].n;
   assert.equal(after, before);
@@ -78,7 +95,35 @@ test('a quote captured on or after its own kickoff is never treated as a pregame
   const late = '2026-09-10T01:00:00Z'; // after the 00:20Z kickoff
   snap(late, 'fanduel', 'Over', 50.5, -110);
   const before = rows(`SELECT COUNT(*) n FROM nfl_prop_clv WHERE book='fanduel'`)[0].n;
-  clv.captureFreePropMarket();
+  clv.captureFreePropMarket(SCAN);
   const after = rows(`SELECT COUNT(*) n FROM nfl_prop_clv WHERE book='fanduel'`)[0].n;
   assert.equal(after, before, 'a post-kickoff capture is scanned but never written as a pregame quote');
+});
+
+/*
+ * The window above is pinned so these fixtures stop aging out. That fixes the
+ * time bomb but would leave the thing that caused it — the default 14-day
+ * lookback — with no test at all, which is how it went unnoticed in the first
+ * place. This one exercises the boundary from both sides using an injected
+ * clock, so it asserts the same behaviour on any date the suite is ever run.
+ */
+test('the default scan window is a real boundary, exercised from both sides', () => {
+  const HOUR_MS = 3600000;
+  const WINDOW = 24 * 14 * HOUR_MS;
+  const oldest = Date.parse('2026-09-03T12:00:00Z');
+  const newest = Date.parse('2026-09-10T01:00:00Z');
+
+  // A minute before the oldest quote ages out, the scan still sees it.
+  const inside = clv.captureFreePropMarket({ now: oldest + WINDOW - 60000 });
+  assert.notEqual(inside.skipped, true,
+    'a quote one minute inside the default window must still be scanned');
+
+  // Once even the newest quote is older than the window, the scan says so
+  // plainly instead of returning a shape whose `stored` key does not exist.
+  const outside = clv.captureFreePropMarket({ now: newest + WINDOW + 60000 });
+  assert.equal(outside.skipped, true,
+    'with every quote aged out, the scan reports skipped rather than a silent zero');
+  assert.match(outside.reason, /no free-provider quotes/);
+  assert.equal(outside.stored, undefined,
+    'the skipped shape has no `stored` — reading it as a count is what made the failure look like a wrong number');
 });

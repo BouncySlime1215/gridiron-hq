@@ -68,6 +68,17 @@ test('probabilitiesFromTriple renormalizes a sub-0.01 rounding drift and says so
   assert.ok(Math.abs(result.win - 0.638) < 0.01);
 });
 
+test('probabilitiesFromTriple preserves precision after validation and renormalization', () => {
+  for (const triple of [
+    { win: 0.3334, push: 0.3334, loss: 0.3332 },
+    { win: 0.638, push: 0.022, loss: 0.339 }
+  ]) {
+    const result = probabilitiesFromTriple({ ...triple, handicap: 3, method: 'test' });
+    assert.equal(result.available, true);
+    assert.ok(Math.abs(result.win + result.push + result.loss - 1) < 1e-12);
+  }
+});
+
 test('probabilitiesFromTriple refuses a triple that is genuinely invalid, not just rounded', () => {
   // Sums to 1, but a component is outside [0,1] -- a real defect, not a
   // rounding artifact, and must not be silently renormalized into looking fine.

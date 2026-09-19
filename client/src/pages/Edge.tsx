@@ -297,14 +297,16 @@ export default function Edge({ tab: controlledTab, embedded }: { tab?: Tab; embe
             </thead>
             <tbody className="divide-y divide-slate-100">
               {(sched ?? []).map(t => (
-                <tr key={t.abbr} className={t.playoff_rank <= 8 ? 'bg-good-tint' : t.playoff_rank >= 25 ? 'bg-crit-tint' : ''}>
-                  <td className="text-right px-3 py-1.5 text-xs font-mono text-slate-400">{t.playoff_rank}</td>
+                <tr key={t.abbr} className={t.playoff_rank == null ? '' : t.playoff_rank <= 8 ? 'bg-good-tint' : t.playoff_rank >= 25 ? 'bg-crit-tint' : ''}>
+                  <td className="text-right px-3 py-1.5 text-xs font-mono text-slate-400">{t.playoff_rank ?? '—'}</td>
                   <td className="px-2 py-1.5 font-semibold">{t.abbr}</td>
                   <td className="px-2 py-1.5 text-xs text-slate-500">{t.playoff_games.join('  ·  ')}</td>
-                  <td className={`text-right px-2 py-1.5 tabular-nums font-bold ${t.playoff_sos < 0.95 ? 'text-good' : t.playoff_sos > 1.05 ? 'text-crit' : 'text-slate-600'}`}>
-                    {t.playoff_sos.toFixed(2)}
+                  {/* null means no opponent-strength data, not an average schedule — render it as absent. */}
+                  <td className={`text-right px-2 py-1.5 tabular-nums font-bold ${t.playoff_sos == null ? 'text-slate-400' : t.playoff_sos < 0.95 ? 'text-good' : t.playoff_sos > 1.05 ? 'text-crit' : 'text-slate-600'}`}
+                      title={t.unavailable_reason ?? undefined}>
+                    {t.playoff_sos == null ? '—' : t.playoff_sos.toFixed(2)}
                   </td>
-                  <td className="text-right px-3 py-1.5 tabular-nums text-slate-500">{t.season_sos.toFixed(2)}</td>
+                  <td className="text-right px-3 py-1.5 tabular-nums text-slate-500">{t.season_sos == null ? '—' : t.season_sos.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>

@@ -74,29 +74,37 @@ test('v7 persisted weights cannot be reused after the authority repair', () => {
   // moved to v10; the model-integration merge moved it to v11 when the
   // residual gate changed instrument (paired t -> Diebold-Mariano); the raw
   // blend's weighting mechanism (exp(-0.7*RMSE) per component -> joint ridge
-  // regression, nfl-ensemble.js's `jointComponentWeights`) moved it to v12. An
-  // artifact fitted under any earlier version describes a different estimator
-  // and must not be reusable, which is exactly what this test checks -- only
-  // the version string it checks against moves.
-  assert.match(artifact.model_version, /^nfl-ensemble-fit-v12-/);
+  // regression, nfl-ensemble.js's `jointComponentWeights`) moved it to v12;
+  // the residual-correction path itself moved from a per-component slope fit
+  // to `jointResidualFit`'s single joint regression (FINAL ORDER #1,
+  // 2026-09-16) moved it to v13; adding the Holm multiplicity correction's
+  // fields to the fit result (FINAL ORDER #4) moved it to v14; per-season
+  // point-conversion cutoffs moved it to v15. An artifact fitted under any earlier
+  // version describes a different estimator and must not be reusable, which
+  // is exactly what this test checks -- only the version string it checks
+  // against moves.
+  assert.match(artifact.model_version, /^nfl-ensemble-fit-v16-/);
   const poisoned = JSON.parse(artifact.result_json);
-  poisoned.models.forEach(m => { m.residual_weight = m.challenger_only ? 1 : 0; });
+  poisoned.models.forEach(m => { m.residual_joint_weight = m.challenger_only ? 1 : 0; });
   run('UPDATE nfl_ensemble_fit_artifacts SET artifact_key=?, model_version=?, result_json=? WHERE artifact_key=?',
-    artifact.artifact_key.replace('v12-raw-blend-joint-ridge-regression', 'v8-challenger-authority'),
+    artifact.artifact_key.replace('v16-rams-dedupe', 'v8-challenger-authority'),
     'nfl-ensemble-fit-v8-challenger-authority', JSON.stringify(poisoned), artifact.artifact_key);
   invalidateEnsembleCaches();
-  assert.equal(fitEnsemble(fitOptions).models.find(m => m.id === 'roster_strength').residual_weight, 0);
+  assert.equal(fitEnsemble(fitOptions).models.find(m => m.id === 'roster_strength').residual_joint_weight, 0);
 });
 
 test('serving refuses excluded challenger authority even if a loaded artifact has a nonzero weight', () => {
   const fit = fitEnsemble(fitOptions);
   const roster = fit.models.find(m => m.id === 'roster_strength');
   const saved = { ...roster };
-  roster.residual_weight = 100; roster.residual_slope = 10;
+  // FINAL ORDER #1: the served path now reads `residual_joint_weight`
+  // directly (a regression coefficient, not a weight paired with a slope --
+  // see `jointResidualFit`'s docstring), so that is the field a "loaded
+  // artifact" would need to poison to move the line.
+  roster.residual_joint_weight = 100;
   const forecast = line();
-  const allowed = forecast.models.filter(m => !m.challenger_only && m.margin != null && m.residual_weight > 0 && m.residual_slope != null);
-  const sum = allowed.reduce((s, m) => s + m.residual_weight, 0);
-  const expected = 2 + allowed.reduce((s, m) => s + m.residual_weight * m.residual_slope * (m.margin - 2), 0) / sum;
+  const allowed = forecast.models.filter(m => !m.challenger_only && m.margin != null && m.residual_joint_weight !== 0);
+  const expected = 2 + allowed.reduce((s, m) => s + m.residual_joint_weight * (m.margin - 2), 0);
   assert.equal(forecast.ensemble.projected_margin, +expected.toFixed(3));
   assert.equal(forecast.ensemble.residual_models_contributing, allowed.length);
   Object.assign(roster, saved);
@@ -149,4 +157,78 @@ test('family and full-model caches cannot contaminate one another', () => {
   assert.deepEqual(line(), full);
   assert.deepEqual(line({ families: ['Market', 'Market'] }), market);
   assert.equal(line({ blendMode: 'unsupported', families: ['Market'] }).error, 'unsupported ensemble blend mode');
+});
+
+/*
+ * WP15/D3: a frozen T-60 packet's game_context/team_features must actually
+ * reach the models that read them, not just be accepted as an option nobody
+ * consumes. Each test below targets one model whose margin is otherwise
+ * either a constant (rest_travel, unaffected by anything in this fixture's
+ * `game_lines` row, which sets no weather/rest/division columns at all) or
+ * null (early_down_eff, since this fixture mocks teamWeeks() to `[]`) --
+ * so a change proves the override was actually read, not a coincidence of
+ * caching or of the live table happening to already agree.
+ */
+
+test('WP15/D3: gameContextOverride reaches buildContext, moving a rest/division model off its game_lines default', () => {
+  invalidateEnsembleCaches();
+  const baseline = line().models.find(m => m.id === 'rest_travel');
+  invalidateEnsembleCaches();
+  const withOverride = line({ gameContextOverride: {
+    home_rest: 17, away_rest: 3, div_game: 1, neutral_site: 0,
+    temp: null, wind: null, roof: null, open_spread: -2, open_total: 60
+  } });
+  const overridden = withOverride.models.find(m => m.id === 'rest_travel');
+  assert.notEqual(overridden.margin, baseline.margin,
+    'a real rest differential and a division game must move this model\'s own margin -- ' +
+    'this game_lines row sets none of those columns, so any change proves the override, not the live row');
+  assert.equal(withOverride.ensemble.market_data_source.game_context, 'frozen_packet');
+  invalidateEnsembleCaches();
+});
+
+test('WP15/D3: a gameContextOverride missing a field falls through to the live default, not null', () => {
+  // Partial coverage (an older packet, or one whose game_lines_context source
+  // came back `missing`) must not null out fields it never froze -- see
+  // ensembleLine's own doc for gameContextOverride.
+  invalidateEnsembleCaches();
+  const partial = line({ gameContextOverride: { div_game: 1 } }).models.find(m => m.id === 'rest_travel');
+  invalidateEnsembleCaches();
+  // This fixture's live game_lines row sets neither rest_days column, so
+  // rest_travel's own `?? 7` fallback applies on both sides -- explicitly
+  // supplying those same values must reproduce the partial-override result
+  // exactly, proving the omitted keys really fell through to the live row
+  // (undefined, read as 7) rather than to an unintended null (also 7 here,
+  // via the SAME `??`, which is why this asserts equality rather than
+  // merely "not null" -- see the next assertion for that distinction).
+  const explicitLiveDefaults = line({ gameContextOverride: { div_game: 1, home_rest: null, away_rest: null } })
+    .models.find(m => m.id === 'rest_travel');
+  assert.equal(partial.margin, explicitLiveDefaults.margin);
+  invalidateEnsembleCaches();
+});
+
+test('WP15/D3: teamFeaturesOverride reaches ctx.feat, turning a null feature-differential model real', () => {
+  invalidateEnsembleCaches();
+  const baseline = line().models.find(m => m.id === 'early_down_eff');
+  assert.equal(baseline.margin, null,
+    'the mocked teamWeeks()=[] fixture has no play-by-play evidence at all -- this must be the null baseline');
+
+  invalidateEnsembleCaches();
+  const teamFeaturesOverride = new Map([
+    ['KC', { off_early_epa: 0.25, def_early_epa: -0.10 }],
+    ['BAL', { off_early_epa: 0.05, def_early_epa: 0.05 }]
+  ]);
+  const withOverride = line({ teamFeaturesOverride });
+  const overridden = withOverride.models.find(m => m.id === 'early_down_eff');
+  assert.ok(overridden.margin != null,
+    'a frozen feature map must reach ctx.feat directly -- the live (mocked-empty) table could never produce this');
+  assert.equal(withOverride.ensemble.market_data_source.team_features, 'frozen_packet');
+
+  // The array-of-pairs shape a frozen packet actually stores (nfl-t60-packet.js
+  // spreads a Map with `[...featureAggregates(...)]`) must be accepted exactly
+  // as the Map form is -- a caller should not have to convert it back.
+  invalidateEnsembleCaches();
+  const fromPairs = line({ teamFeaturesOverride: [...teamFeaturesOverride] })
+    .models.find(m => m.id === 'early_down_eff');
+  assert.equal(fromPairs.margin, overridden.margin);
+  invalidateEnsembleCaches();
 });

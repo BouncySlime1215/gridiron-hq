@@ -34,25 +34,36 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
 const { featureContracts } = await import('../server/services/nfl-ensemble.js');
 const { spreadProperScores } = await import('../server/services/nfl-family-contribution.js');
 
-test('C16: all nine challenger-only components are recoverable from the registry', () => {
+test('C16: all twenty-one challenger-only components are recoverable from the registry', () => {
   const contracts = featureContracts();
   const challengers = contracts.filter(c => c.challenger_only);
-  assert.equal(challengers.length, 9,
-    'the review counts nine challenger-only components; a report that sees zero is broken');
+  assert.equal(challengers.length, 21,
+    'eighteen as of the rank-gate retirement pass, plus three new challenger-only signals added '
+    + '2026-09-16: teamrankings_predictive and nfelo_rating (Rating systems), nfelo_qb_adjustment '
+    + '(Context) -- see LATEST-PLAN.md "Data already in the house" and its wiring follow-ups. '
+    + 'A report that sees fewer is broken');
 
-  // And they are attributed to the right families, matching the review's own
-  // inventory: Efficiency carries eight, roster availability one.
+  // And they are attributed to the right families, matching the current
+  // registry: Efficiency eleven (unaffected -- none of the three new signals
+  // are Efficiency), roster availability two (unaffected), rating systems
+  // five (three retired + teamrankings_predictive + nfelo_rating), context
+  // two (rest_travel + nfelo_qb_adjustment), Market one (unaffected).
   const byFamily = {};
   for (const c of contracts) {
     byFamily[c.family] ??= { registered: 0, challengers: 0 };
     byFamily[c.family].registered++;
     if (c.challenger_only) byFamily[c.family].challengers++;
   }
-  assert.equal(byFamily.Efficiency.challengers, 8);
+  assert.equal(byFamily.Efficiency.challengers, 11);
   assert.equal(byFamily.Efficiency.registered, 17);
-  assert.equal(byFamily['Roster availability'].challengers, 1);
-  assert.equal(byFamily['Rating systems'].challengers, 0);
-  assert.equal(contracts.length, 31, 'the registry holds 31 components in total');
+  assert.equal(byFamily['Roster availability'].challengers, 2);
+  assert.equal(byFamily['Rating systems'].challengers, 5);
+  assert.equal(byFamily.Context.challengers, 2);
+  assert.equal(byFamily.Market.challengers, 1,
+    'market_correction_research is the one Market challenger; unaffected by this pass');
+  assert.equal(contracts.length, 35,
+    'the registry holds 35 components in total: 32 plus teamrankings_predictive, nfelo_rating '
+    + 'and nfelo_qb_adjustment, added 2026-09-16');
 });
 
 test('C16: every component still carries its family data contract', () => {

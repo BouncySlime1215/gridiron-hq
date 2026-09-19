@@ -44,7 +44,38 @@ async function get(url) {
   });
 }
 
-test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+/*
+ * `maxRetries` is load-bearing, not caution.
+ *
+ * This file imports `server/routes/nfl-betting.js`, which pulls in
+ * `report-cache.js` and its worker thread. A worker gets a fresh module
+ * registry, so it re-runs `server/db/index.js`, and that module does
+ * `mkdirSync(path.dirname(DB_PATH), { recursive: true })` at line 19 and
+ * opens a `DatabaseSync` at line 20 — recreating this temp directory AND the
+ * database file inside it. The run's second `ExperimentalWarning: SQLite`
+ * line is that second connection. When it lands between this `rmSync`'s
+ * directory walk and its final `rmdir`, the removal throws ENOTEMPTY and node
+ * reports the whole file as a failed `after` hook even though every test in
+ * it passed. That is what turned CI red on 2026-09-19 while the same file
+ * passed locally and on every earlier commit.
+ *
+ * `force` does not cover it — that suppresses ENOENT, not ENOTEMPTY — and
+ * `maxRetries` is documented to retry exactly this error class with a linear
+ * backoff. Stated as documented behaviour rather than measured: the race is
+ * between a worker's `mkdirSync` and a synchronous `rmSync` on the main
+ * thread, and it could not be forced reliably enough to demonstrate here.
+ *
+ * It does not stop the directory being recreated after this hook finishes,
+ * which leaves an empty temp directory behind. That is untidy and harmless,
+ * and repo-wide rather than this file's to fix: 223 test files remove a temp
+ * directory this way and 16 other `gridiron-*` prefixes leak identically.
+ * Verified pre-existing by running this file unchanged in a worktree at the
+ * base of the branch stack, where it behaves the same.
+ */
+test.after(() => {
+  db.close();
+  fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+});
 
 test('a cold fit cache returns 202 with a queued-fit pointer immediately, instead of computing inline', async () => {
   const started = Date.now();

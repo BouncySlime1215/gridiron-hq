@@ -122,7 +122,9 @@ def compute_code_hash(files):
 
 
 def _default_code_files():
-    return [Path(stage3.__file__), Path(__file__)]
+    here = Path(__file__).resolve().parent
+    return [Path(stage3.__file__), Path(shared_dataset.__file__), Path(__file__),
+            here / 'unified_model.py', here.parents[1] / 'expert_selector_lab.py']
 
 
 def compute_config_hash(meta):
@@ -150,6 +152,10 @@ def compute_config_hash(meta):
         'through_season_query_cap': meta['through_season_query_cap'],
         'n_training_rows': meta['n_training_rows'],
         'training_row_ids_hash': training_row_ids_hash,
+        'training_data_hash': meta.get('training_data_hash'),
+        'packages': meta.get('packages'),
+        'target': meta.get('target'),
+        'preprocessing_steps': meta.get('preprocessing_steps'),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode('utf-8')).hexdigest()
 
@@ -236,7 +242,7 @@ def eligible_football_rows(rows, cutoff_instant, before_season=None):
 # Fitting (reuses stage3_team_strength's feature/pipeline code directly)
 # --------------------------------------------------------------------------
 
-def fit_ridge_artifact(rows, *, alpha_grid=None, seed=None):
+def fit_ridge_artifact(rows, *, feature_names=None, alpha_grid=None, seed=None):
     """Fit ridge on `rows` (already eligible/cutoff-filtered), selecting alpha
     via Stage 3's own inner-chronological-validation split
     (`stage3_team_strength._inner_split`) over Stage 3's own predeclared
@@ -250,16 +256,23 @@ def fit_ridge_artifact(rows, *, alpha_grid=None, seed=None):
     """
     alpha_grid = list(alpha_grid) if alpha_grid is not None else list(stage3.RIDGE_ALPHAS)
     seed = stage3.SEED if seed is None else seed
+    names = list(feature_names) if feature_names is not None else list(stage3.FEATURE_NAMES)
 
     for r in rows:
-        r.setdefault('_features', stage3.row_features(r))
+        r['_features'] = stage3.row_features(r, feature_names=names)
 
     inner_train, inner_val = stage3._inner_split(rows)
+    if inner_val:
+        first_validation = min(shared_dataset.stamp(r['decision_at']) for r in inner_val)
+        inner_train = eligible_football_rows(inner_train, first_validation)
+    train_ids = {(r['season'], r['week'], r['home'], r['away']) for r in inner_train}
+    if train_ids.intersection((r['season'], r['week'], r['home'], r['away']) for r in inner_val):
+        raise ValueError('same game appears in inner training and validation')
     trials = []
     if inner_train and inner_val:
-        Xtr = stage3.feature_matrix(inner_train)
+        Xtr = stage3.feature_matrix(inner_train, feature_names=names)
         ytr = np.array([r['actual_margin'] for r in inner_train], dtype=float)
-        Xval = stage3.feature_matrix(inner_val)
+        Xval = stage3.feature_matrix(inner_val, feature_names=names)
         yval = np.array([r['actual_margin'] for r in inner_val], dtype=float)
         for alpha in alpha_grid:
             model = stage3._ridge_pipeline(alpha).fit(Xtr, ytr)
@@ -276,27 +289,43 @@ def fit_ridge_artifact(rows, *, alpha_grid=None, seed=None):
         best = trials[len(trials) // 2]
         selection_method = 'insufficient_history_for_inner_split_used_grid_midpoint'
 
-    Xfull = stage3.feature_matrix(rows)
+    Xfull = stage3.feature_matrix(rows, feature_names=names)
     yfull = np.array([r['actual_margin'] for r in rows], dtype=float)
     final_model = stage3._ridge_pipeline(best['alpha'])
     final_model.fit(Xfull, yfull)
 
     model_meta = {
         'algorithm': 'ridge',
+        'feature_names': names,
         'hyperparameters': {'alpha': best['alpha']},
         'alpha_grid': alpha_grid,
         'alpha_selection_method': selection_method,
         'alpha_trials': trials,
         'inner_train_weeks': len({(r['season'], r['week']) for r in inner_train}),
         'inner_val_weeks': len({(r['season'], r['week']) for r in inner_val}),
+        'inner_training_row_ids': [f"{r['season']}-w{r['week']:02d}-{r['home']}@{r['away']}" for r in inner_train],
+        'inner_validation_row_ids': [f"{r['season']}-w{r['week']:02d}-{r['home']}@{r['away']}" for r in inner_val],
         'preprocessing_steps': [name for name, _ in final_model.steps[:-1]],
         'seed': seed,
+        # IDs alone cannot distinguish corrected labels/features for the same
+        # games. Hash the effective training values, including explicit nulls.
+        'training_data_hash': hashlib.sha256(json.dumps([
+            {'game': [r['season'], r['week'], r['home'], r['away']],
+             'features': r['_features'], 'target': r['actual_margin']}
+            for r in rows
+        ], sort_keys=True, allow_nan=False).encode('utf-8')).hexdigest(),
     }
     return final_model, model_meta
 
 
+def fit_unified_artifact(rows, *, feature_names=None):
+    from unified_model import fit_unified
+    return fit_unified(rows, feature_names=feature_names)
+
+
 ALGORITHM_FITTERS = {
     'ridge': fit_ridge_artifact,
+    'unified_margin': fit_unified_artifact,
 }
 
 
@@ -375,7 +404,10 @@ def save_artifact(output_root, *, model, model_meta, feature_names, dataset_vers
     code_hash = compute_code_hash(code_files)
 
     packages = {}
-    for pkg in ('scikit-learn', 'numpy', 'joblib'):
+    required_packages = ['scikit-learn', 'numpy', 'joblib']
+    if model_meta.get('algorithm') == 'unified_margin':
+        required_packages += ['lightgbm', 'scipy']
+    for pkg in required_packages:
         try:
             packages[pkg] = importlib.metadata.version(pkg)
         except importlib.metadata.PackageNotFoundError:
@@ -386,7 +418,8 @@ def save_artifact(output_root, *, model, model_meta, feature_names, dataset_vers
         'created_at': created_at.isoformat(),
         'target': target,
         'feature_names': list(feature_names),
-        'feature_contract_source': 'stage3_team_strength.FEATURE_NAMES',
+        'feature_contract_source': 'stage3_team_strength.FEATURE_NAMES'
+            if list(feature_names) == list(stage3.FEATURE_NAMES) else 'caller-supplied feature_names',
         'dataset_version': dataset_version,
         'training_cutoff': training_cutoff,
         'n_training_rows': len(training_row_ids),
@@ -483,7 +516,7 @@ def load_artifact(artifact_dir, *, expected_feature_names=None, verify_hash=True
 
 def fit_and_save(db_path, *, through_season=None, through_week=None, through_date=None,
                   min_season=1999, output_root=DEFAULT_ARTIFACT_ROOT, algorithm='ridge',
-                  rows=None):
+                  rows=None, feature_names=None):
     """Build the eligible training set for a declared fit-through cutoff, fit
     ONE candidate (ridge by default), and save it as a versioned artifact.
 
@@ -493,6 +526,13 @@ def fit_and_save(db_path, *, through_season=None, through_week=None, through_dat
     Otherwise this opens a READ-ONLY connection to `db_path` via
     `dataset.build_football_dataset` (never writes to it) and never touches
     `output_root` for anything but this module's own artifact files.
+
+    `feature_names` defaults to `stage3.FEATURE_NAMES` -- the frozen 14 every
+    existing baseline was measured on -- so every prior caller reproduces its
+    exact artifact ID. Pass `stage3.EXTENDED_FEATURE_NAMES` (or any other
+    list) to fit on a different feature set; it is recorded in the artifact's
+    own identity, so a model fitted on a different set cannot collide with,
+    or silently be mistaken for, one fitted on another.
     """
     if algorithm not in ALGORITHM_FITTERS:
         raise NotImplementedError(
@@ -526,7 +566,8 @@ def fit_and_save(db_path, *, through_season=None, through_week=None, through_dat
             f'no eligible training rows for cutoff={cutoff_instant.isoformat()} '
             f'(through_season={through_season}, through_week={through_week}, through_date={through_date})')
 
-    model, model_meta = ALGORITHM_FITTERS[algorithm](eligible)
+    names = list(feature_names) if feature_names is not None else list(stage3.FEATURE_NAMES)
+    model, model_meta = ALGORITHM_FITTERS[algorithm](eligible, feature_names=names)
 
     training_row_ids = [f"{r['season']}-w{r['week']:02d}-{r['home']}@{r['away']}" for r in eligible]
     training_cutoff = {
@@ -540,7 +581,7 @@ def fit_and_save(db_path, *, through_season=None, through_week=None, through_dat
     artifact_dir, meta = save_artifact(
         output_root,
         model=model, model_meta=model_meta,
-        feature_names=stage3.FEATURE_NAMES, dataset_version=dataset_version,
+        feature_names=names, dataset_version=dataset_version,
         training_cutoff=training_cutoff, training_row_ids=training_row_ids,
         min_season=min_season, through_season_query_cap=query_cap_season,
     )

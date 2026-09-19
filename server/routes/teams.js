@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
 import { unitGrades } from './nfldata.js';
-import { SEASON_ENDING_RE, RELEASED_RE, textMentionsFullName } from '../services/player-availability.js';
+import { textMentionsFullName, newsSeverityFor } from '../services/player-availability.js';
 import { teamTendencies } from '../services/nfl-team-tendencies.js';
 
 const EDITABLE = ['head_coach', 'oc_name', 'dc_name', 'off_scheme', 'off_scheme_detail',
@@ -44,7 +44,9 @@ function seasonEndingPlayerIds(teamId) {
       // items ("Released WR Noah Brown") that used to falsely flag every other
       // player sharing that surname on the same team as also released.
       if (!textMentionsFullName(text, player.name)) continue;
-      if (SEASON_ENDING_RE.test(text) || RELEASED_RE.test(text)) { flagged.add(player.espn_id); break; }
+      // Per player and per clause, the same rule the fantasy engine uses: a story that
+      // mentions him next to someone else's injury or release does not flag him.
+      if (newsSeverityFor(text, player.name)) { flagged.add(player.espn_id); break; }
     }
   }
   return flagged;

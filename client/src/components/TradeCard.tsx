@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, headshotUrl } from '../api';
 import { usePlayerCard } from './PlayerCard';
 import { Headshot } from './PlayerRow';
+import ManagerRead from './trade/ManagerRead';
 import PlayerEvidence from './trade/PlayerEvidence';
 import RiskStrip from './trade/RiskStrip';
 import { hasEvidence } from './trade/types';
@@ -108,16 +109,19 @@ function SideBox({ s, mine }: { s: any; mine: boolean }) {
         {s.lineup_before} → {s.lineup_after} · {num(s.season_delta, 0)} over the season
       </div>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-[11px]">
-        <div><dt className="text-[var(--muted)]">Playoffs (15–17)</dt>
-          <dd className={`tabular-nums font-medium ${s.playoff_ppg_delta > 0 ? 'text-good' : s.playoff_ppg_delta < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>{num(s.playoff_ppg_delta)} ppg</dd></div>
+        {/* No "Playoffs (15–17)" row: it showed a schedule tilt that failed validation
+            (matchups.js) and is gone. When the points land still shapes the ranking
+            (trade-horizon.js), through byes and this week's chance to play only. */}
         <div><dt className="text-[var(--muted)]">Market value</dt>
           <dd className={`tabular-nums font-medium ${s.value_delta > 0 ? 'text-good' : s.value_delta < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>{num(s.value_delta, 0)}</dd></div>
         {s.floor_delta != null && (
-          <div><dt className="text-[var(--muted)]">Weekly floor</dt>
+          <div title="Change in your starting lineup's total in a bad week (1 week in 10) — estimated from each starter's weekly range, with starters in the same game moving together">
+            <dt className="text-[var(--muted)]">Weekly floor</dt>
             <dd className="tabular-nums text-[var(--ink)]">{num(s.floor_delta, 1)}</dd></div>
         )}
         {s.ceiling_delta != null && (
-          <div><dt className="text-[var(--muted)]">Weekly ceiling</dt>
+          <div title="Change in your starting lineup's total in a good week (1 week in 10) — estimated from each starter's weekly range, with starters in the same game moving together">
+            <dt className="text-[var(--muted)]">Weekly ceiling</dt>
             <dd className="tabular-nums text-[var(--ink)]">{num(s.ceiling_delta, 1)}</dd></div>
         )}
       </dl>
@@ -225,7 +229,6 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
         <span className={`text-[11px] ${FAIRNESS_TONE[deal.fairness] ?? 'text-[var(--muted)]'}`}>
           {deal.fairness}
         </span>
-        {deal.manager_tradeability === 'hard' && <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800">HARD TO TRADE WITH</span>}
         {deal.joint_ppg != null && (
           <span className="text-[10px] text-[var(--muted)]" title="Combined lineup gain — the surplus that makes a trade possible at all">
             joint {num(deal.joint_ppg)}
@@ -282,6 +285,14 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           <SideBox s={deal.them} mine={false} />
         </div>
       )}
+
+      {/* The other manager: receptiveness and the factors behind it, P(accept) as a
+          band, his negotiation profile, and the suggested approach next to the
+          approaches there was no data to judge. The hand-set 'hard to trade with'
+          tier used to be the only thing on this card that mentioned him at all; it
+          now lives inside this panel, where it reads as the override it is. A
+          league with no chat corpus gets one honest line instead. */}
+      <ManagerRead deal={deal} compact={compact} />
 
       <div className="flex items-center gap-2 mt-3 flex-wrap">
         <button className="btn-ghost text-xs" onClick={odds} disabled={oddsBusy}>

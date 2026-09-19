@@ -22,6 +22,8 @@ import { findTeaserLegs } from '../services/nfl-teasers.js';
 import { sgpAnalysis, propCorrelationTable, fitPropCorrelations, recordSgpQuote,
   sgpQuoteEvidence } from '../services/nfl-prop-correlation.js';
 import { requireModelPermission } from '../modeling/authz.js';
+import { requireAuthenticated } from '../platform/auth.js';
+import { legacyRateLimit } from '../platform/legacy-access.js';
 import { latestCoverCalibration } from '../services/nfl-cover-calibration.js';
 import { abstentionAudit } from '../services/nfl-abstention-audit.js';
 import { teaserExecutionBoard } from '../services/nfl-teaser-execution.js';
@@ -883,10 +885,29 @@ r.post('/decisions/record', async (req, res, next) => {
  * lookup tools (page-explain-tools.js) to ground an answer in real backend
  * data, never to act on anything.
  */
-r.post('/explain/page', async (req, res, next) => {
+/*
+ * This router is mounted without auth (server/index.js) and the app is reachable
+ * through the public tunnel, so the assistant — up to 4 Claude rounds per call on
+ * Nick's key — and the answers it stores need a session. A person asks a handful of
+ * questions a minute; the per-user limit is set well above that and far below the
+ * 120/min legacy limit. Prompt inputs are capped: the page sends a small summary it
+ * already rendered, never a payload.
+ */
+const EXPLAIN_LIMIT_PER_MINUTE = 12;
+const EXPLAIN_MAX_CONTEXT_CHARS = 16_000;
+const EXPLAIN_MAX_QUESTION_CHARS = 2_000;
+const explainAccess = [requireAuthenticated, legacyRateLimit({ limit: EXPLAIN_LIMIT_PER_MINUTE, windowMs: 60_000 })];
+
+r.post('/explain/page', ...explainAccess, async (req, res, next) => {
   try {
-    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
     const b = req.body ?? {};
+    const contextChars = JSON.stringify([b.visible_summary ?? null, b.event_context ?? null]).length;
+    const questionChars = typeof b.question === 'string' ? b.question.length : 0;
+    if (contextChars > EXPLAIN_MAX_CONTEXT_CHARS || questionChars > EXPLAIN_MAX_QUESTION_CHARS) {
+      return res.status(413).json({ error: `page summary (${contextChars} chars, max ${EXPLAIN_MAX_CONTEXT_CHARS}) ` +
+        `or question (${questionChars} chars, max ${EXPLAIN_MAX_QUESTION_CHARS}) is too long` });
+    }
+    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
     const route = typeof b.route === 'string' ? b.route.trim() : '';
     if (!route) return res.status(400).json({ error: 'route is required' });
     const section = typeof b.section === 'string' ? b.section : null;
@@ -903,7 +924,7 @@ r.post('/explain/page', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-r.get('/explain/page/audits', (req, res, next) => {
+r.get('/explain/page/audits', requireAuthenticated, (req, res, next) => {
   try { res.json({ explanations: recentPageExplanations({ limit: req.query.limit }) }); }
   catch (e) { next(e); }
 });

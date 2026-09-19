@@ -41,7 +41,7 @@ import {
 // explicitly so this always reads the one real, live league database —
 // never a path some other checkout happens to also have a file at.
 const REAL_DB_PATH = process.env.GRIDIRON_REAL_DB_PATH
-  ?? '/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite';
+  ?? new URL('../server/data.sqlite', import.meta.url).pathname;
 const db = new DatabaseSync(REAL_DB_PATH, { readOnly: true });
 const rows = (sql, ...args) => db.prepare(sql).all(...args);
 const one = (sql, ...args) => rows(sql, ...args)[0];

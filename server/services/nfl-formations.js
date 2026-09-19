@@ -46,8 +46,10 @@ function splitCsv(line) {
   return out;
 }
 
-const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
-const bool = v => (v === '1' || v === 'TRUE' || v === 'true' ? 1 : v === '' ? null : 0);
+// An empty CSV cell is unknown, not zero: Number('') === 0 would read a missing box
+// count as an empty box.
+const num = v => { if (v == null || String(v).trim() === '') return null; const n = Number(v); return Number.isFinite(n) ? n : null; };
+const bool = v => (v === '1' || v === 'TRUE' || v === 'true' ? 1 : v == null || String(v).trim() === '' ? null : 0);
 
 /** Ingest one season of formation and personnel data. */
 export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
@@ -103,11 +105,24 @@ export async function ingestCharting(season, { timeoutMs = 900000 } = {}) {
   const idx = Object.fromEntries(header.map((h, i) => [h, i]));
 
   let stored = 0;
+  // Upsert, not insert-or-ignore: FTN revises charting after games, and rows stored before
+  // the pressure/target-quality columns existed (migration 059) must get them on re-ingest.
   const stmt = db.prepare(`INSERT INTO nfl_play_charting
          (game_id, play_id, season, week, qb_location, backfield, defense_box,
           no_huddle, motion, play_action, screen, rpo, trick, out_of_pocket,
-          throw_away, contested)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(game_id, play_id) DO NOTHING`,
+          throw_away, contested, n_blitzers, n_pass_rushers, catchable, created_reception,
+          drop_, read_thrown, interception_worthy, qb_fault_sack)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(game_id, play_id) DO UPDATE SET
+           season = excluded.season, week = excluded.week, qb_location = excluded.qb_location,
+           backfield = excluded.backfield, defense_box = excluded.defense_box, no_huddle = excluded.no_huddle,
+           motion = excluded.motion, play_action = excluded.play_action, screen = excluded.screen,
+           rpo = excluded.rpo, trick = excluded.trick, out_of_pocket = excluded.out_of_pocket,
+           throw_away = excluded.throw_away, contested = excluded.contested,
+           n_blitzers = excluded.n_blitzers, n_pass_rushers = excluded.n_pass_rushers,
+           catchable = excluded.catchable, created_reception = excluded.created_reception,
+           drop_ = excluded.drop_, read_thrown = excluded.read_thrown,
+           interception_worthy = excluded.interception_worthy, qb_fault_sack = excluded.qb_fault_sack`,
   );
   db.exec('BEGIN');
   try {
@@ -122,7 +137,10 @@ export async function ingestCharting(season, { timeoutMs = 900000 } = {}) {
         num(p[idx.n_offense_backfield]), num(p[idx.n_defense_box]),
         bool(p[idx.is_no_huddle]), bool(p[idx.is_motion]), bool(p[idx.is_play_action]),
         bool(p[idx.is_screen_pass]), bool(p[idx.is_rpo]), bool(p[idx.is_trick_play]),
-        bool(p[idx.is_qb_out_of_pocket]), bool(p[idx.is_throw_away]), bool(p[idx.is_contested_ball]));
+        bool(p[idx.is_qb_out_of_pocket]), bool(p[idx.is_throw_away]), bool(p[idx.is_contested_ball]),
+        num(p[idx.n_blitzers]), num(p[idx.n_pass_rushers]), bool(p[idx.is_catchable_ball]),
+        bool(p[idx.is_created_reception]), bool(p[idx.is_drop]), num(p[idx.read_thrown]),
+        bool(p[idx.is_interception_worthy]), bool(p[idx.is_qb_fault_sack]));
       stored++;
     }
     db.exec('COMMIT');

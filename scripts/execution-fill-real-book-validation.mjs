@@ -52,7 +52,7 @@ const { fromStoredQuote, simulateFill, naiveFill } =
   await import(path.join(repoRoot, 'server/services/execution-fill.js'));
 
 const REAL_DB = process.env.REAL_DB_PATH ??
-  '/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite';
+  new URL('../server/data.sqlite', import.meta.url).pathname;
 
 console.log(`Opening ${REAL_DB} read-only (node:sqlite { readOnly: true }).`);
 const db = new DatabaseSync(REAL_DB, { readOnly: true });

@@ -25,6 +25,12 @@ seedIfEmpty();
 const { default: bettingHubRouter } = await import('../server/routes/betting-hub.js');
 const { db } = await import('../server/db/index.js');
 const { recentPageExplanations } = await import('../server/services/nfl-page-explain-audit.js');
+const { hashSessionToken } = await import('../server/platform/auth.js');
+// The assistant runs on Nick's API key and is reachable through the public tunnel, so
+// it requires a session (test/espn-connect-auth.test.js pins the anonymous 401).
+db.prepare(`INSERT OR IGNORE INTO users(id,subject,display_name) VALUES (993,'page-explain-user','Explain User')`).run();
+db.prepare(`INSERT OR REPLACE INTO auth_sessions(user_id,token_hash,expires_at) VALUES (993,?,datetime('now','+1 day'))`)
+  .run(hashSessionToken('page-explain-token'));
 
 // Set/clear the key via the env var directly, NOT claude.js's setApiKey()/
 // clearApiKey() — those persist to app_settings AND rewrite the repo's real
@@ -46,7 +52,8 @@ app.use((err, req, res, next) => res.status(err.status ?? 500).json({ error: err
 
 async function request(url, { body, method = 'GET' } = {}) {
   const encoded = body === undefined ? '' : JSON.stringify(body);
-  const headers = encoded ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(encoded)) } : {};
+  const headers = { authorization: 'Bearer page-explain-token',
+    ...(encoded ? { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(encoded)) } : {}) };
   const req = new Readable({ read() { this.push(encoded || null); if (encoded) this.push(null); } });
   req.url = `/api/betting${url}`; req.method = method; req.headers = headers;
   req.socket = new PassThrough(); req.connection = req.socket;
@@ -69,10 +76,33 @@ async function request(url, { body, method = 'GET' } = {}) {
 // to whichever handler the currently-running test has installed —
 // individual tests never call moduleMock.module themselves.
 let activeFetchHandler = null;
-const nodeFetchMock = moduleMock.module('node-fetch', { exports: { default: (url, init) => {
+// `defaultExport:`, NOT `exports: { default: ... }`. node:test's mock.module()
+// takes `defaultExport` and `namedExports`; `exports` is not an option it has,
+// so it was accepted, ignored, and the module's default became an empty object.
+// The SDK then did `this.fetch = nf.default` and died on `this.fetch.call is
+// not a function` — caught, wrapped by the SDK as its own generic
+// `APIConnectionError: Connection error.`, and read for weeks as "this box has
+// no API key" (docs/CLOUD-MIGRATION.md:266, TASKS.md). It was never the key:
+// these tests need no key and pass without one.
+//
+// What this comment USED to say, and what an independent verify disproved:
+// "with the mock inert every test here made a real call to api.anthropic.com."
+// It did not, and could not. `this.fetch` was `{}`, so the SDK threw a
+// TypeError BEFORE reaching any transport. Measured with a probe wrapping all
+// four seams (globalThis.fetch, node:http, node:https, net.Socket.connect),
+// validated by a control that logs 17 attempts from test/offline-guard.test.js:
+// reverting this file's mock to the broken form and re-running logs ZERO.
+// No money was ever at risk here, on any box.
+//
+// `Connection error.` is what made that easy to believe: the SDK reports a
+// local TypeError in its own transport exactly the way it reports a dead
+// network. The real Anthropic request_id in cc12a22 came from
+// test/offline-guard.test.js's own deliberately UNMOCKED probe, which is a
+// different file — that evidence was borrowed to describe this one.
+const nodeFetchMock = moduleMock.module('node-fetch', { defaultExport: (url, init) => {
   if (!activeFetchHandler) throw new Error('Test forgot to install an Anthropic fetch mock before making a request');
   return activeFetchHandler(url, init);
-} } });
+} });
 test.after(() => nodeFetchMock.restore());
 
 function mockAnthropicFetch(paragraph, limitations = []) {
@@ -268,8 +298,8 @@ test('runTool never exposes a write/mutating action, even for an unknown or bet-
   // built — nothing shaped like placing a bet, sizing a stake, or overriding
   // a gate is even declared, so the model has no such tool to call.
   assert.deepEqual(TOOLS.map(t => t.name).sort(), [
-    'decay_watch_status', 'game_projection_breakdown', 'market_calibration_history',
-    'pick_watch_detail', 'variable_definition'
+    'decay_watch_status', 'game_projection_breakdown', 'learned_shadow_research_context',
+    'market_calibration_history', 'pick_watch_detail', 'variable_definition'
   ]);
   for (const name of ['place_bet', 'set_stake', 'override_gate', 'update_pick', 'delete_finding']) {
     const result = runTool(name, { season: 2026, week: 1, home_team: 'DAL', amount: 1000 });

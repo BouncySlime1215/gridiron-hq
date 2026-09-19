@@ -33,7 +33,8 @@ const freePort = () => new Promise(resolve => {
 });
 
 const PORT = await freePort();
-const BASE = `http://localhost:${PORT}`;
+// 127.0.0.1, not localhost — see the note in scripts/start.mjs.
+const BASE = `http://127.0.0.1:${PORT}`;
 
 const server = spawn(process.execPath, ['--env-file-if-exists=.env', 'server/index.js'],
   { cwd: ROOT, env: { ...process.env, API_PORT: String(PORT) }, stdio: ['ignore', 'ignore', 'inherit'] });
@@ -45,8 +46,14 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stop(); process
 // Wait for it to answer before firing anything at it.
 let up = false;
 for (let i = 0; i < 60 && !up; i++) {
-  try { up = (await fetch(`${BASE}/api/teams`, { signal: AbortSignal.timeout(1000) })).ok; }
-  catch { await new Promise(r => setTimeout(r, 500)); }
+  // /api/health is the deliberately public liveness probe — see server/index.js.
+  // It answers 503 while the database is still coming up, and firing the whole
+  // sync run at a server in that state is how a bootstrap fails halfway.
+  try {
+    const probe = await fetch(`${BASE}/api/health`, { signal: AbortSignal.timeout(3000) });
+    up = probe.ok && (await probe.json())?.ok === true;
+  } catch { /* still starting */ }
+  if (!up) await new Promise(r => setTimeout(r, 500));
 }
 if (!up) { console.error('  Could not start the local server — skipping the data pull.'); stop(); process.exit(1); }
 

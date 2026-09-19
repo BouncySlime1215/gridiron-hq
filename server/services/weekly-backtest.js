@@ -75,7 +75,13 @@ function crpsRaw(samples, y) {
  * @param distributions whether to sample weekly distributions (the expensive part)
  * @param runs          simulation draws per player-week
  * @param level         level-uncertainty override passed through to the sampler
- * @param kOverride     shrinkage vector override (null = hardcoded constants)
+ * @param kOverride     shrinkage vector override. null = the hand-picked constants.
+ *                      Omitted = what production would have run for that season:
+ *                      the active fitted vector, re-fit on seasons before the one
+ *                      being replayed when its own cutoff is not earlier (see
+ *                      shrinkage-fit.js#cutoffSafeKVector). This used to default to
+ *                      null, so every caller that omitted it graded a model
+ *                      production does not run once a fit is active.
  *
  * @returns per-week rows plus pooled metrics for the model and each baseline.
  */
@@ -87,7 +93,7 @@ export function replaySeasonWeekly(season, opts = {}) {
 
 function replayImpl(season, {
   startWeek = 5, endWeek = 18, scoring = PPR, distributions = true,
-  runs = 200, level, kOverride = null, recency, roleRecency,
+  runs = 200, level, kOverride, recency, roleRecency,
   predictionHead = null, qbrSignal
 } = {}) {
   const truth = actuals(season, scoring);
@@ -104,6 +110,19 @@ function replayImpl(season, {
   // Decision-relevant variant: players active LAST week (known at forecast time),
   // graded including a zero when they don't play this week.
   const withZeros = { model: [], season_to_date: [], blend: [] };
+  // Row-level form of withZeros, so a gate can pair two replays on the decision
+  // metric and see whether a change moves the active rows or the did-not-play rows.
+  const decisionRows = [];
+  // Who the headline MAE does NOT describe. Rows below are skipped when the player
+  // has no in-season history yet, so the graded population is only the players the
+  // ensemble can run on. Production projects everyone, and at 2025 W12 about half of
+  // the projected players (555 of 1,122) are structural-only — but most of those do
+  // not play that week. Conditional on actually playing, the excluded share is small:
+  // 2025 weeks 5-18, 107 active player-weeks ungraded against 4,532 graded (97.7%
+  // coverage). Those 107 are the returning-from-injury and first-appearance cases,
+  // i.e. exactly the waiver and streamer decisions, and their error is unmeasured.
+  // Counting them lets a caller report the coverage beside the MAE.
+  const coverage = { graded: 0, active_no_in_season_history: 0 };
 
   for (let week = startWeek; week <= endWeek; week++) {
     const proj = buildProjections({
@@ -118,7 +137,10 @@ function replayImpl(season, {
       if (!t) continue;
       const priorWeeks = [];
       for (let w = 1; w < week; w++) { const v = t.weeks.get(w); if (v != null) priorWeeks.push(v); }
-      if (!priorWeeks.length) continue;             // no in-season history to baseline against
+      if (!priorWeeks.length) {                     // no in-season history to baseline against
+        if (t.weeks.has(week)) coverage.active_no_in_season_history++;
+        continue;
+      }
 
       const std = mean(priorWeeks);
       const l3 = mean(priorWeeks.slice(-3));
@@ -148,11 +170,14 @@ function replayImpl(season, {
         withZeros.model.push(Math.abs(modelPred - a0));
         withZeros.season_to_date.push(Math.abs(std - a0));
         withZeros.blend.push(Math.abs(blendPred - a0));
+        decisionRows.push({ player_id: pid, week, position: p.position, prediction: modelPred,
+          season_to_date: std, actual: a0, played });
       }
 
       if (!played) continue;                        // conditional-on-active metrics below
 
       predictionRows.push({ ...context, prediction: modelPred, blend: blendPred, actual: act });
+      coverage.graded++;
 
       models.model.absErr.push(Math.abs(modelPred - act));
       models.season_to_date.absErr.push(Math.abs(std - act));
@@ -206,6 +231,11 @@ function replayImpl(season, {
       spearman: spearman(m.pairs),
       n: m.absErr.length
     }])),
+    coverage: {
+      ...coverage,
+      graded_share_of_active_projected: coverage.graded + coverage.active_no_in_season_history
+        ? +(coverage.graded / (coverage.graded + coverage.active_no_in_season_history)).toFixed(3) : null
+    },
     decision_including_dnp: Object.fromEntries(Object.entries(withZeros).map(([name, v]) => [name, {
       mae: +mean(v).toFixed(3), n: v.length
     }])),
@@ -218,6 +248,7 @@ function replayImpl(season, {
     } : null,
     // Raw per-player-week errors, for the paired bootstrap.
     _errors: { ...Object.fromEntries(Object.entries(models).map(([k, v]) => [k, v.absErr])), crps: crpsVals },
-    _predictions: predictionRows
+    _predictions: predictionRows,
+    _decision_rows: decisionRows
   };
 }

@@ -11,7 +11,8 @@
  *
  * Each simulated week:
  *   1. draw correlated weekly scores for every rostered player (copula over the
- *      projection model's distributions, matchup-adjusted for that week's opponent)
+ *      projection model's distributions, times that week's game script and
+ *      matchups.js#gameMultiplier, which is 1 while matchups carry no validated signal)
  *   2. set each fantasy team's optimal lineup from what it drew
  *   3. resolve that week's head-to-head fixtures
  * then seed the bracket on record and points, and play it out.
@@ -20,7 +21,7 @@ import { rows } from '../db/index.js';
 import { PPR } from './scoring.js';
 import { buildProjections, sampleWeeks } from './projections.js';
 import { correlatedSampler } from './correlation.js';
-import { dvpFor, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
+import { gameMultiplier, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 import { deriveFormat } from './format.js';
 import { gameScriptFor } from './gamescript.js';
 import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
@@ -37,6 +38,19 @@ const FLEX_ELIGIBLE = {
 // is the resolution of every marginal distribution in the simulation.
 const POOL = 600;
 
+/*
+ * Wilson interval on hits/runs. Read it as RUN-TO-RUN Monte Carlo error ONLY.
+ *
+ * It treats the runs as independent draws from the model, but every run indexes
+ * the same fixed POOL-sized outcome pool per player-week and the same Cholesky
+ * factor. The pools' own sampling error is therefore a bias shared by every run —
+ * at 600 draws a WR1's p90 has sd ~1.5-1.7 and his mean sd ~0.6 across pool
+ * regenerations — and it does not shrink as runs grows. So the stated interval is
+ * narrower than the real uncertainty in the odds, and re-running the same league
+ * with a different seed can move the point estimate by more than the interval.
+ * To report the full error, regenerate the pools per batch and pool the variance
+ * across regenerations. The payload says which interval this is.
+ */
 const binomial95 = (hits, n) => {
   if (!n) return [null, null];
   const z = 1.96, p = hits / n, den = 1 + z * z / n;
@@ -201,8 +215,10 @@ export function simulateSeason(lg, {
       const nflWeek = nflSchedule.get(p.team_abbr)?.find(g => g.week === week);
       // On bye, or no NFL game that week, the player scores nothing.
       if (!pr || !nflWeek) { entries.push({ p, samples: null, meta: null }); continue; }
-      const d = dvpFor(nflWeek.opponent_abbr, p.position);
-      const base = d.mult * (nflWeek.home ? 1.02 : 0.98);
+      // matchups.js's one matchup multiplier: exactly 1 in its tested state (no home/away
+      // or defense-vs-position arm beat no adjustment, MATCHUP_EVIDENCE). This used to
+      // hard-code `dvpFor(...).mult * (home ? 1.02 : 0.98)`, a tilt matchups.js retired.
+      const base = gameMultiplier(nflWeek.opponent_abbr, nflWeek.home, p.position);
       // Matchup difficulty and game script are independent effects on the same volume:
       // who you play, and how the game is expected to unfold.
       const gs = gameScriptFor(p.team_abbr, SEASON, week);
@@ -331,6 +347,7 @@ export function simulateSeason(lg, {
   return {
     runs, weeks: weeks.length, from_week: fromWeek, playoff_teams: playoffTeams,
     standings_carried_in: fromWeek > 1,
+    odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
     teams: out
   };
 }

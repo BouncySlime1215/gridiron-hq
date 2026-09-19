@@ -69,7 +69,7 @@ import os from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 
 const REAL_DB_PATH = process.env.GRIDIRON_REAL_DB_PATH
-  || '/Users/nick_matta/Claude/Artifacts/fantasy-football-dashboard/server/data.sqlite';
+  || new URL('../server/data.sqlite', import.meta.url).pathname;
 
 const targetPath = process.env.GRIDIRON_DB_PATH
   || path.join(os.tmpdir(), `gridiron-trial-registry-${Date.now()}.sqlite`);

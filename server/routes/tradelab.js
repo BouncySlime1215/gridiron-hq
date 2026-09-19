@@ -1,15 +1,10 @@
 import { Router } from 'express';
 import { rows, row, run } from '../db/index.js';
-import { callClaude, parseJson, getApiKey } from '../services/claude.js';
+import { assertLeagueMember } from '../platform/auth.js';
 import { vorBoard, volatility } from './edge.js';
 import { deriveFormat } from '../services/format.js';
 import { pickInventory } from '../services/picks.js';
 import { dynastyAgeAdjustment } from '../services/dynasty-age-curve.js';
-// Same evidence the trade engine attaches to every card (career record,
-// preseason band, offseason read) and the same "argue from the numbers"
-// rules the draft advisor runs on — the pitch cites seasons, not adjectives.
-import { playerEvidence } from '../services/trade-engine.js';
-import { evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
@@ -199,6 +194,10 @@ export function analyzeLeague(lg) {
 
 r.get('/:leagueId/analysis', (req, res) => {
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.leagueId);
+  // The only route in this file that names a league, and it looked one up by
+  // id alone — so it answered for any league in the database, not the
+  // caller's. Same membership rule the rest of the app uses.
+  if (lg) assertLeagueMember(req.auth?.userId, lg.id);
   if (!lg?.payload) return res.status(400).json({ error: 'league not synced yet' });
   const a = analyzeLeague(lg);
   if (!a.teams.some(t => t.players.length)) {
@@ -207,129 +206,32 @@ r.get('/:leagueId/analysis', (req, res) => {
   res.json({ league: { id: lg.id, name: lg.name, my_team_id: lg.my_team_id }, ...a });
 });
 
-/* -------------------------------------------------- trade matchmaking */
-/** Rank every rival by two-way fit: their surplus at my needs, and vice versa. */
-r.get('/:leagueId/partners', (req, res) => {
-  const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.leagueId);
-  if (!lg?.payload) return res.status(400).json({ error: 'league not synced yet' });
-  const { teams } = analyzeLeague(lg);
-  const meId = String(req.query.team_id ?? lg.my_team_id ?? teams[0]?.roster_id);
-  const me = teams.find(t => String(t.roster_id) === meId);
-  if (!me) return res.status(404).json({ error: 'your team not found in this league' });
-
-  const myNeeds = new Set(me.needs.map(n => n.position));
-  const mySurplus = Object.fromEntries(me.surplus.map(s => [s.position, s]));
-
-  const matches = [];
-  for (const other of teams) {
-    if (String(other.roster_id) === meId) continue;
-    const theirSurplus = Object.fromEntries(other.surplus.map(s => [s.position, s]));
-    const theirNeeds = new Set(other.needs.map(n => n.position));
-
-    const theySend = [...myNeeds].filter(p => theirSurplus[p]).map(p => theirSurplus[p]);
-    const iSend = [...theirNeeds].filter(p => mySurplus[p]).map(p => mySurplus[p]);
-    if (!theySend.length && !iSend.length) continue;
-
-    const twoWay = theySend.length > 0 && iSend.length > 0;
-    const fill = theySend.reduce((s, x) => s + x.value, 0);
-    const give = iSend.reduce((s, x) => s + x.value, 0);
-    let score = fill + give;
-    if (twoWay) score = Math.round(score * 1.5);   // mutual fit is worth a premium
-
-    matches.push({
-      roster_id: other.roster_id, owner: other.owner,
-      window: other.window, competitiveness: other.competitiveness, core_age: other.core_age,
-      two_way: twoWay,
-      they_send: theySend, i_send: iSend,
-      their_needs: other.needs.map(n => n.position),
-      their_surplus: other.surplus.map(s => s.position),
-      picks: other.picks, picks_value: other.picks_value,
-      market_capital: other.market_capital,
-      need_fill_value: Math.round(fill), score: Math.round(score)
-    });
-  }
-  matches.sort((a, b) => (b.two_way ? 1 : 0) - (a.two_way ? 1 : 0) || b.score - a.score);
-  res.json({
-    me: {
-      roster_id: me.roster_id, owner: me.owner, window: me.window,
-      needs: me.needs, surplus: me.surplus,
-      picks: me.picks, picks_value: me.picks_value, market_capital: me.market_capital
-    },
-    matches
-  });
+/* ----------------------------------------------- RETIRED: trade surfaces */
+/**
+ * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
+ *
+ * `/partners` matched rivals on needs-vs-surplus alone and `/pitch` wrote an AI
+ * offer ladder from the same read. Both were a second opinion on "who should I
+ * trade with and what do I send", with no counterparty read, no horizon
+ * weighting and no lineup solve, and neither had a client caller. Trade ideas
+ * have ONE source now: `trade-engine.js#tradeIdeas` behind
+ * GET /api/trades/:leagueId/find (partners, packages and the per-manager read in
+ * one answer) and GET /offer / /offer-many for a named target. The negotiation
+ * copy lives in POST /api/trades/:leagueId/explain, which prices the deal the
+ * engine actually scored.
+ *
+ * 410, not 404: the path existed and was deliberately removed, and a caller
+ * deserves to be told where it went.
+ */
+const retired = (use, why) => (_req, res) => res.status(410).json({
+  error: `This endpoint was retired on 2026-09-18. ${why}`, use,
 });
 
-/* -------------------------------------------- AI offer ladder + pitch */
-r.post('/:leagueId/pitch', async (req, res, next) => {
-  try {
-    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
-    const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.leagueId);
-    if (!lg?.payload) return res.status(400).json({ error: 'league not synced yet' });
-    const { teams } = analyzeLeague(lg);
-    const meId = String(req.body?.my_team_id ?? lg.my_team_id ?? teams[0]?.roster_id);
-    const me = teams.find(t => String(t.roster_id) === meId);
-    const them = teams.find(t => String(t.roster_id) === String(req.body?.target_id));
-    if (!me || !them) return res.status(400).json({ error: 'both teams required' });
+r.get('/:leagueId/partners', retired('/api/trades/:leagueId/find',
+  'Trade partners and the packages that work with them come from the one trade-idea entry point, which also prices how each manager reads the deal.'));
 
-    const fmt = t => SKILL.map(pos => {
-      const p = t.positions[pos];
-      return `${pos} (${p.status}, ${p.ratio}x league avg): ` +
-        [...p.starters, ...p.depth].slice(0, 5)
-          .map(x => `${x.name} [VOR ${x.vor}, price ${x.value}${x.age ? `, ${x.age}yo` : ''}]`).join(', ');
-    }).join('\n');
-    const fmtPicks = t => t.picks.length
-      ? t.picks.map(p => `${p.label}${p.from ? ` (via ${p.from})` : ''} [${p.value}]`).join(', ')
-      : 'none';
-
-    const taxi = JSON.parse(lg.payload).league?.settings?.taxi_slots ?? 0;
-
-    // One stat-rooted line per listed player (the same five per position the
-    // prompt shows), so the ladder can say "1,000+ rec yds in 3 straight
-    // seasons" instead of "a solid WR2". Empty on a league with no history.
-    const records = [me, them].flatMap(t => SKILL.flatMap(pos => {
-      const p = t.positions[pos];
-      return [...p.starters, ...p.depth].slice(0, 5);
-    })).map(x => {
-      let headline = null;
-      try { headline = evidenceHeadline({ ...x, ...playerEvidence(x.id) }); } catch { headline = null; }
-      return headline ? `- ${x.name}: ${headline}` : null;
-    }).filter(Boolean);
-
-    const msg = await callClaude({
-      feature: 'trade-pitch',
-      maxTokens: 1500,
-      prompt: `You are negotiating a fantasy football trade in a ${lg.team_count ?? 12}-team ${lg.league_type ?? 'redraft'} league.
-Each player carries two numbers: VOR (projected points above replacement — will he help me win) and price (FantasyCalc market trade value — what the market pays). Draft picks are priced in the same market units as "price".
-Taxi squad: ${taxi ? `${taxi} slots (rookies can be stashed off the active roster)` : 'NONE — every rookie occupies an active roster spot, so picks are worth slightly less here'}.
-
-MY TEAM (${me.owner}) — window: ${me.window.label}. ${me.window.stance}
-${fmt(me)}
-My needs: ${me.needs.map(n => `${n.position} (gap ${n.gap})`).join(', ') || 'none'}
-My surplus: ${me.surplus.map(s => s.position).join(', ') || 'none'}
-My draft picks: ${fmtPicks(me)}
-
-THEIR TEAM (${them.owner}) — window: ${them.window.label}. ${them.window.stance}
-${fmt(them)}
-Their needs: ${them.needs.map(n => `${n.position} (gap ${n.gap})`).join(', ') || 'none'}
-Their surplus: ${them.surplus.map(s => s.position).join(', ') || 'none'}
-Their draft picks: ${fmtPicks(them)}
-
-${records.length ? `RECORDS (real, multi-season — cite these numbers in every "why" and in the pitch, never an adjective in their place):\n${records.join('\n')}\n` : ''}
-Build a negotiation ladder that exploits the fit between our windows and positional needs. Only use players and picks actually listed above. Keep the deal roughly balanced on price or slightly in my favour, and make each rung something they would plausibly accept given their window. Draft picks are legitimate trade pieces — a rebuilder will usually prefer picks and youth, a contender proven production.
-
-${STAT_ROOTED_INSTRUCTIONS}
-
-Respond with ONLY JSON:
-{"anchor":{"i_give":["Player or pick"],"i_get":["Player or pick"],"why":"one sentence, leading with a concrete number from the records above"},
- "fair":{"i_give":["Player or pick"],"i_get":["Player or pick"],"why":"one sentence, leading with a concrete number from the records above"},
- "evidence":"one line: the 2-3 numbers from the records above that make this ladder work, comma-separated, no adjectives",
- "walk_away":"the line past which I should decline, one sentence",
- "pitch":"a short message I can paste to them — friendly, frames the deal around THEIR need, no fake urgency, 3-4 sentences",
- "read":"2-3 sentences on their likely counter and how to respond"}`
-    });
-    res.json(parseJson(msg));
-  } catch (e) { next(e); }
-});
+r.post('/:leagueId/pitch', retired('/api/trades/:leagueId/explain',
+  'The offer ladder is GET /api/trades/:leagueId/offer; the message to send is POST /api/trades/:leagueId/explain, which writes from the deal the engine scored.'));
 
 /* ------------------------------------- Sleeper trending adds/drops */
 

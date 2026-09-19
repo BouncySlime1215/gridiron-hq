@@ -42,6 +42,8 @@ import collections
 import json
 import math
 import sqlite3
+
+import injury_admission
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -101,10 +103,18 @@ def read_only_connection(db_path):
 
 
 def load_games(con, through_season=2025):
-    """Home-perspective game rows, in chronological order."""
+    """Home-perspective game rows, in chronological order.
+
+    `open_spread`/`open_total` alongside the closing `spread`/`total`: both
+    are legitimately pregame-known (the opener sets days before kickoff, the
+    closer settles before it), so unlike the outcome fields neither is an
+    information-boundary risk on its own. They stay gated behind
+    `include_labels` below anyway, matching where `spread`/`total` already
+    live -- one place market data is grouped, not a second ungated path in.
+    """
     return [dict(x) for x in con.execute(
-        '''SELECT season,week,team,opponent,spread,total,team_score,opp_score,gameday,
-                  rest_days,div_game,roof
+        '''SELECT season,week,team,opponent,spread,total,open_spread,open_total,
+                  team_score,opp_score,gameday,rest_days,div_game,roof
              FROM game_lines WHERE home=1 AND season<=? ORDER BY season,week''', (through_season,))]
 
 
@@ -279,7 +289,66 @@ def eligible_training_rows(rows, scored_rows, *, market=None, before_season=None
     return out
 
 
-def build_football_dataset(db_path, min_season=1999, through_season=2025, history_window=8):
+def football_feature_row(game, setup, cutoff, *, history_window=8, include_labels=False):
+    """One shared feature row for historical learning and upcoming-game scoring.
+
+    Caller supplies a retained/read-only setup and an explicit information
+    cutoff. Outcome fields are omitted for inference, including when a caller
+    happens to have a later final score in its input snapshot.
+    """
+    g = game
+    day = stamp(cutoff)
+    if day is None:
+        raise ValueError('feature cutoff is required')
+    history, pbp = setup['history'], setup['pbp']
+    rest = setup['rest_by_team_week']
+    home_hist = history_before(history, g['team'], day, limit=history_window)
+    away_hist = history_before(history, g['opponent'], day, limit=history_window)
+    home_pbp = features_before(pbp, g['team'], day)
+    away_pbp = features_before(pbp, g['opponent'], day)
+    row = {
+        'season': g['season'], 'week': g['week'], 'home': g['team'], 'away': g['opponent'],
+        'gameday': g['gameday'], 'decision_at': day.isoformat(),
+        'home_rest': rest.get((g['season'], g['week'], g['team'])),
+        'away_rest': rest.get((g['season'], g['week'], g['opponent'])),
+        'div_game': g.get('div_game'), 'roof': g.get('roof'),
+        'home_prior_games': [{'at': r[0].isoformat(), 'margin': r[1], 'total': r[2]} for r in home_hist],
+        'away_prior_games': [{'at': r[0].isoformat(), 'margin': r[1], 'total': r[2]} for r in away_hist],
+        'home_pbp_features': home_pbp, 'away_pbp_features': away_pbp,
+        'pbp_available': home_pbp is not None and away_pbp is not None,
+    }
+    # Absent unless the caller opted in, so the dataset every existing
+    # baseline was measured on is reproduced exactly.
+    if setup.get('availability'):
+        row.update(availability_features(
+            setup['availability'], season=g['season'], week=g['week'],
+            home=g['team'], away=g['opponent']))
+    # Same opt-in discipline as availability above: RECIPE_V3 (RUNBOOK
+    # Sec4.1, starting-QB-quality) only sees these keys when the caller
+    # passed `qb_quality_path=...`, so every existing baseline -- including
+    # ones already measured with `availability_path` but not this -- still
+    # reproduces byte for byte with no path given.
+    if setup.get('qb_quality'):
+        row.update(qb_quality_features(
+            setup['qb_quality'], season=g['season'], week=g['week'],
+            home=g['team'], away=g['opponent']))
+    if include_labels:
+        open_spread = g.get('open_spread')
+        row.update(actual_margin=g['team_score'] - g['opp_score'],
+                   actual_total=g['team_score'] + g['opp_score'],
+                   market_spread=g.get('spread'), market_total=g.get('total'),
+                   open_spread=open_spread, open_total=g.get('open_total'),
+                   # Positive means the closing line moved toward the home
+                   # team relative to the opener (spread more negative =
+                   # bigger home favorite); None when either side is missing,
+                   # never a fabricated zero.
+                   market_movement=(-(g['spread'] - open_spread))
+                       if g.get('spread') is not None and open_spread is not None else None)
+    return row
+
+
+def build_football_dataset(db_path, min_season=1999, through_season=2025, history_window=8,
+                           availability_path=None, qb_quality_path=None):
     """Broad, price-agnostic dataset spanning every season with a final score.
 
     Stage 2 of the Codex plan: `market_lab.py`/`tree_lab.py` both hard-require
@@ -302,7 +371,8 @@ def build_football_dataset(db_path, min_season=1999, through_season=2025, histor
     before this game's own kickoff may appear on it -- `history_before` and
     `features_before` already enforce that "strictly before" boundary.
     """
-    setup = shared_setup(db_path, through_season)
+    setup = shared_setup(db_path, through_season, availability_path=availability_path,
+                         qb_quality_path=qb_quality_path)
     history, pbp = setup['history'], setup['pbp']
     rest, game_map = setup['rest_by_team_week'], setup['game_map']
     out = []
@@ -312,28 +382,13 @@ def build_football_dataset(db_path, min_season=1999, through_season=2025, histor
         day = stamp(g['gameday'])
         if day is None or g['team_score'] is None or g['opp_score'] is None:
             continue  # already quarantined by build_chronology inside shared_setup
-        home_hist = history_before(history, g['team'], day, limit=history_window)
-        away_hist = history_before(history, g['opponent'], day, limit=history_window)
-        home_pbp = features_before(pbp, g['team'], day)
-        away_pbp = features_before(pbp, g['opponent'], day)
-        out.append({
-            'season': g['season'], 'week': g['week'], 'home': g['team'], 'away': g['opponent'],
-            'gameday': g['gameday'], 'decision_at': day.isoformat(),
-            'actual_margin': g['team_score'] - g['opp_score'],
-            'actual_total': g['team_score'] + g['opp_score'],
-            'market_spread': g.get('spread'), 'market_total': g.get('total'),
-            'home_rest': rest.get((g['season'], g['week'], g['team'])),
-            'away_rest': rest.get((g['season'], g['week'], g['opponent'])),
-            'div_game': g.get('div_game'), 'roof': g.get('roof'),
-            'home_prior_games': [{'at': r[0].isoformat(), 'margin': r[1], 'total': r[2]} for r in home_hist],
-            'away_prior_games': [{'at': r[0].isoformat(), 'margin': r[1], 'total': r[2]} for r in away_hist],
-            'home_pbp_features': home_pbp, 'away_pbp_features': away_pbp,
-            'pbp_available': home_pbp is not None and away_pbp is not None,
-        })
+        out.append(football_feature_row(g, setup, day, history_window=history_window, include_labels=True))
     out.sort(key=lambda r: (r['season'], r['week'], r['home']))
     return {
         'dataset_version': DATASET_VERSION + '-football',
         'min_season': min_season, 'through_season': through_season,
+        'availability': {k: v for k, v in (setup['availability'] or {}).items() if k != 'index'} or None,
+        'qb_quality': {k: v for k, v in (setup['qb_quality'] or {}).items() if k != 'index'} or None,
         'rows': out,
         'quarantine': setup['quarantine'],
     }
@@ -453,11 +508,108 @@ def build_betting_dataset(db_path, min_season=2022, through_season=2025):
     }
 
 
-def shared_setup(db_path, through_season=2025):
+def load_availability(path):
+    """Per-game weighted injury deficits exported by the JS module that owns them.
+
+    The player-specific weighting -- each absence costing the snap share that
+    player was actually taking, times a positional replacement weight, times a
+    report-status factor -- lives in `server/services/nfl-availability.js` and
+    is NOT reimplemented here. `scripts/export-availability-features.mjs`
+    computes it at each game's own cutoff and writes the JSON this reads, so
+    there is one copy of those weights rather than a Python second opinion
+    that can drift from the one the production ensemble uses.
+
+    Measured coverage on the current database: 1,083 of 7,548 games (14.4%).
+    Injury rows exist only from 2021, and 2025/2026 rows carry no
+    modification time at all, so they are inadmissible for historical use.
+    """
+    with open(path) as handle:
+        payload = json.load(handle)
+    index = {}
+    for record in payload['records']:
+        index[(record['season'], record['week'],
+               injury_admission.canonical_team(record['home']),
+               injury_admission.canonical_team(record['away']))] = record
+    return {'schema': payload['schema'], 'source': payload['source'],
+            'games_with_evidence': payload['games_with_evidence'],
+            'games': payload['games'], 'index': index}
+
+
+def availability_features(availability, *, season, week, home, away):
+    """Weighted deficits for one game, or explicit absence of evidence.
+
+    `None`, never zero, when there is no admissible evidence: zero is the
+    claim "everyone who matters is playing", and this data cannot make that
+    claim on a game it has no report for.
+    """
+    empty = {'home_availability_deficit': None, 'away_availability_deficit': None,
+             'availability_evidence': False}
+    if not availability:
+        return empty
+    record = availability['index'].get(
+        (season, week, injury_admission.canonical_team(home), injury_admission.canonical_team(away)))
+    if not record or not record.get('evidence'):
+        return empty
+    return {'home_availability_deficit': record['home_deficit'],
+            'away_availability_deficit': record['away_deficit'],
+            'availability_evidence': True}
+
+
+def load_qb_quality(path):
+    """Per-game starting-QB-quality signal exported by the JS module that owns it.
+
+    RUNBOOK Sec4.1 (the next signal after injuries/availability measured no
+    difference): the current week's starting quarterback -- identified from
+    the public depth chart, which is legitimately known pregame -- matched by
+    name into his own prior-weeks QBR history. That identification and
+    matching lives in `server/services/nfl-qb-quality.js` and is NOT
+    reimplemented here, for the same reason `load_availability` above does
+    not reimplement the injury weighting: one copy of the matching logic,
+    not a Python second opinion that can drift from it.
+    `scripts/export-qb-quality-features.mjs` computes it at each game's own
+    (season, week) and writes the JSON this reads.
+    """
+    with open(path) as handle:
+        payload = json.load(handle)
+    index = {}
+    for record in payload['records']:
+        index[(record['season'], record['week'],
+               injury_admission.canonical_team(record['home']),
+               injury_admission.canonical_team(record['away']))] = record
+    return {'schema': payload['schema'], 'source': payload['source'],
+            'games_with_evidence': payload['games_with_evidence'],
+            'games': payload['games'], 'index': index}
+
+
+def qb_quality_features(qbq, *, season, week, home, away):
+    """Starting-QB-quality signal for one game, or explicit absence of evidence.
+
+    `None`, never a fabricated league-average QBR, when either side has no
+    identified starter or no admissible prior QBR history (a true rookie, or
+    anyone whose first career start is this game) -- mirrors
+    `availability_features`'s own never-zero-for-missing-evidence discipline.
+    """
+    empty = {'home_qb_qbr': None, 'away_qb_qbr': None, 'qb_quality_evidence': False}
+    if not qbq:
+        return empty
+    record = qbq['index'].get(
+        (season, week, injury_admission.canonical_team(home), injury_admission.canonical_team(away)))
+    if not record or not record.get('evidence'):
+        return empty
+    return {'home_qb_qbr': record['home_qb_qbr'],
+            'away_qb_qbr': record['away_qb_qbr'],
+            'qb_quality_evidence': True}
+
+
+def shared_setup(db_path, through_season=2025, availability_path=None, qb_quality_path=None):
     """Everything both labs build before they diverge.
 
     This is literally the block `tree_lab.build_dataset` marks with
     "everything above this line mirrors market_lab.build_dataset's setup".
+
+    `availability_path` and `qb_quality_path` are both opt-in and default off
+    so that the dataset the existing baselines were measured on is reproduced
+    byte for byte.
     """
     con = read_only_connection(db_path)
     quarantine = {'games_excluded': [], 'team_week_features_excluded': []}
@@ -468,9 +620,13 @@ def shared_setup(db_path, through_season=2025):
         pbp = load_team_week_features(con, week_end, through_season, quarantine=quarantine)
     finally:
         con.close()
+    # Read from the exported JSON, not the database: the weighting/matching
+    # that produced each lives in the JS module that owns it.
+    availability = load_availability(availability_path) if availability_path else None
+    qb_quality = load_qb_quality(qb_quality_path) if qb_quality_path else None
     return {
         'dataset_version': DATASET_VERSION,
-        'games': games, 'rest_by_team_week': rest,
+        'games': games, 'rest_by_team_week': rest, 'availability': availability, 'qb_quality': qb_quality,
         'history': history, 'week_end': week_end, 'game_map': game_map, 'pbp': pbp,
         'result_publication_lag_days': RESULT_PUBLICATION_LAG.days,
         'settled_label_lag_days': SETTLED_LABEL_LAG.days,

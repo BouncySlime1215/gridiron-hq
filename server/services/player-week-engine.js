@@ -11,9 +11,11 @@ import {
   buildProjections, sampleAllocatedWeekEvents, sampleWeekEvents, sampleWeeks, SEASON_WEIGHT
 } from './projections.js';
 import { PPR, scoreLine } from './scoring.js';
+import { redistribute } from './opportunity-redistribution.js';
+import { weeklyAvailability } from './contingency.js';
 import {
   WEEKLY_ROLE_RECENCY,
-  weeklyEnsembleContext, weeklyEnsemblePrediction
+  weeklyEnsembleContext, weeklyEnsemblePrediction, weeklyEnsembleMode, weeklyEnsembleWeightsFor
 } from './weekly-ensemble.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
 import { roleChangepoints } from './role-changepoint.js';
@@ -120,6 +122,22 @@ export function playerPropEligibility(engine, projection) {
   };
 }
 
+/**
+ * Each player's in-season weekly scores before `week`, oldest first.
+ *
+ * Returns `{ scores, source }`. `source` is 'prior_season' when the in-season query
+ * found nothing and the cross-season fallback below ran. That case matters
+ * downstream: the fallback yields a ONE-element array, so season_to_date, last3,
+ * last1 and median all collapse to the same number and 0.80 of the ensemble weight
+ * lands on it. The weights were fit and graded only on weeks 5-18 with genuine
+ * in-season history (weekly-backtest skips rows without it), so this regime was
+ * never seen by the fit. Weeks 2-4 were checked and are benign: replaying weeks
+ * 2-4 with the promoted weights and grading only rows with exactly ONE prior
+ * in-season week, the ensemble still beats season_to_date — 2023 5.368 vs 5.623
+ * (n=373), 2024 4.470 vs 4.668 (n=379), 2025 4.740 vs 5.034 (n=391). Week 1 itself,
+ * where this fallback fires, is ungraded: the harness cannot reach it. The flag
+ * lets the engine record it rather than label it an ordinary ensemble prediction.
+ */
 function priorScores(season, week, scoring) {
   const out = new Map();
   for (const row of rows(`SELECT * FROM player_week_usage
@@ -152,24 +170,109 @@ function priorScores(season, week, scoring) {
     for (const [playerId, acc] of weighted) {
       if (acc.weight > 0) out.set(playerId, [acc.sum / acc.weight]);
     }
+    return { scores: out, source: 'prior_season' };
   }
-  return out;
+  return { scores: out, source: 'in_season' };
 }
 
-export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, useCache = true } = {}) {
+
+/**
+ * Re-price every team's projections for who is actually available this week.
+ *
+ * Volume moves first (measured absorption, team total conserved), then points
+ * follow volume through the player's own efficiency rates — a receiver who
+ * gains four targets gains four targets' worth of catches, yards and
+ * touchdowns at HIS rates, not at a league average. Efficiency itself is left
+ * alone: there is no evidence that a player becomes more efficient because a
+ * teammate sat, and assuming so would double-count the effect.
+ */
+function applyRedistribution(out, season, week, scoring) {
+  const availability = weeklyAvailability(season, week, { through: season - 1 });
+  const byTeam = new Map();
+  for (const [playerId, projection] of out) {
+    if (!projection?.team || !projection.params) continue;
+    (byTeam.get(projection.team) ?? byTeam.set(projection.team, []).get(projection.team)).push(projection);
+  }
+
+  for (const [, roster] of byTeam) {
+    // Only carries and targets. Passing attempts are NOT a pool that gets
+    // shared: when a starting quarterback sits, the backup inherits the job
+    // outright, and every quarterback's projection is already built as though
+    // he were the starter. Treating attempts as divisible turned a backup's
+    // notional 30 attempts into 30 EXTRA attempts for the starter and put
+    // Lamar Jackson at 103 points a game.
+    for (const channel of ['carries', 'targets']) {
+      const players = roster
+        .filter(p => p.position !== 'QB')
+        .map(p => ({
+          player_id: p.player_id, pos: p.position,
+          volume: p.params?.[channel] ?? 0,
+          active: isActive(availability, p),
+        }))
+        .filter(p => p.volume > 0);
+      // Redistribute only from someone who was actually going to carry volume.
+      // A deep backup projected for half a carry vacates nothing, and treating
+      // every such player as an absence would churn the whole roster.
+      const vacating = players.filter(p => !p.active && p.volume >= 2);
+      if (!vacating.length) continue;
+      for (const p of players) if (!p.active && p.volume < 2) p.active = true;
+      const adjusted = redistribute(players);
+      for (const p of roster) {
+        const next = adjusted.get(p.player_id);
+        if (next == null) continue;
+        const prev = p.params[channel] ?? 0;
+        if (Math.abs(next - prev) < 1e-9) continue;
+        p.params = { ...p.params, [channel]: next };
+        p.redistribution = { ...(p.redistribution ?? {}), [channel]: { from: +prev.toFixed(2), to: +next.toFixed(2) } };
+      }
+    }
+  }
+
+  // Re-derive points from the adjusted volume, for everyone who moved.
+  for (const [playerId, projection] of out) {
+    if (!projection.redistribution) continue;
+    const ev = playerWeekEventExpectation(projection, { scoring });
+    const pts = ev?.structural_fantasy_points;
+    if (!Number.isFinite(pts)) continue;
+    out.set(playerId, { ...projection, ppg: +pts.toFixed(2), ppg_before_redistribution: projection.ppg });
+  }
+}
+
+/**
+ * Whose volume is actually up for grabs.
+ *
+ * Requires an EXPLICIT report of out/doubtful/IR. A low durability prior is not
+ * an absence — it is a player who has missed games before, and treating that as
+ * "out this week" marked almost every player on every roster as vacating and
+ * made the redistribution meaningless. The probability itself still multiplies
+ * through elsewhere; this decides only who is being replaced.
+ */
+function isActive(availability, projection) {
+  const a = availability.get(projection.player_id);
+  if (!a?.report_status) return true;
+  return !/out|reserve|\bir\b|pup|suspend|doubtful/i.test(String(a.report_status));
+}
+
+export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, useCache = true,
+  // OFF BY DEFAULT — measured, not assumed. See opportunity-redistribution.js
+  // for the three variants tried and the numbers. Every one made the projection
+  // worse on exactly the player-weeks it was built to fix. Kept behind the flag
+  // because the measurement harness is reusable and the idea may yet work with
+  // a better absorber model; shipped off because the evidence says off.
+  redistributeVolume = false } = {}) {
   if (!Number.isInteger(season) || !Number.isInteger(week) || week < 1 || week > 22) {
     throw new Error('player-week engine requires an integer season and week');
   }
   const weightChampion = activeWeeklyWeightSet({ season, week });
   const cacheKey = JSON.stringify({ season, week, scoring, kOverride: kOverride ?? 'active',
-    version: PLAYER_WEEK_ENGINE_VERSION, weightFit: weightChampion.id });
+    version: PLAYER_WEEK_ENGINE_VERSION, weightFit: weightChampion.id, redistributeVolume });
   if (useCache && engineCache.has(cacheKey)) return engineCache.get(cacheKey);
 
   const structural = buildProjections({
     through: season, throughWeek: week - 1, scoring, kOverride,
     roleRecency: WEEKLY_ROLE_RECENCY
   });
-  const history = priorScores(season, week, scoring);
+  const { scores: history, source: historySource } = priorScores(season, week, scoring);
   const roleChanges = roleChangepoints(season, week);
   const out = new Map();
   for (const [playerId, projection] of structural) {
@@ -179,16 +282,24 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
       priorWeeks,
       position: projection.position
     });
-    const weights = weightChampion.weights[projection.position];
+    // The vector that actually produced `ppg`: in weeks 2-4 a player with 1-3 games is
+    // priced on his early bucket, not the position's weeks 5-18 vector, and the audit
+    // record (and explainPlayerWeek's weights) must say so.
+    const weights = context ? weeklyEnsembleWeightsFor(context, weightChampion.weights) : null;
     const ppg = context ? weeklyEnsemblePrediction(context, weightChampion.weights) : projection.ppg;
     const engine = {
       version: PLAYER_WEEK_ENGINE_VERSION,
       gridiron_engine_version: nflEngineVersionFor(season, week),
       season, week,
       cutoff: `${season}-W${Math.max(0, week - 1)}`,
-      mode: context ? 'position_ensemble' : 'structural_only_no_current_season_history',
+      // From what actually ran, not from `context != null`, which used to report
+      // 'position_ensemble' even when the position had no weight vector and the
+      // structural head was returned instead.
+      mode: context && historySource === 'prior_season'
+        ? 'cold_start_prior_season'
+        : weeklyEnsembleMode(context, weightChampion.weights),
       heads: context,
-      weights: context ? weights : null,
+      weights,
       weight_fit: weightChampion.id,
       weight_source: weightChampion.source,
       role_change: roleChanges.get(playerId) ?? null
@@ -260,6 +371,15 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
         ensemble_shift: ppg - projection.ppg, player_week_engine: engine })
     });
   }
+  // OPPORTUNITY REDISTRIBUTION. Until now a projection was built from a player's
+  // own history alone, so when a teammate was ruled out nothing moved: a
+  // receiver about to absorb eight extra targets was projected as if it were an
+  // ordinary week. The absorption shares are measured over 2021-2025 single-
+  // absence team-weeks (RB1 out -> RB2 takes 40% of the carries; QB1 out -> QB2
+  // takes 52% of the attempts) and the redistribution conserves the team total,
+  // so nothing is created — one player's loss is another's gain.
+  if (redistributeVolume) applyRedistribution(out, season, week, scoring);
+
   // The truth ledger is part of the shared engine so fantasy and betting inspect
   // the same evidence state. Context-specific consumers may enrich it with
   // opponent, market and weather data, but they cannot replace this foundation.
@@ -610,11 +730,20 @@ export function explainPlayerWeek(projection) {
   const changeText = change
     ? ` A ${change.status.replaceAll('_', ' ')} is confirmed: opportunities moved from ${change.prior_opportunities.toFixed(1)} to ${change.recent_opportunities.toFixed(1)} and snap share moved ${change.snap_change_points > 0 ? '+' : ''}${change.snap_change_points.toFixed(1)} points.`
     : '';
+  // Name the weight set and the blend that actually produced this number. It used to
+  // say "the frozen ensemble" whichever fitted set served, and the Coach cites this
+  // block as grounded evidence (review-fixes-2, finding 8).
+  const modeText = /^early_week_bucket_(\d)/.test(engine.mode ?? '')
+    ? `, early-week bucket ${engine.mode.match(/^early_week_bucket_(\d)/)[1]}`
+    : engine.mode === 'cold_start_prior_season' ? ', prior-season start' : '';
   return {
     source: 'deterministic_model_evidence',
     cutoff: engine.cutoff,
+    weight_fit: engine.weight_fit,
+    mode: engine.mode,
     summary: `The structural model projects ${projection.structural_ppg.toFixed(1)} points. ` +
-      `The frozen ${projection.position} ensemble ${direction} to ${projection.ppg.toFixed(1)}, using only games completed through ${engine.cutoff}. ` +
+      `The ${projection.position} ensemble (weight set ${engine.weight_fit}${modeText}) ${direction} to ${projection.ppg.toFixed(1)}, ` +
+      `using only games completed through ${engine.cutoff}. ` +
       `Season average is ${heads.season_to_date.toFixed(1)}, median ${heads.median.toFixed(1)}, and last game ${heads.last1.toFixed(1)}.` + changeText,
     claims: [
       { id: 'structural_ppg', value: projection.structural_ppg, unit: 'fantasy_points' },
@@ -631,7 +760,27 @@ export function explainPlayerWeek(projection) {
   };
 }
 
-/** Distribution centered on the shared engine's ensemble point estimate. */
+/**
+ * Distribution centered on the shared engine's ensemble point estimate.
+ *
+ * A week he does not play scores 0. The played weeks are sampled with the player
+ * active, moved by the ensemble shift (blend minus structural) and clamped at 0;
+ * then exactly round((1 - P(play)) x runs) weeks are zeros.
+ *
+ * FIXED 2026-09-18 (fake floors). This used to call sampleWeeks with the active
+ * probability, which returns 0 for a did-not-play draw, and then add the shift to
+ * EVERY draw, so a DNP week scored `shift`. With P(play) < 0.9 and a positive
+ * shift, over 10% of draws sat at exactly the shift and every played draw sat
+ * above it, so the printed floor (p10) was the shift itself: live at 2026 week 2
+ * (league 1 assets), 99 of the 99 players projected over 5 with a positive shift
+ * (Caleb Williams: floor 13.9 at P(play) 0.76; 482 of the 485 projected over 5 carry
+ * P(play) < 0.9). The mean was inflated by (1 - P(play)) x shift.
+ *
+ * Shipped at 947d66c; trade-engine.js#lineupSpread treats a sitting week the same way,
+ * so the per-player floor and the lineup floor agree. The gate record (G1 failed at
+ * 200 draws for reasons unrelated to this function, G2 and D1 passed) and the human
+ * sign-off it still needs are in docs/tdd/fake-floors.tdd.md.
+ */
 export function playerWeekDistribution(projection, {
   runs = 2000, scoring = PPR, mult = 1, activeProbability = 1, useCache = true
 } = {}) {
@@ -645,9 +794,14 @@ export function playerWeekDistribution(projection, {
   const shift = projection.ensemble_shift ?? 0;
   let seed = 2166136261;
   for (let i = 0; i < cacheKey.length; i++) seed = Math.imul(seed ^ cacheKey.charCodeAt(i), 16777619);
+  // NaN plays, as it did in the old sampler's `random() > p` test; out of range clamps.
+  const pPlay = Number(activeProbability);
+  const playShare = Number.isNaN(pPlay) ? 1 : Math.min(1, Math.max(0, pPlay));
+  const dnpWeeks = Math.round((1 - playShare) * runs);
   const samples = withRandomSeed(seed >>> 0, () =>
-    sampleWeeks(projection.params, runs, scoring, mult, activeProbability)
-      .map(value => Math.max(0, value + shift)));
+    sampleWeeks(projection.params, runs - dnpWeeks, scoring, mult, 1)
+      .map(value => Math.max(0, value + shift)))
+    .concat(new Array(dnpWeeks).fill(0));
   const pct = percentiles(samples, [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]);
   const mean = samples.reduce((sum, value) => sum + value, 0) / Math.max(1, samples.length);
   const boom = ({ QB: 24, RB: 18, WR: 18, TE: 14 })[projection.position] ?? 18;

@@ -128,7 +128,7 @@ export async function syncPublicRookieEvidence({ fromSeason = 2000,
 export function syncVerifiedPreseasonRookieRoles(season) {
   const signals = rows(`SELECT s.news_id,s.player_id,s.player_name,s.role_delta,s.confidence,
       s.published_at,s.source,s.source_url,e.player_id rookie_id,e.position,e.college
-    FROM nfl_news_signals s JOIN nfl_rookie_evidence e
+    FROM nfl_news_signals_current s JOIN nfl_rookie_evidence e
       ON CAST(e.player_id AS TEXT)=s.player_id AND e.season=? AND e.evidence_type='draft'
     WHERE s.signal_type='role' AND s.verification_state='verified'
       AND s.published_at>=? AND s.published_at<?

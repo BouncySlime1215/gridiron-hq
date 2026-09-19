@@ -16,7 +16,7 @@ const ROLE_RECENCY = WEEKLY_ROLE_RECENCY;
 const HEADS = ['structural', 'season_to_date', 'last3', 'last1', 'median'];
 const common = {
   startWeek: 5, endWeek: 18, distributions: false,
-  kOverride: activeKVector(), roleRecency: ROLE_RECENCY
+  kOverride: undefined /* cutoff-safe default: shrinkage-fit.js cutoffSafeKVector */, roleRecency: ROLE_RECENCY
 };
 const replay = (season, extra = {}) => replaySeasonWeekly(season, { ...common, ...extra });
 const mae = (data, predictor) => data.reduce((sum, row) => sum + Math.abs(predictor(row) - row.actual), 0) / data.length;

@@ -1,0 +1,19 @@
+{
+  "_note": "Hand labels written BEFORE the Jev run, by reading each rendered state. 1=yes 0=no. soundness on 0..4 = fatally flawed / serious gaps / adequate / rigorous / exemplary. Definitions used: has_placebo = a shuffled/randomised/null-signal control was actually run; is_price_aware = a real posted price (or real crossable bid/ask plus fee) entered the arithmetic; game_clustered = the reported uncertainty treats one game as one observation; has_baseline_control = a condition with a known-in-advance value (bet-everything returning the vig, an expected-under-null count, a random-book benchmark, a placebo null) is reported and used as a sanity check; multiplicity_corrected = the number of comparisons is stated and a correction or corrected threshold is applied.",
+  "labels": {
+    "R01": {"has_placebo": 0, "is_price_aware": 0, "game_clustered": 0, "has_baseline_control": 0, "multiplicity_corrected": 1, "soundness": 1},
+    "R05": {"has_placebo": 0, "is_price_aware": 0, "game_clustered": 1, "has_baseline_control": 0, "multiplicity_corrected": 0, "soundness": 2},
+    "R06": {"has_placebo": 0, "is_price_aware": 0, "game_clustered": 1, "has_baseline_control": 0, "multiplicity_corrected": 0, "soundness": 2},
+    "R11": {"has_placebo": 1, "is_price_aware": 0, "game_clustered": 1, "has_baseline_control": 0, "multiplicity_corrected": 0, "soundness": 2},
+    "R13": {"has_placebo": 0, "is_price_aware": 1, "game_clustered": 0, "has_baseline_control": 1, "multiplicity_corrected": 0, "soundness": 3},
+    "R16": {"has_placebo": 0, "is_price_aware": 1, "game_clustered": 1, "has_baseline_control": 1, "multiplicity_corrected": 0, "soundness": 3},
+    "R17": {"has_placebo": 0, "is_price_aware": 1, "game_clustered": 1, "has_baseline_control": 1, "multiplicity_corrected": 0, "soundness": 3},
+    "R20": {"has_placebo": 0, "is_price_aware": 0, "game_clustered": 1, "has_baseline_control": 1, "multiplicity_corrected": 1, "soundness": 3},
+    "R22": {"has_placebo": 0, "is_price_aware": 1, "game_clustered": 0, "has_baseline_control": 1, "multiplicity_corrected": 1, "soundness": 4},
+    "R23a": {"has_placebo": 0, "is_price_aware": 0, "game_clustered": 0, "has_baseline_control": 0, "multiplicity_corrected": 0, "soundness": 1},
+    "R23b": {"has_placebo": 1, "is_price_aware": 1, "game_clustered": 1, "has_baseline_control": 1, "multiplicity_corrected": 1, "soundness": 4},
+    "R25": {"has_placebo": 0, "is_price_aware": 0, "game_clustered": 1, "has_baseline_control": 1, "multiplicity_corrected": 1, "soundness": 4},
+    "R30": {"has_placebo": 0, "is_price_aware": 0, "game_clustered": 0, "has_baseline_control": 0, "multiplicity_corrected": 0, "soundness": 0},
+    "R34": {"has_placebo": 1, "is_price_aware": 0, "game_clustered": 0, "has_baseline_control": 1, "multiplicity_corrected": 0, "soundness": 2}
+  }
+}

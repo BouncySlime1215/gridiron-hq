@@ -50,6 +50,16 @@ test('a tunnelled request is NOT loopback even though the socket is 127.0.0.1', 
   assert.equal((await fetch(`${base}/auth/pairing-info`, { headers: { ...viaTunnel, Authorization: `Bearer ${ownerToken}` } })).status, 403);
 });
 
+test('a request carrying a Fly-proxy header is NOT loopback either, even from 127.0.0.1', async () => {
+  // Defensive: this app has no way to confirm from inside itself which Fly
+  // architecture provisions it, so any of fly-proxy's own headers is treated
+  // as proof the request was routed rather than genuinely local.
+  const viaFly = { 'Fly-Client-IP': '203.0.113.9', 'Fly-Region': 'iad' };
+  const res = await fetch(`${base}/auth/local-session`, { method: 'POST', headers: viaFly });
+  assert.equal(res.status, 403);
+  assert.equal((await res.json()).pairing, true);
+});
+
 test('minting a code needs a signed-in local browser', async () => {
   assert.equal((await fetch(`${base}/auth/pairing-code`, { method: 'POST' })).status, 401);
 });

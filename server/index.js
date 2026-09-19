@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
+import { startLoopWatchdog, watchdogArmingMiddleware } from './platform/loop-watchdog.js';
+import { healthHandler } from './platform/health.js';
 
 const PORT = Number(process.env.API_PORT) || 5177;
 try {
@@ -37,6 +39,7 @@ const { default: edgeRouter } = await import('./routes/edge.js');
 const { default: tradelabRouter } = await import('./routes/tradelab.js');
 const { default: tradesRouter } = await import('./routes/trades.js');
 const { default: espnConnectRouter } = await import('./routes/espn-connect.js');
+const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
 const { default: propsRouter } = await import('./routes/props.js');
 const { default: propsTicketsRouter } = await import('./routes/props-tickets.js');
@@ -47,12 +50,17 @@ const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
 const { default: wongRouter } = await import('./routes/wong.js');
 const { default: localAuthRouter } = await import('./routes/local-auth.js');
+const { default: googleAuthRouter } = await import('./routes/google-auth.js');
 const { default: draftCaptureRouter, serveCaptureScript } = await import('./routes/draft-capture.js');
 const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 
 const app = express();
+// First, so that ANY completed response arms the watchdog -- including a 404
+// or a 401. The question it answers is "has this process ever served an HTTP
+// response", not "has it served a useful one". See platform/loop-watchdog.js.
+app.use(watchdogArmingMiddleware);
 app.use(express.json());
 
 seedIfEmpty();
@@ -75,9 +83,17 @@ startDraftClockJob();
 // (draft-ingest.js) for why.
 startDraftFinalizeJob();
 
+app.get('/api/health', healthHandler());
+
 // Public only on the loopback interface. It removes the fresh-install token
 // paste step while all protected route families remain bearer-authenticated.
 app.use('/api/auth', localAuthRouter);
+// Google sign-in, for the hosted deployment where loopback provisioning can
+// never apply. Mounted alongside rather than instead of the router above:
+// the Mac install keeps working exactly as it does today, and a session
+// established either way is the same `auth_sessions` row underneath.
+app.use('/api/auth', googleAuthRouter);
+
 app.use('/api/teams', ...legacyAuthenticated, teamsRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);
 app.use('/api/rankings', ...legacyAuthenticated, rankingsRouter);
@@ -101,16 +117,22 @@ app.use('/api/edge', ...legacyAuthenticated, edgeRouter);
 app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
 app.use('/api/espn-connect', espnConnectRouter);
-app.use('/api/model', modelRouter);
+app.use('/api/league-chat', ...legacyAuthenticated, leagueChatRouter);
+// Gated as a family. Individual mutations already carried
+// requireModelPermission, but every read beside them — /status, /accuracy,
+// /availability, /state, /map and a dozen more — answered anyone at all. That
+// is invisible on a Mac bound to loopback and wide open the moment the same
+// process is reachable at a public URL.
+app.use('/api/model', ...legacyAuthenticated, modelRouter);
 app.use('/api/props', ...legacyAuthenticated, propsRouter);
 app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
 app.use('/api/decision-inbox', ...legacyAuthenticated, decisionInboxRouter);
-app.use('/api/mlb', mlbRouter);
-app.use('/api/nfl-market', nflMarketRouter);
-app.use('/api/nfl-betting', nflBettingRouter);
+app.use('/api/mlb', ...legacyAuthenticated, mlbRouter);
+app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
+app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);
-app.use('/api/betting', bettingHubRouter);
-app.use('/api/execution-slate', executionSlateRouter);
+app.use('/api/betting', ...legacyAuthenticated, bettingHubRouter);
+app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
 
 app.use((err, req, res, next) => {
   // AuthenticationError/AuthorizationError (server/platform/auth.js) set a real
@@ -138,8 +160,22 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
   app.get(/^(?!\/api\/).*/, (req, res) => res.sendFile(path.join(DIST, 'index.html')));
 }
 
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`Gridiron HQ listening on http://localhost:${PORT}`);
+// Loopback-only by default (see the note at scripts/start.mjs's URL constant
+// for why 127.0.0.1, never "localhost"). A real host — Fly.io, any reverse
+// proxy — connects over the network, not through the container's loopback
+// interface, so it needs HOST=0.0.0.0; local/Mac use is unaffected since
+// nothing sets HOST there.
+const HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => {
+  console.log(`Gridiron HQ listening on http://${HOST}:${PORT}`);
+  // A blocked event loop cannot answer /api/health, and a failing health check
+  // does not restart a Fly machine -- only a process exit does. So this is the
+  // half that turns "the host can see we are wedged" into "the host replaces
+  // us". It watches nothing until the first response has actually been served,
+  // which matters here because boot continues well past this point: the
+  // scheduler fires twenty boot jobs twenty seconds from now, on this thread.
+  // See platform/loop-watchdog.js.
+  startLoopWatchdog();
   // Warm the evidence layers (career lines, preseason curve, offseason
   // adjustments, in-house projections) off the request path: cold they cost
   // ~4.5s on the first board read, which on draft night would land on the

@@ -1,0 +1,142 @@
+# TDD evidence: sendable-proposals (WA Trade Brain, stage 5 of 5)
+
+Source: `docs/FANTASY-ENGINE-MASTER-PLAN.md` D4, the **AI pass** paragraph:
+
+> **AI pass (cheap):** once per league per day, Sonnet 5 turns the top ~12
+> numeric ideas into 5-8 **sendable proposals**: the package, the one-line
+> why-they-say-yes in their terms, the opening message in Nick's voice, ask /
+> fair / floor, send now or wait-until with the reason, the one risk, and the
+> data it leaned on. It may drop or merge ideas; it may not invent players or
+> numbers (verified after the call). Cached per league-day.
+
+Built in a Claude Code cloud session, 2026-09-19, on top of `value-and-acceptance`
+(`32faf5f`/`180b3a9`). Same environment limits as that stage: **no database and no
+Anthropic key in this box**, so the live Sonnet call is never exercised here and
+the model's output quality is not evidenced by anything below. What IS evidenced
+is everything around the call — the verifier, the budget gate, the cache, and
+every refusal path — because those are pure functions or fixture-backed and are
+where a bad call actually becomes a wrong number in front of Nick.
+
+Runner:
+
+    GRIDIRON_DB_PATH="$(mktemp -u "${TMPDIR:-/tmp}/gridiron-test-XXXXXX").sqlite" SCHEDULER_DISABLED=1 \
+      NODE_OPTIONS='--import ./test/offline-guard.mjs' node --experimental-test-module-mocks --test \
+      --test-concurrency=1 test/trade-proposals.test.js
+
+LLM spend: $0 — the caller is injected in every test.
+
+## Discover -> audit -> decide
+
+| System | What the audit found | Decision |
+|---|---|---|
+| `llm-budget.js` | **Already ships `trade_proposals: 0.50`** in `DEFAULT_DAILY_BUDGETS_USD` (`:39`) with a documented `trade_proposals:league-<id>` key convention (`:11-14`), enforced once at `claude.js:241` via `reserveBudget`. It has **no production consumer** — built for this stage and dead until now. | **Use it as-is.** Pass `feature: 'trade_proposals:league-<id>'`; no new budget code. **Correction, from the independent verify:** the key resolves (`budgetKeyFor('trade_proposals:league-4')` → `trade_proposals`) but the cap is **NOT per-league** — `spentTodayUsd` sums every `trade_proposals:*` key, so $0.50/day is shared across all five leagues, roughly ten calls a day in total. An earlier version of this file and of the service comment both claimed a per-league cap. They were wrong. |
+| `compute-cache.js` | An in-memory `Map` keyed on a data fingerprint. Correct for recomputable answers; wrong here, because a restart would re-spend real money against a $0.50/day cap. | **Do not use** for this. |
+| Migration `057_ai_usage_cost_and_cache` | Despite the name there is **no response-cache table** — its "cache" is prompt-cache *token accounting* (`cache_read_input_tokens`). | Noted so the next reader does not go looking for a table that was never there. |
+| `nfl_news_event_extraction_cache` (migration 019, read/written `nfl-news-events.js:78,83`) | A real persisted LLM cache already in this codebase, keyed `(content_hash, extractor_version)`. | **Follow this pattern** rather than inventing a second one. Content-keyed beats day-keyed: an unchanged slate does not re-spend, and a changed prompt invalidates by construction instead of by someone remembering to bump a date. |
+| `trade-verify.js#proposeVerifyRetryTrade` | A propose/verify/retry loop with a structural two-call cap, but its judge (`judgeTradeVerdict`) is verdict-vs-simulation specific. | **Reuse the shape, not the code.** This stage's verifier answers a different question: did the model invent anything. |
+| `trade-engine.js#tradeIdeas` | The one entry point; everything it returns has already passed the edge test, and now carries `acceptance` from the previous stage. | **Consume it. Do not extend it.** This stage adds no field to the idea object and does not touch `trade-engine.js`. |
+
+## Gates, pre-registered before any test or implementation was written
+
+- **G1 nothing invented.** Every player named in a proposal must appear in the
+  source ideas, and every number must be one the source ideas contain. A proposal
+  that fails is **rejected whole**, never silently repaired — a repaired proposal
+  is a fabrication with the evidence filed off.
+- **G2 the call is bounded.** At most one model call per league per slate. The
+  budget key is `trade_proposals:league-<id>`; a refusal from `reserveBudget`
+  propagates as a refusal, never as a silent skip or an uncached retry.
+- **G3 the cache is persisted and content-keyed.** An unchanged slate returns the
+  stored answer and spends nothing. A changed slate, or a changed prompt version,
+  is a miss. A process restart does not re-spend.
+  **PARTLY UNPROVEN.** The content-keying half is tested against an injected
+  in-memory cache. The *persisted* half is not: `dbCache` and migration 060 have
+  **zero test coverage**, because there is no database in this box to exercise
+  them against. "A restart does not re-spend" is therefore a claim this file
+  makes and does not evidence — it belongs on the Mac list, not in the passed
+  column.
+- **G4 honest degradation.** No ideas, no API key, a malformed response, or a
+  response with the wrong shape each produce a stated reason and no proposals —
+  never a partial parse presented as a result.
+- **G5 the edge test survives the AI pass.** Every returned proposal traces to at
+  least one source idea by id, so the model cannot merge in, or invent, a package
+  that never passed the edge filter.
+- **G6 the shape D4 asks for.** Each proposal carries package, why-they-say-yes,
+  opener, ask/fair/floor, send-now-or-wait with its reason, the one risk, and the
+  data it leaned on. A missing required field rejects that proposal.
+
+## RED -> GREEN
+
+| Stage | Commit | Evidence |
+|---|---|---|
+| RED | `fd70334` | 18 tests, 0 pass — `server/services/trade-proposals.js` does not exist. Gates were written into this file first, then the tests, then the module. |
+| GREEN | `abac2c5` | 18/18. |
+| Wiring | `ace0101` | Migration 060, the persisted cache, the prompt, and `GET /api/trades/:leagueId/proposals`. 18/18 still, lint clean (836 files), `server/routes/trades.js` imports cleanly against a temp database. |
+
+### A bug the tests caught during GREEN, worth recording
+
+The first number scanner used `/-?\d+(\.\d+)?/`, which read the hyphen in the
+identifier `idea-1` as negative one and rejected five *correct* proposals for
+"inventing" a number that never appeared in the text. Two changes: a leading `-`
+counts as a sign only when it is not glued to a word, and `idea_ids` is excluded
+from the prose scan because it is structure, not something Nick reads.
+
+It is worth recording because of which direction it failed in. A verifier whose
+bug makes it too STRICT is visible immediately — good proposals vanish. The same
+class of bug in the other direction would have silently let fabricated numbers
+through, and nothing downstream would have noticed. The tests that caught it were
+the ones asserting that legitimate content passes, not the ones asserting that
+bad content fails.
+
+## Independent verify: `issues_unfixed`
+
+RED `1abdeb9`, GREEN `9b867ab`, 38/38 (was 18). It **got fabricated numbers and
+a fabricated player past `verifyProposals`**, which is the one thing this stage
+exists to prevent. What it found, fixed test-first:
+
+1. **Numbers returned as JSON were never checked at all.** `proseOf` collected
+   strings only, so `{ask: 4800}` and `data_used: {my_ppg_gain: 4.8}` — both
+   shapes the prompt explicitly asks for — verified clean.
+2. **`n*100` licensed a fabrication.** A `ppg_delta` of 2.4 permitted "240",
+   so "he is averaging 240 receiving yards a game" passed. Now offered only
+   for |n| ≤ 1, where a rate-as-percentage is the plausible rendering.
+3. **A surname on its own was free.** `prose.includes(name)` never matches
+   "Mahomes" against "Patrick Mahomes" — and the fixture's own opener reads
+   "Waddle for Achane", so the single form a model actually writes in was the
+   one form unchecked. Lower case, a line break and a typographic apostrophe
+   (`De’Von` vs `De'Von`) all behaved the same way; the apostrophe case
+   rejected *correct* proposals rather than letting bad ones through.
+4. Also: nested `idea_ids` hid whole sentences from the scan; `.85` was
+   invisible; `3,400` parsed as 3 and 400; a `package` sent as prose skipped
+   the name check entirely; `''`/`[]`/`{}` satisfied a required field; and a
+   corrupt cache row returned an empty success with no reason.
+
+### Three defects it reported outside its own files, fixed in `768d05b`
+
+- **`findTrades` deals had no `id`.** Every proposal cited an idea whose id was
+  `undefined`, so the stage was **non-functional in production**: 3 route hits
+  → 3 paid calls → 0 proposals, all rejected as untraceable, and refusals are
+  not cached so each page load paid again.
+- **The route's universe came from the returned deals only**, which is blind to
+  the real failure mode — a proposal offering a player who exists in the league
+  but is in none of the cited ideas.
+- **`?limit` was caller-controlled** and feeds a slate-hashed cache key: twelve
+  values, twelve keys, twelve paid calls on one league on one day.
+
+### Still open by design, and said out loud
+
+Number-words ("nine straight weeks"), the `FREE_NUMBERS` 0/1/2 allowance,
+numbers as object keys, and what a number *means* — 0.31 being present in the
+ideas makes "31% target share" verify even if the real 0.31 was something else
+entirely. The cost of the new strictness runs the other way: a capitalised
+common word at the start of a sentence can collide with a league surname
+("Love the roster…") and reject a good proposal. That direction is visible
+immediately; the other is not.
+
+## What this does NOT establish
+
+The model call itself is never made here. Nothing below is evidence that Sonnet
+writes a good opener, picks the right five ideas, or phrases a why-they-say-yes
+that lands with a real manager. It is evidence that **if it invents a player, a
+number, or a package, that output does not reach Nick** — and that the cost of
+finding out is capped and does not repeat on a restart. The live pass belongs to
+the Mac session, with the rest of the list in `TASKS.md`.

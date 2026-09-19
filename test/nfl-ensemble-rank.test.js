@@ -222,7 +222,9 @@ test('the full report runs on the ensemble\'s own walk-forward stream and recove
 
   const report = rank.componentRankReport({ beforeSeason: 2024, beforeWeek: 1 });
   assert.ok(!report.error, report.error);
-  assert.equal(report.catalog_size, 31, 'the catalog size the audits counted');
+  assert.equal(report.catalog_size, 35,
+    '32 as of market_correction_research, plus teamrankings_predictive, nfelo_rating and '
+    + 'nfelo_qb_adjustment, added and challenger-gated 2026-09-16');
 
   const residual = report.spaces.market_residual;
   assert.ok(residual.available, JSON.stringify(residual.reason));

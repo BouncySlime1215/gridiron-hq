@@ -33,11 +33,22 @@ const VERSION = 'total-logit-v1';
 const r4 = v => v == null || !Number.isFinite(v) ? null : +v.toFixed(4);
 const sigmoid = x => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, x))));
 const logit = p => Math.log(Math.max(1e-5, Math.min(1 - 1e-5, p)) / Math.max(1e-5, 1 - Math.min(1 - 1e-5, p)));
-const implied = o => o == null ? null : o > 0 ? 100 / (o + 100) : Math.abs(o) / (Math.abs(o) + 100);
-const noVig = (a, b) => {
-  const pa = implied(a), pb = implied(b);
-  return pa != null && pb != null && pa + pb > 0 ? pa / (pa + pb) : null;
-};
+// Devig comes from nfl-devig.js (Shin 1992), NOT a local reimplementation.
+//
+// This file previously carried its own naive proportional split, `pa/(pa+pb)`, while its sibling
+// nfl-cover-calibration.js imported shinNoVig. The two modules run the same fitting routine and are
+// meant to be read side by side, so a different market baseline in each makes the spread gate and
+// the totals gate silently incomparable — and `marketProbOver` below is the training label anchor
+// for the totals governance gate, so the inconsistency landed directly on a decision surface.
+// Documented in docs/betting-model/research/advanced-methods-and-github/F03-devig-methods.md, which
+// identified it and noted it was never fixed.
+//
+// Shin and proportional agree on symmetric lines and diverge on skewed ones, so this mainly matters
+// where the two sides are priced unevenly — which is exactly where a calibration gate should be
+// most careful.
+import { shinNoVig } from './nfl-devig.js';
+
+const noVig = shinNoVig;
 
 /** Identical fitting routine to nfl-cover-calibration.js's `fitLogisticOffset` — see that file for the derivation. */
 function fitLogisticOffset(samples, lambda = 1) {

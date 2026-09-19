@@ -6,7 +6,7 @@ import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { ensureLiveDraft, syncLiveDraft, withDraftLock } from '../services/espn-draft.js';
 import { ingestCapture, mintIngestKey, verifyIngestKey, ingestStatus, finalizeStaleDrafts, MAX_FRAMES_PER_BATCH } from '../services/draft-ingest.js';
 import { espnCors } from '../platform/cors.js';
-import { boardState, rankTargets, dossiersFor, analystNotes, enrichWithEvidence, evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
+import { boardState, rankTargets, dossiersFor, analystNotes, enrichWithEvidence, evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS, SEASON } from '../services/draft-assist.js';
 import { lookahead } from '../services/draft-lookahead.js';
 import { proposeVerifyRetry, judgeProposal, challengeText } from '../services/draft-advice-verify.js';
 import { espnPlayerNotes } from '../services/espn-player-notes.js';
@@ -108,8 +108,23 @@ function buildMarketPool(draft) {
   const leftover = rows(`SELECT id, position FROM players WHERE fantasy_relevant = 1`)
     .filter(p => !taken.has(p.id) && !pool.has(p.id))
     .sort((a, b) => (sm.get(b.id)?.projected_points ?? 0) - (sm.get(a.id)?.projected_points ?? 0));
-  leftover.forEach((p, i) => pool.set(p.id, { id: p.id, position: p.position, market: tail + 50 + i }));
+  // Flagged, because this rank is the ordering of a fallback query and nothing
+  // more. The CPU drafter is entitled to it — a mock draft must not run out of
+  // players — but the advice surfaces are not, and used to print it to the user
+  // as "Best value on the board (market #101)".
+  leftover.forEach((p, i) => pool.set(p.id,
+    { id: p.id, position: p.position, market: tail + 50 + i, market_synthetic: true }));
   return [...pool.values()];
+}
+
+/**
+ * Did the market itself put anything in the pool, or is it all fallback?
+ *
+ * A user-facing recommendation needs a real market read behind it; the CPU
+ * drafter only needs a pool it cannot exhaust. This separates the two.
+ */
+function marketSourced(pool) {
+  return pool.filter(c => !c.market_synthetic).length;
 }
 
 const ROSTER_TARGET = { QB: 1, RB: 5, WR: 5, TE: 1, K: 1, DEF: 1 };
@@ -610,6 +625,16 @@ r.get('/:id/recommendation', (req, res) => {
   for (const p of mine) myPos[p.position] = (myPos[p.position] ?? 0) + 1;
 
   const pool = buildMarketPool(draft).sort((a, b) => a.market - b.market);
+  if (marketSourced(pool) === 0) {
+    return res.json({
+      pick_number: nextPick, round, my_roster: myPos,
+      recommendation: null, alternatives: [],
+      error: 'no market data, so there is no board to rank',
+      detail: 'Every source of draft-market value is empty, so a recommendation here would be ' +
+        'the players table in row order rather than a read on value.',
+      fix: 'Run the FFC/Sleeper value sync and the ESPN player sync, then ask again.'
+    });
+  }
   const byId = new Map(rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr
                              FROM players p LEFT JOIN nfl_teams t ON t.id = p.team_id`).map(p => [p.id, p]));
 
@@ -877,10 +902,35 @@ r.post('/:id/sync', async (req, res, next) => {
  * lineup, positional scarcity before the next turn, runs, tier cliffs, and a ranked
  * shortlist. Deterministic and instant — no API key involved.
  */
+/**
+ * What to say when the board has no market behind it.
+ *
+ * `computeConsensus()` needs FFC or Sleeper values, or ESPN ADP joined on
+ * `players.espn_id`. With none of them it returns nothing, and every row on the
+ * board is then ordered by the players table's own row ids — which is how the
+ * draft room came to recommend one NFL team's depth chart in slot order, with a
+ * two-decimal score beside it. The refusal names the missing source and what
+ * makes it appear, rather than showing a blank screen.
+ */
+function marketRefusal(state) {
+  return {
+    error: 'no market data, so there is no board to rank',
+    detail: 'Rankings are built from the draft market. None of its sources have any rows, ' +
+      'so every player would be ordered by database row id rather than by value.',
+    missing: state.market?.missing ?? [],
+    fix: state.market?.fix ?? null,
+    market: state.market ?? null
+  };
+}
+
 r.get('/:id/assist', async (req, res, next) => {
   try {
     const { draft } = draftAccess(req, req.params.id);
     const state = boardState(req.params.id, ownedSlot(req, draft));
+    // The board itself still goes back — the user can see who is available and
+    // who has been taken — but with no targets and an explicit reason, so
+    // nothing downstream reads row order as a ranking.
+    if (state.market?.unsourced) return res.json({ ...state, targets: [], market_unavailable: marketRefusal(state) });
     // Career record, preseason projection and offseason adjustment ride along
     // on each target (each layer is optional — see enrichWithEvidence).
     const targets = (await enrichWithEvidence(rankTargets(state, Number(req.query.limit) || 8), state.draft.season ?? undefined))
@@ -904,6 +954,9 @@ r.get('/:id/lookahead', (req, res, next) => {
     const pickNo = state.on_the_clock.pick_number ?? 0;
     const key = `${req.params.id}:${pickNo}:${state.draft.my_slot}`;
     if (!req.query.refresh && lookaheadCache.has(key)) return res.json({ ...lookaheadCache.get(key), cached: true });
+    // Simulating the rest of a draft off a row-order board would dress the same
+    // fabrication in Monte Carlo clothing.
+    if (state.market?.unsourced) return res.json({ pick_number: pickNo, candidates: [], ...marketRefusal(state) });
     const targets = rankTargets(state, 8);
     const started = Date.now();
     const out = lookahead({ ...state, targets }, { sims: Number(req.query.sims) || 200, candidates: 6 });
@@ -948,6 +1001,10 @@ r.get('/:id/advice', async (req, res, next) => {
       return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
     }
 
+    // Asking Claude to argue from a shortlist that is really the players table
+    // in row order produces a confident case for an arbitrary player.
+    if (state.market?.unsourced) return res.status(400).json(marketRefusal(state));
+
     const targets = await enrichWithEvidence(rankTargets(state, 12), state.draft.season ?? undefined);
     const { my_team, positions, on_the_clock, runs, draft } = state;
 
@@ -979,13 +1036,13 @@ r.get('/:id/advice', async (req, res, next) => {
         dsr.offense ? `  Offense: priced at ${dsr.offense.implied_points} pts/game by the books (${dsr.offense.rank}${['st', 'nd', 'rd'][dsr.offense.rank - 1] ?? 'th'} of 32)` : null,
         dsr.team_change ? `  Changed teams: ${dsr.team_change.from} → ${dsr.team_change.to}${dsr.team_change.vacated_target_share != null ? ` (new team has ${Math.round(dsr.team_change.vacated_target_share * 100)}% of last year's targets vacated)` : ''} — movers keep a median 74-82% of prior opportunity, less in a crowded room` : null,
         dsr.roster_snapshot?.depth ? `  ESPN depth chart: ${dsr.roster_snapshot.depth}${dsr.roster_snapshot.status && dsr.roster_snapshot.status !== 'active' ? `, status ${dsr.roster_snapshot.status}` : ''}` : null,
-        dsr.weekly_last_season ? `  2025 weekly: ${dsr.weekly_last_season.ppg} ppg over ${dsr.weekly_last_season.games} games, ${dsr.weekly_last_season.starts_15plus} games of 15+, floor ${dsr.weekly_last_season.floor}, ceiling ${dsr.weekly_last_season.ceiling}` : null,
+        dsr.weekly_last_season ? `  ${SEASON - 1} weekly: ${dsr.weekly_last_season.ppg} ppg over ${dsr.weekly_last_season.games} games, ${dsr.weekly_last_season.starts_15plus} games of 15+, floor ${dsr.weekly_last_season.floor}, ceiling ${dsr.weekly_last_season.ceiling}` : null,
         dsr.luck_last_season && Math.abs(dsr.luck_last_season.diff) >= 20
-          ? `  2025 luck: ${dsr.luck_last_season.diff > 0 ? '+' : ''}${dsr.luck_last_season.diff} pts vs expected from his opportunities (${dsr.luck_last_season.actual} actual / ${dsr.luck_last_season.expected} expected) — ${dsr.luck_last_season.diff > 0 ? 'TD/efficiency luck that tends to regress' : 'underperformed his usage; positive regression candidate'}`
+          ? `  ${SEASON - 1} luck: ${dsr.luck_last_season.diff > 0 ? '+' : ''}${dsr.luck_last_season.diff} pts vs expected from his opportunities (${dsr.luck_last_season.actual} actual / ${dsr.luck_last_season.expected} expected) — ${dsr.luck_last_season.diff > 0 ? 'TD/efficiency luck that tends to regress' : 'underperformed his usage; positive regression candidate'}`
           : null,
         dsr.projected_points != null
-          ? `  2026 ESPN projection: ${Math.round(dsr.projected_points)} pts${dsr.projected_line ? ` (${dsr.projected_line})` : ''}`
-          : '  2026 ESPN projection: none',
+          ? `  ${SEASON} ESPN projection: ${Math.round(dsr.projected_points)} pts${dsr.projected_line ? ` (${dsr.projected_line})` : ''}`
+          : `  ${SEASON} ESPN projection: none`,
         t.model_points != null
           ? `  Our season model (validated, prices missed games): ${t.model_points} pts — ${t.model_rel == null ? 'in line with the board' : Math.abs(t.model_rel) < 0.08 ? 'agrees with ESPN' : `${Math.round(Math.abs(t.model_rel) * 100)}% ${t.model_rel > 0 ? 'MORE' : 'LESS'} bullish than ESPN relative to the rest of the board`}; blended value used for ranking: ${Math.round(t.projected_points)} pts`
           : null,
@@ -994,16 +1051,21 @@ r.get('/:id/advice', async (req, res, next) => {
           ? `  Our model, week 1: ${(dsr.week1_projection.corrected_ppg ?? dsr.week1_projection.structural_ppg).toFixed(1)} ppg${dsr.projected_points != null ? ` (ESPN's season line implies ${(dsr.projected_points / 17).toFixed(1)})` : ''}`
           : null,
         dsr.last_season
-          ? `  2025 actual: ${dsr.last_season.points} pts${dsr.last_season.games ? ` in ${dsr.last_season.games} games` : ''}${dsr.last_season.line ? ` (${dsr.last_season.line})` : ''}`
-          : '  2025 actual: no meaningful production',
-        dsr.prior_season ? `  2024 actual: ${dsr.prior_season.points} pts` : null,
+          ? `  ${SEASON - 1} actual: ${dsr.last_season.points} pts${dsr.last_season.games ? ` in ${dsr.last_season.games} games` : ''}${dsr.last_season.line ? ` (${dsr.last_season.line})` : ''}`
+          // "no meaningful production" is a finding. An absent row is not one,
+          // and with the stats table empty every player on the board carried
+          // this line, then STAT_ROOTED_INSTRUCTIONS told the advisor to argue
+          // from it. The projection line two above gets this right already.
+          : `  ${SEASON - 1} actual: not on file`,
+        dsr.prior_season ? `  ${SEASON - 2} actual: ${dsr.prior_season.points} pts` : null,
         (() => { const n = notes[t.espn_id]; return n ? `  ESPN note (${n.published ?? 'recent'}): ${n.headline}${n.story ? ` ${n.story}` : ''}` : null; })(),
         t.espn_injury_status && t.espn_injury_status !== 'ACTIVE' ? `  ESPN injury status: ${t.espn_injury_status}` : null,
         dsr.injury_flag ? '  FLAGGED as an injury risk by the market' : null,
         dsr.injury_report ? `  Injury report: ${dsr.injury_report}` : null,
         dsr.camp_news.length
           ? dsr.camp_news.map(n => `  Camp (${n.date}): ${n.headline} — ${n.note}`).join('\n')
-          : '  Camp: nothing reported on him this summer',
+          // Same again: no camp rows is not the same fact as a quiet summer.
+          : '  Camp: no camp reporting on file',
         dsr.analysts?.takes?.length
           ? `  Analysts${dsr.analysts.consensus ? ` (${dsr.analysts.consensus})` : ''}:\n` + dsr.analysts.takes.slice(0, 4).map(a => `    - ${a.date} ${a.source}: ${a.note}`).join('\n')
           : null,

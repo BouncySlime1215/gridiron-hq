@@ -1,0 +1,1082 @@
+/**
+ * Pricing a trade the way the OTHER manager sees it.
+ *
+ * The trade engine has always valued both sides with our number. That is the
+ * right way to answer "is this good for me" and the wrong way to answer "will
+ * he say yes", which is the question that decides whether a suggestion is worth
+ * anything. A deal we price as a steal is not a steal if nobody accepts it, and
+ * a deal we price as even is a gift if he thinks he won.
+ *
+ * So this module answers two separate questions and keeps them separate:
+ *
+ *   perception  - what is this package worth TO HIM, given what he has said
+ *                 about these specific players and how he behaves generally
+ *   receptiveness - how likely is this person to engage with a trade at all
+ *
+ * Both are bounded on purpose. Chat sentiment is weak evidence: a few texts
+ * must be able to break a tie, never to overturn a valuation. The caps below
+ * are the contract that keeps a chatty manager from dominating the ranking.
+ */
+import { rows } from '../db/index.js';
+import { managerSignalsFor, openChatDb, chatDataKey } from './manager-signals.js';
+import { identityMap } from './manager-identity.js';
+import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from './talk-vs-model.js';
+import { declarationCredibility, untouchableStance } from './bluff-detector.js';
+import { analyzeLeague } from '../routes/tradelab.js';
+
+/** Hard ceiling on how far chat can move a package's perceived value. */
+export const PERCEPTION_CAP = 0.15;
+/** Receptiveness multiplier range. 1.0 is "no information". */
+export const RECEPTIVENESS_RANGE = [0.7, 1.3];
+
+/**
+ * THE VALUATION MAP — what each manager thinks each player is worth.
+ *
+ * Master plan 00 D4: "for every player in the league, what THIS manager thinks
+ * he is worth, next to what we think he is worth. The gap on each player is the
+ * raw material of every trade."
+ *
+ * Their value = our value x a product of NAMED, individually capped factors.
+ * Nothing here is fitted, and every factor says so (`fitted: false`): these are
+ * hand-set sizes chosen to break ties and raise flags, exactly like the two
+ * that already existed (`sentimentMultiplier` and `priceAdjustment`). They
+ * cannot be fitted until enough proposals have been decided — 30 in 2026 so far,
+ * 6 of them accepted (master plan F/Q1, "trade objective constants still
+ * unfitted"). What IS enforced, and tested, is the shape:
+ *
+ *   - every factor names a source in this registry and carries its sample size;
+ *   - no factor may exceed its own cap, and no player may move more than
+ *     PLAYER_VALUATION_CAP in total, whatever the sources agree on;
+ *   - a source below its minimum sample is reported INERT WITH A REASON rather
+ *     than dropped, so a page can say why a signal is not firing;
+ *   - the same evidence is never charged twice (see `playerValuation`).
+ *
+ * `min_n` is what the source's `n` must reach before it prices anything. The
+ * one that matters today is `luck_self_view`: in week 2 of 2026 the archetype
+ * build has ONE scored week, and one game of luck is noise, so it is inert
+ * league-wide until week 5.
+ *
+ * `needs` names the data the source cannot work without, which is what the map
+ * reports as absent for the four leagues with no chat corpus.
+ */
+export const VALUATION_SOURCES = Object.freeze({
+  talk_vs_model: { label: 'How he talks about the player, crossed with the model',
+    cap: 0.10, min_n: 3, needs: 'league chat', fitted: false,
+    why: 'praise means two opposite things; the expectation gap decides which' },
+  chat_sentiment: { label: 'How he talks about the player (raw chat sentiment)',
+    cap: 0.12, min_n: 1, needs: 'league chat', fitted: false,
+    why: 'the fallback where there is talk but no model read to cross it with' },
+  profile_roster_read: { label: 'What his negotiation profile says he over- and undervalues',
+    cap: 0.10, min_n: 1, needs: 'league chat', fitted: false,
+    why: 'a whole-corpus read naming specific players, not a per-message average' },
+  hype_vs_usage: { label: 'His own player is outscoring the usage that earns it',
+    cap: 0.08, min_n: 2, needs: 'weekly expected points', fitted: false,
+    why: 'a hot player is priced by his owner at his hot number' },
+  luck_self_view: { label: 'His record is flattered (or punished) by luck',
+    cap: 0.05, min_n: 4, needs: 'scored weeks in the archetype build', fitted: false,
+    why: 'a manager whose record overstates his team prices that team high' },
+  positional_need: { label: 'A hole (or a glut) at this position',
+    cap: 0.08, min_n: 1, needs: 'a roster read for the league', fitted: false,
+    why: 'a need raises what he pays there; depth lowers it' },
+  recency_post_loss: { label: 'He just lost, or reacts to losses',
+    cap: 0.05, min_n: 1, needs: 'ESPN standings', fitted: false,
+    // The one source in this registry that does NOT move a player's price. It
+    // lowers resistance to trading at all, which is receptiveness, so it is
+    // applied there and reported in `receptiveness_factors`. Keeping it in one
+    // registry keeps the caps and the provenance rules in a single place.
+    why: 'a post-loss window lowers resistance — to the deal, not to the player' },
+  untouchable_credibility: { label: 'He has called the player untouchable, and his word has held',
+    cap: 0.10, min_n: 1, needs: 'league chat', fitted: false,
+    why: 'a refusal that holds is a real price; a bluffer\'s refusal is an opening one' },
+});
+
+/**
+ * Hard ceiling on how far every source together may move ONE player, whatever
+ * they agree on. Larger than the package cap on purpose: a single player may be
+ * a manager's whole story, a package of three must not be able to stack three.
+ */
+export const PLAYER_VALUATION_CAP = 0.20;
+
+/** Points below zero last week at which the post-loss window is fully open. */
+const POST_LOSS_FULL_MARGIN = 30;
+/** Chat "reacting to loss" share that counts as a full habit. */
+const POST_LOSS_CHAT_FULL = 0.10;
+/** Luck, in wins above expectation, at which the flattered-self read is full strength. */
+const LUCK_FULL_WINS = 2;
+/**
+ * How much of its cap a negotiation profile's roster read earns, by the
+ * confidence the model itself reported. Measured on the real corpus
+ * (2026-09-18): 2 high, 2 medium, 5 low, 1 unstated — so treating them alike
+ * would price half the league on the model's own least certain reads.
+ */
+const PROFILE_CONFIDENCE = Object.freeze({ high: 1, medium: 0.7, low: 0.4 });
+
+/** Percentile of x within xs, in [0,1]; 0.5 when xs carries no information. */
+function percentile(xs, x) {
+  const vals = xs.filter(Number.isFinite);
+  if (vals.length < 3 || !Number.isFinite(x)) return 0.5;
+  const spread = Math.max(...vals) - Math.min(...vals);
+  if (spread <= 0) return 0.5;
+  return vals.filter(v => v < x).length / (vals.length - 1);
+}
+
+/**
+ * Per-league counterparty layer, built once per findTrades call.
+ *
+ * Absolute chat rates are compressed (open-to-trade runs 0.13-0.34 across a
+ * whole league), so receptiveness is computed from each manager's RANK inside
+ * his own league rather than the raw number. Ranking is what the finder needs
+ * anyway: it is choosing between these ten people, not against an abstract
+ * baseline.
+ */
+export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [] } = {}) {
+  const signals = managerSignalsFor(leagueId);
+  // Every league-wide read is built ONCE here and handed to whoever needs it,
+  // so the deal read and the valuation map cannot end up on different answers.
+  const gaps = expectationGaps(season, week);
+  const ownedBy = rosterOwnership(leagueId);
+  // Talk crossed with the model, and whether this person's word has held. Both
+  // are loaded once for the league: the first decides the SIGN of a sentiment
+  // adjustment, the second decides whether a refusal is real.
+  const reads = talkReads(leagueId, season, week, { gaps, ownedBy });
+  // Declarations live in the chat, so a league with no trusted chat identity
+  // has none to weigh — and no reason to open the private chat DB at all.
+  const credibility = identityMap(leagueId).size ? declarationCredibility() : null;
+  // The whole-corpus model read of each person. One loader (negotiationProfilesFor),
+  // which validates what it reads; an invalid profile simply is not there.
+  const profiles = negotiationProfilesFor(leagueId);
+  const needsByRoster = rosterContext ?? deriveRosterNeeds(leagueId);
+  const tiers = new Map(rows('SELECT roster_id, tradeability FROM manager_profiles WHERE league_id = ?', leagueId)
+    .map(r => [String(r.roster_id), r.tradeability]));
+  // Who owns what, inverted once: the valuation of a player he owns and of one
+  // he might buy are different questions and must not be answered alike.
+  const rosterOf = new Map();
+  for (const [name, rid] of ownedBy ?? []) {
+    if (!rosterOf.has(rid)) rosterOf.set(rid, new Set());
+    rosterOf.get(rid).add(name);
+  }
+  const rosterSize = new Map();
+  for (const [rid, names] of rosterOf) rosterSize.set(rid, names.size);
+
+  const ids = [...signals.keys()];
+  const openVals = ids.map(id => signals.get(id).metrics.chat_open_to_trade);
+  const talkVals = ids.map(id => signals.get(id).metrics.chat_trade_talk);
+
+  const profile = new Map();
+  for (const id of ids) {
+    const s = signals.get(id);
+    const m = s.metrics;
+    const msgs = m.chat_msgs ?? 0;
+    // Someone with 40 messages has not told us much. Shrink the whole chat
+    // contribution toward "no information" until there is a real corpus.
+    const chatWeight = Math.min(1, msgs / 300);
+    const openP = percentile(openVals, m.chat_open_to_trade);
+    const talkP = percentile(talkVals, m.chat_trade_talk);
+    let score = 0.5 + chatWeight * (0.65 * (openP - 0.5) + 0.35 * (talkP - 0.5));
+
+    // Observed behaviour outranks talk. Only applied once there are enough
+    // decided proposals for the rate to mean anything (the metric is withheld
+    // below five by manager-signals.js, so its presence is itself the gate).
+    if (Number.isFinite(m.tx_accept_rate)) {
+      const w = Math.min(1, (s.samples.tx_accept_rate ?? 0) / 15);
+      score = score * (1 - w) + m.tx_accept_rate * w;
+    }
+    // Nick's reads enter as a small nudge, never as a verdict.
+    if (m.prior_disengaged) score -= 0.10 * m.prior_disengaged;
+    if (m.prior_quiet) score -= 0.05 * m.prior_quiet;
+    if (m.prior_seller) score += 0.08 * m.prior_seller;
+
+    // The post-loss window. This is the one declared valuation source that does
+    // not move a player's price: losing badly does not change what he thinks
+    // Jonathan Taylor is worth, it changes whether he answers at all. So it is
+    // applied to receptiveness and reported here, with its cap and its sample.
+    // `zero` suppresses a source for the ablation — the only way to answer "does
+    // this signal change any idea" without reasoning backwards from a score.
+    const postLoss = zero.includes('recency_post_loss') ? null : postLossFactor(m, s.samples);
+    if (postLoss) score += postLoss.effect;
+
+    const [lo, hi] = RECEPTIVENESS_RANGE;
+    const receptiveness = lo + (hi - lo) * Math.max(0, Math.min(1, score));
+    // The hand-set tier is reported, not applied: trade-engine.js applies the
+    // 0.55 "hard" factor to every deal, with or without this layer, and
+    // applying it here as well discounted a hard manager to 0.30.
+    const tier = tiers.get(id) ?? 'fair';
+
+    const ctx = needsByRoster?.get(String(id)) ?? null;
+    profile.set(id, {
+      roster_id: id, receptiveness: +receptiveness.toFixed(3), tier,
+      chat_msgs: msgs, chat_weight: +chatWeight.toFixed(2),
+      open_to_trade_pct: +openP.toFixed(2), trade_talk_pct: +talkP.toFixed(2),
+      accept_rate: m.tx_accept_rate ?? null, accept_rate_n: s.samples.tx_accept_rate ?? 0,
+      players: s.players ?? new Map(),
+      reads: reads.get(id) ?? new Map(),
+      stance: untouchableStance(leagueId, id, credibility),
+      priors: Object.fromEntries(Object.entries(m).filter(([k]) => k.startsWith('prior_'))),
+      untouchable_rate: m.chat_own_untouchable ?? null,
+      // ---- the valuation-map inputs, each already reduced to what it means ----
+      owned: rosterOf.get(String(id)) ?? new Set(),
+      roster_size: rosterSize.get(String(id)) ?? 0,
+      gaps,
+      needs: ctx?.needs ?? null,
+      surplus: ctx?.surplus ?? null,
+      window: ctx?.window ?? null,
+      // luck_wins comes from the archetype build, which manager-signals.js
+      // already copies into manager_signals for this league-season. Reading it
+      // there rather than importing manager-archetypes.js keeps the weekly
+      // feature store out of the trade path.
+      luck: Number.isFinite(m.outcome_luck_wins)
+        ? { value: m.outcome_luck_wins, n: s.samples.outcome_luck_wins ?? 0 } : null,
+      negotiation: profiles.byRoster.get(String(id))?.profile ?? null,
+      negotiation_n: profiles.byRoster.get(String(id))?.messages_read ?? 0,
+      receptiveness_factors: [
+        ...(chatWeight > 0 ? [{ source: 'chat_engagement', label: 'How he talks in the league chat',
+          effect: +(chatWeight * (0.65 * (openP - 0.5) + 0.35 * (talkP - 0.5))).toFixed(3),
+          n: msgs, cap: 0.5, fitted: false,
+          why: `open-to-trade rank ${openP.toFixed(2)}, trade-talk rank ${talkP.toFixed(2)}` }] : []),
+        ...(Number.isFinite(m.tx_accept_rate) ? [{ source: 'observed_accept_rate',
+          label: 'What he has actually done with offers', effect: null,
+          n: s.samples.tx_accept_rate ?? 0, cap: null, fitted: false,
+          why: `accepted ${(m.tx_accept_rate * 100).toFixed(0)}% of ${s.samples.tx_accept_rate} decided offers, `
+            + 'blended over talk' }] : []),
+        // `n: null`, not 3. A prior is a sentence Nick wrote down, not three of
+        // anything observed: `manager-signals.js:374` stores every one of them with
+        // a placeholder n of 3 and `source: 'nick'`, and mirroring that number onto
+        // the factor made a hand-set read print as if it rested on a sample of
+        // three. Nothing computes with this field — the priors move receptiveness
+        // through `m.prior_*` at :185-187, before this array is built, and no
+        // reader of `receptiveness_factors` anywhere reads a `nick_prior` n — so
+        // saying "no sample" costs nothing and stops the one number on the factor
+        // that is not evidence from looking like evidence.
+        ...Object.entries(m).filter(([k, v]) => k.startsWith('prior_') && v)
+          .map(([k, v]) => ({ source: 'nick_prior', label: `Nick's read: ${k.slice(6)}`,
+            effect: null, n: null, cap: null, fitted: false, why: `${k.slice(6)} ${v}` })),
+        ...(postLoss ? [postLoss] : []),
+      ],
+    });
+  }
+  return profile;
+}
+
+/**
+ * How far open the post-loss window is, as a receptiveness nudge.
+ *
+ * Two pieces of evidence, and the stronger wins rather than both being added:
+ * last week's margin (a fact about this week) and how often he reacts to losses
+ * in chat (a habit, worth half as much because it is not about now).
+ */
+function postLossFactor(metrics, samples) {
+  const cap = VALUATION_SOURCES.recency_post_loss.cap;
+  const margin = metrics.last_week_margin;
+  const lost = Number.isFinite(margin) && margin < 0
+    ? Math.min(1, -margin / POST_LOSS_FULL_MARGIN) : 0;
+  const habit = Number.isFinite(metrics.chat_reacting_to_loss)
+    ? Math.min(1, metrics.chat_reacting_to_loss / POST_LOSS_CHAT_FULL) * 0.5 : 0;
+  const strength = Math.max(lost, habit);
+  if (strength <= 0) return null;
+  const n = (Number.isFinite(margin) ? 1 : 0) + (Number.isFinite(metrics.chat_reacting_to_loss)
+    ? (samples?.chat_reacting_to_loss ?? 0) : 0);
+  return {
+    source: 'recency_post_loss', label: VALUATION_SOURCES.recency_post_loss.label,
+    effect: +(cap * strength).toFixed(4), n, cap, fitted: false,
+    why: lost >= habit
+      ? `lost last week by ${Math.abs(margin).toFixed(0)}`
+      : `reacts to losses in ${(metrics.chat_reacting_to_loss * 100).toFixed(0)}% of his messages`,
+  };
+}
+
+/**
+ * Needs and surplus per roster, when the caller has not already computed them.
+ *
+ * `analyzeLeague` is the one needs/surplus source the trade engine uses
+ * (`trade-engine.js#rosterContext` calls exactly this); the inventory found
+ * three copies of this logic and this must not become a fourth. The caller
+ * passes `rosterContext` when it already has one, so the live trade path pays
+ * for it once rather than twice.
+ */
+function deriveRosterNeeds(leagueId) {
+  const lg = rows('SELECT * FROM leagues WHERE id = ?', leagueId)[0];
+  if (!lg?.payload) return null;
+  try {
+    return new Map(analyzeLeague(lg).teams.map(t => [String(t.roster_id), {
+      needs: new Set(t.needs.map(n => n.position)),
+      surplus: new Set(t.surplus.map(s => s.position)),
+      window: t.window,
+    }]));
+  } catch {
+    // Same payload findTrades already checked for; a league that cannot be
+    // analysed simply has no positional read, which the map reports as absent.
+    return null;
+  }
+}
+
+/**
+ * What one package is worth to a given manager, relative to our valuation.
+ *
+ * Returns a multiplier and the reasons behind it, because an unexplained
+ * multiplier is not usable in an explanation and would be the first thing to
+ * silently rot. `sentimentMultiplier` already discounts small samples; the cap
+ * here bounds the package as a whole so a three-player package cannot stack
+ * three sentiment terms into a 40% swing.
+ */
+export function perceivedValue(players, managerProfile, { zero = [] } = {}) {
+  const total = players.reduce((s, p) => s + (p.value ?? 0), 0);
+  if (total <= 0) return { value: total, multiplier: 1, reasons: [] };
+  let adjusted = 0;
+  const reasons = [];
+  for (const p of players) {
+    const v = playerValuation(managerProfile, p, { zero });
+    adjusted += (p.value ?? 0) * v.multiplier;
+    if (Math.abs(v.multiplier - 1) >= 0.02) {
+      const view = managerProfile?.players?.get(String(p.name ?? '').toLowerCase());
+      const read = managerProfile?.reads?.get(String(p.name ?? '').toLowerCase()) ?? null;
+      reasons.push({
+        player: p.name, sentiment: view?.sentiment ?? read?.sentiment,
+        mentions: view?.n ?? read?.mentions, last_mention: view?.last,
+        multiplier: v.multiplier,
+        verdict: read?.verdict ?? null,
+        // Every factor that moved him, so an explanation can name them instead
+        // of quoting a bare multiplier nobody can check.
+        factors: v.factors,
+        reading: v.factors.map(f => f.why).join('; ')
+          || read?.why || (view?.sentiment > 2.2 ? 'he rates him'
+          : view?.sentiment < 1.8 ? 'he is down on him' : 'neutral'),
+      });
+    }
+  }
+  const raw = total > 0 ? adjusted / total : 1;
+  const capped = Math.max(1 - PERCEPTION_CAP, Math.min(1 + PERCEPTION_CAP, raw));
+  return { value: +(total * capped).toFixed(2), multiplier: +capped.toFixed(3), reasons };
+}
+
+/**
+ * What ONE manager thinks ONE player is worth — the cell of the valuation map,
+ * and the single place a per-player multiplier is decided.
+ *
+ * `perceivedValue` (and so `readDeal`, and so the trade engine) goes through
+ * here, and so does `valuationMap`, which is what stops the deal read and the
+ * manager view from disagreeing.
+ *
+ * **The same evidence is never charged twice.** Three rules do that work:
+ *   1. `talk_vs_model` and `chat_sentiment` are alternatives, not additions —
+ *      the crossed read wins wherever it exists, because raw sentiment has the
+ *      wrong SIGN for the case that costs real money (a manager talking up a
+ *      player he is quietly shopping).
+ *   2. `hype_vs_usage` fires ONLY where there is no talk read, because the
+ *      expectation gap is already the discriminator inside that read.
+ *   3. `praise_means` from the negotiation profile is not its own factor; it
+ *      modifies the talk read it is evidence about (a manager the model says
+ *      hypes before selling gets half the attachment premium).
+ *
+ * @param {object} managerProfile an entry from `counterpartyLayer`
+ * @param {object} player `{ name, position, value }` — our number is `value`
+ * @param {string[]} [opts.zero] sources to suppress, for the ablation
+ */
+export function playerValuation(managerProfile, player, { zero = [] } = {}) {
+  const ourValue = Number(player?.value ?? 0) || 0;
+  const key = String(player?.name ?? '').toLowerCase();
+  const off = new Set(zero);
+  const factors = [];
+  const inert = [];
+  const add = (source, effect, n, why) => {
+    if (off.has(source) || !Number.isFinite(effect) || Math.abs(effect) < 0.001) return;
+    const spec = VALUATION_SOURCES[source];
+    if (n < spec.min_n) {
+      inert.push({ source, reason: `rests on ${n} of the ${spec.min_n} needed (${spec.needs})` });
+      return;
+    }
+    const capped = Math.max(-spec.cap, Math.min(spec.cap, effect));
+    factors.push({ source, label: spec.label, effect: +capped.toFixed(4), n, cap: spec.cap,
+      fitted: spec.fitted, why });
+  };
+
+  const owns = managerProfile?.owned?.has(key) ?? false;
+  const view = managerProfile?.players?.get(key) ?? null;
+  const read = managerProfile?.reads?.get(key) ?? null;
+  const profile = managerProfile?.negotiation ?? null;
+
+  // ---------------------------------------------- 1. what he says about him
+  if (read) {
+    // priceAdjustment already bounded this; `praise_means` only shrinks or
+    // sharpens it, never turns it into a second charge.
+    let effect = (read.multiplier ?? 1) - 1;
+    let note = read.why;
+    const hypes = profile?.praise_means?.hypes_before_selling === true
+      || profile?.praise_means?.reading === 'marketing';
+    if (hypes && read.verdict === 'attachment') {
+      effect *= 0.5;
+      note += '; his profile says he hypes before selling, so the premium is halved';
+    } else if (hypes && read.verdict === 'sales_pitch') {
+      effect *= 1.25;
+      note += '; his profile says the same — praise before selling';
+    }
+    add('talk_vs_model', effect, read.mentions ?? 0, note);
+  } else if (view) {
+    add('chat_sentiment', (view.multiplier ?? 1) - 1, view.n ?? 0,
+      view.sentiment > 2.2 ? `he rates him (${view.n} mentions, no model read to cross it with)`
+        : view.sentiment < 1.8 ? `he is down on him (${view.n} mentions)` : 'talked about, neutrally');
+  }
+
+  // ------------------------------- 2. the whole-corpus read of his own roster
+  if (profile?.roster_read) {
+    const hit = profileListHit(profile.roster_read, key);
+    if (hit) {
+      const cap = VALUATION_SOURCES.profile_roster_read.cap;
+      // The model states its own confidence, and on the real corpus it says
+      // `low` for five of the ten people. Pricing a low-confidence read as hard
+      // as a high-confidence one would be ignoring the one thing the model
+      // actually knows about how sure it is.
+      const conf = PROFILE_CONFIDENCE[profile.confidence] ?? PROFILE_CONFIDENCE.low;
+      const direction = hit.list === 'really_untouchable' || hit.list === 'overvalues' ? 1
+        : hit.list === 'undervalues' ? -1 : -0.5;
+      add('profile_roster_read', cap * direction * conf, managerProfile.negotiation_n ?? 1,
+        `his negotiation profile (${profile.confidence ?? 'unstated'} confidence) lists him under `
+        + `${hit.list.replace(/_/g, ' ')}: "${hit.text}"`);
+    }
+  }
+
+  // ------------------------- 3. his own player is outscoring what earns it
+  if (owns && !read) {
+    const gap = managerProfile?.gaps?.get(key) ?? null;
+    if (gap) {
+      const cap = VALUATION_SOURCES.hype_vs_usage.cap;
+      const strength = Math.max(-1, Math.min(1, gap.gap_per_game / HOT_GAP_PER_GAME));
+      add('hype_vs_usage', cap * strength, gap.games,
+        `${gap.gap_per_game > 0 ? '+' : ''}${gap.gap_per_game}/game against what his usage earns `
+        + `over ${gap.games} games — his own number for his own player. `
+        + '(Actual vs expected points from usage; NOT the market-price curve in waiver-brain#sellHigh, '
+        + 'which answers a different question.)');
+    }
+  }
+
+  // --------------------------------------- 4. a record flattered by luck
+  if (owns && managerProfile?.luck) {
+    const cap = VALUATION_SOURCES.luck_self_view.cap;
+    const strength = Math.max(-1, Math.min(1, managerProfile.luck.value / LUCK_FULL_WINS));
+    add('luck_self_view', cap * strength, managerProfile.luck.n ?? 0,
+      `${managerProfile.luck.value > 0 ? '+' : ''}${managerProfile.luck.value} wins against expectation `
+      + `over ${managerProfile.luck.n} scored weeks — he prices this roster the way his record reads`);
+  }
+
+  // ------------------------------------------- 5. a hole he could fill here
+  if (!owns && player?.position && (managerProfile?.needs || managerProfile?.surplus)) {
+    const cap = VALUATION_SOURCES.positional_need.cap;
+    const n = managerProfile.roster_size ?? 0;
+    // Set from the layer, array from the serialised map view — the same answer
+    // either way, because a caller holding the view must not get a crash.
+    const listed = (v, pos) => (v instanceof Set ? v.has(pos) : Array.isArray(v) && v.includes(pos));
+    if (listed(managerProfile.needs, player.position)) {
+      add('positional_need', cap, n, `he is short at ${player.position}`);
+    } else if (listed(managerProfile.surplus, player.position)) {
+      add('positional_need', -cap * 0.5, n, `he is already deep at ${player.position}`);
+    }
+  }
+
+  // ----------------------- 6. he has said this one is not available, and ...
+  const stance = managerProfile?.stance ?? null;
+  if (stance && (stance.respect?.has(key) || stance.probe?.has(key))) {
+    const cap = VALUATION_SOURCES.untouchable_credibility.cap;
+    const credibility = stance.credibility?.credibility ?? 0.65;
+    // Never negative: a bluffer's refusal is an opening price, which means it
+    // should not RAISE the price — not that it should lower it below everyone
+    // else's. Below 0.45 the stance carries him in neither set and no factor
+    // fires at all.
+    const strength = stance.respect?.has(key) ? credibility : credibility * 0.5;
+    add('untouchable_credibility', cap * strength,
+      stance.credibility?.declarations ?? ((stance.respect?.size ?? 0) + (stance.probe?.size ?? 0)),
+      stance.respect?.has(key)
+        ? `he has called him untouchable and his word has held (credibility ${credibility.toFixed(2)})`
+        : `he has called him untouchable, but his word holds only ${(credibility * 100).toFixed(0)}% of the time`);
+  }
+
+  const raw = factors.reduce((mult, f) => mult * (1 + f.effect), 1);
+  const capped = Math.max(1 - PLAYER_VALUATION_CAP, Math.min(1 + PLAYER_VALUATION_CAP, raw));
+  return {
+    player: player?.name ?? null, position: player?.position ?? null,
+    our_value: ourValue, their_value: +(ourValue * capped).toFixed(2),
+    multiplier: +capped.toFixed(4), capped: Math.abs(raw - capped) > 1e-9,
+    owns, factors, inert,
+  };
+}
+
+/** Is this name a real player in our own table? Memoised per process. */
+const realPlayerCache = new Map();
+function isRealPlayer(lowerName) {
+  if (realPlayerCache.has(lowerName)) return realPlayerCache.get(lowerName);
+  let hit = false;
+  try { hit = rows('SELECT 1 AS x FROM players WHERE lower(name) = ? LIMIT 1', lowerName).length > 0; }
+  catch { hit = false; }
+  realPlayerCache.set(lowerName, hit);
+  return hit;
+}
+
+/**
+ * Does one of the negotiation profile's roster lists name this player?
+ *
+ * The lists are prose written by the model — "Ashton Jeanty (demands Achane +
+ * Chase Brown-level return, calls him 'my goat')". Matching the whole string
+ * would attribute Achane and Chase Brown to the same list, which is the exact
+ * false positive that would make this source untrustworthy. So only the part
+ * BEFORE the first bracket or em dash is searched: the model writes the subject
+ * first and the reasoning after, on every entry in the corpus checked
+ * 2026-09-18.
+ */
+function profileListHit(rosterRead, key) {
+  if (!key) return null;
+  const order = ['really_untouchable', 'overvalues', 'undervalues', 'quietly_available'];
+  for (const list of order) {
+    for (const entry of rosterRead[list] ?? []) {
+      const subject = String(entry).split(/\s+—\s+|\s+-\s+|\(/)[0].toLowerCase();
+      if (subject.includes(key)) return { list, text: String(entry).slice(0, 120) };
+    }
+  }
+  return null;
+}
+
+/** The set-like fields on a layer profile, as a sorted array of names. */
+const setNames = v => (v instanceof Set ? [...v] : Array.isArray(v) ? v : []).map(String).sort();
+
+/** A player's name as the chat corpus keys it. */
+const nameKey = p => String(p?.name ?? '').toLowerCase();
+
+/**
+ * The model's negotiation profile, cut down to the lines a card can show.
+ *
+ * The stored profile carries every technique with its evidence quotes, which is
+ * the right shape for a page that reads one manager and far too much to repeat on
+ * each of twenty-five deals. What survives is the read itself plus the three
+ * one-word calibrations — what a reader needs before he writes the message.
+ */
+function compactNegotiation(profile) {
+  if (profile == null || typeof profile !== 'object') return null;
+  return {
+    headline: profile.headline ?? null,
+    how_to_approach: profile.how_to_approach ?? null,
+    best_bait: profile.best_bait ?? null,
+    confidence: profile.confidence ?? null,
+    no_holds: profile.says_no?.does_his_no_hold ?? null,
+    praise_means: profile.praise_means?.reading ?? null,
+    inflation: profile.calibration?.inflation ?? null,
+    what_moves_him: (profile.what_moves_him ?? []).slice(0, 2),
+    what_shuts_him_down: (profile.what_shuts_him_down ?? []).slice(0, 2),
+  };
+}
+
+/**
+ * THE WIRE FORM of a counterparty-layer profile, for the players in one deal.
+ *
+ * `counterpartyLayer` builds each manager out of the structures that are cheapest
+ * to price with: `players` and `reads` are Maps, and `owned`, `needs`, `surplus`
+ * and `stance.respect` / `stance.probe` are Sets. None of those survives
+ * `JSON.stringify` — a Map serialises as `{}` — so each one has to be flattened
+ * before a page can show it, and the per-player chat reads that are the whole
+ * point of the layer never crossed the wire at all.
+ *
+ * It converts on the way OUT and leaves the layer's own shapes alone on purpose:
+ * `playerValuation` looks those Maps up by name thousands of times in a single
+ * findTrades run, and turning them into arrays at the source would be a real cost
+ * paid for a display concern.
+ *
+ * `players` and `reads` cover every player in the league this manager has been
+ * recorded talking about, so they are narrowed to the players actually in this
+ * deal — the only ones a trade card can show — rather than shipped whole. A
+ * player he has never mentioned is ABSENT rather than present and empty, so "no
+ * read" cannot be misread as "he is neutral on him".
+ */
+export function serializeManagerRead(managerProfile, dealPlayers = []) {
+  const cp = managerProfile;
+  if (cp == null || typeof cp !== 'object') return null;
+  const respect = new Set(setNames(cp.stance?.respect));
+  const probe = new Set(setNames(cp.stance?.probe));
+  const reads = cp.reads instanceof Map ? cp.reads : new Map();
+  const said = cp.players instanceof Map ? cp.players : new Map();
+  const owned = cp.owned instanceof Set ? cp.owned : null;
+
+  const seen = new Set();
+  const playerReads = [];
+  for (const p of dealPlayers ?? []) {
+    const key = nameKey(p);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const talk = reads.get(key) ?? null;
+    const raw = said.get(key) ?? null;
+    if (!talk && !raw) continue;
+    playerReads.push({
+      player: talk?.player ?? p?.name ?? null,
+      owns: owned ? owned.has(key) : null,
+      mentions: talk?.mentions ?? raw?.n ?? null,
+      sentiment: talk?.sentiment ?? raw?.sentiment ?? null,
+      verdict: talk?.verdict ?? null,
+      confidence: talk?.confidence ?? null,
+      why: talk?.why ?? null,
+      action: talk?.action ?? null,
+      // His own word on this player, and whether his word has held. `respect`
+      // never reaches a league-wide idea — the finder drops those players
+      // outright — but a ladder asked for by name can carry one, so both are
+      // reported rather than only the one this path happens to produce.
+      declared: respect.has(key) ? 'held' : probe.has(key) ? 'not_held' : null,
+    });
+  }
+
+  return {
+    tier: cp.tier ?? null,
+    chat_weight: cp.chat_weight ?? null,
+    open_to_trade_pct: cp.open_to_trade_pct ?? null,
+    trade_talk_pct: cp.trade_talk_pct ?? null,
+    priors: cp.priors && Object.keys(cp.priors).length ? cp.priors : null,
+    untouchable_rate: cp.untouchable_rate ?? null,
+    // Sets, flattened. An empty array means "read, and he needs nothing there";
+    // null means the league could not be analysed at all. The two are not the
+    // same answer and must not arrive looking alike.
+    needs: cp.needs == null ? null : setNames(cp.needs),
+    surplus: cp.surplus == null ? null : setNames(cp.surplus),
+    window: cp.window ?? null,
+    roster_size: cp.roster_size ?? null,
+    luck: cp.luck ?? null,
+    negotiation: compactNegotiation(cp.negotiation),
+    negotiation_n: cp.negotiation_n ?? 0,
+    // Already plain objects; passed through so the receptiveness number on a card
+    // can be taken apart into the sources that built it, with each sample size.
+    receptiveness_factors: cp.receptiveness_factors ?? [],
+    word_stance_note: cp.stance?.note ?? null,
+    player_reads: playerReads,
+  };
+}
+
+/**
+ * The counterparty read on one proposed deal.
+ *
+ * `perception_delta` is the number that matters: how much better the package he
+ * receives looks to him than the one he gives up, as a percentage of what he is
+ * giving. Positive means it reads as a win from his side of the table — which
+ * is the precondition for acceptance, independent of whether it is good for us.
+ *
+ * It is null when nothing we know about him moves the price of any player in
+ * the deal. His "perception" is then just our own value gap, which the trade
+ * engine already prices through its capped fairness term and its value cost;
+ * returning it anyway let the ±10% perception factor pay a second time for
+ * handing him value — for every manager with no chat read, which after the
+ * all-league build is every manager in four of the five leagues.
+ * `perception_shift` is the part his views add beyond our own gap, in the same
+ * units: the tie-breaker the perception factor was written to be.
+ */
+export function readDeal({ theirGive, theirGet, managerProfile, zero = [] }) {
+  // `zero` was built into playerValuation and perceivedValue for the per-source
+  // ablation and stopped here, so a findTrades run with a source suppressed
+  // still priced every DEAL with it. Measured 2026-09-18 on a copy of
+  // production with manager signals built: zeroing all four chat sources moved
+  // exactly 0 of 223 deal scores across the five leagues, because this call was
+  // the last one still reading them. Threading it through is what makes the
+  // ablation a measurement rather than a formality.
+  const give = perceivedValue(theirGive, managerProfile, { zero });
+  const get = perceivedValue(theirGet, managerProfile, { zero });
+  const base = give.value || 1;
+  const delta = (get.value - give.value) / base;
+  const sum = list => list.reduce((s, p) => s + (p.value ?? 0), 0);
+  const ourDelta = (sum(theirGet) - sum(theirGive)) / (sum(theirGive) || 1);
+  const informed = give.reasons.length > 0 || get.reasons.length > 0;
+  return {
+    // The layer profile, flattened into JSON-safe values FIRST so the explicit
+    // fields below always win. Without it the receptiveness on a card was a bare
+    // number with nothing behind it, and every per-player chat read the layer had
+    // already computed stopped at this function.
+    ...serializeManagerRead(managerProfile, [...(theirGive ?? []), ...(theirGet ?? [])]),
+    receptiveness: managerProfile?.receptiveness ?? 1,
+    their_perceived_give: give.value, their_perceived_get: get.value,
+    perception_informed: informed,
+    perception_delta: informed ? +(delta * 100).toFixed(1) : null,
+    perception_shift: informed ? +((delta - ourDelta) * 100).toFixed(1) : null,
+    perception_reasons: [...give.reasons.map(r => ({ ...r, side: 'they_give' })),
+      ...get.reasons.map(r => ({ ...r, side: 'they_get' }))],
+    chat_msgs: managerProfile?.chat_msgs ?? 0,
+    accept_rate: managerProfile?.accept_rate ?? null,
+    // The sample the rate rests on. It was computed on the layer (`:210`) and
+    // stopped here, so no caller could tell four decided offers from sixty —
+    // which is the whole difference between a usable anchor and a coincidence.
+    accept_rate_n: managerProfile?.accept_rate_n ?? 0,
+    word_credibility: managerProfile?.stance?.credibility?.credibility ?? null,
+    word_note: managerProfile?.stance?.note ?? null,
+  };
+}
+
+/**
+ * THE MAP — every manager in one league crossed with every player, priced their
+ * way next to ours.
+ *
+ * This is a VIEW over `playerValuation`, not a second engine: the trade finder
+ * reaches the same function through `readDeal`, so a number here and a number
+ * on a trade card cannot disagree.
+ *
+ * `players` is the priced universe and must be supplied by the caller — the
+ * trade engine already builds it (`assetUniverse`), and importing it here would
+ * make a cycle. A call without it is refused rather than guessed at.
+ *
+ * `sources_used` is what actually priced something, not what might have; every
+ * declared source that priced nothing appears in `sources_absent` with the
+ * reason, so a page can never present a chat-free league's map as if it had the
+ * same evidence behind it as league 4's.
+ */
+export function valuationMap(leagueId, { season, week, players, layer = null,
+  rosterContext = null, zero = [] } = {}) {
+  const empty = reason => ({
+    league_id: leagueId, season: season ?? null, week: week ?? null,
+    available: false, reason, my_roster_id: null,
+    sources_used: [], sources_absent: [], managers: new Map(),
+  });
+  if (!Array.isArray(players) || !players.length) {
+    return empty('no priced player universe supplied — the caller passes the assets it has already built');
+  }
+  const cp = layer ?? counterpartyLayer(leagueId, { season, week, rosterContext });
+  if (!cp.size) {
+    return empty('no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it');
+  }
+
+  const myRoster = rows('SELECT my_team_id FROM leagues WHERE id = ?', leagueId)[0]?.my_team_id ?? null;
+  const hasChat = identityMap(leagueId).size > 0;
+  const managers = new Map();
+  const used = new Set();
+  const inertReason = new Map();
+  let anyNeeds = false;
+
+  for (const [id, mp] of cp) {
+    if (myRoster != null && String(id) === String(myRoster)) continue;
+    if (mp.needs?.size || mp.surplus?.size) anyNeeds = true;
+    for (const f of mp.receptiveness_factors ?? []) {
+      if (VALUATION_SOURCES[f.source]) used.add(f.source);
+    }
+    const byPlayer = new Map();
+    for (const p of players) {
+      const v = playerValuation(mp, p, { zero });
+      for (const f of v.factors) used.add(f.source);
+      for (const i of v.inert) if (!inertReason.has(i.source)) inertReason.set(i.source, i.reason);
+      byPlayer.set(String(p.name ?? '').toLowerCase(), v);
+    }
+    managers.set(String(id), {
+      roster_id: String(id), receptiveness: mp.receptiveness, tier: mp.tier,
+      receptiveness_factors: mp.receptiveness_factors ?? [],
+      needs: mp.needs ? [...mp.needs] : null, surplus: mp.surplus ? [...mp.surplus] : null,
+      window: mp.window, chat_msgs: mp.chat_msgs,
+      accept_rate: mp.accept_rate, accept_rate_n: mp.accept_rate_n,
+      word_stance: mp.stance?.stance ?? null, word_note: mp.stance?.note ?? null,
+      has_negotiation_profile: !!mp.negotiation,
+      players: byPlayer,
+    });
+  }
+
+  const absent = [];
+  for (const [key, spec] of Object.entries(VALUATION_SOURCES)) {
+    if (used.has(key)) continue;
+    if (!hasChat && spec.needs === 'league chat') {
+      absent.push({ source: key, reason: 'no chat corpus for this league (no confirmed chat identities)' });
+    } else if (inertReason.has(key)) {
+      absent.push({ source: key, reason: inertReason.get(key) });
+    } else if (key === 'positional_need' && !anyNeeds) {
+      absent.push({ source: key, reason: 'no roster read for this league (analyzeLeague produced none)' });
+    } else {
+      absent.push({ source: key, reason: 'the data exists but no player in this league matched it' });
+    }
+  }
+
+  return {
+    league_id: leagueId, season: season ?? null, week: week ?? null,
+    available: true, reason: null, my_roster_id: myRoster == null ? null : String(myRoster),
+    sources_used: [...used].sort(), sources_absent: absent, managers,
+  };
+}
+
+/**
+ * HOW NICK LOOKS — the 'ME' side of the same map.
+ *
+ * Master plan 00 D4, tactic 9: "pacing by his recent offers to that person,
+ * never lead with a player the whole league knows he is shopping (Achane)".
+ * None of that is a judgement about Nick; it is the part of his own behaviour
+ * the other nine people can see, and it is the input the Coach needs before it
+ * writes an opener.
+ *
+ * Three things, each from a named source and never invented:
+ *   - what he has sent each manager, and how they answered (ESPN transactions,
+ *     EXECUTE rows only — the de-duplication manager-signals.js documented);
+ *   - what the league knows he is shopping (his own chat talk about his own
+ *     players, plus the `ME` negotiation profile's own list);
+ *   - the veto votes cast against deals he was part of.
+ */
+export function selfRead(leagueId, { season = null } = {}) {
+  const lg = rows('SELECT season, payload, my_team_id FROM leagues WHERE id = ?', leagueId)[0] ?? null;
+  const me = lg?.my_team_id == null ? null : String(lg.my_team_id);
+  const out = {
+    league_id: leagueId, available: false, reason: null, my_roster_id: me,
+    to_each_manager: new Map(), known_shopping: [], veto_votes_against: 0, veto_voters: [],
+    profile: null, sources: [],
+  };
+  if (me == null) return { ...out, reason: 'this league has no roster marked as Nick\'s' };
+
+  const yr = season ?? lg.season ?? null;
+  let tx = [];
+  try {
+    tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json
+               FROM league_transactions_raw WHERE league_id = ? AND season = ?`, leagueId, yr);
+  } catch { tx = []; }
+
+  const partiesOf = t => {
+    let items = [];
+    try { items = JSON.parse(t.items_json || '[]'); } catch { items = []; }
+    return new Set(items.flatMap(i => [i.fromTeamId, i.toTeamId])
+      .filter(x => x != null && Number(x) > 0).map(String));
+  };
+  const proposals = tx.filter(t => t.type === 'TRADE_PROPOSAL' && t.execution_type === 'EXECUTE');
+  const mine = proposals.filter(t => String(t.team_id) === me);
+  const iAmParty = new Set(proposals.filter(t => String(t.team_id) === me || partiesOf(t).has(me))
+    .map(t => t.tx_id));
+  const answer = new Map();
+  for (const t of tx) {
+    if (t.execution_type !== 'EXECUTE' || !t.related_tx_id) continue;
+    if (t.type === 'TRADE_ACCEPT') answer.set(t.related_tx_id, 'accepted');
+    else if (t.type === 'TRADE_DECLINE') answer.set(t.related_tx_id, 'declined');
+  }
+
+  for (const p of mine) {
+    for (const other of partiesOf(p)) {
+      if (other === me) continue;
+      const row = out.to_each_manager.get(other)
+        ?? { roster_id: other, offers_sent: 0, accepted: 0, declined: 0, pending: 0,
+          last_offer_at: null, source: 'tx' };
+      row.offers_sent++;
+      const a = answer.get(p.tx_id);
+      if (a === 'accepted') row.accepted++; else if (a === 'declined') row.declined++; else row.pending++;
+      if (!row.last_offer_at || String(p.proposed_at) > row.last_offer_at) row.last_offer_at = p.proposed_at;
+      out.to_each_manager.set(other, row);
+    }
+  }
+
+  const vetoes = tx.filter(t => t.type === 'TRADE_VETO' && iAmParty.has(t.related_tx_id));
+  out.veto_votes_against = vetoes.length;
+  out.veto_voters = vetoes.map(v => ({ roster_id: String(v.team_id), tx_id: v.related_tx_id }));
+
+  // What the league can see him shopping. Only his OWN players, only where he
+  // has said enough for it to be a pattern, and the model read of the whole
+  // corpus counted alongside it rather than instead of it.
+  const owned = rosterOwnership(leagueId);
+  const profiles = negotiationProfilesFor(leagueId);
+  out.profile = profiles.self ?? null;
+  const shopping = new Map();
+  for (const v of rows(`SELECT player_name, sentiment, n, last_mention FROM manager_player_view
+                        WHERE league_id = ? AND roster_id = ? AND n >= 3`, leagueId, me)) {
+    const key = v.player_name.toLowerCase();
+    if (owned && owned.get(key) !== me) continue;
+    if (!(v.sentiment <= 2.0)) continue;
+    shopping.set(key, { player: v.player_name, source: 'chat', n: v.n,
+      why: `he has talked him down ${v.n} times in the league chat (last ${v.last_mention})`,
+      last_mention: v.last_mention });
+  }
+  const selfRoster = profiles.self?.profile?.roster_read ?? null;
+  for (const list of ['quietly_available', 'undervalues']) {
+    for (const entry of selfRoster?.[list] ?? []) {
+      const subject = String(entry).split(/\s+—\s+|\s+-\s+|\(/)[0].trim();
+      const key = subject.toLowerCase();
+      if (!key) continue;
+      // The lists are prose, and some entries are not players at all — the real
+      // `ME` profile lists "Olave-adjacent throw-ins when he had him". An entry
+      // that does not resolve to a real player is dropped rather than shown to
+      // Nick as someone the league knows he is shopping. Ownership is NOT
+      // required: he can be known for shopping a player he has since moved.
+      if (!isRealPlayer(key)) continue;
+      const already = shopping.get(key);
+      if (already) {
+        already.source = 'chat+profile';
+        already.why += `; his own profile lists him under ${list.replace(/_/g, ' ')}`;
+      } else {
+        shopping.set(key, { player: subject, source: 'profile',
+          n: profiles.self?.messages_read ?? 0,
+          why: `the model read of his own messages lists him under ${list.replace(/_/g, ' ')}: "${String(entry).slice(0, 120)}"` });
+      }
+    }
+  }
+  out.known_shopping = [...shopping.values()].sort((a, b) => (b.n ?? 0) - (a.n ?? 0));
+
+  if (tx.length) out.sources.push('tx');
+  if (out.known_shopping.some(s => s.source !== 'profile')) out.sources.push('chat');
+  if (profiles.self) out.sources.push('profile');
+  out.available = out.sources.length > 0;
+  if (!out.available) {
+    out.reason = 'nothing the league can see: no captured transactions for this league and no chat corpus';
+  }
+  return out;
+}
+
+// untouchablesFor lived here until 2026-09-18. It had no caller: declared
+// untouchables are decided by bluff-detector.js#untouchableStance, which reads
+// the same rows and also weighs whether the manager's word has held.
+
+/**
+ * Signature of every counterparty input for one league, for a cache
+ * fingerprint (the findTrades cache left these out, so a rebuild served stale
+ * rankings). Stable across an idle rebuild — the builders only write when
+ * something changed — and different after any real change: signals and player
+ * views (one stamp, see buildManagerSignals), identities, hand-set tiers, and
+ * for a chat league the chat data and the negotiation profiles.
+ */
+export function counterpartyDataKey(leagueId) {
+  const part = (table, stamp) => {
+    try {
+      const r = rows(`SELECT COUNT(*) AS n, MAX(${stamp}) AS m FROM ${table} WHERE league_id = ?`, leagueId)[0];
+      return `${r?.n ?? 0}:${r?.m ?? ''}`;
+    } catch { return 'absent'; }
+  };
+  let chat = 'none';
+  if (identityMap(leagueId).size) {
+    const c = openChatDb();
+    if (!c) chat = 'absent';
+    else {
+      try {
+        let np = 'absent';
+        try {
+          const r = c.prepare('SELECT COUNT(*) AS n, MAX(built_at) AS m FROM negotiation_profiles').get();
+          np = `${r.n}:${r.m ?? ''}`;
+        } catch { np = 'absent'; }
+        chat = `${chatDataKey(c)}|np:${np}`;
+      } finally { c.close(); }
+    }
+  }
+  return `ms:${part('manager_signals', 'computed_at')}|id:${part('league_member_identity', 'updated_at')}`
+    + `|mp:${part('manager_profiles', 'updated_at')}|chat:${chat}`;
+}
+
+/**
+ * Shape of one stored negotiation profile — the input schema of the tool
+ * scripts/build-negotiation-profiles.mjs forces the model to call. Kept here so
+ * the server has one reader that checks what it reads; the script should import
+ * it rather than carry a second copy.
+ */
+const strings = { type: 'array', items: { type: 'string' } };
+export const NEGOTIATION_PROFILE_SCHEMA = Object.freeze({
+  type: 'object',
+  properties: {
+    headline: { type: 'string' },
+    says_no: { type: 'object', properties: {
+      how: { type: 'string' }, hard_no_looks_like: strings, soft_no_looks_like: strings,
+      does_his_no_hold: { type: 'string', enum: ['yes', 'usually', 'rarely', 'unknown'] }, evidence: strings,
+    }, required: ['how', 'does_his_no_hold', 'evidence'] },
+    praise_means: { type: 'object', properties: {
+      reading: { type: 'string', enum: ['belief', 'marketing', 'habit', 'mixed', 'unknown'] },
+      why: { type: 'string' }, hypes_before_selling: { type: 'boolean' }, agrees_with_numbers: { type: 'string' },
+      evidence: strings,
+    }, required: ['reading', 'why', 'evidence'] },
+    techniques: { type: 'array', items: { type: 'object', properties: {
+      name: { type: 'string' }, how_he_does_it: { type: 'string' }, evidence: strings,
+      how_often: { type: 'string', enum: ['often', 'sometimes', 'once'] },
+    }, required: ['name', 'how_he_does_it', 'how_often'] } },
+    calibration: { type: 'object', properties: {
+      enthusiasm_scale: { type: 'string' }, baseline_tone: { type: 'string' },
+      inflation: { type: 'string', enum: ['none', 'mild', 'heavy', 'unknown'] },
+    }, required: ['enthusiasm_scale', 'inflation'] },
+    roster_read: { type: 'object', properties: {
+      really_untouchable: strings, quietly_available: strings, overvalues: strings, undervalues: strings,
+      reasoning: { type: 'string' },
+    } },
+    what_moves_him: strings,
+    what_shuts_him_down: strings,
+    how_to_approach: { type: 'string' },
+    best_bait: { type: 'string' },
+    confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+    caveats: strings,
+  },
+  required: ['headline', 'says_no', 'praise_means', 'techniques', 'calibration',
+    'what_moves_him', 'how_to_approach', 'confidence', 'caveats'],
+});
+
+/**
+ * Every violation of the schema, recursively: type, enum, required keys,
+ * unexpected keys, and tool-call markup leaked into a string — the failure
+ * that left six of nine profiles unusable on 2026-09-18 while still parsing.
+ */
+function schemaErrors(schema, value, where = 'profile') {
+  if (value == null) return [];
+  switch (schema.type) {
+    case 'object': {
+      if (typeof value !== 'object' || Array.isArray(value)) {
+        return [`${where}: expected object, got ${Array.isArray(value) ? 'array' : typeof value}`];
+      }
+      const errs = [];
+      for (const k of schema.required ?? []) if (value[k] == null) errs.push(`${where}.${k}: missing`);
+      const known = schema.properties ?? {};
+      for (const k of Object.keys(value)) {
+        if (!(k in known)) errs.push(`${where}.${k}: unexpected key`);
+        else errs.push(...schemaErrors(known[k], value[k], `${where}.${k}`));
+      }
+      return errs;
+    }
+    case 'array':
+      if (!Array.isArray(value)) return [`${where}: expected array, got ${typeof value}`];
+      return value.flatMap((v, i) => schemaErrors(schema.items, v, `${where}[${i}]`));
+    case 'string':
+      if (typeof value !== 'string') return [`${where}: expected string, got ${typeof value}`];
+      if (/<\/?parameter\b/.test(value)) return [`${where}: leaked tool-call markup`];
+      if (schema.enum && !schema.enum.includes(value)) return [`${where}: "${value}" not in ${schema.enum.join('/')}`];
+      return [];
+    case 'boolean':
+      return typeof value === 'boolean' ? [] : [`${where}: expected boolean, got ${typeof value}`];
+    default:
+      return [];
+  }
+}
+export function negotiationProfileErrors(profile) {
+  if (profile == null || typeof profile !== 'object') return ['profile: expected object'];
+  return schemaErrors(NEGOTIATION_PROFILE_SCHEMA, profile);
+}
+
+/**
+ * The one server reader for negotiation_profiles (private chat DB, written by
+ * scripts/build-negotiation-profiles.mjs with Sonnet 5).
+ *
+ * Returns, for one league:
+ *   byRoster  roster_id -> { name, profile, built_at, messages_read, model } for
+ *             every VALID profile whose person is a trusted identity here
+ *   self      'ME' — Nick as the league-4 chat experiences him. Never a
+ *             counterparty; it answers "how do I look to them".
+ *   invalid   [{ name, errors }] — stored rows that fail the schema; not used
+ *   unmapped  valid profiles with no trusted identity in this league
+ *
+ * A league with no trusted chat identity returns available=false: the profiles
+ * are read from one chat, and attaching them to namesakes elsewhere would be
+ * worse than having none.
+ */
+export function negotiationProfilesFor(leagueId) {
+  const result = (available, reason = null) => ({
+    league_id: leagueId, available, reason, byRoster: new Map(), self: null, invalid: [], unmapped: [],
+  });
+  const ids = identityMap(leagueId);
+  if (!ids.size) return result(false, 'no chat corpus for this league (no confirmed chat identities)');
+  const chat = openChatDb();
+  if (!chat) return result(false, 'chat DB not found');
+  let stored;
+  try {
+    stored = chat.prepare(`SELECT name, profile_json, messages_read, model, built_at, corpus_hash
+                           FROM negotiation_profiles ORDER BY name`).all();
+  } catch (e) {
+    if (/no such table/.test(String(e?.message))) {
+      return result(false, 'no negotiation_profiles table (scripts/build-negotiation-profiles.mjs has not run)');
+    }
+    throw e;
+  } finally { chat.close(); }
+
+  const out = result(true);
+  const rosterByName = new Map([...ids.values()].map(i => [i.chat_name, i.roster_id]));
+  const myTeam = rows('SELECT my_team_id FROM leagues WHERE id = ?', leagueId)[0]?.my_team_id ?? null;
+  for (const r of stored) {
+    let profile = null;
+    let errors;
+    try { profile = JSON.parse(r.profile_json); errors = negotiationProfileErrors(profile); }
+    catch { errors = ['unparseable JSON']; }
+    if (errors.length) { out.invalid.push({ name: r.name, errors }); continue; }
+    const entry = { name: r.name, profile, built_at: r.built_at, messages_read: r.messages_read,
+      model: r.model, corpus_hash: r.corpus_hash };
+    if (r.name === 'ME') {
+      out.self = { ...entry, roster_id: rosterByName.get('ME') ?? (myTeam == null ? null : String(myTeam)),
+        scope: 'how the league chat sees Nick' };
+      continue;
+    }
+    const rosterId = rosterByName.get(r.name);
+    if (rosterId == null || String(rosterId) === String(myTeam)) { out.unmapped.push(r.name); continue; }
+    out.byRoster.set(String(rosterId), { ...entry, roster_id: String(rosterId) });
+  }
+  return out;
+}

@@ -24,7 +24,7 @@ const SLEEPER_BASE = 'https://api.sleeper.app/v1';
 r.get('/', (req, res) => {
   res.json(rows(`SELECT l.id, l.platform, l.league_id, l.season, l.name, l.my_team_id, l.team_count, l.ppr,
                         l.superflex, l.league_type, l.fetched_at, l.connection_status, l.sync_error,
-                        l.espn_s2 IS NOT NULL AS has_cookies
+                        l.current_week, l.payload_season, l.espn_s2 IS NOT NULL AS has_cookies
                  FROM leagues l JOIN league_memberships m ON m.league_id = l.id
                  WHERE m.user_id = ? ORDER BY l.id`, req.auth.userId));
 });
@@ -118,8 +118,11 @@ r.delete('/:id', (req, res) => {
 const ESPN_SLOT_NAME = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'DEF', 17: 'K', 23: 'FLEX' };
 
 async function fetchEspn(lg, season) {
+  // No scoringPeriodId: ESPN then answers for the CURRENT period. Pinning it to 1
+  // froze every roster at week 1 for the whole season — leagues looked connected
+  // but never changed (found 2026-09-17).
   const url = `${ESPN_BASE}/seasons/${season}/segments/0/leagues/${lg.league_id}`
-    + `?scoringPeriodId=1&view=mTeam&view=mRoster&view=mMatchup&view=mSettings`;
+    + `?view=mTeam&view=mRoster&view=mMatchup&view=mSettings`;
   const headers = { ...BROWSER_HEADERS };
   if (lg.espn_s2 && lg.swid) headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
@@ -132,6 +135,13 @@ const rosterCount = data => (data.teams ?? []).reduce((s, t) => s + (t.roster?.e
 export async function syncEspnLeague(lg) {
   let data = await fetchEspn(lg, lg.season);
   let usedSeason = lg.season, fellBack = false;
+  // Read the matchup period from THIS season's response, before the pre-draft
+  // fallback below can reassign `data`. It used to be read afterwards, so a
+  // league that fell back wrote last season's final period — 17 or 18 — into
+  // `leagues.current_week`, and `leagueCurrentWeek()` trusts that column above
+  // everything else. The league then read as week 17 on every week-aware
+  // surface while `leagues.season` still said the current year.
+  const currentSeasonWeek = Number(data.status?.currentMatchupPeriod) || null;
   // Pre-draft leagues return empty rosters; fall back to last season so analysis
   // still has something real to work with.
   if (rosterCount(data) === 0) {
@@ -143,11 +153,16 @@ export async function syncEspnLeague(lg) {
   const lineup = data.settings?.rosterSettings?.lineupSlotCounts ?? {};
   const rosterPositions = Object.entries(lineup)
     .flatMap(([slot, n]) => Array(n).fill(ESPN_SLOT_NAME[slot]).filter(Boolean));
+  const currentWeek = currentSeasonWeek;
+  // `season_used` and `fell_back` were returned and then thrown away by the
+  // scheduled path (scheduler.js refreshLeagueRosters keeps only counts), so a
+  // league running on last season's rosters looked freshly connected to every
+  // reader except the one manual-sync message. Persist them.
   run(`UPDATE leagues SET name = ?, team_count = ?, payload = ?, roster_positions = ?,
-       league_type = ?, fetched_at = datetime('now') WHERE id = ?`,
+       league_type = ?, current_week = ?, payload_season = ?, fetched_at = datetime('now') WHERE id = ?`,
     data.settings?.name ?? `ESPN ${lg.league_id}`, data.teams?.length ?? null,
     JSON.stringify(data), rosterPositions.length ? JSON.stringify(rosterPositions) : null,
-    leagueTypeFromPayload('espn', data), lg.id);
+    leagueTypeFromPayload('espn', data), currentWeek, usedSeason, lg.id);
   return { teams: data.teams?.length ?? 0, roster_players: rosterCount(data), season_used: usedSeason, fell_back: fellBack };
 }
 
@@ -263,9 +278,17 @@ function extractRosters(lg) {
   const { map, norm } = playersByName();
   const values = fcValues();
   const out = [];
+  // Both branches below end in `.filter(Boolean)`, which drops every rostered
+  // player that the local `players` table does not know. When `players` holds
+  // only the bootstrap seed — no espn_id on any row — the `espn:` key never
+  // hits and only the name|position fallback can match, so a real 16-player
+  // roster silently becomes a handful. Count what was offered so a caller can
+  // tell a thin roster from a thin join.
+  let offered = 0;
   if (lg.platform === 'sleeper') {
     const userById = Object.fromEntries((payload.users ?? []).map(u => [u.user_id, u]));
     for (const ro of payload.rosters ?? []) {
+      offered += (ro.players ?? []).length;
       const players = (ro.players ?? []).map(sid => map.get(`sleeper:${sid}`)).filter(Boolean)
         .map(p => ({ ...p, value: values.get(p.id) ?? 0 }));
       out.push({
@@ -276,11 +299,19 @@ function extractRosters(lg) {
     }
   } else {
     for (const t of payload.teams ?? []) {
+      offered += (t.roster?.entries ?? []).length;
       const players = (t.roster?.entries ?? [])
         .map(e => {
           const pl = e.playerPoolEntry?.player;
           if (!pl) return null;
-          return map.get(`espn:${pl.id}`) ?? map.get(`${norm(pl.fullName ?? '')}|${({1:'QB',2:'RB',3:'WR',4:'TE',5:'K'})[pl.defaultPositionId] ?? ''}`);
+          // 16 is ESPN's D/ST. Leaving it out keyed every team defence as
+          // "lions dst|" with an empty position, which matched nothing and then
+          // got dropped by the filter below — so defences vanished from this
+          // analysis while trade-engine.js:522, which has the same map with 16
+          // in it, still counted them. The two readers disagreed about whether
+          // your defence was on your team.
+          const POS = { 1: 'QB', 2: 'RB', 3: 'WR', 4: 'TE', 5: 'K', 16: 'DEF' };
+          return map.get(`espn:${pl.id}`) ?? map.get(`${norm(pl.fullName ?? '')}|${POS[pl.defaultPositionId] ?? ''}`);
         })
         .filter(Boolean)
         .map(p => ({ ...p, value: values.get(p.id) ?? 0 }));
@@ -288,7 +319,9 @@ function extractRosters(lg) {
       out.push({ roster_id: t.id, owner: label, players });
     }
   }
-  return out;
+  const matched = out.reduce((n, ro) => n + ro.players.length, 0);
+  const priced = out.reduce((n, ro) => n + ro.players.filter(p => p.value > 0).length, 0);
+  return { rosters: out, offered, matched, priced };
 }
 
 r.get('/:id/analysis', (req, res) => {
@@ -302,13 +335,43 @@ r.get('/:id/analysis', (req, res) => {
   perTeam.QB += rp.filter(x => x === 'SUPER_FLEX').length;
   for (const [pos, share] of Object.entries(FLEX_SPLIT)) perTeam[pos] += flex * share;
 
-  const rosters = extractRosters(lg);
-  const matched = rosters.reduce((s, ro) => s + ro.players.length, 0);
+  const { rosters, offered, matched, priced } = extractRosters(lg);
+  const league = {
+    id: lg.id, name: lg.name, platform: lg.platform, my_team_id: lg.my_team_id,
+    // Freshness travels with the verdict. Without it a league last synced nine
+    // hours ago, or one running on last season's payload, produced an analysis
+    // that looked exactly like a fresh one.
+    synced_at: lg.fetched_at ?? null,
+    connection_status: lg.connection_status ?? null,
+    season: lg.season,
+    payload_season: lg.payload_season ?? null
+  };
+  const coverage = { rostered_in_payload: offered, matched_to_player_table: matched, priced };
   if (matched === 0) {
     return res.json({
-      league: { id: lg.id, name: lg.name, platform: lg.platform, my_team_id: lg.my_team_id },
+      league,
       empty: true,
-      message: 'No rostered players found — this league likely hasn’t drafted yet for this season. Analysis will populate after your draft.',
+      // An undrafted league and a league whose players simply did not join
+      // against the local table look identical from here, so say which.
+      message: offered > 0
+        ? `This league has ${offered} rostered players, but none of them matched the local player table, so there is nothing to price. The player universe needs to sync before this can mean anything.`
+        : 'No rostered players found \u2014 this league likely hasn\u2019t drafted yet for this season. Analysis will populate after your draft.',
+      coverage,
+      averages: {}, rosters: []
+    });
+  }
+  // Every value below comes from `player_metrics` rows with source 'fc_value'.
+  // With none of them present every `p.value` is 0, so `starter_value` is 0 for
+  // every team, `averages[pos]` is 0, and `ratio` is 0 / (0 || 1) = 0 — which
+  // is under WEAK, so the page used to mark QB, RB, WR and TE as a NEED for
+  // every team in the league, captioned 'priced off real FantasyCalc trade
+  // values'. A verdict computed from no values is worse than no verdict.
+  if (priced === 0) {
+    return res.json({
+      league,
+      values_missing: true,
+      message: `No FantasyCalc trade values are loaded for any of the ${matched} rostered players this league matched, so roster strength cannot be priced. Sync the player values and this fills in.`,
+      coverage,
       averages: {}, rosters: []
     });
   }
@@ -331,14 +394,22 @@ r.get('/:id/analysis', (req, res) => {
   for (const ro of rosters) {
     ro.needs = []; ro.surplus = [];
     for (const pos of SKILL) {
-      const ratio = ro.positions[pos].starter_value / (averages[pos] || 1);
+      // `starter_value / (averages[pos] || 1)` turned a league-wide 0 into a
+      // ratio of 0, i.e. a confident NEED, for a position nobody has a price
+      // for. There is no verdict to give there.
+      if (!averages[pos]) {
+        ro.positions[pos].ratio = null;
+        ro.positions[pos].status = 'unknown';
+        continue;
+      }
+      const ratio = ro.positions[pos].starter_value / averages[pos];
       ro.positions[pos].ratio = ratio;
       ro.positions[pos].status = ratio < WEAK ? 'need' : ratio > STRONG ? 'surplus' : 'ok';
       if (ratio < WEAK) ro.needs.push(pos);
       if (ratio > STRONG) ro.surplus.push(pos);
     }
   }
-  res.json({ league: { id: lg.id, name: lg.name, platform: lg.platform, my_team_id: lg.my_team_id }, averages, rosters });
+  res.json({ league, averages, coverage, rosters });
 });
 
 export default r;

@@ -94,6 +94,19 @@ const inflight = new Map();
  * a busy/blocked attempt here just waits for the next report's own exit.
  */
 function reclaimWal() {
+  // A worker's 'exit' can arrive after whoever started it has closed the
+  // database — a test's after() hook does exactly that, and now reaches this
+  // code at all because the worker is no longer unref'd. There is nothing to
+  // checkpoint on a closed handle, and the `db.prepare()` below would throw
+  // "database is not open" from inside an event handler, where it surfaces as
+  // an uncaught exception no caller can catch rather than as a test failure.
+  //
+  // A precondition, not a swallowed error. The catch below covers "another
+  // connection is busy right now", which is a fact about contention and is
+  // worth retrying; "this handle is gone" is a different fact, and widening
+  // that catch to cover it would hide a genuine use-after-close everywhere
+  // else in this module. Checked explicitly so the two stay distinguishable.
+  if (!db.isOpen) return;
   const restoreTo = db.prepare('PRAGMA busy_timeout').get()?.timeout ?? 15000;
   try {
     db.exec('PRAGMA busy_timeout = 250');
@@ -134,7 +147,35 @@ export function refreshReport(name, { force = false } = {}) {
       workerData: { module: spec.module, fn: spec.fn, args: spec.args },
       env: process.env
     });
+    // Whether THIS worker's result has been recorded. `inflight.has(name)` is
+    // not that question: it is keyed by report name, so once a newer run for
+    // the same report registers, a finished worker's late 'exit' reads it as
+    // "still in flight" and overwrites the newer run's state with this one's.
+    // A latch that belongs to this worker cannot be confused with another run.
+    let settled = false;
     const finish = (payload, error) => {
+      // 'exit' always follows 'message'/'error', so only the first result
+      // counts. A worker that dies WITHOUT posting anything is still recorded,
+      // because then 'exit' is the first call and the latch is open.
+      if (settled) return;
+      settled = true;
+      // The database can be gone by the time a worker reports. `refreshReport()`
+      // is explicitly "safe to fire and forget", so a refresh started by a
+      // request can outlive the process that started it — which tests do
+      // routinely now that the worker is correctly ref'd and actually survives
+      // to deliver its result. Storing is impossible then. Settle saying so,
+      // rather than throwing "database is not open" out of an event handler
+      // where no caller can catch it and the runtime reports it as an
+      // uncaughtException against whatever test happened to be running.
+      //
+      // Not a silent drop: the promise resolves with a named error, so an
+      // awaiting caller is told the report was computed and not stored.
+      if (!db.isOpen) {
+        inflight.delete(name);
+        resolve({ report: name, duration_ms: Date.now() - started,
+          error: error ?? 'database closed before the report could be stored' });
+        return;
+      }
       run(`INSERT INTO nfl_cached_reports (report, fingerprint, computed_at, duration_ms, payload_json, error)
            VALUES (?,?,?,?,?,?)
            ON CONFLICT(report) DO UPDATE SET fingerprint=excluded.fingerprint, computed_at=excluded.computed_at,
@@ -146,10 +187,33 @@ export function refreshReport(name, { force = false } = {}) {
     worker.once('message', msg => finish(msg.error ? null : msg.value, msg.error ?? null));
     worker.once('error', err => finish(null, err.message));
     worker.once('exit', code => {
-      if (inflight.has(name)) finish(null, `worker exited with code ${code}`);
+      // No `inflight.has(name)` guard — see the latch above. This is a no-op
+      // when the worker already reported, and the only record when it did not.
+      finish(null, `worker exited with code ${code}`);
       reclaimWal();
     });
-    worker.unref();
+    // No `worker.unref()` here, deliberately.
+    //
+    // This promise can only settle from the three handlers above, so the worker
+    // is the only thing keeping the event loop alive while a report computes.
+    // Unref'ing it told Node the loop need not stay up for it, so any caller
+    // that awaited `refreshReport()` in a process with nothing else ref'd got a
+    // silent exit with the promise still pending — Node reports that as
+    // "Promise resolution is still pending but the event loop has already
+    // resolved". That breaks this function's own contract one line up
+    // ("Resolves when stored") and makes `refreshStaleReports()` unsafe to
+    // await anywhere but inside the running server.
+    //
+    // It hid because `server/index.js`'s `app.listen()` handle is ref'd and
+    // holds the loop open, so in production the message always arrived. The
+    // trap is a standalone runner: adding `nfl_reports` to
+    // `scripts/refresh-live-data.mjs`'s job list would exit mid-report and
+    // store nothing, silently.
+    //
+    // unref() bought nothing anyway — the listener already keeps the process
+    // alive and there is no graceful-shutdown handler for it to avoid
+    // delaying. (Contrast `nfl-ai-replay.js`, which unrefs a genuinely
+    // detached `fork()` it never awaits. That one is correct.)
   });
   inflight.set(name, job);
   return job;

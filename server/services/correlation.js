@@ -141,6 +141,17 @@ export function pairCorrelation(a, b) {
   // stack partner together with a WR4 who sees two targets a game. Scaling by how much
   // of the passing game actually runs through the receiver recovers that: a QB's fate
   // is tied to his WR1 and almost unrelated to his WR4.
+  //
+  // OPEN, per the 2026-09-17 audit, not changed here because it moves every stack
+  // ceiling and title odd: (a) the scale `target_share / 0.19` and its clamps
+  // [0.3, 2.2] appear in no fit — the audit measured the realised QB-WR1 copula
+  // correlation at ~0.22 against an observed 0.3155 in this repo's own data (2021+,
+  // n=2,174), partly because a Gaussian copula on skewed marginals attenuates the
+  // input rho; (b) the scaling touches QB-catcher pairs only, so two receivers each
+  // tied to the same QB are left at the pooled WR-WR estimate (~0.01) and the matrix
+  // is internally incoherent. Fit the QB-catcher and catcher-catcher correlations
+  // on WR1/WR2/WR3 strata directly, and invert the copula attenuation so the
+  // REALISED correlation matches the target.
   if (rel === 'team' && (a.position === 'QB') !== (b.position === 'QB')) {
     const catcher = a.position === 'QB' ? b : a;
     if (['WR', 'TE'].includes(catcher.position) && catcher.target_share != null) {
@@ -181,7 +192,7 @@ export function correlationMatrix(players) {
 export function correlatedSampler(players, sortedSamples) {
   const L = cholesky(correlationMatrix(players));
   const n = players.length;
-  return () => {
+  const sample = () => {
     const z = correlatedNormals(L);
     const out = new Float64Array(n);
     for (let i = 0; i < n; i++) {
@@ -192,6 +203,10 @@ export function correlatedSampler(players, sortedSamples) {
     }
     return out;
   };
+  // True when the correlation matrix could not be factorised and the draws are
+  // silently independent. Callers that report spreads or odds should surface it.
+  sample.uncorrelated = Boolean(L.fallbackIdentity);
+  return sample;
 }
 
 /** Everything we have fitted, for display. */

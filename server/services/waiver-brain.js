@@ -25,11 +25,13 @@
  *   - Points in weeks 15-17 are the ones that win it, and they are worth far
  *     more per point because there is no time left to recover from a bad one.
  *
- * `playoff_ppg` already exists on every asset — it is season ppg scaled by the
- * strength of a player's weeks 15-17 schedule — and until now nothing outside a
- * single diagnostic ever read it. `horizonValue()` blends the two on a weight
- * that moves through the season, so an October recommendation is mostly about
- * making the playoffs and a December one is entirely about winning them.
+ * `playoff_ppg` exists on every asset: the player's weekly rate for this league's
+ * playoff weeks — his rest-of-season rate times the share of those weeks his team
+ * plays, so a playoff-week bye counts. It carries no schedule STRENGTH: every
+ * opponent/home adjustment failed the weekly walk-forward test (matchups.js,
+ * 2026-09-17). `horizonValue()` blends it with adj_ppg on a weight that moves
+ * through the season, so an October recommendation leans on this week and the
+ * rest of the regular season, and a December one on the weeks that decide it.
  */
 import { row } from '../db/index.js';
 import { deriveFormat } from './format.js';
@@ -66,15 +68,19 @@ export function playoffWeight(week) {
   if (w >= PLAYOFFS_START) return 1;
   // Linear from 0.15 in week 1 to 0.85 in week 14: never zero, because a player
   // acquired in September is still on the roster in December, and never one,
-  // because you have to reach the playoffs before their schedule matters.
+  // because you have to reach the playoffs before those weeks matter.
   return r2(0.15 + 0.7 * ((w - 1) / (PLAYOFFS_START - 2)));
 }
 
 /**
  * A player's worth on the horizon that actually matters this week.
  *
- * `playoff_ppg` is season ppg scaled by weeks 15-17 schedule strength, so this
- * is a weighted blend of "helps me get there" and "helps me win it".
+ * A weighted blend of "helps me get there" (adj_ppg: 25% this week, 75% the
+ * rest-of-season rate) and "helps me win it" (playoff_ppg: the same rate over the
+ * playoff weeks, byes counted). Both halves are points per week on the same
+ * rest-of-season basis; what separates them is timing — this week's injuries and
+ * byes against playoff-week byes — not any read on opponents, which is not
+ * validated (matchups.js).
  */
 export function horizonValue(player, week) {
   const w = playoffWeight(week);
@@ -208,11 +214,12 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
   //
   // `bestLineup` takes the key it optimises, and every caller in this project
   // has passed `adj_ppg` — a season-long average. That silently made the whole
-  // analysis answer the wrong question: it ranks a player who is great in
-  // September and on bye-adjacent garbage in December above one whose weeks
-  // 15-17 schedule is the reason you would want him. Annotating each player with
+  // analysis answer the wrong question: it weighs this week the same in week 13
+  // as in week 3, and cannot see a playoff-week bye. Annotating each player with
   // a horizon value and optimising on THAT is a one-line change to the solve and
-  // a real change to what comes out of it.
+  // a real change to what comes out of it. (It used to also claim to read each
+  // player's weeks 15-17 schedule strength; that multiplier failed validation and
+  // is 1 — see horizonValue.)
   //
   // The same annotation is where the betting model enters: the Vegas game-script
   // multiplier scales this week's slice of each player's value. See vegasLift.
@@ -274,8 +281,8 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
       // Stated because it changes the decision: a pickup for December is worth
       // holding a bench spot for, and one for this Sunday is not.
       horizon: weight >= 0.6
-        ? `Priced mostly on his weeks 15-17 schedule, which is what matters from here.`
-        : `Priced mostly on the rest of the regular season; his playoff schedule is a secondary factor.`
+        ? `Priced mostly on his weekly rate for the fantasy playoff weeks (byes counted), which is what matters from here.`
+        : `Priced mostly on this week and the rest of the regular season; the playoff weeks are a secondary factor.`
     });
   }
 
@@ -315,8 +322,9 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
     playoff_weight: weight,
     pool_size: available.length,
     vegas_lines_available: available.filter(p => p.vegas?.applied).length,
-    scored_on: `Lineups are solved on a horizon value that is ${Math.round(weight * 100)}% weeks 15-17 ` +
-      'and the rest of the regular season, with this week\'s share scaled by the betting market\'s ' +
+    scored_on: `Lineups are solved on a horizon value: ${Math.round(weight * 100)}% the fantasy playoff weeks ` +
+      `(weekly rate, byes counted, no matchup adjustment) and ${100 - Math.round(weight * 100)}% this week plus ` +
+      'the rest of the regular season, with this week\'s share scaled by the betting market\'s ' +
       'game script for each player\'s team.',
     upgrades: upgrades.slice(0, limit),
     drop_candidates: droppable.slice(0, 4).map(p => ({
@@ -325,11 +333,18 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
       why: `Lowest value on your bench on the horizon that matters, and you carry ` +
         `${countAt(p.position)} at ${p.position}.`
     })),
+    // The reassuring branch is a claim about the roster, so it may only be made
+    // when there was actually a search to fail. With an empty or unpriceable
+    // pool it reported a total data outage as good news, which is the most
+    // literal form of the app telling you something it does not know.
     note: upgrades.length
       ? 'Ranked on the same scale as trades. A waiver claim needs nobody to agree, so a smaller ' +
         'gain here often outranks a larger trade nobody will sign.'
-      : 'No free agent would crack your lineup. That is a good sign about the roster, not a failure ' +
-        'of the search.'
+      : available.length === 0
+        ? 'No free agent could be priced, so nothing was searched. That is missing data, not a verdict ' +
+          'on your roster.'
+        : 'No free agent would crack your lineup. That is a good sign about the roster, not a failure ' +
+          'of the search.'
   };
 }
 
@@ -342,7 +357,7 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
  * you are trading a name for production.
  *
  * The signal is a gap between market value and the horizon that matters: someone
- * priced on reputation and a hot month, whose remaining schedule and role do not
+ * priced on reputation and a hot month, whose projected production does not
  * support it.
  */
 export function sellHigh(leagueId, { myTeamId = null, limit = 5 } = {}) {
@@ -439,15 +454,14 @@ export function sellHigh(leagueId, { myTeamId = null, limit = 5 } = {}) {
       standard_deviations: x.z,
       curve_explains: x.fit,
       confidence: x.fit >= 0.6 ? 'solid' : x.fit >= 0.35 ? 'weak' : 'barely a signal',
-      playoff_schedule: x.p.playoff_sos ?? null,
+      // No playoff-schedule read here: playoff_sos is 1 with no validated signal
+      // behind it (matchups.js), so "his weeks 15-17 are soft/hard" is not said.
       why: `Other ${x.p.position}s scoring ${x.hv} a week in this league price around ${x.expected}. ` +
         `He is at ${x.p.value} — ${x.premium}% above his own position's curve. ` +
         (x.fit < 0.6
           ? `Treat that loosely: production only explains ${Math.round(x.fit * 100)}% of what ` +
             `${x.p.position}s cost in this league, so the curve is a rough guide rather than a price.`
-          : (x.p.playoff_sos ?? 1) < 0.95
-            ? 'His weeks 15-17 schedule is below average on top of that, so the premium is being paid for the wrong months.'
-            : 'Sell the name while it still carries one.')
+          : 'Sell the name while it still carries one.')
     })),
     method: 'Value is fitted per position as a power law on production (log value against log points), ' +
       'and a candidate is a player at least one standard deviation above his own position\'s curve. ' +
@@ -461,6 +475,6 @@ export function sellHigh(leagueId, { myTeamId = null, limit = 5 } = {}) {
 const slim = p => ({
   id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
   espn_id: p.espn_id, ppg: p.ppg, adj_ppg: p.adj_ppg,
-  playoff_ppg: p.playoff_ppg, value: p.value, bye: p.bye,
+  value: p.value, bye: p.bye,
   injury: p.injury ?? null
 });

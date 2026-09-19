@@ -21,6 +21,7 @@ const DraftHub = lazy(() => import('./pages/DraftHub'));
 const LeagueHub = lazy(() => import('./pages/LeagueHub'));
 const PlayerDetail = lazy(() => import('./pages/PlayerDetail'));
 const TradeLab = lazy(() => import('./pages/TradeLab'));
+const TradeBrain = lazy(() => import('./pages/TradeBrain'));
 const Lineup = lazy(() => import('./pages/Lineup'));
 const News = lazy(() => import('./pages/News'));
 const Settings = lazy(() => import('./pages/Settings'));
@@ -117,7 +118,8 @@ export default function App() {
           <Route path="/draft" element={<DraftHub />} />
           <Route path="/teams" element={<Teams />} /><Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} />
-          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/lineup" element={<Lineup />} /><Route path="/news" element={<News />} />
+          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/trade-brain" element={<TradeBrain />} />
+          <Route path="/lineup" element={<Lineup />} /><Route path="/news" element={<News />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/pair" element={<Pair />} />
           {/* One MLB hub instead of six routes, two of which were named "legacy"

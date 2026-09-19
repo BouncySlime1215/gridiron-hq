@@ -3,9 +3,103 @@
 The fast-read summary A5 asks for. `docs/FANTASY-ENGINE-MASTER-PLAN.md` stays the
 full authoritative record; this file is what a handoff report quotes.
 
-Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c85`.
+Last updated: 2026-09-19, new cloud session on `cursor/betting-model-audit-fixes-1c85` (at `de82ee2`).
 
 ## Active
+
+- **2026-09-19, new cloud session — the two open WA blockers are CLOSED, and the
+  "14 known failures" baseline turned out to be mostly wrong. NEWEST; read this
+  first.** Picked up cold from `HANDOFF.md` at `8cf0387`. Shipped `e8a7831`
+  (RED), `982eb46` (GREEN), `de82ee2`, all pushed.
+  - **First, the thing that invalidated the previous measurement: this box had
+    no `node_modules` at all.** A fresh clone here does not install. The first
+    `npm test` of the session was therefore measuring a repo with zero
+    dependencies and is not comparable to anything. `npm ci` (270 packages, 7s)
+    before any suite number is trusted. The two `offline-guard` tests that
+    exercise `@anthropic-ai/sdk` and `node-fetch` fail with
+    `ERR_MODULE_NOT_FOUND` until it is run — which looks exactly like a guard
+    regression and is not one.
+  - **Blocker 1 — the offline-guard regression verdict, now reported: the guard
+    is sound, 7/7.** And the evidence is stronger than the one `5ac597a` shipped
+    with. That GREEN was taken on a box with no valid key, so its proof that the
+    SDK was blocked rested on a 401 coming back. This box has a **valid**
+    `GRIDIRON_ANTHROPIC_API_KEY`, and the SDK is still refused before a packet
+    leaves. The one thing the guard cannot do is say so in the failure text:
+    the SDK catches the guard's throw and re-wraps it as its own generic
+    `Connection error.`, so `grep "offline test guard"` over a suite log returns
+    0 while the guard is working perfectly. `offline-guard.test.js:1` digs
+    through `err.cause.cause` for this reason; nothing else does.
+  - **Blocker 2 — the unexplained 15th failure, now named AND caused.** It is
+    `evidence daemon status exposes feed gaps without faking price evidence`
+    (`test/model-integrity.test.js:1245`) — the name the last session guessed off
+    a partial run was right. The cause is **`ODDS_API_KEY` being present in the
+    GridIron HQ environment**, while the box the 14-failure baseline was measured
+    on had no keys at all. Nothing regressed. The baseline was never reproducible.
+  - **Root cause behind blocker 2, fixed in `982eb46`: the suite was hermetic on
+    the network and ambient on the environment.** Six tests' results were a
+    property of which machine ran them, bisected one key at a time, five runs
+    each, fully deterministic:
+    | env var | breaks |
+    |---|---|
+    | `ODDS_API_KEY` | `evidence daemon status exposes feed gaps` |
+    | `GRIDIRON_ANTHROPIC_API_KEY` | `AI replay refuses to spend before a Claude key is configured` (+ collateral) |
+    | `CFBD_API_KEY`, `TWITTERAPI_IO_KEY` | nothing |
+    `model-integrity` 91/94 -> **94/94**, `nfl-prospective-collection` 6/9 -> **9/9**,
+    with the real keys still set in the shell. `test/offline-guard.mjs` now
+    exports `PROVIDER_CREDENTIAL_ENV` (9 names) and deletes each at `--import`
+    time, the same seam it already used for two research-export paths.
+    `LAUNCHER_KEY_FILE` is deliberately excluded (a path, set by
+    `test/launcher.test.js:39`) and a test pins the exclusion.
+  - **The collateral one is worth knowing about on its own.**
+    `startAiBlindReplay()` (`server/services/nfl-ai-replay.js:351`) throws when
+    no key is configured and **runs** when one is: it inserts a row and forks a
+    `detached: true` + `unref()` worker that reconstructs ensembles against the
+    same SQLite file the suite is using. That corrupted an unrelated test 14
+    cases later. Proof it is contamination, not its own bug: alone under
+    `--test-name-pattern` it passes 1/1; in file order after the replay test it
+    fails, every time. **A credential in the environment was enough to start real
+    background work in the middle of a test run.**
+  - **The big one — 12 of the documented 14 failures were never an environment
+    gap.** `de82ee2`. `nfl-news-events` 1/8 -> **8/8**, `page-explain` 2/7 ->
+    **7/7**, with no change to any code under test. Both files called
+    `mock.module('node-fetch', { exports: { default: fn } })`. **`exports` is not
+    an option `node:test`'s `mock.module()` has** — it takes `defaultExport` and
+    `namedExports`. It was accepted in silence and the mocked default became an
+    empty object (`typeof ns.default === 'object'`, `Object.keys(ns.default)`
+    `=== []`). The SDK did `this.fetch = nf.default`, died on
+    `this.fetch.call is not a function`, caught it, and reported its own generic
+    `Connection error.` — which is exactly how it was read:
+    - `docs/CLOUD-MIGRATION.md:266` "Eleven of those 14 are this key"
+    - `TASKS.md` (entry below) "no `ANTHROPIC_API_KEY` in this box... Re-check
+      the key-dependent groups on the Mac"
+
+    **Both are wrong, and the second sends someone to re-run them on a machine
+    where they would have failed identically.** Every one of those 12 tests was
+    making a real request to `api.anthropic.com` on every run, on every box —
+    the precise thing the offline guard exists to stop, and why `cc12a22` could
+    capture a genuine Anthropic `request_id` from inside the suite. **On a box
+    with a valid key and no guard, these 12 spent real money per run.** This box
+    has a valid key, so that risk was live today. Corrected in place below;
+    `docs/CLOUD-MIGRATION.md:266` still needs the same correction.
+  - **A second, quieter defect the same work exposed.** `getApiKey()`
+    (`server/services/claude.js:26`) reads `GRIDIRON_ANTHROPIC_API_KEY` **before**
+    `ANTHROPIC_API_KEY`. Both mock-using test files set `ANTHROPIC_API_KEY` as
+    their fake key and their comments state that is what `getApiKey()` reads
+    first — it is not, since `cc6a788`. On any box carrying the real key, those
+    tests were running against **the real key, not their fake one**. Cleared by
+    `982eb46` as a side effect; the stale comments are still in both files.
+  - **Still open from this session, not assumed:**
+    1. **Full-suite confirmation run** on `de82ee2` is the authoritative number;
+       earlier runs in this entry are per-file. Baseline to beat: 2,699 pass /
+       21 fail / 3 cancelled / 41 skip of 2,764, measured here on `8cf0387`
+       after `npm ci`, in 1,655s.
+    2. **Two independent verify agents are running** (per A3): one adversarially
+       re-checking all three commits, one root-causing the remaining
+       `prop-clv-free-capture` (3) and `report-cache` (3). Neither had reported
+       at the time of writing. **Do not record either as clean without its
+       verdict** — that is exactly the gap that left blocker 1 open overnight.
+    3. **WA integration / final verify pass** still has not started. It is the
+       last WA item; after it, B1's State column goes WA -> Done and WO+WB opens.
 
 - **STOPPED CLEANLY 2026-09-19, ~06:50Z, at Nick's request ("stop all the work
   safely — starting a new session"). Read this first.**
@@ -402,8 +496,12 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
 - **Suite state in this cloud box, measured 2026-09-18.** A full `npm test` runs
   to completion here: **2,609 pass / 14 fail / 41 skipped of 2,667**. Every one
   of the 14 is an environment gap, not a code fault:
-  - `nfl-news-events` (7) and `page-explain` (4) reach the Anthropic API and
-    fail `Connection error.` — no `ANTHROPIC_API_KEY` in this box.
+  - ~~`nfl-news-events` (7) and `page-explain` (4) reach the Anthropic API and
+    fail `Connection error.` — no `ANTHROPIC_API_KEY` in this box.~~
+    **WRONG, corrected 2026-09-19 (`de82ee2`).** They do reach the Anthropic API,
+    but not for want of a key: `mock.module('node-fetch', { exports: {...} })`
+    uses an option `node:test` does not have, so the mock never installed. Fixed
+    with `defaultExport:`; 8/8 and 7/7 now, with no key. Count was 12, not 11.
   - `prop-clv-free-capture` (3) are the known pre-existing prop-CLV failures
     already filed in Q4. Unchanged by anything in this session.
   - `report-cache` (3) aborts spawning a worker thread (`Promise resolution is
@@ -413,7 +511,10 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
 
   Excluding the two key-dependent files, the rest of the suite is
   **2,613 pass / 3 fail / 41 skipped of 2,660** — the 3 being the prop-CLV ones.
-  Re-check the key-dependent and worker-thread groups on the Mac.
+  ~~Re-check the key-dependent and worker-thread groups on the Mac.~~
+  **The key-dependent group needed no Mac and no key — see the correction above
+  and the newest Active entry.** The worker-thread group (`report-cache`) is
+  still open and under investigation.
 
 ## Waiting On
 

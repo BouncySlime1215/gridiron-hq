@@ -262,12 +262,38 @@ mean splitting "is this configured" from "here is the secret" — a real change
 worth making if these ever run somewhere less private, and not worth doing now.
 Noted in `TASKS.md` under **[WD]** rather than done here.
 
-**Measured, not assumed:** a full `npm test` in this cloud box gives
-2,609 pass / 14 fail / 41 skipped of 2,667. Eleven of those 14 are this key:
+**Measured, not assumed:** a full `npm test` in this cloud box gave
+2,609 pass / 14 fail / 41 skipped of 2,667.
+
+**CORRECTED 2026-09-19 — the attribution below was wrong, and the count was not
+reproducible.** This paragraph used to read "Eleven of those 14 are this key:
 `nfl-news-events.test.js` (7) and `page-explain.test.js` (4), every one of them
-`Connection error.` from the Anthropic SDK. The other 3 are the known
-pre-existing prop-CLV failures. Nothing else in the suite needs a key or a
-network.
+`Connection error.` from the Anthropic SDK." The measurement was real; the cause
+was not. Those 12 (not 11 — `page-explain` is 5) failed because both files
+called `mock.module('node-fetch', { exports: { default: fn } })`, and `exports`
+is not an option `node:test`'s `mock.module()` has. It was ignored, the mocked
+default became an empty object, and the SDK failed on
+`this.fetch.call is not a function` — which it catches and re-reports as its own
+generic `Connection error.`, indistinguishable from a real network fault. Fixed
+in `de82ee2` by using `defaultExport:`; both files now pass 8/8 and 7/7 **with
+no key present**. They never needed one, and re-running them on the Mac would
+have failed identically.
+
+Two further corrections to what this section implied:
+
+- **A key in the environment made the suite fail MORE, not less.** Six tests
+  (`model-integrity` 3, `nfl-prospective-collection` 3) assert not-configured
+  behaviour and only pass where nobody added a key. `test/offline-guard.mjs`
+  now clears provider credentials at `--import` time so a box with keys runs
+  the same suite as a box without (`982eb46`).
+- **"Nothing else in the suite needs a key or a network" was true of intent,
+  not of the run.** With the mock inert, those 12 tests made a real request to
+  `api.anthropic.com` every time, on every box — which is what the offline
+  guard's RED commit (`cc12a22`) caught by capturing a real Anthropic
+  `request_id` from inside the suite.
+
+The remaining 3 (`prop-clv-free-capture`) are the genuinely pre-existing
+failures and are unaffected by any of the above.
 
 ---
 

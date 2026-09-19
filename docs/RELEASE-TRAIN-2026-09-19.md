@@ -2138,9 +2138,24 @@ diagnosis:
   output is shown**; the three are different faults and only one of them is the
   edge.
 
-`SELECT 1` does not fail for want of data. It fails on lock contention.
-`node:sqlite` is synchronous and single-writer, so **one long write blocks every
-read in the process**, and the health check is a read.
+**An earlier version of this section read that 503 as lock contention from a
+long write, and that was wrong.** `db/index.js:24-26` sets
+`PRAGMA journal_mode = WAL`, `PRAGMA busy_timeout = 15000` and
+`PRAGMA journal_size_limit = 67108864`. **In WAL mode readers do not block on a
+writer** — that is what WAL is for — so no ordinary write, however long, can
+make `SELECT 1` throw. Only an exclusive-lock operation can, and the candidates
+are closed rather than open: the single `wal_checkpoint` in `server/` is
+`report-cache.js:113`, which sets `busy_timeout = 250`, catches the busy failure
+and restores in a `finally`; the single `VACUUM INTO` is
+`backupBeforeMigration`, which runs only when migrations are pending, and they
+are not any more.
+
+So **the 503 is a symptom of the cycle rather than its cause.** The arithmetic
+that fits is roughly 20 seconds queued behind a blocked event loop plus the
+15-second `busy_timeout`, with the brief exclusive lock most plausibly coming
+from WAL-index recovery after the previous process was killed mid-write. That
+last step needs the machine log to confirm and nothing turns on it. Caught by
+the Trade Brain thread, from two lines nobody else had opened.
 
 **The loop, and why it does not settle.** Boot, serve normally for a minute or
 two, something begins a long write, every request queues behind it, health
@@ -2149,10 +2164,25 @@ exits the process after 60 seconds of a blocked loop, Fly restarts it — **and
 whatever runs at boot starts the same write again.** Every restart re-runs
 `bootJobs`, which is what makes it self-sustaining rather than self-correcting.
 
-**Prime suspect: the heavy tier running at boot.** Which makes `heavy_enabled`
-the single most valuable reading available. True means the fix is one line,
-`fly secrets unset AUTO_HEAVY_SYNC`, and it needs a terminal. False means a
-different writer and the machine log is the only way on.
+**The agreed cause, from the scheduler thread, verified on `791b131`.** The
+scheduler's boot pass fires about 20 seconds after start and runs its jobs
+sequentially, nearly all on the main thread. Fly's own `/api/health` probe arms
+the #29 watchdog within 15 seconds of listen, because `server/index.js:63`
+mounts the arming middleware above the health route at `:86` and `fly.toml`
+probes every 15 seconds. The watchdog exits the process after 60 seconds of a
+blocked loop (`loop-watchdog.js:58`). And **every restart re-runs the same boot
+pass.** Two individually correct changes forming a loop, which is why nothing
+about it settles.
+
+**`heavy_enabled` reads true** (22:19:26Z, `uptime_s` 23 beside it), so Nick
+never ran the unset and the first reset was not his either.
+
+**And `fly secrets unset AUTO_HEAVY_SYNC` is therefore not the fix.**
+`scheduler.js:1759` gates only the *heavy* tier on that variable, and the
+blocking work is the boot pass. Unsetting it removes twelve jobs' worth of work
+and leaves the loop intact. It is still worth running, because the run sheet
+wanted it anyway — but presenting it as the fix and watching the app keep
+cycling costs more than it saves.
 
 **Three things to be clear about, because two of them look like new faults and
 are not.** The 503 and the watchdog are the *detection*, working exactly as
@@ -2173,6 +2203,67 @@ first item. Stabilising the app is.**
 One clock on it: Fly caps restarts, and this machine already hit
 `max restart count of 10` earlier tonight. If it hits the cap again it stops and
 stays stopped, and nothing can be read until someone is at a terminal.
+
+### 7.0c The morning, in order
+
+**Step 7 is not the first item. Stabilising the app is.**
+
+1. ```
+   fly secrets unset AUTO_HEAVY_SYNC -a gridiron-hq
+   ```
+   Worth one command, not expected to fix it, for the reason in 7.0b.
+
+2. Merge the scheduler thread's fix PR, then:
+   ```
+   fly deploy -a gridiron-hq
+   ```
+   **This is the fix.**
+
+3. Proof, one command, run twice a few minutes apart:
+   ```
+   curl -s https://gridiron-hq.fly.dev/api/health
+   ```
+   **`uptime_s` past 600 and still climbing on the second read is the pass.**
+   Anything under 200 on a later read means it restarted again.
+
+**Do not set `LOOP_WATCHDOG_THRESHOLD_MS`.** It is read from the environment
+(`loop-watchdog.js:58`), so it would work, and it would turn a machine that
+restarts into a machine that stays wedged forever. The watchdog is the only
+thing recovering this app. That change would make the symptom quieter and the
+system worse, which is this document's recurring failure committed deliberately.
+
+**Rolling back to the old image is a last resort, not an option to offer.** It
+stops all 26 pull requests serving, it does not undo the migrations, and the
+previous build had its own faults.
+
+**Does the cycle endanger the database? Checked, not assumed.**
+
+- **No corruption.** SQLite transactions are atomic, and a killed process's open
+  transaction is rolled back by WAL recovery when the next one opens the file.
+  A `SIGKILL` mid-write is exactly the case that is designed for.
+- **Disk does not grow per restart.** `backupBeforeMigration` runs only when
+  `pendingCount > 0`, and the migrations applied on the 22:09Z boot, so it is 0.
+  The WAL is capped at 64 MB by `journal_size_limit`.
+- **One `.bak` now exists**, written by that boot, roughly 445 MB on the 5 GB
+  volume. It is the row-level rollback and must not be tidied.
+- **The qualifier: job output can be incomplete.** A job writing many rows
+  across separate transactions, killed halfway, leaves partial data rather than
+  corruption. Seven jobs sit at exactly `consecutive_failures: 1` — one each,
+  never two — which is the signature of a counter reset by a restart before a
+  second failure can accumulate. So: nothing is corrupted and no data is at
+  risk; **that is not the same as nothing having been affected.**
+
+### 7.0d Found while looking at something else: two jobs that have never run
+
+`manager_signals` (growth) and `manager_archetypes` (heavy) report
+`scheduled_now: true` with **`last_run_at: never`** on the deployed build. Every
+other job in the scheduler has a `last_run_at`. These are #26's two build jobs.
+
+Scheduled, healthy-looking, never executed — on the build that was supposed to
+make them run. It does not explain the restarts. It means **the manager layer
+will not build itself even once the app is stable**, which was the point of that
+pull request. Not tonight's problem; recorded so it is not discovered next week
+as a surprise.
 
 ### 7.0a Bracket every read with `uptime_s`, and void it if the machine restarted
 

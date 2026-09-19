@@ -172,7 +172,7 @@ function collect(re, text, sink, line) {
 
 /** Does this string look like SQL at all? Cheap gate, keeps prose out. */
 function looksSql(t) {
-  return /\b(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE|REPLACE\s+INTO)\b/i.test(t);
+  return /\b(SELECT|INSERT|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE|REPLACE\s+INTO)\b/i.test(t);
 }
 
 function sqlEdges(strings) {
@@ -229,6 +229,13 @@ function moduleEdges(code) {
     const thenNames = [...after.matchAll(/\bm\.([A-Za-z_$][\w$]*)/g)].map(x => x[1]);
     add(m[1], (destructured?.[1] ?? '') + ',' + thenNames.join(','), true, m.index);
   }
+
+  // A worker thread is a real dependency that the word `import` never appears
+  // in. Without this, the three modules that only ever run on a worker
+  // (report-worker, job-worker, loop-watchdog-worker — the whole point of PRs
+  // #17, #29 and #32) look like dead code.
+  const RE_WORKER = /new\s+Worker\(\s*(?:new\s+URL\(\s*)?['"]([^'"]+)['"]/g;
+  while ((m = RE_WORKER.exec(code))) add(m[1], '', true, m.index);
 
   const RE_EXPORT_DECL = /\bexport\s+(?:async\s+)?(?:function\s*\*?|const|let|var|class)\s+([A-Za-z_$][\w$]*)/g;
   while ((m = RE_EXPORT_DECL.exec(code))) exports.push({ name: m[1], line: lineOf(code, m.index) });
@@ -509,6 +516,14 @@ function build() {
     }
     if (f.tree === 'extension') surfaces.push({ kind: 'extension', name: f.path, file: f.path, line: 1 });
   }
+  // Migrations are loaded by filename scan (server/db/migrate.js reads the
+  // directory), so "nothing imports it" is a lie about them. Same for the seed
+  // fragments and the schema fragments, which db/index.js applies by name.
+  for (const f of files.values()) {
+    if (/^server\/migrations\/\d+_.+\.js$/.test(f.path)) {
+      surfaces.push({ kind: 'migration', name: path.basename(f.path), file: f.path, line: 1 });
+    }
+  }
   surfaces.push({ kind: 'boot', name: 'server/index.js', file: 'server/index.js', line: 1 });
 
   // Reachability, breadth-first so every module carries the HOP DISTANCE to the
@@ -523,11 +538,16 @@ function build() {
   const reach = new Map();       // module -> Set of surface kinds
   const reachNames = new Map();  // module -> Map of surface name -> hop distance
   for (const s of surfaces) {
-    if (!s.file || s.kind === 'boot' || s.unresolved) continue;
+    if (!s.file || s.unresolved) continue;
+    // server/index.js imports every router, so walking its whole closure marks
+    // the entire server 'reachable from boot' — true, and useless. Two hops is
+    // the honest read: what the app wires up itself at startup, and what those
+    // things reach directly (a watchdog and the worker it spawns).
+    const cap = s.kind === 'boot' ? 2 : MAX_HOPS;
     const seen = new Map();
     let frontier = [s.file];
     let depth = 0;
-    while (frontier.length && depth <= MAX_HOPS) {
+    while (frontier.length && depth <= cap) {
       const next = [];
       for (const cur of frontier) {
         if (!cur || seen.has(cur) || !files.has(cur)) continue;
@@ -579,7 +599,7 @@ function build() {
 //   ORPHAN       — something produced that reaches no surface.
 // ---------------------------------------------------------------------------
 
-const SERVED = new Set(['route', 'job', 'client', 'extension']);
+const SERVED = new Set(['route', 'job', 'client', 'extension', 'boot']);
 /** Past this many import hops a module is sharing a library, not wired in. */
 const MAX_HOPS = 12;
 /** What counts as "wired into" for the purpose of naming a surface in a finding. */
@@ -654,7 +674,7 @@ function findings(model, ann) {
       add({ kind: 'missing-feed', rule: 'table-never-written', scope: t.scope, subject: t.table,
         detail: `read in ${readerFiles.length} file(s), written by nothing in the repository`,
         evidence: readers.slice(0, 6).map(r => `${r.file}:${r.line}`),
-        consumers: readerFiles, wiring: surfaceFamilies(reachNames, readerFiles),
+        consumers: readerFiles, wiring: close(surfaceFamilies(reachNames, readerFiles, CLOSE_HOPS)),
         asserted });
     } else if (readerFiles.length && writerFiles.length && served(readerKinds)
                && !writerKinds.has('job') && !writerKinds.has('route') && !ignored.has(`table:${t.table}`)) {
@@ -662,14 +682,18 @@ function findings(model, ann) {
         detail: `read on a served surface, but every writer is a script someone has to remember to run`,
         evidence: writers.slice(0, 4).map(w => `writer ${w.file}:${w.line}`)
           .concat(readers.slice(0, 4).map(r => `reader ${r.file}:${r.line}`)),
-        consumers: readerFiles, wiring: surfaceFamilies(reachNames, readerFiles),
+        consumers: readerFiles, wiring: close(surfaceFamilies(reachNames, readerFiles, CLOSE_HOPS)),
         asserted });
     } else if (readerFiles.length && writerFiles.length && served(readerKinds)
                && !writerKinds.has('job') && writerKinds.has('route') && !ignored.has(`table:${t.table}`)) {
-      add({ kind: 'missing-feed', rule: 'table-never-scheduled', scope: t.scope, subject: t.table,
+      // NOT a missing feed on its own. Most of these are correct: the table
+      // holds what a person did — a saved ticket, a draft pick, a session. It
+      // is listed so that the ones which hold DERIVED data, and therefore
+      // should be on a timer, are visible at all.
+      add({ kind: 'context', rule: 'table-never-scheduled', scope: t.scope, subject: t.table,
         detail: `read on a served surface; nothing on a timer fills it — only a route someone has to call`,
         evidence: writers.slice(0, 4).map(w => `writer ${w.file}:${w.line}`),
-        consumers: readerFiles, wiring: surfaceFamilies(reachNames, readerFiles),
+        consumers: readerFiles, wiring: close(surfaceFamilies(reachNames, readerFiles, CLOSE_HOPS)),
         asserted });
     }
     if (writerFiles.length && !readerFiles.length && !ignored.has(`table:${t.table}`)) {
@@ -687,6 +711,8 @@ function findings(model, ann) {
     const nonTestImporters = importers.filter(i => files.get(i)?.tree !== 'test');
     const isSurface = surfaces.some(s => s.file === f.path);
     if (isSurface) continue;
+    // A migration's exports are called by name by the migration runner.
+    if (/^server\/(migrations|db\/schema|db\/seed)\//.test(f.path)) continue;
     if (!importers.length) {
       add({ kind: 'orphan', rule: 'module-imported-by-nothing', scope: f.scope, subject: f.path,
         detail: 'no file in the repository imports it', evidence: [] });
@@ -716,6 +742,7 @@ function findings(model, ann) {
   }
   for (const f of files.values()) {
     if (f.tree === 'test' || f.tree === 'client') continue;
+    if (/^server\/(migrations|db\/schema|db\/seed)\//.test(f.path)) continue;
     const used = importedNames.get(f.path) ?? new Set();
     const usedProd = importedNames.get(f.path + '#prod') ?? new Set();
     for (const e of f.exports) {
@@ -746,7 +773,7 @@ function findings(model, ann) {
       add({ kind: 'orphan', rule: 'field-attached-never-read', scope: f.scope,
         subject: `${key} (${f.path})`,
         detail: 'attached to a payload and read by nothing — not by the server, not by the client, not by a test',
-        evidence: [`${f.path}:${line}`], wiring: surfaceFamilies(reachNames, [f.path], CLOSE_HOPS) });
+        evidence: [`${f.path}:${line}`], wiring: close(surfaceFamilies(reachNames, [f.path], CLOSE_HOPS)) });
     }
     for (const [name, line] of declarations(f.code)) {
       if (globalCounts.get(name) !== 1 || ignored.has(`local:${name}`)) continue;
@@ -767,11 +794,32 @@ function findings(model, ann) {
   const allCalls = [];
   for (const f of files.values()) for (const c of f.calls) allCalls.push({ ...c, file: f.path });
   for (const c of allCalls) {
+    // A path we could not read cleanly out of a template literal is an
+    // unknown, not a finding. Saying "no route answers this" about a string we
+    // failed to parse is exactly the kind of confident wrong a map must not do.
+    if (c.path.includes('$') || c.path.includes('`')) continue;
     if (routePaths.some(r => matches(r.name.split(' ')[1], c.path))) continue;
     add({ kind: 'missing-feed', rule: 'client-call-without-route', scope: scopeOfFile(c.file),
       subject: c.path, detail: 'the client calls this path and no route in the repository answers it',
       evidence: [`${c.file}:${c.line}`] });
   }
+  // A palette or sidebar destination with no route behind it is a dead link a
+  // user actually clicks. The client's own navigation.ts says this happened
+  // before: eight entries outlived their routes.
+  const nav = files.get('client/src/navigation.ts');
+  const app = files.get('client/src/App.tsx');
+  if (nav && app) {
+    const declared = new Set([...app.text.matchAll(/<Route\s+path="([^"]*)"/g)].map(x => x[1]));
+    for (const m2 of nav.text.matchAll(/\[\s*'[^']*'\s*,\s*'(\/[^']*)'/g)) {
+      const dest = m2[1];
+      const hit = [...declared].some(d => matches(d, dest) || d === '*');
+      if (hit || ignored.has(`destination:${dest}`)) continue;
+      add({ kind: 'missing-feed', rule: 'destination-without-route', scope: 'fantasy', subject: dest,
+        detail: 'listed as a place the user can go, and the router has no such route',
+        evidence: [`client/src/navigation.ts:${lineOf(nav.text, m2.index)}`] });
+    }
+  }
+
   for (const r of routePaths) {
     const p = r.name.split(' ')[1];
     if (allCalls.some(c => matches(p, c.path))) continue;
@@ -854,20 +902,24 @@ function toJson(model, found, ann) {
       created_in: [...new Set(t.creates.map(c => `${c.file}:${c.line}`))],
       written_by: [...new Set(t.writes.filter(w => w.tree !== 'test').map(w => `${w.file}:${w.line}`))],
       read_by: [...new Set(t.reads.filter(r => r.tree !== 'test').map(r => `${r.file}:${r.line}`))],
-      wiring: surfaceFamilies(reachNames, [...new Set(t.reads.filter(r => r.tree !== 'test').map(r => r.file))]),
+      wiring: close(surfaceFamilies(reachNames, [...new Set(t.reads.filter(r => r.tree !== 'test').map(r => r.file))])),
     })),
+    // Module rows carry the import edges and the surface FAMILIES, not the 534
+    // individual routes each module is close to — that produced an eight-megabyte
+    // file whose extra bytes were the same twenty prefixes repeated. Ask for the
+    // individual routes with --blast, which computes them on demand.
     modules: [...files.values()].filter(f => f.tree !== 'test').map(f => ({
       path: f.path, tree: f.tree, scope: f.scope,
       imports: f.imports.filter(i => i.resolved).map(i => i.resolved),
       exports: f.exports.map(e => e.name),
-      reaches: surfacesOf(reachNames, f.path, CLOSE_HOPS),
+      wiring: close(surfaceFamilies(reachNames, [f.path], CLOSE_HOPS)),
     })),
     findings: found,
     asserted: ann,
   };
 }
 
-function toMarkdown(model, found) {
+function toMarkdown(model, found, ann) {
   const { files, tables, surfaces, jobs, reachNames } = model;
   const L = [];
   const p = (s = '') => L.push(s);
@@ -890,6 +942,25 @@ function toMarkdown(model, found) {
 
   p('## Findings');
   p();
+  const mf = found.filter(f => f.kind === 'missing-feed');
+  const orph = found.filter(f => f.kind === 'orphan');
+  p(`**${mf.length} missing feed** — a surface depends on something nothing produces.`);
+  p(`**${orph.length} orphan** — something produced that reaches no surface.`);
+  p(`${found.length - mf.length - orph.length} context rows, listed because they are worth knowing and are usually fine.`);
+  p();
+  if (mf.length) {
+    p('The missing-feed list in full, because it is short and it is the one that matters:');
+    p();
+    for (const f of mf) {
+      p(`- **${f.subject}** \`[${f.scope}]\` — ${f.detail}`);
+      if (f.evidence?.length) p(`  - ${f.evidence.slice(0, 4).join(', ')}`);
+      if (f.wiring) {
+        const c = close(f.wiring);
+        if (c.route_families.length) p(`  - reached from ${c.route_families.map(x => x.name).join(' ')}`);
+      }
+    }
+    p();
+  }
   const byRule = new Map();
   for (const f of found) {
     if (!byRule.has(f.rule)) byRule.set(f.rule, []);
@@ -904,10 +975,30 @@ function toMarkdown(model, found) {
       + `| ${g.filter(x => x.scope === 'betting').length} | ${g.filter(x => x.scope === 'shared').length} |`);
   }
   p();
+  const BULK = new Set(['export-imported-by-nothing', 'export-only-tested', 'route-no-caller', 'table-never-scheduled']);
   for (const r of rules) {
     const g = byRule.get(r).slice().sort((a, b) => a.subject.localeCompare(b.subject));
     p(`### \`${r}\` — ${g[0].kind.toUpperCase().replace('-', ' ')} (${g.length})`);
     p();
+    if (BULK.has(r)) {
+      // Too many to read one by one, and each is individually a judgement call.
+      // Grouped by where they live, so the concentrations are visible; the full
+      // list is in wiring-map.json.
+      const byFile = new Map();
+      for (const f of g) {
+        const key = (f.evidence?.[0] ?? f.subject).split(':')[0].split('#')[0];
+        byFile.set(key, (byFile.get(key) ?? 0) + 1);
+      }
+      const top = [...byFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
+      p(`Grouped by file, heaviest first. Full list in \`wiring-map.json\`.`);
+      p();
+      p('| file | count |');
+      p('| --- | --: |');
+      for (const [file, count] of top) p(`| \`${file}\` | ${count} |`);
+      if (byFile.size > 20) p(`| _… ${byFile.size - 20} more files_ | ${g.length - top.reduce((a, b) => a + b[1], 0)} |`);
+      p();
+      continue;
+    }
     for (const f of g.slice(0, 60)) {
       p(`- **${f.subject}** \`[${f.scope}]\` — ${f.detail}`);
       if (f.evidence?.length) p(`  - ${f.evidence.slice(0, 5).join(', ')}`);
@@ -925,6 +1016,21 @@ function toMarkdown(model, found) {
     if (g.length > 60) p(`- _… ${g.length - 60} more in wiring-map.json_`);
     p();
   }
+
+  p('## Asserted edges');
+  p();
+  p('The few things a walker cannot see, written down by hand in `annotations.json`.');
+  p('Everything else in this file is derived.');
+  p();
+  for (const [table, why] of Object.entries(ann.asserted_producers ?? {})) {
+    p(`- **${table}** — ASSERTED producer: ${why}`);
+  }
+  p();
+  for (const [subject, note] of Object.entries(ann.notes ?? {})) {
+    if (subject === 'scope') continue;
+    p(`- **${subject}** — ASSERTED note: ${note}`);
+  }
+  p();
 
   p('## Tables: who fills them, who reads them, what moves');
   p();
@@ -954,77 +1060,92 @@ function toMarkdown(model, found) {
 }
 
 // ---------------------------------------------------------------------------
-// CLI.
+// Exported so the test suite can exercise the scanner and the rules without
+// running the CLI, and so another script can ask the map a question.
 // ---------------------------------------------------------------------------
 
-const args = process.argv.slice(2);
-const flag = (name, fallback = null) => {
-  const i = args.indexOf(`--${name}`);
-  if (i === -1) return fallback;
-  const next = args[i + 1];
-  return next && !next.startsWith('--') ? next : true;
-};
+export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
+  clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
+  toJson, toMarkdown, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS };
 
-const outDir = path.resolve(ROOT, String(flag('out', 'docs/wiring')));
-const ann = annotations(path.join(outDir, 'annotations.json'));
-const model = build();
-const found = findings(model, ann).sort((a, b) =>
-  (SEVERITY[a.rule] ?? 99) - (SEVERITY[b.rule] ?? 99) || a.subject.localeCompare(b.subject));
+// ---------------------------------------------------------------------------
+// CLI. Skipped on import, so the module above is testable.
+// ---------------------------------------------------------------------------
 
-const blast = flag('blast');
-if (typeof blast === 'string') {
-  const r = blastRadius(model, blast);
-  if (!r) { console.error(`nothing in the map matches "${blast}"`); process.exit(2); }
-  console.log(`# blast radius: ${r.subject}\n`);
-  console.log(`read/defined directly in ${r.direct.length} file(s):`);
-  for (const f of r.direct) console.log(`  ${f}`);
-  const hops = Number(flag('hops', CLOSE_HOPS));
-  const shown = r.surfaces.filter(([, d]) => d <= hops);
-  const nearModules = r.modules.filter(([m, d]) => d > 0 && d <= hops);
-  console.log(`\nconsumed by ${nearModules.length} module(s) within ${hops} hop(s) (${r.modules.length - r.direct.length} in total):`);
-  for (const [m, d] of nearModules) console.log(`  ${d} hop${d === 1 ? '' : 's'}  ${m}`);
-  console.log(`\n${shown.length} surface(s) within ${hops} import hop(s)`);
-  console.log(`(${r.surfaces.length} in total — raise with --hops N)\n`);
-  for (const [name, d] of shown) console.log(`  ${d} hop${d === 1 ? '' : 's'}  ${name}`);
-  console.log('\nroute families:');
-  for (const x of r.wiring.route_families) console.log(`  ${x.hops} hop(s)  ${x.name}`);
-  process.exit(0);
-}
+const INVOKED_DIRECTLY = process.argv[1]
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
-if (flag('findings')) {
-  for (const f of found) {
-    console.log(`${f.kind.toUpperCase()} ${f.rule} [${f.scope}] ${f.subject}`);
-    console.log(`    ${f.detail}`);
-    if (f.evidence?.length) console.log(`    ${f.evidence.slice(0, 4).join(', ')}`);
-    if (f.wiring) {
-      const c = close(f.wiring);
-      const w = [c.route_families.map(x => x.name).join(' '), c.jobs.map(x => x.name).join(' ')]
-        .filter(Boolean).join(' | ');
-      if (w) console.log(`    wired into: ${w}`);
+if (INVOKED_DIRECTLY) {
+
+  const args = process.argv.slice(2);
+  const flag = (name, fallback = null) => {
+    const i = args.indexOf(`--${name}`);
+    if (i === -1) return fallback;
+    const next = args[i + 1];
+    return next && !next.startsWith('--') ? next : true;
+  };
+
+  const outDir = path.resolve(ROOT, String(flag('out', 'docs/wiring')));
+  const ann = annotations(path.join(outDir, 'annotations.json'));
+  const model = build();
+  const found = findings(model, ann).sort((a, b) =>
+    (SEVERITY[a.rule] ?? 99) - (SEVERITY[b.rule] ?? 99) || a.subject.localeCompare(b.subject));
+
+  const blast = flag('blast');
+  if (typeof blast === 'string') {
+    const r = blastRadius(model, blast);
+    if (!r) { console.error(`nothing in the map matches "${blast}"`); process.exit(2); }
+    console.log(`# blast radius: ${r.subject}\n`);
+    console.log(`read/defined directly in ${r.direct.length} file(s):`);
+    for (const f of r.direct) console.log(`  ${f}`);
+    const hops = Number(flag('hops', CLOSE_HOPS));
+    const shown = r.surfaces.filter(([, d]) => d <= hops);
+    const nearModules = r.modules.filter(([m, d]) => d > 0 && d <= hops);
+    console.log(`\nconsumed by ${nearModules.length} module(s) within ${hops} hop(s) (${r.modules.length - r.direct.length} in total):`);
+    for (const [m, d] of nearModules) console.log(`  ${d} hop${d === 1 ? '' : 's'}  ${m}`);
+    console.log(`\n${shown.length} surface(s) within ${hops} import hop(s)`);
+    console.log(`(${r.surfaces.length} in total — raise with --hops N)\n`);
+    for (const [name, d] of shown) console.log(`  ${d} hop${d === 1 ? '' : 's'}  ${name}`);
+    console.log('\nroute families:');
+    for (const x of r.wiring.route_families) console.log(`  ${x.hops} hop(s)  ${x.name}`);
+    process.exit(0);
+  }
+
+  if (flag('findings')) {
+    for (const f of found) {
+      console.log(`${f.kind.toUpperCase()} ${f.rule} [${f.scope}] ${f.subject}`);
+      console.log(`    ${f.detail}`);
+      if (f.evidence?.length) console.log(`    ${f.evidence.slice(0, 4).join(', ')}`);
+      if (f.wiring) {
+        const c = close(f.wiring);
+        const w = [c.route_families.map(x => x.name).join(' '), c.jobs.map(x => x.name).join(' ')]
+          .filter(Boolean).join(' | ');
+        if (w) console.log(`    wired into: ${w}`);
+      }
     }
+    console.log(`\n${found.length} findings `
+      + `(${found.filter(f => f.kind === 'missing-feed').length} missing feed, `
+      + `${found.filter(f => f.kind === 'orphan').length} orphan)`);
+    if (!flag('check')) process.exit(0);
   }
-  console.log(`\n${found.length} findings `
-    + `(${found.filter(f => f.kind === 'missing-feed').length} missing feed, `
-    + `${found.filter(f => f.kind === 'orphan').length} orphan)`);
-  if (!flag('check')) process.exit(0);
-}
 
-if (!flag('findings')) {
-  fs.mkdirSync(outDir, { recursive: true });
-  fs.writeFileSync(path.join(outDir, 'wiring-map.json'), JSON.stringify(toJson(model, found, ann), null, 2));
-  fs.writeFileSync(path.join(outDir, 'WIRING-MAP.md'), toMarkdown(model, found) + '\n');
-  console.log(`wrote ${path.relative(ROOT, outDir)}/wiring-map.json and WIRING-MAP.md`);
-  console.log(`${model.files.size} files, ${model.tables.size} tables, ${model.surfaces.length} surfaces, ${found.length} findings`);
-}
-
-if (flag('check')) {
-  // CI gate: fail on the family that hurts users. Orphans are reported and do
-  // not break the build, because removing them is a judgement call.
-  const blocking = found.filter(f => f.kind === 'missing-feed' && !(ann.accepted_missing_feeds ?? []).includes(f.subject));
-  if (blocking.length) {
-    console.error(`\n${blocking.length} MISSING FEED finding(s) — a surface depends on something nothing produces:`);
-    for (const f of blocking) console.error(`  ${f.rule} ${f.subject} — ${f.detail}`);
-    process.exit(1);
+  if (!flag('findings')) {
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, 'wiring-map.json'), JSON.stringify(toJson(model, found, ann)));
+    fs.writeFileSync(path.join(outDir, 'WIRING-MAP.md'), toMarkdown(model, found, ann) + '\n');
+    console.log(`wrote ${path.relative(ROOT, outDir)}/wiring-map.json and WIRING-MAP.md`);
+    console.log(`${model.files.size} files, ${model.tables.size} tables, ${model.surfaces.length} surfaces, ${found.length} findings`);
   }
-  console.log('no missing-feed findings');
+
+  if (flag('check')) {
+    // CI gate: fail on the family that hurts users. Orphans are reported and do
+    // not break the build, because removing them is a judgement call.
+    const blocking = found.filter(f => f.kind === 'missing-feed' && !(ann.accepted_missing_feeds ?? []).includes(f.subject));
+    if (blocking.length) {
+      console.error(`\n${blocking.length} MISSING FEED finding(s) — a surface depends on something nothing produces:`);
+      for (const f of blocking) console.error(`  ${f.rule} ${f.subject} — ${f.detail}`);
+      process.exit(1);
+    }
+    console.log('no missing-feed findings');
+  }
 }

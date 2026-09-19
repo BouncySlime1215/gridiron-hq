@@ -56,6 +56,19 @@ const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-acc
 const app = express();
 app.use(express.json());
 
+// Liveness, before every router and before any authentication, so a health
+// probe is answered by the event loop and nothing else. It deliberately does
+// no database work: `node:sqlite` is synchronous, so a query here would make
+// the probe fail whenever a long write holds the thread — which is the one
+// case where the probe most needs to answer honestly about the process being
+// up. Blocked event loop, no answer, and Fly's http_check can see it; every
+// previous check was a bare TCP check, which the kernel's listen backlog
+// satisfies even when the process never calls accept().
+const BOOTED_AT = Date.now();
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, uptime_s: Math.round((Date.now() - BOOTED_AT) / 1000) });
+});
+
 seedIfEmpty();
 
 // Nothing in this project used to refresh on its own, which is how the MLB board

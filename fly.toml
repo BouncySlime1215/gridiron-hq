@@ -33,3 +33,17 @@ primary_region = "iad"
     interval = "15s"
     timeout = "2s"
     grace_period = "30s"
+
+  # A TCP check is satisfied by the kernel's listen backlog: the socket accepts
+  # even when the Node process is wedged and never calls accept(), so a blocked
+  # event loop kept passing while every request hung with no reply. This check
+  # goes through the event loop, so a wedged process shows as unhealthy instead
+  # of quietly swallowing traffic. /api/health does no database work, and the
+  # grace period covers migrations plus the boot warm-up.
+  [[services.http_checks]]
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "120s"
+    method = "get"
+    path = "/api/health"
+    protocol = "http"

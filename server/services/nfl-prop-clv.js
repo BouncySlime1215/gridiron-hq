@@ -324,8 +324,12 @@ function seasonForCommence(commenceTime) {
  * land; only quotes captured within `sinceHours` are scanned, so a season of
  * accumulated snapshots does not get re-walked on every scheduled tick.
  */
-export function captureFreePropMarket({ sinceHours = 24 * 14 } = {}) {
-  const since = new Date(Date.now() - sinceHours * HOUR).toISOString();
+export function captureFreePropMarket({ sinceHours = 24 * 14, now = Date.now() } = {}) {
+  // `now` is injectable for the same reason `sharpLag()` takes one: the scan
+  // window is relative to the clock, so without a seam the only way to test it
+  // is with fixtures dated relative to today — which is how this function's
+  // own tests silently went red 14 days after they were written.
+  const since = new Date(now - sinceHours * HOUR).toISOString();
   const quotes = rows(`SELECT * FROM nfl_prop_quote_snapshots WHERE provider IS NOT NULL AND captured_at >= ?
     ORDER BY event_id, captured_at`, since);
   if (!quotes.length) return { skipped: true, reason: 'no free-provider quotes captured yet' };

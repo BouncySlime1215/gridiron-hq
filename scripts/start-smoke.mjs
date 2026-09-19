@@ -20,20 +20,22 @@ child.stdout.on('data', chunk => { output += chunk; });
 child.stderr.on('data', chunk => { output += chunk; });
 
 try {
-  // Wait on an unauthenticated route: /api/teams is bearer-authenticated
-  // (server/index.js), so polling it without a token only ever yields 401 and
-  // this loop would spend all 80 attempts before failing on a healthy server.
+  // Wait on /api/health: unauthenticated (so polling it cannot 401 its way
+  // through all 80 attempts on a healthy server) and the same route fly.toml's
+  // HTTP check uses, so this smoke exercises the production liveness path
+  // rather than a different one that happens to be public.
   let up = false;
   for (let attempt = 0; attempt < 80; attempt++) {
     if (child.exitCode != null) throw new Error(`application exited with code ${child.exitCode}\n${output}`);
     try {
-      await fetch(`http://127.0.0.1:${port}/api/model/status`, { signal: AbortSignal.timeout(500) });
-      up = true;
-      break;
+      const probe = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(500) });
+      // 503 means the process is listening but cannot serve — keep waiting for
+      // it to come good rather than declaring the app up.
+      if (probe.ok && (await probe.json())?.ok === true) { up = true; break; }
     } catch { /* application is still starting */ }
     await new Promise(resolve => setTimeout(resolve, 125));
   }
-  if (!up) throw new Error(`application never answered on 127.0.0.1:${port}\n${output}`);
+  if (!up) throw new Error(`application never reported healthy on 127.0.0.1:${port}\n${output}`);
 
   // Then prove the seeded data really is servable, which is the point of this
   // smoke. POST /api/auth/local-session mints a token for a direct loopback

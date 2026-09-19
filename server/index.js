@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
+import { healthHandler } from './platform/health.js';
 
 const PORT = Number(process.env.API_PORT) || 5177;
 try {
@@ -75,6 +76,8 @@ startDraftClockJob();
 // bookmarklet tab stops sending captures — see finalizeStaleDrafts
 // (draft-ingest.js) for why.
 startDraftFinalizeJob();
+
+app.get('/api/health', healthHandler());
 
 // Public only on the loopback interface. It removes the fresh-install token
 // paste step while all protected route families remain bearer-authenticated.

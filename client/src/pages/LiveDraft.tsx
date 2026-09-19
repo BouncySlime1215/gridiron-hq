@@ -716,6 +716,20 @@ function Room({ id }: { id: string }) {
                 ))}
               </div>
             </div>
+            {state?.market_unavailable && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm leading-6 text-slate-700">
+                <b className="text-slate-900">No rankings — the draft market is empty.</b>{' '}
+                {state.market_unavailable.detail}
+                {state.market_unavailable.missing?.length > 0 && (
+                  <span className="block mt-1 text-xs text-slate-500">
+                    Missing: {state.market_unavailable.missing.join('; ')}.
+                  </span>
+                )}
+                {state.market_unavailable.fix && (
+                  <span className="block mt-1 text-xs text-slate-500">{state.market_unavailable.fix}</span>
+                )}
+              </div>
+            )}
             <div className="space-y-1.5">
               {targets.map((t: any, i: number) => (
                 <div key={t.player_id}

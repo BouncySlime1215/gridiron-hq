@@ -10,6 +10,11 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-legacy-security-'))
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const { db } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
+// Migrations must finish before the routers below are imported: several of
+// them prepare statements at import time against tables a migration creates
+// (server/services/nfl-news-events.js is the first to bite). This mirrors the
+// ordering server/index.js itself uses and why its imports are dynamic.
+await runMigrations();
 const { hashSessionToken } = await import('../server/platform/auth.js');
 const { legacyAuthenticated, legacyAdmin, legacyRateLimit } = await import('../server/platform/legacy-access.js');
 const { default: leaguesRouter } = await import('../server/routes/leagues.js');
@@ -35,6 +40,18 @@ const { default: propsRouter } = await import('../server/routes/props.js');
 const { default: propsTicketsRouter } = await import('../server/routes/props-tickets.js');
 const { default: decisionInboxRouter } = await import('../server/routes/decision-inbox.js');
 const { default: wongRouter } = await import('../server/routes/wong.js');
+// The six families that were still mounted with no authentication at all
+// (server/index.js) after the thirteen above were closed: model, mlb,
+// nfl-market, nfl-betting, betting-hub and execution-slate. Individual
+// mutations inside them carried requireModelPermission; every read beside
+// those answered anyone who asked, which is invisible on a Mac bound to
+// loopback and wide open at a public URL.
+const { default: modelRouter } = await import('../server/routes/model.js');
+const { default: mlbRouter } = await import('../server/routes/mlb.js');
+const { default: nflMarketRouter } = await import('../server/routes/nfl-market.js');
+const { default: nflBettingRouter } = await import('../server/routes/nfl-betting.js');
+const { default: bettingHubRouter } = await import('../server/routes/betting-hub.js');
+const { default: executionSlateRouter } = await import('../server/routes/execution-slate.js');
 
 const app = express();
 app.use(express.json());
@@ -57,9 +74,14 @@ app.use('/api/props', ...legacyAuthenticated, propsRouter);
 app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
 app.use('/api/decision-inbox', ...legacyAuthenticated, decisionInboxRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);
+app.use('/api/model', ...legacyAuthenticated, modelRouter);
+app.use('/api/mlb', ...legacyAuthenticated, mlbRouter);
+app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
+app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
+app.use('/api/betting', ...legacyAuthenticated, bettingHubRouter);
+app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
 
-before(async () => {
-  await runMigrations();
+before(() => {
   db.prepare(`INSERT OR IGNORE INTO users(id,subject,display_name) VALUES (991,'legacy-security-user','Legacy User')`).run();
   db.prepare(`INSERT OR REPLACE INTO auth_sessions(user_id,token_hash,expires_at) VALUES (991,?,datetime('now','+1 day'))`)
     .run(hashSessionToken('legacy-security-token'));
@@ -92,6 +114,15 @@ test('the 13 previously-ungated route families now reject anonymous callers', as
   for (const path of ['/api/teams', '/api/rankings', '/api/espn', '/api/aggregates', '/api/analysis',
     '/api/nfl', '/api/stats', '/api/accolades', '/api/edge', '/api/props', '/api/props-tickets',
     '/api/decision-inbox', '/api/betting/wong']) {
+    assert.equal((await request(path)).status, 401, path);
+  }
+});
+
+test('the six remaining ungated route families now reject anonymous callers', async () => {
+  for (const path of ['/api/model/status', '/api/model/state', '/api/model/accuracy',
+    '/api/mlb/status', '/api/nfl-market/evidence/status', '/api/nfl-betting/live',
+    '/api/betting/summary', '/api/betting/execution/board', '/api/betting/audits',
+    '/api/execution-slate/opportunities']) {
     assert.equal((await request(path)).status, 401, path);
   }
 });

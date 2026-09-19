@@ -227,7 +227,7 @@ function Body({ data, loading, error, onRetry, out }: {
       <p className="mt-3 text-[11px] leading-4 text-slate-400">
         {data.free_agents_considered != null && <>Checked {data.free_agents_considered} free agents. </>}
         {data.live_players != null && data.roster_size != null && (
-          <>{data.live_players} of your {data.roster_size} active players are likely to play this week. </>
+          <>{data.live_players} of your {data.roster_size} active players are likely to suit up and see the ball this week. </>
         )}
         {(data.on_ir?.length ?? 0) > 0 && (
           <>On IR and never suggested as a cut: {data.on_ir!.join(', ')}.</>

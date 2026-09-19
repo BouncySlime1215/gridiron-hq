@@ -21,10 +21,13 @@ const DraftHub = lazy(() => import('./pages/DraftHub'));
 const LeagueHub = lazy(() => import('./pages/LeagueHub'));
 const PlayerDetail = lazy(() => import('./pages/PlayerDetail'));
 const TradeLab = lazy(() => import('./pages/TradeLab'));
+const TradeBrain = lazy(() => import('./pages/TradeBrain'));
 const Lineup = lazy(() => import('./pages/Lineup'));
 const News = lazy(() => import('./pages/News'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Pair = lazy(() => import('./pages/Pair'));
+const SignIn = lazy(() => import('./pages/SignIn'));
+const SignInComplete = lazy(() => import('./pages/SignInComplete'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 // NAV_GROUPS moved to src/navigation.ts so the command palette can render the
@@ -72,6 +75,17 @@ export default function App() {
   // assumes, and leaving it unmemoized invites the loop back.
   const pageExplain = useMemo(() => ({ info: pageInfo, setInfo: setPageInfo }), [pageInfo]);
 
+  // Sign-in renders on its own, outside the app chrome. The sidebar, the
+  // league switcher and the ESPN gate all read endpoints that need the session
+  // this page exists to establish, so rendering them around it means a login
+  // box behind a wall of failed requests.
+  if (location.pathname === '/sign-in' || location.pathname.startsWith('/sign-in/')) {
+    return <Suspense fallback={<div className="min-h-screen bg-slate-50" />}><Routes>
+      <Route path="/sign-in" element={<SignIn />} />
+      <Route path="/sign-in/complete" element={<SignInComplete />} />
+    </Routes></Suspense>;
+  }
+
   return <LeagueProvider><PlayerCardProvider>
     <PageExplainContext.Provider value={pageExplain}>
     <div className="flex min-h-screen bg-white">
@@ -117,7 +131,8 @@ export default function App() {
           <Route path="/draft" element={<DraftHub />} />
           <Route path="/teams" element={<Teams />} /><Route path="/teams/:abbr" element={<TeamDetail />} />
           <Route path="/players/:id" element={<PlayerDetail />} />
-          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/lineup" element={<Lineup />} /><Route path="/news" element={<News />} />
+          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/trade-brain" element={<TradeBrain />} />
+          <Route path="/lineup" element={<Lineup />} /><Route path="/news" element={<News />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/pair" element={<Pair />} />
           {/* One MLB hub instead of six routes, two of which were named "legacy"

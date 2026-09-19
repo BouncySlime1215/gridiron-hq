@@ -4,9 +4,9 @@
  * pooling over the whole league would bury the effect in 95% unchanged rows.
  */
 process.env.SCHEDULER_DISABLED='1';
-const R='/Users/nick_matta/Documents/GitHub/gridiron-hq/server/services/';
+const R = new URL('../server/services/', import.meta.url).href;
 const { buildPlayerWeekEngine } = await import(R+'player-week-engine.js');
-const { rows } = await import('/Users/nick_matta/Documents/GitHub/gridiron-hq/server/db/index.js');
+const { rows } = await import(new URL('../server/db/index.js', import.meta.url).href);
 const { PPR, scoreLine } = await import(R+'scoring.js');
 
 const SEASON = Number(process.argv[2] ?? 2025);

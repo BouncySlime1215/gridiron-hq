@@ -468,6 +468,18 @@ export function boardState(draftId, teamSlot = null, { poolLimit = 120 } = {}) {
   // needs a live FFC/Sleeper sync to return anything at all, so on a fresh/offline
   // install this is what stops the pool from running dry regardless of position.
   const tailBase = available.length + 50;
+  // How many rows the market actually sourced, captured before the tail is
+  // appended. Zero means `computeConsensus()` returned nothing and every row on
+  // the board below is a fabricated rank.
+  const sourcedCount = available.length;
+  // `board_rank: available.length + tailN` read the array's length while the
+  // loop was appending to it, so both grew together and the sequence came out
+  // 1, 3, 5, 7 instead of 1, 2, 3, 4. `board_rank` is load-bearing — rankTargets
+  // penalises by `0.4 * Math.min(p.board_rank, 60)` and rewards by
+  // `Math.max(0, 40 - p.board_rank)` — so the penalty was doubled and only
+  // twenty tail players rather than forty got a non-zero fallback score. This
+  // affects K and DEF in normal operation, not just an empty-market board.
+  const tailStart = available.length;
   let tailN = 0;
   const seenIds = new Set(available.map(p => p.player_id));
   for (const p of rows(`SELECT p.id, p.name, p.position, p.espn_id, p.sleeper_id, t.abbr AS team_abbr
@@ -478,7 +490,11 @@ export function boardState(draftId, teamSlot = null, { poolLimit = 120 } = {}) {
     available.push({
       player_id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
       espn_id: p.espn_id, sleeper_id: p.sleeper_id,
-      market_rank: tailBase + tailN, board_rank: available.length + tailN,
+      market_rank: tailBase + tailN, board_rank: tailStart + tailN,
+      // This rank came from nothing but this loop's own counter. Flagged so no
+      // consumer can mistake it for a market read — the advisor prompt used to
+      // print it as "Best value on the board (market #101)".
+      market_rank_synthetic: true,
       adp: null, injury_flag: null, projected_points: null, projected_pos_rank: null,
       last_season_points: null, gone_by_next: null
     });
@@ -561,6 +577,22 @@ export function boardState(draftId, teamSlot = null, { poolLimit = 120 } = {}) {
   }
 
   return {
+    // Whether this board rests on a market read at all. `computeConsensus()`
+    // needs FFC or Sleeper values, or ESPN ADP joined on `players.espn_id`; with
+    // none of them it returns nothing and every row below is ordered by the
+    // players table's own row ids. A board like that is not a ranking, so it
+    // says so rather than letting a consumer read it as one.
+    market: {
+      sourced: sourcedCount,
+      synthetic: tailN,
+      unsourced: sourcedCount === 0,
+      missing: sourcedCount === 0
+        ? ['player_metrics (FFC and Sleeper trade values)', 'espn_player_market joined on players.espn_id']
+        : [],
+      fix: sourcedCount === 0
+        ? 'Run the FFC/Sleeper value sync and the ESPN player sync, then reopen the board.'
+        : null
+    },
     draft: {
       id: draft.id, name: draft.name, type: draft.type, team_count: draft.team_count,
       rounds: draft.rounds, my_slot: draft.my_slot, pick_seconds: draft.pick_seconds,
@@ -603,6 +635,12 @@ export function boardState(draftId, teamSlot = null, { poolLimit = 120 } = {}) {
  * actually needs and by what will not survive the round trip to the next pick.
  */
 export function rankTargets(state, limit = 8) {
+  // No market anywhere means every board_rank below came from SQL row order, so
+  // the ranking would be the players table read top to bottom — which is how the
+  // board came to recommend one team's depth chart in slot order. A fabricated
+  // ranking that looks authoritative is worse than no ranking, so this returns
+  // none and the routes say why.
+  if (state.market?.unsourced) return [];
   const { on_the_clock, my_team, positions } = state;
   const round = on_the_clock.round;
   const roundsLeft = state.draft.rounds - round + 1;
@@ -828,7 +866,10 @@ export function rankTargets(state, limit = 8) {
 
 /* ---------------------------------------------------------------- dossiers */
 
-const SEASON = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+// Exported so the advisor prompt in routes/drafts.js can label the dossier
+// fields with the season they were actually read from, instead of the literal
+// "2025"/"2024" it used to hardcode.
+export const SEASON = Number(process.env.NFL_SEASON) || new Date().getFullYear();
 
 /**
  * Everything worth knowing about one player before you spend a pick on him.

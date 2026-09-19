@@ -248,6 +248,36 @@ async function refreshEspnRosters() {
 }
 
 /**
+ * ESPN's own ADP, rank and ownership for the player pool — the market the
+ * people in an ESPN draft room are actually looking at while they pick.
+ *
+ * `syncEspnMarket` had NO caller anywhere: not a route, not a script, not this
+ * file. It is the only writer of `espn_player_market`, and four surfaces read
+ * that table directly — `routes/aggregates.js:226` on the fantasy board,
+ * `preseason-model.js:336`, `manager-archetypes.js:166` and
+ * `consensus-weights.js:526`. So each of them has been serving whatever was
+ * left in the table by the last person to call the function by hand. Same
+ * class as every other finding here: not a bug in the code that reads, a
+ * schedule that was never written for the code that writes.
+ *
+ * ONE league, deliberately, not a loop over all of them. The upsert is
+ * `ON CONFLICT(espn_id)` — one global row per player, not one per league — and
+ * `season_proj` and `week1_proj` are `appliedTotal` in the fetching league's
+ * own scoring. Looping would leave whichever league ran last in the table and
+ * make the same column mean something different from pass to pass.
+ * `consensus-weights.js:527` already describes the table this way. Newest
+ * season first so the pick follows the season being played.
+ */
+async function refreshEspnMarket() {
+  const league = row(`SELECT id, name, season FROM leagues
+    WHERE platform = 'espn' ORDER BY season DESC, id ASC LIMIT 1`);
+  if (!league) return { skipped: true, reason: 'no ESPN league is connected' };
+  const { syncEspnMarket } = await import('./espn-market.js');
+  const result = await syncEspnMarket(league.id);
+  return { ...result, league: league.name, season: league.season };
+}
+
+/**
  * Each connected league's OWN roster payload (who owns which player on THAT
  * fantasy team — a trade, a waiver claim, a drop) — a completely different
  * thing from refreshEspnRosters above (which real NFL team a player is on).
@@ -1157,6 +1187,12 @@ export const JOBS = {
     label: 'Sleeper player universe (sleeper_id, overall rank, injury flag)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
+  // Off-thread because `kona_player_info` is the single largest ESPN payload
+  // the app fetches (17.6 MB measured on 2026-09-19, before the 400-player
+  // filter), and parsing it on the request thread is the freeze this
+  // scheduler's whole redesign exists to stop.
+  espn_market: { run: refreshEspnMarket, maxAgeMinutes: 12 * 60, tier: 'growth', offThread: true,
+    label: "ESPN's own ADP, rank and ownership for the player pool" },
   league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live',
     label: "Each connected league's own roster (trades, waivers, drops) — was manual-only" },
   // Free (ESPN scoreboard). Hourly, so the last stored line before kickoff is a

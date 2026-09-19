@@ -68,6 +68,31 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
        on the Mac (a cloud box cannot boot the server, so the start-smoke fix
        from `5983e9e` has never been exercised).
 
+- **`silent-failure-hunter` chance-to-play finding — re-investigated 2026-09-19,
+  verdict PARTLY FIXED, code side now closed.** RED `f7ee045`, GREEN `78811b1`,
+  7/7; evidence `docs/tdd/availability-honest-degradation.tdd.md`.
+  - Already fixed before this pass: the bare `catch {}` pair in
+    `fittedAvailability()` (review-fixes-2 finding 1, `0a657f6`). A missing fit
+    table is a named basis, warned once; any other read error throws.
+  - Still live and fixed here: (1) `contingency.js#liveEspnStatuses` read the
+    `leagues` table inside a second bare `catch { return null; }`, which could
+    only ever fire on a real fault and silently deleted the whole ESPN
+    designation layer — an ESPN INJURY_RESERVE starter went 0.006 → 0.953 on the
+    fixture and was startable, with `availabilityBasis()` still saying `role`;
+    (2) `availability_basis` had been served to Start/Sit since review-fixes-2
+    "so the page can say so" and no page ever read it, so a healthy starter's
+    pooled 57% printed exactly like the validated number. Start/Sit now serves
+    and renders `availability_note` (inert layer + reason + effect + fix).
+  - **No served number moves** — only what is said about them.
+  - **Mac only:** whether the role layer is actually running is a database fact.
+    Last recorded state is `nfl_availability_role_rates` absent. Run the fit +
+    restart (`docs/tdd/play-chance-live.tdd.md` §6) and confirm
+    `availability_basis.basis === 'role'` on `GET /trades/:id/lineup`; also re-run
+    review-fixes-2's 43,200-asset identity check, which has no copy to run on
+    here. A locked DB now 500s the lineup request instead of serving a wrong
+    lineup — watch for it once, and if `SQLITE_BUSY` is common the follow-up is a
+    retry at the `rows()` layer, not a catch (queued WD).
+
 - **Fly.io self-host — LIVE, confirmed 2026-09-19 04:58Z.** App name
   `gridiron-hq`, URL **https://gridiron-hq.fly.dev/**. Nick logged in and saw
   the app's real UI (ESPN-connect onboarding modal, expected on a fresh empty

@@ -58,8 +58,20 @@ LLM spend: $0.
 
 | Stage | Commit | Evidence |
 |---|---|---|
-| RED | (pending) | |
-| GREEN | (pending) | |
+| RED | `6976685` | 15 tests, 0 pass — `server/services/trade-acceptance.js` does not exist. The gates were written into this file before the tests were, and the tests before the module. |
+| GREEN | `32faf5f` | 15/15. Neighbours still green, run individually against the same runner: `valuation-map` 27/27, `trade-tactics` 32/32, `trade-engine-correctness` 15/15. `npm run lint` exit 0 (833 files). |
+
+### What each gate is proven by
+
+| Gate | Test |
+|---|---|
+| G1 band, never a point | "every result is a band with a named basis, and is never presented as fitted" — asserts `low <= mid <= high`, real width, `fitted: false`. |
+| G2 anchor carries its n | three tests: the anchor reports rate + n + `calibrated: false`; no decided offers widens the band vs an anchored one and says "no decided offers"; n=4 is wider than n=60. |
+| G3 never charged twice | two tests add `needs: ['RB']` and a `roster_read` on top of the same `perception_delta` and assert the band is byte-identical; a third asserts every factor that DID move it names a declared source and respects its cap. |
+| G4 honest degradation | no counterparty data returns `basis: 'no_information'` with a band at least 0.5 wide and its inert sources listed with reasons; a missing profile appears as inert `says_no_holds` rather than being skipped silently. |
+| G5 edge test gates | a failing edge returns `band: null`, `basis: 'edge_failed'`; a MISSING edge result returns `basis: 'edge_unknown'` rather than defaulting to a pass. |
+| G6 ablation | `zero: ['receptiveness']` changes the band and removes that factor. |
+| G7 monotonicity | delta -10 / 0 / +20 produces non-decreasing midpoints and a real spread; a manager whose no rarely holds is never scored below one whose no is final. Plus an extremes test: the band stays inside [0,1] and never claims certainty or impossibility. |
 
 ## What this does NOT establish
 

@@ -7,6 +7,36 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
 
 ## Active
 
+- **WA Trade Brain resumed in a second cloud session, 2026-09-19 (this entry).**
+  Picked up cold from `HANDOFF.md` + the first Active entry below, per A5. Nick's
+  laptop is off for the night; this session is cloud-side and unaffected by that.
+  - **`build:value-and-acceptance` — in flight.** The next queued Trade Brain
+    stage per D4 ("P(accept) ... a band from the heuristic ... with the observed
+    accept rate as the anchor, labelled as a band"). Builder agent working
+    test-first against pre-registered gates, owning a new
+    `server/services/trade-acceptance.js` + its test + `docs/tdd/value-and-acceptance.tdd.md`,
+    with only surgical additive wiring into `trade-engine.js`/`trade-tactics.js`.
+    Not yet landed; no commits to report at the time of this write.
+  - **Idea -> proposal pipeline being mapped** (read-only) so
+    `build:sendable-proposals` can be briefed accurately rather than guessed at.
+  - **Skills installed in this box** at `~/.claude/skills`, since a cloud session
+    does not share Nick's Mac's `~/.claude`: `i-have-adhd` (A2 rule 5 names it for
+    every message to Nick) plus `tdd-workflow`, `eval-harness`, `verification-loop`,
+    `frontend-patterns`, `backend-patterns`, `coding-standards`, `security-review`,
+    `clickhouse-io`, and the review agents from `worldflowai/everything-claude-code`.
+    `silent-failure-hunter` and `mle-reviewer` are Nick's own and are NOT in that
+    marketplace — they remain Mac-only, so any review pass run from a cloud
+    session is a near-equivalent, not the same agent.
+  - **Jev key: a key was created and then burned the same night.** Nick generated
+    an `AI_GATEWAY_API_KEY` (Vercel AI Gateway, the `typesafe-ai/jev` model in
+    `jev.ts`) and posted a screenshot of its value into the project chat — the
+    same way the Anthropic key was burned on 2026-09-18. He was told to rotate it:
+    create a fresh key, revoke the exposed one, and set the new value ONLY in the
+    environment-variables box as `AI_GATEWAY_API_KEY`. **Confirm the exposed key
+    was actually revoked before trusting that this is closed** — it was not
+    verified from inside this session, which cannot see that dashboard.
+    No Jev-dependent work was started, so nothing is blocked on it either way.
+
 - **Fly.io self-host — LIVE, confirmed 2026-09-19 04:58Z.** App name
   `gridiron-hq`, URL **https://gridiron-hq.fly.dev/**. Nick logged in and saw
   the app's real UI (ESPN-connect onboarding modal, expected on a fresh empty

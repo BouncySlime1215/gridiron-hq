@@ -238,9 +238,18 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
           n: s.samples.tx_accept_rate ?? 0, cap: null, fitted: false,
           why: `accepted ${(m.tx_accept_rate * 100).toFixed(0)}% of ${s.samples.tx_accept_rate} decided offers, `
             + 'blended over talk' }] : []),
+        // `n: null`, not 3. A prior is a sentence Nick wrote down, not three of
+        // anything observed: `manager-signals.js:374` stores every one of them with
+        // a placeholder n of 3 and `source: 'nick'`, and mirroring that number onto
+        // the factor made a hand-set read print as if it rested on a sample of
+        // three. Nothing computes with this field — the priors move receptiveness
+        // through `m.prior_*` at :185-187, before this array is built, and no
+        // reader of `receptiveness_factors` anywhere reads a `nick_prior` n — so
+        // saying "no sample" costs nothing and stops the one number on the factor
+        // that is not evidence from looking like evidence.
         ...Object.entries(m).filter(([k, v]) => k.startsWith('prior_') && v)
           .map(([k, v]) => ({ source: 'nick_prior', label: `Nick's read: ${k.slice(6)}`,
-            effect: null, n: 3, cap: null, fitted: false, why: `${k.slice(6)} ${v}` })),
+            effect: null, n: null, cap: null, fitted: false, why: `${k.slice(6)} ${v}` })),
         ...(postLoss ? [postLoss] : []),
       ],
     });

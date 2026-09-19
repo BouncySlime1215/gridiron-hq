@@ -27,9 +27,9 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 /** What this source's `n` actually counts, so "4" is never a bare number. */
 function sampleOf(f: ReceptivenessFactor): string {
-  // Nick's own reads carry a hard-coded n of 3 in the layer; calling that a
-  // sample would be inventing evidence for a hand-set nudge.
-  if (f.source === 'nick_prior') return 'hand-set read, not measured';
+  // No special case for a hand-set read: the layer now declares `n: null` for one,
+  // so the generic no-sample path below says it, and a source that stops carrying
+  // a sample cannot go on printing one because this list was not updated.
   const n = f.n;
   if (n == null || n === 0) return 'no sample behind it';
   if (f.source === 'chat_engagement') return `based on ${plural(n, 'chat message')}`;

@@ -39,6 +39,8 @@ const SWIFT = 'D’Andre Swift';
 
 const player = (name, value = 4000) => ({ id: name.length, name, value, position: 'RB' });
 
+const clientSrc = name => readFileSync(new URL(`../client/src/components/${name}`, import.meta.url), 'utf8');
+
 /** A layer profile exactly as `counterpartyLayer` builds one: Maps and Sets. */
 const profile = (over = {}) => ({
   roster_id: '3',
@@ -90,7 +92,7 @@ const profile = (over = {}) => ({
       n: 412, cap: 0.5, fitted: false, why: 'open-to-trade rank 0.71, trade-talk rank 0.60' },
     { source: 'observed_accept_rate', label: 'What he has actually done with offers',
       effect: null, n: 30, cap: null, fitted: false, why: 'accepted 25% of 30 decided offers' },
-    { source: 'nick_prior', label: "Nick's read: seller", effect: null, n: 3, cap: null,
+    { source: 'nick_prior', label: "Nick's read: seller", effect: null, n: null, cap: null,
       fitted: false, why: 'seller 1' },
   ],
   ...over,
@@ -217,6 +219,24 @@ test('M4a: readDeal now carries the receptiveness factors, each with its sample 
   assert.equal(rate.effect, null, 'a source that never reduced to a number must stay null');
 });
 
+test('M4a2: a hand-set prior declares no sample, because it is not one', () => {
+  // `manager-signals.js:374` stores every Nick prior with a placeholder n of 3 and
+  // `source: 'nick'`. The layer used to copy that 3 onto the factor, which made a
+  // sentence Nick wrote down read as three observed trades — the exact confusion
+  // this panel exists to end. Nothing computes with it: receptiveness is built
+  // from `m.prior_*` before the factor array exists.
+  const src = readFileSync(new URL('../server/services/counterparty-pricing.js', import.meta.url), 'utf8');
+  assert.match(src, /source: 'nick_prior'[\s\S]{0,220}?n: null/, 'a hand-set prior claims a sample again');
+  const wire = readDeal({ ...deal(), managerProfile: profile() });
+  const prior = wire.receptiveness_factors.find(f => f.source === 'nick_prior');
+  assert.equal(prior.n, null, 'the hand-set read must not travel with a sample size');
+  assert.equal(prior.effect, null, 'and it must not travel with an effect either');
+  // The panel must not have a source-specific escape hatch for it any more.
+  const panel = clientSrc('trade/ManagerRead.tsx');
+  assert.doesNotMatch(panel, /nick_prior/,
+    'the panel special-cases a source instead of reading the sample it was given');
+});
+
 test('M4b: readDeal keeps its own fields when the serialised read is merged in', () => {
   const out = readDeal({ ...deal(), managerProfile: profile() });
   assert.equal(out.chat_msgs, 412);
@@ -239,8 +259,6 @@ test('M4c: the whole counterparty block a deal carries is JSON-serialisable', ()
 });
 
 /* ---------------------------------------------------------- M5 the panel */
-
-const clientSrc = name => readFileSync(new URL(`../client/src/components/${name}`, import.meta.url), 'utf8');
 
 test('M5a: ManagerRead returns null when it has nothing, like PlayerEvidence and RiskStrip', () => {
   const src = clientSrc('trade/ManagerRead.tsx');

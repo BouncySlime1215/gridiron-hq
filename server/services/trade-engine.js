@@ -1886,8 +1886,24 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
     // all. The band reads `d.counterparty` — it does not re-price anything,
     // because need fit and the profile roster read are already inside that
     // block's `perception_delta` (see trade-acceptance.js's header).
+    //
+    // `zero` is deliberately NOT forwarded. The band's own ablation vocabulary
+    // (perception_delta / receptiveness / says_no_holds) and VALUATION_SOURCES
+    // are disjoint sets, so passing the engine's valuation `zero` array in here
+    // could never match anything — it read like a control and was a no-op, which
+    // is worse than not offering one.
+    //
+    // The ablation still reaches this band, through its inputs rather than
+    // through this call: `zero` is applied upstream in `counterpartyLayer`
+    // (:1522, which is what receptiveness is built from, including the
+    // `recency_post_loss` source) and in `readDeal` (:1596, which is what
+    // `perception_delta` is built from). Suppress a chat source and both of this
+    // band's real inputs move. What the engine cannot suppress is
+    // `says_no_holds`, which is read straight off the negotiation profile and
+    // has no valuation-source name — stated here rather than implied by a
+    // parameter that cannot do it.
     d.acceptance = acceptanceBand({ counterparty: d.counterparty, edge: d.edge,
-      profile: cp?.negotiation ?? null, zero });
+      profile: cp?.negotiation ?? null });
   }
 }
 

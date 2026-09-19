@@ -539,6 +539,118 @@ async function refreshTradeAssetUniverse() {
 }
 
 /**
+ * Per-manager behavioural signals for every ESPN league — the counterparty half
+ * of the trade engine (manager-signals.js#refreshManagerData).
+ *
+ * NOTHING IN THE RUNNING APP CALLED THIS UNTIL NOW. The only caller was
+ * scripts/build-manager-signals.mjs, launched by hand (or by the off-server
+ * refresh loop, which shares this job's `manager_signals` sync_log row and so
+ * keeps this one from repeating work it has already done). On the deployed
+ * machine that meant the measured manager layer was never built at all: the
+ * trade finder's counterparty block — and now
+ * GET /api/trades/:leagueId/managers/signals — had nothing to read.
+ *
+ * IN A WORKER THREAD, AND THAT IS THE WHOLE POINT. node:sqlite is synchronous
+ * (server/db/index.js) and this build is CPU-bound by construction: it
+ * JSON.parses each league's whole ESPN payload and rolls it up per roster. Run
+ * on the main thread it would hold the event loop for the length of that work
+ * across five leagues, once per background tick — the exact shape that has
+ * already made this app unresponsive (see startScheduler's SCHEDULER_DISABLED
+ * note and report-cache.js's header). report-worker.js is the generic "import a
+ * module, run one exported function off-thread, post the JSON result" entry
+ * point report-cache.js already uses; it opens its own SQLite connection, which
+ * WAL allows alongside this thread's. What is left on the main thread is
+ * starting the thread and writing one sync_log row.
+ */
+export function refreshManagerSignalsOffThread({ leagueIds = null, timeoutMs = 120_000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./report-worker.js', import.meta.url), {
+      // `module` is resolved inside report-worker.js, which sits beside manager-signals.js.
+      workerData: { module: './manager-signals.js', fn: 'refreshManagerData', args: [{ leagueIds }] },
+      env: process.env,
+    });
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // The build is idempotent and writes one league per transaction, so
+      // abandoning a slow run loses at most the leagues it had not reached yet.
+      worker.terminate().catch(() => {});
+      if (error) reject(error); else resolve(value);
+    };
+    const timer = setTimeout(() => finish(new Error(
+      `the manager-signals build exceeded its ${Math.round(timeoutMs / 1000)}s budget and was abandoned`)), timeoutMs);
+    timer.unref?.();
+    worker.once('message', msg => finish(msg?.error ? new Error(msg.error) : null, msg?.value ?? null));
+    worker.once('error', e => finish(e));
+    // Reached before a message only when the thread died without posting one.
+    worker.once('exit', code => finish(new Error(`the manager-signals worker exited with code ${code}`)));
+  });
+}
+
+/**
+ * Every ESPN league's identities and signals, rebuilt where an input moved.
+ *
+ * A league that fails is isolated by the service itself, so the summary carries
+ * every league either way; this then throws when any of them failed, because
+ * `runIfStale` records a thrown message as the job's error and a partial build
+ * recorded as 'ok' is exactly how a silently empty counterparty layer survives.
+ * Nothing is lost by throwing: the message names every failing league.
+ */
+async function refreshManagerSignals() {
+  const out = await refreshManagerSignalsOffThread();
+  const leagues = out?.leagues ?? [];
+  const detail = {
+    chat_db: out?.chat_db ?? null, build_ms: out?.ms ?? null,
+    leagues: leagues.map(l => ({
+      league_id: l.league_id, name: l.name ?? null, skipped: l.skipped ?? null, error: l.error ?? null,
+      chat_corpus: l.chat_corpus ?? null, unchanged: l.unchanged ?? null, signals: l.signals ?? null,
+    })),
+  };
+  const failed = leagues.filter(l => l.error);
+  if (failed.length) {
+    throw new Error(`manager signals: ${failed.map(l => `league ${l.league_id} — ${l.error}`).join('; ')}`);
+  }
+  return detail;
+}
+
+/**
+ * The archetype half of the same layer: draft-revealed preference and the
+ * all-play/luck outcomes, which manager-signals.js copies into `manager_signals`
+ * as its `draft` and `outcome` sources. Nothing ran this either, so those two
+ * sources never appeared for any league.
+ *
+ * A child process, not an import: scripts/build-manager-archetypes.mjs owns the
+ * three-stage order (it runs scripts/luck-panel.mjs for the outcome half), and
+ * `execFile` keeps all of it off this thread — the event loop stays free while
+ * it runs, though the box's CPU does not, which is why this sits in `heavy`
+ * rather than beside the signals job. `--jev` is deliberately not passed: that
+ * stage calls a paid gateway and needs AI_GATEWAY_API_KEY, so it stays opt-in
+ * (`npm run build:manager-archetypes -- --jev`).
+ */
+async function refreshManagerArchetypes() {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const path = await import('node:path');
+  const { PROJECT_ROOT } = await import('../platform/paths.js');
+  const script = path.join(PROJECT_ROOT, 'scripts/build-manager-archetypes.mjs');
+  const { stdout } = await promisify(execFile)(process.execPath, [script, '--json'],
+    { cwd: PROJECT_ROOT, env: process.env, encoding: 'utf8', timeout: 9 * 60_000, maxBuffer: 32 * 1024 * 1024 });
+  // The script's --json tail is the whole report; only its summary belongs in a
+  // sync_log row, small enough that the Data Health page can show it.
+  let report = null;
+  try { report = JSON.parse(stdout.slice(stdout.indexOf('{'))); } catch { report = null; }
+  const s = report?.summary ?? null;
+  return s
+    ? { league_seasons: s.league_seasons, managers: s.managers, rows_written: s.rows_written,
+      draft_manager_seasons: s.draft_manager_seasons, outcome_manager_seasons: s.outcome_manager_seasons,
+      jev: 'not run — opt-in, needs AI_GATEWAY_API_KEY' }
+    : { error: 'the archetype build printed no JSON summary',
+      tail: stdout.trim().split('\n').at(-1)?.slice(0, 200) ?? null };
+}
+
+/**
  * Does an already-approved finding still work on fresh, out-of-sample data?
  * See decay-watch.js's header for why this is a genuinely separate check
  * from audit-registry.js's sealed audits (it never re-runs one) and from
@@ -1234,6 +1346,32 @@ export const JOBS = {
   // fantasy side's own inputs actually change (injuries every 6h, news hourly).
   trade_asset_universe_warm: { run: refreshTradeAssetUniverse, maxAgeMinutes: 20, tier: 'growth',
     label: 'Pre-warm the trade engine\'s asset universe for every league in use' },
+  /*
+   * The measured manager layer. 'growth', not 'heavy', deliberately:
+   *   - it makes no network request at all — it reads the league payload
+   *     league_rosters has already stored, the transaction rows beside it, and
+   *     the chat DB read-only — so there is nothing here to meter;
+   *   - it computes in a worker thread (refreshManagerSignalsOffThread), so the
+   *     event loop is never held while it runs, and the reason the `heavy` tier
+   *     exists — long compute ON THE MAIN THREAD — does not apply to it;
+   *   - `heavy` is gated behind AUTO_HEAVY_SYNC, and a signal layer that only
+   *     builds behind a flag is the "silently never runs" failure this file has
+   *     already had to fix twice (see decay_watch and nfl_model_growth).
+   * maxAgeMinutes matches league_rosters, its main input. The sync_log row is
+   * shared with scripts/build-manager-signals.mjs, so an off-server build counts
+   * as this job having run and neither path repeats the other's work.
+   */
+  manager_signals: { run: refreshManagerSignals, maxAgeMinutes: 60, tier: 'growth', timeoutMs: 150_000,
+    label: 'Who each manager is and what we have measured about him, every ESPN league (worker thread)' },
+  /*
+   * The archetype half: 24 h, because a draft happens once a season and the
+   * outcome metrics move once a week. 'heavy' because it spawns a child process
+   * that replays every league-season — off this thread, but not off this box.
+   * The off-server refresh loop runs it by name whatever its tier
+   * (scripts/refresh-live-data.mjs FANTASY_LIVE_JOBS).
+   */
+  manager_archetypes: { run: refreshManagerArchetypes, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 10 * 60_000,
+    label: 'Manager archetypes: draft-revealed preference and all-play/luck outcomes (child process)' },
   /*
    * Prop quote capture. Every hour during a slate, because a prop line that is
    * only observed once cannot yield closing-line value — CLV needs the price

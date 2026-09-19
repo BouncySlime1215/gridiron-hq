@@ -20,6 +20,22 @@ gate, the cutoff-safety guard that re-fits when a stored fit would see the seaso
 being graded, and the recency-units guard that keeps the vector off the
 season-long callers it was not fitted for. The only missing thing is a row.
 
+## Where this runs
+
+Both scripts talk to the database directly through `server/db/index.js`, not over
+HTTP, so they have to run **on the machine holding the live volume** — a shell on
+the Fly machine, with `GRIDIRON_DB_PATH` pointing at `/data/data.sqlite` as the
+app itself uses it. There is no route that triggers either of them.
+
+That means whoever runs this needs `fly ssh console` access. `GRIDIRON_FLY_TOKEN`
+is an application bearer token, not a Fly API token, so it does not grant that,
+and `flyctl` is not installed in the cloud session. Nick has the access; a cloud
+session does not.
+
+Running them against any other copy of the database fits and activates a vector
+for that copy and leaves the live app untouched, which is a silent no-op rather
+than an error — so check the path before assuming a run took effect.
+
 ## Preconditions
 
 1. The app answers. As of 16:30Z on 2026-09-19 `gridiron-hq.fly.dev` had not
@@ -37,8 +53,30 @@ season-long callers it was not fitted for. The only missing thing is a row.
 node scripts/promote-volume-shrinkage.mjs --dry-run
 ```
 
-Writes nothing. Prints the five gate conditions and the production vector. **All
-five must read `true`.** For reference, on a database rebuilt from nflverse on
+Writes nothing. Prints the production vector and these five conditions, which are
+fixed in the script before the run rather than chosen after it. **All five must
+read `true`:**
+
+1. structural head better in all three seasons, each significant
+2. structural head rank correlation not worse in any season
+3. full ensemble better in 2024 and 2025, significant on 2025
+4. start/sit ranking with a did-not-play scored as zero, not worse in either season
+5. 80% interval coverage inside [0.78, 0.82]
+
+The production vector it prints should land near these, which is what the numbers
+below were measured with — six entries, one per metric and position:
+
+| metric | position | fitted k | hand-picked today |
+|---|---|---|---|
+| `target_share` | ALL | ~0.18 | 6 |
+| `carry_share` | RB | ~0.08 | 6 |
+| `carry_share` | OTHER | ~0.09 | 6 |
+| `qb_attempts` | QB | ~0.26 | 6 |
+| `team_pass_att` | ALL | ~1.3 | 10 |
+| `team_rush_att` | ALL | ~1.7 | 10 |
+
+A vector wildly away from these means the live history differs from the rebuild;
+read the gate rather than the table in that case, and say so. For reference, on a database rebuilt from nflverse on
 2026-09-19 they all passed, with ensemble MAE 4.453 → 4.428 (2024) and
 4.362 → 4.341 (2025), and start/sit pair accuracy 0.6349 → 0.6395 and
 0.6272 → 0.6334.

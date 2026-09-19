@@ -1441,10 +1441,14 @@ function shouldBeWired(model, ann, add) {
       add({ kind: 'should-wire', rule: 'constant-standing-in-for-a-model', scope: scopeOfFile(f.path),
         subject: `${field} ?? ${literal}`,
         detail: `${literal} is used wherever ${field} is absent, and ${field} is a column the app fits `
-          + `and stores in ${owners.slice(0, 3).join(', ')}. THIS DOES NOT PROVE THE FALLBACK EVER FIRES. `
-          + `Read what populates the collection just above this line: if the rows were already filtered `
-          + `to the population the fit covers, the number is unreachable and this is not a finding. `
-          + `season-sim.js:226 looked exactly like the worst case and is filtered at :201`,
+          + `and stores in ${owners.slice(0, 3).join(', ')}. THIS DOES NOT PROVE THE FALLBACK CHANGES `
+          + `ANYTHING. Read in both directions before relaying it. UPWARD: if what populates the `
+          + `collection above this line was already filtered to the population the fit covers, the `
+          + `number is unreachable (season-sim.js:226 looked like the worst case of this rule and is `
+          + `filtered at :201). DOWNWARD: follow every consumer of the value, because a constant can be `
+          + `reached and still reach nothing (trade-engine.js:346 hands every K/DEF a 0.92 and all four `
+          + `consumers discard it, leaving only a served field with no calculation behind it). Three `
+          + `wrong claims came out of one constant on 2026-09-19. This is a lead to read, not a fact`,
         evidence: [`${f.path}:${lineOf(f.code, m.index)}`] });
     }
   }
@@ -1645,13 +1649,22 @@ const LIMITS = [
   + 'The script, the tables and the consumers are all on this graph, but nothing here says that '
   + 'running it alters a process already serving requests. Same family as ROWS, NOT WRITERS: the '
   + 'shape of the wiring is not the state of it.',
-  'A CONSTANT IS NOT A FINDING UNTIL SOMEBODY READS UPWARDS. constant-standing-in-for-a-model '
-  + 'finds a typed number defaulting a fitted column. It cannot decide whether that default is '
-  + 'reachable, because the filter that decides it is usually twenty lines earlier and sometimes '
-  + 'in another function. On 2026-09-19 season-sim.js:226 was reported and repeated as the '
-  + 'strongest case of the category; the roster is filtered to the covered positions at :201 and '
-  + 'the fallback cannot fire for the positions that mattered. The line was real and the '
-  + 'conclusion was invented. Treat every hit as a lead to read, never a fact to relay.',
+  'A CONSTANT IS NOT A FINDING UNTIL SOMEBODY HAS READ BOTH DIRECTIONS FROM IT. '
+  + 'constant-standing-in-for-a-model finds a typed number defaulting a fitted column. It cannot '
+  + 'decide whether that default reaches anything, and there are two separate ways it does not. '
+  + 'UPWARD: the filter that decides reachability is usually twenty lines earlier and sometimes '
+  + 'in another file. On 2026-09-19 season-sim.js:226 was reported and repeated as the strongest '
+  + 'case of the category; the roster is filtered to the covered positions at :201 and the '
+  + 'fallback cannot fire for the positions that mattered. DOWNWARD: the constant is reached and '
+  + 'then annihilated. Same day, trade-engine.js:346 on main at 791b131 does hand every K/DEF a '
+  + '0.92, and all four consumers discard it - :359 multiplies it by a currentWeekPpg forced to 0 '
+  + 'because :336 gives those positions a schedule with games: [], :385 weights that 0 at 0.25 '
+  + 'against a rosPpg with no availability term, :398 and :406 need a weekProjection that '
+  + 'projections.js:292 excludes them from, and :2827 sits behind a week_points > 0 filter they '
+  + 'fail. Only the served field at :464 survives, which is a real defect of a different kind: a '
+  + 'number displayed as if a model produced it. Three wrong claims came out of this one constant '
+  + 'in one evening, from two threads. The line is always real; the sentence about what it means '
+  + 'is the part that gets invented. Treat every hit as a lead to read, never a fact to relay.',
   'SERVED-BUT-NOT-RENDERED ONLY READS res.json. A field a service attaches to an object '
   + 'the route spreads is on the wire and not in this rule. Walking into the services made it '
   + '1,435 findings of which almost none were payload fields, so the rule takes the narrow, '

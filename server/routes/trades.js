@@ -7,6 +7,7 @@
  */
 import { Router } from 'express';
 import { row, rows } from '../db/index.js';
+import { assertLeagueMember } from '../platform/auth.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import {
   findTrades, findTradeSequences, offerFor, offerForMany, selfScout, playerOutlook, evaluate,
@@ -69,10 +70,25 @@ function excludeSet(req) {
   return ids.length ? new Set(ids) : null;
 }
 
-/** Shared preamble: every route needs a synced league. */
+/**
+ * Shared preamble: every route needs a synced league THE CALLER IS IN.
+ *
+ * The membership check is here rather than on each route because this helper
+ * is the single door all 32 league-scoped routes in this file go through, and
+ * a rule enforced in one place cannot be forgotten by route 33. Until now it
+ * looked up the league by id alone, so any authenticated user could read — and
+ * through POST /:leagueId/brain/managers/:rosterId, write — any league in the
+ * database. That was invisible while there was exactly one account and is the
+ * first thing that matters once there are two.
+ *
+ * `assertLeagueMember` throws AuthorizationError, which the error handler in
+ * server/index.js turns into a 403; that is the same answer leagues.js,
+ * model.js and drafts.js already give, so a caller sees one consistent story.
+ */
 function league(req, res) {
   const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.leagueId);
   if (!lg) { res.status(404).json({ error: 'league not found' }); return null; }
+  assertLeagueMember(req.auth?.userId, lg.id);
   if (!lg.payload) { res.status(400).json({ error: 'league not synced yet — sync it on the My Leagues page' }); return null; }
   return lg;
 }

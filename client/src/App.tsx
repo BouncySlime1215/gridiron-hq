@@ -26,6 +26,8 @@ const Lineup = lazy(() => import('./pages/Lineup'));
 const News = lazy(() => import('./pages/News'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Pair = lazy(() => import('./pages/Pair'));
+const SignIn = lazy(() => import('./pages/SignIn'));
+const SignInComplete = lazy(() => import('./pages/SignInComplete'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 // NAV_GROUPS moved to src/navigation.ts so the command palette can render the
@@ -72,6 +74,17 @@ export default function App() {
   // now only about wasted work — but it is the shape the hook's comment
   // assumes, and leaving it unmemoized invites the loop back.
   const pageExplain = useMemo(() => ({ info: pageInfo, setInfo: setPageInfo }), [pageInfo]);
+
+  // Sign-in renders on its own, outside the app chrome. The sidebar, the
+  // league switcher and the ESPN gate all read endpoints that need the session
+  // this page exists to establish, so rendering them around it means a login
+  // box behind a wall of failed requests.
+  if (location.pathname === '/sign-in' || location.pathname.startsWith('/sign-in/')) {
+    return <Suspense fallback={<div className="min-h-screen bg-slate-50" />}><Routes>
+      <Route path="/sign-in" element={<SignIn />} />
+      <Route path="/sign-in/complete" element={<SignInComplete />} />
+    </Routes></Suspense>;
+  }
 
   return <LeagueProvider><PlayerCardProvider>
     <PageExplainContext.Provider value={pageExplain}>

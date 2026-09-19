@@ -50,6 +50,7 @@ const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
 const { default: wongRouter } = await import('./routes/wong.js');
 const { default: localAuthRouter } = await import('./routes/local-auth.js');
+const { default: googleAuthRouter } = await import('./routes/google-auth.js');
 const { default: draftCaptureRouter, serveCaptureScript } = await import('./routes/draft-capture.js');
 const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
 const { startScheduler } = await import('./services/scheduler.js');
@@ -87,6 +88,12 @@ app.get('/api/health', healthHandler());
 // Public only on the loopback interface. It removes the fresh-install token
 // paste step while all protected route families remain bearer-authenticated.
 app.use('/api/auth', localAuthRouter);
+// Google sign-in, for the hosted deployment where loopback provisioning can
+// never apply. Mounted alongside rather than instead of the router above:
+// the Mac install keeps working exactly as it does today, and a session
+// established either way is the same `auth_sessions` row underneath.
+app.use('/api/auth', googleAuthRouter);
+
 app.use('/api/teams', ...legacyAuthenticated, teamsRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);
 app.use('/api/rankings', ...legacyAuthenticated, rankingsRouter);
@@ -111,16 +118,21 @@ app.use('/api/tradelab', ...legacyAuthenticated, tradelabRouter);
 app.use('/api/trades', ...legacyAuthenticated, tradesRouter);
 app.use('/api/espn-connect', espnConnectRouter);
 app.use('/api/league-chat', ...legacyAuthenticated, leagueChatRouter);
-app.use('/api/model', modelRouter);
+// Gated as a family. Individual mutations already carried
+// requireModelPermission, but every read beside them — /status, /accuracy,
+// /availability, /state, /map and a dozen more — answered anyone at all. That
+// is invisible on a Mac bound to loopback and wide open the moment the same
+// process is reachable at a public URL.
+app.use('/api/model', ...legacyAuthenticated, modelRouter);
 app.use('/api/props', ...legacyAuthenticated, propsRouter);
 app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
 app.use('/api/decision-inbox', ...legacyAuthenticated, decisionInboxRouter);
-app.use('/api/mlb', mlbRouter);
-app.use('/api/nfl-market', nflMarketRouter);
-app.use('/api/nfl-betting', nflBettingRouter);
+app.use('/api/mlb', ...legacyAuthenticated, mlbRouter);
+app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
+app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);
-app.use('/api/betting', bettingHubRouter);
-app.use('/api/execution-slate', executionSlateRouter);
+app.use('/api/betting', ...legacyAuthenticated, bettingHubRouter);
+app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
 
 app.use((err, req, res, next) => {
   // AuthenticationError/AuthorizationError (server/platform/auth.js) set a real

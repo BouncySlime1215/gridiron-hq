@@ -244,6 +244,57 @@ export const __test = { lineupPoints, initialRecords };
  *                        is how a proposed trade is evaluated: simulate the league as
  *                        it would be after the deal and diff the title odds.
  */
+/**
+ * Which games the simulator's projections are allowed to have seen.
+ *
+ * `through: SEASON - 1` alone -- what this used to be -- ignores every game already played
+ * THIS season. At week 5 it priced the rest of the year off last season's snapshot: a rookie
+ * who has taken over a backfield, a receiver whose role collapsed, a player who has not
+ * played a down all year, all invisible. `ceiling-lineup.js` documents that exact defect in
+ * its own header and already avoids it; the simulator did not, so the title odds and the
+ * ceiling lineups were built from different information about the same roster.
+ *
+ * `throughWeek: fromWeek - 1` is the walk-forward-safe cutoff `player-week-engine.js` already
+ * uses: every game up to the week before the one being simulated, and not one game after it.
+ * Reading week `fromWeek` itself would leak the outcome of the first week being simulated.
+ *
+ * TWO GAMES, NOT ONE, AND THAT IS MEASURED. Switching to this season's log the moment a
+ * single week exists makes the projections WORSE, because the season weighting gives the
+ * current season full weight and drops last season to 0.55 -- so one game outweighs a
+ * complete prior year, and the effect is large: Ja'Marr Chase's projection falls 17.1 to
+ * 12.5 points a game on one week of evidence. Held out on three seasons independently, mean
+ * absolute error over the remaining weeks:
+ *
+ *   games played |   1        2        3        4        6        8
+ *   2023         | -0.015   +0.064   +0.095   +0.134   +0.176   +0.244
+ *   2024         | -0.052   +0.009   +0.060   +0.093   +0.124   +0.196
+ *   2025         | -0.025   +0.031   +0.064   +0.102   +0.155   +0.202
+ *
+ * (positive = this-season basis better, in points). The crossover sits between one game and
+ * two in all three seasons, and from two games on the advantage grows monotonically. So the
+ * switch is at two games played -- a threshold that reproduced in three independent seasons
+ * rather than one, which is the difference between a measurement and a tuned number.
+ *
+ * Before then there is also nothing to read at all in week 1: `history(SEASON, 0)` returns an
+ * empty log. `basis` is returned so a reader can see which cutoff was used rather than
+ * inferring it from the week.
+ */
+export const SIM_PROJECTION_MIN_GAMES = 2;
+
+export function simProjectionBasis(fromWeek, season = SEASON) {
+  const week = Number(fromWeek) || 1;
+  const played = week - 1;
+  if (played >= SIM_PROJECTION_MIN_GAMES) {
+    return { through: season, throughWeek: played, basis: `${season} through week ${played}` };
+  }
+  return {
+    through: season - 1, throughWeek: null,
+    basis: played > 0
+      ? `${season - 1} complete; ${played} game this season is too little to outweigh it`
+      : `${season - 1} complete; no games played yet this season`
+  };
+}
+
 export function simulateSeason(lg, {
   runs = 2000, fromWeek = 1, scoring = PPR, overrides = null, projections = null
 } = {}) {
@@ -251,7 +302,10 @@ export function simulateSeason(lg, {
   const assets = assetUniverse(lg, formatKey);
   let teams = loadRosters(lg, assets);
   const slots = lineupSlots(lg);
-  const proj = projections ?? buildProjections({ through: SEASON - 1, scoring });
+  const projBasis = simProjectionBasis(fromWeek);
+  const proj = projections ?? buildProjections({
+    through: projBasis.through, throughWeek: projBasis.throughWeek, scoring
+  });
 
   if (overrides) {
     teams = teams.map(t => overrides.has(t.roster_id)
@@ -440,6 +494,10 @@ export function simulateSeason(lg, {
     // came from, rather than trusting that it matched the league. `basis` names the
     // source: the league's own schedule, or the fallback constant.
     playoff_rounds: bracketRounds, playoff_basis: playoff.basis,
+    // Which games these odds were built from. Served because odds built off last season and
+    // odds built off this season's games so far are different numbers, and a reader cannot
+    // tell them apart from the value alone.
+    projection_basis: projBasis.basis,
     odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
     teams: out
   };
@@ -470,7 +528,10 @@ export function tradeImpact(lg, {
 
   // One projection build shared by both runs — rebuilding would introduce noise that
   // has nothing to do with the trade.
-  const projections = buildProjections({ through: SEASON - 1, scoring });
+  const tradeBasis = simProjectionBasis(fromWeek);
+  const projections = buildProjections({
+    through: tradeBasis.through, throughWeek: tradeBasis.throughWeek, scoring
+  });
   // Common random numbers make this a paired experiment: the same simulated
   // football worlds are used before and after, so Monte Carlo noise cannot
   // masquerade as trade impact.

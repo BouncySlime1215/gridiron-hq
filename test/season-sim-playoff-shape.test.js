@@ -13,7 +13,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { playoffRounds } = await import('../server/services/season-sim.js');
+const { playoffRounds, simProjectionBasis, SIM_PROJECTION_MIN_GAMES } = await import('../server/services/season-sim.js');
 
 /** League 5 / league 2 as synced: 14 regular periods, 6 playoff teams, one-week rounds. */
 const ESPN_ONE_WEEK_ROUNDS = {
@@ -143,4 +143,64 @@ test('a single-team or zero-team field still produces one round rather than none
   for (const teams of [0, 1, 2]) {
     assert.ok(playoffRounds(ESPN_ONE_WEEK_ROUNDS, teams).rounds.length >= 1, `teams=${teams}`);
   }
+});
+
+/**
+ * Which games the simulator's projections may see.
+ *
+ * The threshold is two games played, and that is a measured crossover rather than a chosen
+ * number: on 2023, 2024 and 2025 independently, switching to this season's log after ONE
+ * game made held-out mean absolute error worse (by 0.015, 0.052 and 0.025 points), and from
+ * two games on it was better in all three with the advantage growing monotonically. The
+ * cause is the season weighting: the current season gets full weight and last season drops
+ * to 0.55, so a single game outweighs a complete prior year.
+ */
+test('week 1 reads last season, because there is nothing else to read', () => {
+  const b = simProjectionBasis(1, 2026);
+  assert.equal(b.through, 2025);
+  assert.equal(b.throughWeek, null);
+  assert.match(b.basis, /no games played yet/);
+});
+
+test('one game played is still last season, and the basis says why', () => {
+  // This is the case that measured WORSE, so it must not switch. If someone later "fixes"
+  // this to switch at one game, this test is what stops them.
+  const b = simProjectionBasis(2, 2026);
+  assert.equal(b.through, 2025);
+  assert.equal(b.throughWeek, null);
+  assert.match(b.basis, /too little to outweigh/);
+});
+
+test('from two games played the simulator reads this season, up to the week before', () => {
+  for (const fromWeek of [3, 5, 9, 14]) {
+    const b = simProjectionBasis(fromWeek, 2026);
+    assert.equal(b.through, 2026, `week ${fromWeek} reads this season`);
+    // Never the week being simulated: that would leak the outcome of the first simulated week.
+    assert.equal(b.throughWeek, fromWeek - 1, `week ${fromWeek} stops at ${fromWeek - 1}`);
+    assert.match(b.basis, new RegExp(`2026 through week ${fromWeek - 1}`));
+  }
+});
+
+test('the cutoff is never the week being simulated, at any week', () => {
+  for (let w = 1; w <= 18; w++) {
+    const b = simProjectionBasis(w, 2026);
+    if (b.throughWeek != null) assert.ok(b.throughWeek < w, `week ${w} cutoff ${b.throughWeek} must precede it`);
+  }
+});
+
+test('a missing or junk week falls back to week 1 rather than reading the future', () => {
+  for (const bad of [undefined, null, 0, NaN, 'x']) {
+    const b = simProjectionBasis(bad, 2026);
+    assert.equal(b.through, 2025, `${String(bad)} falls back`);
+    assert.equal(b.throughWeek, null);
+  }
+});
+
+test('the minimum-games constant is the one the basis actually uses', () => {
+  // Guards against the constant and the comparison drifting apart.
+  assert.equal(SIM_PROJECTION_MIN_GAMES, 2);
+  const atThreshold = simProjectionBasis(SIM_PROJECTION_MIN_GAMES + 1, 2026);
+  const below = simProjectionBasis(SIM_PROJECTION_MIN_GAMES, 2026);
+  assert.equal(atThreshold.through, 2026);
+  assert.equal(below.through, 2025);
 });

@@ -2208,23 +2208,47 @@ stays stopped, and nothing can be read until someone is at a terminal.
 
 **Step 7 is not the first item. Stabilising the app is.**
 
+**There is a purpose-built brake for this already in the code, and it is the
+first command.** `scheduler.js:1732`:
+
+```
+if (process.env.SCHEDULER_DISABLED === '1') {
+  console.log('Scheduler disabled via SCHEDULER_DISABLED=1 — no background jobs will run.');
+  return { disabled: true };
+}
+```
+
+It returns **before** the boot pass is scheduled, so there is no `bootJobs`
+chain, no 90-second timer and no tiers at all. The comment above it was written
+on 2026-09-07, hours before the Matta-Kodsi draft, and describes this exact
+failure: the live tier's polling of a synchronous SQLite database "was found to
+be the actual cause of the app going periodically unresponsive", and "none of
+the fantasy pages depend on live NFL/MLB odds staying fresh, so the safe move
+for a night that has to work is to stop paying that cost rather than chase which
+of a dozen jobs is the one currently holding the lock."
+
 1. ```
-   fly secrets unset AUTO_HEAVY_SYNC -a gridiron-hq
+   fly secrets set SCHEDULER_DISABLED=1 -a gridiron-hq
    ```
-   Worth one command, not expected to fix it, for the reason in 7.0b.
+   **Not `fly secrets unset AUTO_HEAVY_SYNC`**, which gates only the heavy tier
+   (`:1759`) and would leave the boot pass running. Setting a secret restarts
+   the machine, which is wanted. Fully reversible by unsetting it, and it stops
+   the heavy tier too, so it supersedes that step for stability purposes.
 
-2. Merge the scheduler thread's fix PR, then:
-   ```
-   fly deploy -a gridiron-hq
-   ```
-   **This is the fix.**
-
-3. Proof, one command, run twice a few minutes apart:
+2. Proof, one command, run twice a few minutes apart:
    ```
    curl -s https://gridiron-hq.fly.dev/api/health
    ```
    **`uptime_s` past 600 and still climbing on the second read is the pass.**
    Anything under 200 on a later read means it restarted again.
+
+3. **Then take the baseline**, which turns last night's loss into a delay rather
+   than a write-off. A scheduler-disabled app is not a degraded one for this
+   purpose — it is a *quiet* one, which is the ideal condition for a capture
+   that has to be compared against something taken twenty minutes later.
+
+4. Merge the scheduler thread's fix PR and deploy, then unset
+   `SCHEDULER_DISABLED` once the fix is proved.
 
 **Do not set `LOOP_WATCHDOG_THRESHOLD_MS`.** It is read from the environment
 (`loop-watchdog.js:58`), so it would work, and it would turn a machine that
@@ -2252,6 +2276,31 @@ previous build had its own faults.
   never two — which is the signature of a counter reset by a restart before a
   second failure can accumulate. So: nothing is corrupted and no data is at
   risk; **that is not the same as nothing having been affected.**
+
+### 7.0c-i Why the boot pass, specifically
+
+`bootJobs` at `scheduler.js:1740-1744` is exactly twenty jobs, **awaited in
+series** at `:1746`, starting at `bootDelayMs` — default 20000 at `:1717`.
+
+The order ends `… polymarket_line_watch, beat_the_close, nfl_pick_watch,
+nfl_t60_runner`. In the 22:09Z life the `last_run_at` timestamps run `rss_news`
+22:09:44 through `beat_the_close` **22:10:43** — about 100 seconds in, which is
+exactly where the wedge was measured — and the two jobs *after* `beat_the_close`
+carry timestamps from a **later** life. So the chain stopped between the
+eighteenth and nineteenth job, at the wedge.
+
+A serial `await` chain of twenty jobs starting a fixed 20 seconds after every
+boot is also the only thing here that produces the signature actually observed:
+the **same age every time**, 101 to 121 seconds. Contention would be ragged.
+
+**One prediction for the small hours, so a change is not read as a new fault.**
+`nfl_model_growth` was last run 21:17:44Z with a six-hour staleness window, so
+it becomes stale at about **03:17Z** — and `:1751` fires
+`runIfStale('nfl_model_growth')` 90 seconds after every boot, on the main
+thread. Until 03:17 that timer hits a no-op. After it, every boot additionally
+runs a main-thread model fit at 90 seconds. The cycle may therefore get worse
+overnight, and the machine may stop for good on its restart cap. Neither is new
+and neither needs waking anybody.
 
 ### 7.0d Found while looking at something else: two jobs that have never run
 

@@ -287,13 +287,17 @@ test('the band EDGES never claim certainty or impossibility either, and keep the
     edge: passes, profile: profileWith('yes'),
   });
   const mid = acceptanceBand({ counterparty: informed({ accept_rate: 0.5, accept_rate_n: 99 }), edge: passes });
-  const width = b => +(b.band.high - b.band.low).toFixed(3);
+  const width = b => b.band.high - b.band.low;
   for (const [name, r] of [['hot', hot], ['cold', cold]]) {
     assert.ok(r.band.high <= BAND_CEILING, `${name}: the top of the band is not certainty`);
     assert.ok(r.band.low >= BAND_FLOOR, `${name}: the bottom of the band is not impossibility`);
     assert.ok(r.band.low <= r.band.mid && r.band.mid <= r.band.high, `${name}: still ordered`);
-    assert.equal(width(r), width(mid),
-      `${name}: the same ${99} decided offers must buy the same width wherever the band sits`);
+    // Within one step of the 3-decimal rounding the published band uses: the
+    // point is that the SAME 99 decided offers buy the same width wherever the
+    // band sits, not that two independently rounded ends land on one number.
+    assert.ok(Math.abs(width(r) - width(mid)) <= 0.001,
+      `${name}: 99 decided offers bought ${width(mid).toFixed(3)} of width in the middle of the `
+      + `range and only ${width(r).toFixed(3)} here — the clamp, not the evidence, set the width`);
   }
 });
 

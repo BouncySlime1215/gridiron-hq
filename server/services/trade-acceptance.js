@@ -25,9 +25,27 @@
  *                        person's current posture, not this package's price.
  *                        Charged only for the part the anchor does not already
  *                        hold: `counterparty-pricing.js:180-182` blends the
- *                        observed accept rate into receptiveness, so past
- *                        fifteen decided offers it IS the anchor and is not
- *                        charged a second time.
+ *                        observed accept rate into receptiveness with weight
+ *                        `min(1, n/15)`, so past fifteen decided offers the
+ *                        blend is entirely the accept rate and charging
+ *                        receptiveness on top would count it twice.
+ *
+ *                        **What that costs, stated rather than hidden.** The
+ *                        blend is not all of receptiveness: Nick's priors
+ *                        (`:185-187`) and the post-loss window (`:195-196`) are
+ *                        added AFTER it and are genuinely independent of the
+ *                        accept rate, and the discount here is applied to the
+ *                        whole deviation from 1.00 rather than to the blended
+ *                        part alone. So past fifteen decided offers this band
+ *                        gives up those two signals, and below fifteen it
+ *                        under-weights them (the chat part is discounted by
+ *                        `1-w` inside the blend and again by `1-w` here) while
+ *                        still carrying `w(1-w)` of the accept rate. Both
+ *                        errors point at "charge less than we could", which is
+ *                        the safe direction for a band that is not fitted, but
+ *                        neither is exact. Undoing the blend properly means
+ *                        inverting `:175-199`, which is a change to that file's
+ *                        contract and is not made here.
  *   - `says_no_holds`  — whether a stated no converts into a real no. Declared
  *                        in NEGOTIATION_PROFILE_SCHEMA and read by nothing in
  *                        server/ before this file; it is a behavioural signal,
@@ -128,7 +146,21 @@ export function acceptanceBand({ counterparty = null, edge = null, profile = nul
   const add = (source, effect, why) => {
     if (off.has(source)) return;
     const spec = ACCEPTANCE_SOURCES[source];
-    if (!Number.isFinite(effect) || Math.abs(effect) < 0.001) return;
+    // A source that was READ and came out at nothing is not the same as a source
+    // that was never read, and a reader must be able to tell them apart — the
+    // first rule `counterparty-pricing.js` states. Dropping it from `factors`
+    // AND from `inert` made "priced, and it reads as neutral" look identical to
+    // "no data for this league".
+    if (!Number.isFinite(effect)) {
+      inert.push({ source, reason: `${why}, but that did not reduce to a usable number` });
+      return;
+    }
+    if (Math.abs(effect) < 0.001) {
+      inert.push({ source,
+        reason: `${why} — read, but it moves the band by less than 0.001, so it is reported `
+          + 'rather than rounded into a factor that would read as a real adjustment' });
+      return;
+    }
     const capped = clamp(effect, -spec.cap, spec.cap);
     factors.push({ source, label: spec.label, effect: round(capped), cap: spec.cap,
       fitted: false, why });
@@ -156,7 +188,20 @@ export function acceptanceBand({ counterparty = null, edge = null, profile = nul
   const hasData = counterparty?.counterparty_data === true;
 
   // ------------------------------------------------------------ the centre
-  const centre = anchor.accept_rate == null ? UNANCHORED_CENTRE : anchor.accept_rate;
+  //
+  // `anchor.usable`, not `anchor.accept_rate != null`: a rate with no decided
+  // offers behind it is a number, not an observation, and centring on it bought
+  // a band NARROWER than knowing nothing. `manager-signals.js:206` withholds the
+  // rate below five decisions, so this shape cannot come off a real league today
+  // — but that gate is in a third module with nothing tying it to this one, and
+  // an unreachable state that would print a confident number is still a state
+  // this function has to refuse. What we were handed stays reported on `anchor`.
+  if (anchor.accept_rate != null && !anchor.usable) {
+    inert.push({ source: 'anchor',
+      reason: `an accept rate of ${anchor.accept_rate} arrived with 0 decided offers behind it; `
+        + 'a rate with no sample is not an observation, so it does not anchor this band' });
+  }
+  const centre = anchor.usable ? anchor.accept_rate : UNANCHORED_CENTRE;
 
   // --------------------------------------- 1. how it reads on his numbers
   const delta = counterparty?.perception_delta;
@@ -176,14 +221,19 @@ export function acceptanceBand({ counterparty = null, edge = null, profile = nul
   //
   // Charged only for the part the anchor does not already carry.
   // `counterparty-pricing.js:180-182` blends `tx_accept_rate` INTO receptiveness
-  // with weight `min(1, n/15)`, so at fifteen or more decided offers
-  // receptiveness simply IS the accept rate this band is already centred on.
-  // Adding it on top would count one piece of evidence twice and make a single
-  // observed rate look like two agreeing signals — the same failure
-  // `playerValuation` avoids by treating talk_vs_model and chat_sentiment as
-  // alternatives rather than additions.
+  // with weight `min(1, n/15)`, so at fifteen or more decided offers the blended
+  // score is entirely the accept rate this band is already centred on. Adding it
+  // on top would count one piece of evidence twice and make a single observed
+  // rate look like two agreeing signals — the same failure `playerValuation`
+  // avoids by treating talk_vs_model and chat_sentiment as alternatives rather
+  // than additions. The blend is not quite all of receptiveness (the header says
+  // what this approximation gives up, and in which direction).
   const receptiveness = counterparty?.receptiveness;
-  const carriedByAnchor = Math.min(1, anchor.n / ANCHOR_BLEND_N);
+  // Only an anchor this band is ACTUALLY centred on can carry receptiveness for
+  // it. The skip below asserts a fact about where the centre came from; printing
+  // it while the centre is the declared starting point would drop real evidence
+  // and give a false reason for doing it.
+  const carriedByAnchor = anchor.usable ? Math.min(1, anchor.n / ANCHOR_BLEND_N) : 0;
   if (Number.isFinite(receptiveness) && Math.abs(receptiveness - 1) >= 0.001) {
     if (carriedByAnchor >= 1) {
       skip('receptiveness', `his ${anchor.n} decided offers are already the anchor this band is `
@@ -217,23 +267,22 @@ export function acceptanceBand({ counterparty = null, edge = null, profile = nul
   // ------------------------------------------------------------ the band
   const mid = clamp(centre + factors.reduce((s, f) => s + f.effect, 0), FLOOR, CEILING);
   const width = !hasData ? WIDTH.no_counterparty_data
-    : anchor.accept_rate == null ? WIDTH.unanchored
+    : !anchor.usable ? WIDTH.unanchored
       : WIDTH.min_anchored
         + (WIDTH.max_anchored - WIDTH.min_anchored) / (1 + anchor.n / WIDTH.half_at_n);
 
   const basis = !hasData ? 'no_information'
-    : anchor.accept_rate == null ? 'heuristic_unanchored' : 'heuristic_anchored';
+    : !anchor.usable ? 'heuristic_unanchored' : 'heuristic_anchored';
 
   return {
-    band: { low: round(clamp(mid - width / 2, 0, 1)), mid: round(mid),
-      high: round(clamp(mid + width / 2, 0, 1)) },
+    band: bandAround(mid, width),
     basis,
     fitted: false,
     why: !hasData
       ? 'no counterparty data for this league, so this is a declared starting point with a band '
         + 'wide enough to say it is not knowledge'
-      : `a heuristic band around ${anchor.accept_rate == null ? 'a declared starting point'
-        : 'his own observed accept rate'}, adjusted by ${factors.length} named `
+      : `a heuristic band around ${anchor.usable ? 'his own observed accept rate'
+        : 'a declared starting point'}, adjusted by ${factors.length} named `
         + `factor${factors.length === 1 ? '' : 's'} — not a calibrated probability`,
     anchor,
     factors,
@@ -241,14 +290,44 @@ export function acceptanceBand({ counterparty = null, edge = null, profile = nul
   };
 }
 
-/** The observed accept rate and its sample, reported the way anchorLadder reports it. */
+/**
+ * A band of the width the evidence bought, placed so that neither end reports
+ * certainty or impossibility.
+ *
+ * The edges used to be clamped into [0, 1] independently of each other, which
+ * did two wrong things at once: it published 1.000 and 0.000 as the ends of a
+ * probability this module says it never states with certainty, and it ATE the
+ * band's width whenever the midpoint sat near an extreme — 0.084 wide where the
+ * evidence bought 0.127. Narrower must always mean more evidence. So the band is
+ * SLID into [FLOOR, CEILING] with its width intact instead of being cut down to
+ * fit; the widest band here is 0.55 and the window is 0.95, so it always fits.
+ */
+function bandAround(mid, width) {
+  const lo = mid - width / 2;
+  const hi = mid + width / 2;
+  const shift = Math.max(0, FLOOR - lo) - Math.max(0, hi - CEILING);
+  return { low: round(lo + shift), mid: round(mid), high: round(hi + shift) };
+}
+
+/**
+ * The observed accept rate and its sample, reported the way anchorLadder
+ * reports it, plus whether it may be used as an anchor at all.
+ *
+ * `usable` is separate from `accept_rate` on purpose: what we were handed is
+ * always reported, and whether it earns the centre of a band is a second
+ * question. A rate with zero decided offers behind it answers no.
+ */
 function anchorOf(counterparty) {
   const rate = Number.isFinite(counterparty?.accept_rate) ? counterparty.accept_rate : null;
   const n = Number.isFinite(counterparty?.accept_rate_n) ? counterparty.accept_rate_n : 0;
+  const usable = rate != null && n > 0;
   return {
-    accept_rate: rate, n, calibrated: false, fitted: false,
-    why: rate == null || n === 0
-      ? 'no decided offers with this manager yet, so there is no accept rate to anchor on'
+    accept_rate: rate, n, usable, calibrated: false, fitted: false,
+    why: !usable
+      ? (rate == null
+        ? 'no decided offers with this manager yet, so there is no accept rate to anchor on'
+        : `an accept rate of ${rate} arrived with no decided offers behind it, so it is reported `
+          + 'but does not anchor anything')
       : `${Math.round(rate * 100)}% of ${n} decided offers have been accepted — that is the anchor, `
         + 'not a calibrated probability for this package',
   };

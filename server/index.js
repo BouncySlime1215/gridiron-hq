@@ -48,6 +48,7 @@ const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
 const { default: wongRouter } = await import('./routes/wong.js');
 const { default: localAuthRouter } = await import('./routes/local-auth.js');
+const { default: googleAuthRouter } = await import('./routes/google-auth.js');
 const { default: draftCaptureRouter, serveCaptureScript } = await import('./routes/draft-capture.js');
 const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
 const { startScheduler } = await import('./services/scheduler.js');
@@ -79,6 +80,11 @@ startDraftFinalizeJob();
 // Public only on the loopback interface. It removes the fresh-install token
 // paste step while all protected route families remain bearer-authenticated.
 app.use('/api/auth', localAuthRouter);
+// Google sign-in, for the hosted deployment where loopback provisioning can
+// never apply. Mounted alongside rather than instead of the router above:
+// the Mac install keeps working exactly as it does today, and a session
+// established either way is the same `auth_sessions` row underneath.
+app.use('/api/auth', googleAuthRouter);
 app.use('/api/teams', ...legacyAuthenticated, teamsRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);
 app.use('/api/rankings', ...legacyAuthenticated, rankingsRouter);

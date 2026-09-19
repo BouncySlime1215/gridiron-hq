@@ -28,6 +28,7 @@ import { currentNflWeek } from './weekly-learning.js';
 import { gameCutoff } from './game-cutoff.js';
 import { verifiedEventMarketLatency } from './nfl-news-market-latency.js';
 import { isFreshQuote, STALE_BOOK_HOURS } from './book-feeds.js';
+import { signedClvPoints } from './clv-core.js';
 import { CAPTURE_WINDOW_MS } from './nfl-shopping-board.js';
 import { gameWeather, STADIUMS } from './nfl-weather.js';
 import { nfeloFeatures } from './nfelo.js';
@@ -397,10 +398,18 @@ export function settleBeatTheClose({ now = new Date().toISOString() } = {}) {
     const market = d.market === 'spread' ? 'spreads' : 'totals';
     const close = pinnacleLineAt(d.season, d.week, d.home_team, d.away_team, market, kickoff, names, now);
     if (!close) { waiting++; continue; }
-    // CLV in points toward the side taken, home-perspective lines for spreads.
-    const clv = market === 'spreads'
-      ? (d.selection === d.home_team ? d.line - close.line : close.line - d.line)
-      : (d.selection === 'Over' ? close.line - d.line : d.line - close.line);
+    // CLV in points toward the side taken -- one shared convention
+    // (clv-core.js's signedClvPoints), not a second copy of the same
+    // three-way ternary FIX#28 already consolidated elsewhere. `d.line`/
+    // `close.line` are stored home-perspective for spreads (unlike
+    // signedClvPoints' own backed-side-perspective expectation), so they are
+    // converted to the backed side's perspective here, at the one call site
+    // that needs it; totals lines are side-independent and pass through
+    // unconverted, with `isUnder` doing the sign work instead.
+    const backedIsHome = d.selection === d.home_team;
+    const ourLine = market === 'spreads' ? (backedIsHome ? d.line : -d.line) : d.line;
+    const closeLine = market === 'spreads' ? (backedIsHome ? close.line : -close.line) : close.line;
+    const clv = signedClvPoints({ market, ourLine, closeLine, isUnder: d.selection === 'Under' });
     let result = null;
     if (Number.isFinite(d.team_score) && Number.isFinite(d.opp_score)) {
       const margin = d.team_score - d.opp_score, total = d.team_score + d.opp_score;

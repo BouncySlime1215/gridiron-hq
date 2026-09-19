@@ -44,6 +44,7 @@ import { playerCase } from './player-case.js';
 import { careerLine } from './player-career.js';
 import { preseasonProjection } from './preseason-model.js';
 import { offseasonAdjustment } from './offseason-model.js';
+import { availabilityDegradation } from './contingency.js';
 
 const r1 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(1));
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
@@ -256,6 +257,74 @@ export function evidenceCache(season, providers = DEFAULT_PROVIDERS) {
  * fitted — it is a judgement, stated here in one place so it can be argued with
  * rather than buried inside a comparison.
  */
+const SKILL_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE']);
+
+/**
+ * This week's number for one player, on the Start/Sit basis.
+ *
+ * current_week_ppg (trade-engine's week projection: the coordinator-corrected weekly
+ * number times his chance to play, 0 on a bye) times the betting-line game-script
+ * multiplier when there is a line for his game. Exported so every page that prints a
+ * week total prices a player exactly as Start/Sit does: the matchup card
+ * (lineup-posture.js) used to sum raw current_week_ppg, so its "You" figure and the
+ * Start/Sit projection disagreed by 0.3-2.0 points on all five live leagues and, in
+ * two of them, named a different FLEX. trade-engine.js#lineupDiffWeekPoints is the
+ * same construction for the League Hub card.
+ */
+export function startSitWeekPoints(p, season, week) {
+  const lift = vegasLift(p, season, week);
+  // adj_ppg is a 25%-current/75%-rest-of-season blend built for the trade horizon, not
+  // this decision, so it is only a fallback for a player with no week number at all.
+  // current_week_ppg is 0 (not null) on a bye, so a real bye is never masked.
+  const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
+  // Unlike the trade horizon, this is the full multiplier: the whole decision IS this week.
+  return { week_points: r2(base * (lift.applied ? lift.multiplier : 1)), vegas: lift };
+}
+
+/** ESPN's lineup slot id for IR (trade-engine.js SLOT_NAME). */
+const ESPN_IR_SLOT = 21;
+
+/**
+ * Who on one roster is on IR, with why — the rule every other lineup surface already
+ * uses: waiver-wire.js (never a drop), lineup-posture.js#rosterAssets (never in the
+ * matchup lineup) and trade-engine.js#lineupDiff, the League Hub card (never
+ * recommended in). ESPN's IR slot (lineupSlotId 21), or ESPN injury status
+ * INJURY_RESERVE. A player in the IR slot cannot score for this team until he is moved
+ * out of it; one ESPN lists on injured reserve is out for weeks.
+ *
+ * Sleeper keeps IR as the roster's `reserve` list. Returns Map<player id, reason>.
+ */
+export function irOnRoster(lg, rosterId, players) {
+  const out = new Map();
+  let payload;
+  try { payload = JSON.parse(lg.payload); } catch { return out; }
+  if (lg.platform === 'sleeper') {
+    const ro = (payload.rosters ?? []).find(r => String(r.roster_id) === String(rosterId));
+    const reserve = new Set((ro?.reserve ?? []).map(String));
+    for (const p of players) {
+      if (p.sleeper_id != null && reserve.has(String(p.sleeper_id))) {
+        out.set(p.id, 'In your IR slot: he cannot start until you move him out of it.');
+      }
+    }
+    return out;
+  }
+  const team = (payload.teams ?? []).find(t => String(t.id) === String(rosterId));
+  for (const e of team?.roster?.entries ?? []) {
+    const pl = e.playerPoolEntry?.player;
+    if (!pl) continue;
+    const inSlot = e.lineupSlotId === ESPN_IR_SLOT;
+    if (!inSlot && pl.injuryStatus !== 'INJURY_RESERVE') continue;
+    // Matched the way loadRosters() put him on the roster: ESPN id first, then name.
+    const p = players.find(x => x.espn_id != null && String(x.espn_id) === String(pl.id))
+      ?? players.find(x => norm(x.name) === norm(pl.fullName));
+    if (!p) continue;
+    out.set(p.id, inSlot
+      ? 'In your IR slot: he cannot start until you move him out of it.'
+      : 'ESPN lists him on IR (injured reserve), so he is not expected to play.');
+  }
+  return out;
+}
+
 const TIE_THRESHOLD = 1.5;
 const CLEAR_THRESHOLD = 4.0;
 
@@ -280,38 +349,71 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
 
   const { season, week } = tradeWeekContext();
 
+  // IR players are out of the call entirely: not started, not the benched
+  // alternative a starter "beat", not on the bench list. This page used to be the
+  // one lineup surface that ignored IR, so on the 2026-W2 sync it listed Jordyn Tyson
+  // (IR slot, leagues 2 and 3) as a bench option and, under "Protect the floor",
+  // STARTED Zach Charbonnet (IR slot, OUT) and A.J. Brown (ESPN injured reserve) in
+  // league 4 — while the League Hub card refused both. They are reported in `on_ir`.
+  const irReason = irOnRoster(lg, me.roster_id, me.players);
+
   // Annotate every player with this week's market view before solving. The
   // betting model already prices how much volume a team's game script implies,
   // and a start/sit call is exactly the horizon where that matters most — it is
   // a decision about one Sunday, which is the only thing a single week's line
-  // describes.
-  const annotated = me.players.map(p => {
-    const lift = vegasLift(p, season, week);
-    // adj_ppg is a 25%-current/75%-rest-of-season blend built for the trade
-    // horizon, not this decision. A start/sit call is genuinely one week, so
-    // it has to rank on current_week_ppg (this week's DvP-adjusted number)
-    // and apply the game-script multiplier there — multiplying the whole
-    // adj_ppg blend instead inflates/deflates the 75% ROS share by a signal
-    // that only describes this Sunday. current_week_ppg is 0 (not null) on a
-    // bye, so the ?? fallback below only triggers when the field is
-    // genuinely absent, never masking a real bye week as "no data."
-    const base = p.current_week_ppg ?? p.adj_ppg ?? p.ppg ?? 0;
-    return {
-      ...p,
-      vegas: lift,
-      // Unlike the trade horizon, this is the full multiplier: the whole
-      // decision IS this week.
-      week_points: r2(base * (lift.applied ? lift.multiplier : 1))
-    };
+  // describes. startSitWeekPoints() is the one construction, shared with the
+  // matchup card.
+  const annotated = me.players.filter(p => !irReason.has(p.id)).map(p => {
+    const { week_points: weekPoints, vegas } = startSitWeekPoints(p, season, week);
+    return { ...p, vegas, week_points: weekPoints };
   });
 
-  const key = objective === 'ceiling' ? 'ceiling' : objective === 'floor' ? 'floor' : 'week_points';
-  const usable = annotated.filter(p => Number.isFinite(p[key]));
-  const optimal = bestLineup(usable.length === annotated.length ? annotated : annotated, slots,
-    // Fall back to the week projection when a roster has no floor/ceiling
-    // distribution recorded — better than solving on undefined and returning an
-    // empty lineup, which is what an unguarded key swap does here.
-    usable.length === annotated.length ? key : 'week_points');
+  /*
+   * The ceiling/floor objective used to be dead. The guard compared the players
+   * carrying the requested key against EVERY rostered player, and kickers and
+   * defences never carry a ceiling (95 of the 102 missing values across all 46
+   * synced rosters were K/DEF), so it failed on essentially every roster and
+   * silently solved on week_points — while the response still said
+   * objective: 'ceiling'. The underdog's "give me variance" request was answered
+   * with the mean lineup, labelled as the ceiling lineup. (Its fallback was also a
+   * ternary with two identical branches, the tell that it was never finished.)
+   *
+   * Now: coverage is measured over the skill players the solver can actually
+   * start. Skill players without the requested field are held out of the solve
+   * and reported by name, rather than mixed in on a different basis. If holding
+   * them out would leave a slot unfillable, the whole solve falls back to
+   * week_points and SAYS so — the response carries the objective actually used.
+   */
+  const requestedKey = objective === 'ceiling' ? 'ceiling' : objective === 'floor' ? 'floor' : 'week_points';
+  const skill = annotated.filter(p => SKILL_POSITIONS.has(p.position));
+  const lacking = skill.filter(p => !Number.isFinite(p[requestedKey]));
+  let key = requestedKey;
+  // bestLineup's sort is stable, so an exact tie on the key keeps this order: highest
+  // week_points first, never roster order. Distinct key values are unaffected.
+  const byWeekPoints = pool => [...pool].sort((a, b) => (b.week_points ?? 0) - (a.week_points ?? 0));
+  let solvePool = byWeekPoints(requestedKey === 'week_points' ? annotated : annotated.filter(p => !lacking.includes(p)));
+  // A key on which every startable skill player has the same value ranks no one. At
+  // 2026 week 2 every floor is 0 (a did-not-play week scores 0 and no live chance to
+  // play exceeds 0.9, so each p10 is 0): optimising it returned roster order as "the
+  // floor lineup", projection 0, every margin a +0 coin flip.
+  const rankable = new Set(solvePool.filter(p => SKILL_POSITIONS.has(p.position) && p.available !== false)
+    .map(p => p[requestedKey]));
+  let optimal = requestedKey !== 'week_points' && rankable.size <= 1 ? null : bestLineup(solvePool, slots, key);
+  let objectiveFallback = null;
+  if (!optimal) {
+    objectiveFallback = `every player's ${requestedKey} is ${[...rankable][0] ?? 'missing'} this week, so it cannot ` +
+      'rank anyone; the lineup was solved on week_points instead';
+    key = 'week_points';
+    solvePool = byWeekPoints(annotated);
+    optimal = bestLineup(solvePool, slots, key);
+  } else if (requestedKey !== 'week_points' && optimal.holes?.length) {
+    objectiveFallback = `holding out the ${lacking.length} player(s) with no ${requestedKey} would leave ` +
+      `${optimal.holes.join('/')} unfilled, so the lineup was solved on week_points instead`;
+    key = 'week_points';
+    solvePool = annotated;
+    optimal = bestLineup(solvePool, slots, key);
+  }
+  const objectiveUsed = key;
 
   const startingIds = new Set(optimal.slots.map(s => s.player?.id).filter(Boolean));
   // The alternative must come from the pool the solver could actually have
@@ -323,6 +425,14 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const startable = annotated.filter(p => p.available !== false);
   const bench = startable.filter(p => !startingIds.has(p.id) && (p.week_points ?? 0) > 0)
     .sort((a, b) => b.week_points - a.week_points);
+  // Who each start "beat" has to be chosen on the SAME basis the lineup was solved
+  // on, and the margin computed on that basis only. It used to pick the alternative
+  // by week_points and then subtract `(p[key] ?? p.week_points)`, so under a ceiling
+  // objective a starter's p90 could be compared against a benched player's MEAN.
+  // For the default week_points objective this is the same list as `bench`.
+  const alternatives = startable
+    .filter(p => !startingIds.has(p.id) && Number.isFinite(p[key]) && (p.week_points ?? 0) > 0)
+    .sort((a, b) => b[key] - a[key] || (b.week_points ?? 0) - (a.week_points ?? 0));
   // Kept separately and reported, because "why is my best back on the bench" is
   // the first question this page has to answer.
   const unavailable = annotated
@@ -373,8 +483,8 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const calls = optimal.slots.filter(s => s.player).map(s => {
     const p = s.player;
     // The best benched player who could legally fill this slot.
-    const alt = bench.find(b => slotAccepts(s.slot, b.position));
-    const margin = alt ? r2((p[key] ?? p.week_points) - (alt[key] ?? alt.week_points)) : null;
+    const alt = alternatives.find(b => slotAccepts(s.slot, b.position));
+    const margin = alt ? r2(p[key] - alt[key]) : null;
     const confidence = margin == null ? 'only option'
       : margin >= CLEAR_THRESHOLD ? 'clear'
         : margin >= TIE_THRESHOLD ? 'lean'
@@ -425,6 +535,15 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const coinFlips = calls.filter(c => c.confidence === 'coin flip');
   const risky = calls.filter(c => (c.player.active_probability ?? 1) < 0.75 || c.player.bye === week);
 
+  // Which availability model priced every chance to play on this page, and — when it is
+  // not the validated role layer — why not. Honest degradation over a confident wrong
+  // number: on the pooled path these percentages are systematically low for healthy
+  // starters, so every one of them travels with that fact attached rather than reading
+  // like the fitted number. `availability_basis` alone was not enough; it was served
+  // from here since review-fixes-2 and no page ever read it.
+  const availabilityBasis = assets.context?.availability_basis ?? null;
+  const availabilityNote = availabilityDegradation(availabilityBasis);
+
   // What you actually submitted, when the platform exposes it.
   let submitted = null;
   try { const d = lineupDiff(lg, myTeamId ?? lg.my_team_id); if (!d.error) submitted = d; }
@@ -432,6 +551,24 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
 
   return {
     league: lg.name, owner: me.owner, season, week, objective,
+    // What was actually optimised, which is not always what was asked for.
+    objective_used: objectiveUsed,
+    objective_fallback: objectiveFallback,
+    objective_held_out: objectiveUsed === requestedKey && requestedKey !== 'week_points'
+      ? lacking.map(p => ({ name: p.name, position: p.position, week_points: p.week_points,
+        why: `no ${requestedKey} distribution on file, so he could not be ranked on it` }))
+      : [],
+    // TIE_THRESHOLD and CLEAR_THRESHOLD were set as judgement calls on MEAN weekly
+    // points. A margin between two ceilings (or two floors) is a wider, differently
+    // shaped quantity, so the coin-flip/lean/clear labels are not calibrated for it.
+    confidence_basis: objectiveUsed === 'week_points' ? 'calibrated_on_week_points'
+      : `uncalibrated_for_${objectiveUsed}`,
+    // Which availability model priced every chance to play in this call ('role' |
+    // 'pooled' | 'constants', plus the missing fit tables), so the page can say so.
+    availability_basis: availabilityBasis,
+    // null when that model is the validated role layer; otherwise the inert layer with
+    // its reason, effect and fix, for the page to print above the percentages.
+    availability_note: availabilityNote,
     projected_points: r2(optimal.points),
     lineup: calls,
     bench: bench.slice(0, 8).map(p => ({
@@ -441,6 +578,11 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     })),
     submitted,
     unavailable,
+    // On IR (ESPN IR slot or injured-reserve status): never started, never the
+    // alternative, never on the bench list. Named here so the page can say why.
+    on_ir: me.players.filter(p => irReason.has(p.id)).map(p => ({
+      name: p.name, position: p.position, team_abbr: p.team_abbr, why: irReason.get(p.id)
+    })),
     team_conditions: [...teamCtx.entries()]
       .filter(([, c]) => c && !c.insufficient && c.flags.length)
       .map(([team, c]) => ({ team, opponent: c.opponent, home: c.home,
@@ -449,7 +591,16 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
     warnings: risky.map(c => ({
       player: c.player.name,
       issue: c.player.bye === week ? 'on bye this week'
-        : `only plays about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% of weeks`,
+        // active_probability is THIS week's chance to play (the injury report and the
+        // availability model, contingency.js; its role layer adds recent missed games),
+        // not a share of weeks. "Only plays about 19% of weeks" would misdescribe a
+        // starter who has missed his last two games.
+        : `about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% likely to play this week` +
+          // A bye is a fact; a chance to play is a model output, and it is only allowed
+          // to be stated bare when the model that produced it is the validated one.
+          (availabilityNote ? ' — but that is not the fitted number: ' + availabilityNote.reason : ''),
+      // 'role' | 'pooled' | 'constants', so a reader of one warning can see it too.
+      availability_basis: c.player.bye === week ? null : availabilityBasis?.basis ?? null,
       slot: c.slot
     })),
     objectives: [

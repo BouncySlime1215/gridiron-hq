@@ -95,6 +95,7 @@ import { gamePlayerAvailability } from '../../../services/nfl-player-value.js';
 import { teamRosterStrength } from '../../../services/nfl-roster-strength.js';
 import { gameInjuryCarryover } from '../../../services/nfl-postgame-truth.js';
 import { validateSpreadProbabilities } from '../contracts/spread-probabilities.js';
+import { scorePythonArtifact } from './python-artifact.js';
 
 export const SPREAD_FAMILY_ADAPTERS_VERSION = 'nfl-spread-family-adapters-v1';
 
@@ -103,7 +104,8 @@ export const FAMILIES = Object.freeze({
   ensemble: 'ensemble',
   simulation: 'simulation',
   lineup: 'lineup',
-  direct_cover: 'direct_cover'
+  direct_cover: 'direct_cover',
+  trained_margin: 'trained_margin'
 });
 
 /** The common shape's top-level keys, for a test asserting nothing was dropped. */
@@ -154,7 +156,7 @@ export function probabilitiesFromTriple({ win, push, loss, handicap, side = 'hom
   }
   return {
     available: true, side, handicap: r2(handicap), method, rounding_adjusted: roundingAdjusted,
-    win: r3(check.probabilities.win), push: r3(check.probabilities.push), loss: r3(check.probabilities.loss)
+    win: check.probabilities.win, push: check.probabilities.push, loss: check.probabilities.loss
   };
 }
 
@@ -453,6 +455,24 @@ export function directCoverFamilyForecast({ season, week, home, away, cutoff = n
   out.qualification_source = 'no served artifact exists yet; there is no qualification state to surface';
   out.probabilities = { available: false, reason: 'classifier is not served; see missing_reason' };
   out.distribution = { available: false, reason: 'classifier is not served; see missing_reason' };
+  return out;
+}
+
+/** The saved Stage 3 margin model is a separate family from the cover classifier.
+ * It consumes only a retained feature request, never marketReference/live tables.
+ * Calls are explicit and asynchronous; legacy allFamilyForecasts stays synchronous.
+ */
+export async function trainedMarginFamilyForecast(request, options = {}) {
+  const game = { ...request?.game, cutoff: request?.cutoff_at ?? null };
+  const out = baseForecast(FAMILIES.trained_margin, 'Trained Stage 3 margin model', game);
+  const result = await scorePythonArtifact(request, options);
+  out.qualification_source = 'research artifact; no prospective qualification or probability calibrator';
+  out.detail = result;
+  if (!result.available) { out.missing_reason = result.reason; return out; }
+  out.observed = true;
+  out.margin.predicted = result.predicted_margin;
+  out.probabilities = result.probabilities;
+  out.distribution = { available: false, reason: 'point estimate only; calibration remains open' };
   return out;
 }
 

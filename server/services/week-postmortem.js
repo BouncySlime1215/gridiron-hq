@@ -31,27 +31,8 @@ import { buildProjections, sampleWeeks } from './projections.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
-const FLEX_ELIGIBLE = { FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
-  SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'], OP: ['QB', 'RB', 'WR', 'TE'] };
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
-
-/** Fill league slots greedily from a list already sorted best-first. */
-function fill(sorted, slots) {
-  const used = new Set(); const out = [];
-  for (const slot of slots.filter(s => SCORED.has(s))) {
-    const p = sorted.find(x => !used.has(x.id) && x.position === slot);
-    if (p) used.add(p.id);
-    out.push({ slot, player: p ?? null });
-  }
-  for (const slot of slots.filter(s => FLEX_ELIGIBLE[s])) {
-    const ok = FLEX_ELIGIBLE[slot];
-    const p = sorted.find(x => !used.has(x.id) && ok.includes(x.position));
-    if (p) used.add(p.id);
-    out.push({ slot, player: p ?? null });
-  }
-  return out;
-}
 
 /**
  * @param week   the completed week to attribute
@@ -91,8 +72,17 @@ export function weekPostmortem(leagueId, {
   }
 
   // 1. What the best possible lineup would have scored, in hindsight.
-  const hindsight = fill(
-    [...played].sort((a, b) => (actual.get(b.id) ?? 0) - (actual.get(a.id) ?? 0)), slots);
+  //
+  // Solved by the SAME bestLineup() the engine uses, keyed on what each player
+  // actually scored. This used to be a private hand-copied greedy with its own
+  // FLEX_ELIGIBLE table; decision_cost = hindsight - started is a difference of two
+  // lineups, and solving them with two implementations that can drift apart is
+  // exactly the two-bases shape this codebase keeps producing. `available: true` is
+  // forced because hindsight is about who PLAYED that week — a player since ruled
+  // out for the season still scored what he scored.
+  const hindsight = bestLineup(
+    played.map(p => ({ ...p, available: true, hindsight_pts: actual.get(p.id) ?? 0 })),
+    slots, 'hindsight_pts').slots;
   const hindsightPoints = hindsight.reduce((s, f) => s + (actual.get(f.player?.id) ?? 0), 0);
 
   // 2. What was actually started. Falls back to the engine's own pick, which

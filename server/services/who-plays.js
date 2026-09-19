@@ -61,7 +61,7 @@ export function whoPlays(season, week, team) {
   const news = rows(
     `SELECT player_name, signal_type, status, unavailable_probability, role_delta,
             confidence, published_at, source
-     FROM nfl_news_signals
+     FROM nfl_news_signals_current
      WHERE UPPER(team) = ? AND verification_state='verified' ORDER BY published_at DESC`, t);
 
   // 3. Snap share, which decides whether an absence actually matters.
@@ -176,7 +176,7 @@ export function slateAvailability(season, week) {
 /** What the availability pipeline can currently see. */
 export function availabilitySources() {
   const inj = row(`SELECT COUNT(*) AS n, MIN(season) AS lo, MAX(season) AS hi FROM nfl_injuries`) ?? {};
-  const news = row(`SELECT COUNT(*) AS n, MAX(published_at) AS last FROM nfl_news_signals`) ?? {};
+  const news = row(`SELECT COUNT(*) AS n, MAX(published_at) AS last FROM nfl_news_signals_current`) ?? {};
   const snaps = row(`SELECT COUNT(*) AS n FROM nfl_snaps`) ?? {};
   let sources = null;
   try {

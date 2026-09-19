@@ -332,6 +332,15 @@ export async function runAudit(auditId, producer) {
   // fully migrated one, rather than requiring every caller to migrate first.
   const hasSplitColumns = ['always_valid_p_anytime', 'always_valid_p_fixed_sample', 'always_valid_variance_source']
     .every(c => auditRegistryColumns().has(c));
+  // FINAL ORDER #4 (migration 054): persist the multiplicity correction's own
+  // inputs. `correctedAlpha` and `priorTests` are computed above and were
+  // previously discarded, which left `significant` unauditable -- a reader
+  // could not tell whether it cleared 0.05 or 0.002, and could not reproduce
+  // the decision without replaying the registry to recount prior tests.
+  // Guarded the same way as the split columns, so an unmigrated fixture still
+  // seals correctly.
+  const hasAlphaColumns = ['corrected_alpha_at_seal', 'prior_tests_at_seal']
+    .every(c => auditRegistryColumns().has(c));
   const sealSql = hasSplitColumns
     ? `UPDATE audit_registry SET status='sealed', ran_at=?, observed=?, passed=?, p_value=?,
          sample_size=?, detail_json=?, void_reason=?, significant=?,
@@ -357,8 +366,14 @@ export async function runAudit(auditId, producer) {
       alwaysValid?.p_fixed_sample_only ?? null,
       varianceSource);
   }
+  let finalSealSql = sealSql;
+  if (hasAlphaColumns) {
+    finalSealSql = sealSql.replace(' WHERE id=?',
+      ', corrected_alpha_at_seal=?, prior_tests_at_seal=? WHERE id=?');
+    sealParams.push(correctedAlpha, priorTests);
+  }
   sealParams.push(auditId);
-  run(sealSql, ...sealParams);
+  run(finalSealSql, ...sealParams);
 
   return {
     audit_id: auditId, name: a.name, hypothesis: a.hypothesis,

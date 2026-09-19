@@ -30,21 +30,40 @@ const store = new Map();
  * catches in-place updates that leave the count unchanged. A table that does not
  * exist contributes a constant rather than throwing, so a fingerprint never
  * becomes the reason a page fails.
+ *
+ * Any other failure is REPORTED (once per table and stamp, console.error) and marked
+ * in the fingerprint ('stamp-error' / 'read-error'). It used to be swallowed: the
+ * asset universe stamped nfl_injuries on a column that does not exist, the stamp
+ * quietly became a row count, and an in-place Questionable -> Out never reached the
+ * served chance to play (review-fixes-2, finding 5).
  */
+const reported = new Set();
+const missingTable = error => /no such table/i.test(String(error?.message ?? error));
+function reportOnce(key, error) {
+  if (reported.has(key)) return;
+  reported.add(key);
+  console.error(`[compute-cache] fingerprint ${key} cannot be read (${error?.message ?? error}); ` +
+    'this input\'s changes are not seen by the cache until it is fixed');
+}
 export function fingerprint(tables = [], extra = '') {
   const parts = [];
   for (const t of tables) {
     const name = typeof t === 'string' ? t : t.table;
     const stamp = typeof t === 'string' ? null : t.stamp;
+    let n;
     try {
-      const n = row(`SELECT COUNT(*) AS n FROM ${name}`)?.n ?? 0;
-      let s = '';
-      if (stamp) {
-        try { s = String(row(`SELECT MAX(${stamp}) AS m FROM ${name}`)?.m ?? ''); }
-        catch { s = ''; }
-      }
-      parts.push(`${name}:${n}:${s}`);
-    } catch { parts.push(`${name}:absent`); }
+      n = row(`SELECT COUNT(*) AS n FROM ${name}`)?.n ?? 0;
+    } catch (error) {
+      if (!missingTable(error)) reportOnce(name, error);
+      parts.push(`${name}:${missingTable(error) ? 'absent' : 'read-error'}`);
+      continue;
+    }
+    let s = '';
+    if (stamp) {
+      try { s = String(row(`SELECT MAX(${stamp}) AS m FROM ${name}`)?.m ?? ''); }
+      catch (error) { reportOnce(`${name}.${stamp}`, error); s = 'stamp-error'; }
+    }
+    parts.push(`${name}:${n}:${s}`);
   }
   return parts.join('|') + (extra ? `|${extra}` : '');
 }

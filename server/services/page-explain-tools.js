@@ -17,6 +17,7 @@ import { latestTotalCalibration } from './nfl-total-calibration.js';
 import { pickWatchBoard } from './nfl-pick-watch.js';
 import { catalog } from './nfl-features.js';
 import { decayWatchStatus } from './decay-watch.js';
+import { learnedShadowExplainContext } from './nfl-learned-shadow-explain.js';
 
 export const TOOLS = [
   {
@@ -31,6 +32,24 @@ export const TOOLS = [
       properties: {
         season: { type: 'integer', description: 'e.g. 2026' },
         week: { type: 'integer', description: '1-18' },
+        home_team: { type: 'string', description: "The home team's abbreviation, e.g. 'DAL'" }
+      },
+      required: ['season', 'week', 'home_team']
+    }
+  },
+  {
+    name: 'learned_shadow_research_context',
+    description: 'Get the REAL research-only "learned shadow" model\'s forecast for one specific '
+      + 'game (a separate, experimental Python model with ZERO betting authority -- it never '
+      + 'places or influences a real pick), plus what the latest COMPLETED historical audit of '
+      + 'that model measured for games sharing this one\'s schedule/venue/rest profile. Use this '
+      + 'when asked how the research model is learning, what it predicts for an upcoming game, '
+      + 'or what the audit found -- never imply this forecast is a live pick or has any stake.',
+    input_schema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        season: { type: 'integer', description: 'e.g. 2026' },
+        week: { type: 'integer', description: '1-22' },
         home_team: { type: 'string', description: "The home team's abbreviation, e.g. 'DAL'" }
       },
       required: ['season', 'week', 'home_team']
@@ -138,6 +157,13 @@ export function runTool(name, input) {
       }
       case 'decay_watch_status':
         return decayWatchStatus();
+      case 'learned_shadow_research_context': {
+        const season = Number(input?.season), week = Number(input?.week), home = String(input?.home_team ?? '').trim();
+        if (!Number.isFinite(season) || !Number.isFinite(week) || !home) {
+          return { error: 'season, week and home_team are all required' };
+        }
+        return learnedShadowExplainContext({ season, week, home_team: home });
+      }
       default:
         return { error: `Unhandled tool '${name}'` };
     }

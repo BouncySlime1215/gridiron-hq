@@ -44,6 +44,7 @@
  */
 import { rows } from '../db/index.js';
 import { isFreshQuote } from './book-feeds.js';
+import { signedClvPoints } from './clv-core.js';
 
 export const READABLE_SETTLED = 30;
 
@@ -182,7 +183,13 @@ export function sharpLag({ sinceDays = 14, market = 'spreads', minMove = 0.5, no
           stats.opportunities++;
           stats.gaps.push(gap);
           if (graded) {
-            const clv = f * (e.line - close.line);
+            // One shared CLV convention (clv-core.js), not a second copy of the
+            // same three-way ternary: `e.line`/`close.line` are already stored
+            // per-side (this table keys a row by `side`, so a spread side's own
+            // row already carries its own backed-side-perspective line -- see
+            // the module docstring), which is exactly what signedClvPoints
+            // expects and needs no further conversion.
+            const clv = signedClvPoints({ market, ourLine: e.line, closeLine: close.line, isUnder: g.side === 'Under' });
             opp.close_line = close.line; opp.close_at = close.at; opp.clv_points = r3(clv);
             const margin = final.team_score - final.opp_score, total = final.team_score + final.opp_score;
             const edge = g.side === 'Over' ? total - e.line

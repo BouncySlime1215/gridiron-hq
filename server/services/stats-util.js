@@ -279,11 +279,24 @@ export function cholesky(matrix) {
     }
     if (ok) return L;
   }
-  // Give up on correlation rather than on the simulation.
-  return Array.from({ length: n }, (_, i) => {
+  // Give up on correlation rather than on the simulation — but SAY so. This used to
+  // return a bare identity, which silently turns every correlated simulation into an
+  // independent one: lineup spreads and title odds narrow and change meaning, and
+  // nothing throws or logs. The returned array is marked, so a caller can record
+  // that its draws were uncorrelated, and the first occurrence is logged. Indexing
+  // the result is unchanged, so no existing caller breaks.
+  if (!choleskyFallbackWarned) {
+    choleskyFallbackWarned = true;
+    console.warn(`[stats-util] cholesky: ${n}x${n} matrix not positive definite after 6 jitter attempts; ` +
+      'falling back to IDENTITY (draws will be uncorrelated). Further occurrences are flagged on the result, not logged.');
+  }
+  const identity = Array.from({ length: n }, (_, i) => {
     const r = new Float64Array(n); r[i] = 1; return r;
   });
+  identity.fallbackIdentity = true;
+  return identity;
 }
+let choleskyFallbackWarned = false;
 
 /** One vector of correlated standard normals from a Cholesky factor. */
 export function correlatedNormals(L) {

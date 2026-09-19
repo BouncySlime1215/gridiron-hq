@@ -41,6 +41,32 @@ import { freeAgents, horizonValue } from './waiver-brain.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
 const LAST_REGULAR_WEEK = 14;
+/*
+ * Every lineup in this module is solved on ros_ppg, not bestLineup()'s default
+ * adj_ppg, and the reason is the unit-mismatch family this codebase keeps producing.
+ *
+ * adj_ppg = 0.25 * current_week_ppg + 0.75 * ros_ppg, and current_week_ppg already
+ * carries THIS week's projection, THIS week's active_probability, and a hard zero on a
+ * bye. Neither question here is about this week:
+ *
+ *   byeOutlook / byePatches price a FUTURE week w. Solving them on adj_ppg let the
+ *   current week's availability and matchup leak into 25% of every player's week-w
+ *   number — bye costs came out 3-8% low, and a free agent whose own bye or injury
+ *   is THIS week was under-ranked as a week-11 patch for a reason that has nothing
+ *   to do with week 11.
+ *
+ *   fragility multiplies a lineup delta by (1 - active_probability). On adj_ppg the
+ *   delta already contains active_probability once, so availability was applied
+ *   ~1.25 times and expected_loss was understated most for exactly the least
+ *   available players — the ones this module exists to flag.
+ *
+ * ros_ppg is the weekly rate: a rest-of-season rate with no availability term and no
+ * current-week contamination. (It used to be weeklyPpg * sos; the schedule-strength
+ * multiplier failed the weekly walk-forward test and is gone — matchups.js,
+ * 2026-09-17.) Rankings did not change in the measured snapshot; the reported
+ * magnitudes now mean what their labels say.
+ */
+const RISK_KEY = 'ros_ppg';
 
 /**
  * What every remaining week actually costs you, solved rather than counted.
@@ -61,14 +87,14 @@ export function byeOutlook(leagueId, { myTeamId = null } = {}) {
   if (!me) return { error: 'your roster could not be resolved from the league sync' };
 
   const { week: now } = tradeWeekContext();
-  const full = bestLineup(me.players, slots);
+  const full = bestLineup(me.players, slots, RISK_KEY);
 
   const weeks = [];
   for (let w = now; w <= LAST_REGULAR_WEEK; w++) {
     const out = me.players.filter(p => p.bye === w);
     if (!out.length) continue;
     const outIds = new Set(out.map(p => p.id));
-    const line = bestLineup(me.players.filter(p => !outIds.has(p.id)), slots);
+    const line = bestLineup(me.players.filter(p => !outIds.has(p.id)), slots, RISK_KEY);
     const cost = r2(full.points - line.points);
     if (cost <= 0.01) continue;                       // covered by depth already
 
@@ -139,7 +165,7 @@ export function byePatches(leagueId, { myTeamId = null, limit = 4, pool = 150 } 
   for (const [rank, bad] of worthFixing.entries()) {
     const outIds = new Set(me.players.filter(p => p.bye === bad.week).map(p => p.id));
     const remaining = me.players.filter(p => !outIds.has(p.id));
-    const damaged = bestLineup(remaining, slots);
+    const damaged = bestLineup(remaining, slots, RISK_KEY);
 
     const ranked = available
       // A free agent on the SAME bye is not a patch, which is the single most
@@ -147,7 +173,7 @@ export function byePatches(leagueId, { myTeamId = null, limit = 4, pool = 150 } 
       // would walk straight into.
       .filter(fa => fa.bye !== bad.week)
       .map(fa => {
-        const fixed = bestLineup([...remaining, fa], slots);
+        const fixed = bestLineup([...remaining, fa], slots, RISK_KEY);
         return { fa, recovered: r2(fixed.points - damaged.points) };
       })
       .filter(x => x.recovered > 0.25)
@@ -205,11 +231,11 @@ export function fragility(leagueId, { myTeamId = null } = {}) {
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your roster could not be resolved from the league sync' };
 
-  const full = bestLineup(me.players, slots);
+  const full = bestLineup(me.players, slots, RISK_KEY);
   const starters = full.slots.map(s => s.player).filter(Boolean);
 
   const risks = starters.map(p => {
-    const without = bestLineup(me.players.filter(x => x.id !== p.id), slots);
+    const without = bestLineup(me.players.filter(x => x.id !== p.id), slots, RISK_KEY);
     return {
       name: p.name, position: p.position,
       adj_ppg: p.adj_ppg,

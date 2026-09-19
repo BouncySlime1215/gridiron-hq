@@ -35,6 +35,7 @@
  * blend, and is not wired into `ensembleLine`. It is the evidence that would
  * have to exist before anyone changed the blend.
  */
+import { createHash } from 'node:crypto';
 import { dieboldMariano, naivePairedT } from './forecast-comparison.js';
 import { completeWeekSplit } from './nfl-ensemble.js';
 import { greedyBasis } from './nfl-ensemble-rank.js';
@@ -723,6 +724,104 @@ export function scoreForecasts(predictions) {
   };
 }
 
+/* ------------------------------------------------------- split lineage (WP12) */
+
+/**
+ * A row's own identity inside a walk-forward split: the thing that goes into a
+ * split manifest so the split is reproducible and auditable later.
+ *
+ * Matches the pairing key `compareMethods` and the pooling step already use,
+ * so "the rows this fit trained on" and "the rows this comparison paired" are
+ * the same vocabulary rather than two near-identical strings.
+ */
+export const splitRowId = r => `${r.season}|${r.week}|${r.home}|${r.away}`;
+
+/**
+ * A row's GAME identity, when — and only when — the row actually states one.
+ *
+ * The leak WP12 asks to refuse is "same-game leakage through player/book/
+ * horizon rows": several rows describing one game (a per-player prop row, a
+ * per-book quote row, a row dated to the horizon it was quoted at rather than
+ * to kickoff), where one of them carries a week that disagrees with its game's
+ * and so lands on the far side of a (season, week) cutoff from its siblings.
+ *
+ * Detecting that needs a game identity independent of the row's own dating,
+ * and `game_id` is the only trustworthy source of one. Deriving it from
+ * season+matchup was tried and is WRONG: it silently assumes an ordered
+ * (home, away) pair meets at most once per season. That happens to hold for
+ * real NFL schedules and does NOT hold for every record stream this function
+ * accepts — the module's own synthetic fixtures recycle sixteen matchups
+ * through a season, and a derived key would report each recycled matchup as a
+ * straddling game that had leaked, which is a false alarm, not a finding.
+ *
+ * So identity is read, never inferred. When rows do not carry it, the check
+ * is reported as not-verifiable rather than as a pass (R28: an uncomputable
+ * check is not a clean one).
+ */
+export const splitGameId = r => r.game_id ?? null;
+
+const sha256Short = value => createHash('sha256').update(value).digest('hex').slice(0, 16);
+
+/**
+ * One cutoff's immutable split manifest.
+ *
+ * The hash is over the SORTED row-id list, so it is a content address for the
+ * split itself: the same rows in a different order hash identically, and a
+ * single row moving across the boundary does not. That is what makes a stored
+ * manifest checkable against a later re-run rather than merely descriptive.
+ *
+ * Full id lists are attached only when the caller asks (`includeSplitRowIds`).
+ * A weekly walk-forward over five seasons is ~90 cutoffs, and every one of them
+ * carrying a few thousand ids would bury the report this module deliberately
+ * keeps readable — but the hash is always present, so the cheap check ("is this
+ * the same split I recorded last time") never requires the expensive payload.
+ */
+function buildSplitManifest(train, test, { includeRowIds = false } = {}) {
+  const trainIds = train.map(splitRowId).sort();
+  const testIds = test.map(splitRowId).sort();
+  const stated = [...train, ...test].filter(r => splitGameId(r) != null).length;
+  const manifest = {
+    train_rows: train.length,
+    test_rows: test.length,
+    train_hash: sha256Short(trainIds.join('\n')),
+    test_hash: sha256Short(testIds.join('\n')),
+    // Whether the same-game straddle check could actually run, stated rather
+    // than implied by its silence. `partial` means some rows named their game
+    // and some did not: the named ones were checked, the rest could not be.
+    game_grouping: stated === 0 ? 'not_verifiable_no_game_id'
+      : stated === train.length + test.length ? 'verified_by_game_id' : 'partial_game_id_coverage'
+  };
+  if (stated) {
+    manifest.train_games = new Set(train.map(splitGameId).filter(Boolean)).size;
+    manifest.test_games = new Set(test.map(splitGameId).filter(Boolean)).size;
+  }
+  if (includeRowIds) { manifest.train_row_ids = trainIds; manifest.test_row_ids = testIds; }
+  return manifest;
+}
+
+/**
+ * Refuses a cutoff whose training block and test block share a game.
+ *
+ * Throws rather than filtering, deliberately. A straddling game means some
+ * row's own dating disagrees with its game's, and every number computed past
+ * that point — the reduction basis, the fitted weights, the held-out score —
+ * is contaminated in a way that silently dropping the row would hide. The
+ * whole comparison is invalid, so the run stops and says which game did it.
+ */
+function assertNoSameGameStraddle(train, test, { season, week }) {
+  const trainGames = new Set(train.map(splitGameId).filter(id => id != null));
+  if (!trainGames.size) return; // nothing states a game identity: not checkable, see the manifest
+  const straddling = [...new Set(test.map(splitGameId).filter(id => id != null))]
+    .filter(id => trainGames.has(id));
+  if (!straddling.length) return;
+  throw new Error(
+    `forecast combination: same-game leakage at cutoff ${season}` +
+    `${week == null ? '' : ` week ${week}`} — ${straddling.length} game(s) have rows in BOTH the ` +
+    `training and held-out blocks (e.g. ${straddling[0]}). A row whose own season/week disagrees ` +
+    'with its game\'s will split a single game across the cutoff; the fit and every score past it ' +
+    'are contaminated, so this refuses rather than dropping the row and continuing.');
+}
+
 /* ------------------------------------------------------------------ walk-forward */
 
 /**
@@ -752,7 +851,11 @@ export function walkForwardCombination({
   methods = Object.keys(COMBINATION_METHODS),
   reduction = {},
   refit = 'week',
-  minTrainRows = 200
+  minTrainRows = 200,
+  // WP12: attach every cutoff's full train/test row-id list to its manifest.
+  // Off by default for report size; the content hash is always present either
+  // way, so verifying a split against a recorded one never needs this on.
+  includeSplitRowIds = false
 } = {}) {
   if (!records?.length) return { error: 'no component prediction records supplied' };
   if (!testSeasons?.length) return { error: 'no test seasons supplied' };
@@ -790,6 +893,12 @@ export function walkForwardCombination({
       continue;
     }
 
+    // (0) WP12 lineage: refuse a split that puts one game on both sides, then
+    //     record the split's own content-addressed identity. Checked only on
+    //     cutoffs that actually fit — a skipped cutoff contaminates nothing.
+    assertNoSameGameStraddle(train, test, { season, week });
+    const splitManifest = buildSplitManifest(train, test, { includeRowIds: includeSplitRowIds });
+
     // (1) Reduce, on the training block only.
     const reduced = reduceComponents(train, { candidateIds: componentIdList, ...reduction });
     const reducedIds = reduced.selected;
@@ -814,6 +923,7 @@ export function walkForwardCombination({
     const cutoffEntry = {
       week,
       train_rows: train.length, test_rows: test.length,
+      split_manifest: splitManifest,
       reduction: reduced,
       reduced_ids: reducedIds,
       reduced_complete_rows: { train: trainReduced.rows.length, test: testReduced.rows.length },
@@ -893,6 +1003,12 @@ export function walkForwardCombination({
       reduced_ids: fitted.at(-1).reduced_ids,
       basis_churn: +(new Set(fitted.flatMap(c => c.reduced_ids)).size / (fitted.at(-1).reduced_ids.length || 1)).toFixed(2),
       methods: methodScores,
+      // WP12 lineage: one manifest per fitted cutoff, in order. Unlike the fit
+      // summaries above (collapsed to first/last for readability) these are
+      // kept in full — a split record that only covers some of the season's
+      // cutoffs cannot answer "was this fit trained on what it claims", which
+      // is the only question a manifest exists to answer.
+      split_manifests: fitted.map(c => ({ week: c.week, ...c.split_manifest })),
       skipped_cutoffs: acc.cutoffs.filter(c => c.skipped).map(c => ({ week: c.week, reason: c.skipped }))
     });
   }

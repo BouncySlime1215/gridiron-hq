@@ -12,7 +12,10 @@ import { buildPlayerWeekEngine, playerWeekDistribution, clearPlayerWeekEngineCac
 import { PPR, scoreLine } from './scoring.js';
 import { WEEKLY_ENSEMBLE_HEADS } from './weekly-ensemble.js';
 import { PLAYER_HEADS, PLAYER_HEAD_REGISTRY_VERSION } from './player-head-registry.js';
-import { activeWeeklyWeightSet, saveWeeklyFit, weeklyFitDataHash, weeklyFitHistory } from './weekly-weight-store.js';
+import {
+  activeWeeklyWeightSet, latestWeeklyWeightSet, saveWeeklyFit, storedEarlyWeights, weeklyFitDataHash, weeklyFitHistory
+} from './weekly-weight-store.js';
+import { pairedBootstrapDiff } from './backtest-significance.js';
 import { spearman } from './backtest.js';
 import { nflKickoffDate } from './date-util.js';
 import { nflEngineVersionFor } from './nfl-engine-registry.js';
@@ -83,7 +86,11 @@ export function captureWeeklyPredictions(season, week, { scoring = PPR, runs = 2
         heads.last1, heads.median, projection.ppg, dist.p10, dist.p90,
         JSON.stringify(engine.weights), engine.weight_fit, projection.candidate_head_version,
         JSON.stringify(projection.candidate_heads),
-        structuralOnly ? 'cold_start_structural_only' : 'position_ensemble').changes;
+        // The mode that actually priced the row (weekly-ensemble.js#weeklyEnsembleMode):
+        // in weeks 2-4 that is the early bucket, not the weeks 5-18 blend. This was
+        // hard-coded 'position_ensemble', which mislabelled every early-bucket row in
+        // the log the retrain and the accuracy scoreboard read (review-fixes-2, finding 8).
+        structuralOnly ? 'cold_start_structural_only' : engine.mode ?? 'position_ensemble').changes;
     }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
@@ -163,11 +170,83 @@ export function settleWeeklyPredictions() {
   return { pending: pending.length, settled };
 }
 
+/** The old absolute pass region for 80% coverage; still a safe harbour. */
+export const COVERAGE_BAND = Object.freeze([0.78, 0.82]);
+const NOMINAL_COVERAGE = 0.8;
+
+/**
+ * "Preserves interval coverage", decided the way the MAE check is: relative to the
+ * champion on the same rows, with a player-clustered paired bootstrap.
+ *
+ * The check used to be an absolute band, coverage in [0.78, 0.82]. The served model's
+ * own coverage sits on the band's lower edge (0.775-0.783 across seeds and draw counts
+ * with the model fixed; docs/evidence/baselines/2025-weekly-distribution-draws.json),
+ * and a candidate's interval is the champion's, moved onto its own prediction. So a
+ * candidate calibrated exactly like the champion failed about half the time on noise
+ * alone, however much better its point forecast (FANTASY-ENGINE-MASTER-PLAN.md Q1, "the
+ * 0.78 line").
+ *
+ * GATE G4 (pre-registered 2026-09-18 in scratchpad/wa/infra-essentials/GATE.md, before
+ * this code ran; nothing here is fitted):
+ *   ok when coverage is inside [0.78, 0.82] (the old pass region: this only relaxes);
+ *   otherwise it fails only when BOTH its coverage is further from 0.80 than the
+ *   champion's on the same rows AND the change is significant — the 90% interval of
+ *   (candidate - champion) coverage, player-clustered, seed 20260917, excludes 0.
+ *   G4b: a candidate at the champion's own 0.775 with MAE 0.00 vs 4.36 is promoted.
+ *   G4c: moving coverage significantly away from 0.80, below or above, still fails.
+ *   G4d: simulated at 0.778, 480 rows, 160 players, 200 seeds: the old band rejects a
+ *        null candidate >= 40% of the time, this rule <= 10%; a harmful one (0.778 ->
+ *        ~0.70) is caught >= 90%.
+ * No row with an interval means nothing to check against: that fails.
+ */
+export function coverageCheck({ championCovered, candidateCovered, groups, seed = 20260917 }) {
+  const n = candidateCovered.length;
+  if (!n || championCovered.length !== n) {
+    return { ok: false, coverage: null, champion_coverage: null, change_ci90: null,
+      reason: 'no validation row has an 80% interval' };
+  }
+  const mean = xs => xs.reduce((s, x) => s + x, 0) / xs.length;
+  const coverage = mean(candidateCovered), championCoverage = mean(championCovered);
+  const [low, high] = COVERAGE_BAND;
+  const inBand = coverage >= low && coverage <= high;
+  const further = Math.abs(coverage - NOMINAL_COVERAGE) > Math.abs(championCoverage - NOMINAL_COVERAGE) + 1e-12;
+  const change = pairedBootstrapDiff(championCovered, candidateCovered, { seed, groups });
+  const significant = !change.error && change.significant;
+  const ok = inBand || !(further && significant);
+  return {
+    ok, coverage, champion_coverage: championCoverage, change_ci90: change.ci90 ?? null,
+    reason: ok ? null
+      : `coverage ${coverage.toFixed(3)} is further from 0.80 than the champion's ${championCoverage.toFixed(3)} `
+        + `on the same rows, significantly (player-clustered ci90 of the change ${JSON.stringify(change.ci90)})`
+  };
+}
+
 export function retrainWeeklyWeights({ minSettled = 250, maxRows = 2400 } = {}) {
-  const all = rows(`SELECT * FROM weekly_prediction_snapshots WHERE actual IS NOT NULL
-                    AND season_to_date IS NOT NULL ORDER BY season,week,player_id`)
-    .slice(-maxRows);
-  if (all.length < minSettled) return { trained: false, reason: `need ${minSettled} settled snapshots`, settled: all.length };
+  /*
+   * Only rows the per-position vector is actually served for. Inside the stored
+   * early-week window (weeks 2-4) production serves the early buckets, which this
+   * retrain does not refit and saveWeeklyFit carries forward unchanged. Fitting or
+   * grading the vector on those rows scores it where it never runs: on the live table,
+   * whose only settled rows will be 2026 week 2, the champion was graded as fit-1's
+   * vector (the blend known to lose at week 2), so a candidate fit on week-2 rows
+   * cleared the gate and would have been served at weeks 5-18. The pass rule below is
+   * unchanged; only the population is restricted to where the candidate would run.
+   */
+  const early = storedEarlyWeights();
+  const [earlyFrom, earlyTo] = Array.isArray(early?.weeks) ? early.weeks : [];
+  const inEarlyWindow = x => early != null && x.week >= earlyFrom && x.week <= earlyTo;
+  const settled = rows(`SELECT * FROM weekly_prediction_snapshots WHERE actual IS NOT NULL
+                    AND season_to_date IS NOT NULL ORDER BY season,week,player_id`);
+  const servedByVectors = settled.filter(x => !inEarlyWindow(x));
+  const excludedEarly = settled.length - servedByVectors.length;
+  const all = servedByVectors.slice(-maxRows);
+  if (all.length < minSettled) {
+    return {
+      trained: false, settled: all.length, excluded_early_window: excludedEarly,
+      reason: `need ${minSettled} settled snapshots outside the early-week window` +
+        (early ? ` (weeks ${earlyFrom}-${earlyTo} are served by the stored early buckets)` : '')
+    };
+  }
   const hash = crypto.createHash('sha256').update(JSON.stringify(all.map(x =>
     [x.season, x.week, x.player_id, x.actual, x.structural, x.season_to_date, x.last3, x.last1, x.median]))).digest('hex');
   const existing = row('SELECT id,promoted FROM weekly_ensemble_fits WHERE data_hash=?', weeklyFitDataHash(hash));
@@ -175,28 +254,68 @@ export function retrainWeeklyWeights({ minSettled = 250, maxRows = 2400 } = {}) 
 
   const split = Math.max(1, Math.floor(all.length * 0.8));
   const train = all.slice(0, split), validation = all.slice(split);
-  const champion = activeWeeklyWeightSet();
-  const candidate = {};
-  for (const position of ['QB', 'RB', 'WR', 'TE']) {
-    candidate[position] = fitPosition(train.filter(x => x.position === position), champion.weights[position]);
-  }
+  // The champion is the one that was legitimately available BEFORE the validation
+  // window — the newest promoted fit trained strictly before its first row. This used
+  // to be an uncut `activeWeeklyWeightSet()`, which returned the newest fit regardless
+  // of what it was trained on; if that fit had seen the validation rows it graded
+  // artificially well and the gate would refuse genuinely better candidates.
+  const firstValidation = validation[0];
+  const champion = activeWeeklyWeightSet({ season: firstValidation.season, week: firstValidation.week });
+  /*
+   * GLOBAL architecture only: one convex vector shared by every position. This used
+   * to fit a separate vector per position unconditionally, which is the architecture
+   * the promotion script's own 2024 discovery step did NOT select (global 4.4284 vs
+   * position 4.4310, and the stored champion's data_hash reads `phase1a:global:...`).
+   * On <= 2,400 settled rows that is ~600 per position with four free parameters each,
+   * which is exactly the regime where a lucky fit clears a small threshold by chance.
+   * Re-introduce per-position only if a fresh discovery step re-selects it. The vector
+   * is stored replicated per position because a bare array would make
+   * weeklyEnsemblePrediction() fall through to the structural head for every player.
+   */
+  const globalFallback = champion.weights.WR ?? champion.weights[Object.keys(champion.weights)[0]];
+  const globalWeights = fitPosition(train, globalFallback);
+  const candidate = Object.fromEntries(['QB', 'RB', 'WR', 'TE'].map(position => [position, globalWeights]));
   const candidateFn = x => predict(candidate[x.position] ?? champion.weights[x.position], x);
   const championFn = x => predict(champion.weights[x.position], x);
   const candidateMae = mae(validation, candidateFn), championMae = mae(validation, championFn);
   const candidateRank = rank(validation, candidateFn), championRank = rank(validation, championFn);
-  const covered = validation.filter(x => {
-    if (x.lower_80 == null || x.upper_80 == null) return false;
-    const shift = candidateFn(x) - x.prediction;
-    return x.actual >= x.lower_80 + shift && x.actual <= x.upper_80 + shift;
-  });
+  // Each model's 80% interval is the stored one moved onto that model's own prediction
+  // (the champion's shift is ~0 when it is the vector that was served).
   const withIntervals = validation.filter(x => x.lower_80 != null && x.upper_80 != null);
-  const coverage = withIntervals.length ? covered.length / withIntervals.length : null;
-  const promoted = validation.length >= 100 && candidateMae <= championMae - 0.005
-    && candidateRank >= championRank - 0.001 && coverage != null && coverage >= 0.78 && coverage <= 0.82;
+  const coveredBy = fn => withIntervals.map(x => {
+    const shift = fn(x) - x.prediction;
+    return x.actual >= x.lower_80 + shift && x.actual <= x.upper_80 + shift ? 1 : 0;
+  });
+  const coverageGate = coverageCheck({
+    championCovered: coveredBy(championFn), candidateCovered: coveredBy(candidateFn),
+    groups: withIntervals.map(x => x.player_id)
+  });
+  const coverage = coverageGate.coverage;
+  /*
+   * Significance, not a fixed margin. The gate used to be `candidateMae <= championMae
+   * - 0.005`: an unfitted threshold with no test at all, on the SAME table that
+   * scripts/promote-weekly-ensemble.mjs writes to under a paired bootstrap against two
+   * baselines. A second, weaker door into one table means the weaker door decides.
+   * This is now the same test the promotion script uses, clustered by player: the
+   * validation rows are ~a few hundred players observed over several weeks each, and
+   * resampling player-weeks as if independent narrows the interval by ~30% (measured
+   * on 2025). The candidate must be significantly better than the champion.
+   */
+  const significance = pairedBootstrapDiff(
+    validation.map(x => Math.abs(championFn(x) - x.actual)),
+    validation.map(x => Math.abs(candidateFn(x) - x.actual)),
+    { seed: 20260917, groups: validation.map(x => x.player_id) }
+  );
+  const significantlyBetter = !significance.error && significance.significant && significance.mean_diff < 0;
+  const promoted = validation.length >= 100 && significantlyBetter
+    && candidateRank >= championRank - 0.001 && coverageGate.ok;
   const last = all.at(-1);
   const rejection = promoted ? null
-    : `gate failed: mae ${candidateMae.toFixed(4)} vs ${championMae.toFixed(4)}, ` +
-      `rank ${candidateRank} vs ${championRank}, coverage ${coverage?.toFixed(3) ?? 'n/a'}`;
+    : `gate failed: mae ${candidateMae.toFixed(4)} vs ${championMae.toFixed(4)} ` +
+      `(player-clustered ci90 ${JSON.stringify(significance.ci90 ?? significance.error)}), ` +
+      `rank ${candidateRank} vs ${championRank}, coverage ${coverage?.toFixed(3) ?? 'n/a'} ` +
+      `vs champion ${coverageGate.champion_coverage?.toFixed(3) ?? 'n/a'}` +
+      (coverageGate.ok ? '' : ` (${coverageGate.reason})`);
   const saved = saveWeeklyFit({
     data_hash: hash, through_season: last.season, through_week: last.week,
     weights: candidate, sample_size: all.length, validation_size: validation.length,
@@ -212,7 +331,8 @@ export function weeklyLearningStatus() {
   return {
     snapshots: row(`SELECT COUNT(*) AS total, SUM(actual IS NOT NULL) AS settled,
                            MAX(as_of) AS latest_capture FROM weekly_prediction_snapshots`),
-    champion: activeWeeklyWeightSet(),
+    // Display only: the newest promoted fit, uncut. Never grade or predict with it.
+    champion: latestWeeklyWeightSet(),
     fits: weeklyFitHistory(10),
     candidate_heads: candidateForwardScoreboard()
   };

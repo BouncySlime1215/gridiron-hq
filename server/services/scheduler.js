@@ -807,7 +807,15 @@ export const JOBS = {
   nfl_line_snapshots: { run: refreshNflLineSnapshots, maxAgeMinutes: 12 * 60, tier: 'metered', label: 'Multi-book line snapshots (CLV)' },
   nfl_sgo_snapshot: { run: refreshSportsGameOdds, maxAgeMinutes: 30, tier: 'metered',
     label: 'SportsGameOdds multi-book snapshot (free, opt-in, own budget)' },
-  nfl_prop_feeds: { run: refreshPropFeeds, maxAgeMinutes: 60, tier: 'live',
+  // Measured live on 2026-09-19 (SLOW_JOB_WARN_MS instrumentation): this job
+  // alone took 19.7-28.6s per run, on a 60-minute staleness budget. Sitting in
+  // 'live' meant it was still CHECKED every 90s, and whenever due it ran
+  // inline in the middle of that tight tier's sequential loop, stalling the
+  // genuinely time-critical live jobs (pick watch, play-by-play, line watch)
+  // behind it. 'metered' is checked every few minutes instead, which such an
+  // hour-scale budget can't tell apart from 90s — see beat_the_close below,
+  // the live tier's other big contributor to the same measured stall.
+  nfl_prop_feeds: { run: refreshPropFeeds, maxAgeMinutes: 60, tier: 'metered',
     label: 'Free player-prop quotes: Action Network, Underdog' },
   nfl_book_feeds_extra: { run: refreshExtraBookFeeds, maxAgeMinutes: 60, tier: 'live',
     label: 'Free game lines: Rotowire (Circa, DK, FD, MGM, Caesars, BetRivers, Fanatics, theScore, Betr) and SBR (bet365, Hard Rock)' },
@@ -823,7 +831,11 @@ export const JOBS = {
     label: 'Free multi-book quotes (undocumented scrapes, kept conservative): BetRivers (Kambi), Bovada, FanDuel (direct)' },
   nfl_qbr_weather: { run: refreshQbrAndWeather, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'Weekly ESPN QBR and kickoff-hour weather for the current and prior season' },
-  beat_the_close: { run: refreshBeatTheClose, maxAgeMinutes: 60, tier: 'live',
+  // Measured live 2026-09-19: 20.2-22.0s per run, also on an hour-scale
+  // budget (maxAgeMinutes: 60) — see nfl_prop_feeds above for why that
+  // combination belongs on the 'metered' cadence, not 'live'. Together these
+  // two jobs were the majority of the live tier's 67.4s-per-pass total.
+  beat_the_close: { run: refreshBeatTheClose, maxAgeMinutes: 60, tier: 'metered',
     label: 'Beat the close: signal snapshots, zero-unit shadow decisions, CLV settlement' },
   // Pure SQLite reads plus rankBooks (no network call of its own), so this
   // rides the live tier's 90-second tick at a genuinely short cadence — the
@@ -861,6 +873,19 @@ export const JOBS = {
     },
     maxAgeMinutes: 5, tier: 'live',
     label: 'T-60 prospective capture: open, freeze and account for every scheduled game\'s cutoff' },
+  nfl_learned_shadow: {
+    run: async () => {
+      const [m, { currentNflWeek }] = await Promise.all([
+        import('../betting/nfl/strategy/learned-shadow-runner.js'), import('./weekly-learning.js')
+      ]);
+      const { season, week } = currentNflWeek();
+      if (!Number.isFinite(season) || !Number.isFinite(week)) return { skipped: 'no current NFL week resolved' };
+      const result = await m.runLearnedShadowPass({ season, week });
+      if (!result.ok) throw new Error(result.reason ?? 'learned shadow pass has failed observations');
+      return result;
+    },
+    maxAgeMinutes: 60, tier: 'growth', timeoutMs: 240_000,
+    label: 'Weekly trained margin model: frozen pregame shadow forecasts, zero stake' },
   // Polymarket's own published limits (Gamma ~400 req/s, CLOB ~900 req/s —
   // docs.polymarket.com/api-reference/rate-limits) leave enormous headroom
   // over a poll this infrequent; tightened from 15 to 3 minutes so a real
@@ -1004,6 +1029,13 @@ export const JOBS = {
 /** The budget a job gets before the tier abandons it. Overridable per job. */
 const DEFAULT_JOB_TIMEOUT_MS = 120_000;
 
+// Threshold for the "a job ran long" warning below. Not a timeout — jobs still
+// get their full budget (DEFAULT_JOB_TIMEOUT_MS) — just a number worth seeing.
+// Picked from server/index.js:143's own bound: an HTTP request queued behind a
+// blocking synchronous call feels instant under ~100ms and noticeable well
+// before a full second, so 750ms is "found it" territory, not noise.
+const SLOW_JOB_WARN_MS = 750;
+
 export async function runIfStale(name, { force = false } = {}) {
   const job = JOBS[name];
   if (!job) return { job: name, error: 'unknown job' };
@@ -1011,6 +1043,7 @@ export async function runIfStale(name, { force = false } = {}) {
   if (!force && age < job.maxAgeMinutes) {
     return { job: name, skipped: true, age_minutes: Math.round(age), max_age_minutes: job.maxAgeMinutes };
   }
+  const startedAt = Date.now();
   try {
     // EVERY JOB IS TIME-BOUND, AND THIS IS NOT DEFENSIVE PROGRAMMING.
     //
@@ -1045,7 +1078,18 @@ export async function runIfStale(name, { force = false } = {}) {
     // is not healthy; recording it as 'ok' told every freshness view that a
     // capture happened when nothing did.
     record(name, detail?.skipped === true ? 'skipped' : 'ok', detail);
-    return { job: name, ran: true, detail };
+    // node:sqlite's DatabaseSync is fully synchronous (server/db/index.js) — a
+    // slow query inside job.run() blocks this process, not just this job, so
+    // every other request queues behind it for the same span this prints.
+    // Found empirically 2026-09-19 chasing a scheduler-caused freeze that a
+    // fresh/small database can't reproduce (see the note above runIfStale):
+    // this is the number to read off Nick's real box, not this sandbox's.
+    const durationMs = Date.now() - startedAt;
+    if (durationMs >= SLOW_JOB_WARN_MS) {
+      console.warn(`[scheduler] '${name}' took ${(durationMs / 1000).toFixed(1)}s ` +
+        '— every request was blocked for that long while it ran');
+    }
+    return { job: name, ran: true, detail, duration_ms: durationMs };
   } catch (e) {
     // A failed refresh must never take a page down — the stale data is still
     // servable, and the failure is recorded so it is visible rather than silent.
@@ -1057,7 +1101,7 @@ export async function runIfStale(name, { force = false } = {}) {
     // the pass with no output at all. The recording of a failure must not be
     // able to cause a larger one.
     try { record(name, 'error', e.message); } catch { /* the pass continues */ }
-    return { job: name, ran: true, error: e.message };
+    return { job: name, ran: true, error: e.message, duration_ms: Date.now() - startedAt };
   }
 }
 
@@ -1195,9 +1239,20 @@ export function startScheduler({
         return;
       }
       inFlight = true;
+      const passStartedAt = Date.now();
       (async () => { for (const j of jobs) await runIfStale(j); })()
         .catch(e => console.error(`[scheduler] ${label} tier pass failed:`, e?.message ?? e))
-        .finally(() => { inFlight = false; });
+        .finally(() => {
+          // Total wall time for the pass, next to SLOW_JOB_WARN_MS's per-job
+          // lines above — the two together say both "how long was the app
+          // unresponsive this cycle" and "because of which job".
+          const passMs = Date.now() - passStartedAt;
+          if (passMs >= SLOW_JOB_WARN_MS) {
+            console.warn(`[scheduler] ${label} tier pass took ${(passMs / 1000).toFixed(1)}s total ` +
+              `(${jobs.length} jobs) — see any '[scheduler] '<job>' took ...' lines above for which one`);
+          }
+          inFlight = false;
+        });
     }, everyMs);
     handle.unref?.();   // never hold the process open just for this
     return handle;

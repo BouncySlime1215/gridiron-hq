@@ -118,7 +118,7 @@ export function signalLeadTimes({ windowHours = 48, sinceDays = 60 } = {}) {
   const signals = rows(
     `SELECT news_id, player_name, team, signal_type, status, unavailable_probability,
             role_delta, confidence, published_at, source
-     FROM nfl_news_signals
+     FROM nfl_news_signals_current
      WHERE verification_state='verified' AND published_at >= ? ORDER BY published_at DESC`, since);
 
   const moveCount = row(`SELECT COUNT(*) AS n FROM espn_line_moves`)?.n ?? 0;
@@ -198,7 +198,7 @@ export function signalLeadTimes({ windowHours = 48, sinceDays = 60 } = {}) {
  */
 export function bookLagDistribution({ sinceDays = 60, windowHours = 48 } = {}) {
   const since = new Date(Date.now() - sinceDays * 86400000).toISOString();
-  const signals = rows(`SELECT news_id,team,published_at FROM nfl_news_signals
+  const signals = rows(`SELECT news_id,team,published_at FROM nfl_news_signals_current
     WHERE verification_state='verified' AND published_at>=? AND team IS NOT NULL ORDER BY published_at`, since);
   if (!signals.length) {
     return { books: [], observations: 0, target_per_book: 10,

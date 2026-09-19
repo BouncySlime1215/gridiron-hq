@@ -15,11 +15,15 @@ import {
 // The same season-by-season prompt lines and "argue from the numbers" rules the
 // draft advisor runs on (server/routes/drafts.js) — one voice for both rooms.
 import { evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
-import { dvpTable, relevantSplits, matchupModel } from '../services/matchups.js';
+import { dvpTable, relevantSplits, matchupModel, matchupSignalActive, MATCHUP_SIGNAL_REASON } from '../services/matchups.js';
+import { leagueCurrentWeek, leagueLastCompletedWeek } from '../services/league-week.js';
+import { waiverBoard } from '../services/waiver-wire.js';
+import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
-import { brainState, brainPlan, managerProfiles, setManagerProfile } from '../services/league-brain.js';
-import { waiverUpgrades, sellHigh, freeAgents } from '../services/waiver-brain.js';
+import { brainState, managerProfiles, setManagerProfile } from '../services/league-brain.js';
+import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE } from '../services/trade-proposals.js';
+import { waiverUpgrades, freeAgents } from '../services/waiver-brain.js';
 import { byeOutlook, byePatches, fragility } from '../services/roster-risk.js';
 import { positionLiquidity } from '../services/position-liquidity.js';
 import { trendExploits } from '../services/trend-exploits.js';
@@ -118,6 +122,15 @@ r.get('/:leagueId/post-draft-plan', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * A route that existed and was deliberately removed. 410 (Gone), never 404, and
+ * always with a pointer: a caller that finds a missing path deserves to be told
+ * where the capability went, and a silent 404 reads like a bug.
+ */
+const retired = (use, why) => (_req, res) => res.status(410).json({
+  error: `This endpoint was retired on 2026-09-18. ${why}`, use,
+});
+
 /* ----------------------------------------------------------------- the brain */
 
 /** Where you stand: rank, holes, and which hole is worth paying to fix. */
@@ -129,20 +142,17 @@ r.get('/:leagueId/brain/state', (req, res, next) => {
 });
 
 /**
- * The plan: ranked by acceptance probability times gain, not by gain.
+ * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
  *
- * See league-brain.js — a deal nobody signs is worth nothing, and sorting by
- * how much a trade helps you is sorting by how unacceptable it is.
+ * `brainPlan` ranked its own enumerated deals by its own tier-based acceptance
+ * curve, neither of which read the counterparty layer or the horizon — a second,
+ * quietly different answer to "what trade should I send". Both are retired with
+ * it (see league-brain.js). The ranked weekly plan across lineup, waivers and
+ * trades is being rebuilt as a deterministic service on the Decision Inbox
+ * (master plan 00, D5), fed by waiverBoard and the one trade-idea entry point.
  */
-r.get('/:leagueId/brain/plan', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(brainPlan(lg.id, {
-      myTeamId: req.query.team_id ?? null,
-      limit: Math.min(20, Number(req.query.limit) || 8)
-    }));
-  } catch (e) { next(e); }
-});
+r.get('/:leagueId/brain/plan', retired('/api/trades/:leagueId/find',
+  'The plan\'s trade half was a second enumerator with its own acceptance curve. Trade ideas now come from one place, which prices how each manager reads a deal; the weekly plan service is being rebuilt on top of it.'));
 
 /**
  * Free agents who would crack your lineup.
@@ -161,16 +171,19 @@ r.get('/:leagueId/brain/waivers', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Players priced above their own position's production curve. */
-r.get('/:leagueId/brain/sell-high', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(sellHigh(lg.id, {
-      myTeamId: req.query.team_id ?? null,
-      limit: Math.min(15, Number(req.query.limit) || 5)
-    }));
-  } catch (e) { next(e); }
-});
+/**
+ * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
+ *
+ * `sellHigh` itself is NOT retired — it is the price-curve half of the Trade
+ * Brain's "hype window" tactic, and it stays as an input to that (it is still
+ * exported from waiver-brain.js). What is retired is serving it as its own page:
+ * a list of players priced above their production curve, with no buyer attached
+ * and no read on who overvalues them, is half an idea. The whole idea — who to
+ * sell him to, what to ask, and whether that manager has talked him up — is a
+ * trade idea, and trade ideas have one source.
+ */
+r.get('/:leagueId/brain/sell-high', retired('/api/trades/:leagueId/find',
+  'Selling high on a player is a trade idea, not a list: the finder names the buyer, the package and how he reads it. sellHigh() remains an input to the hype-window tactic.'));
 
 /** The unrostered pool, ranked on the horizon that matters this week. */
 r.get('/:leagueId/brain/free-agents', (req, res, next) => {
@@ -375,7 +388,7 @@ r.get('/:leagueId/ceiling-lineup', (req, res, next) => {
     const lg = league(req, res); if (!lg) return;
     res.json(ceilingLineup(lg.id, {
       teamId: req.query.team_id,
-      week: Math.min(18, Math.max(1, Number(req.query.week) || 1)),
+      week: Math.min(18, Math.max(1, Number(req.query.week) || leagueCurrentWeek(lg))),
       objective: req.query.objective === 'mean' ? 'mean' : 'ceiling',
       target: req.query.target ? Number(req.query.target) : null,
       trials: Math.min(8000, Number(req.query.trials) || 3000)
@@ -409,9 +422,45 @@ r.get('/:leagueId/postmortem', (req, res, next) => {
     res.json(weekPostmortem(lg.id, {
       teamId: req.query.team_id,
       season: Number(req.query.season) || undefined,
-      week: Math.min(18, Math.max(1, Number(req.query.week) || 1)),
+      week: Math.min(18, Math.max(1, Number(req.query.week) || leagueLastCompletedWeek(lg))),
       lineup: lineup.length ? lineup : null
     }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * The waiver wire, ranked by points added to the starting lineup.
+ *
+ * Measured worth: a team that works the wire gains about 3.4 percentage points
+ * of all-play win rate against teams in the same league that do not, positive
+ * in all five replayed seasons. That is roughly half the best draft-structure
+ * edge and it is available every week rather than once a year.
+ */
+r.get('/:leagueId/waivers', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(waiverBoard(lg, {
+      myTeamId: req.query.team_id,
+      limit: Math.min(50, Math.max(5, Number(req.query.limit) || 20)),
+      minProjected: Number(req.query.min_projected) || 4,
+    }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * Floor or ceiling, against THIS week's opponent.
+ *
+ * Maximising expected points is the wrong objective in a head-to-head week. As
+ * a heavy underdog the safe lineup loses slowly; as a heavy favourite variance
+ * is the only way you lose. The effect is small and conditional — below
+ * lineup-posture.js MATERIAL_EDGE (23 points) one typical swap moves win
+ * probability by under 0.3pp — so this deliberately says nothing in close
+ * matchups rather than inventing advice.
+ */
+r.get('/:leagueId/posture', (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    res.json(lineupPosture(lg, { myTeamId: req.query.team_id, week: req.query.week }));
   } catch (e) { next(e); }
 });
 
@@ -485,7 +534,9 @@ r.get('/:leagueId/inbox', (req, res, next) => {
 r.get('/:leagueId/lineup-diff', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(lineupDiff(lg, req.query.team_id));
+    const diff = lineupDiff(lg, req.query.team_id);
+    if (diff.not_found) return res.status(404).json({ error: diff.error });
+    res.json(diff);
   } catch (e) { next(e); }
 });
 
@@ -508,6 +559,41 @@ r.get('/:leagueId/find', (req, res, next) => {
       limit: Math.min(300, Number(req.query.limit) || 20),
       targetId: req.query.target_id || null,
       excludeIds: excludeSet(req)
+    }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * The AI pass: the top numeric ideas, written up as messages Nick can send.
+ *
+ * Budgeted per league ($0.50/day, enforced inside callClaude) and cached on the
+ * slate's content, so re-opening the page costs nothing and an unchanged slate
+ * never re-spends. A refusal — budget gone, no key, the model inventing things
+ * — comes back as `refused` with its reason rather than an empty list that
+ * would read like "no good trades today".
+ */
+r.get('/:leagueId/proposals', async (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    // The model only ever sees ideas that already passed the edge test, because
+    // that filter lives inside findTrades and runs before this point.
+    const found = findTrades(lg, {
+      myTeamId: req.query.team_id,
+      requireMutual: req.query.mutual !== '0',
+      // Fixed at D4's "top ~12", deliberately NOT caller-controlled. The cache
+      // key is a hash of the slate, so a caller free to vary the limit could
+      // mint a fresh key per value — 12 distinct keys, 12 paid Sonnet calls for
+      // the same league on the same day, against a budget that is not per-league.
+      limit: PROPOSAL_SLATE_SIZE,
+    });
+    const ideas = found?.deals ?? [];
+    // Every player on a roster in this league, not merely the ones in the
+    // returned deals. The failure mode this guards against is a proposal
+    // offering someone who exists in the league but is in no idea here — and a
+    // universe built from the deals themselves is blind to exactly that.
+    const universe = found?.league_player_names ?? [];
+    res.json(await proposalsFor(lg.id, {
+      ideas, universe, call: liveCaller(callClaude), cache: dbCache(lg.id),
     }));
   } catch (e) { next(e); }
 });
@@ -602,7 +688,8 @@ r.get('/:leagueId/rosters', (req, res, next) => {
               id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
               espn_id: p.espn_id, sleeper_id: p.sleeper_id,
               value: p.value, proj: p.proj, ppg: p.ppg, adj_ppg: p.adj_ppg,
-              age: p.age, bye: p.bye, injury: p.injury, sos: p.sos, playoff_sos: p.playoff_sos,
+              // No sos/playoff_sos: both are 1 with no validated signal (matchups.js).
+              age: p.age, bye: p.bye, injury: p.injury,
               starter: starters.has(p.id)
             }))
             .sort((a, b) => Number(b.starter) - Number(a.starter) || b.adj_ppg - a.adj_ppg)
@@ -625,7 +712,10 @@ r.get('/dvp', (req, res, next) => {
   try {
     const pos = String(req.query.position ?? 'WR').toUpperCase();
     if (!['QB', 'RB', 'WR', 'TE'].includes(pos)) return res.status(400).json({ error: 'position must be QB/RB/WR/TE' });
-    res.json({ position: pos, seasons: matchupModel().seasons, table: dvpTable(pos) });
+    // Points allowed is history, not a forecast: the DvP multiplier failed the
+    // weekly walk-forward test, so the table says so alongside the numbers.
+    res.json({ position: pos, seasons: matchupModel().seasons, signal: matchupSignalActive(),
+      reason: matchupSignalActive() ? null : MATCHUP_SIGNAL_REASON, table: dvpTable(pos) });
   } catch (e) { next(e); }
 });
 
@@ -675,8 +765,9 @@ r.post('/:leagueId/sense-check', async (req, res, next) => {
         `proj ${p.proj ?? '?'} pts, ${p.adj_ppg ?? '?'} adj ppg, market value ${p.value ?? '?'}` +
         `${p.age != null ? `, age ${p.age}` : ''}${p.bye ? `, bye week ${p.bye}` : ''}` +
         `${p.injury ? ', INJURY FLAG' : ''}${p.floor != null ? `, floor/ceiling ${p.floor}/${p.ceiling}` : ''}` +
-        `${p.consistency != null ? `, consistency ${p.consistency}` : ''}` +
-        `${p.playoff_sos != null ? `, weeks 15-17 matchup mult ${p.playoff_sos}` : ''}`;
+        `${p.consistency != null ? `, consistency ${p.consistency}` : ''}`;
+      // No playoff-schedule line: no schedule-strength signal has passed testing
+      // (matchups.js), so the prompt must not hand Claude one to reason from.
       // Season-by-season record, streaks, our preseason band and drivers, the
       // offseason read — the evidence the second opinion has to argue from.
       const lines = evidenceLines(p);
@@ -693,9 +784,8 @@ r.post('/:leagueId/sense-check', async (req, res, next) => {
   Sends: ${s.gives.length ? s.gives.map(fmtPlayer).join('\n    ') : 'nothing'}
   Receives: ${s.gets.length ? s.gets.map(fmtPlayer).join('\n    ') : 'nothing'}
   Starting lineup: ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}/wk, ${s.season_delta > 0 ? '+' : ''}${s.season_delta} over the season)
-  Weeks 15-17 lineup: ${s.playoff_ppg_delta > 0 ? '+' : ''}${s.playoff_ppg_delta ?? '?'} ppg
   Market value: ${s.value_delta > 0 ? '+' : ''}${s.value_delta}
-  Weekly floor/ceiling shift: ${s.floor_delta ?? '?'}/${s.ceiling_delta ?? '?'}
+  Starting lineup's weekly total, change in its bad week (10th percentile) / good week (90th percentile): ${s.floor_delta ?? '?'}/${s.ceiling_delta ?? '?'}
 ${fmtRisk(s.risk)}
   ${s.new_holes?.length ? `Leaves an unfilled starting slot at: ${s.new_holes.join(', ')}` : 'Fills every starting slot'}`;
 
@@ -880,7 +970,6 @@ The analysis is already done — do not re-argue the numbers, just use them.
 ${fmtSide(d.me)}
 ${fmtSide(d.them)}
 Fairness on market price: ${d.fairness}. Both sides improve: ${d.mutual ? 'yes' : 'no'}.
-${d.me.playoff_ppg_delta != null ? `My weeks 15-17 lineup changes by ${d.me.playoff_ppg_delta} ppg.` : ''}
 ${untouchables.length ? `Untouchable — never suggest offering these, not even as a sweetener: ${untouchables.join(', ')}.` : ''}
 ${records.length ? `Records (real, multi-season — cite these numbers in the pitch, never an adjective in their place):\n${records.join('\n')}` : ''}
 

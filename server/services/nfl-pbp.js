@@ -660,7 +660,12 @@ export function teamWeeks(season = null, team = null) {
   if (team) { where.push('team = ?'); args.push(team); }
   const sql = `SELECT * FROM nfl_team_week_features
                ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY season, week`;
-  return rows(sql, ...args).map(r => ({ ...r, features: JSON.parse(r.features) }));
+  const all = rows(sql, ...args).map(r => ({ ...r, features: JSON.parse(r.features) }));
+  // 2021-2025 store every Rams game twice, as nflverse's 'LA' and as 'LAR'
+  // (84 of 85 pairs identical; the other differs in two passing keys). Game
+  // joins use 'LAR', but league-wide averages counted the Rams twice.
+  const lar = new Set(all.filter(r => r.team === 'LAR').map(r => `${r.season}|${r.week}`));
+  return all.filter(r => !(r.team === 'LA' && lar.has(`${r.season}|${r.week}`)));
 }
 
 export function playerWeeks(season = null, playerId = null) {

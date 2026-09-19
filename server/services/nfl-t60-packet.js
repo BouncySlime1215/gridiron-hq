@@ -43,6 +43,7 @@ import { teamCodeFor } from './team-codes.js';
 import { canonicalize } from '../betting/nfl/contracts/forecast-packet.js';
 import { SHARP_BOOKS } from './nfl-sharp.js';
 import { nflKickoffDate } from './date-util.js';
+import { featureAggregates } from './nfl-ensemble.js';
 
 export const PACKET_VERSION = 'nfl-t60-packet-v3-c11';
 
@@ -241,14 +242,6 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
   // narrows 1.3M rows to a handful; the canonical event is then resolved in JS,
   // because the tape stores full team names while the schedule stores
   // abbreviations and only `teamCodeFor` knows how to reconcile the two.
-  const kickoffWindow = rows(`SELECT q.quote_id, q.home_team, q.away_team, q.bookmaker_key,
-      q.market, q.period, q.side_key, q.line, q.american_price, q.snapshot_at, q.book_updated_at,
-      b.requested_at, b.received_at, b.receipt_clock_source
-    FROM nfl_quote_tape q JOIN nfl_quote_batches b ON b.batch_id = q.batch_id
-    WHERE q.commence_time >= ? AND q.commence_time < ?
-      AND q.market = ? AND q.period = ?`,
-  kickoffFrom, kickoffTo, PACKET_MARKET, PACKET_PERIOD);
-
   // Fail closed on an unresolvable team. `teamCodeFor` returns null for
   // anything it cannot map, and null === null would make an unidentifiable
   // game match EVERY row in the kickoff window -- reinstating the cross-game
@@ -260,43 +253,96 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
       + `${JSON.stringify(homeCode)}, away ${JSON.stringify(away)} to ${JSON.stringify(awayCode)}. `
       + 'A packet cannot be scoped to a game this system cannot name.' };
   }
-  const scopedQuotes = kickoffWindow.filter(q => {
-    const qHome = teamCodeFor(q.home_team), qAway = teamCodeFor(q.away_team);
-    return qHome != null && qAway != null && qHome === homeCode && qAway === awayCode;
-  });
 
-  // Only a real observed response-completion clock can support a prospective
-  // claim. A batch carrying `legacy_request_time_only` knows when it ASKED,
-  // not when it was answered, and the difference always errs toward admitting
-  // evidence too early -- so such rows are counted separately and never
-  // granted `received_by_cutoff`.
-  const realClock = scopedQuotes.filter(q => q.receipt_clock_source === 'response_completion');
-  const legacyClock = scopedQuotes.filter(q => q.receipt_clock_source !== 'response_completion');
-  const receivedByCutoff = realClock.filter(q => beforeOrAt(q.received_at, cutoffAt));
-  const latestReceipt = receivedByCutoff.reduce(
-    (max, q) => (max == null || q.received_at > max ? q.received_at : max), null);
-  const latestSnapshot = receivedByCutoff.reduce(
-    (max, q) => (max == null || q.snapshot_at > max ? q.snapshot_at : max), null);
+  // Shared by both markets this packet freezes evidence for (spreads, always;
+  // totals, WP15/D3 -- capture only, see the source below for why it is not
+  // yet wired into a decision). Factored out so the totals capture cannot
+  // silently diverge from the spreads capture's clock/team-scoping rules.
+  const captureQuoteMarket = market => {
+    const window = rows(`SELECT q.quote_id, q.home_team, q.away_team, q.bookmaker_key,
+        q.market, q.period, q.side_key, q.line, q.american_price, q.snapshot_at, q.book_updated_at,
+        b.requested_at, b.received_at, b.receipt_clock_source
+      FROM nfl_quote_tape q JOIN nfl_quote_batches b ON b.batch_id = q.batch_id
+      WHERE q.commence_time >= ? AND q.commence_time < ?
+        AND q.market = ? AND q.period = ?`,
+    kickoffFrom, kickoffTo, market, PACKET_PERIOD);
+    const scoped = window.filter(q => {
+      const qHome = teamCodeFor(q.home_team), qAway = teamCodeFor(q.away_team);
+      return qHome != null && qAway != null && qHome === homeCode && qAway === awayCode;
+    });
+    // Only a real observed response-completion clock can support a
+    // prospective claim. A batch carrying `legacy_request_time_only` knows
+    // when it ASKED, not when it was answered, and the difference always
+    // errs toward admitting evidence too early -- so such rows are counted
+    // separately and never granted `received_by_cutoff`.
+    const realClock = scoped.filter(q => q.receipt_clock_source === 'response_completion');
+    const legacyClock = scoped.filter(q => q.receipt_clock_source !== 'response_completion');
+    const receivedByCutoff = realClock.filter(q => beforeOrAt(q.received_at, cutoffAt));
+    const latestReceipt = receivedByCutoff.reduce(
+      (max, q) => (max == null || q.received_at > max ? q.received_at : max), null);
+    const latestSnapshot = receivedByCutoff.reduce(
+      (max, q) => (max == null || q.snapshot_at > max ? q.snapshot_at : max), null);
+    return { scoped, receivedByCutoff, legacyClock, latestReceipt, realClock, latestSnapshot };
+  };
 
+  const spreadCapture = captureQuoteMarket(PACKET_MARKET);
   entries.push(sourceEntry({ source: 'nfl_quote_tape',
-    rowsByCutoff: receivedByCutoff.length, rowsTotal: scopedQuotes.length,
-    effectiveAt: latestSnapshot,
-    receivedAt: latestReceipt
-      ?? (realClock.length
-        ? realClock.reduce((max, q) => (max == null || q.received_at > max ? q.received_at : max), null)
+    rowsByCutoff: spreadCapture.receivedByCutoff.length, rowsTotal: spreadCapture.scoped.length,
+    effectiveAt: spreadCapture.latestSnapshot,
+    receivedAt: spreadCapture.latestReceipt
+      ?? (spreadCapture.realClock.length
+        ? spreadCapture.realClock.reduce((max, q) => (max == null || q.received_at > max ? q.received_at : max), null)
         : null),
     cutoffAt,
     missingReason: 'no quote was ever captured for this game — a missed capture, recorded as a missing ' +
       'prospective observation rather than passed over in silence',
-    note: legacyClock.length
-      ? `${legacyClock.length} of ${scopedQuotes.length} quote rows for this game carry only a request `
-        + 'time, not an observed receipt. They are retained and reported, but cannot support a prospective '
-        + 'claim: a request time is a lower bound on receipt, and treating it as one admits prices the '
-        + 'decision did not yet hold.'
+    note: spreadCapture.legacyClock.length
+      ? `${spreadCapture.legacyClock.length} of ${spreadCapture.scoped.length} quote rows for this game carry ` +
+        'only a request time, not an observed receipt. They are retained and reported, but cannot support a ' +
+        'prospective claim: a request time is a lower bound on receipt, and treating it as one admits prices ' +
+        'the decision did not yet hold.'
       : null,
     // The actual rows, not a count. C11: "It does not persist the actual rows,
     // values, identities and fitted artifacts consumed by a forecast."
-    values: receivedByCutoff.map(q => ({ quote_id: q.quote_id, bookmaker_key: q.bookmaker_key,
+    values: spreadCapture.receivedByCutoff.map(q => ({ quote_id: q.quote_id, bookmaker_key: q.bookmaker_key,
+      market: q.market, period: q.period, side_key: q.side_key, line: q.line,
+      american_price: q.american_price, snapshot_at: q.snapshot_at,
+      book_updated_at: q.book_updated_at, received_at: q.received_at }))
+  }));
+
+  // Totals quote (WP15/D3). Captured with the same clock/team-scoping rules
+  // as the spread capture above (captureQuoteMarket, shared). No resolver
+  // like resolvePacketMarketQuote is written for it here: that function's
+  // "mirrored pair" completeness check is specifically home+away spread
+  // lines summing to ~zero, which is not how an over/under pair relates --
+  // writing a resolver by reusing that check would silently apply the wrong
+  // market's completeness rule rather than actually validating one. The raw
+  // per-book rows are still on the packet (`values` below) for a future
+  // totals resolver to consume once WP13's totals contract exists to score
+  // against; this stage only guarantees they are captured and frozen, not
+  // that they resolve to one number yet.
+  // Deliberately NOT wired into autoPickDecisionBoardForPacket's SPREAD
+  // decision: no margin model in nfl-ensemble.js reads a totals quote (only
+  // the total-predicting models read `game_lines.total`/`open_total`, which
+  // `game_lines_context` above already freezes), so a spread decision's
+  // reproducibility does not depend on this source at all. A totals DECISION
+  // is its own contract (C12) gated on WP13's push-aware probability work,
+  // which this packet does not yet have -- see WP15's own spec: "extend to
+  // totals only with WP13 contracts ready." Capturing the evidence now, ahead
+  // of that wiring, costs nothing and means a later totals packet does not
+  // have to re-derive this capture's clock/scoping rules from scratch.
+  const totalCapture = captureQuoteMarket('totals');
+  entries.push(sourceEntry({ source: 'nfl_quote_tape_totals',
+    rowsByCutoff: totalCapture.receivedByCutoff.length, rowsTotal: totalCapture.scoped.length,
+    effectiveAt: totalCapture.latestSnapshot,
+    receivedAt: totalCapture.latestReceipt
+      ?? (totalCapture.realClock.length
+        ? totalCapture.realClock.reduce((max, q) => (max == null || q.received_at > max ? q.received_at : max), null)
+        : null),
+    cutoffAt,
+    missingReason: 'no totals quote was ever captured for this game',
+    note: 'captured as disclosed evidence only; not yet consumed by any decision -- see WP13/totals contract',
+    values: totalCapture.receivedByCutoff.map(q => ({ quote_id: q.quote_id, bookmaker_key: q.bookmaker_key,
       market: q.market, period: q.period, side_key: q.side_key, line: q.line,
       american_price: q.american_price, snapshot_at: q.snapshot_at,
       book_updated_at: q.book_updated_at, received_at: q.received_at }))
@@ -426,13 +472,54 @@ export function freezeT60Packet({ season, week, home, away, kickoff, scheduleVer
 
   // Team-week features (play-by-play derived), rebuilt in bulk from a
   // full-season file with no per-row receipt clock. The data is real; the
-  // claim "we had it by Sunday noon" is not evidenced, so it quarantines.
-  const features = rows('SELECT COUNT(*) total FROM nfl_team_week_features WHERE season=? AND week < ?',
-    season, week)[0];
+  // claim "we had it by Sunday noon" is not evidenced, so it quarantines
+  // (see ELIGIBLE_BY_MODE -- this source never becomes eligible in EITHER
+  // mode today, whether or not `values` below is populated).
+  //
+  // WP15/D3: `values` now carries the actual per-team feature-aggregate map
+  // (nfl-ensemble.js's featureAggregates(), the same function every margin
+  // model reads through `ctx.feat`), not just a row count. This is a
+  // LEAGUE-WIDE snapshot, not just the two teams in this game: several models
+  // (schedule-adjusted EPA, league-average weather baselines) read every
+  // OTHER team's aggregate too, so freezing only this game's two teams would
+  // silently leave the rest of a re-score reading the live table anyway. This
+  // is the reproducibility fix (nfl-auto-picks.js's teamFeaturesOverride,
+  // consumed by ensembleLine); it does not change the claim above -- the
+  // frozen numbers are exactly as un-evidenced-by-cutoff as the live ones
+  // this packet already fell back to before D3.
+  // featureAggregates() also borrows the entire PRIOR season when the CURRENT
+  // one has no rows yet (its own early-season fallback), so the count that
+  // decides `missing` vs `values` populated must be teams the aggregate
+  // actually covers -- a bare current-season row count would wrongly claim
+  // `missing` for a week 1 game whose aggregate is real, just built from last
+  // season, and (worse) would disagree with `values` actually being present.
+  const teamFeatureMap = featureAggregates(season, week);
   entries.push(sourceEntry({ source: 'nfl_team_week_features',
-    rowsByCutoff: features?.total ?? 0, rowsTotal: features?.total ?? 0, cutoffAt,
-    missingReason: 'no prior-week team features for this season',
-    note: 'rebuilt in bulk per season; no per-row receipt clock exists to evidence cutoff availability' }));
+    rowsByCutoff: teamFeatureMap.size, rowsTotal: teamFeatureMap.size, cutoffAt,
+    missingReason: 'no prior-week team features for this season or the one before it',
+    note: 'rebuilt in bulk per season; no per-row receipt clock exists to evidence cutoff availability',
+    values: teamFeatureMap.size ? [...teamFeatureMap] : null }));
+
+  // Game context: the weather/rest/division/neutral-site/opener fields
+  // ensembleLine reads straight off this game's own game_lines row (Codex
+  // C06 already fixed the kickoff-clock bug in that row; this is everything
+  // else in it). Like team_features above, game_lines has no per-row receipt
+  // clock -- it is a continuously-mutated live sync target, not an append-
+  // only tape -- so this source can never legitimately claim
+  // `received_by_cutoff` either; it exists so re-scoring a frozen packet
+  // does not silently read whatever game_lines says NOW (WP15/D3's actual
+  // acceptance test: mutate game_lines after freezing, re-score, compare).
+  const homeContext = rows(`SELECT temp, wind, roof, rest_days AS home_rest, div_game, neutral_site,
+      open_spread, open_total
+    FROM game_lines WHERE season=? AND week=? AND team=? AND home=1`, season, week, home)[0] ?? null;
+  const awayContext = rows(`SELECT rest_days AS away_rest
+    FROM game_lines WHERE season=? AND week=? AND team=? AND home=0`, season, week, away)[0] ?? null;
+  entries.push(sourceEntry({ source: 'game_lines_context',
+    rowsByCutoff: homeContext ? 1 : 0, rowsTotal: homeContext ? 1 : 0, cutoffAt,
+    missingReason: 'no game_lines row for this game to source weather/rest/division context from',
+    note: 'game_lines is a live sync target with no per-row receipt clock; frozen for reproducibility, ' +
+      'not for a stronger cutoff-availability claim than the live path already made',
+    values: homeContext ? { ...homeContext, away_rest: awayContext?.away_rest ?? null } : null }));
 
   const eligibleClaims = ELIGIBLE_BY_MODE[mode] ?? ELIGIBLE_BY_MODE.prospective;
   const by = claim => entries.filter(e => e.claim === claim).map(e => e.source);
@@ -529,22 +616,46 @@ export function t60PacketHash(packet) {
  *   game_context   -- temp/wind/roof/rest_days/div_game/neutral_site/
  *                     open_spread/open_total, which ensembleLine reads
  *                     straight from game_lines and folds into buildContext()
- *                     for every model, not merely the final edge. NOT in this
- *                     packet's schema: nfl_game_weather_forecast_history's
- *                     entry is a row count and a receipt clock (section 6.2's
- *                     availability question), not the forecasted temp/wind/
- *                     roof a weather model actually consumes, and no rest/
- *                     div/neutral field exists in the packet at all.
+ *                     for every model, not merely the final edge.
+ *                     WP15/D3: now frozen, as the `game_lines_context` source
+ *                     entry's `values` (this game's own game_lines row plus
+ *                     the away team's rest_days) and consumed via
+ *                     ensembleLine's `gameContextOverride` -- see
+ *                     autoPickDecisionBoardForPacket. Still NOT the same
+ *                     reproducibility class as market_quote: game_lines has
+ *                     no per-row receipt clock, so this is frozen for
+ *                     byte-identical re-scoring, not upgraded to a
+ *                     `received_by_cutoff` claim (see that source's own note).
+ *                     nfl_game_weather_forecast_history remains a separate,
+ *                     genuinely clocked source for the FORECASTED weather a
+ *                     model would consume for cutoff-eligibility purposes;
+ *                     this field is the realized game_lines row a live board
+ *                     already used unconditionally, now just frozen instead
+ *                     of re-read.
  *   team_features  -- prior-week team-week features (featureAggregates() /
  *                     netFeature() in nfl-ensemble.js), read from
- *                     nfl_team_week_features. This packet's entry for that
- *                     source is ALSO a bare row count -- freezeT60Packet
- *                     never populates its `values` -- so it proves rows
- *                     existed by the cutoff without saying what they held.
- *   total_market   -- game_lines.total / a 'totals' quote. PACKET_MARKET is
- *                     hardcoded to 'spreads' (this module's one-contract
- *                     scope, documented above); a total is never captured in
- *                     any T-60 packet today.
+ *                     nfl_team_week_features.
+ *                     WP15/D3: now frozen, as the `nfl_team_week_features`
+ *                     source entry's `values` (the full league-wide
+ *                     featureAggregates(season, week) snapshot -- several
+ *                     models read every team's aggregate, not just this
+ *                     game's two, so a per-game-only freeze would still leave
+ *                     part of a re-score reading the live table) and consumed
+ *                     via ensembleLine's `teamFeaturesOverride`. Same caveat
+ *                     as game_context: frozen for reproducibility, not a
+ *                     stronger availability claim than the live path already
+ *                     made -- this source still quarantines as
+ *                     `availability_unknown` in `packet.summary`.
+ *   total_market   -- game_lines.total / a 'totals' quote. WP15/D3: a totals
+ *                     quote is now captured as its own `nfl_quote_tape_totals`
+ *                     source entry, with real per-book `values`, the same way
+ *                     `nfl_quote_tape` already captures spreads. It is
+ *                     deliberately NOT wired into any decision yet: no margin
+ *                     model reads a totals quote (game_context above already
+ *                     covers the total-predicting models' `total`/`open_total`
+ *                     inputs), and a real totals DECISION contract (C12) is
+ *                     gated on WP13's push-aware probability work, not this
+ *                     package. See that source's own note.
  *   model_state    -- fitted ensemble weights (nfl_ensemble_fit_artifacts),
  *                     cover calibration (nfl_cover_calibrations), promoted
  *                     candidate findings. Deliberately OUT of this packet's
@@ -560,9 +671,14 @@ export function t60PacketHash(packet) {
  */
 export const PACKET_BOARD_INPUT_COVERAGE = Object.freeze({
   market_quote: 'in_schema',
-  game_context: 'not_in_schema',
-  team_features: 'not_in_schema',
-  total_market: 'not_in_schema',
+  game_context: 'in_schema',
+  team_features: 'in_schema',
+  // Captured with real per-book values, same as market_quote, but not
+  // consumed by any decision yet -- see the total_market paragraph above.
+  // Deliberately its own state rather than 'in_schema', so a caller checking
+  // this object cannot mistake "the packet has this evidence" for "a decision
+  // actually used it," the exact conflation this object exists to prevent.
+  total_market: 'in_schema_not_wired',
   model_state: 'out_of_packet_scope'
 });
 

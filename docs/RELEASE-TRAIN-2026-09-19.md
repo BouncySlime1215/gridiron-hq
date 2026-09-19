@@ -2301,16 +2301,42 @@ previous build had its own faults.
 `bootJobs` at `scheduler.js:1740-1744` is exactly twenty jobs, **awaited in
 series** at `:1746`, starting at `bootDelayMs` — default 20000 at `:1717`.
 
-The order ends `… polymarket_line_watch, beat_the_close, nfl_pick_watch,
-nfl_t60_runner`. In the 22:09Z life the `last_run_at` timestamps run `rss_news`
-22:09:44 through `beat_the_close` **22:10:43** — about 100 seconds in, which is
-exactly where the wedge was measured — and the two jobs *after* `beat_the_close`
-carry timestamps from a **later** life. So the chain stopped between the
-eighteenth and nineteenth job, at the wedge.
+**An earlier version of this section said the chain stops between its
+eighteenth and nineteenth job, at the wedge. That is refuted and withdrawn.**
+In the 22:14:51Z life the chain **completed** — position 20 stamped
+22:15:57.583, about 66 seconds in — and that process went on to live 255
+seconds. So the serial chain is not what killed it. `beat_the_close` is also
+not the blocker: it has a `last_run_at`, and `record()` only stamps after
+`job.run()` returns.
 
-A serial `await` chain of twenty jobs starting a fixed 20 seconds after every
-boot is also the only thing here that produces the signature actually observed:
-the **same age every time**, 101 to 121 seconds. Contention would be ragged.
+**The candidate that replaces it, and the reasoning that had excluded it was
+unsound.** `nfl_model_growth` fires on a fixed 90-second timer at `:1751`, is
+tier `growth`, and resolves `off_thread` to **false** — a model fit on the main
+thread. It was excluded on the grounds that it read `stale: false`, but that is
+the wrong gate: the status payload's `stale` is `age >= maxAgeMinutes`
+(`:1831`), while `runIfStale` gates on `age < nextDueMinutes` (`:1566-1567`),
+and for `last_status === 'error'` that is
+`min(RETRY_BASE_MINUTES * 2 ** (failures - 1), cadence)` with
+`RETRY_BASE_MINUTES = 5` (`:141`, `:171-173`). With `consecutive_failures` 1 and
+an age of 112 minutes, **it is due on every boot.** All verified on `791b131`.
+
+`setTimeout` at `:1751` is independent of the chain, which is fire-and-forget at
+`:1746`, so the two overlap. And `record()` only stamps after `job.run()`
+returns, so a process killed mid-job leaves `last_run_at` frozen — which is
+exactly what `21:17:44.903Z` with failures stuck at 1 across four lives looks
+like.
+
+**It still does not fit every death, and that is stated rather than smoothed
+over.** Start plus 90 seconds plus the watchdog's 60 gives ~150 seconds;
+observed lives were 178, 161 and 255. The first two are close, the third is not,
+and `nfl_reports` on the 150-second timer at `:1754` cannot explain it either
+because it resolves `offThread: true` at `:1335`. **Naming the job needs the
+machine log.** Found and then retracted by the Trade Brain thread, which is the
+only reason the wrong answer is not still sitting in this section.
+
+**None of this changes the fix**, which is the point worth holding: the command
+below stops the boot chain, both fixed timers and every tier at once, so it does
+not depend on the job being named.
 
 **One prediction for the small hours, so a change is not read as a new fault.**
 `nfl_model_growth` was last run 21:17:44Z with a six-hour staleness window, so
@@ -2327,11 +2353,20 @@ and neither needs waking anybody.
 `scheduled_now: true` with **`last_run_at: never`** on the deployed build. Every
 other job in the scheduler has a `last_run_at`. These are #26's two build jobs.
 
-Scheduled, healthy-looking, never executed — on the build that was supposed to
-make them run. It does not explain the restarts. It means **the manager layer
-will not build itself even once the app is stable**, which was the point of that
-pull request. Not tonight's problem; recorded so it is not discovered next week
-as a surprise.
+**This turned out to be a symptom of the cycle rather than a separate defect,
+and the correction is worth more than the finding.** `scheduler.js:1801`
+registers the background tier — growth, metered and heavy together — on
+`intervalMinutes * 60000`, and `server/index.js:75` passes `intervalMinutes: 5`.
+So the background tier fires at **300 seconds**, and no process on this build
+has lived that long (160 to 255 seconds). **It has never fired once.** Every
+growth, metered and heavy job outside the boot list has therefore run zero
+times, which is exactly what Trade Brain saw.
+
+So the manager layer is not broken; it has never had a chance to start. Once the
+app stays up past five minutes these jobs should run on their own. Found by the
+scheduler thread. **Worth checking once after the app is stable rather than
+assuming either way** — "it will fix itself" is the kind of claim this document
+exists to distrust.
 
 ### 7.0a Bracket every read with `uptime_s`, and void it if the machine restarted
 

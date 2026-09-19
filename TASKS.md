@@ -47,6 +47,26 @@ Last updated: 2026-09-19, cloud session on `cursor/betting-model-audit-fixes-1c8
   Chrome's DevTools blocks pasting into the console by default — type
   `allow pasting` and press Enter once first, or the paste silently no-ops.
 
+  **State as of 2026-09-19 05:03Z, for whoever picks this up next:**
+  - Nick is logged into https://gridiron-hq.fly.dev/ in his Mac's Chrome.
+  - He clicked "Update now" on the historical-data banner (`POST /model/sync`
+    — pulls 5 seasons of play-by-play/nflverse/advanced/ADP/coaches/
+    ffopportunity and refits models). Outcome not confirmed in this session —
+    check `GET /model/setup-status` or `fly logs -a gridiron-hq` before
+    assuming it finished; it can take several minutes and this is a small Fly
+    machine, so a timeout/OOM on the first real heavy job is plausible.
+  - **ESPN is not yet connected on this Fly install** — it's a brand-new DB,
+    separate from the Mac's. Reconnecting is the next real step to make the
+    app useful there (same bookmarklet flow, now posts to the Fly URL).
+  - A session token got pasted into the project chat twice during the login
+    bootstrap (not the repo, not a commit — just chat). Not revoked as of
+    this note. Low risk (private thread, single user) but not zero; revoking
+    it needs a fresh token minted and confirmed working first — see
+    `gridiron-hq-fly-self-host` memory for why, and don't just revoke by
+    itself or it locks Nick out with nothing to log back in with.
+  - Anthropic key rotation (flagged 2026-09-18, unrelated to tonight's work)
+    is still unresolved — see the Outstanding section below.
+
 - **`npm start` was broken for everyone; fixed 2026-09-19.** Two independent bugs,
   both found live on Nick's Mac, both pushed to this branch.
   - *`5983e9e` — the one that actually blocked startup.* `start.mjs`'s readiness

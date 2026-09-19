@@ -89,10 +89,28 @@ Last updated: 2026-09-19, new cloud session on `cursor/betting-model-audit-fixes
     tests were running against **the real key, not their fake one**. Cleared by
     `982eb46` as a side effect; the stale comments are still in both files.
   - **Still open from this session, not assumed:**
-    1. **Full-suite confirmation run** on `de82ee2` is the authoritative number;
-       earlier runs in this entry are per-file. Baseline to beat: 2,699 pass /
-       21 fail / 3 cancelled / 41 skip of 2,764, measured here on `8cf0387`
-       after `npm ci`, in 1,655s.
+    1. ~~**Full-suite confirmation run** on `de82ee2`~~ **DONE.** Measured on
+       `e5abdc2`, after `npm ci`, whole suite, real keys still in the shell:
+
+       | | `8cf0387` (before) | `e5abdc2` (after) |
+       |---|---|---|
+       | tests | 2,764 | 2,767 |
+       | pass | 2,699 | **2,720** |
+       | fail | 21 | **3** |
+       | cancelled | 3 | 3 |
+       | skipped | 41 | 41 |
+       | wall clock | 1,655s | **427s** |
+
+       **21 failures to 3, and 3.9x faster.** The speedup is the same defect
+       from the other side: with the mock inert, 12 tests sat through the
+       Anthropic SDK's retry backoff against a transport the guard was blocking,
+       every run. That is the "did the suite get faster" half of blocker 1,
+       answered with a number.
+
+       The 3 remaining failures are `prop-clv-free-capture`, and the 3
+       "cancelled" are `report-cache` — the two groups an agent is root-causing.
+       Nothing else in the suite fails. `npm run check`'s other four stages are
+       green here too: typecheck 0, lint 0, build 0, start:smoke 0.
     2. **Two independent verify agents are running** (per A3): one adversarially
        re-checking all three commits, one root-causing the remaining
        `prop-clv-free-capture` (3) and `report-cache` (3). Neither had reported

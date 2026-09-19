@@ -4,6 +4,7 @@ import PhoneAccess from '../components/PhoneAccess';
 import LeagueChatPull from '../components/LeagueChatPull';
 import { api } from '../api';
 import { useDeployment } from '../state/deployment';
+import AccountPanel from '../components/AccountPanel';
 
 /**
  * This page used to also carry a manual "League ID / season / espn_s2 / SWID" form
@@ -23,6 +24,7 @@ export default function Settings() {
 
   return (
     <div className="max-w-2xl">
+      <AccountPanel />
       {deployment && (
         <div className="card p-5 mb-4 space-y-3">
           <div className="flex items-center gap-2">

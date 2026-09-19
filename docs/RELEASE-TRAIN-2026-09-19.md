@@ -221,47 +221,57 @@ Every other pull request in the train has a completed, green
 
 ## 5. Before the deploy: one command for Nick
 
-Three questions need a shell on the machine and no session here has one:
-what is actually in `/app/scripts`, what the live database holds, and what image
-is running. This answers all of it in one read-only paste.
+Several questions need a shell on the machine and no session here has one. This
+answers all of them in one read-only paste.
 
 ```
 fly image show -a gridiron-hq
-fly ssh console -a gridiron-hq -C "node --no-warnings -e 'const f=require(\"node:fs\"),{DatabaseSync}=require(\"node:sqlite\"),S=\"/app/scripts/\";console.log(\"== scripts on disk ==\");for(const n of [\"promote-volume-shrinkage.mjs\",\"promote-weekly-ensemble.mjs\",\"fit-availability.mjs\",\"refresh-live-data.mjs\"])console.log(n+\": \"+(f.existsSync(S+n)?\"present\":\"MISSING\"));const d=new DatabaseSync(process.env.GRIDIRON_DB_PATH,{readOnly:true});console.log(\"== row counts ==\");for(const t of [\"nfl_qbr_weekly\",\"nfl_ffopportunity_weekly\",\"player_week_usage\"]){try{console.log(t+\": \"+(d.prepare(\"SELECT season AS s,COUNT(*) AS n FROM \"+t+\" GROUP BY season ORDER BY season\").all().map(r=>r.s+\"=\"+r.n).join(\" \")||\"EMPTY\"))}catch(e){console.log(t+\": ERROR \"+e.message)}}for(const t of [\"nfl_availability_rates\",\"nfl_availability_role_rates\",\"shrinkage_fits\"]){try{console.log(t+\": \"+d.prepare(\"SELECT COUNT(*) AS n FROM \"+t).get().n)}catch(e){console.log(t+\": ERROR \"+e.message)}}d.close();'"
+fly ssh console -a gridiron-hq -C "node --no-warnings -e 'const f=require(\"node:fs\"),{DatabaseSync}=require(\"node:sqlite\"),S=\"/app/scripts/\";const P=process.env.GRIDIRON_DB_PATH||\"/data/data.sqlite\";console.log(\"== db in use ==\");console.log(\"GRIDIRON_DB_PATH=\"+(process.env.GRIDIRON_DB_PATH||\"(unset)\"));try{for(const n of f.readdirSync(\"/data\"))console.log(\"/data/\"+n+\" \"+f.statSync(\"/data/\"+n).size)}catch(e){console.log(\"/data: \"+e.message)}console.log(\"== build ==\");console.log(\"/app/.git: \"+(f.existsSync(\"/app/.git\")?\"present\":\"absent\"));try{console.log(\"package.json version: \"+JSON.parse(f.readFileSync(\"/app/package.json\",\"utf8\")).version)}catch(e){console.log(\"package.json: \"+e.message)}console.log(\"== scripts on disk ==\");for(const n of [\"promote-volume-shrinkage.mjs\",\"promote-weekly-ensemble.mjs\",\"fit-availability.mjs\",\"fit-posture-calibration.mjs\",\"refresh-live-data.mjs\",\"verify-trade-brain-live.mjs\"])console.log(n+\": \"+(f.existsSync(S+n)?\"present\":\"MISSING\"));const d=new DatabaseSync(P,{readOnly:true});console.log(\"== by season ==\");for(const t of [\"nfl_qbr_weekly\",\"nfl_ffopportunity_weekly\",\"player_week_usage\"]){try{console.log(t+\": \"+(d.prepare(\"SELECT season AS s,COUNT(*) AS n,COUNT(DISTINCT week) AS w FROM \"+t+\" GROUP BY season ORDER BY season\").all().map(r=>r.s+\"=\"+r.n+\"/\"+r.w+\"wk\").join(\" \")||\"EMPTY\"))}catch(e){console.log(t+\": ERROR \"+e.message)}}console.log(\"== counts ==\");for(const t of [\"nfl_availability_rates\",\"nfl_availability_role_rates\",\"shrinkage_k\",\"manager_profiles\"]){try{console.log(t+\": \"+d.prepare(\"SELECT COUNT(*) AS n FROM \"+t).get().n)}catch(e){console.log(t+\": ERROR \"+e.message)}}try{const r=d.prepare(\"SELECT COUNT(*) AS n,SUM(active) AS a FROM shrinkage_fits\").get();console.log(\"shrinkage_fits: \"+r.n+\" rows, \"+(r.a||0)+\" active\")}catch(e){console.log(\"shrinkage_fits: ERROR \"+e.message)}d.close();'"
 ```
 
 It opens the database with `readOnly: true`, runs only `SELECT COUNT(*)`, and
-calls `fs.existsSync`. It cannot change anything.
+calls `fs.existsSync` / `fs.readdirSync`. It cannot change anything.
 
-The program was tested end to end, including through a shell with this exact
-quoting: it degrades to a named `ERROR` line rather than crashing when a table is
-missing, and `--no-warnings` keeps node's experimental-SQLite notice out of the
-output. **The one thing that could not be tested from here is how `flyctl` itself
-splits the `-C` argument**, since `flyctl` is not installed in a cloud session. If
-the second line fails on quoting, run `fly ssh console -a gridiron-hq` and paste
-the `node --no-warnings -e '…'` part at the container prompt, where the quoting is
-an ordinary shell's.
+Tested end to end, including through a shell with this exact quoting: it
+degrades to a named `ERROR` line rather than crashing when a table is missing,
+and `--no-warnings` keeps node's experimental-SQLite notice out of the output.
+**The one thing that could not be tested from here is how `flyctl` splits the
+`-C` argument**, since `flyctl` is not installed in a cloud session. If the
+second line fails on quoting, run `fly ssh console -a gridiron-hq` and paste the
+`node --no-warnings -e '…'` part at the container prompt.
 
 What each line decides:
 
-- **scripts on disk** — whether the deployed build carries the promotion and
-  availability scripts, which is the only direct evidence of the running build's
-  provenance (see step 1 below).
+- **`GRIDIRON_DB_PATH` and what is on `/data`** — which database file the scripts
+  in steps 7-10 will actually open. Both resolve their target through that
+  variable, and run against any copy other than the live volume they fit and
+  activate a vector *for that copy* and leave the app untouched. That is a silent
+  no-op, not an error, which makes it the most dangerous line here.
+- **`/app/.git` and the package version** — the only direct evidence about the
+  running build. Commit archaeology has already produced a contradiction (see
+  step 1), so this is what settles whether it means anything at all.
+- **scripts on disk** — all six, not just the promotion one. If
+  `promote-volume-shrinkage.mjs` is present and `promote-weekly-ensemble.mjs` is
+  not, someone promotes, cannot re-fit, and leaves the app parked in the middle
+  state indefinitely.
 - **`nfl_qbr_weekly` by season** — which of the three #15 gate verdicts applies.
   Empty passes, 2025-2026 only passes, 2021-2026 fully backfilled **fails**.
-- **`nfl_ffopportunity_weekly` by season** — the before-reading for post-deploy
-  check 5. #28's own writer is idempotent (`INSERT ON CONFLICT DO UPDATE`, and its
-  season selector skips seasons the table already holds), so this is not about
-  whether #28 is safe to run. It is about spotting a season left half-written by
-  an earlier memory kill, which that same selector will then never revisit.
-- **`player_week_usage` by season** — the before-reading for post-deploy check 2.
-- **the three table counts** — confirms the two availability tables and
-  `shrinkage_fits` are empty, which is what makes steps 7 and 9 additions rather
-  than overwrites, and what makes their rollbacks exact.
+- **`nfl_ffopportunity_weekly` by season *with week counts*** — a completed season
+  should show roughly 18 weeks. A season showing one or two is half-ingested,
+  which is what this afternoon's OOM-killed syncs leave behind, and #28's guard
+  asks whether a season is *present* rather than *complete* — so a season with a
+  handful of rows is treated as done and never completed.
+- **`player_week_usage` by season** — the before-reading for post-deploy check 3.
+- **`shrinkage_fits` rows and active count** — the promotion is written as a first
+  write. If live already holds an active fit, it is an *overwrite* and every
+  "before" number measured tonight describes a configuration Nick is not running.
+- **the availability and `manager_profiles` counts** — expected to come back
+  `ERROR no such table` and `0` respectively. Both are load-bearing: see step 11
+  for why the availability rollback is `DROP TABLE` and not `DELETE`.
 
 `sqlite3` is deliberately not used: the image is `node:22-slim` (see
-`Dockerfile`), which does not carry it. `GRIDIRON_DB_PATH` is set in the image, so
-it does not need supplying.
+`Dockerfile`), which does not carry it. `GRIDIRON_DB_PATH` is set in the image,
+so it does not need supplying.
 
 ## 6. Deploy plan
 
@@ -271,10 +281,10 @@ Everything from step 7 onward needs `fly ssh console`, which needs a real Fly
 platform token. `GRIDIRON_FLY_TOKEN` is an application bearer token and does not
 grant it, so no session here can run any of it.
 
-**The deployed build is of unknown provenance.** Two read-only probes of the
-running app place it in inconsistent positions on the branch stack, which means it
-was not necessarily built from a clean commit. So the rollback below redeploys a
-captured *image*, not a commit.
+**The deployed build is of unknown provenance.** Two read-only probes place it in
+inconsistent positions on the branch stack, which is impossible for a clean
+deploy of one commit — so the image may not have been built from a clean commit
+at all. So the rollback below redeploys a captured *image*, not a commit.
 
 ### 1. Run the command in section 5, and keep the output
 
@@ -290,18 +300,16 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=1&runs=2000&from_week=2" > ~/sim-before.json
 ```
 
-Three separate changes in this deploy move the same numbers — playoff odds, title
-odds, trade horizon. The availability fit moves them because season-sim calls
-`contingency.js` once per simulated week and the trade engine calls the simulator
-too. Two further sim fixes are coming from the fantasy plan thread and are **not**
-in this train. If they all landed together nobody could attribute how much moved
-to what.
+Three separate changes move the same numbers — playoff odds, title odds, trade
+horizon. Two further sim fixes are coming from the fantasy plan thread and are
+**not** in this train. If they all landed together nobody could attribute how
+much moved to what.
 
-Two details that make the reading worth taking:
+Two details that make this reading worth taking:
 
 - **`seed=1` makes it deterministic.** `model.js:524` threads the query seed
   through `withRandomSeed`, so a repeated call with the same seed is the same
-  answer. Without it, every difference is confounded with Monte Carlo noise.
+  answer. Without it every difference is confounded with Monte Carlo noise.
 - **`from_week=2` is passed explicitly** because the route defaults it to 1, and
   that default is one of the two things the fantasy plan thread is about to
   change. Pinning it keeps this baseline comparable across that change too.
@@ -320,15 +328,14 @@ fly deploy -a gridiron-hq
 
 Migrations run automatically at boot, before `app.listen` — there is no separate
 release command. Expect a longer boot than usual: three new migrations plus seed
-reconciliation against the volume. `fly.toml`'s health check has a 60-second grace
-period for exactly this.
+reconciliation against the volume. `fly.toml`'s health check has a 60-second
+grace period for exactly this.
 
 ### 4. Watch the first boot, not the settled machine
 
-The first boot is the exact moment the concurrency bug #33 fixes used to fire
-hardest: an eighteen-job boot pass still running when the live timer starts the
-same jobs behind it, two synchronous SQLite transactions writing the same tables.
-So watch it happen rather than sampling once things are quiet:
+The first boot is when the concurrency bug #33 fixes used to fire hardest: an
+eighteen-job boot pass still running when the live timer starts the same jobs
+behind it, two synchronous SQLite transactions writing the same tables.
 
 ```
 fly logs -a gridiron-hq
@@ -345,49 +352,87 @@ fly secrets unset AUTO_HEAVY_SYNC -a gridiron-hq
 
 **Precautionary now, not load-bearing.** After #17, `scheduler.js:1579` runs every
 `tier: 'heavy'` job in a worker thread by default, so the flag no longer wedges
-the request thread. It comes off anyway because steps 7 and 9 are both long,
-read-heavy jobs on a 2 GB machine and there is no reason to have eleven more
-competing with them. It can go back on after step 10.
+the request thread. It comes off anyway for two reasons: steps 7 and 9 are both
+long, read-heavy jobs on a 2 GB machine and there is no reason to have eleven
+more competing with them; and **#26 adds `manager_archetypes` to the heavy
+tier** — a daily child process with a 10-minute timeout — so leaving the flag on
+means the first deploy also starts a job nobody has watched before. (#26's other
+new job, `manager_signals`, is growth tier and hourly, so it starts regardless;
+it runs off-thread deliberately.)
+
+The flag can go back on after step 10.
 
 A caveat on what this proves: we have probably been attributing all of the
 wedging to the heavy tier, and at least some of it was concurrent writers. Do not
 read a quiet machine after this step as proof the heavy tier was the whole story.
 
-### 6. Post-deploy checks — count rows, do not read statuses
+### 6. Post-deploy checks — test scheduling, not status
 
 Three separate things today report healthy and are not: a source registry that
-says `ok` because someone swept it by hand, a scheduler job that has never once
-completed, and a corpus upload that exits zero and binds to nothing. So each check
-asks whether the thing that was supposed to be produced now exists.
+says `ok` because someone forced it by hand, a scheduler job that has never once
+completed, and a corpus upload that exits zero and binds to nothing. So each
+check asks whether the thing that was supposed to be produced now exists.
 
 1. **The app is actually serving.** `GET /api/health` returns `{ok: true}` with an
    `uptime_s`. Poll it again a few minutes later: #17's route is the first one
    that can tell a wedged process from a healthy one.
-2. **The fantasy feeds are on timers and writing.** After about six hours, count
-   `player_week_usage` and `player_week_snaps` rows **for season 2026**. Both are
-   zero today. Non-zero is the proof that #20 and #31 worked; `/api/dev/sources`
-   saying `ok` is not, and was not this morning either.
-3. **Migrations applied.** `schema_migrations` contains all three 061 rows:
+2. **The feeds are SCHEDULED, not merely `ok`.** `/api/dev/sources` reads healthy
+   for 24 sources that have no timer at all — they say `ok` only because a human
+   forced them this afternoon, so "everything reads ok" proves nothing. Check
+   `GET /api/mlb/sync/status` instead and confirm each of the six fantasy sources
+   has **`scheduled_now: true` and a `due_after_minutes`**. Those two fields are
+   added by #19 and exist precisely so this question has an answer. The six are
+   `nflverse_crosswalk`, `nflverse_weekly_usage`, `nflverse_snap_counts`,
+   `espn_depth_chart`, `espn_season_stats`, `sleeper_players`.
+3. **And that they actually wrote.** A day later, count `player_week_usage` and
+   `player_week_snaps` rows **for season 2026** — both are zero today — and check
+   that each scheduled source has a `last_run` newer than the deploy. A source
+   without a timer still shows today's sweep.
+4. **`nfl_ffopportunity_weekly` has plausible week counts per season**, not merely
+   rows. Compare against the before-reading from section 5. A season showing one
+   or two weeks is half-ingested and will never be completed, because the guard
+   asks whether a season is present rather than complete. Fixing that guard is a
+   follow-up pull request, not part of this train.
+5. **Migrations applied.** `schema_migrations` contains all three 061 rows:
    `061_google_identity_and_invites`, `061_sync_log_consecutive_failures`,
    `061_league_payload_season`.
-4. **Sign-in did not lock anyone out.** #14 puts `assertLeagueMember` in front of
+6. **Sign-in did not lock anyone out.** #14 puts `assertLeagueMember` in front of
    every `/api/trades/:leagueId` route. Load a trade page for each of the five
    leagues and confirm none returns 403. This is the single highest-risk change in
    the train for existing behaviour.
-5. **`nfl_ffopportunity_weekly` has plausible week counts per season, not merely
-   rows.** Count rows *per season* and check the week span, rather than checking
-   the table is non-empty. A sync killed by the machine's memory leaves a season
-   holding a handful of rows, and the season selector treats any season with at
-   least one row as complete — so that season is then never backfilled and the
-   gap is permanent and silent. The deploy is the moment anyone will look at
-   this. Fixing the selector is a follow-up pull request, not part of this train.
-6. **`evidence_daemon` is still failing, and that is expected.** It has run 29
-   times and failed 29 times, always on its budget. #32 makes that failure cheap
-   and therefore quiet. It is betting-side and nobody is fixing it. **Do not read
-   a clean scheduler tier as evidence that it started working** — check its own
-   `sync_log` row.
-7. **Take the reading again**, same command as step 2, to `~/sim-after-deploy.json`.
-   This separates every code change in the train from the data write in step 9.
+7. **The Trade Brain actually works.** #18 ships a script for exactly this:
+   `node scripts/verify-trade-brain-live.mjs` with `GRIDIRON_FLY_TOKEN` set gives
+   a per-league pass/fail, and exits 2 rather than 1 if the app never answers — so
+   a stalled machine cannot be misread as a failed feature.
+8. **`evidence_daemon` is still failing, and that is expected.** 29 runs, 29
+   failures, every one timing out on its 120-second budget. #32 makes that failure
+   cheap and therefore quiet. It is betting-side and nobody is fixing it. **Do not
+   read a clean scheduler tier as evidence that it started working** — check its
+   own `sync_log` row. Same for `nfl_prop_calibration`, which crashes on a null
+   before it does anything. Both are known-dead, not newly broken.
+9. **Take the reading again**, same command as step 2, to `~/sim-after-deploy.json`.
+   This separates every code change in the train from the data write in step 10.
+
+**What the first run will honestly look like**, so nobody reads it as breakage:
+`manager_profiles` is empty in all five leagues, so the tier editor shows
+"Default — assumed tradeable" everywhere. That is real; nothing has ever been set.
+
+### 6a. The chat corpus, when Nick runs `npm run chat:sync`
+
+Not a deploy step — it runs on Nick's Mac — but it belongs here because it has a
+dependency that wastes the effort if it is missed. The corpus attaches to **no**
+league until someone says who is who: which league owns it is derived from
+`league_member_identity` rows with `confidence = 'confirmed'`, and those have
+never been written on that machine. #26 adds the way in, said once:
+
+```
+POST /api/trades/managers/rebuild
+{"league_ids":[3],"confirmations":{"3":{"<roster_id>":"<the name they post under>"}}}
+```
+
+Admin-only. Until that is done, Transfer portal will correctly report itself
+chat-free even after a successful upload. Note it is **league 3**, not 4, and its
+stored name has a trailing space that breaks exact-match lookups.
 
 ### 7. Database write 1, dry run — the opportunity promotion gate
 
@@ -396,14 +441,13 @@ fly ssh console -a gridiron-hq
 cd /app && node scripts/promote-volume-shrinkage.mjs --dry-run
 ```
 
-Writes nothing. Prints the fitted vector and five pre-registered conditions. About
-90 seconds on a warm machine. **All five must read `true`.** If any is false, stop;
-do not promote and do not argue with the gate.
+Writes nothing. Prints the fitted vector, the `nfl_qbr_weekly` coverage, and five
+pre-registered conditions. About 90 seconds on a warm machine. **All five must
+read `true`.** If any is false, stop; do not promote and do not argue with the
+gate.
 
-The `nfl_qbr_weekly` counts from section 5 are what say which of the three gate
-verdicts you are looking at. Record them next to the result, so a later reader
-knows. This is also why the promotion and any QBR backfill cannot happen in the
-same window without re-deciding.
+The gate is read-heavy, so it wants a machine responding steadily — not one good
+response. That is why it comes after steps 3-5 rather than before them.
 
 ### 8. Database write 1 — promote
 
@@ -414,27 +458,36 @@ node scripts/promote-weekly-ensemble.mjs
 
 The first writes one row to `shrinkage_fits` and six to `shrinkage_k`, in one
 transaction, and sets `active = 1`. The second inserts one row into
-`weekly_ensemble_fits`. Run both in the same sitting: the state between them is
-measurably a wash, and the whole improvement comes from the second.
+`weekly_ensemble_fits`. **Run both in the same sitting**: step 1 alone is a
+measured wash, and the whole improvement comes from the second. Stopping between
+them leaves the app parked in a middle state that delivers nothing.
 
 ### 9. Database write 2, dry run — the availability fit
 
 ```
-node scripts/fit-availability.mjs --dry-run --report=/tmp/avail.json
+node scripts/fit-availability.mjs --dry-run --report=/tmp/fit.json
 ```
 
-Writes nothing and produces every gate number and the full decision. This exists
-so step 10 is reading a result rather than making a judgement call.
+Writes nothing, produces every gate number and the full ship/no-ship decision,
+and puts the verdict on file rather than only in a terminal. This exists so step
+10 is reading a result rather than making a judgement call. Do not skip it
+because the fit has been run elsewhere — those runs were against a local rebuild,
+not this database.
 
-Expect the main gate to pass decisively — on a local full-history rebuild, log
-loss 0.558 → 0.397 and calibration error 0.082 → 0.017 on 8,663 held-out rows. The
-shipped constants are badly wrong in the common case: a starter with no injury
-report is 94.5% to play and the app currently says 69.5%.
+Expect the main gate to pass decisively — log loss 0.558 → 0.397, bootstrap CI90
+[-0.176, -0.147], calibration error 0.082 → 0.017 on 8,663 held-out rows — and
+expect `ship: false` on the role table. That is the *expected* outcome, not a
+surprise on the night.
 
-**This is the most carefully staged step in the plan**, because it is a live
-behaviour change with no diff behind it, and it now reaches four surfaces rather
-than the one its runbook was written for: Start/Sit, the matchup card, season-sim
-playoff odds, and the trade engine's horizon.
+**This is the most carefully staged step in the plan, and it is bigger than its
+runbook implies.** Only `contingency.js` reads the two tables, but eight modules
+consume it, and one of them is `player-week-engine.js:190` — the shared
+projection engine. So the honest statement is not "this changes Start/Sit". It is:
+**running this script changes the projection engine every fantasy surface is
+built on, with no code deploy and no pull request.** Start/Sit, the waiver board,
+asset values, `season-sim.js:212` (once per simulated week, which is what prices
+playoff and title odds), `trade-engine.js:304` and `:345`, and the trade horizon
+via `trade-engine.js:1317` all move.
 
 ### 10. Database write 2 — and the one decision that is Nick's
 
@@ -442,42 +495,71 @@ playoff odds, and the trade engine's horizon.
 node scripts/fit-availability.mjs
 ```
 
-Fills `nfl_availability_rates`. It will **leave `nfl_availability_role_rates`
-empty**, because one 60-row unknown-tier cell fails a per-cell check and the script
-refuses to ship the role layer when that happens.
+Creates and fills `nfl_availability_rates` (~139 rows). It will **leave
+`nfl_availability_role_rates` empty**, because one 60-row `none/unknown` cell
+fails a per-cell check and the script refuses to ship the role layer when that
+happens. Sixty rows veto a table fitted on 8,663.
 
 That is the decision:
 
 - **Shape A (recommended, and what the command above does).** Ship the main table,
-  leave the role table empty. Strictly better than today in every case the gate
-  measured, and it needs no code change.
-- **Shape B.** Also fill the role table, which means loosening that per-cell gate —
-  a code change to `scripts/fit-availability.mjs`, reviewed and tested like any
-  other. Not something to do at a console.
+  leave the role table empty. It needs no code change.
+- **Shape B.** Also fill the role table, which means restructuring the gate so an
+  unknown-tier cell cannot veto it — a code change, reviewed and tested like any
+  other. **Nobody loosens a pre-registered gate after seeing the result**, so this
+  is a deliberate decision made in daylight, not something done at a console.
 
-Then take the reading a third time, to `~/sim-after-fit.json`. The difference
-between it and `~/sim-after-deploy.json` is the availability fit's effect on
-playoff odds, isolated from every code change in the train. That is the number to
-keep, because the two sim fixes still to come from the fantasy plan thread will
-move the same figures again, and this reading is their baseline.
+Then:
 
-Afterwards, re-fit the posture calibration, which goes stale once role rates
-exist. Under shape A, with the role table empty, this is a no-op.
+1. **Confirm it landed.** `availability_basis.stamp` goes `absent|absent` →
+   `139:<ts>|…`. No restart needed: `contingency.js:543` re-reads when the row
+   count or `fitted_at` changes. Landing on `pooled` rather than `role` means the
+   gate declined to ship the role layer — a legitimate outcome, not an error.
+2. **Spot-check a healthy starter**, who should move from ~0.70 to ~0.95.
+3. **Take the reading a third time**, to `~/sim-after-fit.json`. The difference
+   from `~/sim-after-deploy.json` is this write's effect on playoff odds, isolated
+   from every code change in the train — and the baseline the fantasy plan
+   thread's two sim fixes will be measured against.
+4. **Re-fit the posture calibration:** `node scripts/fit-posture-calibration.mjs
+   --rebuild`. This is a step, not advice. `SPREAD_SCALE = 1.63` in
+   `lineup-posture.js` prices the matchup card's win probability and was fit under
+   a different availability basis; leaving it silently degrades that number, which
+   is the same defect class as everything else found tonight. The script refuses a
+   cached dataset built under another availability fit, so it will say if it is
+   stale rather than quietly using it.
 
 ### 11. Rollback
 
-**Database, either write, instantly:**
+**The availability fit — and note this is `DROP`, not `DELETE`:**
+
+```sql
+DROP TABLE nfl_availability_rates;
+DROP TABLE nfl_availability_role_rates;
+```
+
+Verified in the code rather than assumed: those two tables are created **only by
+`scripts/fit-availability.mjs`** (lines 54-55, via `AVAILABILITY_RATES_DDL`), and
+nothing else in `server/` executes that DDL. So on the live database they do not
+exist at all — `absent` is the missing-table state, not the empty state, which is
+why `contingency.js:553` maps `no such table` to it. There are no prior rows to
+preserve and nothing to back up, and dropping them restores today's behaviour
+exactly, without a restart. A `DELETE` would leave empty tables behind, which is a
+state the app has never been in.
+
+Say explicitly what this reverts, because anyone reading it will be thinking
+about Start/Sit alone: **the playoff odds, the title odds, the trade horizon, the
+trade values and every projection**, along with Start/Sit.
+
+**The opportunity promotion:**
 
 ```sql
 UPDATE shrinkage_fits SET active = 0;                                 -- undoes step 8
 UPDATE weekly_ensemble_fits SET promoted = 0 WHERE id = <the new id>; -- undoes step 8's second half
-DELETE FROM nfl_availability_rates;                                   -- undoes step 10
 ```
 
-Each is one statement. `activeKVector()` returns null with no active row and
-`pickK()` falls through to the hand-picked literals; an empty
-`nfl_availability_rates` is exactly today's state, which is the constants. No fit
-row is destroyed by any of these, so all three are reversible in both directions.
+One statement each. `activeKVector()` returns null with no active row and
+`pickK()` falls through to the hand-picked literals. No fit row is destroyed, so
+both are reversible in either direction.
 
 **The deploy:**
 
@@ -486,11 +568,11 @@ fly deploy --image <the reference captured in step 1> -a gridiron-hq
 ```
 
 Redeploying the captured image, not rebuilding from a commit — because we do not
-know which commit the running build was made from. Migrations are additive and the
-three new ones drop nothing, so an older image boots against the migrated volume
-without a schema rollback. If a migration does need undoing, `npm run db:rollback`
-takes one at a time, newest first — and note the caveat about which of the three
-061s it picks.
+know which commit the running build was made from. Migrations are additive and
+the three new ones drop nothing, so an older image boots against the migrated
+volume without a schema rollback. If a migration does need undoing,
+`npm run db:rollback` takes one at a time, newest first — with the caveat above
+about which of the three 061s it picks.
 
 ## 7. Evidence
 

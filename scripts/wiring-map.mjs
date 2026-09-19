@@ -2167,7 +2167,13 @@ if (INVOKED_DIRECTLY) {
     // module — means adding `module:<path>` to expected_orphans with a reason.
     // That is one line in a review, which is the point: somebody says out loud
     // that it is not wired yet, instead of nothing happening.
-    const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested', 'page-never-routed']);
+    // module-imported-by-nothing belongs here for a reason that was a hole until
+// 2026-09-19: without it, a new module imported by a TEST failed the build while
+// a new module imported by NOTHING AT ALL passed. The strictly worse case was the
+// one getting through. Found by breaking a copy on purpose — a service writing a
+// table nothing reads, which the map reported three ways and gated on none.
+const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested',
+      'page-never-routed', 'module-imported-by-nothing']);
     const { accepted, orphanOk, refused } = acceptGuard({
       accepted: ann.accepted_missing_feeds ?? [],
       orphans: (ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []),

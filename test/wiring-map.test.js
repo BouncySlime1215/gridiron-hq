@@ -465,3 +465,25 @@ test('a file with no handle of its own is the app database, as before', () => {
     const a = rows(\`SELECT * FROM players\`);`);
   assert.equal(foreignOnlyFile(f, foreignHandles(f)), false);
 });
+
+
+/*
+ * THE WORSE CASE MUST NOT BE THE ONE THAT PASSES.
+ *
+ * Nick asked on 2026-09-19 whether the checker had been run against a
+ * deliberately broken tree. Testing it rather than answering from memory found
+ * this: a new module imported by a TEST failed the build (module-only-tested
+ * gates), while a new module imported by NOTHING AT ALL passed. A service
+ * writing a table nothing reads was reported three ways and gated on none.
+ * The gating set is asymmetric by accident if this test is ever removed.
+ */
+test('every "a new module reaches nothing" rule gates, including the worst one', async () => {
+  const src = await readFile(new URL('../scripts/wiring-map.mjs', import.meta.url), 'utf8');
+  const decl = src.match(/const NEW_ORPHAN = new Set\(\[([^\]]*)\]\)/s);
+  assert.ok(decl, 'NEW_ORPHAN must still be a literal set the test can read');
+  for (const rule of ['module-reaches-no-surface', 'module-only-tested',
+    'page-never-routed', 'module-imported-by-nothing']) {
+    assert.ok(decl[1].includes(`'${rule}'`),
+      `${rule} must gate: a module imported by nothing is worse than one imported only by a test`);
+  }
+});

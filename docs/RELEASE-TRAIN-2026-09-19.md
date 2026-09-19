@@ -1311,32 +1311,59 @@ Then:
      expectation on the night, both inputs are already on the trade response
      (`trade-engine.js:449` and `:456`).
 
-   **One thing will be unobservable tonight, and it is the biggest effect the
-   script has.** The designated band — Doubtful, Out — is where the fit moves
-   furthest and the only band that moves *downward*. **No player on any of the
-   five rosters currently carries an `nfl_injuries` row**, because an ESPN roster
-   flag is not an injury-report row and takes the no-report path. So the largest
-   single movement will have nothing to land on in this baseline. Expected, and
-   named here so nobody spends the evening hunting for it.
+   **READ THIS PLAYER FIRST IN THE DRY RUN: Puka Nacua.** The designated band —
+   Questionable, Doubtful, Out — is where the fit moves furthest and the only
+   band that moves *downward*. It is **occupied tonight**, it is being priced by
+   the hardcoded constants right now, and it sits on a top-thirty asset on
+   another manager's roster in **all five of Nick's leagues**.
 
-   **An earlier draft of this section cited two numbers as an injured-player
-   reading, 0.833 and 0.823. They are withdrawn, and the reason is worth keeping
-   because it is the house failure mode in miniature.** The capture script
-   stringified the roster payload's `injury` field and tested it for emptiness,
-   but `injury` is a 0/1 flag (`trade-engine.js:440` on the shipping tree:
-   `injured.has(p.id) || !!(report_status && !/probable/i) ? 1 : 0`), and
-   `String(0)` is `"0"`, which is truthy. So *every* player matched and the
-   "injured" target was simply the next most valuable healthy one — which is why
-   those readings came back priced **above** the healthy target rather than
-   below, the one result an injured-player reading cannot produce. The Trade
-   Brain thread caught it and re-captured; the corrected script now reports "no
-   player on another roster carries an injury designation" instead of silently
-   substituting a healthy player.
+   Captured against the live app, not inferred:
 
-   The conclusion is unchanged and is now better supported, but **do not carry
-   0.833 or 0.823 into any comparison tonight.** A check that returns a
-   plausible-looking number for the wrong population is worse than one that
-   returns nothing.
+   - `injury_status`: `"Questionable (ESPN)"`
+   - `practice_status`: `"Did Not Participate In Practice"`
+   - `active_probability`: **0.324**, against 0.805 for the healthy target
+   - basis `constants`, `missing: [nfl_availability_rates,
+     nfl_availability_role_rates]`, stamp `absent|absent`
+
+   The arithmetic identifies the exact code path, which is what makes this more
+   than an observation. In the constants branch (`contingency.js:679-688` on the
+   shipping tree): questionable gives
+   `Math.min(0.75, Math.max(0.45, active * 0.70))`, which **floors at 0.45**;
+   then "did not participate" gives `active *= 0.72`. `0.45 * 0.72 = 0.324`,
+   matching the live reading to three decimals. When the fit lands,
+   `fitted.lookup(...)` at `:667` replaces that number wholesale.
+
+   **Where to look:** his `current_week_ppg` (4.18 against an `adj_ppg` of 10.3)
+   is where the change shows undamped. Which way questionable-plus-DNP moves, and
+   by how much, is **not predicted here** — the dry run prints it, and that is the
+   number to read.
+
+   **A previous draft of this section said the opposite, and the error is worth
+   keeping visible because it is the exact shape this project keeps failing in.**
+   It said no player on any roster carries an `nfl_injuries` row, therefore the
+   designated band had nothing to land on tonight, therefore nobody should hunt
+   for it. The premise may well be true. **The conclusion does not follow**, and
+   the Trade Brain thread caught it: an `nfl_injuries` row is not the only way a
+   player gets a designation. `weekDesignation` (`contingency.js:202-213`) reads
+   the NFL report *and* an ESPN status, and **ESPN wins when it is more severe**
+   — it synthesises a report from the ESPN label even when the NFL row is null.
+   So a roster with zero `nfl_injuries` rows can be full of designated players.
+
+   A sheet that says "nothing to land on" tells the reader not to look. If the
+   fit's largest single effect then lands on a designated player and nobody
+   checks, it reads as noise or goes unnoticed — a thing looking healthy because
+   nobody looked at what it should have produced. That is the house failure mode
+   arriving through the documentation rather than the code.
+
+   Also withdrawn, from the same capture: **0.833 and 0.823 are not
+   injured-player readings.** The script stringified the roster payload's
+   `injury` field and tested it for emptiness, but `injury` is a 0/1 flag
+   (`trade-engine.js:440`) and `String(0)` is `"0"`, which is truthy. Every
+   player matched, so the "injured" target was the next most valuable healthy
+   one. The tell was that those readings came back priced *above* the healthy
+   target, which is the one result an injured-player reading cannot produce. Do
+   not carry either number into any comparison tonight.
+
 
    **Use `value` as a control variable — this is the check that tells you
    whether the measurement itself is sound.** A trade's `value` is
@@ -1433,9 +1460,21 @@ Then:
    outcome the write cannot plausibly produce.
 
    **Everything reading unchanged is the result to distrust, not the reassuring
-   one.** Three ways this verification could have produced a convincing null, all
-   now closed: a cached simulate reading (step 2a), an attenuated trade reading
-   taken as the headline (above), and an absent designated band (above).
+   one.** Four ways this verification could have produced a convincing null, all
+   now closed:
+
+   1. A cached simulate reading (step 2a, and the mandatory restart after step 8).
+   2. An attenuated trade reading taken as the headline (above).
+   3. A reading taken on `GET /api/model/availability` with no `?week`, which
+      serves the durability prior and reads *neither* fitted table, so it is
+      identical after the write however hard you clear the cache (above).
+   4. **Being told the designated band was empty and therefore not looking.**
+      This sheet said that until 21:25Z and it was wrong — Puka Nacua is
+      Questionable-plus-DNP at 0.324 on another roster in all five leagues. The
+      only one of the four that lived in the documentation rather than the code,
+      and the hardest kind to catch, because a plan that tells you where not to
+      look leaves no failing check behind.
+
 3. **Restart first. This is a requirement of the reading, not a precaution.**
    `fly apps restart gridiron-hq` before you read anything. The fit is written
    from an ssh process, which cannot clear the app process's in-memory `Map`, so

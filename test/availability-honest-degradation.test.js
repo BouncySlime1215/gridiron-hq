@@ -244,3 +244,19 @@ test('every surface priced by these percentages says which model produced them',
   assert.match(tradeLab, /availability_basis/, 'Trade Lab reads the basis from model_context');
   assert.match(tradeLab, /assumed, not measured/, 'and says so where every deal is ranked');
 });
+
+test('a Start/Sit row is marked by the model that priced THAT player', () => {
+  // The page-level basis is a process fact; the fitted role layer only reaches a
+  // player with an in-scope role cell, so a role-basis process still prices some
+  // players pooled. Marking their number measured is the same overstatement the
+  // basis field exists to remove, one level up. The page reads the per-call field
+  // and keeps the page-level one only as the fallback for an asset built before
+  // that field existed.
+  const page = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
+  assert.match(page, /const basis = c\.player\?\.availability_basis \?\? pageBasis;/,
+    'the row reads its own basis first');
+  assert.doesNotMatch(page, /basis=\{d\?\.availability_basis\?\.basis \?\? null\}/,
+    'and the page-level basis is no longer what decides a row');
+  assert.match(page, /unfitted_position.*not modelled/s,
+    'a position the fit does not cover is not called an assumption about that player');
+});

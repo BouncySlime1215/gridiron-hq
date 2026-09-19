@@ -262,7 +262,7 @@ export default function Lineup() {
       ) : (
         <div className="space-y-2">
           {d?.lineup?.map((c: any, i: number) => (
-            <Slot key={i} c={c} index={i} basis={d?.availability_basis?.basis ?? null} week={d?.week ?? null} />
+            <Slot key={i} c={c} index={i} pageBasis={d?.availability_basis?.basis ?? null} week={d?.week ?? null} />
           ))}
         </div>
       )}
@@ -322,7 +322,13 @@ export default function Lineup() {
   );
 }
 
-function Slot({ c, index, basis, week }: { c: any; index: number; basis: string | null; week: number | null }) {
+function Slot({ c, index, pageBasis, week }:
+  { c: any; index: number; pageBasis: string | null; week: number | null }) {
+  // The model that priced THIS player, which is not always the one the process is
+  // on: the fitted role layer only reaches a player with an in-scope role cell, and
+  // everyone else is priced on the pooled rates or the hand-set chain. The page-level
+  // basis is the fallback for an asset built before the per-player field existed.
+  const basis = c.player?.availability_basis ?? pageBasis;
   const conf = CONF[c.confidence] ?? CONF.lean;
   // The chance to play that priced this row's points, on the row it priced.
   // It has been on the wire since the fit landed and no page ever showed it, so
@@ -359,12 +365,17 @@ function Slot({ c, index, basis, week }: { c: any; index: number; basis: string 
               </span>
             ) : play != null && (
               <span
+                title={measured ? 'A rate measured from real usage by the fitted availability model'
+                  : basis === 'unfitted_position'
+                    ? 'The availability model covers quarterbacks, running backs, receivers and tight ends only, so this is a fixed number rather than anything measured about this player'
+                    : 'A fallback rather than a rate measured from real usage — see the note above the lineup'}
                 className={`rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums ring-1 ${
                   play < 75 ? 'bg-amber-50 text-amber-900 ring-amber-200'
                     : measured ? 'bg-slate-50 text-slate-600 ring-slate-200'
                       : 'bg-slate-50 text-slate-400 ring-slate-200'}`}
               >
-                {play}% to play{measured ? '' : ' (assumed)'}
+                {play}% to play{measured ? ''
+                  : basis === 'unfitted_position' ? ' (not modelled)' : ' (assumed)'}
               </span>
             )}
           </div>

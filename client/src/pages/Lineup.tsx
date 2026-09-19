@@ -154,7 +154,7 @@ export default function Lineup() {
         onRetry={posture.refetch} opponentName={opponentName} />
       <WaiverTeaser data={waivers.data} />
 
-      {/* Honest degradation, not a confident wrong number. Every "x% likely to play" on
+      {/* Honest degradation, not a confident wrong number. Every chance-to-play number on
           this page comes from the fitted availability model; when that model is not the
           validated role layer the percentages are systematically low for healthy
           starters (a starter with no injury at all reads ~57% against an actual 94.5%),

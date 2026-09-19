@@ -15,7 +15,8 @@
  *      INJURY_RESERVE starter goes from 0.006 to 0.953 and is started.
  *
  *   2. `lineupCall()` carries `availability_basis`, but nothing says it out loud. With
- *      the role layer inert the page prints "about 57% likely to play this week" under
+ *      the role layer inert the page prints "about 57% likely to suit up and see the
+ *      ball this week" under
  *      "Check before kickoff" for a player with no injury at all — a pooled
  *      injury-report rate presented exactly like the validated one. The house rule is
  *      honest degradation with the reason attached (counterparty-pricing.js reports an
@@ -187,13 +188,13 @@ test('no note when the fitted role layer is the one pricing the page', () => {
 test('a chance-to-play warning never reads as a fitted number while the layer is inert', () => {
   const degraded = callWith(POOLED, 0.574).warnings.find(w => w.player === 'Jayden Placeholder');
   assert.ok(degraded, 'a 57% chance to play is still flagged');
-  assert.match(degraded.issue, /57% likely to play/, 'the number is still shown');
+  assert.match(degraded.issue, /57% likely to suit up and see the ball/, 'the number is still shown');
   assert.match(degraded.issue, /not the fitted|not running|pooled/i,
     'and is never shown bare: the reason travels with it');
   assert.equal(degraded.availability_basis, 'pooled');
 
   const fitted = callWith(ROLE, 0.574).warnings.find(w => w.player === 'Jayden Placeholder');
-  assert.match(fitted.issue, /^about 57% likely to play this week$/,
+  assert.match(fitted.issue, /^about 57% likely to suit up and see the ball this week$/,
     'a fitted number carries no caveat');
   assert.equal(fitted.availability_basis, 'role');
 });

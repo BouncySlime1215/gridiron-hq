@@ -622,7 +622,17 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
         // availability model, contingency.js; its role layer adds recent missed games),
         // not a share of weeks. "Only plays about 19% of weeks" would misdescribe a
         // starter who has missed his last two games.
-        : `about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% likely to play this week` +
+        // ...and it is not "plays" either. The fitted model's event is RECORDED USAGE
+        // — a target, a carry or an attempt (scripts/fit-availability.mjs, "WHAT
+        // 'AVAILABLE' MEANS HERE"): deliberately not "dressed", because a player who
+        // suits up and touches the ball zero times scores zero and this number feeds a
+        // fantasy projection. The fit's own header warns that this puts its levels
+        // BELOW published "percent who played" figures. So "likely to play" overstates
+        // what the number knows, and it overstates it most for exactly the players
+        // carrying a designation — the band where the fit moves furthest, and the only
+        // one that moves DOWN. Said plainly instead, which is true on every basis:
+        // the durability prior behind the constants path is also a usage rate.
+        : `about ${Math.round((c.player.active_probability ?? 0.9) * 100)}% likely to suit up and see the ball this week` +
           // A bye is a fact; a chance to play is a model output, and it is only allowed
           // to be stated bare when the model that produced it is the validated one.
           (availabilityNote ? ' — but that is not the fitted number: ' + availabilityNote.reason : ''),

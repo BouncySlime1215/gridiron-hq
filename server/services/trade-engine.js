@@ -114,6 +114,7 @@ import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trad
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
 import { buildRosProjections } from './ros-projection.js';
+import { leagueCurrentWeek } from './league-week.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -165,11 +166,35 @@ function rosterContext(lg) {
 /* ------------------------------------------------------------------ assets */
 
 /**
- * Build the enriched player universe for a league.
+ * Which week the fantasy side is pricing, for a league.
  *
- * @returns {Map<number, object>} player id -> asset
+ * PASS THE LEAGUE. With one, the week comes from `leagueCurrentWeek(lg)` —
+ * ESPN's own `status.currentMatchupPeriod`, captured at the last league sync.
+ * That is the league's answer to its own question, and it is the same source
+ * the rest of the app already trusts for a league's week.
+ *
+ * Without one it falls back to the first unscored row in `game_lines`, which
+ * is the BETTING side's schedule table. That fallback is why this needs the
+ * league. `game_lines` is filled by the odds feeds, so the fantasy half of the
+ * app was reading its current week out of a table it does not own and does not
+ * fill: a league with no lines loaded, or lines that are all scored, silently
+ * became week 1, and week 1 in September prices a season that has started as
+ * one that has not. `leagueCurrentWeek`'s own docstring puts it plainly —
+ * "Never a hard-coded 1 — that is how the app spent two weeks showing week-1
+ * lineups".
+ *
+ * The fallback is kept, not deleted: a handful of callers have no league in
+ * hand (a script, a player page asked about a player rather than a roster),
+ * and for those an approximate week beats throwing. It is the no-league path
+ * now, rather than the only path.
+ *
+ * `season` stays `SEASON` deliberately. A league's own `season` column can
+ * differ, and reconciling those two is the NFL_SEASON tidy-up, not this
+ * change; moving it here would shift every cache key in the file for a reason
+ * unrelated to the bug.
  */
-export function tradeWeekContext() {
+export function tradeWeekContext(lg = null) {
+  if (lg) return { season: SEASON, week: leagueCurrentWeek(lg) };
   const week = Number(process.env.NFL_WEEK) || rows(`SELECT MIN(week) AS week FROM game_lines
     WHERE season=? AND team_score IS NULL`, SEASON)[0]?.week || 1;
   return { season: SEASON, week: Math.max(1, Math.min(18, Number(week))) };
@@ -258,7 +283,7 @@ const assetInputsKey = (lg, formatKey, target) =>
   `d${servedInputsDigest(target.season, target.week)}`;
 
 export function assetUniverse(lg, formatKey, requested = null) {
-  const target = requested ?? tradeWeekContext();
+  const target = requested ?? tradeWeekContext(lg);
   return cached(
     `assets:${lg.id}:${formatKey}:${target.season}:${target.week}`,
     fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target)),
@@ -1304,7 +1329,7 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
   const rosterId = String(myTeamId ?? lg?.my_team_id ?? '');
   const prior = reason => ({ value: null, roster_id: rosterId, source: `0.5 prior — ${reason}` });
   if (!lg?.payload) return prior('this league is not synced yet');
-  const target = tradeWeekContext();
+  const target = tradeWeekContext(lg);
   const { formatKey } = deriveFormat(lg);
   return cached(
     `playoffOdds:${lg.id}:${rosterId}:${target.season}:${target.week}`,
@@ -1406,7 +1431,7 @@ function ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounter
  * to pay it three times over.
  */
 const ideaCtx = (lg, ctx = null) => (ctx?.target && ctx?.formatKey ? ctx
-  : { target: tradeWeekContext(), formatKey: deriveFormat(lg).formatKey, print: ctx?.print ?? null });
+  : { target: tradeWeekContext(lg), formatKey: deriveFormat(lg).formatKey, print: ctx?.print ?? null });
 
 function findTradesKey(lg, opts = {}, ctx = null) {
   const { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null,
@@ -1495,7 +1520,7 @@ function findTradesUncached(lg, {
   // actually behaved. Loaded once for the whole search; empty maps are the
   // normal case for a league with no chat corpus and cost nothing.
   // NB: `target` in this function is the target PLAYER, not the week context.
-  const weekNow = tradeWeekContext();
+  const weekNow = tradeWeekContext(lg);
   // WHEN the points land, not just how many. evaluate()'s playoff_ppg_delta is
   // the lineup change on each player's rate in this league's playoff weeks —
   // byes counted, no opponent adjustment (no schedule-strength signal has passed
@@ -2045,7 +2070,7 @@ export function resolvePlayer(id, assets, teams) {
  * reads and timing weighting. Inconsistent with findTrades").
  */
 function ladderInputs(lg, myTeamId, playoffOdds, useCounterparty = true) {
-  const weekNow = tradeWeekContext();
+  const weekNow = tradeWeekContext(lg);
   const odds = horizonOdds(lg, myTeamId, playoffOdds);
   const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
   const counterparties = useCounterparty
@@ -2500,7 +2525,7 @@ export function selfScout(lg, myTeamId) {
   // for every starter, and the schedule strength behind it has no validated signal
   // (matchups.js). What IS known about those weeks is who is on bye in them.
   const { playoffWeeks } = leagueSchedule(lg);
-  const nowWeek = tradeWeekContext().week;
+  const nowWeek = tradeWeekContext(lg).week;
   const playoffByes = lineup.slots.map(s => s.player)
     .filter(p => p?.bye && p.bye >= nowWeek && playoffWeeks.includes(p.bye))
     .map(p => ({ ...slim(p), week: p.bye }));
@@ -2548,7 +2573,7 @@ export function selfScout(lg, myTeamId) {
     team: { roster_id: me.roster_id, owner: me.owner },
     // The live NFL week, so a caller (the My Team ceiling-lineup tab, in
     // particular) doesn't have to hardcode week 1 for the whole season.
-    week: tradeWeekContext().week,
+    week: tradeWeekContext(lg).week,
     rank: myRank, of: allLineups.length,
     lineup: { points: lineup.points, slots: lineup.slots.map(s => ({ slot: s.slot, player: s.player ? slim(s.player) : null })),
               bench: lineup.bench.map(slim), holes: lineup.holes },
@@ -2763,7 +2788,7 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
   const me = requested != null && requested !== '' ? teams.find(t => t.roster_id === String(requested)) : teams[0];
   if (!me) return { error: `team ${requested} is not in this league`, not_found: true };
   const isMine = lg.my_team_id != null && me.roster_id === String(lg.my_team_id);
-  const { season, week } = tradeWeekContext();
+  const { season, week } = tradeWeekContext(lg);
 
   const payload = JSON.parse(lg.payload);
   const espnTeam = payload.teams?.find(t => String(t.id) === me.roster_id);

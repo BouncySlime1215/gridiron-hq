@@ -168,6 +168,30 @@ function handleFor (offer) {
   };
 }
 
+/**
+ * What Start/Sit actually shows Nick. This is the only surface that prints a
+ * chance-to-play percentage to a person, and it prints one only for the players it
+ * is already worried about — so the numbers here are the low end of the spread by
+ * construction, not a sample of it. A fit that moves a typical healthy starter by
+ * ten to fifteen points will move these by more, because the page selected for
+ * them. Recording it means the after-reading can be compared on the surface the
+ * change is actually visible on.
+ */
+function lineupHandle (body) {
+  const warnings = Array.isArray(body?.warnings) ? body.warnings : [];
+  return {
+    availability_basis: body?.availability_basis?.basis ?? null,
+    // Present on the branch, absent on the build deployed tonight — recorded because
+    // the key being missing rather than null is itself evidence about that build.
+    availability_note_present: Object.hasOwn(body ?? {}, 'availability_note'),
+    availability_note: body?.availability_note?.reason ?? null,
+    warnings: warnings.map(w => ({ player: w.player, issue: w.issue, slot: w.slot ?? null,
+      basis: w.availability_basis ?? null })),
+    warning_count: warnings.length,
+    coin_flips: num(body?.coin_flips)
+  };
+}
+
 /** The deals the finder would actually show, keyed by the engine's own idea id. */
 function findHandle (body) {
   const deals = Array.isArray(body?.deals) ? body.deals : (body?.ideas ?? []);
@@ -255,6 +279,12 @@ async function captureLeague (leagueId, forcedTarget, forcedHurt) {
       + `${hurtOffer.hung ? ' (no response)' : ''}`;
   }
 
+  const lineup = await get(`/api/trades/${leagueId}/lineup`
+    + `?team_id=${encodeURIComponent(out.my_team_id ?? '')}`);
+  out.lineup = { status: lineup.status, ms: lineup.ms, attempts: lineup.attempt };
+  if (lineup.status === 200 && lineup.body) out.lineup_handle = lineupHandle(lineup.body);
+  else out.lineup_error = `lineup read failed: ${lineup.status}${lineup.hung ? ' (no response)' : ''}`;
+
   if (WITH_FIND) {
     const find = await get(`/api/trades/${leagueId}/find`
       + `?team_id=${encodeURIComponent(out.my_team_id ?? '')}&limit=3`);
@@ -267,10 +297,18 @@ async function captureLeague (leagueId, forcedTarget, forcedHurt) {
 
 /* ------------------------------------------------------------------ compare */
 
-const flatten = (value, prefix = '') => Object.entries(value ?? {}).flatMap(([k, v]) =>
-  (v && typeof v === 'object' && !Array.isArray(v)
-    ? flatten(v, `${prefix}${k}.`)
-    : [[`${prefix}${k}`, v]]));
+// Arrays are walked by index too, so a warning changing its wording or leaving the
+// list shows as its own line rather than one opaque "the array differs".
+const flatten = (value, prefix = '') => {
+  const join = k => (prefix === '' || prefix.endsWith('.') ? `${prefix}${k}` : `${prefix}.${k}`);
+  if (Array.isArray(value)) {
+    return value.flatMap((v, i) => flatten(v, `${prefix.replace(/\.$/, '')}[${i}]`));
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([k, v]) => flatten(v, join(k)));
+  }
+  return [[prefix.replace(/\.$/, ''), value]];
+};
 
 function report (before, after) {
   let moved = 0, same = 0;
@@ -283,9 +321,10 @@ function report (before, after) {
       console.log(`  target mismatch: baseline priced ${was.target_id}, this run ${league.target_id}`);
     }
     const b = new Map([...flatten(was.handle), ...flatten(was.injured_handle, 'injured.'),
-      ...flatten(was.find_handle, 'find.')]);
+      ...flatten(was.lineup_handle, 'lineup.'), ...flatten(was.find_handle, 'find.')]);
     for (const [key, now] of [...flatten(league.handle),
-      ...flatten(league.injured_handle, 'injured.'), ...flatten(league.find_handle, 'find.')]) {
+      ...flatten(league.injured_handle, 'injured.'), ...flatten(league.lineup_handle, 'lineup.'),
+      ...flatten(league.find_handle, 'find.')]) {
       const then = b.get(key);
       if (JSON.stringify(then) === JSON.stringify(now)) { same++; continue; }
       // A field this script did not record when the baseline was taken is not a
@@ -325,6 +364,14 @@ How to read the above:
                               to fifteen points. The constants price a healthy
                               starter far too low; that is the defect being fixed,
                               not a regression.
+
+  lineup.warnings[*]          The surface Nick reads. It prints a percentage only
+                              for players it is already worried about, so these are
+                              the low end of the spread by construction and will
+                              move by MORE than a typical starter. Warnings
+                              disappearing from the list is the fit working: a
+                              player the constants held at 70% who is really at 95%
+                              stops being worth a warning at all.
 
   injured.target.*            Expected to FALL, and by far more. The constants hold
                               a Doubtful player at 0.15 against a measured 0.004 and

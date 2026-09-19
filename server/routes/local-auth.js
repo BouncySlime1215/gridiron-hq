@@ -18,10 +18,18 @@ export function isLoopback(address = '') {
  * address alone would call every phone on the internet local. Tunnels and
  * reverse proxies all announce themselves with forwarding headers, so a
  * request that carries one is treated as remote no matter what the socket says.
+ *
+ * Fly.io's own headers are included defensively for the self-host case: Fly
+ * Apps V2 (Machines) routes real traffic to the app over the private 6PN
+ * network, which should never present as 127.0.0.1, but this app has no way
+ * to independently confirm which Fly architecture provisions it, and a
+ * request that carries a Fly-only header is proof positive it went through
+ * fly-proxy rather than a genuine local caller either way.
  */
 export function isDirectLoopback(req) {
   if (!isLoopback(req.socket?.remoteAddress)) return false;
-  for (const h of ['x-forwarded-for', 'x-forwarded-host', 'x-real-ip', 'cf-connecting-ip', 'cf-ray', 'forwarded']) {
+  for (const h of ['x-forwarded-for', 'x-forwarded-host', 'x-real-ip', 'cf-connecting-ip', 'cf-ray', 'forwarded',
+    'fly-client-ip', 'fly-forwarded-port', 'fly-region']) {
     if (req.get(h)) return false;
   }
   return true;

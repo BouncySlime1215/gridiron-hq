@@ -7,7 +7,7 @@ import EvidenceTable from '../components/draft/EvidenceTable';
 import StreakChips from '../components/draft/StreakChips';
 import { statHeadline } from '../components/draft/types';
 import { hasEvidence } from '../components/trade/types';
-import { usePageExplain } from '../components/betting/PageExplainContext';
+import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
 
 const TABS = [

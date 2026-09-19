@@ -10,10 +10,9 @@ import { NAV_GROUPS, destinationLabel } from './navigation';
 import EspnConnectGate from './components/EspnConnectGate';
 import DataSetupBanner from './components/DataSetupBanner';
 import { Skeleton } from './components/ui/DesignSystem';
-import { PageExplainContext, type PageExplainInfo } from './components/betting/PageExplainContext';
-import { PageExplainAssistant } from './components/betting/PageExplainAssistant';
+import { PageExplainContext, type PageExplainInfo } from './components/PageExplainContext';
+import { PageExplainAssistant } from './components/PageExplainAssistant';
 
-const Home = lazy(() => import('./pages/Home'));
 const Teams = lazy(() => import('./pages/Teams'));
 const TeamDetail = lazy(() => import('./pages/TeamDetail'));
 const DraftRoom = lazy(() => import('./pages/DraftRoom'));
@@ -21,22 +20,11 @@ const LiveDraft = lazy(() => import('./pages/LiveDraft'));
 const DraftHub = lazy(() => import('./pages/DraftHub'));
 const LeagueHub = lazy(() => import('./pages/LeagueHub'));
 const PlayerDetail = lazy(() => import('./pages/PlayerDetail'));
-const Players = lazy(() => import('./pages/Players'));
 const TradeLab = lazy(() => import('./pages/TradeLab'));
-const LeagueBrain = lazy(() => import('./pages/LeagueBrain'));
-const Trends = lazy(() => import('./pages/Trends'));
 const Lineup = lazy(() => import('./pages/Lineup'));
-const TheModel = lazy(() => import('./pages/TheModel'));
 const News = lazy(() => import('./pages/News'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Pair = lazy(() => import('./pages/Pair'));
-const FantasyLab = lazy(() => import('./pages/FantasyLab'));
-const NflMarketBoard = lazy(() => import('./pages/NflMarketBoard'));
-const BettingHome = lazy(() => import('./pages/betting/BettingHome'));
-const MlbHub = lazy(() => import('./pages/betting/MlbHub'));
-const NflAutoPicks = lazy(() => import('./pages/betting/NflAutoPicks'));
-const NflWongHub = lazy(() => import('./pages/betting/NflWongHub'));
-const DataHealth = lazy(() => import('./pages/DataHealth'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 // NAV_GROUPS moved to src/navigation.ts so the command palette can render the
@@ -124,39 +112,22 @@ export default function App() {
           <div className="ml-auto flex shrink-0 items-center gap-2"><span className="hidden sm:inline-flex"><QuickJump /></span><RefreshAll onDone={() => window.dispatchEvent(new Event('gridiron:refreshed'))} /><span className="hidden sm:inline-flex"><DevHub /></span></div>
         </header>
         <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8"><Suspense fallback={<RouteSkeleton />}><Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<Navigate to="/league" replace />} />
           <Route path="/league" element={<LeagueHub />} />
           <Route path="/draft" element={<DraftHub />} />
-          <Route path="/matchups" element={<TradeLab initialTab="matchups" />} />
           <Route path="/teams" element={<Teams />} /><Route path="/teams/:abbr" element={<TeamDetail />} />
-          <Route path="/players/:id" element={<PlayerDetail />} /><Route path="/players" element={<Players />} />
-          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/brain" element={<LeagueBrain />} /><Route path="/trends" element={<Trends />} /><Route path="/lineup" element={<Lineup />} /><Route path="/model" element={<TheModel />} /><Route path="/news" element={<News />} />
-          <Route path="/settings" element={<Settings />} /><Route path="/lab" element={<FantasyLab />} /><Route path="/data-health" element={<DataHealth />} />
+          <Route path="/players/:id" element={<PlayerDetail />} />
+          <Route path="/trade-lab" element={<TradeLab />} /><Route path="/lineup" element={<Lineup />} /><Route path="/news" element={<News />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/pair" element={<Pair />} />
-          <Route path="/betting" element={<BettingHome />} /><Route path="/betting/nfl" element={<NflMarketBoard initialTool="board" />} />
-          <Route path="/betting/nfl/props" element={<NflMarketBoard initialTool="props" />} /><Route path="/betting/nfl/picks" element={<NflMarketBoard initialTool="board" />} /><Route path="/betting/nfl/auto-picks" element={<NflAutoPicks />} />
-          <Route path="/betting/nfl/operations" element={<NflMarketBoard initialTool="operations" />} /><Route path="/betting/nfl/ensemble" element={<NflMarketBoard initialTool="ensemble" />} /><Route path="/betting/nfl/forward" element={<NflMarketBoard initialTool="forward" />} />
-          <Route path="/betting/nfl/research" element={<NflMarketBoard initialTool="research" />} />
-          <Route path="/betting/nfl/watch" element={<NflMarketBoard initialTool="watch" />} />
-          <Route path="/betting/nfl/ledger" element={<NflMarketBoard initialTool="ledger" />} />
-          <Route path="/betting/nfl/wong" element={<NflWongHub />} />
-          <Route path="/betting/lines" element={<NflMarketBoard initialTool="lines" />} /><Route path="/betting/training" element={<NflMarketBoard initialTool="training" />} /><Route path="/betting/catalog" element={<NflMarketBoard initialTool="variables" />} />
           {/* One MLB hub instead of six routes, two of which were named "legacy"
               and all of which were reachable with nothing saying which was current. */}
-          <Route path="/betting/mlb" element={<MlbHub />} />
-          <Route path="/betting/mlb/auto" element={<MlbHub initialTab="auto" />} />
-          <Route path="/betting/mlb/picks" element={<MlbHub initialTab="picks" />} />
-          <Route path="/betting/mlb/model" element={<MlbHub initialTab="model" />} />
-          <Route path="/betting/mlb/legacy" element={<MlbHub initialTab="legacy" />} />
-          <Route path="/betting/mlb/auto-legacy" element={<MlbHub initialTab="auto" />} />
 
           {/* Compatibility: old bookmarks resolve to the new domain hubs. */}
           <Route path="/my-team" element={<Navigate to="/league?view=team" replace />} /><Route path="/leagues" element={<Navigate to="/league?view=connections" replace />} />
           <Route path="/live-draft" element={<Navigate to="/draft?view=live" replace />} /><Route path="/live-draft/:id" element={<LiveDraft />} />
           <Route path="/drafts" element={<Navigate to="/draft" replace />} /><Route path="/drafts/:id" element={<DraftRoom />} />
-          <Route path="/rankings" element={<Navigate to="/players" replace />} /><Route path="/projections" element={<Navigate to="/players" replace />} />
-          <Route path="/edge" element={<Navigate to="/lab" replace />} />
-          <Route path="/nfl-board" element={<Navigate to="/betting/nfl/picks" replace />} />
+          <Route path="/rankings" element={<Navigate to="/league" replace />} /><Route path="/projections" element={<Navigate to="/league" replace />} />
           {/* The `/props/*` pages were MLB pages standing outside the MLB hub,
               linked from nowhere and reachable only by typing the URL — yet all
               four of their endpoints still return live data (the proxied board
@@ -167,10 +138,6 @@ export default function App() {
               two are the proxied half of the first-party/proxied overlap and
               are now a source toggle inside the hub's slate and forward views,
               rather than deleted or left orphaned. */}
-          <Route path="/props" element={<MlbHub initialTab="slate" initialSource="proxied" />} />
-          <Route path="/props/auto-picks" element={<MlbHub initialTab="forward" initialSource="proxied" />} />
-          <Route path="/props/picks" element={<Navigate to="/betting/mlb/picks" replace />} />
-          <Route path="/props/model" element={<Navigate to="/betting/mlb/model" replace />} />
           <Route path="*" element={<NotFound />} />
         </Routes></Suspense></main>
       </div>

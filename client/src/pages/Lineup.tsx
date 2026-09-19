@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useApi } from '../api';
 import { useLeague } from '../state/league';
 import EvidenceStrip, { RecordLine } from '../components/lineup/EvidenceStrip';
-import { usePageExplain } from '../components/betting/PageExplainContext';
+import { usePageExplain } from '../components/PageExplainContext';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
+import WaiverWire, { WaiverTeaser, onATeam } from '../components/lineup/WaiverWire';
+import type { WaiverBoard, OutList } from '../components/lineup/WaiverWire';
+import MatchupPosture from '../components/lineup/MatchupPosture';
+import type { Posture } from '../components/lineup/MatchupPosture';
 
 /**
  * The week's lineup, with the closeness of each call made visible.
@@ -29,6 +33,26 @@ export default function Lineup() {
   const [objective, setObjective] = useState<'mean' | 'ceiling' | 'floor'>('mean');
   const { data: d, loading, error, refetch } = useApi<any>(
     leagueId ? `/trades/${leagueId}/lineup?objective=${objective}` : null);
+  // The waiver wire and this week's matchup. Separate requests, so a slow or
+  // failed one never holds the lineup hostage; both follow the active league and
+  // default to my own roster, exactly as the lineup request does.
+  const waivers = useApi<WaiverBoard>(leagueId ? `/trades/${leagueId}/waivers` : null);
+  const posture = useApi<Posture>(leagueId ? `/trades/${leagueId}/posture` : null);
+  // Only for the opponent's name; the same cached request the Trade Lab makes.
+  const opponentId = posture.data?.opponent_roster_id ?? null;
+  const { data: rosters } = useApi<any>(leagueId && opponentId ? `/trades/${leagueId}/rosters` : null);
+  const opponentName: string | null = rosters?.teams
+    ?.find((t: any) => String(t.roster_id) === String(opponentId))?.owner ?? null;
+  // Rostered players the solver will not start. The waiver board names its cut
+  // without saying why, and "drop Patrick Mahomes, 18.6 projected" reads as
+  // madness until you know he is flagged out; this is the same list the page
+  // already shows under "not being considered".
+  const out: OutList = useMemo(() => new Map<string, string>(
+    (d?.unavailable ?? []).map((u: any) => [String(u.name).toLowerCase(), String(u.why)])), [d]);
+  // Everyone the lineup call leaves out, with why: IR (ESPN's IR slot or injured
+  // reserve — never started, the same rule as the League Hub card) and players the
+  // engine flags out for the season or released.
+  const notConsidered: any[] = [...(d?.on_ir ?? []), ...(d?.unavailable ?? [])];
 
   // The floating assistant otherwise never learns what's on this page and
   // falls back to a generic "this page hasn't told me what's on screen"
@@ -39,7 +63,16 @@ export default function Lineup() {
     projected_points: d?.projected_points ?? null,
     coin_flips: d?.coin_flips ?? null,
     slots: (d?.lineup ?? []).length,
-    warnings: (d?.warnings ?? []).length
+    warnings: (d?.warnings ?? []).length,
+    // The assistant answers questions about these percentages too, so it is told the
+    // same thing the page prints when the model behind them is not the validated one.
+    chance_to_play_degraded: d?.availability_note
+      ? { reason: d.availability_note.reason, effect: d.availability_note.effect } : null,
+    matchup: posture.data && !posture.data.error && posture.data.win_probability != null
+      ? { win_probability_pct: posture.data.win_probability, stance: posture.data.stance ?? null,
+          point_edge: posture.data.edge ?? null, swaps_suggested: (posture.data.swaps ?? []).length }
+      : null,
+    waivers: waiverSummary(waivers.data)
   });
 
   if (!leagueId) {
@@ -74,7 +107,10 @@ export default function Lineup() {
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
               <div className="text-[10px] font-black uppercase tracking-[.15em] text-emerald-300">
-                Week {d.week} projection
+                {/* Named for what was summed: a floor or ceiling total is not a projection. */}
+                {d.objective_used === 'floor' ? `Week ${d.week} · sum of bad-week floors`
+                  : d.objective_used === 'ceiling' ? `Week ${d.week} · sum of good-week ceilings`
+                    : `Week ${d.week} projection`}
               </div>
               <div className="mt-1 text-4xl font-black tabular-nums text-white">{d.projected_points}</div>
               <p className="mt-1 text-sm text-slate-400">
@@ -94,6 +130,11 @@ export default function Lineup() {
               ))}
             </div>
           </div>
+          {d.objective_fallback && (
+            <p role="status" className="mt-3 rounded-lg bg-amber-400/15 px-3 py-2 text-sm leading-6 text-amber-100">
+              This lineup is the highest-average one: {d.objective_fallback}.
+            </p>
+          )}
           {d.objectives?.find((o: any) => o.id === objective) && (
             <p className="mt-3 border-t border-white/10 pt-3 text-sm leading-6 text-slate-300">
               {d.objectives.find((o: any) => o.id === objective).when}
@@ -103,6 +144,29 @@ export default function Lineup() {
       )}
 
       {loading && !d && <PageLoading label="Solving the lineup…" />}
+
+      <MatchupPosture data={posture.data} loading={posture.loading} error={posture.error}
+        onRetry={posture.refetch} opponentName={opponentName} />
+      <WaiverTeaser data={waivers.data} />
+
+      {/* Honest degradation, not a confident wrong number. Every "x% likely to play" on
+          this page comes from the fitted availability model; when that model is not the
+          validated role layer the percentages are systematically low for healthy
+          starters (a starter with no injury at all reads ~57%), so the page says which
+          model is talking and why before anyone acts on one. */}
+      {d?.availability_note && (
+        <section role="status"
+          className="tr-rise rounded-2xl border border-slate-300 bg-slate-50 p-4" style={{ animationDelay: '70ms' }}>
+          <h2 className="text-sm font-black uppercase tracking-wide text-slate-700">
+            Chance-to-play numbers are degraded
+          </h2>
+          <p className="mt-1.5 text-sm leading-6 text-slate-700">
+            {d.availability_note.inert} is not running: {d.availability_note.reason}.
+          </p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{d.availability_note.effect}.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">To fix: {d.availability_note.fix}.</p>
+        </section>
+      )}
 
       {d?.warnings?.length > 0 && (
         <section className="tr-rise rounded-2xl border border-amber-200 bg-amber-50/60 p-4" style={{ animationDelay: '80ms' }}>
@@ -130,14 +194,14 @@ export default function Lineup() {
         </div>
       )}
 
-      {d?.unavailable?.length > 0 && (
+      {notConsidered.length > 0 && (
         <details className="tr-rise rounded-xl border border-slate-200 bg-white p-4" style={{ animationDelay: '150ms' }}>
           <summary className="cursor-pointer text-sm font-bold text-slate-700">
-            Why {d.unavailable.length} rostered player{d.unavailable.length === 1 ? ' is' : 's are'} not
+            Why {notConsidered.length} rostered player{notConsidered.length === 1 ? ' is' : 's are'} not
             being considered
           </summary>
           <div className="mt-2 space-y-1.5">
-            {d.unavailable.map((u: any, i: number) => (
+            {notConsidered.map((u: any, i: number) => (
               <p key={i} className="text-sm leading-6 text-slate-600">
                 <b className="text-slate-900">{u.name}</b> ({u.position}, {u.team_abbr}) — {u.why}
               </p>
@@ -165,6 +229,9 @@ export default function Lineup() {
       )}
 
       {d?.note && <p className="text-xs leading-5 text-slate-500">{d.note}</p>}
+
+      <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}
+        onRetry={waivers.refetch} out={out} />
     </Shell>
   );
 }
@@ -266,6 +333,21 @@ function Slot({ c, index }: { c: any; index: number }) {
       )}
     </article>
   );
+}
+
+/** What the explain assistant is told about the waiver section: the same rows the section shows by default. */
+function waiverSummary(w: WaiverBoard | null) {
+  if (!w || w.error) return null;
+  const claims = (w.immediate ?? []).filter(onATeam);
+  const top = claims[0];
+  return {
+    claims_that_help_this_week: claims.length,
+    top_claim: top ? { player: top.player, position: top.position, adds_to_this_weeks_lineup: top.upgrade,
+      drop: top.drop_candidate?.player ?? null } : null,
+    stashes: (w.stashes ?? []).filter(onATeam).length,
+    // Claims that would help this week only by cutting someone worth more over the season.
+    held_back: w.held_back_count ?? (w.held_back ?? []).length
+  };
 }
 
 const Shell = ({ children }: { children: ReactNode }) =>

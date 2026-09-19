@@ -664,10 +664,44 @@ async function refreshCoaches() {
  * nflverse_weekly_usage (settles a day or two after each week's games), so it
  * gets the same 3-day budget.
  */
+/**
+ * Expected fantasy points. The current season every time; a prior season only
+ * if we do not already hold it.
+ *
+ * This used to pull four seasons on every run, every three days. Three of them
+ * are completed seasons that ffverse never revises — about 5.4 MB of CSV each,
+ * re-parsed and re-upserted row by row to arrive at exactly the rows already
+ * stored. That is ~16 MB of parsing per run for ~0.3 MB of new data, on a
+ * machine whose failure mode is being OOM-killed on large payloads.
+ *
+ * The backfill still happens; it just happens once. A prior season with no rows
+ * is pulled (a fresh install, or a season that was missing), and after that it
+ * is left alone. Re-ingesting a completed season on purpose is what
+ * syncFfOpportunity's own multi-season signature is for.
+ */
+/**
+ * Which seasons this run should actually fetch.
+ *
+ * Exported because it is the whole decision, and an off-thread job cannot be
+ * module-mocked from the main thread (the worker imports its own copy), so
+ * testing it through runIfStale is not possible. Testing the decision directly
+ * is better anyway.
+ */
+export function ffOpportunitySeasons(season) {
+  const held = new Set(rows('SELECT DISTINCT season FROM nfl_ffopportunity_weekly').map(r => Number(r.season)));
+  return [...[season - 3, season - 2, season - 1].filter(s => !held.has(s)), season];
+}
+
 async function refreshFfOpportunity() {
   const { syncFfOpportunity } = await import('./ffopportunity.js');
   const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
-  return syncFfOpportunity([season - 3, season - 2, season - 1, season]);
+  const result = await syncFfOpportunity(ffOpportunitySeasons(season));
+  // Every requested season came back unpublished: nothing was written, and the
+  // job returning normally with `rows: 0` would otherwise log as a clean sync.
+  if (!result?.rows && result?.seasons?.every(s => s.status === 'not_published')) {
+    return { ...result, error: 'no requested season is published upstream' };
+  }
+  return result;
 }
 
 /** The transaction wire — signings, releases, IR moves, from ESPN's public transactions API. */
@@ -1033,7 +1067,12 @@ export const JOBS = {
     label: 'Free player-prop quotes: Action Network, Underdog' },
   nfl_book_feeds_extra: { run: refreshExtraBookFeeds, maxAgeMinutes: 60, tier: 'live',
     label: 'Free game lines: Rotowire (Circa, DK, FD, MGM, Caesars, BetRivers, Fanatics, theScore, Betr) and SBR (bet365, Hard Rock)' },
-  nfelo_sync: { run: refreshNfelo, maxAgeMinutes: 6 * 60, tier: 'growth',
+  // offThread: measured 2026-09-19 — qb_elos.csv alone is 6.4 MB and this
+  // pulls six CSVs, parsed synchronously. One run on the Fly machine was
+  // timed at 69 seconds, which on the main thread is 69 seconds of the whole
+  // app answering nothing, every six hours. It is on the 'growth' tier, which
+  // always runs, so AUTO_HEAVY_SYNC never protected anyone from it.
+  nfelo_sync: { run: refreshNfelo, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
     label: 'nfelo: QB-adjusted Elo, per-game HFA, pre-regression line, public splits' },
   nfl_external_ratings: { run: refreshExternalRatings, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'ESPN FPI weekly snapshot and TeamRankings predictive (Wednesday)' },
@@ -1235,7 +1274,9 @@ export const JOBS = {
     label: "X's & O's writeups — self-limited to teams with news newer than their analysis" },
   nfl_coaches: { run: refreshCoaches, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'Per-team-season head-coach history (nflverse/nfldata games.csv)' },
-  ffopportunity: { run: refreshFfOpportunity, maxAgeMinutes: 3 * 24 * 60, tier: 'growth',
+  // offThread: each completed season's CSV is ~5.4 MB, and this pulled four of
+  // them every three days — see refreshFfOpportunity for why it no longer does.
+  ffopportunity: { run: refreshFfOpportunity, maxAgeMinutes: 3 * 24 * 60, tier: 'growth', offThread: true,
     label: 'ffopportunity weekly expected-fantasy-points benchmark' }
 };
 

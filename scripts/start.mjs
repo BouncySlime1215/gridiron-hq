@@ -23,13 +23,14 @@ const IS_WIN = process.platform === 'win32';
 /**
  * Is the server answering?
  *
- * Probes /api/health, which exists to be polled and returns {ok:true} and
- * nothing else (see server/index.js). The old probe used
- * /api/teams, which sits behind `legacyAuthenticated` (server/index.js) and so
- * answers 401 to an unauthenticated caller — forever. `response.ok` was
- * therefore always false, the poll below never succeeded, and after 60 attempts
- * the launcher reported "did not come online" and SIGTERMed a server that had
- * been up and healthy the whole time.
+ * Probes /api/health, the same route fly.toml's HTTP check uses, so the
+ * launcher waits on the production liveness path rather than a different one
+ * that happens to be public. The old probe used /api/teams, which sits behind
+ * `legacyAuthenticated` (server/index.js) and so answers 401 to an
+ * unauthenticated caller — forever. `response.ok` was therefore always false,
+ * the poll below never succeeded, and after 60 attempts the launcher reported
+ * "did not come online" and SIGTERMed a server that had been up and healthy
+ * the whole time.
  *
  * Readiness here means "the HTTP server is listening and routing", so ANY reply
  * counts, including an error status. Only a thrown request (nothing listening
@@ -37,8 +38,12 @@ const IS_WIN = process.platform === 'win32';
  */
 const isReady = async () => {
   try {
-    await fetch(`${URL}/api/health`, { signal: AbortSignal.timeout(3000) });
-    return true;
+    // A 503 from /api/health means the process is listening but cannot serve —
+    // boot runs migrations and seed reconciliation against the volume before
+    // the database answers. Treating any reply as ready would open the browser
+    // on an app that is still coming up.
+    const probe = await fetch(`${URL}/api/health`, { signal: AbortSignal.timeout(3000) });
+    return probe.ok && (await probe.json())?.ok === true;
   } catch {
     return false;
   }

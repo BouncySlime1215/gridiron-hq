@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
+import { startLoopWatchdog, watchdogArmingMiddleware } from './platform/loop-watchdog.js';
 
 const PORT = Number(process.env.API_PORT) || 5177;
 try {
@@ -55,6 +56,10 @@ const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 
 const app = express();
+// First, so that ANY completed response arms the watchdog -- including a 404
+// or a 401. The question it answers is "has this process ever served an HTTP
+// response", not "has it served a useful one". See platform/loop-watchdog.js.
+app.use(watchdogArmingMiddleware);
 app.use(express.json());
 
 seedIfEmpty();
@@ -77,6 +82,52 @@ startDraftClockJob();
 // (draft-ingest.js) for why.
 startDraftFinalizeJob();
 
+/**
+ * Liveness, for the host's health check — deliberately the cheapest route that
+ * can still FAIL when the app is broken.
+ *
+ * `fly.toml` used to carry a TCP check and nothing else. A TCP check is
+ * answered by the kernel's listen backlog, which keeps accepting connections
+ * perfectly well while Node's event loop is blocked, so a wedged process looks
+ * healthy forever: Fly went on routing traffic to it and never restarted it.
+ * That is how the app stayed down rather than recovering by itself.
+ *
+ * So this must execute JavaScript on the event loop and touch SQLite
+ * synchronously, because those are the two things that actually wedge (see
+ * runJobOffThread in services/scheduler.js). A check that only proved a socket
+ * was open would reproduce the original bug.
+ *
+ * Unauthenticated on purpose: a health check cannot hold a bearer token, and
+ * this discloses nothing but uptime. It is mounted above every authenticated
+ * router so no auth failure can ever mask a liveness answer.
+ *
+ * "Discloses nothing" is a requirement, not an observation. The start-up
+ * probes in scripts/ used to poll GET /api/model/status for exactly the reason
+ * a probe needs — it was the one unauthenticated route — and that endpoint
+ * answers with row counts out of the database. A public deployment should not
+ * hand those to anyone who asks, so whatever the probes poll has to be an
+ * endpoint that is deliberately public AND says nothing about the data. Any
+ * future change here keeps both halves.
+ */
+app.get('/api/health', async (req, res) => {
+  try {
+    const { db } = await import('./db/index.js');
+    // One prepared read against a table that always exists. Proves the event
+    // loop is turning AND that a synchronous SQLite call can complete, which
+    // together are what "the app can serve a request" actually means here.
+    db.prepare('SELECT 1').get();
+    res.json({ ok: true, uptime_s: Math.round(process.uptime()) });
+  } catch (error) {
+    // 503, not 500: this is the signal that takes the machine out of the
+    // routing pool, and an error handler that returned 200 would be the TCP
+    // check all over again. Note that a failing Fly health check stops traffic
+    // being routed here but does NOT restart the machine -- health checks and
+    // the restart policy are independent, and only a process exit triggers a
+    // restart. platform/loop-watchdog.js is what supplies that exit.
+    res.status(503).json({ ok: false, error: error.message });
+  }
+});
+
 // Public only on the loopback interface. It removes the fresh-install token
 // paste step while all protected route families remain bearer-authenticated.
 app.use('/api/auth', localAuthRouter);
@@ -86,16 +137,6 @@ app.use('/api/auth', localAuthRouter);
 // established either way is the same `auth_sessions` row underneath.
 app.use('/api/auth', googleAuthRouter);
 
-/**
- * Liveness only. Three start-up probes (scripts/start.mjs,
- * scripts/start-smoke.mjs, scripts/bootstrap-data.mjs) used to poll
- * GET /api/model/status because it happened to be unauthenticated. That
- * endpoint answers with row counts out of the database, which is app data and
- * not something a public deployment should hand to anyone who asks. This
- * exists so the probes have something to poll that is deliberately public and
- * says nothing at all.
- */
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
 app.use('/api/teams', ...legacyAuthenticated, teamsRouter);
 app.use('/api/players', ...legacyAuthenticated, playersRouter);
 app.use('/api/rankings', ...legacyAuthenticated, rankingsRouter);
@@ -170,6 +211,14 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
 const HOST = process.env.HOST || '127.0.0.1';
 app.listen(PORT, HOST, () => {
   console.log(`Gridiron HQ listening on http://${HOST}:${PORT}`);
+  // A blocked event loop cannot answer /api/health, and a failing health check
+  // does not restart a Fly machine -- only a process exit does. So this is the
+  // half that turns "the host can see we are wedged" into "the host replaces
+  // us". It watches nothing until the first response has actually been served,
+  // which matters here because boot continues well past this point: the
+  // scheduler fires twenty boot jobs twenty seconds from now, on this thread.
+  // See platform/loop-watchdog.js.
+  startLoopWatchdog();
   // Warm the evidence layers (career lines, preseason curve, offseason
   // adjustments, in-house projections) off the request path: cold they cost
   // ~4.5s on the first board read, which on draft night would land on the

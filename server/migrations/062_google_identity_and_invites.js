@@ -1,4 +1,4 @@
-export const name = '061_google_identity_and_invites';
+export const name = '062_google_identity_and_invites';
 
 /**
  * Real accounts: a user can now be established by an external identity

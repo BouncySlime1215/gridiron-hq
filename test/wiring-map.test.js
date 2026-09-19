@@ -18,6 +18,7 @@ const {
   scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations,
   foreignHandles, handleFor, gatedRegions, blindCaches,
+  functionUnits, functionReach, tableColumns, statementTables,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -202,4 +203,79 @@ test('gatedRegions leaves the edge alone when the app itself switches it on', ()
     ['server/routes/r.js', mk('server/routes/r.js', 'build({ redistributeVolume: true });')],
   ]);
   assert.equal(gatedRegions(files).size, 0, 'a flag the server turns on is a live edge');
+});
+
+
+/* ------------------------------------------------- what should be wired --- */
+
+const mkFile = (path, src, tree = 'server') => {
+  const { code, text, strings } = scan(src);
+  const { imports, exports } = moduleEdges(text);
+  return { path, tree, code, text, strings, imports, exports,
+    sql: sqlEdges(strings), routes: [], calls: [], scope: 'shared' };
+};
+
+test('functionUnits does not mistake a destructured parameter for the body', () => {
+  // `function availability({ through = 2025 } = {})` opens a brace inside its
+  // PARAMETERS. Taking that one as the body gave the function a four-character
+  // body, so every query in it was attributed to nobody -- which is how the
+  // pair rule missed availability() vs weeklyAvailability() the first time.
+  const src = [
+    'export function availability({ through = 2025 } = {}) {',
+    "  return rows('SELECT x FROM player_week_usage');",
+    '}',
+  ].join('\n');
+  const units = functionUnits(mkFile('server/c.js', src));
+  const u = units.get('availability');
+  assert.ok(u, 'the function must be found');
+  assert.ok(u.end - u.start > 40, `body looks truncated: ${u.end - u.start} chars`);
+  assert.equal(u.exported, true);
+});
+
+test('functionReach attributes each query to its function and inherits through calls', () => {
+  const src = [
+    "function fitted() { return rows('SELECT p_active FROM nfl_availability_rates'); }",
+    "export function availability() { return rows('SELECT games FROM player_week_usage'); }",
+    'export function weeklyAvailability() {',
+    '  const base = availability();',
+    '  const f = fitted();',
+    "  return rows('SELECT * FROM nfl_injuries').map(() => [base, f]);",
+    '}',
+  ].join('\n');
+  const files = new Map([['server/c.js', mkFile('server/c.js', src)]]);
+  const nodes = functionReach(files);
+  const a = nodes.get('server/c.js#availability');
+  const w = nodes.get('server/c.js#weeklyAvailability');
+  assert.deepEqual([...a.reach].sort(), ['player_week_usage']);
+  assert.ok(w.reach.has('nfl_availability_rates'),
+    'the fitted table must be inherited through the call to fitted()');
+  assert.ok(!a.reach.has('nfl_availability_rates'),
+    'the short name must NOT inherit what only the long one reads');
+});
+
+test('moduleEdges records the local alias an export was imported under', () => {
+  const { imports } = moduleEdges("import { syncAll as syncNflverse } from './nflverse.js';");
+  assert.deepEqual(imports[0].names, ['syncAll']);
+  assert.deepEqual(imports[0].aliases, [{ imported: 'syncAll', local: 'syncNflverse' }]);
+});
+
+test('tableColumns reads CREATE TABLE and ALTER TABLE ADD COLUMN', () => {
+  const src = [
+    "db.exec(`CREATE TABLE IF NOT EXISTS players (",
+    '  id INTEGER PRIMARY KEY, name TEXT, bye_week INTEGER,',
+    '  PRIMARY KEY (id)',
+    ')`);',
+    "run('ALTER TABLE players ADD COLUMN gsis_id TEXT');",
+  ].join('\n');
+  const cols = tableColumns(new Map([['server/s.js', mkFile('server/s.js', src)]]));
+  const players = cols.get('players');
+  assert.ok(players.has('bye_week'));
+  assert.ok(players.has('gsis_id'), 'a column added by ALTER is declared too');
+  assert.ok(!players.has('PRIMARY'), 'a table constraint is not a column');
+});
+
+test('statementTables separates what a statement reads from what it writes', () => {
+  const t = statementTables('INSERT INTO a (x) SELECT x FROM b JOIN c ON c.id = b.id');
+  assert.deepEqual([...t.writes], ['a']);
+  assert.deepEqual([...t.reads].sort(), ['b', 'c']);
 });

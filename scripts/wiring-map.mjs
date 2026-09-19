@@ -180,7 +180,7 @@ function sqlEdges(strings, attribute = () => ({ handle: 'app', where: null })) {
   for (const { text, line, at } of strings) {
     if (!looksSql(text)) continue;
     const { handle, where } = attribute(at);
-    const tag = (arr, from) => { for (let i = from; i < arr.length; i++) { arr[i].handle = handle; arr[i].opened_on = where; } };
+    const tag = (arr, from) => { for (let i = from; i < arr.length; i++) { arr[i].handle = handle; arr[i].opened_on = where; arr[i].at = at; } };
     const c0 = creates.length, w0 = writes.length, r0 = reads.length;
     collect(RE_CREATE, text, creates, line);
     collect(RE_ALTER, text, creates, line);
@@ -262,12 +262,17 @@ function moduleEdges(code) {
   let m;
 
   const add = (spec, namesRaw, dynamic, idx) => {
-    const names = (namesRaw ?? '')
-      .replace(/[{}]/g, ' ')
-      .split(',')
-      .map(s => s.trim().split(/\s+as\s+/)[0].trim())
-      .filter(s => s && s !== '*' && /^[A-Za-z_$][\w$]*$/.test(s));
-    imports.push({ spec, names, dynamic, line: lineOf(code, idx) });
+    const parts = (namesRaw ?? '').replace(/[{}]/g, ' ').split(',').map(x => x.trim()).filter(Boolean);
+    const ok = (x) => x && x !== '*' && /^[A-Za-z_$][\w$]*$/.test(x);
+    const names = parts.map(x => x.split(/\s+as\s+/)[0].trim()).filter(ok);
+    // `import { syncAll as syncNflverse }` — the local alias is the only name
+    // the calls are written under. Reading only the exported name made an
+    // aliased import look like an export nothing ever calls.
+    const aliases = parts.map(x => {
+      const [imported, local] = x.split(/\s+as\s+/).map(y => y.trim());
+      return { imported, local: local ?? imported };
+    }).filter(x => ok(x.imported) && ok(x.local));
+    imports.push({ spec, names, aliases, dynamic, line: lineOf(code, idx) });
   };
 
   const RE_STATIC = /\bimport\s+([^;'"]*?)\s*from\s*['"]([^'"]+)['"]/g;
@@ -600,6 +605,187 @@ function blindCaches(file) {
 }
 
 // ---------------------------------------------------------------------------
+// Function-level reach. The module graph cannot tell two functions in the same
+// file apart, and that is exactly where the most expensive kind of wiring bug
+// hides: `availability()` and `weeklyAvailability()` live in one module, so a
+// module map says they read the same thing. They do not. One reads the fitted
+// tables and one reads four-year-old usage history, and the endpoint that
+// serves them picks between them on a query parameter.
+//
+// So: split each file into functions, attribute each SQL statement to the
+// function whose body contains it, and close over the call graph to a fixpoint
+// so a function inherits what the functions it calls read.
+// ---------------------------------------------------------------------------
+
+/** Every named function in a file, with the character range of its body. */
+function functionUnits(f) {
+  const out = new Map();
+  const matchFrom = (i, open, close) => {
+    let depth = 0;
+    for (let j = i; j < f.code.length; j++) {
+      if (f.code[j] === open) depth++;
+      else if (f.code[j] === close) { depth--; if (depth === 0) return j; }
+    }
+    return -1;
+  };
+  const claim = (name, bodyOpen, declAt, exported) => {
+    if (!name || out.has(name) || bodyOpen === -1 || f.code[bodyOpen] !== '{') return;
+    const end = matchFrom(bodyOpen, '{', '}');
+    if (end === -1) return;
+    out.set(name, { name, start: bodyOpen, end, line: lineOf(f.code, declAt), exported });
+  };
+  // function NAME(...) { — the body brace is the first `{` AFTER the matching
+  // `)`, never the first `{` after the `(`. A destructured parameter list
+  // (`function availability({ through = SEASON - 1 } = {})`) opens a brace
+  // inside the parameters, and taking that one gives every such function a
+  // body four characters long — which silently emptied their table sets.
+  for (const m of f.code.matchAll(/(export\s+)?(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)\s*\(/g)) {
+    const closeParen = matchFrom(m.index + m[0].length - 1, '(', ')');
+    if (closeParen === -1) continue;
+    claim(m[2], f.code.indexOf('{', closeParen), m.index, Boolean(m[1]));
+  }
+  // const NAME = (...) => { — the regex already ends on the body brace.
+  for (const m of f.code.matchAll(/(export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^()]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{/g)) {
+    claim(m[2], m.index + m[0].length - 1, m.index, Boolean(m[1]));
+  }
+  // const NAME = async function (...) {
+  for (const m of f.code.matchAll(/(export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*\*?\s*[A-Za-z_$\w]*\s*\(/g)) {
+    const closeParen = matchFrom(m.index + m[0].length - 1, '(', ')');
+    if (closeParen === -1) continue;
+    claim(m[2], f.code.indexOf('{', closeParen), m.index, Boolean(m[1]));
+  }
+  return out;
+}
+
+/** Which function body an offset falls inside — the innermost one wins. */
+function unitAt(units, offset) {
+  let best = null;
+  for (const u of units.values()) {
+    if (offset < u.start || offset > u.end) continue;
+    if (!best || (u.end - u.start) < (best.end - best.start)) best = u;
+  }
+  return best;
+}
+
+const CALL_STOP = new Set(['if', 'for', 'while', 'switch', 'catch', 'return', 'typeof', 'await',
+  'function', 'new', 'Number', 'String', 'Boolean', 'Array', 'Object', 'Math', 'JSON', 'Map', 'Set',
+  'Date', 'Promise', 'Error', 'parseInt', 'parseFloat', 'require', 'import']);
+
+/**
+ * `file#fn` -> { own tables, calls, reach } for every named function in the
+ * repository, closed over the call graph.
+ *
+ * Calls resolve against the same file first, then against the file's imports.
+ * A call we cannot resolve is dropped rather than guessed at: an inherited
+ * table set that is too large makes two different functions look identical,
+ * which is the failure this whole section exists to avoid.
+ */
+function functionReach(files) {
+  const units = new Map();      // file -> Map name -> unit
+  const nodes = new Map();      // `file#name` -> node
+  for (const f of files.values()) {
+    const us = functionUnits(f);
+    units.set(f.path, us);
+    for (const u of us.values()) {
+      nodes.set(`${f.path}#${u.name}`, {
+        id: `${f.path}#${u.name}`, file: f.path, name: u.name, line: u.line,
+        exported: u.exported, reads: new Set(), writes: new Set(), calls: new Set(),
+      });
+    }
+  }
+  // SQL, attributed to the innermost function containing the statement.
+  for (const f of files.values()) {
+    const us = units.get(f.path);
+    for (const kind of ['reads', 'writes']) {
+      for (const e of f.sql[kind]) {
+        if (e.handle && e.handle !== 'app') continue;
+        const u = unitAt(us, e.at ?? -1);
+        if (!u) continue;
+        nodes.get(`${f.path}#${u.name}`)[kind].add(e.table);
+      }
+    }
+  }
+  // Calls.
+  for (const f of files.values()) {
+    const us = units.get(f.path);
+    const importOf = new Map();
+    for (const imp of f.imports) if (imp.resolved) for (const n of imp.names) importOf.set(n, imp.resolved);
+    for (const m of f.code.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)) {
+      if (CALL_STOP.has(m[1])) continue;
+      const caller = unitAt(us, m.index);
+      if (!caller || caller.name === m[1]) continue;
+      const target = us.has(m[1]) ? `${f.path}#${m[1]}`
+        : importOf.has(m[1]) ? `${importOf.get(m[1])}#${m[1]}` : null;
+      if (target && nodes.has(target)) nodes.get(`${f.path}#${caller.name}`).calls.add(target);
+    }
+  }
+  // Fixpoint. Bounded because a cycle would otherwise never settle.
+  for (const n of nodes.values()) { n.reach = new Set(n.reads); n.reachWrites = new Set(n.writes); }
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+    for (const n of nodes.values()) {
+      for (const c of n.calls) {
+        const t = nodes.get(c);
+        if (!t) continue;
+        for (const x of t.reach) if (!n.reach.has(x)) { n.reach.add(x); changed = true; }
+        for (const x of t.reachWrites) if (!n.reachWrites.has(x)) { n.reachWrites.add(x); changed = true; }
+      }
+    }
+    if (!changed) break;
+  }
+  return nodes;
+}
+
+// ---------------------------------------------------------------------------
+// Columns. A column declared and read and never written is a field that reads
+// as null on every row forever, and the surface above it usually has a `??`
+// next to it so nothing ever errors.
+// ---------------------------------------------------------------------------
+
+const RE_TABLE_BODY = /\bCREATE\s+(?:TEMP\s+|TEMPORARY\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`[]?([A-Za-z_]\w*)["'`\]]?\s*\(/gi;
+const RE_ADD_COLUMN = /\bALTER\s+TABLE\s+["'`[]?([A-Za-z_]\w*)["'`\]]?\s+ADD\s+(?:COLUMN\s+)?["'`[]?([A-Za-z_]\w*)/gi;
+/** Columns whose name says nothing about which table they belong to. */
+const GENERIC_COLUMN = /^(id|name|season|week|team|player_id|created_at|updated_at|value|source|kind|type|status|label|note|notes|data|payload|config|n|scope|position|team_id|league_id|game_id|abbr|slug|version|rank|tier|gap|date|day|year|month)$/i;
+
+/** table -> Set of declared column names, from CREATE TABLE and ALTER ... ADD. */
+function tableColumns(files) {
+  const cols = new Map();
+  const put = (t, c) => { if (!cols.has(t)) cols.set(t, new Set()); cols.get(t).add(c); };
+  for (const f of files.values()) {
+    for (const { text } of f.strings) {
+      if (!looksSql(text)) continue;
+      let m;
+      RE_TABLE_BODY.lastIndex = 0;
+      while ((m = RE_TABLE_BODY.exec(text))) {
+        const open = m.index + m[0].length - 1;
+        let depth = 0, end = -1;
+        for (let i = open; i < text.length; i++) {
+          if (text[i] === '(') depth++;
+          else if (text[i] === ')') { depth--; if (depth === 0) { end = i; break; } }
+        }
+        if (end === -1) continue;
+        for (const line of text.slice(open + 1, end).split(/,(?![^(]*\))/)) {
+          const c = /^\s*["'`[]?([A-Za-z_]\w*)/.exec(line);
+          if (c && !/^\s*(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT)\b/i.test(line)) put(m[1], c[1]);
+        }
+      }
+      RE_ADD_COLUMN.lastIndex = 0;
+      while ((m = RE_ADD_COLUMN.exec(text))) put(m[1], m[2]);
+    }
+  }
+  return cols;
+}
+
+/** Which tables a single SQL statement names, and how. */
+function statementTables(text) {
+  const reads = new Set(), writes = new Set();
+  let m;
+  for (const re of [RE_FROM, RE_JOIN]) { re.lastIndex = 0; while ((m = re.exec(text))) reads.add(m[1]); }
+  for (const re of [RE_INSERT, RE_REPLACE, RE_UPDATE]) { re.lastIndex = 0; while ((m = re.exec(text))) writes.add(m[1]); }
+  return { reads, writes };
+}
+
+// ---------------------------------------------------------------------------
 // Scope. Nick has ruled out betting FEATURES, not knowing what connects to
 // what, so the betting half is mapped and then tagged, rather than skipped. A
 // map with holes in it is worse than no map, because people trust it.
@@ -772,7 +958,10 @@ function build() {
       }
     }
   }
-  return { files, importsOf, importedBy, surfaces, mounts, mountByFile, jobs, tables, reach, reachNames, gated };
+  const fnReach = functionReach(files);
+  const columns = tableColumns(files);
+  return { files, importsOf, importedBy, surfaces, mounts, mountByFile, jobs, tables, reach,
+    reachNames, gated, fnReach, columns };
 }
 
 // ---------------------------------------------------------------------------
@@ -1067,7 +1256,202 @@ function findings(model, ann) {
       detail: 'no page or extension calls it', evidence: [`${r.file}:${r.line}`] });
   }
 
+  // ---- what SHOULD be wired ------------------------------------------------
+  // Everything above answers "what is wired to what". These four answer the
+  // question a person actually asks when they open a map: where is something
+  // obviously missing? They find gaps that no test fails on, because in every
+  // one of these shapes the code runs, returns a number, and is wrong.
+  shouldBeWired(model, ann, add);
+
   return out;
+}
+
+/** Functions whose name says they produce something. */
+const PRODUCER = /^(sync|build|fit|refresh|collect|import|backfill|ingest|seed|load|pull|fetch|compute|rebuild)[A-Z]/;
+
+function shouldBeWired(model, ann, add) {
+  const { files, fnReach, columns, tables, reach, reachNames } = model;
+  const ignored = new Set(ann.expected_orphans ?? []);
+
+  // 1. TWO NAMES FOR ONE THING, READING DIFFERENT DATA.
+  //    Two exported functions in one module where one name contains the other,
+  //    and the longer one reads tables the shorter one never touches. The
+  //    shorter name is the obvious one to reach for and it silently answers
+  //    from a different source. This is how `/api/model/availability` came to
+  //    serve a durability prior computed from usage history while
+  //    `/api/model/availability?week=2` serves the fitted tables.
+  const byFile = new Map();
+  for (const n of fnReach.values()) {
+    if (!n.exported) continue;
+    if (!byFile.has(n.file)) byFile.set(n.file, []);
+    byFile.get(n.file).push(n);
+  }
+  for (const [file, list] of byFile) {
+    const f = files.get(file);
+    if (!f || f.tree === 'test' || f.tree === 'script') continue;
+    if (!served(reach.get(file))) continue;
+    for (const a of list) {
+      for (const b of list) {
+        if (a === b || a.name.length >= b.name.length) continue;
+        const short = a.name.toLowerCase(), long = b.name.toLowerCase();
+        if (!long.includes(short) || short.length < 6) continue;
+        // `gameVariance()` and `backfillGameVariance()` are a reader and its
+        // producer. Of course the producer touches more tables; that is what it
+        // is for. The rule is about two ways to ask the SAME question.
+        if (PRODUCER.test(b.name)) continue;
+        const extra = [...b.reach].filter(t => !a.reach.has(t));
+        if (!extra.length || !a.reach.size) continue;
+        if (ignored.has(`pair:${file}#${a.name}|${b.name}`)) continue;
+        add({ kind: 'should-wire', rule: 'two-names-different-sources', scope: scopeOfFile(file),
+          subject: `${a.name}() vs ${b.name}()`,
+          detail: `both are exported from this module and the names read as the same thing, but `
+            + `${b.name}() reads ${extra.slice(0, 6).join(', ')} and ${a.name}() does not. `
+            + `Whoever reaches for the shorter name gets an answer from a different source, with no error`,
+          evidence: [`${file}:${a.line}`, `${file}:${b.line}`] });
+      }
+    }
+  }
+
+  // 2. A COLUMN READ ON A LIVE SURFACE THAT NOTHING WRITES.
+  //    Null on every row forever. It never throws, because the reader almost
+  //    always has a `?? fallback` sitting next to it, which is why these
+  //    survive for years.
+  const declared = new Map();     // column -> Set of tables declaring it
+  for (const [t, cols] of columns) for (const c of cols) {
+    if (!declared.has(c)) declared.set(c, new Set());
+    declared.get(c).add(t);
+  }
+  const colRead = new Map();      // `t.c` -> [{file,line}]
+  const colWritten = new Set();   // `t.c`
+  const opaqueWrite = new Set();  // tables written through a column list we cannot read
+  for (const f of files.values()) {
+    for (const { text, line } of f.strings) {
+      if (!looksSql(text)) continue;
+      const { reads, writes } = statementTables(text);
+      // `INSERT INTO t (${COLUMNS.join(', ')}) VALUES ...` names no column this
+      // scan can see, and `INSERT INTO t SELECT *` names them all. Either way
+      // every column of that table is potentially written, so the table is
+      // excluded rather than reported on evidence we do not have.
+      if (writes.size && (text.includes('${') || /\*/.test(text))) for (const t of writes) opaqueWrite.add(t);
+      const named = new Set([...reads, ...writes]);
+      const words = new Set(text.match(/[A-Za-z_]\w*/g) ?? []);
+      for (const w of words) {
+        const owners = [...(declared.get(w) ?? [])].filter(t => named.has(t));
+        if (owners.length !== 1) continue;          // ambiguous: say nothing
+        const key = `${owners[0]}.${w}`;
+        if (writes.has(owners[0])) colWritten.add(key);
+        else if (reads.has(owners[0]) && f.tree !== 'test') {
+          if (!colRead.has(key)) colRead.set(key, []);
+          colRead.get(key).push({ file: f.path, line });
+        }
+      }
+    }
+  }
+  for (const [key, where] of colRead) {
+    if (colWritten.has(key)) continue;
+    const [table, col] = key.split('.');
+    if (GENERIC_COLUMN.test(col)) continue;
+    // A table in the league chat corpus has no writer here and is not supposed
+    // to; its columns arrive by whole-file replacement. Reporting them would be
+    // the same false alarm the handle attribution exists to prevent.
+    if (tables.get(table)?.database || opaqueWrite.has(table)) continue;
+    if (ignored.has(`column:${key}`)) continue;
+    const live = where.filter(w => served(reach.get(w.file)));
+    if (!live.length) continue;
+    add({ kind: 'should-wire', rule: 'column-read-never-written', scope: scopeOfTable(table), subject: key,
+      detail: `declared on ${table} and read on a live surface, and no INSERT or UPDATE in the `
+        + `repository ever sets it — so it is null on every row and the reader's fallback is what runs`,
+      evidence: live.slice(0, 4).map(w => `${w.file}:${w.line}`) });
+  }
+
+  // 3. A REQUEST PARAMETER WITH A DEFAULT THAT NO CALLER EVER PASSES.
+  //    The default is not a default, it is the only value. `from_week` on the
+  //    season simulation defaults to 1, so every playoff number in the app is
+  //    simulated from week one and the real standings are discarded.
+  const passed = new Set();
+  for (const f of files.values()) {
+    // A test passing the parameter is not the app passing it. The whole point
+    // of the rule is that the shipped code never supplies it, and a route
+    // exercised only by its own test is the clearest case of that, not an
+    // exemption from it.
+    if (f.tree === 'test') continue;
+    for (const { text } of f.strings) for (const m of text.matchAll(/[?&]([a-z_][\w]*)=/gi)) passed.add(m[1]);
+    for (const m of f.code.matchAll(/\bset\(\s*['"]([a-z_][\w]*)['"]/gi)) passed.add(m[1]);
+  }
+  for (const f of files.values()) {
+    if (!f.path.startsWith('server/routes/')) continue;
+    const seen = new Set();
+    // Both shapes: `req.query.x ?? 1` and `Number(req.query.x) || 1`. The
+    // second is the common one and reading only the first missed `from_week`,
+    // which is the case that started this rule.
+    const shapes = [
+      /req\.query\.([A-Za-z_]\w*)\s*(?:\?\?|\|\|)\s*([^\s;,)}`]+)/g,
+      /(?:Number|String|parseInt|parseFloat)\(\s*req\.query\.([A-Za-z_]\w*)\s*(?:,\s*\d+\s*)?\)\s*(?:\?\?|\|\|)\s*([^\s;,)}`]+)/g,
+    ];
+    for (const m of shapes.flatMap(re => [...f.code.matchAll(re)])) {
+      const name = m[1];
+      // `?? null` means "absent", and absent is a real answer. `?? 1` means
+      // "pretend you were given 1", which is a different number than the one
+      // the caller would have got, and nothing anywhere says so.
+      if (!/^(\d+(\.\d+)?|'[^']+'|"[^"]+")$/.test(m[2])) continue;
+      if (passed.has(name) || seen.has(name) || ignored.has(`param:${name}`)) continue;
+      seen.add(name);
+      add({ kind: 'should-wire', rule: 'parameter-never-passed', scope: scopeOfFile(f.path), subject: name,
+        detail: `read here with a default, and no page, script or extension in the repository ever `
+          + `puts it in a query string — so the default is not a fallback, it is the only value this `
+          + `endpoint has ever been given`,
+        evidence: [`${f.path}:${lineOf(f.code, m.index)}`] });
+    }
+  }
+
+  // 4. A PRODUCER NOBODY RUNS.
+  //    A function whose name says it fills something, which writes a table a
+  //    live surface reads, and which nothing calls. The table is not empty by
+  //    accident; there is simply no path that fills it.
+  // Tables half the repository writes are bookkeeping, not this function's
+  // output. "Fills sync_log" is true of almost every producer and says nothing.
+  const BOOKKEEPING = /^(sync_log|job_runs|schema_migrations|.*_log|.*_progress|.*_checkpoints)$/;
+  const sharedSink = new Set([...tables.values()]
+    .filter(t => BOOKKEEPING.test(t.table)
+      || new Set(t.writes.filter(w => w.tree !== 'test').map(w => w.file)).size > 6)
+    .map(t => t.table));
+  for (const n of fnReach.values()) {
+    if (!PRODUCER.test(n.name) || !n.exported) continue;
+    const f = files.get(n.file);
+    if (!f || f.tree === 'test') continue;
+    const writes = [...n.reachWrites].filter(t => !sharedSink.has(t));
+    if (!writes.length) continue;
+    // Count calls ANYWHERE outside the declaration, not just inside another
+    // named function. Most route handlers are anonymous arrows, so a call from
+    // one belongs to no unit at all — and reading only the unit graph reported
+    // functions as uncalled that a route calls on every request.
+    let calls = 0;
+    for (const o of files.values()) {
+      if (o.tree === 'test') continue;
+      // Every local name this file could be calling it by: the export's own
+      // name, and any alias it was imported under.
+      const localNames = new Set([n.name]);
+      for (const imp of o.imports) {
+        if (imp.resolved !== n.file) continue;
+        for (const a of imp.aliases ?? []) if (a.imported === n.name) localNames.add(a.local);
+      }
+      for (const local of localNames) {
+        const hits = (o.code.match(new RegExp(`\\b${local}\\s*\\(`, 'g')) ?? []).length;
+        calls += Math.max(0, o.path === n.file && local === n.name ? hits - 1 : hits);
+      }
+    }
+    if (calls > 0 || ignored.has(`producer:${n.file}#${n.name}`)) continue;
+    const servedTables = writes.filter(t => (tables.get(t)?.reads ?? [])
+      .some(r => r.tree !== 'test' && served(reach.get(r.file))));
+    if (!servedTables.length) continue;
+    add({ kind: 'should-wire', rule: 'producer-with-no-caller', scope: scopeOfFile(n.file),
+      subject: `${n.name}()`,
+      detail: `fills ${servedTables.slice(0, 4).join(', ')}, which a live surface reads, and nothing `
+        + `in the repository calls it — no route, no job, no script`,
+      evidence: [`${n.file}:${n.line}`,
+        ...surfacesOf(reachNames, (tables.get(servedTables[0])?.reads ?? [])
+          .find(r => served(reach.get(r.file)))?.file ?? n.file, CLOSE_HOPS).slice(0, 2)] });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,12 +1523,21 @@ const LIMITS = [
   'DYNAMIC NAMES ARE INVISIBLE. A table or module reached only through an interpolated '
   + 'identifier does not appear at all.',
   'ROUTES MATCH BY SHAPE. /a/:id and /a/:other are the same path here.',
+  'COLUMNS WRITTEN THROUGH A BUILT COLUMN LIST ARE INVISIBLE. An INSERT whose columns come '
+  + 'from a JavaScript array, or an INSERT ... SELECT *, names no column this scan can read, '
+  + 'so every column of that table is left alone rather than reported on evidence that does '
+  + 'not exist. It found five such tables and said nothing about any of their columns.',
+  'A PARAMETER BUILT AT RUNTIME LOOKS UNPASSED. The rule reads query strings out of source '
+  + 'text. A caller that assembles one from variables would be missed, and the parameter '
+  + 'would be reported as never passed when it is.',
 ];
 
 const SEVERITY = {
   'table-never-written': 1, 'client-call-without-route': 1, 'table-hand-fed': 2,
   'cache-blind-to-its-inputs': 2.5, 'table-in-another-database': 2.8, 'table-never-scheduled': 3,
   'edge-behind-an-off-flag': 3.5,
+  'column-read-never-written': 1.2, 'producer-with-no-caller': 1.4,
+  'two-names-different-sources': 1.6, 'parameter-never-passed': 1.8,
   'module-only-tested': 4, 'module-imported-by-nothing': 5,
   'module-reaches-no-surface': 5, 'field-attached-never-read': 6, 'value-computed-never-used': 7,
   'table-never-read': 8, 'export-only-tested': 9, 'export-imported-by-nothing': 10, 'route-no-caller': 11,
@@ -1154,7 +1547,7 @@ const SEVERITY = {
 /** The missing-feed family as a table, generated — never transcribed. */
 function missingFeedTable(model, found) {
   const { tables, reachNames } = model;
-  const rows = found.filter(f => f.kind === 'missing-feed');
+  const rows = found.filter(f => f.kind === 'missing-feed' && tables.has(f.subject));
   const L = ['# Missing feeds', '',
     'Generated by `node scripts/wiring-map.mjs`. Do not edit — re-run it.',
     '', 'A surface depends on something nothing produces. The page still renders:',
@@ -1258,6 +1651,21 @@ function toMarkdown(model, found, ann) {
         if (c.route_families.length) p(`  - reached from ${c.route_families.map(x => x.name).join(' ')}`);
       }
     }
+    p();
+  }
+  const sw = found.filter(f => f.kind === 'should-wire');
+  if (sw.length) {
+    p(`**${sw.length} should be wired** — nothing is broken enough to fail a test, and the code `
+      + 'is answering from the wrong place, with a default, or from a column that is null on '
+      + 'every row. This family is the one to read when the question is "what did we forget to '
+      + 'connect", rather than "what is connected".');
+    p();
+    for (const f of sw.filter(f => f.scope !== 'betting')) {
+      p(`- **${f.subject}** \`[${f.rule}]\` — ${f.detail}`);
+      if (f.evidence?.length) p(`  - ${f.evidence.slice(0, 4).join(', ')}`);
+    }
+    const bet = sw.filter(f => f.scope === 'betting');
+    if (bet.length) p(`- ...and ${bet.length} more in betting code, tagged and out of scope for work.`);
     p();
   }
   const byRule = new Map();
@@ -1366,7 +1774,8 @@ function toMarkdown(model, found, ann) {
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,
-  foreignHandles, handleFor, gatedRegions, blindCaches, bodyRange, LIMITS };
+  foreignHandles, handleFor, gatedRegions, blindCaches, bodyRange, LIMITS,
+  functionUnits, functionReach, tableColumns, statementTables, shouldBeWired };
 
 // ---------------------------------------------------------------------------
 // CLI. Skipped on import, so the module above is testable.
@@ -1448,7 +1857,15 @@ if (INVOKED_DIRECTLY) {
   if (flag('check')) {
     // CI gate: fail on the family that hurts users. Orphans are reported and do
     // not break the build, because removing them is a judgement call.
-    const blocking = found.filter(f => f.kind === 'missing-feed' && !(ann.accepted_missing_feeds ?? []).includes(f.subject));
+    // Two of the should-wire rules are structural rather than a judgement — a
+    // column nothing writes and a producer nothing calls are facts, not
+    // opinions — so they gate too. The other two describe a shape that is
+    // often deliberate, and a gate that fails on opinions gets switched off.
+    const GATING = new Set(['column-read-never-written', 'producer-with-no-caller']);
+    const accepted = ann.accepted_missing_feeds ?? [];
+    const blocking = found.filter(f =>
+      (f.kind === 'missing-feed' || (f.kind === 'should-wire' && GATING.has(f.rule)))
+      && !accepted.includes(f.subject) && !accepted.includes(`${f.rule} ${f.subject}`));
     if (blocking.length) {
       console.error(`\n${blocking.length} MISSING FEED finding(s) — a surface depends on something nothing produces:`);
       for (const f of blocking) console.error(`  ${f.rule} ${f.subject} — ${f.detail}`);

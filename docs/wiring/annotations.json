@@ -3,13 +3,13 @@
   "asserted_producers": {
     "nfl_availability_rates": "Produced by `node scripts/fit-availability.mjs` over a shell on the machine. There is no route and no job that runs it, by design: it is a 5-season fit with a 2,000-draw bootstrap.",
     "nfl_availability_role_rates": "Same script, and only if its pre-registered gate passes on held-out 2025. A failed gate writes zero rows on purpose; an empty table is a legitimate outcome, not a bug.",
-    "espn_player_market": "syncEspnMarket() exists and nothing calls it. Not a deliberate manual step \u2014 an unfinished one.",
+    "espn_player_market": "syncEspnMarket() exists and nothing calls it. Not a deliberate manual step — an unfinished one.",
     "league_roster_snapshots": "`node scripts/collect-roster-snapshots.mjs`, run by hand per league.",
     "league_transactions_raw": "`node scripts/collect-league-transactions.mjs`, run by hand per league.",
-    "negotiation_profiles": "Lives in the CHAT database, not the app's \u2014 built by scripts/build-negotiation-profiles.mjs on the Mac and delivered inside the corpus file.",
+    "negotiation_profiles": "Lives in the CHAT database, not the app's — built by scripts/build-negotiation-profiles.mjs on the Mac and delivered inside the corpus file.",
     "nfl_rebuild_progress": "Written by the 2022-2025 rebuild script while it runs. Correctly manual.",
     "nfl_rebuild_checkpoints": "Written by the 2022-2025 rebuild script while it runs. Correctly manual.",
-    "manager_archetypes": "Written by server/services/manager-archetypes.js:561-563, driven by scripts/build-manager-archetypes.mjs. No chat dependency \u2014 it replays league-seasons out of the app's own database, so it works whether or not a corpus ever arrives. PR #26 registers it as a scheduled job (scheduler.js, heavy tier, 24h)."
+    "manager_archetypes": "Written by server/services/manager-archetypes.js:561-563, driven by scripts/build-manager-archetypes.mjs. No chat dependency — it replays league-seasons out of the app's own database, so it works whether or not a corpus ever arrives. PR #26 registers it as a scheduled job (scheduler.js, heavy tier, 24h)."
   },
   "expected_orphans": [
     "table:espn_settings"
@@ -17,7 +17,7 @@
   "notes": {
     "league_member_identity": "The walker sees a writer (manager-identity.js) reachable from a route and calls the table fed. It is not, in the way that matters: a row only becomes usable to the Trade Brain when its `confidence` is 'confirmed' or 'exact' (TRUSTED_CONFIDENCE), and 'confirmed' is only ever set from the `confirmations` argument, which a person has to supply. Name matching cannot bootstrap it, because chat handles are not ESPN names. A value-level dependency like this one is outside what an import-and-SQL walker can prove, which is why it is written down here.",
     "espn_settings": "Read once at server/db/index.js:228 to migrate a pre-multi-league row into `leagues`. Nothing writes it any more and nothing should. Kept as a legacy read.",
-    "scope": "Betting rows are mapped and tagged `betting`. They are out of scope for work and in scope for knowing \u2014 a map with a hole in it is worse than no map, because people trust it.",
+    "scope": "Betting rows are mapped and tagged `betting`. They are out of scope for work and in scope for knowing — a map with a hole in it is worse than no map, because people trust it.",
     "the chat corpus": "messages, jev_chat_signals, manager_chat_profile, manager_player_sentiment and negotiation_profiles are NOT in the app's database. They are Nick's iMessage corpus, a separate SQLite file opened read-only via chatDbPath()/messagesDbPath(), built on his Mac and delivered whole through POST /api/league-chat/upload (which refuses a corpus with an empty messages table). The map reported all four as 'written by nothing' before it learned to tell the two handles apart; they were fine. Both consuming surfaces already refuse and name the gap when the corpus is absent."
   },
   "accepted_missing_feeds": [
@@ -30,7 +30,18 @@
     "nfl_live_possession_predictions",
     "nfl_live_possession_settlements",
     "nfl_rebuild_checkpoints",
-    "nfl_rebuild_progress"
+    "nfl_rebuild_progress",
+    "column-read-never-written auth_sessions.revoked_at",
+    "column-read-never-written draft_pick_corrections.applied_at",
+    "column-read-never-written draft_pick_quarantine.first_seen_at",
+    "column-read-never-written players.bye_week",
+    "column-read-never-written users.disabled_at",
+    "producer-with-no-caller backfillGameVariance()",
+    "producer-with-no-caller backfillHistoricalQuoteTape()",
+    "producer-with-no-caller backfillNewsEntities()",
+    "producer-with-no-caller buildTotalCalibration()",
+    "producer-with-no-caller syncDraftRookieEvidence()",
+    "producer-with-no-caller syncEspnMarket()"
   ],
-  "_ACCEPTED_README": "accepted_missing_feeds is a RATCHET, not approval. Each entry is a gap that already existed when the check was turned on, so CI fails on anything NEW rather than on day one. Fixing one means deleting its line here. Nothing should ever be added to this list to make a build pass \u2014 add it only when turning the check on over existing debt."
+  "_ACCEPTED_README": "accepted_missing_feeds is a RATCHET, not approval. Each entry is a gap that already existed when the check was turned on, so CI fails on anything NEW rather than on day one. Fixing one means deleting its line here. Nothing should ever be added to this list to make a build pass — add it only when turning the check on over existing debt. Entries with a rule name in front come from the should-wire family: a column nothing writes, or a producer nothing calls. They are real and they are pre-existing; the gate exists so the eleventh does not become the twelfth silently."
 }

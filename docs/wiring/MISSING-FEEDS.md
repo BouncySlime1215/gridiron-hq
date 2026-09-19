@@ -25,3 +25,5 @@ it renders a constant, a default or an empty list, and it looks fine.
 - REACHABILITY IS NOT A CALL GRAPH. Hop distance says a route imports something that imports the module. It does not prove the route calls it. Edges behind an off-by-default flag are listed separately (edge-behind-an-off-flag) because they are real as code and false as behaviour.
 - DYNAMIC NAMES ARE INVISIBLE. A table or module reached only through an interpolated identifier does not appear at all.
 - ROUTES MATCH BY SHAPE. /a/:id and /a/:other are the same path here.
+- COLUMNS WRITTEN THROUGH A BUILT COLUMN LIST ARE INVISIBLE. An INSERT whose columns come from a JavaScript array, or an INSERT ... SELECT *, names no column this scan can read, so every column of that table is left alone rather than reported on evidence that does not exist. It found five such tables and said nothing about any of their columns.
+- A PARAMETER BUILT AT RUNTIME LOOKS UNPASSED. The rule reads query strings out of source text. A caller that assembles one from variables would be missed, and the parameter would be reported as never passed when it is.

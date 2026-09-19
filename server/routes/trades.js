@@ -22,6 +22,7 @@ import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
 import { brainState, managerProfiles, setManagerProfile } from '../services/league-brain.js';
+import { proposalsFor, liveCaller, dbCache } from '../services/trade-proposals.js';
 import { waiverUpgrades, freeAgents } from '../services/waiver-brain.js';
 import { byeOutlook, byePatches, fragility } from '../services/roster-risk.js';
 import { positionLiquidity } from '../services/position-liquidity.js';
@@ -558,6 +559,36 @@ r.get('/:leagueId/find', (req, res, next) => {
       limit: Math.min(300, Number(req.query.limit) || 20),
       targetId: req.query.target_id || null,
       excludeIds: excludeSet(req)
+    }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * The AI pass: the top numeric ideas, written up as messages Nick can send.
+ *
+ * Budgeted per league ($0.50/day, enforced inside callClaude) and cached on the
+ * slate's content, so re-opening the page costs nothing and an unchanged slate
+ * never re-spends. A refusal — budget gone, no key, the model inventing things
+ * — comes back as `refused` with its reason rather than an empty list that
+ * would read like "no good trades today".
+ */
+r.get('/:leagueId/proposals', async (req, res, next) => {
+  try {
+    const lg = league(req, res); if (!lg) return;
+    // The model only ever sees ideas that already passed the edge test, because
+    // that filter lives inside findTrades and runs before this point.
+    const found = findTrades(lg, {
+      myTeamId: req.query.team_id,
+      requireMutual: req.query.mutual !== '0',
+      limit: Math.min(12, Number(req.query.limit) || 12),
+    });
+    const ideas = found?.deals ?? [];
+    // Every name in the league, so a player smuggled into an opener is caught
+    // and not just one swapped into the structured package.
+    const universe = [...new Set(ideas.flatMap(d =>
+      [...(d.i_give ?? []), ...(d.i_get ?? [])].map(p => p?.name).filter(Boolean)))];
+    res.json(await proposalsFor(lg.id, {
+      ideas, universe, call: liveCaller(callClaude), cache: dbCache(lg.id),
     }));
   } catch (e) { next(e); }
 });

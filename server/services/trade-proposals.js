@@ -30,6 +30,7 @@
  * permanently empty Trade Lab.
  */
 import crypto from 'node:crypto';
+import { row, run } from '../db/index.js';
 
 /** Bumping this invalidates every cached answer by construction. */
 export const PROMPT_VERSION = 'trade-proposals-v1';
@@ -190,6 +191,106 @@ export function cacheKeyFor(leagueId, ideas) {
     })),
   });
   return crypto.createHash('sha256').update(material).digest('hex');
+}
+
+/**
+ * What the model is shown and asked for.
+ *
+ * Deliberately narrow: the ideas are already scored, ranked and edge-tested, so
+ * the model's whole job is wording and selection. It is told in the prompt that
+ * it may not invent — but the prompt is not what enforces that, `verifyProposals`
+ * is. A prompt is a request; the verifier is the guarantee.
+ *
+ * **Unexercised.** No live call was ever made against this text: the box it was
+ * written in has no API key. Whether Sonnet picks the right five ideas or writes
+ * an opener that sounds like Nick is not evidenced by anything in this repo yet.
+ */
+export function proposalsPrompt(ideas) {
+  const slate = ideas.map(i => ({
+    id: i.id,
+    partner: i.partner,
+    i_give: (i.i_give ?? []).map(p => ({ name: p.name, value: p.value })),
+    i_get: (i.i_get ?? []).map(p => ({ name: p.name, value: p.value })),
+    my_ppg_delta: i.me?.ppg_delta ?? null,
+    their_value_pct: i.their_value_pct ?? null,
+    acceptance: i.acceptance?.band ?? null,
+    acceptance_basis: i.acceptance?.basis ?? null,
+    tactics: (i.tactics ?? []).map(t => ({ key: t.key, why: t.why })),
+  }));
+
+  return [
+    'You are writing trade proposals a fantasy football manager will actually send to the other',
+    'people in his league. The analysis is already done: every package below passed a hard filter',
+    'that it is positive for him on his own numbers. Your job is selection and wording, not',
+    'evaluation.',
+    '',
+    'Return 5 to 8 proposals as a JSON array and nothing else. You may drop ideas and you may merge',
+    'two into one. You may NOT introduce a player who is not in the ideas you cite, and you may NOT',
+    'use a number that does not appear in them. Every proposal is checked against its cited ideas',
+    'after you answer, and one that names an unknown player or an unknown number is discarded',
+    'whole — so a proposal you are unsure about is better dropped than padded.',
+    '',
+    'Each proposal is an object with exactly these keys:',
+    '  idea_ids          the ids from the slate this comes from (at least one)',
+    '  package           { i_give: [names], i_get: [names] }',
+    '  why_they_say_yes  one line, in terms of what THAT manager values',
+    '  opener            the actual opening message, casual, how a person texts a league-mate',
+    '  ask / fair / floor  what to open with, what is even, and the most to give up',
+    '  timing            { send: "now" | "wait", reason: "..." }',
+    '  risk              the one thing that could make this a mistake',
+    '  data_used         which numbers you leaned on',
+    '',
+    'No preamble, no markdown, no commentary. The array only.',
+    '',
+    'THE SLATE:',
+    JSON.stringify(slate, null, 2),
+  ].join('\n');
+}
+
+/**
+ * The production caller: one Sonnet call, budgeted per league.
+ *
+ * `feature` carries the league id because `llm-budget.js` resolves
+ * `trade_proposals:league-4` to the `trade_proposals` budget — so each league
+ * gets its own daily cap without any budget code here. `callClaude` enforces it
+ * and throws when it is spent, which `proposalsFor` surfaces as a refusal.
+ */
+export function liveCaller(callClaude) {
+  return async ({ leagueId, ideas }) => callClaude({
+    feature: `trade_proposals:league-${leagueId}`,
+    model: 'claude-sonnet-5',
+    maxTokens: 4000,
+    prompt: proposalsPrompt(ideas),
+  });
+}
+
+/**
+ * The persisted cache (migration 060), in the two-method shape `proposalsFor`
+ * takes. Separate from the orchestration so tests can inject a plain Map and
+ * never touch a database.
+ *
+ * A read that cannot be parsed is treated as a miss rather than thrown: a
+ * corrupt row should cost one re-spend, not break Trade Lab.
+ */
+export function dbCache(leagueId) {
+  return {
+    get(key) {
+      const hit = row('SELECT payload FROM trade_proposal_cache WHERE cache_key = ?', key);
+      if (!hit) return null;
+      try {
+        return JSON.parse(hit.payload);
+      } catch {
+        return null;
+      }
+    },
+    set(key, value) {
+      run(`INSERT INTO trade_proposal_cache (cache_key, league_id, payload, created_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(cache_key) DO UPDATE SET payload = excluded.payload,
+             created_at = excluded.created_at`,
+      key, String(leagueId), JSON.stringify(value), new Date().toISOString());
+    },
+  };
 }
 
 /**

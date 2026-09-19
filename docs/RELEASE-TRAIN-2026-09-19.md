@@ -212,7 +212,7 @@ The only scheduled QBR job is `nfl_qbr_weather` (`scheduler.js:1216`), which cal
 
 | # | State | What it needs |
 |---|---|---|
-| 8 | CI cancelled at 15:58Z, re-run queued | A green run. It changes only `CLAUDE.md` and `.claude/skills/`, so this is a formality — but it has never had one. |
+| 8 | CI cancelled twice — **and it was structural, not flaky** | Fixed: base retargeted from `main` to `…-3ldl77` (#7). Both runs died at exactly the 20-minute mark (20m16s and 20m14s), which is `timeout-minutes: 20` in `ci.yml:33`. This branch sat on `main`, which lacks #7's CI fixes, and `main`'s suite takes about 24 minutes — so it could never have gone green on its old base however many times it was re-run. With #7 in the base it runs against the merge result in about 6 minutes. Base change only; no commits touched. |
 | 33 | CI **failed** at 19:52Z: 2,808 tests, 1 failure | Probably nothing, and a re-run is queued to confirm. That single failure did **not** reproduce in the merged train, where the same code passed inside 2,928 green tests. It also matches a known repo-wide signature: a test file whose every test passes but whose `after` hook throws `ENOTEMPTY` on `fs.rmSync`, because a worker thread re-runs `server/db/index.js` and re-creates the database directory mid-removal. That is environmental and predates the whole stack. It is in the sequence on the strength of the train result; if the re-run fails differently, the owning thread should look before this lands. |
 | 34 | Green, wrong base | Rebasing off PR #6's branch. See section 2. |
 
@@ -574,7 +574,142 @@ volume without a schema rollback. If a migration does need undoing,
 `npm run db:rollback` takes one at a time, newest first — with the caveat above
 about which of the three 061s it picks.
 
-## 7. Evidence
+## 7. The run sheet
+
+Every command in order, for the moment the decision is made. Nothing here is a
+description; each line is meant to be pasted. Steps 1-2 are read-only. **Step 3
+is the first irreversible action in the whole plan.**
+
+### Read-only, safe to run now
+
+```
+# 1. What is on the machine, what the database holds, what image is running.
+#    (The full command is in section 5.)
+fly image show -a gridiron-hq
+```
+
+**Stop here if `fly image show` returns nothing usable.** That reference is the
+only rollback there is; everything after step 3 assumes it exists. Do not
+proceed on the hope that `fly releases` will have it later.
+
+```
+# 2. The baseline reading, seeded so it is comparable.
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=1&runs=2000&from_week=2" > ~/sim-before.json
+```
+
+### The merge — irreversible from here
+
+```
+# 3. Land the train. Same order, same branches, as the run that was proved.
+git fetch origin --prune
+git checkout main && git pull origin main
+for b in 3ldl77 3ldl77-deploy 3ldl77-server 3ldl77-client 3ldl77-docs \
+         5podec sytruo-stacked \
+         o3wt2p o3wt2p-honesty o3wt2p-fantasy o3wt2p-blocking o3wt2p-watchdog \
+         o3wt2p-current-season o3wt2p-live-tier o3wt2p-reentry \
+         5f9c3y-honesty 5f9c3y-narration 5f9c3y-drafts \
+         3xqh5l-proposals-live 3xqh5l-signals-api 3xqh5l-manager-read \
+         3xqh5l-brain-ui 3xqh5l w45mur n4052e; do
+  git merge --no-edit "origin/claude/project-thread-$b" || { echo "STOPPED at $b"; break; }
+done
+```
+
+Two notes on that loop. It stops at the first conflict rather than carrying on,
+because a half-merged deployment branch is worse than a stopped one. And it
+expects the two fixes in section 3 to have landed in their source pull requests
+first — without them it stops at `n4052e`, and the seven `manager-signals-api`
+tests fail. If they have not landed, resolve `scripts/start-smoke.mjs` in favour
+of the `HEAD` side (#17's probe, the one that checks `probe.ok`).
+
+```
+# 4. Verify before pushing. This is the same five checks CI runs.
+npm ci && npm run check
+```
+
+**Do not push on a red result.** The proved run was 2,928 tests with 0 failures;
+anything else means a branch moved after the proof and needs looking at.
+
+```
+# 5. Push.
+git push origin main
+```
+
+### Deploy
+
+```
+# 6. Deploy. Migrations run at boot, before app.listen.
+fly deploy -a gridiron-hq
+
+# 7. Watch the first boot — this is when the concurrency bug used to fire hardest.
+fly logs -a gridiron-hq
+
+# 8. Take the heavy tier off while the database writes run.
+fly secrets unset AUTO_HEAVY_SYNC -a gridiron-hq
+
+# 9. Prove it came back. Allow 300s for the first request: the machine cold starts.
+curl -sS --max-time 300 https://gridiron-hq.fly.dev/api/health
+
+# 10. Prove the feeds are SCHEDULED, not just green.
+curl -s -H "Authorization: Bearer $TOKEN" \
+  https://gridiron-hq.fly.dev/api/mlb/sync/status | grep -A2 -E "nflverse_|espn_depth|espn_season|sleeper_players"
+
+# 11. Prove the Trade Brain works, per league. Exits 2 if the app never answers.
+GRIDIRON_FLY_TOKEN=... node scripts/verify-trade-brain-live.mjs
+
+# 12. The reading again, for attribution.
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=1&runs=2000&from_week=2" > ~/sim-after-deploy.json
+```
+
+### The two database writes
+
+```
+fly ssh console -a gridiron-hq
+cd /app
+
+# 13. Gate, read-only. All five conditions must read true. About 90 seconds.
+node scripts/promote-volume-shrinkage.mjs --dry-run
+
+# 14. Write 1, both halves, same sitting.
+node scripts/promote-volume-shrinkage.mjs
+node scripts/promote-weekly-ensemble.mjs
+
+# 15. Gate, read-only, verdict on file. Expect ship:false on the role table.
+node scripts/fit-availability.mjs --dry-run --report=/tmp/fit.json
+
+# 16. Write 2, after reading step 15.
+node scripts/fit-availability.mjs
+
+# 17. Re-fit the posture calibration, which step 16 makes stale.
+node scripts/fit-posture-calibration.mjs --rebuild
+```
+
+```
+# 18. The reading a third time. The difference from step 12 is write 2's effect,
+#     isolated from every code change in the train.
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://gridiron-hq.fly.dev/api/model/1/simulate?seed=1&runs=2000&from_week=2" > ~/sim-after-fit.json
+```
+
+### Undo
+
+```sql
+-- Write 2. DROP, not DELETE: these tables do not exist on live today.
+DROP TABLE nfl_availability_rates;
+DROP TABLE nfl_availability_role_rates;
+
+-- Write 1.
+UPDATE shrinkage_fits SET active = 0;
+UPDATE weekly_ensemble_fits SET promoted = 0 WHERE id = <the new id>;
+```
+
+```
+# The deploy. The image reference from step 1, not a commit.
+fly deploy --image <ref> -a gridiron-hq
+```
+
+## 8. Evidence
 
 Scratch branch built from `main` at `ffe4e72`, 25 merges in the order in section
 1, both fixes from section 3 applied. Run with the repository's own scripts:

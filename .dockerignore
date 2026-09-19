@@ -10,3 +10,18 @@ data/derived/league_chat.sqlite*
 data/nflverse.sqlite*
 data/line-history
 *.log
+
+# Not read by the server at runtime — only bloats the build context that gets
+# uploaded to Fly's remote builder on every deploy. docs/ alone is ~97MB;
+# with node_modules and .git already excluded above, this was still the
+# biggest thing left in the context (a first deploy took ~60 minutes,
+# dominated by the COPY . . and export steps).
+docs
+study
+chrome-extension
+mac
+windows
+research
+HANDOFF.md
+TASKS.md
+README.md

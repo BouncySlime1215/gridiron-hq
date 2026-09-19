@@ -49,10 +49,18 @@ gets ranked options, recommendation first.
 commit, a GREEN commit, and an evidence file under `docs/tdd/`. Keep that
 shape. Fix the implementation, not the test, unless the test is wrong.
 
-**A failing test is never "a flake" until proven.** Name the failure and its
-cause before calling it environmental. The suite currently carries known
-environment-dependent failures — check `TASKS.md` before assuming a failure
-is new.
+**A failing test is never "a flake" until proven, and "no API key" is not a
+cause.** Name the failure and its real cause before calling it environmental.
+This project read a `Connection error.` in `nfl-news-events` and
+`page-explain` as a missing Anthropic key for weeks. PR #7 found the real
+cause: a `mock.module()` call passing `exports: { default: … }` where the API
+takes `defaultExport`. The wrong key was accepted in silence, the mocked
+module's default became an empty object, and the SDK reported its own
+`TypeError` as a connection failure. It was never the key.
+
+**The live task list is not in this branch.** `TASKS.md` exists only on
+`cursor/betting-model-audit-fixes-1c85` (PR #6), not on `main`. Read it there
+before assuming a failure is new — a fresh clone of `main` does not have it.
 
 **Run `npm ci` before trusting any suite number.** A fresh clone has no
 `node_modules`, and the offline-guard tests fail with `ERR_MODULE_NOT_FOUND`
@@ -85,10 +93,13 @@ talking to Nick first.
   This project requires attribution footers on commits, PRs and GitHub
   comments. Its rule loses.
 - **80% coverage minimum, and mandatory unit + integration + Playwright E2E
-  on everything.** There is no Playwright here, and CI on `main` has never
-  once completed — all four runs ever were cancelled for exceeding the job
-  budget. A coverage floor and an E2E tier would make that worse. Revisit
-  after CI completes on `main` at all.
+  on everything.** There is no Playwright here, and the suite runs against
+  `timeout-minutes: 20` in `.github/workflows/ci.yml`. CI had never once
+  completed on `main` — every run was cut off at that mark — until PR #7
+  brought the runtime back inside the budget. A coverage floor and a new E2E
+  tier would spend the headroom #7 just bought. Revisit once there is margin
+  to spare, and raise the timeout deliberately rather than rediscovering it
+  at twenty minutes.
 - **"NEVER mutate, always spread."** Written for a React/TypeScript codebase.
   This is Node, Express and SQLite, and the rule would flag ordinary correct
   code on nearly every file.

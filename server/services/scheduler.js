@@ -1383,15 +1383,60 @@ function runJobOffThread(name, timeoutMs) {
   });
 }
 
+/*
+ * A JOB NEVER RUNS ON TOP OF ITSELF.
+ *
+ * The tier loops below guard a tier against its own next pass, which was the
+ * fix for two passes interleaving over the same `sync_log` rows. That guard is
+ * per timer, and it is not the whole problem, because a timer is only one of
+ * FIVE independent callers of this function:
+ *
+ *   1. the boot catch-up pass, 20 seconds after `startScheduler`
+ *   2. the live timer, every 90 seconds
+ *   3. the background timer, every `intervalMinutes`
+ *   4. `refreshInBackground`, on page loads that need current data
+ *   5. `POST /api/mlb/sync/now?job=X` and `/api/nfl-betting/sync`, by hand
+ *
+ * Nothing coordinated them. The staleness gate cannot, because `record()` runs
+ * only AFTER `job.run()` returns: while a job is in flight its last recorded
+ * run is still the old one, so it reads as stale to every other caller and
+ * they all start it again. Callers 4 and 5 pass `force: true` and skip the
+ * gate outright.
+ *
+ * This is not theoretical on the live app. The boot pass holds 18 jobs and one
+ * of them, `evidence_daemon`, spends its full 120-second budget every time it
+ * runs (29 runs, 29 timeouts, measured 2026-09-19), so the boot pass is still
+ * going when the 90-second live timer fires — every boot, not occasionally.
+ * The overlapping jobs then write the same tables from two synchronous SQLite
+ * transactions and record over each other's `sync_log` rows, and the second
+ * copy's cost is pure waste: its work was already being done.
+ *
+ * So the guard belongs on the job, where every caller goes through it, rather
+ * than on any one caller. A second request for a job already running is handed
+ * the SAME promise, so it gets the real result and the work happens once.
+ */
+const running = new Map();
+
 export async function runIfStale(name, { force = false } = {}) {
   const job = JOBS[name];
   if (!job) return { job: name, error: 'unknown job' };
+  // Before the staleness gate, and before `force` can bypass it: "already
+  // running" is a complete answer to "should this run", whatever the caller.
+  const inFlightRun = running.get(name);
+  if (inFlightRun) return inFlightRun;
   const age = minutesSince(name);
   const dueAfter = nextDueMinutes(name, job);
   if (!force && age < dueAfter) {
     return { job: name, skipped: true, age_minutes: Math.round(age),
       max_age_minutes: job.maxAgeMinutes, due_after_minutes: dueAfter };
   }
+  const run = runJobNow(name, job);
+  running.set(name, run);
+  try { return await run; } finally { running.delete(name); }
+}
+
+/** The run itself, once the gates above have decided it should happen. */
+async function runJobNow(name, job) {
   const startedAt = Date.now();
   try {
     // EVERY JOB IS TIME-BOUND, AND THIS IS NOT DEFENSIVE PROGRAMMING.

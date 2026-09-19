@@ -1,4 +1,4 @@
-export const name = '061_league_payload_season';
+export const name = '062_league_payload_season';
 /**
  * Which season the stored league payload actually came from.
  *

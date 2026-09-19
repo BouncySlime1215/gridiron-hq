@@ -83,8 +83,22 @@ let activeFetchHandler = null;
 // not a function` — caught, wrapped by the SDK as its own generic
 // `APIConnectionError: Connection error.`, and read for weeks as "this box has
 // no API key" (docs/CLOUD-MIGRATION.md:266, TASKS.md). It was never the key:
-// with the mock inert every test here made a real call to api.anthropic.com,
-// and would have kept doing so on any box, the Mac included.
+// these tests need no key and pass without one.
+//
+// What this comment USED to say, and what an independent verify disproved:
+// "with the mock inert every test here made a real call to api.anthropic.com."
+// It did not, and could not. `this.fetch` was `{}`, so the SDK threw a
+// TypeError BEFORE reaching any transport. Measured with a probe wrapping all
+// four seams (globalThis.fetch, node:http, node:https, net.Socket.connect),
+// validated by a control that logs 17 attempts from test/offline-guard.test.js:
+// reverting this file's mock to the broken form and re-running logs ZERO.
+// No money was ever at risk here, on any box.
+//
+// `Connection error.` is what made that easy to believe: the SDK reports a
+// local TypeError in its own transport exactly the way it reports a dead
+// network. The real Anthropic request_id in cc12a22 came from
+// test/offline-guard.test.js's own deliberately UNMOCKED probe, which is a
+// different file — that evidence was borrowed to describe this one.
 const nodeFetchMock = moduleMock.module('node-fetch', { defaultExport: (url, init) => {
   if (!activeFetchHandler) throw new Error('Test forgot to install an Anthropic fetch mock before making a request');
   return activeFetchHandler(url, init);

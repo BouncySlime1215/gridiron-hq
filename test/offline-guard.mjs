@@ -101,6 +101,18 @@ process.env.GRIDIRON_TEAMRANKINGS_LOOKUP ??= '/nonexistent/teamrankings-lookup.j
  * `nfl-news-events.test.js:21` and `page-explain.test.js` already work this
  * way, and both keep working, because this removes only what the box supplied.
  *
+ * KNOWN LIMIT, stated rather than implied: this closes the ENVIRONMENT, not
+ * every way the app can find a key. `getApiKey()` (server/services/claude.js)
+ * reads GRIDIRON_ANTHROPIC_API_KEY, then ANTHROPIC_API_KEY, then
+ * `app_settings.anthropic_api_key` IN THE DATABASE. Clearing the environment
+ * does nothing about that third source. Under `npm test` it cannot matter —
+ * the script points GRIDIRON_DB_PATH at a fresh temp file with no such row.
+ * Under `npm run test:real` it can: that script sets no GRIDIRON_DB_PATH, so it
+ * opens the real server/data.sqlite, where a key pasted into the app's Settings
+ * screen lives. On such a box `test:real` still runs as "configured" and this
+ * guard's promise — that a box with keys runs the same suite as a box without —
+ * holds for two of the three sources, not three.
+ *
  * The list is credentials, by hand, from
  * `grep -rhoE 'process\.env\.[A-Z0-9_]*(KEY|TOKEN|SECRET)[A-Z0-9_]*' server/ scripts/`,
  * minus LAUNCHER_KEY_FILE, which is a path that test/launcher.test.js sets for
@@ -111,6 +123,11 @@ process.env.GRIDIRON_TEAMRANKINGS_LOOKUP ??= '/nonexistent/teamrankings-lookup.j
 export const PROVIDER_CREDENTIAL_ENV = Object.freeze([
   'AI_GATEWAY_API_KEY',
   'ANTHROPIC_API_KEY',
+  // Not found by the grep below, because no code in this repo reads it — the
+  // SDK does, straight from the environment (`@anthropic-ai/sdk/index.mjs`
+  // reads ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN). A box with it set would
+  // hand the client a live credential this list had not cleared.
+  'ANTHROPIC_AUTH_TOKEN',
   'CFBD_API_KEY',
   'GRIDIRON_ANTHROPIC_API_KEY',
   'ODDS_API_KEY',

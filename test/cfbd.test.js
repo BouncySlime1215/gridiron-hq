@@ -14,7 +14,17 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
 
 const realFetch = globalThis.fetch;
 const realKey = process.env.CFBD_API_KEY;
-test.after(() => { globalThis.fetch = realFetch; process.env.CFBD_API_KEY = realKey; });
+// `realKey` is undefined here — the offline guard clears provider credentials
+// before any test module loads — and `process.env.X = undefined` stores the
+// STRING "undefined", which is truthy. cfbd.js's `hasKey()` is exactly
+// `Boolean(process.env.CFBD_API_KEY)`, so the plain restore left the process
+// believing CFBD was configured. Harmless while node runs each file in its own
+// process and this hook runs last; a trap for the next hook added here.
+test.after(() => {
+  globalThis.fetch = realFetch;
+  if (realKey === undefined) delete process.env.CFBD_API_KEY;
+  else process.env.CFBD_API_KEY = realKey;
+});
 
 const USAGE = [
   { season: 2023, name: 'Marvin Harrison Jr.', position: 'WR', team: 'Ohio State',

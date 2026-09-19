@@ -116,7 +116,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
   bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
   first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
   PRIMARY KEY (league_id, season, tx_id))`);
-// Same DDL migration 20260919213000_league_history_tables creates; it is the roster ->
+// Same DDL migration 064_league_history_tables creates; it is the roster ->
 // ESPN member map the archetype store is keyed by.
 db.exec(`CREATE TABLE IF NOT EXISTS league_season_teams (
   league_id INTEGER NOT NULL, season INTEGER NOT NULL, roster_id TEXT NOT NULL,

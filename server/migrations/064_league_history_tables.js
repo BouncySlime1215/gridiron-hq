@@ -1,4 +1,4 @@
-export const name = '20260919213000_league_history_tables';
+export const name = '064_league_history_tables';
 /**
  * `league_season_teams` and `league_week_scores` — the historical league facts
  * the manager layer is built on.

@@ -6,14 +6,17 @@
 import { workerData } from 'node:worker_threads';
 import { writeSync } from 'node:fs';
 
-const { shared, thresholdMs, armAfterMs, startedAt, heartbeatMs } = workerData;
+const { shared, thresholdMs, startedAt, heartbeatMs } = workerData;
 const cell = new Int32Array(shared);
 
 // Checked several times per threshold so the report names a real duration
 // rather than rounding up to the next whole check.
 const interval = setInterval(() => {
+  // Cell 1 is set by the main thread once it has completed an HTTP response.
+  // Until then this process has never been observed to serve anything, so
+  // killing it could only turn a slow boot into a restart loop.
+  if (Atomics.load(cell, 1) !== 1) return;
   const uptime = Date.now() - startedAt;
-  if (uptime < armAfterMs) return;
   // How long since the main thread last managed to run a one-second timer.
   const blockedMs = uptime - Atomics.load(cell, 0) - heartbeatMs;
   if (blockedMs < thresholdMs) return;

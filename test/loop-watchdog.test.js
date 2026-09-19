@@ -19,9 +19,9 @@ import path from 'node:path';
 
 const SUBJECT = path.join(process.cwd(), 'test/fixtures/watchdog-subject.mjs');
 
-function runSubject(thresholdMs, blockMs, env = {}) {
+function runSubject(thresholdMs, blockMs, env = {}, mode = 'served') {
   return new Promise(resolve => {
-    const child = spawn(process.execPath, [SUBJECT, String(thresholdMs), String(blockMs)],
+    const child = spawn(process.execPath, [SUBJECT, String(thresholdMs), String(blockMs), mode],
       { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', c => { stdout += c; });
@@ -65,4 +65,19 @@ test('the watchdog does not hold the process open', async () => {
   const { code, signal } = await runSubject(60000, 0);
   assert.equal(signal, null);
   assert.equal(code, 0);
+});
+
+test('a process that has never served a response is never killed, however long it blocks', async () => {
+  // THE MOST IMPORTANT CASE. This app's boot continues well past app.listen --
+  // the scheduler fires twenty boot jobs twenty seconds in, on the main thread
+  // -- and a cold start on the deployed machine was measured at about three
+  // minutes to first byte. A watchdog armed by a timer would kill a process
+  // that is still starting, and one slow boot would become an endless restart
+  // loop: strictly worse than the wedge being guarded against. So arming is
+  // proof (a completed HTTP response), never an assumption.
+  const { code, signal, stdout } = await runSubject(1000, 3000, {}, 'never-served');
+
+  assert.equal(signal, null, 'killing a process that has never served anything turns a slow boot into a restart loop');
+  assert.equal(code, 0);
+  assert.match(stdout, /survived/);
 });

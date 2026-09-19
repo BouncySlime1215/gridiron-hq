@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
-import { startLoopWatchdog } from './platform/loop-watchdog.js';
+import { startLoopWatchdog, watchdogArmingMiddleware } from './platform/loop-watchdog.js';
 
 const PORT = Number(process.env.API_PORT) || 5177;
 try {
@@ -55,6 +55,10 @@ const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 
 const app = express();
+// First, so that ANY completed response arms the watchdog -- including a 404
+// or a 401. The question it answers is "has this process ever served an HTTP
+// response", not "has it served a useful one". See platform/loop-watchdog.js.
+app.use(watchdogArmingMiddleware);
 app.use(express.json());
 
 seedIfEmpty();
@@ -187,11 +191,13 @@ if (fs.existsSync(path.join(DIST, 'index.html'))) {
 const HOST = process.env.HOST || '127.0.0.1';
 app.listen(PORT, HOST, () => {
   console.log(`Gridiron HQ listening on http://${HOST}:${PORT}`);
-  // Started only once we are actually serving, and armed later still. A
-  // blocked event loop cannot answer /api/health, and a failing health check
+  // A blocked event loop cannot answer /api/health, and a failing health check
   // does not restart a Fly machine -- only a process exit does. So this is the
   // half that turns "the host can see we are wedged" into "the host replaces
-  // us". See platform/loop-watchdog.js.
+  // us". It watches nothing until the first response has actually been served,
+  // which matters here because boot continues well past this point: the
+  // scheduler fires twenty boot jobs twenty seconds from now, on this thread.
+  // See platform/loop-watchdog.js.
   startLoopWatchdog();
   // Warm the evidence layers (career lines, preseason curve, offseason
   // adjustments, in-house projections) off the request path: cold they cost

@@ -23,8 +23,8 @@ const IS_WIN = process.platform === 'win32';
 /**
  * Is the server answering?
  *
- * Probes /api/model/status, which is deliberately unauthenticated (see the note
- * beside GET /api/model/status in server/routes/model.js). The old probe used
+ * Probes /api/health, which exists to be polled and returns {ok:true} and
+ * nothing else (see server/index.js). The old probe used
  * /api/teams, which sits behind `legacyAuthenticated` (server/index.js) and so
  * answers 401 to an unauthenticated caller — forever. `response.ok` was
  * therefore always false, the poll below never succeeded, and after 60 attempts
@@ -37,7 +37,7 @@ const IS_WIN = process.platform === 'win32';
  */
 const isReady = async () => {
   try {
-    await fetch(`${URL}/api/model/status`, { signal: AbortSignal.timeout(3000) });
+    await fetch(`${URL}/api/health`, { signal: AbortSignal.timeout(3000) });
     return true;
   } catch {
     return false;

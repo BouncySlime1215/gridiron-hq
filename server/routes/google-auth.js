@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { db, row, rows, run } from '../db/index.js';
 import { hashSessionToken, requireAuthenticated } from '../platform/auth.js';
+import { isDirectLoopback } from './local-auth.js';
 import { requirePlatformAdmin, legacyRateLimit } from '../platform/legacy-access.js';
 import {
   googleConfigured, createPkcePair, buildAuthorizationUrl, exchangeCode, verifyIdToken, GoogleAuthError
@@ -116,9 +117,11 @@ function failureRedirect(res, code, returnTo) {
 r.get('/providers', (req, res) => {
   res.json({
     google: googleConfigured(),
-    // The loopback path is unreachable through any proxy by construction, so
-    // on a hosted deployment this reports false and the UI stops offering it.
-    local: true,
+    // Answered for THIS request rather than asserted: the loopback path is
+    // unreachable through any proxy by construction (isDirectLoopback), so on
+    // a hosted deployment this reports false and the client stops offering it,
+    // while a browser on the Mac still sees true.
+    local: isDirectLoopback(req),
     pairing: true,
     origin: publicOrigin(req),
     // Surfaced so the setup steps can be checked against reality rather than
@@ -181,12 +184,11 @@ r.get('/google/callback', legacyRateLimit({ limit: 30, windowMs: 60_000 }), asyn
 
   try {
     const tokens = await exchangeCode({ code, codeVerifier: flow.code_verifier, redirectUri: flow.redirect_uri });
-    // The nonce digest is what is stored, so the claim is hashed and compared
-    // rather than the raw value being kept around to compare against.
+    // Only a digest of the nonce was stored — same discipline as every other
+    // secret here — so the comparison happens on this side rather than by
+    // handing verifyIdToken a value it could compare directly.
     const profile = await verifyIdToken(tokens.id_token, { nonce: null });
-    const claimedNonce = JSON.parse(
-      Buffer.from(String(tokens.id_token).split('.')[1], 'base64url').toString('utf8')).nonce;
-    if (!claimedNonce || hashSessionToken(claimedNonce) !== flow.nonce_hash) {
+    if (!profile.nonce || hashSessionToken(profile.nonce) !== flow.nonce_hash) {
       return failureRedirect(res, 'bad_nonce', returnTo);
     }
 

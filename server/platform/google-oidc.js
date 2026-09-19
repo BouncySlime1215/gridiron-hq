@@ -231,6 +231,10 @@ export async function verifyIdToken(idToken, { nonce, clockToleranceSeconds = 60
     emailVerified: true,
     displayName: claims.name ? String(claims.name) : null,
     avatarUrl: typeof claims.picture === 'string' && claims.picture.startsWith('https://') ? claims.picture : null,
-    hostedDomain: claims.hd ? String(claims.hd) : null
+    hostedDomain: claims.hd ? String(claims.hd) : null,
+    // Returned rather than checked here when the caller stores only a digest
+    // of the nonce it issued, which is what the route does. The value is safe
+    // to act on because it comes off a token whose signature just verified.
+    nonce: claims.nonce == null ? null : String(claims.nonce)
   };
 }

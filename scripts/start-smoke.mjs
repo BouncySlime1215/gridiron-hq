@@ -20,14 +20,14 @@ child.stdout.on('data', chunk => { output += chunk; });
 child.stderr.on('data', chunk => { output += chunk; });
 
 try {
-  // Wait on an unauthenticated route: /api/teams is bearer-authenticated
-  // (server/index.js), so polling it without a token only ever yields 401 and
-  // this loop would spend all 80 attempts before failing on a healthy server.
+  // Wait on GET /api/health, which exists for exactly this and returns
+  // {ok:true} and nothing else. /api/teams is bearer-authenticated, and
+  // /api/model/status — the previous probe — now is too.
   let up = false;
   for (let attempt = 0; attempt < 80; attempt++) {
     if (child.exitCode != null) throw new Error(`application exited with code ${child.exitCode}\n${output}`);
     try {
-      await fetch(`http://127.0.0.1:${port}/api/model/status`, { signal: AbortSignal.timeout(500) });
+      await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(500) });
       up = true;
       break;
     } catch { /* application is still starting */ }

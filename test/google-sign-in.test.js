@@ -388,6 +388,12 @@ test('the providers probe answers before anyone is signed in', async () => {
   const body = await (await fetch(`${base}/auth/providers`)).json();
   assert.equal(body.google, true);
   assert.match(body.redirect_uri, /\/api\/auth\/google\/callback$/);
+  // The test talks to the app over real loopback with no forwarding headers,
+  // which is exactly the case where the token path IS still available.
+  assert.equal(body.local, true);
+  const throughProxy = await (await fetch(`${base}/auth/providers`,
+    { headers: { 'fly-client-ip': '203.0.113.7' } })).json();
+  assert.equal(throughProxy.local, false, 'a proxied request must not be offered loopback sign-in');
 });
 
 test('the loopback token path still works alongside Google sign-in', async () => {

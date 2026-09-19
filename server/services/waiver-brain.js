@@ -42,7 +42,30 @@ import {
 import { gameScriptFor } from './gamescript.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
-const SCORED = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DST']);
+// The positions this file will consider at all. 'DEF' is the literal every
+// writer of `players.position` uses — drafts.js, draft-assist.js,
+// draft-lookahead.js, nfl-roster-strength.js. This set said 'DST' and was the
+// only occurrence of that spelling in the server tree, so it matched no row and
+// no defense had ever reached the free-agent pool, in five leagues that all
+// start one.
+const SCORED = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']);
+
+// The positions the LINEUP SOLVER scores, which is a smaller set and a
+// different question. `bestLineup` filters its pool and its slot list to
+// QB/RB/WR/TE by deliberate design (trade-engine.js: "K and D/ST are near-random
+// week to week and roughly interchangeable, so including them adds noise to
+// every lineup comparison").
+//
+// That design is not in dispute here. Its CONSEQUENCE was: a kicker or defense
+// that reaches the pool changes the solved lineup by exactly zero, so it is
+// dropped by every `gain > 0` threshold downstream and the surface shows an
+// absence with no explanation. A position nobody modelled and a position nobody
+// rates are indistinguishable to a reader, and only one of them is a fact about
+// the roster.
+//
+// Must track `bestLineup`'s own filter. If K or DEF are ever added there, this
+// set moves with it and the honesty note below stops being printed on its own.
+const LINEUP_MODELLED = new Set(['QB', 'RB', 'WR', 'TE']);
 
 /** Fantasy playoffs are weeks 15-17 in the overwhelming majority of leagues. */
 const PLAYOFFS_START = 15;
@@ -178,7 +201,11 @@ export function freeAgents(lg, { limit = 400 } = {}) {
     .filter(p => !owned.has(p.id) && SCORED.has(p.position))
     // A free agent with no projection is not an opportunity, it is a name.
     .filter(p => (p.adj_ppg ?? 0) > 0 && p.available !== false)
-    .map(p => ({ ...p, horizon_value: horizonValue(p, week) }))
+    // Whether the lineup solver can put a number on this player at all. Carried
+    // on the row so every consumer of this pool — waiverUpgrades here, and
+    // byePatches in roster-risk.js — can tell "no gain" apart from "not
+    // modelled" without re-deriving the position rules.
+    .map(p => ({ ...p, horizon_value: horizonValue(p, week), lineup_modelled: LINEUP_MODELLED.has(p.position) }))
     .sort((a, b) => b.horizon_value - a.horizon_value)
     .slice(0, limit);
 }
@@ -245,7 +272,15 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
   const worstBench = droppable[0] ?? null;
 
   const upgrades = [];
+  // Positions that were in the pool and could never have produced a gain,
+  // because the solver does not score them. Collected rather than inferred from
+  // an empty list, so the note below states a fact about the model instead of
+  // leaving the reader to conclude one about the roster.
+  const unmodelled = [...new Set(available.filter(fa => !fa.lineup_modelled).map(fa => fa.position))].sort();
   for (const fa of available) {
+    // Dropped here, named below. Falling out at `gain <= 0.05` instead would be
+    // the same list and a different meaning: a structural zero read as a verdict.
+    if (!fa.lineup_modelled) continue;
     // Re-solve the lineup with this player on the roster. Adding without
     // dropping is the honest test of whether he helps at all; the drop is a
     // roster-space question answered separately below.
@@ -321,6 +356,15 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
     league: lg.name, owner: me.owner, season, week,
     playoff_weight: weight,
     pool_size: available.length,
+    // Not a warning and not an error: a statement of what this list does not
+    // cover, printed whenever the pool held such a player. Empty when it did
+    // not, so it never becomes the sort of note that appears on every page and
+    // trains a reader to skip it.
+    not_modelled: unmodelled.length
+      ? { positions: unmodelled, in_pool: available.filter(fa => !fa.lineup_modelled).length,
+          why: `${unmodelled.join(' and ')} are not scored by the lineup solver, so no ${unmodelled.join(' or ')} ` +
+            'can appear above however well he is playing. Their absence here is a limit of the model, not a read on them.' }
+      : null,
     vegas_lines_available: available.filter(p => p.vegas?.applied).length,
     scored_on: `Lineups are solved on a horizon value: ${Math.round(weight * 100)}% the fantasy playoff weeks ` +
       `(weekly rate, byes counted, no matchup adjustment) and ${100 - Math.round(weight * 100)}% this week plus ` +
@@ -344,7 +388,9 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
         ? 'No free agent could be priced, so nothing was searched. That is missing data, not a verdict ' +
           'on your roster.'
         : 'No free agent would crack your lineup. That is a good sign about the roster, not a failure ' +
-          'of the search.'
+          'of the search.' + (unmodelled.length
+            ? ` It does not cover ${unmodelled.join(' or ')}, which this model does not score at all.`
+            : '')
   };
 }
 

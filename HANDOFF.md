@@ -4,7 +4,46 @@ This is a curated snapshot on top of the automatic switch report (which already
 captures PIDs, transcripts, and raw git state). Read this first for the "why";
 use `docs/FANTASY-ENGINE-MASTER-PLAN.md` part A5 for the mechanical recovery steps.
 
-## 2026-09-19 ~06:50Z — overnight run stopped cleanly (NEWEST; start here)
+## 2026-09-19, new session — both blockers closed; FOUR documented limits were wrong (NEWEST; start here)
+
+**The one thing to fix in your head before reading anything else in this file: a
+fresh clone here has no `node_modules`, and `npm test` runs anyway** (the suite
+is mostly Node builtins), producing a plausible number against zero
+dependencies. Every previous cloud session appears to have skipped `npm ci`, and
+a set of "known cloud-box limitations" was built on top of that. Four of them
+are false:
+
+| Recorded as | Actually |
+|---|---|
+| 11 of the 14 known failures are "this key" | 12, and not the key — a dead `mock.module` option. Fixed, 8/8 and 7/7 **with no key**. |
+| One unexplained failure above the baseline | `evidence daemon status exposes feed gaps`, caused by `ODDS_API_KEY` being in the environment. Baseline was never reproducible across boxes. |
+| `npm run typecheck` fails here, don't chase it | Exits 0 after `npm ci`. |
+| `npm run check` needs the Mac, a cloud box can't `start:smoke` | Boots fine here; smoke passes on an isolated DB. |
+
+**Both WA blockers are closed.** The offline guard is sound (7/7, and proven
+against a *valid* key, which its own GREEN could not do). The 15th failure has a
+name and a cause. Shipped `e8a7831`, `982eb46`, `de82ee2`, `6a5dd71` — all
+pushed. Full detail is the first **Active** entry in `TASKS.md` and the newest
+**B3** entry in the master plan.
+
+**The key you were asked to add is present and works.** `GRIDIRON_ANTHROPIC_API_KEY`
+authenticates and can run inference (verified against `/v1/models` and a real
+1-token `/v1/messages` call). Note what that means for the suite: with a valid
+key on the box and the mock broken, the 12 news-events/page-explain tests were
+spending real money on every run. The guard is what stopped it today.
+
+**Do not re-run the "key-dependent groups" on the Mac** — that instruction is
+struck out below. They never needed a key and would have failed there
+identically.
+
+**Still open when this was written:** the authoritative full-suite run on the new
+HEAD, and two independent verify agents (one adversarial re-check of the three
+code commits, one root-causing the remaining `prop-clv-free-capture` and
+`report-cache` groups). Neither had reported. Do not record any of this as clean
+without their verdicts — a missing verifier verdict is exactly what left blocker
+1 open overnight.
+
+## 2026-09-19 ~06:50Z — overnight run stopped cleanly (superseded by the entry above)
 
 Nothing uncommitted, nothing unpushed — the branch at `cb9c777` is the whole
 truth. Both remaining Trade Brain stages (`value-and-acceptance`,
@@ -61,8 +100,10 @@ before `app_settings`, because a Claude Code cloud environment claims the
 `ANTHROPIC_API_KEY` name for its own session auth and never forwards it to the
 process. `check-environment.mjs` accepts either and reports which one carried the
 key. New test in `test/llm-plumbing.test.js`; 31/31 pass, lint exit 0.
-(`npm run typecheck` fails in a cloud box on `client/src` only — React is not
-installed there. Not caused by this work; do not chase it.)
+(~~`npm run typecheck` fails in a cloud box on `client/src` only — React is not
+installed there. Not caused by this work; do not chase it.~~ **WRONG, corrected
+2026-09-19: it fails only because nobody ran `npm ci`.** React is a devDependency
+and installs fine here. After `npm ci`, `npm run typecheck` exits 0.)
 
 **2026-09-19 update — the Mac install is live.** `npm start` was broken by two
 bugs found that night, both fixed and pushed (`5983e9e`, `0507265`): the
@@ -72,8 +113,12 @@ said `localhost` while the server binds `127.0.0.1`, which on macOS resolves to
 `::1` first. Details in `TASKS.md`. Repo on the Mac is
 `~/Documents/GitHub/gridiron-hq`. ESPN is connected with five leagues, and the
 league chat is pulled locally (15,993 messages) rather than the uploaded
-snapshot. **Still to verify on the Mac: `npm run check`**, since a cloud box
-cannot boot the server to run `start:smoke`.
+snapshot. ~~**Still to verify on the Mac: `npm run check`**, since a cloud box
+cannot boot the server to run `start:smoke`.~~ **WRONG, corrected 2026-09-19.**
+A cloud box boots the server fine — `start:smoke` binds 127.0.0.1 with its own
+temp database and needs nothing Mac-side. Measured here after `npm ci`:
+typecheck 0, lint 0, build 0, `start:smoke` 0 ("startup smoke passed on isolated
+database (32 teams)").
 
 **2026-09-19 update — scheduler freeze, diagnosed and partially fixed.**
 Shipped `481e216`: `runIfStale` and each tier's pass now log

@@ -770,6 +770,9 @@ export function alters(db) {
     // 'redraft' | 'keeper' | 'dynasty' — drives whether we price this league off
     // FantasyCalc's dynasty or redraft value set.
     if (!leagueCols.includes('league_type')) db.exec(`ALTER TABLE leagues ADD COLUMN league_type TEXT`);
+    // ESPN's status.currentMatchupPeriod at last sync — the league's own idea of
+    // "this week", so pages progress with ESPN instead of defaulting to week 1.
+    if (!leagueCols.includes('current_week')) db.exec(`ALTER TABLE leagues ADD COLUMN current_week INTEGER`);
   }
 
   // server/routes/nfldata.js:55-57

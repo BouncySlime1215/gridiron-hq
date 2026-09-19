@@ -24,6 +24,12 @@
  * endpoint that replaces that one and then leaks something itself has not
  * fixed anything.
  *
+ * One thing the 503 does NOT do, which is easy to assume: a failing Fly health
+ * check stops traffic being routed to the machine, but it does not restart it.
+ * Checks and the restart policy are independent, and only a process exit
+ * triggers a restart. `platform/loop-watchdog.js` is what supplies that exit.
+ * So this endpoint reports; it does not recover.
+ *
  * It lives in its own file rather than inline in `server/index.js` so that the
  * failure body can be tested. That is the half a reviewer cannot see by
  * reading the happy path, and it is the half that matters.

@@ -15,19 +15,11 @@ await runMigrations();
 await import('../server/services/gamescript.js');
 const cache = await import('../server/services/report-cache.js');
 
-test.after(async () => {
-  // A worker emits 'exit' AFTER its result has already been delivered, and the
-  // exit handler calls reclaimWal(), which touches the database. Closing the
-  // handle while an exit is still in flight turns that into an uncaught
-  // "database is not open" and fails the whole file even though every test in
-  // it passed. Let the workers this file started finish exiting first.
-  //
-  // Deliberately not fixed by making reclaimWal() swallow a closed database:
-  // it is only reachable here because a test closes the handle mid-run, and in
-  // the server the listener keeps the process (and the database) alive. A
-  // catch there would silence a real "database is not open" everywhere else to
-  // tidy a test-only race.
-  await new Promise(resolve => setTimeout(resolve, 250));
+test.after(() => {
+  // No drain needed here: a worker's late 'exit' calls reclaimWal(), which
+  // returns immediately on a closed handle (see report-cache.js). That fix is
+  // in the module rather than in this file because every test that triggers a
+  // report hits the same window, not just this one.
   db.close();
   fs.rmSync(temp, { recursive: true, force: true });
 });

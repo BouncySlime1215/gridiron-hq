@@ -2095,12 +2095,31 @@ migrations applied, and the app serves correct answers — and it restarts every
 two to three minutes. Four process starts observed from HTTP alone, no terminal
 required:
 
-| Start (derived from `uptime_s`) | Life |
+| Start (derived from `uptime_s`) | Start to next start |
 | --- | --- |
-| ~22:09:00Z | ~178 s |
+| ~22:09:00Z | ~187 s |
 | 22:12:07Z | ~164 s |
-| 22:14:51Z | ~115 s |
-| 22:19:04Z | — |
+| 22:14:51Z | ~252 s |
+| 22:19:03Z | — |
+
+**Those are start-to-start figures and they overstate how long the app works.**
+Twelve samples at twenty-second spacing separate the two halves: serving at
+`uptime_s` 81 and 101, then **four consecutive requests returning zero bytes**
+from 22:16:53Z to 22:18:53Z, then serving again at `uptime_s` 30. So each cycle
+is **about 105 to 120 seconds of normal service, then roughly two minutes
+wedged** — 60 seconds of watchdog threshold plus the exit and the boot, matching
+the design exactly.
+
+**Three cycles have wedged at essentially the same age, between 101 and 121
+seconds of uptime.** That regularity is the strongest clue here, and it argues
+against contention, which would be ragged. Something fires at a fixed offset
+after boot and blocks. It is not the five-minute scheduler tick, so it has
+either a shorter timer or a fixed amount of setup before it starts writing.
+
+**The window is predictable, which keeps the one-request reads possible.** Read
+`uptime_s` first: under about 60 means roughly a minute of good app left, enough
+for `heavy_enabled` or the deploy marker. Not enough for anything that iterates
+over five leagues.
 
 **The signature that names the cause, measured at 22:18:23Z.**
 `GET /api/health` returned **503** — not 502 — with **35.3 seconds to first
@@ -2111,6 +2130,13 @@ diagnosis:
   That was the disk-gate failure earlier tonight.
 - **503** comes from `healthHandler`'s own `catch` (`server/platform/health.js`),
   which is reached only when `db.prepare('SELECT 1').get()` **throws**.
+- **A hang with zero bytes received** — connection accepted, nothing answered —
+  is the kernel taking it onto the listen backlog while the event loop is
+  blocked. This is the majority of what the wedge looks like from outside, and
+  it is precisely the scenario the TCP-check comment in `fly.toml` was written
+  about. **Treat a reported "502" during a wedge as suspect until the raw
+  output is shown**; the three are different faults and only one of them is the
+  edge.
 
 `SELECT 1` does not fail for want of data. It fails on lock contention.
 `node:sqlite` is synchronous and single-writer, so **one long write blocks every

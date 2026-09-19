@@ -2288,6 +2288,10 @@ of a dozen jobs is the one currently holding the lock."
    ```
    fly deploy -a gridiron-hq
    ```
+   **All three are open as drafts against `main` at `791b131`, and GitHub will
+   not merge a draft** — each needs marking ready for review first. Checked
+   22:4xZ; that is one click each, and it is the kind of thing that reads as a
+   broken merge button at seven in the morning.
 
 6. Turn the scheduler back on and prove it holds:
    ```

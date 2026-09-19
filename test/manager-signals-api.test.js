@@ -228,6 +228,18 @@ insertLeague(23, {
 // League 24: connected but never synced.
 insertLeague(24, null, { name: 'Unsynced League' });
 
+// Both fixture accounts belong to every fixture league. `league()` in trades.js is
+// the one place a league-scoped route resolves its league, and it asks whether the
+// caller is a member of it — so a session alone is not enough to read one, which is
+// the point. `league_memberships` has existed since migration 006, so this seeds on
+// this branch's own base too, where it is simply unread.
+// League 999 is deliberately absent: it does not exist, and the 404 case needs the
+// lookup to miss rather than the membership check to refuse.
+for (const id of [21, 22, 23, 24]) {
+  run(`INSERT OR IGNORE INTO league_memberships(league_id, user_id, role) VALUES (?, 7701, 'member')`, id);
+  run(`INSERT OR IGNORE INTO league_memberships(league_id, user_id, role) VALUES (?, 7702, 'commissioner')`, id);
+}
+
 // Transactions in ESPN's real shape (manager-signals.js documents the
 // de-duplication): roster 2 answers six offers, roster 4 answers two. Five
 // decided offers is the bar for tx_accept_rate, so 2 clears it and 4 does not.

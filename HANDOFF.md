@@ -4,7 +4,29 @@ This is a curated snapshot on top of the automatic switch report (which already
 captures PIDs, transcripts, and raw git state). Read this first for the "why";
 use `docs/FANTASY-ENGINE-MASTER-PLAN.md` part A5 for the mechanical recovery steps.
 
-## 2026-09-19, later — WA Trade Brain resumed overnight (newest; read this first)
+## 2026-09-19 ~06:50Z — overnight run stopped cleanly (NEWEST; start here)
+
+Nothing uncommitted, nothing unpushed — the branch at `cb9c777` is the whole
+truth. Both remaining Trade Brain stages (`value-and-acceptance`,
+`sendable-proposals`) are built **and independently verified**, plus the
+chance-to-play silent failure and an offline-guard fix. Full detail and SHAs are
+the first **Active** entry in `TASKS.md`.
+
+**Three things to settle before calling WA done** — all in that entry, none of
+them safe to assume: the offline-guard agent never reported its regression
+verdict (its fix is committed, unverified); one suite failure sits above the
+documented baseline and is unexplained; and WA's integration pass has not begun.
+
+**Do this first, it unblocks the biggest gap.** Add `GRIDIRON_ANTHROPIC_API_KEY`
+to the **"GridIron HQ"** environment (`env_018JCMxcnhDtud9VXS1CW51B`). That
+environment was created 31 minutes before the last session and carried
+`ODDS_API_KEY`/`CFBD_API_KEY`/`TWITTERAPI_IO_KEY` but not the Anthropic key —
+the account has three environments and two are both named "Default", so it is
+sitting in an older one. Until it is there, the live Sonnet call behind
+`sendable-proposals` cannot run, and it is the single largest untested thing on
+this branch.
+
+## 2026-09-19, later — WA Trade Brain resumed overnight
 
 A second cloud session picked the work up cold from this doc and `TASKS.md`
 while Nick's laptop was off. Where to look, in order: `TASKS.md`'s first

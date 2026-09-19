@@ -28,9 +28,16 @@ pushed. Full detail is the first **Active** entry in `TASKS.md` and the newest
 
 **The key you were asked to add is present and works.** `GRIDIRON_ANTHROPIC_API_KEY`
 authenticates and can run inference (verified against `/v1/models` and a real
-1-token `/v1/messages` call). Note what that means for the suite: with a valid
-key on the box and the mock broken, the 12 news-events/page-explain tests were
-spending real money on every run. The guard is what stopped it today.
+1-token `/v1/messages` call).
+
+~~Note what that means for the suite: with a valid key on the box and the mock
+broken, the 12 news-events/page-explain tests were spending real money on every
+run.~~ **WRONG, corrected the same day by the independent verify (`fc4b496`).**
+They could not reach the network at all: with the mock option ignored,
+`this.fetch` was `{}` and the SDK threw before any transport. Measured with a
+four-seam probe against a validated control — reverting the mock to its broken
+form logs **zero** attempts. No money was ever at risk there. The count was 11,
+not 12. See the first **Active** entry in `TASKS.md`.
 
 **Do not re-run the "key-dependent groups" on the Mac** — that instruction is
 struck out below. They never needed a key and would have failed there

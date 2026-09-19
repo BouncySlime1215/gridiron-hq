@@ -74,13 +74,26 @@ Last updated: 2026-09-19, new cloud session on `cursor/betting-model-audit-fixes
       the key-dependent groups on the Mac"
 
     **Both are wrong, and the second sends someone to re-run them on a machine
-    where they would have failed identically.** Every one of those 12 tests was
-    making a real request to `api.anthropic.com` on every run, on every box —
-    the precise thing the offline guard exists to stop, and why `cc12a22` could
-    capture a genuine Anthropic `request_id` from inside the suite. **On a box
-    with a valid key and no guard, these 12 spent real money per run.** This box
-    has a valid key, so that risk was live today. Corrected in place below;
-    `docs/CLOUD-MIGRATION.md:266` still needs the same correction.
+    where they would have failed identically.** These tests need no key and pass
+    without one.
+
+    **CORRECTION, same day (`fc4b496`), from the independent verify — my own
+    follow-on claim was also wrong.** This entry first said "every one of those
+    12 tests was making a real request to `api.anthropic.com`... these 12 spent
+    real money per run." **They did not, and could not.** With `exports:`
+    ignored, `this.fetch` is `{}`, so the SDK throws
+    `this.fetch.call is not a function` BEFORE reaching any transport.
+    Re-measured here with a probe on all four seams (`globalThis.fetch`,
+    `node:http`, `node:https`, `net.Socket.connect`), writing to a file so
+    forked children are counted, validated by a control logging 17 attempts from
+    `test/offline-guard.test.js`: reverting the mock to the broken form and
+    re-running logs **zero**. No money was ever at risk from these two files.
+    The real `request_id` in `cc12a22` came from `offline-guard.test.js`'s own
+    deliberately unmocked probe — a different file, whose evidence I borrowed.
+    The count is also **11, not 12**: `page-explain`'s "handles a missing API key
+    gracefully" was fixed by `982eb46`'s credential clearing, because
+    `getApiKey()` reads `GRIDIRON_ANTHROPIC_API_KEY` first and this box's real
+    key defeated that test's own `clearTestKey()`.
   - **A second, quieter defect the same work exposed.** `getApiKey()`
     (`server/services/claude.js:26`) reads `GRIDIRON_ANTHROPIC_API_KEY` **before**
     `ANTHROPIC_API_KEY`. Both mock-using test files set `ANTHROPIC_API_KEY` as

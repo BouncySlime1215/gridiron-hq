@@ -286,11 +286,16 @@ Two further corrections to what this section implied:
   behaviour and only pass where nobody added a key. `test/offline-guard.mjs`
   now clears provider credentials at `--import` time so a box with keys runs
   the same suite as a box without (`982eb46`).
-- **"Nothing else in the suite needs a key or a network" was true of intent,
-  not of the run.** With the mock inert, those 12 tests made a real request to
-  `api.anthropic.com` every time, on every box — which is what the offline
-  guard's RED commit (`cc12a22`) caught by capturing a real Anthropic
-  `request_id` from inside the suite.
+- **"Nothing else in the suite needs a key or a network" was true.** An earlier
+  version of this correction claimed the opposite — that those tests "made a
+  real request to `api.anthropic.com` every time" — and that was itself wrong,
+  disproved the same day by an independent verify (`fc4b496`). With the mock
+  option ignored, `this.fetch` was `{}` and the SDK threw
+  `this.fetch.call is not a function` before touching any transport; a four-seam
+  probe against a validated control logs **zero** attempts. The real
+  `request_id` in `cc12a22` came from `test/offline-guard.test.js`'s own
+  deliberately unmocked probe, a different file. The count is 11, not 12 — the
+  twelfth was fixed by clearing credentials, not by the mock.
 
 ~~The remaining 3 (`prop-clv-free-capture`) are the genuinely pre-existing
 failures and are unaffected by any of the above.~~ **WRONG too, corrected the

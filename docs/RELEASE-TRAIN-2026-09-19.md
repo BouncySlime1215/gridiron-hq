@@ -2092,7 +2092,19 @@ putting `AUTO_HEAVY_SYNC` back last. **No database write happens tonight.**
 
 **Written at 22:20Z, while it was still happening.** The deploy succeeded, the
 migrations applied, and the app serves correct answers — and it restarts every
-two to three minutes. Four process starts observed from HTTP alone, no terminal
+two to three minutes.
+
+**The most important thing in this section, and it is not the fault: the 26
+pull requests did not cause this.** Team memory's `fly-app-stalls-in-bursts`
+records the same wedge on the **old** build earlier the same day, between 16:08Z
+and 19:25Z — the app accepting connections and then writing nothing for minutes
+at a time, one clear serving window in twelve probes. What changed at 22:09Z is
+that #29's watchdog now **kills** a process whose event loop has stopped turning,
+where the old build let it hang silently. **This release did not break the app;
+it made a pre-existing stall visible.** Found by the wiring map thread, and it
+is the first line anyone should be told, because "the release broke it" and "the
+release exposed something already broken" are very different things to be handed
+on waking. Four process starts observed from HTTP alone, no terminal
 required:
 
 | Start (derived from `uptime_s`) | Start to next start |
@@ -2250,11 +2262,18 @@ of a dozen jobs is the one currently holding the lock."
 4. Merge the scheduler thread's fix PR and deploy, then unset
    `SCHEDULER_DISABLED` once the fix is proved.
 
-**Do not set `LOOP_WATCHDOG_THRESHOLD_MS`.** It is read from the environment
-(`loop-watchdog.js:58`), so it would work, and it would turn a machine that
-restarts into a machine that stays wedged forever. The watchdog is the only
-thing recovering this app. That change would make the symptom quieter and the
-system worse, which is this document's recurring failure committed deliberately.
+**Do not set `LOOP_WATCHDOG_THRESHOLD_MS`, and do not set
+`LOOP_WATCHDOG_DISABLED=1`.** Both are read from the environment, both would
+stop the restarts, and both would restore the silent stall of 16:08Z-19:25Z —
+turning a machine that recovers into one that hangs and stays hung. The watchdog
+is the only thing recovering this app.
+
+**The trap, and it is a nasty one: the code recommends this wrong fix in its own
+error text.** `loop-watchdog-worker.js:32-33` writes, as part of the kill
+message, "If this is not a hung job, raise `LOOP_WATCHDOG_THRESHOLD_MS` or set
+`LOOP_WATCHDOG_DISABLED=1`." That line will be the most authoritative-looking
+thing in the log, and it is addressed to a case that is not this one — **this is
+a hung job.** The answer is still no.
 
 **Rolling back to the old image is a last resort, not an option to offer.** It
 stops all 26 pull requests serving, it does not undo the migrations, and the

@@ -1190,7 +1190,17 @@ export const JOBS = {
     }
     return { teams: teams.length, pressers, statements };
   }), maxAgeMinutes: 6 * 60, tier: 'heavy', label: 'Team press conferences (YouTube, transcribed)' },
-  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', label: 'Forward evidence capture windows' },
+  // offThread, from live status on the deployed app 2026-09-19: last_status
+  // error, 29 runs, every one of them 'exceeded its 120s budget and was
+  // abandoned'. It is tier 'live' with maxAgeMinutes 5, so the 90-second tick
+  // re-attempts it continuously, and each attempt does its synchronous payload
+  // parsing and its `UPDATE evidence_capture_windows` loops on the request
+  // thread. AUTO_HEAVY_SYNC never gated any of that.
+  //
+  // This is a SCHEDULING fix to a betting-side job, not betting work: nothing
+  // about what the job does is changed. See the note on its budget below.
+  evidence_daemon: { run: runEvidenceDaemon, maxAgeMinutes: 5, tier: 'live', offThread: true,
+    label: 'Forward evidence capture windows' },
   nfl_weekly_learning: { run: refreshWeeklyLearning, maxAgeMinutes: 6 * 60, tier: 'heavy',
     label: 'Fantasy weekly snapshot, settlement, and challenger retraining' },
   // Enabled by default, unlike broad heavy research sweeps. Most checks are a
@@ -1205,7 +1215,12 @@ export const JOBS = {
     label: 'Depth chart / injury refresh on a calendar-aware cadence, independent of game finalization' },
   nfl_decision_ledger: { run: refreshNflDecisionLedger, maxAgeMinutes: 3 * 60, tier: 'growth',
     label: 'NFL current-week decision ledger, pregame snapshots, and expert council freeze (zero units)' },
-  nfl_reports: { run: refreshReports, maxAgeMinutes: 3 * 60, tier: 'growth',
+  // offThread for the same reason, also measured live (error, 'exceeded its
+  // 120s budget'). Its report computation is already in workers, but the
+  // per-report fingerprint queries and report-cache.js's TRUNCATE WAL
+  // checkpoint run synchronously on whichever thread calls it, and on a
+  // multi-gigabyte WAL that checkpoint is not cheap.
+  nfl_reports: { run: refreshReports, maxAgeMinutes: 3 * 60, tier: 'growth', offThread: true,
     label: 'Heavy dashboard reports computed off-thread (worker) and served from SQLite' },
   nfl_prop_calibration: { run: refreshNflPropCalibration, maxAgeMinutes: 24 * 60, tier: 'heavy',
     label: 'NFL chronological prop calibration registry' },

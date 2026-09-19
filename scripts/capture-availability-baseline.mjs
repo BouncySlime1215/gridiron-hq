@@ -252,7 +252,51 @@ function report (before, after) {
   console.log(moved === 0
     ? 'Nothing moved. Either the fit has not run, or it wrote no rows — read availability_basis above.'
     : 'Measured difference, against a baseline taken before the fit.');
+  console.log(HOW_TO_READ);
 }
+
+/**
+ * Printed with every comparison, because the person reading the after-numbers is
+ * not necessarily the person who took the before-numbers, and three of these four
+ * lines describe a movement that looks like a regression and is not one.
+ */
+const HOW_TO_READ = `
+How to read the above:
+
+  availability_basis.basis    'constants' -> 'pooled' or 'role' is the fit landing.
+                              It staying 'constants' means the write did not happen.
+                              'pooled' rather than 'role' means the gate declined to
+                              ship the role layer, which is a legitimate outcome.
+
+  target.active_probability   Expected to RISE for a healthy player, by roughly ten
+                              to fifteen points. The constants price a healthy
+                              starter far too low; that is the defect being fixed,
+                              not a regression.
+
+  playoff_odds, horizon_*     Expected to move, and by more than the availability
+                              number alone suggests, because the seeded season
+                              simulation reads the same tables once per simulated
+                              week (season-sim.js:212) on top of the direct read.
+                              Expect the odds to RISE where they were depressed by
+                              players being priced as less available than they are.
+
+  find.*.acceptance           A deal can ACQUIRE or LOSE its acceptance band here
+                              with nothing in the counterparty layer having
+                              changed. acceptanceBand gates first on edge.passes
+                              (trade-acceptance.js:142), and the edge test is
+                              ppg-derived, so a revaluation alone can move a deal
+                              across that gate. Nothing in manager-signals.js,
+                              counterparty-pricing.js or trade-acceptance.js reads
+                              availability at any remove, so this is the fit, not
+                              the manager layer.
+
+  everything unchanged        Suspect the reading before the fit. A route that
+                              memoises without a data fingerprint returns the old
+                              answer rather than failing — which is why this script
+                              reads /offer, whose cache is fingerprinted on both
+                              availability tables, and not /api/model/:id/simulate,
+                              whose cache is not.
+`;
 
 /* --------------------------------------------------------------------- main */
 

@@ -2218,6 +2218,14 @@ stays stopped, and nothing can be read until someone is at a terminal.
 
 ### 7.0c The morning, in order
 
+The app has been restarting in a loop since the deploy — but the stalling
+underneath it was already happening in the afternoon on the old build, measured
+between 16:08 and 19:25Z. What the release added is a watchdog that kills a
+stuck process so the host restarts it, which very likely explains why a problem
+that used to be invisible is now obvious. In the meantime the app is serving in
+short windows between restarts rather than steadily, so opening the site may
+land on a stall.
+
 **Step 7 is not the first item. Stabilising the app is.**
 
 **There is a purpose-built brake for this already in the code, and it is the
@@ -2254,18 +2262,34 @@ of a dozen jobs is the one currently holding the lock."
    **`uptime_s` past 600 and still climbing on the second read is the pass.**
    Anything under 200 on a later read means it restarted again.
 
-3. **Then take the baseline**, which turns last night's loss into a delay rather
+3. **One read settles which job it is**, and it is read-only, so it can be done
+   while the app is quiet:
+   ```
+   fly ssh console -a gridiron-hq -C "sqlite3 /data/data.sqlite 'SELECT id, started_at, status FROM nfl_model_growth_runs ORDER BY id DESC LIMIT 10;'"
+   fly ssh console -a gridiron-hq -C "ls -la /data"
+   ```
+   `nfl-model-growth.js:164-166` INSERTs a row with `status: 'running'` **before
+   any work starts**, so a process killed mid-job leaves that row behind.
+   **One `'running'` row roughly 90 seconds after each process start proves it;
+   no `'running'` rows kills the diagnosis** and sends the search back to the
+   boot pass. The `ls` is the separate question of what `.bak` files are on the
+   volume — there should be exactly one, from the 22:09Z boot, and it is the
+   only copy of the pre-migration rows.
+
+4. **Then take the baseline**, which turns last night's loss into a delay rather
    than a write-off. A scheduler-disabled app is not a degraded one for this
    purpose — it is a *quiet* one, which is the ideal condition for a capture
    that has to be compared against something taken twenty minutes later. Threads
    only, read-only, no terminal needed.
 
-4. Ship the fix. Merge the arming PR and the off-thread PR, then:
+5. Ship the fix. Merge **#56** (the arming fix), the off-thread PR (number
+   pending) and **#52** (the one-line `fly.toml` setting `NFL_SEASON`, green),
+   then:
    ```
    fly deploy -a gridiron-hq
    ```
 
-5. Turn the scheduler back on and prove it holds:
+6. Turn the scheduler back on and prove it holds:
    ```
    fly secrets unset SCHEDULER_DISABLED -a gridiron-hq
    ```
@@ -2273,33 +2297,30 @@ of a dozen jobs is the one currently holding the lock."
    step 7.** Re-enabling without re-proving is how a fix that half-works gets
    believed.
 
-6. Then, and only then, the run sheet's own step:
+7. Then, and only then, the run sheet's own step:
    ```
    fly secrets unset AUTO_HEAVY_SYNC -a gridiron-hq
    ```
 
-**One command settles which job it is, and it can be run at any point after the
-app is stable.** Four threads have been arguing the identity of the blocking
-job from timing arithmetic. It does not have to be argued.
-`nfl-model-growth.js:164-166` INSERTs a row with `status: 'running'` **before
-any work starts**, and `record()` only stamps completion afterwards, so a
-process killed mid-fit leaves that row behind permanently:
+**Why two PRs rather than one.** #56 is necessary and not sufficient: the same
+jobs can still wedge once the watchdog is legitimately armed, so the cycle
+re-forms at a slower period. The second moves the boot pass, the 90-second
+timer at `:1751` and the 150-second one at `:1754` off the request thread, per
+job and behind a structural allow-list, with a test that fails if main-thread
+boot work can exceed the watchdog threshold — which is what stops this
+re-forming the next time somebody adds a job.
 
-```
-fly ssh console -a gridiron-hq -C "sqlite3 /data/data.sqlite 'SELECT id, started_at, status FROM nfl_model_growth_runs ORDER BY id DESC LIMIT 10;'"
-```
+**The root cause that PR 2 addresses, in one sentence, because it is the part
+that will look already-handled to a reader.** The scheduler *does* have a job
+budget — `DEFAULT_JOB_TIMEOUT_MS = 120_000` at `scheduler.js:1438` — but it is
+applied as a `Promise.race`, and **a race cannot interrupt synchronous work**:
+nothing else runs to notice the timer, so a blocking job burns straight through
+its own 120-second budget while the watchdog's fuse is 60. The budget is not a
+second line of defence here; it is a number that never gets read.
 
-**One `'running'` row per killed process start — roughly 90 seconds after each
-— proves it. No `'running'` rows kills the diagnosis outright** and sends the
-search back to the boot pass. Either way it costs one command, and it is
-evidence rather than arithmetic. Found by the Trade Brain thread.
-
-**Why two PRs rather than one.** The arming fix is necessary and not sufficient:
-the same jobs can still wedge on the 90-second live timer once the watchdog is
-legitimately armed, so the cycle re-forms at a slower period. The second moves
-the boot pass and the live tier off-thread, with a test that fails if
-main-thread boot work can exceed the watchdog threshold — which is what stops
-this re-forming the next time somebody adds a job.
+**And the fix does not depend on settling which of the two blockers lands the
+kill**, because `nfl-model-growth.js` holds no module-level state, so it moves
+off-thread cleanly whichever reading is right.
 
 **Do not set `LOOP_WATCHDOG_THRESHOLD_MS`, and do not set
 `LOOP_WATCHDOG_DISABLED=1`.** Both are read from the environment, both would
@@ -2335,7 +2356,7 @@ previous build had its own faults.
   second failure can accumulate. So: nothing is corrupted and no data is at
   risk; **that is not the same as nothing having been affected.**
 
-### 7.0c-i Why the boot pass, specifically
+### 7.0c-i Which job, and how it stopped being arithmetic
 
 `bootJobs` at `scheduler.js:1740-1744` is exactly twenty jobs, **awaited in
 series** at `:1746`, starting at `bootDelayMs` — default 20000 at `:1717`.
@@ -2363,11 +2384,43 @@ an age of 112 minutes, **it is due on every boot.** All verified on `791b131`.
 vague to act on.** `runNflModelGrowthCycle` (`nfl-model-growth.js:160`) checks
 its required sources, and `weekly_player_usage` — table `player_week_usage`,
 `required: true` (`:82-83`) — **has no 2026 rows on the live database**, so
-`coreLag` at `:181` is true. That opens the gate at `:186`, and the branch runs
-`syncNflverse` (`:187`) and then `syncPbpSeason` (`:188`) — a full-season
-play-by-play CSV parsed on the main thread. This is not a fit that got slow; it
-is a download-and-parse that should never have been on the thread serving HTTP,
-and it is due on every boot because its own last attempt errored.
+`coreLag` at `:181` is true, opening the ingest branch at `:186`.
+
+**The play-by-play parse is not the blocking step, and that correction is
+Trade Brain's own.** `syncPbpSeason` at `:188` streams — gunzip piped into
+`for await (const chunk of source)` at `nfl-pbp.js:410-415` — so the loop turns
+between chunks; and in week 2 the 2026 file is one or two weeks of plays, not a
+season. **The blocking steps are the two deliberate prior-season re-reads
+further down the same branch**, both on `[season - 1, season]` — that is 2025
+as well as 2026, every time:
+
+- `snap_counts` at `:194` calls `syncSnaps([2025, 2026])`, and
+  `nfl-advanced.js:199-200` writes a whole season in **one synchronous
+  transaction** — `db.exec('BEGIN')`, then `for (const b of batch) stmt.run(…)`,
+  then `COMMIT`, with no yield anywhere in the loop, on the order of 30,000
+  statement runs.
+- `verified_event_archive` at `:197-198` calls `syncVerifiedEventArchive({
+  seasons: [2025, 2026], includeWeeklyRosters: true })`, and
+  `nfl-event-archive.js:204-210` runs injuries, materialisation, trades and
+  then weekly roster events across both seasons.
+
+**One distinction inside that, which matters for the 503 and was not in the
+version handed to me.** The snap-counts write is a single long *exclusive*
+transaction, so it is the candidate that can make `SELECT 1` throw after the
+15-second `busy_timeout`. The weekly-roster writer is not: `syncWeeklyRosterEvents`
+(`nfl-event-archive.js:150-199`) calls `insertEvent` per row in a tight
+synchronous loop with **no `BEGIN`/`COMMIT` anywhere in the file**, so each row
+autocommits. That blocks the event loop just as hard — it is the same unyielding
+loop — while holding no long lock. **So of the two, only the snap-counts
+transaction explains both halves of what was measured**, and a fix that moved
+only the roster loop would still leave the 503.
+
+**Why it never finishes and never gives up.** Both writers use
+`ON CONFLICT … DO UPDATE`, so each restart rewrites the same 2025 rows and makes
+no progress toward clearing `coreLag`. The 2026 rows that *would* clear it come
+from `syncNflverse` at `:187`, first in the branch, which is the step that
+errored at 21:17:44. The job is therefore due on every boot, does the expensive
+part every boot, and is killed before the part that would end the cycle.
 
 
 `setTimeout` at `:1751` is independent of the chain, which is fire-and-forget at
@@ -2376,13 +2429,35 @@ returns, so a process killed mid-job leaves `last_run_at` frozen — which is
 exactly what `21:17:44.903Z` with failures stuck at 1 across four lives looks
 like.
 
-**It still does not fit every death, and that is stated rather than smoothed
-over.** Start plus 90 seconds plus the watchdog's 60 gives ~150 seconds;
-observed lives were 178, 161 and 255. The first two are close, the third is not,
-and `nfl_reports` on the 150-second timer at `:1754` cannot explain it either
-because it resolves `offThread: true` at `:1335`. **Naming the job needs the
-machine log.** Found and then retracted by the Trade Brain thread, which is the
-only reason the wrong answer is not still sitting in this section.
+**This section said until 22:4xZ that naming the job needed the machine log. It
+did not — it needed one field read across enough lives, and the scheduler thread
+read it.** The last `uptime_s` served before each dark window was **95, 97, 93,
+91, 94, 88** across six lives, and never near 66 seconds, where the boot chain
+ends. The only thing scheduled at boot plus 90 seconds is `:1751`. That is the
+job, measured rather than fitted, and the `nfl_model_growth_runs` query in step
+3 above is now a confirmation rather than the experiment.
+
+**Two main-thread blockers stack in every life, and conflating them is what cost
+the evening.** Trade Brain's own health log caught the earlier one directly: a
+request issued 41 seconds into a life was not answered until about 64 seconds
+in — the loop did not turn for at least 23 seconds — against a control 22
+seconds into the next life answered in 0.35 s. `bootDelayMs` is 20000, so that
+is the **boot pass**, and 23 seconds is under the 60-second fuse: it stutters,
+it does not kill. The **90-second timer** is what kills. Both are on the request
+thread and PR 2 covers both, plus `:1754`.
+
+**What the variable part was.** A fixed 90-second timer cannot by itself produce
+lives of 161, 178 and 255 seconds. A download of variable length in front of a
+fixed block can: fire at 90, download for roughly 100, block from about 190,
+killed near 250 against 252 observed. That is one arithmetic fit among several
+the numbers admit, offered as the reason the spread is not evidence against the
+timer rather than as proof of it.
+
+**Restart timeline, start to start**, assembled from `uptime_s` alone with no
+terminal: 22:09:00, 22:12:07, 22:14:51, 22:19:03, 22:27:34, 22:33:17, and
+~22:39:15 — the last read here, from a request issued at 22:38:59Z that came
+back with `uptime_s: 13` after 29.1 seconds. The 511-second gap in the middle is
+out of family and may be a stopped machine rather than a life.
 
 **None of this changes the fix**, which is the point worth holding: the command
 below stops the boot chain, both fixed timers and every tier at once, so it does

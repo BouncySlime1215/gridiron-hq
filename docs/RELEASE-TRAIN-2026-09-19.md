@@ -922,6 +922,19 @@ pre-registered conditions. About 90 seconds on a warm machine. **All five must
 read `true`.** If any is false, stop; do not promote and do not argue with the
 gate.
 
+**Read the `nfl_qbr_weekly` coverage line as a second gate, not as context.**
+It must show **2025 and 2026 only**. The 20:58Z probe found 0 rows for
+2021-2024, 540 for 2025 and 34 for 2026, and the vector's blast-radius numbers
+were re-run against a rebuild matching exactly that coverage (+4.75 ppg
+startable, MAE 5.22 → 2.32 — unchanged from the fuller rebuild, which is the
+reassuring part).
+
+**If 2021-2024 comes back populated, stop.** It means something filled that
+table between the probe and the gate, and a 2021-2024 QBR backfill is known to
+flip this gate from pass to fail. Nothing in tonight's train backfills it, so a
+populated 2021-2024 is not an expected state and needs explaining before
+anything is promoted — not after.
+
 The gate is read-heavy, so it wants a machine responding steadily — not one good
 response. That is why it comes after steps 3-5 rather than before them.
 
@@ -978,16 +991,34 @@ nothing written anywhere real.** This is the most important reading note in the
 whole sheet, because the surprise arrives the same night and looks exactly like
 a bug.
 
-The promoted vector reaches **exactly one code path**. `activeKVectorFor` returns
-it only under `WEEKLY_ROLE_RECENCY`, and the only production caller passing that
-is `player-week-engine.js`. Every other `buildProjections` caller — draft-assist,
-season-sim, ros-projection, preseason-model, ceiling-lineup, week-postmortem,
-`routes/model.js` — runs on default recency, gets `null`, and keeps the old
-hand-picked constants.
+The promoted vector reaches **exactly one code path**. `activeKVectorFor`
+(`shrinkage-fit.js:515-521`) returns it whole only under `WEEKLY_ROLE_RECENCY`,
+and the only production caller passing that is `player-week-engine.js`. Every
+other `buildProjections` caller — draft-assist, season-sim, ros-projection,
+preseason-model, ceiling-lineup, week-postmortem, `routes/model.js` — runs on
+default recency and has the volume entries withheld, which measures out to no
+change at all. The file says why in its own words: evidence accumulated under a
+different recency weighting would be a units error moved to the apply side, so
+those callers keep the constants they were validated with, "not claimed to be
+right, only untested with the fitted k".
+
+**That guard is already in the deployed build — it is not something this deploy
+introduces**, and #15 can be reordered without touching it.
+
+**But the divergence still arrives tonight, and the distinction matters.** The
+guard is live; what it gates is not. `activeKVectorFor` begins
+`const v = cutoffSafeKVector(predictingSeason); if (!v || …) return v;` — with
+no active row, `v` is `null` and *every* caller gets `null`, weekly and
+season-long alike. Both paths run the hand-picked constants today, so there is
+nothing to be split. Step 8 writes the active row, and that is the moment the
+two paths start answering differently.
+
+So "the split is live today" is true of the code and false of the numbers. Read
+it the second way, because it is the numbers Nick will be looking at.
 
 What that measures out to: **0 of 1,130 season-long projections move; 1,155 of
 1,174 weekly projections move.** At a week-2 cutoff with zero 2026 usage rows,
-startable players move **+4.71 ppg on average** (151 of 156 upward, max +15.39),
+startable players move **+4.71 to +4.75 ppg on average** (the two rebuilds agree) (151 of 156 upward, max +15.39),
 with top-N churn of 5/24 QB, 6/48 RB, 3/60 WR, 2/24 TE. Against 2025 actuals the
 level check is startable MAE **5.22 → 2.32** and bias **−5.18 → −0.90**: the old
 constants under-project every startable player by about five points a week.
@@ -1402,48 +1433,47 @@ Then:
    tonight changed it", which is not worth taking a reading for.
 
 
-   **Kickers and defences will not move, and the surface where you could see it
-   is narrower than three drafts of this section claimed.**
-   `weeklyAvailability` (`contingency.js:885` on the shipping tree) selects
-   `WHERE p.position IN ('QB','RB','WR','TE')` at `:889`, so K and DEF are never
-   in the map it returns and every consumer falls back to a typed-in `0.92`.
+   **Do not check kickers and defences at all. There is nothing there to check,
+   and three drafts of this section said otherwise.** The short version: their
+   hardcoded `0.92` is multiplied by zero, so it cannot move any number on any
+   surface, before or after the fit.
 
-   Where that constant can actually be seen, narrowed by the UI thread and
-   confirmed here on the merged tree:
+   Verified on `791b131`, and this is the chain that settles it:
 
-   - **Not in any lineup decision.** `lineupSlots` (`trade-engine.js:539`)
-     filters `roster_positions` to `SCORED` at `:542`, and `bestLineup` (`:611`)
-     filters candidates to `SCORED` at `:615` and slots again at `:636`. A
-     kicker is never placed, so the constant cannot move a Start/Sit call.
-   - **Not in the playoff odds.** The simulator excludes K and DEF entirely
-     (below).
-   - **It survives in exactly two places:** the Start/Sit *bench list* display,
-     where a kicker's `week_points` is built on `0.92` beside fitted numbers,
-     and kicker/DEF **trade value** through `decisionPpg`.
+   - `sched` is gated on `SCORED.has(p.position)` (`trade-engine.js:334`), so a
+     K or DEF takes the fallback at `:336-337`, which carries `games: []`.
+   - `thisGame` is `sched.games?.find(...)` at `:348`, and `[].find()` is
+     `undefined`, so `thisGame` is `null`.
+   - `currentWeekPpg = thisGame ? currentWeekBasePpg * thisGame.mult *
+     activeProbability : 0` at `:359`. For a K or DEF that branch is **always
+     `0`**.
 
-   And the skill-only lineup and skill-only simulator are a **deliberate
-   modelling scope with the reason written in the code** — `trade-engine.js:123`,
-   "K and D/ST are near-random week to week", restated at `:2781-2782` — not a
-   defect somebody forgot. Do not file it as one.
+   So `activeProbability` is never applied to a kicker's points. `decisionPpg`
+   at `:385` sees a zero current-week term, and `lineup-brain.js:279` uses
+   `p.current_week_ppg ?? …` where `0` is not nullish, so it takes the zero too.
+   The constant is real, reachable and **inert**.
 
-   **`season-sim.js:226` is not a K/DEF site, and an earlier draft of this
-   section said it was.** The simulator never sees a kicker or a defence:
-   `SCORED = new Set(['QB','RB','WR','TE'])` at `:32`, non-SCORED lineup slots
-   skipped at `:106`, and the player pool filtered at `:96` and `:202`. Its
-   `?? 0.92` is the *missing-row* fallback for a fantasy-position player the fit
-   did not cover — worth knowing for a different reason, and not the same defect.
-   There is also a second `?? 0.92` in `trade-engine.js` at **:2827**, in
-   swap/gap logic nobody has traced; "the only reachable 0.92" is not a settled
-   claim and should not travel as one.
+   Earlier drafts of this sheet claimed kickers were over-valued by about eleven
+   points today and would flip to under-valued by three after the fit. **That was
+   wrong in both directions**, and it was derived by reasoning about where the
+   constant is read rather than by following what is done with it. "K and DEF
+   stay at 0.92" is true and meaningless. Removed as an after-read; do not
+   reinstate it.
 
-   **And the constant reverses direction at the deploy, which is the part worth
-   warning about.** Today a healthy RB reads 0.805 against a typed-in 0.92, so in
-   Trade Lab kickers and defences are over-valued by about eleven points relative
-   to everyone around them. After the fit a healthy starter reads ~0.952 and they
-   are under-valued by about three. The constant does not merely fail to move —
-   **it flips sign**. Not a blocker, and exactly the sentence that stops an hour
-   of hunting for a bug that is not there. It touches neither the playoff odds
-   nor any lineup ranking, for the reasons above.
+   What survives, and is what the after-reads actually rest on: the skill-position
+   figures, ~0.805 under constants today against ~0.952 fitted.
+
+   **The simulator is a separate matter and also excludes them.** `SCORED` holds
+   only QB/RB/WR/TE (`season-sim.js:32`, `:96`, `:106`, `:202`), so no kicker or
+   defence is simulated. Its `?? 0.92` at `:226` is the *missing-row* fallback for
+   a fantasy-position player the fit did not cover, which is worth knowing for a
+   different reason. There is also a second `?? 0.92` in `trade-engine.js` at
+   `:2827`, in swap/gap logic nobody has traced.
+
+   Both the skill-only lineup and the skill-only simulator are a **deliberate
+   modelling scope with the reason in the code** — `trade-engine.js:123`, "K and
+   D/ST are near-random week to week", restated at `:2781-2782`. Not a defect
+   anyone forgot, and not something to file.
 
    **The strongest post-write check is not a percentage — it is which players get
    flagged.** Two thresholds read `active_probability` directly, on the shipping

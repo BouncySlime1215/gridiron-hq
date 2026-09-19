@@ -77,12 +77,103 @@ export function lastRun(job) {
 export function recordSync(job, status, detail) { record(job, status, detail); }
 
 function record(job, status, detail) {
-  run(`INSERT INTO sync_log (job, last_run_at, last_status, last_detail, runs)
-       VALUES (?,?,?,?,1)
+  // `consecutive_failures` is what makes a failure distinguishable from a
+  // success here at all. Both stamp `last_run_at`, so without this counter a
+  // job that failed looks exactly as fresh as one that worked, and nextDue()
+  // below would have nothing to back off on. Reset to 0 on anything that is
+  // not an error — including 'skipped', which did no work but also did not
+  // fail, so it must not accumulate a backoff.
+  run(`INSERT INTO sync_log (job, last_run_at, last_status, last_detail, runs, consecutive_failures)
+       VALUES (?,?,?,?,1,?)
        ON CONFLICT(job) DO UPDATE SET
          last_run_at=excluded.last_run_at, last_status=excluded.last_status,
-         last_detail=excluded.last_detail, runs=sync_log.runs+1`,
-    job, nowIso(), status, typeof detail === 'string' ? detail : JSON.stringify(detail));
+         last_detail=excluded.last_detail, runs=sync_log.runs+1,
+         consecutive_failures=CASE WHEN excluded.last_status='error'
+           THEN sync_log.consecutive_failures + 1 ELSE 0 END`,
+    job, nowIso(), status, typeof detail === 'string' ? detail : JSON.stringify(detail),
+    status === 'error' ? 1 : 0);
+}
+
+/**
+ * What a job's own return value says about whether it actually did its work.
+ *
+ * `record` used to be called with a hardcoded 'ok' for anything that did not
+ * throw, and that is how a dead feed looks healthy. Two real cases from this
+ * file:
+ *
+ *   - refreshPlayerRosters returns `{ skipped: 'live draft in progress' }` — a
+ *     STRING. The old check was `detail?.skipped === true`, so this recorded
+ *     'ok'. Every freshness view then reported a player-universe sync that
+ *     never happened, for as long as a draft window was open.
+ *   - refreshLeagueRosters catches each league's failure and returns
+ *     `{ leagues: 5, failed: 5 }`. All five ESPN leagues could fail to sync and
+ *     the job recorded 'ok', with the failure count sitting right there in the
+ *     detail it stored.
+ *
+ * So the status is derived from the shape the jobs in this file actually
+ * return, not assumed. Anything unrecognized is still 'ok' — this is a
+ * narrowing of a too-generous default, not a new way for a working job to be
+ * reported as broken.
+ */
+export function statusFromDetail(detail) {
+  if (detail == null || typeof detail !== 'object') return 'ok';
+  // Truthy, not `=== true`: a skip reason is more useful than a bare flag and
+  // several jobs here give one.
+  if (detail.skipped) return 'skipped';
+  if (detail.error) return 'error';
+  // A countable batch: `failed`/`failures` against whatever names the total.
+  const failed = Number.isFinite(detail.failed) ? detail.failed
+    : Array.isArray(detail.failures) ? detail.failures.length : null;
+  if (failed != null && failed > 0) {
+    const total = [detail.leagues, detail.attempted, detail.teamsAttempted, detail.seasons, detail.total]
+      .find(v => Number.isFinite(v) && v > 0);
+    // Every member of the batch failed: nothing was written, so this is a
+    // failure however cheerfully the job returned. A total we cannot read
+    // means we cannot claim 'error', so it degrades to 'partial'.
+    return total != null && failed >= total ? 'error' : 'partial';
+  }
+  return 'ok';
+}
+
+// First retry after a failure. Matched to server/index.js's actual
+// `intervalMinutes: 5`, so the first retry is simply the next background pass
+// rather than an interval nothing ever lands on.
+const RETRY_BASE_MINUTES = 5;
+// A skip did no work, so the job is not fresh — but it also did not fail, so
+// it gets a flat short interval rather than a backoff. Skips here are cheap
+// early returns (no API key, a draft window, no resolvable week), and the
+// point is to resume the moment the condition clears instead of sitting out
+// a 24-hour cadence for a draft that ended an hour ago.
+const SKIP_RETRY_MINUTES = 5;
+
+/**
+ * How old this job is allowed to get before the next attempt — its cadence
+ * normally, a backoff when the last attempt failed.
+ *
+ * THE BUG THIS FIXES: `record()` stamps `last_run_at` whether the job
+ * succeeded or failed, and the staleness check only ever read that timestamp.
+ * So one transient failure bought a job its entire cadence of silence —
+ * 24 hours for `espn_rosters`, three days for `ffopportunity` — and on the
+ * live app the normal failure was a transient 502 from an OOM-killed process,
+ * exactly the kind that succeeds on the next attempt. There was no retry
+ * anywhere in this file.
+ *
+ * Exponential, and capped at the job's own cadence so a permanently broken
+ * upstream settles back to being tried at its normal rate instead of being
+ * hammered every tick forever.
+ */
+export function nextDueMinutes(name, job) {
+  const l = lastRun(name);
+  const cadence = job.maxAgeMinutes;
+  if (!l?.last_run_at) return 0;              // never run: due now
+  if (l.last_status === 'error') {
+    const failures = Math.max(1, Number(l.consecutive_failures) || 1);
+    // 5, 10, 20, 40 ... minutes. Math.min guards against the exponent running
+    // away on a job that has been failing for weeks.
+    return Math.min(RETRY_BASE_MINUTES * 2 ** Math.min(failures - 1, 20), cadence);
+  }
+  if (l.last_status === 'skipped') return Math.min(SKIP_RETRY_MINUTES, cadence);
+  return cadence;
 }
 
 /** Minutes since a job last ran, or Infinity if it never has. */
@@ -1118,8 +1209,10 @@ export async function runIfStale(name, { force = false } = {}) {
   const job = JOBS[name];
   if (!job) return { job: name, error: 'unknown job' };
   const age = minutesSince(name);
-  if (!force && age < job.maxAgeMinutes) {
-    return { job: name, skipped: true, age_minutes: Math.round(age), max_age_minutes: job.maxAgeMinutes };
+  const dueAfter = nextDueMinutes(name, job);
+  if (!force && age < dueAfter) {
+    return { job: name, skipped: true, age_minutes: Math.round(age),
+      max_age_minutes: job.maxAgeMinutes, due_after_minutes: dueAfter };
   }
   const startedAt = Date.now();
   try {
@@ -1154,8 +1247,9 @@ export async function runIfStale(name, { force = false } = {}) {
       : await withJobTimeout(job.run(), name, timeoutMs);
     // A job that chose not to do its work (reserve hold, no key, no due window)
     // is not healthy; recording it as 'ok' told every freshness view that a
-    // capture happened when nothing did.
-    record(name, detail?.skipped === true ? 'skipped' : 'ok', detail);
+    // capture happened when nothing did. See statusFromDetail for the two
+    // shapes that were slipping through as 'ok'.
+    record(name, statusFromDetail(detail), detail);
     // node:sqlite's DatabaseSync is fully synchronous (server/db/index.js) — a
     // slow query inside job.run() blocks this process, not just this job, so
     // every other request queues behind it for the same span this prints.
@@ -1367,6 +1461,7 @@ export function schedulerStatus() {
     jobs: Object.entries(JOBS).map(([name, j]) => {
       const l = lastRun(name);
       const age = minutesSince(name);
+      const dueAfter = nextDueMinutes(name, j);
       return {
         job: name, label: j.label, tier: j.tier ?? 'heavy',
         max_age_minutes: j.maxAgeMinutes,
@@ -1375,7 +1470,15 @@ export function schedulerStatus() {
         stale: age >= j.maxAgeMinutes,
         last_status: l?.last_status ?? 'never run',
         last_detail: l?.last_detail ?? null,
-        runs: l?.runs ?? 0
+        runs: l?.runs ?? 0,
+        // The three fields that answer "why has this not run?" without anyone
+        // having to read this file: whether it is even on a timer under the
+        // current environment, how many times in a row it has failed, and how
+        // long the backoff is holding it off for.
+        consecutive_failures: l?.consecutive_failures ?? 0,
+        due_after_minutes: dueAfter,
+        off_thread: j.offThread ?? j.tier === 'heavy',
+        scheduled_now: j.tier === 'heavy' ? process.env.AUTO_HEAVY_SYNC === '1' : true
       };
     })
   };

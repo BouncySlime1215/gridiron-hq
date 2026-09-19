@@ -55,9 +55,13 @@ test('exactly one route in server/ is registered at a health path', () => {
       found.push(`${relative(ROOT, file)}:${line} → ${match[3]}`);
     }
   }
+  // Compared on file and path, not on the line number. The assertion is
+  // "exactly one registration, in index.js, at /api/health"; the line it sits
+  // on is incidental, and pinning it made an unrelated comment edit above it
+  // fail this test for a reason that has nothing to do with what it guards.
   assert.deepEqual(
-    found,
-    ['server/index.js:86 → /api/health'],
+    found.map(entry => entry.replace(/:\d+ → /, ' → ')),
+    ['server/index.js → /api/health'],
     `expected one health registration, found ${found.length}:\n  ${found.join('\n  ')}`,
   );
 });

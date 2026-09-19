@@ -1714,7 +1714,7 @@ const jobsInTier = tier => Object.entries(JOBS).filter(([, j]) => j.tier === tie
  * responsiveness, not a schedule.
  */
 export function startScheduler({
-  intervalMinutes = 30, liveIntervalSeconds = 90, bootDelayMs = 20000
+  intervalMinutes = 30, liveIntervalSeconds = 90, bootDelayMs = 20000, onBootComplete = null
 } = {}) {
   if (timer) return { already_running: true };
 
@@ -1731,6 +1731,10 @@ export function startScheduler({
   // the app being maximally responsive.
   if (process.env.SCHEDULER_DISABLED === '1') {
     console.log('Scheduler disabled via SCHEDULER_DISABLED=1 — no background jobs will run.');
+    // There is no boot pass to wait for, so whatever is waiting on one should
+    // not wait forever. With no jobs running there is nothing to block the
+    // thread, which is exactly when the watchdog should already be watching.
+    try { onBootComplete?.(); } catch { /* the brake must not break the boot */ }
     return { disabled: true };
   }
 
@@ -1743,7 +1747,15 @@ export function startScheduler({
     'nfl_book_feeds_fast', 'nfl_book_feeds_slow', 'nfl_book_feeds_extra', 'nfl_prop_feeds', 'nfl_prop_clv_free',
     'polymarket_line_watch', 'beat_the_close', 'nfl_pick_watch', 'nfl_t60_runner'];
   setTimeout(() => {
-    (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
+    // `onBootComplete` fires when this pass ends, however it ends. It is what
+    // arms the event-loop watchdog (server/index.js), which deliberately does
+    // NOT arm on the host's liveness probe -- see server/platform/loop-watchdog.js.
+    // In a `finally` rather than on success, because a pass where every job
+    // timed out has still finished blocking the thread, which is the only thing
+    // the watchdog cares about.
+    (async () => { for (const j of bootJobs) await runIfStale(j); })()
+      .catch(() => {})
+      .finally(() => { try { onBootComplete?.(); } catch { /* never fail the boot pass */ } });
   }, bootDelayMs);
   // A local app may not stay open for the first 30-minute slow tick. Give the
   // growth check its own delayed boot pass: it is cheap when no week is new and

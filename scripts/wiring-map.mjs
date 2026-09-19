@@ -1741,9 +1741,14 @@ const GRANDFATHERED = new Map([
     + 'NOT draft-assist.js:590, which names the table in a provenance LABEL STRING and runs no query — '
     + 'counted as a reader by two threads before anyone opened it. The worst of the six by some '
     + 'distance: the readers are live fantasy surfaces, not betting, so it is in scope under the '
-    + '2026-09-19 fantasy-only call. Owner: the feature-audit thread (accepted; caller to land '
-    + 'post-deploy on a branch off main, together with the ESPN sync limit 800 -> 1,042, since a '
-    + 'caller fetching 800 of 1,042 is a second silent partial). RETIRES WHEN: any caller lands.'],
+    + '2026-09-19 fantasy-only call. Owner: the feature-audit thread (accepted; the scheduler thread '
+    + 'registers it as a job). NOTE the limit here is this function\'s own default of 400 '
+    + '(espn-market.js:18) — NOT the limit: 800 percent-owned filter at routes/espn.js:42 and '
+    + 'routes/stats.js:29, which is a different fetch and a separate item; this annotation conflated '
+    + 'them and was wrong. RETIRES WHEN: any caller lands. Registering the job closes THIS orphan and '
+    + 'leaves two more in the same file: espnMarketByPlayerId (:69) and espnMarketFreshness (:76) have '
+    + 'zero callers repo-wide and every real consumer of espn_player_market uses raw SQL, so the '
+    + 'accessors stay dead (reported as export-imported-by-nothing, which does not gate).'],
   ['producer-with-no-caller backfillNewsEntities()',
     'server/routes/espn.js:210 — writes news_items, read by GET /api/news and DELETE /api/news/:id '
     + 'at 2 hops. Fantasy-scope. Owner: unassigned. RETIRES WHEN: a caller lands, or the news '

@@ -1,21 +1,20 @@
 # Release train — 2026-09-19
 
 Twenty-nine pull requests were opened against this repository on 2026-09-19 by
-eight threads. None of it is deployed: `gridiron-hq.fly.dev` is running a build
+eight threads. None of it was deployed when this was written: `gridiron-hq.fly.dev` was running a build
 that predates all of them. This file is the ordered sequence for landing them,
 the evidence that the sequence works, and the deploy plan that follows it.
 
-**Nothing here has been merged or deployed by this session.** Everything below
-was proved by merging the twenty-six branches onto a scratch branch built from
-`main` and running the repository's own checks against the result.
+**The train is landed. `main` is `791b131f24824b8c3eb7dd2172165b5ab55c2b04`,
+tree `1b2341aa116031e40c9b10abf1ff9270e150a347`** — pushed by Nick at 21:22Z
+after verifying that tree hash on his own terminal, and verified again here
+against `origin/main`. It is byte for byte the tree the suite ran green on:
+2,950 tests, 2,909 passed, 0 failed, 41 skipped, plus a clean `npm ci`,
+typecheck, lint, client build and start-up smoke test.
 
-**The proved tree is published as `claude/release-train-2yv3x6-proof`** so it
-can be landed without re-merging anything: commit
-`791b131f24824b8c3eb7dd2172165b5ab55c2b04`, tree
-`1b2341aa116031e40c9b10abf1ff9270e150a347`. That tree hash is the whole proof —
-the merge commits can be rebuilt and will differ, the tree will not, and the
-tree is what gets built and deployed. Check it before pushing, and treat a
-mismatch as a stop.
+**Not deployed yet, and no database has been written.** Everything from section
+6 onward is still ahead. The proved tree also remains published as
+`claude/release-train-2yv3x6-proof` for anyone who needs to diff against it.
 
 ## How to read the code references in this file
 
@@ -733,6 +732,28 @@ That also makes the duplicated `062` harmless — duplicate *numbers* are
 cosmetic, duplicate `name` exports are the silent-data-loss case, and there are
 none.
 
+**The snapshot stays on the volume forever, and that is deliberate.** It lands
+beside the database as `/data/data.sqlite.pre-migration-<stamp>.bak`, roughly
+445 MB, and **nothing ever deletes it automatically** — the code says why, in
+its own words: choosing which recovery point to give up is a judgement about
+what history is worth keeping, and it belongs to someone who knows what is in
+it.
+
+Two consequences. First, **that file is tonight's real database rollback**, more
+directly than any image reference: the image rolls back code, the `.bak` rolls
+back rows. Do not tidy it away tonight or this week. Second, every future deploy
+carrying migrations adds another one, so `/data` needs sweeping occasionally or
+the headroom check above starts failing for a reason that has nothing to do with
+the deploy being attempted.
+
+The 20:58Z probe listed `/data` and found **no `.bak` files at all** — only
+`data.sqlite`, its `-shm` and `-wal`, and `lost+found`. So tonight's will be the
+first, and the volume is starting clean.
+
+If `assertRoomForSnapshot` does refuse, it prints the three numbers that decide
+it — snapshot size, space needed, space available, all in GB — so the error
+answers its own question. Read it rather than guessing at the volume size.
+
 ### 4. Watch the first boot, not the settled machine
 
 The first boot is when the concurrency bug #33 fixes used to fire hardest: an
@@ -926,6 +947,29 @@ than sit in it overnight.
 today, so the exact prior state is restored by
 `DELETE FROM shrinkage_k; DELETE FROM shrinkage_fits;` — no value has to be
 remembered or restored, and there is no "previous active row" to reinstate.
+
+#### Restart the app after this write, before any after-reading
+
+```
+fly apps restart gridiron-hq
+```
+
+**Non-optional, and the reason is the same trap as step 2a in a different
+place.** Both promotion scripts run as their own processes over `ssh`. The
+server's `routes/model.js` memo `Map`s are keyed without any fit identifier, so
+nothing a separate process writes can invalidate them. Without a restart the
+after-reading is served from the before-reading's cache, byte for byte, and the
+promotion reads as "changed nothing".
+
+**Do not use `POST /api/leagues/:id/sync` as the cache bust.** It re-syncs
+`dynasty_values`, which is the control variable this whole measurement depends
+on being identical before and after (see step 10). Busting the cache with the
+one call that moves the control destroys the attribution you are trying to
+protect. `/api/dev/refresh-all` is out for the same reason.
+
+Take the after-reading promptly once it is back: a restart re-runs `bootJobs`,
+and several readings downstream depend on `nfl_injuries`, which those jobs can
+refresh underneath you.
 
 #### The split this write makes visible, and what Nick will see
 
@@ -1306,13 +1350,30 @@ Then:
    ceiling, `horizon_value`, `playoff_odds`, `acceptance` via `edge.passes`, and
    efficiency (its numerator moves, its denominator cannot).
 
-   **Ignore single-league odds moves under about 0.02 until the drift floor is
-   known.** League 2 read 0.64 against a 0.63 baseline at the same seed with no
-   deploy in between. The sim is seeded but its *inputs* are not frozen:
-   `weeklyAvailability` reads `nfl_injuries`, which the live tier can refresh
-   underneath a sweep that takes twenty minutes across five leagues. Take the
-   floor from the spread across all five rather than from one repeat, and take
-   the three readings promptly rather than at leisure.
+   **The drift floor is now measured, not guessed: 0.01.** The Trade Brain
+   thread held the control variables identical across a fifteen-minute window
+   and found movement of one rounding unit — `toFixed(2)` on the response, so
+   0.01 is the smallest value the reading can express at all. Baseline capture
+   at `62c0c8f` on #41.
+
+   So the rule tightens: **a single-league odds move of 0.01 is indistinguishable
+   from rounding and means nothing. 0.02 is the smallest move worth a second
+   look, and only alongside the other four leagues.** League 2 read 0.64 against
+   a 0.63 baseline at the same seed with no deploy in between, which is exactly
+   this. The sim is seeded but its *inputs* are not frozen: `weeklyAvailability`
+   reads `nfl_injuries`, which the live tier can refresh underneath a sweep that
+   takes twenty minutes across five leagues. Take the floor from the spread
+   across all five rather than from one repeat, and take the three readings
+   promptly rather than at leisure.
+
+   **The mid-window capture is confirmed necessary, not belt-and-braces.** The
+   three readings are: before the deploy, **after the deploy and before any
+   write**, and after the fit. Without the middle one, the deploy's 26 merged
+   pull requests and the two database writes land in the same measurement window
+   and nothing separates them. That is the whole attribution: if the numbers move
+   and only the first and last readings exist, the honest answer is "something in
+   tonight changed it", which is not worth taking a reading for.
+
 
    **Kickers and defences will not move, and the surface where you could see it
    is narrower than three drafts of this section claimed.**

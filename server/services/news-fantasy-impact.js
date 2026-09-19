@@ -2,9 +2,11 @@ import { row, rows } from '../db/index.js';
 import { buildPlayerWeekEngine, playerWeekDistribution } from './player-week-engine.js';
 import { normalizePlayerName } from './player-identity.js';
 import { scoreLine } from './scoring.js';
-import { weeklyAvailability } from './contingency.js';
+import { availabilityBasis, weeklyAvailability } from './contingency.js';
 
 const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+/** What a player the availability fit does not cover is priced at. A constant, not a rate. */
+const UNFITTED_ACTIVE = 0.92;
 const round = (value, digits = 1) => value == null || !Number.isFinite(value) ? null : +value.toFixed(digits);
 
 function nextTeamGame(team, publishedAt) {
@@ -68,6 +70,7 @@ export function trackingVerdict(signal, actual, prior, gameFinished) {
  * does not mutate the production projection or betting model.
  */
 export function newsFantasyTracker(signals) {
+  const basis = availabilityBasis();
   const cache = new Map();
   const availabilityCache = new Map();
   const nowDay = new Date().toISOString().slice(0, 10);
@@ -84,7 +87,11 @@ export function newsFantasyTracker(signals) {
     if (!availabilityCache.has(availabilityKey)) {
       availabilityCache.set(availabilityKey, weeklyAvailability(Number(game.season), Number(game.week), { through: Number(game.season) - 1 }));
     }
-    const baselineActive = availabilityCache.get(availabilityKey).get(projection.player_id)?.active_probability ?? 0.92;
+    // weeklyAvailability only prices QB/RB/WR/TE. Anyone else falls through to a
+    // hand-set constant, and the card used to print that constant as a percentage
+    // indistinguishable from a measured one.
+    const availabilityRow = availabilityCache.get(availabilityKey).get(projection.player_id) ?? null;
+    const baselineActive = availabilityRow?.active_probability ?? UNFITTED_ACTIVE;
     const reportedActive = clamp(1 - Number(signal.unavailable_probability ?? 0) * confidence, 0, 1);
     const roleMultiplier = signal.signal_type === 'role'
       ? clamp(1 + Number(signal.role_delta ?? 0) * confidence, 0.1, 1.75) : 1;
@@ -123,6 +130,10 @@ export function newsFantasyTracker(signals) {
         usage_delta_percent: round((roleMultiplier * activeProbability / Math.max(0.01, baselineActive) - 1) * 100),
         baseline_active_probability: round(baselineActive * 100),
         active_probability: round(activeProbability * 100),
+        // Which model priced the chance to play this card shows: the fitted role
+        // layer, the pooled rates, no fit at all, or — for a position the fit does
+        // not cover — nothing, in which case the number above is UNFITTED_ACTIVE.
+        availability_basis: availabilityRow ? basis.basis : 'unfitted_position',
         note: 'What-if scenario from a timestamped claim; it does not alter production picks until forward calibration passes.'
       },
       tracking: {
@@ -141,6 +152,7 @@ export function newsFantasyTracker(signals) {
   const modeled = tracked.filter(item => item.fantasy_model?.available);
   return {
     signals: tracked,
+    availability_basis: basis,
     tracker: {
       modeled: modeled.length,
       awaiting: modeled.filter(item => ['awaiting_game', 'game_day'].includes(item.tracking?.status)).length,

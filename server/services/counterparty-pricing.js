@@ -238,9 +238,18 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
           n: s.samples.tx_accept_rate ?? 0, cap: null, fitted: false,
           why: `accepted ${(m.tx_accept_rate * 100).toFixed(0)}% of ${s.samples.tx_accept_rate} decided offers, `
             + 'blended over talk' }] : []),
+        // `n: null`, not 3. A prior is a sentence Nick wrote down, not three of
+        // anything observed: `manager-signals.js:374` stores every one of them with
+        // a placeholder n of 3 and `source: 'nick'`, and mirroring that number onto
+        // the factor made a hand-set read print as if it rested on a sample of
+        // three. Nothing computes with this field — the priors move receptiveness
+        // through `m.prior_*` at :185-187, before this array is built, and no
+        // reader of `receptiveness_factors` anywhere reads a `nick_prior` n — so
+        // saying "no sample" costs nothing and stops the one number on the factor
+        // that is not evidence from looking like evidence.
         ...Object.entries(m).filter(([k, v]) => k.startsWith('prior_') && v)
           .map(([k, v]) => ({ source: 'nick_prior', label: `Nick's read: ${k.slice(6)}`,
-            effect: null, n: 3, cap: null, fitted: false, why: `${k.slice(6)} ${v}` })),
+            effect: null, n: null, cap: null, fitted: false, why: `${k.slice(6)} ${v}` })),
         ...(postLoss ? [postLoss] : []),
       ],
     });
@@ -523,6 +532,116 @@ function profileListHit(rosterRead, key) {
   return null;
 }
 
+/** The set-like fields on a layer profile, as a sorted array of names. */
+const setNames = v => (v instanceof Set ? [...v] : Array.isArray(v) ? v : []).map(String).sort();
+
+/** A player's name as the chat corpus keys it. */
+const nameKey = p => String(p?.name ?? '').toLowerCase();
+
+/**
+ * The model's negotiation profile, cut down to the lines a card can show.
+ *
+ * The stored profile carries every technique with its evidence quotes, which is
+ * the right shape for a page that reads one manager and far too much to repeat on
+ * each of twenty-five deals. What survives is the read itself plus the three
+ * one-word calibrations — what a reader needs before he writes the message.
+ */
+function compactNegotiation(profile) {
+  if (profile == null || typeof profile !== 'object') return null;
+  return {
+    headline: profile.headline ?? null,
+    how_to_approach: profile.how_to_approach ?? null,
+    best_bait: profile.best_bait ?? null,
+    confidence: profile.confidence ?? null,
+    no_holds: profile.says_no?.does_his_no_hold ?? null,
+    praise_means: profile.praise_means?.reading ?? null,
+    inflation: profile.calibration?.inflation ?? null,
+    what_moves_him: (profile.what_moves_him ?? []).slice(0, 2),
+    what_shuts_him_down: (profile.what_shuts_him_down ?? []).slice(0, 2),
+  };
+}
+
+/**
+ * THE WIRE FORM of a counterparty-layer profile, for the players in one deal.
+ *
+ * `counterpartyLayer` builds each manager out of the structures that are cheapest
+ * to price with: `players` and `reads` are Maps, and `owned`, `needs`, `surplus`
+ * and `stance.respect` / `stance.probe` are Sets. None of those survives
+ * `JSON.stringify` — a Map serialises as `{}` — so each one has to be flattened
+ * before a page can show it, and the per-player chat reads that are the whole
+ * point of the layer never crossed the wire at all.
+ *
+ * It converts on the way OUT and leaves the layer's own shapes alone on purpose:
+ * `playerValuation` looks those Maps up by name thousands of times in a single
+ * findTrades run, and turning them into arrays at the source would be a real cost
+ * paid for a display concern.
+ *
+ * `players` and `reads` cover every player in the league this manager has been
+ * recorded talking about, so they are narrowed to the players actually in this
+ * deal — the only ones a trade card can show — rather than shipped whole. A
+ * player he has never mentioned is ABSENT rather than present and empty, so "no
+ * read" cannot be misread as "he is neutral on him".
+ */
+export function serializeManagerRead(managerProfile, dealPlayers = []) {
+  const cp = managerProfile;
+  if (cp == null || typeof cp !== 'object') return null;
+  const respect = new Set(setNames(cp.stance?.respect));
+  const probe = new Set(setNames(cp.stance?.probe));
+  const reads = cp.reads instanceof Map ? cp.reads : new Map();
+  const said = cp.players instanceof Map ? cp.players : new Map();
+  const owned = cp.owned instanceof Set ? cp.owned : null;
+
+  const seen = new Set();
+  const playerReads = [];
+  for (const p of dealPlayers ?? []) {
+    const key = nameKey(p);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const talk = reads.get(key) ?? null;
+    const raw = said.get(key) ?? null;
+    if (!talk && !raw) continue;
+    playerReads.push({
+      player: talk?.player ?? p?.name ?? null,
+      owns: owned ? owned.has(key) : null,
+      mentions: talk?.mentions ?? raw?.n ?? null,
+      sentiment: talk?.sentiment ?? raw?.sentiment ?? null,
+      verdict: talk?.verdict ?? null,
+      confidence: talk?.confidence ?? null,
+      why: talk?.why ?? null,
+      action: talk?.action ?? null,
+      // His own word on this player, and whether his word has held. `respect`
+      // never reaches a league-wide idea — the finder drops those players
+      // outright — but a ladder asked for by name can carry one, so both are
+      // reported rather than only the one this path happens to produce.
+      declared: respect.has(key) ? 'held' : probe.has(key) ? 'not_held' : null,
+    });
+  }
+
+  return {
+    tier: cp.tier ?? null,
+    chat_weight: cp.chat_weight ?? null,
+    open_to_trade_pct: cp.open_to_trade_pct ?? null,
+    trade_talk_pct: cp.trade_talk_pct ?? null,
+    priors: cp.priors && Object.keys(cp.priors).length ? cp.priors : null,
+    untouchable_rate: cp.untouchable_rate ?? null,
+    // Sets, flattened. An empty array means "read, and he needs nothing there";
+    // null means the league could not be analysed at all. The two are not the
+    // same answer and must not arrive looking alike.
+    needs: cp.needs == null ? null : setNames(cp.needs),
+    surplus: cp.surplus == null ? null : setNames(cp.surplus),
+    window: cp.window ?? null,
+    roster_size: cp.roster_size ?? null,
+    luck: cp.luck ?? null,
+    negotiation: compactNegotiation(cp.negotiation),
+    negotiation_n: cp.negotiation_n ?? 0,
+    // Already plain objects; passed through so the receptiveness number on a card
+    // can be taken apart into the sources that built it, with each sample size.
+    receptiveness_factors: cp.receptiveness_factors ?? [],
+    word_stance_note: cp.stance?.note ?? null,
+    player_reads: playerReads,
+  };
+}
+
 /**
  * The counterparty read on one proposed deal.
  *
@@ -556,6 +675,11 @@ export function readDeal({ theirGive, theirGet, managerProfile, zero = [] }) {
   const ourDelta = (sum(theirGet) - sum(theirGive)) / (sum(theirGive) || 1);
   const informed = give.reasons.length > 0 || get.reasons.length > 0;
   return {
+    // The layer profile, flattened into JSON-safe values FIRST so the explicit
+    // fields below always win. Without it the receptiveness on a card was a bare
+    // number with nothing behind it, and every per-player chat read the layer had
+    // already computed stopped at this function.
+    ...serializeManagerRead(managerProfile, [...(theirGive ?? []), ...(theirGet ?? [])]),
     receptiveness: managerProfile?.receptiveness ?? 1,
     their_perceived_give: give.value, their_perceived_get: get.value,
     perception_informed: informed,

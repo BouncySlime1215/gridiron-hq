@@ -1755,6 +1755,40 @@ Then:
    point: a write that leaves the flagged set identical is the one outcome it
    cannot plausibly produce.
 
+   **The one condition this test carries, which was missing until the Trade
+   Brain thread pointed it out: 0.324 is not a fixed property of Nacua.** It is
+   what the constants produce for *questionable plus did-not-participate*, and
+   his designation tracks a live ESPN report. If he practises full before step
+   10 the same constants give `Math.max(active, 0.96)` and he reads **0.96**; if
+   he is ruled out he reads **0.01**. Either is the code reading a changed world
+   correctly, and in either case "did he drop below 0.324" is no longer a
+   question about the fit at all. **So re-read his designation immediately
+   before step 10 rather than carrying 0.324 forward from this document.**
+
+   The argument survives the re-read, because it was never really about him. It
+   is about the floor of the questionable band, and it re-anchors in one line:
+   take whatever constants value his *current* status and practice string
+   produce from the table above, and if that value is the floor of the set his
+   status can reach, a drop below it is still unambiguously the fit. If his
+   designation has cleared entirely, run the same check on another
+   questionable-plus-DNP player rather than concluding nothing landed. **The
+   failure this guards against is a false negative on the most load-bearing
+   check in the document**, read at the exact moment when the alternative
+   explanation — that the write did nothing — is the one everybody is braced
+   for.
+
+   **What is genuinely invariant before step 10, and is the control to rely on
+   instead**: `basis: constants`, stamp `absent|absent`, and both
+   `nfl_availability_rates` and `nfl_availability_role_rates` reported missing.
+   Checked rather than assumed — those two names appear in exactly five files on
+   `791b131` (`fit-availability.mjs`, `capture-availability-baseline.mjs`,
+   `availability-decision-calibration.mjs`, `contingency.js`,
+   `trade-engine.js`) and **no file under `server/migrations/` mentions either**,
+   so the eleven migrations cannot create them empty and the basis cannot flip
+   as a side effect of the deploy. It breaks only when `fit-availability.mjs`
+   writes. Read that as pass or fail; read any player's number as an
+   observation with their status and practice string printed beside it.
+
    **Everything reading unchanged is the result to distrust, not the reassuring
    one.** Four ways this verification could have produced a convincing null, all
    now closed:

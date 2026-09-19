@@ -17,7 +17,7 @@ import { readFile } from 'node:fs/promises';
 
 const {
   acceptGuard, NEVER_BASELINE, GRANDFATHERED,
-  foreignOnlyFile,
+  foreignOnlyFile, valueUsageCounts,
   scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations,
   foreignHandles, handleFor, gatedRegions, blindCaches,
@@ -141,6 +141,36 @@ test('declarations sees a computed value that is never used again', () => {
   const decls = declarations('const playerOpportunity = a * 0.55 + b * 0.35;');
   assert.equal(decls.has('playerOpportunity'), true);
   assert.equal(decls.get('playerOpportunity'), 1);
+});
+
+test('a value used only inside a template literal is not "computed and never used"', () => {
+  // Found 2026-09-19 running the map against another thread's tree, which is
+  // the only way this was ever going to surface: it reported
+  // lineup-posture.js#startingSlotCount as abandoned while line 371 reads it,
+  // inside a template literal. scan() blanks the whole literal out of the code
+  // view, so the rule saw the declaration and nothing else. Every value whose
+  // only use is building a message was exposed to the same false positive.
+  const src = [
+    'const slots = 7;',
+    'const startingSlotCount = slots + 2;',
+    'const note = `modelled starting slots only (${slots} of ${startingSlotCount})`;',
+  ].join('\n');
+  const counts = valueUsageCounts(scan(src));
+  assert.equal(counts.get('startingSlotCount'), 2,
+    'the declaration plus the interpolation that reads it');
+  assert.equal(counts.get('slots'), 3, 'declared, read in the sum, read in the interpolation');
+});
+
+test('a value genuinely used once is still reported, template literals present', () => {
+  // The other half: the fix must not silence the rule by counting every word
+  // in every string. `abandoned` appears only as a declaration; the literal
+  // mentioning it does so as TEXT, not as an interpolation.
+  const src = [
+    'const abandoned = compute();',
+    'const note = `abandoned is a word in this sentence`;',
+  ].join('\n');
+  const counts = valueUsageCounts(scan(src));
+  assert.equal(counts.get('abandoned'), 1, 'text inside a literal is not a use');
 });
 
 test('sqlEdges attributes a query to the handle that ran it', () => {

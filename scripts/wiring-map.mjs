@@ -516,6 +516,20 @@ function identifierCounts(code) {
   return counts;
 }
 
+/**
+ * Every identifier occurrence the "computed and never used again" rule counts.
+ *
+ * Named and exported because the rule is only as good as what it can see, and
+ * what it can see is not obvious: scan() blanks the WHOLE body of a template
+ * literal out of the code view, interpolations included (see the `\`` branch
+ * there and its comment). A value whose only other use is inside a `${...}`
+ * therefore reads as declared-and-abandoned unless those parts are counted
+ * back in.
+ */
+function valueUsageCounts({ code }) {
+  return identifierCounts(code);
+}
+
 
 // ---------------------------------------------------------------------------
 // Gated edges. A call sitting behind a parameter that defaults to false, which
@@ -1211,7 +1225,7 @@ function findings(model, ann) {
   const globalCounts = new Map();
   for (const f of files.values()) {
     for (const r of keyReads(f.code, f.strings)) allReads.add(r);
-    for (const [w, c] of identifierCounts(f.code)) globalCounts.set(w, (globalCounts.get(w) ?? 0) + c);
+    for (const [w, c] of valueUsageCounts(f)) globalCounts.set(w, (globalCounts.get(w) ?? 0) + c);
   }
   for (const f of files.values()) {
     if (f.tree === 'test' || !f.path.startsWith('server/')) continue;
@@ -2061,7 +2075,7 @@ function toMarkdown(model, found, ann) {
 // running the CLI, and so another script can ask the map a question.
 // ---------------------------------------------------------------------------
 
-export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile };
+export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

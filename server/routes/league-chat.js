@@ -20,8 +20,9 @@
  * `/upload` writes the corpus and nothing else: it validates the body is really
  * the corpus before replacing what is there, and keeps the previous copy.
  */
-import express, { Router } from 'express';
-import { existsSync, mkdirSync, renameSync, writeFileSync, statSync, rmSync } from 'node:fs';
+import { Router } from 'express';
+import { existsSync, mkdirSync, renameSync, createWriteStream, statSync, rmSync } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isDirectLoopback } from './local-auth.js';
@@ -69,32 +70,72 @@ r.post('/pull', requireLocal, async (req, res) => {
   }
 });
 
+/** A corpus far larger than any real one; the stream is cut rather than filling the disk. */
+const MAX_UPLOAD_BYTES = 512 * 1024 * 1024;
+
 /**
  * Accept an uploaded corpus.
  *
- * `express.raw` rather than reading the stream by hand: the global
- * `express.json()` upstream only declines a body whose content-type is not
- * JSON, so hand-rolling this would work with `curl --data-binary` and silently
- * receive nothing from any client that sent `application/json`. Taking the body
- * explicitly, for any content-type, removes that trap.
+ * **Streamed to disk, never buffered.** This used to be `express.raw`, which
+ * collects the whole body in memory and concatenates it — about twice the
+ * corpus resident at the peak. At 16k messages the corpus is ~62MB, and on a
+ * small Fly machine that was enough to get the process killed mid-request:
+ * the client saw a bare 502 from fly-proxy with no detail, because the app
+ * never lived long enough to answer. Verified 2026-09-19 against the
+ * deployment — 35MB succeeded, 48MB and up died in seconds, which is a
+ * memory ceiling rather than a timeout or a proxy limit. Piping to a file
+ * keeps resident memory flat no matter how big the corpus gets, which
+ * matters because it only ever grows.
+ *
+ * Reading the stream by hand is safe here despite the global `express.json()`
+ * upstream: that middleware only consumes a body whose content-type is JSON,
+ * and leaves any other request untouched for us to read. A client that sends
+ * `application/json` is the one case it would swallow, so `empty_body` below
+ * names that trap explicitly rather than reporting a mystery.
  *
  * The upload is written to a temporary path and opened before anything existing
  * is touched: installing a truncated or wrong file would read downstream exactly
  * like having no chat data at all, which is the failure this route exists to
  * prevent.
  */
-r.post('/upload', express.raw({ type: '*/*', limit: '512mb' }), (req, res) => {
-  const body = req.body;
-  if (!Buffer.isBuffer(body) || !body.length) {
-    return res.status(400).json({ error: 'empty_body',
-      detail: 'Send the corpus as the raw request body, e.g. curl --data-binary @league_chat.sqlite.' });
-  }
-
+r.post('/upload', async (req, res) => {
   const dest = chatDbPath();
   const tmp = `${dest}.incoming`;
+
   try {
     mkdirSync(path.dirname(dest), { recursive: true });
-    writeFileSync(tmp, body);
+
+    let tooBig = false;
+    let received = 0;
+    req.on('data', chunk => {
+      received += chunk.length;
+      if (received > MAX_UPLOAD_BYTES && !tooBig) {
+        tooBig = true;
+        req.destroy(new Error('upload exceeds the maximum accepted size'));
+      }
+    });
+
+    try {
+      await pipeline(req, createWriteStream(tmp));
+    } catch (e) {
+      rmSync(tmp, { force: true });
+      if (tooBig) {
+        return res.status(413).json({ error: 'too_large',
+          detail: `The upload passed ${Math.round(MAX_UPLOAD_BYTES / 1e6)} MB, which is far larger than any real corpus. `
+            + 'Nothing was replaced.' });
+      }
+      // A dropped connection is the common case, and it must not look like a
+      // rejected file: the client should retry, not go rebuild its corpus.
+      return res.status(400).json({ error: 'upload_interrupted',
+        detail: `The upload stopped before the whole file arrived (${e.message}). Nothing was replaced — send it again.` });
+    }
+
+    if (!statSync(tmp).size) {
+      rmSync(tmp, { force: true });
+      return res.status(400).json({ error: 'empty_body',
+        detail: 'Send the corpus as the raw request body, e.g. curl --data-binary @league_chat.sqlite. '
+          + 'A body sent as application/json is consumed before this route sees it; use application/octet-stream.' });
+    }
 
     let messages = null;
     try {

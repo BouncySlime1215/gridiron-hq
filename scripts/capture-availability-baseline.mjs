@@ -257,6 +257,11 @@ async function captureLeague (leagueId, forcedTarget, forcedHurt) {
   out.target_name = target.name ?? null;
   out.injured_target_id = hurt?.id ?? null;
   out.injured_target_name = hurt?.name ?? null;
+  // ESPN's roster designation, which is NOT the NFL injury report the availability
+  // model keys on. They disagree often, and when they do the second target is not in
+  // a different availability band from the first — recorded so that is visible in the
+  // file rather than inferred from the two numbers being close.
+  out.injured_target_roster_flag = hurt?.injury ?? null;
   // Said rather than left blank: a league where nobody worth trading for is on the
   // report has no injured reading, and that is not the same as one being missed.
   if (!hurt) out.injured_target_note = 'no player on another roster carries an injury designation';
@@ -373,10 +378,15 @@ How to read the above:
                               player the constants held at 70% who is really at 95%
                               stops being worth a warning at all.
 
-  injured.target.*            Expected to FALL, and by far more. The constants hold
-                              a Doubtful player at 0.15 against a measured 0.004 and
-                              an Out player at 0.01 against 0.001, so the injured
-                              reading is where the fit moves most, and it moves
+  injured.target.*            Expected to FALL, and by far more — BUT only when this
+                              player is actually on the NFL injury report. The pick
+                              uses ESPN's roster designation, and the two disagree
+                              often; check injured_target_roster_flag against
+                              injured.target.injury_status before reading anything
+                              into this pair. When he IS on the report, the constants
+                              hold a Doubtful player at 0.15 against a measured 0.004
+                              and an Out player at 0.01 against 0.001, so this is
+                              where the fit moves most and the one place it moves
                               DOWN. A player on the report losing most of his trade
                               value on fit day is the fix, not a bug.
 
@@ -444,9 +454,13 @@ for (const id of leagues) {
       + `active_probability ${league.handle?.target?.active_probability}, `
       + `playoff odds ${league.handle?.playoff_odds}`
       + (league.injured_handle
-        ? `; ${league.injured_target_name} (${league.injured_handle.target.injury_status ?? 'on the report'}) `
+        ? `; ${league.injured_target_name} (roster flag ${league.injured_target_roster_flag ?? '?'}, `
+          + `injury report ${league.injured_handle.target.injury_status ?? 'none'}) `
           + `at ${league.injured_handle.target.active_probability}`
-        : `; ${league.injured_target_note ?? league.injured_error ?? 'no injured reading'}`)}`);
+        : `; ${league.injured_target_note ?? league.injured_error ?? 'no injured reading'}`)
+      + (league.lineup_handle
+        ? `; ${league.lineup_handle.warning_count} lineup warning(s)`
+        : `; ${league.lineup_error ?? 'no lineup reading'}`)}`);
 }
 
 if (baseline) report(baseline, run);

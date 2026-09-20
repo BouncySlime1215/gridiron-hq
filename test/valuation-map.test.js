@@ -553,6 +553,70 @@ test('G10: with the corpus off the machine, a refusal is not priced as a refusal
     'the corpus is back and the measured refusal prices again');
 });
 
+test('G10b: with no trusted chat identity, a refusal is not priced either', () => {
+  // THE OTHER HALF OF G10, and the one G10 missed. G10 covers the corpus being
+  // absent, where declarationCredibility() answers `available: false`. This is
+  // the case where the corpus is fine and there is no CONFIRMED identity for this
+  // manager, so counterparty-pricing never asks at all: `identityMap(league).size`
+  // is 0, `credibility` is null, and `declarations_read` was neither true nor
+  // false.
+  //
+  // untouchableStance still finds his declarations — manager_player_view lives in
+  // the app database — and with no credibility entry it falls back to
+  // 1 - PRIOR_BLUFF_RATE = 0.65, which clears the 0.45 bar, lands him in `probe`
+  // and prices the player up under the sentence "his word holds only 65% of the
+  // time". Nothing about his word was read. "We asked and could not read it" and
+  // "we never asked" are two absences and both must refuse to price.
+  //
+  // League 22 has no identity rows (matchIdentities(22, { chatNames: [] })), so
+  // seeding his declarations here is the whole reproduction.
+  run(`INSERT OR REPLACE INTO manager_player_view
+         (league_id, roster_id, player_name, sentiment, n, last_mention, source)
+       VALUES (22, '2', 'hot hype', 3.6, 6, date('now', '-2 days'), 'chat')`);
+  try {
+    const map = pricing.valuationMap(22, { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS });
+    const hype = byName(map.managers.get('2'), 'Hot Hype');
+    assert.ok(hype, 'his own player is in the map');
+    const priced = (hype.factors ?? []).find(f => f.source === 'untouchable_credibility');
+    assert.equal(priced, undefined,
+      'a declaration record nobody looked up must not price a player as a refusal that held');
+    const inert = (hype.inert ?? []).find(i => i.source === 'untouchable_credibility');
+    assert.ok(inert, 'and it must be reported as not firing, not silently dropped');
+    assert.match(inert.reason, /identity|never (asked|looked)|not read/i,
+      `the reason must name THIS absence, got ${JSON.stringify(inert?.reason)}`);
+  } finally {
+    run(`DELETE FROM manager_player_view WHERE league_id = 22 AND player_name = 'hot hype'`);
+  }
+});
+
+test('G10c: the two unread-declaration absences do not share one sentence', () => {
+  // The rule the whole as-of family rests on: an absence must say WHICH absence
+  // it is. If "the corpus is not on this machine" and "there is no confirmed
+  // identity for him" read alike, a reader fixes the wrong one — one is a machine,
+  // the other is a name Nick never confirmed.
+  run(`INSERT OR REPLACE INTO manager_player_view
+         (league_id, roster_id, player_name, sentiment, n, last_mention, source)
+       VALUES (22, '2', 'hot hype', 3.6, 6, date('now', '-2 days'), 'chat')`);
+  const saved = process.env.GRIDIRON_CHAT_DB_PATH;
+  try {
+    const noIdentity = (byName(pricing.valuationMap(22,
+      { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS }).managers.get('2'), 'Hot Hype')
+      .inert ?? []).find(i => i.source === 'untouchable_credibility');
+
+    process.env.GRIDIRON_CHAT_DB_PATH = path.join(os.tmpdir(), 'gridiron-vm-no-corpus-2.sqlite');
+    const noCorpus = (byName(pricing.valuationMap(21,
+      { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS }).managers.get('2'), 'Quiet Star')
+      .inert ?? []).find(i => i.source === 'untouchable_credibility');
+
+    assert.ok(noIdentity && noCorpus, 'both absences report the source inert');
+    assert.notEqual(noIdentity.reason, noCorpus.reason,
+      'an unconfirmed identity and an absent corpus are different absences');
+  } finally {
+    process.env.GRIDIRON_CHAT_DB_PATH = saved;
+    run(`DELETE FROM manager_player_view WHERE league_id = 22 AND player_name = 'hot hype'`);
+  }
+});
+
 test('the negotiation profile\'s own over/undervalues list reaches the price', () => {
   const map = mapFor(21);
   const hayden = map.managers.get('2');

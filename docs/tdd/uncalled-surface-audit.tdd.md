@@ -146,6 +146,25 @@ names them:
 | drop the disabled-account guard | APPLIED `b816ff37cf3c` → `9afb499a0669` | RED | 1 | yes |
 | **CONTROL** — pattern not in the file | **NO-OP — pattern not found** | — | — | — |
 
+### The other writer had no test either
+
+Checking the wiring map's re-run against the tree turned up a second hole of
+the same shape. `POST /api/auth/logout-all` (`google-auth.js:265`) is the only
+other writer of `revoked_at`, and `git grep` finds the string nowhere outside
+its own file — no client, no script, and no test. A `logout-all` that quietly
+behaved like `logout`, ending the caller's session and leaving every other one
+alive, would have passed the entire suite. That is the opposite of what the
+route exists for.
+
+The new case holds three live sessions for one account and asserts all three
+answer 200 *before* the call, so "all of them" cannot be confused with "this
+one".
+
+| Mutation | Verification | Result | Fails | Named test red? |
+|---|---|---|---|---|
+| logout-all ends only the calling session | APPLIED `9190074dd80a` → `f258567c958b` | RED | 1 | yes |
+| **CONTROL** — pattern not in the file | **NO-OP — pattern not found** | — | — | — |
+
 The general lesson, worth more than this one guard: **a guard that a stronger
 guard shadows on every tested path is not redundant if any writer bypasses the
 stronger one.** The test has to build the bypassing state directly, because no
@@ -171,6 +190,9 @@ grant (`legacy-access.js:24`), not a header or a role claim.
 
 `account` is `accountSummary` (`account-link.js:155`): `id, display_name,
 email, avatar_url, admin, providers[], leagues, created_at, last_login_at`.
+
+Of the eight, `/logout-all` was the only one with no reference of any kind
+anywhere in the tree — not even a test. It has one now; see §3.
 
 Two consequences worth naming for whoever builds the screen. A signed-in user
 currently cannot sign out at all — `/logout` works and nothing calls it.

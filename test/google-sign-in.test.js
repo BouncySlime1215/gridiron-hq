@@ -391,6 +391,33 @@ test('logout revokes only the session that was used', async () => {
     { headers: { Authorization: `Bearer ${globalThis.__ownerToken}` } })).status, 200);
 });
 
+/**
+ * logout-all had no test of any kind, and it is the only other writer of
+ * revoked_at. Without this, a logout-all that quietly behaved like logout —
+ * ending the calling session and leaving every other one alive — would pass
+ * the whole suite, which is the opposite of what "I lost my phone" needs.
+ *
+ * Three live sessions for one account, so the assertion distinguishes "all of
+ * them" from "this one": two tokens issued here plus the one the earlier
+ * cases have been using.
+ */
+test('logout-all ends every session the account holds, not just the caller\'s', async () => {
+  const first = (await (await completeWith((await signInAs({ sub: 'google-nick', email: 'owner@example.com' })).cookie)).json()).token;
+  const second = (await (await completeWith((await signInAs({ sub: 'google-nick', email: 'owner@example.com' })).cookie)).json()).token;
+  const older = globalThis.__ownerToken;
+  for (const token of [first, second, older]) {
+    assert.equal((await fetch(`${base}/auth/session`, { headers: { Authorization: `Bearer ${token}` } })).status, 200,
+      'all three must be live before the call, or this asserts nothing');
+  }
+
+  assert.equal((await fetch(`${base}/auth/logout-all`,
+    { method: 'POST', headers: { Authorization: `Bearer ${first}` } })).status, 200);
+
+  for (const token of [first, second, older]) {
+    assert.equal((await fetch(`${base}/auth/session`, { headers: { Authorization: `Bearer ${token}` } })).status, 401);
+  }
+});
+
 test('return_to is only ever a path on this origin', async () => {
   _resetOidcCaches();
   for (const hostile of ['https://evil.example/steal', '//evil.example', '/\\evil.example']) {

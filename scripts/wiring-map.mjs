@@ -299,6 +299,42 @@ function foreignOnlyFile(file, foreign) {
  * The opposite error, reading nothing, is what this repairs, and it reported live
  * exports as dead.
  */
+/**
+ * Who reads and who writes each column, from the SQL this repository contains.
+ *
+ * Lifted out of findings() unchanged so the read/write evidence can be tested on its
+ * own. The behaviour here is exactly what shipped.
+ */
+function columnEvidence(files, declared) {
+  const colRead = new Map();      // `t.c` -> [{file,line}]
+  const colWritten = new Set();   // `t.c`
+  const opaqueWrite = new Set();  // tables written through a column list we cannot read
+  for (const f of files.values()) {
+    for (const { text, line } of f.strings) {
+      if (!looksSql(text)) continue;
+      const { reads, writes } = statementTables(text);
+      // `INSERT INTO t (${COLUMNS.join(', ')}) VALUES ...` names no column this
+      // scan can see, and `INSERT INTO t SELECT *` names them all. Either way
+      // every column of that table is potentially written, so the table is
+      // excluded rather than reported on evidence we do not have.
+      if (writes.size && (text.includes('${') || /\*/.test(text))) for (const t of writes) opaqueWrite.add(t);
+      const named = new Set([...reads, ...writes]);
+      const words = new Set(text.match(/[A-Za-z_]\w*/g) ?? []);
+      for (const w of words) {
+        const owners = [...(declared.get(w) ?? [])].filter(t => named.has(t));
+        if (owners.length !== 1) continue;          // ambiguous: say nothing
+        const key = `${owners[0]}.${w}`;
+        if (writes.has(owners[0])) colWritten.add(key);
+        else if (reads.has(owners[0]) && f.tree !== 'test') {
+          if (!colRead.has(key)) colRead.set(key, []);
+          colRead.get(key).push({ file: f.path, line });
+        }
+      }
+    }
+  }
+  return { colRead, colWritten, opaqueWrite };
+}
+
 function namespaceMembers(codeView, binding) {
   const re = new RegExp(`\\b${binding}\\.([A-Za-z_$][\\w$]*)`, 'g');
   return [...new Set([...codeView.matchAll(re)].map(x => x[1]))];
@@ -1461,32 +1497,7 @@ function shouldBeWired(model, ann, add) {
     if (!declared.has(c)) declared.set(c, new Set());
     declared.get(c).add(t);
   }
-  const colRead = new Map();      // `t.c` -> [{file,line}]
-  const colWritten = new Set();   // `t.c`
-  const opaqueWrite = new Set();  // tables written through a column list we cannot read
-  for (const f of files.values()) {
-    for (const { text, line } of f.strings) {
-      if (!looksSql(text)) continue;
-      const { reads, writes } = statementTables(text);
-      // `INSERT INTO t (${COLUMNS.join(', ')}) VALUES ...` names no column this
-      // scan can see, and `INSERT INTO t SELECT *` names them all. Either way
-      // every column of that table is potentially written, so the table is
-      // excluded rather than reported on evidence we do not have.
-      if (writes.size && (text.includes('${') || /\*/.test(text))) for (const t of writes) opaqueWrite.add(t);
-      const named = new Set([...reads, ...writes]);
-      const words = new Set(text.match(/[A-Za-z_]\w*/g) ?? []);
-      for (const w of words) {
-        const owners = [...(declared.get(w) ?? [])].filter(t => named.has(t));
-        if (owners.length !== 1) continue;          // ambiguous: say nothing
-        const key = `${owners[0]}.${w}`;
-        if (writes.has(owners[0])) colWritten.add(key);
-        else if (reads.has(owners[0]) && f.tree !== 'test') {
-          if (!colRead.has(key)) colRead.set(key, []);
-          colRead.get(key).push({ file: f.path, line });
-        }
-      }
-    }
-  }
+  const { colRead, colWritten, opaqueWrite } = columnEvidence(files, declared);
   for (const [key, where] of colRead) {
     if (colWritten.has(key)) continue;
     const [table, col] = key.split('.');
@@ -2146,6 +2157,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
+export { columnEvidence };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

@@ -21,7 +21,7 @@ const {
   scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations,
   foreignHandles, handleFor, gatedRegions, blindCaches,
-  functionUnits, functionReach, tableColumns, statementTables,
+  functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -353,6 +353,48 @@ test('tableColumns reads CREATE TABLE and ALTER TABLE ADD COLUMN', () => {
   assert.ok(players.has('bye_week'));
   assert.ok(players.has('gsis_id'), 'a column added by ALTER is declared too');
   assert.ok(!players.has('PRIMARY'), 'a table constraint is not a column');
+});
+
+const colFiles = (list) => new Map(list.map((f, i) => [f.path ?? `f${i}`, {
+  path: f.path ?? `f${i}`, tree: f.tree,
+  strings: f.sql.map((text, k) => ({ text, line: k + 1 })),
+}]));
+const DECLARED = new Map([['bye_week', new Set(['players'])]]);
+
+test('a test fixture is not a writer: it cannot clear a column-read-never-written finding', () => {
+  // THE BUG: `column-read-never-written` GATES, and the read side already excluded the
+  // test tree while the write side did not. One fixture line inside a test file
+  // therefore cleared the finding that says production never writes the column. Found
+  // when PR #67 — which changes one service and adds a test — made players.bye_week
+  // disappear from the gating list while nothing had started writing it.
+  const { colWritten, colRead } = columnEvidence(colFiles([
+    { path: 'server/services/draft-assist.js', tree: 'server',
+      sql: ['SELECT p.id, p.bye_week FROM players p'] },
+    { path: 'test/bye-risk.test.js', tree: 'test',
+      sql: ['UPDATE players SET bye_week = 9 WHERE id = 1'] },
+  ]), DECLARED);
+  assert.ok(!colWritten.has('players.bye_week'), 'a fixture write is not a writer');
+  assert.deepEqual(colRead.get('players.bye_week')?.map(w => w.file),
+    ['server/services/draft-assist.js']);
+});
+
+test('a production or script writer still counts', () => {
+  const { colWritten } = columnEvidence(colFiles([
+    { path: 'scripts/backfill-byes.mjs', tree: 'scripts',
+      sql: ['UPDATE players SET bye_week = 9 WHERE id = 1'] },
+  ]), DECLARED);
+  assert.ok(colWritten.has('players.bye_week'),
+    'a backfill script is a real writer; excluding it would invent findings');
+});
+
+test('a test fixture cannot mark a table opaque either', () => {
+  // The same asymmetry through the other door: an opaque write suppresses every column
+  // finding on that table, so a fixture insert would have silenced the whole table.
+  const { opaqueWrite } = columnEvidence(colFiles([
+    { path: 'test/seed.test.js', tree: 'test',
+      sql: ['INSERT INTO players (${COLS.join(",")}) VALUES (1)'] },
+  ]), DECLARED);
+  assert.equal(opaqueWrite.size, 0);
 });
 
 test('statementTables separates what a statement reads from what it writes', () => {

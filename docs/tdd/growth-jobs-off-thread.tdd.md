@@ -108,7 +108,69 @@ they are recorded with "worker cost unmeasured" rather than moved on a guess.
 Seven more moved on that basis, all fantasy-side, all audited the same way:
 `rss_news` (15 m), `espn_news` (30 m), `nfl_transactions` (30 m),
 `league_rosters` (60 m), `nfl_news_signals` (60 m), `player_rosters` (180 m),
-`nfl_injuries` (360 m).
+`nfl_injuries` (360 m). `league_rosters` took a detour through being reverted;
+see below, because what it cost is worth more than the move.
+
+### league_rosters: the tests were not in the way, the test SHAPE was
+
+I moved `league_rosters`, watched two tests go red, reverted it, and wrote the
+reason into the register. That was the right first move and the wrong place to
+stop.
+
+`test/league-roster-schedule.test.js` stubs `globalThis.fetch` on the main
+thread and then drives the job through `runIfStale('league_rosters',
+{ force: true })`, asserting real rows: that a renamed league's payload
+refreshes, and that one league's 500 does not stop the next league syncing.
+A worker has its own globals and its own connection, so the stub never reaches
+it, the offline guard blocks the real call, and both go red.
+
+The tempting read is "two tests are in the way of a fix". They are not. They
+are the only thing standing between a per-league loop and a silent regression
+where one bad league stops the rest — the exact failure this app keeps
+producing. Deleting them to ship the move would have been the worst available
+outcome.
+
+What was actually wrong is that they asserted the behaviour **through the
+scheduler**, which made them silently conditional on the job running inline.
+The behaviour has nothing to do with which thread it happens on.
+
+So `refreshLeagueRosters` is exported and the file is split, exactly as #45 did
+for `ffOpportunitySeasons` and for the same reason — an off-thread job cannot be
+reached from the main thread's test process, so test the work directly and the
+wiring separately:
+
+- `league_rosters is wired to the scheduler, on a tier, with a cadence` — the
+  registry assertion, which is the regression the file was originally written
+  for (a real trade never reached Trade Lab because nothing re-fetched
+  `leagues.payload`). It deliberately does **not** assert off-thread; pinning
+  that here is what coupled the tests to it in the first place.
+- `a connected league's own roster payload is re-synced, not left stale` and
+  `a per-league sync failure does not block other leagues from refreshing` —
+  now call `refreshLeagueRosters()` directly.
+
+Swept, to confirm the rewrite did not weaken them:
+
+```
+=== BASELINE ===
+# pass 9
+# fail 0
+### one-bad-league-aborts-the-loop [applied] -> 8 pass / 1 fail
+    not ok 9 - a per-league sync failure does not block other leagues from refreshing
+### payload-never-refreshed [applied] -> 7 pass / 2 fail
+    not ok 8 - a connected league's own roster payload is re-synced, not left stale
+    not ok 9 - a per-league sync failure does not block other leagues from refreshing
+### job-unwired-from-the-registry [applied] -> 7 pass / 2 fail
+    not ok 3 - the audited fantasy jobs actually run off the request thread
+    not ok 7 - league_rosters is wired to the scheduler, on a tier, with a cadence
+### job-loses-its-cadence [applied] -> 8 pass / 1 fail
+    not ok 7 - league_rosters is wired to the scheduler, on a tier, with a cadence
+```
+
+`one-bad-league-aborts-the-loop` re-throws inside the per-league `catch`, which
+is the regression the original test existed to prevent; it still fails, now
+without depending on the job's thread. `job-loses-its-cadence` sets
+`maxAgeMinutes: 0`, which makes a job that is never stale and therefore never
+runs — a wiring failure that looks exactly like a healthy registry entry.
 
 ### One of those looked like a blocker and is not
 
@@ -134,11 +196,10 @@ jobs that must not go into a worker. This names jobs that simply have not, and
 keeping them apart is the point: an entry here is an admission and is meant to
 read as one.
 
-**29 jobs still run on the request thread** — 16 live, 6 metered, 7 growth —
-and every one of them is in exactly one of the two lists: 25 in the register,
-4 in the allow-list. The suite asserts that arithmetic, which is what stops the
-register drifting into a formality that is technically satisfied and no longer
-true.
+**29 jobs still run on the request thread**, and every one of them is in
+exactly one of the two lists. The suite asserts that the two sizes sum to that
+count, which is what stops the register drifting into a formality that is
+technically satisfied and no longer true.
 
 Most are betting- or MLB-side and out of scope for this thread.
 `manager_signals` already computes in its own worker via

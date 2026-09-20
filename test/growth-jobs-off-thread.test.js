@@ -62,7 +62,7 @@ test('the audited fantasy jobs actually run off the request thread', () => {
   // path #63 found a fix could hold everywhere else and still fail on.
   for (const name of ['espn_depth_chart', 'espn_season_stats', 'sleeper_players',
     'espn_rosters', 'nfl_coaches', 'nfl_offseason_depth_injury',
-    'rss_news', 'espn_news', 'nfl_news_signals',
+    'rss_news', 'espn_news', 'nfl_news_signals', 'league_rosters',
     'player_rosters', 'nfl_injuries', 'nfl_transactions']) {
     assert.ok(JOBS[name], `${name} is no longer a job; this list needs updating`);
     assert.equal(resolveOffThread(JOBS[name]), true,
@@ -102,8 +102,8 @@ test('the count is going down, not up', () => {
   // down; adding a new job that blocks the request thread raises it, and that
   // should cost an argument rather than a quiet commit.
   const onThread = ACCOUNTABLE.filter(([, j]) => !resolveOffThread(j)).length;
-  assert.ok(onThread <= 30,
-    `${onThread} jobs now run on the request thread, up from 30. `
+  assert.ok(onThread <= 29,
+    `${onThread} jobs now run on the request thread, up from 29. `
     + 'If that is deliberate, lower this bound in the same commit and say why');
   assert.equal(ON_REQUEST_THREAD.size + MAIN_THREAD_ONLY.size, onThread,
     'every job that blocks the request thread should be in exactly one of the two '

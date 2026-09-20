@@ -100,6 +100,55 @@ test('a future 0-0 is refused even when the payload carries no winner key at all
     'with no winner field, the zero pair is the only thing marking an unplayed week');
 });
 
+test('a week in progress is refused, even though it already has real points on the board', () => {
+  // The case the zero check cannot see. On a Sunday afternoon ESPN returns accumulating
+  // points with `winner: 'UNDECIDED'`, so the period is neither zero nor finished. Admitted,
+  // it is worse than an admitted zero: a half-played 58 looks like a plausible weekly score,
+  // so nothing downstream has any way to notice, and it is a team's real total for that week
+  // until the games end. `decided` is the only condition that catches it.
+  const lg = league({ weeksPlayed: 2, regularPeriods: 13 });
+  const payload = JSON.parse(lg.payload);
+  for (const m of payload.schedule) {
+    if (m.matchupPeriodId !== 3) continue;
+    m.winner = 'UNDECIDED';
+    m.home.totalPoints = 58.4;
+    m.away.totalPoints = 41.2;
+  }
+  const out = espnWeeklyRows({ ...lg, payload: JSON.stringify(payload) });
+  assert.ok(out.ok);
+  assert.deepEqual([...new Set(out.rows.map(r => r.week))].sort((a, b) => a - b), [1, 2],
+    'week 3 is in progress, so it is not a played week');
+  assert.equal(out.rows.some(r => r.points === 58.4 || r.points === 41.2), false,
+    'a partial total must not be served as a weekly score');
+  assert.equal(out.last_week, 2, 'and the last played week is not the week being played');
+});
+
+test('a side with no score at all takes its whole period with it', () => {
+  // `bothScored` is the third condition, and this is the only case that needs it: one side
+  // carries a total and the other carries none. `anyPoints` reads the missing side as 0 and
+  // passes, so without `bothScored` the period is admitted and the scored side gets a real
+  // row while its opponent gets `points: null` -- a row that every consumer either crashes on
+  // or silently treats as a zero, which is the defect this parser exists to prevent.
+  const out = espnWeeklyRows({
+    id: 7, league_id: 'L7', season: 2026, payload_season: 2026,
+    payload: JSON.stringify({
+      teams: [{ id: 1 }, { id: 2 }],
+      schedule: [
+        { matchupPeriodId: 1, winner: 'HOME',
+          home: { teamId: 1, totalPoints: 105 }, away: { teamId: 2, totalPoints: 99 } },
+        { matchupPeriodId: 2, winner: 'AWAY',
+          home: { teamId: 1 }, away: { teamId: 2, totalPoints: 99 } }
+      ],
+      settings: { scheduleSettings: { matchupPeriodCount: 13, playoffTeamCount: 2 } }
+    })
+  });
+  assert.ok(out.ok);
+  assert.deepEqual([...new Set(out.rows.map(r => r.week))], [1], 'week 2 is half a result');
+  assert.equal(out.rows.some(r => r.points == null), false,
+    'no row may carry a null score: a consumer cannot tell it from a shutout');
+  assert.equal(out.skipped_unplayed, 1);
+});
+
 test('playoff periods are not regular-season rows', () => {
   const out = espnWeeklyRows(league({ weeksPlayed: 13, regularPeriods: 13 }));
   assert.equal(out.skipped_postseason, 2);

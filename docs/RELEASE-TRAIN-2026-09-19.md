@@ -2818,10 +2818,27 @@ already exist. That is why an unfamiliar PR number is worth a second look.
    cd /tmp/stack && npm ci && npm test
    ```
 
-   and record `git rev-parse HEAD^{tree}` **before and after** the run beside
-   the numbers. A figure whose tree was not pinned at both ends is not a
-   measurement. `git reflog --date=iso` is what settles it after the fact, by
-   putting any checkout inside or outside the run's window.
+   and record **two** things before and after the run, beside the numbers:
+   `git rev-parse HEAD^{tree}`, and the `node_modules` mtime. A figure whose
+   tree was not pinned at both ends is not a measurement, and the tree hash
+   alone would not catch the other half of it — a concurrent `npm ci` in the
+   same container changes no source file at all. `git reflog --date=iso`
+   settles the first after the fact, by putting any checkout inside or outside
+   the run's window.
+
+   **Say which isolation the figure had, because the number does not show it.**
+   *Source-isolated* means its own source tree with `node_modules` symlinked or
+   shared; *isolated* means its own dependency tree as well. A concurrent
+   install voids every source-isolated run in the container at once, and not
+   one of them fails visibly. The merged-tree figure above is **isolated**:
+   `npm ci` ran inside the worktree, `node_modules` there is a real directory
+   at a different inode from the main checkout's, 219 top-level packages in
+   each, and its mtime is unchanged across the run window.
+
+   Three threads have now each thrown away a suite run for a different reason —
+   a checkout mid-run, a commit landing inside the window, and the concurrent
+   install this guards against. None of the three shows up in the output as
+   anything but a wrong number or a strange failure.
 
    **The brake still stops everything after these six land, and that was
    checked on the merged tree rather than on `main`.** It matters for the order

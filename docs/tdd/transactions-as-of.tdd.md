@@ -664,3 +664,90 @@ all, is a design call and not a Trade Brain one.
 so far has been a served value that could not distinguish two states. This one is
 a *tool* that distinguishes them beautifully — per-source used, absent, inert,
 each with a reason — and is wired to nothing.
+
+---
+
+# Part 7: a refusal nobody read, priced as a refusal that held (RED `51ad809`)
+
+The most expensive instance of the whole pattern, and the deployed app is in it
+every time.
+
+Two halves of one fact live in two places. **A manager's declared players** live
+in `manager_player_view`, in this database, and survive. **The record of whether
+his refusals actually hold** lives in the Mac-only chat corpus, and does not. So
+on the deployed app `declarationCredibility()` returns `available: false` while
+his declared players are still sitting there, and `untouchableStance`
+(`bluff-detector.js:243`) does this:
+
+```js
+const c = cred?.credibility ?? (1 - PRIOR_BLUFF_RATE);   // 0.65
+```
+
+0.65 clears that function's own 0.45 bar, so the manager lands in `probe`, the
+`untouchable_credibility` factor fires, and the player is priced **up** — under a
+sentence reading "he has called him untouchable, but his word holds only 65% of
+the time". Nothing about his word was read. The number is a prior wearing a
+measurement's sentence, and it moves money.
+
+The fix stays in this file — `bluff-detector.js` is another thread's. The layer
+now carries `declarations_read` (and its reason) alongside the stance, and
+`playerValuation` reports the adjustment **inert with the reason** instead of
+pricing it. "He has never reversed a refusal" and "we have never seen his
+refusals" are opposite facts, and only the first justifies charging for one.
+
+`declarations_read` is `null`, not `false`, when the league has no trusted chat
+identity at all. That is deliberate and not an oversight: with no identity,
+`manager_player_view` has no rows for him either, `untouchableStance` returns
+`stance: 'none'`, and the branch never fires. The `false` state is specifically
+"we have his declarations and not the record behind them", which is the only one
+that was mispricing.
+
+## Mutation run, pasted verbatim
+
+```
+BASELINE (no mutation): 37 pass, 0 fail
+D1  an unavailable record is treated as available again, so the prior prices
+    APPLIED -> killed by: G10
+D2  the withheld adjustment is dropped silently instead of reported inert
+    APPLIED -> killed by: G10
+D3  the reason stops naming the absence
+    APPLIED -> killed by: G10
+D4  the guard fires on a PRESENT corpus too, so a measured refusal stops pricing
+    APPLIED -> killed by: G1c (an existing test, not one written for this)
+```
+
+Four applied, four caught. **D4 is the one worth noting**: the risk in a guard
+like this is not that it fails to fire but that it fires too widely and silently
+stops a measured signal from pricing. It is killed by a test that predates this
+change, which is better evidence than one written alongside it.
+
+## The five questions, for Part 7
+
+**1. Stats or made up?** The thing removed was made up — a prior presented as a
+measurement. Nothing is added: no new constant, no new weight. The change is
+strictly a withholding.
+
+**2. How do we know?** One test, four mutations, all applied and caught, one of
+them by an older test. The 0.65 figure is read from `bluff-detector.js:38` and
+`:243`, not assumed.
+
+**3. Structure.** The availability is computed once per league in
+`counterpartyLayer` and carried on the manager profile, so `playerValuation`
+decides from data rather than re-deriving it. `bluff-detector.js` is untouched
+and its prior remains correct for its own callers — a league whose corpus IS
+present and simply has no declarations for him is still "treat his word as good
+by default", which is a defensible default *when the record was read*.
+
+**4. Pointed anywhere else?** The same two-halves-in-two-places shape is worth
+checking wherever a signal's *value* is in the app database and its *confidence*
+is in the corpus. `talk_vs_model` and `chat_sentiment` are the candidates; both
+read from the corpus directly, so they go absent together rather than splitting,
+which is why they are not in this change.
+
+**5. How does it unify?** This is Parts 1-6's rule at its most expensive, and the
+sharpest statement of it: **a default is only honest when the thing it stands in
+for was actually looked at.** Every part of this document is one of these — a
+build stamp standing in for a collection stamp, an empty result standing in for
+an absent store, and here a prior standing in for a measurement that was never
+read. The fix has been the same each time: find out which state you are in, say
+so, and refuse to price the one you cannot see.

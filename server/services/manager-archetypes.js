@@ -945,11 +945,11 @@ export const RUN_SHEET_ONLY_REASON = Object.freeze({
  *   are not his.
  */
 export function archetypesBuilt(leagueId, season, memberId = null) {
-  const { ls, career, priced } = builtStamps(leagueId, season);
+  const { ls, career, priced, stale } = builtStamps(leagueId, season);
   const jev = memberId == null ? null
     : rows(`SELECT COUNT(*) AS n, MAX(evaluated_at) AS as_of FROM manager_archetype_jev
             WHERE member_id = ?`, memberId)[0];
-  return builtBlock(leagueId, season, ls, career, priced, jev);
+  return builtBlock(leagueId, season, ls, career, priced, stale, jev);
 }
 
 /** The two stamp reads, written once. The first mutation run caught this file
@@ -966,14 +966,33 @@ function builtStamps(leagueId, season) {
   const [priced] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of FROM manager_archetypes
                          WHERE league_id = ? AND season = ? AND version = ? AND source IN (${PRICED_SOURCES.map(() => '?').join(', ')})`,
   leagueId, season, MANAGER_ARCHETYPE_VERSION, ...PRICED_SOURCES);
-  return { ls, career, priced };
+  // Rows on this key from a PREVIOUS build version. The version filter above is
+  // right — a price should stand on the current build, not on whatever a
+  // superseded one left behind — but without this count the filter turns stale
+  // data into `rows: 0`, indistinguishable from a league-season nothing has
+  // ever written. Those two states lead to opposite actions: re-run the build,
+  // or find out why this league has no draft picks on file.
+  const [stale] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of,
+                               GROUP_CONCAT(DISTINCT version) AS versions FROM manager_archetypes
+                        WHERE league_id = ? AND season = ? AND version <> ?`,
+  leagueId, season, MANAGER_ARCHETYPE_VERSION);
+  return { ls, career, priced, stale };
 }
 
 /** The one place the block's shape is written, so a per-card build and a direct
  * call cannot drift apart. `ls`, `career` and `jev` are {n, as_of} rows. */
-function builtBlock(leagueId, season, ls, career, priced, jev) {
+function builtBlock(leagueId, season, ls, career, priced, stale, jev) {
   const gaps = [];
-  if (!ls.n) gaps.push(`no archetype row for league ${leagueId} season ${season} — the build has never covered it`);
+  if (!ls.n && stale.n) {
+    // Stale, not absent. Named versions on both sides: "which build wrote what
+    // is here" and "which build is being asked for" are the two facts needed to
+    // decide whether re-running fixes it.
+    gaps.push(`no row for league ${leagueId} season ${season} at version ${MANAGER_ARCHETYPE_VERSION}, but `
+      + `${stale.n} row${stale.n === 1 ? '' : 's'} from ${stale.versions ?? 'an earlier version'} `
+      + `(last written ${stale.as_of}) — this is stale, not missing; re-run the build`);
+  } else if (!ls.n) {
+    gaps.push(`no archetype row for league ${leagueId} season ${season} — the build has never covered it`);
+  }
   if (!career.n) gaps.push('no career roll-up on this database — the build has never run here');
   if (ls.n && !priced.n) {
     gaps.push(`league ${leagueId} season ${season} has archetype rows but none from ${PRICED_SOURCES.join(' or ')}`
@@ -986,6 +1005,7 @@ function builtBlock(leagueId, season, ls, career, priced, jev) {
     career_rows: career.n,
     priced_as_of: priced.as_of ?? null,
     priced_rows: priced.n,
+    stale_version_rows: stale.n,
     built_by: ARCHETYPE_BUILDER,
     reason: gaps.length ? gaps.join('; ') : null,
   };
@@ -1007,7 +1027,7 @@ function builtBlock(leagueId, season, ls, career, priced, jev) {
  */
 export function archetypesFor(leagueId, season) {
   const out = new Map();
-  const { ls, career, priced } = builtStamps(leagueId, season);
+  const { ls, career, priced, stale } = builtStamps(leagueId, season);
   const jevBy = new Map(rows(`SELECT member_id, COUNT(*) AS n, MAX(evaluated_at) AS as_of
                               FROM manager_archetype_jev GROUP BY member_id`)
     .map(r => [r.member_id, r]));
@@ -1021,7 +1041,7 @@ export function archetypesFor(leagueId, season) {
       career: profile.seasons.career ?? null,
       this_season: profile.seasons[`${leagueId}|${season}`] ?? null,
       jev: profile.jev,
-      built: builtBlock(leagueId, season, ls, career, priced,
+      built: builtBlock(leagueId, season, ls, career, priced, stale,
         jevBy.get(t.espn_member_id) ?? { n: 0, as_of: null }),
     });
   }

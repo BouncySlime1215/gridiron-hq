@@ -2642,6 +2642,33 @@ deploy — which numbers are measured and which are guessed. It is separate work
 by another thread, it blocks nothing here, and it is listed so it is not
 discovered a week later.
 
+**And one finding that is not about tonight's deploy at all, verified here on
+`791b131` rather than relayed: the league transaction history on the live app
+is a snapshot from a laptop, and nothing on Fly has ever refreshed it.** The
+chain is short enough to check in full:
+
+- The only writer of `league_transactions_raw` outside the test suite is
+  `scripts/collect-league-transactions.mjs:34`.
+- The only thing that invokes it is `scripts/refresh-live-data.mjs:99`, which
+  spawns it as a child process.
+- Nothing in `server/` invokes `refresh-live-data.mjs`. It appears in
+  `report-cache.js:210` and `scheduler.js:1371` **in comments only**; every
+  other reference is a test or its own usage line, which is a manual
+  command-line invocation.
+- The Dockerfile's only entry point is `CMD ["node", "server/index.js"]`, and
+  **`fly.toml` has no `processes` section at all** — so there is no second
+  process on Fly that could be running it.
+
+Six server files read that table — `bluff-detector.js`,
+`counterparty-pricing.js`, `manager-archetypes.js`, `manager-signals.js`,
+`trade-engine.js`, `trade-tactics.js` — and all six read only. So every manager
+read, archetype and counterparty price on the live app is computed from
+whatever rows were last collected by hand, with no indication on any surface
+that the data has an age. **Nothing here needs doing tonight and it is not a
+deploy risk**; it is a morning decision about where that collector should run,
+a scheduled worker on Fly or a cron job on his own machine, and the scheduler
+thread has the recommendation.
+
 **Why three scheduler PRs rather than one**, since each fixes a different link
 and none of them is sufficient alone. **#56** stops the host's own health probe
 arming the watchdog mid-boot; on its own the same jobs still wedge once it is
@@ -2760,6 +2787,7 @@ sentences would survive being wrong about something else.**
 | The onset varies ~16 s while the timer is flat | **Read off `791b131`**: the job downloads before it writes and a download does not hold the loop, so onset = 90 s + fetch time | this thread |
 | The block is the 90 s timer at `scheduler.js:1751` | **Read off `791b131`** and now matched to the measured onset: the timer fires at 90, the job downloads (non-blocking) and then writes synchronously | this thread |
 | Restart itself takes ~5-20 s | **Derived** from the eight measured cycles (167-179 s) minus onset 94-110 minus the 60 s fuse. The earlier "~30 s boot" was never measured and 90 + 60 + 30 = 180 matched the median by luck | this thread |
+| Nothing on Fly writes `league_transactions_raw` | **Verified here on `791b131`**: sole writer `collect-league-transactions.mjs:34`, reached only by `refresh-live-data.mjs:99`; no `server/` code invokes that script; Dockerfile CMD is `node server/index.js` and `fly.toml` declares no processes | scheduler + this thread |
 | Any restart count taken before 22:49Z | A 300 s poll against a ~180 s cycle — **a floor, never a count** | Trade Brain |
 
 **Three things below are not measured, and each has somewhere to go if it

@@ -438,6 +438,12 @@ export function espnWeeklyRows(lg) {
   return {
     rows, ok: true,
     season, num_teams: numTeams, playoff_teams: playoffTeams,
+    // How long the regular season RUNS, which is not how many weeks have been played.
+    // `weeklyPanel` derives `weeks_left` from the rows it is handed, so for a live league it
+    // reports zero at the last played week -- the model told the season is over. A consumer
+    // cannot correct that without this number, and it is null rather than a guess when the
+    // payload does not carry it. See `league-outlook.js`.
+    regular_periods: regularPeriods,
     weeks_played: weeks.length, last_week: weeks[weeks.length - 1],
     skipped_unplayed: skippedUnplayed, skipped_postseason: skippedPostseason
   };

@@ -35,7 +35,8 @@
 import { row } from '../db/index.js';
 import { deriveFormat } from './format.js';
 import {
-  assetUniverse, loadRosters, lineupSlots, bestLineup, tradeWeekContext
+  assetUniverse, loadRosters, lineupSlots, bestLineup, tradeWeekContext,
+  DEFAULT_ACTIVE_PROBABILITY
 } from './trade-engine.js';
 import { freeAgents, horizonValue } from './waiver-brain.js';
 
@@ -254,7 +255,14 @@ export function fragility(leagueId, { myTeamId = null } = {}) {
   // season, and only the product distinguishes them.
   const weighted = risks.map(r => ({
     ...r,
-    expected_loss: r2(r.cost_if_lost * (1 - (r.active_probability ?? 0.92)))
+    expected_loss: r2(r.cost_if_lost * (1 - (r.active_probability ?? DEFAULT_ACTIVE_PROBABILITY))),
+    // Which number the expected loss actually rests on. Without this the row
+    // reads the same whether the player's chance to play was measured or the
+    // hand-set default stood in for it — and the default is the common case
+    // for a kicker or a defence, which weeklyAvailability does not cover.
+    expected_loss_basis: r.active_probability == null
+      ? 'default_durability'
+      : r.availability_basis ?? r.availability_source ?? 'fitted'
   })).sort((a, b) => b.expected_loss - a.expected_loss);
 
   return {

@@ -138,6 +138,40 @@ export const WEEK_MARGINAL = Symbol('weekMarginal');
  */
 export const VALUE_GIVEAWAY_LAMBDA = 0.9;
 
+/**
+ * The chance a player suits up when nothing has measured him.
+ *
+ * HAND-SET, and TEMPORARY. 0.92 was chosen, not fitted: no outcome was scored
+ * against it and no study is cited for it. It sat as a bare `?? 0.92` at three
+ * sites here and in roster-risk.js, beside numbers that ARE fitted, with
+ * nothing telling a reader which was which.
+ *
+ * `weeklyAvailability` covers QB/RB/WR/TE only, so a kicker or a defence is on
+ * this constant by construction rather than by accident — which is precisely
+ * the distinction the served basis now carries.
+ *
+ * This definition is scheduled for deletion. The fantasy plan is landing
+ * `DEFAULT_ACTIVE_PROBABILITY` and `activeProbabilityFor(availabilityMap,
+ * playerId)` in player-week-engine.js, returning
+ * `{ active_probability, availability_basis }` with `availability_basis` one of
+ * `fitted`, `durability_prior`, `default_durability`. When that export exists,
+ * this constant and the local basis helper below must go and the call sites
+ * must use the accessor — `test/availability-basis-is-labelled.test.js` fails
+ * the moment the real export appears, so the swap cannot be forgotten.
+ */
+export const DEFAULT_ACTIVE_PROBABILITY = 0.92;
+
+/**
+ * Which of the three bases priced one player's chance to play.
+ *
+ * Local and temporary for the same reason as the constant above; the vocabulary
+ * is the agreed one so the swap is a rename of the call, not of the field.
+ */
+export const availabilityBasisFor = availability =>
+  (availability?.active_probability == null ? 'default_durability'
+    : availability.source === 'durability_prior' ? 'durability_prior'
+      : 'fitted');
+
 const norm = s => (s ?? '').toLowerCase().replace(/[.'’-]/g, '')
   .replace(/\s+(jr|sr|ii|iii|iv|v)$/i, '').replace(/\s+/g, ' ').trim();
 
@@ -171,8 +205,16 @@ export const ROSTER_READ_ABSENT = {
  * where the plausibility check had actually run. `deriveRosterNeeds` in
  * counterparty-pricing.js catches this same call and returns null for exactly
  * this reason; this is the outlier being brought into line, not a new policy.
+ *
+ * Exported because `POST /api/trades/:leagueId/evaluate` (routes/trades.js) has
+ * always called `evaluate()` with no context, so its roster-fit check could
+ * never fire — "digs into their already-thin RB" is unreachable from the Trade
+ * Lab button. The route needs THIS function rather than its own derivation: a
+ * second copy of the needs read is the duplication counterparty-pricing.js's
+ * own comment warns about ("the inventory found three copies of this logic and
+ * this must not become a fourth").
  */
-function rosterContext(lg) {
+export function rosterContext(lg) {
   const byRoster = new Map();
   try {
     for (const t of analyzeLeague(lg).teams) {
@@ -445,7 +487,8 @@ function buildAssetUniverse(lg, formatKey, target) {
     const scheduleTilt = sched.signal === true;
     const tr = trending.get(p.id);
     const availability = active.get(p.id);
-    const activeProbability = availability?.active_probability ?? 0.92;
+    const activeProbability = availability?.active_probability ?? DEFAULT_ACTIVE_PROBABILITY;
+    const availabilityBasis = availabilityBasisFor(availability);
     const weeklyPpg = weekProjection?.ppg ?? (proj / GAMES);
     const thisGame = sched.games?.find(game => game.week === target.week) ?? null;
     // The coordinator only corrects THIS week's number (ensemble_shift and
@@ -585,6 +628,14 @@ function buildAssetUniverse(lg, formatKey, target) {
       // the honest answer for a position with no model, and distinct from a
       // position that has one and fell through it.
       availability_source: availability?.source ?? null,
+      // The same fact in the three-value vocabulary the rest of the app is
+      // moving to. `availability_source` is whatever weeklyAvailability said;
+      // this answers the narrower question a reader actually has — was this
+      // number measured for this player, taken from his durability prior, or
+      // is it the hand-set default. Never null: a player with no availability
+      // row is `default_durability`, which is the honest answer rather than an
+      // absence a caller has to interpret.
+      availability_basis: availabilityBasis,
       injury_status: availability?.report_status ?? null,
       practice_status: availability?.practice_status ?? null,
       model_cutoff: weekProjection?.player_week_engine?.cutoff ?? `${target.season}-W${Math.max(0, target.week - 1)}`,
@@ -2972,7 +3023,7 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
     .filter(x => x.in && !sureZero(x.in) && (x.in.week_points ?? 0) > 0 && x.gap > 0.005)
     .map(x => {
       const versusZero = !x.out || sureZero(x.out);
-      const p = versusZero ? (x.in.active_probability ?? 0.92) : swapRightProbability(x.gap);
+      const p = versusZero ? (x.in.active_probability ?? DEFAULT_ACTIVE_PROBABILITY) : swapRightProbability(x.gap);
       return {
         slot: slotOf.get(x.in.id),
         in: brief(x.in),
@@ -2980,6 +3031,11 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
         gap: +x.gap.toFixed(2),
         p_right: +p.toFixed(3),
         p_basis: versusZero ? 'active_probability' : 'projected_gap',
+        // Which of the three availability bases that probability rests on, so a
+        // hand-set 0.92 on a kicker cannot read as a fitted rate on a receiver.
+        availability_basis: versusZero
+          ? (x.in.active_probability == null ? 'default_durability' : x.in.availability_source ?? 'fitted')
+          : null,
         urgency: swapUrgency(p)
       };
     })

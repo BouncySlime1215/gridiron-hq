@@ -277,3 +277,27 @@ test('an evaluation handed no context at all cannot claim a read it never had', 
   assert.equal(res.body.roster_read_absent, 'no roster read was supplied to this evaluation');
 });
 
+
+test('the roster read is reachable by the route that needs it', async () => {
+  // POST /:leagueId/evaluate cannot run the roster-fit check without this, and
+  // it must not build its own: counterparty-pricing.js's own comment records
+  // that three copies of this needs read already existed and warns against a
+  // fourth. Exported here so the route calls the one derivation.
+  const engine = await import('../server/services/trade-engine.js');
+  assert.equal(typeof engine.rosterContext, 'function');
+
+  league(406);
+  const { rows: dbRows } = await import('../server/db/index.js');
+  const lg = dbRows('SELECT * FROM leagues WHERE id = ?', 406)[0];
+  const ctx = engine.rosterContext(lg);
+  assert.ok(ctx instanceof Map, 'a readable league gives a map keyed by roster id');
+  assert.ok(ctx.size > 0);
+  for (const v of ctx.values()) {
+    assert.ok(v.needs instanceof Set && v.surplus instanceof Set);
+  }
+
+  analyzeThrows = true;
+  try {
+    assert.equal(engine.rosterContext(lg), null, 'and null, not an empty map, when it cannot be read');
+  } finally { analyzeThrows = false; }
+});

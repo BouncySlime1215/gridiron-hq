@@ -165,3 +165,27 @@ test('the rest of a table with a redacted column is still readable', () => {
   assert.equal(result.rows[0].name, 'Matta - Kodsi Annual');
   assert.equal(JSON.stringify(result).includes('SECRET'), false);
 });
+
+/*
+ * Added because mutation M4 survived: deleting the forbidden-keyword scan
+ * changed no test result, since every write the suite tried also failed the
+ * "first token must be SELECT or WITH" check. A guard nothing tests is a guard
+ * nobody knows is gone. These two pin it: a forbidden keyword in the body of a
+ * WITH query is policy, not a SQLite error, and a forbidden word inside a
+ * string literal is a value like any other.
+ */
+test('a forbidden keyword in the body of a WITH query is refused as policy, not left to SQLite', () => {
+  assert.throws(() => safeSelect(`WITH x AS (SELECT 1 AS a) DELETE FROM players`), err => {
+    assert.ok(err instanceof CoachQueryRefused, 'must be refused before SQLite ever sees it');
+    assert.match(err.message, /DELETE/);
+    return true;
+  });
+  assert.equal(row(`SELECT count(*) AS n FROM players`).n, 2);
+});
+
+test('a forbidden word inside a string literal is a value, not a keyword', () => {
+  const result = safeSelect(`SELECT id FROM players WHERE name = ?`, ['drop table players']);
+  assert.equal(result.row_count, 0);
+  const inline = safeSelect(`SELECT count(*) AS n FROM players WHERE name = 'delete from players'`);
+  assert.equal(inline.rows[0].n, 0);
+});

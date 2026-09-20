@@ -285,13 +285,41 @@ function foreignOnlyFile(file, foreign) {
 // Modules: imports, exports, and the identifiers a file declares.
 // ---------------------------------------------------------------------------
 
+/**
+ * The members read off a namespace binding: `scheduler.reapAbandonedRuns()` where
+ * `scheduler` is the whole module object.
+ *
+ * Deliberately blunt, and one-directional in the safe direction. It matches the
+ * binding's name followed by a dot anywhere in the CODE view, so a same-named local
+ * object in the same file would contribute its properties too. The code view matters:
+ * moduleEdges is handed the `text` view, which still carries string bodies, and
+ * `'./scheduler.js'` would otherwise contribute `js` as a member of every binding
+ * named `scheduler`. That over-claims a name as imported, which can only
+ * ever suppress an orphan finding — it cannot invent a missing feed or fail a build.
+ * The opposite error, reading nothing, is what this repairs, and it reported live
+ * exports as dead.
+ */
+function namespaceMembers(codeView, binding) {
+  const re = new RegExp(`\\b${binding}\\.([A-Za-z_$][\\w$]*)`, 'g');
+  return [...new Set([...codeView.matchAll(re)].map(x => x[1]))];
+}
+
 function moduleEdges(code) {
   const imports = [];       // { spec, names[], dynamic }
   const exports = [];       // { name, line }
   let m;
+  // String bodies blanked, offsets intact: what a namespace binding's members are read
+  // out of, so a specifier's own filename cannot be mistaken for a member. Computed
+  // once because every binding in the file scans the same view.
+  const codeView = scan(code).code;
 
   const add = (spec, namesRaw, dynamic, idx) => {
-    const parts = (namesRaw ?? '').replace(/[{}]/g, ' ').split(',').map(x => x.trim()).filter(Boolean);
+    // `import * as contingency from './contingency.js'` is one import, not a nameless
+    // one beside a second entry: expand the star in place, so the file has a single
+    // record carrying the members actually read off the binding.
+    const expanded = (namesRaw ?? '').replace(/\*\s+as\s+([A-Za-z_$][\w$]*)/g,
+      (_, binding) => namespaceMembers(codeView, binding).join(','));
+    const parts = expanded.replace(/[{}]/g, ' ').split(',').map(x => x.trim()).filter(Boolean);
     const ok = (x) => x && x !== '*' && /^[A-Za-z_$][\w$]*$/.test(x);
     const names = parts.map(x => x.split(/\s+as\s+/)[0].trim()).filter(ok);
     // `import { syncAll as syncNflverse }` — the local alias is the only name
@@ -318,8 +346,17 @@ function moduleEdges(code) {
     const destructured = before.match(/(?:const|let|var)\s*(\{[^}]*\})\s*=\s*(?:await\s*)?$/);
     const after = code.slice(m.index, m.index + 400);
     const thenNames = [...after.matchAll(/\bm\.([A-Za-z_$][\w$]*)/g)].map(x => x[1]);
-    add(m[1], (destructured?.[1] ?? '') + ',' + thenNames.join(','), true, m.index);
+    // `const scheduler = await import('./scheduler.js')` and then `scheduler.fn()`.
+    // Without this the binding recorded the file edge and no names, so every export
+    // only ever reached that way fell through to export-imported-by-nothing. It is
+    // the dominant form in this repository: 195 dynamic bindings across 128 files,
+    // including the one that exposed it, test/abandoned-run-backoff.test.js.
+    const bound = destructured ? null
+      : before.match(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s*)?$/)?.[1];
+    add(m[1], (destructured?.[1] ?? '') + ',' + thenNames.join(',')
+      + (bound ? ',' + namespaceMembers(codeView, bound).join(',') : ''), true, m.index);
   }
+
 
   // A worker thread is a real dependency that the word `import` never appears
   // in. Without this, the three modules that only ever run on a worker

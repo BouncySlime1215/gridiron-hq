@@ -66,7 +66,16 @@ db.exec(`CREATE TABLE IF NOT EXISTS manager_player_view (
 export const SIGNAL_SOURCES = Object.freeze({
   roster: { label: 'ESPN roster', refreshed: 'every league sync', priceable: true },
   standings: { label: 'ESPN record and last matchup', refreshed: 'every league sync', priceable: true },
-  tx: { label: 'ESPN transactions', refreshed: 'every refresh tick (league_transactions_raw)', priceable: true },
+  // NOT "every refresh tick". league_transactions_raw has one writer —
+  // scripts/collect-league-transactions.mjs, spawned only from
+  // scripts/refresh-live-data.mjs, an OFF-SERVER loop — and fly.toml declares no
+  // `processes`, so nothing on the deployed app has ever written a row. This
+  // string is not decoration: signalRowsFor interpolates it into the `why`
+  // served on every tx signal, so a wrong cadence here is a wrong claim per
+  // metric on the client. `transactionsCollected` below serves the real date.
+  tx: { label: 'ESPN transactions',
+    refreshed: 'only when scripts/collect-league-transactions.mjs is run (off-server; see transactions.as_of)',
+    priceable: true },
   outcome: { label: 'All-play and luck (luck-panel, via the archetype build)',
     refreshed: 'when scripts/build-manager-archetypes.mjs runs', priceable: true },
   draft: { label: "This season's draft (archetype build)", refreshed: 'when scripts/build-manager-archetypes.mjs runs',
@@ -535,6 +544,42 @@ export function signalRowsFor(leagueId) {
  * priceable, never priceable by default, or a metric added without its registry
  * entry silently becomes an input to a price.
  */
+/**
+ * WHEN THE TRANSACTIONS UNDER THIS LEAGUE'S SIGNALS WERE LAST COLLECTED.
+ *
+ * `manager_signals.computed_at` is when the BUILD ran. It is not when the rows
+ * the build read were collected, and the two can be arbitrarily far apart:
+ * `scripts/collect-league-transactions.mjs` catches a per-league failure and
+ * continues, so a league whose ESPN cookies expired keeps its old rows while
+ * the build downstream recomputes happily. `computed_at` moves; the evidence
+ * underneath does not. Nothing in the app read these stamps before this.
+ *
+ * `last_seen_at` is the collector's own upsert stamp — every row it saw in the
+ * window gets today's value — so MAX(last_seen_at) is exactly "the collector
+ * last ran and reached ESPN for this league". MIN(first_seen_at) is how far
+ * back the forward capture reaches, which is a window and not a history: ESPN's
+ * mTransactions2 answers with about three days, so anything older was never
+ * captured at all.
+ *
+ * Absent table or no rows is `as_of: null` with a reason, never a borrowed
+ * stamp: "collected this morning" and "never collected" must not look alike.
+ */
+export function transactionsCollected(leagueId, season) {
+  const collector = 'scripts/collect-league-transactions.mjs (off-server; nothing on the deployed app writes this table)';
+  const empty = { as_of: null, rows: 0, first_seen: null, collected_by: collector };
+  if (!tableExists('league_transactions_raw')) {
+    return { ...empty, reason: 'league_transactions_raw does not exist on this database — the collector has never run here' };
+  }
+  const [r] = rows(`SELECT COUNT(*) AS n, MAX(last_seen_at) AS as_of, MIN(first_seen_at) AS first_seen
+                    FROM league_transactions_raw WHERE league_id = ? AND (? IS NULL OR season = ?)`,
+  leagueId, season ?? null, season ?? null);
+  if (!r || !r.n) {
+    return { ...empty, reason: `no transactions collected for this league yet — run ${collector.split(' (')[0]}` };
+  }
+  return { as_of: r.as_of ?? null, rows: r.n, first_seen: r.first_seen ?? null,
+    collected_by: collector, reason: null };
+}
+
 export function unpriceableReason(source) {
   const spec = SIGNAL_SOURCES[source];
   if (!spec) {

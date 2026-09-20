@@ -16,7 +16,7 @@ import { simulateSeason, tradeImpact } from '../services/season-sim.js';
 import { fitCorrelations, correlationTable, clearCorrelationCache } from '../services/correlation.js';
 import { fitGameScript, gameScriptFor, syncHistoricalLines, syncCurrentLines, linesFor, clearGameScriptCache } from '../services/gamescript.js';
 import { availability, weeklyAvailability, cascades, handcuffValue } from '../services/contingency.js';
-import { syncAll as syncNflverse, usageSeasons, usageFor } from '../services/nflverse.js';
+import { syncAll as syncNflverse, usageSeasons, usageFor, usageCoverage } from '../services/nflverse.js';
 import { syncAllAdvanced } from '../services/nfl-advanced.js';
 import { syncPbpSeason } from '../services/nfl-pbp.js';
 import { nflDataConsistencyAudit } from '../services/nfl-data-consistency.js';
@@ -42,6 +42,21 @@ import { allSources } from '../services/source-registry.js';
 
 const r = Router();
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
+
+/**
+ * How many seasons back the weekly-usage feed is expected to hold, and the
+ * window that follows from it. Five, matching the sync window POST /sync-all
+ * fetches, so the question asked here is the same question that endpoint
+ * answers with its work.
+ *
+ * Derived rather than typed out, deliberately. A hardcoded list of years is
+ * exactly how `nflverse_weekly_usage` came to stamp itself green for a season
+ * it never fetched: the list stopped at 2025 while the season rolled to 2026,
+ * and every surface downstream kept reporting a complete feed.
+ */
+const USAGE_LOOKBACK = 5;
+const usageWindow = () =>
+  Array.from({ length: USAGE_LOOKBACK }, (_, i) => SEASON - (USAGE_LOOKBACK - 1) + i);
 const registry = new ModelRegistry(new SqliteModelStore(db));
 
 function featureDefinitions(contract) {
@@ -665,7 +680,36 @@ r.get('/setup-status', (req, res) => {
   const coordinatorFit = row('SELECT id FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1');
   const missing = sources.filter(s => s.last_status === 'never run').map(s => ({ source: s.source, label: s.label }));
   if (!coordinatorFit) missing.push({ source: 'fantasy_coordinator_fit', label: 'Fantasy coordinator walk-forward fit' });
-  res.json({ needs_setup: missing.length > 0, missing, checked: sources.length + 1 });
+
+  // Every source above is judged by its own `sync_log` stamp, which is a claim
+  // the last run made about itself. This one question is not: it counts rows in
+  // `player_week_usage` and then asks whether the stamp agrees.
+  //
+  // The window has to be passed in. `usageCoverage()` with no argument asks
+  // only about the seasons already held, so `missing` comes back empty and
+  // `stamp_disagrees` is false by construction — a check that cannot fail. The
+  // caller is the one that knows what it expects, so the caller says so.
+  //
+  // A disagreement earns its own `missing` row rather than being folded into
+  // the ones above, because it is a different fault with a different fix. The
+  // rows above mean "this has not run yet, run it". This one means the feed
+  // ran, reported success, and wrote nothing — running it again is exactly what
+  // already happened. Wording it as a never-run would send the reader back
+  // around the loop that produced the bug.
+  const usage_coverage = usageCoverage(usageWindow());
+  if (usage_coverage.stamp_disagrees) {
+    missing.push({
+      source: 'nflverse_weekly_usage_seasons',
+      label: `Weekly usage reports success but holds no rows for ${usage_coverage.missing.join(', ')}`
+    });
+  }
+
+  res.json({
+    needs_setup: missing.length > 0,
+    missing,
+    usage_coverage,
+    checked: sources.length + 2
+  });
 });
 
 /* ------------------------------------------------- Vegas game script */

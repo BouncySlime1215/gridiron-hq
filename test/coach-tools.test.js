@@ -162,3 +162,32 @@ test('catalog_lookup tells Coach what it may read without touching the ledger', 
   assert.equal(one.entry.table, 'players');
   assert.ok(one.entry.means.length > 10);
 });
+
+/*
+ * Added after mutation M29 survived: the array cap inside a nested object was
+ * applied without setting `truncated`, and no test noticed. A silently
+ * shortened list is the exact failure this service exists to remove.
+ */
+test('toRows: a long array inside a nested object is capped and says so', () => {
+  const value = { team: 'PHI', out: Array.from({ length: 80 }, (_, i) => ({ player: `P${i}` })) };
+  const { rows, truncated } = toRows(value, { maxArray: 10 });
+  assert.equal(truncated, true);
+  assert.equal(rows[0]['out.9.player'], 'P9');
+  assert.equal(rows[0]['out.10.player'], undefined);
+});
+
+/*
+ * Added after mutation M27 could not be made to change a result: nothing
+ * asserted that a service tool which throws leaves the ledger untouched. A
+ * half-recorded entry would let a claim cite rows that were never returned.
+ */
+test('a tool that throws leaves the ledger exactly as it was', () => {
+  const ledger = newLedger();
+  runCoachTool('sql_select', { sql: 'SELECT name FROM players' }, { ledger });
+  assert.equal(ledger.queries.length, 1);
+  assert.throws(() => runCoachTool('who_plays', { season: 2026, week: 3, team: 'NOT A TEAM' }, { ledger }));
+  assert.throws(() => runCoachTool('sql_select', { sql: 'SELECT * FROM nfl_bet_log' }, { ledger }));
+  assert.throws(() => runCoachTool('compute', { op: 'sum', inputs: ['r9#0.x'] }, { ledger }));
+  assert.equal(ledger.queries.length, 1, 'a failed tool call must not add a ledger entry');
+  assert.equal(ledger.derived.length, 0);
+});

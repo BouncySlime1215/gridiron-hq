@@ -936,29 +936,75 @@ two producers is deleted and nothing downstream changes.
 
 ### Mutations
 
-Ten injected, ten caught. Each run printed `APPLIED` with the number of matching
-sites before the suite ran; a run that printed `PATTERN MISSED` would have been a
-mutation that never executed, which is the failure mode Part 3 was bitten by.
+Re-run on `572e838` with the source hashed before and after every injection,
+because a site count is not proof that the file changed. The runner prints
+`sha256(file)[0:16]` on both sides; a row whose two hashes match is a row whose
+suite result means nothing, and the runner says so instead of reporting a pass.
 
-| # | Injection | Caught by |
+Unmutated source: **`5ce105ab17ecc8c0`**. Restored to the same hash at the end
+of the run, checked rather than assumed.
+
+Suites under each injection: `test/chat-block-wiring.test.js`,
+`test/chat-age.test.js`, `test/league-chat-sync.test.js`,
+`test/wiring-absent-states.test.js`.
+
+| # | Injection | after sha256[0:16] | Result |
+|---|---|---|---|
+| M1 | `newest_message ?? as_of` → `as_of ?? newest_message` | `2ccccb011e7d3c67` | caught, 3 |
+| M2 | lag comparison `<` → `>` | `cf844a9ddb1f309f` | caught, 3 |
+| M3 | `state?.path ?? chatDbPath()` → `chatDbPath()` | `7ba813092611c59e` | caught, 1 |
+| M4 | the block's `reason` not carried into the note | `05904c8a36e5abd3` | caught, 1 |
+| M5 | `state?.path_source` never read | `7c4a10aa55cb3c55` | caught, 1 |
+| M6 | `!age && !hasData` → `!age && !rows` | `346678337a59e98f` | caught, 3 |
+| M7 | `MAX(last_msg)` → `MIN(last_msg)` | `26129c5da6571c90` | caught, 1 |
+| M8 | `out.collected_by = CHAT_COLLECTOR` → `null` | `df1e45571f59b078` | caught, 1 |
+| M9 | `rollup = 'missing'` made unreachable | `9b8cdec4fa393521` | caught, 2 |
+| M10 | block stamps served without `isoStamp` | `a393e6c96df4b065` | caught, 1 |
+
+**Which test caught which**, by title and file, because a label like
+"rollup-behind" is a claim about the suite rather than a reading of it — and
+writing this table out of the runner's output rather than out of memory
+corrected two rows. M4 had been credited to the typo-path test and M5 to the
+not-rolled-up test; they are the other way round. M1 and M2 had been credited
+in part to the ISO test, which does not fail under either.
+
+| # | Test title | File |
 |---|---|---|
-| M1 | age taken from `as_of` before `newest_message` | rollup-behind, ISO, producer end-to-end |
-| M2 | lag comparison reversed | rollup-behind, rollup-levels, end-to-end |
-| M3 | `state.path` dropped for `chatDbPath()` | the decoy-path test |
-| M4 | the block's `reason` not carried | the typo-path test |
-| M5 | `path_source` never read | the typo-path test |
-| M6 | "is there data" keyed on `rows` instead of messages | absent, undatable, empty-corpus |
-| M7 | `MIN(last_msg)` for `MAX` | producer end-to-end |
-| M8 | `collected_by` dropped at the producer | producer end-to-end |
-| M9 | `rollup: 'missing'` unreachable | rollup-levels, not-rolled-up |
-| M10 | block stamps served without `isoStamp` | the legacy-stamp test |
+| M1, M2 | *when the rollup is behind the corpus the age is still the newest message, and the lag is said* | `test/chat-block-wiring.test.js:119` |
+| M1, M2, M9 | *a rollup level by level: current, behind, missing* | `test/chat-block-wiring.test.js:136` |
+| M1, M2, M7, M8 | *a corpus on disk whose rollup is behind is read that way, producer through consumer* | `test/chat-block-wiring.test.js:201` |
+| M3 | *the path in every sentence is the block's, never the one freshness could look up* | `test/chat-block-wiring.test.js:71` |
+| M4, M9 | *a corpus that is here but has never been rolled up is not reported as absent* | `test/chat-block-wiring.test.js:103` |
+| M5 | *the block's own reason is carried, not replaced with a generic sentence* | `test/chat-block-wiring.test.js:86` |
+| M6 | *a present corpus with no messages is absent, not a date of null* | `test/chat-age.test.js:134` |
+| M6 | *a corpus whose timestamp column is unreadable says so instead of going quiet* | `test/chat-age.test.js:141` |
+| M6 | *messages that carry no readable date are the only unknown left* | `test/league-chat-sync.test.js:124` |
+| M10 | *a block built from a corpus that predates the ISO change is still served as ISO* | `test/chat-block-wiring.test.js:163` |
 
-M7 and M8 are the pair worth keeping. Every other test here hands `freshness()`
+#### Controls
+
+Ten caught out of ten is the result a broken runner also produces. Two control
+rows say the runner can tell the difference.
+
+| Control | Before → after | Result |
+|---|---|---|
+| C1 — a pattern that cannot match (`out.rolled_up_at = isoStamp(`, renamed to `computed_at` in this change) | `5ce105ab17ecc8c0` → `5ce105ab17ecc8c0` | **no edit made, suite not run, reported as such** |
+| C2 — a comment-only edit that must break nothing | `5ce105ab17ecc8c0` → `451ccc71e88ac6e4` | **survived, suite green** |
+
+C1 is the failure mode Part 3 was bitten by: a stale pattern that silently
+matches nothing, whose green suite reads as a caught mutation. The runner exits
+before running anything and the row says "pattern absent". C2 is the other
+half — it applies, it changes the hash, and the suite stays green, so the ten
+red results above are not a suite that fails on anything.
+
+#### The two that only fell to a real corpus
+
+M7 and M8 survived the first nine tests. Every one of those hands `freshness()`
 a literal, which is the right way to test a pure consumer and the wrong way to
-leave it: nothing was running the query that fills the block in, and both
-injections would have passed a suite of nine. The fixture that closes them puts
-**two** profile rows with different `last_msg` values on disk, so `MIN` and `MAX`
-cannot agree by accident on a one-row table.
+leave it: nothing was running the query that fills the block in. The fixture
+that closes them (*a corpus on disk whose rollup is behind is read that way,
+producer through consumer*) puts **two** profile rows with different `last_msg`
+values on disk, so `MIN` and `MAX` cannot agree by accident on a one-row table.
 
 ### One test was rewritten rather than satisfied
 
@@ -969,3 +1015,28 @@ in the counterparty read"* — which says the thing in plainer English than the
 word "rollup" does, and failed. That is a test asserting its own vocabulary, the
 same defect `34250dc` reported three of. It now asserts the cutoff stamp: the
 fact a reader needs in order to act, rather than a word.
+
+### Full check
+
+`npm run check` — typecheck, lint, the whole suite, the client build and
+`start:smoke` against an isolated database — **exit 0**, measured on
+**`572e838`**, the GREEN commit of this part.
+
+```
+# tests 3002
+# pass  2961
+# fail  0
+# skipped 41
+# duration_ms 366377
+```
+
+Against `9ee6647`, the head Part 5 left: 2,992 / 2,951 / 0 / 41. The ten new
+tests are the ten in `test/chat-block-wiring.test.js`, and the skip count is
+unchanged, so nothing was skipped to reach green.
+
+`572e838` is the last commit of this part that touches code. The commit adding
+this section changes Markdown only — `git show --stat` on it is one `.md` file —
+so the run above is the one that covers the shipped behaviour, and it is
+re-run on the docs head as well rather than assumed: those numbers go in the
+hand-over, since a doc cannot state the hash of the commit that adds it without
+chasing its own tail.

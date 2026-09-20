@@ -183,11 +183,14 @@ test('every stat the lexicon names sits in a table Coach is allowed to read', as
 
 // --- how a table comes to exist -------------------------------------------
 //
-// Eleven tables in this repository are created by no migration. Seven are
-// created when a service module is imported, one on its first write, and three
-// only by a script somebody has to run. That last bucket is why a fresh clone
-// behaves differently from Nick's Mac, and why "catalogued" and "present" are
-// not the same claim. The catalog has to say which, or Coach will write a
+// Some tables in this repository are created by no migration: some when a
+// service module is first imported, one on its first write, and some only by a
+// script somebody has to run. (The measured breakdown is in
+// docs/tdd/coach-table-origins.tdd.md, and it is written there rather than
+// here because a count in a comment goes stale silently — this one said
+// "eleven" while the repo-wide scan said nineteen.) That last bucket is why a
+// fresh clone behaves differently from Nick's Mac, and why "catalogued" and
+// "present" are not the same claim. The catalog has to say which, or Coach will write a
 // perfectly legal SELECT against a table that is simply not there and report
 // SQLite's own error as though the question were malformed.
 

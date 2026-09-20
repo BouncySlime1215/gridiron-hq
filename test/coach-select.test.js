@@ -59,9 +59,22 @@ test('an aliased table is still resolved to the real table it reads', () => {
 });
 
 test('values are bound, so a value that looks like SQL stays a value', () => {
-  const result = safeSelect(`SELECT id FROM players WHERE name = ?`, [`'; DROP TABLE players; --`]);
+  const attack = `'; DROP TABLE players; --`;
+  const result = safeSelect(`SELECT id FROM players WHERE name = ?`, [attack]);
   assert.equal(result.row_count, 0);
   assert.ok(row(`SELECT count(*) AS n FROM players`).n === 2, 'players survived');
+
+  // Those two assertions are also satisfied by pasting the value into the SQL,
+  // because a read-only connection compiles the first statement and never runs
+  // the DROP — so they prove the table survived, not that the value was bound.
+  // Mutation M136 interpolated the parameters and nothing here noticed. These
+  // three pin it: a value that changes what the query MEANS if it is pasted in,
+  // the placeholder still standing in the statement that ran, and the value
+  // kept beside it rather than inside it.
+  const tautology = safeSelect(`SELECT id FROM players WHERE name = ?`, [`A Player' OR '1'='1`]);
+  assert.equal(tautology.row_count, 0, 'the value was pasted in and changed what the query means');
+  assert.match(result.sql, /= \?$/, 'the value reached the text of the statement');
+  assert.deepEqual(result.params, [attack]);
 });
 
 test('a write is refused by policy, and the row count is untouched', () => {

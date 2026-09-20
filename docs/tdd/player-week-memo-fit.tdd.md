@@ -39,19 +39,43 @@ builds.
 
 ## Mutations
 
-| # | mutation | result |
-|---|---|---|
-| M1 | back to the literal `'active'` | 3 fail |
-| M2 | `null` and `undefined` collapsed again | 1 fail |
-| M3 | supplied vectors collapsed to one label | 1 fail |
-| M4 | no-fit keys as `0` instead of `null` | **equivalent — see below** |
-| M5 | the basis dropped from the key entirely | 5 fail |
+Sweep re-run 2026-09-20 in the canonical shape: every row applied to
+`server/services/player-week-engine.js` one at a time from the same clean base, the file's
+SHA-256 (first 12 characters) recorded before and after so an edit that silently failed to
+match cannot be read as a green row, and the run is
+`node --test --test-concurrency=1 --experimental-test-module-mocks test/player-week-memo-fit.test.js`.
+
+Base file: `51fe17160436`. Restored to `51fe17160436` after the last row, checked.
+
+| # | mutation | state | sha256 before -> after | fail | a test that fails |
+|---|---|---|---|---|---|
+| M1 | the shrinkage slot back to the literal `'active'` | APPLIED | `51fe17160436` -> `467fead46c49` | 3 | promoting a fit is visible to a running process, with no cache clear |
+| M2 | `null` and `undefined` collapsed again (`=== undefined` becomes `== null`) | APPLIED | `51fe17160436` -> `838b6b0dce5f` | 1 | an explicit kOverride still keys separately from the active fit |
+| M3 | two supplied vectors collapsed to one label | APPLIED | `51fe17160436` -> `640c47f0d6f3` | 1 | two different supplied vectors are two different builds |
+| M4 | no fit keys as `0` instead of `null` | APPLIED | `51fe17160436` -> `9b7947004f78` | 0 | **none — equivalent, see below** |
+| M5 | the shrinkage basis dropped from the cache key entirely | APPLIED | `51fe17160436` -> `ec51e3a1eb9e` | 5 | promoting a fit is visible to a running process, with no cache clear |
+| CONTROL | a comment reworded, no code path touched | APPLIED | `51fe17160436` -> `07b54b439f25` | 0 | none, and none should |
+
+**Why the state column is here.** A mutation applied by matching a string can fail to match —
+a changed quote, a reflowed line — and then the suite passes because nothing was mutated. That
+reads identically to a mutation the tests caught. Every row above changed the file's hash, so
+every row is a real measurement. The CONTROL row is the other half of the same argument: it
+changes the file (its hash moves) but changes no behaviour, and it fails nothing. A sweep where
+the control also failed tests would mean the suite was reacting to the file being touched
+rather than to what the edit did.
 
 **M4 is an equivalent mutation, not a gap.** Fit ids come from `AUTOINCREMENT` and start at 1,
 so `{fit: 0}` and `{fit: null}` are both distinct from every real fit and from each other in
 the JSON key. The mutation changes no behaviour, so no test can fail on it and none should be
 written to. Recorded rather than papered over, because an unkilled mutation with no
 explanation reads the same as an untested line.
+
+**M5 is the row that matters most**, and not for the five failures. The accessor rework in this
+same branch replaced text between two anchors and `memoKBasis` sat between them, deleting it.
+The two suites aimed at that change both passed, because neither imports the cache path, while
+54 tests in other files failed with `memoKBasis is not defined`. So: when an edit is structural
+rather than logical, a targeted suite is not evidence of anything. Only the full run is, and
+the numbers below are from the full run.
 
 ## Numbers
 

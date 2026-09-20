@@ -117,8 +117,15 @@ export function corpusStats() {
  */
 export function freshness(stats, pull) {
   if (!stats || !stats.messages) {
-    return { state: 'absent', label: 'No chat data',
-      note: 'Every ladder is priced on our numbers only — the counterparty half of the Trade Brain is off.' };
+    // "Not on this machine", not "not pulled recently". The corpus comes out of
+    // Apple Messages via a script that needs a Mac and Full Disk Access, so on
+    // the deployed box this state is permanent and correct, and a reader who
+    // takes it for a broken sync goes looking for a server job that does not
+    // and should not exist.
+    return { state: 'absent', label: 'No chat data here',
+      note: `Nothing at ${chatDbPath()}. The corpus is extracted from Apple Messages on the Mac and cannot be `
+        + 'produced on this machine — pull it there and upload it. Until then every ladder is priced on our '
+        + 'numbers only, and the counterparty half of the Trade Brain is off.' };
   }
   const at = pull?.finished_at ? Date.parse(pull.finished_at) : null;
   if (!at) return { state: 'unknown', label: 'Never pulled from here', note: 'The corpus was uploaded, not pulled on this machine.' };
@@ -130,12 +137,21 @@ export function freshness(stats, pull) {
     note: 'Sentiment and timing reads are from before this week. Pull from the laptop.' };
 }
 
-/** Everything the panel needs, in one call, from any machine. */
+/**
+ * Everything the panel needs, in one call, from any machine.
+ *
+ * `path` is at the top level, not only inside `corpus`, because the case that
+ * needs it most is the one where `corpus` is null: on a box with no file there
+ * is nothing else to say, and "we looked here" is the whole answer. It was
+ * assembled inside `corpusStats()` and read by nothing, which meant the absent
+ * state was the one state that said least.
+ */
 export function status() {
   const stats = corpusStats();
   const pull = lastPull();
   return {
     capability: extractionCapability(),
+    path: chatDbPath(),
     corpus: stats,
     last_pull: pull,
     freshness: freshness(stats, pull),

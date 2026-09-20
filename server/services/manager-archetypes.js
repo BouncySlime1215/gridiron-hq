@@ -851,6 +851,52 @@ export const ARCHETYPE_BUILDER =
 export const PRICED_SOURCES = Object.freeze(['draft', 'outcome']);
 
 /**
+ * WHY NOTHING SCHEDULES THESE TWO TABLES, written down so it stops being a
+ * finding and starts being a decision.
+ *
+ * `buildManagerArchetypes()` replays every league-season in
+ * `league_draft_picks` — 1,738 picks over 12 league-seasons today — and the
+ * pass beside it, `storeJevAnswers()`, sends each manager's draft state to a
+ * paid gateway and stores the answers. The first is expensive and idempotent;
+ * the second costs money per run and produces a number that does not change
+ * between drafts. A timer on either would spend on both every tick to refresh
+ * a table whose inputs move once a year, on draft day.
+ *
+ * So the build stays on the run sheet. What was wrong was not the absence of a
+ * scheduler, it was that no served surface said how old the result was — fixed
+ * by `archetypesBuilt` above, which is the honest version of a timer: the card
+ * tells you when to run it.
+ */
+export const WHY_UNSCHEDULED =
+  'The archetype build replays every league-season and the Jev pass calls a paid gateway per manager, '
+  + 'for inputs that change once a year on draft day. A timer would spend on every tick for nothing; '
+  + 'the as-of block says when it was last run instead.';
+
+/**
+ * Draft metrics this file computes that NO NAMED CONSUMER reads.
+ *
+ * They are not dead: `metricRepeatability()` and `splitHalfReliability()` read
+ * every `source='draft'` metric generically, and both are called only from
+ * `scripts/build-manager-archetypes.mjs`. So these appear in the run sheet's
+ * repeatability table and nowhere a person makes a decision — not in
+ * `manager-signals.js`'s `ARCHETYPE_METRICS`, not in `jevStateFor`'s summary,
+ * not in the client.
+ *
+ * The list exists so that stays a statement rather than something the next
+ * reader has to re-derive by grep, and so a metric added later cannot quietly
+ * join them: the test on this list fails if an entry has no reason.
+ */
+export const RUN_SHEET_ONLY_METRICS = Object.freeze(['capital_hhi']);
+
+export const RUN_SHEET_ONLY_REASON = Object.freeze({
+  capital_hhi:
+    'Herfindahl concentration of draft capital across skill positions. Kept because the repeatability '
+    + 'report needs candidate metrics to test, and a metric is dropped on evidence rather than on '
+    + 'nobody having wired it yet. It is not centred on its league-season, so it is not comparable '
+    + 'across leagues and must not be served until it is.',
+});
+
+/**
  * WHEN THE EVIDENCE UNDER ONE MANAGER CARD WAS BUILT.
  *
  * The card served at `routes/trades.js:501` carries three things with three

@@ -380,3 +380,163 @@ manager card.
   first being the `source TEXT NOT NULL -- draft | outcome | career` comment on
   the DDL. A fourth source added to the build would need a decision here, and
   nothing forces that decision to be made.
+
+---
+
+# Part 3: three values that exist and cannot be accounted for
+
+RED `892b8e7`, then GREEN. Same branch, on top of Part 2's `ff26c15`. Files:
+`server/services/manager-archetypes.js`, `server/services/bluff-detector.js`,
+`server/services/league-chat-sync.js`, test `test/wiring-absent-states.test.js`.
+
+Three wiring-map findings in this thread's files. They are one finding in three
+places: **a value that exists and nothing accounts for.**
+
+## Finding 1 — `capital_hhi`, and "never scheduled"
+
+`manager-archetypes.js:314` computes a Herfindahl concentration of draft capital
+across skill positions, `buildManagerArchetypes` writes it into
+`manager_archetypes` like any other metric, and `managerProfile` serves it
+inside the manager card's `this_season.metrics`.
+
+**It is not dead, and that is the finding.** `metricRepeatability()` (`:696`)
+and `splitHalfReliability()` read *every* `source='draft'` metric generically,
+and both are called only from `scripts/build-manager-archetypes.mjs:62`. So
+`capital_hhi` appears in the run sheet's repeatability table and **nowhere a
+person makes a decision**: not in `manager-signals.js`'s `ARCHETYPE_METRICS`,
+not in `jevStateFor`'s summary, not in the client. A repo-wide grep returns one
+match, its own definition.
+
+Not removed. A metric should be dropped on evidence — a repeatability run
+saying it does not hold year over year — not on nobody having wired it yet, and
+the repeatability report needs candidates to test. What was missing was the
+statement, so it is now `RUN_SHEET_ONLY_METRICS` and `RUN_SHEET_ONLY_REASON`,
+with the reason including the thing that would have to change first: it is not
+centred on its league-season, so it is not comparable across leagues and must
+not be served until it is. The test fails if an entry has no reason, so the
+next metric cannot quietly join it.
+
+**"Two tables never scheduled" is answered, not fixed.** `WHY_UNSCHEDULED`
+states it: the build replays every league-season, and the Jev pass calls a paid
+gateway per manager, for inputs that change once a year on draft day. A timer
+would spend on every tick to refresh a table whose inputs do not move. What was
+actually wrong was that no served surface said how old the result was — which
+is Part 1 of this file. The as-of block is the honest version of a timer: the
+card tells you when to run it.
+
+## Finding 2 — a silent empty that means the opposite thing
+
+`bluff-detector.js`'s `declarationCredibility()` returned
+`{ byManager: new Map(), events: [], available: false }` when `openChatDb()`
+finds nothing.
+
+On the deployed box it **always** finds nothing, and permanently:
+`data/derived/league_chat.sqlite` is extracted from `~/Library/Messages/chat.db`
+by `scripts/chat/extract_league_chat.py`, which needs a Mac and Full Disk
+Access. Fly cannot produce it. So the empty result is not "no data yet", it is
+"this machine cannot see the conversation" — and downstream, in
+`counterparty-pricing.js:144`, an empty credibility map reads as *he has never
+called a player untouchable*, which is the opposite conclusion and moves a
+price.
+
+`available: false` carried none of that: a boolean cannot say which of two
+opposite things it means. There is now a `reason` naming the path and saying
+the corpus is not producible here. Mutations C4, C5 and C6 are the three ways
+that reason can rot: dropped, path-less, or no longer saying Mac-only.
+
+## Finding 3 — the field that would have explained the state
+
+`corpusStats()` assembled `path` and nothing read it, while `freshness()`'s
+`absent` branch said only *"Every ladder is priced on our numbers only"* — no
+path, no reason the file cannot be there.
+
+Those are the same gap. `status()` now carries `path` at the **top level**, not
+only inside `corpus`, because the case that needs it is the one where `corpus`
+is `null`: with no file there is nothing else to say, and "we looked here" is
+the whole answer. The absent note names the path and says the corpus comes off
+the Mac. Before this, absent was the state that said least.
+
+"Not on this machine" is the intended register, confirmed with the coordinator:
+this is a normal permanent state on Fly, not a fault, and it must not read like
+a broken sync — or someone goes looking for a server job that does not and
+should not exist.
+
+## RED, pasted verbatim
+
+```
+not ok 1 - every draft metric the build writes is either named by a consumer or declared run-sheet only
+  error: 'the file has to state which of its metrics no served surface reads'
+not ok 2 - the run-sheet-only list cannot rot: every entry says why, and none is secretly read
+  error: 'archetypes.RUN_SHEET_ONLY_METRICS is not iterable'
+not ok 3 - the archetype tables say why nothing schedules them, not just that nothing does
+  error: '"never scheduled" is a finding until the reason is written down, then it is a decision'
+not ok 4 - with no chat corpus the credibility read says it cannot see one, not that nobody spoke
+  error: 'an empty result with no reason reads as "he has never called anyone untouchable"'
+not ok 5 - the corpus status names where it looked, even when there is nothing there
+not ok 6 - the absent note says the corpus is Mac-only, so nobody goes looking for a server job
+```
+
+## Mutation run
+
+Baseline **6 pass, 0 fail**. Eight injections, eight applied, eight caught.
+
+```
+C1 the run-sheet-only declaration is emptied              APPLIED -> killed (2 tests)
+C2 a metric is declared unread with no reason beside it   APPLIED -> killed
+C3 the unscheduled reason stops naming the gateway        APPLIED -> killed
+C4 the credibility read goes back to a silent empty       APPLIED -> killed
+C5 the reason stops naming the path it looked at          APPLIED -> killed
+C6 the reason stops saying the corpus is Mac-only         APPLIED -> killed
+C7 status drops the path again                            APPLIED -> killed
+C8 the absent note stops naming Apple Messages            APPLIED -> killed
+```
+
+C2 is the one worth naming: it adds a **real, served** metric
+(`homer_top_team_share`) to the run-sheet-only list without a reason. A list
+that can be padded with things that *are* read is worse than no list, and the
+reason requirement is what stops it.
+
+## The five questions
+
+**Is this well built?** Nothing computed was thrown away and nothing new was
+computed. Two declarations and two sentences, each one a thing a reader would
+otherwise have to re-derive by grep, and each one pinned by a test that fails
+when it rots.
+
+**Is this based on stats, or made up?** No numbers change. `capital_hhi` is
+still written and still tested for repeatability; the chat reads return exactly
+what they returned, with a reason attached.
+
+**How do we know?** Every claim is a citation: the generic read is
+`manager-archetypes.js:698`, its only caller `build-manager-archetypes.mjs:62`,
+the single grep match for `capital_hhi`, the extractor's Mac requirement in
+`league-chat-sync.js`'s own header, and the downstream consumer at
+`counterparty-pricing.js:144`. Six tests failed before and pass after; eight
+mutations caught.
+
+**Should this data point anywhere else?** `capital_hhi` should point at
+`ARCHETYPE_METRICS` once it is centred on its league-season — that is the
+condition, and it is written into the reason so the next person does not have
+to guess. Uncentred, it would say an 8-team league's managers are all more
+concentrated than a 12-team league's, which is about the league.
+
+**How does it unify?** The same contract as the rest of this branch: a value
+either says where it came from and when, or says plainly that it cannot. An
+absent chat corpus, an unbuilt league-season and an unread metric now answer in
+the same register — `reason` strings that name the thing and the path — instead
+of three different silences.
+
+## Known limits, Part 3
+
+- **`RUN_SHEET_ONLY_METRICS` is a declaration, not a derivation.** Nothing
+  proves the list is complete: a metric added tomorrow and read by nobody
+  passes every test here. Deriving it would mean importing
+  `manager-signals.js`'s `ARCHETYPE_METRICS` (not exported, not my file) and
+  scanning the client, which is a bigger change than the finding warrants.
+- **The client does not render any of the new reasons yet.** They are in the
+  payloads; showing them is the UI thread's.
+- **`counterparty-pricing.js:144` still treats an unavailable credibility map
+  the same as an empty one.** The reason now exists for it to read; making it
+  read it is Trade Brain's file.
+- **No live measurement.** All fixtures, on a box with no corpus, which is the
+  deployed shape but not the deployed box.

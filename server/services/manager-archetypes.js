@@ -1057,6 +1057,19 @@ function builtStamps(leagueId, season) {
  * call cannot drift apart. `ls`, `career` and `jev` are {n, as_of} rows. */
 function builtBlock(leagueId, season, ls, career, priced, stale, jev) {
   const gaps = [];
+  // NEVER COLLECTED IS NOT ZERO. Without this clause a league-season whose
+  // `league_season_teams` is absent reports `rows: 0` in exactly the words a
+  // league-season the build simply never covered does, and an archetype over
+  // no rows is a real-looking answer about a real person. It is the same
+  // distinction as the confident-zero bucket still open on the run sheet; until
+  // that contract is settled the state is served through `reason`, the field
+  // this block already uses for not-built data, rather than through a new one.
+  const history = leagueHistoryState();
+  if (!history.present) {
+    gaps.push(`${LEAGUE_HISTORY_TABLE} is not on this database, so this league-season was never `
+      + 'collected — this is not a zero, and nothing here should be read as a measurement. '
+      + `It is created by ${LEAGUE_HISTORY_SOURCE}`);
+  }
   if (!ls.n && stale.n) {
     // Stale, not absent. Named versions on both sides: "which build wrote what
     // is here" and "which build is being asked for" are the two facts needed to

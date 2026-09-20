@@ -30,11 +30,11 @@ could not re-verify every row inside the hour this was asked for.
 | A5 | A total data outage reported as good news | league analysis | **Fixed (main)** — PR #21 | — |
 | A6 | Roster stars dropped and offered back as free agents | league sync | **Fixed (main)** — PR #21 | — |
 | A7 | Chance-to-play shown with no basis in the fitted state | `lineup-brain.js:585` | **Fixed (main)** — PR #27 added `availability_basis` | — |
-| A8 | Sync jobs reporting success on failure | recording site | **Partly fixed (main)** — #21 took three; `statusFromDetail()` was handed to #19 and I did not re-verify it landed | scheduler |
+| A8 | Sync jobs reporting success on failure | `scheduler.js:118` exported, called at `:1613` inside `record()` **[v]** | **Fixed (main)** — closed 06:23Z; #21 took three and #19's `statusFromDetail()` is on main. Re-read here, so this row is now verified | — |
 | A9 | Three disagreeing answers to "what week is it"; the fantasy pages use the worst | `trade-engine.js:172` **[v]** — `tradeWeekContext()` still takes no league argument | **Open**; default agreed (call `leagueCurrentWeek(lg)`, `routes/trades.js:19`) | feature-audit |
 | A10 | `syncEspnMarket` was the sole writer of `espn_player_market` with no caller | scheduler | **Fixed (main)** — PR #50, 12-hour growth job | — |
 | A11 | `players.bye_week` vestigial | players table | **Decided**: leave and comment; a no-behaviour migration is pure risk here | — |
-| A12 | 35 `|| 2026` sites, and `draft-assist.js:872` uses the calendar year instead | fly.toml has no `NFL_SEASON` | **Open** — one `[env]` line, rides any deploy; #52 carries it | scheduler |
+| A12 | 35 `|| 2026` sites, and `draft-assist.js:872` uses the calendar year instead | `fly.toml [env]` on main holds only `HOST` **[v]**, so every site falls through to its fallback today | **Open** — #52 (dad6e1a) adds it at `fly.toml:24` (scheduler's claim) and is in the morning merge list | scheduler |
 
 ## B. The opportunity study (`docs/OPPORTUNITY-FINDINGS-2026-09-19.md`)
 
@@ -83,6 +83,7 @@ could not re-verify every row inside the hour this was asked for.
 | D19 | Snap share **is** rendered (`% snaps`) through a per-row unit guess, over a column stored unscaled with no unit in the schema; the other branch has never fired and its failure case prints fringe players near full-time | `news-fantasy-impact.js:136`, `News.tsx:471`, `nflverse.js:294` **[v]** | **Open** | UI (reader) + fantasy plan (ingest) |
 | D20 | O4's corpus is never in the image, so the model can produce no number on the deployed app | `history-corpus.js:48` — **not on main [v]**; lives only on #42's branch | **Open (pre-merge)** — caught before it could ship; needs migration 065 too | fantasy plan |
 | D21 | No O4 figure should be quoted to Nick until it is known whether his own clone has the corpus built | — | **Open** | fantasy plan |
+| D29 | **A league with no ESPN cookie pair still gets fetched, and the public payload is written as that league's own market.** `if (lg.espn_s2 && lg.swid)` sets the cookie header, then the fetch and the write run either way **[v]** | `espn-market.js:31`, fetch `:33`, write `:37+` | **Open — and it wants fixing before #50 merges**, since #50 is what registers the sync. Refuse with the league named | feature-audit |
 | D22 | The same ratio means different things on two pages: `starter_value` from `p.vor` against `p.value` | `tradelab.js:125` vs `leagues.js:387` | **Open** | feature-audit |
 | D23 | Trade Lab reported a confident NEED for any position the corpus cannot price | `tradelab.js:154` divided by `(avg[pos] \|\| 1)` | **Fixed (held)** — feature-audit #74 | feature-audit |
 | D24 | Weekly fantasy scores per league-season are held nowhere, though `view=mMatchup` is requested and the payload persisted | `routes/leagues.js:125`, `:160` | **Open** — unblocks fitting four of feature-audit's thresholds | fantasy plan |

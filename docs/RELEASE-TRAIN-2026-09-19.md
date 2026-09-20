@@ -2507,13 +2507,38 @@ if (process.env.SCHEDULER_DISABLED === '1') {
 ```
 
 It returns **before** the boot pass is scheduled, so there is no `bootJobs`
-chain, no 90-second timer and no tiers at all. The comment above it was written
-on 2026-09-07, hours before the Matta-Kodsi draft, and describes this exact
-failure: the live tier's polling of a synchronous SQLite database "was found to
-be the actual cause of the app going periodically unresponsive", and "none of
-the fantasy pages depend on live NFL/MLB odds staying fresh, so the safe move
-for a night that has to work is to stop paying that cost rather than chase which
-of a dozen jobs is the one currently holding the lock."
+chain, no 90-second timer and **no tiers at all** — which matters more than it
+did an hour ago, because it means this one command stops both of the things
+that start at 90 seconds, whichever of them is the culprit.
+
+**The comment above it, `scheduler.js:1721-1731`, was written on 2026-09-07,
+hours before the Matta-Kodsi draft, and it describes tonight exactly.** Quoted
+in full rather than trimmed, because two clauses this document previously cut
+are the important ones:
+
+> "after the betting-side live tier's 90-second polling of a **6GB+**
+> synchronous SQLite database (**`node:sqlite` has no worker thread; a slow
+> query blocks the whole HTTP server, not just the caller**) was found to be the
+> actual cause of the app going periodically unresponsive for several seconds at
+> a time. None of the fantasy pages depend on live NFL/MLB odds staying fresh,
+> so the safe move for a night that has to work is to stop paying that cost
+> rather than **chase which of a dozen 3-to-5-minute jobs is the one currently
+> holding the lock**."
+
+**Three things to take from it.** The parenthetical is the structural fact
+under the whole night: a slow query blocks the server, not the caller, so any
+synchronous read on the main thread is a whole-app outage rather than one slow
+request. The "dozen 3-to-5-minute jobs" are the live tier described above, and
+the sentence is about the same 90-second timer. And **someone stood exactly
+where this document stands, chose the brake over the attribution, and wrote the
+brake** — which is the best argument in the plan for running it first, and it is
+in the source rather than in anyone's prose.
+
+*One figure in it does not reconcile and is left open:* the comment says
+**6GB+**, while the live database is recorded at 445 MB with a WAL of similar
+size. Either the file shrank, or the figure was loose when written. It is not
+checkable from here, it changes nothing about the brake, and it is worth a
+glance at `ls -la /data` in the morning — which step 3 already runs.
 
 1. ```
    fly secrets set SCHEDULER_DISABLED=1 -a gridiron-hq

@@ -272,3 +272,54 @@ test('two different players claiming the same pick number in one snapshot are qu
   const picks = rows('SELECT * FROM draft_picks WHERE draft_id=?', draftId);
   assert.equal(picks.length, 1, 'only the first claimant should be mirrored, never both');
 });
+
+/* --------------------------------------------- the two audit columns, pinned */
+
+/**
+ * A wiring sweep reported `draft-reconcile.js:168` and `:173` as reads of
+ * columns nothing writes. Both reports are wrong, and these two tests are the
+ * standing proof rather than a note in a message:
+ *
+ *   - `resolved_at` is written at `:66` (`UPDATE ... SET resolved_at=datetime('now')`),
+ *     which test "a later-resolved quarantined pick clears from quarantine" above
+ *     already exercises from the outside; this asserts the column itself.
+ *   - `applied_at` is a column DEFAULT (`db/schema/core-and-fantasy.js:579`), so
+ *     every INSERT at `:159` fills it. A sweep that reads INSERT column lists
+ *     cannot see a default, which is the shape of the false positive.
+ *
+ * Kept as controls: if either column really did stop being written, the sweep
+ * would be right and these would be the tests that said so.
+ */
+test('resolved_at is really written, not just read', () => {
+  const draftId = makeDraft();
+  const unknown = { overallPickNumber: 1, playerId: 99999, teamId: 10, keeper: false };
+  reconcileDraftBoard(draftId, [unknown], new Map(), SLOT_OF, 'snap-q1');
+  assert.equal(openQuarantine(draftId).length, 1);
+  const beforeRow = rows('SELECT resolved_at FROM draft_pick_quarantine WHERE draft_id=?', draftId)[0];
+  assert.equal(beforeRow.resolved_at, null, 'an open entry has no resolution time');
+
+  const realId = makePlayer('Resolvable Later');
+  reconcileDraftBoard(draftId, [unknown], new Map([[99999, realId]]), SLOT_OF, 'snap-q2');
+  const afterRow = rows('SELECT resolved_at FROM draft_pick_quarantine WHERE draft_id=?', draftId)[0];
+  assert.ok(afterRow.resolved_at, 'resolving a quarantined pick must stamp resolved_at');
+  assert.equal(openQuarantine(draftId).length, 0);
+});
+
+test('applied_at is really written, on every audit row', () => {
+  const draftId = makeDraft();
+  const a = makePlayer('Audit One'), b = makePlayer('Audit Two');
+  const pick = playerId => ({ overallPickNumber: 1, playerId, teamId: 10, keeper: false });
+  reconcileDraftBoard(draftId, [pick(1001)], new Map([[1001, a]]), SLOT_OF, 'snap-a1');
+  reconcileDraftBoard(draftId, [pick(1002)], new Map([[1002, b]]), SLOT_OF, 'snap-a2');
+
+  const history = correctionHistory(draftId);
+  assert.ok(history.length >= 1, 'a corrected player at the same pick number is audited');
+  for (const entry of history) assert.ok(entry.applied_at, 'every audit row carries applied_at');
+  // Deliberately NOT asserting a strict newest-first order here. applied_at is
+  // datetime('now') at one-second resolution, so two corrections in the same
+  // test tick carry identical stamps and any ordering assertion would pass on
+  // equal values whatever the ORDER BY said — a test that looks stronger than
+  // it is. What this file can honestly hold is that the column is populated at
+  // all, which is the claim the sweep disputed.
+  assert.ok(history.every(h => typeof h.applied_at === 'string' && h.applied_at.length >= 10));
+});

@@ -6,6 +6,23 @@ export class DraftNotFoundError extends Error { constructor(msg) { super(msg); t
 export class DraftValidationError extends Error { constructor(msg) { super(msg); this.status = 400; } }
 export class DraftConflictError extends Error { constructor(msg) { super(msg); this.status = 409; } }
 
+/**
+ * How long a mock-draft pick clock runs when the draft itself does not say.
+ *
+ * Hand-set, and deliberately not a model of anything: it is the length of a
+ * practice turn, chosen to match what ESPN's own mock rooms use. Nothing was
+ * fitted to arrive at it and no outcome was measured against it, so it must
+ * never be read as a modelled pick time. A real draft carries its own
+ * `pick_seconds` from ESPN (espn-draft.js:216) and this is not consulted.
+ *
+ * It is exported because the same number previously stood in three places —
+ * here, the create-draft default in routes/drafts.js, and the `DEFAULT 90` on
+ * the `drafts.pick_seconds` column (db/schema/core-and-fantasy.js:764). Two of
+ * those now read this constant; the third is a column default and cannot, so
+ * test/draft-pick-clock-is-one-number.test.js holds the schema to it instead.
+ */
+export const DEFAULT_PICK_SECONDS = 90;
+
 // Module-private capability: unlike a boolean/object flag, external callers cannot
 // construct this identity to impersonate the durable clock.
 const SYSTEM_CLOCK_ACTOR = Symbol('draft-system-clock');
@@ -83,7 +100,7 @@ function parseRosterPositions(json) {
 function advanceDraftState(draft, picksMade) {
   const complete = isDraftComplete(draft, picksMade);
   const deadline = (!complete && draft.type === 'mock' && !draft.paused)
-    ? toSqliteDatetime(Date.now() + (draft.pick_seconds ?? 90) * 1000)
+    ? toSqliteDatetime(Date.now() + (draft.pick_seconds ?? DEFAULT_PICK_SECONDS) * 1000)
     : null;
   run('UPDATE drafts SET revision = revision + 1, turn_deadline = ?, status = ? WHERE id = ?',
     deadline, complete ? 'completed' : 'active', draft.id);

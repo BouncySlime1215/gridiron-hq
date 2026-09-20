@@ -14,7 +14,7 @@ import { normalise } from '../services/player-ids.js';
 import { ORDER_TYPES, DEFAULT_ROSTER_POSITIONS, assignRosterSlots, slotForPick as engineSlotForPick } from '../draft/engine.js';
 import {
   makePick, undoLastPick, redoLastUndo, correctLastPick, setPaused,
-  getQueue, setQueue, autoPickOverdueDrafts,
+  getQueue, setQueue, autoPickOverdueDrafts, DEFAULT_PICK_SECONDS,
   DraftNotFoundError, DraftValidationError, DraftConflictError
 } from '../draft/store.js';
 import {
@@ -347,7 +347,8 @@ r.get('/', (req, res) => {
 
 r.post('/', (req, res) => {
   const {
-    name, type = 'mock', team_count = 12, rounds = 16, my_slot = 1, ranking_set_id = null, pick_seconds = 90,
+    name, type = 'mock', team_count = 12, rounds = 16, my_slot = 1, ranking_set_id = null,
+    pick_seconds = DEFAULT_PICK_SECONDS,
     order_type = 'snake', roster_positions = null, league_row_id
   } = req.body;
   // A mock draft is a personal practice tool with no real roster at stake, so it
@@ -1091,7 +1092,7 @@ r.get('/:id/advice', async (req, res, next) => {
         + (p.cost_of_waiting != null ? `, waiting costs ~${Math.round(p.cost_of_waiting)} pts` : '');
     }).join('\n');
 
-    const proposePrompt = `You are advising me live, on the clock, in a ${draft.team_count}-team PPR fantasy football draft. Be decisive and brief — I have ${draft.pick_seconds ?? 90} seconds.
+    const proposePrompt = `You are advising me live, on the clock, in a ${draft.team_count}-team PPR fantasy football draft. Be decisive and brief — I have ${draft.pick_seconds ?? DEFAULT_PICK_SECONDS} seconds.
 League size matters: with ${draft.team_count} teams the waiver wire is deep, replacement-level players are good, and only elite production separates rosters — weight ceiling over floor, and never reach for a QB, TE, K or DEF while a difference-making RB/WR is on the board.
 
 SITUATION

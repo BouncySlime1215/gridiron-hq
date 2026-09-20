@@ -214,6 +214,83 @@ M1 is caught by one assertion and not two, and that is correct: the fused senten
 "fewer than 40 training rows", so the row-count `match` and the `held_because` code both still
 pass. A test that had also gone red there would have been red for the wrong reason.
 
+## Acceptance test: six mutations written by someone else
+
+The mutations above are mine, which is the weakness of any mutation table — a
+fix proved only against mutations its author invented is proved against its
+author's imagination. These six were specified by the fantasy plan thread,
+which reached the same diagnosis independently through an alternation sweep on
+`test/consensus-weights.test.js:238` rather than by reading the consumer. It
+also noticed something I had not: the old test's regex matched on the first
+alternative every time, because the fused message contains both phrases, so
+the test was a symptom of the defect rather than a guard against it.
+
+**All four of their original mutations survive on `main` at zero fail**, on
+`consensus-weights.js` at base hash `d1f5eabd828e` (main `791b131`): W1 `2f299a59c65e`,
+W2 `e709991898c3`, W3 `e85f72a040e6`, W4 `c36ce7b8931b`, each applied alone.
+So the old gate was not weakly pinned, it was unpinned: either half of the
+condition could be deleted, or either cause reported exclusively, in silence.
+
+Their W1 and W2 were expressed against the `usable` line, which this change
+deletes, so they are re-expressed against the helper rather than
+pattern-matched onto it. W5 and W6 exist only because this change created the
+states they attack.
+
+Base for every row below: `server/services/consensus-weights.js` at
+`a76bfca38f4d`, this branch's head. Each row applied **alone** from that clean
+base and restored before the next, because two at once can mask each other.
+The file was hashed before and after every row: a pattern that silently
+matched nothing reports as a pass, which is how a table records a row as
+caught when nothing was mutated.
+
+| row | mutation | after | pass / fail | tests that caught it |
+|---|---|---|---|---|
+| W1 | drop the row-count arm — only zero variance can hold a position | `0cc6d80c84b2` | 14 / **4** | 7, 10, 12, 13 |
+| W2 | drop the variance arm — only a thin panel can hold a position | `5d380bc6f484` | 16 / **2** | 11, 12 |
+| W3 | report only the row-count cause, never the variance one | `9a5414bf20ec` | 16 / **2** | 11, 12 |
+| W4 | report only the variance cause, never the row-count one | `78e680b0521d` | 14 / **4** | 7, 10, 12, 13 |
+| W5 | delete the zero-rows cause from `HELD_BECAUSE` | `d3f185dacc2e` | 17 / **1** | 9 |
+| W6 | return only the first cause when several fired | `608dc5c42c33` | 17 / **1** | 12 |
+
+Every row APPLIED — six distinct after-hashes, none equal to the base. Six of
+six red. Test titles, not ordinals:
+
+- 7 — a position with too few training rows is held at the hand-set weights rather than fitted on nothing
+- 9 — heldBecause: no rows at all is one fact, not a missing variance as well
+- 10 — heldBecause: too few rows is named on its own
+- 11 — heldBecause: rows that are all identical leave no variance to weight on
+- 12 — heldBecause: two sources can fail in two different ways at once, and both are reported
+- 13 — an unfitted position names the cause that actually held, and not the other one
+
+**NO-OP CONTROL**, `e5d4c7a1d228`: a comment appended to the `heldBecause`
+signature line. Applied, 18 / 0. The harness reports a miss when a real edit
+changes no behaviour, so a green row means the edit landed and nothing broke,
+not that nothing was edited.
+
+**KILL CONTROL**, `4f47d62dcd17`: `heldBecause` returns `[]`, so no position
+can ever be held. Applied, 12 / **6** — tests 7, 9, 10, 11, 12, 13. These
+tests can fail.
+
+W2 and W3 redden the same two tests by different routes: W2 makes a flat panel
+fit at all, W3 keeps it held and mislabels the cause. Same guard, two ways
+past it, both closed.
+
+**Why the distinction is load-bearing rather than pedantic**, in the fantasy
+plan thread's words, which are better than mine: too few rows is a coverage
+problem that more seasons fix, while no measurable variance means a source's
+errors are identical across the panel, which in this file almost certainly
+means a broken measurement — and the header already records that two of the
+three sources have no obtainable history. Same action, entirely different
+cause, and one of them is a bug. The reason nobody noticed is that holding at
+the hand-set weights is the **correct action in both cases**, so the output
+was right and only the reason was wrong.
+
+**Credit where the account is theirs and where it is mine.** The two-condition
+diagnosis was reached independently on both sides. The third state is mine and
+they say it completes the diagnosis: with no rows at all, `variance` is `null`,
+`null > 0` is false, and both causes report through one branch for a reason
+that is neither of them. That is why three states wore one sentence.
+
 ## Numbers, and the commit they were measured on
 
 `test/consensus-weights.test.js` alone: **18 tests, 18 pass, 0 fail**, on `656b11b`.

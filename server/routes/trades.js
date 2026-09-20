@@ -28,7 +28,8 @@ import { brainState, managerProfiles, setManagerProfile } from '../services/leag
 import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected, chatCorpusState }
   from '../services/manager-signals.js';
 import { identityMap, identityRows, identityWarnings } from '../services/manager-identity.js';
-import { counterpartyLayer, RECEPTIVENESS_RANGE } from '../services/counterparty-pricing.js';
+import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE }
+  from '../services/counterparty-pricing.js';
 // Every other route in this file is a read behind a bearer session; the one that
 // triggers work needs the administrator grant on top (server/platform/legacy-access.js).
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
@@ -970,10 +971,107 @@ r.get('/:leagueId/rosters', (req, res, next) => {
 });
 
 /* --------------------------------------------------------- player deep dive */
+
+/**
+ * WHERE THIS PRICE COMES FROM — the valuation map, on the surface that shows it.
+ *
+ * `valuationMap` has priced every player for every manager, with a named source
+ * and a sample size on each factor, since 2026-09-18, and until now nothing in
+ * the running app imported it: the layer that measured the thing had no reader.
+ * It is wired here rather than rebuilt, onto the detail Trade Lab already fetches
+ * (client/src/pages/TradeLab.tsx), so there is no second answer to "what is he
+ * worth to them".
+ *
+ * IT IS A READ, NOT A PRICE. Nothing on this panel feeds the deal score. The
+ * clamp reported per player is `PLAYER_VALUATION_CAP` (0.20); the deal score's
+ * own clamp is the separate +/-10% at `perceptionFactorFor` in trade-engine.js
+ * and is untouched by anything here.
+ *
+ * The ablation is a RE-RUN, not arithmetic on each factor's effect: the source is
+ * suppressed entirely and the price recomputed. Once a cap binds, the two stop
+ * agreeing, and the re-run is the one that answers "does this source do anything".
+ *
+ * It reports the MULTIPLIER as well as the value, and that is not redundancy.
+ * `their_value` is `our_value` times the multiplier, so for a player our own
+ * model has not priced (`our_value` 0 — a rookie, or anyone with no projection
+ * yet) every value delta is exactly 0 however hard the sources are pulling. The
+ * multiplier is the only place the ablation is visible there, and a panel that
+ * carried the value alone would report "this source does nothing" about a source
+ * doing plenty.
+ */
+function valuationPanel(lg, playerId) {
+  const season = lg.season ?? null;
+  let week = null;
+  try { week = leagueCurrentWeek(lg); } catch { week = null; }
+  const blank = reason => ({
+    league_id: lg.id, season, week, available: false, reason,
+    my_roster_id: null, sources_used: [], sources_absent: [], managers: [],
+  });
+
+  const { formatKey } = deriveFormat(lg);
+  const assets = assetUniverse(lg, formatKey);
+  const teams = loadRosters(lg, assets);
+  const player = resolvePlayer(playerId, assets, teams);
+  if (!player) {
+    return blank('he is not in this league\'s priced universe, so no manager has a price for him');
+  }
+
+  // Built ONCE and handed to both calls below. A layer rebuilt per manager would
+  // let the panel and the ablation disagree about the same league.
+  const layer = counterpartyLayer(lg.id, { season, week });
+  const map = valuationMap(lg.id, { season, week, players: [player], layer });
+  if (!map.available) return blank(map.reason);
+
+  const owner = new Map(teams.map(t => [String(t.roster_id), t.owner ?? null]));
+  const key = String(player.name ?? '').toLowerCase();
+  const managers = [];
+  for (const [rid, m] of map.managers) {
+    const valuation = m.players?.get(key) ?? null;
+    const mp = layer.get(rid) ?? layer.get(String(rid)) ?? null;
+    const ablation = [];
+    for (const f of valuation?.factors ?? []) {
+      if (!mp) continue;
+      const without = playerValuation(mp, player, { zero: [f.source] });
+      ablation.push({
+        source: f.source,
+        their_value_without: without.their_value,
+        delta: +(valuation.their_value - without.their_value).toFixed(4),
+        multiplier_without: without.multiplier,
+        multiplier_delta: +(valuation.multiplier - without.multiplier).toFixed(4),
+      });
+    }
+    managers.push({
+      roster_id: String(rid), owner: owner.get(String(rid)) ?? null,
+      receptiveness: m.receptiveness ?? null, tier: m.tier ?? null,
+      valuation: jsonSafe(valuation), ablation,
+    });
+  }
+
+  return {
+    league_id: lg.id, season: map.season, week: map.week,
+    available: true, reason: null, my_roster_id: map.my_roster_id,
+    sources_used: map.sources_used, sources_absent: map.sources_absent, managers,
+  };
+}
+
 r.get('/:leagueId/player/:id', (req, res, next) => {
   try {
     const lg = league(req, res); if (!lg) return;
-    res.json(playerOutlook(lg, req.params.id));
+    // The panel is an extra read on a page that already works without it, so a
+    // fault in it must not take the deep dive down with it -- but it is never
+    // swallowed either: the surface says the panel went inert and why, which is
+    // the whole point of a panel about provenance.
+    let panel;
+    try { panel = valuationPanel(lg, req.params.id); }
+    catch (e) {
+      panel = {
+        league_id: lg.id, season: lg.season ?? null, week: null,
+        available: false,
+        reason: `the valuation layer failed to build for this league: ${String(e?.message ?? e)}`,
+        my_roster_id: null, sources_used: [], sources_absent: [], managers: [],
+      };
+    }
+    res.json({ ...playerOutlook(lg, req.params.id), valuation_map: panel });
   } catch (e) { next(e); }
 });
 

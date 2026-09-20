@@ -751,3 +751,104 @@ build stamp standing in for a collection stamp, an empty result standing in for
 an absent store, and here a prior standing in for a measurement that was never
 read. The fix has been the same each time: find out which state you are in, say
 so, and refuse to price the one you cannot see.
+
+---
+
+## Part 8 — the chat block reported the rollup's age as the data's age
+
+Chat sync read this block side by side with its own `freshness()` in
+`league-chat-sync.js` and the coordinator's ruling was that one state gets one
+sentence and this block is the machine-readable source. Four defects came out of
+that comparison, all of them mine, and all four are the same family as Parts 1-7.
+
+**1. `as_of` was `MAX(computed_at)` — the rollup stamp.** That is when the
+aggregate was last computed, not how old the chat is. The rollup runs every
+fifteen minutes whether or not a single message arrived, so the number served
+was always young and said nothing about whether the chat half of a manager read
+is current. A corpus nobody has added to since Tuesday reads as fresh. `as_of` is
+now `MAX(last_msg)`, the newest message anyone in the corpus sent, and the rollup
+stamp stays beside it as `computed_at`. **Two facts, two fields**, and the test
+asserts they are unequal in the fixture so neither can pass on the other's value.
+
+This is the general rule of these eight parts stated once more, in a store where
+it had teeth: *a served value must carry the stamp of the process that MEASURED
+it, never the stamp of a process that merely copied, scheduled or reported it.*
+The rollup is a reporter. `last_msg` is the measurement.
+
+**2. `first_seen` said nothing.** `scripts/chat/extract_league_chat.py` builds
+`manager_chat_profile` with `CREATE TABLE AS ... datetime('now') AS computed_at`
+for the whole table, so `MIN` and `MAX` of it are **equal by construction**. The
+field was the same stamp under a second name. Dropped, and the test asserts it is
+gone. This is exactly the T5/L2/A2 shape Part 1 named in another store — a
+fixture where every row shares one stamp makes `MIN` and `MAX` indistinguishable
+— except that here it is not the fixture, it is the table.
+
+I did not take chat sync's word for this. `extract_league_chat.py:255-282` was
+read directly, and it also settled the replacement: the same `CREATE TABLE AS`
+carries `MAX(b.ts_utc) AS last_msg` per person, which is the per-row timestamp
+that *can* differ and therefore the one `as_of` is now built from.
+
+**3. The not-here branch did not name the path it looked at.** A mistyped
+`GRIDIRON_CHAT_DB_PATH` and a machine that genuinely has no corpus produced the
+same sentence, and those two have very different fixes. The path is now on the
+block and in the sentence, with `path_source` saying whether it came from the
+environment or from the in-repo default.
+
+While fixing it, a **dead branch**: the block's first state was "no chat corpus
+path is configured on this machine", and `chatDbPath()` cannot return a falsy
+value — it is `process.env.GRIDIRON_CHAT_DB_PATH || path.join(PROJECT_ROOT,
+'data/derived/league_chat.sqlite')`. No test could ever enter it. It is replaced
+by `path_source`, which is the distinction that actually exists. Same lesson as
+`unreachable-branch-no-assertion`: a branch nothing can reach is not a state, it
+is a comment.
+
+**4. The sentence carried one half of the fix.** "It is not in the deployed
+image" points the reader at a deploy. The corpus **cannot be produced here** — it
+is extracted from Apple Messages on Nick's Mac — and it **can be uploaded here**,
+via `POST /api/league-chat/upload` (`server/routes/league-chat.js:101`, which
+`scripts/chat-sync.mjs:351` already posts to). Both halves are in the sentence,
+and the test matches the route rather than the word "uploaded", because the first
+version of that assertion was loose enough to pass with the route removed.
+
+### Mutation run, pasted verbatim
+
+```
+H1  as_of goes back to the rollup stamp                              APPLIED  caught
+H2  as_of reads MIN(last_msg) instead of the newest in the corpus    APPLIED  caught
+H3  computed_at reports the oldest rollup stamp                      APPLIED  caught (3 tests)
+H4  the absent-corpus sentence drops the path                        APPLIED  caught
+H5  the absent-corpus sentence drops the upload half                 APPLIED  caught
+H6  path_source always says default                                  APPLIED  caught (2 tests)
+H7  first_seen returns as the same stamp under another name          APPLIED  caught
+H8  the present branch hardcodes path_source                         APPLIED  caught
+```
+
+Three of the eight — H4, H5 and H8 — survived their first pass, and all three
+were the same test defect: I asserted on the FIELD and claimed a guarantee about
+the SENTENCE, and the loose `/upload/i` still matched after the route name was
+deleted because the neighbouring clause says "uploaded". **An assertion that
+passes when the thing it names is removed is not an assertion about that thing.**
+The three are now pinned on the reason string itself.
+
+### Is this well built? (the five questions)
+
+**1. Stats or made up?** Neither: these are stamps, and the whole point is that
+each one is read from the process that produced it. Nothing here is fitted.
+
+**2. How do we know?** Eight mutations, eight caught, pasted above, plus the
+direct read of `extract_league_chat.py:255-282` that confirmed both the `MIN`
+claim and the `last_msg` replacement rather than taking another thread's word
+for either.
+
+**3. Structure.** One accessor, four states, and no state that cannot happen.
+`freshness()` in chat sync's `league-chat-sync.js` will call this block rather
+than deriving its own, which is what makes one state one sentence.
+
+**4. Pointed anywhere else?** Yes: every surface that shows a chat-sourced
+number — the manager signals page, the counterparty layer's per-player reads,
+the negotiation profiles — is reading data whose age is now available and was
+not. The block is served on `GET /api/trades/:leagueId/managers/signals`.
+
+**5. How does it unify?** With Parts 1-7 it is one rule in eight stores, and
+Part 8 adds the sharpest case of it: the rollup is a scheduler, and a scheduler's
+clock is not the data's clock.

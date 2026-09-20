@@ -82,3 +82,70 @@ a bare mock would hand them an empty module.
   whole suite today.
 - It does not wire `context`/regimes into anything. That experiment failed its
   own walk-forward gate and stays opt-in and uncalled.
+
+## The five questions
+
+Nick's standing rule of 2026-09-20 01:21Z: every evidence file answers these.
+
+1. **Is it well built?** It removes a claim rather than adding a mechanism. One
+   argument, one field, one consumer's fallback chain and a corrected module
+   header. No new model, no new table, no new dependency.
+2. **Is it based on stats or made up?** Stats, and specifically it is the *fit*
+   that decides the answer rather than anyone's preference. `coordinateFantasy`'s
+   third parameter is the head the correction is added to, and the correction was
+   trained with `target: actualPoints - projection.structural_ppg`
+   (`fantasy-coordinator.js:324`), graded as `|target - correction|` with
+   `structuralPpg = 0` (`:519`), and described that way in the file's own header
+   ("TARGET: actual_weekly_points - structural_ppg"). There is no reading of that
+   contract under which the ensemble is the head.
+3. **How do we know?** Three independent places in the file agree (the header, the
+   example builder at `:324`, the grader at `:519`), and `ensemble_shift` is listed
+   at `:32-34` as one of the three experts, which is what makes the ensemble head a
+   double count rather than merely a different choice. The correction magnitude in
+   the fixture is small (0.129 points), so the defect's size in production depends
+   on the fitted correction, which nobody has measured on the live database —
+   **and whether `activeFantasyCoordinatorFit()` returns a ready fit there at all is
+   unconfirmed.** If it does not, this path is inert today and the fix matters from
+   the first `fly secrets set AUTO_HEAVY_SYNC=1`, which is when
+   `fantasy_coordinator_refit` (heavy tier) first runs.
+4. **Should this data be pointed anywhere else?** It already is, and that is the
+   other half of the finding: `trade-engine.js:354` had the identical defect on
+   `current_week_ppg`. Every future caller of `coordinateFantasy` faces the same
+   choice, which is why the argument's meaning is now stated at the call site
+   rather than only in the header.
+5. **How does it unify?** Both callers now pass the same quantity into the same
+   parameter, so "the coordinated projection" means one thing across the app. The
+   display question — what to show when there is nothing to correct — is answered
+   separately and openly in each caller, instead of being smuggled into a field
+   named `corrected_ppg`.
+
+## Consumers, checked rather than assumed
+
+`weeklyProjectionFor` has exactly two callers: `draft-assist.js:976`
+(`week1_projection`) and `routes/players.js:94`, which serves `weekly_projection`
+in an API response. A search of `server/`, `client/` and `scripts/` for
+`corrected_ppg` finds only `routes/drafts.js` (fixed here) and `trade-engine.js`'s
+own unrelated field, and no client code reads `weekly_projection` at all. So on
+that route `corrected_ppg` goes null where it used to carry the ensemble, **no
+surface changes**, and the payload stops labelling an uncorrected number
+corrected. (Reported independently by the release thread's own search and
+confirmed against these two call sites.)
+
+## Why no `basis` field here
+
+A `current_week_basis` field of `'coordinated' | 'ensemble'` was proposed for
+`trade-engine.js`, where the not-ready path serves the ensemble as a real price
+and one field therefore carries two quantities. This function is not in that
+position: it returns `structural_ppg`, `ensemble_ppg` and `corrected_ppg` as three
+separate named fields, so "which quantity is this" is already answered by which
+field a caller read, and `corrected_ppg === null` says plainly that nothing
+corrected it. A basis string would restate what the field names carry. If a
+consumer ever wants one flag to branch on, it is a one-line addition and no
+behaviour changes with it.
+
+## Mutation bookkeeping
+
+Both mutations above were verified **applied**, not assumed: the driver asserts
+the anchor string occurs exactly once before editing and fails loudly otherwise, so
+a silent no-op cannot be read as a green sweep. Each was restored from a pristine
+copy of the file before the next ran.

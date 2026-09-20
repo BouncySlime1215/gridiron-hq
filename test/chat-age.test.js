@@ -137,3 +137,22 @@ test('a present corpus with no messages is absent, not a date of null', () => {
   assert.equal(f.state, 'absent');
   assert.equal(f.as_of, null, 'no messages is no age, and no age must not be an empty string or a 1970 date');
 });
+
+test('a corpus whose timestamp column is unreadable says so instead of going quiet', () => {
+  // The defect this replaces was a bare catch: the query named a column that
+  // does not exist, threw on every corpus, and reported null. A real older
+  // corpus without the column has to be distinguishable from one with no
+  // messages, or the same silence comes back by another route.
+  fs.rmSync(CORPUS, { force: true });
+  const c = new DatabaseSync(CORPUS);
+  c.exec(`CREATE TABLE messages (msg_id INTEGER, text TEXT)`);
+  c.prepare(`INSERT INTO messages (msg_id, text) VALUES (1, 'hi')`).run();
+  c.close();
+  const s = chatSync.corpusStats();
+  assert.equal(s.messages, 1, 'fixture sanity: there are messages');
+  assert.equal(s.newest_message, null);
+  assert.match(s.newest_message_error ?? '', /ts_utc/,
+    'a swallowed throw is how this was broken for the whole life of the corpus');
+  assert.equal(chatSync.freshness(s, null).state, 'unknown',
+    'messages that cannot be dated are genuinely unknown, not fresh and not absent');
+});

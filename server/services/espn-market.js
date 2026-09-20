@@ -15,6 +15,22 @@ import { BROWSER_HEADERS } from './espn-draft.js';
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 
+/**
+ * Thrown when the league this sync was asked for has no stored ESPN cookie
+ * pair. Defined here rather than imported: the shared credential resolver
+ * (platform/espn-credentials.js) is not on main yet, and this refusal must not
+ * wait for it. When it lands, the throw site becomes a one-line swap to
+ * `credentialsForLeague` and this class can go.
+ */
+export class EspnCredentialsMissing extends Error {
+  constructor(leagueRowId, leagueId) {
+    super(`league ${leagueRowId} (ESPN ${leagueId}) has no stored ESPN cookies, so its market cannot be read`);
+    this.name = 'EspnCredentialsMissing';
+    this.status = 409;
+    this.leagueRowId = leagueRowId;
+  }
+}
+
 export async function syncEspnMarket(leagueRowId, { limit = 400 } = {}) {
   const lg = row('SELECT league_id, season, espn_s2, swid FROM leagues WHERE id = ?', leagueRowId);
   if (!lg) throw new Error(`league row ${leagueRowId} not found`);
@@ -28,7 +44,16 @@ export async function syncEspnMarket(leagueRowId, { limit = 400 } = {}) {
     }
   };
   const headers = { ...BROWSER_HEADERS, 'x-fantasy-filter': JSON.stringify(filter) };
-  if (lg.espn_s2 && lg.swid) headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
+  // Refuse rather than fetch anonymously. Without the cookie pair ESPN still
+  // answers — with a thin PUBLIC payload — and this function would write that
+  // down as the league's own market, under a fetched_at stamp that makes it
+  // look collected minutes ago. The docstring above promises `appliedTotal` in
+  // the LEAGUE's scoring; an unauthenticated read cannot deliver that, and the
+  // board has no way to tell the two apart afterwards. Silent public data
+  // wearing a league's label is worse than a named refusal: a caller that
+  // cannot read a league says so and the board shows "never collected".
+  if (!lg.espn_s2 || !lg.swid) throw new EspnCredentialsMissing(leagueRowId, lg.league_id);
+  headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
   const url = `${BASE}/seasons/${season}/segments/0/leagues/${lg.league_id}?view=kona_player_info`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(30000) });
   if (!resp.ok) throw new Error(`ESPN kona_player_info ${resp.status}`);
@@ -72,6 +97,24 @@ export function espnMarketByPlayerId() {
   return out;
 }
 
+/**
+ * How old this table's contents are, read from the table's OWN stamps.
+ *
+ * Deliberately not from `sync_log` or a scheduler record: a job that ran and
+ * wrote nothing, or wrote and was rolled back, leaves a log entry and no rows.
+ * The only honest answer to "how fresh is this market" is the newest
+ * `fetched_at` actually sitting in it.
+ *
+ * `collected` is false when the table is empty, which is the state the board
+ * shows as "never collected" — as opposed to "collected and stale", which is a
+ * different sentence and a different decision.
+ */
 export function espnMarketFreshness() {
-  return row(`SELECT COUNT(*) AS n, MAX(fetched_at) AS fetched_at FROM espn_player_market`);
+  const r = row(`SELECT COUNT(*) AS n, MAX(fetched_at) AS fetched_at FROM espn_player_market`);
+  return {
+    ...r,
+    collected: (r?.n ?? 0) > 0,
+    as_of: r?.fetched_at ?? null,
+    label: (r?.n ?? 0) > 0 ? `ESPN market: as of ${r.fetched_at}` : 'ESPN market: never collected'
+  };
 }

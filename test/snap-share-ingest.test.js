@@ -93,6 +93,11 @@ test('a missing share is absent, which is different from out of range', () => {
     assert.equal(v.value, null);
     assert.match(v.reason, /no snap share|absent|missing/i,
       `a missing value must not be reported as out of range: ${String(value)}`);
+    // `observed` is what the ingest loop reads to decide whether a row was out of RANGE as
+    // opposed to simply absent, so a missing value substituting any number here -- a zero
+    // included -- collapses the two reasons the function exists to keep apart.
+    assert.equal(v.observed, null,
+      `a missing value must report no observation, not a substituted one: ${String(value)}`);
   }
 });
 
@@ -128,6 +133,29 @@ test('an out-of-range share is stored as absent, counted, and sampled in the rep
   assert.equal(bad.offense_pct, null, 'absent, not scaled and not a zero');
   assert.equal(bad.offense_snaps, 55, 'the snap COUNT is unaffected and still usable');
   assert.equal(stored.find(r => r.week === 4).offense_pct, 0.905);
+});
+
+test('a row with no share at all is not counted as out of range', async () => {
+  // The distinction the verdict draws is only worth drawing if the REPORT keeps it. A source
+  // row that simply carries no `offense_pct` is a gap in the feed; an 81.2 is a unit change
+  // upstream. If the first is counted as the second, `out_of_range` stops meaning what it
+  // says and the number nobody can act on is the one the guard exists to produce.
+  run('DELETE FROM player_week_snaps');
+  const out = await withCsv(csv([
+    '2026,5,REG,Snap Receiver,WR,41,',
+    '2026,6,REG,Snap Receiver,WR,60,0.71'
+  ]), () => syncSnapCounts(2026));
+
+  assert.equal(out.out_of_range, 0,
+    'a missing share is a gap in the feed, not a value that cannot be a share');
+  assert.equal(out.out_of_range_samples.length, 0,
+    'and it contributes no sample, or the samples stop being investigable');
+
+  const stored = snapRows();
+  assert.equal(stored.length, 2, 'the appearance is still real, as with an out-of-range share');
+  const gap = stored.find(r => r.week === 5);
+  assert.equal(gap.offense_pct, null);
+  assert.equal(gap.offense_snaps, 41, 'the snap COUNT is unaffected by a missing share too');
 });
 
 test('a whole file on the wrong scale is reported as such, not ingested as football', async () => {

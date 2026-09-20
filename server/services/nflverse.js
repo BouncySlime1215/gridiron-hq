@@ -298,7 +298,15 @@ export const SNAP_SHARE_RANGE = Object.freeze({
  */
 export function snapShareVerdict(observed) {
   if (observed == null || !Number.isFinite(observed)) {
-    return { ok: false, value: null, observed: observed ?? null, reason: 'no snap share in the source row' };
+    // `observed` is normalised to null, not passed through with `?? null`. A NaN is neither
+    // null nor undefined, so `??` keeps it -- and `NaN != null` is true, which is exactly the
+    // test the ingest loop uses to tell "out of RANGE" from "absent". A non-finite value left
+    // in this field therefore gets counted and sampled as a unit change upstream, which is the
+    // one conflation this function exists to prevent. `numAt` happens to filter non-finite
+    // values before the sync reaches here, so no live ingest could trip it; this function is
+    // exported and called directly, and its contract is the thing being fixed.
+    return { ok: false, value: null, observed: Number.isFinite(observed) ? observed : null,
+      reason: 'no snap share in the source row' };
   }
   if (observed < SNAP_SHARE_RANGE.min || observed > SNAP_SHARE_RANGE.max) {
     return {

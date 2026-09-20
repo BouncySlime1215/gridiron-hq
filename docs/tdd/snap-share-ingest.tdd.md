@@ -64,34 +64,90 @@ scope and the guard is worth having on its own.
 
 ## Mutations
 
-| # | mutation | result |
-|---|---|---|
-| S1 | silently rescale an out-of-range share by 100 | 3 fail |
-| S2 | store a bad share as `0` rather than absent | 3 fail |
-| S3 | widen the range to 0–100 | 4 fail |
-| S4 | stop counting unmatched players | 1 fail |
-| S5 | stop counting out-of-range shares | 2 fail |
-| S6 | report a missing share as out of range | 1 fail |
-| S7 | drop the whole row when the share is unusable | 2 fail |
+Base `server/services/nflverse.js` = `6fbaf79b3ebf`. Every row is applied one at a time from
+that clean base by a runner that hashes the file before and after, prints the exact before and
+after text itself so no row here is retyped from memory, and reports a pattern matching nothing
+— or matching more than one place — as a NO-OP rather than as evidence. The file is restored to
+`6fbaf79b3ebf` at the end, which the runner also prints.
 
-S1 and S4 were invalid on the first attempt — S1's pattern did not match, and S4's pattern
-appeared **twice** in the file (the usage loop at :257 and the snap loop at :343), so a naive
-replacement would have mutated the wrong function and "caught" it with an unrelated test. Both
-were re-run against the snap loop only. Every mutation was applied and the file confirmed
-changed first; a pattern that did not match is reported as a NO-OP and is not evidence.
+| # | mutation | hash after | result |
+|---|---|---|---|
+| S1 | rescale an out-of-range share by 100 instead of refusing it | `a6ed4d5ef3b5` | 3 fail |
+| S2 | store a bad share as `0` rather than as labelled absence | `64986ff5f1af` | 3 fail |
+| S3 | widen the required range to 0–100, so a wrong-scale file passes | `c3d3b34176bc` | 4 fail |
+| S4 | stop counting unmatched players in the **snap** loop | `dafa6c0db9e5` | 1 fail |
+| S4x | *control:* the same mutation written without an anchor | `6fbaf79b3ebf` | **NO-OP, 2 matches** |
+| S5 | stop counting out-of-range shares | `9c0284ea811d` | 2 fail |
+| S6 | restore `?? null`, so a NaN is kept and reads as out of range | `f8a11142aba2` | 1 fail |
+| S7 | drop the whole row when the share is unusable | `380e929acc14` | 3 fail |
+| S8 | normalise a missing observation to `0` instead of to `null` | `e94730bf2039` | 2 fail |
+
+Exact texts, as the runner printed them:
+
+- **S1** `ok: false, value: null, observed,` → `ok: true, value: observed / 100, observed,`
+- **S2** `ok: false, value: null, observed,` → `ok: false, value: 0, observed,`
+- **S3** `  min: 0, max: 1,` → `  min: 0, max: 100,`
+- **S4** the snap loop's `if (!pid) { unmatched++; continue; }` → `if (!pid) { continue; }`,
+  anchored on the preceding comment line
+- **S4x** `      if (!pid) { unmatched++; continue; }` → `      if (!pid) { continue; }`
+- **S5** `        outOfRange++;\n` → `` (removed)
+- **S6** `observed: Number.isFinite(observed) ? observed : null,` → `observed: observed ?? null,`
+- **S7** `stmt.run(pid, …, share.value);` → `if (!share.ok) continue;` before the same line
+- **S8** `… ? observed : null,` → `… ? observed : 0,`
+
+### S4x is in the table on purpose
+
+S4's pattern, written the obvious way, appears **twice** in this file: the usage loop's
+`if (!pid) { unmatched++; continue; }` and the snap loop's. A sweep that replaced the first
+occurrence would have mutated `syncPlayerWeekUsage`, watched a snap test fail for an unrelated
+reason, and recorded S4 as caught. S4x is that naive pattern, kept as a row so the ambiguity is
+on the record rather than in a note, and the runner refuses it: two matches, nothing applied,
+file hash unchanged at `6fbaf79b3ebf`. S4 is the anchored version.
+
+### Correction: S6 did not pass, and the earlier table was wrong
+
+**The first version of this table recorded `S6 | report a missing share as out of range | 1
+fail`. That figure is withdrawn.** Re-run with hashes, the mutation survived: **0 fail**. The
+suite did not enforce the separation this file's own prose calls the reason the function exists.
+The response was to write the missing test, not to weaken the mutation.
+
+The gap turned out to be wider than the mutation. `snapShareVerdict` read
+`observed: observed ?? null`, and `??` catches only `null` and `undefined` — **a `NaN` survives
+it**. The ingest loop distinguishes "out of range" from "absent" with `share.observed != null`,
+and `NaN != null` is `true`, so a non-finite observation was counted and sampled as a unit
+change upstream: precisely the conflation the function exists to prevent. `observed` is now
+normalised with `Number.isFinite`.
+
+**Reachability, stated honestly.** No live sync could trip this. `numAt` (`nflverse.js:58`)
+already returns `null` for a non-finite value, so `syncSnapCounts` never hands `snapShareVerdict`
+a `NaN`. This is a contract defect in an exported function that is called directly and tested
+directly, not a live fault in the ingest — and the fix is what makes S6 and S8 catchable, which
+is why it is here rather than deferred.
+
+Two tests carry it: the pure-verdict test now asserts `observed` is `null` for each of `null`,
+`undefined` and `NaN`, and a new ingest test asserts that a row with a blank `offense_pct`
+reports `out_of_range: 0` with no samples, while still storing the row with its snap count
+intact. S7 now fails 3 rather than 2, because the new ingest test catches it too.
 
 ## Numbers
 
 RED: 9 tests, 1 passed, 8 failed. The one that passed is the existing postseason filter, which
 was already correct and is pinned so this change cannot break it. GREEN: 9 passed, 0 failed.
 
+After the S6 correction the targeted file is **10 tests, 10 passed, 0 failed**. The tenth is the
+new ingest test; the pure-verdict test gained an assertion rather than a test of its own, since
+the claim it enforces belongs to the case it already covered.
+
 The whole ingest is exercised, not just the pure helper: `fetchCsv` uses global `fetch`, so the
 test stubs it and drives `syncSnapCounts` end to end against a temp database, including the
 case that matters most — a **whole file** on the wrong scale, where every row is plausible on
 its own scale and every consumer silently stops discriminating.
 
-Full local check `npm run check`: exit 0 — 2,959 tests, 2,918 passed, 0 failed, 41 skipped;
-typecheck, lint and build clean; `start:smoke` passed on an isolated database.
+Full local check `npm run check` on the corrected tree: exit 0 — **2,960 tests, 2,919 passed,
+0 failed, 41 skipped**; typecheck, lint and build clean; `start:smoke` passed on an isolated
+database (32 teams). The commit before the correction measured 2,959 / 2,918; the one test of
+difference is the new ingest test. CI is not consulted: the Actions allowance is spent and the
+workflow is off.
 
 ## The five questions
 

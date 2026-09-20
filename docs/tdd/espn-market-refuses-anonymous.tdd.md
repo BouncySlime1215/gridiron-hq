@@ -291,10 +291,42 @@ reads `docs/` — checked stage by stage rather than assumed:
 - `typecheck` is `tsc --noEmit` and `tsconfig.json`'s `include` is `["client/src"]`;
 - `lint` is `scripts/lint.mjs`, whose `roots` are `['server', 'scripts', 'test']`
   and which collects only `.js` and `.mjs`;
-- `test` globs `test/*.test.js`, and no test reads a file under `docs/` from
-  disk — several name a docs path, every one of them inside a comment;
+- `test` globs `test/*.test.js`. **This bullet was wrong when first written, and
+  the correction is worth more than the fact.** It said no test reads a file
+  under `docs/` from disk. Exactly one does:
+  `test/nfl-execution-integrity.test.js:258` asserts that
+  `/api/nfl-market/research-lab/plan` returns `docs/CLAUDE-NEXT-STEPS.md`
+  **byte for byte**. That file is application data that happens to live under
+  `docs/`: `researchMasterPlan()` reads it at runtime
+  (`nfl-research-lab.js:279`), `paths.js:55` exports it as `CANONICAL_PLAN`,
+  and `routes/nfl-market.js:46` serves it. Editing that one file turns the
+  suite red. No other test opens a documentation file;
 - `build` is `vite build --config client/vite.config.ts`;
 - `start:smoke` boots the server.
+
+**Why the first version of the `test` bullet missed it, which is the reusable
+part.** The grep was
+`(readFileSync|readFile|existsSync|readdirSync|glob)[^\n]*docs`. In a POSIX
+ERE bracket expression a backslash is not an escape, so `[^\n]` does not mean
+"any character except a newline" — it means "not a backslash and not the letter
+**n**". The pattern therefore required no letter `n` anywhere between the call
+and the path, and the line it had to find reads
+`fs.readFileSync(new URL('../docs/CLAUDE-NEXT-STEPS.md', …))`, where `new`
+supplies one. Proved rather than reasoned: on a two-line probe file,
+`readFileSync[^\n]*docs` matches only the line without `new`, while
+`readFileSync.*docs` matches both. Re-run with `.*` against `791b131`, the
+corrected grep returns exactly one test file — the one above. A stage-by-stage
+verification is still only as good as each stage's pattern, and a regex that
+silently matches nothing reads exactly like a clean result.
+
+**The narrow rule, which is the one that holds.** A documentation commit cannot
+move the check's figure **unless it touches `docs/CLAUDE-NEXT-STEPS.md`**. This
+branch never has: `git diff --name-only 791b131 5949f1e` is
+`docs/tdd/espn-market-refuses-anonymous.tdd.md`,
+`server/services/espn-market.js`, `test/espn-market-refuses-anonymous.test.js`,
+and nothing else. So every figure reused here stands. The exposure is forward,
+not backward: someone edits the one documentation file that is really
+application data and quotes a number they have just invalidated.
 
 So a documentation commit cannot move that number, and reusing it is a fact
 about the check rather than an assumption about the commit. If a later commit

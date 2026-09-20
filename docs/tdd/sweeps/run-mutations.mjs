@@ -99,8 +99,13 @@ for (const row of list.mutations) {
   let old = null;
   if (row.baseline_ref ?? list.baseline_ref) {
     const ref = row.baseline_ref ?? list.baseline_ref;
+    // `git show`, never `git checkout <ref> -- <path>`: checkout with a
+    // pathspec STAGES what it writes, so the harness would hand back a clean
+    // worktree over an index holding the pre-sweep tests — and the next
+    // `git commit` would quietly undo the sweep. Reading the blob and writing
+    // it ourselves touches the index not at all.
     const saved = suites.map(s => [s, read(s)]);
-    for (const s of suites) git('checkout', ref, '--', s);
+    for (const s of suites) write(s, git('show', `${ref}:${s}`));
     old = runSuites(suites);
     for (const [s, text] of saved) write(s, text);
   }

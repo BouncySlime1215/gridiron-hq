@@ -100,6 +100,10 @@ again, which is where the `survived` column comes from. Every injection is
 reverted and the file is re-hashed against its baseline before the next row;
 the runner exits non-zero if any row did not behave as the list says.
 
+Re-derived with that runner on `c791faa`: **13 of 13 rows behaved as the list
+says**, every `APPLIED` hash identical to the table below, and the four suites
+left byte-identical to `HEAD` afterwards.
+
 Baselines: `server/services/trade-tactics.js` `c5808df9aa97`,
 `server/services/trade-acceptance.js` `a0c12157cc0a`,
 `server/services/counterparty-pricing.js` `96e54c44c7ce`,

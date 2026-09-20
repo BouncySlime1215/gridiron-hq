@@ -21,6 +21,7 @@ First, because both of these have already produced a wrong answer here.
 - **A CONSTANT IS NOT A FINDING UNTIL SOMEBODY HAS READ BOTH DIRECTIONS FROM IT.** constant-standing-in-for-a-model finds a typed number defaulting a fitted column. It cannot decide whether that default reaches anything, and there are two separate ways it does not. UPWARD: the filter that decides reachability is usually twenty lines earlier and sometimes in another file. On 2026-09-19 season-sim.js:226 was reported and repeated as the strongest case of the category; the roster is filtered to the covered positions at :201 and the fallback cannot fire for the positions that mattered. DOWNWARD: the constant is reached and then annihilated. Same day, trade-engine.js:346 on main at 791b131 does hand every K/DEF a 0.92, and all four consumers discard it - :359 multiplies it by a currentWeekPpg forced to 0 because :336 gives those positions a schedule with games: [], :385 weights that 0 at 0.25 against a rosPpg with no availability term, :398 and :406 need a weekProjection that projections.js:292 excludes them from, and :2827 sits behind a week_points > 0 filter they fail. Only the served field at :464 survives, which is a real defect of a different kind: a number displayed as if a model produced it. Three wrong claims came out of this one constant in one evening, from two threads. The line is always real; the sentence about what it means is the part that gets invented. Treat every hit as a lead to read, never a fact to relay.
 - **SERVED-BUT-NOT-RENDERED ONLY READS res.**json. A field a service attaches to an object the route spreads is on the wire and not in this rule. Walking into the services made it 1,435 findings of which almost none were payload fields, so the rule takes the narrow, certain source and says so rather than being comprehensive and ignored.
 - **THE CENSUS IS OF EIGHT EXTENSIONS, NOT OF EVERY FILE.** The walk reads .js, .mjs, .cjs, .ts, .tsx, .jsx, .mts and .cts and nothing else, so "325 tables" is a census of what those files create, not of what the databases hold. .mts and .cts were added on 2026-09-20 and brought 17 tables that had been invisible: the whole jev_* classifier layer in scripts/news-line, scripts/luck and scripts/live-market. .py was measured the same day and deliberately NOT added: 77 files, 66 further tables (a Python line-history and betting layer, an_*, covers_*, kalshi_*, pinnacle_*, weather_*, wayback_*), but Python triple-quoted strings are not JavaScript template literals to this scanner, so scripts/chat/test_extract_league_chat.py:23 registered tables called chat, handle, message and participants, every .py file registered as a Node entry point, and column-read-never-written — which GATES — went from 1 to 10. Reading Python needs its own scanner, not another extension in this set.
+- **ONE RULE READS COMMENTS; EVERY OTHER RULE CANNOT.** docs-citation-points-at-nothing reads f.raw, the untouched source, because nearly every docs/ citation in this repository is in a comment and there would be no rule otherwise. Nothing else here does, so "this map does not mention X" is a statement about code, not about the file. The next rule that needs comments has f.raw available and should say so in the same breath.
 - **COMMENTS ARE BLANKED BEFORE ANYTHING IS READ.** scan() blanks comment bodies in both the code view and the text view, and the SQL census reads only string literals, so a table or a route named in a comment is never seen at all — it is not hit and rejected, it does not reach the parser. That is the safe direction for a census (a comment cannot invent a table) and the wrong direction for anyone using this map to find every mention of a name: nfl-news-signal.js:285 and data-lineage-inventory.mjs:110 both name things in prose and appear nowhere here. Use git grep for mentions; use this map for dials.
 - **A LINE NUMBER IS WORTHLESS WITHOUT ITS TREE.** On 2026-09-19 three threads cited contingency.js at :117, :835 and :836 for the same statement, each correct for the branch it had read. This map names the tree it read at the top of every artifact; quoting a line from it without that name is how the same hour gets spent twice.
 - **THIS IS A SOURCE TREE, NOT THE RUNNING APP.** Every count and every edge here describes the checkout it was run in, named at the top of the file. On 2026-09-19 the deployed binary was ahead of main on contingency.js, serving three fields main does not have. Never read this map as a statement about what production is doing.
@@ -35,8 +36,8 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 ## Findings
 
 **10 missing feed** — a surface depends on something nothing produces.
-**1913 orphan** — something produced that reaches no surface.
-313 context rows, listed because they are worth knowing and are usually fine.
+**1914 orphan** — something produced that reaches no surface.
+408 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
 
@@ -254,8 +255,9 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `value-computed-never-used` | orphan | 0 | 4 | 19 |
 | `table-never-read` | orphan | 0 | 4 | 13 |
 | `export-only-tested` | orphan | 99 | 139 | 300 |
-| `export-imported-by-nothing` | orphan | 99 | 219 | 521 |
+| `export-imported-by-nothing` | orphan | 99 | 219 | 522 |
 | `route-no-caller` | orphan | 29 | 319 | 37 |
+| `docs-citation-points-at-nothing` | context | 29 | 19 | 47 |
 | `route-called-from-outside-the-app` | context | 2 | 3 | 6 |
 | `falls-with-a-deleted-route` | context | 0 | 13 | 6 |
 
@@ -1314,19 +1316,19 @@ All 61 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **scripts/refresh-live-data.mjs#transactionsCapture** `[shared]` — exported, imported only by a test
   - scripts/refresh-live-data.mjs:97
 - **scripts/wiring-map.mjs#creationSite** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#ddlDefinitionName** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#deadModuleNames** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#deadTombstoneTargets** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#depthAtLine** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#resolveDefinition** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#routeLiteralAbsent** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **server/db/index.js#assertRoomForSnapshot** `[shared]` — exported, imported only by a test
   - server/db/index.js:147
 - **server/db/preflight.js#OPPORTUNITY_CASCADE_REPAIR** `[shared]` — exported, imported only by a test
@@ -1515,9 +1517,9 @@ All 538 grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/betting/nfl/contracts/forecast-packet.js` | 6 |
 | _… 158 more files_ | 360 |
 
-### `export-imported-by-nothing` — ORPHAN (839)
+### `export-imported-by-nothing` — ORPHAN (840)
 
-620 of 839 are in scope (not betting), listed in full, heaviest first.
+621 of 840 are in scope (not betting), listed in full, heaviest first.
 
 - **scripts/availability-decision-calibration.mjs#GATE** `[shared]` — exported and never imported
   - scripts/availability-decision-calibration.mjs:44
@@ -1566,103 +1568,105 @@ All 538 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **scripts/refresh-live-data.mjs#parseChatStatus** `[shared]` — exported and never imported
   - scripts/refresh-live-data.mjs:140
 - **scripts/wiring-map.mjs#acceptGuard** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2862
+  - scripts/wiring-map.mjs:2950
 - **scripts/wiring-map.mjs#annotations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#blastRadius** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#blindCaches** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#bodyRange** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#build** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#bulkInScope** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#clientCalls** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#close** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#CLOSE_HOPS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#columnDefaults** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#columnEvidence** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#declarations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
+- **scripts/wiring-map.mjs#docsCitations** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#entryPointScripts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#findings** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#foreignHandles** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#foreignOnlyFile** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3170
+  - scripts/wiring-map.mjs:3258
 - **scripts/wiring-map.mjs#functionReach** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#functionUnits** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#gatedRegions** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#GRANDFATHERED** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3170
+  - scripts/wiring-map.mjs:3258
 - **scripts/wiring-map.mjs#handleFor** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#imageDirs** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#interpolations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3170
+  - scripts/wiring-map.mjs:3258
 - **scripts/wiring-map.mjs#JOBS** `[shared]` — exported and never imported
   - scripts/wiring-map.mjs:653
 - **scripts/wiring-map.mjs#keyReads** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#LIMITS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#MAX_HOPS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#missingFeedTable** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#moduleEdges** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#NEVER_BASELINE** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3170
+  - scripts/wiring-map.mjs:3258
 - **scripts/wiring-map.mjs#outboundUrlPaths** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#payloadKeys** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#routeAnswersCall** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#routeHandlers** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#routeMounts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#routeWorkload** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#runtimeFilePaths** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#scan** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#schedulerJobs** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#shouldBeWired** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#sqlEdges** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#statementTables** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#surfaceFamilies** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#tableColumns** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#toJson** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#toMarkdown** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3172
+  - scripts/wiring-map.mjs:3260
 - **scripts/wiring-map.mjs#unreachablePages** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3171
+  - scripts/wiring-map.mjs:3259
 - **scripts/wiring-map.mjs#valueUsageCounts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3170
+  - scripts/wiring-map.mjs:3258
 - **server/draft/engine.js#posInRoundOf** `[fantasy]` — exported and never imported
   - server/draft/engine.js:11
 - **server/draft/engine.js#roundOf** `[fantasy]` — exported and never imported
@@ -1757,15 +1761,13 @@ All 538 grouped by file, heaviest first. Full list in `wiring-map.json`.
   - server/services/alt-spread-import.js:215
 - **server/services/alt-spread-import.js#ALT_SPREAD_CAPTURE_CONTRACT** `[shared]` — exported and never imported
   - server/services/alt-spread-import.js:254
-- **server/services/alt-spread-import.js#ALT_SPREAD_IMPORT_VERSION** `[shared]` — exported and never imported
-  - server/services/alt-spread-import.js:176
-- _… 500 more in wiring-map.json_
+- _… 501 more in wiring-map.json_
 
-All 839 grouped by file, heaviest first. Full list in `wiring-map.json`.
+All 840 grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
-| `scripts/wiring-map.mjs` | 49 |
+| `scripts/wiring-map.mjs` | 50 |
 | `server/betting/nfl/strategy/margin-distribution.js` | 25 |
 | `server/betting/nfl/strategy/teaser-staking.js` | 24 |
 | `server/betting/nfl/strategy/teaser-season.js` | 19 |
@@ -1948,6 +1950,130 @@ All 385 grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/routes/aggregates.js` | 1 |
 | `server/routes/espn.js` | 1 |
 | `server/routes/edge.js` | 1 |
+
+### `docs-citation-points-at-nothing` — CONTEXT (95)
+
+- **docs/ARCHITECTURE_MODEL_VS_FANTASY.md** `[fantasy]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/betting-fantasy-link.js:8
+- **docs/BEAT_THE_CLOSE_PLAN.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/beat-the-close.js:2
+- **docs/BEAT_THE_CLOSE_PLAN.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/line-move-study.js:3
+- **docs/BETTING_CAPABILITY_AUDIT.md** `[fantasy]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/draft-lookahead.js:21
+- **docs/BETTING_CAPABILITY_AUDIT.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/execution-slate-reasoning.js:15
+- **docs/BETTING_CAPABILITY_AUDIT.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/historical-adp-scrapes.js:22
+- **docs/BETTING_PLAYER_ENGINES.md** `[shared]` — the document exists at docs/evidence/historical/BETTING_PLAYER_ENGINES.md — the citation was not updated when docs moved
+  - server/services/model-governance.js:48
+- **docs/BETTING_PLAYER_ENGINES.md** `[shared]` — the document exists at docs/evidence/historical/BETTING_PLAYER_ENGINES.md — the citation was not updated when docs moved
+  - server/services/nfl-gbm.js:133
+- **docs/BETTING_PLAYER_ENGINES.md** `[betting]` — the document exists at docs/evidence/historical/BETTING_PLAYER_ENGINES.md — the citation was not updated when docs moved
+  - test/nfl-prop-player-heads.test.js:10
+- **docs/betting-model/plans/LATEST-PLAN.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - scripts/data-lineage-inventory.mjs:9
+- **docs/betting-model/plans/LATEST-PLAN.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - test/data-lineage-inventory.test.js:4
+- **docs/betting-model/research/advanced-methods-and-github/F03-devig-methods.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/nfl-total-calibration.js:43
+- **docs/betting-model/research/EDGE-TEST-REGISTRY.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - scripts/model-lab/audit_corpus.mts:4
+- **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
+  - server/routes/aggregates.js:217
+- **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
+  - server/services/consensus-weights.js:61
+- **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
+  - scripts/wiring-map.mjs:1122
+- **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
+  - test/consensus-weights.test.js:131
+- **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
+  - test/wiring-map.test.js:1539
+- **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
+  - test/wiring-map.test.js:1600
+- **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
+  - test/wiring-map.test.js:1601
+- **docs/DRAFT_ADVICE_VERIFY_LOOP.md** `[fantasy]` — the document exists at docs/reference/fantasy/DRAFT_ADVICE_VERIFY_LOOP.md — the citation was not updated when docs moved
+  - server/routes/drafts.js:981
+- **docs/DRAFT_ADVICE_VERIFY_LOOP.md** `[fantasy]` — the document exists at docs/reference/fantasy/DRAFT_ADVICE_VERIFY_LOOP.md — the citation was not updated when docs moved
+  - server/services/draft-advice-verify.js:220
+- **docs/DRAFT_AUDIT_2021_2025.md** `[shared]` — the document exists at docs/evidence/historical/DRAFT_AUDIT_2021_2025.md — the citation was not updated when docs moved
+  - server/services/consensus-weights.js:47
+- **docs/DRAFT_AUDIT_2021_2025.md** `[fantasy]` — the document exists at docs/evidence/historical/DRAFT_AUDIT_2021_2025.md — the citation was not updated when docs moved
+  - server/services/draft-abstention-audit.js:13
+- **docs/DRAFT_AUDIT_2021_2025.md** `[fantasy]` — the document exists at docs/evidence/historical/DRAFT_AUDIT_2021_2025.md — the citation was not updated when docs moved
+  - server/services/draft-abstention-audit.js:102
+- **docs/DRAFT_AUDIT_2021_2025.md** `[fantasy]` — the document exists at docs/evidence/historical/DRAFT_AUDIT_2021_2025.md — the citation was not updated when docs moved
+  - server/services/draft-assist.js:1014
+- **docs/DRAFT_AUDIT_2021_2025.md** `[shared]` — the document exists at docs/evidence/historical/DRAFT_AUDIT_2021_2025.md — the citation was not updated when docs moved
+  - server/services/preseason-model.js:12
+- **docs/DRAFT_BOARD_ABSTENTION.md** `[fantasy]` — the document exists at docs/evidence/historical/DRAFT_BOARD_ABSTENTION.md — the citation was not updated when docs moved
+  - test/draft-abstention-audit.test.js:342
+- **docs/DRAFT_LOOKAHEAD_VARIANCE.md** `[fantasy]` — the document exists at docs/evidence/historical/DRAFT_LOOKAHEAD_VARIANCE.md — the citation was not updated when docs moved
+  - server/services/draft-lookahead.js:205
+- **docs/MODEL_ARCHITECTURE_ASSESSMENT_2026_09_08.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/nfl-execution-clv-downsize.js:3
+- **docs/MODEL_ARCHITECTURE_ASSESSMENT_2026_09_08.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/nfl-execution-corridor.js:8
+- **docs/MODEL_ARCHITECTURE_ASSESSMENT_2026_09_08.md** `[fantasy]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/nfl-roster-strength.js:230
+- **docs/MODEL_ARCHITECTURE_ASSESSMENT_2026_09_08.md** `[fantasy]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - test/nfl-roster-strength-pff-normalization.test.js:10
+- **docs/NEVER_EXISTED.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - test/wiring-map.test.js:1558
+- **docs/NFL_MODEL_STATUS.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/clv-core.js:85
+- **docs/NFL_MODEL_STATUS.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/clv-core.js:221
+- **docs/NFL_MODEL_STATUS.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/clv-core.js:318
+- **docs/NFL_MODEL_STATUS.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/nfl-sharp.js:6
+- **docs/NFL_MODEL_STATUS.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/nfl-specialists.js:8
+- **docs/NFL_RESEARCH_MASTER_PLAN_2026_09_08.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/migrations/020_decision_recommendations.js:20
+- **docs/NFL_RESEARCH_MASTER_PLAN_2026_09_08.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/migrations/023_execution_lifecycle_ledger.js:9
+- **docs/NFL_RESEARCH_MASTER_PLAN_2026_09_08.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/nfl-execution-clv-downsize.js:112
+- **docs/NFL_RESEARCH_MASTER_PLAN_2026_09_08.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
+  - server/services/nfl-execution-corridor.js:125
+- **docs/OFFSEASON_DATA.md** `[shared]` — the document exists at docs/reference/fantasy/OFFSEASON_DATA.md — the citation was not updated when docs moved
+  - server/services/offseason-data.js:14
+- **docs/OFFSEASON_MODEL.md** `[fantasy]` — the document exists at docs/reference/fantasy/OFFSEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/draft-assist.js:718
+- **docs/OFFSEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/OFFSEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/nfl-team-strength.js:7
+- **docs/OFFSEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/OFFSEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/offseason-model.js:38
+- **docs/OFFSEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/OFFSEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/offseason-model.js:841
+- **docs/OFFSEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/OFFSEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/offseason-model.js:848
+- **docs/OFFSEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/OFFSEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/offseason-model.js:1168
+- **docs/OFFSEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/OFFSEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/offseason-model.js:1679
+- **docs/OFFSEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/OFFSEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/preseason-model.js:50
+- **docs/OFFSEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/OFFSEASON_MODEL.md — the citation was not updated when docs moved
+  - test/nfl-team-strength.test.js:11
+- **docs/OFFSEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/OFFSEASON_MODEL.md — the citation was not updated when docs moved
+  - test/offseason-model.test.js:625
+- **docs/PRESEASON_BAND_CALIBRATION.md** `[fantasy]` — the document exists at docs/evidence/historical/PRESEASON_BAND_CALIBRATION.md — the citation was not updated when docs moved
+  - server/services/draft-lookahead.js:185
+- **docs/PRESEASON_BAND_CALIBRATION.md** `[shared]` — the document exists at docs/evidence/historical/PRESEASON_BAND_CALIBRATION.md — the citation was not updated when docs moved
+  - server/services/preseason-model.js:799
+- **docs/PRESEASON_BAND_CALIBRATION.md** `[shared]` — the document exists at docs/evidence/historical/PRESEASON_BAND_CALIBRATION.md — the citation was not updated when docs moved
+  - test/preseason-band-calibration.test.js:6
+- **docs/PRESEASON_MODEL.md** `[fantasy]` — the document exists at docs/reference/fantasy/PRESEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/draft-assist.js:74
+- **docs/PRESEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/PRESEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/preseason-model.js:37
+- **docs/PRESEASON_MODEL.md** `[shared]` — the document exists at docs/reference/fantasy/PRESEASON_MODEL.md — the citation was not updated when docs moved
+  - server/services/preseason-model.js:54
+- _… 35 more in wiring-map.json_
 
 ### `route-called-from-outside-the-app` — CONTEXT (11)
 

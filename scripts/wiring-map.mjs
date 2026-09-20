@@ -1116,6 +1116,75 @@ function deadModuleNames(files) {
  * This reads the first argument of `retired(...)` — the replacement path — and asks
  * whether any route in the inventory answers it.
  */
+/**
+ * A repo-relative docs/… citation in source that points at nothing.
+ *
+ * `server/routes/aggregates.js:217` says "See docs/CONSENSUS_WEIGHTS.md before
+ * re-attempting this". The document is real and it is at
+ * docs/evidence/historical/CONSENSUS_WEIGHTS.md, so the one pointer whose whole job is
+ * to stop somebody redoing an experiment that already failed is broken at exactly the
+ * moment of the redo. The reader types the path, gets nothing, and concludes the note
+ * is stale. A docs reorganisation moved the files and left every sentence naming them
+ * behind.
+ *
+ * TWO STATES, because the difference decides who fixes it. MOVED: the basename resolves
+ * somewhere under docs/, the document is still there to read, and the citation is
+ * repairable mechanically. GONE: no file of that name exists anywhere, so the sentence
+ * is a claim about something that is not there and needs a person who knows what it
+ * said.
+ *
+ * READS f.raw, NOT THE SCANNED VIEWS, and that is the only reason it can exist: scan()
+ * blanks comment bodies in both `code` and `text`, and nearly every citation in this
+ * repository is in a comment. Every other rule in this file is deliberately blind to
+ * them, which is right for a census — a comment cannot create a table — and wrong for
+ * this one question.
+ *
+ * Report-only. A broken link is a documentation fault, not a broken build.
+ */
+function docsIndex() {
+  const has = new Set(), byBase = new Map();
+  const walk = (dir) => {
+    let entries = [];
+    try { entries = fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) { if (!SKIP_DIR.has(e.name)) walk(rel); continue; }
+      if (!e.name.endsWith('.md')) continue;
+      has.add(rel);
+      if (!byBase.has(e.name)) byBase.set(e.name, []);
+      byBase.get(e.name).push(rel);
+    }
+  };
+  walk('docs');
+  return { has, byBase };
+}
+
+function docsCitations(files, index) {
+  const out = [];
+  const seen = new Set();
+  for (const f of files) {
+    const raw = f.raw ?? '';
+    if (!raw.includes('docs/')) continue;
+    for (const m of raw.matchAll(/\bdocs\/[A-Za-z0-9._/-]*[A-Za-z0-9_-]\.md\b/g)) {
+      const cited = m[0];
+      if (index.has.has(cited)) continue;
+      // EVERY OCCURRENCE, not one per file. Deduping by file+path collapsed
+      // preseason-model.js from nine citations to four and betting-fantasy-link.js from
+      // six to three, and somebody fixing a file needs every line, not the first. It is
+      // also the difference between this tool's count and the one made by hand: 62
+      // against 80, on the same 26 distinct paths.
+      const key = `${f.path}:${m.index}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const base = cited.slice(cited.lastIndexOf('/') + 1);
+      const resolves_to = index.byBase.get(base) ?? [];
+      out.push({ file: f.path, line: raw.slice(0, m.index).split('\n').length, cited,
+        state: resolves_to.length ? 'moved' : 'gone', resolves_to, scope: f.scope });
+    }
+  }
+  return out;
+}
+
 function deadTombstoneTargets(files, routes) {
   const out = [];
   for (const f of files) {
@@ -2209,6 +2278,19 @@ function findings(model, ann) {
         + 'nothing breaks and nothing tells you',
       evidence: [`${d.file}:${d.line}`] });
   }
+  // ---- citations in source that point at nothing ---------------------------
+  // Report-only, and the one rule in this file that reads comments. See docsCitations().
+  {
+    const index = docsIndex();
+    for (const d of docsCitations([...files.values()], index)) {
+      add({ kind: 'context', rule: 'docs-citation-points-at-nothing', scope: d.scope, subject: d.cited,
+        weight: 0,
+        detail: d.state === 'moved'
+          ? `the document exists at ${d.resolves_to.join(', ')} — the citation was not updated when docs moved`
+          : 'no file of that name exists anywhere under docs/ — the document is gone, not moved',
+        evidence: [`${d.file}:${d.line}`] });
+    }
+  }
   for (const d of deadTombstoneTargets([...files.values()], surfaces.filter(s => s.kind === 'route'))) {
     add({ kind: 'context', rule: 'tombstone-points-at-nothing', scope: d.scope, subject: d.target,
       weight: 0,
@@ -2770,6 +2852,12 @@ const LIMITS = [
   + 'message and participants, every .py file registered as a Node entry point, and '
   + 'column-read-never-written — which GATES — went from 1 to 10. Reading Python needs its '
   + 'own scanner, not another extension in this set.',
+  'ONE RULE READS COMMENTS; EVERY OTHER RULE CANNOT. docs-citation-points-at-nothing '
+  + 'reads f.raw, the untouched source, because nearly every docs/ citation in this '
+  + 'repository is in a comment and there would be no rule otherwise. Nothing else here '
+  + 'does, so "this map does not mention X" is a statement about code, not about the '
+  + 'file. The next rule that needs comments has f.raw available and should say so in '
+  + 'the same breath.',
   'COMMENTS ARE BLANKED BEFORE ANYTHING IS READ. scan() blanks comment bodies in both the '
   + 'code view and the text view, and the SQL census reads only string literals, so a table '
   + 'or a route named in a comment is never seen at all — it is not hit and rejected, it does '
@@ -3168,7 +3256,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, creationSite, depthAtLine, ddlDefinitionName, resolveDefinition, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
+export { routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, docsCitations, creationSite, depthAtLine, ddlDefinitionName, resolveDefinition, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

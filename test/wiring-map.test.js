@@ -1553,30 +1553,36 @@ test('the checker source holds no control characters', async () => {
  * citation in this repository is in a comment. Report-only — it never gates, because a
  * broken link should not stop a deploy.
  */
+// The fixture paths are BUILT rather than written, and that is not fussiness. This
+// rule reads raw source, the test tree is in scope, and the first draft of these
+// fixtures wrote `docs/NEVER_EXISTED.md` as a literal — so the checker found five
+// citations in its own test file and reported them as findings about the repository.
+// Same fault as the zz_fixture_* rename two commits ago, in a new rule.
+const D = 'docs';
 const docFixture = (path, raw) => ({ path, raw, tree: 'server', scope: null, strings: [] });
 
 test('a citation that resolves is not a finding, and one that moved says where it went', () => {
   const index = {
-    has: new Set(['docs/reference/fantasy/PRESEASON_MODEL.md', 'docs/HERE.md']),
-    byBase: new Map([['PRESEASON_MODEL.md', ['docs/reference/fantasy/PRESEASON_MODEL.md']],
-      ['HERE.md', ['docs/HERE.md']]]),
+    has: new Set([`${D}/reference/fantasy/PRESEASON_MODEL.md`, `${D}/HERE.md`]),
+    byBase: new Map([['PRESEASON_MODEL.md', [`${D}/reference/fantasy/PRESEASON_MODEL.md`]],
+      ['HERE.md', [`${D}/HERE.md`]]]),
   };
   const out = docsCitations([
-    docFixture('server/a.js', '// see docs/HERE.md for the method\n'),
-    docFixture('server/b.js', 'const x = 1;\n// measured in docs/PRESEASON_MODEL.md.\n'),
-    docFixture('server/c.js', '// the plan was docs/NEVER_EXISTED.md\n'),
+    docFixture('server/a.js', `// see ${D}/HERE.md for the method\n`),
+    docFixture('server/b.js', `const x = 1;\n// measured in ${D}/PRESEASON_MODEL.md.\n`),
+    docFixture('server/c.js', `// the plan was ${D}/NEVER_EXISTED.md\n`),
   ], index);
 
-  assert.equal(out.some(r => r.cited === 'docs/HERE.md'), false,
+  assert.equal(out.some(r => r.cited === `${D}/HERE.md`), false,
     'a citation that resolves is not a finding');
 
-  const moved = out.find(r => r.cited === 'docs/PRESEASON_MODEL.md');
+  const moved = out.find(r => r.cited === `${D}/PRESEASON_MODEL.md`);
   assert.ok(moved, 'a citation in a COMMENT must be seen: that is where nearly all of them are');
   assert.equal(moved.state, 'moved');
   assert.equal(moved.line, 2, 'the line is the line of the citation, not of the file');
-  assert.deepEqual(moved.resolves_to, ['docs/reference/fantasy/PRESEASON_MODEL.md']);
+  assert.deepEqual(moved.resolves_to, [`${D}/reference/fantasy/PRESEASON_MODEL.md`]);
 
-  const gone = out.find(r => r.cited === 'docs/NEVER_EXISTED.md');
+  const gone = out.find(r => r.cited === `${D}/NEVER_EXISTED.md`);
   assert.ok(gone);
   assert.equal(gone.state, 'gone');
   assert.deepEqual(gone.resolves_to, [],
@@ -1597,6 +1603,6 @@ test('the rule reproduces the citation that was found by hand', async () => {
     'a row that cannot say where the document went leaves the reader exactly where they were');
 
   // And it must not fire on a citation that is correct.
-  assert.equal(rows.some(r => r.subject === 'docs/tdd/wiring-map-route-deletions.tdd.md'), false,
+  assert.equal(rows.some(r => r.subject === `${D}/tdd/wiring-map-route-deletions.tdd.md`), false,
     'this file exists and is cited: a rule that flags it is a rule nobody will read twice');
 });

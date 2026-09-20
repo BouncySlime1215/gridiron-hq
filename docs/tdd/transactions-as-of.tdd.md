@@ -460,3 +460,38 @@ measured it". Part 4 is its corollary, and the two together are the whole
 lesson: **a stamp must describe the store, not the reader.** `sync_log` and
 `manager_signals.computed_at` were the wrong *process*; this was the right
 process read through one reader's private allowlist.
+
+## The shared accessor, and the field that must not be swapped blind
+
+The chat-sync thread has built a shared accessor on their own branch
+(`claude/project-thread-sytruo-asof-hold`, `manager-archetypes.js`):
+`archetypesBuilt(leagueId, season, memberId = null)`. Read here from that branch
+rather than taken on report.
+
+**This branch does not switch to it yet, deliberately.** The symbol does not
+exist on this base, so an import of it would make every test in this branch fail
+to load — a red branch pushed against the standing rule that every push is
+preceded by a green local check. The defect it addresses is already closed here
+by Part 4, using the local `archetypesBuilt` in `manager-signals.js`, so nothing
+is broken while the two branches wait for each other. The switch is then a
+deletion and a call.
+
+**Two things the person making that switch must know**, both read from their
+source:
+
+1. **The field is `priced_as_of`, not `as_of`.** Their `as_of` is the whole
+   league-season, *any* source; `priced_as_of` is restricted to
+   `PRICED_SOURCES = ['draft', 'outcome']`, which is what this file's local
+   accessor computes and what the trade path wants. A straight swap of `as_of`
+   would silently widen what the number means — a career or Jev row would move
+   the date the trade price is stamped with. That is the Part 1 defect in a new
+   costume.
+2. **Their query also filters `version = MANAGER_ARCHETYPE_VERSION`; the local
+   one does not.** That makes `priced_as_of` mean "when the current build
+   version last wrote", which is arguably the better question. It has a
+   consequence worth naming before the merge: a store containing only
+   *older-version* rows returns `rows: 0` and the reason "the build has never
+   covered it" — which reads as *no data* when the truth is *stale data from an
+   older build*. Absence and staleness rendered identical is the failure this
+   whole document is about, so it is routed to that file's owner rather than
+   worked around here.

@@ -66,6 +66,34 @@ The three conditions are not redundant, and this fix is the second time that mat
 A test asserts `season-sim.js` imports the rule and contains no copy of the `UNDECIDED` marker, so
 the second definition cannot come back quietly.
 
+## A second item on the same function: the reason beside the shared build
+
+Feature audit's mutation on `tradeImpact` — rebuild the projection set between the two runs —
+was **inert**, 0 tests failed. The comment beside that line said rebuilding "would introduce noise
+that has nothing to do with the trade". An inert mutation on a line whose comment claims an effect
+is a claim about the comment, so the question is whether `buildProjections` draws anything.
+
+Model audit traced it one level and found no `random()` in `buildProjections` or its eleven direct
+callees, with the single `random()` in `projections.js` sitting inside `sampleWeeks`, which this
+path does not reach. They did not trace the transitive closure, so the check here is **empirical**,
+which a helper added at any depth cannot slip past:
+
+- **Two builds on identical arguments are byte-identical.** On the fixture below, and separately
+  against the real local database: 1,139 players, 1,281,866 characters serialised, identical.
+- **A build advances the shared generator by nothing.** Under the same seed, the three draws taken
+  after a build are the three draws taken without one, to the digit.
+
+So the noise claim is false, and the mutation was inert for exactly that reason. The comment now
+gives the reasons that survive measurement: the build is the expensive part of the call and doing
+it twice buys nothing, and sharing one object keeps the two runs paired even if a future change to
+the projection path does introduce a draw. A test asserts the phrase "rebuilding would introduce
+noise" is gone and that the replacement states what was measured — because the reason is what a
+future reader decides by, and "would introduce noise" invites whoever measures no noise to
+conclude the shared build is pointless.
+
+**This landed one commit after the `:153-154` change rather than in it**, because that commit was
+already pushed when the item arrived. Same branch, same evidence file.
+
 ## Mutations
 
 Canonical shape: one row at a time from the same clean base, both files' SHA-256 (first 12
@@ -85,6 +113,29 @@ checked after the last row.
 | R6 | espn-weekly-scores | one missing side is read as a zero rather than refused | APPLIED | `d3a9b543bc04` -> `6f1694e2a095` | 1 | a side with no score at all takes its whole period with it |
 | CONTROL | season-sim | a comment reworded, no code path touched | APPLIED | `a7f0d17e0b8c` -> `8ead7793b88f` | 0 | none, and none should |
 
+Second sweep, for the determinism item. Base: `season-sim.js` `8ea412d83e54`, restored and
+checked. Run: `test/projection-build-determinism.test.js test/season-sim-carried-records.test.js`.
+Before/after text quoted by the runner rather than transcribed.
+
+| # | mutation | before -> after | state | sha256 | fail | a test that fails |
+|---|---|---|---|---|---|---|
+| D1 | the noise claim restored as the stated reason | `// One projection build shared by both runs. The reason is NOT that rebuilding would introduce` -> `// One projection build shared by both runs - rebuilding would introduce noise. The reason is NOT that rebuilding would introduce` | APPLIED | `8ea412d83e54` -> `30bae7aa0ecc` | 1 | the comment beside the shared build gives a reason that is true |
+| D2 | the word the corrected comment turns on is removed | ``buildProjections` is deterministic, measured rather than assumed in` -> ``buildProjections` is safe to share, measured rather than assumed in` | APPLIED | `8ea412d83e54` -> `2ace0d6a0867` | 1 | the comment beside the shared build gives a reason that is true |
+| D3 | the two runs are handed separate builds after all | `projections }));` -> `projections: buildProjections({ through: SEASON - 1, scoring }) }));` | APPLIED | `8ea412d83e54` -> `af8189bbc105` | 0 | **none — equivalent, and that is the finding** |
+| CONTROL | a comment reworded, no code path touched | `// The reasons that hold: the build is the expensive part` -> `// The reasons that do hold: the build is the expensive part` | APPLIED | `8ea412d83e54` -> `959d0a11f93c` | 0 | none, and none should |
+
+**D3 is an equivalent mutation, and it is feature audit's inert injection reproduced.** A rebuild
+returns a byte-identical object, so no behaviour can change and no test can fail — which is not a
+gap in the suite but the measurement the item asked for. Unlike most equivalence claims this one
+has its proof inside the suite rather than in prose: "two builds with identical arguments are
+byte-identical" is the test that makes D3 equivalent, and if a future change introduced a draw,
+that test would fail before anyone had to rediscover D3.
+
+Every row in both sweeps is APPLIED with a moved hash. Nothing in this evidence file rests on a
+pattern that matched nothing, or on a pattern that matched in more than one place — the runner
+refuses to apply an ambiguous match and reports it NO-OP, because matching the wrong place is
+worse than matching nothing: an unrelated test then fails and reads as a kill.
+
 Each of the four conditions in the rule has a row that deletes it and a test that fails, and the
 two platform branches have one each. R1 failing four tests is the measurement above.
 
@@ -96,10 +147,14 @@ restore the shipped rules exactly.
 
 ## Numbers
 
-Targeted: 20 tests, 20 passed, 0 failed across the two files (6 new, 14 existing).
-Full local check `npm run check` on the tree whose parent is `6b77382`: exit 0 — 2,970 tests,
-2,929 passed, 0 failed, 41 skipped; typecheck, lint and build clean; `start:smoke` passed on an
-isolated database (32 teams).
+Targeted: 24 tests, 24 passed, 0 failed across
+`test/season-sim-carried-records.test.js` (6), `test/espn-weekly-scores.test.js` (14) and
+`test/projection-build-determinism.test.js` (4, new).
+
+Full local check `npm run check`: the `:153-154` commit measured exit 0 — 2,970 tests, 2,929
+passed, 0 failed, 41 skipped on the tree whose parent is `6b77382`. The determinism commit's
+numbers are in its own commit message, measured on the tree whose parent is `7d77aca`. Typecheck,
+lint and build clean; `start:smoke` passed on an isolated database (32 teams).
 
 ## The five questions
 
@@ -111,8 +166,10 @@ is the removal of an invented number: 5.5 wins per team that no game produced. N
 substituted in their place — a week that was not played contributes nothing, which is why
 points-for was already right.
 
-**How do we know?** The before column is a measurement on the shipped tree, not an argument. Six
-mutations and an inert control, each with the file hash before and after.
+**How do we know?** The before column is a measurement on the shipped tree, not an argument. Nine
+mutations and two inert controls across two sweeps, each with the file hash before and after and
+its exact text quoted by the runner. The one unkilled row is declared equivalent with its proof in
+the suite rather than in prose.
 
 **Should this data be pointed anywhere else on the platform?** The simulator's carried-in record
 feeds playoff odds, and playoff odds feed the trade engine's horizon value at

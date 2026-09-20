@@ -398,8 +398,17 @@ export function tradeImpact(lg, {
     [them.roster_id, [...them.players.filter(p => !get.has(p.id)).map(p => p.id), ...give]]
   ]);
 
-  // One projection build shared by both runs — rebuilding would introduce noise that
-  // has nothing to do with the trade.
+  // One projection build shared by both runs. The reason is NOT that rebuilding would introduce
+  // noise: `buildProjections` is deterministic, measured rather than assumed in
+  // test/projection-build-determinism.test.js -- two builds on identical arguments are
+  // byte-identical, and a build advances the shared generator by nothing, so the draws after one
+  // are the draws without one under the same seed. A mutation that rebuilt between the runs was
+  // inert for exactly that reason, and an inert mutation on a line whose comment claims an effect
+  // is a claim about the comment.
+  //
+  // The reasons that hold: the build is the expensive part of this call and doing it twice buys
+  // nothing, and sharing one object keeps the two runs paired even if some future change to the
+  // projection path does introduce a draw. Both survive the measurement; the noise claim did not.
   const projections = buildProjections({ through: SEASON - 1, scoring });
   // Common random numbers make this a paired experiment: the same simulated
   // football worlds are used before and after, so Monte Carlo noise cannot

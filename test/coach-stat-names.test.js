@@ -30,7 +30,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { rows } = await import('../server/db/index.js');
 await (await import('../server/db/migrate.js')).runMigrations();
-const { STAT_CONCEPTS, STAT_FIELDS, conceptFor, describeField, statLexicon, NOT_STORED } =
+const { STAT_CONCEPTS, STAT_FIELDS, conceptById, conceptFor, describeField, statLexicon, NOT_STORED } =
   await import('../server/services/coach/stat-names.js');
 
 const columnsOf = table => rows(`SELECT name FROM pragma_table_info(?)`, table).map(c => c.name);
@@ -91,6 +91,33 @@ test('describeField gives a screen everything it needs to label a number', () =>
 test('an unknown field is null, not a guessed label', () => {
   assert.equal(conceptFor('players.name'), null);
   assert.equal(describeField('nonsense.column'), null);
+});
+
+test('a concept looked up by id has the same shape as one looked up by field', () => {
+  // The lookup a panel does when it holds a concept id rather than a
+  // table.column. STAT_CONCEPTS is exported and frozen, so indexing it IS the
+  // lookup — what this adds is one shape. A bare index returns a concept with
+  // no id on it while conceptFor returns the id spread in, and a caller that
+  // meets both ends up branching on which one it got.
+  const byId = conceptById('target_share');
+  const byField = conceptFor('player_week_usage.target_share');
+  assert.deepEqual(byId, byField, 'the two lookups disagree about one concept');
+  assert.equal(byId.id, 'target_share', 'the id is not carried on the result');
+  assert.deepEqual(Object.keys(byId).sort(),
+    ['better', 'id', 'name', 'plain', 'source', 'unit', 'why']);
+  // Every concept is reachable by its own id, not just the one checked above.
+  for (const id of Object.keys(STAT_CONCEPTS)) {
+    assert.equal(conceptById(id)?.id, id, `${id} is not reachable by its own id`);
+  }
+});
+
+test('an unknown concept id is null, and a prototype key is not a concept', () => {
+  assert.equal(conceptById('not_a_stat'), null);
+  // Object.hasOwn, not `in`: 'toString' and 'constructor' are on every object's
+  // prototype and must not resolve to a concept-shaped result.
+  assert.equal(conceptById('toString'), null);
+  assert.equal(conceptById('constructor'), null);
+  assert.equal(conceptById(undefined), null);
 });
 
 test("a stat we do not store says so, and says what it would take", () => {

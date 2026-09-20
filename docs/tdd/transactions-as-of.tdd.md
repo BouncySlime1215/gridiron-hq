@@ -271,3 +271,119 @@ agree. The standing rule that came out of it, now beyond this table: **an "as
 of" must come from the data's own stamps for the thing being described, never
 from a job-level stamp** — because a job that catches per-item failures and
 continues will report success while one item silently stays stale.
+
+---
+
+# Part 3: the priced luck term (RED `56a02f1`, GREEN below)
+
+Parts 1 and 2 were about `league_transactions_raw`. This is the same defect in a
+second store, and it is the worst of the three because it moves money.
+
+`luck_self_view` is a **term in the trade price** — `playerValuation` pushes it
+as a factor with a cap of 0.05, and the factors multiply into the per-player
+multiplier that becomes `their_value`. Its value comes from the `outcome` half of
+`manager_archetypes`, which is written only by
+`scripts/build-manager-archetypes.mjs`: by hand, off-server, exactly like the
+transaction rows. A stale luck read priced into a deal is worse than a stale
+card, because nothing on the card says that number moved the money.
+
+**One correction to something I said in Part 2's hand-off, on the record.** I
+reported `manager-archetypes.js` as a consumer of `league_transactions_raw`. It
+is not: `grep -n league_transactions_raw server/services/manager-archetypes.js`
+matches one line, a header comment at `:20`, and there is no `FROM` or `JOIN` of
+that table in the file. The chat-sync thread was right and I was wrong; I had
+read a comment in a filename grep as a query. So Part 1 already covered every
+served consumer of that table, and this part is a different store.
+
+## Not `manager_signals.computed_at`, and this is the whole point
+
+`manager-signals.js` copies the archetype metrics into `manager_signals`, and
+those rows carry their own `computed_at`. Using it here would have been the
+obvious one-liner and would have been wrong: the signal build can re-run without
+the archetype build having re-measured anything, so its stamp advances while the
+measurement underneath sits still. That is the same substitution as `sync_log`
+in Part 1 — a stamp that looks like a measurement of the thing and is a
+measurement of the copy. `archetypesBuilt` reads `MAX(computed_at)` from
+`manager_archetypes` itself, for that league-season, restricted to the `draft`
+and `outcome` sources the signal layer actually copies. Mutation L1 is that
+rule, and it is the mutation worth reading.
+
+## Where it lands
+
+- `counterpartyLayer` computes one frozen block per league (`archetypes`) and
+  puts it on every manager entry.
+- The `luck` reading handed to `playerValuation` carries `as_of` with it, so the
+  stamp travels with the value rather than beside it.
+- `add()` takes an optional store stamp and carries it onto **both** the priced
+  factor and the **inert** entry. The inert half is not an afterthought: week 2
+  of 2026 has one scored week against `min_n` 4, so luck is inert league-wide
+  until week 5, and "not enough scored weeks yet" versus "not enough as of a
+  build three days ago" are different answers — only the second tells Nick
+  whether running the build would change it.
+- `asOf` defaults to `null` for the sources with no separate build of their own
+  (chat, roster, standings move with the league sync), and that `null` is a
+  statement rather than a gap.
+
+## Mutation run, pasted verbatim
+
+```
+BASELINE (no mutation): 36 pass, 0 fail
+L1  the layer uses manager_signals.computed_at instead of the store's own build stamp
+    APPLIED -> killed by: G9g; G9h; G9i
+L2  as_of is the OLDEST build in the store instead of the newest
+    APPLIED -> killed by: G9g; G9h
+L3  the priced factor drops the stamp
+    APPLIED -> killed by: G9g
+L4  the inert entry drops the stamp, so a not-firing read says nothing about its age
+    APPLIED -> killed by: G9h
+L5  the luck call stops passing the stamp into add()
+    APPLIED -> killed by: G9g; G9h
+L6  the store block reports every league's build, not this league's
+    APPLIED -> killed by: G9g; G9h
+L7  an empty store for this league borrows a stamp instead of saying nothing
+    APPLIED -> killed by: G9i
+```
+
+Seven injections, seven applied, seven caught.
+
+**Two of my own test bugs, fixed in the tests.** G9g and G9h first read the
+per-player valuations off the layer entry; on a layer entry `players` is the
+**chat sentiment index**, and the valuations live on `valuationMap`. The
+assertions were wrong, not the code. Recorded because it is the same mistake in
+a new place: reading a field by name from the wrong one of two objects that both
+have it.
+
+The archetype fixture also had every row sharing one `computed_at`, so L2 would
+have survived — the third time tonight. Pinned unequal.
+
+## The five questions, for Part 3
+
+**1. Stats or made up?** Definitional, class D. A column maximum over a filtered
+set. No threshold added; `min_n: 4` and `cap: 0.05` are untouched and still
+`fitted: false` as they were.
+
+**2. How do we know?** Three tests, seven mutations, all applied and caught. The
+claim that `manager-archetypes.js` does not read the transaction table was
+verified by grep on this tree, which is also how I found my own earlier error.
+
+**3. Structure.** `archetypesBuilt` sits beside `transactionsCollected` in
+`manager-signals.js`, same shape, same field names, and
+`counterparty-pricing.js` is still the only file that prices. `add()` gained one
+optional parameter rather than a second code path.
+
+**4. Pointed anywhere else?** The chat-sync thread has built an as-of block on
+the archetype card itself (their hold `6ceb5c7`), with `as_of`, `career_as_of`
+and `jev_as_of` per member. **Two accessors now read the same store's stamp,
+theirs and mine, and that is a duplication worth closing after the merge** — the
+Part 1 lesson (three hand-rolled `MAX()` queries is how three surfaces come to
+print three dates) applies to two as much as three. Mine is deliberately the
+narrower of the two: league-season scoped, restricted to the `draft` and
+`outcome` sources the trade path actually reads, and it has no career or Jev
+half. Flagged rather than resolved, because their file is not mine to edit.
+
+**5. How does it unify?** Three parts, two stores, one rule, and the rule is now
+general enough to state without naming either: **a served or priced value must
+carry the stamp of the process that MEASURED it, never the stamp of a process
+that merely copied, scheduled or reported it.** `sync_log` for transactions and
+`manager_signals.computed_at` for archetypes are the same mistake, and both were
+the convenient one.

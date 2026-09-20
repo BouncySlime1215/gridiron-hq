@@ -756,9 +756,12 @@ test('G9g: the priced luck term says when the store behind it was built', () => 
   assert.equal(hayden.luck.as_of, ARCH_BUILT_AT,
     'the luck reading carries the stamp of the build that produced it');
 
-  // Through to the priced factor. This is the assertion the item was about.
-  const priced = byName(hayden, 'Quiet Star').factors.find(f => f.source === 'luck_self_view');
-  assert.ok(priced, 'four scored weeks prices, per G6');
+  // Through to the priced factor. This is the assertion the item was about; the
+  // per-player valuations live on the MAP, not on the layer entry (whose
+  // `players` is the chat sentiment index).
+  const priced = byName(mapFor(21).managers.get('2'), 'Quiet Star')
+    .factors.find(f => f.source === 'luck_self_view');
+  assert.ok(priced, 'four scored weeks prices, per G2b');
   assert.equal(priced.as_of, ARCH_BUILT_AT, 'the priced term carries the build date through');
 });
 
@@ -767,16 +770,16 @@ test('G9h: a luck read that is NOT firing still says how old the store is', () =
   // league-wide until week 5. "Not enough weeks yet" and "not enough weeks as of
   // a build three days ago" are different answers, and only the second tells him
   // whether running the build would change it.
-  const carl = layerFor(21).get('3');
+  const carl = mapFor(21).managers.get('3');
   const inert = (byName(carl, 'Silent Riser')?.inert ?? []).find(i => i.source === 'luck_self_view');
-  assert.ok(inert, 'one week of luck is inert, per G6');
+  assert.ok(inert, 'one week of luck is inert, per G2b');
   assert.equal(inert.as_of, ARCH_BUILT_AT, 'an inert entry carries the build date too');
 });
 
 test('G9i: a league with no archetype store at all is not given a build date', () => {
   // League 24 has signals but no archetype rows. A stamp here would be borrowed
   // from another league, which is the whole defect class this pass is closing.
-  const layer = layerFor(24, { rosterContext: NEEDS_24 });
+  const layer = pricing.counterpartyLayer(24, { season: SEASON, week: WEEK, rosterContext: NEEDS_24 });
   const entry = [...layer.values()][0];
   assert.ok(entry.archetypes, 'the block is served even when the store is empty for this league');
   assert.equal(entry.archetypes.as_of, null, 'no rows for this league-season is null, never borrowed');

@@ -580,6 +580,37 @@ export function transactionsCollected(leagueId, season) {
     collected_by: collector, reason: null };
 }
 
+/**
+ * WHEN THE ARCHETYPE STORE BEHIND THE OUTCOME AND DRAFT SIGNALS WAS BUILT.
+ *
+ * Same rule as `transactionsCollected`, same shape, for the same reason: the
+ * `outcome` half of `manager_archetypes` becomes `luck_self_view`, which is a
+ * TERM IN THE TRADE PRICE, and the store is written only by
+ * `scripts/build-manager-archetypes.mjs` — by hand, off-server. A stale luck
+ * read priced into a deal is worse than a stale card, because nothing on the
+ * card says that number moved the money.
+ *
+ * Not `manager_signals.computed_at`, deliberately. That is when the signal build
+ * COPIED the value across; the signal build can re-run without the archetype
+ * build having run, so its stamp advances while the measurement underneath sits
+ * still. That is precisely the substitution this accessor exists to prevent.
+ */
+export function archetypesBuilt(leagueId, season) {
+  const builder = 'scripts/build-manager-archetypes.mjs (off-server; nothing on the deployed app writes this store)';
+  const empty = { as_of: null, rows: 0, first_seen: null, collected_by: builder };
+  if (!tableExists('manager_archetypes')) {
+    return { ...empty, reason: 'manager_archetypes does not exist on this database — the build has never run here' };
+  }
+  const [r] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of, MIN(computed_at) AS first_seen
+                    FROM manager_archetypes WHERE league_id = ? AND (? IS NULL OR season = ?)
+                      AND source IN ('draft', 'outcome')`, leagueId, season ?? null, season ?? null);
+  if (!r || !r.n) {
+    return { ...empty, reason: `no archetype rows for this league yet — run ${builder.split(' (')[0]}` };
+  }
+  return { as_of: r.as_of ?? null, rows: r.n, first_seen: r.first_seen ?? null,
+    collected_by: builder, reason: null };
+}
+
 export function unpriceableReason(source) {
   const spec = SIGNAL_SOURCES[source];
   if (!spec) {

@@ -948,18 +948,24 @@ Suites under each injection: `test/chat-block-wiring.test.js`,
 `test/chat-age.test.js`, `test/league-chat-sync.test.js`,
 `test/wiring-absent-states.test.js`.
 
-| # | Injection | after sha256[0:16] | Result |
-|---|---|---|---|
-| M1 | `newest_message ?? as_of` → `as_of ?? newest_message` | `2ccccb011e7d3c67` | caught, 3 |
-| M2 | lag comparison `<` → `>` | `cf844a9ddb1f309f` | caught, 3 |
-| M3 | `state?.path ?? chatDbPath()` → `chatDbPath()` | `7ba813092611c59e` | caught, 1 |
-| M4 | the block's `reason` not carried into the note | `05904c8a36e5abd3` | caught, 1 |
-| M5 | `state?.path_source` never read | `7c4a10aa55cb3c55` | caught, 1 |
-| M6 | `!age && !hasData` → `!age && !rows` | `346678337a59e98f` | caught, 3 |
-| M7 | `MAX(last_msg)` → `MIN(last_msg)` | `26129c5da6571c90` | caught, 1 |
-| M8 | `out.collected_by = CHAT_COLLECTOR` → `null` | `df1e45571f59b078` | caught, 1 |
-| M9 | `rollup = 'missing'` made unreachable | `9b8cdec4fa393521` | caught, 2 |
-| M10 | block stamps served without `isoStamp` | `a393e6c96df4b065` | caught, 1 |
+| # | Replaced (verbatim, first occurrence) | With (verbatim) | after sha256[0:16] | Result |
+|---|---|---|---|---|
+| M1 | `state?.newest_message ?? state?.as_of ?? null` | `state?.as_of ?? state?.newest_message ?? null` | `2ccccb011e7d3c67` | caught, 3 |
+| M2 | `Date.parse(seenByRollup) < Date.parse(age) - 6e4` | `Date.parse(seenByRollup) > Date.parse(age) - 6e4` | `cf844a9ddb1f309f` | caught, 3 |
+| M3 | `state?.path ?? chatDbPath()` | `chatDbPath()` | `7ba813092611c59e` | caught, 1 |
+| M4 | `` state?.reason ? ` ${state.reason}.` : '' `` | `''` | `05904c8a36e5abd3` | caught, 1 |
+| M5 | `state?.path_source` | `false` | `7c4a10aa55cb3c55` | caught, 1 |
+| M6 | `if (!age && !hasData) {` | `if (!age && !rows) {` | `346678337a59e98f` | caught, 3 |
+| M7 | `MAX(last_msg) AS a` | `MIN(last_msg) AS a` | `26129c5da6571c90` | caught, 1 |
+| M8 | `out.collected_by = CHAT_COLLECTOR;` | `out.collected_by = null;` | `df1e45571f59b078` | caught, 1 |
+| M9 | `if (!rows && !seenByRollup) rollup = 'missing';` | `if (false) rollup = 'missing';` | `9b8cdec4fa393521` | caught, 2 |
+| M10 | `const age = isoStamp(` | `const age = (x=>x)(` | `a393e6c96df4b065` | caught, 1 |
+
+Each row is the literal string the runner passed to the replacer and the
+literal string it wrote back, not a description of the edit: a description
+cannot be re-run, and a row nobody can reproduce is a claim rather than
+evidence. Every `Replaced` string above was checked to occur in the restored
+source before this table was written, so each row is executable as printed.
 
 **Which test caught which**, by title and file, because a label like
 "rollup-behind" is a claim about the suite rather than a reading of it — and
@@ -986,10 +992,14 @@ in part to the ISO test, which does not fail under either.
 Ten caught out of ten is the result a broken runner also produces. Two control
 rows say the runner can tell the difference.
 
-| Control | Before → after | Result |
-|---|---|---|
-| C1 — a pattern that cannot match (`out.rolled_up_at = isoStamp(`, renamed to `computed_at` in this change) | `5ce105ab17ecc8c0` → `5ce105ab17ecc8c0` | **no edit made, suite not run, reported as such** |
-| C2 — a comment-only edit that must break nothing | `5ce105ab17ecc8c0` → `451ccc71e88ac6e4` | **survived, suite green** |
+| # | Replaced (verbatim, first occurrence) | With (verbatim) | after sha256[0:16] | Result |
+|---|---|---|---|---|
+| C1 | `out.rolled_up_at = isoStamp(` | `out.rolled_up_at = null; //` | `5ce105ab17ecc8c0` | **no edit, suite not run** |
+| C2 | `// EVERY FACT BELOW COMES OUT OF` | `// EVERY SINGLE FACT BELOW COMES OUT OF` | `451ccc71e88ac6e4` | **survived, green** |
+
+C1's `Replaced` string is the one string above that must NOT occur in the
+source — `rolled_up_at` was renamed `computed_at` by this very change — and that
+absence was verified too.
 
 C1 is the failure mode Part 3 was bitten by: a stale pattern that silently
 matches nothing, whose green suite reads as a caught mutation. The runner exits

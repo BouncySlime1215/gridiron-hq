@@ -15,10 +15,14 @@
  *
  * And the case a naive cap would break, from the same run:
  *
- *   Mac Jones (QB) behind Brock Purdy — ×10.24 on a 2.67 base, over a sample
- *   of roughly twenty observed attempts. A backup quarterback really does go
- *   from mop-up duty to a full starter's workload. ×10 is the truth here, and
- *   clipping it would replace a correct number with a wrong one.
+ *   Joe Flacco (QB) behind Joe Burrow — ×7.49 on a 3.67 base, over eleven
+ *   observed attempts. A backup quarterback really does go from mop-up duty to
+ *   a full starter's workload. ×7 is the truth here, and clipping it would
+ *   replace a correct number with a wrong one.
+ *
+ * The line is not clean and the fixture does not pretend otherwise: Mac Jones
+ * behind Brock Purdy sits at eight observed attempts against a threshold of
+ * nine, so his ×10.24 is withheld by one opportunity.
  *
  * Both fixtures below reproduce those two shapes. The rule that separates them
  * is the amount of opportunity the denominator was estimated from, not the rate

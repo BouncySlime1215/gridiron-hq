@@ -71,6 +71,14 @@ Recorded 2026-09-20 by injecting each defect into
 Each mutation was reverted immediately after its run; the file in this commit is
 the unmutated one, and the suite is green.
 
+The fix in section 5 has its own RED, recorded as a commit rather than as a
+mutation: `test/cascade-multiplier-denominator.test.js` was committed first and
+failed 2 of its 4 tests against the unfixed `contingency.js` — the thin pair
+published ×21.5 and `denominator_opportunities` did not exist. The other two
+tests passed before the fix and are the guards on not breaking what worked: the
+gain survives, and a large multiplier resting on a well-estimated divisor is
+kept.
+
 ## 3. Which test is primary, and why that changed
 
 Both tests were written before the first run. Neither was added afterwards and
@@ -125,23 +133,84 @@ statement about power. This does not prove the cascade multiplier is worthless.
 It establishes that the repository has never had evidence it works, that the
 first look does not find any, and that the published number is biased high.
 
-## 5. A defect the grading surfaced
+## 5. A defect the grading surfaced, and the fix
 
-`cascades()` publishes an unbounded multiplier. On the 2025 rows:
+`cascades()` published an unbounded multiplier. On the 2024 fit:
 
 > Jordan Whittington (WR) behind Puka Nacua: **×26.38** on a 0.11 base.
 
-A multiplier is a ratio, and the denominator is the beneficiary's opportunity
-per game *while the starter played*. `contingency.js` skips a pair only when
-both sides are under 0.5 (`if (base <= 0.5 && boosted <= 0.5) continue;`), so a
-beneficiary who was essentially unused alongside the starter keeps a tiny
-denominator and the shrink toward 1 cannot tame it at four or five observed
-games. The `gain` field is bounded by the observed without-starter mean and is
-not affected; the `multiplier` field is.
+**The mechanism.** The multiplier is `shrink(boosted / base, 1, without.n, 4)`.
+`shrink` is handed `without.n` — the number of games the starter *missed* — and
+never the sample size of the divisor, which is the quantity that actually makes a
+ratio unstable. `contingency.js` skips a pair only when *both* sides are under
+0.5, so a beneficiary who was barely used alongside the starter keeps a tiny
+divisor that the shrink toward 1 cannot touch. Whittington's whole with-starter
+sample held about one observed target.
 
-This is a finding, not a change. `contingency.js` belongs to no thread's file
-allocation tonight and the fix — a floor on the denominator, or a cap — is a
-proposal, not something to apply while a release train is mid-merge.
+**Why not a cap.** Because a large multiplier is often correct. Joe Flacco behind
+Joe Burrow publishes ×7.49 off a 3.67 base built from **eleven** observed
+attempts, and a backup quarterback really does go from mop-up duty to a starter's
+workload. A cap would replace a correct number with a wrong one. What separates
+the two cases is not the size of the result; it is how much opportunity the
+divisor was estimated from.
+
+**The bound, and where it comes from.** A mean rate estimated from a count of *k*
+observed events carries a relative standard error of about 1/√k, and a ratio
+inherits its divisor's error directly. Nine is where that relative error reaches
+one third — below it a ×2 and a ×3 are not distinguishable from the sample the
+divisor was built on, so the ratio is not a measurement. `cascades()` now reports
+`multiplier: null` when the with-starter side carries fewer than nine observed
+opportunities, and publishes `denominator_opportunities` so the basis is visible
+rather than implied. `gain`, `base_opportunity` and `opportunity_without` are
+unchanged: the gain is bounded by the observed without-starter mean and stands on
+its own.
+
+**The line is not clean, and is not described as one.** Mac Jones behind Brock
+Purdy sits at eight observed attempts against the threshold of nine, so his
+×10.24 is withheld by a single opportunity.
+
+**What it changes on the real fits.** 15 of 203 beneficiary multipliers in each of
+2024 and 2025 — 7.4% — and the largest surviving ratio falls from ×26.38 to ×4.37
+and from ×10.57 to ×7.49.
+
+**Reach.** `multiplier` has no numeric consumer anywhere. It is served raw on
+`GET /api/model/cascade/:playerId` and carried through `handcuffValue()` into
+`paths[].multiplier` (`contingency.js:1079`); `expected_gain` and
+`expected_points` are computed from `gain`, not from it, so the handcuff ranking
+does not move. `client/src/pages/Model.tsx:478` reads `paths` but only `starter`
+and `starter_miss_rate`. `draft-assist.js` reads neither. Both routes sit behind
+`Model.tsx`, which has no `<Route>`. So a null is safe everywhere it can reach.
+
+### Before and after
+
+Test A does not move, and that is by construction, not a null result:
+`base_opportunity` and `opportunity_without` are published for every row either
+way, and the fix changes only the `multiplier` field.
+
+| | 2024 before | 2024 after | 2025 before | 2025 after |
+|---|---|---|---|---|
+| Test A improvement | −17.50% | −17.50% | −1.97% | −1.97% |
+| Test B rows | 49 | 46 | 77 | 76 |
+| Test B improvement | −3.10% | −6.86% | −68.32% | −46.72% |
+| Test B 90% interval | [−0.693, +1.005] | [−0.422, +1.199] | [+0.576, +6.399] | [+0.142, +4.574] |
+| largest multiplier among graded rows | ×1.71 | ×1.69 | ×26.38 | ×2.37 |
+
+**The interval still straddles zero on Test A in both seasons, and still excludes
+it the wrong way on Test B in 2025.** The fix removes predictions that were
+absurd on their face — the worst 2025 row no longer claims 77 opportunities for a
+player averaging 2.9 — and it cuts the 2025 damage by a third, but it does not
+rescue either test. The remaining 2025 gap is the double-counting described in
+section 3, not outliers. Nothing here promotes the cascade to a surface.
+
+### A limit worth writing down
+
+`cascades()` bounds each starter's window to his own first and last appearance on
+that roster, which is right — otherwise the weeks before he was signed score as
+games he missed. The consequence is that a **season-ending absence contributes
+nothing**: there is no later appearance to close the window. The fixture in
+`test/cascade-multiplier-denominator.test.js` had to put its absences in weeks
+7–10 for exactly this reason. Anyone reading a cascade as "what happens when this
+player is out" should know it is built only from absences that a return bracketed.
 
 ## 6. Reproducing
 

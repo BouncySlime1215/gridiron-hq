@@ -121,13 +121,20 @@ for (const season of GRADED_SEASONS) {
   const lambda = den > 0 ? num / den : null;
   console.log(`    in-sample only, not evidence: the published gain would need scaling by ${f(lambda, 2)} to fit these weeks.`);
 
-  const maeOwn = mae(r.graded, own), maeScaled = mae(r.graded, scaled);
+  // Rows whose multiplier was withheld for a thin divisor have no ratio to test,
+  // so Test B runs on the supported subset. Test A is unaffected: base_opportunity
+  // and opportunity_without are published for every row either way.
+  const supported = r.graded.filter(x => x.multiplier != null);
+  const withheld = r.graded.length - supported.length;
+  const maeOwn = mae(supported, own), maeScaled = mae(supported, scaled);
   const deltaB = maeOwn - maeScaled;
-  const ciB = pairedInterval(r.graded, scaled, own, { draws: DRAWS });
+  const ciB = pairedInterval(supported, scaled, own, { draws: DRAWS });
 
   console.log(`\n  TEST B — does the multiplier add anything to the player's own recent usage?`);
-  console.log(`    own recent usage        MAE ${f(maeOwn)}   bias ${f(bias(r.graded, own))}`);
-  console.log(`    own recent × multiplier MAE ${f(maeScaled)}   bias ${f(bias(r.graded, scaled))}`);
+  console.log(`    rows with a published multiplier: ${supported.length} of ${r.graded.length}` +
+    (withheld ? `   (${withheld} withheld for a thin divisor)` : ''));
+  console.log(`    own recent usage        MAE ${f(maeOwn)}   bias ${f(bias(supported, own))}`);
+  console.log(`    own recent × multiplier MAE ${f(maeScaled)}   bias ${f(bias(supported, scaled))}`);
   console.log(`    improvement ${f(deltaB)}  (${pct(deltaB, maeOwn)} of baseline MAE)`);
   console.log(`    90% player-clustered interval on (scaled − own) MAE: [${f(ciB?.lo)}, ${f(ciB?.hi)}]`);
   console.log(`    ${deltaB > 0 ? 'improves' : 'does not improve'}; interval ${excludesZero(ciB) ? 'excludes' : 'straddles'} zero`);
@@ -136,8 +143,8 @@ for (const season of GRADED_SEASONS) {
   // Not a scored test — a sanity scan. A ratio has no upper bound when the
   // with-starter base is small, and `cascades()` skips a pair only when BOTH
   // sides are under 0.5, so a thin denominator can publish an absurd multiplier.
-  const mults = r.graded.map(x => x.multiplier).sort((a, b) => a - b);
-  const wild = r.graded.filter(x => x.multiplier > 3);
+  const mults = supported.map(x => x.multiplier).sort((a, b) => a - b);
+  const wild = supported.filter(x => x.multiplier > 3);
   const qbRows = r.graded.filter(x => x.position === 'QB').length;
   console.log(`\n  Sanity scan of the published multipliers on these rows:`);
   console.log(`    median ${f(mults[mults.length >> 1], 2)}   max ${f(mults[mults.length - 1], 2)}   above 3.0: ${wild.length}`);
@@ -151,10 +158,11 @@ for (const season of GRADED_SEASONS) {
     season, graded_rows: r.graded.length, absences: r.absences, starters: r.starters,
     distinct_beneficiaries: new Set(r.graded.map(x => x.player_id)).size,
     qb_rows: qbRows, max_multiplier: mults[mults.length - 1], multipliers_above_3: wild.length,
+    rows_with_multiplier: supported.length, multipliers_withheld: withheld,
     test_a: { mae_with: maeWith, mae_without: maeWithout, delta: deltaA,
       delta_pct: maeWith > 0 ? deltaA / maeWith : null, interval: ciA,
       interval_excludes_zero: excludesZero(ciA) },
-    test_b: { mae_own: maeOwn, mae_own_scaled: maeScaled, delta: deltaB,
+    test_b: { rows: supported.length, mae_own: maeOwn, mae_own_scaled: maeScaled, delta: deltaB,
       delta_pct: maeOwn > 0 ? deltaB / maeOwn : null, interval: ciB,
       interval_excludes_zero: excludesZero(ciB) },
     in_sample_gain_scale: lambda

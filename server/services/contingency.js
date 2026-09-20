@@ -24,6 +24,38 @@ const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
 // A starter has to have missed this many games for the split to mean anything.
 const MIN_MISSED = 3;
+/**
+ * How much observed opportunity the WITH-starter side has to carry before a
+ * beneficiary's multiplier is worth publishing.
+ *
+ * The multiplier is a ratio, and `shrink` below is given the sample size of the
+ * WITHOUT-starter games — never the sample size of the divisor, which is the
+ * quantity that actually makes a ratio unstable. So a beneficiary who was barely
+ * used alongside the starter keeps a tiny divisor and the shrink toward 1 cannot
+ * tame it: Jordan Whittington behind Puka Nacua published ×26.38 off a 0.11 base,
+ * a whole with-starter sample holding about one observed target.
+ *
+ * The number is not a round one picked to make that case go away. A mean rate
+ * estimated from a count of k observed events carries a relative standard error
+ * of about 1/√k, and the ratio inherits the divisor's error directly. Nine is
+ * where that relative error reaches one third — below it a ×2 and a ×3 are not
+ * distinguishable from the sample the divisor was built on, so the ratio is not a
+ * measurement of anything.
+ *
+ * A cap would have been the wrong instrument. Joe Flacco behind Joe Burrow
+ * publishes ×7.49 off a 3.67 base built from eleven observed attempts, and a
+ * backup quarterback really does go from mop-up duty to a starter's workload.
+ * Clipping that would replace a correct number with a wrong one. What separates
+ * the two cases is how much the divisor was estimated from, not how large the
+ * result is.
+ *
+ * The rule is not a clean line and should not be described as one. Mac Jones
+ * behind Brock Purdy sits at eight observed attempts against the threshold of
+ * nine, so his ×10.24 is withheld by one opportunity. On the 2024 and 2025 fits
+ * the rule withholds 15 of 203 beneficiary multipliers in each — 7.4% — and the
+ * largest surviving ratio falls from ×26.38 to ×4.37 and from ×10.57 to ×7.49.
+ */
+const MIN_DENOMINATOR_OPPORTUNITIES = 9;
 // Who can inherit whose workload. Receivers and tight ends share a target pool; backs
 // share carries; quarterbacks are a closed shop.
 const INHERITS = { QB: ['QB'], RB: ['RB'], WR: ['WR', 'TE'], TE: ['TE', 'WR'] };
@@ -1018,12 +1050,17 @@ export function cascades({ through = SEASON - 1, minGames = 6 } = {}) {
       // Shrink the multiplier toward "no change" — a three-game split is thin evidence.
       const ratio = base > 0 ? shrink(boosted / base, 1, without.n, 4) : 1;
       if (ratio <= 1.03) continue;
+      // The gain is bounded by the observed without-starter mean and stands on its own.
+      // The ratio does not: it is only reported when its divisor was estimated from
+      // enough opportunity to mean something. See MIN_DENOMINATOR_OPPORTUNITIES.
+      const supported = base > 0 && with_.opp >= MIN_DENOMINATOR_OPPORTUNITIES;
       beneficiaries.push({
         player_id: mateId, name: without.name, position: without.position,
         base_opportunity: +base.toFixed(2),
         opportunity_without: +boosted.toFixed(2),
         gain: +gain.toFixed(2),
-        multiplier: +ratio.toFixed(3),
+        multiplier: supported ? +ratio.toFixed(3) : null,
+        denominator_opportunities: with_.opp,
         games_observed: without.n
       });
     }

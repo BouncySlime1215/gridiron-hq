@@ -110,7 +110,9 @@ not ok 9 - a crossed read is a detection, not a failure to detect
 ## Live readings the tests are built on
 
 Not invented numbers. Taken against `https://gridiron-hq.fly.dev/api/health`
-on 2026-09-19 while the app was restarting about every 160 seconds:
+on 2026-09-19 while the app was restarting on a cycle later measured at 171 to
+196 seconds (median 180). The "about 160 seconds" this file first said was an
+early estimate, superseded by the clustered count:
 
 | issued | status | flight | `uptime_s` | verdict |
 |--------|--------|--------|-----------|---------|
@@ -144,20 +146,19 @@ the same class.
   with it.
 - The **60-second `RESTART_TOLERANCE_MS`** was hand-set from latency
   arithmetic. It is now measured in both directions, against tonight's log
-  (`/mnt/project-files/restart-health-log.tsv`, 167 reads at a 60-second
-  cadence, 2026-09-19T22:53Z to 2026-09-20T01:39Z), which yielded 51 clean reads
-  across 50 distinct process starts:
-  - **Different processes** are separated by **at least 171 seconds** across all
-    49 such consecutive pairs (median 180, max 376). A 60-second tolerance
-    cannot merge two real lives in this data, with about 2.8x of margin.
-  - **The same process**, read cleanly twice 60 seconds apart, drifted **0
-    seconds** — the one such pair in the log, 01:38:23Z at `uptime_s` 15 and
-    01:39:23Z at 65, both deriving 01:38:18Z. So the drift the tolerance exists
-    to absorb is two orders of magnitude inside it.
+  (`/mnt/project-files/restart-health-log.tsv`, 60-second cadence from
+  2026-09-19T22:53Z, read here at 2026-09-20T02:35Z):
+  - **Different processes**: **75** distinct starts under the 5-second
+    clustering rule the shared reducer uses, separated by **171 to 196 seconds**
+    (median 180, mean 180.3). A 60-second tolerance cannot merge two real lives
+    in this data, with about 2.8x of margin at the tightest.
+  - **The same process**, read cleanly twice 60 seconds apart: **8 such pairs,
+    every one drifting 0 or 1 second.** So the drift the tolerance exists to
+    absorb is two orders of magnitude inside it.
 
-  The two sides are 171 seconds and 0 seconds. A threshold anywhere between a
-  few seconds and two minutes would separate them; 60 is not load-bearing, and
-  that is the useful thing to know about it.
+  The two sides are 171 seconds and 1 second. A threshold anywhere between a few
+  seconds and two minutes separates them; 60 is not load-bearing, and that is the
+  useful thing to know about it.
 
 **2. How do we know?** 10 tests in `test/capture-span-guard.test.js`, each
 killed by a distinct mutation (the run is pasted above); 4 live readings, also
@@ -165,21 +166,52 @@ above, three of them crossed reads taken while the app was cycling. The
 mutation table is the load-bearing part: a test no mutation can fail proves
 nothing, which is the standard `docs/tdd/week2-numbers.tdd.md` set.
 
-**3. What is NOT known, and one thing that changed while this was being
-written.** For the first 152 reads of the log the same-process side of the
-tolerance was unmeasured: 46 clean reads had produced 46 *different* process
-starts, because the app had never once answered two clean health reads inside a
-single life. That was stated here as a gap, and then the log closed it — the
-01:38:18Z process survived long enough to be read cleanly twice, at `uptime_s`
-15 and 65, which is where the 0-second drift above comes from. It is recorded
-rather than quietly overwritten because the first version of this file asserted
-the gap, and one observation is a thin basis: **n = 1** on that side, against
-n = 49 on the other. A second pair, once the app is stable, is what would make
-it a measurement rather than an existence proof.
+**3. Two claims this file made and then had to withdraw.** Both were mine, both
+were about the app rather than the guards, and both were wrong in the same way.
 
-What remains genuinely unknown is the behaviour this tolerance was written for —
-drift across a capture that runs for minutes rather than across one 60-second
-interval — since no capture has been able to run to completion.
+First, an earlier version said the same-process side of the tolerance had never
+been observed — 46 clean reads, 46 different process starts — because the app had
+never answered two clean health reads inside one life. That closed on its own
+within the hour, and is now 8 pairs at 0-1 second of drift, as above.
+
+Second, and worse: this file reported that the app had **never been seen
+answering more than 72 seconds into a life**, and offered it as a severity
+statement. **Withdrawn.** The release-train thread worked out from this very log
+why it was an artifact: the restart cycle is about 180 seconds and this poll is
+60, and 180 = 3 x 60 exactly, so the sampler was **phase-locked** — it landed at
+the same three points of every life and nowhere else. Of 77 clean reads, 50 were
+at an age of 55 to 58 seconds, and at 01:50Z not one read in the whole night had
+observed an age between 73 and 170 seconds. 72 was the edge of where the
+instrument looked, not where the app dies.
+
+It has since been disproved twice. Their anchored probe deliberately read the
+same process at age 86. And this log walked into its own blind window by
+accident, because the logger sleeps the *remainder* of each interval rather than a
+flat 60 seconds, so every 25-second hang shifts its phase and the cycle is
+171-196 rather than exactly 180. One read per cycle, climbing: 75 s, 86 s, 91 s,
+then 103 s. The last is bracketed:
+
+| read | status | flight | `uptime_s` | derived start |
+|---|---|---|---|---|
+| 02:05:24Z | 200 | 0.56s | 43 | 02:04:42Z |
+| 02:06:24Z | 200 | 0.43s | **103** | 02:04:41Z |
+| 02:07:24Z | — | 25s | dark | — |
+
+The app answered at 103 seconds of age in under half a second, then went dark
+inside the next minute. That is past all six of the scheduler thread's
+last-reading-before-dark values (95, 97, 93, 91, 94, 88).
+
+The lesson is the release-train thread's, and it is better than mine: **a number
+in your own earlier prose is not a reading.** My "72" and my "376" were both me
+quoting my own writing back as though it were measurement. The rule that follows
+is about instruments rather than prose: **a fixed-cadence poll cannot bound the
+maximum of a periodic process**, and when the period is an integer multiple of
+the interval it cannot even sample it. Anything shaped like "never seen past X"
+from such a poll is a statement about X and the cadence, not about the subject.
+
+What remains genuinely unknown is the drift across a capture that runs for
+minutes rather than across one 60-second interval, since no capture has yet been
+able to run to completion.
 
 **4. Structure.** The predicates live in `scripts/lib/capture-span.mjs` rather
 than in the capture script because the script is a top-level-await module that

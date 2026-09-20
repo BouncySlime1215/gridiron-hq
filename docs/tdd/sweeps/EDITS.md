@@ -719,7 +719,7 @@ after:
  * A question in, a verified answer out.
 ```
 
-## `lexicon.json` — 5 rows, evidence in `docs/tdd/coach-stat-lexicon.tdd.md`
+## `lexicon.json` — 13 rows, evidence in `docs/tdd/coach-stat-lexicon.tdd.md`
 
 ### M43 — a lexicon field points at a column that does not exist
 
@@ -771,6 +771,114 @@ before:
 after:
 ```
   targets: concept('Times thrown at', 'passes', 'higher',
+```
+
+### M81 — a field points at a concept id nothing defines
+
+`server/services/coach/stat-names.js`, suites `test/coach-stat-names.test.js`
+
+before:
+```
+  'player_week_usage.target_share': 'target_share',
+```
+after:
+```
+  'player_week_usage.target_share': 'target_share_pct',
+```
+
+### M82 — a concept gives a direction that is not one of the three the app knows
+
+`server/services/coach/stat-names.js`, suites `test/coach-stat-names.test.js`
+
+before:
+```
+  availability_basis: concept('Chance-to-play basis', 'label', 'neither',
+```
+after:
+```
+  availability_basis: concept('Chance-to-play basis', 'label', 'sideways',
+```
+
+### M83 — the same quantity in two tables is given two different names
+
+`server/services/coach/stat-names.js`, suites `test/coach-stat-names.test.js`
+
+before:
+```
+  'nfl_snaps.offense_pct': 'snap_share',
+```
+after:
+```
+  'nfl_snaps.offense_pct': 'first_downs',
+```
+
+### M84 — describeField hands a screen the name alone, with no unit and no direction
+
+`server/services/coach/stat-names.js`, suites `test/coach-stat-names.test.js`
+
+before:
+```
+  return found ? { field, ...found } : null;
+```
+after:
+```
+  return found ? { field, name: found.name } : null;
+```
+
+### M85 — an unknown field comes back as a guessed label rather than as nothing
+
+`server/services/coach/stat-names.js`, suites `test/coach-stat-names.test.js`
+
+before:
+```
+  const id = Object.hasOwn(STAT_FIELDS, field) ? STAT_FIELDS[field] : null;
+  return id ? { id, ...STAT_CONCEPTS[id] } : null;
+```
+after:
+```
+  const id = Object.hasOwn(STAT_FIELDS, field) ? STAT_FIELDS[field] : null;
+  if (!id) return { id: field.split('.').pop(), name: field.split('.').pop(), unit: '', better: 'neither', plain: '', why: '', source: 'guessed' };
+  return { id, ...STAT_CONCEPTS[id] };
+```
+
+### M86 — the lexicon handed to a client carries a function, which JSON drops in silence
+
+`server/services/coach/stat-names.js`, suites `test/coach-stat-names.test.js`
+
+before:
+```
+    not_stored: NOT_STORED.map(s => ({ ...s }))
+```
+after:
+```
+    not_stored: NOT_STORED.map(s => ({ ...s })),
+    describe: describeField
+```
+
+### M87 — the basis explanation drops the constant case, so a number with no measurement behind it reads as measured
+
+`server/services/coach/stat-names.js`, suites `test/coach-stat-names.test.js`
+
+before:
+```
+means it was measured from players like him; "default_durability" means nobody measured anything and a single constant was used.',
+```
+after:
+```
+means it was measured from players like him.',
+```
+
+### M88 — the field map is handed over as a Map, which survives JSON as an empty object
+
+`server/services/coach/stat-names.js`, suites `test/coach-stat-names.test.js`
+
+before:
+```
+    fields: { ...STAT_FIELDS },
+```
+after:
+```
+    fields: new Map(Object.entries(STAT_FIELDS)),
 ```
 
 ### NC-lexicon — NO-OP CONTROL: reword the file's opening line, changing no behaviour

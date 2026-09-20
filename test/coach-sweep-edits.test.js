@@ -20,7 +20,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const DIR = 'docs/tdd/sweeps';
-const specs = fs.readdirSync(DIR).filter(f => f.endsWith('.json') && !f.endsWith('.results.json'));
+// A spec is a top-level .json in this directory holding an array of rows.
+// The harness's own output (`*.results.json`) and the coverage analysis under
+// analysis/ are not specs and must not be mistaken for one.
+const specs = fs.readdirSync(DIR)
+  .filter(f => f.endsWith('.json') && !f.endsWith('.results.json'))
+  .filter(f => Array.isArray(JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8'))));
 
 test('every sweep spec is readable and names a file that exists', () => {
   assert.ok(specs.length >= 8, `only ${specs.length} sweep specs found`);

@@ -116,16 +116,31 @@ const runOnFixture = (files) => {
   git('add', '-A');
   git('-c', 'user.email=t@example.invalid', '-c', 'user.name=t', 'commit', '-qm', 'fixture');
   const out = path.join(dir, 'report.md');
+  // NODE_OPTIONS is dropped on purpose. The suite runs with
+  // `--import ./test/offline-guard.mjs`, a path relative to the repository root, and
+  // this child runs with cwd inside the fixture tree, where it does not resolve — so
+  // the child died and the three tests below passed alone and failed in the full run.
+  // The guard is about the SUITE reaching the network; this child reads files and runs
+  // git in a temporary directory.
+  const { NODE_OPTIONS, ...env } = process.env;
   execFileSync(process.execPath, [path.resolve('scripts/route-deletion-impact.mjs')],
-    { cwd: dir, env: { ...process.env, OUT: out }, stdio: 'pipe' });
+    { cwd: dir, env: { ...env, OUT: out }, stdio: 'pipe' });
   const report = fs.readFileSync(out, 'utf8');
   fs.rmSync(dir, { recursive: true, force: true });
   return report;
 };
 
-/** Just the "Falls with the deletion" section, which is the one people cut from. */
-const fallsSection = (report) =>
-  report.slice(report.indexOf('## Falls with the deletion'), report.indexOf('## Already unreached'));
+/**
+ * Just the "Falls with the deletion" section, which is the one people cut from. It ends
+ * at the next `## `, not at a named heading: the fix for 6 added a third section
+ * between this one and "Already unreached", and a slice pinned to that heading quietly
+ * grew to cover it.
+ */
+const fallsSection = (report) => {
+  const from = report.indexOf('## Falls with the deletion');
+  const next = report.indexOf('\n## ', from + 1);
+  return report.slice(from, next === -1 ? undefined : next);
+};
 
 const VERDICTS = JSON.stringify({
   keep_statuses: ['kept-no-screen', 'kept-tombstone', 'external-caller',
@@ -153,25 +168,40 @@ test('a call site inside an already-unreached function is a survivor, not a casu
   });
   assert.doesNotMatch(fallsSection(report), /\bhelper\(\)/,
     'helper is still called from keptButUnreached, which this deletion does not remove');
+  // And it must not simply vanish: a caller that is itself unreached is a third answer,
+  // not silence. Dropping the row is what made positionLiquidity — the case this report
+  // was written for — disappear from it entirely.
+  assert.match(report, /## Reached only from code that is itself unreached/);
+  assert.match(report, /\bhelper\(\)/, 'it still has to appear somewhere');
+  assert.match(report, /keptButUnreached\(\)/, 'and the row has to name what holds it up');
 });
 
 test('a symbol two dying routes reach names both of them', () => {
+  // The order is the point. The route that calls `shared` DIRECTLY is walked first, and
+  // at that moment `shared` still has a surviving caller — the one inside `mid`, which
+  // nothing yet knows is falling — so nothing is recorded and that route has been and
+  // gone. The chain route makes it fall a moment later and writes down its own reason.
+  // Merging reasons as the walk goes cannot fix that; the question has to be asked
+  // again from the other end once the fixpoint has settled. This is freeAgents(),
+  // which is reached directly by the free-agents handler and through byePatches() by
+  // bye-risk, and printed only the second one.
   const report = runOnFixture({
     'docs/wiring/wiring-map.json': mapOf(
-      ['GET /api/thing/one', 'server/routes/app.js:3'],
-      ['GET /api/thing/two', 'server/routes/app.js:6']),
+      ['GET /api/thing/direct', 'server/routes/app.js:3'],
+      ['GET /api/thing/chain', 'server/routes/app.js:6']),
     'docs/wiring/route-verdicts.json': VERDICTS,
-    'server/routes/app.js': `import { shared } from '../services/svc.js';\n`
+    'server/routes/app.js': `import { shared, mid } from '../services/svc.js';\n`
       + `export const router = {};\n`
-      + `router.get('/api/thing/one', (req, res) => {\n  res.json({ n: shared() });\n});\n`
-      + `router.get('/api/thing/two', (req, res) => {\n  res.json({ n: shared() });\n});\n`,
-    'server/services/svc.js': `export function shared() {\n  return 1;\n}\n`,
+      + `router.get('/api/thing/direct', (req, res) => {\n  res.json({ n: shared() });\n});\n`
+      + `router.get('/api/thing/chain', (req, res) => {\n  res.json({ n: mid() });\n});\n`,
+    'server/services/svc.js': `export function mid() {\n  return shared() + 1;\n}\n`
+      + `export function shared() {\n  return 1;\n}\n`,
   });
   const falls = fallsSection(report);
-  assert.match(falls, /\bshared\(\)/, 'shared really does fall: both its callers are dying');
-  assert.match(falls, /GET \/api\/thing\/one/);
-  assert.match(falls, /GET \/api\/thing\/two/,
-    'a row naming one of two routes tells whoever deletes that route that they are done');
+  assert.match(falls, /\bshared\(\)/, 'shared really does fall: both routes that reach it are dying');
+  assert.match(falls, /GET \/api\/thing\/chain/);
+  assert.match(falls, /GET \/api\/thing\/direct/,
+    'a row naming one of two routes tells the other route\'s owner that they are done');
 });
 
 test('a closure declared inside a function is not a symbol of its module', () => {

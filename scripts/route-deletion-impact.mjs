@@ -215,8 +215,38 @@ const insideDoomed = (s) => doomed.some(d => d.file === s.file && s.line >= d.fr
 
 const falls = new Map();   // "file#name" -> { name, file, depth, why, from, to }
 
-/** Is this call site inside a function this report has already decided is going away? */
+/**
+ * Is this call site inside a function this report has already decided is going away?
+ *
+ * ALREADY-UNREACHED ROWS ARE NOT GOING AWAY, and counting them here was the worst
+ * thing this report did. The fixpoint records them into the same map, so a symbol whose
+ * last live caller sat inside a kept-but-unreached function had that caller deleted on
+ * paper and was promoted from "decide separately" to "delete it in the same commit as
+ * its route". horizonValue() printed at depth 3 with live sites at roster-risk.js:190
+ * and waiver-brain.js:155, :181, :401, :434, and :401 and :434 are inside sellHigh,
+ * which routes/trades.js:203 keeps deliberately. Nothing in this report deletes
+ * sellHigh, so nothing in this report may spend its calls.
+ *
+ * The cost of being right here is a symbol whose only caller is inside an
+ * already-unreached function now has a surviving caller and is not reported at all.
+ * That is the safe direction: under-reporting sends somebody to read a file, and
+ * over-reporting sends them to delete one.
+ */
 const insideFalling = (site) => [...falls.values()]
+  .filter(f => f.bucket === 'falls')
+  .some(f => f.file === site.file && site.line >= f.from && site.line <= f.to);
+
+/**
+ * The other half of the same correction. A call site inside a function that is itself
+ * unreached is a SURVIVOR — nothing here deletes it — and it is not a reason to keep
+ * the symbol alive either. Excluding such rows from insideFalling and stopping there
+ * made positionLiquidity(), the case this whole report was written for, vanish from it:
+ * its other call site is inside shoppingGuidance(), which nothing calls, so it acquired
+ * a "surviving" caller and dropped out of the list entirely. Silence is the one answer
+ * a deletion report must never give. Those symbols get their own section.
+ */
+const insideDeadCode = (site) => [...falls.values()]
+  .filter(f => f.bucket !== 'falls')
   .some(f => f.file === site.file && site.line >= f.from && site.line <= f.to);
 
 /**
@@ -241,10 +271,31 @@ function testSites(name) {
   return callSites(name).filter(s => isTestPath(s.file));
 }
 
-function record(name, file, depth, why) {
+/**
+ * A TOP-LEVEL DECLARATION, not any `const name =` in the file.
+ *
+ * functionBody's regex matches a declaration anywhere, and walk() recurses without the
+ * cross-module check the top-level loop applies, so a closure declared inside the
+ * function being walked became a row of its own: countAt, a closure inside
+ * waiverUpgrades used at :242 and :334 and nowhere else, printed beside real module
+ * symbols in a list meant to be read line by line. A closure inside a dying function
+ * goes with it; it is not a separate decision.
+ */
+function moduleSymbol(file, name) {
+  return new RegExp(`^(?:export\\s+)?(?:async\\s+)?(?:function\\s+${name}\\b|(?:const|let|var)\\s+${name}\\s*=)`, 'm')
+    .test(read(file));
+}
+
+/**
+ * `why` here is the chain that HAPPENED to reach this symbol first. It is not the whole
+ * answer to "which routes reach it" and must not be read as one — see the attribution
+ * pass below, which asks that question again once the fixpoint has settled.
+ */
+function record(name, file, depth, why, bucket = 'falls', heldBy = []) {
   const body = functionBody(file, name);
   if (!body) return false;
-  falls.set(`${file}#${name}`, { name, file, depth, why, line: body.line, tests: testSites(name),
+  falls.set(`${file}#${name}`, { name, file, depth, why, bucket, heldBy, line: body.line,
+    tests: testSites(name),
     from: body.line, to: body.line + body.text.split('\n').length - 1 });
   return true;
 }
@@ -255,6 +306,7 @@ function walk(name, fromFile, depth, why) {
   const declaredIn = imports.get(name) ?? fromFile;
   const file = declaredIn.endsWith('.js') ? declaredIn : `${declaredIn}.js`;
   if (!fs.existsSync(path.join(ROOT, file))) return;
+  if (!imports.has(name) && !moduleSymbol(file, name)) return;
   if (falls.has(`${file}#${name}`)) return;
   if (survivors(name).length) return;               // something still calls it: the chain stops
   if (!record(name, file, depth, why)) return;
@@ -314,7 +366,19 @@ while (changed) {
     for (const m of read(file).matchAll(EXPORT_DECL)) {
       const name = m[1] ?? m[2];
       if (!name || falls.has(`${file}#${name}`)) continue;
-      if (survivors(name).length) continue;
+      // Three answers, not two. Alive callers that are all inside unreached code is a
+      // THIRD state: the symbol is not falling with any route, and it is not reached
+      // either. Collapsing it into "falls" deletes live code; collapsing it into
+      // "already unreached" is a lie about why; dropping it prints nothing at all.
+      const alive = survivors(name);
+      if (alive.length && !alive.every(insideDeadCode)) continue;
+      const heldBy = alive.length
+        ? [...new Set(alive.map(a => {
+            const holder = [...falls.values()].find(f => f.bucket !== 'falls'
+              && f.file === a.file && a.line >= f.from && a.line <= f.to);
+            return holder ? `${holder.file}:${a.line} inside ${holder.name}()` : `${a.file}:${a.line}`;
+          }))]
+        : [];
       const sites = callSites(name).filter(s => !isTestPath(s.file));
       // Provenance, in the order that makes it true. A symbol a dying HANDLER calls is
       // killed by that route. A symbol only a FALLING function calls inherits that
@@ -322,12 +386,54 @@ while (changed) {
       // before any of this, and saying a deletion killed it would be a false
       // accusation against the deletion.
       const viaRoute = doomed.find(d => sites.some(x => x.file === d.file && x.line >= d.from && x.line <= d.to));
-      const viaFn = [...falls.values()].find(f => sites.some(x => x.file === f.file && x.line >= f.from && x.line <= f.to));
+      // Same rule as insideFalling: an already-unreached function is not being deleted,
+      // so it cannot be the reason another symbol is.
+      const viaFn = [...falls.values()].filter(f => f.bucket === 'falls')
+        .find(f => sites.some(x => x.file === f.file && x.line >= f.from && x.line <= f.to));
       const why = viaRoute ? viaRoute.route
         : viaFn ? `${viaFn.why} → ${viaFn.name}()`
         : null;
       const depth = viaRoute ? 1 : viaFn ? viaFn.depth + 1 : 0;
-      if (record(name, file, depth, why ?? 'ALREADY-UNREACHED')) changed = true;
+      const bucket = alive.length ? 'dead-callers' : why ? 'falls' : 'already';
+      if (record(name, file, depth, why ?? 'ALREADY-UNREACHED', bucket, heldBy)) changed = true;
+    }
+  }
+}
+
+/*
+ * WHICH DYING ROUTES REACH THIS SYMBOL — all of them, computed after the fixpoint has
+ * settled rather than written down as the walk goes.
+ *
+ * Merging a reason at record() time is not enough, because the answer depends on the
+ * order the dying routes happen to be walked in. freeAgents() is called directly by the
+ * handler of GET /api/trades/:leagueId/brain/free-agents AND, through byePatches(), by
+ * GET /api/trades/:leagueId/brain/bye-risk. The free-agents route is walked FIRST, at
+ * which point freeAgents still has surviving callers and nothing is recorded; by the
+ * time the bye-risk chain makes it fall, that route has been and gone. So it printed
+ * "reached only through: GET .../brain/bye-risk → byePatches()" — true, and missing the
+ * route whose handler names it on one line.
+ *
+ * This pass asks the question from the other end and is order-independent: for every
+ * row, which dying handlers contain a call site, and which other falling functions do,
+ * and what reaches those. Repeat until nothing changes.
+ */
+for (const r of falls.values()) {
+  r.viaRoutes = new Set();
+  r.sites = callSites(r.name).filter(s => !isTestPath(s.file));
+  if (r.bucket !== 'falls') continue;
+  for (const d of doomed) {
+    if (r.sites.some(x => x.file === d.file && x.line >= d.from && x.line <= d.to)) r.viaRoutes.add(d.route);
+  }
+}
+let spread = true;
+while (spread) {
+  spread = false;
+  for (const r of falls.values()) {
+    if (r.bucket !== 'falls') continue;
+    for (const f of falls.values()) {
+      if (f === r || f.bucket !== 'falls') continue;
+      if (!r.sites.some(x => x.file === f.file && x.line >= f.from && x.line <= f.to)) continue;
+      for (const route of f.viaRoutes) if (!r.viaRoutes.has(route)) { r.viaRoutes.add(route); spread = true; }
     }
   }
 }
@@ -349,8 +455,9 @@ o.push('**depth** is how far the chain runs. Depth 1 is called directly by a dyi
 o.push('');
 o.push('**What this cannot see**, and a deletion is not reversible by reading: a call made through a dynamic name, a function reached only by a string in a dispatch table, and any caller outside this repository. This narrows the search; it does not end it.');
 o.push('');
-const fell = rows.filter(r => r.why !== 'ALREADY-UNREACHED');
-const already = rows.filter(r => r.why === 'ALREADY-UNREACHED');
+const fell = rows.filter(r => r.bucket === 'falls');
+const held = rows.filter(r => r.bucket === 'dead-callers');
+const already = rows.filter(r => r.bucket === 'already');
 
 o.push(`## Falls with the deletion — ${fell.length} symbol(s)`);
 o.push('');
@@ -373,11 +480,35 @@ for (const [file, list] of group(fell)) {
   o.push('');
   for (const r of list.sort((a, b) => a.depth - b.depth)) {
     o.push(`- \`${r.name}()\` — **depth ${r.depth}**, declared at \`${file}:${r.line}\``);
-    o.push(`  - reached only through: ${r.why}`);
+    o.push(`  - reached through: ${r.why}`);
+    if (r.viaRoutes.size > 1) {
+      o.push(`  - **and by ${r.viaRoutes.size} dying routes in total**, not just that one: `
+        + [...r.viaRoutes].sort().map(x => `\`${x}\``).join(', ')
+        + ' — so it survives until the LAST of them goes, and no single owner deletes it alone');
+    }
     if (r.tests?.length) {
       o.push(`  - **and by ${r.tests.length} test(s), which go with it**: `
         + someTests(r.tests));
     }
+  }
+  o.push('');
+}
+
+o.push(`## Reached only from code that is itself unreached — ${held.length} symbol(s)`);
+o.push('');
+o.push('A third answer, and it took two wrong ones to find it. These have a caller that this deletion does NOT remove — so they are not falling with a route, and nothing here says cut them — but that caller is itself reached by nothing. `positionLiquidity()` is the case: its handler is dying and its other call site sits inside `shoppingGuidance()`, which nothing calls. Reporting it as falling tells somebody to delete live code; reporting it as already unreached is a lie about why; leaving it out prints nothing at all, which is the one answer a deletion report must never give.');
+o.push('');
+o.push('Each row names the caller that holds it up. Read that caller first: if it goes, this comes with it, and if it stays, this stays.');
+o.push('');
+if (!held.length) o.push('_None._');
+for (const [file, list] of group(held)) {
+  o.push(`### ${file}`);
+  o.push('');
+  for (const r of list.sort((a, b) => a.depth - b.depth)) {
+    o.push(`- \`${r.name}()\` — declared at \`${file}:${r.line}\``);
+    o.push(`  - a dying route reaches it: ${r.why}`);
+    o.push(`  - and it is held up by: ${r.heldBy.map(h => `\`${h}\``).join(', ')}`);
+    if (r.tests?.length) o.push(`  - tests calling it: ${someTests(r.tests)}`);
   }
   o.push('');
 }

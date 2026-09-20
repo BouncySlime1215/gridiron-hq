@@ -11,9 +11,15 @@ const blockMs = Number(process.argv[3]);
 // which must never be killed however long it blocks -- that is a slow boot,
 // and killing it would be a restart loop.
 const served = process.argv[4] !== 'never-served';
+// 'armed-early' models the real deployed order: startScheduler's onBootComplete
+// fires synchronously under SCHEDULER_DISABLED=1, which is BEFORE app.listen
+// and so before the watchdog exists. The arm has to survive that gap, or an
+// app nobody visits wedges and is never restarted.
+const armEarly = process.argv[4] === 'armed-early';
 
+if (armEarly) armLoopWatchdog();
 startLoopWatchdog({ thresholdMs });
-if (served) armLoopWatchdog();
+if (served && !armEarly) armLoopWatchdog();
 
 // Let the heartbeat and the worker start before blocking anything.
 setTimeout(() => {

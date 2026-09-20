@@ -76,9 +76,12 @@ test('arming that arrives before the watchdog starts is not lost', async () => {
   armLoopWatchdog();
   const started = startLoopWatchdog({ thresholdMs: 60_000 });
   assert.equal(started.started, true);
-  // Arming is internal state; the observable proof is in the child-process test
-  // in loop-watchdog.test.js. Here it is enough that starting after an early
-  // arm does not throw and does not reset anything.
+  // Arming is internal state, so this test can only check that starting after
+  // an early arm does not throw. That is NOT a guard: deleting the replay in
+  // startLoopWatchdog leaves this test passing, which was found by injecting
+  // exactly that defect. The real guard is 'an arm that arrives before the
+  // watchdog starts is not lost' in test/loop-watchdog.test.js, which runs a
+  // child process and asserts it dies. Do not read this one as cover.
   stopLoopWatchdog();
 });
 

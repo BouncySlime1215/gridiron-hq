@@ -1,4 +1,4 @@
-# TDD evidence: boot-restart-cycle (PRs #56, #59, #61)
+# TDD evidence: boot-restart-cycle (PRs #56, #59, #61, #63)
 
 Source: the live app restarting in a loop after the 2026-09-19 release (main at
 791b131), found while auditing whether the scheduler keeps the app's fantasy data
@@ -61,14 +61,25 @@ flat `Math.max(90000, bootDelayMs + 60000)` with `bootDelayMs` 20000.
 | `record()` (`:79`) | Runs only after `job.run()` returns, so a job that kills the process records nothing — not an error, not a timestamp. The live read showed `consecutive_failures` stuck at **1** across all seven lives rather than climbing: not a job failing repeatedly, a job whose failure was never recorded once. Every guard in the file (`nextDueMinutes`' backoff, `confidence()`'s 0.1 floor, the diagnostic's erroring list) is downstream of a recorded outcome, so all of them are blind to it. | **Build new**: record the attempt, not only the outcome. PR #61. |
 | `watchdogArmingMiddleware` | Armed on the first completed HTTP response of any kind. `fly.toml` polls `/api/health` every 15s, so on the deployed machine the first completed response is the platform's own probe, about 15s after `listen` and before the boot work starts. Circular, too: `/api/health` answers exactly when the loop is turning, which is the thing being measured. | **Extend**: exclude the liveness path by equality, and arm from the boot pass instead. PR #56. |
 | `book-feeds.js` | `_directBookLastSeen` (`:122`) and `_providerBackoff` (`:388`) are module state deliberately shared between the fast, slow and extra jobs, so a worker's fresh module graph would silently double-write a book as if it were two sources. | **Named, not moved.** Three jobs stay on the request thread in an allow-list carrying that reason. Persisting the state is a follow-up, and it is betting-side. |
-| The background tier's own call (`tier()` pass) | `runIfStale(j)` with NO override, every 5 minutes. `resolveOffThread` then falls back to `job.offThread ?? job.tier === 'heavy'`, which is false for a growth job — so `nfl_model_growth` would have gone straight back onto the request thread the first time its 6-hour cadence came due on a machine that stayed up. Found by auditing every job's tier and flag rather than by assuming the boot fix covered it. **A fix that only holds until it succeeds is not a fix.** | **Extend**: `offThread: true` on the job itself, with the reason written next to the flag. PR #62. |
+| The background tier's own call (`tier()` pass) | `runIfStale(j)` with NO override, every 5 minutes. `resolveOffThread` then falls back to `job.offThread ?? job.tier === 'heavy'`, which is false for a growth job — so `nfl_model_growth` would have gone straight back onto the request thread the first time its 6-hour cadence came due on a machine that stayed up. Found by auditing every job's tier and flag rather than by assuming the boot fix covered it. **A fix that only holds until it succeeds is not a fix.** | **Extend**: `offThread: true` on the job itself, with the reason written next to the flag. PR #63. |
 | `tier()` (`:1972` here) and `fly.toml` | `setInterval` only, no leading call, so the first background pass is at t+300s. On lives of 160 seconds it never fired at all, which is why every growth, metered and heavy job had run zero times on this build. `auto_stop_machines = false`, `min_machines_running = 1`, so the machine is not being idle-stopped. | **No change.** Correct behaviour on a stable box; its zero-runs-ever is the restart cycle and nothing else. Recorded so nobody re-derives it. |
 
 ## RED -> GREEN, by defect injection
 
 Each row: the edit made to the merged source, the test output, then restore.
-Re-run in full at 23:20Z on 2026-09-19 against the tip of this stack, rather
-than quoted from when each change was written.
+Every row was RUN at the tip of this stack, not described.
+
+**Completeness. 33 guarded rules across the seven test files this stack adds or
+changes; 31 have a row below that was run and shown to fail the named rule.**
+The two that do not are named at the end of this section with the reason,
+because a count with an unexplained remainder is the thing this file exists to
+prevent.
+
+The first twelve rows were run at 23:20Z on 2026-09-19; the rest at 01:30Z on
+2026-09-20, after a review asked whether EVERY rule had one. It did not -- 16
+of 32 did -- and closing that gap found a test that no mutation could fail.
+That is recorded below rather than quietly fixed, because it is the strongest
+thing in this file.
 
 | PR | Injected defect | Result |
 |---|---|---|
@@ -81,22 +92,74 @@ than quoted from when each change was written.
 | #61 | reaper sets `consecutive_failures = 1` instead of `+ 1` | 8 pass, 1 fail — "the second kill backs off further than the first" |
 | #61 | reaper dates the attempt with `nowIso()` instead of the marker's start time | 8 pass, 1 fail — the backoff would be computed against an hours-old timestamp and would never bite |
 | #61 | move `reapAbandonedRuns()` below the `SCHEDULER_DISABLED` early return | 7 pass, 2 fail — both ordering tests |
-| #62 | `scheduler.js`: remove `offThread: true` from the `nfl_model_growth` JOBS entry | `timer-tier-off-thread` 3 pass, 1 fail — "the measured blocker runs off-thread with no override in sight" |
-| #62 | flag `nfl_book_feeds_fast` off-thread while leaving it allow-listed as main-thread-only | 3 pass, 1 fail — the two would disagree about which path wins |
-| #62 | strip the comment explaining why the flag is needed | 3 pass, 1 fail — the next reader needs to know the boot override does not cover this entry |
+| #63 | `scheduler.js`: remove `offThread: true` from the `nfl_model_growth` JOBS entry | `timer-tier-off-thread` 3 pass, 1 fail — "the measured blocker runs off-thread with no override in sight" |
+| #63 | flag `nfl_book_feeds_fast` off-thread while leaving it allow-listed as main-thread-only | 3 pass, 1 fail — the two would disagree about which path wins |
+| #63 | strip the comment explaining why the flag is needed | 3 pass, 1 fail — the next reader needs to know the boot override does not cover this entry |
+| #56 | `loop-watchdog.js`: delete `res.once('finish', armLoopWatchdog)` | `watchdog-arming-sources` 4 pass, 2 fail — "an ordinary request still arms the watchdog" |
+| #56 | change the liveness check from `===` to `startsWith` | 5 pass, 1 fail — "a path that merely starts with the liveness path still arms it" |
+| #56 | `LIVENESS_PATH` drifts to `/api/healthz` | 5 pass, 1 fail — "the liveness path the watchdog excludes is the one fly.toml probes" |
+| #56 | delete the `armedEarly` replay in `startLoopWatchdog` | `loop-watchdog` 5 pass, 1 fail — "an arm that arrives before the watchdog starts is not lost". **See the note below: that guard did not exist until this sweep went looking for it.** |
+| #56 | `index.js`: register `/api/health` twice | `health-route-single` 2 pass, 1 fail — "exactly one route in server/ is registered at a health path" |
+| #56 | `fly.toml`: probe `/api/healthz` instead | 2 pass, 1 fail — "the one registration is the path fly.toml's http check probes" |
+| #56 | put the health handler behind middleware | 2 pass, 1 fail — "the health handler is never registered behind authentication" |
+| #59 | `DEFAULT_JOB_TIMEOUT_MS` 120_000 -> 30_000 | `boot-path-off-thread` 6 pass, 1 fail — "the job budget really is larger than the watchdog threshold" |
+| #59 | typo a name in `BOOT_JOBS` (`rss_news` -> `rss_newss`) | 6 pass, 1 fail — "every name in the boot list is a real job" |
+| #59 | boot pass calls `runIfStale(j)` bare | 6 pass, 1 fail — "the boot pass passes the per-job override rather than calling bare" |
+| #59 | add a fourth entry to `MAIN_THREAD_ONLY` | 6 pass, 1 fail — "the allow-list is only an escape for jobs that need it" |
+| #61 | `record()` stops setting `last_status` | `abandoned-run-backoff` 5 pass, 4 fail — "a completed run leaves no running row behind" |
+| #61 | `nextDueMinutes` returns 0 for an errored job | 7 pass, 2 fail — "the boot after a kill does not start the same job again" |
+| #61 | `record()`'s CASE always increments | 8 pass, 1 fail — "a job that recovers stops being backed off" |
+| #63 | the tier pass grows an `{ offThread: true }` override | `timer-tier-off-thread` 3 pass, 1 fail — "the tier timer passes no override, so the flag is the only thing deciding" |
+
+### The one this sweep caught, which is the whole point of running them
+
+Injecting "delete the `armedEarly` replay" produced **6 pass, 0 fail**. The rule
+was unguarded.
+
+The test meant to cover it — "arming that arrives before the watchdog starts is
+not lost", in `watchdog-arming-sources.test.js` — asserts only that starting
+after an early arm does not throw, and its own comment said the observable
+proof was "in the child-process test in loop-watchdog.test.js". There was no
+such test: that file contained no reference to `armLoopWatchdog` or
+`armedEarly` at all. A comment pointing at a proof that does not exist reads,
+to anyone checking, exactly like a proof.
+
+The rule matters. `startScheduler` calls `onBootComplete` synchronously under
+`SCHEDULER_DISABLED=1`, which is before `app.listen` and so before the watchdog
+exists. An arm dropped in that window leaves the process unwatched for good --
+and since #56 also stops the platform's own health probe from arming it, an app
+nobody visits would never be armed again and its wedge would be permanent.
+
+So the guard was written: an `armed-early` mode in
+`test/fixtures/watchdog-subject.mjs` that arms BEFORE `startLoopWatchdog`, and
+a child-process test asserting the process is still SIGKILLed. It fails when
+the replay is deleted, which is the row above. The old test keeps its cheap
+assertion, and its comment now says plainly that it is NOT a guard and names
+the one that is.
+
+### The two rules with no injection, and why
+
+- `boot-override-off-thread` test 1 is the CONTROL: it asserts that a job
+  WITHOUT the override does block the loop. The only mutation that fails it is
+  a mutation of the test's own fixture, which proves nothing about the source.
+  It exists so that tests 2 and 3 mean something.
+- `watchdog-arming-sources`'s early-arm test is, as above, deliberately not a
+  guard. Its rule is guarded by the `loop-watchdog` test instead, which does
+  have a row.
 
 ## Test specification
 
 | File | Tests | What it pins |
 |---|---|---|
 | `test/watchdog-arming-sources.test.js` | 6 | The liveness probe arms nothing; an ordinary request does; a path that merely begins with the same characters does; an arm arriving before `startLoopWatchdog` is not lost; the scheduler wires `onBootComplete` and calls it in a `.finally`; `LIVENESS_PATH` equals the path `fly.toml` actually probes. |
-| `test/health-route-single.test.js` | 3 | Existing. De-brittled: the assertion carried a line number, so any edit above the route broke it. Now matches file and path only, and was re-checked against a real duplicate registration. |
+| `test/health-route-single.test.js` | 3 | Existing. De-brittled: the assertion carried a line number, so any edit above the route broke it. Now matches file and path only. All three rules have injections above. |
 | `test/boot-path-off-thread.test.js` | 7 | The budget really does exceed the fuse; every boot job is off-thread or allow-listed with a reason; every boot name is a real job; the boot pass and both delayed timers pass the override; `resolveOffThread` precedence; the allow-list holds exactly the three book-feeds jobs. |
 | `test/boot-override-off-thread.test.js` | 3 | Runtime, not source-shaped: measures event-loop lag while a job runs. A live-tier job without the override blocks the loop (control); the same job with it leaves the loop responsive; an explicit `offThread: false` keeps a heavy job inline. |
 | `test/timer-tier-off-thread.test.js` | 4 | The measured blocker resolves off-thread with no override; the tier pass still passes none, so the job flag is the only thing deciding; a job cannot be both allow-listed as main-thread-only and flagged off-thread; the reason lives next to the flag. |
+| `test/loop-watchdog.test.js` | +1 | Existing file. Adds the observable early-arm guard described above: a child process armed before `startLoopWatchdog` must still be SIGKILLed when it blocks. |
 | `test/abandoned-run-backoff.test.js` | 9 | A job in flight is marked without being made to look fresh; a completed run leaves no marker; an abandoned run is recorded as the failure it was, dated by its start; the boot after a kill does not re-start the job; a second kill backs off further; recovery clears it; the reap happens before both the brake and the boot pass. |
 
-Full suite at the tip of the stack: **2975 tests, 0 fail, 41 skipped.** Lint,
+Full suite at the tip of the stack: **2980 tests, 0 fail, 41 skipped.** Lint,
 typecheck and `npm run start:smoke` clean.
 
 ## What this stack does NOT do

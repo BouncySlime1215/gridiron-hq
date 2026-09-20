@@ -589,6 +589,41 @@ test('G10b: with no trusted chat identity, a refusal is not priced either', () =
   }
 });
 
+test('G10d: the mixed league — his roster is unconfirmed while the rest are not', () => {
+  // THE CASE A LEAGUE-LEVEL FLAG CANNOT SEE, and the reason the guard reads the
+  // credibility RECORD rather than a flag beside it. League 21 has a corpus and a
+  // working credibility map; roster 4 (Danny Echo) has no confirmed identity row,
+  // so untouchableStance finds no entry for HIM and falls back to the prior while
+  // `declarations_read` for the league is perfectly true.
+  //
+  // Without this the mixed league is the one shape nothing covers: every test has
+  // either all rosters confirmed or none, so a guard that keys on the league flag
+  // passes them all and still prices a refusal nobody read.
+  run(`INSERT OR REPLACE INTO manager_player_view
+         (league_id, roster_id, player_name, sentiment, n, last_mention, source)
+       VALUES (21, '4', 'nobody talks', 3.6, 6, date('now', '-2 days'), 'chat')`);
+  try {
+    const danny = pricing.valuationMap(21,
+      { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS }).managers.get('4');
+    assert.ok(danny, 'the unconfirmed manager is still in the map');
+    const nobody = byName(danny, 'Nobody Talks');
+    const priced = (nobody?.factors ?? []).find(f => f.source === 'untouchable_credibility');
+    assert.equal(priced, undefined,
+      'his word was never read, whatever the rest of the league\'s identities say');
+    const inert = (nobody?.inert ?? []).find(i => i.source === 'untouchable_credibility');
+    assert.ok(inert, 'and it is reported inert with its reason');
+
+    // And the confirmed manager in the SAME league still prices, so the guard is
+    // per-manager and not a switch that turned the source off for everyone.
+    const star = byName(pricing.valuationMap(21,
+      { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS }).managers.get('2'), 'Quiet Star');
+    assert.ok((star?.factors ?? []).find(f => f.source === 'untouchable_credibility'),
+      'the manager whose record WAS read still prices in the same league');
+  } finally {
+    run(`DELETE FROM manager_player_view WHERE league_id = 21 AND player_name = 'nobody talks'`);
+  }
+});
+
 test('G10c: the two unread-declaration absences do not share one sentence', () => {
   // The rule the whole as-of family rests on: an absence must say WHICH absence
   // it is. If "the corpus is not on this machine" and "there is no confirmed

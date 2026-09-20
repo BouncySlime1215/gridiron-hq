@@ -852,3 +852,97 @@ not. The block is served on `GET /api/trades/:leagueId/managers/signals`.
 **5. How does it unify?** With Parts 1-7 it is one rule in eight stores, and
 Part 8 adds the sharpest case of it: the rollup is a scheduler, and a scheduler's
 clock is not the data's clock.
+
+---
+
+## Part 9 — the other half of the unread refusal, found by another thread
+
+Part 7 stopped pricing a refusal whose credibility record could not be read: with
+the chat corpus off the machine, `declarationCredibility()` answers
+`available: false`, `declarations_read` is `false`, and the untouchable
+adjustment is reported inert instead of firing on the prior.
+
+**It closed one of three doors.** Chat sync found the others. Everything
+`untouchableStance` needs to *find* a declaration lives in `manager_player_view`,
+which is in the app database and survives; only the record of whether his word
+HOLDS lives in the corpus. So whenever that record is missing for a manager, the
+stance falls back to `1 - PRIOR_BLUFF_RATE = 0.65`, which clears the 0.45 bar,
+lands him in `probe`, and prices the player up under the sentence *"he has called
+him untouchable, but his word holds only 65% of the time"* — a statement about a
+word nobody read.
+
+Three ways it goes missing, and Part 7 caught one:
+
+| | `credibility` (league) | `stance.credibility` (his) | Part 7 | now |
+|---|---|---|---|---|
+| corpus not on this machine | `{available: false}` | null | inert | inert |
+| no confirmed chat identity in the league | **null** | null | **priced** | inert |
+| mixed league: his roster unconfirmed, others fine | available | **null** | **priced** | inert |
+
+**The fix is where the guard reads from.** It keyed on
+`managerProfile.declarations_read === false`, a league-level flag, and
+`credibility == null` made that flag neither true nor false, so the `=== false`
+test slid past it. It now keys on `stance.credibility == null` — **the record
+itself, for this manager** — which is null in all three rows and is the only form
+that can see the mixed league at all. `declarations_reason` still supplies WHICH
+absence, in three distinct sentences, because one is a machine, one is a name
+Nick never confirmed, and one is a record that holds nothing about him.
+
+### Mutation table
+
+Baseline `4293dfcae703` for `server/services/counterparty-pricing.js`.
+
+| Mutation | Verification | Result | Fails | Named test red? |
+|---|---|---|---|---|
+| the guard goes back to the league-level flag | APPLIED `4293dfcae703` → `d8638191aaec` | RED | 1 | yes (G10d) |
+| an unread record prices on the prior instead of going inert | APPLIED `4293dfcae703` → `b3df2ef08bbb` | RED | 4 | yes (G10b) |
+| the two absences share one sentence | APPLIED `4293dfcae703` → `2ba2620baa10` | RED | 2 | yes (G10c) |
+| the no-identity case is reported as read | APPLIED `4293dfcae703` → `52b4d8643911` | RED | 1 | yes (G10b) |
+| a measured record is also inert, so nothing ever prices | APPLIED `4293dfcae703` → `a66364e65257` | RED | 5 | yes (G1c) |
+| **CONTROL** — pattern not in the file | **NO-OP — pattern not found** | — | — | — |
+
+5/5 caught by the test that names them; the control reported NO-OP. Source
+restored clean after every row.
+
+**The first row survived its first pass, and the survivor was the finding.**
+Reverting the guard to the league-level flag still passed, because the other half
+of the fix — making `declarationsRead` false when `credibility` is null — was
+independently catching the no-identity league. The two changes each fixed the
+case the tests covered, so mutating one left the other doing the job. The case
+that separates them is the **mixed league**, and no test had one: every fixture
+had all rosters confirmed or none. Rather than declare the mutant equivalent, G10d
+builds the mixed league — league 21's roster 4 has no identity row while 1, 2 and
+3 do — and asserts both halves: the unconfirmed manager does not price, **and the
+confirmed manager in the same league still does**, so the guard is per-manager and
+not a switch that turned the source off for everyone.
+
+That second assertion is the one worth keeping. A guard that makes everything
+inert passes every "must not price" test ever written.
+
+### Is this well built? (the five questions)
+
+**1. Stats or made up?** `1 - PRIOR_BLUFF_RATE = 0.65` is hand-set and always
+was; what changes is that it is no longer allowed to *look* measured. Nothing is
+fitted here.
+
+**2. How do we know?** Five mutations, five caught, above, plus the direct read of
+`bluff-detector.js:229-259` that established the fallback is reachable in all
+three rows rather than assuming it from the call site.
+
+**3. Structure.** One condition, reading the record instead of a flag about the
+record. The league-level flag stays, but only to choose the sentence.
+
+**4. Pointed anywhere else?** Yes: the same three-way absence applies to every
+chat-sourced source in `VALUATION_SOURCES`, not only this one. `talk_vs_model`,
+`chat_sentiment` and `profile_roster_read` all read a corpus that may be absent.
+They degrade correctly today because their evidence is the `manager_player_view`
+rows themselves, which either exist or do not — but that is a property of where
+their evidence lives, not a guard, and it is worth stating so nobody moves one of
+them onto a prior later.
+
+**5. How does it unify?** It is the as-of rule with a different noun: **a value
+must carry the stamp of the process that measured it** becomes **a price must
+carry the record that justified it**, and an absent record is an absence that has
+to say which absence it is. Chat sync found this because they read Part 7's fix
+and asked what else could make the record missing — which is the useful form of
+review, and better than the line number they quoted.

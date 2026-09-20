@@ -266,6 +266,50 @@ export async function syncWeeklyUsage(season) {
   return { season, rows: records.length, inserted, unmatched };
 }
 
+/**
+ * The range `offense_pct` has to be in, and what breaks when it is not.
+ *
+ * NOT A STYLE CHOICE. The value is stored raw and read absolutely in two places:
+ * `role-changepoint.js:29` confirms a role change on `snapDelta >= 0.08`, a difference of two
+ * shares -- eight percentage points on a 0-1 scale, eight hundredths of one on a 0-100 scale,
+ * where `snapConfirms` becomes true for essentially every player and the confirmation step
+ * stops filtering without failing. `contingency.js#roleTier` bands at 0.60 / 0.35 / 0.15,
+ * where a 0-100 scale makes every player a starter. Both keep returning verdicts.
+ */
+export const SNAP_SHARE_RANGE = Object.freeze({
+  min: 0, max: 1,
+  required_by: 'role-changepoint.js:29 (absolute snapDelta >= 0.08) and contingency.js#roleTier '
+    + '(bands at 0.60 / 0.35 / 0.15); both keep returning verdicts on the wrong scale'
+});
+
+/**
+ * Whether one `offense_pct` can be stored, and why not when it cannot.
+ *
+ * WHY IT DOES NOT RESCALE. Dividing an 84.7 by 100 is the obvious repair and the dangerous
+ * one: it would also turn a genuinely corrupt row into a plausible one, permanently and
+ * invisibly. An unusable value is stored as NULL -- the labelled-absence state the consumers
+ * already handle, since every one of them filters nulls -- and counted in the sync's report,
+ * so an upstream unit change surfaces as a number somebody reads instead of as a season of
+ * quietly undiscriminating role tiers.
+ *
+ * Absent and out-of-range are separate reasons. "The source had no value" and "the source had
+ * a value that cannot be a share" call for different responses, and one message for both would
+ * hide the second inside the first.
+ */
+export function snapShareVerdict(observed) {
+  if (observed == null || !Number.isFinite(observed)) {
+    return { ok: false, value: null, observed: observed ?? null, reason: 'no snap share in the source row' };
+  }
+  if (observed < SNAP_SHARE_RANGE.min || observed > SNAP_SHARE_RANGE.max) {
+    return {
+      ok: false, value: null, observed,
+      reason: `snap share ${observed} is out of range: it must be between 0 and 1, and is `
+        + 'never rescaled, because rescaling would also repair a corrupt row into a plausible one'
+    };
+  }
+  return { ok: true, value: observed, observed, reason: null };
+}
+
 /** Snap share — the earliest signal that a committee is breaking one way. */
 export async function syncSnapCounts(season) {
   const { header, records } = await fetchCsv(`${RELEASE}/snap_counts/snap_counts_${season}.csv`);
@@ -284,19 +328,38 @@ export async function syncSnapCounts(season) {
     VALUES (?,?,?,?,?) ON CONFLICT(player_id, season, week) DO UPDATE SET
       offense_snaps=excluded.offense_snaps, offense_pct=excluded.offense_pct`);
 
-  let inserted = 0;
+  let inserted = 0, unmatched = 0, outOfRange = 0;
+  // A count with no example cannot be investigated, and the whole point of counting is that
+  // somebody acts on it. Capped so a wholly wrong file does not return a copy of itself.
+  const outOfRangeSamples = [];
   db.exec('BEGIN');
   try {
     for (const rec of records) {
       if (iType >= 0 && rec[iType] !== 'REG') continue;
       const pid = byName.get(`${norm(rec[iName])}|${rec[iPos]}`);
-      if (!pid) continue;
-      stmt.run(pid, numAt(rec, iSeason), numAt(rec, iWeek), numAt(rec, iSnaps), numAt(rec, iPct));
+      // Counted, not dropped in silence: this used to be a bare `continue`, so a sync that
+      // name-matched a third of the league returned the same shape as one that matched all of
+      // it. `syncPlayerWeekUsage` directly above has always counted its unmatched rows.
+      if (!pid) { unmatched++; continue; }
+
+      const week = numAt(rec, iWeek);
+      const share = snapShareVerdict(numAt(rec, iPct));
+      if (!share.ok && share.observed != null) {
+        outOfRange++;
+        if (outOfRangeSamples.length < 10) {
+          outOfRangeSamples.push({ player: rec[iName], season: numAt(rec, iSeason), week,
+            observed: share.observed, reason: share.reason });
+        }
+      }
+      // The snap COUNT is unaffected by an unusable share and is still real evidence that the
+      // player was on the field, so the row is stored either way.
+      stmt.run(pid, numAt(rec, iSeason), week, numAt(rec, iSnaps), share.value);
       inserted++;
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { season, inserted };
+  return { season, inserted, unmatched, out_of_range: outOfRange,
+    out_of_range_samples: outOfRangeSamples };
 }
 
 /** Everything, in dependency order. */

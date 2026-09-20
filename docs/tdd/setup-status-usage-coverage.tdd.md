@@ -99,25 +99,48 @@ what make the difference.
 
 ## Defect injection against GREEN
 
-Each row is one edit to the finished handler, the suite re-run, the edit
-reverted. A test that no mutation can fail proves nothing.
+Each row is one edit to the finished handler, the suite re-run, the edit reverted.
+A test that no mutation can fail proves nothing.
 
-| # | injected defect | result | killed by |
-|---|---|---|---|
-| M1 | `USAGE_LOOKBACK = 4` — window is four seasons | 5 pass, 1 fail | 1 |
-| M2 | `usageCoverage()` — the caller names no window | 2 pass, 4 fail | 1, 2, 3, 4 |
-| M3 | `if (missing.length > 0)` — any missing season counts as a lie | 4 pass, 2 fail | 4, 5 |
-| M4 | label reworded as "Weekly usage never run for …" | 5 pass, 1 fail | 3 |
-| M5 | label drops the season it names | 5 pass, 1 fail | 3 |
-| M6 | the row is built but never reaches `missing` | 5 pass, 1 fail | 3 |
+**Rows are named by TEST TITLE, not by ordinal.** "test 6 fails" names nothing once a
+test is inserted above it, and this table was written that way once already. Each row
+also carries the sha256 of `server/routes/model.js` as the edit was measured, so a row
+cannot be a description of an edit that was never applied — including the control,
+whose checksum differs from GREEN while its result does not.
 
-M2 is the one that matters: it is the real defect this route would otherwise
-have shipped — a field present in the payload, reporting on a window it derived
-from the answer, permanently green. Four of the six tests refuse it.
+GREEN `server/routes/model.js` sha256 `bca51a0250ee`, 6 tests, 6 pass.
 
-M6 is the second: the field can be correct in `usage_coverage` and still never
-reach the list the banner renders. Test 3 is the only one that reads the
+| # | injected defect | sha256 | pass/fail | killed by |
+|---|---|---|---|---|
+| M1 | `USAGE_LOOKBACK = 4` — window is four seasons | `e18133a81e08` | 5 / 1 | *the window is the five seasons ending at NFL_SEASON* |
+| M2 | `usageCoverage()` — the caller names no window | `ee67c402200c` | 2 / 4 | *the window …*, *THE POINT …*, *the banner is told …*, *STALE IS NOT LYING …* |
+| M3 | `if (missing.length > 0)` — any missing season counts as a lie | `832388941023` | 4 / 2 | *STALE IS NOT LYING …*, *NEVER RUN IS NOT LYING EITHER …* |
+| M4 | label reworded as "Weekly usage never run for …" | `6f6ac18de0a6` | 5 / 1 | *the banner is told, and told in words that are not the never-run words* |
+| M5 | label drops the season it names | `719abd774eab` | 5 / 1 | *the banner is told …* |
+| M6 | the row is built but never reaches `missing` | `200a01ebfd02` | 5 / 1 | *the banner is told …* |
+| M7 | `if (true)` — the gate is removed, the row is pushed always | `5dd1178ded6d` | 3 / 3 | *STALE IS NOT LYING …*, *NEVER RUN IS NOT LYING EITHER …*, *once the season is held the disagreement clears* |
+| M8 | NO-OP CONTROL: one word of a comment changed | `54a3541bcc51` | 6 / 0 | none, correctly |
+
+M2 is the one that matters: it is the real defect this route would otherwise have
+shipped — a field present in the payload, reporting on a window it derived from the
+answer, permanently green. Four of the six tests refuse it.
+
+M6 is the second: the field can be correct in `usage_coverage` and still never reach
+the list the banner renders. *the banner is told …* is the only test that reads the
 banner's own input, and it is the only one that catches it.
+
+**M7 is here because the table without it was incomplete, and the gap was found by
+somebody else.** Six rows and not one of them killed *once the season is held the
+disagreement clears* — the test that says the row goes away when the data arrives.
+Every mutation above either widens the gate (M3) or damages the label (M4, M5, M6),
+and a test asserting the row is ABSENT survives all of them. Removing the gate
+entirely is the mutation that shape needs, and it takes three tests with it: the two
+that say a stale or never-run feed is not a lie, and the one that says a fed season is
+not a lie either. A row asserting absence needs a mutation that asserts presence
+unconditionally; nothing else reaches it.
+
+The rule this is evidence for: a test that no row in the table turns red gets a row
+that kills it, or a written reason why none can. Not a note that it was checked.
 
 ## GREEN
 

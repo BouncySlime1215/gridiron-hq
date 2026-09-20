@@ -126,14 +126,21 @@ lands and kills a different test is unfinished, not a result. Both files were
 restored and their hashes re-verified afterwards (`contingency.js`
 `28bffcd49d70`, `availability-basis.js` `6de130fcae48`).
 
+The rows span two suites, so each test title below names the file it lives in:
+**(vocab)** is `test/availability-basis-vocabulary.test.js` and **(prior)** is
+`test/durability-prior-substitution.test.js`. Without that, a row whose reds fall
+in both files reads as though a named test were missing from the run. The fail
+counts above are both suites together, and the run that reproduces them is
+`node --test --test-concurrency=1 test/availability-basis-vocabulary.test.js test/durability-prior-substitution.test.js`.
+
 | Mutation | Verification | Result | Fails | Named tests red |
 |---|---|---|---|---|
-| collapse the measured/substituted split | APPLIED `28bffcd49d70` → `2696e9fcaa93` | RED | 3 | with no fit on file the basis is the prior, and it says which prior · the default prior behind a default_durability row is the shared constant · the basis does not depend on the wording of the source sentence |
-| remove `availability_basis` from the served row | APPLIED `28bffcd49d70` → `358de206bf53` | RED | 6 | every served row carries a basis from the list · with no fit on file the basis is the prior, and it says which prior · the default prior behind a default_durability row is the shared constant · a fitted pooled rate moves the basis off the prior, for both players · a fitted role cell takes precedence, and the basis says role · the basis does not depend on the wording of the source sentence |
-| stop setting the pooled arm | APPLIED `28bffcd49d70` → `fbb6d1f6fa2f` | RED | 1 | a fitted pooled rate moves the basis off the prior, for both players |
-| mislabel the role arm as `pooled` | APPLIED `28bffcd49d70` → `3d5a1175964a` | RED | 1 | a fitted role cell takes precedence, and the basis says role |
-| serve the default prior as measured | APPLIED `28bffcd49d70` → `dc9e238bf317` | RED | 3 | a fitted pooled rate moves the basis off the prior, for both players · a fitted role cell takes precedence, and the basis says role · a served durability prior says whether it was measured or substituted |
-| derive the fallback probability from the prior | APPLIED `6de130fcae48` → `b17de74027ed` | RED | 1 | the prior and the fallback active probability are independent literals |
+| collapse the measured/substituted split | APPLIED `28bffcd49d70` → `2696e9fcaa93` | RED | 3 | with no fit on file the basis is the prior, and it says which prior *(vocab)* · the default prior behind a default_durability row is the shared constant *(vocab)* · the basis does not depend on the wording of the source sentence *(vocab)* |
+| remove `availability_basis` from the served row | APPLIED `28bffcd49d70` → `358de206bf53` | RED | 6 | every served row carries a basis from the list *(vocab)* · with no fit on file the basis is the prior, and it says which prior *(vocab)* · the default prior behind a default_durability row is the shared constant *(vocab)* · a fitted pooled rate moves the basis off the prior, for both players *(vocab)* · a fitted role cell takes precedence, and the basis says role *(vocab)* · the basis does not depend on the wording of the source sentence *(vocab)* |
+| stop setting the pooled arm | APPLIED `28bffcd49d70` → `fbb6d1f6fa2f` | RED | 1 | a fitted pooled rate moves the basis off the prior, for both players *(vocab)* |
+| mislabel the role arm as `pooled` | APPLIED `28bffcd49d70` → `3d5a1175964a` | RED | 1 | a fitted role cell takes precedence, and the basis says role *(vocab)* |
+| serve the default prior as measured | APPLIED `28bffcd49d70` → `dc9e238bf317` | RED | 3 | a fitted pooled rate moves the basis off the prior, for both players *(vocab)* · a fitted role cell takes precedence, and the basis says role *(vocab)* · a served durability prior says whether it was measured or substituted *(prior)* |
+| derive the fallback probability from the prior | APPLIED `6de130fcae48` → `b17de74027ed` | RED | 1 | the prior and the fallback active probability are independent literals *(vocab)* |
 | **CONTROL A** — reword the `source` sentence | APPLIED `28bffcd49d70` → `460bb8d2485d` | GREEN | 0 | none, and that is the claim |
 | **CONTROL B** — a pattern that is not in the file | **NO-OP — pattern not found** | — | — | — |
 
@@ -143,6 +150,14 @@ Two controls, doing two different jobs. A is a real edit that must NOT break
 anything, and is the whole point of the change: the tests pin the contract and
 ignore the prose. B shows the harness can report a miss, so an APPLIED row
 above means something.
+
+In the vocabulary the project has since settled on, **both of these are NO-OP
+controls** — an edit that must break nothing, or a pattern not in the file. This
+table carries no KILL-CONTROL, an edit that must break something and so proves the
+regression test is capable of failing at all. It is not needed here, because every
+one of the six mutation rows is itself that proof: each lands, each turns a named
+test red, and the survivor section below records the one that did not until it was
+closed. A table whose only rows were controls would need one.
 
 ### The survivor that was closed
 

@@ -832,6 +832,8 @@ test('read: an archetype read that FAILED is reported, not served as a store tha
     assert.ok(body.archetypes, 'the archetype store gets a block of its own, like transactions and chat');
     assert.match(String(body.archetypes.read_failed ?? ''), /no such table/i,
       'and the failure is named rather than swallowed');
+    assert.equal(body.archetypes.read_state, 'table_absent',
+      'in the same word the archetype module itself serves for this state');
     assert.equal(managerOf(body, 2).archetype, null,
       'no archetype survives the failure, which is the honest half of it');
   } finally {
@@ -845,5 +847,27 @@ test('read: a healthy archetype read says the store is fine', async () => {
   const { body } = await call('GET', '/api/trades/21/managers/signals');
   assert.ok(body.archetypes, 'the block is always served');
   assert.equal(body.archetypes.read_failed, null, 'no failure when there was none');
+  assert.equal(body.archetypes.read_state, 'present', 'and the state word says so');
   assert.ok(body.archetypes.as_of, 'and it carries the build stamp, like the other two stores');
+});
+
+test('read: a programming error in the archetype read is NOT absorbed', async () => {
+  // The other half of the same rule, and the one a reporting catch still gets
+  // wrong. A missing table is an ABSENCE: this database has never had the
+  // history backfill run, the page's own job does not depend on it, and serving
+  // the signals with "table_absent" beside them is right. A `no such column` is
+  // a FAULT — the query and the schema disagree, which is a bug — and a catch
+  // wide enough to absorb it turns every future mistake in the archetype code
+  // into a quietly empty panel. CLAUDE.md names that shape as having shipped
+  // two real bugs in this project, where a silent catch deleted a whole data
+  // layer and the page kept printing numbers as if nothing had happened.
+  db.exec('ALTER TABLE league_season_teams RENAME COLUMN espn_member_id TO espn_member_id_moved');
+  try {
+    const { status, body } = await call('GET', '/api/trades/21/managers/signals');
+    assert.equal(status, 500, 'the fault reaches the error handler instead of becoming an empty map');
+    assert.ok(body == null || body.archetypes == null,
+      'and no payload is served that would let a reader think the archetypes are merely empty');
+  } finally {
+    db.exec('ALTER TABLE league_season_teams RENAME COLUMN espn_member_id_moved TO espn_member_id');
+  }
 });

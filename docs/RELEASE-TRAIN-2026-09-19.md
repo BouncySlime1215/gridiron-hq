@@ -2242,12 +2242,17 @@ that used to be invisible is now obvious. In the meantime the app is serving in
 short windows between restarts rather than steadily, so opening the site may
 land on a stall.
 
-**How often, measured rather than estimated, and it is worse than "often".** In
-152 minutes of polling every 60 seconds, **46 clean health reads produced 46
-different process starts** — consecutive starts at least 177 seconds apart,
-median 180, longest 376. **The app has not once answered two clean reads inside
-one life.** That is the number behind "restarting in a loop", and it is why the
-first command below is a brake rather than an investigation.
+**How often, measured rather than estimated.** Polling every 60 seconds from
+22:53Z to 01:39Z, 167 reads: **at least 79 process starts, and the app has
+never been seen answering more than 72 seconds into any of them.** Of 51 clean
+reads, 50 landed on different processes.
+
+**Read that as two separate facts, because the gap between them is the
+symptom.** A process lives about three minutes — consecutive starts are 171 to
+376 seconds apart, median 180 — and it answers for at most the first 72 seconds
+of that. It is not dying after 72 seconds; **it is spending most of every life
+alive and not answering**, which is what the watchdog eventually kills it for.
+That is why the first command below is a brake rather than an investigation.
 
 **Two things about the inbox before anything else, so the rest reads
 straight.** CI is off deliberately and gates none of the merges below — the

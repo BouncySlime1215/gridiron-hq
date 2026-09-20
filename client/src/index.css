@@ -314,3 +314,48 @@ body { font-family: var(--font-body); }
 
 /* Numbers line up in columns all over this app. */
 .tabular { font-variant-numeric: tabular-nums; }
+
+/* ── Basis chip ───────────────────────────────────────────────────────────
+   Where a number came from, beside the number. The colour arrives as --chip
+   from the component, which reads it off the basis ramp, so a tier's colour is
+   decided in ONE place (components/ui/BasisChip.tsx) and not here as well.
+
+   The left stripe rather than a filled pill is deliberate: six filled pills in
+   a table read as six status badges and the eye starts grading them good to
+   bad, which is exactly the misreading the ramp exists to prevent. A stripe
+   says "attribute", a filled pill says "verdict". */
+.basis-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: .375rem;
+  padding: .0625rem .375rem .0625rem .3125rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--chip, var(--basis-missing));
+  border-radius: 4px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
+  line-height: 1.4;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  vertical-align: baseline;
+  cursor: help;
+  transition: border-color var(--motion-quick) var(--ease-out),
+              color var(--motion-quick) var(--ease-out);
+}
+.basis-chip:hover { border-color: var(--chip, var(--line)); color: var(--ink); }
+.basis-chip-n { color: var(--subtle); letter-spacing: 0; text-transform: none; }
+
+/* The full sentence, for the one place per page that says it out loud. A hover
+   title does not exist on a touch screen and this app is read on a phone. */
+.basis-line {
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  font-size: var(--type-note);
+  line-height: 1.5;
+  color: var(--muted);
+}
+.basis-line .basis-chip { flex: none; cursor: default; }

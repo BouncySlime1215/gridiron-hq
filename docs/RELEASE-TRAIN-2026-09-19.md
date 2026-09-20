@@ -2336,10 +2336,14 @@ of a dozen jobs is the one currently holding the lock."
    undocumented; the document just lands third.
 
    **The other PRs open tonight are not part of this and can go any time, with
-   two orders that do matter.** **#60 after #57**, because `tradeWeekContext`
-   only takes a league argument once #57 lands, so #60's call sites would not
-   compile against today's `main` — the UI order is **#57 → #43 → #60**. And
-   **#46 before #53**. Nothing else among them is ordered.
+   two orders that do matter.** **#60 after #57**, and the reason is worse
+   than a build error. `tradeWeekContext()` takes no parameters on `main`
+   (`trade-engine.js:172`), so #60's `tradeWeekContext(lg)` calls **compile,
+   lint and typecheck cleanly** — JavaScript discards the extra argument. The
+   league is silently ignored and every league gets the NFL's week instead of
+   its own. Three of #60's seven tests catch that; nothing static does. The UI
+   order is **#57 → #43 → #60**. And **#46 before #53**. Nothing else among
+   them is ordered.
 
 6. Turn the scheduler back on and prove it holds:
    ```

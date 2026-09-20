@@ -292,6 +292,54 @@ test('moduleEdges records the local alias an export was imported under', () => {
   assert.deepEqual(imports[0].aliases, [{ imported: 'syncAll', local: 'syncNflverse' }]);
 });
 
+test('an export reached through a namespace binding is imported, not dead', () => {
+  // `const scheduler = await import('./scheduler.js')` then `scheduler.reapAbandonedRuns()`
+  // is the form test/abandoned-run-backoff.test.js uses, and it is how 195 dynamic
+  // bindings in this repository read a module. The destructured form beside it was
+  // already understood; this one recorded no names at all, so every export only ever
+  // reached this way was reported as "exported and never imported".
+  const { imports } = moduleEdges([
+    "const scheduler = await import('./scheduler.js');",
+    'scheduler.reapAbandonedRuns();',
+    'const n = scheduler.BOOT_JOBS.length;',
+  ].join('\n'));
+  const scheduler = imports.find(i => i.spec === './scheduler.js');
+  assert.ok(scheduler, 'the file edge itself was never the problem');
+  assert.deepEqual([...scheduler.names].sort(), ['BOOT_JOBS', 'reapAbandonedRuns']);
+});
+
+test('a static namespace import is read the same way', () => {
+  const { imports } = moduleEdges([
+    "import * as contingency from './contingency.js';",
+    'export const x = contingency.availabilityBasis();',
+  ].join('\n'));
+  const c = imports.find(i => i.spec === './contingency.js');
+  assert.deepEqual(c.names, ['availabilityBasis']);
+});
+
+test('a namespace binding does not claim members of an unrelated object', () => {
+  // The whole risk of reading `ns.member` is over-claiming: two bindings in one file,
+  // and a same-named local that is not a namespace at all.
+  const { imports } = moduleEdges([
+    "const a = await import('./one.js');",
+    "const b = await import('./two.js');",
+    'a.fromOne();',
+    'b.fromTwo();',
+    'const notANamespace = { fromOne: 1 };',
+    'notANamespace.fromOne;',
+  ].join('\n'));
+  assert.deepEqual(imports.find(i => i.spec === './one.js').names, ['fromOne']);
+  assert.deepEqual(imports.find(i => i.spec === './two.js').names, ['fromTwo']);
+});
+
+test('the destructured dynamic form keeps working, and claims only what it names', () => {
+  const { imports } = moduleEdges([
+    "const { runMigrations } = await import('./migrate.js');",
+    'runMigrations();',
+  ].join('\n'));
+  assert.deepEqual(imports.find(i => i.spec === './migrate.js').names, ['runMigrations']);
+});
+
 test('tableColumns reads CREATE TABLE and ALTER TABLE ADD COLUMN', () => {
   const src = [
     "db.exec(`CREATE TABLE IF NOT EXISTS players (",

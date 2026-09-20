@@ -422,3 +422,86 @@ body { font-family: var(--font-body); }
 .stat-block.is-interactive:hover { background: var(--panel); }
 .stat-block.is-interactive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .stat-block.is-interactive:hover .stat-block-label { color: var(--ink); }
+
+/* ── Deep dive ────────────────────────────────────────────────────────────
+   Five layers over the page, one at a time. Rendered inside Sheet, so the
+   overlay, the backdrop and the escape key are not re-implemented here. */
+.deep-dive-head {
+  display: flex;
+  align-items: center;
+  gap: .625rem;
+  padding-bottom: .875rem;
+  margin-bottom: .25rem;
+  border-bottom: 1px solid var(--line);
+}
+.deep-dive-value {
+  font-size: var(--type-hero);
+  line-height: var(--type-hero-lh);
+  font-weight: 700;
+  font-stretch: 125%;
+  color: var(--ink);
+}
+
+.deep-dive-layer { padding: .875rem 0; border-bottom: 1px solid var(--line); }
+.deep-dive-layer h3 {
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: .375rem;
+}
+.deep-dive-layer p, .deep-dive-layer div { font-size: var(--type-body); line-height: 1.6; color: var(--ink); }
+
+/* The next layer, as the only thing to press. A drawer that opened all five at
+   once would be a document; the point is that the manager chooses how far down
+   to go. */
+.deep-dive-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: .75rem .875rem;
+  margin-top: .5rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color var(--motion-quick) var(--ease-out),
+              color var(--motion-quick) var(--ease-out);
+}
+.deep-dive-more::after { content: ' →'; }
+.deep-dive-more:hover { border-color: var(--accent); color: var(--ink); }
+.deep-dive-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.deep-dive-inputs { list-style: none; margin: 0; padding: 0; }
+.deep-dive-inputs li {
+  display: flex;
+  align-items: baseline;
+  gap: .625rem;
+  padding: .375rem 0;
+  font-size: var(--type-body);
+}
+.deep-dive-input-name { flex: 1 1 auto; color: var(--ink); }
+.deep-dive-inputs .tabular { font-weight: 600; color: var(--ink); }
+
+/* The raw field, at the bottom of the last layer, as a footnote to the
+   canonical name — never as a heading. A manager should never have to learn a
+   column name to read a page, and an engineer should be able to find one. */
+.deep-dive-raw {
+  margin-top: .5rem;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
+  color: var(--subtle);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Each layer arrives; nothing arrives on open except the first. */
+.deep-dive-layer { animation: dd-reveal var(--motion-reveal) var(--ease-inout) both; }
+@keyframes dd-reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .deep-dive-layer { animation: none; } }

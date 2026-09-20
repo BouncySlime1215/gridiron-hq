@@ -31,7 +31,7 @@ rows that measure it stay in the spec beside the two-file row.
 It writes nothing outside the files it is mutating and a <spec>.results.json
 beside the spec, and it restores every file it touched unconditionally.
 """
-import hashlib, json, pathlib, re, subprocess, sys, os, tempfile
+import hashlib, json, pathlib, re, signal, subprocess, sys, os, tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 
@@ -40,6 +40,15 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 # and fails to load without the flag — and both are harmless for the rest, so
 # every sweep runs the same way rather than each knowing its own incantation.
 NODE = ['node', '--experimental-test-module-mocks', '--test', '--test-concurrency=1']
+
+# A row that has not finished in this long is hung, not slow: the slowest real
+# row in this repository runs in about two minutes. An injection can hang the
+# runner outright — deleting a route's guard sends a request down a path whose
+# response never ends — and a sweep that stalls on one row overnight has
+# measured nothing. A timeout is reported with `fails` left empty rather than
+# scored as a zero, because a row that did not finish did not kill nothing; it
+# did not run.
+ROW_TIMEOUT_S = 600
 
 
 def test_env():
@@ -104,16 +113,30 @@ def run_one(spec):
         for old, new_ in edits:
             text = text.replace(old, new_, 1)
         texts.append(text)
-    for (p, _), text in zip(gs, texts):
-        p.write_text(text)
-    after = '+'.join(sha(p)[:8] for p, _ in gs)
-    out = subprocess.run(NODE + spec['tests'].split(),
-                         cwd=ROOT, env=test_env(), capture_output=True, text=True)
-    lines, titles, killers = failures(out.stdout + out.stderr)
-    for (p, _), before_bytes in zip(gs, originals):
-        p.write_bytes(before_bytes)
+    timed_out = False
+    lines, titles, killers = [], [], []
+    # try/finally, not a restore at the end: an unhandled error here, a Ctrl-C
+    # or a SIGTERM would otherwise leave the source file mutated. That is not
+    # hypothetical — killing an earlier run of this harness mid-row left a
+    # deleted guard in a file the sweep does not own.
+    try:
+        for (p, _), text in zip(gs, texts):
+            p.write_text(text)
+        after = '+'.join(sha(p)[:8] for p, _ in gs)
+        try:
+            out = subprocess.run(NODE + spec['tests'].split(), cwd=ROOT, env=test_env(),
+                                 capture_output=True, text=True, timeout=ROW_TIMEOUT_S)
+            lines, titles, killers = failures(out.stdout + out.stderr)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+    finally:
+        for (p, _), before_bytes in zip(gs, originals):
+            p.write_bytes(before_bytes)
     restored = '+'.join(sha(p)[:8] for p, _ in gs)
     status = 'APPLIED' if restored == before else 'RESTORE FAILED'
+    if timed_out and status == 'APPLIED':
+        return {**spec, 'status': f'TIMED OUT (>{ROW_TIMEOUT_S}s)', 'before': before,
+                'after': after, 'fails': None, 'titles': [], 'killers': []}
     # Every title, not the first few: the seventh part of the standard asks
     # which tests a sweep leaves untouched, and that is the union of these
     # subtracted from the suite. A capped list makes the union look thinner
@@ -137,6 +160,10 @@ def baseline(tests):
     return titles, failed
 
 if __name__ == '__main__':
+    # SystemExit unwinds through run_one's finally, so a stopped sweep still
+    # leaves every file it touched exactly as it found it.
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(_sig, lambda *_: sys.exit(1))
     if sys.argv[1] == '--baseline':
         titles, failed = baseline(sys.argv[2])
         print(json.dumps({'titles': titles, 'failed': failed}, indent=1))

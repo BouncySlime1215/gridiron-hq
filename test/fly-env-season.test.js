@@ -44,7 +44,12 @@ test('fly.toml declares NFL_SEASON as a four-digit year', () => {
 test('NFL_SEASON is declared inside [env], not in some other table', () => {
   // A key in the wrong table is accepted by TOML and does nothing, which would
   // pass the test above while leaving production exactly as it was.
-  const env = /^\[env\]$([\s\S]*?)(?=^\[|\Z)/m.exec(fly);
+  //
+  // Not `\Z`: JavaScript has no such anchor, so `\Z` is a literal Z and the
+  // alternation only ever terminated on the next `[`. That worked here purely
+  // because `[[mounts]]` follows `[env]` in this file. Spell the end of input
+  // out, so the table scan does not depend on `[env]` never being last.
+  const env = /^\[env\]$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(fly);
   assert.ok(env, 'fly.toml must have an [env] table');
   assert.match(env[1], /^\s*NFL_SEASON\s*=/m);
 });

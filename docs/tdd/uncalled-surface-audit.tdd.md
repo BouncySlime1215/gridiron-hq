@@ -116,9 +116,15 @@ restored to `HEAD` with the new case absent:
 | Guard deleted | Suite as it stood | Verdict |
 |---|---|---|
 | `s.revoked_at IS NULL` | 2,976 tests, 2,934 pass, **1 fail** — "logout revokes only the session that was used" | covered |
-| `u.disabled_at IS NULL` | 2,976 tests, 2,935 pass, **0 fail** | **not covered by anything** |
+| `u.disabled_at IS NULL` | 2,976 tests, 2,935 pass, **0 fail** | **was covered by nothing — closed below** |
 
-Deleting the disabled guard from the session query breaks nothing, anywhere.
+Both rows describe the suite *before this branch*. Deleting the disabled guard
+broke nothing, anywhere. It is not a finding left open: the test that kills
+that mutation is in this branch, named at the end of this section, and the
+second table is it failing against the mutated source and passing against real
+source. A surviving mutation is only ever reported here together with the test
+that ends it, or with the reason one cannot be written; this one is the former.
+
 (A first attempt at this measurement was thrown away: a test file was
 overwritten while the run was in flight, so the number would have been
 meaningless.)

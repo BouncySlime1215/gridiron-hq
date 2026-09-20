@@ -38,35 +38,46 @@ RED is real, not retroactive: commit `2246178` adds three tests against a
 response that has no `valuation_map` field at all. Both tests that existed at
 that point fail on `the player detail carries valuation_map`.
 
-## Mutation run, pasted verbatim
+## Mutation table
 
-Harness `/tmp/claude-0/mutate.py` (session scratch; it prints `APPLIED` or
-`NO-OP`, and a `NO-OP` is a defect in the injection, not a result — the
-scheduler thread's rule).
+Each row records `server/routes/trades.js`'s SHA-256 before and after, because a
+pattern that does not match leaves the file unchanged and the run is the baseline
+wearing a mutation's name. Each row also names the **one** test it must turn red:
+an injection that lands but kills a different test is unfinished, not a result.
+The last row is a deliberate control whose pattern is not in the file — it is what
+shows the verification can fail.
 
-```
-P1  the panel is never put on the response                       APPLIED  -> V1/V2, V3-V6, V2b
-P2  an unbuilt layer returns an empty panel instead of the reason APPLIED  -> V1/V2
-P3  managers served as the raw Map, which res.json turns into {}  APPLIED  -> V3-V6
-P4  the inert list is dropped from each valuation                 APPLIED  -> V3-V6
-P5  the ablation is arithmetic on the factor's effect, not a re-run APPLIED -> V3-V6
-P6  the ablation lists every registered source, fired or not      APPLIED  -> V3-V6
-P7  the multiplier half of the ablation is dropped                APPLIED  -> V3-V6
-P8  Nick is served as his own counterparty                        APPLIED  -> V3-V6
-P9  an absent player returns a silent empty panel                 APPLIED  -> V2b
-P10 an absent player falls through to the layer instead of saying so APPLIED -> V2b
-```
+Harness `/tmp/claude-0/mutate2.py` (session scratch, so the output is pasted here
+rather than referenced). Baseline `0d825e8efc97` for every row.
 
-Ten injections, ten caught, every test failed by at least one.
+| Mutation | Verification | Result | Fails | Named test red? |
+|---|---|---|---|---|
+| the panel is never put on the response | APPLIED `0d825e8efc97` → `a4b2a3e51592` | RED | 3 | yes (V1/V2) |
+| an unbuilt layer returns an empty panel instead of the reason | APPLIED `0d825e8efc97` → `d2aa1ef110cf` | RED | 1 | yes (V1/V2) |
+| managers served as the raw Map, which `res.json` turns into `{}` | APPLIED `0d825e8efc97` → `0b800ee13e7e` | RED | 1 | yes (V3-V6) |
+| the inert list is dropped from each valuation | APPLIED `0d825e8efc97` → `62813c7a5a86` | RED | 1 | yes (V3-V6) |
+| the ablation is arithmetic on the factor's effect, not a re-run | APPLIED `0d825e8efc97` → `63ba51f98969` | RED | 1 | yes (V3-V6) |
+| the ablation lists every registered source, fired or not | APPLIED `0d825e8efc97` → `dcfec53379bf` | RED | 1 | yes (V3-V6) |
+| the multiplier half of the ablation is dropped | APPLIED `0d825e8efc97` → `093ed6470c5f` | RED | 1 | yes (V3-V6) |
+| Nick is served as his own counterparty | APPLIED `0d825e8efc97` → `8169370c8037` | RED | 1 | yes (V3-V6) |
+| an absent player returns a silent empty panel | APPLIED `0d825e8efc97` → `1b4b8213f7d0` | RED | 1 | yes (V2b) |
+| an absent player falls through to the layer instead of saying so | APPLIED `0d825e8efc97` → `e2385f6a57ff` | RED | 1 | yes (V2b) |
+| **CONTROL** — pattern not in the file | **NO-OP — pattern not found** | — | — | — |
 
-**Two of these were written twice.** P9 and P10 both survived their first pass.
-P9 survived because the only test of an unpriced player asserted the reason was
-long, not that it was the right one. P10 survived for a worse reason: with the
-absent-player branch removed, the layer threw, the route's own error path
-reported the crash, and the test read a crash sentence as an honest absence. The
-fix is the rule V2b now states — **an unpriced player is answered by the panel,
-not by its error handler** — and the two absences are asserted to differ from
-each other rather than against pinned wording.
+10/10 caught by the test that names them; the control reported NO-OP and ran
+nothing. The source was restored and verified byte-identical after every row.
+
+## Surviving mutations
+
+**None survive.** Nothing here is declared equivalent — no injection is being
+waved through with a reason. Two of the ten, however, survived their FIRST pass,
+and both were holes in the tests rather than in the code. They are recorded
+because the fix is the guarantee:
+
+| Survived first pass | Why it survived | The test that kills it now |
+|---|---|---|
+| an absent player returns a silent empty panel | the only unpriced-player test asserted the `reason` was a long string, which is true of every absence | V2b asserts the two absences differ **from each other**, rather than pinning either one's wording |
+| an absent player falls through to the layer instead of saying so | with the branch removed the layer threw, the route's own error path reported the crash, and the test read a crash sentence as an honest absence | V2b asserts `reason` does not match `/failed to build/` — an unpriced player is answered by the panel, not by its error handler |
 
 ## The multiplier half of the ablation
 
@@ -79,6 +90,38 @@ panel carrying the value alone says "this source does nothing" about a source
 doing plenty. `multiplier_without` and `multiplier_delta` are on the contract for
 that reason and the test pins them so they are not later tidied away as a
 duplicate of `delta`.
+
+## Full check on the exact tree
+
+`npm run check` — typecheck, lint, suite, build, `start:smoke` — exit 0 on
+`9bc4bfd` (`claude/project-thread-3xqh5l-accessor-hold`), nothing else running
+against it:
+
+- **2,990 tests, 2,949 pass, 0 fail, 41 skipped**, 350.5 s
+- lint clean across 877 JavaScript files; typecheck clean
+- build 0; startup smoke passed on an isolated database (32 teams)
+
+`npm ci` has not been run in the container these numbers came from. A fresh clone
+fails the offline-guard tests with `ERR_MODULE_NOT_FOUND` until it is, which looks
+exactly like a regression and is not one. CI is not run: Actions is out of minutes
+until 2026-10-01 and the workflow is disabled deliberately.
+
+## Follow-on: one flag for "unpriced"
+
+This panel decides "not priced" in one place — `resolvePlayer()` returning null at
+`server/routes/trades.js:786-788`, which means the id is not in the league's asset
+universe at all — and the tests carry a second, narrower notion at
+`test/valuation-panel.test.js:217`, `our_value === 0`, which is a player who IS in
+the universe and whom the market never priced. Those are two different facts and
+the second one is currently inferred from a zero.
+
+Feature audit's D13 puts `value_priced` on each asset (the universe resolves a
+missing market row to value 0, and the asset will now say so). **The moment D13 is
+on main, `our_value === 0` here reads `value_priced` instead** — a zero is a
+number and a flag is a fact, and inferring the second from the first is the same
+mistake this whole branch is about. D13 is off `main` and this branch sits on
+#41's base, so the switch lands in the first commit after the morning merge rather
+than here.
 
 ## Is this well built? (the five questions)
 

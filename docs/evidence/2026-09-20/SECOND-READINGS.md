@@ -59,6 +59,7 @@ da8ec48, c986b80 and 1171d66; 64cb90e is also e852884.
 | 511eed8 | Google sign-in | 2,985 / 2,944 / 0 / 41 |
 | 22bbd45 | chat sync | 3,002 / 2,961 / 0 / 41 |
 | 64cb90e | scheduler | 3,054 / 3,013 / 0 / 41 |
+| 00b4c28 | fantasy plan | 2,979 / 2,938 / 0 / 41 |
 
 Per-file counts re-run and matched: a7ac178 7/7 · b1ee48d 6/6 · 1ed7b79 12/12 ·
 01645a0 9/9 · 52a55cc 6/6 (RED 6 / 0 pass / 6 fail at 84bae8a) · 9fce773's
@@ -142,6 +143,15 @@ because a second reader who hides their misses is not a second reader.
   / 21 pass / **1 fail**, on the test that names it
   (`test/google-sign-in.test.js:361`). The fault was mine: I graded a section
   before finishing it, which is the exact failure this log exists to catch.
+- **My own docs-only check was unsound**, and it took a false pass to show it.
+  It was `git diff --name-only A B | grep -v '^docs/'` with the exit swallowed,
+  so **an absent commit produced an empty diff and read as "docs-only"** — a
+  check that cannot tell "verified clean" from "never ran", which is the exact
+  fault this log exists to catch in other people's evidence. It now resolves
+  both commits first and requires a non-empty diff. All twelve pairs vouched
+  for before the fix were re-verified afterwards and every one holds, so no
+  reported figure changed; the method was unsound even where its answers were
+  right, and those are worth separating.
 - I over-credited c986b80 on part 5. Its §6 states only that `npm run check`
   was "recorded with the commit", and neither its commit message nor
   da8ec48's carries a count.
@@ -285,11 +295,27 @@ one script that reads nothing, and the suites quoted above are other people's
 trees, each named.
 
 Where a head is documentation-only over a code head, the suite figure is the
-code head's and is reported against it. That is not an assumption here — it
-was checked with `git diff --name-only`, which returns nothing outside `docs/`
-for 1171d66 → c986b80 → da8ec48 → 511eed8, for 572e838 → 22bbd45, and for
-e852884 → 64cb90e. The suite, build and smoke never read `docs/`, and lint
-walks `server`, `scripts` and `test`.
+code head's and is reported against it, checked with `git diff --name-only`
+rather than assumed.
+
+**"The suite never reads `docs/`" is false, and the correction matters.** Five
+tests open a file under `docs/` at runtime: `deep-dive.test.js:26`,
+`stat-table.test.js:22`, `stat-block.test.js:23` and
+`design-system-tokens.test.js:28` all read `docs/design/design-system.md`, and
+`nfl-execution-integrity.test.js:258` reads `docs/CLAUDE-NEXT-STEPS.md`. So the
+rule is about two FILES, not about a directory: a documentation-only head
+carries its parent's figure unless it touches one of those two.
+
+```
+git diff --name-only <parent> <child> | grep -E '^docs/design/design-system\.md$|^docs/CLAUDE-NEXT-STEPS\.md$'
+```
+
+Empty output means the child inherits. Every equivalence relied on in this log
+was re-checked against that command and none touches either file, so every
+carried figure stands. Lint walks `server`, `scripts` and `test` and matches
+`.js`/`.mjs`, so its count is
+`git ls-tree -r --name-only <commit> -- server scripts test | grep -cE '\.(js|mjs)$'`
+— a bare repo-wide `ls-tree` gives a different, wrong number.
 
 ## What this log does not cover
 

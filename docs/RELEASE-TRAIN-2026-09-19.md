@@ -2455,6 +2455,32 @@ to route to. The 04:40:28Z life shows exactly that shape — no answer at age 56
 then 0.34 seconds at age 116 — and reading it as "blocked, then recovered" would
 be wrong. Discard early-life failures rather than counting them as blocking.
 
+**And a second correction landed at 13:41Z from the other direction, which is
+why the two are written together.** The figures this document carried for the
+pre-probe lives — last `uptime_s` before each dark window **95/97/93/91/94/88**
+— have been **withdrawn by the thread that produced them**. Two independent
+reasons, either sufficient: the PR body they came from says "seven consecutive
+lives" over a list of six values, and the numbers cannot be reproduced from the
+probe output that still exists. Recomputed from what survives, treating a
+restart as the point where `uptime_s` **drops** rather than the point where a
+read goes dark — a dark read alone is not a restart, because the loop can block
+and then answer again inside one life — the surviving data gives **six lives
+with peaks 93, 95, 104, 86, 95 and 85.**
+
+**Note the 104, because it is the same finding as the paragraph above arriving
+by a different route.** That recomputation and the passive logs were made by
+different threads, from different instruments, hours apart, and both say the app
+has served past 100 seconds of age. The claim that survives both is the weaker
+and truer one: **consecutive lives go dark close to 90 seconds of uptime, and
+the spread around it is wider than any single window showed.** That is what the
+fixes rest on, and it is enough — nothing in the merge order or the proofs
+depended on the individual figures.
+
+*Kept as a worked example rather than deleted.* A list of six numbers under a
+heading saying seven sat in a pull request body, in this document's claims
+table, and in project memory, and it was read many times by several threads
+before its own author counted the entries.
+
 **And the kind of failure is pinned by a negative result with 137 chances to
 appear: across both instruments tonight, 335 reads, not one 503.** That matters
 because `healthHandler` is written to distinguish exactly this. It runs
@@ -2926,7 +2952,7 @@ sentences would survive being wrong about something else.**
 | No merge is gated on a check | Platform rule — private repo on Free has no branch protection. **Not verified against this repo's settings**, which no session can read | inferred |
 | Each PR's suite numbers | Each PR body, its own author's local run before the allowance ran out | per thread |
 | `#59 ⊃ #56`, `#61 ⊃ #59`, `#63 ⊃ #61` | **Verified here** by `git merge-base --is-ancestor`, not by the base GitHub shows | this thread |
-| The blocking job is `nfl_model_growth` on the 90 s timer | **Measured on the live app**: last `uptime_s` before each dark window 95/97/93/91/94/88 across six lives, never near 66 | scheduler |
+| The blocking job is `nfl_model_growth` on the 90 s timer | **WITHDRAWN 13:41Z by its own author.** The figures 95/97/93/91/94/88 cannot be reproduced from the probe output that survives, and the PR body they came from says "seven lives" over six values. What survives: consecutive lives going dark close to 90 s of uptime. See the note below | scheduler, withdrawn |
 | The boot pass blocks ~23 s, under the fuse | **Measured**: request at 41 s answered at 64 s, control at 22 s answered in 0.35 s | Trade Brain |
 | The two blocking steps, and only one can cause the 503 | **Read off `791b131`** and checked here — `nfl-advanced.js:199-200` has `BEGIN`, `nfl-event-archive.js` has none | this thread |
 | `SCHEDULER_DISABLED=1` stops everything | **Read off `791b131`**: `scheduler.js:1732` returns before the boot pass and every timer | this thread |

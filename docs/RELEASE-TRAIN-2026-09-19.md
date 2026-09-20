@@ -2226,6 +2226,18 @@ that used to be invisible is now obvious. In the meantime the app is serving in
 short windows between restarts rather than steadily, so opening the site may
 land on a stall.
 
+**Before any of it: CI is down, and that is not one of these PRs.** Every CI
+run created from about 01:00Z on 2026-09-20 failed two seconds after starting,
+on four different branches at once, having checked out nothing and run no test.
+Runs before roughly 23:15Z were green. The likeliest cause is the month's
+GitHub Actions allowance being spent — run 350 on a private repository at about
+6.5 minutes each is roughly 2,400 minutes against an included 2,000 — but a
+platform incident looks identical from the API, and the billing page is the
+only place that tells them apart. **So expect every PR below to show a red
+check that has nothing to do with its contents**, and if merging is blocked on
+that check, the allowance is the thing to look at rather than the code. Written
+up in full on #35.
+
 **Step 7 is not the first item. Stabilising the app is.**
 
 **There is a purpose-built brake for this already in the code, and it is the
@@ -2289,30 +2301,30 @@ of a dozen jobs is the one currently holding the lock."
    step 2 passes, that is what it will do, every time, correctly. Stabilise,
    prove `uptime_s` past 600, then capture — never the other way round.
 
-5. Ship the fix. **Five PRs, in this order:** **#56** (the arming fix),
+5. Ship the fix. **Six PRs, in this order:** **#56** (the arming fix),
    **#59** (takes the boot path off the request thread), **#61** (backs a job
    off after it has killed the process, instead of handing it the process
-   again next boot), **#52** (the one-line `fly.toml` setting `NFL_SEASON`)
-   and **#49** (raises the health-check grace period). Then:
+   again next boot), **#63** (keeps that job off-thread on the timer path as
+   well), **#52** (the one-line `fly.toml` setting `NFL_SEASON`) and **#49**
+   (raises the health-check grace period). Then:
    ```
    fly deploy -a gridiron-hq
    ```
-   **All five are open as drafts, and GitHub will not merge a draft** — each
-   needs marking ready for review first. Checked 23:0xZ; one click each, and it
-   is the kind of thing that reads as a broken merge button at seven in the
-   morning.
+   **All six are open as drafts, and GitHub will not merge a draft** — each
+   needs marking ready for review first. One click each, and it is the kind of
+   thing that reads as a broken merge button at seven in the morning.
 
-   **#59 and #61 are stacked, and this is the step that fails silently.** #59's
-   base is #56's branch and #61's base is #59's, not `main`. Merging either
-   while it still points at the branch below lands it on that branch rather
-   than on `main`, and the deploy then ships without the fix that matters —
-   with every PR showing as merged. GitHub retargets a stacked PR automatically
-   only when the base branch is **deleted** after merging, and nothing here is
-   deleting branches. So: merge #56, **change #59's base to `main` by hand**,
-   merge it, **change #61's base to `main` by hand**, merge it. If the
-   scheduler thread rebases both onto `main` overnight this step disappears;
-   check the base each PR shows before merging rather than trusting either
-   version of this sentence.
+   **#59, #61 and #63 are a stack, and this is the step that fails silently.**
+   #59's base is #56's branch, #61's is #59's, and #63's is #61's — none of
+   them is `main`. Merging any of them while it still points at the branch
+   below lands it on that branch rather than on `main`, and the deploy then
+   ships without the fix that matters, **with every PR showing as merged**.
+   GitHub retargets a stacked PR automatically only when the base branch is
+   **deleted** after merging, and nothing here is deleting branches. So:
+   merge #56, then for each of #59, #61 and #63 in turn, **change its base to
+   `main` by hand** and merge it. No rebase is planned — all four touch
+   `scheduler.js` and the stack stays — but **check the base each PR shows
+   before merging rather than trusting this sentence**.
 
 6. Turn the scheduler back on and prove it holds:
    ```
@@ -2340,8 +2352,13 @@ boot pass, the 90-second timer at `:1751` and the 150-second one at `:1754` off
 the request thread, per job and behind a structural allow-list, with a test that
 fails if main-thread boot work can exceed the watchdog threshold — which is what
 stops this re-forming the next time somebody adds a job. **#61** stops the job
-being handed the process again on the next boot. Take out any one of the three
-and the loop has a path back.
+being handed the process again on the next boot. **#63** flags `offThread` on
+the job's own entry, because #59's override reaches the boot path only: the
+background tier calls `runIfStale` with no override, so on a box that stays up
+the job would go back onto the request thread at its next six-hour tick and
+block the loop again — roughly six hours after a deploy that looked like it had
+worked, which is the worst possible time to see it. **Take out any one of the
+four and the loop has a path back.**
 
 **The root cause that #59 addresses, in one sentence, because it is the part
 that will look already-handled to a reader.** The scheduler *does* have a job
@@ -2409,9 +2426,11 @@ previous build had its own faults.
   runs only after `run()` returns, so a job killed mid-run never reaches the
   line that would increment anything, and the row simply stays as the last
   completed attempt left it. **The counters are not a reset tally, they are a
-  tally that stopped being written**, so they are a floor on how many attempts
-  were abandoned, not a count of them. #61 is the fix and the same reading is
-  why.
+  tally that stopped being written**, so **the failure counters are a floor on
+  abandoned attempts, for the same reason as the restart count** in 7.0c-i —
+  two numbers in front of you tonight, both understating, both because the
+  thing that would have recorded the event never ran. #61 is the fix and the
+  same reading is why.
 
 ### 7.0c-i Which job, and how it stopped being arithmetic
 

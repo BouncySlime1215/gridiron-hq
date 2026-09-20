@@ -5,6 +5,15 @@
 // implement any specific provider; individual services own their own adapters
 // and register them here so Dev Hub health/status views have one place to
 // query instead of reaching into each service.
+//
+// Nothing registers an adapter yet, so listProviders() returns [] and
+// checkAllProviderHealth() returns {} today. That is the current state of the
+// platform, not a fault in this file: server/modeling/candidates.js names this
+// module twice (at :11 and in the user-facing unavailable_reason at :30) as the
+// place a weather provider would be wired, and reports weather as unavailable
+// precisely because none is. Deleting this module would leave that message
+// pointing at nothing. It stays until either an adapter registers or that
+// message is rewritten.
 const REQUIRED_KEYS = ['id', 'fetch', 'health'];
 
 const registry = new Map();

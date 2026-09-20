@@ -393,6 +393,49 @@ The fix is one argument at each of the two call sites: pass
 | `opportunity-model.js` (fitted, with the vacated-teammate-share feature) | in the repo | **no consumer** — only `scripts/study-opportunity-volume.mjs` and `test/opportunity-model.test.js` |
 | `nfl-gbm.js` (the gradient-boosted model) | in the repo | betting side only |
 
+### The efficiency half: hand-set constants, but the fitted alternative was measured and lost
+
+Checked after the volume result, because the same question applies. The efficiency
+terms are the player's own rate shrunk toward a positional prior —
+`ypt`, `ypc`, `ypa`, `catch_rate`, `rec_td_rate`, `rush_td_rate`, `pass_td_rate`,
+`int_rate` (`projections.js:562-582`) — with strength constants that are literals:
+`yards_per: 34`, `catch_rate: 26`, `td_rate: 70`, `int_rate: 1600` (`:97-124`).
+
+Two things make this a different case from the volume constants.
+
+**The priors themselves are measured, not invented.** `:416-426` pools every
+player-week at the position and takes the real rate; the literals beside each one
+(`|| 7.5`, `|| 0.63`, `|| 0.05`) fire only when the denominator is zero.
+
+**And the fitted alternative was tried and rejected on evidence, with the reason
+recorded.** `shrinkage-fit.js:465-473`:
+
+> The efficiency k from the same fitter is excluded on evidence, not taste:
+> substituting it made 2025 worse (4.773 vs 4.749), because "player" is not a
+> stable group for efficiency within a season and the method-of-moments
+> between-player variance is inflated for those metrics.
+
+So `volumeKFits` (`:481`) filters the fitter's output down to the six volume
+pairs, and the efficiency constants stay hand-set deliberately. That is the right
+call on that evidence and should not be re-opened as stated.
+
+**But read the stated reason again, because it is the opening.** "Player is not a
+stable group for efficiency within a season" is not an argument that efficiency is
+unpredictable — it is an argument that *a player's own past rate* is a weak
+estimator of it. That is exactly the condition under which a stabilising outside
+signal earns its place: air-yards and aDOT for yards per target, CPOE for passing
+efficiency, RACR and PACR for the receiving conversion the box score is noisy
+about. Every one of those columns is already on `player_week_usage`, the same
+table this head reads, and none of them is read here.
+
+So the honest state of the "use advanced stats and ML" question, end to end:
+tried and lost for **volume**; hand-set for **efficiency**, where the one
+alternative tested was a different shrinkage estimator rather than a new signal,
+and where the repository's own diagnosis for why that failed is the argument for
+trying the signal. Nothing has graded that. It is the one ML build in the fantasy
+half with a real prior reason to expect it to work, and it needs Nick's word
+before anyone starts it.
+
 ### Both teammate-absence estimators are behind no surviving surface
 
 Checked because it was put to this audit as a claim that `contingency.js#cascades()

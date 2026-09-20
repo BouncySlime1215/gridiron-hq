@@ -180,15 +180,26 @@ const callWith = (availability_basis, active_probability) => {
  * |---|---|---|---|
  * | effect names the pooled rate       | `pooled injury-report rate` -> `pooled rate`    |  0  |  1  |
  * | effect carries the placeholder read| `known-low placeholder` -> `rough placeholder`  |  0  |  1  |
- * | effect is not the constants branch | the ternary always takes the constants side     |  0  |  1  |
+ * | effect is not the constants branch | the ternary always takes the constants side     |  1  |  1  |
  * | the caveat rides with the number   | caveat -> `not running from the fitted layer`   |  0  |  1  |
  * | the caveat names the inert layer   | `is not running (docs/...)` -> `is idle (...)`  |  0  |  1  |
  *
  * `old` is the failure count against the two alternations, `new` against the split.
- * Every row is 0 -> 1: each mutation slid past the alternation and is caught now.
- * The third row is not isolated -- the ternary swap fails the first two as well -- and
- * it is recorded that way rather than dressed up with a contrived edit that only it
+ * Four rows are 0 -> 1: the mutation slid past the alternation and is caught now.
+ *
+ * THE THIRD ROW IS 1 -> 1, AND AN EARLIER VERSION OF THIS TABLE SAID 0 -> 1. That was
+ * asserted rather than measured, and it was wrong: the constants sentence contains
+ * neither `pooled` nor `injury report`, so the old alternation did catch the ternary
+ * swap. The split preserves that coverage, it does not add it. The row is kept because
+ * a `doesNotMatch` guard is worth having explicitly, not because the alternation was
+ * blind to it. It is also not isolated -- the swap fails the first two assertions too
+ * -- and is recorded that way rather than dressed up with a contrived edit only it
  * would catch.
+ *
+ * Hashes, so a row that failed to apply cannot read as a row the tests caught.
+ * `contingency.js` base `28bffcd49d70`, `lineup-brain.js` base `7002b98fc00c`, both
+ * restored and re-verified. Rows in order: `2f4c4bc310f0`, `252ef4a1b26c`,
+ * `c97785591dff`, `8fe828b8e578` (lineup-brain), `f6649190a2cc`.
  */
 test('an inert role layer is reported on the lineup call with its reason, like counterparty-pricing', () => {
   const note = callWith(POOLED, 0.574).availability_note;

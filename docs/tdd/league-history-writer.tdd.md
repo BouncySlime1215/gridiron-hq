@@ -183,11 +183,25 @@ somewhere Nick acts:
   wins against expectation over N scored weeks — he prices this roster the way
   his record reads". That is a term in the trade price.
 
-It is also a **calibration** input rather than a runtime read for two shipped
-models: `scripts/fit-posture-calibration.mjs:502` fits posture constants against
-it, and `lineup-posture.js:131` / `trade-horizon.js:47` cite it in their headers
-as what their numbers were checked against. So constants already in production
-rest on a table that, until this PR, nothing kept current.
+It is also **corroboration** for two shipped models — and this is weaker than an
+earlier draft of this file claimed, corrected after the release thread read the
+consumer and I checked it. `fit-posture-calibration.mjs` reaches it in the section
+headed "Cross-check against real ESPN team-week scores" (`:499-517`): it computes a
+pooled within-team SD, writes `result.league_week_scores`, prints it, and **nothing
+downstream reads that field**. `lineup-posture.js:131` says so itself — "they are
+not the same quantity, and the fit is on the one P(win) needs". `SPREAD_SCALE =
+1.63` is fitted on the lineup residual (SD ~21.5, slope 0.87 per player → ~26.5),
+not on this table. `trade-horizon.js:47` is the same shape: the runtime derives a
+league's calendar from `payload.settings.scheduleSettings`, and the table is cited
+only as what first revealed the doubled playoff totals.
+
+So what a manual-only writer made stale here is the **corroborating numbers** in
+those two comments — 62 team-seasons, 861 team-weeks, SD 24.1, CV 0.20 — not any
+fitted constant, and no re-fit waits on this PR. Still worth recording: a
+cross-check computed from a table nobody maintains cannot be re-run to mean
+anything, which is a quieter version of the same problem, but it is not the "a
+production constant was fitted on a hand-maintained snapshot" that this file said
+first. The stronger claim was wrong.
 
 **Measured versus assumed, stated separately.**
 

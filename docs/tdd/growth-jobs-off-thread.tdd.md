@@ -300,6 +300,67 @@ Baseline after widening the register to every tier: **6 pass, 0 fail.**
   register can be complete and still be full of entries that are no longer
   true.
 
+## The five questions
+
+Nick's standing rule of 2026-09-20 01:21Z: *"Is this well built. Is this based
+on stats, is this just made up. How do we know this. Should this data be
+pointed anywhere else on the platform. How can we unify everything."* Answered
+here without softening, because the honest answer to one of them is "assumed".
+
+**Well built?** The mechanism is. Which jobs moved, and which did not, is now a
+rule the suite enforces rather than a set of flags someone remembered to set:
+every job on every tier is off-thread, or must not be, or says why it is not,
+and the two lists' sizes are asserted to equal the number that actually block.
+A job added next month cannot join the quiet majority without writing a
+sentence.
+
+**Stats or made up?** **The per-job off-thread decision is reasoned, not
+measured, and that is a real limitation.** Two things behind it *are* measured:
+the mean interval between restarts (~177 s, from the overnight health log) and
+`kona_player_info`'s payload size (17.6 MB, measured 2026-09-19). Everything
+else is read from the source — each job's cadence, its tier, what it writes,
+and what its module graph keeps in memory. **What nobody has is a measured
+duration for any of these jobs on the deployed machine.** No job in this
+registry has a recorded runtime, because the process has not lived long enough
+to finish one. So "this job blocks the request thread for long enough to
+matter" is an inference from what it does, not an observation of how long it
+takes.
+
+That is why the four 3-minute betting jobs were left alone with the cost
+recorded as unmeasured rather than moved: at that cadence the worker spawn
+could plausibly cost more than the block it avoids, and guessing in either
+direction would be the same mistake.
+
+**How do we know?** The structural claims are verified by reading the shipping
+tree and by injection — every rule in this file has a mutation that was
+actually applied (checked by hashing the file) and shown failing. The claim
+that would be most damaging if wrong — that a worker cannot warm an in-process
+cache — is pinned by asserting the premise (`compute-cache.js` keeps its store
+in a module-level `Map` and writes no SQL) rather than the conclusion.
+
+**Pointed anywhere else on the platform?** Yes, and it already is. The register
+is the artefact: `ON_REQUEST_THREAD` and `MAIN_THREAD_ONLY` together are a
+machine-readable statement of which jobs can block a request, which is exactly
+what `source-registry.js` and any future freshness surface would need to
+explain a stale number to a user. Nothing reads them that way yet. The obvious
+next step, not taken here, is for the scheduler status endpoint to serve the
+reason alongside the job so a person looking at a stale feed can see *why* it
+is where it is.
+
+**How does it unify?** By replacing three different ways of answering "does
+this run in a worker" with one. Before: a flag on the job, an override on the
+boot path, and a side table consulted by exactly one caller — which is how
+fourteen live jobs ended up off-thread at boot and inline forever after.
+`resolveOffThread` is now the single answer on every path, and the allow-list
+outranks both the flag and the override because it states a constraint rather
+than a preference.
+
+**What would change the answers.** One measurement: the recorded duration of
+any of these jobs on a machine that stays up. That is what `#61`'s start marker
+makes possible for the first time — a job that dies now leaves a dated row
+instead of nothing — and it is the input that would turn the reasoned half of
+this into a measured one.
+
 ## What this file does not settle
 
 Whether the worker spawn cost is worth it at the short end. Each off-thread run

@@ -155,6 +155,19 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   // Declarations live in the chat, so a league with no trusted chat identity
   // has none to weigh — and no reason to open the private chat DB at all.
   const credibility = identityMap(leagueId).size ? declarationCredibility() : null;
+  // WHETHER THE RECORD WAS READ AT ALL, which is not the same as whether it is
+  // empty. `manager_player_view` lives in this database and survives; the
+  // declaration record that says whether his refusals HOLD lives in the Mac-only
+  // corpus and does not, so on the deployed app `declarationCredibility()` comes
+  // back `available: false` while his declared players are still here.
+  // `untouchableStance` then falls back to the prior (1 - PRIOR_BLUFF_RATE =
+  // 0.65), which clears its 0.45 bar and prices the player up under a sentence
+  // that says his word has held. Nothing about his word was read. This carries
+  // the difference to `playerValuation`, which withholds the adjustment.
+  const declarationsRead = credibility == null ? null : credibility.available !== false;
+  const declarationsReason = declarationsRead === false
+    ? 'his declaration record was never read — the chat corpus is not on this machine, so whether his refusals hold is unknown'
+    : null;
   // The whole-corpus model read of each person. One loader (negotiationProfilesFor),
   // which validates what it reads; an invalid profile simply is not there.
   const profiles = negotiationProfilesFor(leagueId);
@@ -241,6 +254,8 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
       players: s.players ?? new Map(),
       reads: reads.get(id) ?? new Map(),
       stance: untouchableStance(leagueId, id, credibility),
+      declarations_read: declarationsRead,
+      declarations_reason: declarationsReason,
       priors: Object.fromEntries(Object.entries(m).filter(([k]) => k.startsWith('prior_'))),
       untouchable_rate: m.chat_own_untouchable ?? null,
       // ---- the valuation-map inputs, each already reduced to what it means ----
@@ -545,7 +560,16 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
 
   // ----------------------- 6. he has said this one is not available, and ...
   const stance = managerProfile?.stance ?? null;
-  if (stance && (stance.respect?.has(key) || stance.probe?.has(key))) {
+  if (stance && (stance.respect?.has(key) || stance.probe?.has(key))
+      && managerProfile?.declarations_read === false) {
+    // Read but never measured. Reported inert with the reason rather than priced
+    // on the prior: "he has never reversed a refusal" and "we have never seen his
+    // refusals" are opposite facts, and only the first justifies charging for one.
+    inert.push({ source: 'untouchable_credibility',
+      reason: managerProfile.declarations_reason
+        ?? 'his declaration record was never read, so whether his refusals hold is unknown',
+      as_of: null });
+  } else if (stance && (stance.respect?.has(key) || stance.probe?.has(key))) {
     const cap = VALUATION_SOURCES.untouchable_credibility.cap;
     const credibility = stance.credibility?.credibility ?? 0.65;
     // Never negative: a bluffer's refusal is an opening price, which means it

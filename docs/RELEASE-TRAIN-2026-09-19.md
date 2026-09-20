@@ -1858,6 +1858,18 @@ Then:
 fly secrets set AUTO_HEAVY_SYNC=1 -a gridiron-hq
 ```
 
+**One ordering constraint on this command, from the model audit: the
+wrong-base fix PRs merge BEFORE this unset, not after.** `fantasy_coordinator_refit`
+is tier `heavy` (`scheduler.js:1339`) and the heavy tier is empty unless
+`AUTO_HEAVY_SYNC` is `'1'` (`:1759`), so the coordinator correction **has not
+been refit at all on this build**. The moment this command runs it begins
+refreshing, and if it refreshes against the wrong base it writes the defect in
+rather than leaving it where it is. The fix is one argument at two call sites —
+`trade-engine.js:354` (feature-audit's file) and `fantasy-coordinator.js:571`
+(the fantasy plan's) — and **the PR numbers are pending from those two
+owners**; fill them in here before running this. Nothing else about this step
+changes: it is still last.
+
 **The scheduler thread is right that the flag is no longer the hazard it was,
 and this sheet is right to keep it off until the measuring is done. Those are
 two different reasons and both hold.**
@@ -2313,6 +2325,19 @@ of a dozen jobs is the one currently holding the lock."
    diagnosis rests on. The `ls` is the separate question of what `.bak` files are on the
    volume — there should be exactly one, from the 22:09Z boot, and it is the
    only copy of the pre-migration rows.
+
+   **And while the terminal is open, one row settles a separate question the
+   model audit raised:**
+   ```
+   fly ssh console -a gridiron-hq -C "sqlite3 /data/data.sqlite 'SELECT id, created_at FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1;'"
+   ```
+   **A row means the audit's ensemble-plus-correction double count is live** —
+   their figure is a mean 2.09 points on about 30% of startable players.
+   **No row means it is latent**, and the fix still has to land in the order
+   below either way. This needs the terminal because `/api/model/setup-status`
+   computes the same thing (`routes/model.js:665`) but sits behind
+   `legacyAuthenticated` (`index.js:126`), which is why nobody could read it
+   tonight.
 
 4. **Then take the baseline**, which turns last night's loss into a delay rather
    than a write-off. A scheduler-disabled app is not a degraded one for this

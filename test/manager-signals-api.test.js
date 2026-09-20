@@ -547,8 +547,12 @@ test('read: the chat half says whether the corpus is here at all, and when it wa
   assert.notEqual(body.chat.as_of, body.chat.computed_at,
     'and the two are not the same number wearing two names');
   assert.ok(body.chat.rows > 0, 'the number of manager profiles the rollup wrote');
-  assert.match(body.chat.collected_by, /refresh-live-data|league_chat/i,
-    'it names what actually rolls the corpus up');
+  // One producer, one constant, and both branches of the pattern this replaces
+  // sat inside it — so the assertion could not tell "names the script" from
+  // "names the step within it", which are the two halves that make it findable.
+  assert.equal(body.chat.collected_by,
+    'the league_chat step of scripts/refresh-live-data.mjs (off-server)',
+    'it names what actually rolls the corpus up, the step and the script and where it runs');
   assert.equal(body.chat.reason, null, 'a corpus that is present has nothing to explain');
   assert.equal(body.chat.path, process.env.GRIDIRON_CHAT_DB_PATH,
     'a corpus that IS here still says which file it is — the same field, present or absent');
@@ -570,8 +574,14 @@ test('read: a database with no chat corpus says so instead of serving an empty c
     assert.ok(body.chat, 'the block is served even with no corpus');
     assert.equal(body.chat.as_of, null, 'no corpus is null, never a borrowed or invented stamp');
     assert.equal(body.chat.rows, 0);
-    assert.match(body.chat.reason, /not on this (machine|database)|no chat corpus/i,
+    // Only the "no chat corpus" branch is reachable: the sentence says the
+    // corpus CANNOT BE PRODUCED on this machine, which is a different claim
+    // from a table not being on this database, and the pattern this replaces
+    // would have passed on either.
+    assert.match(body.chat.reason, /there is no chat corpus at /,
       `the absence must name itself, got ${JSON.stringify(body.chat.reason)}`);
+    assert.match(body.chat.reason, /it cannot be produced on this machine/,
+      'and say it is unproducible here rather than merely missing here');
     // THE PATH IT LOOKED AT. Without it, a mistyped GRIDIRON_CHAT_DB_PATH and a
     // genuinely absent corpus are the same sentence, and the first is a typo
     // while the second is a machine.
@@ -583,8 +593,8 @@ test('read: a database with no chat corpus says so instead of serving an empty c
     // the corpus cannot be produced here, and it can be uploaded here.
     assert.ok(body.chat.reason.includes(process.env.GRIDIRON_CHAT_DB_PATH),
       'the sentence itself names the path, not only the field beside it');
-    assert.match(body.chat.reason, /Mac|Apple Messages/,
-      'it says the corpus cannot be produced on this machine');
+    assert.match(body.chat.reason, /extracted from Apple Messages on Nick's Mac/,
+      'it says WHERE the corpus comes from, which is why it cannot be produced here');
     assert.match(body.chat.reason, /POST \/api\/league-chat\/upload/,
       'and names the route that puts one here, not just the word "uploaded"');
   } finally { process.env.GRIDIRON_CHAT_DB_PATH = saved; }
@@ -599,8 +609,13 @@ test('read: the chat source does not advertise a refresh the server never runs, 
   // by its own header, and the corpus file is never in the deployed image at all.
   assert.doesNotMatch(SIGNAL_SOURCES.chat.refreshed, /^every refresh tick$/,
     'the deployed app runs no tick that rolls up a corpus it does not have');
-  assert.match(SIGNAL_SOURCES.chat.refreshed, /off-server|refresh-live-data/i,
-    'the source names what actually refreshes it');
+  // A registry constant, so the whole string is the contract. Both branches of
+  // the pattern this replaces were inside it, so neither pinned that the
+  // sentence names the STEP, the SCRIPT, that it is off-server, and where to
+  // read the date — which together are the whole reason the string was fixed.
+  assert.equal(SIGNAL_SOURCES.chat.refreshed,
+    'only when the league_chat step of scripts/refresh-live-data.mjs is run (off-server; see chat.as_of)',
+    'the source names what actually refreshes it, where that runs, and where its date lives');
   const { body } = await call('GET', '/api/trades/22/managers/signals');
   const why = metricOf(managerOf(body, 2), 'chat_msgs').why;
   assert.doesNotMatch(why, /refreshed every refresh tick$/, 'the per-signal why carries the corrected claim');

@@ -21,26 +21,33 @@ mutation the old pattern also killed is marked as such rather than claimed.
 
 ## The five questions
 
-- **Well built?** The subject is the test suite itself. Ten assertions across
-  four files asserted the existence of a sentence rather than its content; each
-  now names the one clause that carries the fact, and, where two sentences in
-  the same code are confusable, rules the other one out by name.
+- **Well built?** The subject is the test suite itself. Twenty-one assertions
+  across seven files asserted the existence of a sentence rather than its
+  content; each now names the one clause that carries the fact, and, where two
+  sentences in the same code are confusable, rules the other one out by name.
+  Fourteen were found in the first pass (§1, §2) and seven in the second (§2c),
+  which covers the rest of this thread's allocated suites.
 - **Stats or made up?** Neither — these are string contracts. The numbers here
   are mutation counts, and every one of them was run, not reasoned about.
-- **How do we know?** Twelve mutations, each applied to the PRODUCER of the
-  sentence, with the file's SHA-256 before and after. Eleven of twelve survived
-  the assertion they replaced and are killed by the new one. The twelfth (M9)
-  was killed by a different test in the same file, which is recorded as such.
-- **Pointed anywhere else?** The same shape is worth a pass over every suite,
-  not only these four. Two files outside this thread's allocation
-  (`test/trade-verify.test.js`, and the rest of `test/trade-proposals.test.js`'s
-  sibling suites) were read and left alone: `trade-verify.test.js:212` is a
-  tense variant of one phrase, which is a real closed set.
+- **How do we know?** Twenty-nine mutations, each applied to the PRODUCER of
+  the sentence, with the file's SHA-256 before and after, plus a control that
+  must be a no-op. Twenty-one are positives: all twenty-one are killed by the
+  new assertion, and twenty of twenty-one survived the assertion they replaced.
+  The twenty-first (M9) was killed by a different test in the same file, which
+  is recorded as such. Eight are negations and are counted separately, for the
+  reason in §2b. The table is re-derivable by anyone: the runner and the
+  mutation list are committed under `docs/tdd/sweeps/`.
+- **Pointed anywhere else?** It was, and §2c is the result: the sweep was
+  carried over the rest of this thread's allocated suites and found seven more,
+  including one (site 21) whose alternation had a branch the code cannot
+  produce at all. Files outside this thread's allocation were read and left
+  alone: `trade-verify.test.js:212` is a tense variant of one phrase, which is
+  a real closed set.
 - **How does it unify?** One question answers every case: *can the fixture
   produce more than one branch?* If it cannot, the pattern is a hedge. That
   question is cheaper to ask than the taxonomy it replaces.
 
-## 1. The ten sites, and the fact each one was hiding
+## 1. The first pass: ten sites, and the fact each one was hiding
 
 | # | Site | Pattern | Reachable branches | Fixed to |
 |---|------|---------|--------------------|----------|
@@ -122,6 +129,62 @@ nothing to survive. Reporting it as six more survivals would be counting the
 absence of an assertion as the strength of one. The eleven-of-twelve figure
 belongs to the positive rows alone and should always be quoted that way.
 
+The same rule was applied to the second pass without being re-argued: §2c's
+seven sites were checked the same way and all seven were `assert.match`, so the
+nine-of-nine figure is homogeneous too; the two negations that pass added carry
+their own rows (M28, M29). The combined table, split by shape, is at the end of
+§3.
+
+## 2c. The second pass: seven more sites, in three more suites
+
+The file's own answer to *pointed anywhere else?* was "the same shape is worth
+a pass over every suite, not only these four." This is that pass, over the rest
+of this thread's allocated suites. Seven more alternations, each checked the
+same way — read the producer, count the branches the fixture can actually
+reach.
+
+| # | Site | Pattern | Reachable branches | Fixed to |
+|---|------|---------|--------------------|----------|
+| 15 | `manager-signals-api.test.js:550` chat `collected_by` | `/refresh-live-data\|league_chat/i` | 2 of 2, both inside one constant | equality on the whole `roller` string |
+| 16 | `manager-signals-api.test.js:573` the absent-corpus reason | `/not on this (machine\|database)\|no chat corpus/i` | **1 of 2** | two assertions: the corpus is absent AT A PATH, and it cannot be PRODUCED here |
+| 17 | `manager-signals-api.test.js:586` where the corpus comes from | `/Mac\|Apple Messages/` | 2 of 2, same sentence | the whole phrase, "extracted from Apple Messages on Nick's Mac" |
+| 18 | `manager-signals-api.test.js:602` `SIGNAL_SOURCES.chat.refreshed` | `/off-server\|refresh-live-data/i` | 2 of 2, both inside one constant | equality on the registry string |
+| 19 | `manager-data-pipeline.test.js:394` the declared-unpriceable reason | `/priceable\|never priced\|context only/i` | 3 of 3, all in one sentence | the whole clause, and rules out the undeclared-source sentence |
+| 20 | `manager-data-pipeline.test.js:412` the undeclared-source reason | `/not declared\|undeclared\|SIGNAL_SOURCES/i` | **2 of 3** | the whole clause, the offending source's own name, and rules out the declared-unpriceable sentence |
+| 21 | `trade-route-retirement.test.js:61` the tombstone pointer | `/\/api\/\|trade-engine/` | **1 of 2** | anchored, `^\/api\//` |
+
+All seven were `assert.match` before the sweep — checked with
+`git show 6422367:<file> | sed -n '<line>p'`, not assumed — so §2b's rule
+applies unchanged and the second pass's survival figure is drawn over a
+homogeneous set. The two `assert.doesNotMatch` assertions this pass ADDED are
+counted separately and carry their own mutations, M28 and M29.
+
+**Sites 15 and 18 are a shape the first pass did not contain.** Both read a
+CONSTANT — `roller` in `chatCorpusState()`, and `SIGNAL_SOURCES.chat.refreshed`
+— not a sentence assembled at runtime. When the value under test is a constant,
+the whole string is the contract and there is no reason to assert a fragment of
+it; both alternations had both branches inside the one constant, so neither
+could distinguish *names the script* from *names the step within the script*,
+which are the two halves that make the thing findable by someone who has to go
+run it. Both are now equalities.
+
+**Sites 19 and 20 are the same confusable pair as 5 and 6.**
+`unpriceableReason()` writes two sentences for two states that call for
+completely different fixes: a source DECLARED `priceable: false` is working as
+intended and needs nothing, and a source missing from `SIGNAL_SOURCES` is a
+stray writer someone has to go declare. Each now names its own clause and rules
+the other out by name.
+
+**Site 21 is the one worth generalising.** `trade-engine` was not a weak branch,
+it was an unreachable one: every tombstone in the repo points at an `/api/…`
+path, and nothing points at a module. The assertion therefore described a
+contract the code does not have — "an API path OR a module" — and would have
+gone on passing if a tombstone started pointing at a source file, which is
+precisely the thing a tombstone must not do. A tombstone is earned by having
+somewhere LIVE to point, and a live place is a route. The fix is an anchor
+rather than a phrase: `^\/api\//` also rules out a pointer that merely mentions
+an API path somewhere inside a sentence.
+
 ## 3. Mutations
 
 Every row: the producer file's SHA-256 (first 12) before and after, the exact
@@ -142,15 +205,18 @@ again, which is where the `survived` column comes from. Every injection is
 reverted and the file is re-hashed against its baseline before the next row;
 the runner exits non-zero if any row did not behave as the list says.
 
-Re-derived with that runner: **19 of 19 rows behaved as the list says**, and
-the four suites are left byte-identical to `HEAD` afterwards. The runner also
+Re-derived with that runner: **30 of 30 rows behaved as the list says** — 29
+injections that APPLIED and one CONTROL that did not, over both passes — and
+the seven suites are left byte-identical to `HEAD` afterwards. The runner also
 reports the `file:line` of the assertion that threw, which is what the shape
 split below is measured from rather than reasoned about.
 
 Baselines: `server/services/trade-tactics.js` `c5808df9aa97`,
 `server/services/trade-acceptance.js` `a0c12157cc0a`,
 `server/services/counterparty-pricing.js` `96e54c44c7ce`,
-`server/services/trade-proposals.js` `2a529fd8a9b6`.
+`server/services/trade-proposals.js` `2a529fd8a9b6`,
+`server/services/manager-signals.js` `bbc1ebea6dab`,
+`server/routes/edge.js` `d17644bbc58d`.
 
 | # | Mutation | Applied | New assertion | Old assertion |
 |---|----------|---------|---------------|---------------|
@@ -172,17 +238,53 @@ Baselines: `server/services/trade-tactics.js` `c5808df9aa97`,
 | M16 | the flat PRIOR sentence borrows the flat MEASURED one | `APPLIED 96e54c44c7ce -> f7c0b25d0ec1` | **RED** 47/46/1 at `:1095` | pass, not comparable |
 | M17 | the unreadable sentence also claims the model ran out of room | `APPLIED 2a529fd8a9b6 -> 1e27ce095306` | **RED** 54/53/1 at `:202` | pass, not comparable |
 | M18 | the truncated sentence also claims it could not be read as JSON | `APPLIED 2a529fd8a9b6 -> cd8dd6af1a5d` | **RED** 54/53/1 at `:494` | pass, not comparable |
+| M19 | `collected_by` names the script but not the step inside it | `APPLIED bbc1ebea6dab -> 5ae92d1db592` | **RED** 27/26/1 at `:553` | **survived** 27/27/0 |
+| M20 | the absence opens by naming a machine instead of the missing corpus | `APPLIED bbc1ebea6dab -> 1d9078d6361e` | **RED** 27/26/1 at `:581` | **survived** 27/27/0 |
+| M21 | the absence drops the clause saying it cannot be produced here | `APPLIED bbc1ebea6dab -> f8c8aa33bc7b` | **RED** 27/26/1 at `:583` | **survived** 27/27/0 |
+| M22 | the sentence names Apple Messages but no longer whose machine | `APPLIED bbc1ebea6dab -> cc35819eea48` | **RED** 27/26/1 at `:596` | **survived** 27/27/0 |
+| M23 | the registry cadence keeps "off-server" and drops everything else | `APPLIED bbc1ebea6dab -> a41573912d98` | **RED** 27/26/1 at `:616` | **survived** 27/27/0 |
+| M24 | the declared-unpriceable reason keeps "context only" and drops the declaration | `APPLIED bbc1ebea6dab -> 179fcbf4a360` | **RED** 27/26/1 at `:396` | **survived** 27/27/0 |
+| M25 | the undeclared-source reason says "undeclared" instead of naming the registry | `APPLIED bbc1ebea6dab -> 16d94927bf6f` | **RED** 27/26/1 at `:417` | **survived** 27/27/0 |
+| M26 | the undeclared-source reason stops naming the offending source | `APPLIED bbc1ebea6dab -> d75ff64a058c` | **RED** 27/26/1 at `:420` | **survived** 27/27/0 |
+| M27 | a tombstone points at a module instead of a live route | `APPLIED d17644bbc58d -> a21bb2ebc332` | **RED** 5/4/1 at `:66` | **survived** 5/5/0 |
+| M28 | the declared-unpriceable reason also claims the source is undeclared | `APPLIED bbc1ebea6dab -> 9366cb155c7e` | **RED** 27/26/1 at `:399` | pass, not comparable |
+| M29 | the undeclared-source reason also claims declared priceable: false | `APPLIED bbc1ebea6dab -> 29889afda31e` | **RED** 27/26/1 at `:422` | pass, not comparable |
 | CONTROL | a pattern that is not in the file | `NO-OP - pattern not found` | — | — |
 
-M13 to M18 are the negation rows, added after §2b. Each is killed at the
-`assert.doesNotMatch` line quoted beside it, which is the point of running them:
-those six assertions had no mutation behind them and were therefore six
-assertions nobody had shown could fail. Their "old" column is a pass in every
-case and carries no information, for the reason §2b gives.
+M13 to M18 are the first pass's negation rows, added after §2b. Each is killed
+at the `assert.doesNotMatch` line quoted beside it, which is the point of
+running them: those six assertions had no mutation behind them and were
+therefore six assertions nobody had shown could fail. Their "old" column is a
+pass in every case and carries no information, for the reason §2b gives.
 
-**Positives: 12 of 12 killed by the new assertions, 11 of 12 survived the
-assertions they replaced** — the measurement this sweep exists to take.
-**Negations: 6 of 6 killed, no survival comparison available.**
+M19 to M29 are the second pass (§2c), and are split by the same rule: M19 to
+M27 are positives, M28 and M29 are the two negations that pass added. M29 is
+worth a line of its own, because the first version of it was a defective row
+rather than a result. It inserted the confusable clause into the MIDDLE of the
+sentence, which broke the positive assertion's contiguous match, so the runner
+reported it killed at `:417` — the `assert.match` — and not at the
+`doesNotMatch` it was written for. A negation row that is killed by the
+positive beside it measures the positive twice and the negation not at all. The
+clause was moved to the end of the sentence and the row re-run; it now kills at
+`:422`. The runner's `file:line` is what caught this, not a reading of the
+diff.
+
+**The counts, by shape, over both passes.**
+
+| shape | rows | killed by the new assertion | survived the assertion it replaced |
+|---|---|---|---|
+| positive, first pass (M1-M12) | 12 | 12 of 12 | **11 of 12** |
+| positive, second pass (M19-M27) | 9 | 9 of 9 | **9 of 9** |
+| positive, total | 21 | 21 of 21 | **20 of 21** |
+| negation (M13-M18, M28-M29) | 8 | 8 of 8 | **not comparable** |
+| control | 1 | `NO-OP` as listed | — |
+
+The one positive that did not survive its old assertion is M9, in the first
+pass, and it is recorded in the table as killed by a DIFFERENT test in the same
+file rather than by the assertion under measurement. Every one of the nine
+second-pass positives survived, which is the stronger result and the expected
+one: a hedge that the fixture can only satisfy one branch of will pass any
+rewording that keeps any branch.
 
 ### The edits
 
@@ -348,12 +450,145 @@ refused".
 + const N_NOT_A_REAL_SYMBOL = 2;
 ```
 
+---
+
+The second pass (§2c). Producer baselines: `server/services/manager-signals.js`
+`bbc1ebea6dab`, `server/routes/edge.js` `d17644bbc58d`.
+
+**M19** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> 5ae92d1db592`
+
+```diff
+-  const roller = 'the league_chat step of scripts/refresh-live-data.mjs (off-server)';
++  const roller = 'scripts/refresh-live-data.mjs';
+```
+
+Old `/refresh-live-data|league_chat/i` still matches the script name. The step
+within the script is the half a reader needs to run it, and the old pattern
+could not tell the two apart.
+
+**M20** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> 1d9078d6361e`
+
+```diff
+-      reason: `there is no chat corpus at ${file} — it cannot be produced on this machine `
++      reason: `the chat corpus is not on this machine: ${file} — it cannot be produced on this machine `
+```
+
+Old `/not on this (machine|database)|no chat corpus/i` matches the injected
+wording through its FIRST branch — which is the whole point of the site: the
+pattern was written to accept either of two different claims. The path is kept
+in the injection deliberately, because a neighbouring assertion at `:594`
+checks that the sentence names it and would otherwise have killed this row for
+an unrelated reason.
+
+**M21** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> f8c8aa33bc7b`
+
+```diff
+-      reason: `there is no chat corpus at ${file} — it cannot be produced on this machine `
++      reason: `there is no chat corpus at ${file} `
+```
+
+The second half of site 16's split. "Missing here" and "cannot be made here"
+are different instructions to the reader — the first says deploy again, the
+second says upload — and the old pattern passed on either.
+
+**M22** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> cc35819eea48`
+
+```diff
+-        + '(it is extracted from Apple Messages on Nick\'s Mac) but it can be uploaded to this one '
++        + '(it is extracted from Apple Messages) but it can be uploaded to this one '
+```
+
+Old `/Mac|Apple Messages/` still matches. Which machine holds the source is the
+fact that makes the absence actionable.
+
+**M23** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> a41573912d98`
+
+```diff
+-    refreshed: 'only when the league_chat step of scripts/refresh-live-data.mjs is run (off-server; see chat.as_of)',
++    refreshed: 'off-server',
+```
+
+Old `/off-server|refresh-live-data/i` matches the two-word replacement exactly.
+This string is interpolated into the `why` served on every chat signal row, so
+the assertion is a per-metric client-facing claim and is now an equality.
+
+**M24** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> 179fcbf4a360`
+
+```diff
+-  return `${spec.label} is declared priceable: false — context only, never priced`;
++  return `${spec.label} is context only`;
+```
+
+Old `/priceable|never priced|context only/i` matches the third branch. The
+declaration — that a human wrote `priceable: false` on purpose — is the part
+that tells a reader there is nothing to fix.
+
+**M25** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> 16d94927bf6f`
+
+```diff
+-    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`;
++    return `source '${source}' is undeclared, so nothing may price on it`;
+```
+
+Old `/not declared|undeclared|SIGNAL_SOURCES/i` matches through its `undeclared`
+branch — a branch the producer never emitted, which is what made the pattern a
+hedge rather than a closed set.
+
+**M26** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> d75ff64a058c`
+
+```diff
+-    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`;
++    return 'this metric\'s source is not declared in SIGNAL_SOURCES, so nothing may price on it';
+```
+
+The source's own name is what turns the reason into a fix; without it the
+reader starts with a grep.
+
+**M27** — `server/routes/edge.js`, APPLIED `d17644bbc58d -> a21bb2ebc332`
+
+```diff
+-  use: '/api/trades/:leagueId/evaluate',
++  use: 'server/services/trade-engine.js',
+```
+
+Old `/\/api\/|trade-engine/` matches the injected value through the branch that
+was unreachable in the real code — so the injection is exactly the defect the
+dead branch was hiding: a tombstone pointing a caller at a source file instead
+of a live route, passing.
+
+**M28** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> 9366cb155c7e`, NEGATION
+
+```diff
+-  return `${spec.label} is declared priceable: false — context only, never priced`;
++  return `${spec.label} is declared priceable: false — context only, never priced (it is not declared in SIGNAL_SOURCES)`;
+```
+
+Killed at the `assert.doesNotMatch` on `manager-data-pipeline.test.js:399`. A
+producer that hedges by saying BOTH is what the negation exists to catch.
+
+**M29** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> 29889afda31e`, NEGATION
+
+```diff
+-    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`;
++    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it (declared priceable: false)`;
+```
+
+Killed at the `assert.doesNotMatch` on `manager-data-pipeline.test.js:422`. The
+clause is appended rather than inserted, for the reason given in §3: inserted
+mid-sentence it broke the positive assertion's contiguous match and measured
+the wrong assertion.
+
 ## 4. Coverage of the suites these mutations reach
 
 The union rule: where a suite's RED would be "the module does not exist", one
 red proves nothing per test. That is not the case here — every suite below
 runs against a module that exists, and each mutation names the individual test
-it fails. No test in these four files is left covered only by a shared red.
+it fails, and now the `file:line` of the assertion that threw. No test in these
+seven files is left covered only by a shared red.
+
+The seven: `trade-tactics`, `trade-acceptance`, `valuation-map`,
+`trade-proposals`, `manager-signals-api`, `manager-data-pipeline`,
+`trade-route-retirement`.
 
 ## 5. What was NOT changed
 
@@ -365,4 +600,12 @@ it fails. No test in these four files is left covered only by a shared red.
   is also why they need their own mutations rather than inheriting the positive
   rows' evidence, which is §2b.
 - Multi-line patterns and patterns built from a variable, of which there are
-  none in these four files.
+  none in these seven files.
+- The producers themselves. Every mutation in §3 edits a producer and reverts
+  it; not one sentence this suite reads was reworded to suit a test. Where the
+  second pass found a sentence it wanted to be more specific, it made the
+  ASSERTION more specific and left the sentence alone. The one exception worth
+  naming is site 21, where the contract the assertion described ("an API path
+  or a module") turned out to be wider than the code's — and there too the code
+  did not move: every tombstone already pointed at a route, and the test now
+  says so.

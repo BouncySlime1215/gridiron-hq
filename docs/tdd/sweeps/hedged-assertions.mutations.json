@@ -220,6 +220,138 @@
    "to": "          + 'proposals was cut off mid-answer and could not be read as JSON — nothing from a half-written '"
   },
   {
+   "id": "M19",
+   "what": "collected_by names the script but not the step inside it",
+   "shape": "positive",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-signals-api.test.js"
+   ],
+   "expect": "red",
+   "from": "  const roller = 'the league_chat step of scripts/refresh-live-data.mjs (off-server)';",
+   "to": "  const roller = 'scripts/refresh-live-data.mjs';"
+  },
+  {
+   "id": "M20",
+   "what": "the absence opens by naming a machine instead of naming the missing corpus",
+   "shape": "positive",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-signals-api.test.js"
+   ],
+   "expect": "red",
+   "from": "      reason: `there is no chat corpus at ${file} — it cannot be produced on this machine `",
+   "to": "      reason: `the chat corpus is not on this machine: ${file} — it cannot be produced on this machine `"
+  },
+  {
+   "id": "M21",
+   "what": "the absence drops the clause saying it cannot be produced here",
+   "shape": "positive",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-signals-api.test.js"
+   ],
+   "expect": "red",
+   "from": "      reason: `there is no chat corpus at ${file} — it cannot be produced on this machine `",
+   "to": "      reason: `there is no chat corpus at ${file} `"
+  },
+  {
+   "id": "M22",
+   "what": "the sentence names Apple Messages but no longer whose machine",
+   "shape": "positive",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-signals-api.test.js"
+   ],
+   "expect": "red",
+   "from": "        + '(it is extracted from Apple Messages on Nick\\'s Mac) but it can be uploaded to this one '",
+   "to": "        + '(it is extracted from Apple Messages) but it can be uploaded to this one '"
+  },
+  {
+   "id": "M23",
+   "what": "the registry cadence keeps the words off-server and drops everything else",
+   "shape": "positive",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-signals-api.test.js"
+   ],
+   "expect": "red",
+   "from": "    refreshed: 'only when the league_chat step of scripts/refresh-live-data.mjs is run (off-server; see chat.as_of)',",
+   "to": "    refreshed: 'off-server',"
+  },
+  {
+   "id": "M24",
+   "what": "the declared-unpriceable reason keeps the words context only and drops the declaration",
+   "shape": "positive",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-data-pipeline.test.js"
+   ],
+   "expect": "red",
+   "from": "  return `${spec.label} is declared priceable: false — context only, never priced`;",
+   "to": "  return `${spec.label} is context only`;"
+  },
+  {
+   "id": "M25",
+   "what": "the undeclared-source reason says undeclared instead of naming the registry",
+   "shape": "positive",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-data-pipeline.test.js"
+   ],
+   "expect": "red",
+   "from": "    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`;",
+   "to": "    return `source '${source}' is undeclared, so nothing may price on it`;"
+  },
+  {
+   "id": "M26",
+   "what": "the undeclared-source reason stops naming the offending source",
+   "shape": "positive",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-data-pipeline.test.js"
+   ],
+   "expect": "red",
+   "from": "    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`;",
+   "to": "    return 'this metric\\'s source is not declared in SIGNAL_SOURCES, so nothing may price on it';"
+  },
+  {
+   "id": "M27",
+   "what": "a tombstone points at a module instead of a live route",
+   "shape": "positive",
+   "file": "server/routes/edge.js",
+   "suites": [
+    "test/trade-route-retirement.test.js"
+   ],
+   "expect": "red",
+   "from": "  use: '/api/trades/:leagueId/evaluate',",
+   "to": "  use: 'server/services/trade-engine.js',"
+  },
+  {
+   "id": "M28",
+   "what": "the declared-unpriceable reason also claims the source is undeclared",
+   "shape": "negation",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-data-pipeline.test.js"
+   ],
+   "expect": "red",
+   "from": "  return `${spec.label} is declared priceable: false — context only, never priced`;",
+   "to": "  return `${spec.label} is declared priceable: false — context only, never priced (it is not declared in SIGNAL_SOURCES)`;"
+  },
+  {
+   "id": "M29",
+   "what": "the undeclared-source reason also claims declared priceable: false",
+   "shape": "negation",
+   "file": "server/services/manager-signals.js",
+   "suites": [
+    "test/manager-data-pipeline.test.js"
+   ],
+   "expect": "red",
+   "from": "    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`;",
+   "to": "    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it (declared priceable: false)`;"
+  },
+  {
    "id": "CONTROL",
    "what": "a pattern that is not in the file",
    "file": "server/services/counterparty-pricing.js",

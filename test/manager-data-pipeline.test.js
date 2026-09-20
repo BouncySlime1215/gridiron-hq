@@ -391,8 +391,13 @@ test('accessor: the pricing path is never handed a metric nothing may price on',
   }
   const ctx = two.context ?? {};
   assert.ok('draft_reach_rate' in ctx, 'it is still readable, in the bag that says what it is');
-  assert.match(two.context_reasons?.draft_reach_rate ?? '', /priceable|never priced|context only/i,
-    'and it carries why nothing may price on it');
+  // All three branches of the pattern this replaces are inside the one sentence
+  // `unpriceableReason` writes, so it asserted only that the sentence existed.
+  assert.match(two.context_reasons?.draft_reach_rate ?? '',
+    /is declared priceable: false — context only, never priced/,
+    `and it carries why nothing may price on it, got ${JSON.stringify(two.context_reasons?.draft_reach_rate)}`);
+  assert.doesNotMatch(two.context_reasons?.draft_reach_rate ?? '', /is not declared in SIGNAL_SOURCES/,
+    'and it is the DECLARED-unpriceable reason, not the undeclared-source one');
 });
 
 test('accessor: an undeclared source fails closed — unpriceable until someone declares it', () => {
@@ -409,8 +414,13 @@ test('accessor: an undeclared source fails closed — unpriceable until someone 
       'an undeclared source must not reach the pricing bag');
     assert.ok('invented_metric' in (two.context ?? {}),
       'it is still surfaced, so a stray writer is visible rather than swallowed');
-    assert.match(two.context_reasons?.invented_metric ?? '', /not declared|undeclared|SIGNAL_SOURCES/i,
-      'and the reason names the registry, which is what a reader has to go fix');
+    assert.match(two.context_reasons?.invented_metric ?? '',
+      /is not declared in SIGNAL_SOURCES, so nothing may price on it/,
+      `the reason names the registry, which is what a reader has to go fix, got ${JSON.stringify(two.context_reasons?.invented_metric)}`);
+    assert.match(two.context_reasons?.invented_metric ?? '', /not_a_declared_source/,
+      'and names the offending source itself, so the fix does not start with a grep');
+    assert.doesNotMatch(two.context_reasons?.invented_metric ?? '', /declared priceable: false/,
+      'and it is the undeclared-source reason, not the declared-unpriceable one');
   } finally {
     run(`DELETE FROM manager_signals WHERE league_id = 12 AND metric = 'invented_metric'`);
   }

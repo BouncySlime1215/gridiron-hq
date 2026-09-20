@@ -32,6 +32,13 @@ test.after(() => { globalThis.fetch = realFetch; });
 // they turned red the moment the job moved off the request thread, which made
 // two good tests into an argument against a fix. They now assert the behaviour
 // rather than the thread it happens on.
+//
+// These fixtures carry an espn_s2/swid pair because reaching ESPN now requires
+// a connection: syncEspnLeague resolves credentials for the league it is
+// refreshing and throws rather than fetching anonymously
+// (server/platform/espn-credentials.js). The pair is what `connection_status =
+// 'connected'` was always asserting; it just never had to be true before. No
+// assertion below changed.
 test('league_rosters is wired to the scheduler, on a tier, with a cadence', () => {
   const job = JOBS.league_rosters;
   assert.ok(job, 'the job must exist in the registry; the regression this file '
@@ -47,8 +54,9 @@ test('league_rosters is wired to the scheduler, on a tier, with a cadence', () =
 });
 
 test('a connected league\'s own roster payload is re-synced, not left stale', async () => {
-  run(`INSERT INTO leagues (platform, league_id, season, name, payload, connection_status)
-       VALUES ('espn', '999', 2026, 'Old Name', '{}', 'connected')`);
+  run(`INSERT INTO leagues (platform, league_id, season, name, payload, connection_status, espn_s2, swid)
+       VALUES ('espn', '999', 2026, 'Old Name', '{}', 'connected',
+               'AEC%2FscheduleTestS2', '{99999999-9999-9999-9999-999999999999}')`);
   const leagueId = row(`SELECT id FROM leagues WHERE league_id='999'`).id;
 
   globalThis.fetch = async () => ({
@@ -69,8 +77,12 @@ test('a connected league\'s own roster payload is re-synced, not left stale', as
 
 test('a per-league sync failure does not block other leagues from refreshing', async () => {
   run(`DELETE FROM leagues`);
-  run(`INSERT INTO leagues (platform, league_id, season, name, payload) VALUES ('espn','111',2026,'Broken League','{}')`);
-  run(`INSERT INTO leagues (platform, league_id, season, name, payload) VALUES ('espn','222',2026,'Healthy League','{}')`);
+  run(`INSERT INTO leagues (platform, league_id, season, name, payload, espn_s2, swid)
+       VALUES ('espn','111',2026,'Broken League','{}',
+               'AEC%2FscheduleTestS2', '{99999999-9999-9999-9999-999999999999}')`);
+  run(`INSERT INTO leagues (platform, league_id, season, name, payload, espn_s2, swid)
+       VALUES ('espn','222',2026,'Healthy League','{}',
+               'AEC%2FscheduleTestS2', '{99999999-9999-9999-9999-999999999999}')`);
 
   globalThis.fetch = async url => {
     if (url.includes('111')) return { ok: false, status: 500 };

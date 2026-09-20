@@ -51,10 +51,14 @@ before(async () => {
   db.prepare(`INSERT OR IGNORE INTO users(id,subject,display_name) VALUES (992,'espn-connect-user','Connect User')`).run();
   db.prepare(`INSERT OR REPLACE INTO auth_sessions(user_id,token_hash,expires_at) VALUES (992,?,datetime('now','+1 day'))`)
     .run(hashSessionToken(TOKEN));
-  run(`INSERT INTO app_settings (key, value) VALUES ('espn_s2', 'AEBsecretS2value1234567890'), ('swid', '{ABCDEF12-3456-7890-ABCD-EF1234567890}')
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
+  // Credentials hang off the user now, not the install (migration 063). The
+  // membership row is what makes league 41 this caller's league rather than one
+  // /status will decline to show them.
+  run(`INSERT INTO espn_credentials (user_id, espn_s2, swid, connect_token)
+       VALUES (992, 'AEBsecretS2value1234567890', '{ABCDEF12-3456-7890-ABCD-EF1234567890}', 'connect-auth-test-token')`);
   run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, espn_s2, swid)
        VALUES (41, 'espn', '555', 2026, 'Home league', '7', 'AEBsecretS2value1234567890', '{ABCDEF12-3456-7890-ABCD-EF1234567890}')`);
+  run(`INSERT INTO league_memberships (league_id, user_id, role) VALUES (41, 992, 'commissioner')`);
 });
 after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -93,7 +97,7 @@ test('anonymous callers cannot read, wipe, rebind or use the ESPN connection', a
     assert.equal(res.status, 401, `${method} ${url} must require a session (got ${res.status})`);
   }
   // Nothing was changed by the anonymous calls.
-  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`)?.value, 'AEBsecretS2value1234567890');
+  assert.equal(row(`SELECT espn_s2 FROM espn_credentials WHERE user_id=992`)?.espn_s2, 'AEBsecretS2value1234567890');
   assert.equal(row('SELECT my_team_id FROM leagues WHERE id=41').my_team_id, '7', 'my_team_id was not rewritten');
 });
 
@@ -105,7 +109,7 @@ test('the bookmarklet preflight stays open for espn.com', async () => {
 test('POST /cookies with no session and no connect token is refused, not silently accepted', async () => {
   const res = await request('POST', '/api/espn-connect/cookies', { body: { espn_s2: 'x', swid: '{x}' } });
   assert.equal(res.status, 401);
-  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`)?.value, 'AEBsecretS2value1234567890',
+  assert.equal(row(`SELECT espn_s2 FROM espn_credentials WHERE user_id=992`)?.espn_s2, 'AEBsecretS2value1234567890',
     'the real stored connection must be untouched by an anonymous attempt');
 });
 

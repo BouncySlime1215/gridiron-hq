@@ -3,6 +3,7 @@ import { db, rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
 import { BROWSER_HEADERS } from '../services/espn-draft.js';
 import { assertLeagueMember, assertCommissioner } from '../platform/auth.js';
+import { requireCredentialsForLeague } from '../platform/espn-credentials.js';
 
 const r = Router();
 
@@ -118,13 +119,30 @@ r.delete('/:id', (req, res) => {
 const ESPN_SLOT_NAME = { 0: 'QB', 2: 'RB', 4: 'WR', 6: 'TE', 16: 'DEF', 17: 'K', 23: 'FLEX' };
 
 async function fetchEspn(lg, season) {
+  // Whose cookies, asked once, in the one place that answers it. This used to
+  // read `lg.espn_s2`/`lg.swid` off the row and, when they were empty, send no
+  // cookie and carry on. That never borrowed anyone else's pair, so it was not
+  // the leak that motivated espn-credentials.js — but it is the same silent
+  // failure: an unauthenticated fetch of a private ESPN league answers 200 with
+  // a thin public payload, and everything below writes that down as though the
+  // league really had emptied out. Measured before this change, on a league
+  // whose row was bare while its OWNER was connected: 200, three ESPN calls,
+  // `Cookie: null`.
+  //
+  // The resolver reads the league's own pair first, so the common path is
+  // unchanged; what is new is that a member's credentials are now reachable
+  // from here, and that "nobody who can see this league is connected" throws
+  // instead of guessing. Callers already handle it: the route answers 409 and
+  // scheduler.js#refreshLeagueRosters records `sync_failed` with the message on
+  // that league alone and keeps going.
+  const { s2, swid } = requireCredentialsForLeague(lg.id);
   // No scoringPeriodId: ESPN then answers for the CURRENT period. Pinning it to 1
   // froze every roster at week 1 for the whole season — leagues looked connected
   // but never changed (found 2026-09-17).
   const url = `${ESPN_BASE}/seasons/${season}/segments/0/leagues/${lg.league_id}`
     + `?view=mTeam&view=mRoster&view=mMatchup&view=mSettings`;
   const headers = { ...BROWSER_HEADERS };
-  if (lg.espn_s2 && lg.swid) headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
+  headers.Cookie = `espn_s2=${s2}; SWID=${swid}`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
   if (!resp.ok) throw new Error(`ESPN API ${resp.status}`);
   return resp.json();

@@ -63,8 +63,29 @@ function stubEspn({ ok = true, status = 200, leagues = [] } = {}) {
 }
 
 function resetState() {
-  run(`DELETE FROM app_settings WHERE key IN ('espn_s2','swid')`);
+  // Credentials belong to a user now, not to the install — see
+  // server/platform/espn-credentials.js and migration 063.
+  run(`UPDATE espn_credentials SET espn_s2 = NULL, swid = NULL`);
   run(`DELETE FROM leagues WHERE platform = 'espn'`);
+  run(`DELETE FROM league_memberships`);
+}
+
+/**
+ * What this user actually has stored. Nothing falls back to anyone else's.
+ *
+ * Normalized to nulls so "no row at all" and "row with the pair cleared" read the
+ * same, because to a caller they mean the same thing: this account is not connected.
+ */
+function stored(userId = TEST_USER_ID) {
+  const r = row(`SELECT espn_s2, swid FROM espn_credentials WHERE user_id = ?`, userId);
+  return { espn_s2: r?.espn_s2 ?? null, swid: r?.swid ?? null };
+}
+
+/** Give a user a stored pair directly, the way a previous successful connect would have. */
+function connectUser(userId, s2, swid) {
+  run(`INSERT INTO espn_credentials (user_id, espn_s2, swid, connect_token)
+       VALUES (?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET espn_s2=excluded.espn_s2, swid=excluded.swid`,
+    userId, s2, swid, `token-for-${userId}`);
 }
 
 /* ------------------------------------------------------------------- parsing */
@@ -141,8 +162,8 @@ test('anonymous POST /cookies (no session, no bookmarklet token) is refused and 
     body: JSON.stringify({ espn_s2: GOOD_S2, swid: GOOD_SWID })
   });
   assert.equal(res.status, 401);
-  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`), undefined,
-    'an anonymous caller must never be able to write the account of record');
+  assert.equal(stored().espn_s2, null,
+    'an anonymous caller must never be able to write anybody\'s credentials');
 });
 
 test('the token baked into a signed-in caller\'s bookmarklet authorizes the cookie POST with no session at all', async () => {
@@ -159,7 +180,9 @@ test('the token baked into a signed-in caller\'s bookmarklet authorizes the cook
   });
   const body = await res.json();
   assert.equal(body.ok, true, 'this is exactly how the real bookmarklet calls it — from espn.com, no session token');
-  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`).value, GOOD_S2);
+  // And it landed on the account that generated the bookmarklet, which is the only
+  // thing that says whose cookies these are when the request carries no session.
+  assert.equal(stored().espn_s2, GOOD_S2);
 });
 
 test('a wrong token is refused just like no token at all', async () => {
@@ -183,7 +206,7 @@ test('valid cookies are stored and the discovered leagues come back', async () =
   const body = await res.json();
   assert.equal(body.ok, true);
   assert.equal(body.leagues_found, 1);
-  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`).value, GOOD_S2);
+  assert.equal(stored().espn_s2, GOOD_S2);
 });
 
 test('the paste box accepts one messy blob and connects from it', async () => {
@@ -195,7 +218,7 @@ test('the paste box accepts one messy blob and connects from it', async () => {
     body: JSON.stringify({ raw: `_ga=GA1.2.1; SWID=${GOOD_SWID}; espn_s2=${GOOD_S2}; s_ecid=xyz` })
   });
   assert.equal((await res.json()).ok, true);
-  assert.equal(row(`SELECT value FROM app_settings WHERE key='swid'`).value, GOOD_SWID);
+  assert.equal(stored().swid, GOOD_SWID);
 });
 
 test('cookies ESPN rejects are never persisted', async () => {
@@ -207,8 +230,7 @@ test('cookies ESPN rejects are never persisted', async () => {
     body: JSON.stringify({ espn_s2: 'bogus', swid: '{bogus}' })
   });
   assert.equal(res.status, 400);
-  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`), undefined,
-    'a rejected credential must not land in storage');
+  assert.equal(stored().espn_s2, null, 'a rejected credential must not land in storage');
 });
 
 test('an unrecognised SWID (ESPN answers 404, not 401) still reads as a credential problem', async () => {
@@ -247,7 +269,7 @@ test('a failed reconnect leaves a working connection completely untouched', asyn
   const body = await res.json();
   assert.equal(res.status, 400);
   assert.equal(body.unchanged, true);
-  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`).value, GOOD_S2,
+  assert.equal(stored().espn_s2, GOOD_S2,
     'the previously working cookie must survive a failed attempt');
   assert.equal(row(`SELECT espn_s2 FROM leagues WHERE league_id='999'`).espn_s2, GOOD_S2,
     'and the league row must not have been clobbered either');
@@ -281,7 +303,7 @@ test('a paste with nothing usable in it is a clear 400, not a silent success', a
 
 test('discover loads the current account leagues from stored cookies', async () => {
   resetState();
-  run(`INSERT INTO app_settings (key,value) VALUES ('espn_s2',?),('swid',?)`, GOOD_S2, GOOD_SWID);
+  connectUser(TEST_USER_ID, GOOD_S2, GOOD_SWID);
   stubEspn({ leagues: [{ league_id: '24680', name: 'Loaded League', team_id: '7' }] });
   const res = await realFetch(`${base}/discover`, { headers: { authorization: `Bearer ${TEST_TOKEN}` } });
   const body = await res.json();
@@ -292,7 +314,7 @@ test('discover loads the current account leagues from stored cookies', async () 
 
 test('discover reports expired ESPN credentials instead of pretending the account has zero leagues', async () => {
   resetState();
-  run(`INSERT INTO app_settings (key,value) VALUES ('espn_s2',?),('swid',?)`, GOOD_S2, GOOD_SWID);
+  connectUser(TEST_USER_ID, GOOD_S2, GOOD_SWID);
   stubEspn({ ok: false, status: 401 });
   const res = await realFetch(`${base}/discover`, { headers: { authorization: `Bearer ${TEST_TOKEN}` } });
   const body = await res.json();

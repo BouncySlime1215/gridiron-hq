@@ -204,3 +204,35 @@ test('a second statement is refused even when it is itself only a SELECT', () =>
     return true;
   });
 });
+
+/*
+ * A catalogued table that no migration creates may simply be absent: three of
+ * them exist only once somebody has run a script. SQLite answers "no such
+ * table: coach_person_variables", which reads to a model exactly like a
+ * misspelling, and the honest answer is different — the question was fine, the
+ * data has not been built on this machine. The refusal has to say so, and say
+ * what builds it, or Coach will apologise for a mistake it did not make.
+ */
+test('a catalogued table that has not been built yet fails with who builds it, not SQLite’s wording', () => {
+  assert.throws(() => safeSelect(`SELECT variable FROM coach_person_variables`), err => {
+    assert.ok(err instanceof CoachQueryFailed, 'the query is legal; only the data is absent');
+    assert.match(err.message, /coach_person_variables/);
+    assert.match(err.message, /build-person-profiles/,
+      'the message must name what creates the table');
+    assert.match(err.message, /not been built|does not exist yet|has not been/i,
+      'the message must say the table is absent rather than wrong');
+    return true;
+  });
+});
+
+test('the friendlier wording is only for catalogued tables, never a name Coach does not know', () => {
+  // The message names a script, so it says something about how this app is
+  // built. That is fine for a table the catalog already describes to the
+  // model; it must not become a way to probe for names the catalog withholds.
+  assert.throws(() => safeSelect(`SELECT * FROM nfl_pick_ledger`), err => {
+    assert.ok(err instanceof CoachQueryFailed, 'an unknown name fails as SQL, as before');
+    assert.doesNotMatch(err.message, /script|scripts\//,
+      'an uncatalogued name must not be told what would create it');
+    return true;
+  });
+});

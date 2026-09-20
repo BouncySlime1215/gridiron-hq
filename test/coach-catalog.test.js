@@ -148,3 +148,69 @@ test('every stat the lexicon names sits in a table Coach is allowed to read', as
   assert.deepEqual(unreadable, [],
     `the lexicon names columns of tables Coach cannot read: ${unreadable.join(', ')}`);
 });
+
+// --- how a table comes to exist -------------------------------------------
+//
+// Eleven tables in this repository are created by no migration. Seven are
+// created when a service module is imported, one on its first write, and three
+// only by a script somebody has to run. That last bucket is why a fresh clone
+// behaves differently from Nick's Mac, and why "catalogued" and "present" are
+// not the same claim. The catalog has to say which, or Coach will write a
+// perfectly legal SELECT against a table that is simply not there and report
+// SQLite's own error as though the question were malformed.
+
+const MIGRATION_DDL = fs.readdirSync('server/migrations')
+  .filter(f => f.endsWith('.js'))
+  .map(f => fs.readFileSync(path.join('server/migrations', f), 'utf8'))
+  .join('\n');
+
+const createdByAMigration = table =>
+  new RegExp(`CREATE\\s+TABLE\\s+(IF\\s+NOT\\s+EXISTS\\s+)?["'\`]?${table}["'\`]?\\b`, 'i')
+    .test(MIGRATION_DDL);
+
+test('a table no migration creates says who creates it, and one a migration creates says nothing', () => {
+  for (const name of readableTables()) {
+    const entry = catalogEntry(name);
+    if (createdByAMigration(name)) {
+      assert.equal(entry.created_at_runtime_by, null,
+        `${name} is created by a migration, so it must not claim a runtime creator`);
+    } else {
+      assert.ok(entry.created_at_runtime_by?.trim(),
+        `${name} is in no migration and does not say what creates it`);
+    }
+  }
+});
+
+test('every file a runtime creator names exists, and one of them holds the CREATE TABLE', () => {
+  // The string is prose so it can explain WHEN the table appears, but the paths
+  // inside it are checked: a creator that has been renamed or deleted must fail
+  // here rather than mislead a reader a year from now.
+  for (const name of readableTables()) {
+    const said = catalogEntry(name).created_at_runtime_by;
+    if (!said) continue;
+    const paths = said.match(/[\w./-]+\.m?js/g) ?? [];
+    assert.ok(paths.length, `${name} names no file as its creator: ${said}`);
+    for (const file of paths) {
+      assert.ok(fs.existsSync(file), `${name} names ${file}, which does not exist`);
+    }
+    const ddl = paths.some(file =>
+      new RegExp(`CREATE\\s+TABLE\\s+IF\\s+NOT\\s+EXISTS\\s+["'\`]?${name}\\b`, 'i')
+        .test(fs.readFileSync(file, 'utf8')));
+    assert.ok(ddl, `none of the files ${name} names contains its CREATE TABLE`);
+  }
+});
+
+test('the audit of Coach’s own answers is readable, but the answers themselves are withheld', () => {
+  // coach_answers holds answer_json, ledger_json and plan_json. Letting a
+  // generated SELECT read those would let a number from one turn's ledger
+  // arrive in the next turn dressed as retrieved evidence, which is the pooling
+  // hazard verify.js exists to stop, one level up. The audit columns — did it
+  // verify, did it retry, how many numbers were checked — carry no football
+  // number and are the ones worth asking about.
+  const entry = catalogEntry('coach_answers');
+  assert.ok(entry, 'coach_answers must be readable so "how often does Coach fail its own check" is answerable');
+  for (const blob of ['answer_json', 'ledger_json', 'plan_json']) {
+    assert.ok(entry.redact.includes(blob), `${blob} is not withheld`);
+  }
+  assert.ok(entry.columns.includes('numbers_checked'), 'the audit columns are still described');
+});

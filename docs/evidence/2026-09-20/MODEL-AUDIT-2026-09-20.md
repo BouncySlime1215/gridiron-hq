@@ -28,6 +28,7 @@ itself uses (`nflverse` crosswalk + `stats_player_week`, seasons 2021-2026):
 | What's the goal? | Two goals, and the app knows it. Find Deals ranks on points; Title Trades ranks on championship odds and prints a note when they disagree. The championship odds themselves have no historical calibration. |
 | How good is my team? | Two answers that do not talk to each other: a real relative rank against the league's own rosters, and a title percentage simulated from **week 1** on **through-2025** projections. |
 | Are the efficiency numbers tested? | **They are now, and they mostly hold.** Nothing on a nine-point grid beats the shipped `yards_per: 34`, `catch_rate: 26` or `td_rate: 70` on 2024-2025, and every value *below* each literal loses. But all six curves bottom out at or above the literal, and on 2023 — a season the grid never saw — `k = 68` beats 34 for yards per target, interval clear of zero. The defect is not that 34 is wrong; it is that one constant serves yards per target, per carry and per attempt, and the three disagree about what it should be. |
+| Can a worse model be published as a better one? | **Yes, in one place, and it is a live bug.** The offseason model's pooled comparison pairs two arms by index when one has fewer rows than the other, which happens whenever the GBM fit throws for one test season and succeeds for the others. Demonstrated below: a challenger genuinely worse by +0.10 comes back as **-0.80, 90% CI [-0.80, -0.80], significant**. The guard written in September to prevent exactly this closes the mirror case and lets this one through. |
 | Where is ML? | Real and validated in the weekly point number (ensemble weights, ridge coordinator). Absent from opportunity, trades, acceptance and title odds. The advanced-stat feature store and the GBM are on the **betting** side and are not shared. For next-week *volume* specifically, ML was tried with those stats and lost to a four-line EWMA — a tested negative, not a gap. |
 
 ---
@@ -635,6 +636,105 @@ dividing by that difference. For the touchdown rates that drops most of the
 population — 681 of 1,181 and 868 of 1,131 — so those two lines are a bound on
 the most extreme players, not a reading on everyone. The catch-rate line keeps
 2,162 of 2,811 and is the one to trust.)
+
+### A worse model, published as a significant win
+
+This one is not a tuning question. It is a defect in the machinery that decides
+whether any offseason model is worth shipping, and it is on `main`.
+
+**The shape.** `walkForward` builds one pooled bucket per model arm, lazily:
+
+```js
+(pooled[name] ??= { errs: [], preds: [], truth: [], groups: [] });
+pooled[name].errs.push(...e); ...
+```
+`offseason-model.js:1116-1118`
+
+The GBM arm is optional. It is added only in a season where the fit succeeded:
+
+```js
+let gbmModel = null;
+if (gbm) {
+  try {
+    gbmModel = fitGbm(Xtr, ytr, { trees: 120, ... });
+  } catch { gbmModel = null; }
+}
+...
+if (gbmModel) preds.gbm = test.map(r => predictGbm(gbmModel, featureVector(r)));
+```
+`offseason-model.js:1073-1077`, `:1095`
+
+So if `fitGbm` throws for 2023 and succeeds for 2024 and 2025, `pooled.gbm`
+holds two seasons of rows while `pooled.no_change` holds three. The pooled
+comparison then pairs them by position:
+
+```js
+vs_no_change: pairedBootstrapDiff(baseP.errs, p.errs, { iterations: 4000, seed: 23, groups: p.groups })
+```
+`offseason-model.js:1149`
+
+`p.groups` is the *candidate's* group array, so it is the short one. Inside,
+`n = Math.min(valuesA.length, valuesB.length)` truncates the baseline to its
+first `n` entries — which are 2023 rows — and compares them against the
+challenger's 2024 rows. Different player-seasons, paired.
+
+**The guard does not catch it, and its own comment says why.** The 2026-09-12
+sweep found this caller and tightened `>=` to `===`:
+
+```js
+if (groups && groups.length === n) {
+```
+`backtest-significance.js:80`
+
+The twenty-line comment above it names the failure exactly — "a caller passes a
+`groups` array sized to ONE of the two value arrays (as every current caller in
+offseason-model.js does…) while the OTHER value array is shorter" — and
+concludes that such a call "now falls back to the ungrouped resample below".
+**It does not.** When `groups` is sized to the *shorter* array, `groups.length`
+equals `Math.min(A, B)` exactly, the guard passes, and the clustered branch runs
+on the misaligned pairing. The `===` closes the mirror case, where `groups` is
+sized to the longer array. The case the comment describes is the one still open.
+
+**Measured, not argued.** Sixty baseline rows over two seasons (season A error
+1.00, season B error 0.10) against a challenger that ran in season B only and
+errs 0.20 there — so the challenger is genuinely **worse by +0.10**:
+
+```
+valuesA 60  valuesB 30  n=min=30  groups=30
+guard  groups.length === n  ->  true   (takes the CLUSTERED branch)
+
+as the code calls it :  mean -0.8  90% CI [-0.8,-0.8]  significant=true  n=30
+aligned on season B  :  mean  0.1  90% CI [ 0.1, 0.1]  significant=true  n=30
+```
+
+Reproduce with `node scripts/probe-paired-bootstrap-alignment.mjs`.
+
+The sign is inverted and the result is declared significant. Read through
+`pairedBootstrapDiff`'s convention — a negative `mean_diff` means B beats A —
+this publishes "the GBM beats the baseline by 0.80, decisively" about a model
+that lost.
+
+**Falling back would not fix it.** The ungrouped branch indexes both arrays with
+the same `idx` in `[0, n)`, so the misalignment survives the fallback. The fix
+belongs at the caller: pool only the seasons in which both arms ran, or key
+every pooled row by its unit and align on the key before comparing. The same
+shape is at `:1465-1471` in the v2 path, with `catch { /* the challenger is
+optional */ }`.
+
+**Why it stays silent.** `catch { gbmModel = null; }` is a bare catch that
+swallows the fault, which `CLAUDE.md` forbids for exactly this reason: "If a
+layer goes inert, the surface must say so." Nothing downstream records that an
+arm ran on a different season set from everything it is compared against.
+
+**How likely is it?** It needs `fitGbm` to throw in some seasons and not
+others — thin training data, a degenerate split, an out-of-range hyper-parameter
+on one panel. `gbm = true` is the default at `:1050` and `:1434`, so every
+default `walkForward` run carries the arm. This audit did not observe the throw
+happening on live data; it establishes that if it does, the report is wrong and
+silent rather than absent. That is the part worth fixing before launch.
+
+**Ownership.** No thread in tonight's allocation owns `offseason-model.js` or
+`backtest-significance.js`, so this needs allocating rather than assuming.
 
 ### Both teammate-absence estimators are behind no surviving surface
 

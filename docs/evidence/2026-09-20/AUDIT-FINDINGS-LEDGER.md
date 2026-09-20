@@ -94,6 +94,7 @@ could not re-verify every row inside the hour this was asked for.
 | D30 | **The three hand-set efficiency constants are now swept and graded**, the way `int_rate` already was. Twenty cutoffs over 2024-2025, scored on held-out forward usage, paired bootstrap clustered by player: nothing on a nine-point grid beats `yards_per: 34`, `catch_rate: 26` or `td_rate: 70`, and every value *below* each literal loses **[v]** | `projections.js:94-125`, `scripts/grade-efficiency-vs-baseline.mjs` | **Closed — they hold.** D27 tested the fitter; this tests the literals, and they survive | — |
 | D31 | **But `yards_per: 34` is one constant doing three jobs, and the three disagree.** Five of six MAE curves bottom out above their literal; on 2023, a season the grid never saw, `k = 68` beats 34 for yards per target with the interval clear of zero ([+0.0036, +0.0482]) — chosen on one set, confirmed on another. Yards per carry wants 68 on 2023 and 34 on 2024-2025; yards per attempt wants 34 on 2023 and 300 on 2024-2025 **[v]** | `projections.js:97`, read at `:562`, `:570`, `:576` | **Open** — split the constant per metric (and per position, as the volume half already does), then re-fit. Needs a promotion gate, not a file edit | fantasy plan (owns `projections.js`) |
 | D32 | **The efficiency half shrinks proportions with the helper the codebase tells it not to use** — plain `shrink` on `catch_rate` and all three TD rates, where `stats-util.js:31-48` says to use `shrinkRate`; every `shrinkRate` caller is on the MLB side. **Measured: switching would be very slightly worse** on all three, and on catch rate (2,162 rows, 251 players), where its own reasoning predicts the biggest gain, there is none **[v]** | `projections.js:564-578` vs `stats-util.js:44-48`, `scripts/grade-proportion-shrinkage.mjs` | **Closed — leave it.** Recorded so nobody tidies it up and loses ground | — |
+| D34 | **The offseason model's pooled significance test can report a worse model as a significant win, and the guard written to stop it does not.** When `fitGbm` throws for one test season and succeeds for the others, `pooled.gbm` carries fewer rows than `pooled.no_change`, and the pooled comparison pairs them by index — 2023 baseline rows against 2024 challenger rows. The `groups.length === n` guard passes rather than falling back, because `n = Math.min(A, B)` and `groups` is sized to the *shorter* array, which the guard's own 2026-09-12 comment says is what every caller here does. Demonstrated: a challenger genuinely **worse by +0.10** is reported **-0.80, 90% CI [-0.80, -0.80], significant** **[v]** | `offseason-model.js:1116-1118`, `:1149-1153`, same shape at `:1465-1471`; guard at `backtest-significance.js:80` | **Open.** The fallback would not save it either — the ungrouped branch indexes both arrays the same way. Fix at the caller: pool only seasons where both arms ran, or key rows by unit. The bare `catch { gbmModel = null; }` at `:1073-1077` is what makes it silent | unallocated — no thread owns `offseason-model.js` |
 | D33 | Withdrawn: the 2024-2025 touchdown-rate arms are biased low at every k (-0.0060 receiving), which read as a prior-level defect until 2023 came back at -0.0014. Not stable across seasons **[v]** | — | **Withdrawn by its author** | — |
 
 ## E. Scope and housekeeping (`/mnt/project-files/remaining-work-scope.md`)
@@ -119,6 +120,14 @@ findings are fixed in `main`, one is a decided leave-it, and the two open ones
 **Tonight's work is mostly held, not open.** Eight of the rows above are *Fixed
 (held)* — they exist, tested, on branches with no PR, waiting on one word to
 land. The freeze is the only thing between them and main.
+
+**One new row is a live correctness bug, not a tuning question.** D34 is the
+only finding in this ledger where a model that is *worse* can be published as a
+significant improvement. It is also the clearest case yet for the standard this
+audit has been applying to everyone else: the 2026-09-12 sweep diagnosed this
+exact caller in a twenty-line comment, wrote a guard, and the guard closes the
+mirror case instead of the one described. A correction with no test that fails
+without it is a correction nobody has run.
 
 **The open list is dominated by one shape**: a number that is hand-set where it
 could be fitted, or fitted where nothing reads it. B1/D1/D2 (the shrinkage

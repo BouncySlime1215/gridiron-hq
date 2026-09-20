@@ -302,14 +302,21 @@ function foreignOnlyFile(file, foreign) {
 /**
  * Who reads and who writes each column, from the SQL this repository contains.
  *
- * Lifted out of findings() unchanged so the read/write evidence can be tested on its
- * own. The behaviour here is exactly what shipped.
+ * THE TEST TREE IS NOT EVIDENCE, on either side. The read side always excluded it — a
+ * test reading a column is not a live surface. The write side did not, and that
+ * asymmetry defeated `column-read-never-written`, which GATES: a fixture line like
+ * `UPDATE players SET bye_week = 9` inside a test file counted as a writer and
+ * silently cleared the finding that says production never writes the column.
+ *
+ * `scripts/` stays evidence: a backfill script is a real writer, run by hand or by a
+ * job, and excluding it would invent findings rather than hide them.
  */
 function columnEvidence(files, declared) {
   const colRead = new Map();      // `t.c` -> [{file,line}]
   const colWritten = new Set();   // `t.c`
   const opaqueWrite = new Set();  // tables written through a column list we cannot read
   for (const f of files.values()) {
+    if (f.tree === 'test') continue;
     for (const { text, line } of f.strings) {
       if (!looksSql(text)) continue;
       const { reads, writes } = statementTables(text);
@@ -325,7 +332,7 @@ function columnEvidence(files, declared) {
         if (owners.length !== 1) continue;          // ambiguous: say nothing
         const key = `${owners[0]}.${w}`;
         if (writes.has(owners[0])) colWritten.add(key);
-        else if (reads.has(owners[0]) && f.tree !== 'test') {
+        else if (reads.has(owners[0])) {
           if (!colRead.has(key)) colRead.set(key, []);
           colRead.get(key).push({ file: f.path, line });
         }

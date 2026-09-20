@@ -147,3 +147,41 @@ test('a player with no fit of any kind reads as constants, not as the process ba
   const out = newsFantasyTracker([signalFor(RECEIVER)]);
   assert.equal(out.signals[0].fantasy_model.availability_basis, 'constants');
 });
+
+test('both bases survive the route, which is the only way either reaches the page', () => {
+  // Found by mutation, not by design: deleting `availability_basis` from the /news
+  // response in routes/news.js turned nothing in this file red, because every test
+  // above calls `newsFantasyTracker` directly and never goes near the route. A field
+  // that can be quietly dropped from a response literal with nothing failing is not
+  // wired, whatever the service does with it.
+  //
+  // The two bases travel by different paths and both are pinned here. The PAGE-level
+  // one is a named key on the response and is what the degradation note reads, so its
+  // absence silences exactly the sentence that exists to say the numbers are degraded.
+  // The PER-CARD one rides inside `signals`, so it survives as long as the signals do
+  // — but "as long as" is the assumption worth writing down rather than relying on.
+  //
+  // The field names are written out by hand. Deriving them from either side would
+  // pass the exact defect this exists to catch.
+  const read = rel => fs.readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
+  const route = read('server/routes/news.js');
+  const page = read('client/src/pages/News.tsx');
+
+  assert.match(route, /availability_basis: tracked\.availability_basis/,
+    'the /news response stopped carrying the page-level basis');
+  assert.match(route, /signals: /,
+    'and the signals it carries are what the per-card basis rides inside');
+
+  assert.match(page, /data\.availability_basis\.basis/,
+    'the page stopped reading the page-level basis, so the degradation note is dead');
+  assert.match(page, /s\.fantasy_model\.availability_basis/,
+    'the card stopped reading its own basis, so every row reads as measured again');
+
+  // Honest limit, since four assertions invite more confidence than they earn: this
+  // pins the WIRE, not the rendering. A page that reads the field and then ignores
+  // what it says still passes here — replacing one of the two branch arms with a
+  // constant was tried and this test did not notice, because the other arm keeps the
+  // string present. Catching that needs a rendered DOM, which this repository has no
+  // harness for. What it does catch is the case that was previously undetectable:
+  // the field never arriving at all.
+});

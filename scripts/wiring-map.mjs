@@ -37,7 +37,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SRC_EXT = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx']);
+const SRC_EXT = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.mts', '.cts']);
 const SKIP_DIR = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next']);
 
 /** Where code lives, and what kind of thing each tree is. */
@@ -2752,6 +2752,25 @@ const LIMITS = [
   + 'the route spreads is on the wire and not in this rule. Walking into the services made it '
   + '1,435 findings of which almost none were payload fields, so the rule takes the narrow, '
   + 'certain source and says so rather than being comprehensive and ignored.',
+  'THE CENSUS IS OF EIGHT EXTENSIONS, NOT OF EVERY FILE. The walk reads .js, .mjs, .cjs, '
+  + '.ts, .tsx, .jsx, .mts and .cts and nothing else, so "325 tables" is a census of what '
+  + 'those files create, not of what the databases hold. .mts and .cts were added on '
+  + '2026-09-20 and brought 17 tables that had been invisible: the whole jev_* classifier '
+  + 'layer in scripts/news-line, scripts/luck and scripts/live-market. .py was measured the '
+  + 'same day and deliberately NOT added: 77 files, 66 further tables (a Python line-history '
+  + 'and betting layer, an_*, covers_*, kalshi_*, pinnacle_*, weather_*, wayback_*), but '
+  + 'Python triple-quoted strings are not JavaScript template literals to this scanner, so '
+  + 'scripts/chat/test_extract_league_chat.py:23 registered tables called chat, handle, '
+  + 'message and participants, every .py file registered as a Node entry point, and '
+  + 'column-read-never-written — which GATES — went from 1 to 10. Reading Python needs its '
+  + 'own scanner, not another extension in this set.',
+  'COMMENTS ARE BLANKED BEFORE ANYTHING IS READ. scan() blanks comment bodies in both the '
+  + 'code view and the text view, and the SQL census reads only string literals, so a table '
+  + 'or a route named in a comment is never seen at all — it is not hit and rejected, it does '
+  + 'not reach the parser. That is the safe direction for a census (a comment cannot invent a '
+  + 'table) and the wrong direction for anyone using this map to find every mention of a '
+  + 'name: nfl-news-signal.js:285 and data-lineage-inventory.mjs:110 both name things in '
+  + 'prose and appear nowhere here. Use git grep for mentions; use this map for dials.',
   'A LINE NUMBER IS WORTHLESS WITHOUT ITS TREE. On 2026-09-19 three threads cited '
   + 'contingency.js at :117, :835 and :836 for the same statement, each correct for the branch '
   + 'it had read. This map names the tree it read at the top of every artifact; quoting a line '
@@ -2925,6 +2944,22 @@ function toJson(model, found, ann) {
       columns: [...(columns.get(t.table) ?? [])].sort(),
       created_in: [...new Set(t.creates.map(c => `${c.file}:${c.line}`))],
       created_by: t.created_by, created_at_site: t.created_at_site, created_via: t.created_via,
+      // WHICH HANDLE THE DDL RAN ON. The scan already attributes every SQL edge to the
+      // connection it was executed on; the table row was dropping it. It matters here
+      // because `negotiation_profiles` and the sh_* family are not application tables at
+      // all — they live in data/derived/league_chat.sqlite and
+      // data/derived/sleeper_history.sqlite — and "this table has no migration" means
+      // something different about a table in another file. A reader cannot tell those two
+      // apart from a list of names.
+      //
+      // These are IDENTIFIERS, not resolved paths: `chat`, `db`, `c` are the variable the
+      // DDL was executed on, and `opened_on` is the expression the connection was opened
+      // with, not the file it resolves to. So `app` means the application handle, and
+      // anything else means LOOK — it may be another database, or it may be a test's own
+      // temporary copy of this one. The parser does not resolve a path constant to a file
+      // and does not pretend to.
+      create_handles: [...new Set(t.creates.map(c => c.handle ?? 'app'))].sort(),
+      create_handles_opened_with: [...new Set(t.creates.map(c => c.opened_on).filter(Boolean))].sort(),
       written_by: [...new Set(t.writes.filter(w => w.tree !== 'test').map(w => `${w.file}:${w.line}`))],
       read_by: [...new Set(t.reads.filter(r => r.tree !== 'test').map(r => `${r.file}:${r.line}`))],
       wiring: close(surfaceFamilies(reachNames, [...new Set(t.reads.filter(r => r.tree !== 'test').map(r => r.file))])),

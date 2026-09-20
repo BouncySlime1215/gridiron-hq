@@ -2249,33 +2249,11 @@ median 180, longest 376. **The app has not once answered two clean reads inside
 one life.** That is the number behind "restarting in a loop", and it is why the
 first command below is a brake rather than an investigation.
 
-**Before any of it: CI is off, deliberately, and none of these PRs is red for a
-reason of its own.** The month's GitHub Actions allowance is spent — 2,000 of
-2,000 minutes, resetting **1 October** — which from about 01:00Z on 2026-09-20
-made every run fail two seconds after starting, on four branches at once,
-having checked out nothing and run no test. The workflow is now
-`disabled_manually`, so a push triggers nothing at all.
-
-**What that means for the merges below: nothing.** This is a private repository
-on the Free plan, so no required-check rule can exist on `main` and no merge is
-gated on a green check. **A red or missing check on any of these PRs is not a
-statement about its contents.** The evidence that stands in for CI is in each
-PR's own body: every one of them carries its owner's full local run — suite
-count, failures, lint, typecheck and smoke — taken before the allowance ran out.
-
-**Do not re-enable the workflow and do not re-run anything**, including from
-the Actions tab, until the allowance resets. A re-run spends the thing that is
-exhausted and fails in two seconds regardless. The full evidence — which runs,
-which branches, the two-second durations — is in a comment on this pull
-request.
-
-**And the emails were the noise, not the work.** Every new pull request sends
-one, and overnight that made the volume look like activity when most of it was
-bookkeeping. From 01:31Z no thread opens a documentation-only pull request,
-comments on one, or closes one; work continues as commits on the branches that
-already exist. **So no PR number beyond the ones listed above should appear
-before morning unless it is code that ships.** A number you do not recognise is
-worth a second look for that reason.
+**Two things about the inbox before anything else, so the rest reads
+straight.** CI is off deliberately and gates none of the merges below — the
+detail sits with step 5, where it matters. And **no PR number beyond the six
+listed there should have appeared overnight unless it is code that ships**, so
+one you do not recognise is worth a second look.
 
 **The run sheet's step 7 is not the first item. Stabilising the app is.**
 Everything numbered below is this block's own list, not the run sheet's — the
@@ -2341,6 +2319,31 @@ of a dozen jobs is the one currently holding the lock."
    restart, exiting non-zero with *the app restarted mid-capture*. Run before
    step 2 passes, that is what it will do, every time, correctly. Stabilise,
    prove `uptime_s` past 600, then capture — never the other way round.
+
+**About the checks on these six, before the list: CI is off deliberately and
+none of them is red for a reason of its own.** The month's GitHub Actions
+allowance is spent — 2,000 of 2,000 minutes, resetting **1 October** — which
+from about 01:00Z on 2026-09-20 made every run fail two seconds after starting,
+on four branches at once, having checked out nothing and run no test. The
+workflow is now `disabled_manually`, so a push triggers nothing at all.
+
+**What that means for merging: nothing.** This is a private repository on the
+Free plan, so no required-check rule can exist on `main` and no merge is gated
+on a green check. **A red or missing check on any of these PRs is not a
+statement about its contents.** The evidence that stands in for CI is in each
+PR's own body: every one carries its owner's full local run — suite count,
+failures, lint, typecheck and smoke — taken before the allowance ran out.
+
+**Do not re-enable the workflow and do not re-run anything**, including from
+the Actions tab, until the allowance resets. A re-run spends the thing that is
+exhausted and fails in two seconds regardless. The full evidence — which runs,
+which branches, the two-second durations — is in a comment on this pull
+request.
+
+**And the emails overnight were bookkeeping, not work.** Every new pull request
+sends one. From 01:31Z no thread opens a documentation-only pull request,
+comments on one, or closes one; work continues as commits on branches that
+already exist. That is why an unfamiliar PR number is worth a second look.
 
 5. Ship the fix. **Six PRs, in this order:** **#56** (the arming fix),
    **#59** (takes the boot path off the request thread), **#61** (backs a job

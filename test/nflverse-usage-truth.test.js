@@ -37,8 +37,8 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
-const { run } = await import('../server/db/index.js');
-const { statusFromDetail, recordSync } = await import('../server/services/scheduler.js');
+const { run, row } = await import('../server/db/index.js');
+const { statusFromDetail, recordSync, lastRun } = await import('../server/services/scheduler.js');
 const nflverse = await import('../server/services/nflverse.js');
 
 test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
@@ -98,15 +98,46 @@ test('the summary keeps every season, so the detail stored names which one broke
   assert.equal(summary.per_season.find(s => s.season === 2026).unmatched, 4000);
 });
 
+/* ------------------------------------------------- what reaches sync_log */
+
+test('a six-season run leaves ONE sync_log row, not six that overwrite each other', () => {
+  const before = Number(row("SELECT runs FROM sync_log WHERE job = 'nflverse_weekly_usage'")?.runs) || 0;
+  nflverse.recordUsageRun({
+    usage: [2021, 2022, 2023, 2024, 2025].map(s => failed(s)).concat([ok(2026)]),
+    snaps: [2021, 2022, 2023, 2024, 2025, 2026].map(s => ok(s))
+  });
+  const stamp = lastRun('nflverse_weekly_usage');
+  assert.equal(Number(stamp.runs) - before, 1,
+    'the old loop stamped once per season, so the last season decided the feed');
+  assert.equal(stamp.last_status, 'partial',
+    'five of six seasons failed — a later success must not erase that');
+  assert.equal(lastRun('nflverse_snap_counts').last_status, 'ok',
+    'the feeds are stamped independently');
+});
+
+test('a run that matched no player anywhere stamps error, and the detail names the seasons', () => {
+  nflverse.recordUsageRun({ usage: [unmatched(2026)], snaps: [unmatched(2026)] });
+  const stamp = lastRun('nflverse_weekly_usage');
+  assert.equal(stamp.last_status, 'error');
+  assert.equal(Number(stamp.consecutive_failures), 1, 'an error must accumulate a backoff');
+  assert.deepEqual(JSON.parse(stamp.last_detail).per_season.map(s => [s.season, s.outcome]),
+    [[2026, 'unmatched']]);
+});
+
 /* --------------------------------------------------- coverage vs. stamp */
 
+// player_week_usage.player_id carries a foreign key, so the players have to
+// exist before a usage row can.
+const player = name => Number(
+  run('INSERT INTO players (name, position) VALUES (?, ?)', name, 'WR').lastInsertRowid);
 const usageRow = (season, week, playerId) => run(
   'INSERT INTO player_week_usage (player_id, season, week) VALUES (?,?,?)', playerId, season, week);
 
 test('coverage reads the table, not the status row', () => {
-  usageRow(2025, 1, 1);
-  usageRow(2025, 2, 1);
-  usageRow(2025, 1, 2);
+  const a = player('Usage One'), b = player('Usage Two');
+  usageRow(2025, 1, a);
+  usageRow(2025, 2, a);
+  usageRow(2025, 1, b);
   const cov = nflverse.usageCoverage([2025, 2026]);
   assert.equal(cov.per_season.find(s => s.season === 2025).rows, 3);
   assert.equal(cov.per_season.find(s => s.season === 2025).players, 2);
@@ -122,16 +153,15 @@ test('a green stamp over a season with no rows is reported as a disagreement', (
 });
 
 test('a feed that has never run is not a disagreement, it is a feed that has never run', () => {
-  const cov = nflverse.usageCoverage([2025]);
-  assert.equal(cov.missing.length, 0);
-  assert.equal(cov.stamp_disagrees, false);
-  const never = nflverse.usageCoverage([2025], { job: 'nflverse_weekly_usage_never_run' });
-  assert.ok(never.never_run);
-  assert.equal(never.stamp_disagrees, false);
+  const never = nflverse.usageCoverage([2026], { job: 'nflverse_weekly_usage_never_run' });
+  assert.deepEqual(never.missing, [2026]);
+  assert.ok(never.never_run, 'no sync_log row at all');
+  assert.equal(never.stamp_disagrees, false,
+    'a feed that has made no claim cannot be contradicting the table');
 });
 
 test('coverage with no argument reports every season the table holds', () => {
   const cov = nflverse.usageCoverage();
   assert.deepEqual(cov.per_season.map(s => s.season), [2025]);
-  assert.equal(cov.missing.length, 0);
+  assert.equal(cov.missing.length, 0, 'asking about what is held cannot report a gap');
 });

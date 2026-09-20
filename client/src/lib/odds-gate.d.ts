@@ -30,6 +30,8 @@ export interface Calibration {
     no_chance_qualify_rate?: number;
     certain_miss_rate?: number;
   };
+  /** When the grading was taken. The as-of of the grade, not of the data. */
+  measured_on?: string;
   /** What the grading did NOT cover — this app's own configuration. */
   not_graded?: string;
 }

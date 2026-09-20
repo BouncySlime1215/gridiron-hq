@@ -77,3 +77,50 @@ GRIDIRON_DB_PATH=$(mktemp -u /tmp/gr-XXXXXX).sqlite SCHEDULER_DISABLED=1 \
   node --experimental-test-module-mocks --test --test-concurrency=1 \
   test/stat-block.test.js
 ```
+
+---
+
+## Addendum: the roll was written and never wired
+
+A later sweep flagged `client/src/lib/useNumberRoll.ts` as **imported by
+nothing**. The hook, its bounds and its tests all existed; no component called
+it. A hook nobody imports is dead code that reads as a feature, and the tests
+above passed the whole time because they read the hook's own source rather than
+any use of it. That is the same failure as
+[[tests-that-slice-on-a-common-token]] one level out: the test watched the
+thing, not the thing being used.
+
+It is now wired into `StatBlock`, the one component that owns numbers.
+
+Two decisions came with the wiring, and both are the kind that look like
+details and are not:
+
+**The threshold is in wire units, not screen units.** `formatValue` multiplies
+a percentage by 100 before rounding, so a quantity displayed to one decimal as
+a percentage is significant to *three* decimals on the wire. Passing
+`t.precision` straight through would have put the roll's threshold a hundred
+times too high and silently suppressed every roll a percentage could make —
+which looks exactly like the hook not working, and would have been debugged as
+that. `t.unit === 'percent' ? t.precision + 2 : t.precision`.
+
+**The accessible name is the settled value.** A roll is a visual answer to "did
+this just change". Renaming the button sixty times a second is not that answer,
+and a reader speaking early would announce a number the page never settles on.
+`aria-label` reads `settledText`, formatted from the raw prop; only the visible
+digits roll.
+
+### Mutation runs
+
+Baseline `test/stat-block.test.js`: 12 tests, 12 pass, 0 fail.
+
+| Mutation | Result | Caught by |
+|---|---|---|
+| `StatBlock` stops importing the hook (back to unwired) | 11 pass / **1 fail** | the roll is actually used |
+| the rolled value is computed and then thrown away | 11 pass / **1 fail** | the roll is actually used |
+| the threshold uses screen units, killing every percent roll | 11 pass / **1 fail** | the threshold is in wire units |
+| `formatValue` stops scaling percent, so the `+2` goes stale | 11 pass / **1 fail** | the threshold is in wire units |
+| the accessible name is read from the rolling value | 11 pass / **1 fail** | the accessible name is the settled value |
+
+The fourth is there because the `+2` is a fact about `formatValue`, not about
+`StatBlock`. If someone changes the scaling and leaves the offset, nothing in
+`StatBlock` is wrong on its own and the roll goes wrong anyway.

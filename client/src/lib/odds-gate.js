@@ -23,7 +23,7 @@
 /**
  * @typedef {{ brier?: number, base_rate?: number }} WeekGrade
  * @typedef {{ graded_team_weeks?: number, corpus?: string, source?: string,
- *   by_week?: Record<string, WeekGrade>,
+ *   by_week?: Record<string, WeekGrade>, measured_on?: string,
  *   extremes?: { no_chance_qualify_rate?: number, certain_miss_rate?: number },
  *   not_graded?: string }} Calibration
  * @typedef {{ published: boolean, min_week: number, weeks_played: number,
@@ -106,8 +106,13 @@ export function gradedSentence(gate) {
       + `${Math.round(e.certain_miss_rate * 100)}% of the time.`
     : '';
   const notGraded = c.not_graded ? ` One thing that grading did not cover: ${c.not_graded}` : '';
+  // `measured_on` is the as-of of the GRADE, not of the data underneath, and it
+  // belongs beside the grade rather than in the headline. A grading is a
+  // measurement like any other in this app: it was taken on a day, and it can
+  // go stale without anything on screen changing.
+  const measured = c.measured_on ? `, measured ${c.measured_on}` : '';
   return `${base} The playoff side of this simulation has also been graded directly, on ${weeks} `
-    + `real team-weeks${c.corpus ? ` from ${c.corpus}` : ''}. Before week ${w} it did worse than `
+    + `real team-weeks${c.corpus ? ` from ${c.corpus}` : ''}${measured}. Before week ${w} it did worse than `
     + `simply telling every team the same number.${score}${ends}${notGraded}`;
 }
 

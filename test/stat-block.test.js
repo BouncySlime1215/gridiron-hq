@@ -21,6 +21,7 @@ const block = read('client/src/components/ui/StatBlock.tsx');
 const roll = read('client/src/lib/useNumberRoll.ts');
 const css = read('client/src/index.css');
 const doc = read('docs/design/design-system.md');
+const glossary = read('client/src/lib/glossary.ts');
 
 test('a stat block cannot be given its own label', () => {
   // Rule 2. A caller that can pass a label is a caller that will, and then
@@ -101,4 +102,33 @@ test('the roll returns a number, so formatting stays in one place', () => {
 test('it cancels, so a value that changes twice does not leave two animations running', () => {
   assert.match(roll, /cancelAnimationFrame/, 'nothing cancels the frame');
   assert.match(roll, /return stop;/, 'the effect no longer cleans up on unmount');
+});
+
+test('the roll is actually used, and used by the one component that owns numbers', () => {
+  // A hook nobody imports is dead code that reads as a feature. It was written
+  // for StatBlock and it has to be wired there, not merely available.
+  assert.match(block, /import \{ useNumberRoll \} from '\.\.\/\.\.\/lib\/useNumberRoll'/,
+    'StatBlock no longer rolls its value');
+  assert.match(block, /const rolled = useNumberRoll\(value,/, 'the roll is imported but not called');
+  assert.match(block, /formatValue\(id, rolled,/, 'the rolled value is computed and then thrown away');
+});
+
+test('the roll threshold is in wire units, not screen units', () => {
+  // formatValue multiplies a percent by 100 before rounding, so a percentage
+  // shown to one decimal is significant to three on the wire. Passing the
+  // display precision straight through would make every percentage roll
+  // impossible, which looks exactly like the hook not working.
+  assert.match(block, /t\.unit === 'percent' \? t\.precision \+ 2 : t\.precision/,
+    'the roll threshold no longer accounts for the percent scaling in formatValue');
+  assert.match(glossary, /const scaled = t\.unit === 'percent' \? value \* 100 : value/,
+    'formatValue stopped scaling percentages — the +2 above is now wrong');
+});
+
+test('the accessible name is the settled value, not the rolling one', () => {
+  // A roll answers "did this just change" visually. Renaming the button sixty
+  // times a second is not that answer, and a reader speaking early would read a
+  // number the page never settles on.
+  assert.match(block, /const settledText = formatValue\(id, value,/, 'the settled value is gone');
+  assert.match(block, /'aria-label': `\$\{t\.name\}, \$\{settledText\}/,
+    'the accessible name is being read from the rolling value');
 });

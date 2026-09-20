@@ -123,3 +123,24 @@ The corpus-fitted probability was **not** substituted for the page's number. Its
 calibration was measured on other leagues and does not transfer by assumption;
 putting it on screen would swap a number known to be weak for one whose
 weakness here has not been measured at all.
+
+---
+
+## Addendum: the grading's own as-of
+
+`calibration.measured_on` is now rendered, inside the calibration footnote and
+never in the headline: "graded on 184,959 real team-weeks from *corpus*,
+measured *date*". It is the as-of of the **grade**, not of the data underneath.
+A grading is a measurement like any other in this app — it was taken on a day,
+and it can go stale with nothing on screen changing.
+
+A payload without one says nothing rather than filling in today's date.
+
+| Mutation | Result | Caught by |
+|---|---|---|
+| the grading drops its as-of | 10 pass / **1 fail** | the grading carries its own as-of |
+| the as-of is invented when none is served (`?? today`) | 10 pass / **1 fail** | the grading carries its own as-of |
+
+The second matters more than the first. A missing date that is quietly replaced
+by today's is the exact shape of the bugs this project keeps finding: a number
+that looks healthy, is wrong, and says nothing about it.

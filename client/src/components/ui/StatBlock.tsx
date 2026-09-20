@@ -30,6 +30,7 @@
 import type { ReactNode } from 'react';
 import BasisChip, { type Basis } from './BasisChip';
 import { formatValue, term, type TermId } from '../../lib/glossary';
+import { useNumberRoll } from '../../lib/useNumberRoll';
 
 export default function StatBlock({
   id, value, basis, basisNote = null, n = null, note, size = 'stat',
@@ -58,7 +59,24 @@ export default function StatBlock({
   children?: ReactNode;
 }) {
   const t = term(id);
-  const text = formatValue(id, value, { signed });
+  // A number that moved should look like it moved. The roll refuses on first
+  // paint, under prefers-reduced-motion, and below the number's own display
+  // precision, so a value that did not visibly change does not animate.
+  //
+  // The threshold is given in the units the SERVER sends, not the ones on
+  // screen. `formatValue` multiplies a percent by 100 before rounding, so a
+  // quantity shown to one decimal as a percentage is significant to three
+  // decimals on the wire; passing the display precision straight through would
+  // suppress every roll a percentage could ever make.
+  const rolled = useNumberRoll(value, t.unit === 'percent' ? t.precision + 2 : t.precision);
+  // Formatting still happens once, from the raw value, so a rolling number and
+  // a settled one cannot render to different precision.
+  const text = formatValue(id, rolled, { signed });
+  // The accessible name is the SETTLED value, never the rolling one. A roll is
+  // a visual answer to "did this just change"; a screen reader being handed a
+  // new name sixty times a second is not that answer, it is noise, and the
+  // value it lands on would be mid-count if the reader spoke early.
+  const settledText = formatValue(id, value, { signed });
   const interactive = typeof onOpen === 'function';
   const Tag = interactive ? 'button' : 'div';
 
@@ -67,7 +85,7 @@ export default function StatBlock({
       {...(interactive
         ? { type: 'button' as const, onClick: onOpen,
             // The number alone is not a description of what opens.
-            'aria-label': `${t.name}, ${text}. Show where this came from.` }
+            'aria-label': `${t.name}, ${settledText}. Show where this came from.` }
         : {})}
       className={`stat-block stat-block-${size}${interactive ? ' is-interactive' : ''}`}
     >

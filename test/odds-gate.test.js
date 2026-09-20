@@ -33,6 +33,7 @@ const CAL = {
   corpus: '2500 Sleeper leagues, 2021-2025',
   by_week: { 2: { brier: 0.2855, base_rate: 0.2410 }, 4: { brier: 0.21, base_rate: 0.2410 } },
   extremes: { no_chance_qualify_rate: 0.1212, certain_miss_rate: 0.1011 },
+  measured_on: '2026-09-20',
   not_graded: "the app's own from-week-1 configuration was not graded"
 };
 
@@ -145,4 +146,20 @@ test('the plain-words sentences avoid the vocabulary the glossary bans', () => {
       assert.doesNotMatch(s, new RegExp(`\\b${w}`, 'i'), `"${w}" appears in a plain-words sentence`);
     }
   }
+});
+
+test('the grading carries its own as-of, beside the grade and not in the headline', () => {
+  // A grading is a measurement like any other here: taken on a day, able to go
+  // stale with nothing on screen changing. It belongs next to the number of
+  // team-weeks it graded, not next to the percentage it is grading.
+  const s = gradedSentence({ published: false, min_week: 4, weeks_played: 0, reason: null, calibration: CAL });
+  assert.match(s, /184,959 real team-weeks from [^.]*, measured 2026-09-20\./,
+    'the grading no longer says when it was taken, or says it somewhere else');
+  // And a payload without one says nothing rather than inventing a date.
+  const noDate = gradedSentence({
+    published: false, min_week: 4, weeks_played: 0, reason: null,
+    calibration: { ...CAL, measured_on: undefined }
+  });
+  assert.doesNotMatch(noDate, /measured /, 'a date appeared that the payload did not carry');
+  assert.match(noDate, /184,959/, 'dropping the date dropped the grading with it');
 });

@@ -40,7 +40,10 @@ tables of the app database are created by neither `server/db/schema/` nor a migr
   executed only by `scripts/fit-availability.mjs:54-55`; `coach_person_variables`, from
   `scripts/build-person-profiles.mjs:57`; **`league_transactions_raw`**, from
   `scripts/collect-league-transactions.mjs:21`; `league_season_teams` and
-  `league_week_scores`, from `scripts/backfill-league-history.mjs:43,48`; and
+  `league_week_scores`, from `scripts/backfill-league-history.mjs:43,48` — and
+  `league_season_teams` carries the same end date as the transactions table, because
+  migration `064_league_history_tables.js:29` on PR #47 creates it after merge, verified
+  absent from main's migrations here (main's highest are the two 062s); and
   `nfl_rebuild_checkpoints` and `nfl_rebuild_progress`, from
   `scripts/nfl-2022-2025-rebuild.mjs` — rebuild bookkeeping, not catalogued. These are
   the tables that make a fresh clone behave differently from Nick's Mac.

@@ -87,6 +87,16 @@ const SCRIPT_LEAGUE_TRANSACTIONS =
 const SCRIPT_LEAGUE_HISTORY =
   '`scripts/backfill-league-history.mjs` creates it, and nothing else does, so it has not '
   + 'been built on any machine where that script has not been run';
+/**
+ * Same shape, with an end date. On main nothing but the backfill script creates
+ * league_season_teams; migration 064 on PR #47 creates it, so this sentence is
+ * true of main and stops being true the day that branch merges. It is written
+ * out rather than folded into the line above precisely so it is noticed then.
+ */
+const SCRIPT_LEAGUE_SEASON_TEAMS =
+  '`scripts/backfill-league-history.mjs` creates it on main, and nothing else does, so it has '
+  + 'not been built on any machine where that script has not been run; migration 064 in PR #47 '
+  + 'creates it after merge';
 const SCRIPT_FIT_AVAILABILITY =
   '`scripts/fit-availability.mjs` creates it from the DDL in `server/services/contingency.js`, and '
   + 'nothing else does, so it has not been built on any machine where that script has not been run';
@@ -302,7 +312,7 @@ export const COACH_TABLES = Object.freeze({
   league_season_teams: t('one team in one league and season',
     'the finished season for a team: record, points for and against, final rank and playoff seed, with the owner behind it',
     'backfilled by hand, one run per league', 'by_hand', [],
-    SCRIPT_LEAGUE_HISTORY),
+    SCRIPT_LEAGUE_SEASON_TEAMS),
   league_week_scores: t('one team in one week of one season',
     'what a team actually scored that week, who it played and whether the week was a playoff week — the history behind "is he lucky or good"',
     'backfilled with league_season_teams, by hand', 'by_hand', [],

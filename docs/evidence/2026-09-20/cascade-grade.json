@@ -1,0 +1,76 @@
+{
+  "version": "cascade-grade-v1.0.0",
+  "generated_at": "2026-09-20T01:33:24.632Z",
+  "half_life": 3,
+  "min_prior_games": 2,
+  "draws": 2000,
+  "seasons": [
+    {
+      "season": 2024,
+      "graded_rows": 49,
+      "absences": 192,
+      "starters": 79,
+      "distinct_beneficiaries": 14,
+      "qb_rows": 12,
+      "max_multiplier": 1.714,
+      "multipliers_above_3": 0,
+      "test_a": {
+        "mae_with": 5.771224489795918,
+        "mae_without": 6.781428571428574,
+        "delta": -1.010204081632656,
+        "delta_pct": -0.17504155026698312,
+        "interval": {
+          "lo": -1.0992682926829245,
+          "hi": 3.1408064516129093
+        },
+        "interval_excludes_zero": false
+      },
+      "test_b": {
+        "mae_own": 5.414793141187146,
+        "mae_own_scaled": 5.582417639447915,
+        "delta": -0.16762449826076864,
+        "delta_pct": -0.030956768594860566,
+        "interval": {
+          "lo": -0.6934028817911688,
+          "hi": 1.0054342682632784
+        },
+        "interval_excludes_zero": false
+      },
+      "in_sample_gain_scale": 0.17583281415292756
+    },
+    {
+      "season": 2025,
+      "graded_rows": 77,
+      "absences": 160,
+      "starters": 80,
+      "distinct_beneficiaries": 21,
+      "qb_rows": 37,
+      "max_multiplier": 26.375,
+      "multipliers_above_3": 1,
+      "test_a": {
+        "mae_with": 5.023636363636366,
+        "mae_without": 5.1225974025974015,
+        "delta": -0.09896103896103536,
+        "delta_pct": -0.019699084845663923,
+        "interval": {
+          "lo": -1.2310869565217377,
+          "hi": 1.207045454545458
+        },
+        "interval_excludes_zero": false
+      },
+      "test_b": {
+        "mae_own": 4.297169612879141,
+        "mae_own_scaled": 7.232784066373445,
+        "delta": -2.9356144534943045,
+        "delta_pct": -0.6831507056868108,
+        "interval": {
+          "lo": 0.5757207310744201,
+          "hi": 6.399124409485059
+        },
+        "interval_excludes_zero": true
+      },
+      "in_sample_gain_scale": 0.5805682968300722
+    }
+  ],
+  "verdict": "refused"
+}

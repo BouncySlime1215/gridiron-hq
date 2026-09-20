@@ -164,10 +164,20 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   // 0.65), which clears its 0.45 bar and prices the player up under a sentence
   // that says his word has held. Nothing about his word was read. This carries
   // the difference to `playerValuation`, which withholds the adjustment.
-  const declarationsRead = credibility == null ? null : credibility.available !== false;
-  const declarationsReason = declarationsRead === false
-    ? 'his declaration record was never read — the chat corpus is not on this machine, so whether his refusals hold is unknown'
-    : null;
+  // WHETHER THE RECORD WAS READ AT ALL, in the two ways it can fail to be.
+  // `credibility == null` is "we never asked": this league has no confirmed chat
+  // identity, so no lookup was attempted. `available: false` is "we asked and
+  // could not read it": the corpus is not on this machine. Both leave
+  // `untouchableStance` falling back to the 1 - PRIOR_BLUFF_RATE prior, which
+  // prices a refusal up under a sentence about a word nobody read — so both are
+  // `false` here, and they carry DIFFERENT sentences, because one is a machine
+  // and the other is a name Nick never confirmed.
+  const declarationsRead = credibility != null && credibility.available !== false;
+  const declarationsReason = declarationsRead
+    ? null
+    : credibility == null
+      ? 'his declaration record was never looked up — this league has no confirmed chat identity for him, so whether his refusals hold is unknown'
+      : 'his declaration record was never read — the chat corpus is not on this machine, so whether his refusals hold is unknown';
   // The whole-corpus model read of each person. One loader (negotiationProfilesFor),
   // which validates what it reads; an invalid profile simply is not there.
   const profiles = negotiationProfilesFor(leagueId);
@@ -560,14 +570,22 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
 
   // ----------------------- 6. he has said this one is not available, and ...
   const stance = managerProfile?.stance ?? null;
+  // THE GATE IS THE RECORD ITSELF, not a flag beside it. `stance.credibility` is
+  // null in every case where nothing about THIS manager's word was read: no
+  // confirmed chat identity for him, a corpus that is not on this machine, or a
+  // record that holds no resolved declaration of his. In all three
+  // `untouchableStance` fell back to 1 - PRIOR_BLUFF_RATE and would otherwise
+  // price the refusal up. Keying on the record rather than on a league-level flag
+  // also catches the mixed league, where some rosters are confirmed and his is not.
   if (stance && (stance.respect?.has(key) || stance.probe?.has(key))
-      && managerProfile?.declarations_read === false) {
+      && stance.credibility == null) {
     // Read but never measured. Reported inert with the reason rather than priced
     // on the prior: "he has never reversed a refusal" and "we have never seen his
     // refusals" are opposite facts, and only the first justifies charging for one.
     inert.push({ source: 'untouchable_credibility',
-      reason: managerProfile.declarations_reason
-        ?? 'his declaration record was never read, so whether his refusals hold is unknown',
+      reason: managerProfile?.declarations_reason
+        ?? 'his declaration record holds nothing about him — no declaration of his has been seen resolve, '
+           + 'so whether his word holds is unknown',
       as_of: null });
   } else if (stance && (stance.respect?.has(key) || stance.probe?.has(key))) {
     const cap = VALUATION_SOURCES.untouchable_credibility.cap;

@@ -201,6 +201,30 @@ export function tradeWeekContext(lg = null) {
 }
 
 /**
+ * The projection the fantasy coordinator's correction is applied to.
+ *
+ * It is the STRUCTURAL head, never the ensemble, and that is not a preference —
+ * it is what the correction was fitted and graded as. The fit's training target is
+ * `actualPoints - projection.structural_ppg` (fantasy-coordinator.js:324) and its
+ * walk-forward baseline is "predict zero correction = plain structural projection"
+ * (:519). Add that correction to the ensemble instead and the result was never
+ * graded against anything.
+ *
+ * It is also double-counted, specifically. One of the correction's three experts is
+ * `ensemble_shift`, defined as `projection.ppg - projection.structural_ppg`
+ * (:33-34) — the ensemble calibration itself. Feeding the ensemble as the base
+ * applies that calibration once in the base and again inside the correction.
+ *
+ * Returns null when there is no structural head, so the coordinator is skipped
+ * rather than fed the ensemble as a substitute. In practice `weeklyExpertValues`
+ * already returns null in that case (:408), so the call site's own guard covers
+ * it — this is belt and braces, and it is what the test pins.
+ */
+export function coordinatorBase(weekProjection) {
+  return weekProjection?.structural_ppg ?? null;
+}
+
+/**
  * The whole player universe, priced — memoised on the data it reads.
  *
  * This is the most expensive pure function in the fantasy half of the app: it
@@ -376,7 +400,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     // below for ROS/season-long figures, is untouched: the coordinator was
     // only walk-forward validated against weekly outcomes, not season totals.
     const expertValues = weekProjection ? weeklyExpertValues(weekProjection, target.season, target.week, scoring) : null;
-    const coordinated = expertValues ? coordinateFantasy(fantasyFit, expertValues, weeklyPpg) : null;
+    const coordinated = expertValues ? coordinateFantasy(fantasyFit, expertValues, coordinatorBase(weekProjection)) : null;
     const currentWeekBasePpg = coordinated?.ready ? coordinated.corrected_ppg : weeklyPpg;
     // thisGame.mult is exactly 1 while the matchup signal is off (matchups.js#
     // gameMultiplier); kept as a factor so this line needs no edit if a multiplier
@@ -476,7 +500,13 @@ function buildAssetUniverse(lg, formatKey, target) {
       // null when no fit is persisted yet (fantasy_coordinator_refit hasn't
       // run) or this player has no weekly projection to correct.
       fantasy_coordinator: coordinated?.ready
-        ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions }
+        // `structural_ppg` is served beside the correction because the two only mean
+        // anything together: corrected_ppg is that base plus the correction, and a
+        // reader who assumed the base was `ppg` above would silently read this as a
+        // bigger or smaller adjustment than it is. It is also what makes the
+        // relationship checkable from the response alone.
+        ? { structural_ppg: coordinated.structural_ppg, corrected_ppg: coordinated.corrected_ppg,
+            correction: coordinated.correction, contributions: coordinated.contributions }
         : null,
       ros_ppg: +rosPpg.toFixed(2),
       // What ros_ppg was built from; null = no ROS entry (no game yet), { failed } = the

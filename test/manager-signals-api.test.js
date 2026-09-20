@@ -243,11 +243,22 @@ for (const id of [21, 22, 23, 24]) {
 // Transactions in ESPN's real shape (manager-signals.js documents the
 // de-duplication): roster 2 answers six offers, roster 4 answers two. Five
 // decided offers is the bar for tx_accept_rate, so 2 clears it and 4 does not.
-function tx(id, type, execution, status, teamId, related = null, items = []) {
+//
+// The collection stamps are PINNED, not `datetime('now')`, and they are not all
+// the same: nothing in the app had ever read `first_seen_at` or `last_seen_at`
+// before, so a fixture where every row shares one second cannot tell the newest
+// stamp from the oldest, or from a count.
+const TX_FIRST_SEEN = '2026-09-17T09:00:00Z';
+const TX_SEEN_EARLY = '2026-09-17T22:00:00Z';
+const TX_COLLECTED_AT = '2026-09-18T04:15:00Z';   // the newest — the real "as of"
+const TX_ROWS = 18;
+let txWritten = 0;
+function tx(id, type, execution, status, teamId, related = null, items = [], seenAt = TX_SEEN_EARLY) {
   run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type, proposed_at,
          team_id, related_tx_id, items_json, first_seen_at, last_seen_at)
-       VALUES (21, 2026, ?, ?, ?, ?, '2026-09-10T00:00:00Z', ?, ?, ?, datetime('now'), datetime('now'))`,
-  id, type, status, execution, teamId, related, JSON.stringify(items));
+       VALUES (21, 2026, ?, ?, ?, ?, '2026-09-10T00:00:00Z', ?, ?, ?, ?, ?)`,
+  id, type, status, execution, teamId, related, JSON.stringify(items), TX_FIRST_SEEN, seenAt);
+  txWritten++;
 }
 const swap = (a, b) => [{ fromTeamId: a, toTeamId: b }, { fromTeamId: b, toTeamId: a }];
 for (let i = 1; i <= 6; i++) {
@@ -258,7 +269,8 @@ for (let i = 1; i <= 6; i++) {
 tx('g1', 'TRADE_PROPOSAL', 'EXECUTE', 'PENDING', 3, null, swap(3, 4));
 tx('g1-ans', 'TRADE_ACCEPT', 'EXECUTE', 'EXECUTED', 4, 'g1');
 tx('g2', 'TRADE_PROPOSAL', 'EXECUTE', 'PENDING', 3, null, swap(3, 4));
-tx('g2-ans', 'TRADE_DECLINE', 'EXECUTE', 'EXECUTED', 4, 'g2');
+tx('g2-ans', 'TRADE_DECLINE', 'EXECUTE', 'EXECUTED', 4, 'g2', [], TX_COLLECTED_AT);
+assert.equal(txWritten, TX_ROWS, 'the transaction fixture is the count the payload has to report');
 
 // One archetype row per source, this league-season: `draft` is declared
 // non-priceable (no draft metric survived the repeatability test) and `outcome`
@@ -427,6 +439,55 @@ test('read: a metric withheld for sample size never appears as if it had been me
   assert.ok(!JSON.stringify(body).includes('"tx_accept_rate"')
     || body.managers.every(m => (metricOf(m, 'tx_accept_rate')?.n ?? 5) >= 5),
   'no served accept rate rests on fewer than five decided offers');
+});
+
+test('read: the payload says when the transactions under it were last collected, and how many', async () => {
+  const { body } = await call('GET', '/api/trades/21/managers/signals');
+  // `computed_at` is when the SIGNALS were built. It is not when the rows they
+  // were built from were collected, and until now the payload carried only the
+  // first. The distinction is not hypothetical: `scripts/collect-league-transactions.mjs`
+  // catches per-league failures and continues, so a league whose ESPN cookies
+  // expired keeps its old rows while the build downstream of it recomputes
+  // happily — `computed_at` moves, the evidence underneath does not.
+  assert.ok(body.transactions, 'the payload carries a transactions block');
+  assert.equal(body.transactions.as_of, TX_COLLECTED_AT,
+    'as_of is the NEWEST collection stamp in the table, not the oldest and not the signal build time');
+  assert.notEqual(body.transactions.as_of, body.computed_at,
+    'the collection stamp and the build stamp are different facts and must not be the same field');
+  assert.equal(body.transactions.rows, TX_ROWS, 'the row count is this league-season, counted');
+  assert.equal(body.transactions.first_seen, TX_FIRST_SEEN,
+    'first_seen is how far back the forward capture reaches — a window, not a history');
+  // Whoever reads this has to be able to act on it, which means knowing what to
+  // run. The only writer of the table is named.
+  assert.match(body.transactions.collected_by, /collect-league-transactions\.mjs/);
+  assert.equal(body.transactions.reason, null, 'a league with rows has nothing to explain');
+});
+
+test('read: a league with no collected transactions says so rather than serving a stamp it does not have', async () => {
+  const { body } = await call('GET', '/api/trades/22/managers/signals');
+  assert.ok(body.available, 'league 22 has signals — the absence under test is transactions, not the layer');
+  assert.ok(body.transactions, 'the block is served even when there is nothing in it');
+  assert.equal(body.transactions.as_of, null, 'no rows collected is null, never a fabricated or borrowed stamp');
+  assert.equal(body.transactions.rows, 0);
+  assert.equal(body.transactions.first_seen, null);
+  assert.ok(typeof body.transactions.reason === 'string' && body.transactions.reason.length > 0,
+    'an empty block explains itself the way the rest of this payload does');
+});
+
+test('read: the transactions source does not advertise a refresh the server never runs', async () => {
+  // The only writer of league_transactions_raw is scripts/collect-league-transactions.mjs,
+  // spawned only by scripts/refresh-live-data.mjs — an OFF-SERVER loop, run by
+  // hand. fly.toml declares no `processes`, so nothing on the deployed app has
+  // ever written a row. SIGNAL_SOURCES.tx said "every refresh tick", and that
+  // string is not decoration: signalRowsFor interpolates it into the `why` served
+  // on every single tx signal row, so the claim reached the client per metric.
+  assert.doesNotMatch(SIGNAL_SOURCES.tx.refreshed, /every refresh tick/,
+    'the deployed app runs no refresh tick that touches this table');
+  assert.match(SIGNAL_SOURCES.tx.refreshed, /collect-league-transactions\.mjs/,
+    'the source names what actually writes it, so a reader knows what to run');
+  const { body } = await call('GET', '/api/trades/21/managers/signals');
+  const why = metricOf(managerOf(body, 2), 'tx_decisions_made').why;
+  assert.doesNotMatch(why, /every refresh tick/, 'the per-signal why carries the corrected claim too');
 });
 
 test('read: chat is attributed only to a trusted identity, and the untrusted match is a warning', async () => {

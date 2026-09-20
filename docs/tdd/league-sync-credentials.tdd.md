@@ -174,9 +174,22 @@ this document.
 
 **Should this data point anywhere else, and is it unified?** Not completely,
 and the gap is named rather than implied. `server/services/espn-market.js:19,31`
-is the last ESPN fetch still reading `espn_s2`/`swid` off the league row and
-sending no cookie when that row is bare — the same shape as the league-refresh
-bug fixed here, and with the same consequence, since `espn_credentials` is now
-the canonical store and that path cannot see it. It is allocated to another
-thread under the one-editor rule, so it is routed rather than edited here. Once
-it moves, every credential read on the platform goes through the one resolver.
+still reads `espn_s2`/`swid` off the league row and sends no cookie when that
+row is bare — the same shape as the league-refresh bug fixed here.
+
+**It is latent, not live, and the distinction is load-bearing.** Nothing on
+`main` imports that module and nothing calls `syncEspnMarket`: the only two
+references are a filename string and a comment in
+`db/schema/core-and-fantasy.js`, neither of which is an import. So the
+anonymous fetch cannot happen today — it becomes reachable the moment a caller
+is wired, which is also when it stops being cheap to fix. An earlier draft of
+this section said a connected owner "gets" an anonymous fetch; that was
+present tense for something unreachable, and it is corrected here. Verified by
+grep over `server/`, `scripts/` and `test/` rather than assumed in either
+direction; feature-audit, the file's owner under the one-editor rule,
+independently verified the same thing on `791b131`.
+
+`espn-market.js` is allocated to that thread, so it is routed rather than
+edited here, and they will route those two lines through this resolver when a
+caller is wired. At that point every credential read on the platform goes
+through the one resolver.

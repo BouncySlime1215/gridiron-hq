@@ -36,7 +36,7 @@
  * this one gets no exemption for being well-motivated.
  */
 import { rows } from '../db/index.js';
-import { pairedBootstrapDiff } from './backtest-significance.js';
+import { clusteredDiff } from './pooled-arms.js';
 import { rosterStateAt } from './nfl-player-state.js';
 
 const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
@@ -294,12 +294,16 @@ export function validateTeamChangeAdjustment({ fitSeasons = [2023, 2024], testSe
   const gameKey = r => `${testSeason}|${r.week}|${[r.team, r.opponent].filter(Boolean).sort().join('-')}`;
   const errU = rowsOut.map(r => Math.abs(r.unadjusted - r.actual));
   const errA = rowsOut.map(r => Math.abs(r.adjusted - r.actual));
-  const test = pairedBootstrapDiff(errU, errA, { iterations: 2000, seed: 11, groups: rowsOut.map(gameKey) });
+  // clusteredDiff, not pairedBootstrapDiff: all three arrays are `rowsOut.map(...)` so they are
+  // the same length by construction, and this is what keeps that true. A future `.filter()` on
+  // one of them would otherwise hand the comparison a misaligned pairing that it would resample
+  // ungrouped and report as a narrower interval, indistinguishable from a correct one.
+  const test = clusteredDiff(errU, errA, { iterations: 2000, seed: 11, groups: rowsOut.map(gameKey) });
   const movers = rowsOut.filter(r => r.moved);
   const errUM = movers.map(r => Math.abs(r.unadjusted - r.actual));
   const errAM = movers.map(r => Math.abs(r.adjusted - r.actual));
   const moversTest = movers.length >= 30
-    ? pairedBootstrapDiff(errUM, errAM, { iterations: 2000, seed: 11, groups: movers.map(gameKey) }) : { error: 'too few movers' };
+    ? clusteredDiff(errUM, errAM, { iterations: 2000, seed: 11, groups: movers.map(gameKey) }) : { error: 'too few movers' };
 
   const mae = a => +(a.reduce((s, x) => s + x, 0) / a.length).toFixed(3);
   return {

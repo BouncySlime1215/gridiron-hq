@@ -1562,7 +1562,17 @@ const DEFAULT_JOB_TIMEOUT_MS = 120_000;
  */
 
 /**
- * Boot-path jobs that must NOT be moved into a worker, with the reason.
+ * Jobs that must NOT be moved into a worker, with the reason.
+ *
+ * It said "boot-path jobs" and it was consulted only by `bootOffThread`. The
+ * three entries below all happen to be `live`-tier with no `offThread` flag,
+ * so nothing ever reached them by another route and the list looked like it
+ * held. It held by coincidence. Flag one of them `offThread: true`, or move
+ * one to the heavy tier, and the timer path would have sent it to a worker
+ * with the allow-list sitting right there saying it must not go -- the same
+ * shape #63 fixed for the background tier, where a fix held only until the
+ * next tick. `resolveOffThread` now consults this map on EVERY path, so the
+ * list is the answer rather than a note about one of the paths.
  *
  * A worker gets a fresh module graph, so it can only lose cached state, never
  * corrupt it -- losing a memo means redoing a query. The exception is state
@@ -1588,7 +1598,25 @@ const DEFAULT_JOB_TIMEOUT_MS = 120_000;
 export const MAIN_THREAD_ONLY = new Map([
   ['nfl_book_feeds_fast', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs'],
   ['nfl_book_feeds_slow', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs'],
-  ['nfl_book_feeds_extra', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs']
+  ['nfl_book_feeds_extra', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs'],
+  // The only job in the registry whose PRODUCT is in-process memory.
+  //
+  // refreshTradeAssetUniverse calls assetUniverse() for every league someone
+  // has a membership in, purely so the answer is already in
+  // compute-cache.js's `store` (:24, `const store = new Map()`) when the next
+  // person opens Trade Lab. Nothing is written to SQLite. In a worker it would
+  // do all five or six seconds of work per league, fill that worker's own
+  // Map, post `{ leagues_warmed: 5 }`, and exit -- the job reporting success,
+  // sync_log reading ok, and not one request served any faster. Exactly the
+  // healthy-looking-and-not-working shape this scheduler keeps turning up.
+  //
+  // This is a structural limit, not a flag to get right: a cache that lives in
+  // one process cannot be warmed from another. See
+  // docs/tdd/main-thread-only-holds.tdd.md for what it would take to lift it --
+  // persisting the asset universe the way report-cache.js persists reports to
+  // nfl_cached_reports, which is what lets nfl_reports run off-thread today.
+  ['trade_asset_universe_warm',
+    'warms compute-cache.js\'s in-process store; a worker would warm its own and exit']
 ]);
 
 /**
@@ -1600,8 +1628,23 @@ export const MAIN_THREAD_ONLY = new Map([
  * fails on it the moment it is added.
  */
 export function resolveOffThread(job, override) {
+  // The allow-list outranks both the flag and the override, because it names a
+  // correctness constraint and they express a preference. Matched by identity
+  // against JOBS rather than by a name parameter, so every existing caller --
+  // the tier timer, which passes no override, and the boot pass, which does --
+  // is covered without a signature change and without a caller being able to
+  // forget to pass the name. The suite separately refuses a job that is both
+  // allow-listed and flagged `offThread`, so this branch is a backstop for a
+  // contradiction rather than a way to write one.
+  if (mainThreadOnlyReason(job)) return false;
   if (override != null) return override;
   return job.offThread ?? job.tier === 'heavy';
+}
+
+/** The allow-list's reason for this job object, or null. Identity, not name. */
+export function mainThreadOnlyReason(job) {
+  for (const [name, reason] of MAIN_THREAD_ONLY) if (JOBS[name] === job) return reason;
+  return null;
 }
 
 /** Does this boot-path job run in a worker? The allow-list is the only escape. */

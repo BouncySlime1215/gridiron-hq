@@ -292,3 +292,67 @@ the source.
 `drafts.js:1221`, "`draft_advice` never scheduled", is not a defect: the table is read
 at `drafts.js:996`, keyed `(draft_id, pick_number)` with `ON CONFLICT UPDATE`, and
 bounded by the number of picks. Withdrawn.
+
+---
+
+## 9. What falls when a route is cut, and how far down
+
+`scripts/route-deletion-impact.mjs`, output at
+`/mnt/project-files/route-deletion-impact.md`. Written because Trade Brain was right
+that the orphan test has to be transitive, and because the module was the wrong unit
+for it.
+
+`server/services/position-liquidity.js` is imported by `routes/trades.js`, which hosts
+plenty of live routes, so the module is reachable and always will be. Inside it,
+`positionLiquidity()` is called only by the handler of
+`GET /api/trades/:leagueId/brain/liquidity`, which is dead. Cut the route and the
+function goes dark — and no module-level rule can see that, because the file stays
+reachable either way. So this walks functions.
+
+**40 dying routes → 18 symbols fall, 22 were already unreached.** The two lists are
+separate on purpose: telling somebody a route deletion killed a function that had no
+caller before it would be a false accusation against the deletion.
+
+The case that named it, correctly attributed:
+
+```
+positionLiquidity()     depth 1   only through GET /api/trades/:leagueId/brain/liquidity
+positionRequirements()  depth 2   only through that route → positionLiquidity()
+shoppingGuidance()      ALREADY UNREACHED — it had no caller before any of this
+```
+
+### Five wrong answers it gave first
+
+Each is pinned by `test/route-deletion-impact.test.js`, because acting on this report
+is irreversible.
+
+1. **A comment counted as a caller.** The paragraph in `scripts/wiring-map.mjs`
+   describing this very chain was read as a call site, so the report said nothing fell
+   — on the case it was written for.
+2. **An import counted as a use.** Matching the bare name picked up the
+   `import { positionLiquidity }` line in the file whose handler was dying and counted
+   it as a surviving caller. Falling symbols went 36 → 0: a clean, confident, entirely
+   wrong answer.
+3. **`name(` missed a function passed as a value.** `requireAuthenticated` is express
+   middleware and never appears with a paren after it, so a function on the
+   authentication path was reported unreached. Matching the bare name over-counts
+   slightly, in the direction that costs nothing: the worst case is a symbol left off
+   the list, against somebody deleting live code on this report's word.
+4. **An exported const counted as a function.** `export const db = new DatabaseSync()`
+   has no `db(` anywhere, so the database handle the whole server uses came back with
+   zero call sites. 126 rows, a large share of them that shape — which is how a report
+   stops being read.
+5. **A route its owner ruled KEPT was treated as dying.** The first run announced that
+   `requirePlatformAdmin()` falls with `POST /api/trades/managers/rebuild`, which Trade
+   Brain had ruled kept-external-caller, and that the whole walk-forward chain falls
+   with the model registry routes this thread had itself decided to keep.
+
+That last one is why `docs/wiring/route-verdicts.json` exists: one file, read by both
+the verdict list and this report, so a route ruled kept in one cannot still be dying in
+the other. Thirty-three verdicts, each carrying the owning thread's own reason.
+
+Numbers one to four are the same failure this whole branch has been about — prose
+counted as a dial, a sweep that stops at one level, a construct the extractor sees and
+loses what was read out of it. The instrument that finds that class of bug is not a
+cleverer regex; it is running the thing on a case whose answer is already known and
+refusing to accept an answer that disagrees.

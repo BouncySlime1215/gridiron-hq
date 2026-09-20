@@ -1,0 +1,144 @@
+{
+  "_why": "One source of route verdicts, read by scripts/route-deletion-impact.mjs and by the verdict-list generator. A verdict here comes from the thread that owns the file, with that thread's own reason; nothing in this file is the checker's inference. KEEP_STATUSES are the verdicts that mean the route is NOT being deleted, so the impact report must not count its handler as dying — without this, requirePlatformAdmin() and the whole walk-forward chain were reported as falling with routes their owners had already ruled kept.",
+  "keep_statuses": [
+    "kept-no-screen",
+    "kept-tombstone",
+    "external-caller",
+    "orphaned-backend-of-deleted-page",
+    "already-removed"
+  ],
+  "verdicts": {
+    "GET /api/auth/session": {
+      "status": "kept-no-screen",
+      "why": "Google sign-in: kept."
+    },
+    "POST /api/auth/logout": {
+      "status": "kept-no-screen",
+      "why": "Google sign-in: kept."
+    },
+    "POST /api/auth/logout-all": {
+      "status": "kept-no-screen",
+      "why": "Google sign-in: kept. The zero-reference column caught this one — it had no caller AND would have passed the whole suite behaving like plain logout."
+    },
+    "GET /api/auth/invites": {
+      "status": "kept-no-screen",
+      "why": "Google sign-in: kept."
+    },
+    "POST /api/auth/invites": {
+      "status": "external-caller",
+      "why": "Google sign-in: this is how the morning plan invites the Transfer portal league. DO NOT DELETE."
+    },
+    "DELETE /api/auth/invites/:id": {
+      "status": "kept-no-screen",
+      "why": "Google sign-in: kept."
+    },
+    "GET /api/auth/accounts": {
+      "status": "kept-no-screen",
+      "why": "Google sign-in: kept."
+    },
+    "POST /api/auth/accounts/:id/disabled": {
+      "status": "kept-no-screen",
+      "why": "Google sign-in: kept."
+    },
+    "GET /api/espn/team-changes": {
+      "status": "external-caller",
+      "why": "Google sign-in: kept, external caller."
+    },
+    "GET /api/dev/sources": {
+      "status": "orphaned-backend-of-deleted-page",
+      "why": "Scheduler: KEEP. Backend of the /data-health page removed at teardown 60f5f5d (docs/evidence/history/platform-audit-implementation-2026-09-08.md:29,:74; docs/STRUCTURAL-RELOOK.md:24). It is the only per-source staleness computation in the app."
+    },
+    "GET /api/dev/usage": {
+      "status": "already-removed",
+      "why": "Scheduler: already removed on hold branch 8709ec6, verified 404 by test/dev-routes.test.js, with /dev/status still carrying usageSummary(30). Do not report twice."
+    },
+    "GET /api/trades/:leagueId/brain/plan": {
+      "status": "kept-tombstone",
+      "why": "Trade Brain: 410 tombstone from retired() at trades.js:155, pinned by test/trade-route-retirement.test.js:51-52."
+    },
+    "GET /api/trades/:leagueId/brain/sell-high": {
+      "status": "kept-tombstone",
+      "why": "Trade Brain: 410 tombstone from retired() at trades.js:155, pinned by test/trade-route-retirement.test.js:51-52."
+    },
+    "POST /api/trades/managers/rebuild": {
+      "status": "external-caller",
+      "why": "Trade Brain: ten dials across two test files including the 401/403 assertions, behind requirePlatformAdmin. The only HTTP way to rebuild manager signals. KEEP."
+    },
+    "GET /api/trades/splits/:playerId": {
+      "status": "delete-route-only",
+      "why": "Trade Brain: zero callers confirmed independently, but relevantSplits() is live via trade-engine.js:2586 into TradeLab.tsx:940-947. Delete the route, keep the service."
+    },
+    "GET /api/trades/:leagueId/brain/free-agents": {
+      "status": "delete-route-only",
+      "why": "Trade Brain: live service behind a dead route."
+    },
+    "GET /api/trades/trends/team/:team": {
+      "status": "delete-route-only",
+      "why": "Trade Brain: live service behind a dead route."
+    },
+    "GET /api/trades/trends/player/:playerId": {
+      "status": "delete-route-only",
+      "why": "Trade Brain: live service behind a dead route."
+    },
+    "GET /api/trades/regression/board": {
+      "status": "delete-route-only",
+      "why": "Trade Brain: live service behind a dead route."
+    },
+    "GET /api/trades/regression/rates": {
+      "status": "delete-route-only",
+      "why": "Trade Brain: live service behind a dead route."
+    },
+    "POST /api/trades/trends/scan": {
+      "status": "delete",
+      "why": "Trade Brain: trend-watch.js:206 carries a user-facing string naming this path. It is a mention, not a dial, and it is edited in the same commit as the deletion."
+    },
+    "POST /api/drafts/:leagueId/simulate": {
+      "status": "delete",
+      "why": "Feature audit: no client caller at all, from their inventory of 19 client /drafts/ paths."
+    },
+    "GET /api/aggregates": {
+      "status": "delete",
+      "why": "Wiring map: read only by client/src/pages/Projections.tsx, which no file imports and no <Route> declares. Its sibling POST /api/aggregates/refresh-all is NOT dead — see the external-caller section."
+    },
+    "GET /api/model/projections": {
+      "status": "kept-no-screen",
+      "why": "Wiring map: its caller is a person following docs/RUNBOOK-promote-volume-shrinkage.md:233, which says to read it before and after the volume promotion and compare. Retire when that comparison moves into a script."
+    },
+    "POST /api/model/registry/datasets": {
+      "status": "kept-no-screen",
+      "why": "Wiring map: the whole HTTP surface of the model registry. The orphan is the admin panel (client/src/features/model-lab/ModelRegistryPanel.tsx, imported by nothing), not the API. Deleting a governed promote/rollback pair because its page lost its <Route> would remove a capability to tidy a report."
+    },
+    "POST /api/model/registry/features": {
+      "status": "kept-no-screen",
+      "why": "Wiring map: the whole HTTP surface of the model registry. The orphan is the admin panel (client/src/features/model-lab/ModelRegistryPanel.tsx, imported by nothing), not the API. Deleting a governed promote/rollback pair because its page lost its <Route> would remove a capability to tidy a report."
+    },
+    "POST /api/model/registry/experiments": {
+      "status": "kept-no-screen",
+      "why": "Wiring map: the whole HTTP surface of the model registry. The orphan is the admin panel (client/src/features/model-lab/ModelRegistryPanel.tsx, imported by nothing), not the API. Deleting a governed promote/rollback pair because its page lost its <Route> would remove a capability to tidy a report."
+    },
+    "POST /api/model/registry/experiments/:id/result": {
+      "status": "kept-no-screen",
+      "why": "Wiring map: the whole HTTP surface of the model registry. The orphan is the admin panel (client/src/features/model-lab/ModelRegistryPanel.tsx, imported by nothing), not the API. Deleting a governed promote/rollback pair because its page lost its <Route> would remove a capability to tidy a report."
+    },
+    "POST /api/model/registry/experiments/:id/backtests": {
+      "status": "kept-no-screen",
+      "why": "Wiring map: the whole HTTP surface of the model registry. The orphan is the admin panel (client/src/features/model-lab/ModelRegistryPanel.tsx, imported by nothing), not the API. Deleting a governed promote/rollback pair because its page lost its <Route> would remove a capability to tidy a report."
+    },
+    "POST /api/model/registry/experiments/:id/holdout": {
+      "status": "kept-no-screen",
+      "why": "Wiring map: the whole HTTP surface of the model registry. The orphan is the admin panel (client/src/features/model-lab/ModelRegistryPanel.tsx, imported by nothing), not the API. Deleting a governed promote/rollback pair because its page lost its <Route> would remove a capability to tidy a report."
+    },
+    "POST /api/model/registry/experiments/:id/promote": {
+      "status": "kept-no-screen",
+      "why": "Wiring map: the whole HTTP surface of the model registry. The orphan is the admin panel (client/src/features/model-lab/ModelRegistryPanel.tsx, imported by nothing), not the API. Deleting a governed promote/rollback pair because its page lost its <Route> would remove a capability to tidy a report."
+    },
+    "POST /api/model/registry/experiments/:id/rollback": {
+      "status": "kept-no-screen",
+      "why": "Wiring map: the whole HTTP surface of the model registry. The orphan is the admin panel (client/src/features/model-lab/ModelRegistryPanel.tsx, imported by nothing), not the API. Deleting a governed promote/rollback pair because its page lost its <Route> would remove a capability to tidy a report."
+    },
+    "POST /api/edge/trade": {
+      "status": "kept-tombstone",
+      "why": "Wiring map: a deliberate 410 that names POST /api/trades/:leagueId/evaluate as its replacement. Deleting it turns a 410 that explains itself into a bare 404."
+    }
+  }
+}

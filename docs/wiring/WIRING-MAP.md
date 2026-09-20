@@ -34,7 +34,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 
 **10 missing feed** — a surface depends on something nothing produces.
 **1903 orphan** — something produced that reaches no surface.
-276 context rows, listed because they are worth knowing and are usually fine.
+295 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
 
@@ -255,6 +255,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `export-imported-by-nothing` | orphan | 99 | 219 | 521 |
 | `route-no-caller` | orphan | 26 | 319 | 37 |
 | `route-called-from-outside-the-app` | context | 2 | 3 | 6 |
+| `falls-with-a-deleted-route` | context | 0 | 13 | 6 |
 
 ### `column-read-never-written` — SHOULD WIRE (1)
 
@@ -1533,105 +1534,105 @@ All 531 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **scripts/refresh-live-data.mjs#parseChatStatus** `[shared]` — exported and never imported
   - scripts/refresh-live-data.mjs:140
 - **scripts/wiring-map.mjs#acceptGuard** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2509
+  - scripts/wiring-map.mjs:2554
 - **scripts/wiring-map.mjs#annotations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#blastRadius** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#blindCaches** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#bodyRange** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#build** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#bulkInScope** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#clientCalls** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#close** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#CLOSE_HOPS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#columnDefaults** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#columnEvidence** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#declarations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#entryPointScripts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#findings** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#foreignHandles** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#foreignOnlyFile** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2800
+  - scripts/wiring-map.mjs:2845
 - **scripts/wiring-map.mjs#functionReach** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#functionUnits** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#gatedRegions** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#GRANDFATHERED** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2800
+  - scripts/wiring-map.mjs:2845
 - **scripts/wiring-map.mjs#handleFor** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#imageDirs** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#interpolations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2800
+  - scripts/wiring-map.mjs:2845
 - **scripts/wiring-map.mjs#JOBS** `[shared]` — exported and never imported
   - scripts/wiring-map.mjs:604
 - **scripts/wiring-map.mjs#keyReads** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#LIMITS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#MAX_HOPS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#missingFeedTable** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#moduleEdges** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#NEVER_BASELINE** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2800
+  - scripts/wiring-map.mjs:2845
 - **scripts/wiring-map.mjs#outboundUrlPaths** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#payloadKeys** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#routeAnswersCall** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#routeHandlers** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#routeLiteralAbsent** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#routeMounts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#routeWorkload** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#runtimeFilePaths** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#scan** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#schedulerJobs** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#shouldBeWired** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#sqlEdges** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#statementTables** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#surfaceFamilies** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#tableColumns** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#toJson** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#toMarkdown** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2802
+  - scripts/wiring-map.mjs:2847
 - **scripts/wiring-map.mjs#unreachablePages** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2801
+  - scripts/wiring-map.mjs:2846
 - **scripts/wiring-map.mjs#valueUsageCounts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2800
+  - scripts/wiring-map.mjs:2845
 - **server/draft/engine.js#posInRoundOf** `[fantasy]` — exported and never imported
   - server/draft/engine.js:11
 - **server/draft/engine.js#roundOf** `[fantasy]` — exported and never imported
@@ -1936,6 +1937,47 @@ All 382 grouped by file, heaviest first. Full list in `wiring-map.json`.
   - server/routes/stats.js:77
 - **POST /api/tradelab/trending/sync** `[fantasy]` — no page calls it; a script in this repository dials it over HTTP
   - server/routes/tradelab.js:238
+
+### `falls-with-a-deleted-route` — CONTEXT (19)
+
+- **server/services/execution-slate-reasoning.js** `[betting]` — every surface this module reaches is a route already on the dead list (POST /api/execution-slate/recommend, GET /api/execution-slate/opportunities), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/execution-slate-reasoning.js
+- **server/services/market-movement.js** `[betting]` — every surface this module reaches is a route already on the dead list (POST /api/mlb/sync, POST /api/mlb/sync/schedule, POST /api/mlb/sync/pitchers, POST /api/mlb/sync/batters, and 80 more), nearest at 2 import hops. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/market-movement.js
+- **server/services/mlb-calibration.js** `[betting]` — every surface this module reaches is a route already on the dead list (POST /api/mlb/sync, POST /api/mlb/sync/schedule, POST /api/mlb/sync/pitchers, POST /api/mlb/sync/batters, and 24 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/mlb-calibration.js
+- **server/services/mlb-experiments.js** `[betting]` — every surface this module reaches is a route already on the dead list (POST /api/mlb/sync, POST /api/mlb/sync/schedule, POST /api/mlb/sync/pitchers, POST /api/mlb/sync/batters, and 24 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/mlb-experiments.js
+- **server/services/mlb-research.js** `[betting]` — every surface this module reaches is a route already on the dead list (POST /api/mlb/sync, POST /api/mlb/sync/schedule, POST /api/mlb/sync/pitchers, POST /api/mlb/sync/batters, and 24 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/mlb-research.js
+- **server/services/model-intelligence.js** `[shared]` — every surface this module reaches is a route already on the dead list (POST /api/mlb/sync, POST /api/mlb/sync/schedule, POST /api/mlb/sync/pitchers, POST /api/mlb/sync/batters, and 80 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/model-intelligence.js
+- **server/services/nfl-execution-attribution.js** `[betting]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 2 import hops. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-execution-attribution.js
+- **server/services/nfl-execution-clv.js** `[betting]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-execution-clv.js
+- **server/services/nfl-execution-corridor.js** `[betting]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 2 import hops. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-execution-corridor.js
+- **server/services/nfl-execution-decision.js** `[betting]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-execution-decision.js
+- **server/services/nfl-execution-exposure.js** `[betting]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 2 import hops. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-execution-exposure.js
+- **server/services/nfl-execution-lifecycle.js** `[betting]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-execution-lifecycle.js
+- **server/services/nfl-execution-pipeline.js** `[betting]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-execution-pipeline.js
+- **server/services/nfl-execution-replay.js** `[betting]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 2 import hops. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-execution-replay.js
+- **server/services/nfl-prospective-collection.js** `[shared]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-prospective-collection.js
+- **server/services/nfl-research-lab.js** `[shared]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-research-lab.js
+- **server/services/nfl-research.js** `[shared]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-research.js
+- **server/services/nfl-user-bets.js** `[shared]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/nfl-user-bets.js
+- **server/services/sharp-lag.js** `[shared]` — every surface this module reaches is a route already on the dead list (GET /api/nfl-market/research-lab, GET /api/nfl-market/research-lab/plan, GET /api/nfl-market/board, GET /api/nfl-market/accuracy, and 52 more), nearest at 1 import hop. Cutting those routes takes this module with it. Delete it in the same commit or say why it stays, rather than leaving it to be found one file at a time later
+  - server/services/sharp-lag.js
 
 ## Asserted edges
 

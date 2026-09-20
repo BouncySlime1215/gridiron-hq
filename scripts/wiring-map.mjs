@@ -1934,6 +1934,51 @@ function findings(model, ann) {
   // one of these shapes the code runs, returns a number, and is wrong.
   shouldBeWired(model, ann, add);
 
+  /*
+   * WHAT ELSE FALLS WHEN THIS ROUTE IS CUT, AND AT WHAT DEPTH.
+   *
+   * The orphan test was one level deep, and a chain survives that. Trade Brain found
+   * the shape: `GET /brain/liquidity` is dead, its `positionLiquidity()` has exactly
+   * one consumer in `shoppingGuidance()` at position-liquidity.js:181, and
+   * `shoppingGuidance` has none. Nothing reports either module today and nothing is
+   * wrong with the report — they ARE reachable, through a route that still exists.
+   * Delete the route and the whole chain goes dark at once, which is the moment
+   * somebody discovers it, one file at a time, in a follow-up.
+   *
+   * So this is not a second orphan rule; it is the cost of a deletion, stated before
+   * it is made. A module qualifies when EVERY surface it reaches is a route already on
+   * the dead list. `boot` is excluded on purpose: `server/index.js` imports every
+   * router, so two hops from boot marks most of the server reachable — true, and
+   * useless, as the comment where that cap is set already says. A module a scheduler
+   * job or a script also reaches is not falling and is not listed.
+   *
+   * Report-only, and deliberately not a finding about the module. The module is fine.
+   * The row is addressed to whoever is about to cut the route.
+   */
+  const deadRouteNames = new Set(out.filter(f => f.rule === 'route-no-caller').map(f => f.subject));
+  if (deadRouteNames.size) {
+    for (const f of files.values()) {
+      if (f.tree !== 'server' || !f.path.includes('/services/')) continue;
+      const surfacesSeen = [...(reachNames.get(f.path) ?? new Map())]
+        .filter(([key]) => !key.startsWith('boot:') && !key.startsWith('test:'));
+      if (!surfacesSeen.length) continue;                 // already an orphan; other rules own it
+      const routes = surfacesSeen.filter(([key]) => key.startsWith('route:'));
+      if (routes.length !== surfacesSeen.length) continue; // a job or a script also reaches it
+      const live = routes.filter(([key]) => !deadRouteNames.has(key.slice(6)));
+      if (live.length) continue;                          // at least one route still calls for it
+      const depth = Math.min(...routes.map(([, d]) => d));
+      if (ignored.has(`falls:${f.path}`)) continue;
+      add({ kind: 'context', rule: 'falls-with-a-deleted-route', scope: f.scope, subject: f.path,
+        detail: `every surface this module reaches is a route already on the dead list `
+          + `(${routes.slice(0, 4).map(([k]) => k.slice(6)).join(', ')}`
+          + `${routes.length > 4 ? `, and ${routes.length - 4} more` : ''}), nearest at ${depth} `
+          + `import hop${depth === 1 ? '' : 's'}. Cutting ${routes.length === 1 ? 'that route' : 'those routes'} `
+          + `takes this module with it. Delete it in the same commit or say why it stays, `
+          + `rather than leaving it to be found one file at a time later`,
+        evidence: [f.path] });
+    }
+  }
+
   return out;
 }
 

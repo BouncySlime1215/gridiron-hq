@@ -24,6 +24,9 @@ const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
 // A starter has to have missed this many games for the split to mean anything.
 const MIN_MISSED = 3;
+// Stands in for a durability prior when a player has no games on file at all.
+// It is a default, not a measurement, and every row that uses it says so.
+const DEFAULT_DURABILITY_PRIOR = 0.92;
 // Who can inherit whose workload. Receivers and tight ends share a target pool; backs
 // share carries; quarterbacks are a closed shop.
 const INHERITS = { QB: ['QB'], RB: ['RB'], WR: ['WR', 'TE'], TE: ['TE', 'WR'] };
@@ -898,7 +901,13 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
   const roles = useRole && fitted?.hasRole ? roleStates(season, week) : null;
 
   for (const p of players) {
-    const prior = base.get(p.id)?.available ?? 0.92;
+    // No availability() row means no games on file through the cutoff, so there
+    // is no measured durability prior to serve. The constant that stands in is
+    // inside the range measured priors occupy, so the substitution has to be
+    // stated on the row: a caller reading `durability_prior` alone cannot tell
+    // a career measurement from this default.
+    const measuredPrior = base.get(p.id)?.available ?? null;
+    const prior = measuredPrior ?? DEFAULT_DURABILITY_PRIOR;
     const nflReport = p.gsis_id ? reports.get(String(p.gsis_id)) ?? null : null;
     const role = roles?.get(p.id) ?? null;
     const espnNow = espnStatus && p.espn_id != null ? espnStatus.get(String(p.espn_id))?.status ?? null : null;
@@ -909,6 +918,7 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
       player_id: p.id, name: p.name, position: p.position,
       active_probability: +active.toFixed(3),
       durability_prior: +prior.toFixed(3),
+      durability_prior_measured: measuredPrior != null,
       report_status: report?.report_status ?? null,
       practice_status: report?.practice_status ?? null,
       designation: week_.designation,

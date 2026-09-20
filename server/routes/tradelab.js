@@ -135,7 +135,17 @@ export function analyzeLeague(lg) {
     //   capital        = VOR (projected points over replacement) — "will this help me win"
     //   market_capital = FantasyCalc price + draft picks          — "what is this worth in trade"
     // Only market units can express a draft pick, so the contention window below is
-    // computed on market_capital; needs/surplus stay on VOR.
+    // computed on market_capital. The needs/surplus CLASSIFICATION stays on VOR —
+    // `ratio` is starter_value over the league average and both are VOR — but the
+    // two magnitudes hung off that classification are NOT the same currency:
+    // `needs[].gap` is VOR units and `surplus[].value` is market units, which is
+    // deliberate (see the note on the surplus push below) and was previously
+    // covered by this comment saying flatly that needs and surplus stay on VOR.
+    // They must never be compared, summed or ranked against each other.
+    // Nothing reads either magnitude today — both consumers take only `.position`
+    // (trade-engine.js:180, counterparty-pricing.js:301) — so the divergence is
+    // real and inert. It is written down because the first caller to reach for a
+    // magnitude is the one that would get it wrong, on a comment's authority.
     t.capital = t.players.reduce((s, p) => s + Math.max(0, p.vor), 0);
     t.players_value = t.players.reduce((s, p) => s + Math.max(0, p.value), 0);
     t.market_capital = t.players_value + t.picks_value;

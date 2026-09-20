@@ -492,7 +492,8 @@ because the runner said so.
 
 `npm run check` on the tree of this commit: typecheck clean, **3,182 tests,
 3,141 pass, 0 fail, 41 skipped**, build 2.61s, startup smoke passed on an
-isolated database. The commit these numbers were measured on is named in the
-commit that immediately follows this one — it cannot name itself, and quoting
-the parent would point at a tree that is not the one measured.
+isolated database, **measured on commit `6a8df0d`**, whose parent is `af7f01a`.
+A commit cannot name its own hash, so this line is written by the commit that
+follows it; naming the parent instead would point at a tree that is not the one
+measured.
 

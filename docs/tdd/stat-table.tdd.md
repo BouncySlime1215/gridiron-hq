@@ -399,6 +399,7 @@ touch nothing any assertion claims to read. A control that went red would mean
 the tests were pinning the file rather than its behaviour.
 
 **Full check on this exact tree:** typecheck clean, 3,182 tests, 3,141 pass, 0 fail, 41 skipped, build 2.61s, startup smoke
-passed on an isolated database. The tree is `af7f01a` plus the working tree of
-the commit this section lands in; the source was restored and verified clean
-after the run.
+passed on an isolated database, **measured on commit `6a8df0d`** — the commit this
+section lands in, whose parent is `af7f01a`. The source was restored after the
+mutation run and verified clean with `git status` rather than assumed clean
+because the runner said so.

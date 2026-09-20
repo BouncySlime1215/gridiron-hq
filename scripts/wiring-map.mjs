@@ -280,33 +280,33 @@ function foreignHandles(file) {
  */
 function handleFor(file, offset, foreign) {
   const before = file.text.slice(Math.max(0, offset - 120), offset);
+  // A file that opens a handle of its own and never imports the app's database module
+  // has no app handle to query, so no answer in it can be 'app'. This is asked FIRST,
+  // ahead of the app-helper names, because `rows` and `run` are app helpers AND the
+  // names league-history.js gives its own foreign wrapper: server/services/league-history.js
+  // opens a read-only DatabaseSync and queries it through a local rows(). Answering
+  // 'app' there invented app-side reads of the sleeper-history tables and reported
+  // three tables with a writer sitting in this repository as written by nothing.
+  //
+  // KNOWN LIMIT: when such a file opens MORE than one foreign handle, this takes the
+  // first and does not read which one is in scope at the offset. Every foreign-only
+  // file here opens exactly one.
+  const foreignDefault = () => {
+    const [name, where] = [...foreign.entries()][0];
+    return { handle: name, where };
+  };
   const viaMethod = before.match(/([A-Za-z_$][\w$]*)\s*\.\s*(?:prepare|exec|run|all|get)\s*\(\s*$/);
   if (viaMethod) {
     const name = viaMethod[1];
     if (foreign.has(name)) return { handle: name, where: foreign.get(name) };
-    return { handle: 'app', where: null };
+    return file.foreignOnlyFile ? foreignDefault() : { handle: 'app', where: null };
   }
-  const viaHelper = before.match(/([A-Za-z_$][\w$]*)\s*\(\s*$/);
+  const viaHelper = before.match(/\b([A-Za-z_$][\w$]*)\s*\(\s*$/);
+  if (viaHelper && foreign.has(viaHelper[1])) {
+    return { handle: viaHelper[1], where: foreign.get(viaHelper[1]) };
+  }
+  if (file.foreignOnlyFile) return foreignDefault();
   if (viaHelper && APP_HELPERS.has(viaHelper[1])) return { handle: 'app', where: null };
-  if (viaHelper && foreign.has(viaHelper[1])) return { handle: viaHelper[1], where: foreign.get(viaHelper[1]) };
-  // A DDL block or a query we could not attribute.
-  //
-  // Defaulting to 'app' is right almost everywhere, but NOT in a file that
-  // opens its own handle and never imports the app's database module. Such a
-  // file cannot be querying the app database — there is no handle for it to use
-  // — so attributing its queries to 'app' invents an app-side read of a table
-  // that lives in a second file. That produced a false missing-feed on the
-  // sleeper-history tables: league-history.js opens its own read-only
-  // DatabaseSync and then wraps it in a LOCAL rows() helper, so every query goes
-  // through a name this function has never heard of. The writer
-  // (collect-sleeper-history.mjs) was correctly attributed as foreign, the
-  // readers were not, and a table with a writer right there in the repository
-  // was reported as written by nothing. Same shape as the league-chat false
-  // alarm, one level of indirection deeper.
-  if (file.foreignOnlyFile) {
-    const [name, where] = [...foreign.entries()][0];
-    return { handle: name, where };
-  }
   // Otherwise the app's own database is the right default: every other handle in
   // this repository is opened read-only, so an unattributed WRITE is the app's
   // by construction.
@@ -321,7 +321,13 @@ function handleFor(file, offset, foreign) {
  */
 function foreignOnlyFile(file, foreign) {
   if (!foreign.size) return false;
-  return !/from\s+['"][^'"]*db\/index(\.js)?['"]/.test(file.text);
+  // BOTH import forms. This read only the static one, and test/refresh-loop-steps.test.js
+  // takes the app handle with `const { rows, run } = await import('../server/db/index.js')`
+  // so that it can set GRIDIRON_DB_PATH first. A file holding the app handle was judged to
+  // hold none, and every query in it was handed the first foreign name in the file — which
+  // is how a plain run(`CREATE TABLE league_transactions_raw ...`) came to be reported as
+  // running on the league-chat database.
+  return !/(?:from|import\s*\()\s*['"][^'"]*db\/index(\.js)?['"]/.test(file.text);
 }
 
 // ---------------------------------------------------------------------------

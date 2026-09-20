@@ -858,8 +858,14 @@ test('a file with its own handle and no app-db import is foreign throughout', ()
   assert.ok(foreign.has('db'));
   assert.equal(foreignOnlyFile(f, foreign), true);
   f.foreignOnlyFile = true;
-  // The query goes through rows(), which is neither an app helper nor a handle.
-  const at = f.text.indexOf('SELECT * FROM sh_team_weeks');
+  // The query goes through rows(), which IS an app helper name and is here a local
+  // wrapper around a second database. The offset is the backtick, as build() passes it:
+  // the first version of this test passed the offset of the SQL text one character
+  // later, so the bare-call branch never matched and the test could not tell whether
+  // the foreign-only question was asked before or after the app-helper one. It has to
+  // be before, and this is the assertion that says so.
+  const at = f.text.indexOf('SELECT * FROM sh_team_weeks') - 1;
+  assert.equal(f.text[at], '`', 'the offset handleFor is given is the quote, not the SQL');
   assert.notEqual(handleFor(f, at, foreign).handle, 'app',
     'an unattributed query in a foreign-only file must not be credited to the app database');
 });
@@ -1463,24 +1469,30 @@ test('the derived field agrees with every table that was catalogued by hand', as
  * has to be asked first — the test above ("a file with its own handle and no
  * app-db import is foreign throughout") is what fails if someone restores the byte
  * without moving it.
+ *
+ * The fixture tables below are named zz_fixture_* on purpose. This file's SQL
+ * fixtures are read by the census like any other source, so a fixture that names a
+ * real table hands that table a create site in test/wiring-map.test.js — which is
+ * what the first draft of these two tests did to league_transactions_raw and
+ * messages, in a commit whose whole point was that that row was wrong.
  */
 test('the app handle is recognised when it arrives through a dynamic import', () => {
   const f = fileOf(`import { DatabaseSync } from 'node:sqlite';
     const { rows, run } = await import('../server/db/index.js');
     const chat = new DatabaseSync(chatFile);
-    run(\`CREATE TABLE IF NOT EXISTS league_transactions_raw (league_id INTEGER)\`);
-    chat.exec(\`CREATE TABLE messages (msg_id INTEGER)\`);`);
+    run(\`CREATE TABLE IF NOT EXISTS zz_fixture_app_table (league_id INTEGER)\`);
+    chat.exec(\`CREATE TABLE zz_fixture_chat_table (msg_id INTEGER)\`);`);
   const foreign = foreignHandles(f);
   assert.ok(foreign.has('chat'), 'the second handle is still a second handle');
   assert.equal(foreignOnlyFile(f, foreign), false,
     'a file that imports the app db dynamically holds the app handle');
   f.foreignOnlyFile = foreignOnlyFile(f, foreign);
 
-  const atApp = f.text.indexOf('CREATE TABLE IF NOT EXISTS league_transactions_raw');
+  const atApp = f.text.indexOf('CREATE TABLE IF NOT EXISTS zz_fixture_app_table');
   assert.equal(handleFor(f, atApp - 1, foreign).handle, 'app',
     'run() is the app helper, whatever else the file opens');
 
-  const atChat = f.text.indexOf('CREATE TABLE messages');
+  const atChat = f.text.indexOf('CREATE TABLE zz_fixture_chat_table');
   assert.equal(handleFor(f, atChat - 1, foreign).handle, 'chat',
     'and the query that really is on the second handle still says so');
 });
@@ -1492,12 +1504,12 @@ test('a bare call on a foreign handle is attributed to that handle, not the app'
   // be taken: the file imports the app db, so the fallthrough said 'app'.
   const f = fileOf(`import { rows } from '../db/index.js';
     const chatQuery = openChatDb(CHAT_PATH);
-    const a = chatQuery(\`SELECT msg_id FROM messages\`);`);
+    const a = chatQuery(\`SELECT msg_id FROM zz_fixture_chat_table\`);`);
   const foreign = foreignHandles(f);
   assert.ok(foreign.has('chatQuery'));
   f.foreignOnlyFile = foreignOnlyFile(f, foreign);
   assert.equal(f.foreignOnlyFile, false);
-  const at = f.text.indexOf('SELECT msg_id FROM messages');
+  const at = f.text.indexOf('SELECT msg_id FROM zz_fixture_chat_table');
   assert.equal(handleFor(f, at - 1, foreign).handle, 'chatQuery',
     'a query handed to a second database is not the app database');
 });

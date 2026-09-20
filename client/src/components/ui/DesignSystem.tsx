@@ -86,11 +86,52 @@ export function Skeleton({ className = 'h-4 w-full' }: { className?: string }) {
 export function EmptyState({ title, description, action }: { title: string; description?: string; action?: ReactNode }) { return <Card className="p-8 text-center"><div className="font-bold text-slate-800">{title}</div>{description && <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">{description}</p>}{action && <div className="mt-4">{action}</div>}</Card>; }
 export function ErrorState({ title = 'Could not load this', message, retry }: { title?: string; message: string; retry?: () => void }) { return <div className="card border-red-200 p-5" role="alert"><div className="font-bold text-red-800">{title}</div><p className="mt-1 text-sm text-slate-600">{message}</p>{retry && <button className="btn-ghost mt-3" onClick={retry}>Retry</button>}</div>; }
 
+/**
+ * An overlay panel. Escape closes it, a backdrop click closes it, focus starts
+ * on the close button.
+ *
+ * Two things were missing and are here now, because the deep-dive drawer is
+ * built on this rather than beside it and a second overlay in one app is how
+ * two of them end up disagreeing:
+ *
+ *   - THE PAGE BEHIND NO LONGER SCROLLS. Without this, a wheel or a swipe over
+ *     the backdrop scrolls the page underneath, so a manager closes the panel
+ *     and finds themselves somewhere else entirely.
+ *   - TAB NO LONGER LEAVES. Focus cycles inside the panel while it is open.
+ *     Without a trap, one Tab past the last control lands on the page behind an
+ *     `aria-modal` overlay — invisible focus, and a keyboard user is lost.
+ *
+ * Focus RESTORE is deliberately not here: it belongs to whatever opened the
+ * panel, which is the only thing that knows where the manager was looking.
+ * `DeepDive` does it.
+ */
 export function Sheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
   const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => { if (!open) return; closeRef.current?.focus(); const key = (e: KeyboardEvent) => e.key === 'Escape' && onClose(); window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key); }, [open, onClose]);
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    closeRef.current?.focus();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return onClose();
+      if (e.key !== 'Tab' || !panelRef.current) return;
+      const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      // Only intervene at the two edges; everything between them is the
+      // browser's own tab order and is better than anything reimplemented here.
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', key);
+    // Restore whatever the page had rather than assuming it was scrollable, so
+    // this cannot leave a page stuck when two overlays overlap.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { window.removeEventListener('keydown', key); document.body.style.overflow = prev; };
+  }, [open, onClose]);
   if (!open) return null;
-  return <div className="fixed inset-0 z-[150] bg-slate-900/20 backdrop-blur-sm" onMouseDown={onClose}><aside role="dialog" aria-modal="true" aria-label={title} onMouseDown={e => e.stopPropagation()} className="ml-auto h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl"><div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-extrabold">{title}</h2><button ref={closeRef} className="btn-ghost" onClick={onClose} aria-label={`Close ${title}`}>Close</button></div>{children}</aside></div>;
+  return <div className="fixed inset-0 z-[150] bg-slate-900/20 backdrop-blur-sm" onMouseDown={onClose}><aside ref={panelRef} role="dialog" aria-modal="true" aria-label={title} onMouseDown={e => e.stopPropagation()} className="ml-auto h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl"><div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-extrabold">{title}</h2><button ref={closeRef} className="btn-ghost" onClick={onClose} aria-label={`Close ${title}`}>Close</button></div>{children}</aside></div>;
 }
 
 export type DataColumn<T> = { key: string; label: string; value: (row: T) => ReactNode; sortValue?: (row: T) => string | number | null; className?: string };

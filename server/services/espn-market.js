@@ -23,13 +23,34 @@ const MARKET_SOURCE_KEY = 'espn_player_market_source';
  * Thrown when the league this sync was asked for has no stored ESPN cookie
  * pair. Defined here rather than imported: the shared credential resolver
  * (platform/espn-credentials.js) is not on main yet, and this refusal must not
- * wait for it. When it lands, the throw site becomes a one-line swap to
- * `credentialsForLeague` and this class can go.
+ * wait for it.
+ *
+ * THE NAME IS DELIBERATELY NOT THEIRS. `platform/espn-credentials.js` on #48
+ * exports a class called `EspnCredentialsMissing` too, and the two are not
+ * interchangeable: theirs takes a message and carries
+ * `code: 'espn_not_connected'`, this one takes a league row id and carries
+ * `leagueRowId`. `instanceof` is false between them in both directions. One
+ * exported name over two incompatible classes is a catch block that matches
+ * the wrong throw and turns a 409 the caller could act on into a 500 it
+ * cannot, without a word in any log. Nothing imports both today, so nothing
+ * is broken yet; a name that is already wrong and not yet harmful is the
+ * cheapest moment to fix it.
+ *
+ * WHAT THE SWAP ACTUALLY COSTS. An earlier draft of this comment said the
+ * throw site becomes "a one-line swap to credentialsForLeague". That is true
+ * of the line and false of the change. `credentialsForLeague` falls back
+ * through `league_memberships` to a connected member, so a bare `leagues` row
+ * stops being a refusal case at all — it is a refusal only when no member is
+ * connected either. Four of this module's eight tests are written against a
+ * bare or half row and change meaning on that day, and a fifth case appears
+ * that cannot be written today because the join does not exist on main: a
+ * bare row with a connected member, syncing on that member's pair. See
+ * docs/tdd/espn-market-refuses-anonymous.tdd.md.
  */
-export class EspnCredentialsMissing extends Error {
+export class EspnMarketCredentialsMissing extends Error {
   constructor(leagueRowId, leagueId) {
     super(`league ${leagueRowId} (ESPN ${leagueId}) has no stored ESPN cookies, so its market cannot be read`);
-    this.name = 'EspnCredentialsMissing';
+    this.name = 'EspnMarketCredentialsMissing';
     this.status = 409;
     this.leagueRowId = leagueRowId;
   }
@@ -56,7 +77,7 @@ export async function syncEspnMarket(leagueRowId, { limit = 400 } = {}) {
   // board has no way to tell the two apart afterwards. Silent public data
   // wearing a league's label is worse than a named refusal: a caller that
   // cannot read a league says so and the board shows "never collected".
-  if (!lg.espn_s2 || !lg.swid) throw new EspnCredentialsMissing(leagueRowId, lg.league_id);
+  if (!lg.espn_s2 || !lg.swid) throw new EspnMarketCredentialsMissing(leagueRowId, lg.league_id);
   headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
   const url = `${BASE}/seasons/${season}/segments/0/leagues/${lg.league_id}?view=kona_player_info`;
   const resp = await fetch(url, { headers, signal: AbortSignal.timeout(30000) });

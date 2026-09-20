@@ -106,6 +106,89 @@ them, so a refusal that broke the working path could not pass.
    market input (ESPN 2, FFC 1, Sleeper 1) reads a table with no writer. #50
    is the fix for that half; this change makes sure what it writes is real.
 
+## Three findings from the Google sign-in thread, read against #48
+
+That thread owns `platform/espn-credentials.js` and read this branch against
+#48. Zero shared files, so mechanically clean. Three findings, all of which I
+re-verified against both branches' source rather than taking on report, and all
+three hold.
+
+### 1. One exported name over two incompatible classes — FIXED HERE
+
+`platform/espn-credentials.js:37` on #48 exports a class called
+`EspnCredentialsMissing`. So did this module, at `espn-market.js:29`. They are
+not interchangeable:
+
+| | theirs (#48) | this module's (before) |
+|---|---|---|
+| constructor | `(message)` | `(leagueRowId, leagueId)` |
+| carries | `code: 'espn_not_connected'` | `leagueRowId` |
+| `status` | 409 | 409 |
+| `instanceof` the other | false | false |
+
+A catch block written against one and reached by the other does not match. It
+falls through to whatever handles an unrecognised error, which turns a 409 the
+caller could act on — connect ESPN, then sync again — into a 500 it cannot,
+with nothing in any log to say a credential was the problem.
+
+**The collision was live, not latent, and the proof is in this branch's own
+tests.** They depend on the class identity three times: `err instanceof
+EspnCredentialsMissing` at `test/espn-market-refuses-anonymous.test.js:74`, and
+`assert.rejects(..., EspnCredentialsMissing)` at :111 and :112. The shape that
+would silently miss is one already written here twice, before any other caller
+exists. An earlier version of the comment above the class said it "can go when
+the resolver lands", which is an intent; the collision was exported anyway,
+which is the mechanism. An intent is not a mechanism.
+
+Renamed to `EspnMarketCredentialsMissing`, `this.name` with it, `status` left
+at 409 so no behaviour moves. Nothing imports both today, so nothing was broken
+yet — a name that is already wrong and not yet harmful is the cheapest moment
+to change it.
+
+### 2. After #48 this guard refuses a league the resolver could serve
+
+`credentialsForLeague` reads the `leagues` row first, and when its pair is bare
+falls back through `league_memberships JOIN espn_credentials` to a connected
+member, commissioner first then lowest user id. The guard in this module reads
+only `lg.espn_s2 || lg.swid` off the `leagues` row.
+
+So once #48 is on main there is a league this module refuses that the resolver
+could have served: a bare `leagues` row whose commissioner is connected.
+
+That is a **false refusal, not a leak**. It declines to fetch rather than
+fetching wrongly, so it is strictly safer than the anonymous read it replaces —
+which is the whole defect this branch exists to fix. And it is inert today only
+because `syncEspnMarket` still has no caller anywhere in the repository.
+
+**It is acceptable only while that stays true.** Wiring a caller to this module
+means doing the resolver swap in the same change, not after it. A caller plus
+this guard is a sync that refuses leagues it should serve, and the person who
+sees it will read "no stored ESPN cookies" and go looking at the league row,
+which is the one place the answer will not be.
+
+### 3. What the resolver swap actually costs
+
+An earlier comment here said the throw site becomes "a one-line swap to
+`credentialsForLeague`". True of the line, false of the change.
+
+Four of this module's eight tests are written against a bare or half `leagues`
+row, and a bare row stops being a refusal case on the day the resolver lands —
+it is a refusal only when no member is connected either. Those four do not
+survive the swap unchanged; they change meaning:
+
+- `a league with no cookie pair is refused, by name`
+- `and no request is made at all`
+- `and nothing is written, so the board still says never collected`
+- `half a pair is not a pair`
+
+And a fifth case appears that **cannot be written today**, because the join it
+needs does not exist on main: a bare row with a connected member, which must
+sync on that member's pair and report `source: 'member'`.
+
+So the swap is one line of source, four rewritten tests and one new one. The
+comment now says that, because a comment that under-quotes the cost of a change
+is how the change gets scheduled into an afternoon that cannot hold it.
+
 ## The five questions
 
 - **Is it well built?** It refuses in the place the decision is made, before

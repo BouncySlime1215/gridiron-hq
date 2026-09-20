@@ -14,7 +14,7 @@
  * which makes it the deployed writer of that table for the first time — so this
  * fix must land before #50, not after.
  *
- * It now throws `EspnCredentialsMissing`, naming the league, before the fetch.
+ * It now throws `EspnMarketCredentialsMissing`, naming the league, before the fetch.
  * A named refusal a caller can catch beats a silent substitution it cannot see.
  *
  * `fetch` is replaced with a recording stub rather than mocked at module level:
@@ -34,7 +34,7 @@ process.env.SCHEDULER_DISABLED = '1';
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const { db, rows, run } = await import('../server/db/index.js');
-const { syncEspnMarket, espnMarketFreshness, EspnCredentialsMissing } =
+const { syncEspnMarket, espnMarketFreshness, EspnMarketCredentialsMissing } =
   await import('../server/services/espn-market.js');
 
 const realFetch = globalThis.fetch;
@@ -71,7 +71,7 @@ test('a league with no cookie pair is refused, by name', async () => {
   stubFetch(PUBLIC_PAYLOAD);
   const id = league(8101, { cookies: false });
   await assert.rejects(() => syncEspnMarket(id), err => {
-    assert.ok(err instanceof EspnCredentialsMissing);
+    assert.ok(err instanceof EspnMarketCredentialsMissing);
     assert.match(err.message, /league 8101/);
     assert.match(err.message, /no stored ESPN cookies/);
     return true;
@@ -108,8 +108,8 @@ test('half a pair is not a pair', async () => {
       id, `espn-${id}`, `League ${id}`, id === 8104 ? 's2-only' : null, id === 8104 ? null : '{swid-only}');
     return id;
   };
-  await assert.rejects(() => syncEspnMarket(half(8104)), EspnCredentialsMissing);
-  await assert.rejects(() => syncEspnMarket(half(8105)), EspnCredentialsMissing);
+  await assert.rejects(() => syncEspnMarket(half(8104)), EspnMarketCredentialsMissing);
+  await assert.rejects(() => syncEspnMarket(half(8105)), EspnMarketCredentialsMissing);
   assert.deepEqual(calls, []);
 });
 

@@ -77,11 +77,11 @@ Baseline GREEN `scripts/route-deletion-impact.mjs` sha256 `43de9bf8fec9`, 8 test
 
 | id | mutation | sha256 | pass/fail | killed by |
 |---|---|---|---|---|
-| N1 | `insideFalling` counts every row again, not only the falling ones | `b8928c999c65` | 7 / 1 | 6 |
-| N2 | drop the multi-route line from the attribution pass | `72ec9bd1cc88` | 7 / 1 | 7 |
-| N3 | `walk()` recurses without the top-level-declaration check | `ff8506e7d4f3` | 7 / 1 | 8 |
+| N1 | `insideFalling` counts every row again, not only the falling ones | `b8928c999c65` | 7 / 1 | *a call site inside an already-unreached function is a survivor, not a casualty* |
+| N2 | drop the multi-route line from the attribution pass | `72ec9bd1cc88` | 7 / 1 | *a symbol two dying routes reach names both of them* |
+| N3 | `walk()` recurses without the top-level-declaration check | `ff8506e7d4f3` | 7 / 1 | *a closure declared inside a function is not a symbol of its module* |
 | N4 | NO-OP CONTROL: one word of a comment changed | `fb3eea46c583` | 8 / 0 | none, correctly |
-| N5 | the third section prints nothing | `6d32982e4427` | 7 / 1 | 6 |
+| N5 | the third section prints nothing | `6d32982e4427` | 7 / 1 | *a call site inside an already-unreached function is a survivor, not a casualty* |
 
 N2 is the row that earned its keep. The first version of test 7 used two handlers
 that both call the symbol directly; the merge at `record()` time satisfied it, and

@@ -1606,3 +1606,67 @@ test('the rule reproduces the citation that was found by hand', async () => {
   assert.equal(rows.some(r => r.subject === `${D}/tdd/wiring-map-route-deletions.tdd.md`), false,
     'this file exists and is cited: a rule that flags it is a rule nobody will read twice');
 });
+
+
+/*
+ * THE BRANCH NOBODY TESTED.
+ *
+ * `handleFor` has three ways of answering, and the last commit proved two of them
+ * and left the first alone. `viaMethod` — `someHandle.prepare(`, `.exec(`, `.run(`,
+ * `.all(`, `.get(` — was never broken, so nothing here noticed it, and the evidence
+ * file said so in as many words: "no test above would notice if its regex lost a
+ * byte the same way". A `0x08` is not a one-off. It is a class of fault, and the
+ * function it hit has another regex of the same shape sitting above the one that
+ * got it.
+ *
+ * What makes the method branch worth its own test rather than a comment is the
+ * FALLTHROUGH. Delete it and nothing throws: `audit.prepare(` still matches the
+ * bare-call branch below it, on the word `prepare`, which is not a foreign handle
+ * and not an app helper, so the answer becomes 'app' — a query on a second database
+ * silently filed as the app's. That is the same wrong answer the backspace produced,
+ * reached by a different road, and it is invisible in the output for the same
+ * reason: a wrong attribution does not print, it merges.
+ *
+ * Fixture tables are zz_fixture_* for the reason written above test 76.
+ */
+test('a query handed to a handle by method call is that handle, and the app is the default', () => {
+  const f = fileOf(`import { rows, run } from '../db/index.js';
+    const audit = new DatabaseSync(AUDIT_PATH);
+    db.prepare(\`SELECT id FROM zz_fixture_method_app\`);
+    audit.exec(\`CREATE TABLE zz_fixture_method_foreign (id INTEGER)\`);
+    audit.prepare(\`SELECT id FROM zz_fixture_method_foreign\`).get();
+    pool.all(\`SELECT id FROM zz_fixture_method_unknown\`);`);
+  const foreign = foreignHandles(f);
+  assert.deepEqual([...foreign.keys()], ['audit'], 'one second handle, opened once');
+  f.foreignOnlyFile = foreignOnlyFile(f, foreign);
+  assert.equal(f.foreignOnlyFile, false, 'the file imports the app db, so it has an app handle');
+
+  const at = needle => f.text.indexOf(needle) - 1;
+
+  // The receiver is a KNOWN foreign handle: the answer is that handle, and it is the
+  // only answer that differs from the default. Both methods, because the method list
+  // is part of the regex and dropping one of them is a live way to break this.
+  assert.equal(handleFor(f, at('CREATE TABLE zz_fixture_method_foreign'), foreign).handle, 'audit',
+    'exec() on the audit handle writes to the audit database, not the app');
+  assert.equal(handleFor(f, at('SELECT id FROM zz_fixture_method_foreign'), foreign).handle, 'audit',
+    'prepare() on the audit handle reads the audit database, not the app');
+
+  // The receiver is not a foreign handle. In a file that holds the app's database,
+  // that is the app, whether the receiver is the app's own name or one this checker
+  // has never heard of.
+  assert.equal(handleFor(f, at('SELECT id FROM zz_fixture_method_app'), foreign).handle, 'app',
+    'db.prepare() in a file that imports the app db is the app db');
+  assert.equal(handleFor(f, at('SELECT id FROM zz_fixture_method_unknown'), foreign).handle, 'app',
+    'an unrecognised receiver is not evidence of a second database');
+
+  // And where there IS no app handle, an unrecognised receiver cannot be the app.
+  // This is foreignDefault(), reached through the method branch rather than the bare
+  // one — the case league-history.js made necessary, asked the other way round.
+  const g = fileOf(`const hist = new DatabaseSync(HIST_PATH);
+    pool.get(\`SELECT id FROM zz_fixture_method_orphan\`);`);
+  const gForeign = foreignHandles(g);
+  g.foreignOnlyFile = foreignOnlyFile(g, gForeign);
+  assert.equal(g.foreignOnlyFile, true, 'no app-db import, so no app handle');
+  assert.equal(handleFor(g, g.text.indexOf('SELECT id FROM zz_fixture_method_orphan') - 1, gForeign).handle,
+    'hist', 'a file with no app database cannot answer "app"');
+});

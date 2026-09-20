@@ -106,3 +106,67 @@ It bites the intended test and only that one.
   against end-of-season PPR finish, scored two ways — with and without the ESPN
   vote — over several seasons of `nfl_player_week_stats`. That would settle the
   weight of 2. Nobody has run it.
+
+---
+
+## Addendum, 2026-09-20 02:40Z: the table has no live writer, which makes this worse, not better
+
+Verified against `791b131` with `git grep`, because the Google sign-in thread
+routed a separate finding about this same file and checking it turned up
+something that changes how this PR should be read.
+
+**On `main`, nothing imports `server/services/espn-market.js` at all.**
+
+- `syncEspnMarket` — **zero callers.** Not a route, not a scheduler job, not a
+  script, not a dynamic import. The only occurrences of the string `espn-market`
+  anywhere in the tree are its own definition, two schema-manifest entries, a
+  line in `scripts/schema-files.txt`, a row in the architecture folder map, and a
+  sentence in `docs/FANTASY-ENGINE-MASTER-PLAN.md` proposing that someone run it.
+- `espnMarketFreshness` — zero callers, as this PR already said.
+- `espn_player_market` — **exactly one writer**, the `INSERT` at
+  `espn-market.js:45`, inside that uncalled function. Five readers:
+  `routes/aggregates.js`, `consensus-weights.js`, `draft-assist.js`,
+  `manager-archetypes.js`, `preseason-model.js`.
+
+**What that means for this PR.** The framing in the body — "if the table held
+last year's rows" — was too tentative. The table cannot be refreshed by anything
+running on this deployment. Whatever it holds is a frozen snapshot from whenever
+that function was last called by hand, or it is empty. So the ESPN vote is not
+*at risk* of going stale; it is incapable of being anything else, and it is
+weighted 2 against 1 and 1.
+
+**What would disprove it**, since a negative claim from `grep` deserves one: any
+call site reached by a computed module specifier, a job registered by name
+through the scheduler's source registry rather than by import, or a caller added
+on a branch not yet merged. The first two were checked — no dynamic `import(` of
+this path exists and the scheduler's registry does not name it. The third is by
+definition not on `main`.
+
+**Why this PR is still right, and still not enough.** The season predicate is
+correct either way: a frozen wrong-season table is exactly the case it refuses.
+But the honest reading is that the fix converts a confidently wrong ESPN vote
+into an absent one, and the board then runs on FFC and Sleeper alone, which is
+the correct behaviour and also a quiet loss of the source the board's own
+docstring calls the most relevant market signal it has. **Wiring a caller for
+`syncEspnMarket` is the real fix and it is not in this PR.**
+
+## A follow-up recorded rather than taken: the cookie read
+
+Routed from the Google sign-in thread. The claim is correct on `791b131`:
+`syncEspnMarket` reads `espn_s2, swid` off the league row (`:19`) and, when they
+are absent, sets no `Cookie` header at all (`:31`) and goes out anonymously
+rather than failing. That is the same fault `#71` fixed in league refresh, and
+the fix pattern is the single resolver in `platform/espn-credentials.js`.
+
+**Not taken tonight, and the reason is the finding above: the code is not
+reachable.** There is no live fault to fix, only a latent one in a function
+nothing calls. Fixing it now would mean a branch based on `#48`'s — which is not
+on `main` — for a dead code path, during a freeze, creating a cross-thread
+dependency for no behaviour change.
+
+**The requirement instead, for whoever wires the caller:** `syncEspnMarket` must
+take its credentials from the resolver in `platform/espn-credentials.js`, not
+from the league row, and must fail rather than fetch anonymously when there are
+none. That belongs in the same commit as the caller, because that is the commit
+that makes it reachable. Stated here so the next person does not have to
+rediscover it.

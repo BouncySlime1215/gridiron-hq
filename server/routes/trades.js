@@ -25,10 +25,11 @@ import { newsOpportunities } from '../services/news-lag-trader.js';
 import { managerProfiles, setManagerProfile } from '../services/league-brain.js';
 // The measured manager layer: what has been observed about each counterparty, as
 // opposed to `manager_profiles`, which is the tier Nick set by hand.
-import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected, chatCorpusState }
+import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected, chatCorpusState,
+  archetypesBuilt }
   from '../services/manager-signals.js';
 import { identityMap, identityRows, identityWarnings } from '../services/manager-identity.js';
-import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE }
+import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE, managerModelReads }
   from '../services/counterparty-pricing.js';
 // Every other route in this file is a read behind a bearer session; the one that
 // triggers work needs the administrator grant on top (server/platform/legacy-access.js).
@@ -265,6 +266,47 @@ const NO_MANAGER_SIGNALS_REASON =
   'no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it';
 
 /**
+ * The archetype object without the store's raw `jev`.
+ *
+ * `archetypesFor` carries the stored probabilities straight through: no
+ * evaluation date, and no statement of which of them have evidence under them
+ * and which are priors the model was told to give. The manager payload serves
+ * `model_read` instead, which is the same answers dated and shaped, so this
+ * strips the undated copy rather than leaving two shapes of one answer on one
+ * page.
+ */
+/**
+ * WHAT THE SEASON NUMBER ACTUALLY COVERS, in the explain prompt's own words.
+ *
+ * `season_delta` is the weekly lineup gain multiplied out. This sentence used
+ * to say "a full 17-week season" on every date, so in week 15 a gain worth
+ * three more weeks was handed to the model as seventeen and it reasoned about a
+ * number five times the real one — a made-up span stated to a reader as a fact,
+ * which is the same defect as an undated stamp in a different place.
+ *
+ * The lineup diff serves what it actually multiplied by (`season_delta_weeks`)
+ * and whether that is the weeks left or a season-length default
+ * (`season_delta_basis`). A payload carrying neither keeps the old wording:
+ * guessing a count would be worse than the sentence it replaced.
+ */
+// TEST SEAM: exported for test/trade-season-span.test.js, which pins all three
+// branches; the only production caller is `fmtSide` in the explain route below.
+export const fmtSeasonSpan = s => {
+  const weeks = s?.season_delta_weeks;
+  if (!Number.isFinite(weeks)) return 'if that weekly gain held for a full 17-week season';
+  const plural = weeks === 1 ? 'week' : 'weeks';
+  return s?.season_delta_basis === 'full_season_default'
+    ? `over ${weeks} ${plural}, the season-length default used when the weeks left are not known`
+    : `over the ${weeks} ${plural} left in the season`;
+};
+
+const withoutRawJev = archetype => {
+  if (!archetype) return null;
+  const { jev: _rawUndated, ...rest } = archetype;
+  return rest;
+};
+
+/**
  * `res.json()` turns a Map or a Set into `{}` — silently, with a 200. That bug
  * has already happened in this codebase (valuationMap and counterpartyLayer both
  * hand back Maps of Maps, and `owned` is a Set), and this payload is assembled
@@ -333,14 +375,25 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
   // lazily, rather than at the top of the trade path (the same line
   // counterparty-pricing.js draws) and an absent store is simply no archetype.
   let archetypes = new Map();
+  // A read that THREW and a store that is empty are different facts with
+  // different fixes, and the bare `catch {}` that used to sit here made them
+  // identical. Not hypothetical: `archetypesFor` joins `league_season_teams`,
+  // whose only CREATE TABLE is in `scripts/backfill-league-history.mjs`, so on
+  // a database where that backfill has never run this throws and every manager
+  // came back with no archetype under a page that said the build had not run.
+  let archetypeError = null;
   try {
     const { archetypesFor } = await import('../services/manager-archetypes.js');
     archetypes = archetypesFor(leagueId, season);
-  } catch { archetypes = new Map(); }
-
+  } catch (e) { archetypeError = String(e?.message ?? e); archetypes = new Map(); }
   const rosterIds = teams.length
     ? teams.map(t => String(t.id))
     : [...new Set([...idents.keys(), ...byRoster.keys()])].sort((a, b) => Number(a) - Number(b));
+  // The model read of each person, from the same call the counterparty layer
+  // makes — not through the layer, which exists only for rosters that have
+  // signals. A manager with no signals still has a draft record somebody paid a
+  // gateway call to read.
+  const modelReads = managerModelReads(leagueId, rosterIds);
 
   const managers = rosterIds.map(id => {
     const team = teamById.get(id) ?? null;
@@ -354,7 +407,12 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
       // null, not 'fair': "nobody has said" and "he was judged tradeable" are
       // different facts, and league-brain.js's default hides the difference.
       tradeability_set: profiles.get(id)?.tradeability ?? null,
-      archetype: archetypes.get(id) ?? null,
+      // The store's own `jev` is stripped: it is the raw probabilities with no
+      // evaluation date and no statement of what is under them, and `model_read`
+      // below is the same answers dated and shaped. Two shapes of one answer on
+      // one payload is how a page ends up rendering the undated one.
+      archetype: withoutRawJev(archetypes.get(id)),
+      model_read: modelReads.get(id) ?? null,
       receptiveness: mp ? {
         value: mp.receptiveness, range: RECEPTIVENESS_RANGE,
         // What priced him, and on how much. `tier` here is the value the layer
@@ -398,6 +456,9 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
     // app rather than the exception — the corpus never ships in the image — so a
     // page that cannot say "the corpus is not here" will say "he never talks".
     chat: chatCorpusState(),
+    // THE ARCHETYPE STORE, on the same footing as the two above, and the place
+    // a failed read is reported instead of vanishing.
+    archetypes: { ...archetypesBuilt(leagueId, season), read_failed: archetypeError },
     sources: SIGNAL_SOURCES,
     identity_warnings: identityWarnings(leagueId),
     managers,
@@ -926,7 +987,7 @@ r.post('/:leagueId/sense-check', async (req, res, next) => {
     const fmtSide = (label, s) => `${label} (${s.owner}):
   Sends: ${s.gives.length ? s.gives.map(fmtPlayer).join('\n    ') : 'nothing'}
   Receives: ${s.gets.length ? s.gets.map(fmtPlayer).join('\n    ') : 'nothing'}
-  Starting lineup: ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}/wk, ${s.season_delta > 0 ? '+' : ''}${s.season_delta} if that weekly gain held for a full 17-week season)
+  Starting lineup: ${s.lineup_before} -> ${s.lineup_after} ppg (${s.ppg_delta > 0 ? '+' : ''}${s.ppg_delta}/wk, ${s.season_delta > 0 ? '+' : ''}${s.season_delta} ${fmtSeasonSpan(s)})
   Market value: ${s.value_delta > 0 ? '+' : ''}${s.value_delta}
   Starting lineup's weekly total, change in its bad week (10th percentile) / good week (90th percentile): ${s.floor_delta ?? '?'}/${s.ceiling_delta ?? '?'}
 ${fmtRisk(s.risk)}

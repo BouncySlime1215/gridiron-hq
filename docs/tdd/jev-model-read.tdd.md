@@ -78,27 +78,122 @@ it and J8 collapses two of them into one sentence; both go red.
 
 ## 5. Mutations
 
-Baselines: `server/services/counterparty-pricing.js` at `e9fd77999ace`,
+Baselines: `server/services/counterparty-pricing.js` at `96e54c44c7ce`,
 `server/services/manager-signals.js` at `bbc1ebea6dab`, on the exact tree these
-gates pass on. Every row records the file's SHA-256 before and after, so a
+gates pass on. The sweep was re-run after the shared-accessor extraction that
+`docs/tdd/manager-page-reads.tdd.md` §3 describes, so the baselines below are
+the file as it stands and not a tree that no longer exists. Every row records the file's SHA-256 before and after, so a
 pattern that did not match is reported as a `NO-OP` and not counted as a result.
 The named test is the ONE test that injection must turn red; an injection that
 lands but kills a different test is unfinished, not a result.
 
 | # | injection | verification | named test | result |
 |---|---|---|---|---|
-| 1 | J1 serve the LEAGUE's newest evaluation as this manager's own stamp | `APPLIED e9fd77999ace -> 6280134332f4` | went red | **RED** (1 failing) |
-| 2 | J2 every answer reported as measured, whatever its basis | `APPLIED e9fd77999ace -> 5f092d525961` | went red | **RED** (2 failing) |
-| 3 | J3 drop the flatness threshold — any distribution counts as informative | `APPLIED e9fd77999ace -> 45f65132dc40` | went red | **RED** (1 failing) |
-| 4 | J4 take a boolean's stored 'true' row as the whole distribution | `APPLIED e9fd77999ace -> 917cb938c9f8` | went red | **RED** (1 failing) |
-| 5 | J5 rank a score question's 'mean' summary as one of its outcomes | `APPLIED e9fd77999ace -> 74431b27b68f` | went red | **RED** (1 failing) |
-| 6 | J6 an unevaluated manager borrows the first evaluated manager's read | `APPLIED e9fd77999ace -> b4923e508d68` | went red | **RED** (1 failing) |
-| 7 | J7 blank the sentence for a manager the pass never reached | `APPLIED e9fd77999ace -> a6c24c183bf2` | went red | **RED** (1 failing) |
-| 8 | J8 give the two different absences one shared sentence | `APPLIED bbc1ebea6dab -> 7ea9c3c37000` | went red | **RED** (1 failing) |
-| 9 | J9 let the model read nudge receptiveness | `APPLIED e9fd77999ace -> a06cc1da72ff` | went red | **RED** (1 failing) |
-| 10 | J10 let the model read price a player | `APPLIED e9fd77999ace -> 77cf440816d8` | went red | **RED** (4 failing) |
-| 11 | J11 scope the read to one league so it stops travelling with the person | `APPLIED bbc1ebea6dab -> fa0a155346c1` | went red | **RED** (1 failing) |
+| 1 | serve the LEAGUE's newest evaluation as this manager's own stamp | `APPLIED 96e54c44c7ce -> fa3dd37f2d64` | went red | **RED** (1 failing) |
+| 2 | every answer reported as measured, whatever its basis | `APPLIED 96e54c44c7ce -> e97dc5b5fad1` | went red | **RED** (2 failing) |
+| 3 | drop the flatness threshold — any distribution counts as informative | `APPLIED 96e54c44c7ce -> 334161808b62` | went red | **RED** (1 failing) |
+| 4 | take a boolean's stored 'true' row as the whole distribution | `APPLIED 96e54c44c7ce -> e517e7310247` | went red | **RED** (1 failing) |
+| 5 | rank a score question's 'mean' summary as one of its outcomes | `APPLIED 96e54c44c7ce -> aa2d9f7a1662` | went red | **RED** (1 failing) |
+| 6 | an unevaluated manager borrows the first evaluated manager's read | `APPLIED 96e54c44c7ce -> 25f4abb9d939` | went red | **RED** (1 failing) |
+| 7 | blank the sentence for a manager the pass never reached | `APPLIED 96e54c44c7ce -> a82234586a95` | went red | **RED** (1 failing) |
+| 8 | give the two different absences one shared sentence | `APPLIED bbc1ebea6dab -> 7ea9c3c37000` | went red | **RED** (1 failing) |
+| 9 | let the model read nudge receptiveness | `APPLIED 96e54c44c7ce -> 5799e55c5d51` | went red | **RED** (1 failing) |
+| 10 | let the model read price a player | `APPLIED 96e54c44c7ce -> 75630d4ee919` | went red | **RED** (4 failing) |
+| 11 | scope the read to one league so it stops travelling with the person | `APPLIED bbc1ebea6dab -> fa0a155346c1` | went red | **RED** (1 failing) |
 | 12 | CONTROL a pattern that is not in the file | `NO-OP - pattern not found` | — | **-** (0 failing) |
+
+The exact text of every injection, before and after. A description of an edit is
+not an injection, and a row that cannot be re-applied from what it prints is not
+reproducible.
+
+**J1 serve the LEAGUE's newest evaluation as this manager's own stamp** — `server/services/counterparty-pricing.js`, APPLIED 96e54c44c7ce -> fa3dd37f2d64
+
+```diff
+- as_of: entry.as_of,
++ as_of: read.as_of,
+```
+
+**J2 every answer reported as measured, whatever its basis** — `server/services/counterparty-pricing.js`, APPLIED 96e54c44c7ce -> e97dc5b5fad1
+
+```diff
+- const measured = a.basis === 'draft';
++ const measured = true;
+```
+
+**J3 drop the flatness threshold — any distribution counts as informative** — `server/services/counterparty-pricing.js`, APPLIED 96e54c44c7ce -> 334161808b62
+
+```diff
+- const informative = spread != null && spread >= JEV_FLAT_TVD;
++ const informative = spread != null;
+```
+
+**J4 take a boolean's stored 'true' row as the whole distribution** — `server/services/counterparty-pricing.js`, APPLIED 96e54c44c7ce -> e517e7310247
+
+```diff
+- const dist = outcomes.length === 1 && outcomes[0][0] === 'true'
++ const dist = false
+```
+
+**J5 rank a score question's 'mean' summary as one of its outcomes** — `server/services/counterparty-pricing.js`, APPLIED 96e54c44c7ce -> aa2d9f7a1662
+
+```diff
+- .filter(([k, v]) => k !== 'mean' && Number.isFinite(v));
++ .filter(([k, v]) => Number.isFinite(v));
+```
+
+**J6 an unevaluated manager borrows the first evaluated manager's read** — `server/services/counterparty-pricing.js`, APPLIED 96e54c44c7ce -> 25f4abb9d939
+
+```diff
+- const entry = read.by_roster.get(String(rosterId)) ?? null;
++ const entry = read.by_roster.get(String(rosterId)) ?? [...read.by_roster.values()][0] ?? null;
+```
+
+**J7 blank the sentence for a manager the pass never reached** — `server/services/counterparty-pricing.js`, APPLIED 96e54c44c7ce -> a82234586a95
+
+```diff
+-       reason: read.reason
+-         ?? 'the Jev pass has covered this league but not him — it is run one manager at a time and costs a '
+-            + 'gateway call each, so who it reached is a fact about the run and not about him' });
++       reason: read.reason ?? '' });
+```
+
+**J8 give the two different absences one shared sentence** — `server/services/manager-signals.js`, APPLIED bbc1ebea6dab -> 7ea9c3c37000
+
+```diff
+-       reason: 'the Jev pass has never been run: it is opt-in, and `npm run build:manager-archetypes -- --jev` '
+-         + 'is what would answer these questions' };
++       reason: 'the Jev pass has covered this league but not him — it is run one manager at a time and costs a gateway call each, so who it reached is a fact about the run and not about him' };
+```
+
+**J9 let the model read nudge receptiveness** — `server/services/counterparty-pricing.js`, APPLIED 96e54c44c7ce -> 5799e55c5d51
+
+```diff
+-     const [lo, hi] = RECEPTIVENESS_RANGE;
++     if (jevBlocks.get(String(id)).answers.length) score += 0.01;
++     const [lo, hi] = RECEPTIVENESS_RANGE;
+```
+
+**J10 let the model read price a player** — `server/services/counterparty-pricing.js`, APPLIED 96e54c44c7ce -> 75630d4ee919
+
+```diff
+-   const profile = managerProfile?.negotiation ?? null;
++   const profile = managerProfile?.negotiation ?? null;
++   if ((managerProfile?.jev?.answers ?? []).length) add('luck_self_view', 0.05, 99, 'jev said so', null);
+```
+
+**J11 scope the read to one league so it stops travelling with the person** — `server/services/manager-signals.js`, APPLIED bbc1ebea6dab -> fa0a155346c1
+
+```diff
+-                          WHERE i.league_id = ?`, leagueId);
++                          WHERE i.league_id = ? AND i.league_id = 21`, leagueId);
+```
+
+**CONTROL a pattern that is not in the file** — `server/services/counterparty-pricing.js`, NO-OP - pattern not found
+
+```diff
+- const JEV_NOT_A_REAL_SYMBOL = 1;
++ const JEV_NOT_A_REAL_SYMBOL = 2;
+```
 
 **11 of 11 killed on the first pass**, each by the test it names, every file
 restored clean, and the control correctly a `NO-OP`. This is the first clean

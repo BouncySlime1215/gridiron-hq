@@ -1003,6 +1003,17 @@ function insertJevFixture() {
     ins(HAY, 'trade_style', outcome, p, 'inference_only', JEV_EVAL_HAY);
   }
   ins(HAY, 'sells_low_after_bad_week', 'true', 0.5, 'inference_only', JEV_EVAL_HAY);
+  // A boolean that DOES lean, and still has no evidence under it. Stored as its
+  // 'true' leg alone, like every boolean in this store, so it is also the row
+  // that catches a reader who forgets the other leg exists: 0.8 against a
+  // missing 'false' is a one-outcome distribution, which has no spread at all.
+  ins(HAY, 'buys_high', 'true', 0.8, 'inference_only', JEV_EVAL_HAY);
+  // A score question, which stores a 'mean' summary BESIDE its per-level
+  // probabilities. The summary is not an outcome and must not be ranked as one.
+  ins(HAY, 'risk_appetite', 'mean', 3.2, 'draft', JEV_EVAL_HAY);
+  for (const [outcome, p] of Object.entries({ 0: 0.05, 1: 0.10, 2: 0.15, 3: 0.30, 4: 0.40 })) {
+    ins(HAY, 'risk_appetite', outcome, p, 'draft', JEV_EVAL_HAY);
+  }
 
   // Carl: evaluated a day later than Hayden, so the newest stamp in the league
   // belongs to somebody else. A league-wide MAX() reported on Hayden's block
@@ -1062,6 +1073,29 @@ test('G11c: a flat answer is reported as carrying no information, not as a 33% c
   assert.equal(sells.informative, false, 'and a boolean at 0.5 is the same non-answer');
   assert.equal(bias.informative, true, '0.60 on one option is a real lean');
   assert.match(style.why, /even spread|no information/i);
+
+  // The boolean's OTHER leg. A boolean is stored as its 'true' row alone, so a
+  // reader that takes the stored rows as the whole distribution sees one
+  // outcome, and one outcome has no spread to measure — every boolean in the
+  // store would come back unmeasurable, the 0.5 non-answer and a real 0.8 lean
+  // alike.
+  assert.equal(sells.spread, 0, 'a boolean at 0.5 is exactly an even spread, not an unmeasurable one');
+  assert.ok(sells.top, 'and it still has a leading outcome');
+  const buys = answerFor(hay, 'buys_high');
+  assert.equal(buys.spread, 0.3, '0.8 against its missing 0.2 leg');
+  assert.equal(buys.informative, true, 'a lopsided answer says something');
+  assert.match(buys.why, /prior/i, 'and it is still a prior — leaning is not evidence');
+});
+
+test('G11g: a score question\'s summary is not one of its outcomes', () => {
+  // `risk_appetite` stores a 'mean' of 3.2 beside its five level probabilities.
+  // Ranked as an outcome, 3.2 beats every real probability and the answer reads
+  // as "most likely: mean".
+  const risk = answerFor(jevOf(21, '2'), 'risk_appetite');
+  assert.ok(risk, 'the score question is served');
+  assert.equal(risk.score_mean, 3.2, 'the summary is served, under its own name');
+  assert.equal(risk.top.outcome, '4', 'and the leading OUTCOME is a level, never the summary');
+  assert.equal(risk.top.probability, 0.4);
 });
 
 test('G11d: the model read is DISPLAYED and never priced — deleting the store moves no number', () => {

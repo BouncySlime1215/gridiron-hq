@@ -696,6 +696,95 @@ export function chatCorpusState() {
   } finally { try { chat.close(); } catch { /* already closed */ } }
 }
 
+/**
+ * WHEN THE MODEL READ OF EACH MANAGER WAS EVALUATED.
+ *
+ * The fourth store, and the one whose stamp is least like its neighbour's.
+ * `manager_archetype_jev` holds a model's answers to typed questions about one
+ * manager's draft record — does he overvalue what he owns, does he counter or
+ * decline outright, does he sell low after a bad week. They are written by
+ * `scripts/build-manager-archetypes.mjs`, the same script that writes
+ * `manager_archetypes`, but ONLY when it is passed `--jev`, which is opt-in and
+ * needs a gateway key (`scheduler.js` reports the job as "not run — opt-in").
+ *
+ * So the archetype build's `computed_at` and this pass's `evaluated_at` are two
+ * clocks that drift apart by design: the build can run nightly while the model
+ * answers sit untouched for weeks. Serving `archetypesBuilt().as_of` beside a
+ * Jev answer would date a measurement by a process that did not make it — the
+ * substitution this whole family of accessors exists to prevent.
+ *
+ * The stamp is returned PER MANAGER, not per league. `storeJevAnswers` stamps
+ * each member as he is evaluated and the pass can stop halfway through a league
+ * (it costs money per manager), so a league-wide MAX() would print the newest
+ * manager's date under everybody's name.
+ *
+ * Four absences, four sentences, because the fix differs in each:
+ *   - the table is not on this database at all;
+ *   - it is here and empty: the pass has never been run;
+ *   - it has rows, but none for anyone in this league;
+ *   - it covers this league, but not this manager.
+ * The last one is answered by the consumer, from an empty `by_roster` entry.
+ *
+ * Nothing here prices. The trade path serves these answers as a read of the
+ * person and never as a term: half of them carry `basis: 'inference_only'`,
+ * which is the store saying in its own column that the number is a prior.
+ */
+export function jevEvaluated(leagueId) {
+  const evaluator = 'scripts/build-manager-archetypes.mjs --jev (off-server; opt-in, needs a gateway key, '
+    + 'and nothing on the deployed app writes this store)';
+  const empty = { as_of: null, rows: 0, evaluated_by: evaluator, by_roster: new Map() };
+  if (!tableExists('manager_archetype_jev')) {
+    return { ...empty, reason: 'manager_archetype_jev does not exist on this database — the Jev pass has never run here' };
+  }
+  const [total] = rows('SELECT COUNT(*) AS n FROM manager_archetype_jev');
+  if (!total?.n) {
+    return { ...empty,
+      reason: 'the Jev pass has never been run: it is opt-in, and `npm run build:manager-archetypes -- --jev` '
+        + 'is what would answer these questions' };
+  }
+  // The store is keyed by member_id alone — on purpose, because how a person
+  // negotiates is a fact about the person and not about one of his leagues —
+  // so the roster mapping is the join and the answers travel across leagues.
+  //
+  // `league_member_identity`, not `league_season_teams`. The second is the
+  // mapping `manager-archetypes.js` itself joins on, and it is created only by
+  // `scripts/backfill-league-history.mjs`: on any database where that backfill
+  // has never run the table is simply absent, and a read through it throws
+  // rather than returning an absence. `league_member_identity` is written by
+  // `matchIdentities` on every league sync, so it is present wherever a league
+  // is. Its `confidence` column is not consulted here: that gate governs
+  // attributing CHAT to a roster, and an ESPN member id is an ESPN fact — a
+  // manager whose chat name was never confirmed still has one.
+  const answered = rows(`SELECT i.roster_id AS roster_id, j.member_id AS member_id, j.question AS question,
+                                j.outcome AS outcome, j.probability AS probability, j.basis AS basis,
+                                j.n_seasons AS n_seasons, j.n_picks AS n_picks, j.model AS model,
+                                j.evaluated_at AS evaluated_at
+                         FROM manager_archetype_jev j
+                         JOIN league_member_identity i ON i.espn_member_id = j.member_id
+                         WHERE i.league_id = ?`, leagueId);
+  if (!answered.length) {
+    return { ...empty,
+      reason: 'the Jev pass has run, but for no manager in this league — it is run one manager at a time '
+        + 'and costs a gateway call each, so a partial store is the normal state' };
+  }
+  const byRoster = new Map();
+  let newest = null;
+  for (const r of answered) {
+    const key = String(r.roster_id);
+    if (!byRoster.has(key)) {
+      byRoster.set(key, { roster_id: key, member_id: r.member_id, as_of: null, model: r.model ?? null,
+        questions: {} });
+    }
+    const entry = byRoster.get(key);
+    // HIS newest, and separately the league's, which are different facts.
+    if (r.evaluated_at && (entry.as_of == null || r.evaluated_at > entry.as_of)) entry.as_of = r.evaluated_at;
+    if (r.evaluated_at && (newest == null || r.evaluated_at > newest)) newest = r.evaluated_at;
+    entry.questions[r.question] ??= { basis: r.basis, n_seasons: r.n_seasons, n_picks: r.n_picks, p: {} };
+    entry.questions[r.question].p[r.outcome] = r.probability;
+  }
+  return { as_of: newest, rows: answered.length, evaluated_by: evaluator, by_roster: byRoster, reason: null };
+}
+
 export function unpriceableReason(source) {
   const spec = SIGNAL_SOURCES[source];
   if (!spec) {

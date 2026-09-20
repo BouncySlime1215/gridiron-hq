@@ -18,7 +18,7 @@
  * are the contract that keeps a chatty manager from dominating the ranking.
  */
 import { rows } from '../db/index.js';
-import { managerSignalsFor, openChatDb, chatDataKey, transactionsCollected, archetypesBuilt }
+import { managerSignalsFor, openChatDb, chatDataKey, transactionsCollected, archetypesBuilt, jevEvaluated }
   from './manager-signals.js';
 import { identityMap } from './manager-identity.js';
 import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from './talk-vs-model.js';
@@ -130,6 +130,94 @@ function percentile(xs, x) {
 }
 
 /**
+ * THE MODEL'S READ OF EACH MANAGER — DISPLAYED, NEVER PRICED.
+ *
+ * `manager_archetype_jev` answers, in a typed and stored form, the questions
+ * this module exists to ask: does he overvalue what he already owns, does he
+ * counter or decline outright, would he move a player cheaply after one bad
+ * week. It has been written since the archetype build shipped and the trade
+ * path never read it.
+ *
+ * It is brought in as a READ OF THE PERSON and it moves no number, which is a
+ * deliberate refusal rather than an omission. Five of the eight questions carry
+ * `basis: 'inference_only'` — the store's own column saying the record contains
+ * no evidence bearing on the answer, so the model was told to stay near the
+ * prior and did. A prior that moves a price is a number invented about someone.
+ * `test/valuation-map.test.js` G11d pins it: deleting the whole store must not
+ * change a price, a multiplier, a factor, an inert entry or receptiveness.
+ *
+ * If this is ever to price, it needs a decided-proposal sample to fit against,
+ * exactly like every other entry in VALUATION_SOURCES — not a promotion.
+ */
+/**
+ * How far an answer must depart from an even spread before it is reported as
+ * saying anything. Total-variation distance, so 0.05 is "five percent of the
+ * probability mass is somewhere other than where an even spread would put it".
+ *
+ * Not fitted, and it prices nothing: it decides whether a sentence appears, not
+ * whether a number moves. It exists because 0.34/0.33/0.33 is what "spread the
+ * probability evenly" looks like after a model rounds, and served as three
+ * numbers it invites a page to draw a bar chart of noise and a reader to
+ * conclude he counters slightly more often than not.
+ */
+const JEV_FLAT_TVD = 0.05;
+
+function shapeJevAnswer(question, a) {
+  const measured = a.basis === 'draft';
+  // 'mean' is the score summary stored beside the per-level probabilities, not
+  // an outcome anyone can land on, so it is not part of the distribution.
+  const outcomes = Object.entries(a.p ?? {})
+    .filter(([k, v]) => k !== 'mean' && Number.isFinite(v));
+  // A boolean is stored as its 'true' leg alone. Its other leg is real and has
+  // to be in the distribution, or every boolean reads as maximally lopsided.
+  const dist = outcomes.length === 1 && outcomes[0][0] === 'true'
+    ? [['true', outcomes[0][1]], ['false', 1 - outcomes[0][1]]]
+    : outcomes;
+  const k = dist.length;
+  const spread = k > 1
+    ? +(0.5 * dist.reduce((s, [, v]) => s + Math.abs(v - 1 / k), 0)).toFixed(4)
+    : null;
+  const informative = spread != null && spread >= JEV_FLAT_TVD;
+  const top = dist.length
+    ? (([outcome, probability]) => ({ outcome, probability }))(
+      dist.reduce((best, cur) => (cur[1] > best[1] ? cur : best)))
+    : null;
+  const why = !measured
+    ? 'this is a prior and not a reading of him: the record the model was shown holds no trades, no waiver '
+      + 'claims and no timestamps, so nothing in it bears on the question'
+      + (informative ? '' : ' — and the answer came back an even spread across the options, which is the '
+        + 'honest answer when there is no evidence')
+    : informative
+      ? `read from his own draft record — ${a.n_picks ?? '?'} picks across ${a.n_seasons ?? '?'} seasons`
+      : 'his draft record bears on this question and the answer still came back an even spread across the '
+        + 'options, so it carries no information about him either way';
+  return {
+    question, basis: a.basis, measured,
+    p: a.p ?? {}, top, score_mean: Number.isFinite(a.p?.mean) ? a.p.mean : null,
+    n_seasons: a.n_seasons ?? null, n_picks: a.n_picks ?? null,
+    spread, informative, why,
+  };
+}
+
+/** One manager's block, or the absence that is not his fault. */
+function jevBlockFor(read, rosterId) {
+  const entry = read.by_roster.get(String(rosterId)) ?? null;
+  if (!entry) {
+    return Object.freeze({ priced: false, evaluated_by: read.evaluated_by, as_of: null, model: null,
+      answers: [],
+      // A league-level reason when there is one; otherwise the store covers this
+      // league and stopped short of him, which is a fact about the run.
+      reason: read.reason
+        ?? 'the Jev pass has covered this league but not him — it is run one manager at a time and costs a '
+           + 'gateway call each, so who it reached is a fact about the run and not about him' });
+  }
+  return Object.freeze({ priced: false, evaluated_by: read.evaluated_by, as_of: entry.as_of,
+    model: entry.model,
+    answers: Object.entries(entry.questions).map(([q, a]) => shapeJevAnswer(q, a)),
+    reason: null });
+}
+
+/**
  * Per-league counterparty layer, built once per findTrades call.
  *
  * Absolute chat rates are compressed (open-to-trade runs 0.13-0.34 across a
@@ -144,6 +232,10 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   // reason. `luck_self_view` is priced off this store, so its age travels with
   // the reading rather than being left for a page to guess at.
   const archetypesAsOf = Object.freeze(archetypesBuilt(leagueId, season ?? null));
+  // The model's read of each person, on its own clock: the Jev pass is opt-in
+  // while the archetype build is not, so the two stamps drift apart by design.
+  // Read once per league and handed out per manager; it prices nothing.
+  const jevRead = jevEvaluated(leagueId);
   // Every league-wide read is built ONCE here and handed to whoever needs it,
   // so the deal read and the valuation map cannot end up on different answers.
   const gaps = expectationGaps(season, week);
@@ -156,22 +248,19 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   // has none to weigh — and no reason to open the private chat DB at all.
   const credibility = identityMap(leagueId).size ? declarationCredibility() : null;
   // WHETHER THE RECORD WAS READ AT ALL, which is not the same as whether it is
-  // empty. `manager_player_view` lives in this database and survives; the
+  // empty — and it can fail to be read in two ways. `credibility == null` is "we
+  // never asked": this league has no confirmed chat identity, so no lookup was
+  // attempted. `available: false` is "we asked and could not read it": the
   // declaration record that says whether his refusals HOLD lives in the Mac-only
-  // corpus and does not, so on the deployed app `declarationCredibility()` comes
-  // back `available: false` while his declared players are still here.
-  // `untouchableStance` then falls back to the prior (1 - PRIOR_BLUFF_RATE =
-  // 0.65), which clears its 0.45 bar and prices the player up under a sentence
-  // that says his word has held. Nothing about his word was read. This carries
-  // the difference to `playerValuation`, which withholds the adjustment.
-  // WHETHER THE RECORD WAS READ AT ALL, in the two ways it can fail to be.
-  // `credibility == null` is "we never asked": this league has no confirmed chat
-  // identity, so no lookup was attempted. `available: false` is "we asked and
-  // could not read it": the corpus is not on this machine. Both leave
-  // `untouchableStance` falling back to the 1 - PRIOR_BLUFF_RATE prior, which
-  // prices a refusal up under a sentence about a word nobody read — so both are
-  // `false` here, and they carry DIFFERENT sentences, because one is a machine
-  // and the other is a name Nick never confirmed.
+  // corpus, so on the deployed app it is absent while `manager_player_view`, in
+  // this database, still holds his declared players.
+  //
+  // Both leave `untouchableStance` falling back to the prior
+  // (1 - PRIOR_BLUFF_RATE = 0.65), which clears its 0.45 bar and prices the
+  // player up under a sentence saying his word has held, when nothing about his
+  // word was read. So both are `false` here and carry DIFFERENT sentences —
+  // one is a machine, the other is a name Nick never confirmed — and the
+  // difference travels to `playerValuation`, which withholds the adjustment.
   const declarationsRead = credibility != null && credibility.available !== false;
   const declarationsReason = declarationsRead
     ? null
@@ -268,6 +357,10 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
       declarations_reason: declarationsReason,
       priors: Object.fromEntries(Object.entries(m).filter(([k]) => k.startsWith('prior_'))),
       untouchable_rate: m.chat_own_untouchable ?? null,
+      // NOT a valuation-map input, and deliberately above the line that marks
+      // them: this is a read OF him for a page to show, with the date it was
+      // made and, per answer, whether anything was under it.
+      jev: jevBlockFor(jevRead, id),
       // ---- the valuation-map inputs, each already reduced to what it means ----
       owned: rosterOf.get(String(id)) ?? new Set(),
       roster_size: rosterSize.get(String(id)) ?? 0,

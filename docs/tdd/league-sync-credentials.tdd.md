@@ -129,3 +129,42 @@ silent anonymous path.
 
 2,976 tests, 2,935 passed, 0 failed, 41 skipped. `npm run check` (typecheck,
 lint, test, build, start:smoke) clean.
+
+## The five questions
+
+**Is this well built?** One module answers "whose credentials?" and every ESPN
+fetch that names a league goes through it. The resolution order is fixed and
+deterministic — the league's own pair, then a member (commissioner first, then
+lowest user id), then a refusal — so the answer cannot change under a caller
+because somebody else happened to sync.
+
+**Is it measured, or asserted?** Measured, and where it is not, that is said in
+the same sentence. The borrow was reproduced on a `791b131` worktree over real
+HTTP and the actual cookie printed; the anonymous league refresh was executed
+(200, three ESPN calls, `Cookie: null`) rather than read off the source; the
+player-pool table is a real request at three limits. Still inferred and labelled
+as such: that ESPN cookies could not exceed the 1042 anonymous ceiling (the
+with-cookies side was never run), and that migration 063 behaves on the
+production database, since the fixture is real-shaped but is not a copy of it.
+
+**Audit the structure.** The defect was one lookup existing twice in files that
+drifted apart, so the fix is one module and no second copy. `espnGet` and
+`fetchEspn` now take our `leagues.id`, which is the only value that says whose
+credentials a request may use. Failure is a typed error with a status, not a
+null, because the failure being replaced was silent.
+
+**Audit the overall build.** Nine deliberate mutations were run against the
+code; eight turned the suite red immediately. The ninth survived and was
+treated as a missing test rather than a pass — every fixture account had a row,
+so "an account that has never connected" was never asked for. That case is now
+pinned and all nine fail. Numbers for the full local check are at the end of
+this document.
+
+**Should this data point anywhere else, and is it unified?** Not completely,
+and the gap is named rather than implied. `server/services/espn-market.js:19,31`
+is the last ESPN fetch still reading `espn_s2`/`swid` off the league row and
+sending no cookie when that row is bare — the same shape as the league-refresh
+bug fixed here, and with the same consequence, since `espn_credentials` is now
+the canonical store and that path cannot see it. It is allocated to another
+thread under the one-editor rule, so it is routed rather than edited here. Once
+it moves, every credential read on the platform goes through the one resolver.

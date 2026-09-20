@@ -26,6 +26,8 @@ import { declarationCredibility, untouchableStance } from './bluff-detector.js';
 import { analyzeLeague } from '../routes/tradelab.js';
 
 /** Hard ceiling on how far chat can move a package's perceived value. */
+// TEST SEAM: no production importer. Used by `perceivedValue` below; exported so
+// test/valuation-map.test.js can pin the package clamp without restating 0.15.
 export const PERCEPTION_CAP = 0.15;
 /** Receptiveness multiplier range. 1.0 is "no information". */
 export const RECEPTIVENESS_RANGE = [0.7, 1.3];
@@ -60,6 +62,9 @@ export const RECEPTIVENESS_RANGE = [0.7, 1.3];
  * `needs` names the data the source cannot work without, which is what the map
  * reports as absent for the four leagues with no chat corpus.
  */
+// TEST SEAM: no production importer (trade-engine.js:1907 names it in a comment
+// only). Eleven readers in this file; exported so the suite can assert every
+// source's cap, min_n and fitted flag against the registry rather than a copy.
 export const VALUATION_SOURCES = Object.freeze({
   talk_vs_model: { label: 'How he talks about the player, crossed with the model',
     cap: 0.10, min_n: 3, needs: 'league chat', fitted: false,
@@ -96,6 +101,9 @@ export const VALUATION_SOURCES = Object.freeze({
  * they agree on. Larger than the package cap on purpose: a single player may be
  * a manager's whole story, a package of three must not be able to stack three.
  */
+// TEST SEAM: no production importer. Used by `playerValuation` below; exported so
+// test/valuation-map.test.js G1b can pin the per-player clamp and its ordering
+// against PERCEPTION_CAP.
 export const PLAYER_VALUATION_CAP = 0.20;
 
 /** Points below zero last week at which the post-loss window is fully open. */
@@ -345,6 +353,9 @@ function deriveRosterNeeds(leagueId) {
  * here bounds the package as a whole so a three-player package cannot stack
  * three sentiment terms into a 40% swing.
  */
+// TEST SEAM: no production importer. `readDeal` calls it twice (:731-732), which
+// is how it reaches the app; exported so the package-level clamp can be tested
+// directly rather than through a whole deal.
 export function perceivedValue(players, managerProfile, { zero = [] } = {}) {
   const total = players.reduce((s, p) => s + (p.value ?? 0), 0);
   if (total <= 0) return { value: total, multiplier: 1, reasons: [] };
@@ -643,6 +654,9 @@ function compactNegotiation(profile) {
  * player he has never mentioned is ABSENT rather than present and empty, so "no
  * read" cannot be misread as "he is neutral on him".
  */
+// TEST SEAM: no production importer (client/src/components/trade/types.ts:64 names
+// it in a comment only). `readDeal` calls it at :743, which is how its output
+// reaches the client; exported so the wire shape can be pinned on its own.
 export function serializeManagerRead(managerProfile, dealPlayers = []) {
   const cp = managerProfile;
   if (cp == null || typeof cp !== 'object') return null;
@@ -776,6 +790,15 @@ export function readDeal({ theirGive, theirGet, managerProfile, zero = [] }) {
  * reason, so a page can never present a chat-free league's map as if it had the
  * same evidence behind it as league 4's.
  */
+// NO CALLER ANYWHERE IN THE APP — not in server/, not in client/, not in
+// scripts/. routes/trades.js:415 names it in a comment and nothing more. This is
+// not a dead export like the seams above: it is the whole per-player transparency
+// surface (sources_used, sources_absent with a reason each, and the per-source
+// ablation) and it is the harness that produced this layer's only measured
+// evidence, the AUC study in docs/tdd/valuation-map.tdd.md section 6. It is
+// reachable from tests and from a study run, and from no page Nick can open.
+// Routed as a WIRING finding, not deleted: deleting it would destroy the ablation
+// that is the evidence for the layer being a read rather than a price.
 export function valuationMap(leagueId, { season, week, players, layer = null,
   rosterContext = null, zero = [] } = {}) {
   const empty = reason => ({
@@ -1015,7 +1038,12 @@ export function counterpartyDataKey(leagueId) {
  * it rather than carry a second copy.
  */
 const strings = { type: 'array', items: { type: 'string' } };
-export const NEGOTIATION_PROFILE_SCHEMA = Object.freeze({
+// NOT exported. Nothing outside this file imports it and no test references it;
+// its only reader is `negotiationProfileErrors` below. It was the one genuinely
+// dead export of the fifteen the wiring map flagged — the other eight with no
+// production consumer are deliberate test seams, annotated where they are
+// declared, and none of them is dead code.
+const NEGOTIATION_PROFILE_SCHEMA = Object.freeze({
   type: 'object',
   properties: {
     headline: { type: 'string' },
@@ -1086,6 +1114,9 @@ function schemaErrors(schema, value, where = 'profile') {
       return [];
   }
 }
+// TEST SEAM: no production importer. Called by `negotiationProfilesFor` below;
+// exported so the schema validation can be tested against a bad profile without
+// writing one into a database.
 export function negotiationProfileErrors(profile) {
   if (profile == null || typeof profile !== 'object') return ['profile: expected object'];
   return schemaErrors(NEGOTIATION_PROFILE_SCHEMA, profile);
@@ -1107,6 +1138,8 @@ export function negotiationProfileErrors(profile) {
  * are read from one chat, and attaching them to namesakes elsewhere would be
  * worse than having none.
  */
+// TEST SEAM: no production importer. Two readers in this file (`counterpartyLayer`
+// at :152 and `selfRead` at :926), which is how it reaches the app.
 export function negotiationProfilesFor(leagueId) {
   const result = (available, reason = null) => ({
     league_id: leagueId, available, reason, byRoster: new Map(), self: null, invalid: [], unmapped: [],

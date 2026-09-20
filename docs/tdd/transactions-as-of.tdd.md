@@ -486,15 +486,19 @@ source:
    would silently widen what the number means — a career or Jev row would move
    the date the trade price is stamped with. That is the Part 1 defect in a new
    costume.
-2. **Their query also filters `version = MANAGER_ARCHETYPE_VERSION`; the local
-   one does not.** That makes `priced_as_of` mean "when the current build
+2. **Branch on `stale_version_rows > 0`.** Their query also filters
+   `version = MANAGER_ARCHETYPE_VERSION`; the local one does not. That makes `priced_as_of` mean "when the current build
    version last wrote", which is arguably the better question. It has a
    consequence worth naming before the merge: a store containing only
-   *older-version* rows returns `rows: 0` and the reason "the build has never
+   *older-version* rows returned `rows: 0` and the reason "the build has never
    covered it" — which reads as *no data* when the truth is *stale data from an
-   older build*. Absence and staleness rendered identical is the failure this
-   whole document is about, so it is routed to that file's owner rather than
-   worked around here.
+   older build*. **Routed, and since fixed on their branch**: the block now also
+   carries `stale_version_rows`, and in that state its reason names both
+   versions, while `as_of` stays null and `rows` stays 0 so an old row is
+   reported and never promoted. The switch here must therefore branch on
+   `stale_version_rows > 0` to say "stale build" rather than "never built" —
+   otherwise this file reintroduces, one layer up, the exact conflation their
+   fix removed.
 
 ---
 
@@ -579,3 +583,84 @@ value must carry the stamp of the process that measured it, and an absence must
 say which absence it is.** The second half is what Part 5 adds — the first four
 parts were about stamps, and this one is mostly about the four different ways
 there can be no stamp at all.
+
+---
+
+# Part 6: the "dead exports" that were not dead
+
+The wiring map flagged eight export-only-tested symbols in
+`counterparty-pricing.js`, with the instruction to delete the export and its test
+together. **Nine have no production consumer, one of those is genuinely dead, and
+none of the other eight should be deleted.** The evidence, because the
+instruction and the answer differ:
+
+| export | production consumers | alive inside this file? | verdict |
+|---|---|---|---|
+| `PERCEPTION_CAP` | none | yes, `perceivedValue` clamp | test seam |
+| `PLAYER_VALUATION_CAP` | none | yes, `playerValuation` clamp | test seam |
+| `VALUATION_SOURCES` | none (a comment at `trade-engine.js:1907`) | yes, 11 readers | test seam |
+| `perceivedValue` | none | yes, `readDeal` calls it twice | test seam |
+| `serializeManagerRead` | none (a comment in `client/.../types.ts:64`) | yes, `readDeal:743` | test seam |
+| `negotiationProfileErrors` | none | yes, `negotiationProfilesFor` | test seam |
+| `negotiationProfilesFor` | none | yes, `counterpartyLayer`, `selfRead` | test seam |
+| `NEGOTIATION_PROFILE_SCHEMA` | none, **and no test either** | yes, one reader | **export removed** |
+| `valuationMap` | **none at all** | **no** | **wiring finding, see below** |
+
+**Deleting the seven seams plus their tests would have deleted real coverage of
+real invariants** — among them G1b, which pins the per-factor cap and the
+per-player clamp, and the assertion that `PLAYER_VALUATION_CAP >=
+PERCEPTION_CAP`. Those are the exact numbers the model-evidence audit is
+currently quoting to describe this layer. Removing their guards on the grounds
+that only tests import them would have been a spectacular own goal.
+
+So the fix is the one that makes the finding stop recurring rather than the one
+that makes it go away: each of the seven now carries a one-line `TEST SEAM`
+annotation naming its internal caller and what the export buys. An audit can then
+tell a deliberate seam from an accident, which is the thing it could not do
+before.
+
+**`valuationMap` is the real finding, and it is not a dead export.** It has no
+caller anywhere in `server/`, `client/` or `scripts/` — `routes/trades.js:415`
+names it in a comment and nothing more. It is the whole per-player transparency
+surface (`sources_used`, `sources_absent` with a reason each, the per-source
+ablation) and it is the harness that produced this layer's only measured
+evidence, the AUC study in `docs/tdd/valuation-map.tdd.md` section 6. It is
+reachable from tests and from a study run, and from no page Nick can open.
+Routed as a wiring finding: deleting it would destroy the ablation that is the
+evidence for the layer being a read rather than a price.
+
+## A mistake of mine, in the same shape as the one three hours earlier
+
+My first pass counted five symbols with no production consumer, not nine,
+because `grep -rn` counted **comment mentions** as consumers for
+`VALUATION_SOURCES`, `valuationMap`, `serializeManagerRead` and
+`NEGOTIATION_PROFILE_SCHEMA`. That is exactly the error I made earlier the same
+night with `manager-archetypes.js` and `league_transactions_raw`, where a header
+comment read as a query. **A name in a comment is not a consumer, and a grep for
+a bare identifier cannot tell the difference.** The wiring map's count was closer
+than mine. The check that settles it is whether the match is code, which means
+reading every hit rather than counting them.
+
+## Is this well built? (the five questions)
+
+**1. Stats or made up?** Neither: a census. Every row of the table above is a
+grep whose hits were read individually.
+
+**2. How do we know?** The table is the evidence, and the full suite is green
+with the one export removed — which is the only behaviour claim here, since
+removing an export nothing imports cannot change behaviour, and the annotations
+are comments.
+
+**3. Structure.** The seams stay exported and are now labelled as such.
+`NEGOTIATION_PROFILE_SCHEMA` is private, where it belongs.
+
+**4. Pointed anywhere else?** `valuationMap` should point at a page — it is the
+surface that can say "these sources fired, these are absent and here is why per
+source", which is the transparency question this whole document is about. Not
+wired here: which page, and whether the ablation belongs in a served payload at
+all, is a design call and not a Trade Brain one.
+
+**5. How does it unify?** With Parts 1-5 more closely than it looks. Every part
+so far has been a served value that could not distinguish two states. This one is
+a *tool* that distinguishes them beautifully — per-source used, absent, inert,
+each with a reason — and is wired to nothing.

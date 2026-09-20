@@ -68,7 +68,7 @@ for (let i = 0; i < 10; i++) {
 // Style: one shouted message, one hedged, one question, one very long.
 say('Quick', '2026-09-02T10:00:00Z', 'THAT WAS INSANE');
 say('Quick', '2026-09-02T10:01:00Z', 'i think maybe we hold him? not sure');
-say('Quick', '2026-09-02T10:02:00Z', 'what do you want for him');
+say('Quick', '2026-09-02T10:02:00Z', 'what do you want for him?');
 say('Quick', '2026-09-02T10:03:00Z', `here is my thinking. ${'x'.repeat(250)}`);
 // One group message, so the group/dm split is not degenerate.
 say('Quick', '2026-09-02T11:00:00Z', 'hey all', 'group', 'group:league');
@@ -82,7 +82,9 @@ say('Thin', '2026-09-03T10:06:00Z', 'sure');
 signal(21, 'topic.non_fantasy', 0.9);
 signal(22, 'topic.non_fantasy', 0.8);
 signal(23, 'topic.argmax:trade_talk', 0.7);
-for (const [msgId, value] of [[21, 0.9], [22, 0.2], [23, 0.5], [24, 0.4]]) {
+// Five, not four: a variable measured on fewer than MIN_N observations is
+// withheld, which is the behaviour two tests below rely on.
+for (const [msgId, value] of [[21, 0.9], [22, 0.2], [23, 0.5], [24, 0.4], [25, 0.6]]) {
   signal(msgId, 'confidence.mean', value);
 }
 
@@ -130,11 +132,11 @@ test('a thin variable is withheld, not reported as zero', () => {
 
 test('style variables count what they say they count', () => {
   const v = varsFor('Quick');
-  assert.equal(v.all_caps_rate.n, 16);
-  assert.equal(v.all_caps_rate.value, 1 / 16);
-  assert.equal(v.hedge_rate.value, 1 / 16, '"i think maybe ... not sure" is one hedged message');
-  assert.equal(v.question_rate.value, 2 / 16, 'two messages end in a question mark');
-  assert.equal(v.long_message_rate.value, 1 / 16);
+  assert.equal(v.all_caps_rate.n, 15, 'Quick sent fifteen messages in the fixture');
+  assert.equal(v.all_caps_rate.value, 1 / 15, 'one shouted message');
+  assert.equal(v.hedge_rate.value, 1 / 15, '"i think maybe ... not sure" is one hedged message');
+  assert.equal(v.question_rate.value, 2 / 15, 'two messages carry a question mark');
+  assert.equal(v.long_message_rate.value, 1 / 15);
 });
 
 test('the extractor’s own aggregates are read, not recomputed', () => {
@@ -155,7 +157,7 @@ test('confidence volatility is computed, because the extractor only keeps the me
 test('the non-fantasy share comes from the signal the extractor already writes', () => {
   const v = varsFor('Quick');
   assert.equal(v.non_fantasy_share.source, 'signal');
-  assert.equal(v.non_fantasy_share.value, 2 / 16);
+  assert.equal(v.non_fantasy_share.value, 2 / 15);
 });
 
 test("a person's context rules are counted, so a profile can say how much is being reinterpreted", () => {

@@ -363,6 +363,55 @@ test('read: the hand-set tier is reported as set or unset, never defaulted to "f
   assert.equal(managerOf(body, 2).tradeability_set, null, 'unset must not read as a judgement');
 });
 
+test('read: the acceptance read says which source priced the manager, and its sample', async () => {
+  // Nick's question, 2026-09-20: "is this based on stats, is this just made up,
+  // how do we know this." The layer already knows the answer for every manager
+  // and throws it away: `tier = tiers.get(id) ?? 'fair'` makes an elicited
+  // "fair" and an assumed one the same value, and the blend weight
+  // min(1, n / 15) is computed at counterparty-pricing.js:181 and discarded.
+  // With live manager_profiles at 0 rows, every league is the assumed case while
+  // looking like the stated one.
+  const { body } = await call('GET', '/api/trades/21/managers/signals');
+
+  // Roster 2: no tier set, six decided offers, so the observed rate is present
+  // but weighted 6/15 and the tier under it is an assumption.
+  const two = managerOf(body, 2).receptiveness;
+  assert.equal(two.tier_source, 'default', 'nobody has judged him, and the payload must say so');
+  assert.equal(two.tier_is_assumption, true);
+  assert.equal(two.accept_rate_n, 6);
+  // Pins the DENOMINATOR, which is the thing that could drift silently: 6 / 15.
+  assert.equal(two.accept_rate_weight, 0.4);
+  assert.equal(two.priced_by, 'blended', 'part his rate, part the assumed tier');
+
+  // Roster 4: tier stated by hand, two decided offers, so the rate is withheld
+  // (manager-signals.js:208) and nothing but the stated tier priced him.
+  const four = managerOf(body, 4).receptiveness;
+  assert.equal(four.tier_source, 'elicited');
+  assert.equal(four.tier_is_assumption, false);
+  assert.equal(four.tier, 'hard');
+  assert.equal(four.accept_rate, null, 'two decisions is below the five-decision bar');
+  assert.equal(four.accept_rate_weight, 0);
+  assert.equal(four.priced_by, 'elicited', 'his tier is the only thing that priced him');
+
+  // A manager with neither: the state every live league is in today.
+  const three = managerOf(body, 3).receptiveness;
+  assert.equal(three.tier_source, 'default');
+  assert.equal(three.accept_rate, null);
+  assert.equal(three.priced_by, 'default',
+    'no rate and no stated tier is its own answer, not the same as a stated fair');
+
+  // `observed` needs fifteen decided offers. No fixture reaches it and neither
+  // does any of Nick's five leagues, so the reachable states are pinned above
+  // and the threshold is pinned by the 0.4 assertion rather than faked here.
+  for (const m of body.managers) {
+    if (!m.receptiveness) continue;
+    assert.ok(['observed', 'blended', 'elicited', 'default'].includes(m.receptiveness.priced_by),
+      `priced_by must be one of the four, got ${JSON.stringify(m.receptiveness.priced_by)}`);
+    assert.equal(m.receptiveness.tier_is_assumption, m.receptiveness.tier_source === 'default',
+      'the boolean and the string must never disagree');
+  }
+});
+
 test('read: a metric withheld for sample size never appears as if it had been measured', async () => {
   const { body } = await call('GET', '/api/trades/21/managers/signals');
   const six = managerOf(body, 2);       // six decided offers — over the bar

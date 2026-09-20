@@ -266,6 +266,25 @@ test('disconnecting clears the caller\'s leagues and nobody else\'s', async () =
   assert.equal(credentialsForUser(NICK).s2, NICK_S2);
 });
 
+/**
+ * Found by injecting a fallback into `credentialsForUser` and watching the
+ * suite stay green: every fixture account here has a row, because `reset()`
+ * nulls the columns rather than deleting them. So "this account has no row at
+ * all" -- a real account that has simply never connected -- was never asked
+ * for, and a lookup that quietly answered it with somebody else's pair would
+ * have passed everything above.
+ */
+test('an account with no credentials row at all resolves to nothing, not to whoever does have one', () => {
+  reset();
+  saveCredentials(GUEST, GUEST_S2, GUEST_SWID);
+  const stranger = makeUser('never-connected-at-all');
+  assert.equal(row('SELECT 1 FROM espn_credentials WHERE user_id = ?', stranger), undefined,
+    'precondition: this account has no row, not merely a blank one');
+
+  assert.equal(credentialsForUser(stranger).s2, null, 'somebody else being connected is not an answer');
+  assert.equal(credentialsForUser(stranger).swid, null);
+});
+
 /* --------------------------------------------------------------- migration */
 
 /**

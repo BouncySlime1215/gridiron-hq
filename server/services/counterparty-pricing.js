@@ -378,12 +378,28 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
   const factors = [];
   const inert = [];
   const add = (source, effect, n, why) => {
-    if (off.has(source) || !Number.isFinite(effect) || Math.abs(effect) < 0.001) return;
+    // `zero` comes first and suppresses the source ENTIRELY, inert entry
+    // included: the ablation's arithmetic depends on a zeroed source leaving no
+    // trace at all, and an inert entry is a trace.
+    if (off.has(source)) return;
+    if (!Number.isFinite(effect)) return;
     const spec = VALUATION_SOURCES[source];
+    // min_n is checked BEFORE the smallness return below, not after. A reading
+    // that rests on too small a sample is reported inert with its reason
+    // whatever its size, because the sample is the fact a page needs and the
+    // size is not: luck of +0.01 wins on one week is an effect of 0.00025, and
+    // in the other order it disappeared along with the reason it was not
+    // firing. A caller with no reading at all passes n = 0 and lands here too,
+    // which is how "we have never measured this" gets a sentence.
     if (n < spec.min_n) {
       inert.push({ source, reason: `rests on ${n} of the ${spec.min_n} needed (${spec.needs})` });
       return;
     }
+    // Above its sample and still neutral: a real reading that moves no price.
+    // Deliberately not reported — `inert` means "not enough evidence", and
+    // filing a confident zero under it would make the word mean two things.
+    // Named in docs/tdd/luck-read-not-firing.tdd.md as the remaining gap.
+    if (Math.abs(effect) < 0.001) return;
     const capped = Math.max(-spec.cap, Math.min(spec.cap, effect));
     factors.push({ source, label: spec.label, effect: +capped.toFixed(4), n, cap: spec.cap,
       fitted: spec.fitted, why });
@@ -449,12 +465,26 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
   }
 
   // --------------------------------------- 4. a record flattered by luck
-  if (owns && managerProfile?.luck) {
+  // The guard is `owns` alone. A missing luck reading used to short-circuit here
+  // and leave nothing behind, so the map fell through to its own last branch and
+  // told the page "the data exists but no player in this league matched it" —
+  // false in both halves for a league whose archetype build has produced no luck
+  // row, which is four of the five live leagues. Calling `add` with n = 0
+  // instead routes it through the min_n branch above and serves the true reason.
+  if (owns) {
     const cap = VALUATION_SOURCES.luck_self_view.cap;
-    const strength = Math.max(-1, Math.min(1, managerProfile.luck.value / LUCK_FULL_WINS));
-    add('luck_self_view', cap * strength, managerProfile.luck.n ?? 0,
-      `${managerProfile.luck.value > 0 ? '+' : ''}${managerProfile.luck.value} wins against expectation `
-      + `over ${managerProfile.luck.n} scored weeks — he prices this roster the way his record reads`);
+    const luck = managerProfile?.luck ?? null;
+    const strength = Math.max(-1, Math.min(1, (luck?.value ?? 0) / LUCK_FULL_WINS));
+    // n = 0 always lands in the min_n branch, which writes its own reason, so
+    // this string is only ever read for a reading that exists. It is still
+    // written defensively rather than assuming that: min_n is data, and a day
+    // when someone sets luck_self_view.min_n to 0 should not print "undefined
+    // wins against expectation over undefined scored weeks" to a page.
+    add('luck_self_view', cap * strength, luck?.n ?? 0,
+      luck
+        ? `${luck.value > 0 ? '+' : ''}${luck.value} wins against expectation `
+          + `over ${luck.n} scored weeks — he prices this roster the way his record reads`
+        : 'no scored weeks measured for him yet, so his record has not been read for luck');
   }
 
   // ------------------------------------------- 5. a hole he could fill here

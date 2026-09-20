@@ -40,6 +40,10 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const CHAT_PATH = path.join(temp, 'chat.sqlite');
 process.env.GRIDIRON_CHAT_DB_PATH = CHAT_PATH;
 const CHAT_ROLLED_UP_AT = '2026-09-18T03:45:00Z';   // the newest rollup stamp in the fixture
+// The newest MESSAGE in the fixture corpus, which is a different fact from the
+// rollup stamp above: one is how old the data is, the other is when it was last
+// aggregated. They are deliberately unequal so no test can pass on either alone.
+const CHAT_NEWEST_MSG = '2026-09-17T23:40:00Z';
 process.env.SCHEDULER_DISABLED = '1';
 
 // ---------------------------------------------------------------- chat fixture
@@ -90,7 +94,10 @@ function buildChatFixture(file) {
   // must report. The corpus is Mac-only and its rollup runs off-server, so this
   // date is the only thing that says how current the chat half of a manager read is.
   const rollupAt = ['2026-09-17T20:00:00Z', '2026-09-17T20:00:00Z', CHAT_ROLLED_UP_AT];
-  people.forEach((p, i) => prof.run(...p, '2026-01-01', '2026-09-17', rollupAt[i]));
+  // `last_msg` per person, also unequal: the corpus's age is the newest message
+  // anyone sent, not the newest message the last person in the table sent.
+  const lastMsg = ['2026-09-15T08:00:00Z', CHAT_NEWEST_MSG, '2026-09-16T19:00:00Z'];
+  people.forEach((p, i) => prof.run(...p, '2026-01-01', lastMsg[i], rollupAt[i]));
   chat.prepare(`INSERT INTO manager_player_sentiment VALUES (?,?,?,?,?,?,?,?,datetime('now'))`)
     .run('Hayden Brook', 'Player A', 6, 3.4, 0.9, 0.0, '2026-08-01', '2026-09-17');
   const np = chat.prepare(`INSERT INTO negotiation_profiles VALUES (?,?,?,?,?,?)`);
@@ -497,7 +504,7 @@ test('read: a league whose signals were never built still reports its transactio
   // is exactly where someone is asking where the data went, so that is the worst
   // possible place to drop the two blocks that answer it.
   assert.ok(body.chat, 'the chat block does not depend on the signal build either');
-  assert.equal(body.chat.as_of, CHAT_ROLLED_UP_AT,
+  assert.equal(body.chat.computed_at, CHAT_ROLLED_UP_AT,
     'the corpus is a property of the machine, not of this league having been built');
 });
 
@@ -528,12 +535,24 @@ test('read: the chat half says whether the corpus is here at all, and when it wa
   // league whose corpus says nothing about a manager produced the same empty.
   const { body } = await call('GET', '/api/trades/22/managers/signals');
   assert.ok(body.chat, 'the payload carries a chat block');
-  assert.equal(body.chat.as_of, CHAT_ROLLED_UP_AT,
-    'as_of is the NEWEST rollup stamp in the corpus, not the oldest');
+  // THE AGE OF THE DATA AND THE AGE OF THE AGGREGATE ARE TWO FACTS. `as_of` is
+  // the newest message in the corpus — how current the chat half of a manager
+  // read actually is. `computed_at` is when the rollup last ran over it. A
+  // rollup run every fifteen minutes over a corpus nobody has added to since
+  // Tuesday is fresh by one measure and stale by the one that matters.
+  assert.equal(body.chat.as_of, CHAT_NEWEST_MSG,
+    'as_of is the newest MESSAGE in the corpus, across every person in it');
+  assert.equal(body.chat.computed_at, CHAT_ROLLED_UP_AT,
+    'computed_at is the NEWEST rollup stamp, not the oldest');
+  assert.notEqual(body.chat.as_of, body.chat.computed_at,
+    'and the two are not the same number wearing two names');
   assert.ok(body.chat.rows > 0, 'the number of manager profiles the rollup wrote');
   assert.match(body.chat.collected_by, /refresh-live-data|league_chat/i,
     'it names what actually rolls the corpus up');
   assert.equal(body.chat.reason, null, 'a corpus that is present has nothing to explain');
+  assert.ok(!('first_seen' in body.chat),
+    'first_seen is gone: the rollup stamps the whole table with one datetime(\'now\'), '
+    + 'so MIN and MAX of computed_at are equal by construction and the field said nothing');
 });
 
 test('read: a database with no chat corpus says so instead of serving an empty chat half', async () => {
@@ -549,9 +568,22 @@ test('read: a database with no chat corpus says so instead of serving an empty c
     assert.equal(body.chat.rows, 0);
     assert.match(body.chat.reason, /not on this (machine|database)|no chat corpus/i,
       `the absence must name itself, got ${JSON.stringify(body.chat.reason)}`);
+    // THE PATH IT LOOKED AT. Without it, a mistyped GRIDIRON_CHAT_DB_PATH and a
+    // genuinely absent corpus are the same sentence, and the first is a typo
+    // while the second is a machine.
+    assert.equal(body.chat.path, process.env.GRIDIRON_CHAT_DB_PATH,
+      'the absence names the file it looked for');
+    assert.equal(body.chat.path_source, 'GRIDIRON_CHAT_DB_PATH',
+      'and says whether that path was configured or is the in-repo default');
+    // BOTH HALVES. "Not in the deployed image" alone points at the wrong fix:
+    // the corpus cannot be produced here, and it can be uploaded here.
+    assert.match(body.chat.reason, /Mac|Apple Messages/,
+      'it says the corpus cannot be produced on this machine');
+    assert.match(body.chat.reason, /upload/i,
+      'and that it can be uploaded to this one (POST /api/league-chat/upload)');
   } finally { process.env.GRIDIRON_CHAT_DB_PATH = saved; }
   const { body } = await call('GET', '/api/trades/22/managers/signals');
-  assert.equal(body.chat.as_of, CHAT_ROLLED_UP_AT, 'the fixture is restored for every test after this one');
+  assert.equal(body.chat.computed_at, CHAT_ROLLED_UP_AT, 'the fixture is restored for every test after this one');
 });
 
 test('read: the chat source does not advertise a refresh the server never runs, either', async () => {

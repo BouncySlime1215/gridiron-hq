@@ -2644,16 +2644,22 @@ already exist. That is why an unfamiliar PR number is worth a second look.
    timers are off the request thread, so **the risky moment is t+300 s: the
    first background tier pass.** Nineteen jobs that have never run on this
    build — 13 growth and 6 metered — come due at once there and run in series
-   on the request thread. 900 covers that pass twice. **In that window the app
+   on the request thread. 900 covers that pass twice. The count is **22**, verified
+   here: 26 jobs are in the background tier (20 growth, 6 metered), less
+   `beat_the_close` and `nfl_prop_feeds`, which are in `bootJobs`, and
+   `nfl_model_growth` and `nfl_reports`, which have their own timers — leaving
+   18 growth and 4 metered. Twelve more are gated off by `AUTO_HEAVY_SYNC`, so
+   **34 of the app's 62 scheduled jobs have never run on this build.**
+   **In that window the app
    will be busy and still answering** — a slow response is the fixed state, a
-   dark one is not. **One of the nineteen is worth naming, because it is the
+   dark one is not. **One of the 22 is worth naming, because it is the
    biggest single cost and it is on the request thread:**
    `trade_asset_universe_warm` (`scheduler.js:1347`, tier `growth`) rebuilds
    the asset universe for every league, which the scheduler thread measures at
    five to six seconds per league. With five leagues that is most of the first
    pass on its own, and it cannot be moved off-thread because what it warms is
    a module-level `Map` in this process (`compute-cache.js:24`). **And if it does die between 300 and 900 seconds, the cause
-   is in those nineteen, not in the boot fix**, which is a different
+   is in those 22, not in the boot fix**, which is a different
    investigation and not a reason to doubt the merge. **Only after this passes does the run sheet resume at step 7.**
    Re-enabling without re-proving is how a fix that half-works gets believed.
 
@@ -2817,6 +2823,9 @@ sentences would survive being wrong about something else.**
 | Restart itself takes ~5-20 s | **Derived** from the eight measured cycles (167-179 s) minus onset 94-110 minus the 60 s fuse. The earlier "~30 s boot" was never measured and 90 + 60 + 30 = 180 matched the median by luck | this thread |
 | Both wrong-base call sites are fixed | **Verified here** by content, not by PR number: #57 `7c27517` passes `coordinatorBase(weekProjection)`; `42bbbc3` passes `projection.structural_ppg` and nulls `corrected_ppg` when unfitted. Neither is merged yet | this thread |
 | No surface changes when `corrected_ppg` goes null | **Verified here**: `drafts.js` widened to `?? ensemble_ppg ??`; a tree-wide search finds no other reader, including the untouched `routes/players.js:94` caller | this thread |
+| TWO things start at t+90 s, not one | **Verified here on `791b131`**: `:1751`'s timer AND `tier('live', live, 90_000)` at `:1800` — `liveIntervalSeconds` is 90 and `index.js:75` passes only `intervalMinutes: 5`; `setInterval`, no leading call. 21 of 24 live jobs are on the request thread. **The onset cannot distinguish them** | this thread |
+| No merged PR moves the live tier | **Verified here** by reading #59's and #63's diffs: #63 sets `offThread: true` on `nfl_model_growth`, the boot pass and the two timers only. So the deploy may not be sufficient | this thread |
+| 22 background jobs have never run, not 19 | **Verified here**: 26 in the background tier, less 2 in `bootJobs` and 2 on their own timers = 18 growth + 4 metered. With 12 heavy gated off, 34 of 62 | scheduler + this thread |
 | Nothing on Fly writes `league_transactions_raw` | **Verified here on `791b131`**: sole writer `collect-league-transactions.mjs:34`, reached only by `refresh-live-data.mjs:99`; no `server/` code invokes that script; Dockerfile CMD is `node server/index.js` and `fly.toml` declares no processes | scheduler + this thread |
 | Any restart count taken before 22:49Z | A 300 s poll against a ~180 s cycle — **a floor, never a count** | Trade Brain |
 
@@ -2824,7 +2833,7 @@ sentences would survive being wrong about something else.**
 turns out wrong.** If a merge turns out to be gated on a check after all, that is
 the first one and the answer is Nick's settings page, not the code. If the app
 dies between 300 and 900 seconds after step 6, that is the 900 s bar and the
-answer is in the nineteen never-run background jobs, not in the boot fix. If
+answer is in the 22 never-run background jobs, not in the boot fix. If
 the brake goes on and the restarts continue, it is not a row here that failed
 but the diagnosis itself: the onset at 94-102 seconds is measured, and if
 stopping the scheduler does not stop it then something outside the scheduler
@@ -2940,9 +2949,61 @@ like.
 did not — it needed one field read across enough lives, and the scheduler thread
 read it.** The last `uptime_s` served before each dark window was **95, 97, 93,
 91, 94, 88** across six lives, and never near 66 seconds, where the boot chain
-ends. The only thing scheduled at boot plus 90 seconds is `:1751`. That is the
-job, measured rather than fitted, and the `nfl_model_growth_runs` query in step
-3 above is now a confirmation rather than the experiment.
+ends.
+
+**That reading said the job was `nfl_model_growth` because "the only thing
+scheduled at boot plus 90 seconds is `:1751`". Checked at 02:50Z on `791b131`,
+that premise is false, and this is the most consequential correction in the
+document.** Two things start at t+90 s, not one:
+
+- `setTimeout(() => runIfStale('nfl_model_growth'), 90_000)` at `:1751`.
+- `liveTimer = tier('live', live, liveIntervalSeconds * 1000)` at `:1800`.
+  `liveIntervalSeconds` defaults to 90 and `index.js:75` does not override it
+  (it passes `intervalMinutes: 5` and nothing else), and `tier()` is a plain
+  `setInterval` with **no leading call** — so the live tier's first pass is at
+  t+90 s exactly, alongside the timer.
+
+**The live tier is 24 jobs, and 21 of them run on the request thread.** Only
+`player_rosters`, `nfl_book_feeds_extra` and `evidence_daemon` declare
+`offThread`, and `:1605` resolves the rest to false because
+`job.offThread ?? job.tier === 'heavy'` is false for a live job. Several have
+three- to five-minute cadences (`polymarket_line_watch`, `nfl_play_by_play`,
+`prediction_markets`, `polymarket` at 3; `nfl_book_feeds_fast`,
+`nfl_pick_watch`, `nfl_t60_runner` at 5), so they are due on essentially every
+boot.
+
+**And the scheduler's own comment at `:1732`, quoted earlier in this block,
+names that tier as the previously-found cause of this exact symptom** — the
+live tier's polling of a synchronous SQLite database "was found to be the
+actual cause of the app going periodically unresponsive", written 2026-09-07.
+
+**So the measured onset at 94-110 seconds is consistent with either, and the
+evidence gathered tonight cannot tell them apart.** Both are due at 90. Both
+are on the main thread. Both pre-date this release, which is why the stall was
+already visible on the old build between 16:08 and 19:25Z. Nothing here
+withdraws the measurement — the block, the bracket and the cliff all stand —
+but the *attribution* to one named job does not follow from it.
+
+**What this changes, and it is a real consequence for the morning: none of
+#56, #59, #61 or #63 moves the live tier.** #63 sets `offThread: true` on
+`nfl_model_growth`, on the boot pass and on the two named timers; verified by
+reading its diff, neither it nor #59 alters `tier('live', ...)`,
+`liveIntervalSeconds`, or any live job's flags. **So if the live tier is the
+blocker, the deploy will not stop the cycle.**
+
+**Read step 6 accordingly. If the app still dies around three minutes after the
+brake comes off, that is NOT evidence the boot fix failed and it is not a
+reason to roll back.** It means the other thing that starts at 90 seconds is
+the one holding the loop, and the next move is to put the brake back on
+(`SCHEDULER_DISABLED=1` returns before both, which is why step 1 works either
+way) and take the live tier off the request thread as a follow-up. The four PRs
+are still correct and still worth merging; what is not established is that they
+are *sufficient*.
+
+*The `nfl_model_growth_runs` query in step 3 becomes more useful under this
+reading, not less: it is now a discriminator. A `running` row stamped about 90
+seconds into a life says that job did start; the absence of one across several
+lives points at the tier instead.*
 
 **Two main-thread blockers stack in every life, and conflating them is what cost
 the evening.** Trade Brain's own health log caught the earlier one directly: a

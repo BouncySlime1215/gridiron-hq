@@ -1858,8 +1858,9 @@ Then:
 fly secrets set AUTO_HEAVY_SYNC=1 -a gridiron-hq
 ```
 
-**Read this before running it. As of 02:05Z the honest instruction is: do not
-run this command at all.**
+**Read this before running it. As of 02:25Z one of the two fixes it waits on
+exists and the other does not, so the instruction is still: do not run this
+command.**
 
 `fantasy_coordinator_refit` is tier `heavy` (`scheduler.js:1339`) and the heavy
 tier is empty unless `AUTO_HEAVY_SYNC` is `'1'` (`:1759`). **Both verified on
@@ -1874,34 +1875,64 @@ already done, and step 3 of the morning block answers it**: the
 `SELECT id, created_at FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1;`
 row. No row means the refit has never run and nothing wrong-base has been
 written. A row means it has, and its `created_at` says when — in which case this
-step is not the first exposure and the fix is more urgent, not less. The model audit's claim is that it would
-refit against the wrong base — one argument at two call sites,
-`trade-engine.js:354` (feature-audit's file) and `fantasy-coordinator.js:571`
-(the fantasy plan's). *That the base is wrong is the audit's claim and the two
-file owners'; what is verified here is only the tier and the gate.*
+step is not the first exposure and the fix is more urgent, not less.
+
+**What it would refit against, and why that is wrong — verified here on
+`791b131` rather than taken on report.** The defect is one argument at two call
+sites, `trade-engine.js:354` (feature-audit's file) and
+`fantasy-coordinator.js:571` (the fantasy plan's). Three lines settle it, and
+they are worth reading because the defect is invisible in the output:
+
+- `fantasy-coordinator.js:324` — the correction is trained as
+  `target: actualPoints - projection.structural_ppg`, a residual on the
+  **structural** projection.
+- `:519` — it is graded the same way, `coordinateFantasy(fit, e.experts, 0)`,
+  with the source's own comment: *"structuralPpg=0: correction alone is what's
+  being graded"*.
+- `:32-34` — one of its three experts **is** `ensemble_shift`, defined as
+  `projection.ppg - projection.structural_ppg`.
+
+Production passed `weeklyPpg`, the ensemble. So it served the ensemble plus a
+correction trained and graded on structural — a sum nothing ever scored — and
+applied the ensemble calibration twice, once in the base and again inside the
+correction. *The exposure figures (352 of 1,169 startable players carrying a
+non-zero ensemble shift, mean 2.09 points, p90 5.21) are feature-audit's
+measurement on a scratch rebuild and are not re-measured here.*
 
 **The asymmetry is what decides it.** Leaving the flag alone leaves the defect
 exactly where it has been all along, latent and written nowhere. Running the
 command with no fix merged writes a wrong-base fit into the database, which is
 the one direction that is not free to undo. So:
 
-- **If a PR fixing those two call sites is merged by the time you reach this
-  step**, run the command. That was always the plan.
-- **If no such PR is merged, skip this step entirely and leave
-  `AUTO_HEAVY_SYNC` unset.** Nothing else in the run sheet depends on it. The
-  heavy tier stays empty, which is the state the app has been in since the
-  deploy, and the refit waits for a morning when the fix exists.
+- **If both call sites are fixed and merged by the time you reach this step**,
+  run the command. That was always the plan.
+- **If either is not, skip this step entirely and leave `AUTO_HEAVY_SYNC`
+  unset.** Nothing else in the run sheet depends on it. The heavy tier stays
+  empty, which is the state the app has been in since the deploy, and the refit
+  waits for a morning when both fixes exist.
 
-**There is no PR number to fill in here, and that is a finding rather than an
-omission.** #57 was offered for the `trade-engine.js:354` half and is not it:
-#57 is the trade-week PR, its diff does not contain the string
-`coordinateFantasy`, and the call is byte-identical to `main` — it moves from
-line 354 to line 379 only because 25 lines were added above it, which is
-probably how the two were confused. A sweep of all 37 open PRs at 02:05Z found
-no coordinator-base fix on either call site. Treat a PR number that appears
-here later as unverified until someone has run
-`git diff origin/main...<branch> -- server/services/trade-engine.js | grep -c coordinateFantasy`
-and got a non-zero answer.
+**The `trade-engine.js` half is PR #57, verified here at head `7c27517`.** The
+call now reads
+`coordinateFantasy(fantasyFit, expertValues, coordinatorBase(weekProjection))`,
+and `coordinatorBase` returns `weekProjection?.structural_ppg ?? null` — null
+rather than a silent fall back to the ensemble, which is the right shape for a
+fix whose failure mode was a plausible wrong number. #57 also carries the
+fantasy-week fix, a season-horizon fix and an availability-source label, so
+merging it for this reason brings three other changes with it; its body
+describes all four.
+
+**The `fantasy-coordinator.js:571` half has no PR yet.** Until it does, the
+skip above stands: both halves, or neither.
+
+*A note on how #57 was checked, because an earlier read of it was wrong and the
+way it was wrong will recur.* At 02:05Z its pushed head was `aca74f9`, which did
+not touch `coordinateFantasy` at all — the fix existed only as unpushed local
+commits, held back by the same GitHub-email freeze holding these branches. On
+that head the call had moved from line 354 to line 379 purely from lines added
+above it, which reads exactly like a fix if you check the line number rather
+than the content. **Verify any PR named here by its content, never by its number
+or a line reference:**
+`git diff origin/main...<branch> -- <file> | grep -c <symbol>`.
 
 Nothing else about this step changes: it is still last.
 

@@ -131,6 +131,45 @@ for (let i = 0; i < 12; i++) {
 second.close();
 const outlierCorpus = () => new DatabaseSync(CHAT_OUTLIERS, { readOnly: true });
 
+/**
+ * A third corpus for the one property the first two cannot pin: that the cut
+ * is made on TIME and not on message count.
+ *
+ * Ninety messages land inside a single day and ten more are spread over the
+ * following ninety-nine. The two cuts are then nowhere near each other — the
+ * time cut falls around day seventy, the count cut inside the first day — so
+ * a count-based implementation cannot satisfy the assertion by coincidence.
+ * The old test asked only that `split` was 0.7 and that `split_at` looked
+ * like a date, which a count cut also passes; Model audit measured exactly
+ * that and it was right.
+ */
+const CHAT_BURST = path.join(temp, 'burst.sqlite');
+const BURST_FIRST_DAY = 1;
+const BURST_LAST_DAY = 100;
+const burstAt = (day, minute) =>
+  new Date(Date.UTC(2026, 5, day, 12, 0, 0) + minute * 60_000).toISOString().replace('.000', '');
+{
+  const third = new DatabaseSync(CHAT_BURST);
+  third.exec(`CREATE TABLE messages (msg_id INTEGER PRIMARY KEY, name TEXT, chat_kind TEXT,
+    chat_name TEXT, ts_utc TEXT, text TEXT)`);
+  third.exec(`CREATE TABLE jev_chat_signals (msg_id INTEGER, question TEXT, probability REAL)`);
+  let burstId = 0;
+  const say3 = (name, ts, room) =>
+    third.prepare(`INSERT INTO messages VALUES (?,?,?,?,?,?)`).run(++burstId, name, 'dm', room, ts, 'ok');
+  for (let m = 0; m < 45; m++) {            // 90 messages, all on the first day
+    say3('ME', burstAt(BURST_FIRST_DAY, m * 2), 'dm:burst');
+    say3('Chatty', burstAt(BURST_FIRST_DAY, m * 2 + 1), 'dm:burst');
+  }
+  for (let m = 0; m < 5; m++) {             // 10 messages over the next ninety-nine days
+    const day = 20 + m * 15;
+    say3('ME', burstAt(day, 0), 'dm:quiet');
+    say3('Quiet', burstAt(day, 30), 'dm:quiet');
+  }
+  say3('Quiet', burstAt(BURST_LAST_DAY, 0), 'dm:quiet');
+  third.close();
+}
+const burstCorpus = () => new DatabaseSync(CHAT_BURST, { readOnly: true });
+
 test('grading reports every computed variable, with the people behind each grade', () => {
   const db = corpus();
   const report = gradeVariables({ corpus: db });
@@ -200,14 +239,25 @@ test('the extractor\'s own aggregates are reported as ungradeable, not as failur
 });
 
 test('the split is on time, not on message count, and the report says where it fell', () => {
-  const db = corpus();
+  // The corpus is 90 messages in one day and 10 over the following 99, so the
+  // time cut and the count cut are two months apart and only one of them can
+  // satisfy this.
+  const db = burstCorpus();
   const report = gradeVariables({ corpus: db });
   db.close();
+
+  const lo = Date.UTC(2026, 5, BURST_FIRST_DAY, 12, 0, 0);
+  const hi = Date.UTC(2026, 5, BURST_LAST_DAY, 12, 0, 0);
+  const expected = new Date(lo + (hi - lo) * GRADE_SPLIT).toISOString();
+
   assert.equal(report.split, GRADE_SPLIT);
-  assert.ok(report.split_at, 'the report does not say when the split fell');
-  // A split by count would put a chatty person's early half months after a
-  // quiet person's, and the two halves would not be comparable across people.
-  assert.match(report.split_at, /^\d{4}-\d{2}-\d{2}/);
+  assert.equal(report.split_at, expected,
+    'the cut is not lo + 0.7 of the span; a count-based cut lands in the first day');
+  // Stated separately so the failure says which property broke: a cut made on
+  // message count would fall inside the opening burst, and the two halves
+  // would then not be comparable between a chatty person and a quiet one.
+  assert.ok(Date.parse(report.split_at) - lo > 60 * 24 * 60 * 60_000,
+    'the cut fell inside the opening burst, which is where a count cut falls');
 });
 
 test('only a pass may make a variable priceable, and it is a deliberate second step', () => {

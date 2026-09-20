@@ -64,6 +64,22 @@
   "desc": "sql_select ignores the row ceiling it was asked for"
  },
  {
+  "id": "M79",
+  "file": "server/services/coach/tools.js",
+  "tests": "test/coach-tools.test.js",
+  "old": "  if (value === null || value === undefined) return { rows: [], columns: [], truncated: false };",
+  "new": "  if (value === null || value === undefined) return { rows: [{ value: null }], columns: ['value'], truncated: false };",
+  "desc": "nothing at all comes back as one row holding null, so an absence is citable as a value"
+ },
+ {
+  "id": "M80",
+  "file": "server/services/coach/tools.js",
+  "tests": "test/coach-tools.test.js",
+  "old": "    return { rows: capped.map(item => ({ value: item })), columns: ['value'],",
+  "new": "    return { rows: capped.map(item => ({ item })), columns: ['item'],",
+  "desc": "a list of scalars is keyed item rather than value, so the cite grammar shifts under the model"
+ },
+ {
   "id": "NC-tools",
   "file": "server/services/coach/tools.js",
   "tests": "test/coach-tools.test.js",

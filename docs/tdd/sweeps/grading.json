@@ -64,6 +64,22 @@
   "desc": "the split falls at 0.99 of the span rather than 0.7"
  },
  {
+  "id": "M77",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "  const span = corpus.prepare(`SELECT MIN(ts_utc) AS lo, MAX(ts_utc) AS hi FROM messages`).get();\n  if (!span?.lo || !span?.hi) return null;\n  const lo = Date.parse(span.lo);\n  const hi = Date.parse(span.hi);\n  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return null;\n  return new Date(lo + (hi - lo) * fraction).toISOString();",
+  "new": "  const all = corpus.prepare(`SELECT ts_utc FROM messages ORDER BY ts_utc`).all();\n  if (!all.length) return null;\n  return all[Math.floor((all.length - 1) * fraction)].ts_utc;",
+  "desc": "the cut is made on message count rather than on time"
+ },
+ {
+  "id": "M78",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "      n_people: pairs.length",
+  "new": "      n_people: String(pairs.length)",
+  "desc": "the people count comes back as a string, so a caller's arithmetic on it silently concatenates"
+ },
+ {
   "id": "NC-grading",
   "file": "server/services/coach/people/grading.js",
   "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",

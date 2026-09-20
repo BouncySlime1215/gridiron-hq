@@ -129,8 +129,30 @@ survives.
 | M66 | applying grades does not reset priceable first *(survived the first pass; the test in the last column was written for it)* | `grading.js` | `ef500418` → `f65bd440` | 1 | `coach-person-grading.test.js` — applying a grade takes priceable away as readily as it gives it |
 | M67 | failed variables are made priceable alongside the passing ones | `grading.js` | `ef500418` → `917ae06b` | 2 | `coach-person-grading.test.js` — only a pass may make a variable priceable, and it is a deliberate second step |
 | M68 | the split falls at 0.99 of the span rather than 0.7 | `grading.js` | `ef500418` → `e8f237dc` | 7 | `coach-person-grading.test.js` — a variable that is the same in both halves passes |
+| M77 | the cut is made on message count rather than on time | `grading.js` | `ef500418` → `c3348c05` | 1 | `coach-person-grading.test.js` — the split is on time, not on message count, and the report says where it fell |
+| M78 | the people count comes back as a string, so a caller's arithmetic on it silently concatenates | `grading.js` | `ef500418` → `ba61d7e2` | 2 | `coach-person-grading.test.js` — grading reports every computed variable, with the people behind each grade |
 | M69 | drop the per-half sample floor | `grading.js` | — | — | **removed as unreachable, not injected** — see below |
 | NC-grading | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `grading.js` | `ef500418` → `2bc22c1d` | **0** | none — and that is the assertion |
+
+**M77 and the test it needed, which is the most serious thing in this file.** The
+headline design decision of this slice is that the cut is made on time and not on
+message count, and the test named for it asserted only that `split` was 0.7, that
+`split_at` was truthy and that it looked like a date. A count-based implementation
+satisfies all three. Model audit measured it — `ef500418` → `5de823f7`, twelve pass,
+zero fail — and was right: the shipped code was correct and the test was the hole. It
+was invisible to this mutation table because every row in it reproduced.
+
+The fix is a third fixture rather than a sharper assertion on the old one. Ninety
+messages land inside a single day and ten more over the following ninety-nine, so the
+time cut falls around day seventy and the count cut inside the first day: two months
+apart, and no coincidence can close the gap. The test now asserts `split_at` equals
+`lo + 0.7 × (hi − lo)` computed from the fixture's own bounds, and separately that the
+cut is more than sixty days past `lo`, so a failure says which property broke. M77 is
+that count-based implementation, and it dies.
+
+**M78 was supplied by Model audit** rather than found here, and it is the second kind of
+hole: `n_people` returned as a string. Arithmetic on it concatenates instead of adding,
+and the row-shape test was checking the field's presence rather than its type.
 
 **M62, and the fixture it needed.** Dropping the rank requirement changed nothing,
 because the fixture's unstable variable already failed on skill — rank was never the

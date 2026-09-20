@@ -124,7 +124,14 @@ survives.
 | M31 | a service tool declares a function that does not exist | `tools.js` | `e9a0aeca` → `105c186b` | 1 | `coach-tools.test.js` — every service tool names a function that really exists, so no second implementation can hide |
 | M32 | a service tool stops declaring the tables it reads, so its result has no provenance | `tools.js` | `e9a0aeca` → `630baf30` | 1 | `coach-tools.test.js` — a service tool records rows the same way a query does |
 | M33 | sql_select ignores the row ceiling it was asked for *(survived the first pass; the test in the last column was written for it)* | `tools.js` | `e9a0aeca` → `816527e6` | 1 | `coach-tools.test.js` — sql_select honours the row ceiling it was asked for, and says it truncated |
+| M79 | nothing at all comes back as one row holding null, so an absence is citable as a value | `tools.js` | `e9a0aeca` → `79430a5c` | 1 | `coach-tools.test.js` — toRows: nothing at all is no rows, not a row of nothing |
+| M80 | a list of scalars is keyed item rather than value, so the cite grammar shifts under the model | `tools.js` | `e9a0aeca` → `adceb1c0` | 1 | `coach-tools.test.js` — toRows: an array of scalars becomes a row each, under `value` |
 | NC-tools | NO-OP CONTROL: reword a sentence of the file header, changing no behaviour | `tools.js` | `e9a0aeca` → `1de5e3b9` | **0** | none — and that is the assertion |
+
+**M79 and M80 were supplied by Model audit**, not found here, and they close the two
+`toRows` behaviours this table left uncovered: an absence becoming a citable `null`, and
+a list of scalars changing the column the cite grammar lands on. Both reproduce at the
+hashes they were sent with.
 
 **M27 and M29, the first two survivors.** M27 records a placeholder entry before calling
 the service, so a service that throws leaves a stray `r`-entry behind and the next cite

@@ -643,31 +643,56 @@ export function archetypesBuilt(leagueId, season) {
  * absence as a clean empty.
  */
 export function chatCorpusState() {
-  const roller = 'the league_chat step of scripts/refresh-live-data.mjs (off-server; the corpus is not in the deployed image)';
-  const empty = { as_of: null, rows: 0, first_seen: null, collected_by: roller };
+  const roller = 'the league_chat step of scripts/refresh-live-data.mjs (off-server)';
+  // `chatDbPath()` always returns a string — the env var or the in-repo default —
+  // so "no path is configured" is not a reachable state and reporting it as one
+  // was a branch no test could ever enter. What IS worth saying is WHICH path,
+  // and where it came from: a mistyped GRIDIRON_CHAT_DB_PATH and a machine that
+  // genuinely has no corpus are the same absence with very different fixes.
   const file = chatDbPath();
-  if (!file) return { ...empty, reason: 'no chat corpus path is configured on this machine' };
+  const path_source = process.env.GRIDIRON_CHAT_DB_PATH ? 'GRIDIRON_CHAT_DB_PATH' : 'default';
+  const empty = { as_of: null, computed_at: null, rows: 0, path: file, path_source, collected_by: roller };
+
   let chat = null;
   try { chat = openChatDb(); } catch (e) {
-    return { ...empty, reason: `the chat corpus could not be opened: ${String(e?.message ?? e)}` };
+    return { ...empty, reason: `the chat corpus at ${file} could not be opened: ${String(e?.message ?? e)}` };
   }
   if (!chat) {
+    // BOTH HALVES, because one of them alone sends the reader to the wrong fix.
+    // It cannot be produced here: the corpus is extracted from Apple Messages on
+    // Nick's Mac, and no amount of deploying will make it appear. It CAN be put
+    // here: POST /api/league-chat/upload (server/routes/league-chat.js) exists
+    // for exactly that, and scripts/chat-sync.mjs is what posts to it.
     return { ...empty,
-      reason: 'the chat corpus is not on this machine — it lives on Nick\'s Mac and is not in the deployed image' };
+      reason: `there is no chat corpus at ${file} — it cannot be produced on this machine `
+        + '(it is extracted from Apple Messages on Nick\'s Mac) but it can be uploaded to this one '
+        + 'with POST /api/league-chat/upload' };
   }
   try {
-    const r = chat.prepare(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of, MIN(computed_at) AS first_seen
+    // TWO STAMPS, TWO FACTS, and conflating them is how a stale corpus reads as
+    // current. `as_of` is the newest message anyone in the corpus sent: the age
+    // of the DATA. `computed_at` is when the rollup last ran over it: the age of
+    // the AGGREGATE. The rollup runs every fifteen minutes whether or not a
+    // single new message arrived, so computed_at is always young and says
+    // nothing about whether the chat half of a manager read is current.
+    //
+    // No MIN() here. manager_chat_profile is built CREATE TABLE AS with one
+    // `datetime('now') AS computed_at` for the whole table
+    // (scripts/chat/extract_league_chat.py), so MIN and MAX of it are equal by
+    // construction — a "first seen" that is really just the same stamp again.
+    const r = chat.prepare(`SELECT COUNT(*) AS n, MAX(last_msg) AS as_of, MAX(computed_at) AS computed_at
                             FROM manager_chat_profile`).get();
     if (!r || !r.n) {
-      return { ...empty, reason: `the chat corpus is here but has no manager profiles yet — run ${roller.split(' (')[0]}` };
+      return { ...empty,
+        reason: `the chat corpus at ${file} is here but has no manager profiles yet — run ${roller}` };
     }
-    return { as_of: r.as_of ?? null, rows: r.n, first_seen: r.first_seen ?? null,
-      collected_by: roller, reason: null };
+    return { as_of: r.as_of ?? null, computed_at: r.computed_at ?? null, rows: r.n,
+      path: file, path_source, collected_by: roller, reason: null };
   } catch (e) {
     // A missing table is a real state: the rollup drops and recreates
     // manager_chat_profile outside a transaction, so a crash between the two
     // leaves it gone. Reported, never passed off as an empty corpus.
-    return { ...empty, reason: `the chat corpus is here but its rollup tables are not readable: ${String(e?.message ?? e)}` };
+    return { ...empty, reason: `the chat corpus at ${file} is here but its rollup tables are not readable: ${String(e?.message ?? e)}` };
   } finally { try { chat.close(); } catch { /* already closed */ } }
 }
 

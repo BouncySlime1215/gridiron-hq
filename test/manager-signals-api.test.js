@@ -550,6 +550,10 @@ test('read: the chat half says whether the corpus is here at all, and when it wa
   assert.match(body.chat.collected_by, /refresh-live-data|league_chat/i,
     'it names what actually rolls the corpus up');
   assert.equal(body.chat.reason, null, 'a corpus that is present has nothing to explain');
+  assert.equal(body.chat.path, process.env.GRIDIRON_CHAT_DB_PATH,
+    'a corpus that IS here still says which file it is — the same field, present or absent');
+  assert.equal(body.chat.path_source, 'GRIDIRON_CHAT_DB_PATH',
+    'and where that path came from, so a default and a configured path never read alike');
   assert.ok(!('first_seen' in body.chat),
     'first_seen is gone: the rollup stamps the whole table with one datetime(\'now\'), '
     + 'so MIN and MAX of computed_at are equal by construction and the field said nothing');
@@ -577,10 +581,12 @@ test('read: a database with no chat corpus says so instead of serving an empty c
       'and says whether that path was configured or is the in-repo default');
     // BOTH HALVES. "Not in the deployed image" alone points at the wrong fix:
     // the corpus cannot be produced here, and it can be uploaded here.
+    assert.ok(body.chat.reason.includes(process.env.GRIDIRON_CHAT_DB_PATH),
+      'the sentence itself names the path, not only the field beside it');
     assert.match(body.chat.reason, /Mac|Apple Messages/,
       'it says the corpus cannot be produced on this machine');
-    assert.match(body.chat.reason, /upload/i,
-      'and that it can be uploaded to this one (POST /api/league-chat/upload)');
+    assert.match(body.chat.reason, /POST \/api\/league-chat\/upload/,
+      'and names the route that puts one here, not just the word "uploaded"');
   } finally { process.env.GRIDIRON_CHAT_DB_PATH = saved; }
   const { body } = await call('GET', '/api/trades/22/managers/signals');
   assert.equal(body.chat.computed_at, CHAT_ROLLED_UP_AT, 'the fixture is restored for every test after this one');

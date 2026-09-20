@@ -163,12 +163,17 @@ const retired = (use, why) => (_req, res) => res.status(410).json({
  * `brainPlan` ranked its own enumerated deals by its own tier-based acceptance
  * curve, neither of which read the counterparty layer or the horizon — a second,
  * quietly different answer to "what trade should I send". Both are retired with
- * it (see league-brain.js). The ranked weekly plan across lineup, waivers and
- * trades is being rebuilt as a deterministic service on the Decision Inbox
- * (master plan 00, D5), fed by waiverBoard and the one trade-idea entry point.
+ * it (see league-brain.js).
+ *
+ * This comment used to promise the ranked weekly plan was "being rebuilt as a
+ * deterministic service on the Decision Inbox (master plan 00, D5)". The
+ * Decision Inbox was itself retired on 2026-09-20, so that successor does not
+ * exist and the served message no longer claims one. The trade half is at
+ * /find; the weekly plan across lineup, waivers and trades has no successor
+ * today, and saying so is the point of a tombstone.
  */
 r.get('/:leagueId/brain/plan', retired('/api/trades/:leagueId/find',
-  'The plan\'s trade half was a second enumerator with its own acceptance curve. Trade ideas now come from one place, which prices how each manager reads a deal; the weekly plan service is being rebuilt on top of it.'));
+  'The plan\'s trade half was a second enumerator with its own acceptance curve. Trade ideas now come from one place, which prices how each manager reads a deal. The weekly plan across lineup, waivers and trades has no replacement today.'));
 
 
 /**

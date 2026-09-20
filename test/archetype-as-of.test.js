@@ -83,6 +83,18 @@ const jev = (memberId, outcome, p, evaluatedAt) =>
 jev(ALDA, 'true', 0.62, '2026-09-19T09:00:00.000Z');
 jev(ALDA, 'false', 0.38, '2026-09-12T09:00:00.000Z');
 
+// League 33, 2026: the fixture that separates the two readings of "as of".
+// `career_influence` is a real source='draft' row and is the NEWEST row in the
+// league-season, but it is not in manager-signals.js's ARCHETYPE_METRICS map,
+// so archetypeIndex's own asOf skips it and reports the older date. The shared
+// accessor reports the build, not one consumer's metric list.
+team(33, 2026, '1', BRYN, 'Bryn Okafor');
+arch(BRYN, 33, 2026, 'auto_draft_rate', 'draft', '2026-09-14T04:10:00.000Z');
+arch(BRYN, 33, 2026, 'career_influence', 'draft', '2026-09-17T04:10:00.000Z');
+// A career-source row for this same league-season key. It must not move the
+// priced stamp: the trade path reads draft and outcome only.
+arch(BRYN, 33, 2026, 'seasons_observed', 'career', '2026-09-18T04:10:00.000Z');
+
 test('every served manager card says when its archetype evidence was built', () => {
   const cards = archetypesFor(31, 2026);
   assert.equal(cards.size, 2);
@@ -173,4 +185,57 @@ test('called without a member, the block leaves the Jev fields off rather than g
   assert.equal('jev_as_of' in built, false,
     'a null jev_as_of would read as "no answers stored" when none was asked for');
   assert.equal('jev_answers' in built, false);
+});
+
+/**
+ * THE SECOND ACCESSOR.
+ *
+ * manager-signals.js:271 `archetypeIndex` already derives an `asOf` from this
+ * same store for the same league-season, served at `:425` as
+ * `archetypes_as_of`. These tests pin the shared read that replaces it, and
+ * pin the one place the shared read deliberately does NOT reproduce it.
+ */
+
+test('the priced stamp is the draft and outcome rows only, not every source', () => {
+  const built = archetypesBuilt(33, 2026);
+  assert.equal(built.priced_as_of, '2026-09-17T04:10:00.000Z',
+    'the newest draft-or-outcome row, ignoring the newer career row');
+  assert.equal(built.priced_rows, 2);
+  assert.equal(built.as_of, '2026-09-18T04:10:00.000Z',
+    'the unrestricted stamp still sees the career row, so the two are genuinely different reads');
+});
+
+test('on an ordinary league-season the two readings agree', () => {
+  // League 31 has only draft-source rows, which is the normal case, so the
+  // shared accessor and the consumer it replaces must not disagree there.
+  const built = archetypesBuilt(31, 2026);
+  assert.equal(built.priced_as_of, built.as_of,
+    'a divergence on an ordinary fixture would mean the switch changes behaviour where it should not');
+  assert.equal(built.priced_rows, built.rows);
+});
+
+test('the priced stamp does not depend on a consumer\'s metric allowlist', () => {
+  // This is the defect being fixed, stated as a test. archetypeIndex updates
+  // its asOf inside the row loop, AFTER a `continue` that drops any metric not
+  // in ARCHETYPE_METRICS, so editing that map moves the date it reports.
+  // career_influence is source='draft' and unmapped; the shared read counts it.
+  const built = archetypesBuilt(33, 2026);
+  assert.equal(built.priced_rows, 2,
+    'both draft rows count, whether or not a downstream map names the metric');
+  assert.notEqual(built.priced_as_of, '2026-09-14T04:10:00.000Z',
+    'reporting the mapped-only date is archetypeIndex\'s bug, not the contract');
+});
+
+test('a league-season with no priced rows says so rather than borrowing the unrestricted stamp', () => {
+  const built = archetypesBuilt(32, 2026);
+  assert.equal(built.priced_as_of, null);
+  assert.equal(built.priced_rows, 0);
+  assert.match(built.reason ?? '', /never covered|no archetype row/);
+});
+
+test('the card carries the priced stamp too, so one payload answers both questions', () => {
+  const card = archetypesFor(33, 2026).get('1');
+  assert.equal(card.built.priced_as_of, '2026-09-17T04:10:00.000Z');
+  assert.deepEqual({ ...card.built }, { ...archetypesBuilt(33, 2026, BRYN) },
+    'the card and the direct read are one shape, priced fields included');
 });

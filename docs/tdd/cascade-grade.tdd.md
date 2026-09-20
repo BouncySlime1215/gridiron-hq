@@ -62,18 +62,29 @@ Recorded 2026-09-20 by injecting each defect into
 `server/services/cascade-grade.js` and running
 `node --test test/cascade-grade.test.js`. Clean, the suite is 5 pass / 0 fail.
 
-| mutation | result |
-|---|---|
-| `if (found.weeks.has(week))` → `if (!found.weeks.has(week))` — look for the starter among the week's rows | **1 pass / 4 fail**; absences 5 instead of 1 |
-| the `week < first \|\| week > last` span bound deleted | **3 pass / 2 fail**; absences 3 instead of 1 (weeks 1 and 2 scored as misses) |
-| `if (w >= week)` → `if (w > week)` in `priorUsage` — the graded week leaks into its own baseline | **3 pass / 2 fail**; the week-6 spike reaches the baseline |
+**Each injection was verified to have been applied before its run was counted.**
+A substitution whose pattern silently fails to match produces a run of the
+unmutated file wearing the mutation's name, which looks exactly like a passing
+guard and is worth nothing. Every injection below was confirmed by a SHA-256
+change of the file plus the presence of the mutated text in it, and a fourth
+injection using a pattern that does not exist was run deliberately as a control
+to show the check reports a no-op rather than a result.
+
+| mutation | injection | result |
+|---|---|---|
+| `if (found.weeks.has(week))` → `if (!found.weeks.has(week))` — look for the starter among the week's rows | **applied** `4ed96ef709c5` → `23a0dc59dbcf` | **1 pass / 4 fail**; absences 5 instead of 1 |
+| the `week < first \|\| week > last` span bound deleted | **applied** `4ed96ef709c5` → `1bb69754cd2c` | **3 pass / 2 fail**; absences 3 instead of 1 (weeks 1 and 2 scored as misses) |
+| `if (w >= week)` → `if (w > week)` in `priorUsage` — the graded week leaks into its own baseline | **applied** `4ed96ef709c5` → `b5d5b3427d0b` | **3 pass / 2 fail**; the week-6 spike reaches the baseline |
+| control: a pattern that does not appear in the file | **NO-OP, not applied** | no result recorded — the point of the control |
 
 Each mutation was reverted immediately after its run; the file in this commit is
 the unmutated one, and the suite is green.
 
 The fix in section 5 has its own RED, recorded as a commit rather than as a
-mutation: `test/cascade-multiplier-denominator.test.js` was committed first and
-failed 2 of its 4 tests against the unfixed `contingency.js` — the thin pair
+mutation, which is not exposed to the no-op failure mode at all: the test file
+was added and ran, and a test that did not run would report as missing rather
+than as passing. `test/cascade-multiplier-denominator.test.js` was committed
+first (ed96531) and failed 2 of its 4 tests against the unfixed `contingency.js` — the thin pair
 published ×21.5 and `denominator_opportunities` did not exist. The other two
 tests passed before the fix and are the guards on not breaking what worked: the
 gain survives, and a large multiplier resting on a well-estimated divisor is

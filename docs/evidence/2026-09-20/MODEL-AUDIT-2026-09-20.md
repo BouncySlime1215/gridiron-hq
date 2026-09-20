@@ -281,7 +281,7 @@ score = receptiveness × tierFactor × fairnessFactor × perceptionFactor
 Every constant in that line is hand-set and the file says so at each one: the
 fairness sigmoid and its 0.60 cap (`:1618-1620`), `VALUE_GIVEAWAY_LAMBDA = 0.9`
 (`:138`, comment: "NOT FITTED"), `HARD_TIER_FACTOR = 0.55` (`:1348`), the ±10%
-perception bound, the `0.2` on joint gain, and the search filters at `:1564-1572`.
+perception bound **on the deal score** (`:1362-1366`), the `0.2` on joint gain, and the search filters at `:1564-1572`.
 
 **Title Trades** re-simulates each shortlisted deal and ranks on championship
 odds (`title-odds-trades.js:64-88`), then prints which ranking to ignore when the
@@ -800,10 +800,22 @@ not precision. Its upper bound is exactly 0.000, meaning the cutoff-safe map nev
 once beat plain value in any resample, and the two arms are nearly the same
 function of the data by construction: `perceptionFactorFor`
 (`trade-engine.js:1362-1366`, verified here) clamps the entire counterparty read
-to **±10%** of a deal's score, applied to a shift that already cancels our own
+to **±10% of a deal's score**, applied to a shift that already cancels our own
 value gap. So a narrow interval around zero is what this code would produce
 whether or not the underlying signal is real — it is evidence about the wiring as
 much as about the signal.
+
+Always say *of a deal's score* and never a bare "±10%", because there are **three
+clamps at three layers** and a reader who sees the bare number will attach it to
+the wrong one. Trade Brain's precision, and they are right: the four individual
+sources each carry a `cap` of 0.10 as well, which is the easiest of all to
+mistake for the bound.
+
+| layer | constant | what it bounds |
+|---|---|---|
+| the deal | `perceptionFactorFor` (`trade-engine.js:1362-1366`) | **±10% of the deal's score** — this is the one |
+| the player | `PLAYER_VALUATION_CAP = 0.20` (`counterparty-pricing.js:98`) | one player's valuation shift |
+| the package | `PERCEPTION_CAP = 0.15` (`counterparty-pricing.js:28`) | the package multiplier |
 
 **The honest phrasing, which is Trade Brain's own and not the relayed one.** With
 six accepts, this is a **bound on detectability, not a finding of no effect**: the

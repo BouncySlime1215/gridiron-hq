@@ -146,6 +146,13 @@ The exact text of every injection, before and after.
 
 **5 of 5 killed on the first pass**, each by the test it names, control a `NO-OP`.
 
+Full check on `d5fe7f6`, the commit this section describes, `npm run check`
+(typecheck, lint, the whole suite, build, startup smoke) exit 0: **3,007 tests,
+2,966 pass, 0 fail, 41 skipped, 364.0 s**; lint 877 JavaScript files, which is
+exactly `git ls-tree -r d5fe7f6 -- server scripts test` filtered to `.js`/`.mjs`,
+so the count is of this commit and not of whatever happens to be on the disk;
+build clean; startup smoke 32 teams.
+
 ## 3. The undated copy and the dated one were both on the page
 
 `archetypesFor` carried the store's raw `jev` straight onto this payload: the

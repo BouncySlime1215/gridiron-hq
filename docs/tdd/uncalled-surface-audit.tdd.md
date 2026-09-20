@@ -81,10 +81,13 @@ wherever the *code* is new; these guards predate anyone testing them.
 
 Each row records the file's SHA-256 before and after, because a pattern that
 does not match leaves the file unchanged and the run is the baseline wearing a
-mutation's name. Each row also names the one test it must turn red: an
-injection that lands but kills a different test is unfinished, not a result.
-The last row is a deliberate control whose pattern is not in the file — it is
-what shows the verification can fail.
+mutation's name. Each row also names the test that must be **among** the
+failures — the one the injection is aimed at — because an injection that lands
+and leaves that test passing is unfinished, not a result. It is not a claim
+that only that test fails: the `Fails` column is the total, and three of these
+injections break several cases, which is a wider guard rather than a weaker
+one. The last row is a deliberate control whose pattern is not in the file —
+it is what shows the verification can fail.
 
 | Mutation | Verification | Result | Fails | Named test red? |
 |---|---|---|---|---|
@@ -96,8 +99,11 @@ what shows the verification can fail.
 | report success without writing anything | APPLIED `253aa248d291` → `3f36ef603f58` | RED | 7 | yes |
 | **CONTROL** — pattern not in the file | **NO-OP — pattern not found** | — | — | — |
 
-6/6 caught by the test that names them; the control reported NO-OP and ran
-nothing. Source restored and verified clean afterwards.
+6/6 turned the test aimed at them red; the control reported NO-OP and ran
+nothing. Source restored and verified clean afterwards. The wider fail counts
+are recorded as they came out rather than trimmed to one: an injection that
+reaches further than intended says something about the guard, and a tidier
+table would be a less honest one.
 
 The third row is a test I did not have until the sweep asked for it: the
 original cases covered a row with both columns already set, which is skipped

@@ -710,15 +710,27 @@ is the only reason it is not a live false claim today. It belongs in the
 provenance record as an unfitted, unrendered claim so that wiring it up later is
 a deliberate act rather than an accident.
 
-**A claim about O4 that this audit cannot check, and says so.** The fantasy plan
-thread reports that the team-outlook model cannot run in production, because
+**A claim about O4, checked and then answered.** The fantasy plan thread
+reported that the team-outlook model cannot run in production, because
 `history-corpus.js:48` opens `data/derived/sleeper_history.sqlite` under
-`process.cwd()` and the Dockerfile runtime stage does not copy it. **Neither
-`history-corpus.js` nor `team-outlook.js` exists on `origin/main` at `791b131`**
-— the tree has 1,312 files and no path matching either name, and nothing under
-`server/` mentions `sleeper_history`. The finding may well be correct on their
-branch; it is not a finding about the deployed build and is not folded into this
-file's classifications. Recorded rather than repeated.
+`process.cwd()` and the Dockerfile runtime stage does not copy it. Checked here
+first: **neither `history-corpus.js` nor `team-outlook.js` exists on
+`origin/main` at `791b131`** — 1,312 files, no path matching either name, nothing
+under `server/` mentioning `sleeper_history`. They then confirmed it with the
+same `git ls-tree`: both files live only on #42's branch and the fit-store branch
+stacked on it. Their own two sentences, which are the right way to state it:
+
+> O4 is not on main at all; it ships when #42 merges, and even then it cannot
+> produce a number on the deployed app until the fit store on migration 065
+> merges too, because the corpus is never in the image. Nothing is broken in
+> production; the finding is about what would have happened the moment a consumer
+> was wired.
+
+So this is a pre-merge defect caught before it could ship, not a live one, and it
+is classified that way here. One consequence travels with it: the corpus in their
+container is 2,500 leagues and 27,586 team-seasons, and whether Nick's own clone
+has it built is open — **so no O4 figure should be quoted to him until that is
+answered**, because the number's basis is not known to exist on his machine.
 
 **`cascades()` was graded and refused.** The Opportunity thread's numbers, theirs
 to claim: walk-forward, 2024 n=49 over 14 players, 2025 n=77 over 21, with the
@@ -728,6 +740,54 @@ number reads low on an absence week and the without-starter number reads high, s
 the published pair brackets the truth — mechanism real, calibration not. Read the
 n before quoting either. This supersedes nothing in section 4; it confirms that
 neither teammate-absence estimator has earned a surface.
+
+### Graded on request: does the counterparty layer price anything?
+
+The Trade Brain thread's measurement, `docs/tdd/valuation-map.tdd.md` §6 and §7,
+**read here in the original rather than in summary**, because the summary that
+reached this audit said "adds nothing detectable" and the file says something
+more careful.
+
+**The method holds, and it is better than most of what this audit has graded.**
+Arm B rebuilds each manager's chat sentiment strictly before that decision's own
+timestamp and zeroes every source that cannot be rebuilt as of the date — the
+negotiation profiles, today's rosters, today's luck. Arm C keeps them and is
+labelled contaminated by its own author, with the reason stated: *"its lift is
+exactly the part that can see the future."* A repository that reports a
+contaminated arm and then refuses to use it is doing this properly. The bootstrap
+is clustered on the decider, 2,000 resamples, stable across four seeds, and the
+subgroup that matters — the 16 decisions made by someone other than Nick — is
+reported separately rather than pooled away.
+
+**The result.** Own value gain alone scores AUC 0.813; the cutoff-safe map scores
+0.806; B − A has median 0.000 with a 95% interval of −0.017 to 0.000, and on the
+non-Nick decisions it is exactly 0.000.
+
+**One thing to add to how it is read.** That interval is narrow, and the reason is
+not precision. Its upper bound is exactly 0.000, meaning the cutoff-safe map never
+once beat plain value in any resample, and the two arms are nearly the same
+function of the data by construction: `perceptionFactorFor`
+(`trade-engine.js:1362-1366`, verified here) clamps the entire counterparty read
+to **±10%** of a deal's score, applied to a shift that already cancels our own
+value gap. So a narrow interval around zero is what this code would produce
+whether or not the underlying signal is real — it is evidence about the wiring as
+much as about the signal.
+
+**The honest phrasing, which is Trade Brain's own and not the relayed one.** With
+six accepts, this is a **bound on detectability, not a finding of no effect**: the
+chat layer's contribution is smaller than 30 decisions can resolve. "Adds
+nothing" is looser than the data.
+
+**One sentence for the page:** *the counterparty layer is a read, not a price —
+measured against 30 real decisions it never beat plain value, and the code caps
+its whole contribution at 10% of a deal's score, so it should be described as
+what it tells you about a manager rather than as something that moves what a deal
+is worth.*
+
+The §7 ablation says the same thing from the other side and is worth keeping in
+the record: zeroing each source in turn on league 4 changes **which ideas surface
+for none of them**, and the order for three, behind two controls that had to pass
+before the table was reported.
 
 ### The count this file will not give
 

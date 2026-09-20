@@ -3,6 +3,7 @@ import { db, rows, row, run } from '../db/index.js';
 import { leagueTypeFromPayload } from '../services/format.js';
 import { BROWSER_HEADERS } from '../services/espn-draft.js';
 import { assertLeagueMember, assertCommissioner } from '../platform/auth.js';
+import { leagueOutlook } from '../services/league-outlook.js';
 
 const r = Router();
 
@@ -410,6 +411,28 @@ r.get('/:id/analysis', (req, res) => {
     }
   }
   res.json({ league, averages, coverage, rosters });
+});
+
+/**
+ * The League Hub's outlook panel, for one league this caller is in.
+ *
+ * Deliberately thin: it returns whatever leagueOutlook() returns, unchanged,
+ * in both of that function's shapes — `{ ready: false, reason }` or the full
+ * panel. Nothing is filled in, defaulted or reshaped here. The model already
+ * decides what it is entitled to say about a league and says so in words when
+ * it is not entitled to say anything; a route that improved on that answer
+ * would put a second opinion about this league on the page beside the first,
+ * with nothing to tell the reader which was which.
+ *
+ * Membership is asserted before the row is read, matching every other :id
+ * route in this file: a caller who is not in the league is refused without
+ * learning whether it exists.
+ */
+r.get('/:id/outlook', (req, res) => {
+  assertLeagueMember(req.auth.userId, req.params.id);
+  const lg = row('SELECT * FROM leagues WHERE id = ?', req.params.id);
+  if (!lg) return res.status(404).json({ error: 'league not found' });
+  res.json(leagueOutlook(lg));
 });
 
 export default r;

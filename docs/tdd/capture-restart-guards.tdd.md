@@ -130,3 +130,57 @@ lines in `capture-availability-baseline.mjs` call `processIdentity()` at each
 end and set the exit code, and exercising those still needs the network for the
 same reason the script had no test before. The extraction moved the logic that
 can be tested, not all of it.
+
+## Is this well built? (the five questions, asked of this change)
+
+Nick's standing rule, 2026-09-20: every PR body and evidence file answers these.
+
+**1. Is it based on stats, or is it made up?** Two thresholds, and they are not
+the same class.
+
+- The **1-second rounding margin** in `readCrossedRestart` is definitional, not
+  chosen: `server/platform/health.js:45` rounds `uptime_s` with `Math.round`, so
+  a reported 1 can be a true 0.5. Change the rounding and this number changes
+  with it.
+- The **60-second `RESTART_TOLERANCE_MS`** was hand-set from latency
+  arithmetic. It is now measured, against tonight's log
+  (`/mnt/project-files/restart-health-log.tsv`, 152 reads at a 60-second
+  cadence, 2026-09-19T22:53Z to 2026-09-20T01:24Z): 46 clean reads yielded 46
+  distinct process starts, and all 45 consecutive pairs were **at least 177
+  seconds apart** (median 180, max 376). A 60-second tolerance therefore cannot
+  merge two real lives in this data — the margin is about 3x.
+
+**2. How do we know?** 10 tests in `test/capture-span-guard.test.js`, each
+killed by a distinct mutation (the run is pasted above); 4 live readings, also
+above, three of them crossed reads taken while the app was cycling. The
+mutation table is the load-bearing part: a test no mutation can fail proves
+nothing, which is the standard `docs/tdd/week2-numbers.tdd.md` set.
+
+**3. What is NOT known.** The tolerance is measured in one direction only. The
+drift it exists to absorb — two clean reads of the *same* process disagreeing by
+a few seconds — was **never observed tonight**, because the app never answered
+two clean health reads inside one life. 46 clean reads, 46 different processes.
+So the false-positive side of that threshold still rests on arithmetic, and the
+number to re-measure once the app is stable is the drift between two clean reads
+60 seconds apart in one life.
+
+**4. Structure.** The predicates live in `scripts/lib/capture-span.mjs` rather
+than in the capture script because the script is a top-level-await module that
+runs on import and `process.exit(2)`s without a token, so nothing in it was
+reachable from a test. Four wiring lines in
+`scripts/capture-availability-baseline.mjs` still need the network and are named
+under "What is deliberately not covered".
+
+**5. Should this point anywhere else, and what would unify it?** Yes, and there
+is a duplication to close. The crossed-read rule is not specific to the
+availability capture: Fly's edge replays a held request into the machine that
+comes up, so **every** read of this app can be answered by a process that did
+not exist when the request was sent. The rule is currently implemented twice —
+once in JavaScript at `scripts/lib/capture-span.mjs:40` and once in `awk` at
+`restart-health-log.sh:49` — and the two agree only because they were written
+from the same sentence. The unification is one predicate with one test, called
+by both; the shell copy exists because the logger must survive this container
+and cannot depend on the repo. That is a real constraint, not an oversight, so
+the honest next step is a tiny Node one-liner the shell calls when the repo is
+present and the `awk` fallback when it is not, with the fixture that already
+covers the JavaScript side asserted against both.

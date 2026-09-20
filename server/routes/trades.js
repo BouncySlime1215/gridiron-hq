@@ -266,21 +266,6 @@ const NO_MANAGER_SIGNALS_REASON =
   'no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it';
 
 /**
- * The one error this page's archetype read is allowed to continue past.
- *
- * `league_season_teams` is created only by `scripts/backfill-league-history.mjs`,
- * so on a database where that has never run the read cannot succeed however
- * correct the code is. That is an absence, and absences are reported and
- * survived. Everything else — a renamed column, a corrupt file, a TypeError in
- * the archetype code — is a fault and must reach the error handler.
- *
- * Matching on the message is what node:sqlite gives us; it carries no error
- * code for this. The match is deliberately narrow: `no such column` and
- * `no such function` are faults and must NOT match.
- */
-const isMissingTable = e => /no such table/i.test(String(e?.message ?? ''));
-
-/**
  * The archetype object without the store's raw `jev`.
  *
  * `archetypesFor` carries the stored probabilities straight through: no
@@ -389,33 +374,26 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
   // The archetype store is the weekly feature warehouse; it is imported here,
   // lazily, rather than at the top of the trade path (the same line
   // counterparty-pricing.js draws) and an absent store is simply no archetype.
-  let archetypes = new Map();
-  // A read that THREW and a store that is empty are different facts with
-  // different fixes, and the bare `catch {}` that used to sit here made them
-  // identical. Not hypothetical: `archetypesFor` joins `league_season_teams`,
-  // whose only CREATE TABLE is in `scripts/backfill-league-history.mjs`, so on
-  // a database where that backfill has never run this throws and every manager
-  // came back with no archetype under a page that said the build had not run.
-  let archetypeError = null;
-  let archetypeState = 'present';
-  try {
-    const { archetypesFor } = await import('../services/manager-archetypes.js');
-    archetypes = archetypesFor(leagueId, season);
-  } catch (e) {
-    // ONLY THE ABSENCE IS ABSORBED. A missing table is a fact about this
-    // database — the backfill has never run here — and this page's own job,
-    // serving the measured signals, does not depend on the archetypes, so it
-    // continues and says which state it is in. Anything else is a fault: a
-    // `no such column` means the query and the schema disagree, and a catch
-    // wide enough to take that turns every future mistake in the archetype code
-    // into a quietly empty panel. Reporting the sentence was not enough on its
-    // own; a page that says "the archetype read failed: <TypeError>" still
-    // serves a 200 that a caller will read as data.
-    if (!isMissingTable(e)) throw e;
-    archetypeState = 'table_absent';
-    archetypeError = String(e?.message ?? e);
-    archetypes = new Map();
-  }
+  //
+  // NO CATCH. There used to be one, narrowed to `no such table`, because
+  // `archetypesFor` threw when `league_season_teams` was absent and this page's
+  // own job — serving the measured signals — does not depend on the archetypes.
+  // `manager-archetypes.js` now answers the question directly: `archetypesFor`
+  // returns an empty map, and `leagueHistoryState()` says whether the table is
+  // there and why it might not be. So the state is READ from the module that
+  // owns the store rather than inferred from an exception this route happened
+  // to see, which is the as-of rule applied to a state instead of a stamp.
+  //
+  // The catch is REMOVED rather than left standing over a branch nothing
+  // reaches. A catch that can no longer fire is a claim this page still handles
+  // a fault it no longer sees, and the next real fault in the archetype code —
+  // a renamed column, a TypeError — must reach the error handler untouched.
+  // `test/manager-signals-api.test.js` pins both halves.
+  const { archetypesFor, leagueHistoryState } = await import('../services/manager-archetypes.js');
+  const historyState = leagueHistoryState();
+  const archetypeState = historyState.present ? 'present' : 'table_absent';
+  const archetypeReason = historyState.present ? null : historyState.reason;
+  const archetypes = archetypesFor(leagueId, season);
   const rosterIds = teams.length
     ? teams.map(t => String(t.id))
     : [...new Set([...idents.keys(), ...byRoster.keys()])].sort((a, b) => Number(a) - Number(b));
@@ -487,12 +465,16 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
     // page that cannot say "the corpus is not here" will say "he never talks".
     chat: chatCorpusState(),
     // THE ARCHETYPE STORE, on the same footing as the two above, and the place
-    // a failed read is reported instead of vanishing.
+    // an unreadable store is reported instead of vanishing.
     archetypes: { ...archetypesBuilt(leagueId, season),
-      // `read_state` is the machine-readable fact and `read_failed` the sentence
-      // under it. The word is `manager-archetypes.js`'s own for this state, not
-      // a second vocabulary for one thing.
-      read_state: archetypeState, read_failed: archetypeError },
+      // `read_state` is the machine-readable fact and `read_reason` the sentence
+      // under it. Both are `manager-archetypes.js`'s own — the word for the
+      // state and the sentence explaining it — not a second vocabulary this
+      // route invents for one thing. `read_failed`, which carried an exception
+      // message, is gone with the catch that produced it: nothing fails here
+      // any more, and a field that is null in every reachable state is a field
+      // that teaches a reader something untrue.
+      read_state: archetypeState, read_reason: archetypeReason },
     sources: SIGNAL_SOURCES,
     identity_warnings: identityWarnings(leagueId),
     managers,

@@ -423,7 +423,7 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
   // makes — not through the layer, which exists only for rosters that have
   // signals. A manager with no signals still has a draft record somebody paid a
   // gateway call to read.
-  const modelReads = managerModelReads(leagueId, rosterIds);
+  const modelReads = managerModelReads(leagueId, rosterIds, { season });
 
   const managers = rosterIds.map(id => {
     const team = teamById.get(id) ?? null;

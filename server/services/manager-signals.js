@@ -37,6 +37,12 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { db, rows, run } from '../db/index.js';
 import { identityMap, matchIdentities } from './manager-identity.js';
+// Aliased on purpose: this module exports an `archetypesBuilt` of its own, and the
+// two are not the same function. Theirs is the member-keyed owner of the jev
+// stamp (manager-archetypes.js:947); mine is the narrower league-season read the
+// trade path already uses. The alias keeps a reader from thinking one call is the
+// other — the collision is real and worth naming rather than hiding.
+import { archetypesBuilt as archetypeStoreStamps } from './manager-archetypes.js';
 import { PROJECT_ROOT } from '../platform/paths.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (
@@ -729,7 +735,7 @@ export function chatCorpusState() {
  * person and never as a term: half of them carry `basis: 'inference_only'`,
  * which is the store saying in its own column that the number is a prior.
  */
-export function jevEvaluated(leagueId) {
+export function jevEvaluated(leagueId, season = null) {
   const evaluator = 'scripts/build-manager-archetypes.mjs --jev (off-server; opt-in, needs a gateway key, '
     + 'and nothing on the deployed app writes this store)';
   const empty = { as_of: null, rows: 0, evaluated_by: evaluator, by_roster: new Map() };
@@ -757,8 +763,7 @@ export function jevEvaluated(leagueId) {
   // manager whose chat name was never confirmed still has one.
   const answered = rows(`SELECT i.roster_id AS roster_id, j.member_id AS member_id, j.question AS question,
                                 j.outcome AS outcome, j.probability AS probability, j.basis AS basis,
-                                j.n_seasons AS n_seasons, j.n_picks AS n_picks, j.model AS model,
-                                j.evaluated_at AS evaluated_at
+                                j.n_seasons AS n_seasons, j.n_picks AS n_picks, j.model AS model
                          FROM manager_archetype_jev j
                          JOIN league_member_identity i ON i.espn_member_id = j.member_id
                          WHERE i.league_id = ?`, leagueId);
@@ -767,18 +772,35 @@ export function jevEvaluated(leagueId) {
       reason: 'the Jev pass has run, but for no manager in this league — it is run one manager at a time '
         + 'and costs a gateway call each, so a partial store is the normal state' };
   }
+  // THE STAMP IS NOT THIS MODULE'S TO DERIVE. `archetypesBuilt` in
+  // manager-archetypes.js owns the member-keyed jev stamp, and two accessors
+  // deriving one store's stamp is exactly the duplication the as-of rule warns
+  // against: they drift, and then two surfaces date one measurement differently.
+  // The answers below are still read here — theirs returns a stamp and a count,
+  // not the distributions — but the DATE comes from the owner.
+  //
+  // `jev_as_of` and `jev_answers` are OMITTED rather than nulled when no member
+  // is passed, because "you did not ask about a member" and "no answers stored
+  // for him" are different facts. So presence is the test, never `!= null`.
+  const stampCache = new Map();
+  const stampFor = memberId => {
+    if (!stampCache.has(memberId)) {
+      const built = archetypeStoreStamps(leagueId, season, memberId);
+      stampCache.set(memberId, 'jev_as_of' in built ? (built.jev_as_of ?? null) : null);
+    }
+    return stampCache.get(memberId);
+  };
   const byRoster = new Map();
   let newest = null;
   for (const r of answered) {
     const key = String(r.roster_id);
     if (!byRoster.has(key)) {
-      byRoster.set(key, { roster_id: key, member_id: r.member_id, as_of: null, model: r.model ?? null,
-        questions: {} });
+      byRoster.set(key, { roster_id: key, member_id: r.member_id, as_of: stampFor(r.member_id),
+        model: r.model ?? null, questions: {} });
     }
     const entry = byRoster.get(key);
     // HIS newest, and separately the league's, which are different facts.
-    if (r.evaluated_at && (entry.as_of == null || r.evaluated_at > entry.as_of)) entry.as_of = r.evaluated_at;
-    if (r.evaluated_at && (newest == null || r.evaluated_at > newest)) newest = r.evaluated_at;
+    if (entry.as_of && (newest == null || entry.as_of > newest)) newest = entry.as_of;
     entry.questions[r.question] ??= { basis: r.basis, n_seasons: r.n_seasons, n_picks: r.n_picks, p: {} };
     entry.questions[r.question].p[r.outcome] = r.probability;
   }

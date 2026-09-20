@@ -205,8 +205,8 @@ function shapeJevAnswer(question, a) {
  * reaches. The layer is built from `manager_signals` keys, and a manager with
  * no signals still has a draft record somebody paid a gateway call to read.
  */
-export function managerModelReads(leagueId, rosterIds = null) {
-  const read = jevEvaluated(leagueId);
+export function managerModelReads(leagueId, rosterIds = null, { season = null } = {}) {
+  const read = jevEvaluated(leagueId, season);
   const ids = rosterIds ?? [...read.by_roster.keys()];
   return new Map([...ids].map(id => [String(id), jevBlockFor(read, id)]));
 }
@@ -300,7 +300,7 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   for (const [rid, names] of rosterOf) rosterSize.set(rid, names.size);
 
   const ids = [...signals.keys()];
-  const jevBlocks = managerModelReads(leagueId, ids);
+  const jevBlocks = managerModelReads(leagueId, ids, { season: season ?? null });
   const openVals = ids.map(id => signals.get(id).metrics.chat_open_to_trade);
   const talkVals = ids.map(id => signals.get(id).metrics.chat_trade_talk);
 

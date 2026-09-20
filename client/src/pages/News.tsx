@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import BasisChip, { BasisLine, AVAILABILITY_BASIS } from '../components/ui/BasisChip';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { ConnectedNewsHub } from '../features/news/NewsHub';
@@ -92,7 +93,8 @@ function SignalFeed() {
           reads the way it does, and where the fix is written down. Start/Sit carries
           the full explanation; this does not restate it. */}
       {data?.availability_basis && data.availability_basis.basis !== 'role' && (
-        <p className="mb-4 text-xs leading-5 text-amber-900">
+        <BasisLine basis={AVAILABILITY_BASIS[data.availability_basis.basis] ?? 'missing'}>
+          <span className="text-amber-900">
           The fitted chance-to-play role layer is not running
           {data.availability_basis.missing?.length
             ? ` — ${data.availability_basis.missing.join(' and ')} not loaded` : ''}
@@ -101,7 +103,8 @@ function SignalFeed() {
           not a rate measured from real usage. It multiplies into every projected-points figure below.{' '}
           <Link className="font-semibold text-emerald-700" to="/lineup">Start/Sit</Link> says what that
           changes and how to fix it.
-        </p>
+          </span>
+        </BasisLine>
       )}
 
       {data?.tracker && (
@@ -161,12 +164,19 @@ function SignalFeed() {
                       fit, and it multiplies straight into the projected points above it.
                       On any path but 'role' it is a pooled or hand-set figure that reads
                       identically to a measured one, so the card says which it is. */}
-                  <div className="mt-1 text-[11px] text-slate-500">
-                    Likely range {s.fantasy_model.p10}–{s.fantasy_model.p90} · active {s.fantasy_model.active_probability}%
-                    {s.fantasy_model.availability_basis === 'role' ? ''
-                      : s.fantasy_model.availability_basis === 'unfitted_position'
-                        ? ' (assumed — the fit does not cover this position)'
-                        : ' (assumed)'}
+                  {/* The suffix said "(assumed)" and said nothing at all when the
+                      number WAS measured, so a reader could not tell a healthy card
+                      from a card that forgot to check. The chip renders in every
+                      state, carries its sentence in its accessible name, and is the
+                      same component Start/Sit uses, so the two pages cannot drift
+                      into two vocabularies for one fact. */}
+                  <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <span>Likely range {s.fantasy_model.p10}–{s.fantasy_model.p90} · active {s.fantasy_model.active_probability}%</span>
+                    <BasisChip
+                      basis={AVAILABILITY_BASIS[s.fantasy_model.availability_basis ?? ''] ?? 'missing'}
+                      note={s.fantasy_model.availability_basis === 'unfitted_position'
+                        ? 'The fit does not cover this position.' : null}
+                    />
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-3">

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import BasisChip, { BasisLine, AVAILABILITY_BASIS } from '../components/ui/BasisChip';
 import type { ReactNode } from 'react';
 import { useApi } from '../api';
 import { useLeague } from '../state/league';
@@ -224,10 +225,10 @@ export default function Lineup() {
           <p className="mt-1 text-xs leading-5 text-slate-500">To fix: {d.availability_note.fix}.</p>
         </section>
       ) : d?.availability_basis?.basis === 'role' ? (
-        <p role="status" className="text-xs leading-5 text-slate-500">
+        <BasisLine basis="fitted">
           Every chance to play on this page is a measured rate from the fitted availability
           model, fit on 2021&ndash;2024 and validated on a held-out 2025.
-        </p>
+        </BasisLine>
       ) : null}
 
       {d?.warnings?.length > 0 && (
@@ -339,7 +340,6 @@ function Slot({ c, index, pageBasis, week }:
   const onBye = week != null && c.player.bye === week;
   const play = !onBye && c.player.active_probability != null
     ? Math.round(c.player.active_probability * 100) : null;
-  const measured = basis === 'role';
   // Scaled against the "clear" threshold, so the bar reads as a fraction of a
   // decisive margin rather than as an unanchored number.
   // A call with no margin compared nothing, so it gets no bar. It used to draw a
@@ -364,19 +364,26 @@ function Slot({ c, index, pageBasis, week }:
                 On bye
               </span>
             ) : play != null && (
-              <span
-                title={measured ? 'A rate measured from real usage by the fitted availability model'
-                  : basis === 'unfitted_position'
-                    ? 'The availability model covers quarterbacks, running backs, receivers and tight ends only, so this is a fixed number rather than anything measured about this player'
-                    : 'A fallback rather than a rate measured from real usage — see the note above the lineup'}
-                className={`rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums ring-1 ${
-                  play < 75 ? 'bg-amber-50 text-amber-900 ring-amber-200'
-                    : measured ? 'bg-slate-50 text-slate-600 ring-slate-200'
-                      : 'bg-slate-50 text-slate-400 ring-slate-200'}`}
-              >
-                {play}% to play{measured ? ''
-                  : basis === 'unfitted_position' ? ' (not modelled)' : ' (assumed)'}
-              </span>
+              <>
+                {/* The percentage keeps its own colour, which says whether this
+                    player is a risk to sit. The chip beside it says where the
+                    number came from. Those were one pill and they are two
+                    things: a low chance to play is about the player, an assumed
+                    basis is about us, and the same grey said both. */}
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums ring-1 ${
+                    play < 75 ? 'bg-amber-50 text-amber-900 ring-amber-200'
+                      : 'bg-slate-50 text-slate-600 ring-slate-200'}`}
+                >
+                  {play}% to play
+                </span>
+                <BasisChip
+                  basis={AVAILABILITY_BASIS[basis ?? ''] ?? 'missing'}
+                  note={basis === 'unfitted_position'
+                    ? 'The availability model covers quarterbacks, running backs, receivers and tight ends only, so this is a fixed number rather than anything measured about this player.'
+                    : null}
+                />
+              </>
             )}
           </div>
           <div className="mt-1.5 flex items-center gap-2">

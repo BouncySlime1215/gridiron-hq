@@ -228,7 +228,20 @@ test('the row that was priced by a chance to play shows it', () => {
   const src = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
   assert.match(src, /c\.player\.active_probability/, 'the slot reads the per-player number');
   assert.match(src, /% to play/, 'and renders it on the row it priced');
-  assert.match(src, /\(assumed\)/, 'marked when it is the hand-set fallback rather than a measured rate');
+  // This used to assert the literal string "(assumed)". That was the wording of
+  // one implementation, not the guarantee: the row must say where its number
+  // came from. The suffix is now the shared BasisChip, which is strictly more
+  // than the string was — it renders in the MEASURED state too, where the
+  // suffix rendered nothing and a reader could not tell a checked page from an
+  // unchecked one. So the assertion follows the path to the reader instead of
+  // the text: the row maps the server's basis through the chip's map, and the
+  // chip has a tier for the fallback.
+  assert.match(src, /<BasisChip[\s\S]{0,200}AVAILABILITY_BASIS\[/,
+    'the row no longer marks its number with the shared chip');
+  const chip = fs.readFileSync(new URL('../client/src/components/ui/BasisChip.tsx', import.meta.url), 'utf8');
+  assert.match(chip, /constants:\s*'assumed'/, "the server's hand-set basis no longer reaches a tier");
+  assert.match(chip, /assumed:\s*\{[\s\S]{0,80}label:\s*'Assumed'/,
+    'the assumed tier no longer says so');
 });
 
 test('every surface priced by these percentages says which model produced them', () => {
@@ -236,13 +249,19 @@ test('every surface priced by these percentages says which model produced them',
   // waiver board and Trade Lab priced players on a hand-set fallback in exactly
   // the same words they use for a measured rate. A field no page reads is not a
   // disclosure, wherever it is served from.
+  // As above: these asserted each surface's own wording, and each surface had
+  // its own. They are all the shared chip now, so what must hold is that each
+  // still READS the basis and still renders a chip for it — including in the
+  // measured state, which two of these three used to pass over in silence.
   const waivers = fs.readFileSync(new URL('../client/src/components/lineup/WaiverWire.tsx', import.meta.url), 'utf8');
   assert.match(waivers, /availability_basis\?\.basis === 'role'/, 'the waiver board reads the basis');
-  assert.match(waivers, /\(assumed\)/, 'and marks its chips when the number is not measured');
+  assert.match(waivers, /<BasisChip basis=\{measured \? 'fitted' : 'assumed'\}/,
+    'and marks its chips when the number is not measured');
 
   const tradeLab = fs.readFileSync(new URL('../client/src/pages/TradeLab.tsx', import.meta.url), 'utf8');
   assert.match(tradeLab, /availability_basis/, 'Trade Lab reads the basis from model_context');
-  assert.match(tradeLab, /assumed, not measured/, 'and says so where every deal is ranked');
+  assert.match(tradeLab, /<BasisChip basis=\{AVAILABILITY_BASIS\[/,
+    'and says so where every deal is ranked');
 });
 
 test('a Start/Sit row is marked by the model that priced THAT player', () => {
@@ -257,6 +276,20 @@ test('a Start/Sit row is marked by the model that priced THAT player', () => {
     'the row reads its own basis first');
   assert.doesNotMatch(page, /basis=\{d\?\.availability_basis\?\.basis \?\? null\}/,
     'and the page-level basis is no longer what decides a row');
-  assert.match(page, /unfitted_position.*not modelled/s,
-    'a position the fit does not cover is not called an assumption about that player');
+  // Was `/unfitted_position.*not modelled/s` against this one file. The
+  // distinction it protects is real and unchanged — a position the fit does not
+  // cover is not an assumption about that player, it is a thing nobody modelled
+  // — but it now lives on the path rather than in one string, so it is checked
+  // along the path. Lineup maps the server's value; the chip gives that value
+  // its own tier, separate from 'assumed'; the tier says "Not modelled".
+  assert.match(page, /AVAILABILITY_BASIS\[basis \?\? ''\]/,
+    'the row no longer maps the server basis through the shared map');
+  assert.match(page, /unfitted_position/, 'the row no longer distinguishes the uncovered position');
+  const chip = fs.readFileSync(new URL('../client/src/components/ui/BasisChip.tsx', import.meta.url), 'utf8');
+  assert.match(chip, /unfitted_position:\s*'none'/,
+    "the uncovered position is being folded into a tier that isn't its own");
+  assert.match(chip, /none:\s*\{[\s\S]{0,80}label:\s*'Not modelled'/,
+    'the not-modelled tier no longer says so');
+  assert.doesNotMatch(chip, /unfitted_position:\s*'assumed'/,
+    'an uncovered position is being called an assumption about that player again');
 });

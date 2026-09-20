@@ -31,6 +31,7 @@
  * bracket enum into a sentence, because a page that paraphrases what it was told is
  * a second place for the claim to drift.
  */
+import BasisChip from './ui/BasisChip';
 
 const BRACKET: Record<string, string> = {
   league_schedule: "Playoff bracket taken from your league's own schedule.",
@@ -76,7 +77,20 @@ export default function OddsBasis({ sim }: { sim: any }) {
         {sim.projection_basis ? ` Built from ${sim.projection_basis}.` : ''}
       </p>
       {fit && <p>{fit}</p>}
-      {bracket && <p className={assumed ? 'text-amber-700' : undefined}>{bracket}</p>}
+      {/* The bracket sentence was amber when it was the fallback and plain
+          otherwise, which is the right instinct in a colour the rest of the app
+          uses for "something is wrong with your team". It is not: an assumed
+          bracket is a gap on our side. The chip says that in the ramp that
+          means it, and the sentence stays exactly as the server wrote it. */}
+      {bracket && (
+        <p className="flex items-start gap-1.5">
+          <BasisChip
+            basis={assumed ? 'assumed' : 'measured'}
+            note={assumed ? "The weeks below are our default, not your league's." : null}
+          />
+          <span>{bracket}</span>
+        </p>
+      )}
       {sim.odds_interval && <p>The range is {sim.odds_interval}.</p>}
     </div>
   );

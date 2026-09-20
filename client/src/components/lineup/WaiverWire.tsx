@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import BasisChip from '../ui/BasisChip';
 import type { ReactNode } from 'react';
 import { PageLoading, PageError } from '../PageState';
 
@@ -307,9 +308,12 @@ function ClaimRow({ r, value, valueLabel, sub, hole, marginal, perRowDrop, measu
               // the injury report when there is a designation (Out is about 0.001),
               // otherwise from the availability model (contingency.js). It is the
               // number this week's projection is multiplied by, not a share of weeks.
-              <Chip cls="bg-amber-50 text-amber-900 ring-amber-200">
-                {`about ${plays}% to play this week${measured ? '' : ' (assumed)'}`}
-              </Chip>
+              <>
+                <Chip cls="bg-amber-50 text-amber-900 ring-amber-200">
+                  {`about ${plays}% to play this week`}
+                </Chip>
+                <BasisChip basis={measured ? 'fitted' : 'assumed'} />
+              </>
             )}
           </div>
         )}

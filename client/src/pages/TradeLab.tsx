@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import BasisChip, { AVAILABILITY_BASIS } from '../components/ui/BasisChip';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
@@ -127,15 +128,17 @@ export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
             value in exactly the same way, with nothing on screen between them.
             The full explanation of what a fallback changes lives on Start/Sit;
             this says which one is in force and does not restate it. */}
-        {rosters.model_context.availability_basis?.basis === 'role' ? (
-          <div className="inline-flex rounded-full bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">
-            Chance to play: measured
-          </div>
-        ) : rosters.model_context.availability_basis ? (
-          <div className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-900 ring-1 ring-amber-200">
-            Chance to play: assumed, not measured
-          </div>
-        ) : null}
+        {/* Two hand-rolled pills that said the same thing as Start/Sit's suffix
+            and News's parenthetical in a third set of words. The amber one also
+            used the app's "something is wrong with your team" colour for what is
+            a gap on our side. Both are the one chip now, so every deal ranked
+            here is labelled in the same vocabulary as the lineup it came from. */}
+        {rosters.model_context.availability_basis && (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+            Chance to play
+            <BasisChip basis={AVAILABILITY_BASIS[rosters.model_context.availability_basis.basis] ?? 'missing'} />
+          </span>
+        )}
       </div>}
       {rosters?.model_context?.availability_basis
         && rosters.model_context.availability_basis.basis !== 'role' && (

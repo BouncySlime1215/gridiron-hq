@@ -1,3 +1,4 @@
+import BasisChip from './ui/BasisChip';
 import { Link } from 'react-router-dom';
 import { useApi } from '../api';
 import { useLeague } from '../state/league';
@@ -63,6 +64,12 @@ export default function DataBehindNumbers() {
   const thisSeason = season == null ? null : usage.find(s => s.season === season) ?? null;
   const missingThisSeason = season != null && (thisSeason?.rows ?? 0) === 0;
   const lines = [...(data.lines ?? [])].sort((a, b) => a.season - b.season);
+  // Per row, whether THIS season is in it. The card already lists which seasons
+  // are loaded; what it never said in one glance is whether the season being
+  // played is one of them, and that is the live failure mode — the model falls
+  // back to the most recent season it has and says nothing, so the app looks
+  // completely healthy while projecting this year off last year's football.
+  const linesThisSeason = season != null && (lines.find(l => l.season === season)?.n ?? 0) > 0;
 
   return (
     <div className="card p-5 mb-4 space-y-3">
@@ -87,7 +94,10 @@ export default function DataBehindNumbers() {
       <dl className="space-y-2 text-xs">
         <div className="flex flex-wrap items-baseline gap-2">
           <dt className="w-44 shrink-0 font-semibold text-slate-700">Player usage</dt>
-          <dd className="flex-1"><SeasonChips seasons={loaded.map(s => s.season)} missing={missingThisSeason ? season : null} /></dd>
+          <dd className="flex-1 flex flex-wrap items-center gap-2">
+            <SeasonChips seasons={loaded.map(s => s.season)} missing={missingThisSeason ? season : null} />
+            {season != null && <BasisChip basis={missingThisSeason ? 'missing' : 'measured'} />}
+          </dd>
         </div>
         {thisSeason && thisSeason.rows > 0 && (
           <div className="flex flex-wrap items-baseline gap-2">
@@ -97,7 +107,10 @@ export default function DataBehindNumbers() {
         )}
         <div className="flex flex-wrap items-baseline gap-2">
           <dt className="w-44 shrink-0 font-semibold text-slate-700">Game lines</dt>
-          <dd className="flex-1"><SeasonChips seasons={lines.filter(l => l.n > 0).map(l => l.season)} missing={null} /></dd>
+          <dd className="flex-1 flex flex-wrap items-center gap-2">
+            <SeasonChips seasons={lines.filter(l => l.n > 0).map(l => l.season)} missing={season != null && !linesThisSeason ? season : null} />
+            {season != null && <BasisChip basis={linesThisSeason ? 'measured' : 'missing'} />}
+          </dd>
         </div>
         <div className="flex flex-wrap items-baseline gap-2">
           <dt className="w-44 shrink-0 font-semibold text-slate-700">Matched to the stat feed</dt>

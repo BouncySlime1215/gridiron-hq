@@ -2335,6 +2335,12 @@ of a dozen jobs is the one currently holding the lock."
    covers #56 and #59 retrospectively. The first two merges are not
    undocumented; the document just lands third.
 
+   **The other PRs open tonight are not part of this and can go any time, with
+   two orders that do matter.** **#60 after #57**, because `tradeWeekContext`
+   only takes a league argument once #57 lands, so #60's call sites would not
+   compile against today's `main` — the UI order is **#57 → #43 → #60**. And
+   **#46 before #53**. Nothing else among them is ordered.
+
 6. Turn the scheduler back on and prove it holds:
    ```
    fly secrets unset SCHEDULER_DISABLED -a gridiron-hq
@@ -2512,7 +2518,26 @@ off-thread would leave the 503 exactly where it is.
 `ON CONFLICT … DO UPDATE`, so each restart rewrites the same 2025 rows and makes
 no progress toward clearing `coreLag`. The 2026 rows that *would* clear it come
 from `syncNflverse` at `:187`, first in the branch, which is the step that
-errored at 21:17:44. The job is therefore due on every boot, does the expensive
+errored at 21:17:44.
+
+**And a second reason it would not converge even without the kills, found by
+the fantasy plan in their RED/GREEN work and verified here on `791b131`.**
+`syncNflverse` is `syncAll` (`nfl-model-growth.js:16`), and `syncAll`
+(`nflverse.js:303`) stamps `recordSync('nflverse_weekly_usage', usage.error ?
+'error' : 'ok', usage)` at `:312` — **`'ok'` whenever nothing threw, with no
+reference to whether anything was inserted.** `syncWeeklyUsage` returns
+`{ season, inserted }` (`:299`) and does not throw on zero. So a season that
+downloads its file and writes no rows is recorded as a successful sync, which
+is this project's whole failure mode in one line.
+
+**One refinement on that, because the two halves apply to different callers.**
+The same `:312` sits inside `for (const s of seasons)` at `:309`, so a
+multi-season call stamps once per season and the last one wins — that is real,
+and it is `POST /api/model/sync`'s problem, not the boot path's, which passes
+`[season]`, one season (`:187`). **On the boot path the live defect is the
+ok-with-nothing-inserted, not last-season-wins.** And the cause is *not* the
+hardcoded `2021…2025` list in `routes/nfl-betting.js`: those defaults are off
+the boot path entirely. The job is therefore due on every boot, does the expensive
 part every boot, and is killed before the part that would end the cycle.
 
 

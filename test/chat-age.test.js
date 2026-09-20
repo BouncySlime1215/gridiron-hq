@@ -92,8 +92,8 @@ test('a corpus written before this change is still dated, and reported in ISO', 
 test('the rollup stamp is provenance beside the age, not an alternative age', () => {
   buildCorpus();
   const s = chatSync.corpusStats();
-  assert.equal(s.rolled_up_at, '2026-09-19T15:00:00Z');
-  assert.notEqual(s.rolled_up_at, s.newest_message,
+  assert.equal(s.computed_at, '2026-09-19T15:00:00Z');
+  assert.notEqual(s.computed_at, s.newest_message,
     'fixture sanity: the rollup ran after the last message, which is the normal case');
 });
 
@@ -101,7 +101,7 @@ test('every stamp the chat side serves parses as ISO 8601 UTC', () => {
   buildCorpus({ legacy: true });
   const s = chatSync.status();
   for (const [field, value] of Object.entries({
-    newest_message: s.corpus.newest_message, rolled_up_at: s.corpus.rolled_up_at,
+    newest_message: s.corpus.newest_message, computed_at: s.corpus.computed_at,
     as_of: s.freshness.as_of,
   })) {
     assert.match(String(value), ISO, `${field} is not ISO 8601 UTC, and it sits beside two fields that are`);

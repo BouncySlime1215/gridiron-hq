@@ -525,6 +525,68 @@ function routeMounts(indexCode) {
 }
 
 /** Every `r.get('/x')` in a route file, with the line it sits on. */
+/**
+ * How much work each route handler does, so an uncalled one can be ranked.
+ *
+ * `route-no-caller` produces 462 rows on this repository, and a list that long is in
+ * practice a list nobody reads: GET /api/decision-inbox and GET /api/trades/:leagueId/trends
+ * both sat in it, named, while two engines wrote to the first and a 324-line join
+ * powered the second, and both were eventually found by hand. A DELETE nobody calls
+ * and a model join nobody calls are different facts and the map printed them
+ * identically.
+ *
+ * Weight is deliberately crude and deliberately explainable: the imported names the
+ * handler body calls, the tables its SQL names, and the cost of the modules behind
+ * those names, which `costOf` supplies. Not a cost model — an ordering, so the
+ * expensive orphans float to the top of a list that is otherwise read by no one.
+ *
+ * The body is brace-matched from the handler's own opening brace, never scanned to the
+ * next route. Without that every route in a large router scores the same, which is the
+ * state this replaces.
+ */
+function routeWorkload(code, costOf = () => 0) {
+  const imported = new Set();
+  for (const m of code.matchAll(/\bimport\s+\{([^}]*)\}\s*from/g)) {
+    for (const part of m[1].split(',')) {
+      const name = part.trim().split(/\s+as\s+/).pop().trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(name)) imported.add(name);
+    }
+  }
+  const out = [];
+  const RE = /\b[A-Za-z_$][\w$]*\.(get|post|put|patch|delete|all)\(\s*['"](\/[^'"]*)['"]/g;
+  for (const m of code.matchAll(RE)) {
+    // The registration call's own parentheses, not the next `{`. An expression-bodied
+    // arrow — `r.get('/x', (req, res) => res.json(f()))` — has no brace at all, so
+    // brace-matching walked forward into the NEXT route's handler and gave this one
+    // its work. Paren-matching bounds both forms at the route that owns them.
+    const open = code.indexOf('(', m.index);
+    if (open === -1) continue;
+    let depth = 0, end = -1;
+    for (let j = open; j < code.length; j++) {
+      if (code[j] === '(') depth++;
+      else if (code[j] === ')') { depth--; if (depth === 0) { end = j; break; } }
+    }
+    if (end === -1) continue;
+    const body = code.slice(open, end + 1);
+    const services = [...new Set([...body.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)]
+      .map(x => x[1]).filter(n => imported.has(n)))];
+    const tables = [...new Set([...body.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE|DELETE\s+FROM)\s+([a-z_][\w]*)/gi)]
+      .map(x => x[1].toLowerCase()))];
+    // The cost of what the handler CALLS, not just of the handler. Without it a thin
+    // route over a 324-line join scores below a fat route over nothing, which is
+    // measured: GET /api/trades/:leagueId/trends came 295th of 462 on the first
+    // version of this ranking — below the middle of the list it exists to raise it to
+    // the top of.
+    const callee_cost = services.reduce((sum, n) => sum + (costOf(n) || 0), 0);
+    out.push({
+      method: m[1].toUpperCase(), path: m[2], line: lineOf(code, m.index),
+      services, tables, callee_cost,
+      weight: services.length * 2 + tables.length + callee_cost,
+    });
+  }
+  return out;
+}
+
 function routeHandlers(code) {
   const out = [];
   const RE = /\b([A-Za-z_$][\w$]*)\.(get|post|put|patch|delete|all)\(\s*['"](\/[^'"]*)['"]/g;
@@ -578,6 +640,60 @@ function clientCalls(raw) {
   const RE_FETCH = /\bfetch\(\s*[`'"](\/api\/[^`'"]*)[`'"]/g;
   while ((m = RE_FETCH.exec(raw))) out.push({ path: norm(m[1]), line: lineOf(raw, m.index) });
   return out;
+}
+
+/**
+ * Is a route's own distinctive path literal absent from the whole client tree?
+ *
+ * `route-no-caller` matches route paths against `clientCalls()`, which reads inline
+ * string literals only. This client builds paths in variables and template pieces, so
+ * the rule over-reports: it named GET /api/trades/:leagueId/post-draft-plan, whose
+ * last segment the client writes once, and GET /api/trades/:leagueId/rosters, whose
+ * last segment the client writes fifty times. 462 rows with false positives in them is
+ * in practice a list nobody reads, which is how two genuinely dead endpoints sat inside
+ * it, named, and were found by hand instead.
+ *
+ * So this is the gate, not the ranking: a route is a finding only when its distinctive
+ * literal appears nowhere in the client text. The distinctive literal is the longest
+ * RUN of consecutive non-parameter segments, not the last segment — `/api/betting/status`
+ * judged on `status` alone is suppressed by any other `/status` in the client, which
+ * trades one kind of wrong for another. A route that is all parameters after its family
+ * falls back to the family by the same rule, because `/api/players/:id` has only
+ * `players` to go on.
+ *
+ * The check is one-directional on purpose. It over-claims a route as called, which can
+ * only suppress a finding, never invent one. The opposite — a confident "nothing calls
+ * this" about a path the extractor merely could not read — is the failure this exists
+ * to stop.
+ */
+function routeLiteralAbsent(routePath, clientText) {
+  const segs = routePath.split('?')[0].split('/').filter(Boolean);
+  const body = segs[0] === 'api' ? segs.slice(1) : segs;
+  const isParam = (x) => x.startsWith(':') || x.startsWith('*');
+  // Split the path into runs of consecutive literal segments. A parameter breaks a
+  // run because the client writes anything at all in its place.
+  const runs = [];
+  let cur = [];
+  for (const x of body) { if (isParam(x)) { if (cur.length) runs.push(cur); cur = []; } else cur.push(x); }
+  if (cur.length) runs.push(cur);
+  // Nothing literal anywhere (`/api/:id`) leaves nothing to search for, so not a finding.
+  if (!runs.length) return false;
+  // The longest run wins; a tie on segment count goes to the longer fragment, and only
+  // then to the later one. `POST /api/decision-inbox/:id/resolve` has two one-segment
+  // runs, and judging it on `resolve` suppresses it against any other `/resolve` in the
+  // client while its own sibling `GET /api/decision-inbox/summary` stays a finding. The
+  // longer name is the more distinctive one.
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const fragOf = (r) => r.map(esc).join('/');
+  let best = runs[0];
+  for (const r of runs) {
+    if (r.length > best.length) { best = r; continue; }
+    if (r.length === best.length && fragOf(r).length >= fragOf(best).length) best = r;
+  }
+  const frag = fragOf(best);
+  // Anchored to a separator on the left and a segment end on the right, so `/trends`
+  // never matches `/trending` and `xtrends` never matches at all.
+  return !new RegExp(`/${frag}(?![\\w-])`).test(clientText);
 }
 
 // ---------------------------------------------------------------------------
@@ -1486,12 +1602,64 @@ function findings(model, ann) {
     }
   }
 
+  // Each uncalled route carries how much work it does, because 462 undifferentiated
+  // rows is in practice a list nobody reads — which is how two of the most expensive
+  // endpoints in this app stayed unnoticed inside it until someone found them by hand.
+  //
+  // What a handler CALLS is most of what it costs. The first version of this ranking
+  // counted only the handler body and put GET /api/trades/:leagueId/trends 295th of
+  // 462 — below the middle of the list it exists to raise it to the top of — because
+  // its handler is one line over a 324-line join. So a called module contributes its
+  // own size: the tables it touches and the modules it pulls in.
+  const moduleCost = new Map();
+  for (const f of files.values()) {
+    if (f.tree !== 'server') continue;
+    const touches = [...tables.values()]
+      .filter(t => t.reads.some(r => r.file === f.path) || t.writes.some(w => w.file === f.path)).length;
+    // Size counts, and it is the signal that actually separates these. trend-exploits.js
+    // touches 3 tables and imports 5 modules — indistinguishable from a CRUD helper on
+    // those two numbers alone — and is 324 lines of ranking logic. Tables and imports
+    // say what a module reaches; lines say how much it does with it, and an uncalled
+    // route over 324 lines of nobody's work is the finding worth reading first.
+    const lines = (f.raw.match(/\n/g)?.length ?? 0) + 1;
+    moduleCost.set(f.path, touches * 2 + f.imports.filter(i => i.resolved).length + Math.round(lines / 25));
+  }
+  const workloadByFile = new Map();
+  for (const f of files.values()) {
+    if (f.tree !== 'server' || !/\/routes\//.test(f.path)) continue;
+    // An imported name resolves to the module it came from, and that module's cost is
+    // what the handler is really spending when it calls the name.
+    const source = new Map();
+    for (const imp of f.imports) {
+      if (!imp.resolved) continue;
+      for (const a of imp.aliases ?? []) source.set(a.local, imp.resolved);
+      for (const n of imp.names ?? []) if (!source.has(n)) source.set(n, imp.resolved);
+    }
+    workloadByFile.set(f.path, routeWorkload(f.text, n => moduleCost.get(source.get(n)) ?? 0));
+  }
+  // The whole client, comments stripped and string bodies kept, as one text. A path
+  // this client assembles in a variable never reaches `clientCalls()`, so matching
+  // against parsed calls alone is what made this rule over-report; see
+  // `routeLiteralAbsent`.
+  const clientText = [...files.values()]
+    .filter(f => f.tree === 'client' || f.tree === 'extension')
+    .map(f => f.text).join('\n');
   for (const r of routePaths) {
     const p = r.name.split(' ')[1];
     if (allCalls.some(c => matches(p, c.path))) continue;
+    if (!routeLiteralAbsent(p, clientText)) continue;
     if (ignored.has(`route:${r.name}`)) continue;
+    const method = r.name.split(' ')[0];
+    const w = (workloadByFile.get(r.file) ?? []).find(x => x.line === r.line)
+      ?? (workloadByFile.get(r.file) ?? []).find(x => x.method === method && p.endsWith(x.path));
+    const detail = w?.weight
+      ? `no page or extension calls it, and it is not cheap: the handler calls `
+        + `${w.services.length} imported function(s)`
+        + (w.tables.length ? ` and names ${w.tables.length} table(s)` : '')
+        + `${w.services.length ? ` — ${w.services.slice(0, 6).join(', ')}` : ''}`
+      : 'no page or extension calls it';
     add({ kind: 'orphan', rule: 'route-no-caller', scope: scopeOfFile(r.file), subject: r.name,
-      detail: 'no page or extension calls it', evidence: [`${r.file}:${r.line}`] });
+      detail, weight: w?.weight ?? 0, evidence: [`${r.file}:${r.line}`] });
   }
 
   // ---- what SHOULD be wired ------------------------------------------------
@@ -2023,6 +2191,23 @@ const SEVERITY = {
 };
 
 
+/**
+ * Which rows of a bulk rule get named in the markdown rather than counted.
+ *
+ * A bulk rule is one with too many rows to read, so the map printed a file-count
+ * table and named nothing. That is exactly what hid GET /api/decision-inbox and
+ * GET /api/trades/:leagueId/trends: counted, never named, found by hand. Betting is
+ * 80% of `route-no-caller` and is out of scope for work, so dropping it leaves a list
+ * a person will actually read. Heaviest first, ties alphabetical.
+ *
+ * A group with nothing to drop is left to the count, because splitting a list into
+ * "all of it" and "all of it again" helps nobody.
+ */
+function bulkInScope(group) {
+  return group.filter(f => f.scope !== 'betting')
+    .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0) || a.subject.localeCompare(b.subject));
+}
+
 /** The missing-feed family as a table, generated — never transcribed. */
 function missingFeedTable(model, found) {
   const { tables, reachNames } = model;
@@ -2176,7 +2361,23 @@ function toMarkdown(model, found, ann) {
         byFile.set(key, (byFile.get(key) ?? 0) + 1);
       }
       const top = [...byFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
-      p(`Grouped by file, heaviest first. Full list in \`wiring-map.json\`.`);
+      // The file table alone is what hid GET /api/decision-inbox and
+      // GET /api/trades/:leagueId/trends: both were counted, neither was ever named,
+      // and both were eventually found by hand. Betting is 80% of these rows and is
+      // out of scope for work, so the in-scope rows are listed in full — 81 of 405
+      // here — and betting stays a count.
+      const inScope = bulkInScope(g);
+      if (inScope.length && inScope.length < g.length) {
+        p(`${inScope.length} of ${g.length} are in scope (not betting), listed in full, heaviest first.`);
+        p();
+        for (const f of inScope.slice(0, 120)) {
+          p(`- **${f.subject}** \`[${f.scope}]\`${f.weight ? ` \`w${f.weight}\`` : ''} — ${f.detail}`);
+          if (f.evidence?.length) p(`  - ${f.evidence.slice(0, 3).join(', ')}`);
+        }
+        if (inScope.length > 120) p(`- _… ${inScope.length - 120} more in wiring-map.json_`);
+        p();
+      }
+      p(`All ${g.length} grouped by file, heaviest first. Full list in \`wiring-map.json\`.`);
       p();
       p('| file | count |');
       p('| --- | --: |');
@@ -2251,7 +2452,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { columnEvidence, imageDirs, runtimeFilePaths };
+export { columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,
@@ -2278,8 +2479,13 @@ if (INVOKED_DIRECTLY) {
   const outDir = path.resolve(ROOT, String(flag('out', 'docs/wiring')));
   const ann = annotations(path.join(outDir, 'annotations.json'));
   const model = build();
+  // Heaviest first WITHIN a rule, then alphabetical. Only route-no-caller carries a
+  // weight today, and it is the rule that most needed one: its 462 rows are read, if at
+  // all, from the top.
   const found = findings(model, ann).sort((a, b) =>
-    (SEVERITY[a.rule] ?? 99) - (SEVERITY[b.rule] ?? 99) || a.subject.localeCompare(b.subject));
+    (SEVERITY[a.rule] ?? 99) - (SEVERITY[b.rule] ?? 99)
+    || (b.weight ?? 0) - (a.weight ?? 0)
+    || a.subject.localeCompare(b.subject));
 
   const blast = flag('blast');
   if (typeof blast === 'string') {

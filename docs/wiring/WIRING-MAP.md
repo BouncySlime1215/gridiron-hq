@@ -33,7 +33,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 ## Findings
 
 **10 missing feed** — a surface depends on something nothing produces.
-**1963 orphan** — something produced that reaches no surface.
+**1909 orphan** — something produced that reaches no surface.
 230 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
@@ -209,8 +209,8 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `value-computed-never-used` | orphan | 0 | 4 | 19 |
 | `table-never-read` | orphan | 0 | 4 | 13 |
 | `export-only-tested` | orphan | 99 | 139 | 289 |
-| `export-imported-by-nothing` | orphan | 94 | 219 | 507 |
-| `route-no-caller` | orphan | 52 | 331 | 79 |
+| `export-imported-by-nothing` | orphan | 94 | 219 | 510 |
+| `route-no-caller` | orphan | 27 | 324 | 54 |
 
 ### `column-read-never-written` — SHOULD WIRE (3)
 
@@ -580,7 +580,114 @@ The missing-feed list in full, because it is short and it is the one that matter
 
 ### `table-never-scheduled` — CONTEXT (61)
 
-Grouped by file, heaviest first. Full list in `wiring-map.json`.
+52 of 61 are in scope (not betting), listed in full, heaviest first.
+
+- **audit_log** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/002_platform_audit_log.js:20, writer server/platform/audit.js:7
+- **audit_registry** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/audit-registry.js:136, writer server/services/audit-registry.js:146, writer server/services/audit-registry.js:205
+- **auth_invites** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/062_google_identity_and_invites.js:113, writer server/platform/account-link.js:142, writer server/routes/google-auth.js:287
+- **auth_login_flows** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/062_google_identity_and_invites.js:39, writer server/migrations/062_google_identity_and_invites.js:113, writer server/routes/google-auth.js:97
+- **auth_pairing_codes** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/017_auth_pairing_codes.js:25, writer server/routes/local-auth.js:152, writer server/routes/local-auth.js:153
+- **auth_sessions** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/006_identity_and_draft_authorization.js:6, writer server/migrations/006_identity_and_draft_authorization.js:77, writer server/platform/provision-auth.js:56
+- **decision_basis** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/decision-basis.js:153
+- **draft_advice** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/routes/drafts.js:1221
+- **draft_capture_events** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/draft-ingest.js:100
+- **draft_capture_sessions** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/draft-ingest.js:198, writer server/services/draft-ingest.js:202
+- **draft_events** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/draft/store.js:66, writer server/migrations/003_draft_state_machine.js:58
+- **draft_queue** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/draft/store.js:178, writer server/draft/store.js:279, writer server/draft/store.js:281
+- **draft_team_grades** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/007_model_permissions_and_upgrade_guard.js:33, writer server/routes/drafts.js:815
+- **draft_team_ownership** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/006_identity_and_draft_authorization.js:6, writer server/migrations/006_identity_and_draft_authorization.js:6, writer server/migrations/006_identity_and_draft_authorization.js:77
+- **manager_archetype_jev** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/manager-archetypes.js:1028, writer server/services/manager-archetypes.js:1033, writer server/services/manager-archetypes.js:1033
+- **manager_archetypes** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/manager-archetypes.js:561, writer server/services/manager-archetypes.js:563, writer server/services/manager-archetypes.js:563
+- **manager_profiles** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/015_manager_profiles.js:20, writer server/migrations/015_manager_profiles.js:34, writer server/services/league-brain.js:171
+- **model_permissions** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/007_model_permissions_and_upgrade_guard.js:33, writer server/platform/account-link.js:31, writer server/platform/provision-auth.js:33
+- **news_source_validation** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/source-validation.js:127
+- **nfl_ai_replay_candidate_cache** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-ai-replay.js:282
+- **nfl_ai_replay_reviews** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-ai-replay.js:310, writer server/services/nfl-ai-replay.js:320
+- **nfl_ai_replay_runs** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/scripts/run-nfl-ai-replay.js:7, writer server/services/nfl-ai-replay.js:241, writer server/services/nfl-ai-replay.js:344
+- **nfl_blind_audit_retries** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-blind-audit.js:866
+- **nfl_blind_audit_runs** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-blind-audit.js:223, writer server/services/nfl-blind-audit.js:937, writer server/services/nfl-blind-audit.js:955
+- **nfl_blind_audit_week_performance** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-blind-audit.js:940
+- **nfl_blind_audit_weeks** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-blind-audit.js:926
+- **nfl_candidate_robustness_audits** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-candidate-analysis.js:307
+- **nfl_engine_backfill_runs** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-engine-backfill.js:136, writer server/services/nfl-engine-backfill.js:179, writer server/services/nfl-engine-backfill.js:183
+- **nfl_feature_ablation_audits** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-research.js:146
+- **nfl_historical_engine_replay** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-engine-backfill.js:160
+- **nfl_historical_signal_replay** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-engine-backfill.js:109, writer server/services/nfl-engine-backfill.js:109
+- **nfl_model_experiments** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-experiments.js:104, writer server/services/nfl-experiments.js:132, writer server/services/nfl-experiments.js:138
+- **nfl_news_event_extraction_cache** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/019_nfl_news_events.js:67, writer server/services/nfl-news-events.js:83
+- **nfl_news_events** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/019_nfl_news_events.js:67, writer server/services/nfl-news-events.js:109, writer server/services/nfl-news-events.js:302
+- **nfl_officials** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-officials.js:82
+- **nfl_page_explain_audits** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-page-explain-audit.js:18
+- **nfl_residual_audits** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-research.js:116
+- **nfl_sgp_quotes** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/014_profit_execution_triggers.js:43, writer server/services/nfl-prop-correlation.js:350
+- **nfl_source_registry** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-evidence.js:50
+- **nfl_top100** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/routes/accolades.js:283
+- **nfl_user_bets** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-user-bets.js:15, writer server/services/nfl-user-bets.js:26
+- **nfl_validation_windows** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-evidence.js:64
+- **player_analysis** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/routes/players.js:172, writer server/routes/players.js:196
+- **prop_correlation_estimates** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/nfl-prop-correlation.js:152
+- **props_auto_picks** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/routes/props.js:160
+- **research_hypotheses** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/model-intelligence.js:52
+- **research_trials** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/038_research_trials.js:63, writer server/services/research-trials.js:64, writer server/services/research-trials.js:84
+- **saved_prop_tickets** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/018_saved_prop_tickets.js:37, writer server/routes/props-tickets.js:39, writer server/routes/props-tickets.js:52
+- **trade_proposal_cache** `[fantasy]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/060_trade_proposal_cache.js:36, writer server/services/trade-proposals.js:542
+- **trend_findings** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/services/trend-watch.js:114, writer server/services/trend-watch.js:137
+- **user_identities** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/062_google_identity_and_invites.js:39, writer server/migrations/062_google_identity_and_invites.js:113, writer server/platform/account-link.js:86
+- **users** `[shared]` — read on a served surface; nothing on a timer fills it — only a route someone has to call
+  - writer server/migrations/006_identity_and_draft_authorization.js:77, writer server/platform/account-link.js:89, writer server/platform/account-link.js:112
+
+All 61 grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
@@ -983,7 +1090,251 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 ### `export-only-tested` — ORPHAN (527)
 
-Grouped by file, heaviest first. Full list in `wiring-map.json`.
+388 of 527 are in scope (not betting), listed in full, heaviest first.
+
+- **scripts/collect-roster-snapshots.mjs#collectRosterSnapshots** `[fantasy]` — exported, imported only by a test
+  - scripts/collect-roster-snapshots.mjs:216
+- **scripts/collect-roster-snapshots.mjs#recordRosterSnapshotRun** `[fantasy]` — exported, imported only by a test
+  - scripts/collect-roster-snapshots.mjs:271
+- **scripts/collect-sleeper-history.mjs#makeFetchJson** `[shared]` — exported, imported only by a test
+  - scripts/collect-sleeper-history.mjs:204
+- **scripts/collect-sleeper-history.mjs#parseSeasons** `[shared]` — exported, imported only by a test
+  - scripts/collect-sleeper-history.mjs:197
+- **scripts/collect-sleeper-history.mjs#runCrawl** `[shared]` — exported, imported only by a test
+  - scripts/collect-sleeper-history.mjs:70
+- **scripts/data-lineage-inventory.mjs#buildReport** `[shared]` — exported, imported only by a test
+  - scripts/data-lineage-inventory.mjs:317
+- **scripts/data-lineage-inventory.mjs#computeReachableFiles** `[shared]` — exported, imported only by a test
+  - scripts/data-lineage-inventory.mjs:167
+- **scripts/data-lineage-inventory.mjs#findReaders** `[shared]` — exported, imported only by a test
+  - scripts/data-lineage-inventory.mjs:250
+- **scripts/data-lineage-inventory.mjs#walkSourceFiles** `[shared]` — exported, imported only by a test
+  - scripts/data-lineage-inventory.mjs:206
+- **scripts/eval-lineup-objectives.mjs#lineupObjectiveProblems** `[fantasy]` — exported, imported only by a test
+  - scripts/eval-lineup-objectives.mjs:28
+- **scripts/flag-qbr-2026-placeholders.mjs#ensureColumn** `[shared]` — exported, imported only by a test
+  - scripts/flag-qbr-2026-placeholders.mjs:45
+- **scripts/flag-qbr-2026-placeholders.mjs#findPlaceholders** `[shared]` — exported, imported only by a test
+  - scripts/flag-qbr-2026-placeholders.mjs:58
+- **scripts/flag-qbr-2026-placeholders.mjs#flagPlaceholders** `[shared]` — exported, imported only by a test
+  - scripts/flag-qbr-2026-placeholders.mjs:71
+- **scripts/flag-qbr-2026-placeholders.mjs#PLACEHOLDER_SEASON** `[shared]` — exported, imported only by a test
+  - scripts/flag-qbr-2026-placeholders.mjs:41
+- **scripts/flag-qbr-2026-placeholders.mjs#SOURCE_SEASON** `[shared]` — exported, imported only by a test
+  - scripts/flag-qbr-2026-placeholders.mjs:42
+- **scripts/launcher.mjs#appChildEnv** `[shared]` — exported, imported only by a test
+  - scripts/launcher.mjs:85
+- **scripts/launcher.mjs#createAppStarter** `[shared]` — exported, imported only by a test
+  - scripts/launcher.mjs:106
+- **scripts/launcher.mjs#main** `[shared]` — exported, imported only by a test
+  - scripts/launcher.mjs:263
+- **scripts/launcher.mjs#resolveNodeBin** `[shared]` — exported, imported only by a test
+  - scripts/launcher.mjs:67
+- **scripts/promote-early-week-weights.mjs#buildEarlyWeightSet** `[shared]` — exported, imported only by a test
+  - scripts/promote-early-week-weights.mjs:193
+- **scripts/promote-early-week-weights.mjs#convexGridFit** `[shared]` — exported, imported only by a test
+  - scripts/promote-early-week-weights.mjs:103
+- **scripts/promote-early-week-weights.mjs#earlyGateVerdict** `[shared]` — exported, imported only by a test
+  - scripts/promote-early-week-weights.mjs:177
+- **scripts/promote-early-week-weights.mjs#fitBuckets** `[shared]` — exported, imported only by a test
+  - scripts/promote-early-week-weights.mjs:201
+- **scripts/promote-early-week-weights.mjs#fitShrinkageK** `[shared]` — exported, imported only by a test
+  - scripts/promote-early-week-weights.mjs:131
+- **scripts/promote-early-week-weights.mjs#shrinkageVector** `[shared]` — exported, imported only by a test
+  - scripts/promote-early-week-weights.mjs:124
+- **scripts/promote-early-week-weights.mjs#startSitPairAccuracy** `[shared]` — exported, imported only by a test
+  - scripts/promote-early-week-weights.mjs:153
+- **scripts/refresh-live-data.mjs#chatBackfill** `[shared]` — exported, imported only by a test
+  - scripts/refresh-live-data.mjs:146
+- **scripts/refresh-live-data.mjs#createManagerSignalsStep** `[shared]` — exported, imported only by a test
+  - scripts/refresh-live-data.mjs:208
+- **scripts/refresh-live-data.mjs#FANTASY_LIVE_JOBS** `[shared]` — exported, imported only by a test
+  - scripts/refresh-live-data.mjs:42
+- **scripts/refresh-live-data.mjs#managerSignalsInputsKey** `[shared]` — exported, imported only by a test
+  - scripts/refresh-live-data.mjs:178
+- **scripts/refresh-live-data.mjs#rosterSnapshots** `[shared]` — exported, imported only by a test
+  - scripts/refresh-live-data.mjs:112
+- **scripts/refresh-live-data.mjs#tick** `[shared]` — exported, imported only by a test
+  - scripts/refresh-live-data.mjs:239
+- **scripts/refresh-live-data.mjs#transactionsCapture** `[shared]` — exported, imported only by a test
+  - scripts/refresh-live-data.mjs:97
+- **server/db/index.js#assertRoomForSnapshot** `[shared]` — exported, imported only by a test
+  - server/db/index.js:147
+- **server/db/preflight.js#OPPORTUNITY_CASCADE_REPAIR** `[shared]` — exported, imported only by a test
+  - server/db/preflight.js:63
+- **server/draft/engine.js#pickNumbersForSlot** `[fantasy]` — exported, imported only by a test
+  - server/draft/engine.js:49
+- **server/draft/engine.js#totalPicks** `[fantasy]` — exported, imported only by a test
+  - server/draft/engine.js:109
+- **server/modeling/contracts.js#admitPointInTimeRow** `[shared]` — exported, imported only by a test
+  - server/modeling/contracts.js:147
+- **server/modeling/contracts.js#assertPointInTimeRow** `[shared]` — exported, imported only by a test
+  - server/modeling/contracts.js:176
+- **server/modeling/contracts.js#STRICT_CLOCK_FROM** `[shared]` — exported, imported only by a test
+  - server/modeling/contracts.js:115
+- **server/modeling/governed-comparison.js#alignLosses** `[shared]` — exported, imported only by a test
+  - server/modeling/governed-comparison.js:413
+- **server/modeling/governed-comparison.js#holmAdjust** `[shared]` — exported, imported only by a test
+  - server/modeling/governed-comparison.js:103
+- **server/modeling/registry.js#MemoryModelStore** `[shared]` — exported, imported only by a test
+  - server/modeling/registry.js:160
+- **server/modeling/walk-forward.js#createWalkForwardSplits** `[shared]` — exported, imported only by a test
+  - server/modeling/walk-forward.js:35
+- **server/news/ingest.js#ingestRssSource** `[shared]` — exported, imported only by a test
+  - server/news/ingest.js:53
+- **server/news/ingest.js#parseRssItems** `[shared]` — exported, imported only by a test
+  - server/news/ingest.js:37
+- **server/news/ingest.js#RSS_SOURCES** `[shared]` — exported, imported only by a test
+  - server/news/ingest.js:12
+- **server/news/normalize.js#clusterNews** `[shared]` — exported, imported only by a test
+  - server/news/normalize.js:73
+- **server/news/twitter-ingest.js#TWITTER_SWEEP_HANDLES** `[shared]` — exported, imported only by a test
+  - server/news/twitter-ingest.js:128
+- **server/news/twitter-ingest.js#twitterSweepHandles** `[shared]` — exported, imported only by a test
+  - server/news/twitter-ingest.js:134
+- **server/platform/cors.js#ESPN_ORIGINS** `[shared]` — exported, imported only by a test
+  - server/platform/cors.js:11
+- **server/platform/google-oidc.js#_resetOidcCaches** `[shared]` — exported, imported only by a test
+  - server/platform/google-oidc.js:31
+- **server/platform/loop-watchdog.js#armLoopWatchdog** `[shared]` — exported, imported only by a test
+  - server/platform/loop-watchdog.js:95
+- **server/platform/paths.js#CANONICAL_PLAN** `[shared]` — exported, imported only by a test
+  - server/platform/paths.js:55
+- **server/platform/paths.js#resolvedRoots** `[shared]` — exported, imported only by a test
+  - server/platform/paths.js:81
+- **server/platform/paths.js#SERVER_ROOT** `[shared]` — exported, imported only by a test
+  - server/platform/paths.js:35
+- **server/routes/draft-capture.js#buildBookmarklet** `[fantasy]` — exported, imported only by a test
+  - server/routes/draft-capture.js:23
+- **server/routes/drafts.js#_resetIngestLimiter** `[fantasy]` — exported, imported only by a test
+  - server/routes/drafts.js:261
+- **server/routes/espn-connect.js#extractEspnCookies** `[shared]` — exported, imported only by a test
+  - server/routes/espn-connect.js:221
+- **server/routes/local-auth.js#_resetRedeemLimiter** `[shared]` — exported, imported only by a test
+  - server/routes/local-auth.js:167
+- **server/routes/local-auth.js#claimUnownedLeagues** `[shared]` — exported, imported only by a test
+  - server/routes/local-auth.js:55
+- **server/routes/local-auth.js#isLoopback** `[shared]` — exported, imported only by a test
+  - server/routes/local-auth.js:11
+- **server/routes/players.js#groundPlayerVerdict** `[shared]` — exported, imported only by a test
+  - server/routes/players.js:145
+- **server/services/alt-spread-import.js#contradictingToken** `[shared]` — exported, imported only by a test
+  - server/services/alt-spread-import.js:402
+- **server/services/backtest-significance.js#alwaysValidPath** `[shared]` — exported, imported only by a test
+  - server/services/backtest-significance.js:277
+- **server/services/boom-bust.js#boomBustWalkForward** `[shared]` — exported, imported only by a test
+  - server/services/boom-bust.js:343
+- **server/services/boom-bust.js#buildBoomBustDataset** `[shared]` — exported, imported only by a test
+  - server/services/boom-bust.js:300
+- **server/services/boom-bust.js#classify** `[shared]` — exported, imported only by a test
+  - server/services/boom-bust.js:394
+- **server/services/claude.js#setAnthropicClientForTesting** `[shared]` — exported, imported only by a test
+  - server/services/claude.js:132
+- **server/services/conformal.js#binIndex** `[shared]` — exported, imported only by a test
+  - server/services/conformal.js:41
+- **server/services/conformal.js#binLabel** `[shared]` — exported, imported only by a test
+  - server/services/conformal.js:49
+- **server/services/conformal.js#conformalQuantile** `[shared]` — exported, imported only by a test
+  - server/services/conformal.js:63
+- **server/services/contingency.js#AVAILABILITY_RATES_DDL** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:121
+- **server/services/contingency.js#AVAILABILITY_ROLE_RATES_DDL** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:133
+- **server/services/contingency.js#DESIGNATION_ROLE_GATE** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:806
+- **server/services/contingency.js#designationRoleGate** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:818
+- **server/services/contingency.js#gapBucket** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:308
+- **server/services/contingency.js#liveEspnStatuses** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:240
+- **server/services/contingency.js#resetAvailabilityCache** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:532
+- **server/services/contingency.js#ROLE_MAX_GAP** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:295
+- **server/services/contingency.js#roleGateDecision** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:747
+- **server/services/contingency.js#roleTier** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:299
+- **server/services/contingency.js#weekDesignation** `[fantasy]` — exported, imported only by a test
+  - server/services/contingency.js:202
+- **server/services/counterparty-pricing.js#negotiationProfileErrors** `[shared]` — exported, imported only by a test
+  - server/services/counterparty-pricing.js:1021
+- **server/services/counterparty-pricing.js#negotiationProfilesFor** `[shared]` — exported, imported only by a test
+  - server/services/counterparty-pricing.js:1042
+- **server/services/counterparty-pricing.js#perceivedValue** `[shared]` — exported, imported only by a test
+  - server/services/counterparty-pricing.js:321
+- **server/services/counterparty-pricing.js#PERCEPTION_CAP** `[shared]` — exported, imported only by a test
+  - server/services/counterparty-pricing.js:28
+- **server/services/counterparty-pricing.js#PLAYER_VALUATION_CAP** `[shared]` — exported, imported only by a test
+  - server/services/counterparty-pricing.js:98
+- **server/services/counterparty-pricing.js#serializeManagerRead** `[shared]` — exported, imported only by a test
+  - server/services/counterparty-pricing.js:585
+- **server/services/counterparty-pricing.js#VALUATION_SOURCES** `[shared]` — exported, imported only by a test
+  - server/services/counterparty-pricing.js:62
+- **server/services/counterparty-pricing.js#valuationMap** `[shared]` — exported, imported only by a test
+  - server/services/counterparty-pricing.js:718
+- **server/services/draft-advice-verify.js#VERIFY_STATUS** `[fantasy]` — exported, imported only by a test
+  - server/services/draft-advice-verify.js:68
+- **server/services/draft-advice-verify.js#VERIFY_THRESHOLD** `[fantasy]` — exported, imported only by a test
+  - server/services/draft-advice-verify.js:61
+- **server/services/draft-frames.js#decodeInit** `[fantasy]` — exported, imported only by a test
+  - server/services/draft-frames.js:193
+- **server/services/draft-frames.js#encodeInitLedger** `[fantasy]` — exported, imported only by a test
+  - server/services/draft-frames.js:201
+- **server/services/draft-lookahead.js#__test** `[fantasy]` — exported, imported only by a test
+  - server/services/draft-lookahead.js:285
+- **server/services/draft-reconcile.js#correctionHistory** `[fantasy]` — exported, imported only by a test
+  - server/services/draft-reconcile.js:172
+- **server/services/dynasty-age-curve.js#ageDecayMultiplier** `[fantasy]` — exported, imported only by a test
+  - server/services/dynasty-age-curve.js:68
+- **server/services/dynasty-age-curve.js#ageFromBirthDate** `[fantasy]` — exported, imported only by a test
+  - server/services/dynasty-age-curve.js:83
+- **server/services/dynasty-age-curve.js#clearAgeCurveCache** `[fantasy]` — exported, imported only by a test
+  - server/services/dynasty-age-curve.js:103
+- **server/services/dynasty-age-curve.js#playerRealAge** `[fantasy]` — exported, imported only by a test
+  - server/services/dynasty-age-curve.js:112
+- **server/services/evidence-daemon.js#planEvidenceWindows** `[shared]` — exported, imported only by a test
+  - server/services/evidence-daemon.js:48
+- **server/services/fantasy-coordinator.js#__test** `[fantasy]` — exported, imported only by a test
+  - server/services/fantasy-coordinator.js:584
+- **server/services/fantasy-coordinator.js#fitFantasyCoordinator** `[fantasy]` — exported, imported only by a test
+  - server/services/fantasy-coordinator.js:339
+- **server/services/fantasy-coordinator.js#saveFantasyCoordinatorFit** `[fantasy]` — exported, imported only by a test
+  - server/services/fantasy-coordinator.js:368
+- **server/services/forecast-comparison.js#giacominiWhite** `[shared]` — exported, imported only by a test
+  - server/services/forecast-comparison.js:492
+- **server/services/forecast-comparison.js#regularizedIncompleteBeta** `[shared]` — exported, imported only by a test
+  - server/services/forecast-comparison.js:153
+- **server/services/forecast-comparison.js#studentTCdf** `[shared]` — exported, imported only by a test
+  - server/services/forecast-comparison.js:164
+- **server/services/format.js#isBestBallFromPayload** `[shared]` — exported, imported only by a test
+  - server/services/format.js:39
+- **server/services/forward-ledger.js#recordForwardPick** `[shared]` — exported, imported only by a test
+  - server/services/forward-ledger.js:78
+- **server/services/gridiron-model.js#AUTHORITY** `[shared]` — exported, imported only by a test
+  - server/services/gridiron-model.js:71
+- **server/services/historical-adp-scrapes.js#adpScrapeCoverage** `[shared]` — exported, imported only by a test
+  - server/services/historical-adp-scrapes.js:43
+- **server/services/historical-adp-scrapes.js#adpScrapesFor** `[shared]` — exported, imported only by a test
+  - server/services/historical-adp-scrapes.js:35
+- **server/services/historical-adp-scrapes.js#syncHistoricalAdpScrapes** `[shared]` — exported, imported only by a test
+  - server/services/historical-adp-scrapes.js:61
+- **server/services/historical-adp.js#historicalAdpCoverage** `[shared]` — exported, imported only by a test
+  - server/services/historical-adp.js:65
+- **server/services/kalshi-adverse-selection.js#ANCHOR** `[shared]` — exported, imported only by a test
+  - server/services/kalshi-adverse-selection.js:79
+- **server/services/kalshi-adverse-selection.js#applyKalshiHaircut** `[shared]` — exported, imported only by a test
+  - server/services/kalshi-adverse-selection.js:179
+- **server/services/kalshi-adverse-selection.js#defaultKalshiFee** `[shared]` — exported, imported only by a test
+  - server/services/kalshi-adverse-selection.js:230
+- **server/services/kalshi-adverse-selection.js#haircutDivergence** `[shared]` — exported, imported only by a test
+  - server/services/kalshi-adverse-selection.js:268
+- **server/services/kalshi-adverse-selection.js#haircutSensitivity** `[shared]` — exported, imported only by a test
+  - server/services/kalshi-adverse-selection.js:245
+- _… 268 more in wiring-map.json_
+
+All 527 grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
@@ -1009,13 +1360,257 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/services/beat-the-close.js` | 6 |
 | _… 156 more files_ | 350 |
 
-### `export-imported-by-nothing` — ORPHAN (820)
+### `export-imported-by-nothing` — ORPHAN (823)
 
-Grouped by file, heaviest first. Full list in `wiring-map.json`.
+604 of 823 are in scope (not betting), listed in full, heaviest first.
+
+- **scripts/availability-decision-calibration.mjs#GATE** `[shared]` — exported and never imported
+  - scripts/availability-decision-calibration.mjs:44
+- **scripts/backfill-feature-store.mjs#STUDY_DB** `[shared]` — exported and never imported
+  - scripts/backfill-feature-store.mjs:50
+- **scripts/client-build-check.mjs#newestMtimeMs** `[shared]` — exported and never imported
+  - scripts/client-build-check.mjs:18
+- **scripts/collect-roster-snapshots.mjs#main** `[fantasy]` — exported and never imported
+  - scripts/collect-roster-snapshots.mjs:294
+- **scripts/collect-roster-snapshots.mjs#rowsFromEntries** `[fantasy]` — exported and never imported
+  - scripts/collect-roster-snapshots.mjs:65
+- **scripts/collect-sleeper-history.mjs#DEFAULT_SEED** `[shared]` — exported and never imported
+  - scripts/collect-sleeper-history.mjs:36
+- **scripts/data-lineage-inventory.mjs#DEFAULT_PICK_PATH_FILES** `[shared]` — exported and never imported
+  - scripts/data-lineage-inventory.mjs:128
+- **scripts/data-lineage-inventory.mjs#KNOWN_BLOB_COLUMNS** `[shared]` — exported and never imported
+  - scripts/data-lineage-inventory.mjs:99
+- **scripts/eval-lineup-objectives.mjs#OBJECTIVES** `[fantasy]` — exported and never imported
+  - scripts/eval-lineup-objectives.mjs:26
+- **scripts/fit-posture-calibration.mjs#GATE** `[shared]` — exported and never imported
+  - scripts/fit-posture-calibration.mjs:56
+- **scripts/model-lab/audit_corpus.ts#FINDINGS** `[shared]` — exported and never imported
+  - scripts/model-lab/audit_corpus.ts:32
+- **scripts/promote-early-week-weights.mjs#EARLY_BUCKETS** `[shared]` — exported and never imported
+  - scripts/promote-early-week-weights.mjs:77
+- **scripts/promote-early-week-weights.mjs#EARLY_WEEKS** `[shared]` — exported and never imported
+  - scripts/promote-early-week-weights.mjs:76
+- **scripts/promote-early-week-weights.mjs#FIRST_SEASON** `[shared]` — exported and never imported
+  - scripts/promote-early-week-weights.mjs:78
+- **scripts/promote-early-week-weights.mjs#HEADS** `[shared]` — exported and never imported
+  - scripts/promote-early-week-weights.mjs:74
+- **scripts/promote-early-week-weights.mjs#K_GRID** `[shared]` — exported and never imported
+  - scripts/promote-early-week-weights.mjs:96
+- **scripts/promote-early-week-weights.mjs#POSITIONS** `[shared]` — exported and never imported
+  - scripts/promote-early-week-weights.mjs:75
+- **scripts/promote-early-week-weights.mjs#SEED** `[shared]` — exported and never imported
+  - scripts/promote-early-week-weights.mjs:80
+- **scripts/promote-early-week-weights.mjs#VALIDATION_SEASONS** `[shared]` — exported and never imported
+  - scripts/promote-early-week-weights.mjs:79
+- **scripts/promote-early-week-weights.mjs#weightGrid** `[shared]` — exported and never imported
+  - scripts/promote-early-week-weights.mjs:85
+- **scripts/refresh-live-data.mjs#MANAGER_SIGNALS_MAX_AGE_MINUTES** `[shared]` — exported and never imported
+  - scripts/refresh-live-data.mjs:83
+- **scripts/refresh-live-data.mjs#parseChatStatus** `[shared]` — exported and never imported
+  - scripts/refresh-live-data.mjs:140
+- **scripts/wiring-map.mjs#acceptGuard** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2167
+- **scripts/wiring-map.mjs#annotations** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#blastRadius** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#blindCaches** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#bodyRange** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#build** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#bulkInScope** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2455
+- **scripts/wiring-map.mjs#clientCalls** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#close** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#CLOSE_HOPS** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#columnEvidence** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2455
+- **scripts/wiring-map.mjs#declarations** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#findings** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#foreignHandles** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#foreignOnlyFile** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2454
+- **scripts/wiring-map.mjs#functionReach** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#functionUnits** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#gatedRegions** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#GRANDFATHERED** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2454
+- **scripts/wiring-map.mjs#handleFor** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#imageDirs** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2455
+- **scripts/wiring-map.mjs#interpolations** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2454
+- **scripts/wiring-map.mjs#JOBS** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:604
+- **scripts/wiring-map.mjs#keyReads** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#LIMITS** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#MAX_HOPS** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#missingFeedTable** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#moduleEdges** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#NEVER_BASELINE** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2454
+- **scripts/wiring-map.mjs#payloadKeys** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#routeHandlers** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#routeLiteralAbsent** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2455
+- **scripts/wiring-map.mjs#routeMounts** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#routeWorkload** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2455
+- **scripts/wiring-map.mjs#runtimeFilePaths** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2455
+- **scripts/wiring-map.mjs#scan** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#schedulerJobs** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#shouldBeWired** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#sqlEdges** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#statementTables** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#surfaceFamilies** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#tableColumns** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#toJson** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#toMarkdown** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2456
+- **scripts/wiring-map.mjs#valueUsageCounts** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:2454
+- **server/draft/engine.js#posInRoundOf** `[fantasy]` — exported and never imported
+  - server/draft/engine.js:11
+- **server/draft/engine.js#roundOf** `[fantasy]` — exported and never imported
+  - server/draft/engine.js:7
+- **server/draft/store.js#firstAvailableFromQueue** `[fantasy]` — exported and never imported
+  - server/draft/store.js:288
+- **server/draft/store.js#getDraft** `[fantasy]` — exported and never imported
+  - server/draft/store.js:93
+- **server/modeling/authz.js#modelPrincipal** `[shared]` — exported and never imported
+  - server/modeling/authz.js:6
+- **server/modeling/contracts.js#observationKey** `[shared]` — exported and never imported
+  - server/modeling/contracts.js:16
+- **server/modeling/contracts.js#stableJson** `[shared]` — exported and never imported
+  - server/modeling/contracts.js:6
+- **server/modeling/sqlite-store.js#persistAudit** `[shared]` — exported and never imported
+  - server/modeling/sqlite-store.js:82
+- **server/modeling/sqlite-store.js#predictionsForRun** `[shared]` — exported and never imported
+  - server/modeling/sqlite-store.js:99
+- **server/news/normalize.js#canonicalUrl** `[shared]` — exported and never imported
+  - server/news/normalize.js:4
+- **server/news/twitter-ingest.js#INSIDER_HANDLES** `[shared]` — exported and never imported
+  - server/news/twitter-ingest.js:117
+- **server/platform/account-link.js#adminEmail** `[shared]` — exported and never imported
+  - server/platform/account-link.js:21
+- **server/platform/account-link.js#LOCAL_SUBJECT** `[shared]` — exported and never imported
+  - server/platform/account-link.js:14
+- **server/platform/audit.js#auditTrail** `[shared]` — exported and never imported
+  - server/platform/audit.js:16
+- **server/platform/auth.js#leagueAccess** `[shared]` — exported and never imported
+  - server/platform/auth.js:39
+- **server/platform/code-identity.js#moduleClosure** `[shared]` — exported and never imported
+  - server/platform/code-identity.js:80
+- **server/platform/code-identity.js#resetCodeIdentityCache** `[shared]` — exported and never imported
+  - server/platform/code-identity.js:172
+- **server/platform/code-identity.js#SERVER_ROOT** `[shared]` — exported and never imported
+  - server/platform/code-identity.js:50
+- **server/platform/google-oidc.js#discovery** `[shared]` — exported and never imported
+  - server/platform/google-oidc.js:82
+- **server/platform/google-oidc.js#GOOGLE_ISSUERS** `[shared]` — exported and never imported
+  - server/platform/google-oidc.js:19
+- **server/platform/google-oidc.js#googleClientId** `[shared]` — exported and never imported
+  - server/platform/google-oidc.js:41
+- **server/platform/google-oidc.js#googleClientSecret** `[shared]` — exported and never imported
+  - server/platform/google-oidc.js:45
+- **server/platform/jobs.js#cancelJob** `[shared]` — exported and never imported
+  - server/platform/jobs.js:42
+- **server/platform/jobs.js#jobStatus** `[shared]` — exported and never imported
+  - server/platform/jobs.js:51
+- **server/platform/jobs.js#listJobs** `[shared]` — exported and never imported
+  - server/platform/jobs.js:58
+- **server/platform/loop-watchdog.js#stopLoopWatchdog** `[shared]` — exported and never imported
+  - server/platform/loop-watchdog.js:106
+- **server/platform/paths.js#dataPath** `[shared]` — exported and never imported
+  - server/platform/paths.js:67
+- **server/platform/paths.js#DOCS_ROOT** `[shared]` — exported and never imported
+  - server/platform/paths.js:52
+- **server/platform/paths.js#docsPath** `[shared]` — exported and never imported
+  - server/platform/paths.js:70
+- **server/platform/paths.js#EVIDENCE_ROOT** `[shared]` — exported and never imported
+  - server/platform/paths.js:58
+- **server/platform/paths.js#MIGRATIONS_ROOT** `[shared]` — exported and never imported
+  - server/platform/paths.js:64
+- **server/platform/port-guard.js#portOwner** `[shared]` — exported and never imported
+  - server/platform/port-guard.js:30
+- **server/platform/providers.js#checkAllProviderHealth** `[shared]` — exported and never imported
+  - server/platform/providers.js:41
+- **server/platform/providers.js#checkProviderHealth** `[shared]` — exported and never imported
+  - server/platform/providers.js:31
+- **server/platform/providers.js#getProvider** `[shared]` — exported and never imported
+  - server/platform/providers.js:23
+- **server/platform/providers.js#listProviders** `[shared]` — exported and never imported
+  - server/platform/providers.js:27
+- **server/platform/providers.js#registerProvider** `[shared]` — exported and never imported
+  - server/platform/providers.js:16
+- **server/routes/accolades.js#syncAccolades** `[shared]` — exported and never imported
+  - server/routes/accolades.js:92
+- **server/routes/accolades.js#top100Map** `[shared]` — exported and never imported
+  - server/routes/accolades.js:308
+- **server/routes/espn.js#backfillNewsEntities** `[shared]` — exported and never imported
+  - server/routes/espn.js:210
+- **server/routes/google-auth.js#COMPLETE_PATH** `[shared]` — exported and never imported
+  - server/routes/google-auth.js:19
+- **server/routes/google-auth.js#publicOrigin** `[shared]` — exported and never imported
+  - server/routes/google-auth.js:32
+- **server/routes/google-auth.js#redirectUriFor** `[shared]` — exported and never imported
+  - server/routes/google-auth.js:41
+- **server/routes/nfldata.js#OL_SLOTS** `[shared]` — exported and never imported
+  - server/routes/nfldata.js:434
+- **server/routes/nfldata.js#SEASON** `[shared]` — exported and never imported
+  - server/routes/nfldata.js:9
+- **server/services/alt-spread-import.js#ALT_LEG_SPECS** `[shared]` — exported and never imported
+  - server/services/alt-spread-import.js:215
+- **server/services/alt-spread-import.js#ALT_SPREAD_CAPTURE_CONTRACT** `[shared]` — exported and never imported
+  - server/services/alt-spread-import.js:254
+- **server/services/alt-spread-import.js#ALT_SPREAD_IMPORT_VERSION** `[shared]` — exported and never imported
+  - server/services/alt-spread-import.js:176
+- **server/services/alt-spread-import.js#ALT_SPREAD_LEDGER_MARKER** `[shared]` — exported and never imported
+  - server/services/alt-spread-import.js:193
+- **server/services/alt-spread-import.js#ALT_SPREAD_PROVENANCE** `[shared]` — exported and never imported
+  - server/services/alt-spread-import.js:186
+- **server/services/alt-spread-import.js#altLegTeaserEquivalence** `[shared]` — exported and never imported
+  - server/services/alt-spread-import.js:621
+- **server/services/alt-spread-import.js#altSpreadCaptures** `[shared]` — exported and never imported
+  - server/services/alt-spread-import.js:1116
+- **server/services/alt-spread-import.js#altSpreadQuotesForEvent** `[shared]` — exported and never imported
+  - server/services/alt-spread-import.js:1162
+- _… 484 more in wiring-map.json_
+
+All 823 grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
-| `scripts/wiring-map.mjs` | 42 |
+| `scripts/wiring-map.mjs` | 45 |
 | `server/betting/nfl/strategy/margin-distribution.js` | 25 |
 | `server/betting/nfl/strategy/teaser-staking.js` | 24 |
 | `server/betting/nfl/strategy/teaser-season.js` | 19 |
@@ -1037,33 +1632,198 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/services/manager-archetypes.js` | 9 |
 | _… 221 more files_ | 506 |
 
-### `route-no-caller` — ORPHAN (462)
+### `route-no-caller` — ORPHAN (405)
 
-Grouped by file, heaviest first. Full list in `wiring-map.json`.
+81 of 405 are in scope (not betting), listed in full, heaviest first.
+
+- **GET /api/auth/google/callback** `[shared]` `w111` — no page or extension calls it, and it is not cheap: the handler calls 7 imported function(s) and names 1 table(s) — legacyRateLimit, row, hashSessionToken, run, exchangeCode, verifyIdToken
+  - server/routes/google-auth.js:165
+- **POST /api/aggregates/refresh-all** `[shared]` `w103` — no page or extension calls it, and it is not cheap: the handler calls 4 imported function(s) and names 1 table(s) — syncPlayersFromESPN, syncGeneralNews, rows, syncTeamNewsFeed
+  - server/routes/aggregates.js:278
+- **GET /api/model/projections** `[shared]` `w99` — no page or extension calls it, and it is not cheap: the handler calls 5 imported function(s) and names 1 table(s) — requireLeagueId, row, assertLeagueMember, scoringFor, buildProjections
+  - server/routes/model.js:396
+- **POST /api/league-chat/upload** `[fantasy]` `w95` — no page or extension calls it, and it is not cheap: the handler calls 11 imported function(s) and names 1 table(s) — chatDbPath, mkdirSync, pipeline, createWriteStream, rmSync, status
+  - server/routes/league-chat.js:101
+- **POST /api/model/registry/experiments/:id/backtests** `[shared]` `w79` — no page or extension calls it, and it is not cheap: the handler calls 5 imported function(s) and names 6 table(s) — requireModelPermission, configurationHash, runWalkForward, run, recordModelAudit
+  - server/routes/model.js:202
+- **POST /api/model/registry/experiments/:id/holdout** `[shared]` `w78` — no page or extension calls it, and it is not cheap: the handler calls 5 imported function(s) and names 5 table(s) — requireModelPermission, openFinalHoldout, configurationHash, run, recordModelAudit
+  - server/routes/model.js:288
+- **POST /api/accolades/weakness/:abbr** `[shared]` `w68` — no page or extension calls it, and it is not cheap: the handler calls 3 imported function(s) and names 5 table(s) — row, rows, run
+  - server/routes/accolades.js:185
+- **POST /api/model/registry/datasets** `[shared]` `w66` — no page or extension calls it, and it is not cheap: the handler calls 4 imported function(s) and names 1 table(s) — requireModelPermission, configurationHash, run, recordModelAudit
+  - server/routes/model.js:136
+- **POST /api/model/registry/features** `[shared]` `w66` — no page or extension calls it, and it is not cheap: the handler calls 4 imported function(s) and names 1 table(s) — requireModelPermission, configurationHash, run, recordModelAudit
+  - server/routes/model.js:160
+- **POST /api/model/registry/experiments** `[shared]` `w56` — no page or extension calls it, and it is not cheap: the handler calls 3 imported function(s) and names 1 table(s) — requireModelPermission, run, recordModelAudit
+  - server/routes/model.js:179
+- **POST /api/trades/managers/rebuild** `[fantasy]` `w46` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — refreshManagerData
+  - server/routes/trades.js:573
+- **GET /api/accolades/:abbr** `[shared]` `w45` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 3 table(s) — row, rows
+  - server/routes/accolades.js:152
+- **GET /api/auth/accounts** `[shared]` `w45` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 3 table(s) — rows, isAdmin
+  - server/routes/google-auth.js:313
+- **POST /api/tradelab/trending/sync** `[fantasy]` `w45` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 3 table(s) — row, run
+  - server/routes/tradelab.js:238
+- **GET /api/trades/trends/player/:playerId** `[fantasy]` `w44` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 1 table(s) — row, playerTrends
+  - server/routes/trades.js:277
+- **GET /api/trades/trends/team/:team** `[fantasy]` `w44` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 1 table(s) — row, teamTrends
+  - server/routes/trades.js:265
+- **POST /api/auth/accounts/:id/disabled** `[shared]` `w44` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 2 table(s) — row, run
+  - server/routes/google-auth.js:320
+- **DELETE /api/auth/invites/:id** `[shared]` `w43` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 1 table(s) — row, run
+  - server/routes/google-auth.js:300
+- **GET /api/model/weekly-learning/status** `[shared]` `w43` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) — requireModelPermission, weeklyLearningStatus
+  - server/routes/model.js:116
+- **POST /api/auth/invites** `[shared]` `w43` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 1 table(s) — run, row
+  - server/routes/google-auth.js:277
+- **POST /api/decision-inbox/:id/resolve** `[shared]` `w43` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 1 table(s) — row, run
+  - server/routes/decision-inbox.js:179
+- **POST /api/model/weekly-learning/run** `[shared]` `w43` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) — requireModelPermission, runWeeklyLearningCycle
+  - server/routes/model.js:120
+- **GET /api/trades/trends/watch** `[fantasy]` `w36` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) — trendHistory, conflicts
+  - server/routes/trades.js:305
+- **POST /api/drafts/:id/picks/correct** `[fantasy]` `w34` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) — correctLastPick, recordAudit
+  - server/routes/drafts.js:696
+- **POST /api/drafts/:id/picks/redo** `[fantasy]` `w34` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) — redoLastUndo, recordAudit
+  - server/routes/drafts.js:687
+- **GET /api/model/heads** `[shared]` `w33` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — projectionHeads
+  - server/routes/model.js:750
+- **GET /api/model/map** `[shared]` `w33` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — modelMap
+  - server/routes/model.js:724
+- **GET /api/model/state** `[shared]` `w33` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — stateOfTheModel
+  - server/routes/model.js:719
+- **POST /api/model/consensus** `[shared]` `w33` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — consensus
+  - server/routes/model.js:755
+- **GET /api/drafts/:id/roster/:teamSlot** `[fantasy]` `w30` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 2 table(s) — rows, assignRosterSlots
+  - server/routes/drafts.js:749
+- **POST /api/drafts/:id/confirm-slot** `[fantasy]` `w30` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 3 table(s) — run, recordAudit
+  - server/routes/drafts.js:869
+- **GET /api/trades/:leagueId/brain/free-agents** `[fantasy]` `w28` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — freeAgents
+  - server/routes/trades.js:213
+- **GET /api/trades/:leagueId/brain/waivers** `[fantasy]` `w28` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — waiverUpgrades
+  - server/routes/trades.js:188
+- **GET /api/trades/:leagueId/regression** `[fantasy]` `w26` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — regressionForLeague
+  - server/routes/trades.js:323
+- **GET /api/trades/regression/board** `[fantasy]` `w26` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — regressionCandidates
+  - server/routes/trades.js:335
+- **GET /api/trades/regression/rates** `[fantasy]` `w26` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — touchdownRates
+  - server/routes/trades.js:346
+- **GET /api/tradelab/trending** `[fantasy]` `w25` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 4 table(s) — rows
+  - server/routes/tradelab.js:259
+- **GET /api/stats/projections** `[shared]` `w24` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 3 table(s) — rows
+  - server/routes/stats.js:135
+- **GET /api/stats/teams** `[shared]` `w24` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 3 table(s) — rows
+  - server/routes/stats.js:164
+- **GET /api/trades/:leagueId/trends** `[fantasy]` `w24` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — trendExploits
+  - server/routes/trades.js:254
+- **GET /api/auth/invites** `[shared]` `w23` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 2 table(s) — rows
+  - server/routes/google-auth.js:270
+- **GET /api/trades/:leagueId/brain/state** `[fantasy]` `w23` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — brainState
+  - server/routes/trades.js:161
+- **GET /api/accolades/top100/list** `[shared]` `w22` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 1 table(s) — rows
+  - server/routes/accolades.js:302
+- **GET /api/decision-inbox** `[shared]` `w22` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 1 table(s) — rows
+  - server/routes/decision-inbox.js:123
+- **GET /api/decision-inbox/summary** `[shared]` `w22` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 1 table(s) — rows
+  - server/routes/decision-inbox.js:143
+- **GET /api/espn/team-changes** `[shared]` `w22` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 1 table(s) — rows
+  - server/routes/espn.js:149
+- **GET /api/nfl/grades/:abbr** `[shared]` `w22` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 1 table(s) — row
+  - server/routes/nfldata.js:584
+- **GET /api/nfl/roster/:abbr** `[shared]` `w22` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 1 table(s) — row
+  - server/routes/nfldata.js:463
+- **GET /api/trades/:leagueId/postmortem** `[fantasy]` `w22` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) — weekPostmortem, leagueLastCompletedWeek
+  - server/routes/trades.js:687
+- **POST /api/auth/logout** `[shared]` `w22` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 1 table(s) — run
+  - server/routes/google-auth.js:252
+- **POST /api/auth/logout-all** `[shared]` `w22` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 1 table(s) — run
+  - server/routes/google-auth.js:258
+- **GET /api/auth/session** `[shared]` `w21` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — accountSummary
+  - server/routes/google-auth.js:248
+- **GET /api/dev/usage** `[shared]` `w21` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — usageSummary
+  - server/routes/dev.js:58
+- **GET /api/trades/:leagueId/brain/bye-risk** `[fantasy]` `w19` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — byePatches
+  - server/routes/trades.js:222
+- **GET /api/trades/:leagueId/brain/fragility** `[fantasy]` `w19` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — fragility
+  - server/routes/trades.js:230
+- **GET /api/model/game-script-fit** `[shared]` `w18` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — fitGameScript
+  - server/routes/model.js:701
+- **POST /api/trades/trends/scan** `[fantasy]` `w18` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — scanTrends
+  - server/routes/trades.js:294
+- **GET /api/dev/player-identity/gsis-conflicts** `[shared]` `w16` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — canonicalGsisLabelConflicts
+  - server/routes/dev.js:60
+- **GET /api/dev/player-identity/team-position-duplicates** `[shared]` `w16` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — unclaimedTeamPositionDuplicates
+  - server/routes/dev.js:61
+- **GET /api/trades/:leagueId/brain/liquidity** `[fantasy]` `w16` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — positionLiquidity
+  - server/routes/trades.js:238
+- **GET /api/dev/sources** `[shared]` `w14` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — allSources
+  - server/routes/dev.js:68
+- **POST /api/model/registry/experiments/:id/promote** `[shared]` `w9` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 2 table(s) — requireModelPermission
+  - server/routes/model.js:339
+- **POST /api/model/registry/experiments/:id/rollback** `[shared]` `w9` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) and names 2 table(s) — requireModelPermission
+  - server/routes/model.js:362
+- **POST /api/model/registry/experiments/:id/result** `[shared]` `w7` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — requireModelPermission
+  - server/routes/model.js:198
+- **GET /api/tradelab/:leagueId/partners** `[fantasy]` `w1` — no page or extension calls it, and it is not cheap: the handler calls 0 imported function(s) and names 1 table(s)
+  - server/routes/tradelab.js:230
+- **GET /api/trades/:leagueId/brain/plan** `[fantasy]` `w1` — no page or extension calls it, and it is not cheap: the handler calls 0 imported function(s) and names 1 table(s)
+  - server/routes/trades.js:178
+- **POST /api/tradelab/:leagueId/pitch** `[fantasy]` `w1` — no page or extension calls it, and it is not cheap: the handler calls 0 imported function(s) and names 1 table(s)
+  - server/routes/tradelab.js:233
+- **GET /api/auth/tunnel-url** `[shared]` — no page or extension calls it
+  - server/routes/local-auth.js:133
+- **GET /api/model/game-script** `[shared]` — no page or extension calls it
+  - server/routes/model.js:681
+- **GET /api/nfl/sos** `[shared]` — no page or extension calls it
+  - server/routes/nfldata.js:324
+- **GET /api/trades/:leagueId/brain/sell-high** `[fantasy]` — no page or extension calls it
+  - server/routes/trades.js:209
+- **POST /api/accolades/sync** `[shared]` — no page or extension calls it
+  - server/routes/accolades.js:143
+- **POST /api/accolades/top100/sync** `[shared]` — no page or extension calls it
+  - server/routes/accolades.js:298
+- **POST /api/auth/tunnel-url** `[shared]` — no page or extension calls it
+  - server/routes/local-auth.js:124
+- **POST /api/decision-inbox** `[shared]` — no page or extension calls it
+  - server/routes/decision-inbox.js:161
+- **POST /api/nfl/sync-all** `[shared]` — no page or extension calls it
+  - server/routes/nfldata.js:279
+- **POST /api/nfl/sync-cap** `[shared]` — no page or extension calls it
+  - server/routes/nfldata.js:275
+- **POST /api/nfl/sync-depth** `[shared]` — no page or extension calls it
+  - server/routes/nfldata.js:265
+- **POST /api/nfl/sync-rosters** `[shared]` — no page or extension calls it
+  - server/routes/nfldata.js:269
+- **POST /api/nfl/sync-schedules** `[shared]` — no page or extension calls it
+  - server/routes/nfldata.js:272
+- **POST /api/stats/sync** `[shared]` — no page or extension calls it
+  - server/routes/stats.js:77
+
+All 405 grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
 | `server/routes/nfl-betting.js` | 170 |
 | `server/routes/nfl-market.js` | 56 |
-| `server/routes/betting-hub.js` | 49 |
-| `server/routes/trades.js` | 37 |
+| `server/routes/betting-hub.js` | 48 |
 | `server/routes/mlb.js` | 28 |
-| `server/routes/model.js` | 27 |
-| `server/routes/google-auth.js` | 10 |
-| `server/routes/edge.js` | 10 |
-| `server/routes/nfldata.js` | 10 |
+| `server/routes/trades.js` | 18 |
+| `server/routes/model.js` | 17 |
+| `server/routes/google-auth.js` | 9 |
 | `server/routes/wong.js` | 9 |
-| `server/routes/drafts.js` | 7 |
+| `server/routes/nfldata.js` | 8 |
 | `server/routes/accolades.js` | 5 |
-| `server/routes/dev.js` | 5 |
-| `server/routes/tradelab.js` | 5 |
 | `server/routes/decision-inbox.js` | 4 |
+| `server/routes/dev.js` | 4 |
+| `server/routes/drafts.js` | 4 |
+| `server/routes/edge.js` | 4 |
 | `server/routes/props.js` | 4 |
-| `server/routes/teams.js` | 4 |
+| `server/routes/tradelab.js` | 4 |
 | `server/routes/props-tickets.js` | 3 |
 | `server/routes/stats.js` | 3 |
-| `server/routes/aggregates.js` | 2 |
-| _… 9 more files_ | 14 |
+| `server/routes/local-auth.js` | 2 |
+| `server/routes/execution-slate.js` | 2 |
+| _… 3 more files_ | 3 |
 
 ## Asserted edges
 

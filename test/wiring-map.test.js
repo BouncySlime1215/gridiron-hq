@@ -22,7 +22,7 @@ const {
   clientCalls, payloadKeys, keyReads, declarations,
   foreignHandles, handleFor, gatedRegions, blindCaches,
   functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
-  imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent,
+  imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -552,6 +552,29 @@ test('a generic tail segment is not a route\'s distinctive literal', () => {
   // its own sibling above stays a finding, which is two answers about one endpoint.
   assert.equal(routeLiteralAbsent('/api/decision-inbox/:id/resolve', "api('/trades/1/resolve')"), true);
   assert.equal(routeLiteralAbsent('/api/decision-inbox/:id/resolve', "api(`/decision-inbox/${id}/resolve`)"), false);
+});
+
+test('a bulk rule names its in-scope rows instead of counting them', () => {
+  // THE FAILURE THIS ENCODES: route-no-caller rendered as a file-count table and
+  // named nothing, so GET /api/decision-inbox and GET /api/trades/:leagueId/trends
+  // were both counted, never printed, and both were found by hand instead. Betting is
+  // 324 of the 405 rows and is out of scope for work, so dropping it leaves 81 — a
+  // list a person reads.
+  const g = [
+    { subject: 'GET /api/decision-inbox', scope: 'shared', weight: 22 },
+    { subject: 'GET /api/nfl-betting/status', scope: 'betting', weight: 244 },
+    { subject: 'GET /api/trades/:leagueId/trends', scope: 'fantasy', weight: 24 },
+    { subject: 'POST /api/league-chat/upload', scope: 'fantasy', weight: 95 },
+  ];
+  assert.deepEqual(bulkInScope(g).map(f => f.subject), [
+    'POST /api/league-chat/upload',
+    'GET /api/trades/:leagueId/trends',
+    'GET /api/decision-inbox',
+  ]);
+  // A row with no weight sorts last, not first, and never throws.
+  assert.deepEqual(
+    bulkInScope([{ subject: 'b', scope: 'shared' }, { subject: 'a', scope: 'shared', weight: 1 }])
+      .map(f => f.subject), ['a', 'b']);
 });
 
 test('statementTables separates what a statement reads from what it writes', () => {

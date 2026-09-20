@@ -89,6 +89,34 @@ export const AVAILABILITY_FIT_BASIS = Object.freeze(['role', 'pooled', 'constant
  */
 export const DEFAULT_DURABILITY_PRIOR = 0.92;
 
+/**
+ * The active probability served in place of a computed one when a player has
+ * no availability row at all — the `unfitted_position` case.
+ *
+ * THIS IS THE OUTPUT SIDE OF THE CURVE, AND IT IS NOT THE PRIOR ABOVE. A
+ * durability prior is the input to the report-status chain; this value replaces
+ * that chain's result for a player the chain never ran on. They currently carry
+ * the same digits and that is coincidence, not a shared definition: a player
+ * whose basis is `default_durability` goes through the curve and, if he is
+ * listed Questionable, is served nowhere near 0.92, while this constant is
+ * served as-is.
+ *
+ * So they are two exports with two docstrings on purpose. Deriving one from the
+ * other — `export const DEFAULT_ACTIVE_PROBABILITY = DEFAULT_DURABILITY_PRIOR`
+ * — would look like tidying and would silently move a served probability the
+ * next time the prior is revised. A test pins that they stay independent
+ * literals.
+ *
+ * Like the prior, it is not fitted. Nothing can be fitted for a position the
+ * availability model does not cover.
+ *
+ * It pairs with the `default_durability` and `unfitted_position` arms: those
+ * two say WHY no computed probability exists, this is the value served in its
+ * place. Consumers: player-week-engine.js, trade-engine.js and roster-risk.js,
+ * each of which had its own copy before this export existed.
+ */
+export const DEFAULT_ACTIVE_PROBABILITY = 0.92;
+
 /** True when `value` is a member of the canonical row vocabulary. */
 export function isAvailabilityBasis(value) {
   return AVAILABILITY_BASIS.includes(value);

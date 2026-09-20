@@ -103,6 +103,24 @@ test('the default prior behind a default_durability row is the shared constant',
   assert.notEqual(served.get(201).durability_prior, served.get(202).durability_prior);
 });
 
+test('the prior and the fallback active probability are independent literals', async () => {
+  // They carry the same digits today and that is coincidence: one is the INPUT
+  // to the report-status curve, the other replaces its OUTPUT for a player the
+  // curve never ran on. Deriving either from the other would look like tidying
+  // and would silently move a served probability the next time the prior is
+  // revised, so the check is on the source, not on the values.
+  assert.equal(typeof B.DEFAULT_DURABILITY_PRIOR, 'number');
+  assert.equal(typeof B.DEFAULT_ACTIVE_PROBABILITY, 'number');
+  const source = await fs.promises.readFile(
+    new URL('../server/services/availability-basis.js', import.meta.url), 'utf8');
+  for (const name of ['DEFAULT_DURABILITY_PRIOR', 'DEFAULT_ACTIVE_PROBABILITY']) {
+    const line = new RegExp(`^export const ${name} = (.+);$`, 'm').exec(source);
+    assert.ok(line, `${name} must be exported on its own line`);
+    assert.match(line[1], /^[0-9.]+$/,
+      `${name} must be its own numeric literal, not derived from the other constant`);
+  }
+});
+
 test('a fitted pooled rate moves the basis off the prior, for both players', () => {
   // One league-scope rate for "no report, no practice status" is enough for the
   // pooled lookup to answer, and it answers for everyone — including the player

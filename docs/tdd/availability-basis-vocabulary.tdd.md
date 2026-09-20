@@ -13,10 +13,12 @@ consumer can define its own copy without that being obvious.
 which of four already-existing code paths priced a row. It computes no new
 number and changes no existing one.
 
-**How do we know?** A RED commit, a GREEN commit, six passing tests, and a
-mutation table where each mutation is shown applied by hash. The load-bearing
-entry is the NO-OP control: rewording the display sentence leaves all six
-passing, which is the precise thing that was broken before.
+**How do we know?** A RED commit, a GREEN commit, eight passing tests, and a
+mutation table where each mutation is shown applied by hash and named by the
+tests it turns red. Five of five kills land on the test that names them; one
+mutation survives and is reported as surviving, with the fixture that would
+kill it. The load-bearing row is control A: rewording the display sentence
+leaves every test passing, which is the precise thing that was broken before.
 
 **Should this data be pointed anywhere else?** It already is: the fantasy
 plan's accessor and the UI's `playerAvailabilityBasis` both want it and both
@@ -108,23 +110,52 @@ Five tests. Two pass (the list's shape; servable versus arm). Three fail:
 `active` and `source`, set at every branch that sets `source`.
 `weeklyAvailability` puts it on the row. `fittedAvailability` emits the process
 basis by destructuring `AVAILABILITY_FIT_BASIS` instead of writing the three
-strings out again. Six tests pass.
+strings out again. `DEFAULT_DURABILITY_PRIOR` and `DEFAULT_ACTIVE_PROBABILITY`
+are exported from the same file, as two independent literals with two
+docstrings — one is the input to the report-status curve, the other replaces
+its output for a player the curve never ran on, and the matching digits are
+coincidence. Eight tests pass.
 
 ## Mutation evidence, applied
 
-Each mutation was written to `server/services/contingency.js` and the file's
-SHA-256 checked before and after, so "applied" is shown and not asserted. The
-file was restored to its exact pre-mutation hash `4270ccd8` afterwards.
+Each mutation was written to the file named and its SHA-256 checked before and
+after, so "applied" is shown and not asserted: a pattern that does not match
+leaves the file unchanged and the run is the baseline wearing a mutation's
+name. Each row also names the tests it turned red, because a mutation that
+lands and kills a different test is unfinished, not a result. Both files were
+restored and their hashes verified afterwards (`contingency.js` `28bffcd49d70`,
+`availability-basis.js` `6de130fcae48`).
 
-| mutation | hash before → after | applied | result |
-|---|---|---|---|
-| collapse the measured/substituted split to always `durability_prior` | `4270ccd8` → `01f1708c` | yes | 2 of 6 fail |
-| remove `availability_basis` from the served row | `4270ccd8` → `ae24637c` | yes | 4 of 6 fail |
-| stop setting the pooled arm | `4270ccd8` → `084f3832` | yes | 1 of 6 fails |
-| **NO-OP control: reword the `source` sentence** | `4270ccd8` → `e61f71a6` | yes | **6 of 6 pass** |
+| Mutation | Verification | Result | Fails | Named tests red |
+|---|---|---|---|---|
+| collapse the measured/substituted split | APPLIED `28bffcd49d70` → `2696e9fcaa93` | RED | 3 | with no fit on file the basis is the prior, and it says which prior · the default prior behind a default_durability row is the shared constant · the basis does not depend on the wording of the source sentence |
+| remove `availability_basis` from the served row | APPLIED `28bffcd49d70` → `358de206bf53` | RED | 5 | every served row carries a basis from the list · with no fit on file the basis is the prior, and it says which prior · the default prior behind a default_durability row is the shared constant · a fitted pooled rate moves the basis off the prior, for both players · the basis does not depend on the wording of the source sentence |
+| stop setting the pooled arm | APPLIED `28bffcd49d70` → `fbb6d1f6fa2f` | RED | 1 | a fitted pooled rate moves the basis off the prior, for both players |
+| serve the default prior as measured | APPLIED `28bffcd49d70` → `dc9e238bf317` | RED | 2 | a fitted pooled rate moves the basis off the prior, for both players · a served durability prior says whether it was measured or substituted |
+| derive the fallback probability from the prior | APPLIED `6de130fcae48` → `b17de74027ed` | RED | 1 | the prior and the fallback active probability are independent literals |
+| **SURVIVOR** — mislabel the role arm as `pooled` | APPLIED `28bffcd49d70` → `3d5a1175964a` | **GREEN** | 0 | **none — see below** |
+| **CONTROL A** — reword the `source` sentence | APPLIED `28bffcd49d70` → `460bb8d2485d` | GREEN | 0 | none, and that is the claim |
+| **CONTROL B** — a pattern that is not in the file | **NO-OP — pattern not found** | — | — | — |
 
-The control is the claim: the tests pin the contract and are indifferent to the
-prose, which is exactly the property the old classifiers lacked.
+Five of five kills are by the test that names them. Two controls, doing two
+different jobs: A is a real edit that must NOT break anything, and is the whole
+point of the change — the tests pin the contract and ignore the prose. B shows
+the harness can report a miss, so an APPLIED row above means something.
+
+### The surviving mutation
+
+Mislabelling the role arm as `pooled` is **not caught**. It is a real mutation,
+not an equivalent one: it changes a served value, and a consumer that shows
+"priced by the role fit" would show the wrong thing. It survives because this
+file's fixture writes no role rates, so the role branch never executes.
+
+The test that would kill it: a case with `nfl_availability_role_rates` rows and
+`player_week_snaps` rows such that `roleStates` yields a cell with a
+`gap_bucket`, then `weeklyAvailability(..., { useRole: true })` and assert
+`availability_basis === 'role'`. That fixture exists in
+`availability-role.test.js`, which pins the role path's NUMBERS; the basis
+string is not asserted there. Counted as surviving rather than written off, and
+it is the one hole in this contract.
 
 ## Not covered
 
@@ -132,3 +163,21 @@ The `role` arm. It needs fitted role rates plus snap rows for `roleStates` to
 produce a usable cell, which is `availability-role.test.js`'s fixture — that
 file pins the role path's numbers, this one pins the basis string on the three
 arms a plain fixture reaches. Stated rather than implied.
+
+## Checks on this commit's own tree
+
+Measured at this commit, not inherited from an earlier one:
+
+```
+npm run check    exit 0
+  lint           clean
+  typecheck      clean
+  client build   ok
+  start:smoke    passed on an isolated database (32 teams)
+  full suite     2,961 tests · 2,920 pass · 0 fail · 41 skipped
+```
+
+GitHub Actions is out of minutes until 2026-10-01 and the CI workflow is
+disabled deliberately, so this is the only run there is. It was executed on the
+tree as committed, after the mutation harness restored both source files and
+their hashes were re-verified.

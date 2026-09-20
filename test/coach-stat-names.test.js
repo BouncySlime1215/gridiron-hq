@@ -112,6 +112,19 @@ test('the lexicon serialises for a client with no Maps and no functions', () => 
   assert.ok(json.concepts.target_share.name);
   assert.equal(json.fields['player_week_usage.target_share'], 'target_share');
   assert.ok(Array.isArray(json.not_stored));
+  // The round trip has to be lossless, and this is the assertion the title
+  // used to promise and not make: JSON.stringify DROPS a function silently, so
+  // checking the parsed copy can never see one. A helper added to the lexicon
+  // would have shipped, worked on the server, and been absent on the client.
+  assert.deepEqual(json, lexicon, 'something did not survive the round trip');
+  const walk = (node, path) => {
+    assert.notEqual(typeof node, 'function', `${path} is a function`);
+    if (node && typeof node === 'object') {
+      assert.ok(!(node instanceof Map) && !(node instanceof Set), `${path} is a Map or a Set`);
+      for (const [key, child] of Object.entries(node)) walk(child, `${path}.${key}`);
+    }
+  };
+  walk(lexicon, 'lexicon');
 });
 
 test('the stats Nick named by hand are all covered one way or the other', () => {

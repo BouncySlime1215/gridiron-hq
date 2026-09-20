@@ -47,10 +47,34 @@ def run_one(spec):
     p.write_bytes(before_bytes)
     restored = sha(p)
     status = 'APPLIED' if restored == before else 'RESTORE FAILED'
+    # Every title, not the first few: the seventh part of the standard asks
+    # which tests a sweep leaves untouched, and that is the union of these
+    # subtracted from the suite. A capped list makes the union look thinner
+    # than it is, which is the flattering direction.
     return {**spec, 'status': status, 'before': before[:8], 'after': after[:8],
-            'fails': len(lines), 'titles': titles[:3]}
+            'fails': len(lines), 'titles': titles}
+
+
+def baseline(tests):
+    """Every test title in these suites, with nothing injected."""
+    env = {**os.environ, 'SCHEDULER_DISABLED': '1'}
+    out = subprocess.run(['node', '--test', *tests.split()],
+                         cwd=ROOT, env=env, capture_output=True, text=True)
+    titles, failed = [], []
+    for line in (out.stdout + out.stderr).splitlines():
+        if line.startswith('ok ') or line.startswith('not ok '):
+            if ' - ' in line:
+                title = line.split(' - ', 1)[1]
+                titles.append(title)
+                if line.startswith('not ok'):
+                    failed.append(title)
+    return titles, failed
 
 if __name__ == '__main__':
+    if sys.argv[1] == '--baseline':
+        titles, failed = baseline(sys.argv[2])
+        print(json.dumps({'titles': titles, 'failed': failed}, indent=1))
+        sys.exit(0)
     specs = json.loads(pathlib.Path(sys.argv[1]).read_text())
     only = sys.argv[2:] or None
     results = []

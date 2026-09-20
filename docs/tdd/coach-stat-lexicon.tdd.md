@@ -110,10 +110,23 @@ survives.
 | M58 | a concept is renamed without regenerating the emitted lexicon | `stat-names.js` | `1fb9399d` → `e62c7da9` | 1 | `coach-stat-names.test.js` — the emitted lexicon is the module, not a second copy that has drifted |
 | NC-lexicon | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `stat-names.js` | `1fb9399d` → `0fcf1c78` | **0** | none — and that is the assertion |
 
-M58 carries a later number because it was added with the generator, after the numbered
-pass. M45 renames the `Yards per route run` entry to `YPRR`. It kills two tests rather than
-one, which is the behaviour wanted: the gap is looked up by name from more than one
-place, so a rename does not quietly orphan it.
+**M45 turns three tests red, not two**, which is what the table says and what the prose
+here used to contradict. Renaming the `Yards per route run` entry to `YPRR` breaks the
+two tests that look the gap up by name — the gap is reached from more than one place on
+purpose, so a rename cannot quietly orphan it — and a third, the staleness gate, because
+the emitted `docs/stat-lexicon.json` no longer matches the module. The third is a
+consequence of the generator landing after this row was first measured, and it is
+recorded rather than tidied away: a row's red count is a measurement of the suite as it
+stands today, not a fixed property of the injection.
+
+**M58 is the file's most concentrated row and that is worth saying plainly.** It carries
+a later number because it was added with the generator, after the numbered pass, and it
+is killed by exactly one test: the gate that regenerates `docs/stat-lexicon.json` and
+compares. Every other property in this slice is held by two or more assertions. Delete
+that one test and a renamed concept ships with a stale emitted lexicon and nothing
+anywhere goes red — so the single test is the whole of the guarantee, and anybody
+touching `scripts/emit-stat-lexicon.mjs` or its gate should know they are standing on
+one plank rather than a floor.
 
 ## 5. The five questions
 

@@ -32,6 +32,70 @@
   "desc": "a concept is renamed without regenerating the emitted lexicon"
  },
  {
+  "id": "M81",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "  'player_week_usage.target_share': 'target_share',",
+  "new": "  'player_week_usage.target_share': 'target_share_pct',",
+  "desc": "a field points at a concept id nothing defines"
+ },
+ {
+  "id": "M82",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "  availability_basis: concept('Chance-to-play basis', 'label', 'neither',",
+  "new": "  availability_basis: concept('Chance-to-play basis', 'label', 'sideways',",
+  "desc": "a concept gives a direction that is not one of the three the app knows"
+ },
+ {
+  "id": "M83",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "  'nfl_snaps.offense_pct': 'snap_share',",
+  "new": "  'nfl_snaps.offense_pct': 'first_downs',",
+  "desc": "the same quantity in two tables is given two different names"
+ },
+ {
+  "id": "M84",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "  return found ? { field, ...found } : null;",
+  "new": "  return found ? { field, name: found.name } : null;",
+  "desc": "describeField hands a screen the name alone, with no unit and no direction"
+ },
+ {
+  "id": "M85",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "  const id = Object.hasOwn(STAT_FIELDS, field) ? STAT_FIELDS[field] : null;\n  return id ? { id, ...STAT_CONCEPTS[id] } : null;",
+  "new": "  const id = Object.hasOwn(STAT_FIELDS, field) ? STAT_FIELDS[field] : null;\n  if (!id) return { id: field.split('.').pop(), name: field.split('.').pop(), unit: '', better: 'neither', plain: '', why: '', source: 'guessed' };\n  return { id, ...STAT_CONCEPTS[id] };",
+  "desc": "an unknown field comes back as a guessed label rather than as nothing"
+ },
+ {
+  "id": "M86",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "    not_stored: NOT_STORED.map(s => ({ ...s }))",
+  "new": "    not_stored: NOT_STORED.map(s => ({ ...s })),\n    describe: describeField",
+  "desc": "the lexicon handed to a client carries a function, which JSON drops in silence"
+ },
+ {
+  "id": "M87",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "means it was measured from players like him; \"default_durability\" means nobody measured anything and a single constant was used.',",
+  "new": "means it was measured from players like him.',",
+  "desc": "the basis explanation drops the constant case, so a number with no measurement behind it reads as measured"
+ },
+ {
+  "id": "M88",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "    fields: { ...STAT_FIELDS },",
+  "new": "    fields: new Map(Object.entries(STAT_FIELDS)),",
+  "desc": "the field map is handed over as a Map, which survives JSON as an empty object"
+ },
+ {
   "id": "NC-lexicon",
   "file": "server/services/coach/stat-names.js",
   "tests": "test/coach-stat-names.test.js",

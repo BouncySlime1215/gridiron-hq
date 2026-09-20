@@ -33,6 +33,7 @@ const { default: localAuthRouter } = await import('../server/routes/local-auth.j
 const { default: leaguesRouter } = await import('../server/routes/leagues.js');
 const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
 const { _resetOidcCaches } = await import('../server/platform/google-oidc.js');
+const { hashSessionToken } = await import('../server/platform/auth.js');
 const express = (await import('express')).default;
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -346,6 +347,28 @@ test('disabling an account revokes the sessions it already holds', async () => {
   // And signing in again does not hand them a fresh one.
   const { callback } = await signInAs({ sub: 'google-friend', email: 'friend@example.com' });
   assert.match(callback.headers.get('location'), /error=disabled/);
+});
+
+/**
+ * The case above passes even if `u.disabled_at IS NULL` is deleted from the
+ * session query, because disabling also revokes that account's live sessions
+ * and `s.revoked_at IS NULL` catches the token on its own. So that guard had
+ * no test of its own, and it is not redundant: server/platform/provision-auth.js
+ * inserts an auth_sessions row directly for any user id an operator names,
+ * disabled or not, and never looks at disabled_at. This is the only thing
+ * standing between a disabled account and a working bearer token.
+ */
+test('a live, unrevoked session belonging to a disabled account is still refused', async () => {
+  const token = crypto.randomBytes(32).toString('base64url');
+  run(`INSERT INTO auth_sessions (user_id, token_hash, expires_at)
+       VALUES (?,?,datetime('now','+30 days'))`, globalThis.__friendId, hashSessionToken(token));
+
+  const session = row(`SELECT revoked_at FROM auth_sessions WHERE token_hash=?`, hashSessionToken(token));
+  assert.equal(session.revoked_at, null, 'the session must be unrevoked, or this asserts the other guard');
+  assert.notEqual(row('SELECT disabled_at FROM users WHERE id=?', globalThis.__friendId).disabled_at, null,
+    'the account must still be disabled from the previous case');
+
+  assert.equal((await fetch(`${base}/auth/session`, { headers: { Authorization: `Bearer ${token}` } })).status, 401);
 });
 
 test('an administrator cannot disable their own account', async () => {

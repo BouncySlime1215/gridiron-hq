@@ -36,7 +36,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 ## Findings
 
 **10 missing feed** — a surface depends on something nothing produces.
-**1914 orphan** — something produced that reaches no surface.
+**1915 orphan** — something produced that reaches no surface.
 408 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
@@ -255,7 +255,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `value-computed-never-used` | orphan | 0 | 4 | 19 |
 | `table-never-read` | orphan | 0 | 4 | 13 |
 | `export-only-tested` | orphan | 99 | 139 | 300 |
-| `export-imported-by-nothing` | orphan | 99 | 219 | 522 |
+| `export-imported-by-nothing` | orphan | 99 | 219 | 523 |
 | `route-no-caller` | orphan | 29 | 319 | 37 |
 | `docs-citation-points-at-nothing` | context | 29 | 19 | 47 |
 | `route-called-from-outside-the-app` | context | 2 | 3 | 6 |
@@ -1316,19 +1316,19 @@ All 61 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **scripts/refresh-live-data.mjs#transactionsCapture** `[shared]` — exported, imported only by a test
   - scripts/refresh-live-data.mjs:97
 - **scripts/wiring-map.mjs#creationSite** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#ddlDefinitionName** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#deadModuleNames** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#deadTombstoneTargets** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#depthAtLine** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#resolveDefinition** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#routeLiteralAbsent** `[shared]` — exported, imported only by a test
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **server/db/index.js#assertRoomForSnapshot** `[shared]` — exported, imported only by a test
   - server/db/index.js:147
 - **server/db/preflight.js#OPPORTUNITY_CASCADE_REPAIR** `[shared]` — exported, imported only by a test
@@ -1517,9 +1517,9 @@ All 538 grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/betting/nfl/contracts/forecast-packet.js` | 6 |
 | _… 158 more files_ | 360 |
 
-### `export-imported-by-nothing` — ORPHAN (840)
+### `export-imported-by-nothing` — ORPHAN (841)
 
-621 of 840 are in scope (not betting), listed in full, heaviest first.
+622 of 841 are in scope (not betting), listed in full, heaviest first.
 
 - **scripts/availability-decision-calibration.mjs#GATE** `[shared]` — exported and never imported
   - scripts/availability-decision-calibration.mjs:44
@@ -1568,105 +1568,107 @@ All 538 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **scripts/refresh-live-data.mjs#parseChatStatus** `[shared]` — exported and never imported
   - scripts/refresh-live-data.mjs:140
 - **scripts/wiring-map.mjs#acceptGuard** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2950
+  - scripts/wiring-map.mjs:2970
 - **scripts/wiring-map.mjs#annotations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#blastRadius** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#blindCaches** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#bodyRange** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#build** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#bulkInScope** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#clientCalls** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#close** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#CLOSE_HOPS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#columnDefaults** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#columnEvidence** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#declarations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#docsCitations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#entryPointScripts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#findings** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#foreignHandles** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#foreignOnlyFile** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3258
+  - scripts/wiring-map.mjs:3278
 - **scripts/wiring-map.mjs#functionReach** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#functionUnits** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#gatedRegions** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#GRANDFATHERED** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3258
+  - scripts/wiring-map.mjs:3278
 - **scripts/wiring-map.mjs#handleFor** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#imageDirs** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#interpolations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3258
+  - scripts/wiring-map.mjs:3278
 - **scripts/wiring-map.mjs#JOBS** `[shared]` — exported and never imported
   - scripts/wiring-map.mjs:653
 - **scripts/wiring-map.mjs#keyReads** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#LIMITS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#MAX_HOPS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#missingFeedTable** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#moduleEdges** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#NEVER_BASELINE** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3258
+  - scripts/wiring-map.mjs:3278
 - **scripts/wiring-map.mjs#outboundUrlPaths** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#payloadKeys** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#routeAnswersCall** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#routeHandlers** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#routeMounts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#routeWorkload** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#runtimeFilePaths** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
+- **scripts/wiring-map.mjs#sameNameCollisions** `[shared]` — exported and never imported
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#scan** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#schedulerJobs** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#shouldBeWired** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#sqlEdges** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#statementTables** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#surfaceFamilies** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#tableColumns** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#toJson** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#toMarkdown** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3260
+  - scripts/wiring-map.mjs:3280
 - **scripts/wiring-map.mjs#unreachablePages** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3259
+  - scripts/wiring-map.mjs:3279
 - **scripts/wiring-map.mjs#valueUsageCounts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:3258
+  - scripts/wiring-map.mjs:3278
 - **server/draft/engine.js#posInRoundOf** `[fantasy]` — exported and never imported
   - server/draft/engine.js:11
 - **server/draft/engine.js#roundOf** `[fantasy]` — exported and never imported
@@ -1759,15 +1761,13 @@ All 538 grouped by file, heaviest first. Full list in `wiring-map.json`.
   - server/routes/nfldata.js:9
 - **server/services/alt-spread-import.js#ALT_LEG_SPECS** `[shared]` — exported and never imported
   - server/services/alt-spread-import.js:215
-- **server/services/alt-spread-import.js#ALT_SPREAD_CAPTURE_CONTRACT** `[shared]` — exported and never imported
-  - server/services/alt-spread-import.js:254
-- _… 501 more in wiring-map.json_
+- _… 502 more in wiring-map.json_
 
-All 840 grouped by file, heaviest first. Full list in `wiring-map.json`.
+All 841 grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
-| `scripts/wiring-map.mjs` | 50 |
+| `scripts/wiring-map.mjs` | 51 |
 | `server/betting/nfl/strategy/margin-distribution.js` | 25 |
 | `server/betting/nfl/strategy/teaser-staking.js` | 24 |
 | `server/betting/nfl/strategy/teaser-season.js` | 19 |
@@ -1988,11 +1988,11 @@ All 385 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
   - test/consensus-weights.test.js:131
 - **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
-  - test/wiring-map.test.js:1539
+  - test/wiring-map.test.js:1588
 - **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
-  - test/wiring-map.test.js:1600
+  - test/wiring-map.test.js:1649
 - **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
-  - test/wiring-map.test.js:1601
+  - test/wiring-map.test.js:1650
 - **docs/DRAFT_ADVICE_VERIFY_LOOP.md** `[fantasy]` — the document exists at docs/reference/fantasy/DRAFT_ADVICE_VERIFY_LOOP.md — the citation was not updated when docs moved
   - server/routes/drafts.js:981
 - **docs/DRAFT_ADVICE_VERIFY_LOOP.md** `[fantasy]` — the document exists at docs/reference/fantasy/DRAFT_ADVICE_VERIFY_LOOP.md — the citation was not updated when docs moved
@@ -2020,7 +2020,7 @@ All 385 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **docs/MODEL_ARCHITECTURE_ASSESSMENT_2026_09_08.md** `[fantasy]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
   - test/nfl-roster-strength-pff-normalization.test.js:10
 - **docs/NEVER_EXISTED.md** `[shared]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
-  - test/wiring-map.test.js:1558
+  - test/wiring-map.test.js:1607
 - **docs/NFL_MODEL_STATUS.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved
   - server/services/clv-core.js:85
 - **docs/NFL_MODEL_STATUS.md** `[betting]` — no file of that name exists anywhere under docs/ — the document is gone, not moved

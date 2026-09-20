@@ -2356,6 +2356,46 @@ function findings(model, ann) {
 /** Functions whose name says they produce something. */
 const PRODUCER = /^(sync|build|fit|refresh|collect|import|backfill|ingest|seed|load|pull|fetch|compute|rebuild)[A-Z]/;
 
+/**
+ * The pairs `same-name-two-modules` reports, separated from the sentence it prints.
+ *
+ * Extracted because the three guards below were pinned by a test that read the SOURCE
+ * for them — it asserted the lines were present, which a rewrite that keeps the lines
+ * and loses the behaviour would pass. A rule whose only test is a regex over its own
+ * text is a rule nobody has run. Every guard here is now reachable from a fixture.
+ *
+ * `exportedByName` has already been cut to names exported from exactly two modules.
+ * `paramsOf` reads a declaration's parameter list, `linked` says whether either module
+ * imports the other, and `ignored` holds the accepted `collision:` keys.
+ */
+function sameNameCollisions(exportedByName, { paramsOf, linked, ignored }) {
+  const out = [];
+  for (const [name, list] of exportedByName) {
+    // EXACTLY TWO, AND NO MORE — see the comment at the call site. Without this line
+    // the rule produced 1,895 rows: down() in forty migrations, alters() in every
+    // schema file. It lives here, not there, so that a fixture can reach it.
+    if (new Set(list.map(n => n.file)).size !== 2) continue;
+    const seen = new Set();
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i], b = list[j];
+        if (a.file === b.file || linked(a.file, b.file)) continue;
+        const key = [a.file, b.file].sort().join('|') + '#' + name;
+        if (seen.has(key) || ignored.has(`collision:${key}`)) continue;
+        const pa = paramsOf(a), pb = paramsOf(b);
+        const extra = [...b.reach].filter(t => !a.reach.has(t))
+          .concat([...a.reach].filter(t => !b.reach.has(t)));
+        if (pa === pb && !extra.length) continue;      // the same thing, twice: not a trap
+        seen.add(key);
+        out.push({ name, a, b, why: pa !== pb
+          ? `they take different arguments — (${pa}) against (${pb})`
+          : `they read different tables — ${extra.slice(0, 6).join(', ')}` });
+      }
+    }
+  }
+  return out;
+}
+
 function shouldBeWired(model, ann, add) {
   const { files, fnReach, columns, tables, reach, reachNames, importsOf } = model;
   const ignored = new Set(ann.expected_orphans ?? []);
@@ -2414,39 +2454,19 @@ function shouldBeWired(model, ann, add) {
    * nobody is warned. That single line is the difference between a rule and a wall of
    * text, and this file has been burned by the second before.
    */
-  for (const [name, list] of [...exportedByName]) {
-    if (new Set(list.map(n => n.file)).size !== 2) exportedByName.delete(name);
-  }
   const paramsOf = (n) => {
     const line = (files.get(n.file)?.text.split('\n')[n.line - 1]) ?? '';
     const m = /\(([^)]*)\)/.exec(line);
     return m ? m[1].replace(/\s+/g, ' ').trim() : '';
   };
   const linked = (x, y) => (importsOf.get(x)?.has(y)) || (importsOf.get(y)?.has(x));
-  for (const [name, list] of exportedByName) {
-    const seen = new Set();
-    for (let i = 0; i < list.length; i++) {
-      for (let j = i + 1; j < list.length; j++) {
-        const a = list[i], b = list[j];
-        if (a.file === b.file || linked(a.file, b.file)) continue;
-        const key = [a.file, b.file].sort().join('|') + '#' + name;
-        if (seen.has(key) || ignored.has(`collision:${key}`)) continue;
-        const pa = paramsOf(a), pb = paramsOf(b);
-        const extra = [...b.reach].filter(t => !a.reach.has(t))
-          .concat([...a.reach].filter(t => !b.reach.has(t)));
-        if (pa === pb && !extra.length) continue;      // the same thing, twice: not a trap
-        seen.add(key);
-        const why = pa !== pb
-          ? `they take different arguments — (${pa}) against (${pb})`
-          : `they read different tables — ${extra.slice(0, 6).join(', ')}`;
-        add({ kind: 'should-wire', rule: 'same-name-two-modules', scope: scopeOfFile(a.file),
-          subject: `${name}() in ${a.file.split('/').pop()} and ${b.file.split('/').pop()}`,
-          detail: `two modules export this name and ${why}. Neither imports the other, so `
-            + `this is not a re-export: whoever autocompletes the name from the wrong module `
-            + `gets a different answer, with no error and nothing to notice at the call site`,
-          evidence: [`${a.file}:${a.line}`, `${b.file}:${b.line}`] });
-      }
-    }
+  for (const { name, a, b, why } of sameNameCollisions(exportedByName, { paramsOf, linked, ignored })) {
+    add({ kind: 'should-wire', rule: 'same-name-two-modules', scope: scopeOfFile(a.file),
+      subject: `${name}() in ${a.file.split('/').pop()} and ${b.file.split('/').pop()}`,
+      detail: `two modules export this name and ${why}. Neither imports the other, so `
+        + `this is not a re-export: whoever autocompletes the name from the wrong module `
+        + `gets a different answer, with no error and nothing to notice at the call site`,
+      evidence: [`${a.file}:${a.line}`, `${b.file}:${b.line}`] });
   }
 
   for (const [file, list] of byFile) {
@@ -3256,7 +3276,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, docsCitations, creationSite, depthAtLine, ddlDefinitionName, resolveDefinition, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
+export { sameNameCollisions, routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, docsCitations, creationSite, depthAtLine, ddlDefinitionName, resolveDefinition, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

@@ -254,7 +254,7 @@ write.
 (`core-and-fantasy.js:94`, `bye_week INTEGER`, no default), read at
 `draft-assist.js:202` and `:885`. It is real and it stands.
 
-RED proof: make the scan count `DEFAULT NULL` too and test 63 fails.
+RED proof: rows C1 and C2 of the injection table at the end of this section.
 
 ### One name, two modules — the inverse of `two-names-different-sources`
 
@@ -281,14 +281,52 @@ the opposite — nothing declares it a family, so nobody is warned. Reporting on
 and only when the two take different arguments or read different tables, and only when
 neither imports the other, takes it to 31 readable rows. That single line is the
 difference between a rule and a wall of text, and this checker has already died of the
-second once. `test/wiring-map.test.js` test 64 asserts all three guards are still in
-the source.
+second once.
+
+The test that pinned those three guards used to read the checker's own SOURCE and
+assert the lines were present. That is a test of the text, not of the rule: a rewrite
+that keeps the lines and loses the behaviour passes it, and so does a rule that is
+never called. The pair logic is an exported function now — `sameNameCollisions()` —
+and every guard is reached by a fixture. Rows C3 to C6 below.
 
 ### A row withdrawn rather than defended
 
 `drafts.js:1221`, "`draft_advice` never scheduled", is not a defect: the table is read
 at `drafts.js:996`, keyed `(draft_id, pick_number)` with `ON CONFLICT UPDATE`, and
 bounded by the number of picks. Withdrawn.
+
+### The injection table for this section
+
+Written because the table at the end of this file said, in as many words, that section
+8 had no injection table and that this was an open item rather than a claim of
+coverage. Closing it changed the section: one of the two rules turned out to be pinned
+by a regex over its own source, and one mutation survived its first run.
+
+**Baseline.** `scripts/wiring-map.mjs` sha256 `5150c4a9f235` ·
+`node --test test/wiring-map.test.js` → **81 tests, 81 pass, 0 fail**.
+
+| row | injected defect | sha256 after | result | test turned red |
+|---|---|---|---|---|
+| **C1** | `DEFAULT NULL` counts as a writer | `7c3c54581555` | 80 pass, 1 fail | *a column DEFAULT counts as a writer, and DEFAULT NULL does not* |
+| **C2** | `columnDefaults()` returns nothing — the rule as it was before the fix | `a6649d884d88` | 80 pass, 1 fail | *a column DEFAULT counts as a writer, and DEFAULT NULL does not* |
+| **C3** | the exactly-two-modules guard relaxed to `size < 2` | `b973695db288` | 80 pass, 1 fail | *same-name-two-modules only fires on a name in exactly two modules, never on a family* |
+| **C4** | the different-arguments-or-tables guard removed | `7548befa55e8` | 80 pass, 1 fail | *same-name-two-modules …* |
+| **C5** | the neither-imports-the-other guard removed | `b42a7a152aed` | 80 pass, 1 fail | *same-name-two-modules …* |
+| **C6** | an accepted collision comes back the next run | `09ad1c58bc39` | 80 pass, 1 fail | *same-name-two-modules …* |
+| **C7** | **NO-OP CONTROL** — one word of a comment changed | `8de50ad5591d` | 81 pass, 0 fail | none, correctly |
+
+**C3 survived its first run, and the survivor was the test's fault.** The family
+fixture gave its three `down()` members identical parameter lists and no tables, so
+with guard 1 relaxed the rule still skipped them — guard 2 was holding the family and
+guard 1 was never reached. A fixture that cannot distinguish two guards tests neither.
+Each member differs from the others now, and the slice of exactly two of them is
+asserted to FIRE, so guard 1 is measured as a count rather than as a line of text.
+
+**What extracting the rule cost.** `sameNameCollisions` is exported for the test, so
+the map gains one `export-imported-by-nothing` row about it — 522 → 523. That row is
+true, it is the same shape as the rows this checker's other exported helpers already
+carry, and neither rule it belongs to is in `GATING`, so `--check` still exits 0. A
+finding about the checker is a fair price for a rule that is actually run.
 
 ---
 
@@ -420,12 +458,17 @@ nothing kills: it is untested by the evidence offered for it, and it gets a row 
 kills it or a stated reason. So, plainly:
 
 **A1 and A2 cover sections 1 and 2 of this file, and nothing else.** Two of the 75
-tests. The rules in section 8 (a column DEFAULT is a writer; one name in two modules)
-and section 9 (what falls when a route is cut) have tests in
-`test/wiring-map.test.js` and `test/route-deletion-impact.test.js`, and the defects
-they pin were each found by hand and are described above — but neither has an injection
-table here. They were written before the table was the standard, and they have not been
-re-measured under it. That is an open item, not a claim of coverage.
+tests as this table was measured.
+
+**Section 8 is now covered**, by rows C1 to C7 inside that section, measured at
+baseline `5150c4a9f235` with 81 tests. It was the open item this paragraph named, and
+closing it found one rule pinned only by a regex over its own source and one mutation
+that survived because the fixture could not tell two guards apart.
+
+**Section 9 is covered in a different file.** `docs/tdd/route-deletion-impact-three-wrong-rows.tdd.md`
+carries N1 to N5 against `scripts/route-deletion-impact.mjs`, with a no-op control, and
+they are named by test title. It is not repeated here, because two copies of a table is
+two places for it to go stale.
 
 The four rules added after them were each measured, and their numbers are in the commit
 that carries them rather than here: the route-fragment pair (6 injections), the

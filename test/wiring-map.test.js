@@ -23,7 +23,7 @@ const {
   foreignHandles, handleFor, gatedRegions, blindCaches,
   functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
   imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts,
-  routeAnswersCall, columnDefaults, docsCitations,
+  routeAnswersCall, columnDefaults, docsCitations, sameNameCollisions,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -1034,16 +1034,73 @@ test('a column DEFAULT counts as a writer, and DEFAULT NULL does not', () => {
  * rule and a wall of unreadable text is that one line, and a wall of text is how the
  * last one died.
  */
-test('same-name-two-modules only fires on a name in exactly two modules, never on a family', async () => {
-  const src = await readFile(new URL('../scripts/wiring-map.mjs', import.meta.url), 'utf8');
-  const rule = src.slice(src.indexOf('THE INVERSE: ONE NAME, TWO MODULES'),
-    src.indexOf("rule: 'same-name-two-modules'"));
-  assert.match(rule, /new Set\(list\.map\(n => n\.file\)\)\.size !== 2/,
-    'the exactly-two filter is what keeps down() and alters() out of this rule');
-  assert.match(rule, /pa === pb && !extra\.length/,
-    'two modules exporting the same name for the same thing is a re-export, not a trap');
-  assert.match(rule, /linked\(a\.file, b\.file\)/,
-    'if one module imports the other the name is one symbol, not two');
+test('same-name-two-modules only fires on a name in exactly two modules, never on a family', () => {
+  // This test used to read the checker's own SOURCE and assert the three guard lines
+  // were present. That passes for a rewrite that keeps the lines and loses the
+  // behaviour, which is not a test of the rule — it is a test of the text. The rule
+  // is a function now so a fixture can reach every guard.
+  const node = (name, file, line, reach) => ({ name, file, line, reach: new Set(reach) });
+  const run = (pairs, opts = {}) => sameNameCollisions(new Map(pairs), {
+    // paramsOf returns the parameter list WITHOUT its brackets — the caller adds them.
+    // The first draft of this fixture returned '(team, season, week)' and the rule
+    // printed '((team, season, week))', which is the fixture being wrong about the
+    // contract rather than the rule being wrong about the code.
+    paramsOf: n => opts.params?.[`${n.file}#${n.name}`] ?? 'season, week',
+    linked: (x, y) => Boolean(opts.linked?.includes([x, y].sort().join('|'))),
+    ignored: new Set(opts.ignored ?? []),
+  });
+
+  const a = node('gameScriptFor', 'server/services/gamescript.js', 389, ['games']);
+  const b = node('gameScriptFor', 'server/services/vegas-fantasy.js', 124, ['games']);
+  const params = {
+    'server/services/gamescript.js#gameScriptFor': 'team, season, week',
+    'server/services/vegas-fantasy.js#gameScriptFor': 'season, week, team, opts',
+  };
+
+  // The live case that named the rule: same name, two modules, arguments swapped.
+  const hit = run([['gameScriptFor', [a, b]]], { params });
+  assert.equal(hit.length, 1, 'two modules exporting one name for different things is the rule');
+  assert.match(hit[0].why, /different arguments/);
+  assert.match(hit[0].why, /\(team, season, week\) against \(season, week, team, opts\)/,
+    'a row that does not show both signatures leaves the reader to go and look');
+
+  // GUARD 1, exactly two. A name in three modules is an interface convention — down()
+  // in forty migrations — and reporting those produced 1,895 rows and no readers.
+  //
+  // The first draft of this fixture gave the three members identical parameters and
+  // no tables, so relaxing guard 1 to `size < 2` left it green: GUARD 2 was holding
+  // the family, and guard 1 was never reached. A mutation that survives is a finding
+  // about the test. Each member below differs from the others, so guard 1 is the only
+  // thing that can keep them out.
+  const family = ['a', 'b', 'c'].map((s, i) => node('down', `server/db/migrations/${s}.js`, i + 1, [s]));
+  const familyParams = Object.fromEntries(
+    family.map((n, i) => [`${n.file}#down`, `db, step${i}`]));
+  assert.deepEqual(run([['down', family]], { params: familyParams }), [],
+    'three modules is a family, and the family is the point');
+  assert.equal(run([['down', family.slice(0, 2)]], { params: familyParams }).length, 1,
+    'and exactly two of them, differing, is the rule firing — guard 1 is a count, not a mood');
+
+  // GUARD 2, actually different. Same parameters and the same tables underneath is one
+  // symbol re-exported, not a trap.
+  const c = node('alters', 'server/db/schema/one.js', 5, ['players']);
+  const d = node('alters', 'server/db/schema/two.js', 9, ['players']);
+  assert.deepEqual(run([['alters', [c, d]]]), [], 'the same thing twice is not a collision');
+
+  // ... but the same signature over different tables IS one, and says which.
+  const e = node('alters', 'server/db/schema/two.js', 9, ['players', 'draft_picks']);
+  const byTable = run([['alters', [c, e]]]);
+  assert.equal(byTable.length, 1);
+  assert.match(byTable[0].why, /read different tables — draft_picks/);
+
+  // GUARD 3, neither imports the other. If one does, the name is one symbol.
+  assert.deepEqual(run([['gameScriptFor', [a, b]]],
+    { params, linked: ['server/services/gamescript.js|server/services/vegas-fantasy.js'] }), [],
+    're-exporting a name is not two modules meaning different things by it');
+
+  // And an accepted collision stays accepted.
+  assert.deepEqual(run([['gameScriptFor', [a, b]]], { params,
+    ignored: ['collision:server/services/gamescript.js|server/services/vegas-fantasy.js#gameScriptFor'] }), [],
+    'a row ruled on by hand does not come back the next run');
 });
 
 /*
@@ -1630,12 +1687,17 @@ test('the rule reproduces the citation that was found by hand', async () => {
  * Fixture tables are zz_fixture_* for the reason written above test 76.
  */
 test('a query handed to a handle by method call is that handle, and the app is the default', () => {
+  // The fixture SQL reuses the two zz_fixture_* tables test 76 and test 77 already
+  // create, and adds no CREATE of its own. A fixture that creates a table adds a row
+  // to the census — that is how zz_fixture_method_foreign appeared for one run of this
+  // test and had to be taken back out. Reads and inserts against a table the fixtures
+  // already declare cost the census nothing.
   const f = fileOf(`import { rows, run } from '../db/index.js';
     const audit = new DatabaseSync(AUDIT_PATH);
-    db.prepare(\`SELECT id FROM zz_fixture_method_app\`);
-    audit.exec(\`CREATE TABLE zz_fixture_method_foreign (id INTEGER)\`);
-    audit.prepare(\`SELECT id FROM zz_fixture_method_foreign\`).get();
-    pool.all(\`SELECT id FROM zz_fixture_method_unknown\`);`);
+    db.prepare(\`SELECT league_id FROM zz_fixture_app_table\`);
+    audit.exec(\`INSERT INTO zz_fixture_chat_table (msg_id) VALUES (1)\`);
+    audit.prepare(\`SELECT msg_id FROM zz_fixture_chat_table WHERE msg_id > 0\`).get();
+    pool.all(\`SELECT league_id FROM zz_fixture_app_table WHERE league_id > 0\`);`);
   const foreign = foreignHandles(f);
   assert.deepEqual([...foreign.keys()], ['audit'], 'one second handle, opened once');
   f.foreignOnlyFile = foreignOnlyFile(f, foreign);
@@ -1646,27 +1708,27 @@ test('a query handed to a handle by method call is that handle, and the app is t
   // The receiver is a KNOWN foreign handle: the answer is that handle, and it is the
   // only answer that differs from the default. Both methods, because the method list
   // is part of the regex and dropping one of them is a live way to break this.
-  assert.equal(handleFor(f, at('CREATE TABLE zz_fixture_method_foreign'), foreign).handle, 'audit',
+  assert.equal(handleFor(f, at('INSERT INTO zz_fixture_chat_table'), foreign).handle, 'audit',
     'exec() on the audit handle writes to the audit database, not the app');
-  assert.equal(handleFor(f, at('SELECT id FROM zz_fixture_method_foreign'), foreign).handle, 'audit',
+  assert.equal(handleFor(f, at('SELECT msg_id FROM zz_fixture_chat_table WHERE'), foreign).handle, 'audit',
     'prepare() on the audit handle reads the audit database, not the app');
 
   // The receiver is not a foreign handle. In a file that holds the app's database,
   // that is the app, whether the receiver is the app's own name or one this checker
   // has never heard of.
-  assert.equal(handleFor(f, at('SELECT id FROM zz_fixture_method_app'), foreign).handle, 'app',
+  assert.equal(handleFor(f, at('SELECT league_id FROM zz_fixture_app_table`'), foreign).handle, 'app',
     'db.prepare() in a file that imports the app db is the app db');
-  assert.equal(handleFor(f, at('SELECT id FROM zz_fixture_method_unknown'), foreign).handle, 'app',
+  assert.equal(handleFor(f, at('SELECT league_id FROM zz_fixture_app_table WHERE'), foreign).handle, 'app',
     'an unrecognised receiver is not evidence of a second database');
 
   // And where there IS no app handle, an unrecognised receiver cannot be the app.
   // This is foreignDefault(), reached through the method branch rather than the bare
   // one — the case league-history.js made necessary, asked the other way round.
   const g = fileOf(`const hist = new DatabaseSync(HIST_PATH);
-    pool.get(\`SELECT id FROM zz_fixture_method_orphan\`);`);
+    pool.get(\`SELECT msg_id FROM zz_fixture_chat_table LIMIT 1\`);`);
   const gForeign = foreignHandles(g);
   g.foreignOnlyFile = foreignOnlyFile(g, gForeign);
   assert.equal(g.foreignOnlyFile, true, 'no app-db import, so no app handle');
-  assert.equal(handleFor(g, g.text.indexOf('SELECT id FROM zz_fixture_method_orphan') - 1, gForeign).handle,
+  assert.equal(handleFor(g, g.text.indexOf('SELECT msg_id FROM zz_fixture_chat_table LIMIT 1') - 1, gForeign).handle,
     'hist', 'a file with no app database cannot answer "app"');
 });

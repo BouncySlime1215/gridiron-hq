@@ -360,6 +360,62 @@ that is answered by grading it there, not by restoring a removed tab.
 
 ---
 
+## 4b. The counterparty half is fed from outside the deployed app
+
+Checked after the chat-sync thread raised the posture calibration and the luck
+path. Both hold, and the thing underneath them is bigger than either.
+
+**Every table behind "what will they accept" has exactly one writer, and it is a
+manual script.**
+
+| table | only writer | scheduled on the server? |
+|---|---|---|
+| `league_transactions_raw` | `scripts/collect-league-transactions.mjs` | **no** |
+| `league_week_scores` | `scripts/backfill-league-history.mjs` | **no** |
+| `manager_archetypes` | `manager-archetypes.js:563`, via the `manager_archetypes` scheduler job | yes, but `tier: 'heavy'` (`scheduler.js:1373`) |
+
+`collect-league-transactions.mjs:8-12` states the constraint itself: ESPN's
+`mTransactions2` view answers only for the last ~3 days, *"Anything not captured
+inside that window is gone, so this runs every refresh tick."* The refresh tick
+it means is `scripts/refresh-live-data.mjs:99`, which spawns it — and
+`refresh-live-data.mjs` is, by its own header, an **off-server** loop
+(`--loop 900`) that exists because the in-server scheduler pegged the web process.
+Nothing in `fly.toml`, `package.json` or the scheduler runs it. The Fly app is a
+single web process.
+
+So on the deployed app the transaction collector never runs. A day in which that
+loop is not running on Nick's own machine is a day of proposals, accepts and
+declines permanently lost — and `league_transactions_raw` is the only table in the
+repo that could ever anchor the acceptance band, feed `manager-signals.js`'s
+`tx` source (`:167-169`), or supply the bluff detector.
+
+Two consequences that are live today:
+
+- **`luck_self_view` is a real numeric term in the trade price that currently
+  prices nothing.** The chain is `league_week_scores` → `scripts/luck-panel.mjs`
+  (run as a child process by the archetype build) → `manager_archetypes`
+  (`source: 'outcome'`, `metric: 'luck_wins'`) → `manager-signals.js:264-276` →
+  `counterparty-pricing.js:452-457`, where it adds a capped adjustment to what a
+  package is worth to that manager. `counterparty-pricing.js:55-56` already says
+  it is inert at week 2. But unlike `perception_delta` in `trade-acceptance.js`,
+  the `if` at `:452` has no `skip()` branch, so the inertness is in a comment and
+  not on the object — no page can say "we have no luck read on him".
+- **The posture calibration cannot be re-run without a human first.**
+  `lineup-posture.js:131` and `trade-horizon.js:47` cite `league_week_scores` as
+  what their constants were checked against. Note the shape precisely: neither
+  file *reads* the table at serving time, so a stale table does not produce a
+  stale number — it produces a calibration nobody can refresh. That distinction
+  is the chat-sync thread's and it is the right one.
+
+Not verifiable here: the claim that O4's Team Outlook basis uses 692 public
+Sleeper leagues. `team-outlook.js` does not exist on main at 791b131; it is on a
+branch. Their argument against repointing it at the in-league table — trading a
+large out-of-sample base for a tiny in-sample one — is sound on its face and is
+the correct instinct for this audit's fourth question: not every table that
+*could* feed a number *should*.
+
+---
+
 ## 5. Structure — is this well built?
 
 What is genuinely well built, and should be the pattern for the rest:

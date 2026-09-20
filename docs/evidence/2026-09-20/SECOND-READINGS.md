@@ -505,6 +505,74 @@ Six `doesNotMatch` sites are out of scope for the reason above. And the run is
 on `main`'s tests, so a thread's own new tests are covered when its head comes
 through the queue, not here.
 
+### Pass B, widened — the sites `assert.match` could not see
+
+The first instrument only saw `assert.match`, which misses every alternation
+inside a `.some(…)` callback or a bare `if`. The logger now also wraps
+`RegExp.prototype.test`, guarded hard — it records only when the source contains
+a `|`, dedupes on (kind, source, subject) and runs under a budget, so it cannot
+cost anything on the millions of calls it does not care about. Second
+instrumented run: **2,950 / 2,909 / 0 / 41, exit 0** — identical to the clean
+run, so the instrument changes nothing.
+
+The widened capture is noisier and the noise has to be named rather than
+reported. It returns 1,651 "dead" branches, and the great majority are
+**production** regexes reached through a test — `/out|reserve|\bir\b|pup|suspend/`
+handed the string `out` has four branches that match nothing, and that is the
+regex working. Those are excluded by keeping only patterns written literally in
+the test file that ran them: 129 blocks, and then by hand.
+
+**Four genuine additions.** All four are positive assertions where the subject
+is real and a hedge branch never fires:
+
+| file:line | pattern | branch that matched nothing |
+|---|---|---|
+| `test/manager-data-pipeline.test.js:465` | `/leaked tool-call markup\|expected object/` | `leaked tool-call markup` |
+| `test/teaser-execution.test.js:71` | `/break-even\|operating gate/` | `operating gate` |
+| `test/trade-acceptance.test.js:321` | `/0 decided offers\|no decided offers/i` | `no decided offers` |
+| `test/trade-proposals.test.js:300` | `/23\|4\.8/` | `4\.8` |
+
+**Four excluded after reading them, not after counting them.** These come back
+with every branch dead and all four are correct:
+
+- `test/execution-slate-reasoning.test.js:404` — `assert.ok(!/threshold|pass\/fail/i.test(text))`
+- `test/sleeper-crawl.test.js:56` — `assert.ok(!/user[AB]|owner-secret|name-user/.test(dump))`
+- `test/trade-manager-read.test.js:194` — a `.filter(…)` asserted `deepEqual` to `[]`
+- `test/nfl-joint-score.test.js:646` — *the joint model is not wired into any production path*, which walks 119 files looking for a reference and asserts it finds none
+
+Each is a negation. A negation's branches match nothing **because the test
+passes**, and the instrument cannot see the `!` in front of the call. Two
+extension filters (`/\.(?:js|mjs|ts|tsx)$/`, `/\.(ts|tsx|js|jsx)$/`) also come
+back with unmatched branches; they are harness plumbing, not assertions.
+
+So the pass B rule, stated properly: **the method reads a positive assertion and
+says nothing about a negative one.** A tool that reported those eight as
+findings would be worse than no tool, because it would spend a reader's
+attention on four tests that are right.
+
+### A third instance of one habit, mine
+
+The first full check of this commit printed lint, build and smoke and then
+nothing at all where the suite numbers go. The cause was my own command: I piped
+`npm test` into a `grep` for the summary lines, so anything that was not a
+summary line — including whatever went wrong — was thrown away before I could
+read it. The re-run, capturing everything, is green, and that is the run quoted
+above; the green is not back-dated onto the first attempt.
+
+That is the third time tonight, from one habit:
+
+1. the docs-only check whose `grep -v` swallowed an absent commit's empty diff;
+2. the `sed -i` repoint whose result I read off the disk instead of off the
+   running process;
+3. this.
+
+All three are the same fault — **a check that cannot tell "clean" from "never
+ran"** — and it is the exact fault this log exists to find in other people's
+evidence. The rule that follows: **read a check's exit status before filtering
+its output, and treat an ABSENT summary as a failure, never as a pass.** An
+empty result is the most dangerous thing a checker can produce, because it reads
+like silence and silence reads like success.
+
 ## The wiring map's backspace fix, graded
 
 Pushed as `d38a65c` while pass A was being written up. Re-run here in a detached

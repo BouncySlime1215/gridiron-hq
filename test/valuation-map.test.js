@@ -738,10 +738,24 @@ test('G9e: zeroing a source still suppresses it completely — no factor and no 
   // depends on `zero` removing a source from the arithmetic ENTIRELY; if the
   // fixes above start emitting an inert entry for a zeroed source, every
   // "deals repriced" count in that table silently changes meaning.
-  const prof = ownerOf({ luck: { value: 1.6, n: 4 } });
-  const off = pricing.playerValuation(prof, QUIET_STAR, { zero: ['luck_self_view'] });
-  assert.ok(!(off.factors ?? []).some(f => f.source === 'luck_self_view'), 'zeroed: no factor');
-  assert.ok(!(off.inert ?? []).some(i => i.source === 'luck_self_view'), 'zeroed: and no inert entry either');
+  // A source with ENOUGH sample: zeroing it must remove the factor.
+  const firing = pricing.playerValuation(ownerOf({ luck: { value: 1.6, n: 4 } }),
+    QUIET_STAR, { zero: ['luck_self_view'] });
+  assert.ok(!(firing.factors ?? []).some(f => f.source === 'luck_self_view'), 'zeroed: no factor');
+  assert.ok(!(firing.inert ?? []).some(i => i.source === 'luck_self_view'), 'zeroed: and no inert entry');
+
+  // The case that actually pins the ORDER, and the first version of this test
+  // missed it. A sample of 4 is not below min_n of 4, so that profile never
+  // reaches the inert branch at all and passes however the checks are ordered —
+  // mutating `off.has` to sit after min_n killed nothing. Below the sample and
+  // zeroed is the only state where the two compete.
+  for (const luck of [{ value: 1.6, n: 1 }, { value: 0.01, n: 1 }, null]) {
+    const off = pricing.playerValuation(ownerOf({ luck }), QUIET_STAR, { zero: ['luck_self_view'] });
+    assert.ok(!(off.inert ?? []).some(i => i.source === 'luck_self_view'),
+      `zeroed and below its sample (${JSON.stringify(luck)}): still no inert entry`);
+    assert.ok(!(off.factors ?? []).some(f => f.source === 'luck_self_view'),
+      `zeroed and below its sample (${JSON.stringify(luck)}): still no factor`);
+  }
 });
 
 test('G9f: a reading with enough sample still prices, unchanged', () => {

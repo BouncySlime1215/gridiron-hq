@@ -140,6 +140,25 @@ for (const season of GRADED_SEASONS) {
   console.log(`    ${deltaB > 0 ? 'improves' : 'does not improve'}; interval ${excludesZero(ciB) ? 'excludes' : 'straddles'} zero`);
   console.log(`    a backup who has already taken over is counted twice here; read it with that in mind.`);
 
+  // Is the Test B penalty actually the double count? Split the same rows by
+  // whether any week in the beneficiary's own baseline was a week the starter
+  // had already sat. If double counting were the cause, the clean slice should
+  // be markedly better. Reported whatever it says.
+  const clean = supported.filter(x => x.prior_absent_share === 0);
+  const dirty = supported.filter(x => x.prior_absent_share > 0);
+  console.log(`\n  Is that penalty the double count? Split by whether the baseline itself`);
+  console.log(`  was earned while the starter was already out.`);
+  const slice = (label, set) => {
+    if (set.length < 8) { console.log(`    ${label}: n=${set.length} — too few to read`); return null; }
+    const mo = mae(set, own), ms = mae(set, scaled);
+    const ci = pairedInterval(set, scaled, own, { draws: DRAWS });
+    console.log(`    ${label}  n=${set.length}   own ${f(mo)} (bias ${f(bias(set, own))})   ` +
+      `scaled ${f(ms)} (bias ${f(bias(set, scaled))})   penalty ${pct(ms - mo, mo)}   90% CI [${f(ci?.lo)}, ${f(ci?.hi)}]`);
+    return { n: set.length, mae_own: mo, mae_scaled: ms, penalty_pct: mo > 0 ? (ms - mo) / mo : null, interval: ci };
+  };
+  const cleanStats = slice('baseline clean of absent weeks     ', clean);
+  const dirtyStats = slice('baseline partly earned while out   ', dirty);
+
   // Not a scored test — a sanity scan. A ratio has no upper bound when the
   // with-starter base is small, and `cascades()` skips a pair only when BOTH
   // sides are under 0.5, so a thin denominator can publish an absurd multiplier.
@@ -165,7 +184,8 @@ for (const season of GRADED_SEASONS) {
     test_b: { rows: supported.length, mae_own: maeOwn, mae_own_scaled: maeScaled, delta: deltaB,
       delta_pct: maeOwn > 0 ? deltaB / maeOwn : null, interval: ciB,
       interval_excludes_zero: excludesZero(ciB) },
-    in_sample_gain_scale: lambda
+    in_sample_gain_scale: lambda,
+    double_count_split: { clean: cleanStats, contaminated: dirtyStats }
   });
 }
 

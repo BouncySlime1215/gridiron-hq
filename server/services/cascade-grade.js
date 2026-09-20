@@ -86,6 +86,16 @@ export function buildGradedRows({ season, cascadeMap, halfLife = 3, minPriorGame
     const appearances = [...found.weeks.keys()];
     const first = Math.min(...appearances), last = Math.max(...appearances);
 
+    // Every week inside his span that he sat. Needed twice: once as the weeks to
+    // grade, and once to ask whether a beneficiary's own recent usage was itself
+    // measured while the starter was out — which is what makes multiplying that
+    // usage by the multiplier a double count.
+    const absentWeeks = new Set();
+    for (const week of teamAllWeeks.get(found.team) ?? []) {
+      if (week < first || week > last || found.weeks.has(week)) continue;
+      absentWeeks.add(week);
+    }
+
     for (const week of teamAllWeeks.get(found.team) ?? []) {
       if (week < first || week > last) continue;   // not on this roster yet, or already gone
       if (found.weeks.has(week)) continue;         // he played; not an absence
@@ -97,6 +107,17 @@ export function buildGradedRows({ season, cascadeMap, halfLife = 3, minPriorGame
         if (!actualRow) continue;                  // the beneficiary sat too; nothing to grade
         const prior = priorUsage(mateWeeks, week, { halfLife, minPriorGames });
         if (!prior) { skippedNoHistory++; continue; }
+        // How much of that baseline was earned while the starter was already out.
+        // Weighted the same way the baseline is, because a week-2 absence barely
+        // reaches a week-16 prediction at this half-life.
+        let absentWeight = 0, totalWeight = 0;
+        for (const [w] of mateWeeks) {
+          if (w >= week) continue;
+          const weight = Math.pow(0.5, (week - w) / halfLife);
+          totalWeight += weight;
+          if (absentWeeks.has(w)) absentWeight += weight;
+        }
+        const priorAbsentShare = totalWeight > 0 ? absentWeight / totalWeight : 0;
 
         graded.push({
           starter_id: c.player_id, starter: c.name, starter_position: c.position,
@@ -104,6 +125,7 @@ export function buildGradedRows({ season, cascadeMap, halfLife = 3, minPriorGame
           season, week,
           actual: opportunity(actualRow),
           own_recent: prior.value, own_recent_games: prior.games,
+          prior_absent_share: priorAbsentShare,
           multiplier: b.multiplier,
           published_with: b.base_opportunity,
           published_without: b.opportunity_without

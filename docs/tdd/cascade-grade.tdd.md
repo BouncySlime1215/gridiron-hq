@@ -108,6 +108,9 @@ measures a use error mixed with the estimator.
 
 It is kept, and reported, because it is the shape a consumer would most likely
 reach for, and the double-counting trap is worth showing rather than asserting.
+Note that this makes Test B unreadable as a verdict on the estimator; it does
+**not** mean the double count explains Test B's penalty, which was measured
+afterwards and does not — see the retraction at the end of section 5.
 
 ## 4. The numbers
 
@@ -210,8 +213,40 @@ way, and the fix changes only the `multiplier` field.
 it the wrong way on Test B in 2025.** The fix removes predictions that were
 absurd on their face — the worst 2025 row no longer claims 77 opportunities for a
 player averaging 2.9 — and it cuts the 2025 damage by a third, but it does not
-rescue either test. The remaining 2025 gap is the double-counting described in
-section 3, not outliers. Nothing here promotes the cascade to a surface.
+rescue either test. Nothing here promotes the cascade to a surface.
+
+### The double count does not explain the residual — retracted
+
+An earlier version of this file, and of #72's body, said the remaining Test B gap
+was the double-counting described in section 3 rather than anything else. **That
+was a causal claim with nothing measured behind it, and measuring it does not
+support it.**
+
+Splitting the same rows by whether any week in the beneficiary's own baseline was
+a week the starter had already sat:
+
+| | 2024 clean | 2024 contaminated | 2025 clean | 2025 contaminated |
+|---|---|---|---|---|
+| n | 11 | 35 | 20 | 56 |
+| own recent, MAE (bias) | 6.649 (−5.752) | 4.827 (−0.736) | 4.596 (−0.618) | 4.248 (−0.805) |
+| × multiplier, MAE (bias) | 5.611 (−3.769) | 5.628 (+1.998) | 7.050 (+4.613) | 6.123 (+4.822) |
+| penalty | −15.62% | +16.60% | **+53.39%** | **+44.14%** |
+
+**In 2025 the clean slice is worse than the contaminated one**, and the two
+biases are almost identical (+4.61 against +4.82). If double-counting were the
+cause, the clean slice should be markedly better; it is not. 2024 points the
+other way but on eleven clean rows, with an interval straddling zero.
+
+The simpler reading is the one Test A already gives: **the published multiplier
+is too large, on both slices alike.** That is the same defect as the
+`opportunity_without` bias of +2.44 and +3.30, seen through the ratio instead of
+the level.
+
+The mechanism described in section 3 is still real, and still the reason Test B
+cannot be read as a verdict on the estimator — a backup who has taken over does
+have a baseline that already reflects the absence. What is now retracted is the
+stronger claim that it accounts for the residual. `--json` carries the split as
+`double_count_split` so anyone can re-run it.
 
 ### A limit worth writing down
 

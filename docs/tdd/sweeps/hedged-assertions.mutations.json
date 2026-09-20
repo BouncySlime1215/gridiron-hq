@@ -1,7 +1,7 @@
 {
  "evidence": "docs/tdd/hedged-assertions.tdd.md",
  "baseline_ref": "6422367",
- "note": "Every row edits the PRODUCER of a sentence, never the test. `baseline_ref` is the commit before the sweep, so each row also reports what the assertion it replaced did with the same injection: `SURVIVED` is the measurement the sweep exists to take.",
+ "note": "Every row edits the PRODUCER of a sentence, never the test. `shape` says which assertion the row is evidence for: `positive` rows delete the clause a match now names, `negation` rows make the producer emit BOTH confusable sentences so the doesNotMatch has something to fire on. The two must be counted separately. `baseline_ref` is the commit before the sweep, so each row also reports what the assertion it replaced did with the same injection — but that comparison is only meaningful on `positive` rows, because every pre-sweep site was an assert.match and none was a negation, so a `negation` row's old result is trivially a pass and is NOT evidence of anything.",
  "mutations": [
   {
    "id": "M1",
@@ -12,7 +12,8 @@
    ],
    "expect": "red",
    "from": "const noChat = `this manager has no chat read or negotiation profile touching any player in this `",
-   "to": "const noChat = `this manager has no chat read touching any player in this `"
+   "to": "const noChat = `this manager has no chat read touching any player in this `",
+   "shape": "positive"
   },
   {
    "id": "M2",
@@ -23,7 +24,8 @@
    ],
    "expect": "red",
    "from": "      `${delta > 0 ? '+' : ''}${delta}% on his own numbers`);",
-   "to": "      'his own numbers read as neutral');"
+   "to": "      'his own numbers read as neutral');",
+   "shape": "positive"
   },
   {
    "id": "M3",
@@ -34,7 +36,8 @@
    ],
    "expect": "red",
    "from": "        reason: `${why} — read, but it moves the band by less than 0.001, so it is reported `",
-   "to": "        reason: `${why} — read, but it moves the band too little to matter, so it is reported `"
+   "to": "        reason: `${why} — read, but it moves the band too little to matter, so it is reported `",
+   "shape": "positive"
   },
   {
    "id": "M4",
@@ -45,7 +48,8 @@
    ],
    "expect": "red",
    "from": "      inert.push({ source, reason: `rests on ${n} of the ${spec.min_n} needed (${spec.needs})`, as_of: asOf });",
-   "to": "      inert.push({ source, reason: `rests on ${n} ${spec.needs}`, as_of: asOf });"
+   "to": "      inert.push({ source, reason: `rests on ${n} ${spec.needs}`, as_of: asOf });",
+   "shape": "positive"
   },
   {
    "id": "M5",
@@ -56,7 +60,8 @@
    ],
    "expect": "red",
    "from": "    return empty('no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it');",
-   "to": "    return empty('no manager signals for this league yet');"
+   "to": "    return empty('no manager signals for this league yet');",
+   "shape": "positive"
   },
   {
    "id": "M6",
@@ -67,7 +72,8 @@
    ],
    "expect": "red",
    "from": "      : 'his declaration record was never read — the chat corpus is not on this machine, so whether his refusals hold is unknown';",
-   "to": "      : 'his declaration record was never read — the chat corpus is unavailable, so whether his refusals hold is unknown';"
+   "to": "      : 'his declaration record was never read — the chat corpus is unavailable, so whether his refusals hold is unknown';",
+   "shape": "positive"
   },
   {
    "id": "M7",
@@ -78,7 +84,8 @@
    ],
    "expect": "red",
    "from": "      ? 'his declaration record was never looked up — this league has no confirmed chat identity for him, so whether his refusals hold is unknown'",
-   "to": "      ? 'his declaration record was never looked up — this league has no identity for him, so whether his refusals hold is unknown'"
+   "to": "      ? 'his declaration record was never looked up — this league has no identity for him, so whether his refusals hold is unknown'",
+   "shape": "positive"
   },
   {
    "id": "M8",
@@ -89,7 +96,8 @@
    ],
    "expect": "red",
    "from": "      + (informative ? '' : ' — and the answer came back an even spread across the options, which is the '\n        + 'honest answer when there is no evidence')",
-   "to": "      + (informative ? '' : ' — and the answer came back an even spread across the options, which is the '\n        + 'honest answer')"
+   "to": "      + (informative ? '' : ' — and the answer came back an even spread across the options, which is the '\n        + 'honest answer')",
+   "shape": "positive"
   },
   {
    "id": "M9",
@@ -100,7 +108,8 @@
    ],
    "expect": "red",
    "from": ": unusable('unreadable', 'the model response could not be read as JSON, so nothing from it '\n          + 'is trusted')",
-   "to": ": unusable('truncated', 'the model ran out of output room part-way through, so its list of '\n          + 'proposals was cut off mid-answer and could not be read — nothing from a half-written '\n          + 'proposal is trusted')"
+   "to": ": unusable('truncated', 'the model ran out of output room part-way through, so its list of '\n          + 'proposals was cut off mid-answer and could not be read — nothing from a half-written '\n          + 'proposal is trusted')",
+   "shape": "positive"
   },
   {
    "id": "M10",
@@ -111,7 +120,8 @@
    ],
    "expect": "red",
    "from": "`every proposal failed verification and was rejected — ${rejected.length} in total, `",
-   "to": "'every proposal failed verification and was rejected — '"
+   "to": "'every proposal failed verification and was rejected — '",
+   "shape": "positive"
   },
   {
    "id": "M11",
@@ -122,7 +132,8 @@
    ],
    "expect": "red",
    "from": "          + 'proposals was cut off mid-answer and could not be read — nothing from a half-written '",
-   "to": "          + 'proposals could not be read — nothing from a half-written '"
+   "to": "          + 'proposals could not be read — nothing from a half-written '",
+   "shape": "positive"
   },
   {
    "id": "M12",
@@ -133,7 +144,80 @@
    ],
    "expect": "red",
    "from": "unusable('not_a_list', 'the model response was not a list of proposals')",
-   "to": "unusable('not_a_list', 'the model response was not a list')"
+   "to": "unusable('not_a_list', 'the model response was not a list')",
+   "shape": "positive"
+  },
+  {
+   "id": "M13",
+   "what": "the no-chat sentence also says what the chat-present sentence says",
+   "shape": "negation",
+   "file": "server/services/trade-tactics.js",
+   "suites": [
+    "test/trade-tactics.test.js"
+   ],
+   "expect": "red",
+   "from": "    + 'deal, so nothing prices his own view of them';",
+   "to": "    + 'deal, so nothing prices his own view of them, and nothing he has said prices a player we are sending above our own number';"
+  },
+  {
+   "id": "M14",
+   "what": "the corpus-absent reason also claims the identity-absent one",
+   "shape": "negation",
+   "file": "server/services/counterparty-pricing.js",
+   "suites": [
+    "test/valuation-map.test.js"
+   ],
+   "expect": "red",
+   "from": "      : 'his declaration record was never read — the chat corpus is not on this machine, so whether his refusals hold is unknown';",
+   "to": "      : 'his declaration record was never read — the chat corpus is not on this machine and this league has no confirmed chat identity for him, so whether his refusals hold is unknown';"
+  },
+  {
+   "id": "M15",
+   "what": "the identity-absent reason also claims the corpus-absent one",
+   "shape": "negation",
+   "file": "server/services/counterparty-pricing.js",
+   "suites": [
+    "test/valuation-map.test.js"
+   ],
+   "expect": "red",
+   "from": "      ? 'his declaration record was never looked up — this league has no confirmed chat identity for him, so whether his refusals hold is unknown'",
+   "to": "      ? 'his declaration record was never looked up — this league has no confirmed chat identity for him and the chat corpus is not on this machine, so whether his refusals hold is unknown'"
+  },
+  {
+   "id": "M16",
+   "what": "the flat PRIOR sentence borrows the flat MEASURED one",
+   "shape": "negation",
+   "file": "server/services/counterparty-pricing.js",
+   "suites": [
+    "test/valuation-map.test.js"
+   ],
+   "expect": "red",
+   "from": "        + 'honest answer when there is no evidence')",
+   "to": "        + 'honest answer when there is no evidence, and his draft record bears on this question too')"
+  },
+  {
+   "id": "M17",
+   "what": "the unreadable sentence also claims the model ran out of room",
+   "shape": "negation",
+   "file": "server/services/trade-proposals.js",
+   "suites": [
+    "test/trade-proposals.test.js"
+   ],
+   "expect": "red",
+   "from": "        : unusable('unreadable', 'the model response could not be read as JSON, so nothing from it '\n          + 'is trusted');",
+   "to": "        : unusable('unreadable', 'the model response could not be read as JSON — the model ran out of output room — so nothing from it '\n          + 'is trusted');"
+  },
+  {
+   "id": "M18",
+   "what": "the truncated sentence also claims it could not be read as JSON",
+   "shape": "negation",
+   "file": "server/services/trade-proposals.js",
+   "suites": [
+    "test/trade-proposals.test.js"
+   ],
+   "expect": "red",
+   "from": "          + 'proposals was cut off mid-answer and could not be read — nothing from a half-written '",
+   "to": "          + 'proposals was cut off mid-answer and could not be read as JSON — nothing from a half-written '"
   },
   {
    "id": "CONTROL",
@@ -144,7 +228,8 @@
    ],
    "expect": "no-op",
    "from": "const N_NOT_A_REAL_SYMBOL = 1;",
-   "to": "const N_NOT_A_REAL_SYMBOL = 2;"
+   "to": "const N_NOT_A_REAL_SYMBOL = 2;",
+   "shape": "control"
   }
  ]
 }

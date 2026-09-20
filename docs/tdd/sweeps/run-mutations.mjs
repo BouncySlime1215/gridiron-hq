@@ -64,9 +64,25 @@ function runSuites(suites) {
     const line = out.split('\n').find(l => l.startsWith(`# ${k} `));
     return line ? Number(line.trim().split(' ').pop()) : -1;
   };
+  // WHICH ASSERTION FAILED, not only which test. A test can hold a positive
+  // `assert.match` and a negative `assert.doesNotMatch`, and "this mutation is
+  // killed" means nothing until you know which of the two did the killing:
+  // a negation's pattern matches nothing whenever the test passes, so counting
+  // survivals across a mixed set of shapes is counting two different things.
+  // node:test prints the throwing frame in the TAP `stack:` block.
+  const suiteSet = new Set(suites.map(s => s.replace(/^\.\//, '')));
+  const at = [];
+  for (const line of out.split('\n')) {
+    const m = line.match(/([\w./-]+\.test\.js):(\d+):\d+\)?\s*$/);
+    if (m && [...suiteSet].some(s => m[1].endsWith(s.split('/').pop()))) {
+      const hit = `${m[1].split('/').pop()}:${m[2]}`;
+      if (!at.includes(hit)) at.push(hit);
+    }
+  }
   return {
     tests: total('tests'), pass: total('pass'), fail: total('fail'),
     failed: out.split('\n').filter(l => l.startsWith('not ok')).map(l => l.trim()),
+    at,
   };
 }
 
@@ -133,6 +149,8 @@ if (asJson) {
     console.log(`${r.id}  APPLIED ${r.applied}  new ${r.fresh.tests}/${r.fresh.pass}/${r.fresh.fail}`
       + `${r.fresh.fail ? ' RED' : ' NOT KILLED'}${oldTxt}`);
     for (const f of r.fresh.failed) console.log(`      ${f}`);
+    if (r.fresh.at?.length) console.log(`      killed at  ${r.fresh.at.join(', ')}`);
+    if (r.old?.at?.length) console.log(`      old died at  ${r.old.at.join(', ')}`);
   }
   console.log(`\n${results.filter(r => r.ok).length} of ${results.length} rows behaved as the list says.`);
 }

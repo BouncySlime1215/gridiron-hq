@@ -301,6 +301,11 @@ unkilled one does, and that is theirs.
 Recorded because the pattern is the point: a test that cannot fail looks exactly
 like a test that passes.
 
+Three instrument defects from this thread today, none of them found by a passing
+test, every one surfaced because something failed that should not have. That is
+the argument for writing mutations expected to fail loudly rather than quietly,
+and it is evidence from practice rather than from principle.
+
 - **L3's string matcher paired the wrong quotes.** `/'([^']{33,})'/` matched
   from one literal's *closing* quote to the next literal's *opening* one and
   reported the code between them as a long string. It failed on first run naming
@@ -333,11 +338,25 @@ safety net added when the first looked fragile, and the first was then made
 permissive enough to cover it. Harmless in effect, but it reads as though two
 shapes are accepted when only one is.
 
-One thing noticed while proving it and **not** fixed here: branch 1 also matches
-`graded onweek W alone`, because the first `\s*` can match empty. That is a real
-looseness, it is not what this finding was about, and tightening it needs a look
-at the source string rather than the test. Left as found, and named so it is not
-rediscovered as new.
+One thing noticed while proving it, and **fixed rather than filed**: branch 1
+also matched `graded onweek W alone`, because the first `\s*` can match empty, so
+the pattern accepted the two words run together. Leaving a known-loose assertion
+in place after naming it is how a named thing becomes a permanent one. The first
+group is now `\s+`, which requires at least one separator.
+
+Checked against the real source rather than assumed, since tightening an
+assertion can break the thing it asserts: `server/services/weekly-backtest.js:17`
+carries the string across a line break (`graded on\n * week W alone`), and the
+tightened pattern matches it, matches all four probes above, and rejects only the
+run-together form.
+
+| Probe | loose | tight |
+|---|---|---|
+| the real source at `weekly-backtest.js:17` | matches | matches |
+| `graded on week W alone` | matches | matches |
+| `graded on\n * week W alone` | matches | matches |
+| `graded on  week W alone` | matches | matches |
+| `graded onweek W alone` | matches | **no** |
 
 ## 8. Full check
 

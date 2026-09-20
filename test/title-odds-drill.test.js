@@ -94,7 +94,7 @@ test('layer 4 does not claim the championship number was tested', () => {
 
   // And the claim it credits is checkable: the harness exists and grades weeks.
   const backtest = read('server/services/weekly-backtest.js');
-  assert.match(backtest, /graded on\s*\n?\s*\*?\s*week W alone/,
+  assert.match(backtest, /graded on\s+\n?\s*\*?\s*week W alone/,
     'the weekly backtest no longer grades the week it predicted');
 });
 

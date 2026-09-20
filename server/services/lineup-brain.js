@@ -329,6 +329,43 @@ const TIE_THRESHOLD = 1.5;
 const CLEAR_THRESHOLD = 4.0;
 
 /**
+ * Which model priced THIS player, which is not always the one the process is on.
+ *
+ * `playerActiveProbability` reaches the fitted role cell only when the player has a
+ * `gap_bucket` AND the cell lookup hits (contingency.js); everyone else falls through
+ * to the pooled rates, and past those to the hand-set chain. So a process whose
+ * `availabilityBasis()` is 'role' still prices some players pooled, and marking their
+ * number measured would be the same overstatement this field exists to remove, one
+ * level up.
+ *
+ * `weeklyAvailability` records the answer per player in `source`, carried onto the
+ * asset as `availability_source`. That string is the only per-player record of it.
+ *
+ * TWO DIFFERENT ABSENCES, and conflating them would be worse than the bug this
+ * fixes. `availability_source: null` means the player had no availability row:
+ * `weeklyAvailability` selects QB, RB, WR and TE only, so a kicker is not covered
+ * by the fit at all and his number is the hand-set constant. The KEY being missing
+ * means something else — an asset universe built before this field existed, which
+ * is reachable because `assetUniverse` is fingerprint-cached on the row counts and
+ * timestamps of the tables it reads, not on the code that built it, so a deploy
+ * does not invalidate it. Reading that as 'unfitted_position' would label every
+ * player on the page, quarterbacks included, as one the fit does not cover. So an
+ * asset with no such key falls back to the process basis, which is exactly what
+ * this page served before and is never worse than it.
+ */
+export function playerAvailabilityBasis(player, processBasis) {
+  if (!player || !('availability_source' in player)) return processBasis?.basis ?? null;
+  const source = player.availability_source;
+  // Present and null: no availability row of any kind for this player.
+  if (source == null) return 'unfitted_position';
+  const text = String(source);
+  if (text.startsWith('fitted availability by role')) return 'role';
+  if (text.startsWith('fitted availability (')) return 'pooled';
+  // Past both fitted paths: the report-status and durability chain.
+  return 'constants';
+}
+
+/**
  * The week's lineup, with every call explained and graded by how close it was.
  *
  * @param objective 'mean' for the highest average, 'ceiling' when you need a
@@ -347,7 +384,7 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your roster could not be resolved from the league sync' };
 
-  const { season, week } = tradeWeekContext();
+  const { season, week } = tradeWeekContext(lg);
 
   // IR players are out of the call entirely: not started, not the benched
   // alternative a starter "beat", not on the bench list. This page used to be the
@@ -489,6 +526,18 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   // preseason band, the offseason read. Looked up once per player.
   const record = evidenceCache(season, providers);
 
+  // Which availability model priced every chance to play on this page, and — when it is
+  // not the validated role layer — why not. Honest degradation over a confident wrong
+  // number: on the pooled path these percentages are systematically low for healthy
+  // starters, so every one of them travels with that fact attached rather than reading
+  // like the fitted number. `availability_basis` alone was not enough; it was served
+  // from here since review-fixes-2 and no page ever read it.
+  //
+  // Read here rather than below the call list, because each call now carries the model
+  // that priced THAT player and falls back to this one only when the asset predates the
+  // per-player field.
+  const availabilityBasis = assets.context?.availability_basis ?? null;
+
   const calls = optimal.slots.filter(s => s.player).map(s => {
     const p = s.player;
     // The best benched player who could legally fill this slot.
@@ -510,6 +559,9 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
       player: { id: p.id, name: p.name, position: p.position, team_abbr: p.team_abbr,
         adj_ppg: p.adj_ppg, week_points: p.week_points, bye: p.bye,
         injury: p.injury_status ?? null, active_probability: p.active_probability ?? null,
+        // Beside the number it describes, because the number is the thing that is
+        // wrong without it: a pooled rate and a measured one are the same on screen.
+        availability_basis: playerAvailabilityBasis(p, availabilityBasis),
         evidence: mine },
       over: alt ? { id: alt.id, name: alt.name, position: alt.position, week_points: alt.week_points,
         evidence: theirs } : null,
@@ -552,13 +604,6 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
   const unprojected = calls.filter(c => c.confidence === 'no projection');
   const risky = calls.filter(c => (c.player.active_probability ?? 1) < 0.75 || c.player.bye === week);
 
-  // Which availability model priced every chance to play on this page, and — when it is
-  // not the validated role layer — why not. Honest degradation over a confident wrong
-  // number: on the pooled path these percentages are systematically low for healthy
-  // starters, so every one of them travels with that fact attached rather than reading
-  // like the fitted number. `availability_basis` alone was not enough; it was served
-  // from here since review-fixes-2 and no page ever read it.
-  const availabilityBasis = assets.context?.availability_basis ?? null;
   const availabilityNote = availabilityDegradation(availabilityBasis);
 
   // What you actually submitted, when the platform exposes it.
@@ -637,7 +682,7 @@ export function lineupCall(leagueId, { myTeamId = null, objective = 'mean', prov
           // to be stated bare when the model that produced it is the validated one.
           (availabilityNote ? ' — but that is not the fitted number: ' + availabilityNote.reason : ''),
       // 'role' | 'pooled' | 'constants', so a reader of one warning can see it too.
-      availability_basis: c.player.bye === week ? null : availabilityBasis?.basis ?? null,
+      availability_basis: c.player.bye === week ? null : c.player.availability_basis,
       slot: c.slot
     })),
     objectives: [

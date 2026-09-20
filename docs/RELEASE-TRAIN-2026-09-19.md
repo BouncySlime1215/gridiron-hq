@@ -2893,7 +2893,10 @@ already exist. That is why an unfamiliar PR number is worth a second look.
    **One caution on the second one, found only because three branches were
    rehearsed together rather than two.** The scheduler thread's
    merge-resolutions hold carries an *identical copy* of the credentials import
-   — same line, byte-identical `leagues.js`, blob `ca0be09` on both branches —
+   — same line, byte-identical `leagues.js`, git blob id `ca0be09` on both
+   branches (`git rev-parse <branch>:server/routes/leagues.js`; the thread that
+   owns the file reached the same conclusion from a plain SHA-256 of the file
+   bytes, which is a different number for the same fact) —
    and it is **not** a descendant of the branch it came from, so nothing marks
    it as the same change. A duplicate import is not a conflict, so no tool would
    have flagged it either way. Rehearsed rather than reasoned about: git merges

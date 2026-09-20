@@ -25,6 +25,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-coach-tools-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { run } = await import('../server/db/index.js');
+await (await import('../server/db/migrate.js')).runMigrations();
 const { newLedger } = await import('../server/services/coach/ledger.js');
 const { COACH_TOOLS, toolDefinitions, runCoachTool, toRows, CoachToolError } =
   await import('../server/services/coach/tools.js');

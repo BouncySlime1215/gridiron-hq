@@ -1,0 +1,98 @@
+[
+ {
+  "id": "M46",
+  "file": "server/services/coach/people/context.js",
+  "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",
+  "old": "    .some(part => new RegExp(`(?<![\\\\p{L}\\\\p{N}])${escapeRegex(part)}(?![\\\\p{L}\\\\p{N}])`, 'iu')",
+  "new": "    .some(part => new RegExp(escapeRegex(part), 'iu')",
+  "desc": "a context trigger matches as a substring, so \"we\" fires on \"week\""
+ },
+ {
+  "id": "M47",
+  "file": "server/services/coach/people/context.js",
+  "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",
+  "old": "               WHERE person = ? ${includeRetired ? '' : 'AND retired_at IS NULL'}",
+  "new": "               WHERE (person = ? OR 1=1) ${includeRetired ? '' : 'AND retired_at IS NULL'}",
+  "desc": "every rule applies to every person"
+ },
+ {
+  "id": "M48",
+  "file": "server/services/coach/people/context.js",
+  "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",
+  "old": "               WHERE person = ? ${includeRetired ? '' : 'AND retired_at IS NULL'}",
+  "new": "               WHERE person = ? ",
+  "desc": "a retired rule keeps applying"
+ },
+ {
+  "id": "M49",
+  "file": "server/services/coach/people/context.js",
+  "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",
+  "old": "  if (!by) throw new Error('a context rule needs an author \u2014 an unattributed fact cannot be checked later');",
+  "new": "  if (!by) { /* accepted */ }",
+  "desc": "a context rule with no author is accepted"
+ },
+ {
+  "id": "M50",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "    const enough = n >= MIN_N;",
+  "new": "    const enough = true;",
+  "desc": "a variable measured on too few observations is reported rather than withheld"
+ },
+ {
+  "id": "M51",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "      priceable: false,",
+  "new": "      priceable: true,",
+  "desc": "variables ship priceable before the grading harness has run"
+ },
+ {
+  "id": "M52",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "  fromProfile('night_share', 'How much he talks at night', 'responsiveness', 'share of 1', profile?.night_share);",
+  "new": "  add('night_share', 'How much he talks at night', 'responsiveness', 'computed', 'share of 1', mine.filter(m => Number(String(m.ts_utc).slice(11, 13)) >= 22).length / (total || 1), total, 'recomputed here from message timestamps');",
+  "desc": "night share is recomputed here instead of read from the extractor"
+ },
+ {
+  "id": "M53",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "    const isReply = other && (!own || Date.parse(own.ts_utc) < Date.parse(other.ts_utc));",
+  "new": "    const isReply = !!other;",
+  "desc": "a continuation of a speaker's own turn counts as a reply"
+ },
+ {
+  "id": "M54",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "  if (!corpus) db.close();\n  return out;",
+  "new": "  if (!corpus) db.close();\n  if (total >= MIN_N) out.push({ id: 'last_message', name: 'What he last said', family: 'context', source: 'computed', unit: 'text', value: mine.at(-1)?.text ?? null, n: total, priceable: false, measured_by: 'the last message he sent' });\n  return out;",
+  "desc": "a message carries through into the profile, on a person with enough messages to clear the sample floor"
+ },
+ {
+  "id": "M55",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "export const NOT_COMPUTED = Object.freeze([",
+  "new": "export const NOT_COMPUTED = Object.freeze([]); const NOT_COMPUTED_DROPPED = Object.freeze([",
+  "desc": "the list of variables that cannot be computed is dropped"
+ },
+ {
+  "id": "NC-context",
+  "file": "server/services/coach/people/context.js",
+  "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",
+  "old": " * The facts about a person that change what their words mean.",
+  "new": " * The facts about a person that change the meaning of their words.",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ },
+ {
+  "id": "NC-variables",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": " * The counted half of a person profile: who someone is, in numbers, read from",
+  "new": " * The counted half of a person profile: who someone is, as numbers, read from",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ }
+]

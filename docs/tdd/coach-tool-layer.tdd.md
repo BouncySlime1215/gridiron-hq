@@ -95,17 +95,36 @@ The test was fixed by running `runMigrations()`, which is correct for the test; 
 latent defect was routed to the thread that owns `who-plays.js`, and the agreed fix there
 is a labelled absence rather than a throw.
 
-## 4. Mutation table — every injection APPLIED, with its diffstat
+## 4. Mutation table — every injection APPLIED, by hash
 
-| # | Injection | Applied | Tests failing |
-|---|---|---|---|
-| M27 | a tool that throws still leaves its half-record in the ledger | 1 ins, 1 del | **0 → 2** |
-| M28 | the column ceiling on a wide service result is removed | 2 ins, 2 del | 1 |
-| M29 | a capped nested array sets no `truncated` flag | 1 deletion | **0 → 1** |
-| M30 | a catalog lookup enters the ledger, so a claim about football can cite it | 1 ins, 1 del | 1 |
-| M31 | a service tool declares a function that does not exist | 1 ins, 1 del | 1 |
-| M32 | a service tool stops declaring the tables it reads, so its result has no provenance | 1 ins, 1 del | 1 |
-| M33 | `sql_select` ignores the row ceiling it was asked for | 1 ins, 1 del | **0 → 1** |
+Every row was re-measured at head `fdfebf5`, and every row is reproducible:
+
+    python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/tools.json
+
+The harness hashes the file, applies one literal substitution, runs the named suites,
+restores the file and proves the restore by hashing it again. The
+SHA-256 pair is the point of the row: a diffstat says something changed, a hash pair says
+exactly which bytes the suite was run against, so the row can be reproduced without
+guessing at the injection. A row whose anchor is not in the source is reported NOT
+APPLIED rather than scoring zero failures — that happened once in this sweep (M12's
+anchor had the wrong punctuation) and is the failure mode the control below exists for.
+
+**The last row of the table is a NO-OP control.** It rewords a sentence of the file's own
+header: the hash moves, so the harness demonstrably applied it, and no test fails, so a
+zero in the "Red" column is a real result rather than a silent non-match. Without it, an
+injection that quietly failed to apply would look exactly like an injection the suite
+survives.
+
+| # | Injection | File | SHA-256 before → after | Red | The test that must go red |
+|---|---|---|---|---|---|
+| M27 | a tool that throws still leaves its half-record in the ledger *(survived the first pass; the test in the last column was written for it)* | `tools.js` | `e9a0aeca` → `05a66c7b` | 2 | `coach-tools.test.js` — a service tool records rows the same way a query does |
+| M28 | the column ceiling on a wide service result is removed | `tools.js` | `e9a0aeca` → `6a04e7a2` | 1 | `coach-tools.test.js` — toRows: a wide result is capped and says it was capped |
+| M29 | a capped nested array sets no truncated flag *(survived the first pass; the test in the last column was written for it)* | `tools.js` | `e9a0aeca` → `2f80aa64` | 1 | `coach-tools.test.js` — toRows: a long array inside a nested object is capped and says so |
+| M30 | a catalog lookup enters the ledger, so a claim about football can cite it | `tools.js` | `e9a0aeca` → `d37b76ff` | 1 | `coach-tools.test.js` — catalog_lookup tells Coach what it may read without touching the ledger |
+| M31 | a service tool declares a function that does not exist | `tools.js` | `e9a0aeca` → `105c186b` | 1 | `coach-tools.test.js` — every service tool names a function that really exists, so no second implementation can hide |
+| M32 | a service tool stops declaring the tables it reads, so its result has no provenance | `tools.js` | `e9a0aeca` → `630baf30` | 1 | `coach-tools.test.js` — a service tool records rows the same way a query does |
+| M33 | sql_select ignores the row ceiling it was asked for *(survived the first pass; the test in the last column was written for it)* | `tools.js` | `e9a0aeca` → `816527e6` | 1 | `coach-tools.test.js` — sql_select honours the row ceiling it was asked for, and says it truncated |
+| NC-tools | NO-OP CONTROL: reword a sentence of the file header, changing no behaviour | `tools.js` | `e9a0aeca` → `1de5e3b9` | **0** | none — and that is the assertion |
 
 **M27 and M29, the first two survivors.** M27 records a placeholder entry before calling
 the service, so a service that throws leaves a stray `r`-entry behind and the next cite
@@ -144,8 +163,9 @@ measures 20 tendencies from 5,278 team-weeks of play-by-play and states each as 
 percentile against the same season (`nfl-team-tendencies.js:1-21,97-181`). Nothing here
 re-derives either, and the tool layer adds no number of its own.
 
-**How do we know?** 17 tests, and 7 injections each stated above with its diffstat, all
-now killed; three survived first and produced three new tests. The claim that the
+**How do we know?** 17 tests, and 7 injections each stated above with the file's SHA-256
+before and after it, all now killed, beside a no-op control that moves the hash and kills
+nothing; three survived the first pass and produced three new tests. The claim that the
 assistant on screen has no fantasy tool is line-cited to all six of its tool definitions.
 
 **Should this data be pointed anywhere else on the platform?** One finding should go to

@@ -95,19 +95,38 @@ not exist; 0 pass.
 GREEN `31680f9`: 21 tests pass, 0 fail. The mutation runs below forced two more and the
 suites stand at **23 pass, 0 fail** (13 loop, 10 route).
 
-## 4. Mutation table — every injection APPLIED, with its diffstat
+## 4. Mutation table — every injection APPLIED, by hash
 
-| # | Injection | File | Applied | Tests failing |
-|---|---|---|---|---|
-| M34 | the correction turn is a bare re-roll that names no violation | ask.js | 1 ins, 5 del | **0 → 1** |
-| M35 | the first draft ships whether or not it verified | ask.js | 1 ins, 1 del | 5 |
-| M36 | a second failed check still ships the claims, with the refusal beside them | ask.js | 1 ins, 1 del | 2 |
-| M37 | the last round still offers tools, so Coach can end on a lookup it will never run | ask.js | 1 ins, 1 del | 1 |
-| M38 | a refusal from the query layer ends the question instead of going back as a result | ask.js | 1 ins, 1 del | 1 |
-| M39 | any error at all is swallowed into a tool result | ask.js | 1 ins, 2 del | **0 → 1** |
-| M40 | the ask route stops requiring a signed-in user | coach.js | 1 ins, 1 del | 1 |
-| M41 | the ask route stops rate limiting | coach.js | 1 ins, 1 del | **0 → 1** |
-| M42 | the route's own 400 falls through to the error handler instead of answering in JSON | coach.js | 1 ins, 1 del | **0 → 1** |
+Every row was re-measured at head `fdfebf5`, and every row is reproducible:
+
+    python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/ask.json
+
+The harness hashes the file, applies one literal substitution, runs the named suites,
+restores the file and proves the restore by hashing it again. The
+SHA-256 pair is the point of the row: a diffstat says something changed, a hash pair says
+exactly which bytes the suite was run against, so the row can be reproduced without
+guessing at the injection. A row whose anchor is not in the source is reported NOT
+APPLIED rather than scoring zero failures — that happened once in this sweep (M12's
+anchor had the wrong punctuation) and is the failure mode the control below exists for.
+
+**The last row of the table is a NO-OP control.** It rewords a sentence of the file's own
+header: the hash moves, so the harness demonstrably applied it, and no test fails, so a
+zero in the "Red" column is a real result rather than a silent non-match. Without it, an
+injection that quietly failed to apply would look exactly like an injection the suite
+survives.
+
+| # | Injection | File | SHA-256 before → after | Red | The test that must go red |
+|---|---|---|---|---|---|
+| M34 | the correction turn is a bare re-roll that names no violation *(survived the first pass; the test in the last column was written for it)* | `ask.js` | `6ee760aa` → `12573e86` | 1 | `coach-ask.test.js` — the retry prompt names the exact numbers that failed, so it is actionable |
+| M35 | the first draft ships whether or not it verified | `ask.js` | `6ee760aa` → `6a1cc159` | 5 | `coach-ask.test.js` — an ungrounded number is rejected, named back to the model, and fixed on the retry |
+| M36 | a second failed check still ships the claims, with the refusal beside them | `ask.js` | `6ee760aa` → `c6bdb57d` | 2 | `coach-ask.test.js` — a sentence Coach cannot stand up twice does not ship |
+| M37 | the last round still offers tools, so Coach can end on a lookup it will never run | `ask.js` | `6ee760aa` → `c641a501` | 1 | `coach-ask.test.js` — the loop is capped, and the last round is asked for an answer rather than another lookup |
+| M38 | a refusal from the query layer ends the question instead of going back as a result | `ask.js` | `6ee760aa` → `d30c53e4` | 1 | `coach-ask.test.js` — a refused tool call is fed back to the model rather than failing the question |
+| M39 | any error at all is swallowed into a tool result *(survived the first pass; the test in the last column was written for it)* | `ask.js` | `6ee760aa` → `d58d9016` | 1 | `coach-ask.test.js` — a fault that is not a refusal ends the question instead of becoming a tool result |
+| M40 | the ask route stops requiring a signed-in user | `coach.js` | `acda2c01` → `ca2abef7` | 1 | `coach-route.test.js` — an unauthenticated request is refused before anything is spent |
+| M41 | the ask route stops rate limiting *(survived the first pass; the test in the last column was written for it)* | `coach.js` | `acda2c01` → `bc8ed7a5` | 1 | `coach-route.test.js` — the ask route is rate limited, and says so before it spends anything |
+| M42 | the route's own 400 falls through to the error handler instead of answering in JSON *(survived the first pass; the test in the last column was written for it)* | `coach.js` | `acda2c01` → `e59fe440` | 1 | `coach-route.test.js` — a question that is missing, empty or not a string is refused with 400 |
+| NC-ask | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `ask.js` | `6ee760aa` → `26a51cf7` | **0** | none — and that is the assertion |
 
 **M34 and M42, the first two survivors.** The retry test asserted against the whole
 message history, which contains the assistant's own rejected draft — so text naming the
@@ -142,8 +161,9 @@ verifier proves it before the answer leaves the process. The one number this sli
 produces about itself, `coachGroundingRate()`, is a count over `coach_answers` rather
 than an estimate.
 
-**How do we know?** 23 tests, and 9 injections each stated above with its diffstat, all
-now killed; four survived first and produced four tests. No test in either suite touches
+**How do we know?** 23 tests, and 9 injections each stated above with the file's SHA-256
+before and after it, all now killed, beside a no-op control that moves the hash and kills
+nothing; four survived the first pass and produced four tests. No test in either suite touches
 the network — every Claude reply is scripted, which is also why the spend line is $0
 rather than "small".
 

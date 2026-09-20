@@ -79,14 +79,33 @@ GREEN `426d80e`: 11 pass, 0 fail. No injection in this slice survived, so none f
 test; one test was added afterwards for the emitted artifact described below, and the
 suite stands at **12 pass, 0 fail**.
 
-## 4. Mutation table — every injection APPLIED, with its diffstat
+## 4. Mutation table — every injection APPLIED, by hash
 
-| # | Injection | Applied | Tests failing |
-|---|---|---|---|
-| M43 | a lexicon field points at a column that does not exist | 1 ins, 1 del | 1 |
-| M44 | two concepts ship the same display name | 1 ins, 1 del | 1 |
-| M45 | the stat people ask for most is renamed, so nothing finds the gap | 1 ins, 1 del | 2 |
-| M58 | a concept is renamed without regenerating the emitted lexicon | 1 ins, 1 del | 2 |
+Every row was re-measured at head `fdfebf5`, and every row is reproducible:
+
+    python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/lexicon.json
+
+The harness hashes the file, applies one literal substitution, runs the named suites,
+restores the file and proves the restore by hashing it again. The
+SHA-256 pair is the point of the row: a diffstat says something changed, a hash pair says
+exactly which bytes the suite was run against, so the row can be reproduced without
+guessing at the injection. A row whose anchor is not in the source is reported NOT
+APPLIED rather than scoring zero failures — that happened once in this sweep (M12's
+anchor had the wrong punctuation) and is the failure mode the control below exists for.
+
+**The last row of the table is a NO-OP control.** It rewords a sentence of the file's own
+header: the hash moves, so the harness demonstrably applied it, and no test fails, so a
+zero in the "Red" column is a real result rather than a silent non-match. Without it, an
+injection that quietly failed to apply would look exactly like an injection the suite
+survives.
+
+| # | Injection | File | SHA-256 before → after | Red | The test that must go red |
+|---|---|---|---|---|---|
+| M43 | a lexicon field points at a column that does not exist | `stat-names.js` | `1fb9399d` → `cddeada0` | 2 | `coach-stat-names.test.js` — every field the lexicon names is a real column of a real table |
+| M44 | two concepts ship the same display name | `stat-names.js` | `1fb9399d` → `1276e085` | 2 | `coach-stat-names.test.js` — a display name belongs to exactly one concept, so the same words never mean two things |
+| M45 | the stat people ask for most is renamed, so nothing finds the gap | `stat-names.js` | `1fb9399d` → `0680ca25` | 3 | `coach-stat-names.test.js` — a stat we do not store says so, and says what it would take |
+| M58 | a concept is renamed without regenerating the emitted lexicon | `stat-names.js` | `1fb9399d` → `e62c7da9` | 1 | `coach-stat-names.test.js` — the emitted lexicon is the module, not a second copy that has drifted |
+| NC-lexicon | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `stat-names.js` | `1fb9399d` → `0fcf1c78` | **0** | none — and that is the assertion |
 
 M58 carries a later number because it was added with the generator, after the numbered
 pass. M45 renames the `Yards per route run` entry to `YPRR`. It kills two tests rather than
@@ -109,8 +128,9 @@ publish, and where a definition is this app's, `source` says so rather than impl
 outside authority. The `why` sentences are judgements about fantasy relevance and are
 written as such; they make no numerical claim.
 
-**How do we know?** 11 tests and 3 injections, each stated above with its diffstat, all
-killed. The strongest of them is the schema check: each of the 44 `table.column` keys in `STAT_FIELDS`
+**How do we know?** 11 tests and 4 injections, each stated above with the file's SHA-256
+before and after it, all killed, beside a no-op control that moves the hash and kills
+nothing. The strongest of them is the schema check: each of the 44 `table.column` keys in `STAT_FIELDS`
 is verified to exist by querying `pragma_table_info` on the database the app creates, so
 a mapping cannot rot silently when a column is renamed.
 

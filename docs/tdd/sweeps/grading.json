@@ -1,0 +1,74 @@
+[
+ {
+  "id": "M61",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "const passes = skill > 0 && rank !== null && rank >= GRADE_MIN_SPEARMAN;",
+  "new": "const passes = true;",
+  "desc": "every variable passes"
+ },
+ {
+  "id": "M62",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "const passes = skill > 0 && rank !== null && rank >= GRADE_MIN_SPEARMAN;",
+  "new": "const passes = skill > 0;",
+  "desc": "a positive skill score alone is a pass; the rank check is dropped"
+ },
+ {
+  "id": "M63",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "    if (pairs.length < minPeople) {",
+  "new": "    if (false) {",
+  "desc": "grade a variable however few people have a value in both halves"
+ },
+ {
+  "id": "M64",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "    if (spec.source === 'extractor') {",
+  "new": "    if (false) {",
+  "desc": "grade the extractor's whole-chain aggregates as if they could be split"
+ },
+ {
+  "id": "M65",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "    if (mseBase === 0) {",
+  "new": "    if (false) {",
+  "desc": "compute a skill score when every late value is identical"
+ },
+ {
+  "id": "M66",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "  run(`UPDATE coach_person_variables SET priceable = 0`);",
+  "new": "  // no reset",
+  "desc": "applying grades does not reset priceable first"
+ },
+ {
+  "id": "M67",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "  for (const id of report.passed) {",
+  "new": "  for (const id of [...report.passed, ...report.failed]) {",
+  "desc": "failed variables are made priceable alongside the passing ones"
+ },
+ {
+  "id": "M68",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "  return new Date(lo + (hi - lo) * fraction).toISOString();",
+  "new": "  return new Date(lo + (hi - lo) * 0.99).toISOString();",
+  "desc": "the split falls at 0.99 of the span rather than 0.7"
+ },
+ {
+  "id": "NC-grading",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": " * Does a person variable measure the person, or the week it was measured in?",
+  "new": " * Does a person variable measure the person, or the fortnight it was measured in?",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ }
+]

@@ -1,0 +1,42 @@
+[
+ {
+  "id": "M43",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "  'player_week_usage.targets': 'targets',",
+  "new": "  'player_week_usage.targetz': 'targets',",
+  "desc": "a lexicon field points at a column that does not exist"
+ },
+ {
+  "id": "M44",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "  receptions: concept('Catches', 'catches', 'higher',",
+  "new": "  receptions: concept('Targets', 'catches', 'higher',",
+  "desc": "two concepts ship the same display name"
+ },
+ {
+  "id": "M45",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "    name: 'Yards per route run',",
+  "new": "    name: 'YPRR',",
+  "desc": "the stat people ask for most is renamed, so nothing finds the gap"
+ },
+ {
+  "id": "M58",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "  targets: concept('Targets', 'passes', 'higher',",
+  "new": "  targets: concept('Times thrown at', 'passes', 'higher',",
+  "desc": "a concept is renamed without regenerating the emitted lexicon"
+ },
+ {
+  "id": "NC-lexicon",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": " * One name per stat, everywhere, and an explanation someone who never deals",
+  "new": " * One name for each stat, everywhere, and an explanation someone who never deals",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ }
+]

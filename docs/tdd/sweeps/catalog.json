@@ -1,0 +1,122 @@
+[
+ {
+  "id": "M1",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  assertAllReadable(mentioned);",
+  "new": "  void mentioned;",
+  "desc": "drop the readable-table check on the tables the text mentions"
+ },
+ {
+  "id": "M2",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  assertNoRedactedOutput(columns);",
+  "new": "  void columns;",
+  "desc": "drop the redacted-output check"
+ },
+ {
+  "id": "M3",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  const db = new DatabaseSync(dbPath, { readOnly: true });",
+  "new": "  const db = new DatabaseSync(dbPath, { readOnly: false });",
+  "desc": "open the connection writable"
+ },
+ {
+  "id": "M4",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  const found = tokens(statement).filter(token => FORBIDDEN.includes(token));",
+  "new": "  const found = [];",
+  "desc": "drop the forbidden-keyword scan"
+ },
+ {
+  "id": "M5",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  if (trimmed.includes(';')) {",
+  "new": "  if (false) {",
+  "desc": "drop the one-statement check"
+ },
+ {
+  "id": "M6",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "      if (out.length >= maxRows) { truncated = true; break; }",
+  "new": "      void maxRows;",
+  "desc": "never truncate"
+ },
+ {
+  "id": "M7",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "function prepareOrFail(statement) {\n  try {\n    return coachDb().prepare(statement);\n  } catch (e) {\n    throw new CoachQueryFailed(e.message);\n  }\n}",
+  "new": "function prepareOrFail(statement) {\n  try {\n    return coachDb().prepare(statement);\n  } catch (e) {\n    throw new CoachQueryRefused(e.message);\n  }\n}",
+  "desc": "make a SQL error look like a refusal"
+ },
+ {
+  "id": "M8",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "    .replace(/'(?:[^']|'')*'/g, \"''\")",
+  "new": "",
+  "desc": "stop stripping string literals"
+ },
+ {
+  "id": "M9",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "export const COACH_TABLES = Object.freeze({\n  // --- who exists, and where ---",
+  "new": "export const COACH_TABLES = Object.freeze({\n  no_such_table: t('nothing', 'a table that is not in the schema', 'never', 'auto'),\n  // --- who exists, and where ---",
+  "desc": "catalogue a table that does not exist"
+ },
+ {
+  "id": "M10",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  return { table, ...meta, redact: [...meta.redact], columns: liveColumns(table) };",
+  "new": "  return { table, ...meta, redact: [...meta.redact], columns: ['id'] };",
+  "desc": "hand-copy columns instead of reading them live"
+ },
+ {
+  "id": "M11",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "export const COACH_TABLES = Object.freeze({",
+  "new": "export const COACH_TABLES = ({",
+  "desc": "stop freezing the allowlist"
+ },
+ {
+  "id": "M12",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "    ['espn_s2', 'swid', 'payload']),",
+  "new": "    []),",
+  "desc": "drop the withheld-column list from leagues"
+ },
+ {
+  "id": "M13",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  Object.freeze({ grain, means, freshness, collection, redact: Object.freeze(redact) });",
+  "new": "  Object.freeze({ grain, means, freshness, collection: 'auto', redact: Object.freeze(redact) });",
+  "desc": "mark every table as automatically refreshed"
+ },
+ {
+  "id": "NC-select",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": " * The one place Coach runs a query it wrote itself.",
+  "new": " * The single place Coach runs a query it wrote itself.",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ },
+ {
+  "id": "NC-catalog",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": " * What Coach may read, and what each table means.",
+  "new": " * What Coach may read, and what every table means.",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ }
+]

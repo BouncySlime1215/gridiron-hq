@@ -1,0 +1,74 @@
+[
+ {
+  "id": "M27",
+  "file": "server/services/coach/tools.js",
+  "tests": "test/coach-tools.test.js",
+  "old": "  const { value, tables } = tool.run(input);",
+  "new": "  const placeholder = ledger.record({ tool: name, sql: null, params: [], tables: [], columns: [], rows: [], row_count: 0, truncated: false, provenance: {} }); void placeholder; const { value, tables } = tool.run(input);",
+  "desc": "a tool that throws still leaves its half-record in the ledger"
+ },
+ {
+  "id": "M28",
+  "file": "server/services/coach/tools.js",
+  "tests": "test/coach-tools.test.js",
+  "desc": "the column ceiling on a wide service result is removed",
+  "edits": [
+   [
+    "    if (Object.keys(row).length >= maxColumns) { truncated = true; return; }",
+    "    if (false) { truncated = true; return; }"
+   ],
+   [
+    "  const columns = Object.keys(row).slice(0, maxColumns);",
+    "  const columns = Object.keys(row);"
+   ]
+  ]
+ },
+ {
+  "id": "M29",
+  "file": "server/services/coach/tools.js",
+  "tests": "test/coach-tools.test.js",
+  "old": "      if (node.length > maxArray) truncated = true;",
+  "new": "      void 0;",
+  "desc": "a capped nested array sets no truncated flag"
+ },
+ {
+  "id": "M30",
+  "file": "server/services/coach/tools.js",
+  "tests": "test/coach-tools.test.js",
+  "old": "    return { entry: null, summary: tool.run(input).meta };",
+  "new": "    { const meta = tool.run(input).meta; const e = ledger.record({ tool: name, sql: null, params: [], tables: [], columns: ['meta'], rows: [{ meta: 1 }], row_count: 1, truncated: false, provenance: {} }); return { entry: e, summary: meta }; }",
+  "desc": "a catalog lookup enters the ledger, so a claim about football can cite it"
+ },
+ {
+  "id": "M31",
+  "file": "server/services/coach/tools.js",
+  "tests": "test/coach-tools.test.js",
+  "old": "  name, description, source, tables, input_schema, kind: 'service',",
+  "new": "  name, description, source: 'server/services/who-plays.js#noSuchFunction', tables, input_schema, kind: 'service',",
+  "desc": "a service tool declares a function that does not exist"
+ },
+ {
+  "id": "M32",
+  "file": "server/services/coach/tools.js",
+  "tests": "test/coach-tools.test.js",
+  "old": "  run(input) { return { value: call(input), tables }; }",
+  "new": "  run(input) { return { value: call(input), tables: [] }; }",
+  "desc": "a service tool stops declaring the tables it reads, so its result has no provenance"
+ },
+ {
+  "id": "M33",
+  "file": "server/services/coach/tools.js",
+  "tests": "test/coach-tools.test.js",
+  "old": "      const result = safeSelect(input?.sql, input?.params ?? [],\n        input?.max_rows ? { maxRows: int(input.max_rows, 'max_rows') } : {});",
+  "new": "      const result = safeSelect(input?.sql, input?.params ?? [], {});",
+  "desc": "sql_select ignores the row ceiling it was asked for"
+ },
+ {
+  "id": "NC-tools",
+  "file": "server/services/coach/tools.js",
+  "tests": "test/coach-tools.test.js",
+  "old": " * ONE SHAPE. Every result becomes rows with named columns, recorded in the",
+  "new": " * ONE SHAPE. Every result turns into rows with named columns, recorded in the",
+  "desc": "NO-OP CONTROL: reword a sentence of the file header, changing no behaviour"
+ }
+]

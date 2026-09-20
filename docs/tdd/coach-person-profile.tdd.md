@@ -127,20 +127,40 @@ message counts were written as 16 where the person has 15, and `question_rate` w
 asserted at 2 where only one message carried a `?`; the fixture and the expectations
 were both corrected to the real counts.
 
-## 4. Mutation table — every injection APPLIED, with its diffstat
+## 4. Mutation table — every injection APPLIED, by hash
 
-| # | Injection | File | Applied | Tests failing |
-|---|---|---|---|---|
-| M46 | a context trigger matches as a substring, so "we" fires on "week" | context.js | 1 ins, 1 del | 1 |
-| M47 | every rule applies to every person | context.js | 1 ins, 2 del | 5 |
-| M48 | a retired rule keeps applying | context.js | 1 ins, 1 del | 1 |
-| M49 | a context rule with no author is accepted | context.js | 1 ins, 1 del | 1 |
-| M50 | a variable measured on too few observations is reported rather than withheld | variables.js | 1 ins, 1 del | 2 |
-| M51 | variables ship priceable before the grading harness has run | variables.js | 1 ins, 1 del | 1 |
-| M52 | night share is recomputed here instead of read from the extractor | variables.js | 1 ins, 1 del | 1 |
-| M53 | a continuation of a speaker's own turn counts as a reply | variables.js | 1 ins, 1 del | **0 → 1** |
-| M54 | a message carries through into the profile | variables.js | 1 insertion | 1 |
-| M55 | the list of variables that cannot be computed is dropped | variables.js | 1 ins, 1 del | 1 |
+Every row was re-measured at head `fdfebf5`, and every row is reproducible:
+
+    python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/person.json
+
+The harness hashes the file, applies one literal substitution, runs the named suites,
+restores the file and proves the restore by hashing it again. The
+SHA-256 pair is the point of the row: a diffstat says something changed, a hash pair says
+exactly which bytes the suite was run against, so the row can be reproduced without
+guessing at the injection. A row whose anchor is not in the source is reported NOT
+APPLIED rather than scoring zero failures — that happened once in this sweep (M12's
+anchor had the wrong punctuation) and is the failure mode the control below exists for.
+
+**The last row of the table is a NO-OP control.** It rewords a sentence of the file's own
+header: the hash moves, so the harness demonstrably applied it, and no test fails, so a
+zero in the "Red" column is a real result rather than a silent non-match. Without it, an
+injection that quietly failed to apply would look exactly like an injection the suite
+survives.
+
+| # | Injection | File | SHA-256 before → after | Red | The test that must go red |
+|---|---|---|---|---|---|
+| M46 | a context trigger matches as a substring, so "we" fires on "week" | `context.js` | `0fd8c764` → `ce89b389` | 1 | `coach-person-context.test.js` — "we" does not fire on week, weather or were |
+| M47 | every rule applies to every person | `context.js` | `0fd8c764` → `29cdb7d0` | 5 | `coach-person-context.test.js` — one person's rule never touches another person's messages |
+| M48 | a retired rule keeps applying | `context.js` | `0fd8c764` → `1a735e67` | 1 | `coach-person-context.test.js` — a retired rule stops applying but stays on the record |
+| M49 | a context rule with no author is accepted | `context.js` | `0fd8c764` → `69403591` | 1 | `coach-person-context.test.js` — a rule can be added for anyone, and it needs a person, a scope, a rule and an author |
+| M50 | a variable measured on too few observations is reported rather than withheld | `variables.js` | `0eac7e63` → `cca5845b` | 4 | `coach-person-profile-script.test.js` — --write loads the derived table, with the sample size on every row |
+| M51 | variables ship priceable before the grading harness has run | `variables.js` | `0eac7e63` → `6545fe57` | 1 | `coach-person-variables.test.js` — a person with real volume gets variables, each with its own sample size |
+| M52 | night share is recomputed here instead of read from the extractor | `variables.js` | `0eac7e63` → `a63ed8a9` | 1 | `coach-person-variables.test.js` — the extractor’s own aggregates are read, not recomputed |
+| M53 | a continuation of a speaker's own turn counts as a reply *(survived the first pass; the test in the last column was written for it)* | `variables.js` | `0eac7e63` → `ad79b8ad` | 1 | `coach-person-variables.test.js` — talking to himself is not replying to anyone |
+| M54 | a message carries through into the profile, on a person with enough messages to clear the sample floor | `variables.js` | `0eac7e63` → `e545a3e1` | 1 | `coach-person-profile-script.test.js` — nothing the script stored carries a message, so the table can leave the machine |
+| M55 | the list of variables that cannot be computed is dropped | `variables.js` | `0eac7e63` → `b59a978a` | 1 | `coach-person-variables.test.js` — a variable we cannot compute is named, with what is missing |
+| NC-context | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `context.js` | `0fd8c764` → `5f3ac758` | **0** | none — and that is the assertion |
+| NC-variables | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `variables.js` | `0eac7e63` → `df76e2b3` | **0** | none — and that is the assertion |
 
 **M53, the survivor.** Replacing the reply rule with a bare "did anyone else speak
 before this" changed nothing the suite could see. The fixture's ten reply pairs were each
@@ -170,8 +190,11 @@ from a text chain is behaviour — when someone replies, how long they write, ho
 they hedge, how they sound when they are losing — so that is what these are, and calling
 them anything more would be the invention this whole rebuild exists to remove.
 
-**How do we know?** 23 tests and 10 injections, each stated above with its diffstat, all
-now killed; one survived first and produced a new fixture and test. The grading harness
+**How do we know?** 23 tests and 10 injections, each stated above with the file's SHA-256
+before and after it, all now killed, beside one no-op control per source file that moves
+the hash and kills nothing; one survived the first pass and produced a new fixture and
+test, and M54 was sharpened in this sweep so that it clears the sample floor, which moved
+its killer to the test that says no message text may reach the stored table. The grading harness
 is not built yet, so the correct statement about accuracy is that there isn't one: these
 numbers are arithmetic that has been verified, not predictions that have been checked.
 

@@ -99,21 +99,38 @@ shouts least late — so both halves have real spread and the failure is one a s
 can actually see. An unstable variable where everyone converges is not a detectable
 failure, and the test was asking for the wrong thing.
 
-## 4. Mutation table — every injection APPLIED
+## 4. Mutation table — every injection APPLIED, by hash
 
-Each applied to the working tree, the suite run, the file restored.
+Every row was re-measured at head `fdfebf5`, and every row is reproducible:
 
-| # | Injection | Tests failing |
-|---|---|---|
-| M61 | every variable passes | 4 |
-| M62 | a positive skill score alone is a pass; the rank check is dropped | **0 → 1** |
-| M63 | grade a variable however few people have a value in both halves | 1 |
-| M64 | grade the extractor's whole-chain aggregates as if they could be split | 1 |
-| M65 | compute a skill score when every late value is identical | **0 → 1** |
-| M66 | applying grades does not reset priceable first | **0 → 1** |
-| M67 | failed variables are made priceable alongside the passing ones | 2 |
-| M68 | the split falls at 0.99 of the span rather than 0.7 | 6 |
-| M69 | drop the per-half sample floor | **removed as unreachable** |
+    python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/grading.json
+
+The harness hashes the file, applies one literal substitution, runs the named suites,
+restores the file and proves the restore by hashing it again. The
+SHA-256 pair is the point of the row: a diffstat says something changed, a hash pair says
+exactly which bytes the suite was run against, so the row can be reproduced without
+guessing at the injection. A row whose anchor is not in the source is reported NOT
+APPLIED rather than scoring zero failures — that happened once in this sweep (M12's
+anchor had the wrong punctuation) and is the failure mode the control below exists for.
+
+**The last row of the table is a NO-OP control.** It rewords a sentence of the file's own
+header: the hash moves, so the harness demonstrably applied it, and no test fails, so a
+zero in the "Red" column is a real result rather than a silent non-match. Without it, an
+injection that quietly failed to apply would look exactly like an injection the suite
+survives.
+
+| # | Injection | File | SHA-256 before → after | Red | The test that must go red |
+|---|---|---|---|---|---|
+| M61 | every variable passes | `grading.js` | `ef500418` → `6c2d873a` | 5 | `coach-person-grading.test.js` — a variable that changes between the halves fails, and is named |
+| M62 | a positive skill score alone is a pass; the rank check is dropped *(survived the first pass; the test in the last column was written for it)* | `grading.js` | `ef500418` → `eb6d9a28` | 1 | `coach-person-grading.test.js` — beating the average on size is not enough: people have to keep their order |
+| M63 | grade a variable however few people have a value in both halves | `grading.js` | `ef500418` → `adf47ebe` | 1 | `coach-person-grading.test.js` — too few people is "not enough data", never a pass and never a fail |
+| M64 | grade the extractor's whole-chain aggregates as if they could be split | `grading.js` | `ef500418` → `11a2da37` | 2 | `coach-person-grading.test.js` — the extractor's own aggregates are reported as ungradeable, not as failures |
+| M65 | compute a skill score when every late value is identical *(survived the first pass; the test in the last column was written for it)* | `grading.js` | `ef500418` → `9875538a` | 1 | `coach-person-grading.test.js` — a variable nobody differs on is "not enough data", not a failure |
+| M66 | applying grades does not reset priceable first *(survived the first pass; the test in the last column was written for it)* | `grading.js` | `ef500418` → `f65bd440` | 1 | `coach-person-grading.test.js` — applying a grade takes priceable away as readily as it gives it |
+| M67 | failed variables are made priceable alongside the passing ones | `grading.js` | `ef500418` → `917ae06b` | 2 | `coach-person-grading.test.js` — only a pass may make a variable priceable, and it is a deliberate second step |
+| M68 | the split falls at 0.99 of the span rather than 0.7 | `grading.js` | `ef500418` → `e8f237dc` | 7 | `coach-person-grading.test.js` — a variable that is the same in both halves passes |
+| M69 | drop the per-half sample floor | `grading.js` | — | — | **removed as unreachable, not injected** — see below |
+| NC-grading | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `grading.js` | `ef500418` → `2bc22c1d` | **0** | none — and that is the assertion |
 
 **M62, and the fixture it needed.** Dropping the rank requirement changed nothing,
 because the fixture's unstable variable already failed on skill — rank was never the
@@ -150,8 +167,9 @@ which is the precondition for the claim anyone actually wants and is not that cl
 variable that passes has earned the right to be called a property of that person and
 nothing more.
 
-**How do we know?** 12 tests here and 5 on the run sheet, 8 injections each stated above,
-all killed, and one guard deleted for being unreachable. But the honest headline is the
+**How do we know?** 12 tests here and 5 on the run sheet, 8 injections each stated above
+with the file's SHA-256 before and after it, all killed, one no-op control that moves the
+hash and kills nothing, and one guard deleted for being unreachable. But the honest headline is the
 limitation: **the harness has never run against a real chain.** Every number in this
 file comes from a corpus built so the answer was known in advance, which proves the
 harness can tell a stable variable from an unstable one and proves nothing whatever

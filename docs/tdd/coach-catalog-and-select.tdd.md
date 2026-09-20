@@ -100,25 +100,43 @@ RED `f3fa6ed`: both suites written against modules that did not exist; both fail
 GREEN `6a0fa7e`: 27 tests pass, 0 fail. After the mutation run below, three more tests
 were added and the suites stand at **30 pass, 0 fail** (11 catalog, 19 select).
 
-## 4. Mutation table — every injection APPLIED, with its diffstat
+## 4. Mutation table — every injection APPLIED, by hash
 
-Each mutation was applied to the working tree, both suites run, and the file restored.
+Every row was re-measured at head `fdfebf5`, and every row is reproducible:
 
-| # | Injection | File | Applied | Tests failing | First test killed |
+    python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/catalog.json
+
+The harness hashes the file, applies one literal substitution, runs the named suites,
+restores the file and proves the restore by hashing it again. The
+SHA-256 pair is the point of the row: a diffstat says something changed, a hash pair says
+exactly which bytes the suite was run against, so the row can be reproduced without
+guessing at the injection. A row whose anchor is not in the source is reported NOT
+APPLIED rather than scoring zero failures — that happened once in this sweep (M12's
+anchor had the wrong punctuation) and is the failure mode the control below exists for.
+
+**The last row of the table is a NO-OP control.** It rewords a sentence of the file's own
+header: the hash moves, so the harness demonstrably applied it, and no test fails, so a
+zero in the "Red" column is a real result rather than a silent non-match. Without it, an
+injection that quietly failed to apply would look exactly like an injection the suite
+survives.
+
+| # | Injection | File | SHA-256 before → after | Red | The test that must go red |
 |---|---|---|---|---|---|
-| M1 | drop the readable-table check on mentioned tables | select.js | 1 deletion | 1 | one catalogued table does not license an uncatalogued one beside it |
-| M2 | drop the redacted-output check | select.js | 1 deletion | 1 | a redacted column cannot be selected, and the refusal names it |
-| M3 | open the connection writable | select.js | 1 ins, 1 del | 5 | the connection itself is read-only |
-| M4 | drop the forbidden-keyword scan | select.js | 1 ins, 1 del | **0 → 1** | a forbidden keyword in the body of a WITH query is refused as policy |
-| M5 | drop the one-statement check | select.js | 1 ins, 1 del | **0 → 1** | a second statement is refused even when it is itself only a SELECT |
-| M6 | never truncate | select.js | 1 deletion | 1 | more rows than the cap are truncated and say so |
-| M7 | make a SQL error look like a refusal | select.js | 1 ins, 1 del | 1 | a broken query fails as a SQL error the model can act on |
-| M8 | stop stripping string literals | select.js | 1 deletion | 1 | a forbidden word inside a string literal is a value, not a keyword |
-| M9 | catalogue a table that does not exist | catalog.js | 1 insertion | 2 | every catalogued table exists in the schema |
-| M10 | hand-copy columns instead of reading them live | catalog.js | 1 ins, 1 del | 2 | columns are read from the live database, not hand-copied |
-| M11 | stop freezing the allowlist | catalog.js | 1 ins, 1 del | 1 | COACH_TABLES is frozen |
-| M12 | drop the withheld-column list from leagues | catalog.js | 1 ins, 1 del | 3 | a table holding credentials declares them |
-| M13 | mark every table as automatically refreshed | catalog.js | 10 ins, 10 del | 1 | collection mode distinguishes hand-collected data |
+| M1 | drop the readable-table check on the tables the text mentions | `select.js` | `8b72d33a` → `81a447e1` | 1 | `coach-select.test.js` — one catalogued table does not license an uncatalogued one beside it |
+| M2 | drop the redacted-output check | `select.js` | `8b72d33a` → `9ef1f9ae` | 1 | `coach-select.test.js` — a redacted column cannot be selected, and the refusal names it |
+| M3 | open the connection writable | `select.js` | `8b72d33a` → `a5cdd088` | 5 | `coach-select.test.js` — the connection itself is read-only, so the policy check is not the only thing standing there |
+| M4 | drop the forbidden-keyword scan *(survived the first pass; the test in the last column was written for it)* | `select.js` | `8b72d33a` → `a01662d3` | 1 | `coach-select.test.js` — a forbidden keyword in the body of a WITH query is refused as policy, not left to SQLite |
+| M5 | drop the one-statement check *(survived the first pass; the test in the last column was written for it)* | `select.js` | `8b72d33a` → `d8d2fbbf` | 1 | `coach-select.test.js` — a second statement is refused even when it is itself only a SELECT |
+| M6 | never truncate | `select.js` | `8b72d33a` → `b0e1554c` | 1 | `coach-select.test.js` — more rows than the cap are truncated and say so, rather than being quietly cut |
+| M7 | make a SQL error look like a refusal | `select.js` | `8b72d33a` → `7dfadc23` | 1 | `coach-select.test.js` — a broken query fails as a SQL error the model can act on, not as a refusal |
+| M8 | stop stripping string literals | `select.js` | `8b72d33a` → `4175839c` | 1 | `coach-select.test.js` — a forbidden word inside a string literal is a value, not a keyword |
+| M9 | catalogue a table that does not exist | `catalog.js` | `0e319c2e` → `0e1e4d29` | 2 | `coach-catalog.test.js` — every catalogued table exists in the schema |
+| M10 | hand-copy columns instead of reading them live | `catalog.js` | `0e319c2e` → `b09ce81b` | 3 | `coach-catalog.test.js` — columns are read from the live database, not hand-copied |
+| M11 | stop freezing the allowlist | `catalog.js` | `0e319c2e` → `190f430d` | 1 | `coach-catalog.test.js` — COACH_TABLES is frozen, so no caller can widen what Coach may read at runtime |
+| M12 | drop the withheld-column list from leagues | `catalog.js` | `0e319c2e` → `ac6a676f` | 3 | `coach-catalog.test.js` — a table holding credentials declares them, so they can be withheld |
+| M13 | mark every table as automatically refreshed | `catalog.js` | `0e319c2e` → `3cf2caa0` | 1 | `coach-catalog.test.js` — collection mode distinguishes hand-collected data, so an answer can show its age |
+| NC-catalog | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `catalog.js` | `0e319c2e` → `ea721ff8` | **0** | none — and that is the assertion |
+| NC-select | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `select.js` | `8b72d33a` → `2a07d544` | **0** | none — and that is the assertion |
 
 **Two survivors, and what they proved.** M4 and M5 each changed nothing on the first run.
 Both guards were real but redundant with a guard tested ahead of them: every write the
@@ -145,8 +163,9 @@ demand, a fit derives it, or it is seeded. Nothing here is a guess. Where a mean
 summarised from the DDL rather than quoted from a service header, it is a description of
 columns that exist, checked against the live schema by test.
 
-**How do we know?** 30 tests, and 13 mutations each stated applied with its diffstat
-above. The claims about today's assistant in section 1 were each re-run in this
+**How do we know?** 30 tests, and 13 injections each stated above with the file's SHA-256
+before and after it, all killed, beside one no-op control per source file that moves the
+hash and kills nothing. The claims about today's assistant in section 1 were each re-run in this
 container (the missing directory, the six tool names, the four registering pages, the
 absent `coach` feature key), not taken from the inventory doc that also reports them.
 

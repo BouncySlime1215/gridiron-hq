@@ -1,0 +1,140 @@
+[
+ {
+  "id": "M14",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "    const row = query.rows[Number(rowIndex)];",
+  "new": "    const row = query.rows[Number(rowIndex)] ?? query.rows[0];",
+  "desc": "cell() slides to the nearest row when the index is out of range"
+ },
+ {
+  "id": "M15",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "    if (!row || !Object.hasOwn(row, column)) return null;",
+  "new": "    if (!row) return null;",
+  "desc": "cell() resolves a column the row does not have"
+ },
+ {
+  "id": "M16",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "    if (!LEDGER_OPS.includes(op)) {",
+  "new": "    if (false) {",
+  "desc": "derive() runs an operation that is not on the list"
+ },
+ {
+  "id": "M17",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "    if (DIVIDES.includes(op) && values.slice(1).some(v => v === 0)) {",
+  "new": "    if (false) {",
+  "desc": "derive() divides by zero instead of refusing"
+ },
+ {
+  "id": "M18",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "      if (!resolved) throw new LedgerError(`${op} cites ${cite}, which is not in the ledger.`);",
+  "new": "      if (!resolved) return 0;",
+  "desc": "derive() treats a cite that is not in the ledger as zero"
+ },
+ {
+  "id": "M19",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "      if (typeof value !== 'number' || !Number.isFinite(value)) {",
+  "new": "      if (false) {",
+  "desc": "derive() accepts a cell that is not a number"
+ },
+ {
+  "id": "M20",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "  percent_of: values => (values[0] * 100) / values[1]",
+  "new": "  percent_of: values => values[0] / values[1]",
+  "desc": "percent_of returns the bare ratio instead of a percentage"
+ },
+ {
+  "id": "M21",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "    if (resolved.kind === 'derived') {",
+  "new": "    if (false) {",
+  "desc": "trace() stops at the derived value and never unrolls its inputs"
+ },
+ {
+  "id": "M22",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "          if (meta?.collection === 'by_hand') tables.add(table);",
+  "new": "          tables.add(table);",
+  "desc": "handCollected() also lists tables a job refreshes"
+ },
+ {
+  "id": "M23",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "    if (!cites.length) {",
+  "new": "    if (false) {",
+  "desc": "a claim carrying no cite passes verification"
+ },
+ {
+  "id": "M24",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "  const allCites = [];",
+  "new": "  const allCites = []; const allCells = [];",
+  "desc": "cells pool across claims, so one claim's cite grounds another's number",
+  "edits": [
+   [
+    "  const allCites = [];",
+    "  const allCites = []; const allCells = [];"
+   ],
+   [
+    "    const cells = [];",
+    "    const cells = allCells;"
+   ]
+  ]
+ },
+ {
+  "id": "M25",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "  const places = statedPrecision(stated);",
+  "new": "  const places = 2;",
+  "desc": "every number is checked at two decimal places whatever it was stated to"
+ },
+ {
+  "id": "M26",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "  if (handCollected.length && !String(answer?.as_of ?? '').trim()) {",
+  "new": "  if (false) {",
+  "desc": "hand-collected data no longer has to carry an as-of"
+ },
+ {
+  "id": "M56",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "  for (const candidate of [numeric, numeric * 100, numeric / 100]) {",
+  "new": "  for (const candidate of [numeric]) {",
+  "desc": "a share written as a percentage is no longer grounded against the fraction"
+ },
+ {
+  "id": "M57",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "  if (!claims.length && !refusals.length) {",
+  "new": "  if (false) {",
+  "desc": "an answer with neither a claim nor a refusal is accepted"
+ },
+ {
+  "id": "NC-ledger",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": " * A cite that does not resolve returns null. It never resolves to something",
+  "new": " * A cite that fails to resolve returns null. It never resolves to something",
+  "desc": "NO-OP CONTROL: reword a sentence of the file header, changing no behaviour"
+ }
+]

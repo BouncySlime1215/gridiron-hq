@@ -92,28 +92,44 @@ GREEN `3bd6325`: **28 pass, 0 fail** (12 ledger, 16 verify), and still 28 after 
 mutation runs below: both survivors were closed by tightening and rewriting tests that
 already existed rather than by adding new ones.
 
-## 4. Mutation table — every injection APPLIED, with its diffstat
+## 4. Mutation table — every injection APPLIED, by hash
 
-Each mutation was applied to the working tree with `perl -0pi`, both suites run, the
-diffstat recorded, and the file restored and verified clean before the next one.
+Every row was re-measured at head `fdfebf5`, and every row is reproducible:
 
-| # | Injection | File | Applied | Tests failing |
-|---|---|---|---|---|
-| M14 | `cell()` slides to the nearest row when the index is out of range | ledger.js | 1 ins, 1 del | 1 |
-| M15 | `cell()` resolves a column the row does not have | ledger.js | 1 ins, 1 del | 1 |
-| M16 | `derive()` runs an operation that is not on the list, as a sum | ledger.js | 2 ins, 2 del | 1 |
-| M17 | `derive()` divides by zero instead of refusing | ledger.js | 1 ins, 1 del | 1 |
-| M18 | `derive()` treats a cite that is not in the ledger as zero | ledger.js | 1 ins, 1 del | 1 |
-| M19 | `derive()` accepts a cell that is not a number | ledger.js | 1 ins, 1 del | 1 |
-| M20 | `percent_of` returns the bare ratio instead of a percentage | ledger.js | 1 ins, 1 del | 2 |
-| M21 | `trace()` stops at the derived value and never unrolls its inputs | ledger.js | 1 ins, 1 del | 1 |
-| M22 | `handCollected()` also lists tables a job refreshes | ledger.js | 1 ins, 1 del | 6 |
-| M23 | a claim carrying no cite passes verification | verify.js | 1 ins, 1 del | 1 |
-| M24 | cells pool across claims | verify.js | 2 ins, 2 del | **0 → 1** |
-| M25 | every number is checked at two decimal places whatever it was stated to | verify.js | 1 ins, 1 del | 1 |
-| M26 | hand-collected data no longer has to carry an as-of | verify.js | 1 ins, 1 del | 1 |
-| M56 | a share written as a percentage is no longer grounded against the fraction | verify.js | 1 ins, 1 del | 1 |
-| M57 | an answer with neither a claim nor a refusal is accepted | verify.js | 1 ins, 1 del | 1 |
+    python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/ledger.json
+
+The harness hashes the file, applies one literal substitution, runs the named suites,
+restores the file and proves the restore by hashing it again. The
+SHA-256 pair is the point of the row: a diffstat says something changed, a hash pair says
+exactly which bytes the suite was run against, so the row can be reproduced without
+guessing at the injection. A row whose anchor is not in the source is reported NOT
+APPLIED rather than scoring zero failures — that happened once in this sweep (M12's
+anchor had the wrong punctuation) and is the failure mode the control below exists for.
+
+**The last row of the table is a NO-OP control.** It rewords a sentence of the file's own
+header: the hash moves, so the harness demonstrably applied it, and no test fails, so a
+zero in the "Red" column is a real result rather than a silent non-match. Without it, an
+injection that quietly failed to apply would look exactly like an injection the suite
+survives.
+
+| # | Injection | File | SHA-256 before → after | Red | The test that must go red |
+|---|---|---|---|---|---|
+| M14 | cell() slides to the nearest row when the index is out of range | `ledger.js` | `7ee4081a` → `ed0e8ad0` | 1 | `coach-ledger.test.js` — a cite that points at nothing resolves to null rather than to something nearby |
+| M15 | cell() resolves a column the row does not have | `ledger.js` | `7ee4081a` → `6bd7aafc` | 1 | `coach-ledger.test.js` — a cite that points at nothing resolves to null rather than to something nearby |
+| M16 | derive() runs an operation that is not on the list | `ledger.js` | `7ee4081a` → `231e9eab` | 1 | `coach-ledger.test.js` — an operation outside the whitelist is refused, not improvised |
+| M17 | derive() divides by zero instead of refusing | `ledger.js` | `7ee4081a` → `83a9e855` | 1 | `coach-ledger.test.js` — dividing by zero is refused rather than returned as Infinity |
+| M18 | derive() treats a cite that is not in the ledger as zero | `ledger.js` | `7ee4081a` → `71e11c50` | 1 | `coach-ledger.test.js` — a derivation whose input does not resolve fails loudly instead of skipping it |
+| M19 | derive() accepts a cell that is not a number | `ledger.js` | `7ee4081a` → `ce81790e` | 1 | `coach-ledger.test.js` — a derivation over a non-numeric cell fails, rather than producing NaN |
+| M20 | percent_of returns the bare ratio instead of a percentage | `ledger.js` | `7ee4081a` → `fe5c5c37` | 2 | `coach-ledger.test.js` — every whitelisted operation computes what it says |
+| M21 | trace() stops at the derived value and never unrolls its inputs | `ledger.js` | `7ee4081a` → `8981682c` | 1 | `coach-ledger.test.js` — a derived value can be the input to another, and the chain is readable |
+| M22 | handCollected() also lists tables a job refreshes | `ledger.js` | `7ee4081a` → `aa24858f` | 7 | `coach-ledger.test.js` — the ledger reports which cited data is hand-collected, so an answer can show its age |
+| M23 | a claim carrying no cite passes verification | `verify.js` | `23844055` → `8204122b` | 1 | `coach-verify.test.js` — a claim with no cites is a violation even when it contains no number |
+| M24 | cells pool across claims, so one claim's cite grounds another's number *(survived the first pass; the test in the last column was written for it)* | `verify.js` | `23844055` → `a07bbcd5` | 1 | `coach-verify.test.js` — a cell cited by another claim does not ground this one |
+| M25 | every number is checked at two decimal places whatever it was stated to | `verify.js` | `23844055` → `e10e170e` | 1 | `coach-verify.test.js` — a share written as a percentage is grounded against the fraction it came from |
+| M26 | hand-collected data no longer has to carry an as-of | `verify.js` | `23844055` → `ad1a7ce5` | 1 | `coach-verify.test.js` — hand-collected data obliges the answer to state its age |
+| M56 | a share written as a percentage is no longer grounded against the fraction | `verify.js` | `23844055` → `22c7fe96` | 1 | `coach-verify.test.js` — a share written as a percentage is grounded against the fraction it came from |
+| M57 | an answer with neither a claim nor a refusal is accepted | `verify.js` | `23844055` → `634c2da5` | 1 | `coach-verify.test.js` — an answer with no claims is a violation, not a pass by vacuum |
+| NC-ledger | NO-OP CONTROL: reword a sentence of the file header, changing no behaviour | `ledger.js` | `7ee4081a` → `a318c919` | **0** | none — and that is the assertion |
 
 M56 and M57 carry later numbers because they were added after the numbered pass, when
 writing this table showed that two guards in `verify.js` — the percentage form and the
@@ -150,8 +166,9 @@ people's numbers and checks them. The one arithmetic choice with a defensible an
 implementation on 100/3, and the implementation was changed because two rounding steps
 are worse than one.
 
-**How do we know?** 28 tests, and 15 injections each stated above with its diffstat, all
-now killed. Two of them survived first and produced a tightened test and a rewritten one.
+**How do we know?** 28 tests, and 15 injections each stated above with the file's SHA-256
+before and after it, all now killed, beside a no-op control that moves the hash and kills
+nothing. Two of them survived first and produced a tightened test and a rewritten one.
 The claims about the assistant Coach replaces (`nfl-page-explain.js:56,88-133`) and about
 the sibling that got it right (`trades.js:705-887`) are line-cited and were read in this
 container.

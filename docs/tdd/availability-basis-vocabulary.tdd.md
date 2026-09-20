@@ -13,11 +13,11 @@ consumer can define its own copy without that being obvious.
 which of four already-existing code paths priced a row. It computes no new
 number and changes no existing one.
 
-**How do we know?** A RED commit, a GREEN commit, eight passing tests, and a
+**How do we know?** A RED commit, a GREEN commit, nine passing tests, and a
 mutation table where each mutation is shown applied by hash and named by the
-tests it turns red. Five of five kills land on the test that names them; one
-mutation survives and is reported as surviving, with the fixture that would
-kill it. The load-bearing row is control A: rewording the display sentence
+tests it turns red. Six of six kills land on the test that names them, with no
+survivors --- the one survivor an earlier run reported is closed, and how is
+recorded rather than dropped. The load-bearing row is control A: rewording the display sentence
 leaves every test passing, which is the precise thing that was broken before.
 
 **Should this data be pointed anywhere else?** It already is: the fantasy
@@ -114,7 +114,7 @@ strings out again. `DEFAULT_DURABILITY_PRIOR` and `DEFAULT_ACTIVE_PROBABILITY`
 are exported from the same file, as two independent literals with two
 docstrings — one is the input to the report-status curve, the other replaces
 its output for a player the curve never ran on, and the matching digits are
-coincidence. Eight tests pass.
+coincidence. Nine tests pass.
 
 ## Mutation evidence, applied
 
@@ -123,46 +123,55 @@ after, so "applied" is shown and not asserted: a pattern that does not match
 leaves the file unchanged and the run is the baseline wearing a mutation's
 name. Each row also names the tests it turned red, because a mutation that
 lands and kills a different test is unfinished, not a result. Both files were
-restored and their hashes verified afterwards (`contingency.js` `28bffcd49d70`,
-`availability-basis.js` `6de130fcae48`).
+restored and their hashes re-verified afterwards (`contingency.js`
+`28bffcd49d70`, `availability-basis.js` `6de130fcae48`).
 
 | Mutation | Verification | Result | Fails | Named tests red |
 |---|---|---|---|---|
 | collapse the measured/substituted split | APPLIED `28bffcd49d70` → `2696e9fcaa93` | RED | 3 | with no fit on file the basis is the prior, and it says which prior · the default prior behind a default_durability row is the shared constant · the basis does not depend on the wording of the source sentence |
-| remove `availability_basis` from the served row | APPLIED `28bffcd49d70` → `358de206bf53` | RED | 5 | every served row carries a basis from the list · with no fit on file the basis is the prior, and it says which prior · the default prior behind a default_durability row is the shared constant · a fitted pooled rate moves the basis off the prior, for both players · the basis does not depend on the wording of the source sentence |
+| remove `availability_basis` from the served row | APPLIED `28bffcd49d70` → `358de206bf53` | RED | 6 | every served row carries a basis from the list · with no fit on file the basis is the prior, and it says which prior · the default prior behind a default_durability row is the shared constant · a fitted pooled rate moves the basis off the prior, for both players · a fitted role cell takes precedence, and the basis says role · the basis does not depend on the wording of the source sentence |
 | stop setting the pooled arm | APPLIED `28bffcd49d70` → `fbb6d1f6fa2f` | RED | 1 | a fitted pooled rate moves the basis off the prior, for both players |
-| serve the default prior as measured | APPLIED `28bffcd49d70` → `dc9e238bf317` | RED | 2 | a fitted pooled rate moves the basis off the prior, for both players · a served durability prior says whether it was measured or substituted |
+| mislabel the role arm as `pooled` | APPLIED `28bffcd49d70` → `3d5a1175964a` | RED | 1 | a fitted role cell takes precedence, and the basis says role |
+| serve the default prior as measured | APPLIED `28bffcd49d70` → `dc9e238bf317` | RED | 3 | a fitted pooled rate moves the basis off the prior, for both players · a fitted role cell takes precedence, and the basis says role · a served durability prior says whether it was measured or substituted |
 | derive the fallback probability from the prior | APPLIED `6de130fcae48` → `b17de74027ed` | RED | 1 | the prior and the fallback active probability are independent literals |
-| **SURVIVOR** — mislabel the role arm as `pooled` | APPLIED `28bffcd49d70` → `3d5a1175964a` | **GREEN** | 0 | **none — see below** |
 | **CONTROL A** — reword the `source` sentence | APPLIED `28bffcd49d70` → `460bb8d2485d` | GREEN | 0 | none, and that is the claim |
 | **CONTROL B** — a pattern that is not in the file | **NO-OP — pattern not found** | — | — | — |
 
-Five of five kills are by the test that names them. Two controls, doing two
-different jobs: A is a real edit that must NOT break anything, and is the whole
-point of the change — the tests pin the contract and ignore the prose. B shows
-the harness can report a miss, so an APPLIED row above means something.
+**6 of 6 caught, each by the test that names it. No survivors.**
 
-### The surviving mutation
+Two controls, doing two different jobs. A is a real edit that must NOT break
+anything, and is the whole point of the change: the tests pin the contract and
+ignore the prose. B shows the harness can report a miss, so an APPLIED row
+above means something.
 
-Mislabelling the role arm as `pooled` is **not caught**. It is a real mutation,
-not an equivalent one: it changes a served value, and a consumer that shows
-"priced by the role fit" would show the wrong thing. It survives because this
-file's fixture writes no role rates, so the role branch never executes.
+### The survivor that was closed
 
-The test that would kill it: a case with `nfl_availability_role_rates` rows and
-`player_week_snaps` rows such that `roleStates` yields a cell with a
-`gap_bucket`, then `weeklyAvailability(..., { useRole: true })` and assert
-`availability_basis === 'role'`. That fixture exists in
-`availability-role.test.js`, which pins the role path's NUMBERS; the basis
-string is not asserted there. Counted as surviving rather than written off, and
-it is the one hole in this contract.
+An earlier run of this table reported one surviving mutation: mislabelling the
+role arm as `pooled` went undetected, because the fixture wrote no role rates
+and the branch never executed. It is recorded here rather than quietly dropped,
+since the fix is the interesting part.
+
+Closing it took the three things that arm needs and the others do not: rows in
+`nfl_availability_role_rates`, a 2026 week-1 appearance with snaps so
+`roleStates` can compute a tier and a games gap, and `useRole: true`. The test
+"a fitted role cell takes precedence, and the basis says role" now asserts the
+role cell wins over the pooled rate written by the test before it, which is the
+precedence the arm exists to express. The same mutation is red in the table
+above.
 
 ## Not covered
 
-The `role` arm. It needs fitted role rates plus snap rows for `roleStates` to
-produce a usable cell, which is `availability-role.test.js`'s fixture — that
-file pins the role path's numbers, this one pins the basis string on the three
-arms a plain fixture reaches. Stated rather than implied.
+All four servable arms are now exercised and every mutation of them is caught,
+so the honest gap is elsewhere. Two things this file does not pin:
+
+- **The two consumer arms**, `unfitted_position` and `unrecognised`. Neither is
+  servable by construction, so there is nothing here to assert; the tests pin
+  only that they are in the list and out of the servable set. Whoever emits
+  them owns testing them.
+- **The numbers**, which are `availability-role.test.js`'s job. This file pins
+  which path priced a row, never what it priced it at. A mutation that changed
+  a role cell's probability without changing which arm answered would pass
+  here, correctly, and fail there.
 
 ## Checks on this commit's own tree
 
@@ -174,7 +183,7 @@ npm run check    exit 0
   typecheck      clean
   client build   ok
   start:smoke    passed on an isolated database (32 teams)
-  full suite     2,961 tests · 2,920 pass · 0 fail · 41 skipped
+  full suite     2,962 tests · 2,921 pass · 0 fail · 41 skipped
 ```
 
 GitHub Actions is out of minutes until 2026-10-01 and the CI workflow is

@@ -32,7 +32,7 @@ process.env.SCHEDULER_DISABLED = '1';
 const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
-const { weeklyAvailability, resetAvailabilityCache, AVAILABILITY_RATES_DDL } =
+const { weeklyAvailability, resetAvailabilityCache, AVAILABILITY_RATES_DDL, AVAILABILITY_ROLE_RATES_DDL } =
   await import("../server/services/contingency.js");
 const B = await import('../server/services/availability-basis.js');
 
@@ -141,10 +141,43 @@ test('a fitted pooled rate moves the basis off the prior, for both players', () 
   assert.equal(withFit.get(202).durability_prior_measured, false);
 });
 
-// NOT COVERED HERE: the 'role' arm. It needs fitted role rates plus snap rows
-// for roleStates to produce a usable cell, which is availability-role.test.js's
-// fixture. That file pins the role path's NUMBERS; this one pins the basis
-// string on the three arms a plain fixture can reach.
+test('a fitted role cell takes precedence, and the basis says role', () => {
+  // The fourth arm. It needs three things the arms above do not: role rates on
+  // file, a 2026 week-1 appearance so `roleStates` can compute a tier and a
+  // games gap, and `useRole: true`. Without all three the role branch never
+  // executes — which is exactly why mislabelling it survived a mutation before
+  // this test existed.
+  run(AVAILABILITY_ROLE_RATES_DDL);
+  const config = JSON.stringify({ k: 10, byPosition: false, durabilityCap: false });
+  for (const [rs, ps, pos, tier, gap, p] of [
+    ['noreport', '*', '*', '*', '*', 0.70],
+    ['noreport', 'none', '*', '*', '*', 0.70],
+    ['noreport', 'none', '*', 'starter', '*', 0.90],
+    ['noreport', 'none', '*', 'starter', 'g0', 0.953]
+  ]) {
+    run(`INSERT INTO nfl_availability_role_rates
+         (report_status,practice_status,position,tier,gap,p_active,n,raw_rate,config,fitted_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      rs, ps, pos, tier, gap, p, 100, p, config, '2026-09-20T00:00:00Z');
+  }
+  // Week 1 of the graded season, so the gap is g0 and the tier is starter.
+  // 203 is filler: it is what gives team AAA a week 1 on the schedule.
+  player(203, 'AAA Filler', 'WR', 'basis-fill');
+  for (const id of [201, 202, 203]) {
+    usage(id, 2026, 1, 'AAA', 'WR');
+    run(`INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct)
+         VALUES (?,?,?,?,?)`, id, 2026, 1, 59, 0.9);
+  }
+  resetAvailabilityCache();
+  const withRole = weeklyAvailability(2026, 2, { through: 2025, useRole: true, espn: false });
+  assert.equal(withRole.get(201).availability_basis, 'role');
+  // And it beats the pooled rate written by the test above, which is the
+  // precedence the arm exists to express.
+  assert.equal(withRole.get(201).source.startsWith('fitted availability by role'), true);
+  // The rookie's prior is still a default; the role fit priced him all the same.
+  assert.equal(withRole.get(202).availability_basis, 'role');
+  assert.equal(withRole.get(202).durability_prior_measured, false);
+});
 
 test('the basis does not depend on the wording of the source sentence', () => {
   // The two rows differ in basis while sharing a source sentence, which is

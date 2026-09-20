@@ -53,28 +53,128 @@ the suite was silent on all three.
 
 ## GREEN
 
-The nested ternary becomes `verdictFor({ passes, invertedCount })`, exported, so all
-three verdicts can be read on their own inputs rather than only through whichever
-one a fixture happens to produce. Four tests, one per verdict plus the precedence
-between them, each assertion carrying one fact and its own message.
+The nested ternary becomes `verdictFor({ passes, invertedCount })`, exported, so all three verdicts
+can be read on their own inputs rather than only through whichever one a fixture happens to
+produce. Four tests, one per verdict plus the precedence between them, each assertion carrying one
+fact and its own message.
 
-The same three mutations against the new tests:
+No verdict wording changed, and no threshold moved: `separating.length >= 2` is the bar it was, and
+the three sentences are the three sentences. What changed is that two of them can now be reached by
+a test.
 
-| # | Mutation | Against the new tests |
-|---|---|---|
-| 1 | inverted season falls through | APPLIED — 21 pass / 1 fail |
-| 2 | "Do not ship" dropped | APPLIED — 21 pass / 1 fail |
-| 3 | inverted overrides a pass | APPLIED — 21 pass / 1 fail |
+A `VERDICTS` constant was written and then removed. Nothing keys off it — the verdict is a sentence
+and every caller reads it as one — and an unused parallel enum is a dead export waiting to be found
+by the next sweep.
 
-`test/draft-abstention-audit.test.js` file: 22 tests, 22 pass, 0 fail.
+## Mutations
 
-No verdict wording changed, and no threshold moved: `separating.length >= 2` is the
-bar it was, and the three sentences are the three sentences. What changed is that
-two of them can now be reached by a test.
+Every row below was run on the tree at `656b11b`, one mutation at a time, each restored before
+the next. `before` and `after` are the first 16 hex of the SHA-256 of
+`server/services/draft-abstention-audit.js` (pristine `dfd5a24a7a5fc574`); a row whose hash does
+not move did not land and is reported NO-OP rather than counted as a pass.
 
-A `VERDICTS` constant was written and then removed. Nothing keys off it — the
-verdict is a sentence and every caller reads it as one — and an unused parallel
-enum is a dead export waiting to be found by the next sweep.
+| # | what was changed | before → after | landed | pass / fail | tests that went red |
+|---|---|---|---|---|---|
+| M1 | an inverted season falls through to the null verdict | `dfd5a24a7a5fc574` → `c39305c249d0b979` | APPLIED | 21 / 1 | verdictFor: an inverted season is anti-selective, and says do not ship |
+| M2 | the anti-selective verdict stops saying do not ship | `dfd5a24a7a5fc574` → `a7ee284e7cdd35f1` | APPLIED | 21 / 1 | verdictFor: an inverted season is anti-selective, and says do not ship |
+| M3 | an inverted season overrides a pass | `dfd5a24a7a5fc574` → `2b9944850a21f073` | APPLIED | 21 / 1 | verdictFor: passing wins over an inverted season, so the two cannot both be claimed |
+| M4 | the passing verdict claims a licence to re-rank | `dfd5a24a7a5fc574` → `bd26eba7f1f0c4ee` | APPLIED | 21 / 1 | verdictFor: two separating seasons is the only way to pass |
+| M5 | the null verdict stops saying do not ship | `dfd5a24a7a5fc574` → `44d3c4c3c1ae11f0` | APPLIED | 20 / 2 | the verdict is a function of the bar, not of the author's hopes<br>verdictFor: no inverted season and no pass is the null result |
+| M6 | the null verdict drops the sample-size reason | `dfd5a24a7a5fc574` → `76ff9418021e8c0e` | APPLIED | 21 / 1 | verdictFor: no inverted season and no pass is the null result |
+| C1 *NO-OP CONTROL* | a comment word changed, nothing executable | `dfd5a24a7a5fc574` → `203cfa41fd2cc6cc` | APPLIED | 22 / 0 | — none, and that is the point — |
+| C2 *KILL-CONTROL* | every verdict becomes the same sentence | `dfd5a24a7a5fc574` → `b257539e80dd0268` | APPLIED | 18 / 4 | the verdict is a function of the bar, not of the author's hopes<br>verdictFor: two separating seasons is the only way to pass<br>verdictFor: an inverted season is anti-selective, and says do not ship<br>verdictFor: no inverted season and no pass is the null result |
+
+Every row landed: each `after` hash differs from the pristine `dfd5a24a7a5fc574`.
+
+**C1 is the NO-OP CONTROL.** A word inside a comment changes, the file's hash moves, and the suite
+stays at 22 / 0. It proves the harness really edits the file and that a clean run means something.
+
+**C2 is the KILL-CONTROL**, named separately because it is a different claim: every verdict becomes
+one placeholder sentence, which must break a lot, and does — 18 / 4.
+
+### Every new test is reddened by something
+
+| test | killed by |
+|---|---|
+| verdictFor: two separating seasons is the only way to pass | M4, C2 |
+| verdictFor: an inverted season is anti-selective, and says do not ship | M1, M2, C2 |
+| verdictFor: no inverted season and no pass is the null result | M5, M6, C2 |
+| verdictFor: passing wins over an inverted season, so the two cannot both be claimed | M3 |
+| the verdict is a function of the bar, not of the author's hopes *(pre-existing)* | M5, C2 |
+
+The pre-existing test is included deliberately. It is the one whose ANTI-SELECTIVE arm never runs,
+and M5 and C2 show what it DOES cover: the null-result arm it actually takes. Its middle arm still
+depends on a fixture that produces an inverted season, which none does; the four `verdictFor` tests
+are what now cover that verdict, and the arm is left in place with a comment saying so rather than
+deleted, because the day a fixture does invert, it should assert.
+
+### Exact text, per row
+
+A description of an edit is not the edit. Each row's `old` and `new`, verbatim, in table order.
+
+**M1** — an inverted season falls through to the null verdict
+
+```diff
+-   if (invertedCount) {
++   if (false && invertedCount) {
+```
+
+**M2** — the anti-selective verdict stops saying do not ship
+
+```diff
+- the same inversion the betting side found (top-3 confidence picks at 45.1%, z = -2.42). Do not ship.'
++ the same inversion the betting side found (top-3 confidence picks at 45.1%, z = -2.42).'
+```
+
+**M3** — an inverted season overrides a pass
+
+```diff
+-   if (passes) {
++   if (passes && !invertedCount) {
+```
+
+**M4** — the passing verdict claims a licence to re-rank
+
+```diff
+- 'A hypothesis for a forward test and a presentational change, not a licence to re-rank.'
++ 'A hypothesis for a forward test and a presentational change, and a licence to re-rank.'
+```
+
+**M5** — the null verdict stops saying do not ship
+
+```diff
+- + 'expectation. The gate measures nothing real at this sample size. Do not ship.'
++ + 'expectation. The gate measures nothing real at this sample size.'
+```
+
+**M6** — the null verdict drops the sample-size reason
+
+```diff
+- The gate measures nothing real at this sample size.
++ The gate measures nothing real here.
+```
+
+**C1** — NO-OP CONTROL: a comment word changed, nothing executable
+
+```diff
+-  * The three verdicts, as a closed set, keyed by the two facts that decide between
++  * The three verdicts, as a fixed set, keyed by the two facts that decide between
+```
+
+**C2** — KILL-CONTROL: every verdict becomes the same sentence
+
+```diff
+- export function verdictFor({ passes, invertedCount }) {
++ export function verdictFor({ passes, invertedCount }) {
++   if (true) return 'GATE SEPARATES — placeholder';
+```
+## Numbers, and the commit they were measured on
+
+`test/draft-abstention-audit.test.js` alone: **22 tests, 22 pass, 0 fail**, on `656b11b`.
+
+Full `npm run check` on `656b11b`: **2,960 tests, 2,919 pass, 0 fail, 41 skipped**, exit 0.
+874 JavaScript files (`git ls-tree -r --name-only 656b11b -- server scripts test | grep -cE
+'\.(js|mjs)$'`), build 3.15s, `start:smoke` passed on an isolated database (32 teams).
 
 ## The five questions
 

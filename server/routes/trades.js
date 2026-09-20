@@ -16,13 +16,13 @@ import {
 // The same season-by-season prompt lines and "argue from the numbers" rules the
 // draft advisor runs on (server/routes/drafts.js) — one voice for both rooms.
 import { evidenceLines, evidenceHeadline, STAT_ROOTED_INSTRUCTIONS } from '../services/draft-assist.js';
-import { dvpTable, relevantSplits, matchupModel, matchupSignalActive, MATCHUP_SIGNAL_REASON } from '../services/matchups.js';
-import { leagueCurrentWeek, leagueLastCompletedWeek } from '../services/league-week.js';
+import { dvpTable, matchupModel, matchupSignalActive, MATCHUP_SIGNAL_REASON } from '../services/matchups.js';
+import { leagueCurrentWeek } from '../services/league-week.js';
 import { waiverBoard } from '../services/waiver-wire.js';
 import { lineupPosture } from '../services/lineup-posture.js';
 import { deriveFormat } from '../services/format.js';
 import { newsOpportunities } from '../services/news-lag-trader.js';
-import { brainState, managerProfiles, setManagerProfile } from '../services/league-brain.js';
+import { managerProfiles, setManagerProfile } from '../services/league-brain.js';
 // The measured manager layer: what has been observed about each counterparty, as
 // opposed to `manager_profiles`, which is the tier Nick set by hand.
 import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected, chatCorpusState }
@@ -34,17 +34,9 @@ import { counterpartyLayer, valuationMap, playerValuation, RECEPTIVENESS_RANGE }
 // triggers work needs the administrator grant on top (server/platform/legacy-access.js).
 import { requirePlatformAdmin } from '../platform/legacy-access.js';
 import { proposalsFor, liveCaller, dbCache, PROPOSAL_SLATE_SIZE } from '../services/trade-proposals.js';
-import { waiverUpgrades, freeAgents } from '../services/waiver-brain.js';
-import { byeOutlook, byePatches, fragility } from '../services/roster-risk.js';
-import { positionLiquidity } from '../services/position-liquidity.js';
-import { trendExploits } from '../services/trend-exploits.js';
 import { lineupCall } from '../services/lineup-brain.js';
-import { teamTrends, playerTrends } from '../services/weekly-trends.js';
-import { scanTrends, conflicts, trendHistory } from '../services/trend-watch.js';
-import { regressionCandidates, regressionForLeague, touchdownRates } from '../services/td-regression.js';
 import { ceilingLineup } from '../services/ceiling-lineup.js';
 import { titleOddsTrades } from '../services/title-odds-trades.js';
-import { weekPostmortem } from '../services/week-postmortem.js';
 import { tradeImpact } from '../services/season-sim.js';
 import {
   proposeVerifyRetryTrade, judgeTradeVerdict, tradeChallengeText, SENSE_CHECK_SIM_RUNS
@@ -148,24 +140,22 @@ r.get('/:leagueId/post-draft-plan', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ------------------------------------------------- the brain, what is left of it */
 /**
  * A route that existed and was deliberately removed. 410 (Gone), never 404, and
  * always with a pointer: a caller that finds a missing path deserves to be told
  * where the capability went, and a silent 404 reads like a bug.
+ *
+ * A tombstone is not free — it is code that must keep working — so it is earned
+ * by having somewhere to point. The routes cut on 2026-09-20 had nowhere: no
+ * page, script or test dialled them, and the capability was not moved, it was
+ * abandoned. They are simply gone, and a 404 is the honest answer for a path
+ * that never had a successor. `/splits/:playerId` is the one exception below.
  */
 const retired = (use, why) => (_req, res) => res.status(410).json({
   error: `This endpoint was retired on 2026-09-18. ${why}`, use,
 });
 
-/* ----------------------------------------------------------------- the brain */
-
-/** Where you stand: rank, holes, and which hole is worth paying to fix. */
-r.get('/:leagueId/brain/state', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(brainState(lg.id, req.query.team_id ?? null));
-  } catch (e) { next(e); }
-});
 
 /**
  * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
@@ -180,22 +170,6 @@ r.get('/:leagueId/brain/state', (req, res, next) => {
 r.get('/:leagueId/brain/plan', retired('/api/trades/:leagueId/find',
   'The plan\'s trade half was a second enumerator with its own acceptance curve. Trade ideas now come from one place, which prices how each manager reads a deal; the weekly plan service is being rebuilt on top of it.'));
 
-/**
- * Free agents who would crack your lineup.
- *
- * Separate from the plan because it answers on its own: a waiver claim needs no
- * counterparty, so it is the one move available every week regardless of who is
- * talking to you.
- */
-r.get('/:leagueId/brain/waivers', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(waiverUpgrades(lg.id, {
-      myTeamId: req.query.team_id ?? null,
-      limit: Math.min(25, Number(req.query.limit) || 10)
-    }));
-  } catch (e) { next(e); }
-});
 
 /**
  * RETIRED 2026-09-18 (trade-engine-correctness, GATE G7).
@@ -211,143 +185,17 @@ r.get('/:leagueId/brain/waivers', (req, res, next) => {
 r.get('/:leagueId/brain/sell-high', retired('/api/trades/:leagueId/find',
   'Selling high on a player is a trade idea, not a list: the finder names the buyer, the package and how he reads it. sellHigh() remains an input to the hype-window tactic.'));
 
-/** The unrostered pool, ranked on the horizon that matters this week. */
-r.get('/:leagueId/brain/free-agents', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    const list = freeAgents(lg, { limit: Math.min(200, Number(req.query.limit) || 60) });
-    res.json({ count: list.length, players: list });
-  } catch (e) { next(e); }
-});
 
-/** Which future weeks already cost you points, and who on the wire fixes them. */
-r.get('/:leagueId/brain/bye-risk', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(byePatches(lg.id, { myTeamId: req.query.team_id ?? null }));
-  } catch (e) { next(e); }
-});
 
-/** Where one injury ends the season, weighted by how often each player misses time. */
-r.get('/:leagueId/brain/fragility', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(fragility(lg.id, { myTeamId: req.query.team_id ?? null }));
-  } catch (e) { next(e); }
-});
 
-/** What the other rosters can actually spare, position by position. */
-r.get('/:leagueId/brain/liquidity', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(positionLiquidity(lg.id, { myTeamId: req.query.team_id ?? null }));
-  } catch (e) { next(e); }
-});
 
-/* ------------------------------------------------------------ weekly trends */
 
-/**
- * What has changed lately, crossed against what you can do about it.
- *
- * The statistics live in weekly-trends.js and refuse to say anything that does
- * not clear a corrected significance bar; this is the join onto your roster,
- * the wire, and the schedule.
- */
-r.get('/:leagueId/trends', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(trendExploits(lg.id, {
-      myTeamId: req.query.team_id ?? null,
-      lookback: Math.max(2, Math.min(6, Number(req.query.lookback) || 3))
-    }));
-  } catch (e) { next(e); }
-});
 
-/** One team's trajectory across its recent games. */
-r.get('/trends/team/:team', (req, res, next) => {
-  try {
-    const season = Number(req.query.season) || null;
-    const latest = season ?? row('SELECT MAX(season) AS s FROM nfl_team_week_features')?.s;
-    res.json(teamTrends(String(req.params.team).toUpperCase(), latest, {
-      throughWeek: Number(req.query.week) || null,
-      lookback: Math.max(2, Math.min(6, Number(req.query.lookback) || 3))
-    }));
-  } catch (e) { next(e); }
-});
 
-/** One player's usage trajectory — share rather than points, on purpose. */
-r.get('/trends/player/:playerId', (req, res, next) => {
-  try {
-    const latest = Number(req.query.season) || row('SELECT MAX(season) AS s FROM player_week_usage')?.s;
-    res.json(playerTrends(Number(req.params.playerId), latest, {
-      throughWeek: Number(req.query.week) || null,
-      lookback: Math.max(2, Math.min(6, Number(req.query.lookback) || 3))
-    }));
-  } catch (e) { next(e); }
-});
 
-/**
- * Sweep every offence and report the DIFFERENCE against the last sweep.
- *
- * The diff is the product: a trend reported every week forever is wallpaper.
- * New ones are the alert, faded ones are the signal to stop acting on an old
- * read, and ongoing ones are context the league has already priced.
- */
-r.post('/trends/scan', (req, res, next) => {
-  try {
-    res.json(scanTrends({
-      season: Number(req.body?.season) || null,
-      throughWeek: Number(req.body?.through_week) || null,
-      lookback: Math.max(2, Math.min(6, Number(req.body?.lookback) || 3))
-    }));
-  } catch (e) { next(e); }
-});
 
-/** The stored picture, without running a sweep. */
-r.get('/trends/watch', (req, res, next) => {
-  try {
-    const lookback = Math.max(2, Math.min(6, Number(req.query.lookback) || 3));
-    const history = trendHistory({ season: Number(req.query.season) || null, lookback });
-    res.json({
-      ...history,
-      conflicts: history.season ? conflicts(history.season, null, lookback).conflicts : []
-    });
-  } catch (e) { next(e); }
-});
 
-/**
- * Touchdown luck, and who it is about to stop favouring.
- *
- * Touchdown rate is the least stable number in football while target share is
- * among the most stable, so the gap between a player's touchdowns and his
- * opportunities is the most reliable inefficiency in the sport.
- */
-r.get('/:leagueId/regression', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    res.json(regressionForLeague(lg.id, {
-      myTeamId: req.query.team_id ?? null,
-      season: Number(req.query.season) || null,
-      throughWeek: Number(req.query.week) || null
-    }));
-  } catch (e) { next(e); }
-});
 
-/** The league-wide board, without a roster join. */
-r.get('/regression/board', (req, res, next) => {
-  try {
-    res.json(regressionCandidates({
-      season: Number(req.query.season) || null,
-      throughWeek: Number(req.query.week) || null,
-      minOpportunities: Math.max(5, Math.min(200, Number(req.query.min_opportunities) || 20))
-    }));
-  } catch (e) { next(e); }
-});
-
-/** The fitted conversion rates themselves, per position group. */
-r.get('/regression/rates', (_req, res, next) => {
-  try { res.json(touchdownRates()); } catch (e) { next(e); }
-});
 
 /**
  * Who to start this week, with every call graded by how close it was.
@@ -682,22 +530,6 @@ r.get('/:leagueId/title-trades', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/**
- * Was I wrong, or unlucky? Separates decision cost from projection error from
- * variance for a completed week.
- */
-r.get('/:leagueId/postmortem', (req, res, next) => {
-  try {
-    const lg = league(req, res); if (!lg) return;
-    const lineup = idList(req.query.lineup);
-    res.json(weekPostmortem(lg.id, {
-      teamId: req.query.team_id,
-      season: Number(req.query.season) || undefined,
-      week: Math.min(18, Math.max(1, Number(req.query.week) || leagueLastCompletedWeek(lg))),
-      lineup: lineup.length ? lineup : null
-    }));
-  } catch (e) { next(e); }
-});
 
 /**
  * The waiver wire, ranked by points added to the starting lineup.
@@ -1087,15 +919,18 @@ r.get('/dvp', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Opponent-history splits for one player: "when he plays X he usually does Y". */
-r.get('/splits/:playerId', (req, res, next) => {
-  try {
-    const p = row(`SELECT p.id, p.name, p.position, t.abbr FROM players p
-                   LEFT JOIN nfl_teams t ON t.id = p.team_id WHERE p.id = ?`, req.params.playerId);
-    if (!p) return res.status(404).json({ error: 'player not found' });
-    res.json({ ...p, ...relevantSplits(p.id, p.abbr, 5) });
-  } catch (e) { next(e); }
-});
+/**
+ * RETIRED 2026-09-20. Nothing dialled this route — no page, no script, no test.
+ *
+ * `relevantSplits()` is NOT retired with it, and this is the one cut of the
+ * sixteen that earns a tombstone rather than a 404, because the data it served
+ * is still served: `playerOutlook` calls the same function
+ * (server/services/trade-engine.js) and Trade Lab renders the result as the
+ * "his average against each" panel. A second route answering the same question
+ * from the same function is a second answer waiting to drift.
+ */
+r.get('/splits/:playerId', retired('/api/trades/:leagueId/player/:id',
+  'The opponent-history splits are on the player detail, computed by the same relevantSplits() this route called; Trade Lab already renders them there.'));
 
 /* -------------------------------------------------------------- AI sense check */
 /**

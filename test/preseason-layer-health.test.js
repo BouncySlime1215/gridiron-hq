@@ -63,7 +63,9 @@ test('an unparseable features row is counted, not skipped in silence', () => {
   week('h1', 2, '{not json at all');
   week('h1', 3, good);
 
-  const totals = seasonTotals(SEASON);
+  // seasonTotals returns { players, teamTargets, teamCarries, teamAttempts }; the
+  // per-player aggregate is `players`.
+  const totals = seasonTotals(SEASON).players;
   const health = preseasonLayerHealth(SEASON);
 
   // The behaviour that ships is unchanged: the bad week is still not counted as a game,
@@ -82,6 +84,11 @@ test('an unparseable features row is counted, not skipped in silence', () => {
 });
 
 test('a clean season reports every layer ok, with a zero rather than a silence', () => {
+  // The unreadable row from the test above is still in the table, and resetPreseasonCache
+  // only drops the cache -- so it must go, or this is not a clean season. That the count
+  // comes back as 1 until the row is deleted is the correct behaviour: the verdict is
+  // re-derived from the read rather than remembered from the last one.
+  run(`DELETE FROM nfl_player_week_features WHERE season = ? AND week = ?`, SEASON, 2);
   resetPreseasonCache();
   const health = preseasonLayerHealth(SEASON);
   assert.equal(health.season_totals.unparsed_rows, 0);
@@ -115,6 +122,27 @@ test('a charting table that exists but is the wrong shape is an error, not an ab
   assert.notEqual(health.charting.state, 'absent');
   assert.ok(health.charting.reason && health.charting.reason.length > 0,
     'the reason must carry what actually failed, not a shrug');
+});
+
+test('an in-house projection fault is reported, not imputed in silence', () => {
+  // The third swallowing site. `buildProjections` reads `player_week_usage`, so removing
+  // that table makes it throw for a reason that is a genuine fault rather than a player
+  // simply having no projection -- which is exactly the distinction the bare catch here
+  // could not draw. The board is still produced, by design; what changes is that a
+  // caller can tell the feature was imputed for everybody rather than for nobody.
+  db.exec('ALTER TABLE player_week_usage RENAME TO player_week_usage_hidden');
+  try {
+    resetPreseasonCache();
+    const health = preseasonLayerHealth(SEASON);
+    assert.equal(health.in_house_projections.ok, false);
+    assert.equal(health.in_house_projections.state, 'error');
+    assert.match(health.in_house_projections.reason, /buildProjections/,
+      'the reason must name what failed, so the fault is actionable rather than a shrug');
+    assert.match(health.in_house_projections.reason, /imputed/,
+      'and must say what was done instead, which is what makes it a report and not a log line');
+  } finally {
+    db.exec('ALTER TABLE player_week_usage_hidden RENAME TO player_week_usage');
+  }
 });
 
 test('the health report names every layer, so a new one cannot be added silently', () => {

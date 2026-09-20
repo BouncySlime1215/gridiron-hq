@@ -52,13 +52,19 @@ test('exactly one route in server/ is registered at a health path', () => {
     const src = readFileSync(file, 'utf8');
     for (const match of src.matchAll(REGISTRATION)) {
       const line = src.slice(0, match.index).split('\n').length;
-      found.push(`${relative(ROOT, file)}:${line} → ${match[3]}`);
+      found.push({ where: `${relative(ROOT, file)} → ${match[3]}`, at: `${relative(ROOT, file)}:${line}` });
     }
   }
+  // Compared on file and path, NOT on the line number. What this test is for
+  // is a second registration arriving in a clean merge; which line the one
+  // registration sits on says nothing about that, and pinning it turned every
+  // insertion higher up index.js — a router mount, an import — into a failure
+  // of the health check. The line is still reported, because it is what a
+  // reader needs when this does fail.
   assert.deepEqual(
-    found,
-    ['server/index.js:86 → /api/health'],
-    `expected one health registration, found ${found.length}:\n  ${found.join('\n  ')}`,
+    found.map((f) => f.where),
+    ['server/index.js → /api/health'],
+    `expected one health registration, found ${found.length}:\n  ${found.map((f) => f.at).join('\n  ')}`,
   );
 });
 

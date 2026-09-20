@@ -1156,3 +1156,55 @@ test('the verdict list searches by the checker\'s pattern, not a copy of it', as
   assert.doesNotMatch(src, /runs\.sort|\bruns\.push\b/,
     'a second copy of the longest-run heuristic is what this test exists to prevent');
 });
+
+/*
+ * "ONLY A TEST REACHES IT" IS NOT "NOTHING REACHES IT", AND BOTH REPORTS SAID IT WAS.
+ *
+ * Two rows on this tree, each one wrong in the opposite direction:
+ *
+ *   The verdict list counts a test's `fetch()` as a dial. `GET /api/tradelab/:leagueId/analysis`
+ *   reads "dials: 3", and all three are test/cross-account-league-access.test.js. A
+ *   reader scanning for a live route stops there. Nothing in this app reaches it.
+ *
+ *   The impact report excludes test/ from `survivors()`, which is right — a test is not
+ *   a reason to keep production code alive — and then prints "reached only through:
+ *   GET /api/trades/:leagueId/brain/liquidity → positionLiquidity()". That sentence is
+ *   false: test/pick-reasoning.test.js:9 imports positionRequirements() and :114 calls
+ *   it. The VERDICT is right and the SENTENCE is wrong, and the sentence is what
+ *   somebody acts on. They delete the symbol, the suite goes red, and nothing told them
+ *   the test was coming with it.
+ *
+ * So a test caller is counted, named, and kept in its own column, in both reports, from
+ * one predicate rather than three copies of `startsWith('test/')`.
+ */
+test('a test caller is its own class, counted separately and never silently dropped', async () => {
+  const { isTestPath } = await import('../scripts/wiring-map.mjs');
+
+  assert.equal(isTestPath('test/pick-reasoning.test.js'), true);
+  assert.equal(isTestPath('test/cross-account-league-access.test.js'), true);
+  assert.equal(isTestPath('server/services/position-liquidity.js'), false);
+  assert.equal(isTestPath('scripts/bootstrap-data.mjs'), false,
+    'a repo script is an external caller, not a test — deleting a route breaks it for real');
+  assert.equal(isTestPath('client/src/pages/TradeLab.tsx'), false);
+  assert.equal(isTestPath('server/services/trade-engine.js'), false,
+    'a production file whose name contains "test" nowhere near the path root is not a test');
+  assert.equal(isTestPath('docs/tdd/latest.md'), false);
+});
+
+test('both reports read that one predicate rather than carrying their own', async () => {
+  for (const script of ['route-verdict-list.mjs', 'route-deletion-impact.mjs']) {
+    const src = await readFile(new URL(`../scripts/${script}`, import.meta.url), 'utf8');
+    assert.match(src, /import\s*\{[^}]*\bisTestPath\b[^}]*\}\s*from\s*'\.\/wiring-map\.mjs'/,
+      `${script} must import isTestPath from the checker`);
+    assert.doesNotMatch(src, /startsWith\('test\/'\)/,
+      `${script} must not carry its own copy of the test-path check`);
+  }
+});
+
+test('the impact report names the tests that come with a falling symbol', async () => {
+  const src = await readFile(new URL('../scripts/route-deletion-impact.mjs', import.meta.url), 'utf8');
+  assert.match(src, /testSites/,
+    'a falling symbol with test callers must carry them, or "reached only through" is a lie');
+  assert.match(src, /reached by tests only/i,
+    'the already-unreached list must separate "no caller at all" from "a test seam"');
+});

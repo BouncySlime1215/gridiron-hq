@@ -216,3 +216,167 @@ first drawn.
 - **No live-database measurement.** Every number above is from the fixture in
   `test/archetype-as-of.test.js`. The app was not deployed or touched (GitHub
   freeze, 2026-09-20).
+
+---
+
+# Part 2: one accessor, not two — the priced stamp
+
+RED `c8fba79`, then GREEN. Same branch, on top of the Part 1 GREEN `6ceb5c7`.
+
+## One correction to this brief too
+
+The work came as "Trade Brain's `archetypesBuilt` in `counterparty-pricing.js`
+duplicates yours". There is no `archetypesBuilt` in that file. Searching the
+identifier across **every** remote branch returns exactly one file —
+`server/services/manager-archetypes.js` on this branch — so the duplication as
+described did not exist.
+
+A real one does, in a different file, and it is worth more than the one
+reported.
+
+## The second accessor, and the defect in it
+
+`manager-signals.js:271`, `archetypeIndex(leagueId, season)`, already derives an
+`asOf` from `manager_archetypes` for the same league-season and serves it at
+`:425` as `archetypes_as_of`. Its loop:
+
+```js
+for (const r of rows(`SELECT member_id, metric, value, n, source, computed_at FROM manager_archetypes
+                      WHERE league_id = ? AND season = ? AND source IN ('draft', 'outcome')`, leagueId, season)) {
+  const name = ARCHETYPE_METRICS[r.source]?.[r.metric];
+  if (!name || !Number.isFinite(r.value)) continue;
+  …
+  if (!asOf || r.computed_at > asOf) asOf = r.computed_at;
+}
+```
+
+The `asOf` update is **inside** the loop, **after** the `continue`. So the date
+served is "the newest stamp among the metrics this module happens to map", not
+"when the build reached this league-season". Two consequences, neither
+obvious from the call site:
+
+- Editing `ARCHETYPE_METRICS` — adding a metric, renaming one, dropping one —
+  silently changes the date the API reports for data that did not change.
+- A build that wrote only unmapped metrics for a league-season reports the
+  **previous** build's date, or `null`, for a league-season that was in fact
+  just rebuilt.
+
+## The decision, and where it deliberately does not match
+
+`archetypesBuilt` now also returns `priced_as_of` / `priced_rows`: the same
+league-season, restricted to `PRICED_SOURCES = ['draft', 'outcome']` and **no
+metric allowlist**. `manager-signals.js` can switch to it without a second
+query over the same table.
+
+**A strict `deepEqual` against `archetypeIndex`'s value cannot hold, and should
+not.** On a league-season whose newest priced row is an unmapped metric, the
+two differ — and that is precisely the case where the old one was wrong. The
+tests assert agreement on an ordinary fixture (league 31) and a deliberate
+divergence on the fixture built to expose it (league 33), rather than pinning
+the bug in place. This was put to the coordinator before it was built.
+
+`career` stays out of the priced set: those rows are keyed (member, 0, 0) and
+travel across leagues, so including them would date a league-season by evidence
+from another one. Mutation B1 is that rule.
+
+## RED, pasted verbatim
+
+```
+not ok 10 - the priced stamp is the draft and outcome rows only, not every source
+  expected: '2026-09-17T04:10:00.000Z'
+not ok 11 - on an ordinary league-season the two readings agree
+  expected: '2026-09-18T04:10:00.000Z'
+not ok 12 - the priced stamp does not depend on a consumer's metric allowlist
+  expected: 2
+not ok 13 - a league-season with no priced rows says so rather than borrowing the unrestricted stamp
+  expected: ~
+not ok 14 - the card carries the priced stamp too, so one payload answers both questions
+  expected: '2026-09-17T04:10:00.000Z'
+```
+
+## Mutation run, fifteen injections
+
+Baseline **16 pass, 0 fail**. A1–A10 from Part 1 re-run unchanged (two needed
+retargeting after the signature grew a parameter — both were reported `NO-OP`
+first, which is why every injection prints its state). Five new:
+
+```
+B1  the priced stamp includes career rows, so another league dates this one
+    APPLIED -> killed
+B2  an empty priced set borrows the unrestricted stamp
+    APPLIED -> killed
+B3  the priced stamp drops the outcome source
+    APPLIED -> killed
+B4  the priced read is not scoped to this league-season
+    APPLIED -> killed
+B5  a league-season with rows but nothing priceable reports no reason
+    APPLIED -> killed
+```
+
+Fifteen applied, fifteen caught.
+
+## What the mutation run found, again
+
+**B2 and B3 both survived the first pass, and both were fixture holes.**
+
+- **B3** — dropping `'outcome'` from `PRICED_SOURCES` changed nothing, because
+  no fixture had an outcome-source row at all. The whole second half of the
+  constant was unexercised.
+- **B2** — making an empty priced set fall back to the unrestricted stamp
+  changed nothing, because the only "no priced rows" fixture (league 32) had no
+  rows of *any* source, so the fallback was `null` either way. "Never built" was
+  standing in for "built, nothing priceable", which are different answers.
+
+Two fixtures were added rather than one, because the two rules cannot share
+one: league 33 needs its newest priced row to be the **unmapped draft** metric
+(the allowlist test), and B3 needs its newest priced row to be the **outcome**
+row. League 34 carries the second; league 35 is rows-with-nothing-priceable,
+and its own `reason` clause got mutation B5.
+
+Same lesson as A1 in Part 1, from the other direction: A1 survived because the
+*code* was duplicated; B2 and B3 survived because the *fixture* could not tell
+two states apart. A mutation that survives is a question about which, and it is
+worth answering before adding an assertion.
+
+## The five questions
+
+**Is this well built?** It removes a query rather than adding one: the consumer
+switching to it drops its own scan of the same table. One constant, one added
+clause in one already-shared helper, and the block's shape is unchanged for
+existing readers.
+
+**Is this based on stats, or made up?** Stamps the table wrote. Nothing
+estimated. The one judgement is which sources count as priceable, and that is
+declared in `PRICED_SOURCES` with its reasoning, not buried in a query.
+
+**How do we know?** `archetypeIndex`'s defect is the four lines quoted above,
+at `manager-signals.js:271-283`. The claim that no other `archetypesBuilt`
+exists is a search of every remote branch. Five tests failed before, sixteen
+pass after, fifteen mutations all caught.
+
+**Should this data point anywhere else?** The switch itself is
+`manager-signals.js`, which is not my file — the accessor is built so that
+change is a deletion plus a call. Beyond it, `counterparty-pricing.js:452-457`
+still prices `luck_self_view` off the `outcome` half of this store with no age
+at all, and `priced_as_of` is exactly the value that read needs. Also Trade
+Brain's file; raised, not reached into.
+
+**How does it unify?** Three readers of one store's freshness become one
+function with one vocabulary: `as_of`, `career_as_of`, `priced_as_of`,
+`jev_as_of`, each with its own row count, `null` with a reason instead of a
+borrowed stamp, and the table's own stamps rather than a job-level one — the
+same contract `transactionsCollected` uses for the transactions on the same
+manager card.
+
+## Known limits, Part 2
+
+- **Nothing switches yet.** `manager-signals.js:271` still has its own loop;
+  this only makes the switch a deletion. Until it happens the served
+  `archetypes_as_of` keeps the allowlist behaviour.
+- **`priced_rows` counts rows, not managers.** A league-season where one
+  manager has every priced metric and eleven have none reports a healthy count.
+  The per-member breakdown the card would need for that is not here.
+- **`PRICED_SOURCES` is a second place the source vocabulary is written**, the
+  first being the `source TEXT NOT NULL -- draft | outcome | career` comment on
+  the DDL. A fourth source added to the build would need a decision here, and
+  nothing forces that decision to be made.

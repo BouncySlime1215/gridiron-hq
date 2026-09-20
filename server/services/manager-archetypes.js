@@ -833,6 +833,24 @@ export const ARCHETYPE_BUILDER =
   'scripts/build-manager-archetypes.mjs (run by hand; nothing on the deployed app writes these tables)';
 
 /**
+ * The sources the trade path prices off: this league-season's own draft
+ * behaviour and its outcomes. `career` is excluded deliberately — it is keyed
+ * (member, 0, 0) and travels across leagues, so a career row landing on the
+ * same query would date a league-season by evidence from another one.
+ *
+ * NO METRIC ALLOWLIST, and that is the point of this constant existing here.
+ * `manager-signals.js:271` (`archetypeIndex`) derives its own `asOf` from the
+ * same rows, but updates it INSIDE the row loop, after a `continue` that drops
+ * any metric missing from that module's `ARCHETYPE_METRICS` map. So the date it
+ * serves at `:425` is "the newest stamp among the metrics this consumer maps",
+ * and editing that map silently moves it. `priced_as_of` answers the question
+ * actually being asked — when the build last wrote a priceable row for this
+ * league-season — which is why a consumer switching to it will see a different
+ * value in exactly the case where the old one was wrong.
+ */
+export const PRICED_SOURCES = Object.freeze(['draft', 'outcome']);
+
+/**
  * WHEN THE EVIDENCE UNDER ONE MANAGER CARD WAS BUILT.
  *
  * The card served at `routes/trades.js:501` carries three things with three
@@ -867,6 +885,12 @@ export const ARCHETYPE_BUILDER =
  * module `CREATE TABLE IF NOT EXISTS`es both at import, so the table cannot be
  * absent wherever this function can be called.
  *
+ * `priced_as_of` / `priced_rows` are the same league-season restricted to
+ * `PRICED_SOURCES`, which is what the trade path reads. They are here rather
+ * than in a second accessor so `manager-signals.js` can switch to this one
+ * without a second query over the same table. See `PRICED_SOURCES` for why the
+ * two values differ and when.
+ *
  * @param {number} leagueId
  * @param {number} season
  * @param {string|null} memberId when given, the block also dates that member's
@@ -875,11 +899,11 @@ export const ARCHETYPE_BUILDER =
  *   are not his.
  */
 export function archetypesBuilt(leagueId, season, memberId = null) {
-  const { ls, career } = builtStamps(leagueId, season);
+  const { ls, career, priced } = builtStamps(leagueId, season);
   const jev = memberId == null ? null
     : rows(`SELECT COUNT(*) AS n, MAX(evaluated_at) AS as_of FROM manager_archetype_jev
             WHERE member_id = ?`, memberId)[0];
-  return builtBlock(leagueId, season, ls, career, jev);
+  return builtBlock(leagueId, season, ls, career, priced, jev);
 }
 
 /** The two stamp reads, written once. The first mutation run caught this file
@@ -893,20 +917,29 @@ function builtStamps(leagueId, season) {
   const [career] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of FROM manager_archetypes
                          WHERE league_id = ? AND season = ? AND version = ?`,
   CAREER_LEAGUE, CAREER_SEASON, MANAGER_ARCHETYPE_VERSION);
-  return { ls, career };
+  const [priced] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of FROM manager_archetypes
+                         WHERE league_id = ? AND season = ? AND version = ? AND source IN (${PRICED_SOURCES.map(() => '?').join(', ')})`,
+  leagueId, season, MANAGER_ARCHETYPE_VERSION, ...PRICED_SOURCES);
+  return { ls, career, priced };
 }
 
 /** The one place the block's shape is written, so a per-card build and a direct
  * call cannot drift apart. `ls`, `career` and `jev` are {n, as_of} rows. */
-function builtBlock(leagueId, season, ls, career, jev) {
+function builtBlock(leagueId, season, ls, career, priced, jev) {
   const gaps = [];
   if (!ls.n) gaps.push(`no archetype row for league ${leagueId} season ${season} — the build has never covered it`);
   if (!career.n) gaps.push('no career roll-up on this database — the build has never run here');
+  if (ls.n && !priced.n) {
+    gaps.push(`league ${leagueId} season ${season} has archetype rows but none from ${PRICED_SOURCES.join(' or ')}`
+      + ' — nothing here is priceable');
+  }
   const out = {
     as_of: ls.as_of ?? null,
     rows: ls.n,
     career_as_of: career.as_of ?? null,
     career_rows: career.n,
+    priced_as_of: priced.as_of ?? null,
+    priced_rows: priced.n,
     built_by: ARCHETYPE_BUILDER,
     reason: gaps.length ? gaps.join('; ') : null,
   };
@@ -928,7 +961,7 @@ function builtBlock(leagueId, season, ls, career, jev) {
  */
 export function archetypesFor(leagueId, season) {
   const out = new Map();
-  const { ls, career } = builtStamps(leagueId, season);
+  const { ls, career, priced } = builtStamps(leagueId, season);
   const jevBy = new Map(rows(`SELECT member_id, COUNT(*) AS n, MAX(evaluated_at) AS as_of
                               FROM manager_archetype_jev GROUP BY member_id`)
     .map(r => [r.member_id, r]));
@@ -942,7 +975,7 @@ export function archetypesFor(leagueId, season) {
       career: profile.seasons.career ?? null,
       this_season: profile.seasons[`${leagueId}|${season}`] ?? null,
       jev: profile.jev,
-      built: builtBlock(leagueId, season, ls, career,
+      built: builtBlock(leagueId, season, ls, career, priced,
         jevBy.get(t.espn_member_id) ?? { n: 0, as_of: null }),
     });
   }

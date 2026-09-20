@@ -2,6 +2,7 @@ import { useState } from 'react';
 import EspnConnect from '../components/EspnConnect';
 import PhoneAccess from '../components/PhoneAccess';
 import LeagueChatPull from '../components/LeagueChatPull';
+import DataBehindNumbers from '../components/DataBehindNumbers';
 import { api } from '../api';
 import { useDeployment } from '../state/deployment';
 import AccountPanel from '../components/AccountPanel';
@@ -48,6 +49,7 @@ export default function Settings() {
           )}
         </div>
       )}
+      <DataBehindNumbers />
       {/* Pairing codes and the tunnel address only exist on the Mac: the
           endpoints behind this card refuse anything that is not direct
           loopback, so on the hosted app it rendered a failed request and a set

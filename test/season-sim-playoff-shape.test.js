@@ -261,3 +261,18 @@ test('the logged count can never push the cutoff past the week being simulated',
     if (b.throughWeek != null) assert.ok(b.throughWeek < w, `week ${w} cutoff ${b.throughWeek}`);
   }
 });
+
+test('a log claiming more weeks than have been played cannot buy the this-season basis', () => {
+  // The cap on `logged` guards the THRESHOLD, not just the cutoff. The test above
+  // asserts the cutoff, which is `fromWeek - 1` whatever the log says, so it passes even
+  // with the cap removed -- a retroactive mutation sweep found that gap on 2026-09-20.
+  //
+  // At week 2 one game has been played. A log reporting 99 weeks is impossible, and
+  // without the cap `have` becomes 99, clears SIM_PROJECTION_MIN_GAMES, and selects the
+  // one-game basis that was measured as WORSE than reading last season complete -- while
+  // printing "only 99 of those 1 weeks are in the usage log".
+  const b = simProjectionBasis(2, 2026, 99);
+  assert.equal(b.through, 2025, 'one week played is one week played, whatever the log claims');
+  assert.equal(b.throughWeek, null);
+  assert.match(b.basis, /2025 complete/);
+});

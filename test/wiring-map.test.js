@@ -22,6 +22,7 @@ const {
   clientCalls, payloadKeys, keyReads, declarations,
   foreignHandles, handleFor, gatedRegions, blindCaches,
   functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
+  imageDirs, runtimeFilePaths,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -395,6 +396,49 @@ test('a test fixture cannot mark a table opaque either', () => {
       sql: ['INSERT INTO players (${COLS.join(",")}) VALUES (1)'] },
   ]), DECLARED);
   assert.equal(opaqueWrite.size, 0);
+});
+
+test('imageDirs reads the runtime stage, not the build stage', () => {
+  // The build stage does `COPY . .`, so reading the whole Dockerfile would say the
+  // image contains everything and the rule below would never fire.
+  const dirs = imageDirs([
+    'FROM node:22-slim AS build',
+    'WORKDIR /app',
+    'COPY . .',
+    'RUN npm run build',
+    'FROM node:22-slim',
+    'WORKDIR /app',
+    'COPY package.json package-lock.json* ./',
+    'COPY --from=build /app/client/dist ./client/dist',
+    'COPY server ./server',
+    'COPY scripts ./scripts',
+  ].join('\n'));
+  assert.deepEqual([...dirs].sort(), ['client', 'scripts', 'server']);
+});
+
+test('a default data path outside the image is found, and an env override is noted', () => {
+  // history-corpus.js opens data/derived/sleeper_history.sqlite under cwd. The
+  // runtime stage copies client/dist, server and scripts, so that file is never in
+  // the image and the module is inert in production whatever the import graph says.
+  // An accepted_orphan_modules line for it would have hidden the cause.
+  const found = runtimeFilePaths([
+    "const DB_PATH = process.env.GRIDIRON_LEAGUE_HISTORY_PATH",
+    "  ?? path.join(process.cwd(), 'data', 'derived', 'sleeper_history.sqlite');",
+    "const CHAT = process.env.GRIDIRON_CHAT_DB_PATH || path.join(ROOT, 'data/derived/league_chat.sqlite');",
+  ].join('\n'));
+  assert.deepEqual(found.map(f => f.dir).sort(), ['data', 'data']);
+  assert.ok(found.every(f => f.repoRelative), 'both are joined to the repo root');
+  assert.ok(found.every(f => f.override), 'both carry an env override, which the finding must say');
+});
+
+test('a path joined to a directory inside the image is not repo-root-based', () => {
+  // server/data/analyst-notes-2026.json IS in the image, and reads as `data/...` too.
+  // The literal alone cannot tell the two apart, so the base is what decides: only
+  // process.cwd() and the repo-root names resolve to a repo-relative directory.
+  const found = runtimeFilePaths("const NOTES = path.join(SERVER_ROOT, 'data', 'analyst-notes-2026.json');");
+  assert.deepEqual(found.filter(f => f.repoRelative), [],
+    'SERVER_ROOT is not the repo root, so this names no repo directory to check');
+  assert.deepEqual(found.map(f => f.base), ['SERVER_ROOT'], 'but it is still seen');
 });
 
 test('statementTables separates what a statement reads from what it writes', () => {

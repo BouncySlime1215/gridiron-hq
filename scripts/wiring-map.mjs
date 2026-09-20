@@ -311,6 +311,61 @@ function foreignOnlyFile(file, foreign) {
  * `scripts/` stays evidence: a backfill script is a real writer, run by hand or by a
  * job, and excluding it would invent findings rather than hide them.
  */
+/**
+ * The repo directories a Docker image's RUNTIME stage actually contains.
+ *
+ * The build stage does `COPY . .`, so reading the whole file would say the image
+ * contains everything and the rule below would never fire. Only the last FROM counts.
+ */
+function imageDirs(dockerfile) {
+  const stages = dockerfile.split(/^FROM .*$/m);
+  const runtime = stages[stages.length - 1] ?? '';
+  const dirs = new Set();
+  for (const m of runtime.matchAll(/^COPY\s+(?:--from=\S+\s+)?(.+)$/gm)) {
+    // The DESTINATION, not the source: a `--from=build` copy names a path inside the
+    // build stage's filesystem (`/app/client/dist`), which says nothing about where
+    // the file lands here. The destination is the same in both forms.
+    const dest = m[1].trim().split(/\s+/).pop();
+    const seg = dest.replace(/^[./]+/, '').split('/')[0];
+    if (seg && !seg.includes('*') && !seg.includes('.')) dirs.add(seg);
+  }
+  return dirs;
+}
+
+/**
+ * File paths a module builds at runtime out of a directory literal: the
+ * `path.join(BASE, 'data', 'derived', 'x.sqlite')` and `path.join(BASE, 'data/derived/x.sqlite')`
+ * forms this server uses.
+ *
+ * `repoRelative` is the load-bearing field. `server/data/analyst-notes-2026.json` IS in
+ * the image and reads as `data/...` in the source exactly like a repo-root path does, so
+ * the literal alone cannot tell them apart — the base can. Only `process.cwd()` and the
+ * repo-root names resolve to a directory this rule may check.
+ *
+ * `override` records that an environment variable can redirect the path, which the
+ * finding must say: a module whose default is outside the image is inert unless the
+ * deployment sets that variable, and this map cannot read a deployment's secrets.
+ */
+const REPO_ROOT_NAMES = new Set(['process.cwd()', 'ROOT', 'REPO_ROOT', 'PROJECT_ROOT']);
+function runtimeFilePaths(code) {
+  const out = [];
+  const RE = /path\.join\(\s*([A-Za-z_$][\w$]*(?:\(\))?|process\.cwd\(\))\s*,\s*((?:['"][^'"]+['"]\s*,?\s*)+)\)/g;
+  for (const m of code.matchAll(RE)) {
+    const segs = [...m[2].matchAll(/['"]([^'"]+)['"]/g)].map(x => x[1]);
+    const joined = segs.join('/').replace(/\/+/g, '/');
+    const dir = joined.split('/')[0];
+    if (!dir || joined.indexOf('/') === -1) continue;   // a bare filename names no directory
+    const before = code.slice(Math.max(0, m.index - 160), m.index);
+    out.push({
+      base: m[1], dir, path: joined,
+      repoRelative: REPO_ROOT_NAMES.has(m[1]),
+      override: /process\.env\.[A-Z0-9_]+\s*(\?\?|\|\|)\s*$/.test(before.trimEnd() + ' ')
+        || /process\.env\.[A-Z0-9_]+\s*(\?\?|\|\|)/.test(before),
+    });
+  }
+  return out;
+}
+
 function columnEvidence(files, declared) {
   const colRead = new Map();      // `t.c` -> [{file,line}]
   const colWritten = new Set();   // `t.c`
@@ -1495,6 +1550,38 @@ function shouldBeWired(model, ann, add) {
     }
   }
 
+  // 1b. A MODULE WHOSE DATA FILE THE IMAGE NEVER CONTAINS.
+  //     Unreachable in production whatever the import graph says, and the graph
+  //     cannot see it: every edge is present, every export is imported, and the
+  //     module opens a file that was never shipped. history-corpus.js is the case
+  //     that named this — an accepted_orphan_modules line for it would have
+  //     recorded "no consumer" and hidden the cause.
+  //
+  //     Report-only, never gating, for one reason: an environment variable can
+  //     redirect the path, and this map cannot read a deployment's secrets. The
+  //     finding says which paths carry an override so a reader knows whether to
+  //     check the deployment or the code.
+  let shipped = null;
+  try { shipped = imageDirs(fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')); } catch { /* no image */ }
+  if (shipped?.size) {
+    for (const f of files.values()) {
+      if (f.tree !== 'server') continue;
+      for (const r of runtimeFilePaths(f.text)) {
+        if (!r.repoRelative || shipped.has(r.dir)) continue;
+        add({ kind: 'orphan', rule: 'data-file-not-in-the-image', scope: f.scope,
+          subject: `${f.path} -> ${r.path}`,
+          detail: r.override
+            ? `opens ${r.path}, which the runtime image never contains (it copies `
+              + `${[...shipped].sort().join(', ')}). An environment variable can redirect it, so `
+              + `check the deployment before the code — but unset, this module is inert in production.`
+            : `opens ${r.path}, which the runtime image never contains (it copies `
+              + `${[...shipped].sort().join(', ')}), and no environment variable can redirect it. `
+              + `Inert in production, unconditionally.`,
+          evidence: [f.path] });
+      }
+    }
+  }
+
   // 2. A COLUMN READ ON A LIVE SURFACE THAT NOTHING WRITES.
   //    Null on every row forever. It never throws, because the reader almost
   //    always has a `?? fallback` sitting next to it, which is why these
@@ -1930,7 +2017,7 @@ const SEVERITY = {
   'column-read-never-written': 1.2, 'producer-with-no-caller': 1.4,
   'two-names-different-sources': 1.6, 'constant-standing-in-for-a-model': 1.7, 'parameter-never-passed': 1.8,
   'served-but-not-rendered': 1.9,
-  'module-only-tested': 4, 'module-imported-by-nothing': 5, 'page-never-routed': 3,
+  'data-file-not-in-the-image': 3.5, 'module-only-tested': 4, 'module-imported-by-nothing': 5, 'page-never-routed': 3,
   'module-reaches-no-surface': 5, 'field-attached-never-read': 6, 'value-computed-never-used': 7,
   'table-never-read': 8, 'export-only-tested': 9, 'export-imported-by-nothing': 10, 'route-no-caller': 11,
 };
@@ -2164,7 +2251,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { columnEvidence };
+export { columnEvidence, imageDirs, runtimeFilePaths };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

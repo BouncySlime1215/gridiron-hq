@@ -129,6 +129,17 @@ survives.
 | M40 | the ask route stops requiring a signed-in user | `coach.js` | `acda2c01` → `ca2abef7` | 1 | `coach-route.test.js` — an unauthenticated request is refused before anything is spent |
 | M41 | the ask route stops rate limiting *(survived the first pass; the test in the last column was written for it)* | `coach.js` | `acda2c01` → `bc8ed7a5` | 1 | `coach-route.test.js` — the ask route is rate limited, and says so before it spends anything |
 | M42 | the route's own 400 falls through to the error handler instead of answering in JSON *(survived the first pass; the test in the last column was written for it)* | `coach.js` | `acda2c01` → `e59fe440` | 1 | `coach-route.test.js` — a question that is missing, empty or not a string is refused with 400 |
+| M110 | the answer ships with an empty ledger, so no cite in it resolves | `ask.js` | `6ee760aa` → `dbdf6145` | 4 | `coach-ask.test.js` — a question answered from one query comes back verified, with the ledger behind it — and with it the route's "every cite in the answer resolves into the ledger that travels with it" |
+| M111 | the trace reports no rows for a query that returned rows | `ask.js` | `6ee760aa` → `c0405605` | 1 | `coach-ask.test.js` — the events describe what actually happened, in order |
+| M112 | the trace is streamed but never kept, so the answer carries no plan | `ask.js` | `6ee760aa` → `0b08933c` | 2 | `coach-ask.test.js` — the events describe what actually happened, in order — the returned plan is compared against the streamed one |
+| M113 | an answer that is only a refusal is sent back for a retry it does not need | `ask.js` | `6ee760aa` → `7e0980d0` | 3 | `coach-ask.test.js` — a refusal with no claims is a valid answer and is not retried |
+| M114 | Coach's spend is booked against the page-explain budget line | `ask.js` | `6ee760aa` → `7f138fb6` | 1 | `coach-ask.test.js` — spend is booked against the coach budget, and the model is one the price table knows |
+| M115 | only a verified answer is written to the audit, so the rejections vanish | `ask.js` | `6ee760aa` → `7b66bd50` | 2 | `coach-ask.test.js` — every answer is written to the audit, verified or not |
+| M116 | the system prompt no longer lists the tables Coach may read | `ask.js` | `6ee760aa` → `4d3b75b3` | 1 | `coach-ask.test.js` — the system prompt tells the model what it may read and how to cite |
+| M117 | a question past the length ceiling is sent to Claude instead of refused | `coach.js` | `acda2c01` → `e54d5be3` | 1 | `coach-route.test.js` — an over-long question or context is refused with 413 rather than sent to Claude |
+| M118 | the catalog route stops reporting how much of the catalog is in the database | `coach.js` | `acda2c01` → `3d395261` | 1 | `coach-route.test.js` — the catalog is readable, so the UI can say what Coach can and cannot see |
+| M119 | the audit route answers with an empty list rather than the answers | `coach.js` | `acda2c01` → `20b27db2` | 1 | `coach-route.test.js` — the audit is readable, and the grounding rate with it |
+| M120 | the stream ends with a result event that carries no result | `coach.js` | `acda2c01` → `ad655f42` | 1 | `coach-route.test.js` — asking for the event stream streams the trace and ends with the result |
 | NC-ask | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `ask.js` | `6ee760aa` → `26a51cf7` | **0** | none — and that is the assertion |
 
 **M34 and M42, the first two survivors.** The retry test asserted against the whole
@@ -138,6 +149,26 @@ against the correction turn alone. M42 survived because the route's own 400 and 
 error handler's 400 have the same status code; the test asserted the status and not the
 body, so a JSON error silently becoming an HTML error page passed. It now asserts the
 body. Both commit `78ce279`.
+
+**M110 to M120, found by the union check.** A sweep that kills all of its own
+injections proves only that those injections were well chosen; the question worth
+answering is which tests would notice nothing if the code beneath them changed. The union
+of the red titles across the first nine rows covered 11 of the 23 tests these two suites
+run. Eleven more rows were written for the other twelve — the ledger that travels with
+the answer, the trace and the plan being the same trace, a refusal-only answer not being
+retried, the budget line, the audit write, the catalog in the system prompt, the 413, the
+coverage on `/catalog`, `/answers`, and the `result` event that ends the stream. The
+union now covers all 23, measured by:
+
+```
+python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/ask.json
+python3 docs/tdd/sweeps/mutation-sweep.py --baseline \
+  'test/coach-ask.test.js test/coach-route.test.js'
+```
+
+None of the eleven survived, so this pass produced no new tests — which is the result
+worth having, since it means the twelve uncovered tests were asserting real properties
+and simply had nothing aimed at them.
 
 **M39 and M41, found in the second pass.** Nothing distinguished a refusal from a real
 fault, so the whole "two kinds of error" design was untested — M39 made every error a
@@ -164,9 +195,10 @@ verifier proves it before the answer leaves the process. The one number this sli
 produces about itself, `coachGroundingRate()`, is a count over `coach_answers` rather
 than an estimate.
 
-**How do we know?** 23 tests, and 9 injections each stated above with the file's SHA-256
+**How do we know?** 23 tests, and 20 injections each stated above with the file's SHA-256
 before and after it, all now killed, beside a no-op control that moves the hash and kills
-nothing; four survived the first pass and produced four tests. No test in either suite touches
+nothing; four survived the first pass and produced four tests. Every one of the 23 tests
+is red under at least one injection, measured rather than asserted. No test in either suite touches
 the network — every Claude reply is scripted, which is also why the spend line is $0
 rather than "small".
 

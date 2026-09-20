@@ -72,6 +72,94 @@
   "desc": "the route's own 400 falls through to the error handler instead of answering in JSON"
  },
  {
+  "id": "M110",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  const ledgerJson = ledger.toJson();",
+  "new": "  const ledgerJson = { queries: [], derived: [] };",
+  "desc": "the answer ships with an empty ledger, so no cite in it resolves"
+ },
+ {
+  "id": "M111",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "        row_count: entry.row_count, tables: entry.tables, truncated: entry.truncated,",
+  "new": "        row_count: 0, tables: entry.tables, truncated: entry.truncated,",
+  "desc": "the trace reports no rows for a query that returned rows"
+ },
+ {
+  "id": "M112",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  const emit = event => { plan.push(event); onEvent(event); };",
+  "new": "  const emit = event => { onEvent(event); };",
+  "desc": "the trace is streamed but never kept, so the answer carries no plan"
+ },
+ {
+  "id": "M113",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "    if (verification.ok) break;",
+  "new": "    if (verification.ok && answer.claims.length) break;",
+  "desc": "an answer that is only a refusal is sent back for a retry it does not need"
+ },
+ {
+  "id": "M114",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "      feature: 'coach:answer', model, maxTokens: MAX_OUTPUT_TOKENS,",
+  "new": "      feature: 'page-explain', model, maxTokens: MAX_OUTPUT_TOKENS,",
+  "desc": "Coach's spend is booked against the page-explain budget line"
+ },
+ {
+  "id": "M115",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  const auditId = recordCoachAnswer({",
+  "new": "  const auditId = !verification.ok ? null : recordCoachAnswer({",
+  "desc": "only a verified answer is written to the audit, so the rejections vanish"
+ },
+ {
+  "id": "M116",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "${catalogBrief()}",
+  "new": "(call catalog_lookup to find out what there is)",
+  "desc": "the system prompt no longer lists the tables Coach may read"
+ },
+ {
+  "id": "M117",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  if (question.length > MAX_QUESTION_CHARS) {",
+  "new": "  if (false) {",
+  "desc": "a question past the length ceiling is sent to Claude instead of refused"
+ },
+ {
+  "id": "M118",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  try { res.json({ tables: readableTables(), coverage: catalogCoverage(), catalog: catalog() }); }",
+  "new": "  try { res.json({ tables: readableTables(), catalog: catalog() }); }",
+  "desc": "the catalog route stops reporting how much of the catalog is in the database"
+ },
+ {
+  "id": "M119",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  try { res.json({ answers: recentCoachAnswers({ limit: req.query.limit }) }); }",
+  "new": "  try { res.json({ answers: [] }); }",
+  "desc": "the audit route answers with an empty list rather than the answers"
+ },
+ {
+  "id": "M120",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "    send(res, { t: 'result', ...result });",
+  "new": "    send(res, { t: 'result' });",
+  "desc": "the stream ends with a result event that carries no result"
+ },
+ {
   "id": "NC-ask",
   "file": "server/services/coach/ask.js",
   "tests": "test/coach-ask.test.js test/coach-route.test.js",

@@ -881,7 +881,7 @@ after:
  * ONE SHAPE. Every result turns into rows with named columns, recorded in the
 ```
 
-## `ask.json` — 10 rows, evidence in `docs/tdd/coach-answering-loop.tdd.md`
+## `ask.json` — 21 rows, evidence in `docs/tdd/coach-answering-loop.tdd.md`
 
 ### M34 — the correction turn is a bare re-roll that names no violation
 
@@ -1003,6 +1003,149 @@ before:
 after:
 ```
   if (!question) { const e = new Error('question is required'); e.status = 400; return next(e); }
+```
+
+### M110 — the answer ships with an empty ledger, so no cite in it resolves
+
+`server/services/coach/ask.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+  const ledgerJson = ledger.toJson();
+```
+after:
+```
+  const ledgerJson = { queries: [], derived: [] };
+```
+
+### M111 — the trace reports no rows for a query that returned rows
+
+`server/services/coach/ask.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+        row_count: entry.row_count, tables: entry.tables, truncated: entry.truncated,
+```
+after:
+```
+        row_count: 0, tables: entry.tables, truncated: entry.truncated,
+```
+
+### M112 — the trace is streamed but never kept, so the answer carries no plan
+
+`server/services/coach/ask.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+  const emit = event => { plan.push(event); onEvent(event); };
+```
+after:
+```
+  const emit = event => { onEvent(event); };
+```
+
+### M113 — an answer that is only a refusal is sent back for a retry it does not need
+
+`server/services/coach/ask.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+    if (verification.ok) break;
+```
+after:
+```
+    if (verification.ok && answer.claims.length) break;
+```
+
+### M114 — Coach's spend is booked against the page-explain budget line
+
+`server/services/coach/ask.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+      feature: 'coach:answer', model, maxTokens: MAX_OUTPUT_TOKENS,
+```
+after:
+```
+      feature: 'page-explain', model, maxTokens: MAX_OUTPUT_TOKENS,
+```
+
+### M115 — only a verified answer is written to the audit, so the rejections vanish
+
+`server/services/coach/ask.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+  const auditId = recordCoachAnswer({
+```
+after:
+```
+  const auditId = !verification.ok ? null : recordCoachAnswer({
+```
+
+### M116 — the system prompt no longer lists the tables Coach may read
+
+`server/services/coach/ask.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+${catalogBrief()}
+```
+after:
+```
+(call catalog_lookup to find out what there is)
+```
+
+### M117 — a question past the length ceiling is sent to Claude instead of refused
+
+`server/routes/coach.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+  if (question.length > MAX_QUESTION_CHARS) {
+```
+after:
+```
+  if (false) {
+```
+
+### M118 — the catalog route stops reporting how much of the catalog is in the database
+
+`server/routes/coach.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+  try { res.json({ tables: readableTables(), coverage: catalogCoverage(), catalog: catalog() }); }
+```
+after:
+```
+  try { res.json({ tables: readableTables(), catalog: catalog() }); }
+```
+
+### M119 — the audit route answers with an empty list rather than the answers
+
+`server/routes/coach.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+  try { res.json({ answers: recentCoachAnswers({ limit: req.query.limit }) }); }
+```
+after:
+```
+  try { res.json({ answers: [] }); }
+```
+
+### M120 — the stream ends with a result event that carries no result
+
+`server/routes/coach.js`, suites `test/coach-ask.test.js test/coach-route.test.js`
+
+before:
+```
+    send(res, { t: 'result', ...result });
+```
+after:
+```
+    send(res, { t: 'result' });
 ```
 
 ### NC-ask — NO-OP CONTROL: reword the file's opening line, changing no behaviour

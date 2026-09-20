@@ -1,0 +1,59 @@
+{
+ "evidence": "docs/tdd/manager-page-reads.tdd.md",
+ "file": "server/routes/trades.js",
+ "suites": [
+  "test/manager-signals-api.test.js"
+ ],
+ "note": "Section 5: the archetype state is read from leagueHistoryState() and the catch that can no longer fire is removed. No baseline_ref: this is not a sweep that tightened existing assertions, so there is no earlier version of the tests to compare against.",
+ "mutations": [
+  {
+   "id": "N1",
+   "what": "always report the state as present",
+   "expect": "red",
+   "from": "  const archetypeState = historyState.present ? 'present' : 'table_absent';",
+   "to": "  const archetypeState = 'present';"
+  },
+  {
+   "id": "N2",
+   "what": "always report the state as table_absent",
+   "expect": "red",
+   "from": "  const archetypeState = historyState.present ? 'present' : 'table_absent';",
+   "to": "  const archetypeState = 'table_absent';"
+  },
+  {
+   "id": "N3",
+   "what": "report the state in a word the archetype module does not use",
+   "expect": "red",
+   "from": "  const archetypeState = historyState.present ? 'present' : 'table_absent';",
+   "to": "  const archetypeState = historyState.present ? 'present' : 'missing';"
+  },
+  {
+   "id": "N4",
+   "what": "this route writes its own sentence instead of serving the store owner's",
+   "expect": "red",
+   "from": "  const archetypeReason = historyState.present ? null : historyState.reason;",
+   "to": "  const archetypeReason = historyState.present ? null : 'the archetype store could not be read';"
+  },
+  {
+   "id": "N5",
+   "what": "put the absorbing catch back around the archetype read",
+   "expect": "red",
+   "from": "  const archetypes = archetypesFor(leagueId, season);",
+   "to": "  let archetypes = new Map();\n  try { archetypes = archetypesFor(leagueId, season); } catch { archetypes = new Map(); }"
+  },
+  {
+   "id": "N6",
+   "what": "stop serving read_reason at all",
+   "expect": "red",
+   "from": "      read_state: archetypeState, read_reason: archetypeReason },",
+   "to": "      read_state: archetypeState },"
+  },
+  {
+   "id": "CONTROL",
+   "what": "a pattern that is not in the file",
+   "expect": "no-op",
+   "from": "const N_NOT_A_REAL_SYMBOL = 1;",
+   "to": "const N_NOT_A_REAL_SYMBOL = 2;"
+  }
+ ]
+}

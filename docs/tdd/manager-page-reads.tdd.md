@@ -334,3 +334,98 @@ fails the offline-guard tests with `ERR_MODULE_NOT_FOUND` until it is, which loo
 exactly like a regression and is not one. CI is not run: GitHub Actions is out of
 minutes until 2026-10-01 and the workflow is disabled deliberately, so red or
 missing checks are that and not this branch's content.
+
+## 5. After the merge: the catch is removed, not narrowed again
+
+This section describes the post-merge follow-on. It lands only once both this
+branch and chat sync's `league_season_teams` work are on `main`; §2b is the
+state on `#41`'s own base, and the two are the same rule at two bases.
+
+`manager-archetypes.js` on chat sync's branch stops throwing when
+`league_season_teams` is absent: `archetypesFor` returns an empty map and
+`leagueHistoryState()` reports the table. That turns §2b's narrowed catch into
+a branch nothing can reach — and worse than merely dead, because the state it
+used to set is then never set at all, so the page reports `read_state:
+'present'` on a database that cannot look up a single manager. The failure the
+narrowing prevented arrives from the other side.
+
+So the catch is REMOVED and the state is READ from the module that owns the
+store. A catch nothing can reach is a claim that this page still handles a
+fault it no longer sees, and the next real fault in the archetype code — a
+renamed column, a `TypeError` — has to reach the error handler untouched.
+
+`read_failed` is removed with it. It carried an exception message about the
+READER, and once the owner stops throwing it is null in every reachable state;
+a field that is null in every state a caller can produce teaches that caller
+something untrue. `read_reason` replaces it with the owner's own sentence. No
+consumer is lost: at the time of writing, `read_failed` and `read_state`
+appear only in this route, its two tests and this file — nothing in
+`client/src` reads either.
+
+This is the as-of rule applied to a STATE rather than a stamp. A served value
+carries the stamp of the process that MEASURED it; a served state carries the
+word of the module that OWNS the store, not a word the reader inferred from an
+exception it happened to catch.
+
+### Mutations
+
+Re-derivable, like §4:
+
+```
+node docs/tdd/sweeps/run-mutations.mjs docs/tdd/sweeps/manager-page-4b.mutations.json
+```
+
+Baseline `server/routes/trades.js` at `9548475470eb`.
+
+| # | Mutation | Applied | Result |
+|---|----------|---------|--------|
+| N1 | always report the state as present | `APPLIED 9548475470eb -> 85d8d8de2d41` | **RED** 27/26/1 |
+| N2 | always report the state as table_absent | `APPLIED 9548475470eb -> 8fa9fe72325a` | **RED** 27/26/1 |
+| N3 | a word the archetype module does not use | `APPLIED 9548475470eb -> 08780c1a1a0c` | **RED** 27/26/1 |
+| N4 | this route writes its own sentence instead of the owner's | `APPLIED 9548475470eb -> ad57bab15221` | **RED** 27/26/1 |
+| N5 | put the absorbing catch back | `APPLIED 9548475470eb -> 02867030d8fe` | **RED** 27/26/1 |
+| N6 | stop serving `read_reason` at all | `APPLIED 9548475470eb -> bdbd30e32276` | **RED** 27/25/2 |
+| CONTROL | a pattern that is not in the file | `NO-OP - pattern not found` | — |
+
+**7 of 7 behaved as the list says.** N5 is the row that matters: reinstating
+the catch is killed by `read: a programming error in the archetype read is NOT
+absorbed`, so the removal is protected by the same test that protected the
+narrowing, not merely unopposed.
+
+```diff
+- const archetypeState = historyState.present ? 'present' : 'table_absent';
++ const archetypeState = 'present';
+```
+```diff
+- const archetypeState = historyState.present ? 'present' : 'table_absent';
++ const archetypeState = 'table_absent';
+```
+```diff
+- const archetypeState = historyState.present ? 'present' : 'table_absent';
++ const archetypeState = historyState.present ? 'present' : 'missing';
+```
+```diff
+- const archetypeReason = historyState.present ? null : historyState.reason;
++ const archetypeReason = historyState.present ? null : 'the archetype store could not be read';
+```
+```diff
+- const archetypes = archetypesFor(leagueId, season);
++ let archetypes = new Map();
++ try { archetypes = archetypesFor(leagueId, season); } catch { archetypes = new Map(); }
+```
+```diff
+-       read_state: archetypeState, read_reason: archetypeReason },
++       read_state: archetypeState },
+```
+```diff
+- const N_NOT_A_REAL_SYMBOL = 1;
++ const N_NOT_A_REAL_SYMBOL = 2;
+```
+
+### Which chat-sync commit this was verified against
+
+Verified against `48324ff`. Chat sync's branch moved to `0fbba41` while this
+was being written; its only change over `48324ff` is
+`test/league-chat-sync.test.js`, which this patch does not touch, so the
+verification stands and was not re-run for that reason alone. The merge
+recorded below is against `0fbba41`.

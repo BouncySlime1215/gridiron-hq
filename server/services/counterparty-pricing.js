@@ -146,6 +146,10 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   // which validates what it reads; an invalid profile simply is not there.
   const profiles = negotiationProfilesFor(leagueId);
   const needsByRoster = rosterContext ?? deriveRosterNeeds(leagueId);
+  // The tier and WHETHER ANYONE SET IT are two facts, and only the first used to
+  // survive this read. `?? 'fair'` below makes an elicited "fair" and an assumed
+  // one the same value, and live manager_profiles has no rows at all, so every
+  // league is the assumed case while reading like the stated one.
   const tiers = new Map(rows('SELECT roster_id, tradeability FROM manager_profiles WHERE league_id = ?', leagueId)
     .map(r => [String(r.roster_id), r.tradeability]));
   // Who owns what, inverted once: the valuation of a player he owns and of one
@@ -177,8 +181,10 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
     // Observed behaviour outranks talk. Only applied once there are enough
     // decided proposals for the rate to mean anything (the metric is withheld
     // below five by manager-signals.js, so its presence is itself the gate).
+    let acceptWeight = 0;
     if (Number.isFinite(m.tx_accept_rate)) {
       const w = Math.min(1, (s.samples.tx_accept_rate ?? 0) / 15);
+      acceptWeight = w;
       score = score * (1 - w) + m.tx_accept_rate * w;
     }
     // Nick's reads enter as a small nudge, never as a verdict.
@@ -201,10 +207,21 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
     // 0.55 "hard" factor to every deal, with or without this layer, and
     // applying it here as well discounted a hard manager to 0.30.
     const tier = tiers.get(id) ?? 'fair';
+    // Provenance for the tier and for the blend, both already known here.
+    // `tier_is_assumption` is deliberately redundant with `tier_source`: a
+    // boolean is what a badge binds to and the string is what a tooltip prints,
+    // and a consumer forced to derive one from the other is a consumer that will
+    // eventually derive it wrong.
+    const tierSource = tiers.has(id) ? 'elicited' : 'default';
+    const pricedBy = acceptWeight >= 1 ? 'observed'
+      : acceptWeight > 0 ? 'blended'
+        : tierSource === 'elicited' ? 'elicited' : 'default';
 
     const ctx = needsByRoster?.get(String(id)) ?? null;
     profile.set(id, {
       roster_id: id, receptiveness: +receptiveness.toFixed(3), tier,
+      tier_source: tierSource, tier_is_assumption: tierSource === 'default',
+      accept_rate_weight: +acceptWeight.toFixed(2), priced_by: pricedBy,
       chat_msgs: msgs, chat_weight: +chatWeight.toFixed(2),
       open_to_trade_pct: +openP.toFixed(2), trade_talk_pct: +talkP.toFixed(2),
       accept_rate: m.tx_accept_rate ?? null, accept_rate_n: s.samples.tx_accept_rate ?? 0,

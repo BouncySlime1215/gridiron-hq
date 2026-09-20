@@ -521,6 +521,13 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
       archetype: archetypes.get(id) ?? null,
       receptiveness: mp ? {
         value: mp.receptiveness, range: RECEPTIVENESS_RANGE,
+        // What priced him, and on how much. `tier` here is the value the layer
+        // USED; `tradeability_set` above is still the raw stored value, null when
+        // nobody has judged him. Both are served because they answer different
+        // questions and a page that has only the first cannot tell an assumed
+        // "fair" from a stated one.
+        tier: mp.tier, tier_source: mp.tier_source, tier_is_assumption: mp.tier_is_assumption,
+        accept_rate_weight: mp.accept_rate_weight, priced_by: mp.priced_by,
         chat_msgs: mp.chat_msgs, chat_weight: mp.chat_weight,
         open_to_trade_pct: mp.open_to_trade_pct, trade_talk_pct: mp.trade_talk_pct,
         accept_rate: mp.accept_rate, accept_rate_n: mp.accept_rate_n,

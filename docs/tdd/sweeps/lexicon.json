@@ -96,6 +96,22 @@
   "desc": "the field map is handed over as a Map, which survives JSON as an empty object"
  },
  {
+  "id": "M89",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "    ? { id, ...STAT_CONCEPTS[id] } : null;",
+  "new": "    ? { ...STAT_CONCEPTS[id] } : null;",
+  "desc": "the id lookup drops the id from its result, so it no longer matches what conceptFor returns and a caller meets two shapes for one thing"
+ },
+ {
+  "id": "M90",
+  "file": "server/services/coach/stat-names.js",
+  "tests": "test/coach-stat-names.test.js",
+  "old": "  return typeof id === 'string' && Object.hasOwn(STAT_CONCEPTS, id)",
+  "new": "  return typeof id === 'string' && id in STAT_CONCEPTS",
+  "desc": "the id lookup walks the prototype chain, so 'toString' and 'constructor' resolve to something concept-shaped"
+ },
+ {
   "id": "NC-lexicon",
   "file": "server/services/coach/stat-names.js",
   "tests": "test/coach-stat-names.test.js",

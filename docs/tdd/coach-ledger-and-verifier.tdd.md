@@ -96,9 +96,11 @@ already existed rather than by adding new ones.
 
 **Coverage, measured not asserted.** This sweep's 27 injections turn red all 29 tests of
 `coach-ledger.test.js` (12) and `coach-verify.test.js` (17).
-Across all eight Coach sweeps the union of red titles covers **159 of the 159 tests** in
-the twelve `test/coach-*` suites, from 155 injections. Nothing in these suites is
-turned red by nothing. The full check was green on the tree at `e249cc5`: **3,116 tests,
+Across all eight Coach sweeps the union of red titles covers **161 of the 161 tests** in
+the twelve `test/coach-*` suites, from 146 injections. Nothing in these suites is
+turned red by nothing. (A ninth sweep, `page-explain.json`, covers 7 of the 7 tests in
+`test/page-explain.test.js` from 12 more injections; it is counted separately because
+that suite is not Coach's.) The full check was green on the tree at `e249cc5`: **3,116 tests,
 3,075 pass, 0 fail, 41 skipped, 475.3 s**, build and startup smoke on an isolated
 database included, `npm run check` exit 0. Reproduce the coverage with the harness's
 `--baseline` mode and the spec file beside it.

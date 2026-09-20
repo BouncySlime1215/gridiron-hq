@@ -76,16 +76,19 @@ like a measurement is the same failure as a missing stat that reads like a prese
 
 RED `28bb577`: suite written against a module that does not exist; 0 pass.
 GREEN `426d80e`: 11 pass, 0 fail. No injection in this slice survived, so none forced a
-test; one test was added afterwards for the emitted artifact described below, and the
-suite stands at **12 pass, 0 fail**.
+test; one test was added afterwards for the emitted artifact described below, and two
+more with `conceptById` (RED then GREEN, rows M89 and M90), so the suite stands at
+**14 pass, 0 fail**.
 
 ## 4. Mutation table — every injection APPLIED, by hash
 
-**Coverage, measured not asserted.** This sweep's 12 injections turn red all 12 tests of
+**Coverage, measured not asserted.** This sweep's 14 injections turn red all 14 tests of
 `coach-stat-names.test.js`.
-Across all eight Coach sweeps the union of red titles covers **159 of the 159 tests** in
-the twelve `test/coach-*` suites, from 155 injections. Nothing in these suites is
-turned red by nothing. The full check was green on the tree at `e249cc5`: **3,116 tests,
+Across all eight Coach sweeps the union of red titles covers **161 of the 161 tests** in
+the twelve `test/coach-*` suites, from 146 injections. Nothing in these suites is
+turned red by nothing. (A ninth sweep, `page-explain.json`, covers 7 of the 7 tests in
+`test/page-explain.test.js` from 12 more injections; it is counted separately because
+that suite is not Coach's.) The full check was green on the tree at `e249cc5`: **3,116 tests,
 3,075 pass, 0 fail, 41 skipped, 475.3 s**, build and startup smoke on an isolated
 database included, `npm run check` exit 0. Reproduce the coverage with the harness's
 `--baseline` mode and the spec file beside it.
@@ -105,7 +108,7 @@ guessing at the injection. A row whose anchor is not in the source is reported N
 APPLIED rather than scoring zero failures — that happened once in this sweep (M12's
 anchor had the wrong punctuation) and is the failure mode the control below exists for.
 
-**Coverage of this file's own suite: 12 of 12.** The union of the tests these rows turn
+**Coverage of this file's own suite: 14 of 14.** The union of the tests these rows turn
 red is every test in `coach-stat-names.test.js`, which is the seventh part of the
 standard and is stated because the first pass of this table covered 5 of 12. A mutation
 table that kills every row it contains still says nothing about the tests it never
@@ -119,19 +122,21 @@ survives.
 
 | # | Injection | File | SHA-256 before → after | Red | The test that must go red |
 |---|---|---|---|---|---|
-| M43 | a lexicon field points at a column that does not exist | `stat-names.js` | `1fb9399d` → `cddeada0` | 2 | `coach-stat-names.test.js` — every field the lexicon names is a real column of a real table |
-| M44 | two concepts ship the same display name | `stat-names.js` | `1fb9399d` → `1276e085` | 2 | `coach-stat-names.test.js` — a display name belongs to exactly one concept, so the same words never mean two things |
-| M45 | the stat people ask for most is renamed, so nothing finds the gap | `stat-names.js` | `1fb9399d` → `0680ca25` | 3 | `coach-stat-names.test.js` — a stat we do not store says so, and says what it would take |
-| M58 | a concept is renamed without regenerating the emitted lexicon | `stat-names.js` | `1fb9399d` → `e62c7da9` | 1 | `coach-stat-names.test.js` — the emitted lexicon is the module, not a second copy that has drifted |
-| M81 | a field points at a concept id nothing defines | `stat-names.js` | `1fb9399d` → `92706bda` | 4 | `coach-stat-names.test.js` — every field points at a concept that exists |
-| M82 | a concept gives a direction that is not one of the three the app knows | `stat-names.js` | `1fb9399d` → `8c675ac4` | 2 | `coach-stat-names.test.js` — every concept has a display name, a plain sentence and a direction |
-| M83 | the same quantity in two tables is given two different names | `stat-names.js` | `1fb9399d` → `ce788fa3` | 2 | `coach-stat-names.test.js` — the same quantity in two tables resolves to the same name |
-| M84 | describeField hands a screen the name alone, with no unit and no direction | `stat-names.js` | `1fb9399d` → `79a589c7` | 1 | `coach-stat-names.test.js` — describeField gives a screen everything it needs to label a number |
-| M85 | an unknown field comes back as a guessed label rather than as nothing | `stat-names.js` | `1fb9399d` → `09df6db9` | 1 | `coach-stat-names.test.js` — an unknown field is null, not a guessed label |
-| M86 | the lexicon handed to a client carries a function, which JSON drops in silence | `stat-names.js` | `1fb9399d` → `9eec9115` | 1 | `coach-stat-names.test.js` — the lexicon serialises for a client with no Maps and no functions |
-| M87 | the basis explanation drops the constant case, so a number with no measurement behind it reads as measured | `stat-names.js` | `1fb9399d` → `aefe01b4` | 2 | `coach-stat-names.test.js` — chance to play cannot be shown without its basis |
-| M88 | the field map is handed over as a Map, which survives JSON as an empty object | `stat-names.js` | `1fb9399d` → `d7af2b65` | 2 | `coach-stat-names.test.js` — the lexicon serialises for a client with no Maps and no functions |
-| NC-lexicon | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `stat-names.js` | `1fb9399d` → `0fcf1c78` | **0** | none — and that is the assertion |
+| M43 | a lexicon field points at a column that does not exist | `stat-names.js` | `72daae89` → `66eb9cdc` | 2 | `coach-stat-names.test.js` — every field the lexicon names is a real column of a real table |
+| M44 | two concepts ship the same display name | `stat-names.js` | `72daae89` → `3568601a` | 2 | `coach-stat-names.test.js` — a display name belongs to exactly one concept, so the same words never mean two things |
+| M45 | the stat people ask for most is renamed, so nothing finds the gap | `stat-names.js` | `72daae89` → `7cc4cedc` | 3 | `coach-stat-names.test.js` — a stat we do not store says so, and says what it would take |
+| M58 | a concept is renamed without regenerating the emitted lexicon | `stat-names.js` | `72daae89` → `e51e20d1` | 1 | `coach-stat-names.test.js` — the emitted lexicon is the module, not a second copy that has drifted |
+| M81 | a field points at a concept id nothing defines | `stat-names.js` | `72daae89` → `29ac350e` | 5 | `coach-stat-names.test.js` — every field points at a concept that exists |
+| M82 | a concept gives a direction that is not one of the three the app knows | `stat-names.js` | `72daae89` → `5ec77f3b` | 2 | `coach-stat-names.test.js` — every concept has a display name, a plain sentence and a direction |
+| M83 | the same quantity in two tables is given two different names | `stat-names.js` | `72daae89` → `be02292c` | 2 | `coach-stat-names.test.js` — the same quantity in two tables resolves to the same name |
+| M84 | describeField hands a screen the name alone, with no unit and no direction | `stat-names.js` | `72daae89` → `ddf994c4` | 1 | `coach-stat-names.test.js` — describeField gives a screen everything it needs to label a number |
+| M85 | an unknown field comes back as a guessed label rather than as nothing | `stat-names.js` | `72daae89` → `c1dd225b` | 1 | `coach-stat-names.test.js` — an unknown field is null, not a guessed label |
+| M86 | the lexicon handed to a client carries a function, which JSON drops in silence | `stat-names.js` | `72daae89` → `90497919` | 1 | `coach-stat-names.test.js` — the lexicon serialises for a client with no Maps and no functions |
+| M87 | the basis explanation drops the constant case, so a number with no measurement behind it reads as measured | `stat-names.js` | `72daae89` → `37b1126f` | 2 | `coach-stat-names.test.js` — chance to play cannot be shown without its basis |
+| M88 | the field map is handed over as a Map, which survives JSON as an empty object | `stat-names.js` | `72daae89` → `02d9f2bb` | 2 | `coach-stat-names.test.js` — the lexicon serialises for a client with no Maps and no functions |
+| M89 | the id lookup drops the id from its result, so it no longer matches what conceptFor returns | `stat-names.js` | `72daae89` → `a288ee18` | 1 | `coach-stat-names.test.js` — a concept looked up by id has the same shape as one looked up by field |
+| M90 | the id lookup walks the prototype chain, so `toString` resolves to something concept-shaped | `stat-names.js` | `72daae89` → `155cd04e` | 1 | `coach-stat-names.test.js` — an unknown concept id is null, and a prototype key is not a concept |
+| NC-lexicon | NO-OP CONTROL (applied, kills nothing): reword the file's opening line, changing no behaviour | `stat-names.js` | `72daae89` → `9b9d9d5f` | **0** | none — and that is the assertion |
 
 **M45 turns three tests red, not two**, which is what the table says and what the prose
 here used to contradict. Renaming the `Yards per route run` entry to `YPRR` breaks the

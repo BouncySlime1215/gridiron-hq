@@ -105,9 +105,11 @@ failure, and the test was asking for the wrong thing.
 `coach-person-grading.test.js`. Its rows also run `coach-person-profile-script.test.js`,
 whose five tests are killed by the person sweep rather than by anything here — the two
 specs share a suite, so the count that matters is the union across both files.
-Across all eight Coach sweeps the union of red titles covers **159 of the 159 tests** in
-the twelve `test/coach-*` suites, from 155 injections. Nothing in these suites is
-turned red by nothing. The full check was green on the tree at `e249cc5`: **3,116 tests,
+Across all eight Coach sweeps the union of red titles covers **161 of the 161 tests** in
+the twelve `test/coach-*` suites, from 146 injections. Nothing in these suites is
+turned red by nothing. (A ninth sweep, `page-explain.json`, covers 7 of the 7 tests in
+`test/page-explain.test.js` from 12 more injections; it is counted separately because
+that suite is not Coach's.) The full check was green on the tree at `e249cc5`: **3,116 tests,
 3,075 pass, 0 fail, 41 skipped, 475.3 s**, build and startup smoke on an isolated
 database included, `npm run check` exit 0. Reproduce the coverage with the harness's
 `--baseline` mode and the spec file beside it.

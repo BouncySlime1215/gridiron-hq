@@ -1360,7 +1360,7 @@ after:
  * A question in, a verified answer out.
 ```
 
-## `lexicon.json` — 13 rows, evidence in `docs/tdd/coach-stat-lexicon.tdd.md`
+## `lexicon.json` — 15 rows, evidence in `docs/tdd/coach-stat-lexicon.tdd.md`
 
 ### M43 — a lexicon field points at a column that does not exist
 
@@ -1520,6 +1520,32 @@ before:
 after:
 ```
     fields: new Map(Object.entries(STAT_FIELDS)),
+```
+
+### M89 — the id lookup drops the id from its result, so it no longer matches what conceptFor returns and a caller meets two shapes for one thing
+
+`server/services/coach/stat-names.js`, suites `test/coach-stat-names.test.js`
+
+before:
+```
+    ? { id, ...STAT_CONCEPTS[id] } : null;
+```
+after:
+```
+    ? { ...STAT_CONCEPTS[id] } : null;
+```
+
+### M90 — the id lookup walks the prototype chain, so 'toString' and 'constructor' resolve to something concept-shaped
+
+`server/services/coach/stat-names.js`, suites `test/coach-stat-names.test.js`
+
+before:
+```
+  return typeof id === 'string' && Object.hasOwn(STAT_CONCEPTS, id)
+```
+after:
+```
+  return typeof id === 'string' && id in STAT_CONCEPTS
 ```
 
 ### NC-lexicon — NO-OP CONTROL: reword the file's opening line, changing no behaviour

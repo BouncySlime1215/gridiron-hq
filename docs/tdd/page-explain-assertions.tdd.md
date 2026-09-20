@@ -168,5 +168,5 @@ Union of the rows above: **7 of 7**, no test carrying a stated reason. Every tes
 in the file is turned red by at least one injection, and the one that took a
 two-file row to get there is verdict 3.
 
-The Coach sweeps' union is the separate claim: 159 of 159 tests across the twelve
+The Coach sweeps' union is the separate claim: 161 of 161 tests across the twelve
 `test/coach-*` suites.

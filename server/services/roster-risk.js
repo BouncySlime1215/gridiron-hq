@@ -158,6 +158,15 @@ export function byePatches(leagueId, { myTeamId = null, limit = 4, pool = 150 } 
   const { week: now } = tradeWeekContext();
 
   const available = freeAgents(lg, { limit: pool });
+  // Positions in the pool that the lineup solver does not score, so no
+  // candidate at them could ever have recovered a point. `freeAgents` marks
+  // each row (waiver-brain.js); collecting them here rather than inferring
+  // from an empty list is what lets the reading below state a fact about the
+  // model instead of leaving the reader to conclude one about the wire.
+  const unmodelled = [...new Set(available.filter(fa => !fa.lineup_modelled).map(fa => fa.position))].sort();
+  const notCovered = unmodelled.length
+    ? ` It does not cover ${unmodelled.join(' or ')}, which this model does not score at all.`
+    : '';
   const patches = [];
 
   // Only the weeks worth acting on. Patching a two-point dip is roster churn.
@@ -168,6 +177,10 @@ export function byePatches(leagueId, { myTeamId = null, limit = 4, pool = 150 } 
     const damaged = bestLineup(remaining, slots, RISK_KEY);
 
     const ranked = available
+      // Dropped here and named in the reading, not left to fall out at the
+      // threshold below: a kicker scores a structural zero because the solver
+      // excludes him, and a zero read as a verdict is the whole defect.
+      .filter(fa => fa.lineup_modelled)
       // A free agent on the SAME bye is not a patch, which is the single most
       // obvious mistake this could make and the one a season-average ranking
       // would walk straight into.
@@ -204,11 +217,20 @@ export function byePatches(leagueId, { myTeamId = null, limit = 4, pool = 150 } 
           : `Week ${bad.week} costs ${bad.points_lost} points. `) +
           `${ranked[0].fa.name} is on the wire and recovers ${ranked[0].recovered} of them.`
         : `Week ${bad.week} costs ${bad.points_lost} points and nothing on the wire fixes it — ` +
-          'this one has to come from a trade or be absorbed.'
+          'this one has to come from a trade or be absorbed.' + notCovered
     });
   }
 
-  return { ...outlook, patches };
+  // Stated whenever the pool held such a player, empty when it did not, so it
+  // never becomes the kind of note that appears on every page and trains a
+  // reader to skip it. Same field and same meaning as waiverUpgrades'.
+  const notModelled = unmodelled.length
+    ? { positions: unmodelled, in_pool: available.filter(fa => !fa.lineup_modelled).length,
+        why: `${unmodelled.join(' and ')} are not scored by the lineup solver, so no ${unmodelled.join(' or ')} ` +
+          'can appear as a patch however well he is playing. Their absence here is a limit of the model, not a read on the wire.' }
+    : null;
+
+  return { ...outlook, patches, not_modelled: notModelled };
 }
 
 /**

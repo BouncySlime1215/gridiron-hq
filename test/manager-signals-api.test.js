@@ -39,6 +39,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-manager-api-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const CHAT_PATH = path.join(temp, 'chat.sqlite');
 process.env.GRIDIRON_CHAT_DB_PATH = CHAT_PATH;
+const CHAT_ROLLED_UP_AT = '2026-09-18T03:45:00Z';   // the newest rollup stamp in the fixture
 process.env.SCHEDULER_DISABLED = '1';
 
 // ---------------------------------------------------------------- chat fixture
@@ -79,13 +80,17 @@ function buildChatFixture(file) {
       corpus_hash TEXT, model TEXT, built_at TEXT NOT NULL);
   `);
   const prof = chat.prepare(`INSERT INTO manager_chat_profile VALUES
-    (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`);
+    (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const people = [
     ['ME', 900, 600, 50, 0.2, 0.30, 0.2, 0.3, 2.5, 0.3, 0.5, 0.1, 0.30, 0.05, 0.05, 0.02],
     ['Hayden Brook', 400, 300, 20, 0.1, 0.25, 0.3, 0.2, 2.2, 0.4, 0.4, 0.1, 0.34, 0.08, 0.10, 0.05],
     ['Carl Delta', 350, 250, 15, 0.3, 0.20, 0.1, 0.4, 2.1, 0.2, 0.6, 0.1, 0.20, 0.04, 0.04, 0.02],
   ];
-  for (const p of people) prof.run(...p, '2026-01-01', '2026-09-17');
+  // The rollup's own stamps, pinned and unequal: the newest is the one the page
+  // must report. The corpus is Mac-only and its rollup runs off-server, so this
+  // date is the only thing that says how current the chat half of a manager read is.
+  const rollupAt = ['2026-09-17T20:00:00Z', '2026-09-17T20:00:00Z', CHAT_ROLLED_UP_AT];
+  people.forEach((p, i) => prof.run(...p, '2026-01-01', '2026-09-17', rollupAt[i]));
   chat.prepare(`INSERT INTO manager_player_sentiment VALUES (?,?,?,?,?,?,?,?,datetime('now'))`)
     .run('Hayden Brook', 'Player A', 6, 3.4, 0.9, 0.0, '2026-08-01', '2026-09-17');
   const np = chat.prepare(`INSERT INTO negotiation_profiles VALUES (?,?,?,?,?,?)`);
@@ -507,6 +512,54 @@ test('read: a database with no transactions table at all says the collector has 
   }
   const { body } = await call('GET', '/api/trades/21/managers/signals');
   assert.equal(body.transactions.rows, TX_ROWS, 'the fixture is restored for every test after this one');
+});
+
+test('read: the chat half says whether the corpus is here at all, and when it was last rolled up', async () => {
+  // The corpus is a private SQLite file on Nick's Mac. It is NOT in the deployed
+  // image, and its rollup is step 3 of the same OFF-SERVER refresh loop that
+  // collects transactions. So on the live app every chat-sourced number is as old
+  // as the last time that loop was run by hand — and a league with no corpus and a
+  // league whose corpus says nothing about a manager produced the same empty.
+  const { body } = await call('GET', '/api/trades/22/managers/signals');
+  assert.ok(body.chat, 'the payload carries a chat block');
+  assert.equal(body.chat.as_of, CHAT_ROLLED_UP_AT,
+    'as_of is the NEWEST rollup stamp in the corpus, not the oldest');
+  assert.ok(body.chat.rows > 0, 'the number of manager profiles the rollup wrote');
+  assert.match(body.chat.collected_by, /refresh-live-data|league_chat/i,
+    'it names what actually rolls the corpus up');
+  assert.equal(body.chat.reason, null, 'a corpus that is present has nothing to explain');
+});
+
+test('read: a database with no chat corpus says so instead of serving an empty chat half', async () => {
+  // The deployed app IS this case, every time. `openChatDb` returns null when the
+  // file is absent, and every chat read downstream then produced nothing at all.
+  // "There is no corpus on this machine" and "he never talks" must not look alike.
+  const saved = process.env.GRIDIRON_CHAT_DB_PATH;
+  process.env.GRIDIRON_CHAT_DB_PATH = path.join(os.tmpdir(), 'gridiron-no-corpus-here.sqlite');
+  try {
+    const { body } = await call('GET', '/api/trades/22/managers/signals');
+    assert.ok(body.chat, 'the block is served even with no corpus');
+    assert.equal(body.chat.as_of, null, 'no corpus is null, never a borrowed or invented stamp');
+    assert.equal(body.chat.rows, 0);
+    assert.match(body.chat.reason, /not on this (machine|database)|no chat corpus/i,
+      `the absence must name itself, got ${JSON.stringify(body.chat.reason)}`);
+  } finally { process.env.GRIDIRON_CHAT_DB_PATH = saved; }
+  const { body } = await call('GET', '/api/trades/22/managers/signals');
+  assert.equal(body.chat.as_of, CHAT_ROLLED_UP_AT, 'the fixture is restored for every test after this one');
+});
+
+test('read: the chat source does not advertise a refresh the server never runs, either', async () => {
+  // Same defect as SIGNAL_SOURCES.tx carried, in the same registry, reaching the
+  // client the same way — interpolated into the `why` on every chat signal row.
+  // The chat rollup is step 3 of scripts/refresh-live-data.mjs, which is off-server
+  // by its own header, and the corpus file is never in the deployed image at all.
+  assert.doesNotMatch(SIGNAL_SOURCES.chat.refreshed, /^every refresh tick$/,
+    'the deployed app runs no tick that rolls up a corpus it does not have');
+  assert.match(SIGNAL_SOURCES.chat.refreshed, /off-server|refresh-live-data/i,
+    'the source names what actually refreshes it');
+  const { body } = await call('GET', '/api/trades/22/managers/signals');
+  const why = metricOf(managerOf(body, 2), 'chat_msgs').why;
+  assert.doesNotMatch(why, /refreshed every refresh tick$/, 'the per-signal why carries the corrected claim');
 });
 
 test('read: the transactions source does not advertise a refresh the server never runs', async () => {

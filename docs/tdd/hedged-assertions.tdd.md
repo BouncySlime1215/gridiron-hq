@@ -87,6 +87,19 @@ edit as a diff, the test the new assertion fails on, and whether the assertion
 it replaced survived. `node --test <file>` per row, on the tree these commits
 are on.
 
+**The table is re-derivable, not reported.** The runner and the mutation list
+are committed:
+
+```
+node docs/tdd/sweeps/run-mutations.mjs docs/tdd/sweeps/hedged-assertions.mutations.json
+```
+
+It applies each edit to the producer, runs the named suites, then checks the
+same suites out at `6422367` — the commit before this sweep — and runs them
+again, which is where the `survived` column comes from. Every injection is
+reverted and the file is re-hashed against its baseline before the next row;
+the runner exits non-zero if any row did not behave as the list says.
+
 Baselines: `server/services/trade-tactics.js` `c5808df9aa97`,
 `server/services/trade-acceptance.js` `a0c12157cc0a`,
 `server/services/counterparty-pricing.js` `96e54c44c7ce`,

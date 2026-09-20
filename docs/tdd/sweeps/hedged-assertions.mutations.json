@@ -1,0 +1,150 @@
+{
+ "evidence": "docs/tdd/hedged-assertions.tdd.md",
+ "baseline_ref": "6422367",
+ "note": "Every row edits the PRODUCER of a sentence, never the test. `baseline_ref` is the commit before the sweep, so each row also reports what the assertion it replaced did with the same injection: `SURVIVED` is the measurement the sweep exists to take.",
+ "mutations": [
+  {
+   "id": "M1",
+   "what": "drop \"or negotiation profile\" from the no-chat sentence",
+   "file": "server/services/trade-tactics.js",
+   "suites": [
+    "test/trade-tactics.test.js"
+   ],
+   "expect": "red",
+   "from": "const noChat = `this manager has no chat read or negotiation profile touching any player in this `",
+   "to": "const noChat = `this manager has no chat read touching any player in this `"
+  },
+  {
+   "id": "M2",
+   "what": "the delta reading stops naming the number",
+   "file": "server/services/trade-acceptance.js",
+   "suites": [
+    "test/trade-acceptance.test.js"
+   ],
+   "expect": "red",
+   "from": "      `${delta > 0 ? '+' : ''}${delta}% on his own numbers`);",
+   "to": "      'his own numbers read as neutral');"
+  },
+  {
+   "id": "M3",
+   "what": "the smallness threshold stops naming 0.001",
+   "file": "server/services/trade-acceptance.js",
+   "suites": [
+    "test/trade-acceptance.test.js"
+   ],
+   "expect": "red",
+   "from": "        reason: `${why} — read, but it moves the band by less than 0.001, so it is reported `",
+   "to": "        reason: `${why} — read, but it moves the band too little to matter, so it is reported `"
+  },
+  {
+   "id": "M4",
+   "what": "the min_n reason stops naming the sample it NEEDS (four sites)",
+   "file": "server/services/counterparty-pricing.js",
+   "suites": [
+    "test/valuation-map.test.js"
+   ],
+   "expect": "red",
+   "from": "      inert.push({ source, reason: `rests on ${n} of the ${spec.min_n} needed (${spec.needs})`, as_of: asOf });",
+   "to": "      inert.push({ source, reason: `rests on ${n} ${spec.needs}`, as_of: asOf });"
+  },
+  {
+   "id": "M5",
+   "what": "the no-signals reason stops naming the script that would fix it",
+   "file": "server/services/counterparty-pricing.js",
+   "suites": [
+    "test/valuation-map.test.js"
+   ],
+   "expect": "red",
+   "from": "    return empty('no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it');",
+   "to": "    return empty('no manager signals for this league yet');"
+  },
+  {
+   "id": "M6",
+   "what": "\"not on this machine\" becomes \"unavailable\"",
+   "file": "server/services/counterparty-pricing.js",
+   "suites": [
+    "test/valuation-map.test.js"
+   ],
+   "expect": "red",
+   "from": "      : 'his declaration record was never read — the chat corpus is not on this machine, so whether his refusals hold is unknown';",
+   "to": "      : 'his declaration record was never read — the chat corpus is unavailable, so whether his refusals hold is unknown';"
+  },
+  {
+   "id": "M7",
+   "what": "\"no confirmed chat identity\" loses \"confirmed chat\"",
+   "file": "server/services/counterparty-pricing.js",
+   "suites": [
+    "test/valuation-map.test.js"
+   ],
+   "expect": "red",
+   "from": "      ? 'his declaration record was never looked up — this league has no confirmed chat identity for him, so whether his refusals hold is unknown'",
+   "to": "      ? 'his declaration record was never looked up — this league has no identity for him, so whether his refusals hold is unknown'"
+  },
+  {
+   "id": "M8",
+   "what": "the flat-prior sentence stops saying there is no evidence",
+   "file": "server/services/counterparty-pricing.js",
+   "suites": [
+    "test/valuation-map.test.js"
+   ],
+   "expect": "red",
+   "from": "      + (informative ? '' : ' — and the answer came back an even spread across the options, which is the '\n        + 'honest answer when there is no evidence')",
+   "to": "      + (informative ? '' : ' — and the answer came back an even spread across the options, which is the '\n        + 'honest answer')"
+  },
+  {
+   "id": "M9",
+   "what": "an unreadable response is reported as truncated",
+   "file": "server/services/trade-proposals.js",
+   "suites": [
+    "test/trade-proposals.test.js"
+   ],
+   "expect": "red",
+   "from": ": unusable('unreadable', 'the model response could not be read as JSON, so nothing from it '\n          + 'is trusted')",
+   "to": ": unusable('truncated', 'the model ran out of output room part-way through, so its list of '\n          + 'proposals was cut off mid-answer and could not be read — nothing from a half-written '\n          + 'proposal is trusted')"
+  },
+  {
+   "id": "M10",
+   "what": "the all-rejected sentence drops the count",
+   "file": "server/services/trade-proposals.js",
+   "suites": [
+    "test/trade-proposals.test.js"
+   ],
+   "expect": "red",
+   "from": "`every proposal failed verification and was rejected — ${rejected.length} in total, `",
+   "to": "'every proposal failed verification and was rejected — '"
+  },
+  {
+   "id": "M11",
+   "what": "the truncated sentence drops \"cut off mid-answer\"",
+   "file": "server/services/trade-proposals.js",
+   "suites": [
+    "test/trade-proposals.test.js"
+   ],
+   "expect": "red",
+   "from": "          + 'proposals was cut off mid-answer and could not be read — nothing from a half-written '",
+   "to": "          + 'proposals could not be read — nothing from a half-written '"
+  },
+  {
+   "id": "M12",
+   "what": "the not-a-list sentence drops \"of proposals\"",
+   "file": "server/services/trade-proposals.js",
+   "suites": [
+    "test/trade-proposals.test.js"
+   ],
+   "expect": "red",
+   "from": "unusable('not_a_list', 'the model response was not a list of proposals')",
+   "to": "unusable('not_a_list', 'the model response was not a list')"
+  },
+  {
+   "id": "CONTROL",
+   "what": "a pattern that is not in the file",
+   "file": "server/services/counterparty-pricing.js",
+   "suites": [
+    "test/valuation-map.test.js"
+   ],
+   "expect": "no-op",
+   "from": "const N_NOT_A_REAL_SYMBOL = 1;",
+   "to": "const N_NOT_A_REAL_SYMBOL = 2;"
+  }
+ ]
+}

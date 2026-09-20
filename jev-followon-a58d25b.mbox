@@ -1,0 +1,609 @@
+From 473311ee195fccca7a13ac3bb443a6d7b46dd00a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 20 Sep 2026 12:05:26 +0000
+Subject: [PATCH 1/4] refactor: the jev stamp comes from its owner, not from a
+ second derivation here
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Follow-on 4 of PR #41, applied on a scratch merge of this branch with chat
+sync's asof-hold f61f5d4 (which carries #47). Not merged in-branch: their hold
+is stacked on #47, so merging it into the #41 source would put two other pull
+requests inside #41.
+
+jevEvaluated() derived its own MAX(evaluated_at) over manager_archetype_jev.
+archetypesBuilt(leagueId, season, memberId) in manager-archetypes.js owns that
+stamp as jev_as_of, and two accessors deriving one store's stamp is the
+duplication the as-of rule warns about: they drift, and then two surfaces date
+one measurement differently. The answers are still read here — theirs returns a
+stamp and a count, not the distributions — but the DATE now comes from the owner,
+cached per member so a manager with eight answered questions is one read.
+
+jev_as_of and jev_answers are OMITTED rather than nulled when no member is
+passed, because "you did not ask about a member" and "no answers stored for him"
+are different facts. So the presence test is `'jev_as_of' in built`, never a null
+check, and this reads it that way.
+
+The import is aliased to archetypeStoreStamps because this module exports an
+archetypesBuilt of its own and the two are not the same function: theirs is the
+member-keyed owner, mine the narrower league-season read the trade path already
+uses. The collision is real and is named rather than hidden; folding my own into
+their priced_as_of is follow-on 2 and is not in scope here.
+
+season is threaded back through jevEvaluated, managerModelReads and the manager
+page because their signature takes it. jev_as_of itself is not season-scoped —
+manager_archetype_jev has no season column — so only the stamp lookup's sibling
+fields depend on it, and this reads none of those.
+
+Suites on this tree: valuation-map, manager-signals-api and their own
+archetype-as-of, 93 tests, 93 pass, 0 fail.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01M65mgrWTebkf9zqNR3gFnL
+---
+ server/routes/trades.js                 |  2 +-
+ server/services/counterparty-pricing.js |  6 ++---
+ server/services/manager-signals.js      | 36 ++++++++++++++++++++-----
+ 3 files changed, 33 insertions(+), 11 deletions(-)
+
+diff --git a/server/routes/trades.js b/server/routes/trades.js
+index 11f5acf..7cc88d9 100644
+--- a/server/routes/trades.js
++++ b/server/routes/trades.js
+@@ -423,7 +423,7 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
+   // makes — not through the layer, which exists only for rosters that have
+   // signals. A manager with no signals still has a draft record somebody paid a
+   // gateway call to read.
+-  const modelReads = managerModelReads(leagueId, rosterIds);
++  const modelReads = managerModelReads(leagueId, rosterIds, { season });
+ 
+   const managers = rosterIds.map(id => {
+     const team = teamById.get(id) ?? null;
+diff --git a/server/services/counterparty-pricing.js b/server/services/counterparty-pricing.js
+index 1d0467f..e79e0fa 100644
+--- a/server/services/counterparty-pricing.js
++++ b/server/services/counterparty-pricing.js
+@@ -205,8 +205,8 @@ function shapeJevAnswer(question, a) {
+  * reaches. The layer is built from `manager_signals` keys, and a manager with
+  * no signals still has a draft record somebody paid a gateway call to read.
+  */
+-export function managerModelReads(leagueId, rosterIds = null) {
+-  const read = jevEvaluated(leagueId);
++export function managerModelReads(leagueId, rosterIds = null, { season = null } = {}) {
++  const read = jevEvaluated(leagueId, season);
+   const ids = rosterIds ?? [...read.by_roster.keys()];
+   return new Map([...ids].map(id => [String(id), jevBlockFor(read, id)]));
+ }
+@@ -300,7 +300,7 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
+   for (const [rid, names] of rosterOf) rosterSize.set(rid, names.size);
+ 
+   const ids = [...signals.keys()];
+-  const jevBlocks = managerModelReads(leagueId, ids);
++  const jevBlocks = managerModelReads(leagueId, ids, { season: season ?? null });
+   const openVals = ids.map(id => signals.get(id).metrics.chat_open_to_trade);
+   const talkVals = ids.map(id => signals.get(id).metrics.chat_trade_talk);
+ 
+diff --git a/server/services/manager-signals.js b/server/services/manager-signals.js
+index bc22bbb..86e7d87 100644
+--- a/server/services/manager-signals.js
++++ b/server/services/manager-signals.js
+@@ -37,6 +37,12 @@ import { existsSync } from 'node:fs';
+ import path from 'node:path';
+ import { db, rows, run } from '../db/index.js';
+ import { identityMap, matchIdentities } from './manager-identity.js';
++// Aliased on purpose: this module exports an `archetypesBuilt` of its own, and the
++// two are not the same function. Theirs is the member-keyed owner of the jev
++// stamp (manager-archetypes.js:947); mine is the narrower league-season read the
++// trade path already uses. The alias keeps a reader from thinking one call is the
++// other — the collision is real and worth naming rather than hiding.
++import { archetypesBuilt as archetypeStoreStamps } from './manager-archetypes.js';
+ import { PROJECT_ROOT } from '../platform/paths.js';
+ 
+ db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (
+@@ -729,7 +735,7 @@ export function chatCorpusState() {
+  * person and never as a term: half of them carry `basis: 'inference_only'`,
+  * which is the store saying in its own column that the number is a prior.
+  */
+-export function jevEvaluated(leagueId) {
++export function jevEvaluated(leagueId, season = null) {
+   const evaluator = 'scripts/build-manager-archetypes.mjs --jev (off-server; opt-in, needs a gateway key, '
+     + 'and nothing on the deployed app writes this store)';
+   const empty = { as_of: null, rows: 0, evaluated_by: evaluator, by_roster: new Map() };
+@@ -757,8 +763,7 @@ export function jevEvaluated(leagueId) {
+   // manager whose chat name was never confirmed still has one.
+   const answered = rows(`SELECT i.roster_id AS roster_id, j.member_id AS member_id, j.question AS question,
+                                 j.outcome AS outcome, j.probability AS probability, j.basis AS basis,
+-                                j.n_seasons AS n_seasons, j.n_picks AS n_picks, j.model AS model,
+-                                j.evaluated_at AS evaluated_at
++                                j.n_seasons AS n_seasons, j.n_picks AS n_picks, j.model AS model
+                          FROM manager_archetype_jev j
+                          JOIN league_member_identity i ON i.espn_member_id = j.member_id
+                          WHERE i.league_id = ?`, leagueId);
+@@ -767,18 +772,35 @@ export function jevEvaluated(leagueId) {
+       reason: 'the Jev pass has run, but for no manager in this league — it is run one manager at a time '
+         + 'and costs a gateway call each, so a partial store is the normal state' };
+   }
++  // THE STAMP IS NOT THIS MODULE'S TO DERIVE. `archetypesBuilt` in
++  // manager-archetypes.js owns the member-keyed jev stamp, and two accessors
++  // deriving one store's stamp is exactly the duplication the as-of rule warns
++  // against: they drift, and then two surfaces date one measurement differently.
++  // The answers below are still read here — theirs returns a stamp and a count,
++  // not the distributions — but the DATE comes from the owner.
++  //
++  // `jev_as_of` and `jev_answers` are OMITTED rather than nulled when no member
++  // is passed, because "you did not ask about a member" and "no answers stored
++  // for him" are different facts. So presence is the test, never `!= null`.
++  const stampCache = new Map();
++  const stampFor = memberId => {
++    if (!stampCache.has(memberId)) {
++      const built = archetypeStoreStamps(leagueId, season, memberId);
++      stampCache.set(memberId, 'jev_as_of' in built ? (built.jev_as_of ?? null) : null);
++    }
++    return stampCache.get(memberId);
++  };
+   const byRoster = new Map();
+   let newest = null;
+   for (const r of answered) {
+     const key = String(r.roster_id);
+     if (!byRoster.has(key)) {
+-      byRoster.set(key, { roster_id: key, member_id: r.member_id, as_of: null, model: r.model ?? null,
+-        questions: {} });
++      byRoster.set(key, { roster_id: key, member_id: r.member_id, as_of: stampFor(r.member_id),
++        model: r.model ?? null, questions: {} });
+     }
+     const entry = byRoster.get(key);
+     // HIS newest, and separately the league's, which are different facts.
+-    if (r.evaluated_at && (entry.as_of == null || r.evaluated_at > entry.as_of)) entry.as_of = r.evaluated_at;
+-    if (r.evaluated_at && (newest == null || r.evaluated_at > newest)) newest = r.evaluated_at;
++    if (entry.as_of && (newest == null || entry.as_of > newest)) newest = entry.as_of;
+     entry.questions[r.question] ??= { basis: r.basis, n_seasons: r.n_seasons, n_picks: r.n_picks, p: {} };
+     entry.questions[r.question].p[r.outcome] = r.probability;
+   }
+-- 
+2.43.0
+
+
+From 8a8030d509954fb592e23223a320f16e4af2316c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 20 Sep 2026 12:24:36 +0000
+Subject: [PATCH 2/4] test: the archetype state is read from the store's owner,
+ not caught from a fault
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+RED. Two tests, both failing.
+
+`manager-archetypes.js` no longer throws when `league_season_teams` is
+absent: `leagueHistoryState()` reports the table and `archetypesFor()`
+returns an empty map. So the narrowed catch on this route is now a branch
+nothing can reach, and the state it used to set is no longer set at all —
+the page reports `present` on a database that cannot look up a single
+manager.
+
+The tests now ask for the shape the new module makes possible: `read_state`
+from `leagueHistoryState()`, and `read_reason` carrying that module's own
+sentence instead of `read_failed` carrying an exception message this route
+wrote about itself. A stamp, and a state, must describe the store, not the
+reader.
+
+RED: 27 tests, 25 pass, 2 fail (test/manager-signals-api.test.js).
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01M65mgrWTebkf9zqNR3gFnL
+---
+ test/manager-signals-api.test.js | 25 ++++++++++++++-----------
+ 1 file changed, 14 insertions(+), 11 deletions(-)
+
+diff --git a/test/manager-signals-api.test.js b/test/manager-signals-api.test.js
+index 92fba1a..d332e2a 100644
+--- a/test/manager-signals-api.test.js
++++ b/test/manager-signals-api.test.js
+@@ -818,24 +818,27 @@ test('read: the manager page serves the DATED model read, not the store\'s raw p
+   }
+ });
+ 
+-test('read: an archetype read that FAILED is reported, not served as a store that is empty', async () => {
+-  // `archetypesFor` joins `league_season_teams`, whose only CREATE TABLE is in
+-  // `scripts/backfill-league-history.mjs` — so on a database where that backfill
+-  // has never run it throws rather than returning nothing. The bare `catch {}`
+-  // that used to sit here turned "the read broke" into "the build has not run",
+-  // which are different facts with different fixes, and CLAUDE.md is explicit
+-  // that a layer going inert has to say so.
++test('read: an archetype store that cannot be read says so in the store owner\'s own words', async () => {
++  // This page used to learn the state by CATCHING the exception `archetypesFor`
++  // threw when `league_season_teams` was absent. `manager-archetypes.js` now
++  // answers the question itself — `leagueHistoryState()` reports the table, and
++  // `archetypesFor` returns an empty map instead of throwing — so the state is
++  // READ from the module that owns the store rather than inferred from a fault
++  // this route happened to see. The as-of rule's own words: a stamp, and a
++  // state, must describe the store, not the reader.
+   db.exec('ALTER TABLE league_season_teams RENAME TO league_season_teams_hidden');
+   try {
+     const { body } = await call('GET', '/api/trades/21/managers/signals');
+     assert.equal(body.available, true, 'the stored signals underneath are still measured and still served');
+     assert.ok(body.archetypes, 'the archetype store gets a block of its own, like transactions and chat');
+-    assert.match(String(body.archetypes.read_failed ?? ''), /no such table/i,
+-      'and the failure is named rather than swallowed');
+     assert.equal(body.archetypes.read_state, 'table_absent',
+       'in the same word the archetype module itself serves for this state');
++    assert.match(String(body.archetypes.read_reason ?? ''), /league_season_teams is not on this database/,
++      'and the reason is the store owner\'s sentence, not a sentence this route writes about an exception');
++    assert.match(String(body.archetypes.read_reason ?? ''), /cannot look/i,
++      'which distinguishes "we cannot look" from "this manager is unknown"');
+     assert.equal(managerOf(body, 2).archetype, null,
+-      'no archetype survives the failure, which is the honest half of it');
++      'no archetype survives the absence, which is the honest half of it');
+   } finally {
+     db.exec('ALTER TABLE league_season_teams_hidden RENAME TO league_season_teams');
+   }
+@@ -846,7 +849,7 @@ test('read: a healthy archetype read says the store is fine', async () => {
+   // failure whenever it is merely empty, or the sentence means nothing.
+   const { body } = await call('GET', '/api/trades/21/managers/signals');
+   assert.ok(body.archetypes, 'the block is always served');
+-  assert.equal(body.archetypes.read_failed, null, 'no failure when there was none');
++  assert.equal(body.archetypes.read_reason, null, 'no reason to give when the store is readable');
+   assert.equal(body.archetypes.read_state, 'present', 'and the state word says so');
+   assert.ok(body.archetypes.as_of, 'and it carries the build stamp, like the other two stores');
+ });
+-- 
+2.43.0
+
+
+From 4034082f355660542eeddd1cbcc743d2b1a73938 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 20 Sep 2026 12:25:33 +0000
+Subject: [PATCH 3/4] fix: the archetype state is read from its owner, and the
+ catch that cannot fire is removed
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+GREEN. 77 tests, 77 pass, 0 fail across the three affected suites.
+
+`leagueHistoryState()` is asked whether `league_season_teams` is there, and
+its own sentence is served as `read_reason`. `read_failed` is gone with the
+catch that produced it — it carried an exception message about the reader,
+and after the store owner stopped throwing it would have been null in every
+reachable state, which is a field that teaches a reader something untrue.
+
+The catch is removed rather than left standing. A catch nothing can reach is
+a claim this page still handles a fault it no longer sees, and the next real
+fault in the archetype code — a renamed column, a TypeError — has to reach
+the error handler untouched. The test that renames a COLUMN away still pins
+that half and still gets its 500.
+
+`isMissingTable` goes with it; nothing else used it.
+
+The five questions:
+- Well built? The state comes from one accessor in the module that owns the
+  store, and this route holds no second copy of the rule.
+- Stats or made up? Neither: it is a schema read, `sqlite_master`, done fresh
+  on every request because a migration can create the table inside the life
+  of the process.
+- How do we know? Two tests, one per state, plus the column-rename test that
+  proves a fault is still a fault.
+- Pointed anywhere else? Every surface that reports an archetype absence
+  should read the same accessor; this is the first caller outside the module.
+- How does it unify? One vocabulary for the state (`table_absent`, the
+  archetype module's own word) and one sentence for the reason, so the page,
+  the store and the explain prompt cannot disagree.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01M65mgrWTebkf9zqNR3gFnL
+---
+ server/routes/trades.js | 76 ++++++++++++++++-------------------------
+ 1 file changed, 29 insertions(+), 47 deletions(-)
+
+diff --git a/server/routes/trades.js b/server/routes/trades.js
+index 7cc88d9..b04ae45 100644
+--- a/server/routes/trades.js
++++ b/server/routes/trades.js
+@@ -265,21 +265,6 @@ r.post('/:leagueId/brain/managers/:rosterId', (req, res, next) => {
+ const NO_MANAGER_SIGNALS_REASON =
+   'no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it';
+ 
+-/**
+- * The one error this page's archetype read is allowed to continue past.
+- *
+- * `league_season_teams` is created only by `scripts/backfill-league-history.mjs`,
+- * so on a database where that has never run the read cannot succeed however
+- * correct the code is. That is an absence, and absences are reported and
+- * survived. Everything else — a renamed column, a corrupt file, a TypeError in
+- * the archetype code — is a fault and must reach the error handler.
+- *
+- * Matching on the message is what node:sqlite gives us; it carries no error
+- * code for this. The match is deliberately narrow: `no such column` and
+- * `no such function` are faults and must NOT match.
+- */
+-const isMissingTable = e => /no such table/i.test(String(e?.message ?? ''));
+-
+ /**
+  * The archetype object without the store's raw `jev`.
+  *
+@@ -389,33 +374,26 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
+   // The archetype store is the weekly feature warehouse; it is imported here,
+   // lazily, rather than at the top of the trade path (the same line
+   // counterparty-pricing.js draws) and an absent store is simply no archetype.
+-  let archetypes = new Map();
+-  // A read that THREW and a store that is empty are different facts with
+-  // different fixes, and the bare `catch {}` that used to sit here made them
+-  // identical. Not hypothetical: `archetypesFor` joins `league_season_teams`,
+-  // whose only CREATE TABLE is in `scripts/backfill-league-history.mjs`, so on
+-  // a database where that backfill has never run this throws and every manager
+-  // came back with no archetype under a page that said the build had not run.
+-  let archetypeError = null;
+-  let archetypeState = 'present';
+-  try {
+-    const { archetypesFor } = await import('../services/manager-archetypes.js');
+-    archetypes = archetypesFor(leagueId, season);
+-  } catch (e) {
+-    // ONLY THE ABSENCE IS ABSORBED. A missing table is a fact about this
+-    // database — the backfill has never run here — and this page's own job,
+-    // serving the measured signals, does not depend on the archetypes, so it
+-    // continues and says which state it is in. Anything else is a fault: a
+-    // `no such column` means the query and the schema disagree, and a catch
+-    // wide enough to take that turns every future mistake in the archetype code
+-    // into a quietly empty panel. Reporting the sentence was not enough on its
+-    // own; a page that says "the archetype read failed: <TypeError>" still
+-    // serves a 200 that a caller will read as data.
+-    if (!isMissingTable(e)) throw e;
+-    archetypeState = 'table_absent';
+-    archetypeError = String(e?.message ?? e);
+-    archetypes = new Map();
+-  }
++  //
++  // NO CATCH. There used to be one, narrowed to `no such table`, because
++  // `archetypesFor` threw when `league_season_teams` was absent and this page's
++  // own job — serving the measured signals — does not depend on the archetypes.
++  // `manager-archetypes.js` now answers the question directly: `archetypesFor`
++  // returns an empty map, and `leagueHistoryState()` says whether the table is
++  // there and why it might not be. So the state is READ from the module that
++  // owns the store rather than inferred from an exception this route happened
++  // to see, which is the as-of rule applied to a state instead of a stamp.
++  //
++  // The catch is REMOVED rather than left standing over a branch nothing
++  // reaches. A catch that can no longer fire is a claim this page still handles
++  // a fault it no longer sees, and the next real fault in the archetype code —
++  // a renamed column, a TypeError — must reach the error handler untouched.
++  // `test/manager-signals-api.test.js` pins both halves.
++  const { archetypesFor, leagueHistoryState } = await import('../services/manager-archetypes.js');
++  const historyState = leagueHistoryState();
++  const archetypeState = historyState.present ? 'present' : 'table_absent';
++  const archetypeReason = historyState.present ? null : historyState.reason;
++  const archetypes = archetypesFor(leagueId, season);
+   const rosterIds = teams.length
+     ? teams.map(t => String(t.id))
+     : [...new Set([...idents.keys(), ...byRoster.keys()])].sort((a, b) => Number(a) - Number(b));
+@@ -487,12 +465,16 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
+     // page that cannot say "the corpus is not here" will say "he never talks".
+     chat: chatCorpusState(),
+     // THE ARCHETYPE STORE, on the same footing as the two above, and the place
+-    // a failed read is reported instead of vanishing.
++    // an unreadable store is reported instead of vanishing.
+     archetypes: { ...archetypesBuilt(leagueId, season),
+-      // `read_state` is the machine-readable fact and `read_failed` the sentence
+-      // under it. The word is `manager-archetypes.js`'s own for this state, not
+-      // a second vocabulary for one thing.
+-      read_state: archetypeState, read_failed: archetypeError },
++      // `read_state` is the machine-readable fact and `read_reason` the sentence
++      // under it. Both are `manager-archetypes.js`'s own — the word for the
++      // state and the sentence explaining it — not a second vocabulary this
++      // route invents for one thing. `read_failed`, which carried an exception
++      // message, is gone with the catch that produced it: nothing fails here
++      // any more, and a field that is null in every reachable state is a field
++      // that teaches a reader something untrue.
++      read_state: archetypeState, read_reason: archetypeReason },
+     sources: SIGNAL_SOURCES,
+     identity_warnings: identityWarnings(leagueId),
+     managers,
+-- 
+2.43.0
+
+
+From a58d25b8c79f17850886732919b9f94ffd70611c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 20 Sep 2026 12:44:41 +0000
+Subject: [PATCH 4/4] docs: evidence for the post-merge removal, with its
+ mutation list
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Section 5 of docs/tdd/manager-page-reads.tdd.md: why the narrowed catch of
+section 2b becomes a removal once archetypesFor stops throwing, what the
+served shape becomes, and the mutation table behind it.
+
+Seven rows, re-derivable with the committed runner:
+
+  node docs/tdd/sweeps/run-mutations.mjs docs/tdd/sweeps/manager-page-4b.mutations.json
+
+7 of 7 behaved as the list says. N5 is the row that matters — putting the
+absorbing catch back is killed by `a programming error in the archetype read
+is NOT absorbed`, so the removal is protected by the same test that protected
+the narrowing rather than merely unopposed.
+
+Also recorded: this was verified against chat sync's 48324ff, and their branch
+moved to 0fbba41 while it was being written. Their only change over 48324ff is
+test/league-chat-sync.test.js, which this patch does not touch.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01M65mgrWTebkf9zqNR3gFnL
+---
+ docs/tdd/manager-page-reads.tdd.md            | 95 +++++++++++++++++++
+ .../tdd/sweeps/manager-page-4b.mutations.json | 59 ++++++++++++
+ 2 files changed, 154 insertions(+)
+ create mode 100644 docs/tdd/sweeps/manager-page-4b.mutations.json
+
+diff --git a/docs/tdd/manager-page-reads.tdd.md b/docs/tdd/manager-page-reads.tdd.md
+index 449e2d6..8f4e30a 100644
+--- a/docs/tdd/manager-page-reads.tdd.md
++++ b/docs/tdd/manager-page-reads.tdd.md
+@@ -334,3 +334,98 @@ fails the offline-guard tests with `ERR_MODULE_NOT_FOUND` until it is, which loo
+ exactly like a regression and is not one. CI is not run: GitHub Actions is out of
+ minutes until 2026-10-01 and the workflow is disabled deliberately, so red or
+ missing checks are that and not this branch's content.
++
++## 5. After the merge: the catch is removed, not narrowed again
++
++This section describes the post-merge follow-on. It lands only once both this
++branch and chat sync's `league_season_teams` work are on `main`; §2b is the
++state on `#41`'s own base, and the two are the same rule at two bases.
++
++`manager-archetypes.js` on chat sync's branch stops throwing when
++`league_season_teams` is absent: `archetypesFor` returns an empty map and
++`leagueHistoryState()` reports the table. That turns §2b's narrowed catch into
++a branch nothing can reach — and worse than merely dead, because the state it
++used to set is then never set at all, so the page reports `read_state:
++'present'` on a database that cannot look up a single manager. The failure the
++narrowing prevented arrives from the other side.
++
++So the catch is REMOVED and the state is READ from the module that owns the
++store. A catch nothing can reach is a claim that this page still handles a
++fault it no longer sees, and the next real fault in the archetype code — a
++renamed column, a `TypeError` — has to reach the error handler untouched.
++
++`read_failed` is removed with it. It carried an exception message about the
++READER, and once the owner stops throwing it is null in every reachable state;
++a field that is null in every state a caller can produce teaches that caller
++something untrue. `read_reason` replaces it with the owner's own sentence. No
++consumer is lost: at the time of writing, `read_failed` and `read_state`
++appear only in this route, its two tests and this file — nothing in
++`client/src` reads either.
++
++This is the as-of rule applied to a STATE rather than a stamp. A served value
++carries the stamp of the process that MEASURED it; a served state carries the
++word of the module that OWNS the store, not a word the reader inferred from an
++exception it happened to catch.
++
++### Mutations
++
++Re-derivable, like §4:
++
++```
++node docs/tdd/sweeps/run-mutations.mjs docs/tdd/sweeps/manager-page-4b.mutations.json
++```
++
++Baseline `server/routes/trades.js` at `9548475470eb`.
++
++| # | Mutation | Applied | Result |
++|---|----------|---------|--------|
++| N1 | always report the state as present | `APPLIED 9548475470eb -> 85d8d8de2d41` | **RED** 27/26/1 |
++| N2 | always report the state as table_absent | `APPLIED 9548475470eb -> 8fa9fe72325a` | **RED** 27/26/1 |
++| N3 | a word the archetype module does not use | `APPLIED 9548475470eb -> 08780c1a1a0c` | **RED** 27/26/1 |
++| N4 | this route writes its own sentence instead of the owner's | `APPLIED 9548475470eb -> ad57bab15221` | **RED** 27/26/1 |
++| N5 | put the absorbing catch back | `APPLIED 9548475470eb -> 02867030d8fe` | **RED** 27/26/1 |
++| N6 | stop serving `read_reason` at all | `APPLIED 9548475470eb -> bdbd30e32276` | **RED** 27/25/2 |
++| CONTROL | a pattern that is not in the file | `NO-OP - pattern not found` | — |
++
++**7 of 7 behaved as the list says.** N5 is the row that matters: reinstating
++the catch is killed by `read: a programming error in the archetype read is NOT
++absorbed`, so the removal is protected by the same test that protected the
++narrowing, not merely unopposed.
++
++```diff
++- const archetypeState = historyState.present ? 'present' : 'table_absent';
+++ const archetypeState = 'present';
++```
++```diff
++- const archetypeState = historyState.present ? 'present' : 'table_absent';
+++ const archetypeState = 'table_absent';
++```
++```diff
++- const archetypeState = historyState.present ? 'present' : 'table_absent';
+++ const archetypeState = historyState.present ? 'present' : 'missing';
++```
++```diff
++- const archetypeReason = historyState.present ? null : historyState.reason;
+++ const archetypeReason = historyState.present ? null : 'the archetype store could not be read';
++```
++```diff
++- const archetypes = archetypesFor(leagueId, season);
+++ let archetypes = new Map();
+++ try { archetypes = archetypesFor(leagueId, season); } catch { archetypes = new Map(); }
++```
++```diff
++-       read_state: archetypeState, read_reason: archetypeReason },
+++       read_state: archetypeState },
++```
++```diff
++- const N_NOT_A_REAL_SYMBOL = 1;
+++ const N_NOT_A_REAL_SYMBOL = 2;
++```
++
++### Which chat-sync commit this was verified against
++
++Verified against `48324ff`. Chat sync's branch moved to `0fbba41` while this
++was being written; its only change over `48324ff` is
++`test/league-chat-sync.test.js`, which this patch does not touch, so the
++verification stands and was not re-run for that reason alone. The merge
++recorded below is against `0fbba41`.
+diff --git a/docs/tdd/sweeps/manager-page-4b.mutations.json b/docs/tdd/sweeps/manager-page-4b.mutations.json
+new file mode 100644
+index 0000000..bb0d23b
+--- /dev/null
++++ b/docs/tdd/sweeps/manager-page-4b.mutations.json
+@@ -0,0 +1,59 @@
++{
++ "evidence": "docs/tdd/manager-page-reads.tdd.md",
++ "file": "server/routes/trades.js",
++ "suites": [
++  "test/manager-signals-api.test.js"
++ ],
++ "note": "Section 5: the archetype state is read from leagueHistoryState() and the catch that can no longer fire is removed. No baseline_ref: this is not a sweep that tightened existing assertions, so there is no earlier version of the tests to compare against.",
++ "mutations": [
++  {
++   "id": "N1",
++   "what": "always report the state as present",
++   "expect": "red",
++   "from": "  const archetypeState = historyState.present ? 'present' : 'table_absent';",
++   "to": "  const archetypeState = 'present';"
++  },
++  {
++   "id": "N2",
++   "what": "always report the state as table_absent",
++   "expect": "red",
++   "from": "  const archetypeState = historyState.present ? 'present' : 'table_absent';",
++   "to": "  const archetypeState = 'table_absent';"
++  },
++  {
++   "id": "N3",
++   "what": "report the state in a word the archetype module does not use",
++   "expect": "red",
++   "from": "  const archetypeState = historyState.present ? 'present' : 'table_absent';",
++   "to": "  const archetypeState = historyState.present ? 'present' : 'missing';"
++  },
++  {
++   "id": "N4",
++   "what": "this route writes its own sentence instead of serving the store owner's",
++   "expect": "red",
++   "from": "  const archetypeReason = historyState.present ? null : historyState.reason;",
++   "to": "  const archetypeReason = historyState.present ? null : 'the archetype store could not be read';"
++  },
++  {
++   "id": "N5",
++   "what": "put the absorbing catch back around the archetype read",
++   "expect": "red",
++   "from": "  const archetypes = archetypesFor(leagueId, season);",
++   "to": "  let archetypes = new Map();\n  try { archetypes = archetypesFor(leagueId, season); } catch { archetypes = new Map(); }"
++  },
++  {
++   "id": "N6",
++   "what": "stop serving read_reason at all",
++   "expect": "red",
++   "from": "      read_state: archetypeState, read_reason: archetypeReason },",
++   "to": "      read_state: archetypeState },"
++  },
++  {
++   "id": "CONTROL",
++   "what": "a pattern that is not in the file",
++   "expect": "no-op",
++   "from": "const N_NOT_A_REAL_SYMBOL = 1;",
++   "to": "const N_NOT_A_REAL_SYMBOL = 2;"
++  }
++ ]
++}
+-- 
+2.43.0
+

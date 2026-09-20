@@ -1193,7 +1193,7 @@ export const JOBS = {
   mlb_boxscores: { run: refreshMlbBoxscores, maxAgeMinutes: 30, tier: 'live', label: 'MLB final boxscore settlement' },
   mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, tier: 'live', label: 'MLB probable starters' },
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, tier: 'heavy', label: "Tomorrow's MLB picks" },
-  player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live',
+  player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live', offThread: true,
     label: 'Player team assignments — the actual fix for stale roster spots' },
   /*
    * THE FANTASY INGESTION CHAIN.
@@ -1498,11 +1498,11 @@ export const JOBS = {
     label: 'NFL prop market capture (CLV evidence)' },
   nfl_prop_clv_free: { run: refreshFreePropClv, maxAgeMinutes: 60, tier: 'live',
     label: 'Free prop quotes matched to the model and devigged into CLV evidence' },
-  rss_news: { run: refreshRssNews, maxAgeMinutes: 15, tier: 'live',
+  rss_news: { run: refreshRssNews, maxAgeMinutes: 15, tier: 'live', offThread: true,
     label: 'Publisher RSS news, normalized and typed' },
-  espn_news: { run: refreshEspnNews, maxAgeMinutes: 30, tier: 'live',
+  espn_news: { run: refreshEspnNews, maxAgeMinutes: 30, tier: 'live', offThread: true,
     label: 'ESPN league and rotating team news feeds (free)' },
-  nfl_news_signals: { run: refreshNflNewsSignals, maxAgeMinutes: 60, tier: 'live',
+  nfl_news_signals: { run: refreshNflNewsSignals, maxAgeMinutes: 60, tier: 'live', offThread: true,
     label: 'Typed NFL news, injury and role signals' },
   /*
    * The evaluation loop. Proposes and reports; cannot promote. Daily is the
@@ -1527,9 +1527,9 @@ export const JOBS = {
     label: 'Post-approval decay watch: do shipped findings still hold on fresh data? (report only)' },
   twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60, tier: 'metered',
     label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' },
-  nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60, tier: 'live',
+  nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60, tier: 'live', offThread: true,
     label: 'Official practice reports (nflverse injuries release)' },
-  nfl_transactions: { run: refreshNflTransactions, maxAgeMinutes: 30, tier: 'live',
+  nfl_transactions: { run: refreshNflTransactions, maxAgeMinutes: 30, tier: 'live', offThread: true,
     label: 'Transaction wire — signings, releases, IR moves (ESPN public API)' },
   nfl_rookie_public: { run: refreshNflRookiePublic, maxAgeMinutes: 7 * 24 * 60, tier: 'heavy',
     label: 'NFL draft and combine rookie evidence (nflverse, key-free)' },
@@ -1610,19 +1610,31 @@ const DEFAULT_JOB_TIMEOUT_MS = 120_000;
  * which quotes get written would be the worse outcome of the two.
  */
 /**
- * Growth and metered jobs deliberately left on the request thread, with the
- * reason each one is still there.
+ * Jobs deliberately left on the request thread, with the reason each one is
+ * still there.
  *
  * Not a second allow-list. MAIN_THREAD_ONLY names jobs that MUST NOT go into a
  * worker; this names jobs that simply have not, and the difference is the
  * whole point of keeping them apart. An entry here is an admission, and it is
  * meant to be read as one.
  *
- * It exists because "19 jobs on the request thread" was a number nobody could
- * act on. Which nineteen, and why each one, is actionable; a count is not. The
- * test suite now refuses a growth or metered job that is neither off-thread,
- * nor named in MAIN_THREAD_ONLY, nor listed here -- so a job added later
- * cannot quietly join the list without someone writing down why.
+ * It exists because "N jobs on the request thread" was a number nobody could
+ * act on. Which ones, and why each one, is actionable; a count is not. The
+ * test suite now refuses ANY job -- live, growth or metered -- that is neither
+ * off-thread, nor named in MAIN_THREAD_ONLY, nor listed here, so a job added
+ * later cannot quietly join the list without someone writing down why.
+ *
+ * The live tier is the reason this covers every tier rather than just the
+ * background one. #59 took the boot pass off the request thread by passing
+ * `bootOffThread(j)` as an override; the live timer calls `runIfStale(j)` with
+ * no override at all, so FOURTEEN jobs went into a worker once at boot and
+ * came straight back onto the request thread ninety seconds later, and every
+ * ninety seconds after that. That is precisely the defect #63 found on the
+ * background tier for `nfl_model_growth`, and fixing that one instance made
+ * the other fourteen harder to see rather than easier. A worker costs a module
+ * graph per RUN, not per tick -- `runIfStale` only runs a job that is actually
+ * stale -- so for a job on a 15-minute cadence or longer the trade is not
+ * close.
  */
 export const ON_REQUEST_THREAD = new Map([
   // Betting side. Nick's ruling puts the betting model out of scope, and
@@ -1644,6 +1656,47 @@ export const ON_REQUEST_THREAD = new Map([
   ['nfl_learned_shadow', 'betting side, out of scope'],
   ['nfl_decision_ledger', 'betting side, out of scope'],
   ['decay_watch', 'model-evidence side, out of scope for this thread'],
+  // LIVE TIER. These run inline every 90 seconds' worth of staleness check,
+  // and each is the app answering nothing for as long as it takes. They are
+  // here rather than off-thread for the same two reasons as above: the betting
+  // model is out of scope for this thread, and the MLB feeds are a different
+  // sport this app's fantasy half never reads.
+  //
+  // The four on a 3-minute cadence are also where a worker per run stops being
+  // free, and that is worth measuring before moving them rather than assuming
+  // either way.
+  ['polymarket_line_watch', 'betting side, out of scope; 3-minute cadence, worker cost unmeasured'],
+  ['nfl_play_by_play', 'betting side, out of scope; 3-minute cadence, worker cost unmeasured'],
+  ['prediction_markets', 'betting side, out of scope; 3-minute cadence, worker cost unmeasured'],
+  ['polymarket', 'betting side, out of scope; 3-minute cadence, worker cost unmeasured'],
+  ['nfl_pick_watch', 'betting side, out of scope'],
+  ['nfl_t60_runner', 'betting side, out of scope'],
+  ['espn_line_watch', 'betting side, out of scope'],
+  ['nfl_forward_settle', 'betting side, out of scope'],
+  ['nfl_lines', 'betting side, out of scope'],
+  ['nfl_prop_clv_free', 'betting side, out of scope'],
+  ['mlb_schedule', 'MLB feed; the fantasy half of this app never reads it'],
+  ['mlb_probables', 'MLB feed; the fantasy half of this app never reads it'],
+  ['mlb_boxscores', 'MLB feed; the fantasy half of this app never reads it'],
+  // Fantasy-side and audited safe on module state -- liveDraftActive() reads
+  // SQLite, not process memory -- and still here, because moving it would
+  // silently void two tests that are worth more than the move.
+  //
+  // test/league-roster-schedule.test.js stubs globalThis.fetch on the main
+  // thread and then asserts the real rows: that a renamed league's payload is
+  // refreshed, and that one league's 500 does not stop the next league
+  // syncing. A worker has its own globals and its own connection, so the stub
+  // never reaches it, the offline guard blocks the real call, and both tests
+  // go red. They would not be "fixed" by deleting them: they are the only
+  // thing standing between a per-league loop and a silent regression where
+  // one bad league stops the rest.
+  //
+  // The way out is the one #45 took for ffOpportunitySeasons -- export the
+  // decision so it can be tested directly instead of through runIfStale --
+  // and that is a change to the job, not to the schedule. Not tonight, and
+  // not without saying so.
+  ['league_rosters', 'moving it off-thread would void two live tests that assert real per-league rows'],
+
   // Not out of scope -- already solved a different way. refreshManagerSignals
   // calls refreshManagerSignalsOffThread (:647), which runs the heavy build in
   // report-worker.js itself. Flagging the job as well would wrap a worker in a

@@ -161,3 +161,21 @@ test('asking for the event stream streams the trace and ends with the result', a
   assert.equal(last.verification.ok, true);
   assert.equal(last.answer.claims.length, 1);
 });
+
+// LAST ON PURPOSE. This exhausts the minute bucket for the session every test
+// in this file uses, so anything after it would get a 429 it did not ask for.
+test('the ask route is rate limited, and says so before it spends anything', async () => {
+  const before = await ask({ question: 'still under the limit' });
+  assert.equal(before.headers.get('RateLimit-Limit'), '12');
+
+  // An empty question is rejected by the handler, but the limiter runs first,
+  // so these count — which is the point: the ceiling is on requests, not on
+  // requests that happened to be well formed.
+  let last = before;
+  for (let i = 0; i < 14 && last.status !== 429; i++) {
+    last = await ask({ question: '' });
+    await last.text();
+  }
+  assert.equal(last.status, 429, 'the thirteenth request in a minute must not reach the model');
+  assert.match((await ask({ question: 'anything' }).then(r => r.json())).error, /rate limit/i);
+});

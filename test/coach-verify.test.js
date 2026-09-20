@@ -68,12 +68,17 @@ test('a cell cited by another claim does not ground this one', () => {
   const ledger = ledgerWithUsage();
   const result = verifyAnswer({
     ledger,
+    // The first claim cites the cell that holds 18.4. The second states 18.4
+    // and cites something else. If citations pooled, the first claim's
+    // evidence would launder the second — which is the whole reason a cite
+    // belongs to a claim rather than to an answer.
     answer: { claims: [
-      { text: 'He saw 11 targets.', cites: ['r1#0.targets'] },
-      { text: 'That was 18.4 points.', cites: ['r1#0.targets'] }
+      { text: 'He scored 18.4 points.', cites: ['r1#0.fantasy_points'] },
+      { text: 'He saw 18.4 targets.', cites: ['r1#0.targets'] }
     ] }
   });
   assert.equal(result.ok, false);
+  assert.equal(result.violations.length, 1, JSON.stringify(result.violations));
   assert.equal(result.violations[0].claim_index, 1);
   assert.equal(result.violations[0].number, '18.4');
 });

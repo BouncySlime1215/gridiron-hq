@@ -107,6 +107,22 @@ test('sql_select runs through the guarded layer and lands in the ledger', () => 
   assert.match(summary.cite_prefix, /^r1#/);
 });
 
+test('sql_select honours the row ceiling it was asked for, and says it truncated', () => {
+  for (let i = 2; i <= 6; i++) {
+    run(`INSERT INTO players (id, name, position, team_id, depth_rank) VALUES (?, ?, 'WR', 1, ?)`,
+      i, `Player ${i}`, i);
+  }
+  const ledger = newLedger();
+  // The ceiling is the model's own choice, and ignoring it is silent: six rows
+  // arrive where two were asked for, and nothing in the result says so.
+  const { entry } = runCoachTool('sql_select',
+    { sql: 'SELECT name FROM players ORDER BY id', max_rows: 2 }, { ledger });
+  assert.equal(entry.row_count, 2, 'max_rows was ignored');
+  assert.equal(entry.rows.length, 2);
+  assert.equal(entry.truncated, true, 'a shortened result that does not say so is the failure mode');
+  assert.equal(ledger.cell('r1#2.name'), null, 'a row past the ceiling must not be citable');
+});
+
 test('sql_select passes a refusal straight through, so the model sees the boundary', () => {
   const ledger = newLedger();
   assert.throws(() => runCoachTool('sql_select', { sql: 'DROP TABLE players' }, { ledger }),

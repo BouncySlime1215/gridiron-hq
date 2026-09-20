@@ -158,6 +158,26 @@ test('a refused tool call is fed back to the model rather than failing the quest
   assert.equal(result.ledger.queries.length, 1, 'the refused query left no ledger entry');
 });
 
+test('a fault that is not a refusal ends the question instead of becoming a tool result', async () => {
+  // A refusal is information the model can act on. A missing database object
+  // is not — it means a layer has gone inert, and handing it to the model as
+  // "here is an error, carry on" is how this app has twice shipped a page that
+  // kept printing numbers after its data layer died.
+  const { rows } = await import('../server/db/index.js');
+  const viewSql = rows(`SELECT sql FROM sqlite_master WHERE name = 'nfl_news_signals_current'`)[0]?.sql;
+  assert.ok(viewSql, 'the view who_plays reads is missing from the test database');
+  run(`DROP VIEW nfl_news_signals_current`);
+  try {
+    const client = scripted(toolUse('who_plays', { season: 2025, week: 3, team: 'PHI' }));
+    setAnthropicClientForTesting(client);
+    await assert.rejects(() => askCoach({ question: 'who is out for PHI' }),
+      /nfl_news_signals_current|no such/i);
+    assert.equal(client.sent.length, 1, 'the model must not be asked to carry on past a real fault');
+  } finally {
+    run(viewSql);
+  }
+});
+
 test('a refusal with no claims is a valid answer and is not retried', async () => {
   setAnthropicClientForTesting(scripted(
     says({ claims: [], refusals: ['Coach does not read the transaction wire, so it cannot say.'] })

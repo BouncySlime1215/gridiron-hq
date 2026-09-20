@@ -3029,6 +3029,19 @@ names that tier as the previously-found cause of this exact symptom** — the
 live tier's polling of a synchronous SQLite database "was found to be the
 actual cause of the app going periodically unresponsive", written 2026-09-07.
 
+**Do not read that comment's "several seconds at a time" as acquitting the live
+tier.** It is the sentence a reader reaches for first — tonight's block is at
+least sixty seconds, so a fault measured in single seconds looks like the wrong
+size — and the inference does not hold. The comment describes **steady-state**
+90-second polling, where most jobs are inside their `maxAgeMinutes` and only one
+or two actually run. The first pass after a boot is a different event: every
+live job is stale, so all twenty-three on the request thread run back to back in
+one pass. Seconds for the steady state and a minute-plus for the first pass are
+consistent with each other, not in tension. The scale argument is therefore not
+evidence either way, and neither is its opposite — `nfl_model_growth` has never
+been observed at seconds-scale, but it has never been observed finishing at all.
+**The attribution waits for the row, not for an argument from the comment.**
+
 **So the measured onset at 94-110 seconds is consistent with either, and the
 evidence gathered tonight cannot tell them apart.** Both are due at 90. Both
 are on the main thread. Both pre-date this release, which is why the stall was

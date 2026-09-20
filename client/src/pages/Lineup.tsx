@@ -31,6 +31,30 @@ const CONF: Record<string, { label: string; bar: string; chip: string }> = {
   'no projection': { label: 'Not compared', bar: 'bg-slate-300', chip: 'bg-slate-100 text-slate-400 ring-slate-200' }
 };
 
+/** Slot codes as a manager says them out loud. Unknown codes print as themselves. */
+const SLOT_WORD: Record<string, [one: string, many: string]> = {
+  K: ['a kicker', 'kickers'],
+  DEF: ['a defence', 'defences'],
+  'D/ST': ['a defence', 'defences'],
+  DST: ['a defence', 'defences'],
+  IDP: ['a defensive player', 'defensive players'],
+  DL: ['a defensive lineman', 'defensive linemen'],
+  LB: ['a linebacker', 'linebackers'],
+  DB: ['a defensive back', 'defensive backs']
+};
+const COUNT_WORD = ['no', 'one', 'two', 'three', 'four', 'five', 'six'];
+
+/** "a kicker and a defence", or "two kickers" — the slots a page does not cover. */
+function listSlots(slots: { slot: string; count: number }[]): string {
+  const parts = slots.map(({ slot, count }) => {
+    const word = SLOT_WORD[slot];
+    if (!word) return count > 1 ? `${COUNT_WORD[count] ?? count} ${slot} slots` : `a ${slot} slot`;
+    return count > 1 ? `${COUNT_WORD[count] ?? count} ${word[1]}` : word[0];
+  });
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
 export default function Lineup() {
   const { activeId: leagueId } = useLeague();
   const [objective, setObjective] = useState<'mean' | 'ceiling' | 'floor'>('mean');
@@ -140,6 +164,28 @@ export default function Lineup() {
               This lineup is the highest-average one: {d.objective_fallback}.
             </p>
           )}
+          {/* The Clear / Lean / Coin flip labels are thresholds on a MEAN weekly
+              margin. A gap between two ceilings (or two floors) is a wider and
+              differently shaped quantity, so those labels are not calibrated
+              for it — the server has said so in `confidence_basis` since the
+              objectives shipped and the page has never repeated it, which left
+              the chips looking equally trustworthy on all three views. */}
+          {typeof d.confidence_basis === 'string' && d.confidence_basis.startsWith('uncalibrated_for_') && (
+            <p role="status" className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-sm leading-6 text-slate-300">
+              Clear, Lean and Coin flip are set on average weekly points. You are looking at{' '}
+              {d.objective_used === 'ceiling' ? 'good-week ceilings' : 'bad-week floors'}, where the gaps
+              are wider, so read those labels as rough here rather than as the same call.
+            </p>
+          )}
+          {d.objective_held_out?.length > 0 && (
+            <p className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-sm leading-6 text-slate-300">
+              {d.objective_held_out.length === 1
+                ? `${d.objective_held_out[0].name} could not be ranked this way: ${d.objective_held_out[0].why}.`
+                : `${d.objective_held_out.length} players could not be ranked this way — ` +
+                  `${d.objective_held_out.map((p: any) => p.name).join(', ')} — because there is no ` +
+                  `${objective} distribution on file for them.`}
+            </p>
+          )}
           {d.objectives?.find((o: any) => o.id === objective) && (
             <p className="mt-3 border-t border-white/10 pt-3 text-sm leading-6 text-slate-300">
               {d.objectives.find((o: any) => o.id === objective).when}
@@ -215,8 +261,23 @@ export default function Lineup() {
         />
       ) : (
         <div className="space-y-2">
-          {d?.lineup?.map((c: any, i: number) => <Slot key={i} c={c} index={i} />)}
+          {d?.lineup?.map((c: any, i: number) => (
+            <Slot key={i} c={c} index={i} pageBasis={d?.availability_basis?.basis ?? null} week={d?.week ?? null} />
+          ))}
         </div>
+      )}
+
+      {/* The slots this page does not cover. Every synced league starts a kicker
+          and a defence; the model prices neither, on purpose, and the lineup
+          above simply had fewer slots than the league does with nothing saying
+          why. The reason travels with the fact from lineup-brain.js. */}
+      {d?.slots_not_modelled?.length > 0 && (
+        <p className="tr-rise text-xs leading-5 text-slate-500" style={{ animationDelay: '150ms' }}>
+          Your league also starts {listSlots(d.slots_not_modelled)}. This page does not cover{' '}
+          {d.slots_not_modelled.length === 1 ? 'that slot' : 'those slots'}: they are{' '}
+          {d.slots_not_modelled_reason}. Start whoever you like there — nothing above is a call on{' '}
+          {d.slots_not_modelled.length === 1 ? 'it' : 'them'}.
+        </p>
       )}
 
       {notConsidered.length > 0 && (
@@ -261,8 +322,24 @@ export default function Lineup() {
   );
 }
 
-function Slot({ c, index }: { c: any; index: number }) {
+function Slot({ c, index, pageBasis, week }:
+  { c: any; index: number; pageBasis: string | null; week: number | null }) {
+  // The model that priced THIS player, which is not always the one the process is
+  // on: the fitted role layer only reaches a player with an in-scope role cell, and
+  // everyone else is priced on the pooled rates or the hand-set chain. The page-level
+  // basis is the fallback for an asset built before the per-player field existed.
+  const basis = c.player?.availability_basis ?? pageBasis;
   const conf = CONF[c.confidence] ?? CONF.lean;
+  // The chance to play that priced this row's points, on the row it priced.
+  // It has been on the wire since the fit landed and no page ever showed it, so
+  // the number a start was multiplied by was the one thing the page would not
+  // say. `basis` decides the wording: 'role' is a rate measured from real usage,
+  // anything else is the hand-set fallback and must not read like a measurement.
+  // The page-level line above the lineup says which, once, in full.
+  const onBye = week != null && c.player.bye === week;
+  const play = !onBye && c.player.active_probability != null
+    ? Math.round(c.player.active_probability * 100) : null;
+  const measured = basis === 'role';
   // Scaled against the "clear" threshold, so the bar reads as a fraction of a
   // decisive margin rather than as an unanchored number.
   // A call with no margin compared nothing, so it gets no bar. It used to draw a
@@ -282,6 +359,25 @@ function Slot({ c, index }: { c: any; index: number }) {
             <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 ${conf.chip}`}>
               {conf.label}
             </span>
+            {onBye ? (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900 ring-1 ring-amber-200">
+                On bye
+              </span>
+            ) : play != null && (
+              <span
+                title={measured ? 'A rate measured from real usage by the fitted availability model'
+                  : basis === 'unfitted_position'
+                    ? 'The availability model covers quarterbacks, running backs, receivers and tight ends only, so this is a fixed number rather than anything measured about this player'
+                    : 'A fallback rather than a rate measured from real usage — see the note above the lineup'}
+                className={`rounded-full px-2 py-0.5 text-[10px] font-bold tabular-nums ring-1 ${
+                  play < 75 ? 'bg-amber-50 text-amber-900 ring-amber-200'
+                    : measured ? 'bg-slate-50 text-slate-600 ring-slate-200'
+                      : 'bg-slate-50 text-slate-400 ring-slate-200'}`}
+              >
+                {play}% to play{measured ? ''
+                  : basis === 'unfitted_position' ? ' (not modelled)' : ' (assumed)'}
+              </span>
+            )}
           </div>
           <div className="mt-1.5 flex items-center gap-2">
             <div className="h-1.5 w-full max-w-[220px] overflow-hidden rounded-full bg-slate-100">

@@ -137,3 +137,20 @@ test('when floors rank the players, the floor lineup is exactly the floor-optima
   assert.equal(starters(floor)['Back Three'] !== undefined, true, 'the 7.0-floor back starts');
   assert.equal(floor.projected_points, +(9 + 7 + 6 + 5 + 4.8 + 3 + 5.5).toFixed(2));
 });
+
+test('the page repeats what confidence_basis says, instead of leaving it on the wire', () => {
+  // Clear / Lean / Coin flip are thresholds on a MEAN weekly margin. On a
+  // ceiling or floor view the same chips are drawn from a wider, differently
+  // shaped quantity, and the server has said so in `confidence_basis` since the
+  // objectives shipped — to a page that never read it. The chips looked equally
+  // trustworthy on all three views, which is the same defect as an unlabelled
+  // percentage: the reader cannot tell a calibrated call from an uncalibrated
+  // one from the label alone.
+  const src = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
+  assert.match(src, /confidence_basis/, 'the page reads the field');
+  assert.match(src, /startsWith\('uncalibrated_for_'\)/,
+    'and branches on the uncalibrated case rather than printing the raw string');
+  assert.match(src, /set on average weekly points/, 'and says what the labels are calibrated on');
+  assert.match(src, /objective_held_out/,
+    'and names anyone who could not be ranked on the objective actually requested');
+});

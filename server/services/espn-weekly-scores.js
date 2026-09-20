@@ -34,6 +34,37 @@
 const PLAYED_UNDECIDED = 'UNDECIDED';
 
 /**
+ * Whether a head-to-head period has actually been played, and why not when it has not.
+ *
+ * ONE RULE, TWO READERS. `espnWeeklyRows` below is not the only thing in this app that decides
+ * whether a period counts: `season-sim.js#initialRecords` reads the same schedule to carry a
+ * league's real record into a simulation, and it used a weaker rule -- both sides carry a finite
+ * number -- so every unplayed 0-0 period before the simulated window became a TIE and awarded
+ * half a win to each team. Measured on a four-team fixture with two weeks played and the window
+ * opened at week 14: every team gained 5.5 wins it had not earned, while points-for stayed
+ * honest, so the record and the points disagreed and the standings read as a four-way tie.
+ *
+ * Two readers of one quantity with two rules is how a league ends up with two records, so the
+ * rule lives here, once, and both import it.
+ *
+ * `winner` is optional: some payloads carry no such key, and Sleeper matchups have none at all.
+ * A period is played when it is DECIDED and BOTH sides carry a number and AT LEAST ONE is above
+ * zero. The three are not redundant -- `decided` is the only one that catches a week IN PROGRESS,
+ * whose points are real but partial; `bothScored` is the only one that catches a side with no
+ * total, which `anyPoints` would read as a zero; and `anyPoints` catches a future 0-0 in a
+ * payload with no `winner` key. It is `||` and not `&&` because a real shutout is a result.
+ */
+export function periodPlayed({ winner, homePoints, awayPoints }) {
+  const decided = winner == null || String(winner).toUpperCase() !== PLAYED_UNDECIDED;
+  if (!decided) return { played: false, reason: 'the period is still being played' };
+  const hp = Number.isFinite(homePoints) ? homePoints : null;
+  const ap = Number.isFinite(awayPoints) ? awayPoints : null;
+  if (hp == null || ap == null) return { played: false, reason: 'one side carries no score' };
+  if (!(hp > 0 || ap > 0)) return { played: false, reason: 'neither side has scored' };
+  return { played: true, reason: null };
+}
+
+/**
  * Per-team weekly scores for one league row, or a named reason there are none.
  *
  * Returns `{ rows, ok: true, ... }` or `{ rows: [], ok: false, reason }`, never a partial
@@ -84,10 +115,9 @@ export function espnWeeklyRows(lg) {
     if (regularPeriods != null && week > regularPeriods) { skippedPostseason++; continue; }
 
     const home = sideOf(m?.home), away = sideOf(m?.away);
-    const decided = m?.winner == null || String(m.winner).toUpperCase() !== PLAYED_UNDECIDED;
-    const bothScored = home.points != null && away.points != null;
-    const anyPoints = (home.points ?? 0) > 0 || (away.points ?? 0) > 0;
-    if (!(decided && bothScored && anyPoints)) { skippedUnplayed++; continue; }
+    if (!periodPlayed({ winner: m?.winner, homePoints: home.points, awayPoints: away.points }).played) {
+      skippedUnplayed++; continue;
+    }
 
     for (const [self, opp] of [[home, away], [away, home]]) {
       if (self.teamId == null) continue;

@@ -82,18 +82,101 @@ Four of the seven pass on both sides, deliberately:
 
 All 7 pass at this branch's head, with the full suite green (numbers in the PR body).
 
+## Injections
+
+Four of the seven pass at `791b131`, so the RED run does not prove them. All four
+were injected against the fixed code, one per guarded rule.
+
+**1 — `core_age` flattened to a constant** (the premise, and the two age reads):
+```js
+- t.core_age = w ? +(aged.reduce((s, p) => s + p.age * p.value, 0) / w).toFixed(1) : null;
++ t.core_age = w ? 26.0 : null;
+```
+```
+# pass 4  # fail 3
+not ok 1 - the fixture really does separate the four corners of the grid
+not ok 2 - a dynasty league still gets all four age-driven labels
+not ok 7 - a keeper league is treated as dynasty, because it keeps players
+```
+
+**2 — the age axis switched off for every format** (over-applying this change):
+```js
+- const young = isDynasty && t.core_age != null && t.core_age <= YOUNG;
++ const young = false && t.core_age != null && t.core_age <= YOUNG;
+```
+```
+# pass 5  # fail 2
+not ok 2 - a dynasty league still gets all four age-driven labels
+not ok 7 - a keeper league is treated as dynasty, because it keeps players
+```
+
+**3 — market capital made format-dependent** (the no-op pin):
+```js
+- t.market_capital = t.players_value + t.picks_value;
++ t.market_capital = (t.players_value + t.picks_value) * (isDynasty ? 1 : 0.9);
+```
+```
+# pass 6  # fail 1
+not ok 5 - the two formats disagree only where age was the reason
+```
+
+**4 — the gate re-derived instead of reused**, dropping keeper leagues:
+```js
+- const young = isDynasty && …
++ const young = lg.league_type === 'dynasty' && …
+```
+```
+# pass 6  # fail 1
+not ok 7 - a keeper league is treated as dynasty, because it keeps players
+```
+
+Every test in the file is now either red at `791b131` or red under an injection.
+
+## Is this well built
+
+- **Well built:** yes, and it is two lines plus a reported field. It reuses the
+  single existing definition of `isDynasty` rather than writing a second one —
+  injection 4 is there precisely to keep it that way.
+- **Stats, or made up: made up, and it always was.** `YOUNG = 25.5`, `OLD = 27.5`
+  and the ±5% capital band (`comp >= 1.05`, `comp <= 0.95`) are hand-set literals
+  with no citation anywhere in this file. The seven labels and their stances are
+  hand-written copy. **Nothing on this grid is fitted.** This change adds no
+  number; it stops a hand-set axis from being applied in a format where it cannot
+  mean anything.
+- **How we know:** no backtest, and the PR does not pretend to one. Two things
+  *are* verified rather than assumed. First, the grid **scores nothing**: all
+  seven labels were grepped across `server/` and `client/`, and the only hit
+  outside their own declaration is unrelated prose in `db/seed/teams.js:44`. It is
+  advice, so the honest fix is to change what it says, not to gate an action on
+  it. Second, the rule this follows is already in this file:
+  `dynastyAgeAdjustment` is applied only `if (isDynasty)` (`tradelab.js:47`).
+- **Pointed anywhere else:** `window` reaches `trade-engine.js:1172`
+  (`their_window`) and renders at `client/src/components/TradeCard.tsx:237`.
+  Nowhere else. It **should** be pointed at the Team Outlook verdict, which is the
+  deferred half below — a window saying "Contender" while the outlook says the
+  season is slipping is two pages disagreeing in front of the reader. Do not
+  confuse this `window` with the "post-loss window" at
+  `counterparty-pricing.js:87` / `:100` / `:261`, which shares the word and **does**
+  move a price.
+- **How it unifies:** one definition of when age matters, used by both things in
+  this file that care.
+- **A held-out test would look like:** the label assigned in week 2 against what
+  the team actually did — made the playoffs, won the title — over many
+  league-seasons, scored separately for dynasty and redraft. That needs weekly
+  fantasy scores per league-season, which no table in the app database holds; the
+  Team Outlook work is parsing them out of `leagues.payload`'s `mMatchup` view.
+  Until that exists these labels are advice, and the correct thing to fix is
+  advice that the format makes false.
+
 ## Deliberately not in this change
 
-The window reads market capital and age. It does **not** read the Team Outlook
-verdict (`fine` / `watch` / `act_candidate`), which is the other half of making
-this surface honest: a label that says "Contender" while the outlook says the
-season is slipping is two pages disagreeing in front of the user. That read is
-held because `server/services/team-outlook.js` is not on `main` — it lives on
-`claude/project-thread-f921do-outlook-basis`, where it is purely additive and
-unmerged — and stacking this pull request on another thread's branch to reach it
-would trade a two-line fix for a cross-thread dependency. It is queued to follow
-once that branch lands.
+The window does **not** read the Team Outlook verdict (`fine` / `watch` /
+`act_candidate`). `server/services/team-outlook.js` is not on `main` — it lives on
+`claude/project-thread-f921do-outlook-basis`, additive (8 new files, 0 modified)
+and unmerged — and stacking this pull request on another thread's branch to reach
+it would trade a two-line fix for a cross-thread dependency. Queued to follow once
+that branch lands, with the verdict carrying its own `weight_on_results` so a
+week-2 `act_candidate` is refusable at the source.
 
-The `act`-gating of Trade Lab's recommendations is also out of scope here, by
-the same reasoning: this pull request changes what the page *says*, not what it
-*does*.
+The `act`-gating of Trade Lab's recommendations is also out of scope, by the same
+reasoning: this pull request changes what the page *says*, not what it *does*.

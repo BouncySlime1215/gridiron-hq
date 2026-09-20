@@ -1400,7 +1400,23 @@ export const JOBS = {
   // Enabled by default, unlike broad heavy research sweeps. Most checks are a
   // few SQLite reads; downloads and fitting only start when a newly finalized
   // week is ahead of the feature warehouse.
-  nfl_model_growth: { run: refreshNflModelGrowth, maxAgeMinutes: 6 * 60, tier: 'growth',
+  // offThread, and this flag is the one that matters on a stable box.
+  //
+  // The boot path passes an override, so the boot+90s timer is already covered
+  // without it. The BACKGROUND TIER is not: it calls `runIfStale(j)` with no
+  // override every 5 minutes, so `resolveOffThread` falls back to
+  // `job.offThread ?? job.tier === 'heavy'` — false for a growth job. Without
+  // the flag this job would go back onto the request thread the first time its
+  // 6-hour cadence came due on a machine that stayed up, which is precisely
+  // the state the rest of this work exists to reach.
+  //
+  // Measured on the live app 2026-09-19: this job blocked the loop past the
+  // 60s watchdog fuse on seven consecutive boots. `syncSnaps` writes a whole
+  // prior season in one BEGIN/COMMIT with no yield (nfl-advanced.js:199-200)
+  // and `syncVerifiedEventArchive` inserts per row with no BEGIN at all
+  // (nfl-event-archive.js:150). Safe in a worker: nfl-model-growth.js holds no
+  // module-level mutable state, so a fresh module graph loses nothing.
+  nfl_model_growth: { run: refreshNflModelGrowth, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
     label: 'NFL finalized-week ingest, shadow settlement, and next-week fit' },
   // Checked every 6h like model_growth, but genuinely decoupled from it — this
   // is what actually runs during the offseason, when model_growth's own

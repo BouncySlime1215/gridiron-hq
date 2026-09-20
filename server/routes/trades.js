@@ -985,7 +985,7 @@ r.get('/splits/:playerId', retired('/api/trades/:leagueId/player/:id',
  * those numbers clearly contradict the verdict Claude proposed, Claude gets the
  * numbers and exactly ONE re-think; never a loop. The response carries a
  * `verification` block saying whether the first read held or was corrected.
- * See docs/TRADE_LAB_VERIFY_LOOP.md.
+ * See docs/reference/fantasy/TRADE_LAB_VERIFY_LOOP.md.
  */
 r.post('/:leagueId/sense-check', async (req, res, next) => {
   try {

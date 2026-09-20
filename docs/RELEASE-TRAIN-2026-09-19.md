@@ -2418,7 +2418,27 @@ app behaved differently.
 age of 78 or more across the eight lives, and **the slowest of them took 0.46
 seconds**. On the other side of the boundary, **41 reads were issued at an age
 of 110 or more and not one of them answered** — so "it might recover at 120 or
-140" is not merely unobserved, it is 41 attempts without an exception. There is no ramp, no creeping latency, no degradation to watch for:
+140" is not merely unobserved, it is 41 attempts without an exception.
+
+**And the kind of failure is pinned by a negative result with 137 chances to
+appear: across both instruments tonight, 335 reads, not one 503.** That matters
+because `healthHandler` is written to distinguish exactly this. It runs
+`db.prepare('SELECT 1').get()` and returns **503** when that throws — which is
+what a caller sees when the event loop *is* turning but SQLite is unreachable or
+locked past its `busy_timeout`. Every failure tonight was instead **no response
+at all**: 90 in the passive log, 47 in the probe, all of them the client's own
+timeout.
+
+**So the event loop is not turning. It is not a lock held by a writer while the
+server keeps serving.** That rules out the whole family of fixes aimed at
+contention — `busy_timeout`, WAL tuning, retry-on-busy — none of which would
+help, because nothing is left running to retry. It leaves exactly one shape:
+**synchronous work on the main thread**, which is what `:1723-1726` describes
+and what "get it off the request thread" is the only answer to. Both candidates
+at 90 seconds are of that shape, which is why this does not pick between them —
+but it does confirm that #59 and #63 are the right *kind* of fix, and that
+extending the same treatment to the live tier is the right follow-up if the
+cycle survives the deploy. There is no ramp, no creeping latency, no degradation to watch for:
 the app is fully healthy and then, within one eight-second step, answers
 nothing at all. That is the signature of a single synchronous operation seizing
 the event loop, and it is not the signature of memory pressure, connection
@@ -2851,6 +2871,7 @@ sentences would survive being wrong about something else.**
 | TWO things start at t+90 s, not one | **Verified here on `791b131`**: `:1751`'s timer AND `tier('live', live, 90_000)` at `:1800` — `liveIntervalSeconds` is 90 and `index.js:75` passes only `intervalMinutes: 5`; `setInterval`, no leading call. 21 of 24 live jobs are on the request thread. **The onset cannot distinguish them** | this thread |
 | No merged PR moves the live tier | **Verified here** by reading #59's and #63's diffs: #63 sets `offThread: true` on `nfl_model_growth`, the boot pass and the two timers only. So the deploy may not be sufficient | this thread |
 | 22 background jobs have never run, not 19 | **Verified here**: 26 in the background tier, less 2 in `bootJobs` and 2 on their own timers = 18 growth + 4 metered. With 12 heavy gated off, 34 of 62 | scheduler + this thread |
+| The loop is blocked, not the database locked | **Measured here**: 335 reads across both instruments, 137 failures, **zero 503s**. `healthHandler` returns 503 when `SELECT 1` throws with the loop alive; every failure was instead no response at all | this thread |
 | Nothing on Fly writes `league_transactions_raw` | **Verified here on `791b131`**: sole writer `collect-league-transactions.mjs:34`, reached only by `refresh-live-data.mjs:99`; no `server/` code invokes that script; Dockerfile CMD is `node server/index.js` and `fly.toml` declares no processes | scheduler + this thread |
 | Any restart count taken before 22:49Z | A 300 s poll against a ~180 s cycle — **a floor, never a count** | Trade Brain |
 

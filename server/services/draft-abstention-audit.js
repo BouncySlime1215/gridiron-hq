@@ -372,6 +372,39 @@ function slotNorms(trainPanel) {
  * strictly before T, apply them to T's panel, and grade the kept and declined
  * sets separately.
  */
+/**
+ * The three verdicts, as a closed set, keyed by the two facts that decide between
+ * them. Separate from `draftAbstentionAudit` so all three can be read on their own
+ * inputs.
+ *
+ * They were an inline nested ternary, and the test that pinned them could only ever
+ * reach one: the fixture produces `passes: false` with no inverted season, so the
+ * arm covering ANTI-SELECTIVE never ran, and the assertion inside it read
+ * `/ANTI-SELECTIVE|NO SEPARATION/` — an alternation whose second branch the arm's
+ * own condition makes impossible. A never-executed assertion over an unreachable
+ * alternative is two kinds of nothing stacked on each other, and the verdict it
+ * guards is the one that says the gate is actively backwards.
+ *
+ * ANTI-SELECTIVE is the verdict that matters most and is the hardest to reach from a
+ * fixture, because it needs a season where the picks the gate flagged as thin landed
+ * CLOSER than the ones it kept. It now has a test.
+ *
+ * The verdict stays a sentence rather than becoming a code, because every caller
+ * reads it as one and an unused parallel enum is a dead export waiting to be found.
+ */
+export function verdictFor({ passes, invertedCount }) {
+  if (passes) {
+    return 'GATE SEPARATES — kept picks landed measurably closer to their slot expectation than declined picks. '
+      + 'A hypothesis for a forward test and a presentational change, not a licence to re-rank.';
+  }
+  if (invertedCount) {
+    return 'GATE IS ANTI-SELECTIVE — the picks it flagged as thin did BETTER than the ones it kept, which is '
+      + 'the same inversion the betting side found (top-3 confidence picks at 45.1%, z = -2.42). Do not ship.';
+  }
+  return 'NO SEPARATION — coverage-side thinness does not identify picks that land further from their slot '
+    + 'expectation. The gate measures nothing real at this sample size. Do not ship.';
+}
+
 export function draftAbstentionAudit({
   seasons = [2021, 2022, 2023, 2024, 2025],
   heldOut = [2023, 2024, 2025],
@@ -472,14 +505,7 @@ export function draftAbstentionAudit({
     seasons_separating: separating.map(s => s.season),
     seasons_inverted: inverted.map(s => s.season),
     passes,
-    verdict: passes
-      ? 'GATE SEPARATES — kept picks landed measurably closer to their slot expectation than declined picks. '
-        + 'A hypothesis for a forward test and a presentational change, not a licence to re-rank.'
-      : inverted.length
-        ? 'GATE IS ANTI-SELECTIVE — the picks it flagged as thin did BETTER than the ones it kept, which is '
-          + 'the same inversion the betting side found (top-3 confidence picks at 45.1%, z = -2.42). Do not ship.'
-        : 'NO SEPARATION — coverage-side thinness does not identify picks that land further from their slot '
-          + 'expectation. The gate measures nothing real at this sample size. Do not ship.',
+    verdict: verdictFor({ passes, invertedCount: inverted.length }),
     note: 'Backward-looking on a five-season panel. CAN say a coverage rule flagged picks that did or did not '
       + 'land further from their slot expectation on held-out seasons; CANNOT say that softening the board\'s '
       + 'tone on flagged picks improves anyone\'s draft going forward.'

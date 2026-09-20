@@ -15,7 +15,7 @@ const { db } = await import('../server/db/index.js');
 const { resetPreseasonCache } = await import('../server/services/preseason-model.js');
 const {
   seasonSlotTruth, gradePick, buildAbstentionPanel, fitGate, gateFlags, applyGate,
-  clusterTwoSampleDiff, wilson, twoProportion, draftAbstentionAudit,
+  clusterTwoSampleDiff, wilson, twoProportion, draftAbstentionAudit, verdictFor,
   REPLACEMENT_SLOT, TIER_BANDS, GATE_FLAGS, MIN_SLICE_SAMPLE
 } = await import('../server/services/draft-abstention-audit.js');
 
@@ -354,9 +354,51 @@ test('the verdict is a function of the bar, not of the author\'s hopes', () => {
     assert.ok(a.seasons_separating.length >= 2);
     assert.match(a.verdict, /GATE SEPARATES/);
   } else if (a.seasons_inverted.length) {
-    assert.match(a.verdict, /ANTI-SELECTIVE|NO SEPARATION/);
+    // This arm's condition IS the source's own condition for ANTI-SELECTIVE, so the
+    // NO SEPARATION it used to name as an alternative could never be reached here.
+    assert.equal(a.verdict, verdictFor({ passes: false, invertedCount: a.seasons_inverted.length }),
+      'an inverted season is the anti-selective verdict, not a null result');
   } else {
     assert.match(a.verdict, /NO SEPARATION/);
     assert.match(a.verdict, /Do not ship/);
   }
+});
+
+/*
+ * THE ARM ABOVE DOES NOT RUN. Measured: under this fixture the audit returns
+ * passes=false with seasons_inverted=[] and seasons_separating=[2023], so the test
+ * takes its third branch every time and the ANTI-SELECTIVE assertion has never
+ * executed. Tightening an assertion inside an arm nothing enters changes nothing,
+ * which is why the selector is now a function that can be asked directly.
+ *
+ * ANTI-SELECTIVE is the verdict this whole audit exists to be able to reach: the
+ * picks the gate flagged as thin landed CLOSER than the ones it kept. One test per
+ * verdict, one fact per assertion.
+ */
+test('verdictFor: two separating seasons is the only way to pass', () => {
+  const v = verdictFor({ passes: true, invertedCount: 0 });
+  assert.match(v, /GATE SEPARATES/, 'the passing verdict is named');
+  assert.match(v, /not a licence to re-rank/, 'and it is bounded to a hypothesis, not a re-ranking');
+  assert.doesNotMatch(v, /Do not ship/, 'a pass does not carry the refusal');
+});
+
+test('verdictFor: an inverted season is anti-selective, and says do not ship', () => {
+  const v = verdictFor({ passes: false, invertedCount: 1 });
+  assert.match(v, /GATE IS ANTI-SELECTIVE/, 'the flagged picks doing better is its own finding');
+  assert.match(v, /did BETTER than the ones it kept/, 'and the verdict says which way round it went');
+  assert.match(v, /Do not ship/, 'the more damning of the two failures refuses out loud, as the other one does');
+  assert.doesNotMatch(v, /NO SEPARATION/, 'it is not the null result, which is the alternative this used to allow');
+});
+
+test('verdictFor: no inverted season and no pass is the null result', () => {
+  const v = verdictFor({ passes: false, invertedCount: 0 });
+  assert.match(v, /NO SEPARATION/, 'nothing separated');
+  assert.match(v, /measures nothing real at this sample size/, 'and it says the sample is why');
+  assert.match(v, /Do not ship/, 'a null result refuses too');
+  assert.doesNotMatch(v, /ANTI-SELECTIVE/, 'nothing inverted, so nothing is claimed to have inverted');
+});
+
+test('verdictFor: passing wins over an inverted season, so the two cannot both be claimed', () => {
+  assert.match(verdictFor({ passes: true, invertedCount: 3 }), /GATE SEPARATES/,
+    'passes is checked first, and a verdict names one outcome');
 });

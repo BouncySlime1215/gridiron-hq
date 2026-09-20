@@ -743,8 +743,17 @@ r.post('/sync', requireModelPermission('model:train'), async (req, res, next) =>
  * Whether this install still needs its one-time historical backfill — the
  * question a fresh `git clone` cannot answer for itself, since none of this
  * data ships in the repo (it lives only in each install's own SQLite file).
- * Read-only and unauthenticated on purpose, like GET /status above: it is a
- * status light, not a place that does or reveals anything sensitive.
+ * Read-only, and GATED with the rest of the family: server/index.js mounts this
+ * whole router behind legacyAuthenticated, so this route and GET /status above
+ * both require a session. The comment here used to say the opposite — "read-only
+ * and unauthenticated on purpose" — and it was already false when it was written.
+ * index.js:120-125 says why the family was closed: every read beside the gated
+ * mutations answered anyone at all, which is invisible on a Mac bound to loopback
+ * and wide open the moment the same process is reachable at a public URL.
+ *
+ * A route in this file therefore never needs its own gate to be gated, and adding
+ * requireAuthenticated to one does not mean the others lack it. The mount is the
+ * guarantee; read it there, not here.
  */
 r.get('/setup-status', (req, res) => {
   const BOOTSTRAP_SOURCES = ['nflverse_weekly_usage', 'nflverse_pbp', 'nfl_ngs', 'nfl_pfr_adv',

@@ -120,6 +120,10 @@ test('the 13 previously-ungated route families now reject anonymous callers', as
 
 test('the six remaining ungated route families now reject anonymous callers', async () => {
   for (const path of ['/api/model/status', '/api/model/state', '/api/model/accuracy',
+    // /setup-status carried a header calling itself "unauthenticated on purpose"
+    // long after the family was closed. The mount is the guarantee, so pin the
+    // route the comment was wrong about, not only the one beside it.
+    '/api/model/setup-status',
     '/api/mlb/status', '/api/nfl-market/evidence/status', '/api/nfl-betting/live',
     '/api/betting/summary', '/api/betting/execution/board', '/api/betting/audits',
     '/api/execution-slate/opportunities']) {

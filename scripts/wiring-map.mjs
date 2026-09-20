@@ -945,6 +945,86 @@ function routePattern(routePath) {
   return body.map(x => isParam(x) ? '[^/]+' : esc(x)).join('/');
 }
 
+/* ---------------------------------------------------------------------------
+ * A RETIRED MODULE NAMED IN A STRING.
+ *
+ * A module can be named in a served message, a registry entry or a note, and none of
+ * those is an import: deleting the file breaks no build and fails no test, and the
+ * string goes on describing something that is gone. Three cases turned up on one night
+ * — a registry entry naming trend-exploits, a note describing it, and a tombstone
+ * pointing at a successor that no longer existed.
+ *
+ * THE FILTER IS PART OF THE RULE. Written the obvious way (any kebab-case token in any
+ * string that is not a file) this produced 1,317 distinct tokens on this repository:
+ * `append-only`, `play-by-play`, `red-zone` — ordinary English. A word list is not a
+ * finding. Narrowed to the two places where a module is named AS a module, it produces
+ * two, and both are real.
+ * ------------------------------------------------------------------------- */
+
+const MODULE_EXT = /\.(?:js|mjs|ts|tsx|jsx)$/;
+const KEBAB_MODULE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)+$/;
+const moduleBase = (x) => path.basename(String(x).trim()).replace(MODULE_EXT, '');
+
+function deadModuleNames(files) {
+  const present = new Set();
+  for (const f of files) present.add(moduleBase(f.path));
+  const out = [];
+  const seen = new Set();
+  const flag = (f, line, name, how, text) => {
+    const key = `${f.path}:${line}:${name}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ file: f.path, line, name, how, text, scope: f.scope });
+  };
+  for (const f of files) {
+    if (f.tree !== 'server' && f.tree !== 'client') continue;
+    // (1) A FILENAME, WITH ITS EXTENSION, INSIDE A STRING. The extension is what makes
+    // this a claim about a file rather than a hyphenated English phrase.
+    for (const s of f.strings ?? []) {
+      for (const m of String(s.text).matchAll(/([A-Za-z0-9_./-]*[a-z][a-z0-9]*(?:-[a-z0-9]+)+)\.(?:js|mjs|ts|tsx)\b/g)) {
+        const name = moduleBase(m[1]);
+        if (!present.has(name)) flag(f, s.line, name, 'a string names the file', m[0]);
+      }
+    }
+    // (2) THE VALUE OF A `module:` FIELD, when the value is module-shaped. It is not
+    // always: server/services/nfl-sim-policy.js uses `module:` for snake_case policy
+    // ids, and reading those as modules put nineteen rows of noise in the first run.
+    for (const m of (f.raw ?? '').matchAll(/\bmodule:\s*'([^']+)'/g)) {
+      const line = (f.raw ?? '').slice(0, m.index).split('\n').length;
+      const parts = m[1].split(/\s*\+\s*/).map(x => x.trim()).filter(Boolean);
+      if (!parts.every(x => KEBAB_MODULE.test(moduleBase(x)) || MODULE_EXT.test(x))) continue;
+      for (const x of parts) {
+        const name = moduleBase(x);
+        if (!present.has(name)) flag(f, line, name, "a registry entry's module: names it", m[1]);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * A tombstone earns its 410 by having a successor to point at. When the successor is
+ * itself retired, the tombstone is worse than a 404: it sends the caller somewhere that
+ * is not there and sounds authoritative doing it.
+ *
+ * This reads the first argument of `retired(...)` — the replacement path — and asks
+ * whether any route in the inventory answers it.
+ */
+function deadTombstoneTargets(files, routes) {
+  const out = [];
+  for (const f of files) {
+    if (!f.path.startsWith('server/')) continue;
+    for (const m of (f.raw ?? '').matchAll(/\bretired\(\s*'([^']+)'/g)) {
+      const target = m[1];
+      if (!target.startsWith('/')) continue;
+      const line = (f.raw ?? '').slice(0, m.index).split('\n').length;
+      if (routes.some(r => routeAnswersCall(r.name.split(' ').pop(), target))) continue;
+      out.push({ file: f.path, line, target, scope: f.scope });
+    }
+  }
+  return out;
+}
+
 function routeLiteralAbsent(routePath, clientText) {
   const pattern = routePattern(routePath);
   if (!pattern) return false;
@@ -1990,6 +2070,24 @@ function findings(model, ann) {
       detail, weight: w?.weight ?? 0, evidence: [`${r.file}:${r.line}`] });
   }
 
+  // ---- strings that name something retired ---------------------------------
+  // Report-only. A stale sentence is a documentation fault, not a broken build, and
+  // gating on it would fail the suite for a string. See deadModuleNames() above for why
+  // the filter is the rule.
+  for (const d of deadModuleNames([...files.values()])) {
+    add({ kind: 'context', rule: 'string-names-a-deleted-module', scope: d.scope, subject: d.name,
+      weight: 0,
+      detail: `${d.how}, and no file of that name exists — "${d.text}". Not an import, so `
+        + 'nothing breaks and nothing tells you',
+      evidence: [`${d.file}:${d.line}`] });
+  }
+  for (const d of deadTombstoneTargets([...files.values()], surfaces.filter(s => s.kind === 'route'))) {
+    add({ kind: 'context', rule: 'tombstone-points-at-nothing', scope: d.scope, subject: d.target,
+      weight: 0,
+      detail: 'a 410 earns its tombstone by having a successor to point at; no route answers this one',
+      evidence: [`${d.file}:${d.line}`] });
+  }
+
   // ---- what SHOULD be wired ------------------------------------------------
   // Everything above answers "what is wired to what". These four answer the
   // question a person actually asks when they open a map: where is something
@@ -2906,7 +3004,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { routeAnswersCall, routePattern, isTestPath, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
+export { routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

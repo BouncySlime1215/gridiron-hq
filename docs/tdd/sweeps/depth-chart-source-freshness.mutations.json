@@ -1,0 +1,155 @@
+[
+ {
+  "name": "P1 an absent chart is served as an empty one",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "D1",
+  "old": "  const empty = { team, season: season ?? null, source: null, captured: null, stale: false,\n    unavailable_reason: 'no_chart_on_file', positions: [] };",
+  "new": "  const empty = { team, season: season ?? null, source: null, captured: null, stale: false,\n    unavailable_reason: null, positions: [] };"
+ },
+ {
+  "name": "P2 the opening-week chart stops being marked stale",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "D2",
+  "old": "    name: 'opening_week',\n    stale: true,",
+  "new": "    name: 'opening_week',\n    stale: false,"
+ },
+ {
+  "name": "P3 the opening chart forgets when it was taken",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "D2",
+  "old": "SELECT gsis_id, player_name, pos_abb, pos_rank, source_dt AS captured",
+  "new": "SELECT gsis_id, player_name, pos_abb, pos_rank, NULL AS captured"
+ },
+ {
+  "name": "P4 the freshness comparison always returns the same answer",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "D4",
+  "old": "const newest = list => list.reduce((max, r) => (r.captured && r.captured > max ? r.captured : max), '');",
+  "new": "const newest = list => '';"
+ },
+ {
+  "name": "P5 the source is taken by table order instead of by timestamp",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "D3",
+  "old": "  const chosen = candidates.reduce((best, c) =>\n    (newest(c.list) > newest(best.list) ? c : best));",
+  "new": "  const chosen = candidates[candidates.length - 1];"
+ },
+ {
+  "name": "P6 the snap share is served as a percentage",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "D5",
+  "old": "      snap_share: raw == null ? null : Number(raw)",
+  "new": "      snap_share: raw == null ? null : Number(raw) * 100"
+ },
+ {
+  "name": "P7 an unmeasured player is served as zero snaps",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "D6",
+  "old": "      snap_share: raw == null ? null : Number(raw)",
+  "new": "      snap_share: Number(raw ?? 0)"
+ },
+ {
+  "name": "P8 every listed player is grouped under one position",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "D7",
+  "old": "    const pos = row.pos_abb;",
+  "new": "    const pos = 'WR';"
+ },
+ {
+  "name": "P9 the live snapshot stops failing closed",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "D8",
+  "old": "    load: (team, season, _week, currentSeason) => (currentSeason == null || season !== currentSeason ? [] : rows(",
+  "new": "    load: (team, season, _week, currentSeason) => (false ? [] : rows("
+ },
+ {
+  "name": "P10 the absent catalogue stops saying it is absent",
+  "file": "server/services/stat-lexicon.js",
+  "tests": [
+   "test/stat-lexicon-wrapper.test.js"
+  ],
+  "aimed_at": "L1",
+  "old": "  if (!coach) return { ...lexiconStatus(), concepts: {}, fields: {}, not_stored: [] };",
+  "new": "  if (!coach) return { concepts: {}, fields: {}, not_stored: [] };"
+ },
+ {
+  "name": "P11 an accessor throws instead of answering while the catalogue is away",
+  "file": "server/services/stat-lexicon.js",
+  "tests": [
+   "test/stat-lexicon-wrapper.test.js"
+  ],
+  "aimed_at": "L2",
+  "old": "  return coach ? coach.describeField(field) : null;",
+  "new": "  return coach.describeField(field);"
+ },
+ {
+  "name": "P12 the wrapper grows an explanation of its own",
+  "file": "server/services/stat-lexicon.js",
+  "tests": [
+   "test/stat-lexicon-wrapper.test.js"
+  ],
+  "aimed_at": "L3",
+  "old": "export function lexiconStatus() {",
+  "new": "export const TARGET_SHARE_PLAIN = 'Of every pass his team threw, the fraction thrown at him.';\nexport function lexiconStatus() {"
+ },
+ {
+  "name": "CONTROL A (no-op): a pattern that is not in this file",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "none",
+  "kind": "no-op control",
+  "old": "function teamDepthChartLegacy(",
+  "new": "function teamDepthChartOld("
+ },
+ {
+  "name": "CONTROL B (no-op): a pattern from a different feature entirely",
+  "file": "server/services/stat-lexicon.js",
+  "tests": [
+   "test/stat-lexicon-wrapper.test.js"
+  ],
+  "aimed_at": "none",
+  "kind": "no-op control",
+  "old": "const FAIRNESS_TONE",
+  "new": "const FAIRNESS_TONE_X"
+ },
+ {
+  "name": "CONTROL C (anchor x2): a pattern present twice, which the runner refuses",
+  "file": "server/services/depth-chart.js",
+  "tests": [
+   "test/depth-chart-source-freshness.test.js"
+  ],
+  "aimed_at": "none",
+  "kind": "anchor control",
+  "old": "pos_rank",
+  "new": "pos_order"
+ }
+]

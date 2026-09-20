@@ -64,7 +64,7 @@ const { teamDepthChart } = await import('../server/services/depth-chart.js');
 
 test('D1: with nothing on file the panel is told there is no chart, not handed an empty list', () => {
   clear();
-  const out = teamDepthChart(TEAM, { season: SEASON, week: WEEK });
+  const out = teamDepthChart(TEAM, { season: SEASON, week: WEEK, currentSeason: SEASON });
   assert.equal(out.source, null);
   assert.equal(out.unavailable_reason, 'no_chart_on_file');
   assert.deepEqual(out.positions, []);
@@ -72,7 +72,7 @@ test('D1: with nothing on file the panel is told there is no chart, not handed a
 
 test('D2: an opening-week chart is served, and is labelled as one', () => {
   clear(); seedOpening();
-  const out = teamDepthChart(TEAM, { season: SEASON, week: WEEK });
+  const out = teamDepthChart(TEAM, { season: SEASON, week: WEEK, currentSeason: SEASON });
   assert.equal(out.source, 'opening_week');
   assert.equal(out.stale, true,
     'a March ordering is being served without being marked as one');
@@ -81,7 +81,7 @@ test('D2: an opening-week chart is served, and is labelled as one', () => {
 
 test('D3: the weekly chart beats the opening-week one', () => {
   clear(); seedOpening(); seedWeekly();
-  const out = teamDepthChart(TEAM, { season: SEASON, week: WEEK });
+  const out = teamDepthChart(TEAM, { season: SEASON, week: WEEK, currentSeason: SEASON });
   assert.equal(out.source, 'weekly');
   assert.equal(out.stale, false);
   assert.equal(out.captured, '2026-09-19T12:00:00Z');
@@ -90,16 +90,16 @@ test('D3: the weekly chart beats the opening-week one', () => {
 test('D4: the freshest wins on the timestamp, not on a fixed ranking of the tables', () => {
   // Sleeper fetched today, the weekly chart captured yesterday.
   clear(); seedWeekly('2026-09-19T12:00:00Z'); seedSleeper('2026-09-20T06:00:00Z');
-  assert.equal(teamDepthChart(TEAM, { season: SEASON, week: WEEK }).source, 'live_snapshot');
+  assert.equal(teamDepthChart(TEAM, { season: SEASON, week: WEEK, currentSeason: SEASON }).source, 'live_snapshot');
   // And the other way round, so this is a comparison and not a preference.
   clear(); seedWeekly('2026-09-20T12:00:00Z'); seedSleeper('2026-09-19T06:00:00Z');
-  assert.equal(teamDepthChart(TEAM, { season: SEASON, week: WEEK }).source, 'weekly');
+  assert.equal(teamDepthChart(TEAM, { season: SEASON, week: WEEK, currentSeason: SEASON }).source, 'weekly');
 });
 
 test('D5: snap share rides beside the rank, as a fraction, because it is what settles the argument', () => {
   clear(); seedWeekly();
   run(`INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct) VALUES (2,?,?,44,0.82)`, SEASON, WEEK);
-  const out = teamDepthChart(TEAM, { season: SEASON, week: WEEK });
+  const out = teamDepthChart(TEAM, { season: SEASON, week: WEEK, currentSeason: SEASON });
   const entry = out.positions[0].players[0];
   assert.equal(entry.rank, 1);
   assert.equal(entry.snap_share, 0.82,
@@ -110,7 +110,7 @@ test('D6: a listed player with no snap share is null, never zero', () => {
   // Zero snaps and "we have no snap row for him" are different facts, and zero
   // is the one that makes a listed starter look benched.
   clear(); seedWeekly();
-  const entry = teamDepthChart(TEAM, { season: SEASON, week: WEEK }).positions[0].players[0];
+  const entry = teamDepthChart(TEAM, { season: SEASON, week: WEEK, currentSeason: SEASON }).positions[0].players[0];
   assert.equal(entry.snap_share, null);
 });
 
@@ -118,6 +118,18 @@ test('D7: the chart says which players it is ordering, grouped by position', () 
   clear(); seedWeekly();
   run(`INSERT INTO nfl_depth (season, week, team, gsis_id, player_name, pos_abb, pos_rank, captured)
        VALUES (?,?,?,'00-0000001','First Receiver','RB',1,'2026-09-19T12:00:00Z')`, SEASON, WEEK, TEAM);
-  const out = teamDepthChart(TEAM, { season: SEASON, week: WEEK });
+  const out = teamDepthChart(TEAM, { season: SEASON, week: WEEK, currentSeason: SEASON });
   assert.deepEqual(out.positions.map(p => p.pos).sort(), ['RB', 'WR']);
+});
+
+test('D8: the live snapshot is not used unless the caller says this season is the current one', () => {
+  // Sleeper publishes one snapshot and no history, so it carries no season of
+  // its own. A caller that has not said which season is current cannot be shown
+  // it — stamping today's chart onto a past year is a leak, not a fallback.
+  clear(); seedOpening(); seedSleeper('2026-09-20T06:00:00Z');
+  assert.equal(teamDepthChart(TEAM, { season: SEASON, week: WEEK }).source, 'opening_week',
+    'the live snapshot was used without anyone establishing that it is current');
+  assert.equal(teamDepthChart(TEAM, { season: SEASON, week: WEEK, currentSeason: 2025 }).source, 'opening_week',
+    'a snapshot with no season was served for a season it cannot be known to cover');
+  assert.equal(teamDepthChart(TEAM, { season: SEASON, week: WEEK, currentSeason: SEASON }).source, 'live_snapshot');
 });

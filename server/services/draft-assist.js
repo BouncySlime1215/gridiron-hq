@@ -71,7 +71,7 @@ const MOVER_RETENTION = { QB: 0.85, RB: 0.78, WR: 0.74, TE: 0.82 };
  * MAE in 2 of 3 seasons at both top-150 and top-200, keeping most of the TE
  * gain while halving 0.4's damage to QB/RB. No weight is significant on any
  * season (0/3 paired bootstrap) — see preseason-model.js's
- * RECOMMENDED_MODEL_BLEND_WEIGHT and docs/PRESEASON_MODEL.md "v2" for the
+ * RECOMMENDED_MODEL_BLEND_WEIGHT and docs/reference/fantasy/PRESEASON_MODEL.md "v2" for the
  * full table. Imported rather than redefined so the two files can't drift.
  *
  * Built once per process (~0.7s) on the first board read.
@@ -715,7 +715,7 @@ export function rankTargets(state, limit = 8) {
       : Math.max(0, 40 - p.board_rank) * 0.5 * needWeight;
     if (vorp != null && vorp > 0) reasons.push(`+${Math.round(vorp)} pts over a replacement ${p.position}`);
     // Team change is information, not a score term. The offseason model
-    // (docs/OFFSEASON_MODEL.md, walk-forward 2023-25) found movers keep ×0.82
+    // (docs/reference/fantasy/OFFSEASON_MODEL.md, walk-forward 2023-25) found movers keep ×0.82
     // of prior opportunity — but the "into a crowded room" interaction this
     // block used to price does NOT exist (team change × vacated share 1.059,
     // CI straddling 1, replicated in rookies), and the mover effect is not
@@ -1011,7 +1011,7 @@ export function analystNotes(season = SEASON) {
 }
 
 /**
- * What preseason rank actually delivered, 2021–2025 (docs/DRAFT_AUDIT_2021_2025.md):
+ * What preseason rank actually delivered, 2021–2025 (docs/evidence/historical/DRAFT_AUDIT_2021_2025.md):
  * the fraction of a draft slot's value over replacement that players at each
  * position × overall-rank tier realized, from 2,182 matched player-seasons
  * with actuals validated against ESPN (r=0.9987). Tiers with n<25 are shrunk

@@ -18,7 +18,12 @@
  *      spread of *who else got drafted*, not of how anyone performed — while the
  *      feature reads to a user as "how much does this pick change my likely
  *      finished roster", which implies exactly the uncertainty it did not have.
- *      docs/BETTING_CAPABILITY_AUDIT.md, cluster 5, called this out.
+ *      docs/BETTING_CAPABILITY_AUDIT.md, cluster 5, called this out. THAT FILE IS
+ *      NOT IN THIS REPOSITORY and never has been — no commit in this history adds
+ *      or removes it, so it was written somewhere else and only ever cited here.
+ *      The provenance is kept rather than deleted because it says WHY the outcome
+ *      draw exists, which nothing else here records; but do not go looking for the
+ *      document, and do not treat its cluster numbering as something you can check.
  *
  * The outcome draw reuses the machinery that is already proven in this repo
  * rather than inventing a second one:
@@ -182,7 +187,7 @@ const SIGMA_CAP = 1.0;
  * fitted to, in standard deviations.
  *
  * The band's QUANTILES are well calibrated — that is what
- * docs/PRESEASON_BAND_CALIBRATION.md measured, and it holds here: over 599
+ * docs/evidence/historical/PRESEASON_BAND_CALIBRATION.md measured, and it holds here: over 599
  * held-out player-seasons (2023-2025, walk-forward fits, top 200, projection
  * > 20 pts) the realized 20th/80th percentiles of actual/predicted are
  * 0.569/1.419 against a band of 0.546/1.406. But a lognormal that reproduces
@@ -202,7 +207,7 @@ const SIGMA_CAP = 1.0;
  *
  * Measured, not tuned: it is a ratio read off held-out grading data.
  * `scratchpad/lookahead-variance/perplayer.mjs` reproduces the table, and
- * docs/DRAFT_LOOKAHEAD_VARIANCE.md carries it. Re-measure if the band is
+ * docs/evidence/historical/DRAFT_LOOKAHEAD_VARIANCE.md carries it. Re-measure if the band is
  * refitted — this constant is a property of that fit, not a universal one.
  */
 const SPREAD_SD_CALIBRATION = 1.30;

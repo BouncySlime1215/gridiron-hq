@@ -10,7 +10,7 @@
  * defensible.
  *
  * The move that makes it cheap is the same one that made the betting audit
- * cheap: `docs/DRAFT_AUDIT_2021_2025.md`'s panel already grades every ECR slot
+ * cheap: `docs/evidence/historical/DRAFT_AUDIT_2021_2025.md`'s panel already grades every ECR slot
  * 2021-2025, including the slots a gate would decline to speak confidently
  * about. The counterfactual is already sitting there.
  *
@@ -99,7 +99,7 @@ const finisherPoints = (truth, pos, posRank) => truth.finishers[pos]?.[posRank -
  * One graded pick: the coverage-side facts a board knew at draft time, and
  * what the slot actually returned.
  *
- * `expected_vorp_plus` follows `docs/DRAFT_AUDIT_2021_2025.md` exactly: the
+ * `expected_vorp_plus` follows `docs/evidence/historical/DRAFT_AUDIT_2021_2025.md` exactly: the
  * VORP+ of the player who finished at the drafted positional rank. It is a
  * post-season quantity and is used ONLY as the outcome benchmark, never as a
  * gate input.

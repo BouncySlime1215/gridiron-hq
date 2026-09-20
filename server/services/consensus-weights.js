@@ -44,7 +44,7 @@
  *
  * The 2021-2025 audit panel already carries a second preseason source with
  * full history: FantasyPros expert consensus rank (`nfl_historical_adp`,
- * source dynastyprocess_fpecr) — the same rank docs/DRAFT_AUDIT_2021_2025.md
+ * source dynastyprocess_fpecr) — the same rank docs/evidence/historical/DRAFT_AUDIT_2021_2025.md
  * and preseason-model.js grade against. FPECR and FFC ADP are exactly the
  * pair-of-preseason-boards structure computeConsensus() faces, with five
  * seasons of realized outcomes behind both.
@@ -58,7 +58,7 @@
  * FPECR stands in for ESPN's rank (the weight-2 source) and FFC ADP is itself.
  * That is a SUBSTITUTION and it is why nothing here ships to the live board on
  * its own: a result about FPECR-vs-FFC is evidence about the method, not proof
- * about ESPN. It is stated as such in docs/CONSENSUS_WEIGHTS.md. What it can
+ * about ESPN. It is stated as such in docs/evidence/historical/CONSENSUS_WEIGHTS.md. What it can
  * do is settle the method question — if inverse-variance weights cannot beat a
  * hand-set multiplier even where both sources' errors ARE measurable, there is
  * no basis for replacing a multiplier whose sources' errors are not.

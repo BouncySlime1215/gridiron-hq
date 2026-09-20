@@ -540,3 +540,99 @@ of three different silences.
   read it is Trade Brain's file.
 - **No live measurement.** All fixtures, on a box with no corpus, which is the
   deployed shape but not the deployed box.
+
+---
+
+# Part 4: stale is not absent
+
+RED `9e76ec8`, then GREEN. Same branch, on top of Part 3's `98a9deb`.
+`server/services/manager-archetypes.js`, `test/archetype-as-of.test.js`.
+
+Found by Trade Brain reading `ff26c15` — not by a test here, and not by me.
+
+## The defect
+
+`builtStamps` filters `version = MANAGER_ARCHETYPE_VERSION`. That filter is
+right: a price should stand on the current build, not on whatever a superseded
+one left behind. But it meant a league-season holding **only** rows from an
+earlier version returned `rows: 0`, `as_of: null`, and the reason *"the build
+has never covered it"*.
+
+Stale data rendered identically to no data — the exact conflation this whole
+pass exists to remove, reintroduced by the fix for it. And the two states lead
+to opposite actions: *re-run the build*, versus *find out why this league has
+no draft picks on file*.
+
+## The fix
+
+A third read, `version <> MANAGER_ARCHETYPE_VERSION` on the same key, giving a
+count, a stamp and the distinct versions present. The block carries
+`stale_version_rows`, and the reason branches:
+
+```
+no row for league 36 season 2026 at version manager-archetypes-v1, but 1 row
+from manager-archetypes-v0 (last written 2026-08-02T04:10:00.000Z) — this is
+stale, not missing; re-run the build
+```
+
+**Both versions are named.** "Which build wrote what is here" and "which build
+is being asked for" are the two facts needed to decide whether re-running fixes
+it; one without the other leaves a reader guessing how far behind the store is.
+Mutation D3 is that rule.
+
+`as_of` stays `null` and `rows` stays `0`. The old rows are reported, never
+promoted: an `as_of` from a superseded build is a date for a number the current
+build would not produce.
+
+The coordinator's suggestion was a count **or** a distinct reason. Both are
+here, because they answer different readers: the count is what a payload
+consumer branches on, the sentence is what a person reads.
+
+## Mutation run
+
+Baseline **20 pass, 0 fail**. Nineteen injections, nineteen applied, nineteen
+caught. Four new:
+
+```
+D1 the stale count is dropped, so old rows read as none again        APPLIED -> killed
+D2 a stale league-season goes back to saying the build never covered it  APPLIED -> killed
+D3 the stale reason names no version                                 APPLIED -> killed
+D4 the stale query counts every version including the current one    APPLIED -> killed
+```
+
+A2, A5 and A10 needed retargeting again — the block's signature grew a
+parameter and the reason became a branch. Each reported `NO-OP` first, which is
+the only reason that was visible; a runner that silently skipped a
+non-matching pattern would have reported nineteen clean injections while
+running sixteen.
+
+## The five questions
+
+**Is this well built?** One extra indexed read on the same key, and a branch in
+the sentence already being built. No new state, no new table.
+
+**Is this based on stats, or made up?** Row counts and versions the table
+already stores.
+
+**How do we know?** Four tests, one per state: stale, never-built, current, and
+the card carrying the count. Four mutations, each caught.
+
+**Should this data point anywhere else?** Every other store in this app with a
+`version` column has the same latent shape — a read filtered to the current
+version reports an old one as nothing. `manager_archetypes` is the one in my
+files; naming the pattern is what I can do about the rest.
+
+**How does it unify?** It closes the loop on the branch's own contract. Absent,
+stale, present-but-unpriceable and never-built are now four distinct answers in
+one vocabulary, where before the first two shared a sentence.
+
+## Known limits, Part 4
+
+- **`GROUP_CONCAT(DISTINCT version)` has no defined order**, so with two or
+  more superseded versions present the reason lists them in whatever order
+  SQLite returns. Never seen in practice — there has only ever been one
+  version — and not worth an ORDER BY subquery until there is.
+- **A partially-migrated league-season is not called out.** Some current rows
+  and some old ones reports `rows > 0` with the stale count beside it and no
+  reason, because the current build did cover it. Whether that deserves its own
+  sentence is a question for the first time it happens.

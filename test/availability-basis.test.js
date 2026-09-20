@@ -107,8 +107,10 @@ test('a row with a basis but no number keeps the number and loses the label', ()
     const out = activeProbabilityFor(mapOf(r), 1);
     assert.equal(out.active_probability, DEFAULT_ACTIVE_PROBABILITY,
       'the number is still served: a throw here takes down the odds');
-    assert.equal(out.availability_basis, 'unrecognised',
+    assert.equal(out.availability_basis, 'unvouched',
       `a substituted default must not be labelled 'pooled' (active was ${broken})`);
+    assert.notEqual(out.availability_basis, 'unrecognised',
+      'unrecognised is version skew that decays to zero; this is a live fault in a current row');
     assert.match(out.availability_source, /carries no active probability/);
     assert.match(out.availability_source, /pooled/, 'and it says what the row claimed');
   }
@@ -130,6 +132,18 @@ test('the uncovered value reads the OUTPUT-side constant, which no assertion on 
     'the durability prior is contingency.js\'s input and has no business being read here');
   assert.equal(DEFAULT_ACTIVE_PROBABILITY, DEFAULT_DURABILITY_PRIOR,
     'they share their digits today, which is exactly why the names have to be checked');
+
+  // AND THAT THE IMPORT IS USED. A mutation found this gap: importing the right name and then
+  // assigning a bare 0.92 anyway passed everything above, because the import line was still
+  // correct and the value was still the same number. So the assignment is checked too, and no
+  // 0.92 may appear outside a comment -- the value has one home and this file is not it.
+  assert.match(src, /const UNCOVERED_ACTIVE_PROBABILITY = DEFAULT_ACTIVE_PROBABILITY;/,
+    'the constant is read, not re-typed');
+  const code = src.split('\n')
+    .filter(line => !/^\s*(\*|\/\/|\/\*)/.test(line))
+    .join('\n');
+  assert.equal(/0\.92/.test(code), false,
+    'no 0.92 literal in this file: prose may discuss the number, code must import it');
 });
 
 test('a row without the field falls back to the prose match, and says so when it cannot tell', () => {

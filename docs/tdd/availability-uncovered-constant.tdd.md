@@ -39,6 +39,16 @@ the import line must contain `DEFAULT_ACTIVE_PROBABILITY` and must not contain
 `DEFAULT_DURABILITY_PRIOR`. The same test asserts the two are equal today, because that
 equality is precisely why the names have to be checked rather than the numbers.
 
+## Which arm, and why not the one I first used
+
+The first version of this fix served `unrecognised` for a present row with no number. The
+producer's vocabulary now separates the two cases, and it is right to: `unrecognised` is a row
+that arrived **without the basis field** — version skew, which decays to zero once every producer
+is on the current shape — while this is a row that arrived **with** a basis and no number, a live
+fault in a current payload. A consumer counting either has to be able to count them apart, and one
+word for both would have made a permanent fault look like a migration artefact that was on its way
+out. So this serves `unvouched`, and a test asserts it is not `unrecognised`.
+
 ## A defect the sweep found, and it is the memo key's shape again
 
 `C4` — changing `row.active_probability ?? UNCOVERED_ACTIVE_PROBABILITY` to `?? 1` — failed
@@ -66,27 +76,43 @@ characters) before and after, and
 
 Base file: `9c639848757d`. Restored to `9c639848757d` after the last row, checked.
 
-| # | mutation | state | sha256 before -> after | fail | a test that fails |
-|---|---|---|---|---|---|
-| C1 | back to the durability prior (the borrow this removes) | APPLIED | `9c639848757d` -> `8ce1a890d48e` | 1 | the uncovered value reads the OUTPUT-side constant |
-| C2 | a local `0.92` literal instead of the producer's constant | APPLIED | `9c639848757d` -> `24295760c9a2` | 1 | the uncovered value reads the OUTPUT-side constant |
-| C3 | the uncovered arm serves `default_durability` | APPLIED | `9c639848757d` -> `23670b6fc18e` | 3 | a player with no row at all is unfitted_position |
-| C4 | the no-number branch never fires | APPLIED | `9c639848757d` -> `16e0129a14da` | 1 | a row with a basis but no number keeps the number and loses the label |
-| C5 | a substituted default keeps the row's declared label | APPLIED | `9c639848757d` -> `6e78f335fd79` | 1 | a row with a basis but no number keeps the number and loses the label |
-| C6 | only `null` counts as missing, so `NaN` is a probability | APPLIED | `9c639848757d` -> `a4f40c9d3b2a` | 1 | a row with a basis but no number keeps the number and loses the label |
-| CONTROL | a comment reworded, no code path touched | APPLIED | `9c639848757d` -> `405289686ab0` | 0 | none, and none should |
+| # | mutation | before -> after (quoted by the runner) | state | sha256 | fail | a test that fails |
+|---|---|---|---|---|---|---|
+| C1 | back to the durability prior: the borrow this removed | `  AVAILABILITY_BASIS, DEFAULT_ACTIVE_PROBABILITY, isAvailabilityBasis` -> `  AVAILABILITY_BASIS, DEFAULT_DURABILITY_PRIOR as DEFAULT_ACTIVE_PROBABILITY, isAvailabilityBasis` | APPLIED | `f9da8591e948` -> `4a3638d7abd4` | 1 | the uncovered value reads the OUTPUT-side constant |
+| C2 | a local `0.92` literal instead of the producer's constant | `const UNCOVERED_ACTIVE_PROBABILITY = DEFAULT_ACTIVE_PROBABILITY;` -> `const UNCOVERED_ACTIVE_PROBABILITY = 0.92;` | APPLIED | `f9da8591e948` -> `10542db5fc61` | 1 | the uncovered value reads the OUTPUT-side constant |
+| C3 | the no-row arm serves `default_durability` | `availability_basis: 'unfitted_position',` -> `availability_basis: 'default_durability',` | APPLIED | `f9da8591e948` -> `1f3210142524` | 3 | a player with no row at all is unfitted_position, not default_durability |
+| C4 | the no-number branch never fires | `const missing = row.active_probability == null \|\| !Number.isFinite(row.active_probability);` -> `const missing = false;` | APPLIED | `f9da8591e948` -> `ac4d9f234a96` | 1 | a row with a basis but no number keeps the number and loses the label |
+| C5 | a substituted default keeps the row's declared label | `availability_basis: 'unvouched',` -> `availability_basis: basis,` | APPLIED | `f9da8591e948` -> `1e69c2d42248` | 1 | a row with a basis but no number keeps the number and loses the label |
+| C6 | only `null` counts as missing, so `NaN` is a probability | `row.active_probability == null \|\| !Number.isFinite(row.active_probability)` -> `row.active_probability == null` | APPLIED | `f9da8591e948` -> `be0062f3c7e6` | 1 | a row with a basis but no number keeps the number and loses the label |
+| C7 | the label reverts to `unrecognised` | `availability_basis: 'unvouched',` -> `availability_basis: 'unrecognised',` | APPLIED | `f9da8591e948` -> `3a8b3086a935` | 1 | a row with a basis but no number keeps the number and loses the label |
+| CONTROL | a comment reworded, no code path touched | `Two quantities, same digits, two exports with two docstrings` -> `Two quantities with the same digits, two exports and two docstrings` | APPLIED | `f9da8591e948` -> `ad2bf389259f` | 0 | none, and none should |
 
-**One row in this sweep first came back NO-OP, and that is the argument for the column.** `C4`
-was written against `row.active_probability ?? UNCOVERED_ACTIVE_PROBABILITY`, and the fix had
-already deleted that expression, so the pattern matched nothing and the file's hash did not
-move. Without the hash recorded it would have read as a mutation the tests caught. Re-aimed at
-the branch that replaced it, it fails.
+Every before/after above is printed by the runner from the strings it actually applied, not
+transcribed. A row whose pattern matches nothing, or matches in more than one place, is reported
+NO-OP and not applied — matching the wrong place is the same failure as matching nothing, and it is
+worse, because an unrelated test may then fail and read as a kill.
+
+**C2 survived the first run of this table, and the gap it found is a real one.** C1 was rewritten
+to alias the prior under the right name, which left the import line correct; C2 then replaced the
+constant with a bare `0.92` and the import-name test still passed, because it checked which name
+was *imported* and not whether it was *used*. Closed by asserting the assignment reads the
+imported name and that no `0.92` literal appears in this file's code at all — prose may discuss the
+number, code has to import it. Three comment lines mention 0.92 and are excluded deliberately.
+
+**Two rows in this sweep came back NO-OP before they came back APPLIED, and that is the argument
+for the state column.** `C4` was written against `row.active_probability ?? UNCOVERED_ACTIVE_PROBABILITY`,
+which the fix had already deleted, so it matched nothing. `C5` was written against
+`availability_basis: 'unrecognised'`, which the arm swap had just replaced. Neither moved the
+file's hash, and without the hash recorded both would have read as mutations the tests caught.
+Re-aimed, both fail.
 
 ## Numbers
 
 11 tests, 11 passed, 0 failed in the targeted file.
-Full local check `npm run check` on the exact pushed tree: exit 0 — 2,979 tests, 2,938 passed,
-0 failed, 41 skipped; typecheck, lint and build clean.
+Full local check `npm run check`, measured on the tree whose parent is `74657ef` (the merge of the
+producer's `f68059d`): exit 0 — 2,980 tests, 2,939 passed, 0 failed, 41 skipped; typecheck, lint
+and build clean; `start:smoke` passed on an isolated database. The earlier commit on this branch
+measured 2,979 / 2,938 / 0 / 41 on the tree whose parent was `0b26f20`.
 
 Run on the whole suite, not just the two targeted files, because an earlier edit on this branch
 replaced text between two anchors and deleted `memoKBasis` in the gap: both targeted suites
@@ -106,9 +132,11 @@ that a default says it is one rather than claiming to be a good guess. What is m
 substitutes. The 0.92 is the value five call sites already used; adopting it changed no served
 number.
 
-**How do we know?** Six mutations and an inert control, each with the file's hash before and
-after. One came back NO-OP first and is recorded as such rather than counted. The import-name
-test exists because no assertion on the value can distinguish the two constants.
+**How do we know?** Seven mutations and an inert control, each with the file's hash before and
+after and its exact before/after text quoted by the runner. Two came back NO-OP first and are
+recorded as such rather than counted, and one survived and found a real gap (the right import,
+unused). The import-name test exists because no assertion on the value can distinguish two
+constants that carry the same digits.
 
 **Should this data be pointed anywhere else on the platform?** It already is: `trade-engine.js`
 and `roster-risk.js` are named consumers of the same export, and each had its own copy of 0.92

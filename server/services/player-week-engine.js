@@ -144,7 +144,11 @@ export function activeProbabilityFor(availability, playerId) {
     basis = 'unrecognised';
   }
 
-  // A ROW THAT CARRIES NO NUMBER DOES NOT GET TO KEEP ITS LABEL. `weeklyAvailability` always
+  // A ROW THAT CARRIES NO NUMBER DOES NOT GET TO KEEP ITS LABEL. The arm is `unvouched`, not
+  // `unrecognised`: the producer's vocabulary separates them because `unrecognised` is version
+  // skew that decays to zero once every producer is on the current shape, while this is a live
+  // fault in a current payload, and a consumer counting either has to be able to count them
+  // apart. This file served `unrecognised` here until the producer named the second arm. `weeklyAvailability` always
   // sets `active_probability`, so this is unreachable from the live producer and defensive
   // against a hand-built map -- but if it is ever reached, serving the substituted constant
   // under the row's own declared basis would print "this came from the pooled fit" over a
@@ -157,7 +161,7 @@ export function activeProbabilityFor(availability, playerId) {
   if (missing) {
     return {
       active_probability: UNCOVERED_ACTIVE_PROBABILITY,
-      availability_basis: 'unrecognised',
+      availability_basis: 'unvouched',
       availability_source: `this player's availability row carries no active probability, so `
         + `the default was substituted and its stated basis (${served ?? 'none'}) is not `
         + `vouched for`

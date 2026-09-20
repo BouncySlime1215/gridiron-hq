@@ -72,10 +72,23 @@ explanation reads the same as an untested line.
 
 **M5 is the row that matters most**, and not for the five failures. The accessor rework in this
 same branch replaced text between two anchors and `memoKBasis` sat between them, deleting it.
-The two suites aimed at that change both passed, because neither imports the cache path, while
-54 tests in other files failed with `memoKBasis is not defined`. So: when an edit is structural
-rather than logical, a targeted suite is not evidence of anything. Only the full run is, and
-the numbers below are from the full run.
+
+**The cross-file count, measured 2026-09-20 rather than asserted.** It was quoted before it was
+run, on the targeted suite only, so it is re-measured here: delete `memoKBasis` on the merged head
+(file `f9da8591e948` -> `36026fc4f4da`, APPLIED, restored to `f9da8591e948` after) and run the
+whole suite. **2,949 tests, 2,854 passed, 54 failed, 41 skipped**, of which **51** carry
+`memoKBasis is not defined`. First three by name: "an injury status changed in place for the
+served week rebuilds the universe", "a stat correction made in place for the served season
+rebuilds the universe", "a line moved in place rebuilds the universe" — none of them about caching
+a fit.
+
+**And a correction to how that was first told.** "Both targeted suites passed" was too broad.
+`test/availability-basis.test.js`, the suite the rework was aimed at, passes 11 of 11 with
+`memoKBasis` deleted — that part holds, and it is the part that let the deletion through.
+`test/player-week-memo-fit.test.js` fails 6 of 6, so running *this* file would have caught it
+immediately. The lesson survives the correction and is narrower than stated: a suite aimed at the
+change is not evidence when the edit is structural rather than logical, because the file it broke
+was not the file it was editing. Only the full run is.
 
 ## Numbers
 

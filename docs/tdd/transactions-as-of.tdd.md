@@ -495,3 +495,87 @@ source:
    older build*. Absence and staleness rendered identical is the failure this
    whole document is about, so it is routed to that file's owner rather than
    worked around here.
+
+---
+
+# Part 5: the chat corpus, where absence is the normal case (RED `02a789c`)
+
+The third store, and the one whose absence is not the exception. The corpus is a
+private SQLite file on Nick's Mac (`chatDbPath()`), deliberately never in the
+deployed image, and its rollup is **step 3 of `scripts/refresh-live-data.mjs`** —
+the same off-server loop that collects transactions. So on the deployed app
+`openChatDb()` returns null **every time**, every chat read downstream produces
+nothing, and "there is no corpus on this machine" and "he never talks" were the
+same empty.
+
+`SIGNAL_SOURCES.chat.refreshed` also still read `'every refresh tick'` — the
+identical false cadence `tx` carried, in the same registry, reaching the client
+the same way: interpolated by `signalRowsFor` into the `why` served on every chat
+signal row. Part 1 fixed one of the two and did not look at its neighbour. That
+is worth naming: **finding a defect in a registry entry is a reason to read the
+other entries, not a reason to move on.** The remaining five were checked this
+time; `roster`, `standings` and `outcome` are accurate, and `nick`
+("edited in code") and `draft` are accurate.
+
+`chatCorpusState()` reports four states with four sentences, because what a
+reader would do about each differs: no path configured; configured but the file
+is not here (the deployed app, always); here but the rollup has not written
+`manager_chat_profile`; here and rolled up, with the date.
+
+The fourth of those is a real state and not defensive padding: the rollup drops
+and recreates `manager_chat_profile` **outside a transaction**, so a crash
+between the two leaves the table gone — which the suite already has a test for
+elsewhere. That read is caught and reported rather than passed off as an empty
+corpus.
+
+## Mutation run, pasted verbatim
+
+```
+BASELINE (no mutation): 23 pass, 0 fail
+H1  as_of reads the OLDEST rollup stamp instead of the newest
+    APPLIED -> killed by: the chat half says whether the corpus is here…; a database with no chat corpus…
+H2  an absent corpus is reported as a clean empty with no reason
+    APPLIED -> killed by: a database with no chat corpus says so instead of serving an empty chat half
+H3  an absent corpus borrows today's date
+    APPLIED -> killed by: (same)
+H4  the chat source goes back to advertising a refresh tick the server never runs
+    APPLIED -> killed by: the chat source does not advertise a refresh the server never runs, either
+H5  the block no longer names what rolls the corpus up
+    APPLIED -> killed by: the chat half says whether the corpus is here at all…
+H6  the route omits the chat block when there is no corpus
+    APPLIED -> killed by: a league whose signals were never built still reports its transaction collection
+```
+
+Six injections, six applied, six caught.
+
+**H6 survived the first pass — the same fixture gap as C3 and T3 in Parts 1 and
+2**, and this is now four times for one shape: the "no rows" assertion used a
+league that *has* signals, so hanging the block off `available` changed nothing
+asserted. It was fixed the same way both previous times, and I still wrote it
+again. The lesson has been promoted out of these run notes into project memory
+(`unreachable-branch-no-assertion`) because writing it down per-incident
+evidently does not stop it.
+
+## The five questions, for Part 5
+
+**1. Stats or made up?** Definitional. A column maximum, a count, a file-exists
+check.
+
+**2. How do we know?** Six tests over the whole pass, six mutations, all applied
+and caught. The off-server claim is read from `refresh-live-data.mjs`'s own
+header and its step list, not taken on report.
+
+**3. Structure.** Third accessor, same shape and field names as
+`transactionsCollected` and `archetypesBuilt`, same file. The route's payload now
+carries `transactions`, `chat` and `computed_at` as three separate facts, which
+is what they are.
+
+**4. Pointed anywhere else?** `counterparty-pricing.js` and `bluff-detector.js`
+read the same corpus. `counterparty-pricing.js` is mine and is next;
+`bluff-detector.js` is not allocated to this thread and is routed.
+
+**5. How does it unify?** Three stores, five parts, one sentence: **a served
+value must carry the stamp of the process that measured it, and an absence must
+say which absence it is.** The second half is what Part 5 adds — the first four
+parts were about stamps, and this one is mostly about the four different ways
+there can be no stamp at all.

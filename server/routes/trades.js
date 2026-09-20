@@ -25,7 +25,8 @@ import { newsOpportunities } from '../services/news-lag-trader.js';
 import { brainState, managerProfiles, setManagerProfile } from '../services/league-brain.js';
 // The measured manager layer: what has been observed about each counterparty, as
 // opposed to `manager_profiles`, which is the tier Nick set by hand.
-import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected } from '../services/manager-signals.js';
+import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected, chatCorpusState }
+  from '../services/manager-signals.js';
 import { identityMap, identityRows, identityWarnings } from '../services/manager-identity.js';
 import { counterpartyLayer, RECEPTIVENESS_RANGE } from '../services/counterparty-pricing.js';
 // Every other route in this file is a read behind a bearer session; the one that
@@ -539,6 +540,10 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
     // recomputing. A page that shows a manager read can now say how old the
     // evidence is instead of implying it is live.
     transactions: transactionsCollected(leagueId, season),
+    // The chat half, same shape. Its absence is the normal case on the deployed
+    // app rather than the exception — the corpus never ships in the image — so a
+    // page that cannot say "the corpus is not here" will say "he never talks".
+    chat: chatCorpusState(),
     sources: SIGNAL_SOURCES,
     identity_warnings: identityWarnings(leagueId),
     managers,

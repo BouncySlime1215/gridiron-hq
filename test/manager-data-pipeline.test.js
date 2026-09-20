@@ -251,6 +251,11 @@ arch(12, 2026, 'all_play', 0.33, 3, 'outcome');
 // Written by the same build run, in the same store, for the same league-season —
 // and NOT in ARCHETYPE_METRICS, so the signal layer copies no value from it.
 arch(12, 2026, 'beat_median_streak', 3, 4, 'outcome', ARCH_BUILT_AT);
+// A LATER build, in the same league and the same store, for a DIFFERENT season.
+// It is the newest row league 12 has, and it must not be this season-view's date:
+// "the store was last built at 07:00" is true and useless if what was built was
+// last year.
+arch(12, 2025, 'all_play', 0.5, 14, 'outcome', '2026-09-18T07:00:00.000Z');
 arch(0, 0, 'luck_wins', -2.5, 40, 'career');
 arch(11, 2026, 'reach_rate', 0.9, 16, 'draft');
 
@@ -512,6 +517,11 @@ test('refresh: the reported archetype build date is the store\'s, not the newest
     'the newest row in this league-season\'s store is the build date, mapped or not');
   assert.notEqual(ARCH_BUILT_AT, ARCH_BUILT_EARLY,
     'the fixture has two build stamps, or this assertion proves nothing');
+  // And the season filter is load-bearing: league 12's newest row overall is a
+  // 2025 build at 07:00, which is a true statement about the store and the wrong
+  // answer to "how old is what this page is showing".
+  assert.equal(rows(`SELECT MAX(computed_at) AS a FROM manager_archetypes WHERE league_id = 12`)[0].a,
+    '2026-09-18T07:00:00.000Z', 'the fixture has a newer row in another season');
 });
 
 test('refresh: a chat table missing mid-rollup fails the chat league only; chat-free leagues still build', () => {

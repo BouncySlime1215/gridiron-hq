@@ -253,6 +253,18 @@ export const NOT_STORED = Object.freeze([
   })
 ]);
 
+/**
+ * The concept with this id, with its id on it, or null. `STAT_CONCEPTS` is
+ * exported and frozen, so indexing it is already a working lookup — what this
+ * adds is that the result has the same shape `conceptFor` returns, so a caller
+ * holding a concept id and a caller holding a `table.column` handle one thing.
+ * `Object.hasOwn`, not `in`, so `toString` is not a stat.
+ */
+export function conceptById(id) {
+  return typeof id === 'string' && Object.hasOwn(STAT_CONCEPTS, id)
+    ? { id, ...STAT_CONCEPTS[id] } : null;
+}
+
 /** The concept behind a `table.column`, with its id, or null. */
 export function conceptFor(field) {
   const id = Object.hasOwn(STAT_FIELDS, field) ? STAT_FIELDS[field] : null;

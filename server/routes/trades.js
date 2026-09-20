@@ -25,7 +25,7 @@ import { newsOpportunities } from '../services/news-lag-trader.js';
 import { brainState, managerProfiles, setManagerProfile } from '../services/league-brain.js';
 // The measured manager layer: what has been observed about each counterparty, as
 // opposed to `manager_profiles`, which is the tier Nick set by hand.
-import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor } from '../services/manager-signals.js';
+import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor, transactionsCollected } from '../services/manager-signals.js';
 import { identityMap, identityRows, identityWarnings } from '../services/manager-identity.js';
 import { counterpartyLayer, RECEPTIVENESS_RANGE } from '../services/counterparty-pricing.js';
 // Every other route in this file is a read behind a bearer session; the one that
@@ -531,6 +531,14 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
       ? (layerError ? `the signals are built, but the receptiveness layer failed: ${layerError}` : null)
       : NO_MANAGER_SIGNALS_REASON,
     computed_at: computedAt,
+    // WHEN THE BUILD RAN vs WHEN ITS EVIDENCE WAS COLLECTED. `computed_at`
+    // above is the first; this is the second, and they are not the same fact.
+    // The transaction rows every tx signal, archetype and counterparty price
+    // rests on are written only by an off-server collector run by hand, so on
+    // the deployed app they age silently while everything above them keeps
+    // recomputing. A page that shows a manager read can now say how old the
+    // evidence is instead of implying it is live.
+    transactions: transactionsCollected(leagueId, season),
     sources: SIGNAL_SOURCES,
     identity_warnings: identityWarnings(leagueId),
     managers,

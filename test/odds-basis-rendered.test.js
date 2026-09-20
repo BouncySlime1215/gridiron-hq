@@ -112,3 +112,32 @@ test('the false sentence is gone, and the fallback is called an assumption', () 
   assert.match(component, /odds_interval/, 'the range says what it measures');
   assert.match(component, /projection_basis/, 'and the odds say which games they rest on');
 });
+
+test('no active fit is a sentence, not a missing line', () => {
+  // `projection_fit: null` is the live state today — shrinkage_fits holds zero rows
+  // on the deployed volume — and it is the case a reader most needs told, because an
+  // absent field is invisible and reads as "nothing to say about this".
+  assert.match(component, /if \(fit === null\) return '[^']*no fitted model is active/,
+    'null renders as a statement about the constants, not as nothing');
+  assert.match(component, /if \(fit === undefined\) return null;/,
+    'a response that predates the field renders nothing, which is different from null');
+});
+
+test('the fitted/hand-set volume split is stated, not collapsed into "fitted"', () => {
+  // The whole reason a fit id alone could not answer this. With an active fit the
+  // simulator runs on fitted efficiency constants and hand-set VOLUME constants at
+  // once: activeKVectorFor withholds the volume entries from every caller that is
+  // not on weekly-role recency, and the simulator never is.
+  assert.match(component, /volume_k === 'hand_set'/);
+  assert.match(component, /fitted efficiency constants and hand-set volume constants/,
+    'the page says both halves rather than calling the whole thing fitted');
+});
+
+test('the projection basis is rendered whole', () => {
+  // It can read "2026 through week 5, but only 3 of those 5 weeks are in the usage
+  // log". Clipping it would delete exactly the caveat it exists to carry, so nothing
+  // here truncates or slices it.
+  assert.match(component, /\$\{sim\.projection_basis\}/);
+  assert.doesNotMatch(component, /projection_basis[^\n]*\.slice\(|projection_basis[^\n]*substring\(/,
+    'the sentence is never cut');
+});

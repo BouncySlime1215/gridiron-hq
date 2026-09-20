@@ -18,6 +18,14 @@
  *   - `odds_interval` — that the ± range beside the championship number is run-to-run
  *     Monte Carlo error only. A range labelled just "range" reads as the uncertainty
  *     in the forecast, which it is not and is much smaller than.
+ *   - `projection_fit` — which shrinkage constants produced those projections, and in
+ *     particular `volume_k`. With an active fit the simulator runs on fitted efficiency
+ *     constants and hand-set VOLUME constants at the same time, because
+ *     `activeKVectorFor` withholds the volume entries from every caller that is not on
+ *     weekly-role recency and the simulator never is. Its own header says those callers
+ *     "keep the hand-picked constants they were validated with. They are not claimed to
+ *     be right, only untested with the fitted k." So "these odds use the fitted model"
+ *     would be false in the half that moves most on a role change.
  *
  * The strings are the server's own. Nothing is reworded here beyond turning the
  * bracket enum into a sentence, because a page that paraphrases what it was told is
@@ -35,16 +43,39 @@ const BRACKET: Record<string, string> = {
     + 'its bracket on different weeks, these odds are for a bracket you do not play.'
 };
 
+/**
+ * Which constants produced the projections. `null` is a statement, not a missing
+ * value — it means no fit is active and everything ran on the hand-set constants,
+ * which is the live state today — so it renders rather than disappearing.
+ */
+function fitSentence(fit: any): string | null {
+  if (fit === undefined) return null;
+  if (fit === null) return 'Projections use the hand-set constants: no fitted model is active.';
+  if (fit.volume_k === null) return 'Projections use constants supplied by the caller rather than the fitted model.';
+  if (fit.volume_k === 'hand_set') {
+    return fit.fit_id == null
+      ? 'Projections use the hand-set constants.'
+      : `Projections use fitted efficiency constants and hand-set volume constants — the fitted `
+        + `volume numbers apply to the weekly projections, not to a season simulated from here.`;
+  }
+  return 'Projections use the fitted constants throughout.';
+}
+
 export default function OddsBasis({ sim }: { sim: any }) {
   if (!sim) return null;
   const bracket = BRACKET[sim.playoff_basis] ?? null;
   const assumed = sim.playoff_basis === 'default_weeks_15_17';
+  const fit = fitSentence(sim.projection_fit);
   return (
     <div className="mt-2 space-y-1 text-[10px] leading-4 text-slate-400">
       <p>
         {sim.runs?.toLocaleString()} simulated seasons, correlated player outcomes.
+        {/* Deliberately not truncated: this string can read "2026 through week 5, but
+            only 3 of those 5 weeks are in the usage log", and clipping it would delete
+            exactly the caveat it exists to carry. */}
         {sim.projection_basis ? ` Built from ${sim.projection_basis}.` : ''}
       </p>
+      {fit && <p>{fit}</p>}
       {bracket && <p className={assumed ? 'text-amber-700' : undefined}>{bracket}</p>}
       {sim.odds_interval && <p>The range is {sim.odds_interval}.</p>}
     </div>

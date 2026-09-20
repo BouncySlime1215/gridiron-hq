@@ -281,6 +281,38 @@ Neither sweep on this file carries a KILL-CONTROL — an edit that must break
 something, proving the suite can fail at all — and neither needs one: every
 mutation row above is itself that proof.
 
+### Every test in both suites, accounted for
+
+A sweep is only as good as its coverage of the suite, so here is the union of
+the reds across both tables, measured against the 13 tests that run.
+
+**All ten tests in `availability-basis-vocabulary.test.js` are killed by at
+least one row.** Nothing there rests on a row that lands and proves nothing.
+
+**Two tests in `durability-prior-substitution.test.js` are killed by no row, and
+both are deliberate rather than a gap:**
+
+- *the fixture is the case under test: one player measured, one never seen* —
+  this guards the premise, not the behaviour. It asserts the fixture really does
+  contain one player with games on file and one without. No mutation of the
+  classifier can turn it red, because it is not testing the classifier; if it
+  ever does go red, every other row's evidence on this file is void, which is
+  the job it is there to do.
+- *the substituted prior is otherwise indistinguishable, which is why the flag
+  is needed* — this one passes in both states **on purpose**, and that is its
+  whole claim. It says the two rows cannot be told apart by anything except the
+  flag. A mutation that killed it would mean they had become separable by
+  something else, which would make the flag redundant rather than wrong. A test
+  written to pass in both states cannot be killed by a mutation and should not
+  be.
+
+**Neither RED on this branch is a module-absent RED**, so the union above is the
+only accounting needed. Both were re-run to check that rather than assert it:
+`f83c61a` gives 5 tests, 2 pass, 3 fail, and `365fd64` gives 3 tests, 2 pass, 1
+fail. A RED that is red because the module does not resolve has no passes in it;
+these have two each, so each RED is about behaviour, and every test in them
+already carries its own statement.
+
 Two controls, doing two different jobs. A is a real edit that must NOT break
 anything, and is the whole point of the change: the tests pin the contract and
 ignore the prose. B shows the harness can report a miss, so an APPLIED row

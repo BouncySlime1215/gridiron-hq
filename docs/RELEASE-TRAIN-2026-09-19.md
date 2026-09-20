@@ -1905,7 +1905,8 @@ command with no fix merged writes a wrong-base fit into the database, which is
 the one direction that is not free to undo. So:
 
 - **If both call sites are fixed and merged by the time you reach this step**,
-  run the command. That was always the plan.
+  run the command. Both fixes now exist and are verified; what remains is
+  merging them.
 - **If either is not, skip this step entirely and leave `AUTO_HEAVY_SYNC`
   unset.** Nothing else in the run sheet depends on it. The heavy tier stays
   empty, which is the state the app has been in since the deploy, and the refit
@@ -1921,8 +1922,35 @@ fantasy-week fix, a season-horizon fix and an availability-source label, so
 merging it for this reason brings three other changes with it; its body
 describes all four.
 
-**The `fantasy-coordinator.js:571` half has no PR yet.** Until it does, the
-skip above stands: both halves, or neither.
+**The `fantasy-coordinator.js` half is verified too, at `42bbbc3` on
+`claude/project-thread-f921do-coordinator-head-hold`**, which has no PR yet —
+it is held back by the same freeze. `weeklyProjectionFor` now passes
+`projection.structural_ppg`, and `corrected_ppg` is **null** when no fit is
+persisted rather than the ensemble number wearing the corrected field's name;
+`ensemble_ppg` publishes that number under its own.
+
+Its one consumer was widened to match: `routes/drafts.js:1050` now reads
+`corrected_ppg ?? ensemble_ppg ?? structural_ppg`, so **the printed draft-sheet
+number is identical to today's in every state**. Without `ensemble_ppg` in that
+chain the sheet would have silently dropped to the uncalibrated structural
+figure the moment the field stopped being the ensemble in disguise.
+
+*One thing checked here that the branch's own report does not mention, and it is
+not a problem.* `weeklyProjectionFor` has **two** callers, not one —
+`draft-assist.js:976` and **`routes/players.js:94`**, which serves
+`weekly_projection` in an API response and is untouched by this branch. So on the
+player route `corrected_ppg` becomes null where it used to carry the ensemble
+number. **Nothing reads it**: a search for `corrected_ppg` across `server/`,
+`client/` and `scripts/` finds only `drafts.js` (fixed) and `trade-engine.js`
+(its own field, unrelated). So no surface changes, and the served payload stops
+labelling an uncorrected number "corrected", which is the point of the fix
+rather than a side effect of it.
+
+**So both halves exist and both are verified. The skip is lifted on this
+condition and no other: both must be merged before the command runs.** #57 at
+`7c27517`, and the PR the fantasy plan opens from `42bbbc3` after the go. If
+only one lands, the skip is back — half the fix still refits against a wrong
+base on the other call site.
 
 *A note on how #57 was checked, because an earlier read of it was wrong and the
 way it was wrong will recur.* At 02:05Z its pushed head was `aca74f9`, which did
@@ -2787,6 +2815,8 @@ sentences would survive being wrong about something else.**
 | The onset varies ~16 s while the timer is flat | **Read off `791b131`**: the job downloads before it writes and a download does not hold the loop, so onset = 90 s + fetch time | this thread |
 | The block is the 90 s timer at `scheduler.js:1751` | **Read off `791b131`** and now matched to the measured onset: the timer fires at 90, the job downloads (non-blocking) and then writes synchronously | this thread |
 | Restart itself takes ~5-20 s | **Derived** from the eight measured cycles (167-179 s) minus onset 94-110 minus the 60 s fuse. The earlier "~30 s boot" was never measured and 90 + 60 + 30 = 180 matched the median by luck | this thread |
+| Both wrong-base call sites are fixed | **Verified here** by content, not by PR number: #57 `7c27517` passes `coordinatorBase(weekProjection)`; `42bbbc3` passes `projection.structural_ppg` and nulls `corrected_ppg` when unfitted. Neither is merged yet | this thread |
+| No surface changes when `corrected_ppg` goes null | **Verified here**: `drafts.js` widened to `?? ensemble_ppg ??`; a tree-wide search finds no other reader, including the untouched `routes/players.js:94` caller | this thread |
 | Nothing on Fly writes `league_transactions_raw` | **Verified here on `791b131`**: sole writer `collect-league-transactions.mjs:34`, reached only by `refresh-live-data.mjs:99`; no `server/` code invokes that script; Dockerfile CMD is `node server/index.js` and `fly.toml` declares no processes | scheduler + this thread |
 | Any restart count taken before 22:49Z | A 300 s poll against a ~180 s cycle — **a floor, never a count** | Trade Brain |
 

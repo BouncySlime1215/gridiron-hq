@@ -1,6 +1,14 @@
 /**
- * The League Hub lineup card (trade-engine.js#lineupDiff): how sure each swap is, what
- * urgency that sets, and what it writes to the Decision Inbox.
+ * The League Hub lineup card (trade-engine.js#lineupDiff): how sure each swap is and
+ * what urgency that sets.
+ *
+ * It used to also pin what each urgency WROTE to the Decision Inbox, interleaved into
+ * the same assertions. The inbox is retired — its routes and mount are gone, nothing
+ * ever read it, and both publishers are removed — so those halves are gone with it and
+ * the urgency model they were tangled with is untouched. What replaces them is one
+ * explicit test at the end: lineupDiff writes nothing, at any urgency. That is a
+ * stronger statement than four scattered counts, and it is the one that would catch a
+ * publisher being quietly reintroduced.
  *
  * Commit 11ab55c replaced the old ">= 4 points is high" rule with a measured one —
  * P(right) = Phi(gap / 14.5), high >= 75%, medium >= 60% — plus a swap against a sure
@@ -12,8 +20,10 @@
  * week number is known exactly; slots, roster loading and pairing are the real ones.
  *
  * The last group pins the review-fixes change: a team_id that is not in the league is
- * a not-found error (it used to fall back to teams[0], a rival's roster), and only
- * Nick's own roster (leagues.my_team_id) publishes to or retires from his inbox.
+ * a not-found error, where it used to fall back to teams[0] — a rival's roster shown as
+ * yours. That rule is live and unaffected. Its companion, "only Nick's own roster
+ * publishes to his inbox", described a behaviour that no longer exists in either half,
+ * and is not restated here as though it did.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -98,17 +108,13 @@ test('a 3.0-point swap is right 58% of the time: urgency low, nothing published'
   assert.equal(s.p_right, 0.582);
   assert.equal(s.p_basis, 'projected_gap');
   assert.equal(s.urgency, 'low');
-  assert.equal(inbox(lg.id).length, 0, 'a coin-flip swap is not a decision');
 });
 
-test('a 4.0-point swap is medium (0.609) and publishes one open row', () => {
+test('a 4.0-point swap is medium (0.609)', () => {
   const { lg, assets } = league(rbDecision(10, 14));
   const d = lineupDiff(lg, '1', { assets });
   assert.equal(d.swaps[0].p_right, 0.609);
   assert.equal(d.swaps[0].urgency, 'medium');
-  const open = inbox(lg.id).filter(r => r.status === 'open');
-  assert.equal(open.length, 1);
-  assert.equal(open[0].urgency, 'medium');
 });
 
 test('a 10.0-point swap is high (0.755)', () => {
@@ -137,17 +143,17 @@ test('filling a slot left empty by an IR-slot starter is priced at the newcomer\
   assert.equal(d.swaps[0].urgency, 'high');
 });
 
-test('an open lineup row is retired as superseded when only low swaps remain', () => {
+test('a swap that was high drops to low when the projection behind it drops', () => {
+  // This was "an open lineup row is retired as superseded when only low swaps
+  // remain". The retirement was the inbox's; the half worth keeping is that the
+  // card re-reads the projection and re-prices the same swap rather than holding
+  // on to the verdict it gave a moment ago.
   const { lg, assets } = league(rbDecision(6, 16));
-  lineupDiff(lg, '1', { assets });
-  assert.equal(inbox(lg.id).filter(r => r.status === 'open').length, 1);
+  assert.equal(lineupDiff(lg, '1', { assets }).swaps[0].urgency, 'high');
   // The benched back's projection drops: the swap is now a 2-point coin flip.
   [...assets.values()].find(a => a.name === 'Benched Back').current_week_ppg = 8;
   const d = lineupDiff(lg, '1', { assets });
   assert.equal(d.swaps[0].urgency, 'low');
-  const [row] = inbox(lg.id);
-  assert.equal(row.status, 'expired');
-  assert.match(row.outcome, /^superseded/);
 });
 
 test('an IR-slot player ESPN lists as active is offered for activation, never as a swap', () => {
@@ -176,30 +182,48 @@ test('a started player the news scan flags out while ESPN says ACTIVE is listed 
 
 // ---------------------------------------------------------------- whose roster
 
-test('a team_id that is not in the league is a not-found error and writes nothing', () => {
+test('a team_id that is not in the league is a not-found error', () => {
   const { lg, assets } = league(rbDecision(6, 16), rbDecision(6, 16));
   const d = lineupDiff(lg, 'not-a-team', { assets });
   assert.ok(d.error, 'no silent fallback to the first roster');
   assert.equal(d.not_found, true);
-  assert.equal(inbox(lg.id).length, 0);
 });
 
-test('a rival roster is computed for display but never published to Nick\'s inbox', () => {
-  const rival = rbDecision(6, 16);
-  const { lg, assets } = league(rbDecision(12, 12.5), rival);
+test('a rival roster is computed for display, on the rival\'s own numbers', () => {
+  const { lg, assets } = league(rbDecision(12, 12.5), rbDecision(6, 16));
   const d = lineupDiff(lg, '2', { assets });
   assert.equal(d.swaps[0].urgency, 'high', 'the rival has a high-urgency swap');
-  assert.equal(inbox(lg.id).length, 0, 'but it is not Nick\'s decision');
-  // And a rival view never retires Nick's own open row.
-  const mine = league(rbDecision(6, 16), rbDecision(12, 12.5));
-  lineupDiff(mine.lg, '1', { assets: mine.assets });
-  lineupDiff(mine.lg, '2', { assets: mine.assets });
-  assert.equal(inbox(mine.lg.id).filter(r => r.status === 'open').length, 1);
+  // And asking for the rival does not change what my own card says.
+  assert.equal(lineupDiff(lg, '1', { assets }).swaps[0].urgency, 'low');
 });
 
 test('with no team_id the card is Nick\'s own roster', () => {
   const { lg, assets } = league(rbDecision(6, 16), rbDecision(12, 12.5));
   const d = lineupDiff(lg, undefined, { assets });
   assert.equal(d.swaps[0].in.name, 'Benched Back');
-  assert.equal(inbox(lg.id).filter(r => r.status === 'open').length, 1);
+  assert.equal(d.swaps[0].urgency, 'high', "and it is priced on my roster, not the rival's");
+});
+
+/* ------------------------------------------------------- nothing is published */
+
+test('lineupDiff writes nothing to the Decision Inbox, at any urgency', () => {
+  // One statement in place of the four counts that used to sit inside the
+  // urgency tests above. It sweeps every urgency the model can produce, including
+  // the high one that was the only case that ever published, and the sequence
+  // that used to retire a row — so a publisher reintroduced at any of those
+  // points fails here rather than passing quietly because the case it was added
+  // back into happened not to be asserted.
+  const before = rows(`SELECT COUNT(*) AS n FROM decision_recommendations`)[0].n;
+  for (const [started, benched] of [[10, 13], [10, 14], [6, 16], [12, 12.5]]) {
+    const { lg, assets } = league(rbDecision(started, benched));
+    lineupDiff(lg, '1', { assets });
+    // And again after the projection moves, which is the path that used to expire
+    // an open row with a hand-written UPDATE.
+    [...assets.values()].find(a => a.name === 'Benched Back').current_week_ppg = 8;
+    lineupDiff(lg, '1', { assets });
+    assert.equal(inbox(lg.id).length, 0,
+      `lineupDiff published for a ${started}/${benched} roster`);
+  }
+  assert.equal(rows(`SELECT COUNT(*) AS n FROM decision_recommendations`)[0].n, before,
+    'no row of any type was written');
 });

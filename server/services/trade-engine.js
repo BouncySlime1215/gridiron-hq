@@ -2754,13 +2754,14 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
   const teams = loadRosters(lg, assets);
   const slots = lineupSlots(lg);
   // A requested team that is not in the league is not found. It used to fall back to
-  // teams[0] — a rival's roster in 3 of the 5 live leagues — and then publish that
-  // rival's swaps into Nick's Decision Inbox. Only a league with no my_team_id at all
-  // (never synced who is who) still shows the first roster, and never publishes.
+  // teams[0] — a rival's roster in 3 of the 5 live leagues — shown to Nick as his own.
+  // Only a league with no my_team_id at all (never synced who is who) still shows the
+  // first roster. (The rule originally travelled with a second one, that only Nick's
+  // own roster published into the Decision Inbox; the inbox is retired and this card
+  // publishes nothing at all now, so that half is gone rather than silently kept.)
   const requested = myTeamId ?? lg.my_team_id;
   const me = requested != null && requested !== '' ? teams.find(t => t.roster_id === String(requested)) : teams[0];
   if (!me) return { error: `team ${requested} is not in this league`, not_found: true };
-  const isMine = lg.my_team_id != null && me.roster_id === String(lg.my_team_id);
   const { season, week } = tradeWeekContext();
 
   const payload = JSON.parse(lg.payload);

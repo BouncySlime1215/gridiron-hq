@@ -435,7 +435,7 @@ r.get('/projections', requireAuthenticated, (req, res, next) => {
  *   constants          no fit on file; the hand-set constants path
  *   unfitted_position  a position the fit does not cover, priced on the prior
  */
-function availabilityPayload(playerId, weeklyAvail, priorRow) {
+export function availabilityPayload(playerId, weeklyAvail, priorRow) {
   const prior = priorRow?.available == null ? null : +priorRow.available.toFixed(3);
   if (!weeklyAvail) {
     return { active_probability: null, durability_prior: prior,

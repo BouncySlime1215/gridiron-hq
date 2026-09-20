@@ -55,7 +55,20 @@ test('on a machine with no Messages database the capability says so, and says wh
   const cap = sync.extractionCapability();
   assert.equal(cap.can, false);
   assert.equal(cap.reason, 'no_messages_db');
-  assert.match(cap.detail, /cloud box|laptop/i, 'the reason must point at the machine that can do it');
+  // NOT A CLOSED SET. The detail carries two separate facts — where you are
+  // ("this is a cloud box, not the Mac") and what to do ("pull from the
+  // laptop") — and /cloud box|laptop/ passed with the second sentence deleted
+  // outright, which is the half a person acts on. Each fact is its own
+  // assertion; see docs/tdd/archetype-as-of.tdd.md Parts 7 and 8.
+  assert.match(cap.detail, /cloud box|not the Mac/i,
+    'where this is, so nobody goes hunting for a broken sync on a box that can never have one');
+  // /laptop|Mac/ was the first attempt at this half and it ALSO passed the
+  // mutation, because "not the Mac" in the sentence before it matched. The
+  // assertion has to be about the action, which is the thing that disappears
+  // when the actionable sentence does.
+  assert.match(cap.detail, /pull|upload/i,
+    'and what to DO about it, which is the only part of the message anyone acts on; matching a '
+    + 'place name instead matched the place named in the sentence that says you cannot');
 });
 
 test('a Messages database that exists but cannot be opened is reported as access, not absence', () => {

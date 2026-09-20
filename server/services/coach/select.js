@@ -152,8 +152,27 @@ function prepareOrFail(statement) {
   try {
     return coachDb().prepare(statement);
   } catch (e) {
-    throw new CoachQueryFailed(e.message);
+    throw new CoachQueryFailed(explainAbsentTable(e.message));
   }
+}
+
+/**
+ * SQLite says "no such table: coach_person_variables", which reads to a model
+ * exactly like a misspelling — and the model's next move is to apologise and
+ * guess a different name. For a table the catalog describes, the truth is
+ * different and more useful: the question was fine, the data has not been
+ * built on this machine, and something specific builds it. Only catalogued
+ * tables get the fuller sentence; an unknown name keeps SQLite's wording,
+ * because the creator sentence says something about how this app is put
+ * together and an uncatalogued name should learn nothing.
+ */
+function explainAbsentTable(message) {
+  const match = /no such table:\s*([A-Za-z_][A-Za-z0-9_]*)/i.exec(message ?? '');
+  const entry = match && catalogEntry(match[1]);
+  if (!entry?.created_at_runtime_by) return message;
+  return `${match[1]} is in Coach's catalog but has not been built on this machine. `
+    + `${entry.created_at_runtime_by}. Say the answer is not available here and what would `
+    + 'produce it, rather than trying a different table.';
 }
 
 function sourceTables(prepared) {

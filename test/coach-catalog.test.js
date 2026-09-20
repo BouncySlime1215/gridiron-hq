@@ -40,10 +40,32 @@ const {
   COACH_TABLES, COLLECTION_MODES, catalogEntry, readableTables, catalog, catalogCoverage
 } = await import('../server/services/coach/catalog.js');
 
+// The migrations have to run: decision_recommendations is migration 020, and a
+// database with only the declared schema does not have it.
+await (await import('../server/db/migrate.js')).runMigrations();
+
+// Seven catalogued tables are created when their service module is imported
+// rather than by a migration, so they are absent from a database nobody has
+// touched. Importing the modules here is exactly what the server does at boot,
+// and it is the difference between testing the catalog and testing an empty
+// database.
+await import('../server/services/manager-signals.js');
+await import('../server/services/manager-archetypes.js');
+await import('../server/services/manager-identity.js');
+await import('../server/services/coach/audit.js');
+await import('../server/services/coach/people/context.js');
+
 const liveTables = new Set(rows(`SELECT name FROM sqlite_master WHERE type='table'`).map(r => r.name));
 
-test('every catalogued table exists in the schema', () => {
-  const missing = readableTables().filter(name => !liveTables.has(name));
+test('every catalogued table exists, unless only a script creates it', () => {
+  // The exemption is narrow on purpose, and the tests below close the hole it
+  // would otherwise open: a fabricated table with no creator still fails here,
+  // and a fabricated creator fails the file check. Three tables are genuinely
+  // absent on a machine where nobody has run the script that builds them, and
+  // pretending otherwise would mean either dropping them from the catalog —
+  // leaving Coach unable to say they exist at all — or asserting something
+  // false.
+  const missing = readableTables().filter(name => !liveTables.has(name) && !builtByAScript(name));
   assert.deepEqual(missing, [], `catalogued but absent from the database: ${missing.join(', ')}`);
 });
 
@@ -96,7 +118,16 @@ test('coverage names what is present and not yet catalogued, and never contradic
     assert.ok(liveTables.has(name), `${name} reported uncatalogued but is not in the database`);
     assert.ok(!readableTables().includes(name), `${name} is both catalogued and uncatalogued`);
   }
-  assert.equal(coverage.missing_from_database.length, 0);
+  assert.equal(coverage.missing_from_database.length, 0,
+    `catalogued, absent and claiming no creator: ${coverage.missing_from_database.join(', ')}`);
+  // Absent-because-nobody-ran-the-script is a separate bucket, and it must be
+  // exactly the tables whose creator is a script. A table that slid from one
+  // bucket to the other would otherwise look like nothing happened.
+  const byScript = readableTables().filter(builtByAScript);
+  for (const name of coverage.not_built_yet) {
+    assert.ok(byScript.includes(name), `${name} is reported not-built-yet but no script creates it`);
+    assert.ok(!liveTables.has(name), `${name} is reported not-built-yet but it is in the database`);
+  }
 });
 
 test('the full catalog is serialisable and carries no Map or Set', () => {
@@ -126,6 +157,7 @@ test('a table holding credentials declares them, so they can be withheld', () =>
 
 test('every redacted column named by the catalog actually exists on its table', () => {
   for (const name of readableTables()) {
+    if (builtByAScript(name)) continue;   // no table here, so no columns to check
     const entry = catalogEntry(name);
     for (const column of entry.redact) {
       assert.ok(entry.columns.includes(column),
@@ -159,24 +191,28 @@ test('every stat the lexicon names sits in a table Coach is allowed to read', as
 // perfectly legal SELECT against a table that is simply not there and report
 // SQLite's own error as though the question were malformed.
 
-const MIGRATION_DDL = fs.readdirSync('server/migrations')
-  .filter(f => f.endsWith('.js'))
-  .map(f => fs.readFileSync(path.join('server/migrations', f), 'utf8'))
+const DECLARED_DDL = ['server/db/schema', 'server/migrations']
+  .flatMap(dir => fs.readdirSync(dir).filter(f => f.endsWith('.js'))
+    .map(f => fs.readFileSync(path.join(dir, f), 'utf8')))
   .join('\n');
 
-const createdByAMigration = table =>
-  new RegExp(`CREATE\\s+TABLE\\s+(IF\\s+NOT\\s+EXISTS\\s+)?["'\`]?${table}["'\`]?\\b`, 'i')
-    .test(MIGRATION_DDL);
+/** Does the declared schema — the schema files or a migration — create it? */
+const declared = table =>
+  new RegExp(`CREATE\\s+TABLE\\s+(IF\\s+NOT\\s+EXISTS\\s+)?["'\`]?${table}["'\`]?\\s*\\(`, 'i')
+    .test(DECLARED_DDL);
 
-test('a table no migration creates says who creates it, and one a migration creates says nothing', () => {
+/** A table only a script creates is legitimately absent here. Nobody ran the script. */
+const builtByAScript = name => /scripts\//.test(catalogEntry(name).created_at_runtime_by ?? '');
+
+test('a table the declared schema does not create says who does, and one it creates says nothing', () => {
   for (const name of readableTables()) {
     const entry = catalogEntry(name);
-    if (createdByAMigration(name)) {
+    if (declared(name)) {
       assert.equal(entry.created_at_runtime_by, null,
-        `${name} is created by a migration, so it must not claim a runtime creator`);
+        `${name} is created by the declared schema, so it must not claim a runtime creator`);
     } else {
       assert.ok(entry.created_at_runtime_by?.trim(),
-        `${name} is in no migration and does not say what creates it`);
+        `${name} is in neither the schema files nor a migration, and does not say what creates it`);
     }
   }
 });

@@ -39,8 +39,48 @@ import { rows } from '../../db/index.js';
 
 export const COLLECTION_MODES = Object.freeze(['auto', 'by_hand', 'derived', 'seed']);
 
-const t = (grain, means, freshness, collection, redact = []) =>
-  Object.freeze({ grain, means, freshness, collection, redact: Object.freeze(redact) });
+/**
+ * One catalog entry.
+ *
+ * `createdAtRuntimeBy` is the honest half of this record. Eleven tables in
+ * this repository are created by no migration — seven when a service module is
+ * imported, one on its first write, and three only by a script somebody has to
+ * run — so "Coach may read it" and "it is there" are different claims. A table
+ * a migration creates says nothing here; a table that comes from anywhere else
+ * says, in a sentence, what brings it into being. The query layer reads this
+ * to explain an absent table instead of passing SQLite's wording along, and a
+ * test asserts that every file named here exists and holds the CREATE TABLE.
+ */
+const t = (grain, means, freshness, collection, redact = [], createdAtRuntimeBy = null) =>
+  Object.freeze({ grain, means, freshness, collection, redact: Object.freeze(redact),
+    created_at_runtime_by: createdAtRuntimeBy });
+
+/**
+ * Who creates a table that no migration creates. Written once and referenced
+ * by the entries below, because the same file creates several of them and a
+ * copy that drifts is exactly what this field exists to prevent.
+ */
+const IMPORT_MANAGER_SIGNALS =
+  '`server/services/manager-signals.js` creates it when the module is imported, so it exists on '
+  + 'every boot but appears in no migration';
+const IMPORT_MANAGER_ARCHETYPES =
+  '`server/services/manager-archetypes.js` creates it when the module is imported, so it exists on '
+  + 'every boot but appears in no migration';
+const IMPORT_MANAGER_IDENTITY =
+  '`server/services/manager-identity.js` creates it when the module is imported, so it exists on '
+  + 'every boot but appears in no migration';
+const IMPORT_COACH_AUDIT =
+  '`server/services/coach/audit.js` creates it when the module is imported, so it exists on every '
+  + 'boot but appears in no migration';
+const IMPORT_COACH_CONTEXT =
+  '`server/services/coach/people/context.js` creates it when the module is imported, so it exists '
+  + 'on every boot but appears in no migration';
+const SCRIPT_PERSON_PROFILES =
+  '`scripts/build-person-profiles.mjs` creates it, and nothing else does, so it has not been built '
+  + 'on any machine where that script has not been run';
+const SCRIPT_FIT_AVAILABILITY =
+  '`scripts/fit-availability.mjs` creates it from the DDL in `server/services/contingency.js`, and '
+  + 'nothing else does, so it has not been built on any machine where that script has not been run';
 
 /**
  * The fantasy core. Deliberately not "every table": 215 exist, most of them
@@ -187,6 +227,63 @@ export const COACH_TABLES = Object.freeze({
     'how often a player is being added or dropped across the platform, with when it was fetched',
     'trade-lab refresh', 'by_hand'),
 
+  // --- the people on the other side of a trade ---
+  //
+  // None of these four is created by a migration; each is created when its
+  // module is first imported. They are the only place the app holds who a
+  // manager is rather than what a roster is, which is what Nick asked Coach to
+  // be able to answer.
+  manager_signals: t('one manager in one league, one metric',
+    'a measured habit of a manager — how he drafts, how he trades, how he reacts — with the number of observations behind it and where it came from',
+    'recomputed from the chat and draft corpora when the signal job is run by hand', 'by_hand', [],
+    IMPORT_MANAGER_SIGNALS),
+  manager_player_view: t('one manager and one player he has talked about',
+    'how warmly a manager speaks about a particular player, on a 0 to 4 scale where 2 is neutral, with how many mentions it rests on and when he last mentioned him',
+    'recomputed with manager_signals, by hand', 'by_hand', [],
+    IMPORT_MANAGER_SIGNALS),
+  manager_archetypes: t('one manager in one league and season, one metric',
+    'the archetype numbers behind "what kind of manager is he": league 0 and season 0 are the career roll-up across everything, and every row carries the observations behind it rather than implying them',
+    'recomputed by the archetype job, run by hand', 'by_hand', [],
+    IMPORT_MANAGER_ARCHETYPES),
+  manager_archetype_jev: t('one manager and one question he was scored on',
+    'a probability for how a manager answers a question, with a basis column that is the honest half of it: "draft" means the state read contains evidence bearing on the question, "inference_only" means it does not and the number is a prior dressed as a probability',
+    'written by the archetype evaluation, run by hand', 'by_hand', [],
+    IMPORT_MANAGER_ARCHETYPES),
+  league_member_identity: t('one team in one league',
+    'the join between an ESPN member and the person who sends the messages: ESPN name, team name, chat name, how the match was made and how confident it is, from confirmed down to unmatched',
+    'written when a league is synced and when Nick confirms a match by hand', 'by_hand', [],
+    IMPORT_MANAGER_IDENTITY),
+
+  // --- what Coach itself has said, and what it knows about a person ---
+  coach_answers: t('one question Coach was asked',
+    'the audit of Coach\'s own answers: whether the grounding check passed, whether a retry saved it, how many numbers were checked, what it cost and which route asked. This is what turns "Coach does not hallucinate" into a rate somebody can read',
+    'written on every answer', 'auto',
+    ['answer_json', 'ledger_json', 'plan_json'],
+    IMPORT_COACH_AUDIT),
+  coach_person_context: t('one stated fact about one person',
+    'the facts that change what somebody\'s words mean — Nick\'s "when Josh says we, that is the flag football team" is a row here — each with its author, when it was stated and when it stopped being believed',
+    'written when a rule is added; retiring one keeps the row', 'by_hand', [],
+    IMPORT_COACH_CONTEXT),
+  coach_person_variables: t('one person and one measured variable',
+    'the counted half of a person profile: forty variables per person with the sample size behind each, and a priceable flag that is 0 until the grading harness has shown the variable measures the person rather than the fortnight',
+    'built by hand from the chat corpus, which lives only on Nick\'s machine', 'derived', [],
+    SCRIPT_PERSON_PROFILES),
+
+  // --- whether somebody actually plays ---
+  nfl_availability_rates: t('one combination of injury report and practice status',
+    'the fitted probability that a player who is listed this way actually plays, with the observations behind it and whether it was shrunk toward the league rate',
+    'refitted by hand when the availability fit is run', 'derived', [],
+    SCRIPT_FIT_AVAILABILITY),
+  nfl_availability_role_rates: t('one combination of report, practice, position, role tier and rest gap',
+    'the same probability cut finer, by position and by how central the player is to the offence, shrunk toward the pooled cell above it',
+    'refitted with nfl_availability_rates, by hand', 'derived', [],
+    SCRIPT_FIT_AVAILABILITY),
+
+  // --- what the app has already told Nick to do ---
+  decision_recommendations: t('one recommendation the app has made',
+    'the Decision Inbox: what an engine told Nick to do, how urgent it was, what it expected to be worth, whether he actioned, dismissed or ignored it, and how it turned out. The one table that answers "what has the app told me and did I act on it"',
+    'written by the engines that publish into the inbox; expired by the inbox itself', 'auto'),
+
   // --- how fresh any of this is ---
   sync_log: t('one background job',
     'when each job last ran, whether it succeeded, its last detail line and how many times it has failed in a row. The table that lets an answer state its own data age',
@@ -215,7 +312,8 @@ export function readableTables() {
 export function catalogEntry(table) {
   const meta = Object.hasOwn(COACH_TABLES, table) ? COACH_TABLES[table] : null;
   if (!meta) return null;
-  return { table, ...meta, redact: [...meta.redact], columns: liveColumns(table) };
+  return { table, ...meta, redact: [...meta.redact], columns: liveColumns(table),
+    created_at_runtime_by: meta.created_at_runtime_by ?? null };
 }
 
 /** The whole catalog, keyed by table, ready to hand to a model or a UI. */
@@ -233,10 +331,19 @@ export function catalogCoverage() {
   const present = rows(`SELECT name FROM sqlite_master WHERE type='table'
                         AND name NOT LIKE 'sqlite_%' ORDER BY name`).map(r => r.name);
   const readable = new Set(readableTables());
+  const absent = readableTables().filter(name => !exists(name));
+  // Two different things, and collapsing them would hide both. A table that is
+  // absent and says a script builds it is a machine that has not run the
+  // script; a table that is absent and says nothing is a catalog that is
+  // wrong. Only the second is a defect, and only the first can be fixed by
+  // running something.
+  const notBuiltYet = absent.filter(name => /scripts\//.test(COACH_TABLES[name].created_at_runtime_by ?? ''));
+  const notBuilt = new Set(notBuiltYet);
   return {
     catalogued: readable.size,
     in_database: present.length,
     uncatalogued: present.filter(name => !readable.has(name)),
-    missing_from_database: readableTables().filter(name => !exists(name))
+    not_built_yet: notBuiltYet,
+    missing_from_database: absent.filter(name => !notBuilt.has(name))
   };
 }

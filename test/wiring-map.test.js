@@ -1436,3 +1436,86 @@ test('the derived field agrees with every table that was catalogued by hand', as
   const unplaced = map.tables.filter(t => !t.created_by).map(t => t.table);
   assert.deepEqual(unplaced, [], 'every table in the census must say how it comes to exist');
 });
+
+
+/*
+ * A BRANCH THAT CANNOT MATCH IS NOT A BRANCH.
+ *
+ * handleFor asks three questions in order: did this SQL go to `x.prepare(`, to a
+ * bare `name(`, or to nothing it recognises. The second question was asked with
+ * `before.match(/<BS>([A-Za-z_$][\w$]*)\s*\(\s*$/)` — a literal BACKSPACE byte
+ * (0x08) where `\b` was written. No source file contains that byte, so the match
+ * was always null and both bare-call branches were dead from the day they were
+ * committed. `grep -P '\x08'` over the tree finds exactly one occurrence and it is
+ * that regex.
+ *
+ * Nothing went red, because the branch below it returns 'app' too and almost every
+ * file is an app file. It surfaced on league_transactions_raw, whose create in
+ * test/refresh-loop-steps.test.js:169 — a plain run(`CREATE TABLE ...`) on the app
+ * handle — was reported as running on a `chat` handle declared twenty-three lines
+ * BELOW it. Two faults compounded: the dead branch, and foreignOnlyFile reading
+ * only STATIC imports, so a file whose app handle arrives through
+ * `await import('../server/db/index.js')` was judged to hold no app handle at all
+ * and had its queries handed to the first foreign name in the file.
+ *
+ * The ordering matters as much as the byte. `rows` is an app helper AND the name
+ * league-history.js gives its own foreign wrapper, so the foreign-only question
+ * has to be asked first — the test above ("a file with its own handle and no
+ * app-db import is foreign throughout") is what fails if someone restores the byte
+ * without moving it.
+ */
+test('the app handle is recognised when it arrives through a dynamic import', () => {
+  const f = fileOf(`import { DatabaseSync } from 'node:sqlite';
+    const { rows, run } = await import('../server/db/index.js');
+    const chat = new DatabaseSync(chatFile);
+    run(\`CREATE TABLE IF NOT EXISTS league_transactions_raw (league_id INTEGER)\`);
+    chat.exec(\`CREATE TABLE messages (msg_id INTEGER)\`);`);
+  const foreign = foreignHandles(f);
+  assert.ok(foreign.has('chat'), 'the second handle is still a second handle');
+  assert.equal(foreignOnlyFile(f, foreign), false,
+    'a file that imports the app db dynamically holds the app handle');
+  f.foreignOnlyFile = foreignOnlyFile(f, foreign);
+
+  const atApp = f.text.indexOf('CREATE TABLE IF NOT EXISTS league_transactions_raw');
+  assert.equal(handleFor(f, atApp - 1, foreign).handle, 'app',
+    'run() is the app helper, whatever else the file opens');
+
+  const atChat = f.text.indexOf('CREATE TABLE messages');
+  assert.equal(handleFor(f, atChat - 1, foreign).handle, 'chat',
+    'and the query that really is on the second handle still says so');
+});
+
+test('a bare call on a foreign handle is attributed to that handle, not the app', () => {
+  // openChatDb returns something queried by calling it, so the SQL reaches a bare
+  // name that is a KNOWN foreign handle. This is the only branch of handleFor whose
+  // answer differs from the default, and with the backspace in place it could never
+  // be taken: the file imports the app db, so the fallthrough said 'app'.
+  const f = fileOf(`import { rows } from '../db/index.js';
+    const chatQuery = openChatDb(CHAT_PATH);
+    const a = chatQuery(\`SELECT msg_id FROM messages\`);`);
+  const foreign = foreignHandles(f);
+  assert.ok(foreign.has('chatQuery'));
+  f.foreignOnlyFile = foreignOnlyFile(f, foreign);
+  assert.equal(f.foreignOnlyFile, false);
+  const at = f.text.indexOf('SELECT msg_id FROM messages');
+  assert.equal(handleFor(f, at - 1, foreign).handle, 'chatQuery',
+    'a query handed to a second database is not the app database');
+});
+
+test('the checker source holds no control characters', async () => {
+  // The fault above renders as nothing in most editors and as an invisible gap in a
+  // terminal, which is why it survived every reading of that function. A byte-level
+  // check is the only kind that catches it. Tab, newline and carriage return are the
+  // three that legitimately appear in source.
+  for (const name of ['wiring-map.mjs', 'route-verdict-list.mjs', 'route-deletion-impact.mjs']) {
+    const src = await readFile(new URL(`../scripts/${name}`, import.meta.url), 'utf8');
+    const bad = [];
+    for (let i = 0; i < src.length; i++) {
+      const c = src.charCodeAt(i);
+      if (c < 0x20 && c !== 9 && c !== 10 && c !== 13) {
+        bad.push(`${name}:${src.slice(0, i).split('\n').length} 0x${c.toString(16).padStart(2, '0')}`);
+      }
+    }
+    assert.deepEqual(bad, [], 'a control character in source is a corrupted escape, not a character');
+  }
+});

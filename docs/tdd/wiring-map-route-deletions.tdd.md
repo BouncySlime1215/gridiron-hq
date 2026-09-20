@@ -309,7 +309,7 @@ plenty of live routes, so the module is reachable and always will be. Inside it,
 function goes dark — and no module-level rule can see that, because the file stays
 reachable either way. So this walks functions.
 
-**40 dying routes → 18 symbols fall, 22 were already unreached.** The two lists are
+**40 dying routes → 18 symbols fall, 21 were already unreached.** The two lists are
 separate on purpose: telling somebody a route deletion killed a function that had no
 caller before it would be a false accusation against the deletion.
 

@@ -154,7 +154,17 @@ function walk(dir, out = []) {
 // subquery noise out of the map.
 // ---------------------------------------------------------------------------
 
-const RE_CREATE = /\bCREATE\s+(?:TEMP\s+|TEMPORARY\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`[]?([A-Za-z_][\w]*)/gi;
+/*
+ * A CREATE must be FOLLOWED BY A BODY — `(` for a column list, or `AS` for a
+ * CREATE TABLE ... AS SELECT. Without that tail, this matched the title string of
+ * `test/wiring-map.test.js:345`, which reads "tableColumns reads CREATE TABLE and
+ * ALTER TABLE ADD COLUMN", and the census gained two tables called `and` and `ADD`.
+ *
+ * Two of 308 is not much, and that is the point: it is prose read as code, the same
+ * mistake as counting a docs line as a caller, arriving in the one place where a count
+ * is supposed to be authoritative. A sentence about SQL is not SQL.
+ */
+const RE_CREATE = /\bCREATE\s+(?:TEMP\s+|TEMPORARY\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`[]?([A-Za-z_][\w]*)["'`\]]?\s*(?=\(|AS\b)/gi;
 const RE_INSERT = /\bINSERT\s+(?:OR\s+(?:REPLACE|IGNORE|ABORT|FAIL|ROLLBACK)\s+)?INTO\s+["'`[]?([A-Za-z_][\w]*)/gi;
 const RE_REPLACE = /\bREPLACE\s+INTO\s+["'`[]?([A-Za-z_][\w]*)/gi;
 const RE_UPDATE = /\bUPDATE\s+(?:OR\s+(?:REPLACE|IGNORE|ABORT|FAIL|ROLLBACK)\s+)?["'`[]?([A-Za-z_][\w]*)/gi;
@@ -164,10 +174,29 @@ const RE_DROP = /\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?["'`[]?([A-Za-z_][\w]*)/gi;
 const RE_FROM = /\bFROM\s+["'`[]?([A-Za-z_][\w]*)/gi;
 const RE_JOIN = /\bJOIN\s+["'`[]?([A-Za-z_][\w]*)/gi;
 
+/*
+ * A SQL KEYWORD IS NOT A TABLE NAME. `ALTER TABLE ADD COLUMN`, written in the title of
+ * `test/wiring-map.test.js:345` as a description of what that test reads, matched
+ * RE_ALTER and put a table called `ADD` in the census. Its sibling `CREATE TABLE and
+ * ALTER TABLE` produced one called `and`.
+ *
+ * Two rows out of 308, in the one artefact whose whole job is to be an authoritative
+ * count. It is the same mistake as reading a docs line as a caller: prose that talks
+ * about SQL is not SQL. A real table may not be named with a reserved word without
+ * quoting, so nothing correct is lost by refusing these outright.
+ */
+const SQL_KEYWORD = new Set(['add', 'column', 'table', 'select', 'from', 'where', 'into',
+  'values', 'set', 'and', 'or', 'not', 'null', 'if', 'exists', 'temp', 'temporary',
+  'index', 'unique', 'primary', 'key', 'foreign', 'references', 'on', 'as', 'rename',
+  'to', 'drop', 'constraint', 'check', 'default', 'order', 'group', 'by', 'join']);
+
 function collect(re, text, sink, line) {
   re.lastIndex = 0;
   let m;
-  while ((m = re.exec(text))) sink.push({ table: m[1], line });
+  while ((m = re.exec(text))) {
+    if (SQL_KEYWORD.has(m[1].toLowerCase())) continue;
+    sink.push({ table: m[1], line });
+  }
 }
 
 /** Does this string look like SQL at all? Cheap gate, keeps prose out. */

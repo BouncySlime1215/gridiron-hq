@@ -1039,3 +1039,34 @@ test('same-name-two-modules only fires on a name in exactly two modules, never o
   assert.match(rule, /linked\(a\.file, b\.file\)/,
     'if one module imports the other the name is one symbol, not two');
 });
+
+/*
+ * PROSE ABOUT SQL IS NOT SQL, and the census is where that matters most.
+ *
+ * The title of the test two above this one reads "tableColumns reads CREATE TABLE and
+ * ALTER TABLE ADD COLUMN". It is a sentence describing a test. The scan read it as two
+ * statements and the table census gained `and` and `ADD` — two rows out of 308, in the
+ * one artefact whose entire job is to be an authoritative count of what tables exist.
+ *
+ * Two guards, because one does not cover the other: a CREATE must be followed by a
+ * body (`(` or `AS`), and no match may be a reserved word. A real table cannot be
+ * named with a reserved word without quoting it, so refusing these loses nothing.
+ */
+test('a sentence naming SQL statements does not create tables', () => {
+  const prose = [
+    { text: 'tableColumns reads CREATE TABLE and ALTER TABLE ADD COLUMN', line: 1 },
+    { text: 'we should CREATE TABLE somewhere for this', line: 2 },
+  ];
+  const { creates } = sqlEdges(prose);
+  assert.deepEqual(creates.map(c => c.table), [],
+    'a description of SQL must not put tables in the census');
+
+  // And the real statements still land, both forms, including CREATE TABLE ... AS.
+  const real = [
+    { text: 'CREATE TABLE IF NOT EXISTS manager_signals (league_id INTEGER)', line: 3 },
+    { text: 'ALTER TABLE players ADD COLUMN gsis_id TEXT', line: 4 },
+    { text: 'CREATE TABLE weekly_rollup AS SELECT * FROM player_week_usage', line: 5 },
+  ];
+  assert.deepEqual(sqlEdges(real).creates.map(c => c.table).sort(),
+    ['manager_signals', 'players', 'weekly_rollup']);
+});

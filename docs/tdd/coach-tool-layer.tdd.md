@@ -102,7 +102,10 @@ Every row was re-measured at head `fdfebf5`, and every row is reproducible:
     python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/tools.json
 
 The harness hashes the file, applies one literal substitution, runs the named suites,
-restores the file and proves the restore by hashing it again. The
+restores the file and proves the restore by hashing it again. **The literal text of every
+row's injection is quoted in `docs/tdd/sweeps/EDITS.md`**, generated from those same spec
+files with a staleness gate in the suite, so the quotation cannot describe an injection
+nobody ran. The
 SHA-256 pair is the point of the row: a diffstat says something changed, a hash pair says
 exactly which bytes the suite was run against, so the row can be reproduced without
 guessing at the injection. A row whose anchor is not in the source is reported NOT

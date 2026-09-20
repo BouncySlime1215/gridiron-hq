@@ -20,15 +20,17 @@ The catalog described 41 tables and implied a single fact about all of them — 
 are there. They are not all there, and the ways they fail to be there differ. Nineteen
 tables of the app database are created by neither `server/db/schema/` nor a migration:
 
-- **Three are created by the database layer itself**, at boot: `schema_migrations` and
-  `db_health_checks` (`server/db/index.js`) and `schema_preflight`
-  (`server/db/preflight.js`). Infrastructure, not data; not catalogued.
+- **Three belong to the database layer itself**: `schema_migrations` and
+  `db_health_checks` at import (`server/db/index.js:44,194`) and `schema_preflight` on
+  first write (`preflight.js:207`). Infrastructure, not data; not catalogued. The kinds
+  used here — import, first write, script — are the wiring map's vocabulary, because the
+  one derived list of non-migration tables is theirs.
 - **Seven are created when a service module is imported.** `manager_signals` and
   `manager_player_view` (`manager-signals.js:42,51`), `manager_archetypes` and
   `manager_archetype_jev` (`manager-archetypes.js:74,86`), `league_member_identity`
   (`manager-identity.js:17`), `coach_answers` (`coach/audit.js:14`) and
-  `coach_person_context` (`coach/people/context.js:32`). They exist on every boot and
-  in no migration. `manager-archetypes.js:71-73` says so in a source comment, which is
+  `coach_person_context` (`coach/people/context.js:32`). They are created at import, so they exist
+  wherever the server has run and in no migration. `manager-archetypes.js:71-73` says so in a source comment, which is
   the only place it was written down.
 - **One is created on its first write.** `nfl_ensemble_rank_reports`, inside
   `saveRankReport()` at `nfl-ensemble-rank.js:630`. It is a betting-side diagnostic
@@ -44,11 +46,17 @@ tables of the app database are created by neither `server/db/schema/` nor a migr
   the tables that make a fresh clone behave differently from Nick's Mac.
 
 **`league_transactions_raw` is the one that matters most**, and it sharpens Finding 7
-rather than repeating it. Finding 7 established that every manager read, archetype and
-counterparty price stands on rows a person refreshes by hand. This is worse by one step:
-the table is not merely refreshed by hand, it is *created* by hand, so on a fresh clone
-it does not exist at all — and until this slice the catalog did not carry it, so Coach
-could not even say that the record of what a manager has actually done was missing.
+rather than repeating it. `scripts/collect-league-transactions.mjs:21` is the only
+`CREATE TABLE` for it outside `test/` — five test fixtures carry their own, which
+Scheduler measured — and the load-bearing half is that nothing in `server/migrations`
+across all 63, and nothing in `server/db`, creates it on main. So the table is not merely
+refreshed by hand, it is *created* by hand, and on a fresh clone it does not exist at
+all; until this slice the catalog did not carry it, so Coach could not even say that the
+record of what a manager has actually done was missing. Scheduler's held migration 066
+creates it with DDL that matches the script's by PRAGMA comparison, so this is true of
+main and false once 066 merges. Their sentence, which is the one to use: "stands on a
+table that, on main, only a script creates and a person refreshes, so a fresh clone does
+not have it; migration 066 fixes that." 
 
 **Five names outside the declared schema are in a different database and are correctly
 absent from all of this**: `negotiation_profiles`, `jev_chat_signals` and `messages`
@@ -145,7 +153,10 @@ Every row was re-measured at this head, and every row is reproducible:
     python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/creators.json
 
 The harness hashes the file, applies one literal substitution, runs the named suites,
-restores the file and proves the restore by hashing it again. The SHA-256 pair is the
+restores the file and proves the restore by hashing it again. **The literal text of every
+row's injection is quoted in `docs/tdd/sweeps/EDITS.md`**, generated from those same spec
+files with a staleness gate in the suite, so the quotation cannot describe an injection
+nobody ran. The SHA-256 pair is the
 point of the row: a diffstat says something changed, a hash pair says exactly which bytes
 the suite was run against. A row whose anchor is not in the source is reported NOT
 APPLIED rather than scoring zero failures — which happened to both controls on the first
@@ -196,8 +207,14 @@ controls that move the hash and kill nothing.
 keeping.** It said eleven tables sit outside the declared schema, from a scan of
 `server/services` and `server/routes`. A repo-wide scan — every `.js` and `.mjs` under
 `server`, `scripts` and `client`, minus the schema files and migrations — returns
-twenty-nine names, of which nineteen are app-database tables, five belong to two other
-SQLite files, two are template strings and three are the database layer's own. The
+twenty-nine names. Nineteen are app-database tables — and the database layer's three are
+inside that nineteen, not beside it: 3 + 7 + 1 + 8 = 19. Of the remaining ten, five
+belong to two other SQLite files, three are branch-local or test-only, and two are not
+tables at all but prose inside comments (`nfl-news-signal.js:285`,
+`data-lineage-inventory.mjs:110`) that the scan's regex read as DDL — a defect of my
+scan, routed to the wiring map to check against theirs. The counts in this file are a
+reading of the tree on this head, not the project's list: the one derived list of
+non-migration tables is the wiring map's, and where it differs this file follows it. The
 eleven were the ones I had looked for rather than the ones that are there, and the whole
 `league_transactions_raw` finding above was inside the gap. The number in this file and
 in the source comment is now the scan's, and the scan is a one-liner anyone can re-run.
@@ -226,10 +243,12 @@ It does not catalogue `nfl_ensemble_rank_reports`, the two rebuild ledgers or th
 tables the database layer creates for itself. The first is a betting-side diagnostic that
 nothing reads to make a forecast, the rebuild ledgers are bookkeeping for a one-off
 backfill, and the database-layer three are infrastructure; the catalog's stated exclusion
-covers all six. They are listed in section 1 so the nineteen is not silently thirteen.
+covers all six. They are listed in section 1 so the count is not silently smaller than
+the tree.
 
-It does not make the import-created tables appear in a database nobody has booted. The
-catalog test imports the five service modules, which is what the server does at boot; a
+It does not make the import-created tables appear in a database no server has opened. The
+catalog test imports the five service modules, which is what the server does when it
+starts; a
 tool that reads the schema of a cold file will still not see them, and that is a property
 of the app, not of this slice.
 

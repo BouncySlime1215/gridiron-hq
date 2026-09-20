@@ -42,11 +42,12 @@ export const COLLECTION_MODES = Object.freeze(['auto', 'by_hand', 'derived', 'se
 /**
  * One catalog entry.
  *
- * `createdAtRuntimeBy` is the honest half of this record. Nineteen tables of
- * the app database are created by neither `server/db/schema/` nor a migration:
- * three by the database layer itself at boot, seven when a service module is
- * imported, one on its first write, and eight only by a script somebody has to
- * run — so "Coach may read it" and "it is there" are different claims. A table
+ * `createdAtRuntimeBy` is the honest half of this record. A number of tables
+ * are created by neither `server/db/schema/` nor a migration — some at import,
+ * some on first write, some only by a script somebody has to run — so "Coach
+ * may read it" and "it is there" are different claims. How many there are in
+ * total is the wiring map's derived list to state, not this file's; what this
+ * file states is how each of ITS OWN tables comes to exist, checked. A table
  * the declared schema creates says nothing here; a table that comes from
  * anywhere else says, in a sentence, what brings it into being. The query layer
  * reads this to explain an absent table instead of passing SQLite's wording

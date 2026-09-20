@@ -92,6 +92,16 @@ them, so a refusal that broke the working path could not pass.
    league" and cannot hold more than one. Fixing it is a migration on a shared
    schema file and a decision about whether the board wants one market or
    several — routed, not taken.
+
+   **The interim, which IS in this change.** A successful sync records the
+   league it read (`app_settings.espn_player_market_source`), and the freshness
+   label says so: *"ESPN market: as collected for league &lt;id&gt;, &lt;as_of&gt;"*.
+   A reader can no longer take league A's ADP for league B's without the page
+   saying whose it is. Rows written before that record existed are a third
+   state and say *"which league's sync wrote these rows is not recorded"*
+   rather than being labelled with the most recent league, which would be a
+   fabrication — the one thing worse than not knowing. This is a label, not a
+   fix: the overwrite still happens until the table is keyed per league.
 2. **Nothing imports this module on main**, so the board's heaviest weighted
    market input (ESPN 2, FFC 1, Sleeper 1) reads a table with no writer. #50
    is the fix for that half; this change makes sure what it writes is real.

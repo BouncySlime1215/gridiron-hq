@@ -15,6 +15,10 @@ import { BROWSER_HEADERS } from './espn-draft.js';
 
 const BASE = 'https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl';
 
+// Where the last sync records which league it read. A single key, because the
+// table it describes holds a single league's market.
+const MARKET_SOURCE_KEY = 'espn_player_market_source';
+
 /**
  * Thrown when the league this sync was asked for has no stored ESPN cookie
  * pair. Defined here rather than imported: the shared credential resolver
@@ -85,6 +89,19 @@ export async function syncEspnMarket(leagueRowId, { limit = 400 } = {}) {
     }
     db.exec('COMMIT');
   } catch (error) { db.exec('ROLLBACK'); throw error; }
+  // WHOSE market these rows are. The table's primary key is `espn_id` alone
+  // (db/schema/core-and-fantasy.js:596), so it holds exactly one league's
+  // market at a time and a second league's sync overwrites the first — while
+  // this module's docstring promises a per-league read in the league's own
+  // scoring. Keying the table per league is a migration on a shared schema and
+  // a decision about whether the board wants one market or several, so it is
+  // not taken here. Until it is, the rows at least say which sync produced
+  // them, so a reader cannot take league A's numbers for league B's.
+  run(`INSERT INTO app_settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    MARKET_SOURCE_KEY, JSON.stringify({
+      league_row_id: leagueRowId, espn_league_id: lg.league_id, season, fetched_at: now, rows: n
+    }));
   return { synced: n, fetched_at: now };
 }
 
@@ -111,10 +128,21 @@ export function espnMarketByPlayerId() {
  */
 export function espnMarketFreshness() {
   const r = row(`SELECT COUNT(*) AS n, MAX(fetched_at) AS fetched_at FROM espn_player_market`);
-  return {
-    ...r,
-    collected: (r?.n ?? 0) > 0,
-    as_of: r?.fetched_at ?? null,
-    label: (r?.n ?? 0) > 0 ? `ESPN market: as of ${r.fetched_at}` : 'ESPN market: never collected'
-  };
+  const collected = (r?.n ?? 0) > 0;
+  let source = null;
+  try {
+    const raw = row(`SELECT value FROM app_settings WHERE key = ?`, MARKET_SOURCE_KEY)?.value;
+    source = raw ? JSON.parse(raw) : null;
+  } catch { source = null; }   // a malformed record is an unknown source, not an outage
+
+  // Three states, not two. "Never collected" and "collected, stale" lead to
+  // different decisions, and a third — collected by a sync that predates this
+  // record — must not be allowed to read as either of the first two.
+  const label = !collected
+    ? 'ESPN market: never collected'
+    : source?.espn_league_id
+      ? `ESPN market: as collected for league ${source.espn_league_id}, ${r.fetched_at}`
+      : `ESPN market: as of ${r.fetched_at} — which league's sync wrote these rows is not recorded`;
+
+  return { ...r, collected, as_of: r?.fetched_at ?? null, source, label };
 }

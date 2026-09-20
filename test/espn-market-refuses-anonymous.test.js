@@ -130,9 +130,41 @@ test('once a row exists the freshness reads the table, not a job log', async () 
   const fresh = espnMarketFreshness();
   assert.equal(fresh.collected, true);
   assert.ok(fresh.as_of, 'as_of comes from the newest fetched_at actually in the table');
-  assert.match(fresh.label, /^ESPN market: as of /);
+  assert.match(fresh.label, /^ESPN market: as collected for league /);
   // A job that ran and wrote nothing must not be able to make this say
   // "collected" — which is why it is a row count, not a log entry.
   run('DELETE FROM espn_player_market');
   assert.equal(espnMarketFreshness().collected, false);
+});
+
+test('the label names whose market it is, because the table can only hold one', async () => {
+  // espn_player_market's primary key is espn_id alone, so league B's sync
+  // overwrites league A's while the module promises a per-league read. Keying
+  // the table per league is a migration and a product decision, not this
+  // change. The interim is that the rows say which sync wrote them, so nobody
+  // reads league A's ADP as league B's.
+  stubFetch(PUBLIC_PAYLOAD);
+  await syncEspnMarket(league(8108, { cookies: true }));
+  const first = espnMarketFreshness();
+  assert.equal(first.source.espn_league_id, 'espn-8108');
+  assert.match(first.label, /as collected for league espn-8108/);
+
+  await syncEspnMarket(league(8109, { cookies: true }));
+  const second = espnMarketFreshness();
+  assert.equal(second.source.espn_league_id, 'espn-8109',
+    'the second sync overwrote the first, and the label has to admit it');
+  assert.match(second.label, /as collected for league espn-8109/);
+});
+
+test('rows from before this record existed say so rather than guessing', async () => {
+  // A third state. Rows written by an older build have no source record, and
+  // labelling them with the most recent league would be a fabrication — the
+  // one thing worse than not knowing.
+  stubFetch(PUBLIC_PAYLOAD);
+  await syncEspnMarket(league(8110, { cookies: true }));
+  run(`DELETE FROM app_settings WHERE key = 'espn_player_market_source'`);
+  const fresh = espnMarketFreshness();
+  assert.equal(fresh.collected, true);
+  assert.equal(fresh.source, null);
+  assert.match(fresh.label, /is not recorded$/);
 });

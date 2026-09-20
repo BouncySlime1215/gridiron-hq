@@ -946,3 +946,29 @@ carry the record that justified it**, and an absent record is an absence that ha
 to say which absence it is. Chat sync found this because they read Part 7's fix
 and asked what else could make the record missing — which is the useful form of
 review, and better than the line number they quoted.
+
+## Full check on the exact tree
+
+`npm run check` — typecheck, lint, suite, build, `start:smoke` — exit 0 on
+**`7156e8a`** (`claude/project-thread-3xqh5l-accessor-hold`), working tree clean
+and nothing else running against it:
+
+- **3,006 tests, 2,965 pass, 0 fail, 41 skipped**, 357.5 s
+- lint clean across 877 JavaScript files; typecheck clean
+- build 0; startup smoke passed on an isolated database (32 teams)
+
+The file count is stated from the tree, not from the reading:
+`git ls-tree -r 7156e8a -- server scripts test` counts 877 `.js`/`.mjs`, which is
+exactly what `scripts/lint.mjs` walks. It walks the filesystem, so an untracked
+file inflates it — that is how an earlier 877 came to be reported for a commit
+containing 876 (`docs/tdd/valuation-panel.tdd.md`).
+
+`npm ci` has not been run in the container these numbers came from. A fresh clone
+fails the offline-guard tests with `ERR_MODULE_NOT_FOUND` until it is, which looks
+exactly like a regression and is not one. CI is not run: GitHub Actions is out of
+minutes until 2026-10-01 and the workflow is disabled deliberately, so red or
+missing checks are that and not this branch's content.
+
+The nine parts above shipped at earlier heads on this branch; `7156e8a` is the
+head that carries all of them, and this is the check on that head. Each part's
+own mutation baselines are recorded in its section.

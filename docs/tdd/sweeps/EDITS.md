@@ -221,7 +221,7 @@ after:
  * What Coach may read, and what every table means.
 ```
 
-## `ledger.json` — 16 rows, evidence in `docs/tdd/coach-ledger-and-verifier.tdd.md`
+## `ledger.json` — 28 rows, evidence in `docs/tdd/coach-ledger-and-verifier.tdd.md`
 
 ### M14 — cell() slides to the nearest row when the index is out of range
 
@@ -425,6 +425,174 @@ before:
 after:
 ```
   if (false) {
+```
+
+### M98 — every recorded query is called r1, so a cite can point at the wrong one
+
+`server/services/coach/ledger.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+      id: `r${queries.length + 1}`,
+```
+after:
+```
+      id: 'r1',
+```
+
+### M99 — a recorded query keeps its shape but not its rows, so no cell is addressable
+
+`server/services/coach/ledger.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+      rows: result.rows,
+```
+after:
+```
+      rows: [],
+```
+
+### M100 — a derived value records neither its inputs nor its formula, only its answer
+
+`server/services/coach/ledger.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+    const entry = { id: `d${derived.length + 1}`, op, inputs: [...inputs], label: label ?? op, value,
+      formula: formulaFor(op, inputs) };
+```
+after:
+```
+    const entry = { id: `d${derived.length + 1}`, op, inputs: [], label: label ?? op, value,
+      formula: op };
+```
+
+### M101 — the ledger serialises with a Map in it, so what reaches the user is an empty object
+
+`server/services/coach/ledger.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+      queries: queries.map(q => ({ ...q, rows: q.rows.map(row => ({ ...row })) })),
+```
+after:
+```
+      queries: new Map(queries.map(q => [q.id, q])),
+```
+
+### M102 — a number within one of the cited value counts as grounded
+
+`server/services/coach/verify.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+    if (roundTo(candidate, places) === roundTo(target, places)) return true;
+```
+after:
+```
+    if (Math.abs(roundTo(candidate, places) - roundTo(target, places)) <= 1) return true;
+```
+
+### M103 — a cite that resolves to nothing is reported without naming the cite
+
+`server/services/coach/verify.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+        violations.push({ kind: VIOLATIONS.BAD_CITE, claim_index: claimIndex, cite,
+          detail: `${cite} is not in this turn's ledger.` });
+```
+after:
+```
+        violations.push({ kind: VIOLATIONS.BAD_CITE, claim_index: claimIndex,
+          detail: 'a cite did not resolve.' });
+```
+
+### M104 — a derived value cannot be cited, so a number the ledger worked out grounds nothing
+
+`server/services/coach/verify.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+      const cell = book.cell(cite);
+```
+after:
+```
+      const cell = /^d/.test(cite) ? null : book.cell(cite);
+```
+
+### M105 — the sum of a claim's cited cells grounds a number, so arithmetic done in prose passes
+
+`server/services/coach/verify.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+      if (cells.some(cell => grounds(cell.value, token))) continue;
+```
+after:
+```
+      if (cells.some(cell => grounds(cell.value, token))
+        || grounds(cells.reduce((a, c) => a + (Number(c.value) || 0), 0), token)) continue;
+```
+
+### M106 — a thousands separator and a sign are dropped, so 1,349 is read as two numbers
+
+`server/services/coach/verify.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+const NUMBER = /[-+]?\d[\d,]*(?:\.\d+)?/g;
+```
+after:
+```
+const NUMBER = /\d+(?:\.\d+)?/g;
+```
+
+### M107 — a refusal is treated as a claim and required to carry cites
+
+`server/services/coach/verify.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+  const handCollected = book.handCollected(allCites);
+```
+after:
+```
+  for (const refusal of refusals) {
+    violations.push({ kind: VIOLATIONS.UNCITED_CLAIM, text: String(refusal),
+      detail: 'a refusal carries no cite.' });
+  }
+  const handCollected = book.handCollected(allCites);
+```
+
+### M108 — the count of numbers examined stays at zero, so an empty check looks like a thorough one
+
+`server/services/coach/verify.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+      numbersChecked += 1;
+```
+after:
+```
+      numbersChecked += 0;
+```
+
+### M109 — a fraction is grounded by any percentage at all, because the cell looks like a share
+
+`server/services/coach/verify.js`, suites `test/coach-ledger.test.js test/coach-verify.test.js`
+
+before:
+```
+  for (const candidate of [numeric, numeric * 100, numeric / 100]) {
+    if (candidate === target) return true;
+```
+after:
+```
+  if (numeric > 0 && numeric < 1 && target > 1) return true;
+  for (const candidate of [numeric, numeric * 100, numeric / 100]) {
+    if (candidate === target) return true;
 ```
 
 ### NC-ledger — NO-OP CONTROL: reword a sentence of the file header, changing no behaviour

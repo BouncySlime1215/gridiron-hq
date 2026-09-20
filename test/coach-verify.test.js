@@ -108,6 +108,28 @@ test('a percentage that is not the cited value is still caught', () => {
   assert.equal(result.violations[0].number, '41');
 });
 
+test('a number one away from the cited cell is not grounded — close is not cited', () => {
+  // The precision rule says a claim may state a cell to fewer decimals than
+  // the row holds: 0.284 written as 0.28 is the same number, rounded. That is
+  // a rounding allowance, not a tolerance, and the difference matters. If it
+  // ever became a tolerance — "within one at the stated precision" — then 12
+  // targets would pass against a row holding 11, and Coach would ship a wrong
+  // number with a citation attached, which is worse than an uncited one.
+  const ledger = ledgerWithUsage();
+  const wrong = [
+    ['He saw 12 targets.', '12', 'r1#0.targets'],            // 11 stated as 12
+    ['His target share is 0.29.', '0.29', 'r1#0.target_share'], // 0.284 rounds to 0.28
+    ['His target share is 29.4%.', '29.4', 'r1#0.target_share'] // 28.4% stated as 29.4%
+  ];
+  for (const [text, number, cite] of wrong) {
+    const result = verifyAnswer({ ledger, answer: { claims: [{ text, cites: [cite] }] } });
+    assert.equal(result.ok, false, `${text} was accepted`);
+    assert.equal(result.violations.length, 1, `${text} → ${JSON.stringify(result.violations)}`);
+    assert.equal(result.violations[0].kind, VIOLATIONS.UNGROUNDED_NUMBER, text);
+    assert.equal(result.violations[0].number, number, text);
+  }
+});
+
 test('a claim with no cites is a violation even when it contains no number', () => {
   const ledger = ledgerWithUsage();
   const result = verifyAnswer({

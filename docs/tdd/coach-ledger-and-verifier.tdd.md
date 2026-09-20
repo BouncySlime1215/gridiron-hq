@@ -125,18 +125,67 @@ survives.
 | M19 | derive() accepts a cell that is not a number | `ledger.js` | `7ee4081a` → `ce81790e` | 1 | `coach-ledger.test.js` — a derivation over a non-numeric cell fails, rather than producing NaN |
 | M20 | percent_of returns the bare ratio instead of a percentage | `ledger.js` | `7ee4081a` → `fe5c5c37` | 2 | `coach-ledger.test.js` — every whitelisted operation computes what it says |
 | M21 | trace() stops at the derived value and never unrolls its inputs | `ledger.js` | `7ee4081a` → `8981682c` | 1 | `coach-ledger.test.js` — a derived value can be the input to another, and the chain is readable |
-| M22 | handCollected() also lists tables a job refreshes | `ledger.js` | `7ee4081a` → `aa24858f` | 7 | `coach-ledger.test.js` — the ledger reports which cited data is hand-collected, so an answer can show its age |
+| M22 | handCollected() also lists tables a job refreshes | `ledger.js` | `7ee4081a` → `aa24858f` | 8 | `coach-ledger.test.js` — the ledger reports which cited data is hand-collected, so an answer can show its age |
 | M23 | a claim carrying no cite passes verification | `verify.js` | `23844055` → `8204122b` | 1 | `coach-verify.test.js` — a claim with no cites is a violation even when it contains no number |
 | M24 | cells pool across claims, so one claim's cite grounds another's number *(survived the first pass; the test in the last column was written for it)* | `verify.js` | `23844055` → `a07bbcd5` | 1 | `coach-verify.test.js` — a cell cited by another claim does not ground this one |
 | M25 | every number is checked at two decimal places whatever it was stated to | `verify.js` | `23844055` → `e10e170e` | 1 | `coach-verify.test.js` — a share written as a percentage is grounded against the fraction it came from |
 | M26 | hand-collected data no longer has to carry an as-of | `verify.js` | `23844055` → `ad1a7ce5` | 1 | `coach-verify.test.js` — hand-collected data obliges the answer to state its age |
 | M56 | a share written as a percentage is no longer grounded against the fraction | `verify.js` | `23844055` → `22c7fe96` | 1 | `coach-verify.test.js` — a share written as a percentage is grounded against the fraction it came from |
 | M57 | an answer with neither a claim nor a refusal is accepted | `verify.js` | `23844055` → `634c2da5` | 1 | `coach-verify.test.js` — an answer with no claims is a violation, not a pass by vacuum |
+| M98 | every recorded query is called r1, so a cite can point at the wrong one | `ledger.js` | `7ee4081a` → `ea3f918a` | 2 | `coach-ledger.test.js` — ids are handed out in order, so a cite cannot point at the wrong query |
+| M99 | a recorded query keeps its shape but not its rows, so no cell is addressable | `ledger.js` | `7ee4081a` → `0b64968d` | 22 | `coach-ledger.test.js` — a recorded query gets an id, and each of its cells is addressable |
+| M100 | a derived value records neither its inputs nor its formula, only its answer | `ledger.js` | `7ee4081a` → `8337b48a` | 2 | `coach-ledger.test.js` — a derived value records its operation, its inputs and its formula |
+| M101 | the ledger serialises with a Map in it, so what reaches the user is an empty object | `ledger.js` | `7ee4081a` → `5fb5409f` | 1 | `coach-ledger.test.js` — the ledger serialises to JSON with no Map or Set, so it can be shown to the user |
+| M102 | a number within one of the cited value counts as grounded *(survived the first pass at ±1; the test in the last column was written for it)* | `verify.js` | `23844055` → `d72585f0` | 1 | `coach-verify.test.js` — a number one away from the cited cell is not grounded — close is not cited |
+| M103 | a cite that resolves to nothing is reported without naming the cite | `verify.js` | `23844055` → `5bf75a71` | 1 | `coach-verify.test.js` — a cite that resolves to nothing is a violation naming the cite |
+| M104 | a derived value cannot be cited, so a number the ledger worked out grounds nothing | `verify.js` | `23844055` → `ac2b751e` | 1 | `coach-verify.test.js` — a number worked out by the ledger grounds the claim that states it |
+| M105 | the sum of a claim's cited cells grounds a number, so arithmetic done in prose passes | `verify.js` | `23844055` → `0093162d` | 1 | `coach-verify.test.js` — arithmetic the model did in its head is not grounded, however right it is |
+| M106 | a thousands separator and a sign are dropped, so 1,349 is read as two numbers | `verify.js` | `23844055` → `d9730f84` | 1 | `coach-verify.test.js` — a thousands separator, a leading plus and a minus sign are all read as the number |
+| M107 | a refusal is treated as a claim and required to carry cites | `verify.js` | `23844055` → `bedc4a77` | 1 | `coach-verify.test.js` — a refusal is a legitimate answer and needs no cites |
+| M108 | the count of numbers examined stays at zero, so an empty check looks like a thorough one | `verify.js` | `23844055` → `86ee217c` | 2 | `coach-verify.test.js` — the check reports how many numbers it examined, so an empty check is visible — also turns red the count assertion in "a claim whose numbers are all cited cells passes" |
+| M109 | a fraction is grounded by any percentage at all, because the cell looks like a share | `verify.js` | `23844055` → `f72a1e2c` | 2 | `coach-verify.test.js` — a percentage that is not the cited value is still caught |
 | NC-ledger | NO-OP CONTROL: reword a sentence of the file header, changing no behaviour | `ledger.js` | `7ee4081a` → `a318c919` | **0** | none — and that is the assertion |
 
 M56 and M57 carry later numbers because they were added after the numbered pass, when
 writing this table showed that two guards in `verify.js` — the percentage form and the
 empty-answer check — had no injection against them. Both were injected and both died.
+
+M98 to M109 carry later numbers again, and for a sharper reason: the union check below.
+
+**Every test in both suites is turned red by some row.** A sweep that kills every
+injection it happens to have written proves only that those injections were well chosen.
+The question worth answering is the other one — which tests would notice nothing if the
+code beneath them changed. Taking the union of the red titles across all 27 injections
+and subtracting it from the 29 tests these two suites run leaves **nothing**: every test
+in `coach-ledger.test.js` and `coach-verify.test.js` is killed by at least one row. The
+measurement is reproducible:
+
+```
+python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/ledger.json
+python3 docs/tdd/sweeps/mutation-sweep.py --baseline \
+  'test/coach-ledger.test.js test/coach-verify.test.js'
+```
+
+Two rows deserve their bluntness stated. **M99** (a recorded query keeps its shape but
+not its rows) turns 22 of the 29 red, because a ledger with no rows breaks everything
+downstream of it; it is the only row that kills "a recorded query gets an id, and each
+of its cells is addressable", which is the test's own property, but the row is not
+evidence about anything else it happens to take with it. **M22** turns 8 red for the same
+reason in the other direction — a wrong `handCollected()` adds a MISSING_AS_OF violation
+to every answer built on the shared fixture.
+
+**M102, the third survivor.** Loosening the precision comparison from "the same number,
+rounded to the precision stated" to "within one at the precision stated" changed real
+behaviour and no test noticed: nothing in the suite pinned the boundary, so a claim of 12
+targets against a row holding 11 would have shipped with a citation attached — worse than
+an uncited number, because the cite makes it look checked. The suite was missing the
+test, which is CLAUDE.md's rule for a surviving injection; "a number one away from the
+cited cell is not grounded" was written for it, covering the integer, the decimal and the
+percentage form, and M102 now kills. **M109** was written in the same pass, for the
+neighbouring gap: "a percentage that is not the cited value is still caught" was killed
+only by M99 and so was discharged by nothing aimed at it. M109 is the plausible wrong fix
+for a percentage false positive — accept any percentage when the cited cell is a fraction
+— and it dies on that test and on the new one.
 
 **M17, the first survivor.** Removing the divide-by-zero guard changed nothing: a
 `quotient` by zero produced `Infinity`, which the finite check below caught anyway, so
@@ -169,9 +218,11 @@ people's numbers and checks them. The one arithmetic choice with a defensible an
 implementation on 100/3, and the implementation was changed because two rounding steps
 are worse than one.
 
-**How do we know?** 28 tests, and 15 injections each stated above with the file's SHA-256
+**How do we know?** 29 tests, and 27 injections each stated above with the file's SHA-256
 before and after it, all now killed, beside a no-op control that moves the hash and kills
-nothing. Two of them survived first and produced a tightened test and a rewritten one.
+nothing. Three of them survived first and produced a tightened test, a rewritten one and
+a test that did not exist. Every one of the 29 tests is red under at least one injection,
+measured rather than asserted, by the two commands in section 4.
 The claims about the assistant Coach replaces (`nfl-page-explain.js:56,88-133`) and about
 the sibling that got it right (`trades.js:705-887`) are line-cited and were read in this
 container.

@@ -130,6 +130,102 @@
   "desc": "an answer with neither a claim nor a refusal is accepted"
  },
  {
+  "id": "M98",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "      id: `r${queries.length + 1}`,",
+  "new": "      id: 'r1',",
+  "desc": "every recorded query is called r1, so a cite can point at the wrong one"
+ },
+ {
+  "id": "M99",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "      rows: result.rows,",
+  "new": "      rows: [],",
+  "desc": "a recorded query keeps its shape but not its rows, so no cell is addressable"
+ },
+ {
+  "id": "M100",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "    const entry = { id: `d${derived.length + 1}`, op, inputs: [...inputs], label: label ?? op, value,\n      formula: formulaFor(op, inputs) };",
+  "new": "    const entry = { id: `d${derived.length + 1}`, op, inputs: [], label: label ?? op, value,\n      formula: op };",
+  "desc": "a derived value records neither its inputs nor its formula, only its answer"
+ },
+ {
+  "id": "M101",
+  "file": "server/services/coach/ledger.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "      queries: queries.map(q => ({ ...q, rows: q.rows.map(row => ({ ...row })) })),",
+  "new": "      queries: new Map(queries.map(q => [q.id, q])),",
+  "desc": "the ledger serialises with a Map in it, so what reaches the user is an empty object"
+ },
+ {
+  "id": "M102",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "    if (roundTo(candidate, places) === roundTo(target, places)) return true;",
+  "new": "    if (Math.abs(roundTo(candidate, places) - roundTo(target, places)) <= 1) return true;",
+  "desc": "a number within one of the cited value counts as grounded"
+ },
+ {
+  "id": "M103",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "        violations.push({ kind: VIOLATIONS.BAD_CITE, claim_index: claimIndex, cite,\n          detail: `${cite} is not in this turn's ledger.` });",
+  "new": "        violations.push({ kind: VIOLATIONS.BAD_CITE, claim_index: claimIndex,\n          detail: 'a cite did not resolve.' });",
+  "desc": "a cite that resolves to nothing is reported without naming the cite"
+ },
+ {
+  "id": "M104",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "      const cell = book.cell(cite);",
+  "new": "      const cell = /^d/.test(cite) ? null : book.cell(cite);",
+  "desc": "a derived value cannot be cited, so a number the ledger worked out grounds nothing"
+ },
+ {
+  "id": "M105",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "      if (cells.some(cell => grounds(cell.value, token))) continue;",
+  "new": "      if (cells.some(cell => grounds(cell.value, token))\n        || grounds(cells.reduce((a, c) => a + (Number(c.value) || 0), 0), token)) continue;",
+  "desc": "the sum of a claim's cited cells grounds a number, so arithmetic done in prose passes"
+ },
+ {
+  "id": "M106",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "const NUMBER = /[-+]?\\d[\\d,]*(?:\\.\\d+)?/g;",
+  "new": "const NUMBER = /\\d+(?:\\.\\d+)?/g;",
+  "desc": "a thousands separator and a sign are dropped, so 1,349 is read as two numbers"
+ },
+ {
+  "id": "M107",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "  const handCollected = book.handCollected(allCites);",
+  "new": "  for (const refusal of refusals) {\n    violations.push({ kind: VIOLATIONS.UNCITED_CLAIM, text: String(refusal),\n      detail: 'a refusal carries no cite.' });\n  }\n  const handCollected = book.handCollected(allCites);",
+  "desc": "a refusal is treated as a claim and required to carry cites"
+ },
+ {
+  "id": "M108",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "      numbersChecked += 1;",
+  "new": "      numbersChecked += 0;",
+  "desc": "the count of numbers examined stays at zero, so an empty check looks like a thorough one"
+ },
+ {
+  "id": "M109",
+  "file": "server/services/coach/verify.js",
+  "tests": "test/coach-ledger.test.js test/coach-verify.test.js",
+  "old": "  for (const candidate of [numeric, numeric * 100, numeric / 100]) {\n    if (candidate === target) return true;",
+  "new": "  if (numeric > 0 && numeric < 1 && target > 1) return true;\n  for (const candidate of [numeric, numeric * 100, numeric / 100]) {\n    if (candidate === target) return true;",
+  "desc": "a fraction is grounded by any percentage at all, because the cell looks like a share"
+ },
+ {
   "id": "NC-ledger",
   "file": "server/services/coach/ledger.js",
   "tests": "test/coach-ledger.test.js test/coach-verify.test.js",

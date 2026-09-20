@@ -1070,3 +1070,89 @@ test('a sentence naming SQL statements does not create tables', () => {
   assert.deepEqual(sqlEdges(real).creates.map(c => c.table).sort(),
     ['manager_signals', 'players', 'weekly_rollup']);
 });
+
+/*
+ * THE SEARCH FRAGMENT WAS THE ROUTER'S MOUNT PREFIX, AND IT SUPPRESSED THREE ROUTES.
+ *
+ * `routeLiteralAbsent` is a GATE: it runs before a `route-no-caller` finding is
+ * created, so when it is wrong the route does not appear anywhere and nothing says one
+ * was dropped. It searched the client for the longest run of literal segments in the
+ * path, and that run is the router's own mount prefix whenever the prefix is as long as
+ * the tail. A mount prefix appears in the client for every route on that router.
+ *
+ * Two shapes of the same defect, both measured on this tree:
+ *
+ *   TOO BROAD. `GET /api/trades/:leagueId/inbox` has two one-segment runs, `trades` and
+ *   `inbox`. They tie on segment count, the tie-break took the longer NAME, and the
+ *   client writes `/trades` on nearly every line of TradeLab. Suppressed. It has no
+ *   caller at all. `GET /api/tradelab/:leagueId/analysis` went the same way — `tradelab`
+ *   and `analysis` are both eight characters, and the tie went to the prefix.
+ *
+ *   TOO GENERIC. `POST /api/drafts/:id/simulate` was judged on `/simulate`, which the
+ *   client does write — at client/src/pages/MyTeam.tsx:62, dialling
+ *   `/model/${active.id}/simulate`, a different route on a different router. A tail
+ *   segment is not unique either.
+ *
+ * The same heuristic was copied into scripts/route-verdict-list.mjs, where it searched
+ * the row for `GET /api/trades/:leagueId/trends` by `/trades` and reported 26 dials and
+ * 81 mentions. A row reading 26 dials says "obviously keep" to anyone scanning. That
+ * copy was visible and got caught; this one was a silence and did not.
+ *
+ * So there is one implementation now, exported and shared, and the pattern is the whole
+ * path with each `:param` written as `[^/]+` — one segment of anything, which matches
+ * an interpolation and cannot cross a separator.
+ */
+test('a route is searched by its whole path, not by the longest literal run of it', async () => {
+  const { routeLiteralAbsent, routePattern } = await import('../scripts/wiring-map.mjs');
+
+  // The client says /trades everywhere, and dials two real routes on that router.
+  const tradesClient = [
+    'const a = useApi(`/trades/${leagueId}/brain/state`);',
+    'const b = useApi(`/trades/${leagueId}/offer?team_id=${teamId}`);',
+    'const c = api(`/trades/${leagueId}/player/${picked.id}`);',
+  ].join('\n');
+
+  assert.equal(routeLiteralAbsent('/api/trades/:leagueId/inbox', tradesClient), true,
+    'TOO BROAD: /trades is the mount prefix; it must not answer for /inbox');
+  assert.equal(routeLiteralAbsent('/api/tradelab/:leagueId/analysis', tradesClient), true,
+    'TOO BROAD: /tradelab ties with /analysis on length and must not win the tie');
+
+  // The routes that client really does dial stay suppressed, which is this gate's job.
+  assert.equal(routeLiteralAbsent('/api/trades/:leagueId/brain/state', tradesClient), false,
+    'an honest caller must still suppress its own route');
+  assert.equal(routeLiteralAbsent('/api/trades/:leagueId/offer', tradesClient), false);
+
+  // A tail segment is not unique either: a different router owns this /simulate.
+  const modelClient = 'const simUrl = `/model/${active.id}/simulate?runs=1500`;';
+  assert.equal(routeLiteralAbsent('/api/drafts/:id/simulate', modelClient), true,
+    "TOO GENERIC: another router's /simulate must not answer for this one");
+  assert.equal(routeLiteralAbsent('/api/model/:id/simulate', modelClient), false,
+    'the route that call really dials is still suppressed');
+
+  // Anchoring survives: a longer word starting with the last segment is not a match.
+  assert.equal(routeLiteralAbsent('/api/trades/:leagueId/trends', 'x = `/trades/${id}/trending`'), true,
+    '/trends must not match /trending');
+
+  // A path with nothing literal in it has nothing to search for, and is not a finding.
+  assert.equal(routeLiteralAbsent('/api/:id', 'anything at all'), false);
+
+  // The pattern itself, so a reader can see what is searched without running it.
+  assert.equal(routePattern('/api/trades/:leagueId/inbox'), 'trades/[^/]+/inbox');
+  assert.equal(routePattern('/api/drafts/:id/simulate'), 'drafts/[^/]+/simulate');
+  assert.equal(routePattern('/api/trades/dvp'), 'trades/dvp');
+  assert.equal(routePattern('/api/:id'), null, 'nothing literal means no pattern');
+});
+
+/*
+ * ONE IMPLEMENTATION, NOT TWO. The defect above existed in two files because the
+ * heuristic was written twice. Fixing one copy and leaving the other is how the report
+ * and the gate came to disagree in the first place, so this pins that the report reads
+ * the checker's own function rather than carrying its own.
+ */
+test('the verdict list searches by the checker\'s pattern, not a copy of it', async () => {
+  const src = await readFile(new URL('../scripts/route-verdict-list.mjs', import.meta.url), 'utf8');
+  assert.match(src, /import\s*\{[^}]*\broutePattern\b[^}]*\}\s*from\s*'\.\/wiring-map\.mjs'/,
+    'the verdict list must import routePattern from the checker');
+  assert.doesNotMatch(src, /runs\.sort|\bruns\.push\b/,
+    'a second copy of the longest-run heuristic is what this test exists to prevent');
+});

@@ -76,10 +76,38 @@ function addedFields(base) {
       const m = text.match(/^\s*([a-z_][\w]*)\s*:\s*\S/);
       // A bare `{` or a spread carries no key; a line ending in `{` opens a nested
       // object whose deletion would be a syntax error, not a measurement.
-      if (m && !/[{[]\s*$/.test(text)) found.push({ file, line: n, key: m[1], text });
+      if (!m || /[{[]\s*$/.test(text)) continue;
+      // Not everything shaped like a served field is one. #61 added `error:` and
+      // `reason:` inside a JSON.stringify() for a sync_log detail column, and both
+      // words appear in the client for unrelated reasons, so both were reported as
+      // unpinned served fields. They are not served at all.
+      if (insideStringify(src, n)) continue;
+      found.push({ file, line: n, key: m[1], text });
     }
   }
   return found;
+}
+
+/**
+ * Is this line's enclosing object literal an argument to JSON.stringify()?
+ *
+ * A column's JSON detail blob is shaped exactly like a response literal and is not one.
+ * Walks back with brace depth to the opening `{` this line sits in, then looks at what
+ * precedes it.
+ */
+function insideStringify(lines, lineNo) {
+  let depth = 0;
+  for (let i = lineNo - 1; i >= 0 && lineNo - i < 60; i--) {
+    const text = lines[i] ?? '';
+    for (let k = text.length - 1; k >= 0; k--) {
+      if (text[k] === '}') depth++;
+      else if (text[k] === '{') {
+        if (depth > 0) { depth--; continue; }
+        return /JSON\.stringify\s*\(\s*$/.test(text.slice(0, k));
+      }
+    }
+  }
+  return false;
 }
 
 /** Test files that name the changed module, so a run is seconds rather than minutes. */

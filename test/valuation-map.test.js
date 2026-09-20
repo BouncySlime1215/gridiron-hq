@@ -526,6 +526,33 @@ test('a declared untouchable whose word has held costs more, and a bluffer\'s do
   assert.ok(!factorNames(byName(map.managers.get('2'), 'Bench Guy')).includes('untouchable_credibility'));
 });
 
+test('G10: with the corpus off the machine, a refusal is not priced as a refusal that held', () => {
+  // THE DEPLOYED APP IS THIS CASE. `manager_player_view` lives in the app
+  // database and survives; the declaration RECORD that says whether his refusals
+  // hold lives in the Mac-only chat corpus and does not. So `declarationCredibility()`
+  // comes back `available: false`, `untouchableStance` finds no entry for him, and
+  // falls back to the prior 1 - PRIOR_BLUFF_RATE = 0.65 — which clears the 0.45
+  // bar, lands him in `probe`, and PRICES the player up on a sentence that says
+  // his word has held. Nothing about his word was ever read.
+  const saved = process.env.GRIDIRON_CHAT_DB_PATH;
+  process.env.GRIDIRON_CHAT_DB_PATH = path.join(os.tmpdir(), 'gridiron-vm-no-corpus.sqlite');
+  try {
+    const map = pricing.valuationMap(21, { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS });
+    const star = byName(map.managers.get('2'), 'Quiet Star');
+    const priced = (star?.factors ?? []).find(f => f.source === 'untouchable_credibility');
+    assert.equal(priced, undefined,
+      'an unread declaration record must not price a player as a refusal that held');
+    const inert = (star?.inert ?? []).find(i => i.source === 'untouchable_credibility');
+    assert.ok(inert, 'and it must be reported as not firing, not silently dropped');
+    assert.match(inert.reason, /not on this machine|corpus/i,
+      `the reason must name the absence, got ${JSON.stringify(inert?.reason)}`);
+  } finally { process.env.GRIDIRON_CHAT_DB_PATH = saved; }
+  // And the fixture is restored: with the corpus present it prices again.
+  const back = byName(mapFor(21).managers.get('2'), 'Quiet Star');
+  assert.ok(back.factors.find(f => f.source === 'untouchable_credibility'),
+    'the corpus is back and the measured refusal prices again');
+});
+
 test('the negotiation profile\'s own over/undervalues list reaches the price', () => {
   const map = mapFor(21);
   const hayden = map.managers.get('2');

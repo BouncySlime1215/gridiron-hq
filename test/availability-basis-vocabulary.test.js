@@ -32,7 +32,8 @@ process.env.SCHEDULER_DISABLED = '1';
 const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
-const { weeklyAvailability } = await import('../server/services/contingency.js');
+const { weeklyAvailability, resetAvailabilityCache, AVAILABILITY_RATES_DDL } =
+  await import("../server/services/contingency.js");
 const B = await import('../server/services/availability-basis.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -90,6 +91,31 @@ test('with no fit on file the basis is the prior, and it says which prior', () =
   assert.equal(served.get(202).availability_basis, 'default_durability',
     'no games on file means the standing constant, not a measurement');
 });
+
+test('a fitted pooled rate moves the basis off the prior, for both players', () => {
+  // One league-scope rate for "no report, no practice status" is enough for the
+  // pooled lookup to answer, and it answers for everyone — including the player
+  // whose prior is the substituted constant, whose basis must therefore stop
+  // being about his prior at all.
+  // The fit tables are created by scripts/fit-availability.mjs, not by a
+  // migration, which is why the DDL is exported for this exact purpose.
+  run(AVAILABILITY_RATES_DDL);
+  run(`INSERT INTO nfl_availability_rates
+       (scope, team, report_status, practice_status, p_active, n, raw_rate, shrunk, fitted_at)
+       VALUES ('league','','none','any',0.955,9000,0.955,1,'2026-09-20T00:00:00Z')`);
+  resetAvailabilityCache();
+  const withFit = weeklyAvailability(2026, 2, { through: 2025, useRole: false, espn: false });
+  assert.equal(withFit.get(201).availability_basis, 'pooled');
+  assert.equal(withFit.get(202).availability_basis, 'pooled');
+  // And the flag underneath is unchanged: the rookie's prior is still a default,
+  // it is simply no longer what priced him.
+  assert.equal(withFit.get(202).durability_prior_measured, false);
+});
+
+// NOT COVERED HERE: the 'role' arm. It needs fitted role rates plus snap rows
+// for roleStates to produce a usable cell, which is availability-role.test.js's
+// fixture. That file pins the role path's NUMBERS; this one pins the basis
+// string on the three arms a plain fixture can reach.
 
 test('the basis does not depend on the wording of the source sentence', () => {
   // The two rows differ in basis while sharing a source sentence, which is

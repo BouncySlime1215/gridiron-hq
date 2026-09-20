@@ -151,7 +151,23 @@ export function analyzeLeague(lg) {
     t.needs = []; t.surplus = [];
     for (const pos of SKILL) {
       const p = t.positions[pos];
-      const ratio = p.starter_value / (avg[pos] || 1);
+      // A league-wide zero means the board could not price this position for
+      // anybody, not that everybody is short there. `starter_value / (avg || 1)`
+      // turned that into a ratio of 0 — below WEAK, so the strongest possible
+      // NEED, derived from the complete absence of information. There is no
+      // verdict to give. Same guard and same reasoning as routes/leagues.js:396,
+      // which fixed the identical expression on League Hub and was not carried
+      // here; on this deployment an unpriced position is the normal case.
+      //
+      // The test keys on the AVERAGE, not on this team: a team with nothing
+      // startable at a position the league CAN price is a real hole and must
+      // still be reported as one.
+      if (!avg[pos]) {
+        p.ratio = null;
+        p.status = 'unknown';
+        continue;
+      }
+      const ratio = p.starter_value / avg[pos];
       p.ratio = +ratio.toFixed(2);
       if (ratio < WEAK) {
         p.status = 'need';

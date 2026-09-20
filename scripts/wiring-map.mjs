@@ -889,34 +889,54 @@ function routeAnswersCall(routePath, callPath) {
   return !(routeVarOverCallLiteral && callVarOverRouteLiteral);
 }
 
-function routeLiteralAbsent(routePath, clientText) {
+/*
+ * THE WHOLE PATH IS THE SEARCH, NOT THE LONGEST LITERAL RUN OF IT.
+ *
+ * `routePattern` used to take the longest run of consecutive literal segments. That run
+ * is the ROUTER'S OWN MOUNT PREFIX whenever the prefix is as long as the tail, and a
+ * mount prefix appears in the client for every route on that router. It was wrong in
+ * two directions, both measured on this tree:
+ *
+ *   TOO BROAD. `GET /api/trades/:leagueId/inbox` has the one-segment runs `trades` and
+ *   `inbox`. They tie, the tie-break took the longer name, and TradeLab writes `/trades`
+ *   on nearly every line. `GET /api/tradelab/:leagueId/analysis` the same, both runs
+ *   being eight characters.
+ *
+ *   TOO GENERIC. `POST /api/drafts/:id/simulate` was judged on `/simulate`, which the
+ *   client does write — at client/src/pages/MyTeam.tsx:62, dialling
+ *   `/model/${active.id}/simulate`. A different route, on a different router.
+ *
+ * Three routes were suppressed by this, and a suppression here is invisible: the gate
+ * runs before the finding is created, so nothing reported that a route had been
+ * dropped. The same heuristic, copied into scripts/route-verdict-list.mjs, reported 26
+ * dials for a route with none — that copy was visible and was caught by hand. This one
+ * was a silence. The copy is gone; that script imports this function now.
+ *
+ * The pattern is the path itself with each `:param` written as one segment of anything.
+ * `[^/]+` matches an interpolation and cannot cross a separator, so a sibling route
+ * cannot answer for this one. A client that builds a path in pieces still escapes the
+ * match, and that direction is the safe one: a row somebody reads beats a silence
+ * nobody can see.
+ *
+ * `/api` is stripped because the client's own helpers add it: `useApi` and `api()` are
+ * called with `/trades/…`, not `/api/trades/…`.
+ */
+function routePattern(routePath) {
   const segs = routePath.split('?')[0].split('/').filter(Boolean);
   const body = segs[0] === 'api' ? segs.slice(1) : segs;
   const isParam = (x) => x.startsWith(':') || x.startsWith('*');
-  // Split the path into runs of consecutive literal segments. A parameter breaks a
-  // run because the client writes anything at all in its place.
-  const runs = [];
-  let cur = [];
-  for (const x of body) { if (isParam(x)) { if (cur.length) runs.push(cur); cur = []; } else cur.push(x); }
-  if (cur.length) runs.push(cur);
-  // Nothing literal anywhere (`/api/:id`) leaves nothing to search for, so not a finding.
-  if (!runs.length) return false;
-  // The longest run wins; a tie on segment count goes to the longer fragment, and only
-  // then to the later one. `POST /api/decision-inbox/:id/resolve` has two one-segment
-  // runs, and judging it on `resolve` suppresses it against any other `/resolve` in the
-  // client while its own sibling `GET /api/decision-inbox/summary` stays a finding. The
-  // longer name is the more distinctive one.
+  // Nothing literal anywhere (`/api/:id`) leaves nothing to search for.
+  if (!body.length || body.every(isParam)) return null;
   const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const fragOf = (r) => r.map(esc).join('/');
-  let best = runs[0];
-  for (const r of runs) {
-    if (r.length > best.length) { best = r; continue; }
-    if (r.length === best.length && fragOf(r).length >= fragOf(best).length) best = r;
-  }
-  const frag = fragOf(best);
+  return body.map(x => isParam(x) ? '[^/]+' : esc(x)).join('/');
+}
+
+function routeLiteralAbsent(routePath, clientText) {
+  const pattern = routePattern(routePath);
+  if (!pattern) return false;
   // Anchored to a separator on the left and a segment end on the right, so `/trends`
   // never matches `/trending` and `xtrends` never matches at all.
-  return !new RegExp(`/${frag}(?![\\w-])`).test(clientText);
+  return !new RegExp(`/${pattern}(?![\\w-])`).test(clientText);
 }
 
 // ---------------------------------------------------------------------------
@@ -2872,7 +2892,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { routeAnswersCall, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
+export { routeAnswersCall, routePattern, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

@@ -10,9 +10,9 @@
  *      nothing and no test notices.
  *   2. Someone removes the routes but leaves the import, which keeps the module on the
  *      boot path with nothing using it — the exact shape this sweep exists to remove.
- *   3. Someone deletes the module outright because "it has no routes", which breaks
- *      `waiver-brain.js` and `trade-engine.js`: both import `publishRecommendation`
- *      from it, and that function is the live half of the file.
+ *   3. Someone deletes the module outright because "it has no routes", taking
+ *      `publishRecommendation` with it. That function is the live half of the file and
+ *      the reason the module survives its own routes.
  *
  * The three assertions below are those three failures, in that order.
  */
@@ -35,10 +35,20 @@ test('server/index.js neither imports nor mounts the decision inbox', async () =
   assert.doesNotMatch(index, /decisionInboxRouter/);
 });
 
-test('publishRecommendation survives, because two live services import it', async () => {
-  assert.equal(typeof mod.publishRecommendation, 'function');
-  for (const consumer of ['../server/services/waiver-brain.js', '../server/services/trade-engine.js']) {
-    const text = await readFile(new URL(consumer, import.meta.url), 'utf8');
-    assert.match(text, /publishRecommendation/, `${consumer} should still import it`);
-  }
+/*
+ * This used to also assert that waiver-brain.js and trade-engine.js still contain the
+ * string `publishRecommendation`. That was the wrong thing to pin. Those two publishers
+ * are being removed — with the router retired, the rows they wrote had no reader — and
+ * pinning their survival here would have failed on the commit that removes them and
+ * read as that commit's regression rather than as this test being wrong about its
+ * subject.
+ *
+ * The danger this test names is that someone deletes the module because it has no
+ * routes. The export existing is what guards that, whether or not anything imports it
+ * today, and `export-imported-by-nothing` in the wiring map is what reports it if
+ * nothing ever does again.
+ */
+test('publishRecommendation survives the retirement of its routes', () => {
+  assert.equal(typeof mod.publishRecommendation, 'function',
+    'the module outlives its routes because this function is the live half of it');
 });

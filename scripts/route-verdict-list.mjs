@@ -15,7 +15,8 @@
  * verdict rests on dials. `unclear` is neither; it is a request to read the line.
  */
 import fs from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
+import { routePattern } from './wiring-map.mjs';
 
 const d = JSON.parse(fs.readFileSync('docs/wiring/wiring-map.json', 'utf8'));
 const rows = (d.findings || []).filter(x => x.rule === 'route-no-caller' && x.scope !== 'betting');
@@ -23,15 +24,20 @@ const ctx  = (d.findings || []).filter(x => x.rule === 'route-called-from-outsid
 const head = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
 const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
 
-const frag = (p) => {
-  const segs = p.split('?')[0].split('/').filter(Boolean);
-  const body = segs[0] === 'api' ? segs.slice(1) : segs;
-  const runs = []; let cur = [];
-  for (const x of body) { if (x.startsWith(':') || x.startsWith('*')) { if (cur.length) runs.push(cur); cur = []; } else cur.push(x); }
-  if (cur.length) runs.push(cur);
-  if (!runs.length) return null;
-  return runs.sort((a, b) => b.length - a.length || b.join('/').length - a.join('/').length)[0].join('/');
-};
+/*
+ * The fragment each row is searched by comes from the checker itself, imported rather
+ * than reimplemented. It was reimplemented here, and the copy drifted in the worst
+ * possible way: it took the longest run of literal segments, so the row for
+ * `GET /api/trades/:leagueId/trends` was searched by `/trades` — every route on that
+ * router — and reported 26 dials and 81 mentions for a route with no caller at all. A
+ * row reading 26 dials says "obviously keep" to anyone scanning, and would have stopped
+ * a verdict cold.
+ *
+ * The same copy sat in scripts/wiring-map.mjs as a GATE, where it silently suppressed
+ * three routes. One implementation is the fix for both; two implementations is the
+ * condition that let the report and the gate disagree.
+ */
+const frag = routePattern;
 
 /*
  * A DIAL is the path inside a call that fetches it. A MENTION is the same characters in
@@ -51,11 +57,18 @@ const classify = (file, line, text) => {
 };
 
 const evidence = (file, f) => {
+  // execFileSync, not a shell string: the fragment is a regex now and holds characters
+  // a shell would eat. git grep exits 1 on no matches, which is not an error here.
   let out = [];
   try {
-    out = execSync(`git grep -n -- '/${f}' -- ':!${file}' ':!docs/wiring' ':!*wiring-map*' || true`,
+    out = execFileSync('git', ['grep', '-n', '-E', '--', `/${f}`,
+      '--', `:!${file}`, ':!docs/wiring', ':!*wiring-map*'],
       { encoding: 'utf8', maxBuffer: 1 << 24 }).trim().split('\n').filter(Boolean);
-  } catch { }
+  } catch (e) {
+    if (e.status === 1) out = [];
+    else if (typeof e.stdout === 'string') out = e.stdout.trim().split('\n').filter(Boolean);
+    else throw e;
+  }
   const dials = [], mentions = [], unclear = [];
   for (const l of out) {
     const i = l.indexOf(':'), j = l.indexOf(':', i + 1);

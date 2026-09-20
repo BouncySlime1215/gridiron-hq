@@ -15,23 +15,7 @@ const { runMigrations } = await import('../server/db/migrate.js');
 const applied = await runMigrations();
 const { seedIfEmpty } = await import('../server/db/seed/index.js');
 seedIfEmpty();
-// lineupDiff() decides on THIS week's projection (current_week_ppg), which is 0 for a
-// team with no game on the schedule. Give every seeded team a week-1 game so the
-// fixture's players are actually playing this week (matchupModel() caches the slate
-// per process, so this has to land before the first assetUniverse() call).
-run(`INSERT OR IGNORE INTO schedule_games (season, team_id, week, opponent_abbr, home)
-     SELECT 2026, id, 1, abbr, 1 FROM nfl_teams`);
-
-// Side-effect imports: assetUniverse() (trade-engine.js) reads tables created
-// ad-hoc at import time by these route files, exactly like test/post-draft-plan.test.js.
-await import('../server/routes/stats.js');       // player_season_stats
-await import('../server/routes/aggregates.js');  // player_metrics
-await import('../server/routes/tradelab.js');    // trending_players
-await import('../server/routes/nfldata.js');     // roster_players
-
 const { publishRecommendation, toRecommendation } = await import('../server/routes/decision-inbox.js');
-const { lineupDiff } = await import('../server/services/trade-engine.js');
-const { waiverUpgrades } = await import('../server/services/waiver-brain.js');
 
 /*
  * THIS FILE USED TO DRIVE AN EXPRESS APP. The four routes were deleted on 2026-09-20
@@ -152,184 +136,20 @@ test('publishing expires every lapsed row, including ones it is not about', () =
   assert.deepEqual(openRows().map(r => r.title), ['a later, live one']);
 });
 
-/* ---------------------------------------------- wired-in engine #1: lineup */
-// server/services/trade-engine.js's lineupDiff() — "Start Player A over Player B"
-// is the audit's own lead Decision Inbox example.
-
-function fakeQb(id, espnId, name) { return { lineupSlotId: 0, playerPoolEntry: { player: { id: espnId, fullName: name, defaultPositionId: 1 } } }; }
-function fakeRb(espnId, name, slot) { return { lineupSlotId: slot, playerPoolEntry: { player: { id: espnId, fullName: name, defaultPositionId: 2 } } }; }
-function fakeWr(espnId, name) { return { lineupSlotId: 4, playerPoolEntry: { player: { id: espnId, fullName: name, defaultPositionId: 3 } } }; }
-function fakeTe(espnId, name) { return { lineupSlotId: 6, playerPoolEntry: { player: { id: espnId, fullName: name, defaultPositionId: 4 } } }; }
-
-function insertLeague(leagueId, payload, rosterPositions) {
-  run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id,
-       roster_positions, espn_s2, swid, connection_status)
-       VALUES (?, 'espn', ?, 2026, 'Decision Inbox Test League', ?, 2, '1', ?, 'x', 'y', 'connected')`,
-    leagueId, `decision-inbox-${leagueId}`, JSON.stringify(payload), JSON.stringify(rosterPositions));
-}
-
-test('lineupDiff() publishes a "start X over Y" recommendation when a real gap exists, and does not change its own return value', async () => {
-  await run('DELETE FROM decision_recommendations');
-  await run('DELETE FROM player_season_stats');
-
-  const [strong, weak] = rows(`SELECT id, name FROM players WHERE position = 'RB' AND fantasy_relevant = 1 ORDER BY id LIMIT 2`);
-  const qb = row(`SELECT id, name FROM players WHERE position = 'QB' AND fantasy_relevant = 1 LIMIT 1`);
-  const wr = row(`SELECT id, name FROM players WHERE position = 'WR' AND fantasy_relevant = 1 LIMIT 1`);
-  const te = row(`SELECT id, name FROM players WHERE position = 'TE' AND fantasy_relevant = 1 LIMIT 1`);
-
-  // A real, large, controlled projection gap driven through the actual pipeline
-  // (assetUniverse reads player_season_stats — see server/routes/edge.js's
-  // vorBoard) rather than mocked, so this exercises the real lineupDiff() code.
-  run(`INSERT INTO player_season_stats (player_id, season, kind, fantasy_points, games) VALUES (?,2026,'projected',300,17)`, strong.id);
-  run(`INSERT INTO player_season_stats (player_id, season, kind, fantasy_points, games) VALUES (?,2026,'projected',50,17)`, weak.id);
-  // lineupDiff() matches the ESPN submitted-roster entries by players.espn_id,
-  // separately from loadRosters()'s own name+position fallback matching.
-  for (const [id, espnId] of [[qb.id, 8001], [weak.id, 8002], [wr.id, 8003], [te.id, 8004], [strong.id, 8005]]) {
-    run('UPDATE players SET espn_id = ? WHERE id = ?', espnId, id);
-  }
-
-  insertLeague(201, {
-    teams: [{
-      id: 1, name: 'My Team',
-      roster: { entries: [
-        fakeQb(qb.id, 8001, qb.name),
-        fakeRb(8002, weak.name, 2),   // started at RB — the weaker of the two
-        fakeWr(8003, wr.name),
-        fakeTe(8004, te.name),
-        fakeRb(8005, strong.name, 20) // benched (lineupSlotId 20 = BENCH) despite being much stronger
-      ] }
-    }]
-  }, ['QB', 'RB', 'WR', 'TE']);
-
-  const lg = row('SELECT * FROM leagues WHERE id = 201');
-  const diff = lineupDiff(lg, '1');
-
-  // Existing return contract is untouched — this is the "additive only" check.
-  assert.equal(diff.matches, false);
-  assert.equal(diff.swap_in[0].player.name, strong.name);
-  assert.equal(diff.swap_out[0].name, weak.name);
-  assert.ok(diff.gain > 1, `expected a real gain, got ${diff.gain}`);
-
-  const list = openRows();
-  const reco = list.find(r => r.type === 'lineup' && r.leagueId === 201);
-  assert.ok(reco, 'lineupDiff() must publish a decision_recommendations row for a real swap');
-  assert.equal(reco.title, `Start ${strong.name} over ${weak.name}`);
-  assert.equal(reco.sourceModel, 'lineup-brain');
-  assert.equal(reco.link, '/lineup');
-  assert.deepEqual(reco.subjectIds.sort(), [strong.id, weak.id].sort());
-  assert.equal(reco.urgency, 'high', 'an 11+ point gap is right at least 75% of the time (Phi(gap / 14.5)), so urgency high');
-
-  // Recomputing (e.g. the page reloading) must refresh the same row, not spam a duplicate.
-  lineupDiff(lg, '1');
-  const listAgain = openRows();
-  assert.equal(listAgain.filter(r => r.type === 'lineup' && r.leagueId === 201).length, 1, 're-running lineupDiff() must not duplicate the open recommendation');
-});
-
-test('lineupDiff() does not publish when the submitted lineup already matches optimal', async () => {
-  await run('DELETE FROM decision_recommendations');
-  await run('DELETE FROM player_season_stats');
-
-  const [rb1, rb2] = rows(`SELECT id, name FROM players WHERE position = 'RB' AND fantasy_relevant = 1 ORDER BY id LIMIT 2`);
-  const qb = row(`SELECT id, name FROM players WHERE position = 'QB' AND fantasy_relevant = 1 LIMIT 1`);
-  const wr = row(`SELECT id, name FROM players WHERE position = 'WR' AND fantasy_relevant = 1 LIMIT 1`);
-  const te = row(`SELECT id, name FROM players WHERE position = 'TE' AND fantasy_relevant = 1 LIMIT 1`);
-  for (const [id, espnId] of [[qb.id, 8101], [rb1.id, 8102], [wr.id, 8103], [te.id, 8104]]) {
-    run('UPDATE players SET espn_id = ? WHERE id = ?', espnId, id);
-  }
-  // rb2 stays on the bench and un-projected (adj_ppg 0) so it can never outrank
-  // the starting rb1 — no real gap exists for the optimizer to find.
-  run('UPDATE players SET espn_id = ? WHERE id = ?', 8105, rb2.id);
-
-  insertLeague(202, {
-    teams: [{
-      id: 1, name: 'My Team',
-      roster: { entries: [
-        fakeQb(qb.id, 8101, qb.name),
-        fakeRb(8102, rb1.name, 2),
-        fakeWr(8103, wr.name),
-        fakeTe(8104, te.name),
-        fakeRb(8105, rb2.name, 20)
-      ] }
-    }]
-  }, ['QB', 'RB', 'WR', 'TE']);
-
-  const lg = row('SELECT * FROM leagues WHERE id = 202');
-  lineupDiff(lg, '1');
-  const list = openRows();
-  assert.equal(list.filter(r => r.leagueId === 202).length, 0, 'no swap worth recommending should publish nothing');
-});
-
-/* ---------------------------------------------- wired-in engine #2: waiver */
-// server/services/waiver-brain.js's waiverUpgrades() — "Add a free-agent RB
-// before waivers process" is the audit's own lead waiver example.
-
-test('waiverUpgrades() publishes an "add before waivers process" recommendation for a real upgrade, and does not change its own return value', async () => {
-  await run('DELETE FROM decision_recommendations');
-  await run('DELETE FROM player_season_stats');
-
-  const [strong, weak] = rows(`SELECT id, name FROM players WHERE position = 'RB' AND fantasy_relevant = 1 ORDER BY id LIMIT 2`);
-  const qb = row(`SELECT id, name FROM players WHERE position = 'QB' AND fantasy_relevant = 1 LIMIT 1`);
-  const wr = row(`SELECT id, name FROM players WHERE position = 'WR' AND fantasy_relevant = 1 LIMIT 1`);
-  const te = row(`SELECT id, name FROM players WHERE position = 'TE' AND fantasy_relevant = 1 LIMIT 1`);
-  run(`INSERT INTO player_season_stats (player_id, season, kind, fantasy_points, games) VALUES (?,2026,'projected',300,17)`, strong.id);
-  run(`INSERT INTO player_season_stats (player_id, season, kind, fantasy_points, games) VALUES (?,2026,'projected',50,17)`, weak.id);
-
-  // `strong` is deliberately left off every roster in this league so
-  // freeAgents()/waiverUpgrades() see him as available.
-  insertLeague(301, {
-    teams: [{
-      id: 1, name: 'My Team',
-      roster: { entries: [
-        { playerPoolEntry: { player: { id: 9201, fullName: qb.name, defaultPositionId: 1 } } },
-        { playerPoolEntry: { player: { id: 9202, fullName: weak.name, defaultPositionId: 2 } } },
-        { playerPoolEntry: { player: { id: 9203, fullName: wr.name, defaultPositionId: 3 } } },
-        { playerPoolEntry: { player: { id: 9204, fullName: te.name, defaultPositionId: 4 } } }
-      ] }
-    }]
-  }, ['QB', 'RB', 'WR', 'TE']);
-
-  const result = waiverUpgrades(301, { myTeamId: '1' });
-  assert.ok(result.upgrades.length, 'fixture must produce at least one upgrade');
-  assert.equal(result.upgrades[0].player.name, strong.name);
-  assert.ok(result.upgrades[0].expected_value > 0.75);
-
-  const list = openRows();
-  const reco = list.find(r => r.type === 'waiver' && r.leagueId === 301);
-  assert.ok(reco, 'waiverUpgrades() must publish a decision_recommendations row for a real upgrade');
-  assert.equal(reco.title, `Add ${strong.name} before waivers process`);
-  assert.equal(reco.sourceModel, 'waiver-brain');
-  assert.equal(reco.link, '/brain');
-  assert.equal(reco.urgency, 'high');
-
-  waiverUpgrades(301, { myTeamId: '1' });
-  const listAgain = openRows();
-  assert.equal(listAgain.filter(r => r.type === 'waiver' && r.leagueId === 301).length, 1, 're-running waiverUpgrades() must not duplicate the open recommendation');
-});
-
-test('waiverUpgrades() does not publish when no free agent clears the roster', async () => {
-  await run('DELETE FROM decision_recommendations');
-  await run('DELETE FROM player_season_stats');
-  // No player_season_stats rows at all in this league's context -> every
-  // asset's adj_ppg is 0, so freeAgents() (which requires adj_ppg > 0) finds nothing.
-  const qb = row(`SELECT id, name FROM players WHERE position = 'QB' AND fantasy_relevant = 1 LIMIT 1`);
-  const rb = row(`SELECT id, name FROM players WHERE position = 'RB' AND fantasy_relevant = 1 LIMIT 1`);
-  const wr = row(`SELECT id, name FROM players WHERE position = 'WR' AND fantasy_relevant = 1 LIMIT 1`);
-  const te = row(`SELECT id, name FROM players WHERE position = 'TE' AND fantasy_relevant = 1 LIMIT 1`);
-
-  insertLeague(302, {
-    teams: [{
-      id: 1, name: 'My Team',
-      roster: { entries: [
-        { playerPoolEntry: { player: { id: 9301, fullName: qb.name, defaultPositionId: 1 } } },
-        { playerPoolEntry: { player: { id: 9302, fullName: rb.name, defaultPositionId: 2 } } },
-        { playerPoolEntry: { player: { id: 9303, fullName: wr.name, defaultPositionId: 3 } } },
-        { playerPoolEntry: { player: { id: 9304, fullName: te.name, defaultPositionId: 4 } } }
-      ] }
-    }]
-  }, ['QB', 'RB', 'WR', 'TE']);
-
-  const result = waiverUpgrades(302, { myTeamId: '1' });
-  assert.equal(result.upgrades.length, 0);
-  const list = openRows();
-  assert.equal(list.filter(r => r.leagueId === 302).length, 0);
-});
+/*
+ * WHAT IS NOT HERE ANY MORE, and why, so nobody reads the gap as an oversight.
+ *
+ * This file used to end with two sections asserting that `lineupDiff()` and
+ * `waiverUpgrades()` publish a row into the inbox — `sourceModel: 'lineup-brain'` and
+ * `sourceModel: 'waiver-brain'`. Those publishers are being removed: with the router
+ * retired (see test/decision-inbox-retired.test.js) the rows they wrote had no reader
+ * at all, and a test that pins a publisher writing to a table nothing reads would
+ * outlive the thing it was describing and fail the moment the publisher goes.
+ *
+ * What stays is the contract `publishRecommendation` keeps for whoever calls it next:
+ * the required fields, the dedup-key upsert, the refusal to silently reopen a resolved
+ * row, and the lazy expiry. That contract is the reason the module survives its own
+ * routes, and it is tested through `toRecommendation`, the same mapping the publish
+ * path returns through, so the shape a future reader gets is pinned here and not only
+ * in the deleted routes.
+ */

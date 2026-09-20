@@ -29,6 +29,90 @@ import { random, withRandomSeed } from './stats-util.js';
 import { weeklyAvailability } from './contingency.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
+
+/**
+ * What this simulator's own playoff probability is actually worth, measured.
+ *
+ * `scripts/calibrate-playoff-odds.mjs` graded the simulate-and-count procedure this
+ * file implements against 184,959 real team-weeks -- 2,500 Sleeper league-seasons,
+ * 2021-2025 -- and the result is in `docs/tdd/playoff-odds-calibration.tdd.md`.
+ * Nothing had ever graded one of these percentages before; `trade-verify.js:78-90`
+ * bounds only their run-to-run noise, and a simulation can be perfectly stable and
+ * perfectly wrong.
+ *
+ * `base_rate` is the Brier score of saying nothing at all -- telling every team its
+ * league's own playoff share -- and it is not a straw man: exactly `playoff_teams` of
+ * `num_teams` qualify in every league, so it is right on average by construction.
+ * Before four weeks of results the simulation loses to it.
+ *
+ * These numbers are here rather than in a doc because the gate below is derived from
+ * them. Re-run the script and update this block together; a test asserts the two
+ * agree, so a number edited to make the gate look unnecessary fails rather than
+ * quietly opening it a week early.
+ */
+export const PLAYOFF_ODDS_CALIBRATION = Object.freeze({
+  graded_team_weeks: 184959,
+  corpus: '2500 Sleeper leagues, 2021-2025',
+  source: 'scripts/calibrate-playoff-odds.mjs · docs/tdd/playoff-odds-calibration.tdd.md',
+  measured_on: '2026-09-20',
+  by_week: Object.freeze({
+    2: Object.freeze({ brier: 0.2855, base_rate: 0.2410 }),
+    3: Object.freeze({ brier: 0.2439, base_rate: 0.2410 }),
+    4: Object.freeze({ brier: 0.2162, base_rate: 0.2410 }),
+    8: Object.freeze({ brier: 0.1342, base_rate: 0.2409 })
+  }),
+  // Overconfidence, which a gate does not fix and a published number still carries:
+  // the lowest reliability bin predicted 0.0005 and 12.12% of those teams qualified;
+  // the highest predicted 1.0000 and 10.11% of those teams missed.
+  extremes: Object.freeze({ no_chance_qualify_rate: 0.1212, certain_miss_rate: 0.1011 }),
+  not_graded: "the app's own configuration -- simulating from week 1 with no results "
+    + 'carried in and projections built through last season -- was not graded, and has no '
+    + 'reason to beat the floor measured here'
+});
+
+/**
+ * The first graded week whose measured Brier beats the base rate: DERIVED, not chosen.
+ *
+ * A hardcoded 4 would be a number someone picked, and the next reader would have no way
+ * to tell whether it still followed from anything. This way the table is the argument.
+ */
+export const MIN_PUBLISHABLE_WEEKS = Math.min(...Object.entries(PLAYOFF_ODDS_CALIBRATION.by_week)
+  .filter(([, row]) => row.brier < row.base_rate)
+  .map(([week]) => Number(week)));
+
+/**
+ * Whether these odds are worth publishing yet, and in plain words why not.
+ *
+ * It FLAGS; it never blanks. Every percentage stays in the payload exactly as before,
+ * because a server that deletes a number leaves the client nothing to explain, and
+ * "too early to say" is a designed state rather than an absence. The client decides
+ * what to render.
+ *
+ * `weeksPlayed` is `fromWeek - 1`: `fromWeek` is the first UNPLAYED week, while the
+ * calibration's "week w" means w weeks are in the books. Off by one here would gate on
+ * the wrong evidence in the one direction nobody would notice.
+ */
+export function oddsGate({ fromWeek = 1 } = {}) {
+  const weeksPlayed = Math.max(0, (Number(fromWeek) || 1) - 1);
+  const published = weeksPlayed >= MIN_PUBLISHABLE_WEEKS;
+  const graded = PLAYOFF_ODDS_CALIBRATION.graded_team_weeks.toLocaleString('en-US');
+  // Zero is a different claim from early, and it is the live case: League Hub sends no
+  // from_week, so today's odds are not thin, they rest on no results whatsoever.
+  const reason = published ? null
+    : weeksPlayed === 0
+      ? 'These odds carry no results at all: the season is simulated from week 1, so every '
+        + 'team starts level and the numbers reflect projected rosters only. Graded against '
+        + `${graded} real team-weeks, a figure like this one is less accurate than simply `
+        + "saying every team has its league's usual share of playoff places."
+      : `Graded against ${graded} real team-weeks, this simulation is less accurate before `
+        + `${MIN_PUBLISHABLE_WEEKS} weeks of results than simply saying every team has its `
+        + `league's usual share of playoff places. ${weeksPlayed} `
+        + `${weeksPlayed === 1 ? 'week has' : 'weeks have'} been played.`;
+  return {
+    published, min_week: MIN_PUBLISHABLE_WEEKS, weeks_played: weeksPlayed, reason,
+    calibration: PLAYOFF_ODDS_CALIBRATION
+  };
+}
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 const FLEX_ELIGIBLE = {
   FLEX: ['RB', 'WR', 'TE'], REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'],
@@ -348,6 +432,11 @@ export function simulateSeason(lg, {
     runs, weeks: weeks.length, from_week: fromWeek, playoff_teams: playoffTeams,
     standings_carried_in: fromWeek > 1,
     odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
+    // Whether the odds above are worth publishing yet, measured rather than assumed.
+    // Deliberately NOT on the `{ error }` shape returned above: that payload has no
+    // percentages in it, and a flag about numbers that do not exist is an invitation
+    // to read one.
+    odds_gate: oddsGate({ fromWeek }),
     teams: out
   };
 }

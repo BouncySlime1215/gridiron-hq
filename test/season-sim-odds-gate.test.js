@@ -84,11 +84,18 @@ test('the gate is shut below the threshold and open at it', () => {
 });
 
 test('the reason names the measurement, and names it in plain words', () => {
+  // This assertion started as /base rate/i and the implementation failed it, because the
+  // sentence deliberately says "its league's usual share of playoff places" instead --
+  // the reader of a fantasy page is not owed a term of art. The RULE is what the first
+  // version was reaching for and this one states properly: the reason must name the
+  // alternative it loses to and the evidence behind that, so "too early to say" alone
+  // cannot pass.
   const r = oddsGate({ fromWeek: 3 }).reason;   // two weeks played
-  assert.match(r, /base rate/i, 'a reader is told what it loses to, not just that it is early');
+  assert.match(r, /usual share of playoff places/i,
+    'a reader is told what it loses to, not just that it is early');
   assert.match(r, /184,?959/, 'and on how much evidence');
-  assert.ok(!/brier/i.test(r) || /score/i.test(r),
-    'jargon is either avoided or explained; a page is not a paper');
+  assert.match(r, /2 weeks have been played/, 'and where this league actually is');
+  assert.ok(!/brier|calibrat|quantile/i.test(r), 'no jargon: a page is not a paper');
 });
 
 test('no results at all is its own state, because it is a different claim', () => {

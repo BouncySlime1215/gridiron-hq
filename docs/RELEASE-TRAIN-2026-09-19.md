@@ -2388,7 +2388,9 @@ app behaved differently.
 
 **And it does not slow down first. It stops.** Twenty-nine reads landed at an
 age of 78 or more across the eight lives, and **the slowest of them took 0.46
-seconds**. There is no ramp, no creeping latency, no degradation to watch for:
+seconds**. On the other side of the boundary, **41 reads were issued at an age
+of 110 or more and not one of them answered** — so "it might recover at 120 or
+140" is not merely unobserved, it is 41 attempts without an exception. There is no ramp, no creeping latency, no degradation to watch for:
 the app is fully healthy and then, within one eight-second step, answers
 nothing at all. That is the signature of a single synchronous operation seizing
 the event loop, and it is not the signature of memory pressure, connection

@@ -3,6 +3,7 @@ import { getApiKey, setApiKey, clearApiKey, getWorkspaceId, setWorkspaceId, clea
 import { rows, row } from '../db/index.js';
 import { canonicalGsisLabelConflicts, playerIdentityRepairPlan, unclaimedTeamPositionDuplicates } from '../services/player-repair.js';
 import { allSources } from '../services/source-registry.js';
+import { listJobs } from '../platform/jobs.js';
 
 const r = Router();
 
@@ -25,7 +26,15 @@ r.get('/status', (req, res) => {
     pricing: PRICING['claude-haiku-4-5-20251001'],
     model: 'claude-haiku-4-5-20251001',
     usage,
-    data: dataFreshness
+    data: dataFreshness,
+    // platform/jobs.js maintains name/status/lastRunAt/lastError/runCount on
+    // every tick of every registered job, and until 2026-09-20 nothing read
+    // any of it. Its two registrations are the draft auto-pick clock and the
+    // finalize watch (routes/drafts.js), so the unread field that mattered was
+    // `lastError`: a draft clock could fail on every tick during a live draft
+    // and say so to nobody. Serving it here is what that module's own header
+    // had been claiming the Dev Hub already did.
+    background_jobs: listJobs()
   });
 });
 
@@ -55,7 +64,32 @@ r.put('/workspace-id', (req, res) => {
 
 r.delete('/workspace-id', (req, res) => { clearWorkspaceId(); res.json({ ok: true }); });
 
-r.get('/usage', (req, res) => res.json(usageSummary(Number(req.query.days) || 30)));
+/*
+ * `GET /dev/usage` was here and is gone (2026-09-20). It answered
+ * `usageSummary(Number(req.query.days) || 30)`, and `/dev/status` above
+ * already answers `usage: usageSummary(30)` -- the same call, the same
+ * default. Nothing in the client, the scripts or the tests ever called it,
+ * and nothing ever passed `?days=`, so the only thing it added over
+ * `/dev/status` was a parameter with no caller.
+ *
+ * If a window other than 30 days is wanted, it belongs on `/dev/status`,
+ * which something actually reads, rather than on a second route that has to
+ * be discovered first.
+ */
+/*
+ * Three read-only dry-runs over the player identity table. Only the first has
+ * a button (DevHub.tsx, "Run dry-run"); the other two are reached by hand,
+ * and they are kept on purpose rather than deleted as uncalled.
+ *
+ * Deleting a diagnostic because nothing calls it is how an install loses the
+ * tools it needs exactly once, in the hour it has a problem. None of the
+ * three writes anything -- they report a plan -- so the cost of keeping them
+ * is three lines, and the cost of removing them is being unable to answer
+ * "which identities are in conflict" without writing the query again.
+ *
+ * They are covered by test/dev-routes.test.js so they cannot rot unnoticed,
+ * which is the thing an uncalled route is actually at risk of.
+ */
 r.get('/player-identity/repair-plan', (req, res) => res.json(playerIdentityRepairPlan()));
 r.get('/player-identity/gsis-conflicts', (req, res) => res.json(canonicalGsisLabelConflicts()));
 r.get('/player-identity/team-position-duplicates', (req, res) => res.json(unclaimedTeamPositionDuplicates()));

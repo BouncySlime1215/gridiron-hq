@@ -381,7 +381,21 @@ export async function refreshLeagueRosters() {
       results.push({ league_id: lg.id, ok: false, error: e.message });
     }
   }
-  return { leagues: results.length, failed: results.filter(r => !r.ok).length };
+  // `skipped` is reported, not just attached. Until now each skipped league
+  // pushed `{ ok: true, skipped: true }` and the return read only `leagues` and
+  // `failed` -- so a sweep that touched nothing because a draft was live
+  // recorded `{ leagues: 7, failed: 0 }`, character for character what a sweep
+  // that synced all seven records. That detail is what `sync_log` stores and
+  // what `schedulerStatus()` serves, so the one case where this job
+  // deliberately does no work was the one case a reader could not see. Same
+  // contract as league-transactions.js, which separates the two for the same
+  // reason: a skip and a success are not the same event, and only a failure
+  // should back the job off.
+  const skipped = results.filter(r => r.skipped).length;
+  return {
+    leagues: results.length, failed: results.filter(r => !r.ok).length,
+    skipped, synced: results.filter(r => r.ok && !r.skipped).length,
+  };
 }
 
 /**

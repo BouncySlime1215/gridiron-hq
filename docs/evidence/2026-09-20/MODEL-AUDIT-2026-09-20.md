@@ -415,7 +415,7 @@ The fix is one argument at each of the two call sites: pass
 |---|---|---|
 | EPA (pass/rush/rec), CPOE, RACR, PACR, WOPR, air-yards share | yes, columns on `player_week_usage` | **no** |
 | Next Gen Stats (`nfl_ngs`), PFR advanced (`nfl_pfr_adv`) | yes | **no** — thirteen betting modules read them; no fantasy module does |
-| Snap counts (`player_week_snaps`) | yes | only as a sentence (`player-week-engine.js:731`) |
+| Snap counts (`player_week_snaps`) | yes | **not into any projection** — but it *is* rendered: see the correction below |
 | ffopportunity expected points | yes | via `preseason-model.js` into the ROS market prior — **and** as `priorFfOpportunity`, attached to every projection at `player-week-engine.js:358-359` and **read by nothing** |
 | `opportunity-model.js` (fitted, with the vacated-teammate-share feature) | in the repo | **no consumer** — only `scripts/study-opportunity-volume.mjs` and `test/opportunity-model.test.js` |
 | `nfl-gbm.js` (the gradient-boosted model) | in the repo | betting side only |
@@ -468,6 +468,38 @@ and where the repository's own diagnosis for why that failed is the argument for
 trying the signal. Nothing has graded that. It is the one ML build in the fantasy
 half with a real prior reason to expect it to work, and it needs Nick's word
 before anyone starts it.
+
+**Correction to the snap-share row, from the wiring map thread, verified here.**
+An earlier draft said snap share appears "only as a sentence". That is wrong on
+the rendering and right on the modelling, and the distinction matters.
+
+It is rendered as a number a user reads: `News.tsx:471` prints
+`` `${actual.snap_share}% snaps` `` in the post-game actual line, fed by
+`news-fantasy-impact.js:136`. It still enters **no fantasy projection** — the
+sentence at `player-week-engine.js:731` quotes `snap_change_points`
+(`model-signal-quality.js:104`), which is a points delta, not a share.
+
+And the path it is rendered through guesses its own units per row:
+
+```js
+snap_share: actual?.offense_pct == null ? null
+  : round(Number(actual.offense_pct) * (Number(actual.offense_pct) <= 1 ? 100 : 1))
+```
+
+`player_week_snaps.offense_pct` is written **unscaled**, 0-1, at
+`nflverse.js:294` (`numAt(rec, iPct)`, no scaling), and the schema records no
+unit. The `: 1` branch has therefore never fired. Work the failure case through,
+because it is not the obvious one: a *percent* value that happens to be **below
+1** — a player who took 0.8% of the snaps — reads as `<= 1`, gets multiplied by
+100, and prints **80% snaps**. So if percent-scaled values ever landed, the
+starters would still look right and the fringe players would print near
+full-time, which is the hardest version of this bug to notice. `offense_pct` also
+lives in `nfl_snaps` (`nfl-advanced.js:192`), also unscaled, with nothing
+asserting the two agree. Reader and ingest routed to their owners.
+
+This is the same shape as the efficiency `|| 7.5` fallback above and as the two
+silent-fallback bugs in this repository's history: **a branch that has never
+fired, guarding a unit nobody recorded.**
 
 ### Both teammate-absence estimators are behind no surviving surface
 

@@ -1,6 +1,6 @@
 # route-no-caller: rank it, then stop it lying
 
-RED `f3f56d5` · GREEN — this commit · `test/wiring-map.test.js` cases 34-41
+RED `f3f56d5` · GREEN — this commit · `test/wiring-map.test.js` cases 34-42
 
 ## The five questions
 
@@ -136,6 +136,48 @@ WIRING-MAP.md:1717  GET /api/trades/:leagueId/trends      [fantasy] w24
 WIRING-MAP.md:1725  GET /api/decision-inbox               [shared]  w22
 ```
 
+## The control, supplied by the feature-audit thread
+
+They challenged the number before it could be ranked, and were right to: 405
+uncalled of **548 handlers in 31 files** is 74% of the app. They named four
+routes with handler and client call site that are certainly called, every one
+reached through a template literal with an interpolation — the shape a literal
+matcher misses, since there is no contiguous `/trades/:leagueId/evaluate`
+anywhere in the client.
+
+```
+absent (correct)  POST /api/trades/:leagueId/evaluate      TradeLab.tsx:1022
+absent (correct)  POST /api/trades/:leagueId/sense-check   TradeCard.tsx:167
+absent (correct)  GET  /api/drafts/:id/assist              LiveDraft.tsx:174
+absent (correct)  POST /api/players/:id/analyze            PlayerCard.tsx:96
+```
+
+All four pass, and they are now a permanent test case (case 41) with the real
+call sites copied verbatim. The injection that matters: requiring the whole
+route path contiguously — the naive matcher they described — fails that case
+and three others.
+
+## Where the 74% actually comes from
+
+Split by scope, the alarming number resolves into one true fact and two ordinary
+ones:
+
+```
+betting   324 / 335 = 97%
+shared     54 /  91 = 59%
+fantasy    27 /  79 = 34%
+(43 routes in files with no findings at all: 0% flagged)
+```
+
+**There is no betting UI.** Five client files mention betting anywhere
+(`App.tsx`, `api.ts`, `navigation.ts`, `NotFound.tsx`, `PageExplainAssistant.tsx`)
+and not one of them is a page. So 335 betting handlers with 324 uncalled is not
+a matcher failure — it is a 335-route API with no front end, which is a real
+fact about this repository and out of scope for work.
+
+The number to carry is not 405 and not 74%. It is **81 in-scope routes, 27 of
+them fantasy.**
+
 ## Known limitation, not fixed here
 
 The top in-scope row is `GET /api/auth/google/callback` (w111). Nothing in the
@@ -148,5 +190,5 @@ Flagged for the Google sign-in thread rather than silently annotated away.
 ```
 npm run check      exit 0 (typecheck, lint, client build, start:smoke — 32 teams)
 npm test           3004 tests, 2963 pass, 0 fail, 41 skipped
-node --test test/wiring-map.test.js   54/54
+node --test test/wiring-map.test.js   55/55
 ```

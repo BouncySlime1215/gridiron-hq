@@ -554,6 +554,27 @@ test('a generic tail segment is not a route\'s distinctive literal', () => {
   assert.equal(routeLiteralAbsent('/api/decision-inbox/:id/resolve', "api(`/decision-inbox/${id}/resolve`)"), false);
 });
 
+test('THE CONTROL: four routes known to be called are not flagged', () => {
+  // Supplied by the feature-audit thread as a check on this gate, with handler and
+  // client call site for each, and they were right to ask: 405 uncalled out of 548
+  // handlers is 74% of the app, and every one of these four is reached through a
+  // template literal with an interpolation — the exact shape a literal matcher misses.
+  // There is no contiguous `/trades/:leagueId/evaluate` anywhere in the client.
+  // These are the real call sites on 791b131, copied verbatim.
+  const calls = [
+    ['/api/trades/:leagueId/evaluate', 'await api(`/trades/${leagueId}/evaluate`, {'],
+    ['/api/trades/:leagueId/sense-check', 'setSense(await api(`/trades/${leagueId}/sense-check`, { method: 0 }))'],
+    ['/api/drafts/:id/assist', 'const s = await api(`/drafts/${id}/assist`);'],
+    ['/api/players/:id/analyze', 'await api(`/players/${id}/analyze`, { method: 0 })'],
+  ];
+  for (const [route, call] of calls) {
+    assert.equal(routeLiteralAbsent(route, call), false, `${route} is called at ${call}`);
+  }
+  // And the gate still says yes when the call really is absent, so the control is not
+  // passing by being permissive about everything.
+  assert.equal(routeLiteralAbsent('/api/trades/:leagueId/evaluate', 'await api(`/trades/${leagueId}/sense-check`)'), true);
+});
+
 test('a bulk rule names its in-scope rows instead of counting them', () => {
   // THE FAILURE THIS ENCODES: route-no-caller rendered as a file-count table and
   // named nothing, so GET /api/decision-inbox and GET /api/trades/:leagueId/trends

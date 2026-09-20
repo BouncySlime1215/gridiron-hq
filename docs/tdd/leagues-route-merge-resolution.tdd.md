@@ -57,11 +57,14 @@ both lines is not this conflict and should come back to this thread.
 
 ## Verified, not assumed
 
-Trial-merged in a throwaway worktree, resolved by keeping both lines, then
-checked:
+Trial-merged in a throwaway worktree — `git merge` of the outlook route work's
+head `6851a71` into the credential work's head `a2e7f97` — resolved by keeping
+both lines, then checked. Every figure below is from **that merged tree**, not
+from this branch, which is why the file count is higher than a check run here
+reports: the merged tree carries both sides' added files.
 
 - `node --check server/routes/leagues.js` — clean.
-- The repository's own lint — clean, 902 JavaScript files.
+- The repository's own lint — clean, 902 JavaScript files on that merged tree.
 - Both features still present and intact afterwards: `requireCredentialsForLeague`
   at `:139`, inside `fetchEspn`; the outlook route at `:449`.
 - `git diff --name-only --diff-filter=U` after the merge listed

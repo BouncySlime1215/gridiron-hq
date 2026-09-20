@@ -137,6 +137,50 @@ test('the newest stored fit is the active one, and only one row is ever active',
   assert.equal(outlookFitStatus().through_season, 2024);
 });
 
+test('the one-active rule is enforced by the database, not by this file being careful', () => {
+  // Without the partial unique index the rule would hold only for as long as every
+  // writer remembered it, and a second active row leaves every reader guessing.
+  const active = activeOutlookFit().id;
+  const older = rows('SELECT id FROM outlook_fits WHERE id <> ? ORDER BY id LIMIT 1', active)[0];
+  assert.ok(older, 'the fixture needs a second, inactive fit for this to mean anything');
+  assert.throws(() => run('UPDATE outlook_fits SET active = 1 WHERE id = ?', older.id),
+    /UNIQUE|constraint/i);
+  assert.equal(rows('SELECT COUNT(*) AS n FROM outlook_fits WHERE active = 1')[0].n, 1);
+  assert.equal(activeOutlookFit().id, active);
+});
+
+test('a write that fails part way through leaves the previous fit active, not none', () => {
+  // `n` is metadata, so it is deliberately not validated; binding an object to it makes
+  // the week INSERT throw AFTER the parent row is in and the old fit is deactivated.
+  // Without one transaction around the pair, that state is a database with no active fit
+  // and a fit row with no weeks -- and `activeOutlookFit()` returning null for a
+  // deployment that had a working model a millisecond earlier.
+  const before = activeOutlookFit();
+  const broken = { ...FIT, byWeek: { ...FIT.byWeek,
+    [WEEKS[0]]: { ...FIT.byWeek[WEEKS[0]], n: {} } } };
+  assert.throws(() => saveOutlookFit({ fit: broken, thresholds: THRESHOLDS, through_season: 2025 }));
+  const after = activeOutlookFit();
+  assert.ok(after, 'the deployment still has a fit');
+  assert.equal(after.id, before.id);
+  assert.deepEqual(after.weeks, before.weeks);
+  assert.equal(rows('SELECT COUNT(*) AS n FROM outlook_fits WHERE active = 1')[0].n, 1);
+});
+
+test('a stored coefficient vector of the wrong width is refused on the way out too', () => {
+  // The save-side check cannot catch a fit stored by an older build, or a features list
+  // that grew after the fit was written. Same class as the feature-order check: the
+  // vector still multiplies, the probability still lands in (0,1).
+  const id = activeOutlookFit().id;
+  const week = activeOutlookFit().weeks[0];
+  const original = rows('SELECT coef FROM outlook_fit_weeks WHERE fit_id = ? AND week = ?', id, week)[0].coef;
+  run('UPDATE outlook_fit_weeks SET coef = ? WHERE fit_id = ? AND week = ?',
+    JSON.stringify(JSON.parse(original).slice(0, 2)), id, week);
+  assert.equal(activeOutlookFit(), null);
+  assert.match(outlookFitStatus().reason, /coefficient/i);
+  run('UPDATE outlook_fit_weeks SET coef = ? WHERE fit_id = ? AND week = ?', original, id, week);
+  assert.ok(activeOutlookFit());
+});
+
 test('a fit stored under a different feature list is refused, not reinterpreted', () => {
   // The coefficients are positional. Reorder the list and the same vector prices
   // `win_pct` with `all_play_pct`'s coefficient -- still a probability, still
@@ -162,6 +206,31 @@ test('a stored k that cannot shrink anything is refused, because the alternative
   assert.equal(activeOutlookFit(), null);
   assert.match(outlookFitStatus().reason, /\bk\b/);
   run('UPDATE outlook_fits SET k = ? WHERE id = ?', K, id);
+  assert.ok(activeOutlookFit());
+});
+
+test('stored rows that lost their week models, or their thresholds, are refused on read', () => {
+  // `saveOutlookFit` cannot be the only guard: these states arrive from a build that
+  // stored the fit differently, or from a hand-edited database, and by then the only
+  // thing standing between them and a page is the read path. A fit with no week models
+  // scores nothing; a fit with no thresholds produces no verdict. Both would otherwise
+  // read as present.
+  const id = activeOutlookFit().id;
+  const weeks = rows('SELECT * FROM outlook_fit_weeks WHERE fit_id = ?', id);
+  run('DELETE FROM outlook_fit_weeks WHERE fit_id = ?', id);
+  assert.equal(activeOutlookFit(), null);
+  assert.match(outlookFitStatus().reason, /week/i);
+  for (const w of weeks) {
+    run(`INSERT INTO outlook_fit_weeks (fit_id, week, n, intercept, coef, mu, sd)
+         VALUES (?,?,?,?,?,?,?)`, id, w.week, w.n, w.intercept, w.coef, w.mu, w.sd);
+  }
+  assert.ok(activeOutlookFit(), 'restored');
+
+  const thresholds = rows('SELECT thresholds FROM outlook_fits WHERE id = ?', id)[0].thresholds;
+  run('UPDATE outlook_fits SET thresholds = ? WHERE id = ?', '{}', id);
+  assert.equal(activeOutlookFit(), null);
+  assert.match(outlookFitStatus().reason, /threshold/i);
+  run('UPDATE outlook_fits SET thresholds = ? WHERE id = ?', thresholds, id);
   assert.ok(activeOutlookFit());
 });
 

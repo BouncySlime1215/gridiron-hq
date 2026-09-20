@@ -206,7 +206,7 @@ export function rosterAssets(payload, assets, rosterId) {
 export function lineupPosture(lg, { myTeamId, week } = {}) {
   if (!lg?.payload) return { error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
-  const ctx = tradeWeekContext();
+  const ctx = tradeWeekContext(lg);
   const wk = Number(week) || ctx.week;
   const rosterId = String(myTeamId ?? lg.my_team_id);
   const { formatKey } = deriveFormat(lg);

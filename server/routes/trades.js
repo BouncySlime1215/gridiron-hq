@@ -266,6 +266,21 @@ const NO_MANAGER_SIGNALS_REASON =
   'no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it';
 
 /**
+ * The one error this page's archetype read is allowed to continue past.
+ *
+ * `league_season_teams` is created only by `scripts/backfill-league-history.mjs`,
+ * so on a database where that has never run the read cannot succeed however
+ * correct the code is. That is an absence, and absences are reported and
+ * survived. Everything else — a renamed column, a corrupt file, a TypeError in
+ * the archetype code — is a fault and must reach the error handler.
+ *
+ * Matching on the message is what node:sqlite gives us; it carries no error
+ * code for this. The match is deliberately narrow: `no such column` and
+ * `no such function` are faults and must NOT match.
+ */
+const isMissingTable = e => /no such table/i.test(String(e?.message ?? ''));
+
+/**
  * The archetype object without the store's raw `jev`.
  *
  * `archetypesFor` carries the stored probabilities straight through: no
@@ -382,10 +397,25 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
   // a database where that backfill has never run this throws and every manager
   // came back with no archetype under a page that said the build had not run.
   let archetypeError = null;
+  let archetypeState = 'present';
   try {
     const { archetypesFor } = await import('../services/manager-archetypes.js');
     archetypes = archetypesFor(leagueId, season);
-  } catch (e) { archetypeError = String(e?.message ?? e); archetypes = new Map(); }
+  } catch (e) {
+    // ONLY THE ABSENCE IS ABSORBED. A missing table is a fact about this
+    // database — the backfill has never run here — and this page's own job,
+    // serving the measured signals, does not depend on the archetypes, so it
+    // continues and says which state it is in. Anything else is a fault: a
+    // `no such column` means the query and the schema disagree, and a catch
+    // wide enough to take that turns every future mistake in the archetype code
+    // into a quietly empty panel. Reporting the sentence was not enough on its
+    // own; a page that says "the archetype read failed: <TypeError>" still
+    // serves a 200 that a caller will read as data.
+    if (!isMissingTable(e)) throw e;
+    archetypeState = 'table_absent';
+    archetypeError = String(e?.message ?? e);
+    archetypes = new Map();
+  }
   const rosterIds = teams.length
     ? teams.map(t => String(t.id))
     : [...new Set([...idents.keys(), ...byRoster.keys()])].sort((a, b) => Number(a) - Number(b));
@@ -458,7 +488,11 @@ async function managerSignalsPayload(lg, { week = null } = {}) {
     chat: chatCorpusState(),
     // THE ARCHETYPE STORE, on the same footing as the two above, and the place
     // a failed read is reported instead of vanishing.
-    archetypes: { ...archetypesBuilt(leagueId, season), read_failed: archetypeError },
+    archetypes: { ...archetypesBuilt(leagueId, season),
+      // `read_state` is the machine-readable fact and `read_failed` the sentence
+      // under it. The word is `manager-archetypes.js`'s own for this state, not
+      // a second vocabulary for one thing.
+      read_state: archetypeState, read_failed: archetypeError },
     sources: SIGNAL_SOURCES,
     identity_warnings: identityWarnings(leagueId),
     managers,

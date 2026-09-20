@@ -219,3 +219,44 @@ test('the Start/Sit page labels the fitted state too, not only the broken one', 
   assert.match(src, /measured rate from the fitted availability/,
     'and says so on the fitted path instead of rendering nothing');
 });
+
+test('the row that was priced by a chance to play shows it', () => {
+  // The page stated the basis for the page and never printed the number the basis
+  // described. `active_probability` has been on every lineup call since the fit
+  // landed, and the one multiplier behind each start was the single thing the
+  // page would not say.
+  const src = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
+  assert.match(src, /c\.player\.active_probability/, 'the slot reads the per-player number');
+  assert.match(src, /% to play/, 'and renders it on the row it priced');
+  assert.match(src, /\(assumed\)/, 'marked when it is the hand-set fallback rather than a measured rate');
+});
+
+test('every surface priced by these percentages says which model produced them', () => {
+  // Three PRs added a basis field to a response and one rendered it, so the
+  // waiver board and Trade Lab priced players on a hand-set fallback in exactly
+  // the same words they use for a measured rate. A field no page reads is not a
+  // disclosure, wherever it is served from.
+  const waivers = fs.readFileSync(new URL('../client/src/components/lineup/WaiverWire.tsx', import.meta.url), 'utf8');
+  assert.match(waivers, /availability_basis\?\.basis === 'role'/, 'the waiver board reads the basis');
+  assert.match(waivers, /\(assumed\)/, 'and marks its chips when the number is not measured');
+
+  const tradeLab = fs.readFileSync(new URL('../client/src/pages/TradeLab.tsx', import.meta.url), 'utf8');
+  assert.match(tradeLab, /availability_basis/, 'Trade Lab reads the basis from model_context');
+  assert.match(tradeLab, /assumed, not measured/, 'and says so where every deal is ranked');
+});
+
+test('a Start/Sit row is marked by the model that priced THAT player', () => {
+  // The page-level basis is a process fact; the fitted role layer only reaches a
+  // player with an in-scope role cell, so a role-basis process still prices some
+  // players pooled. Marking their number measured is the same overstatement the
+  // basis field exists to remove, one level up. The page reads the per-call field
+  // and keeps the page-level one only as the fallback for an asset built before
+  // that field existed.
+  const page = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
+  assert.match(page, /const basis = c\.player\?\.availability_basis \?\? pageBasis;/,
+    'the row reads its own basis first');
+  assert.doesNotMatch(page, /basis=\{d\?\.availability_basis\?\.basis \?\? null\}/,
+    'and the page-level basis is no longer what decides a row');
+  assert.match(page, /unfitted_position.*not modelled/s,
+    'a position the fit does not cover is not called an assumption about that player');
+});

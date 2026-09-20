@@ -241,6 +241,31 @@ test('a position with too few training rows is held at the hand-set weights rath
   }
 });
 
+/*
+ * RED. The reason a held position gives names TWO causes joined by "or", and the
+ * fixture only ever produces one of them. Under [2021] the panel is 20 QB, 45 RB,
+ * 85 WR and 20 TE, so QB and TE are held on row count with a variance that was
+ * measured and is positive — and the sentence they carry still says "or no
+ * measurable variance", blaming something that never happened.
+ *
+ * The first two assertions are the guard: a filter that returns nothing would make
+ * the third one pass without reading anything, which is how a zero-valued assertion
+ * is satisfied by a broken world as happily as by a correct one.
+ */
+test('an unfitted position names the cause that actually held, and not the other one', () => {
+  const { weights } = fitInverseVarianceWeights([2021]);
+  const held = Object.entries(weights).filter(([, w]) => !w.fitted);
+  assert.ok(held.length, 'the fixture has to hold at least one position or this test reads nothing');
+  for (const [pos, w] of held) {
+    assert.ok(w.n < __test.MIN_POSITION_ROWS,
+      `${pos}: this fixture holds positions for row count, so n must be under the bar, got ${w.n}`);
+    assert.match(w.reason, /fewer than \d+ training rows/,
+      `${pos}: the cause that held is the row count, so the reason says so`);
+    assert.doesNotMatch(w.reason, /no measurable variance/,
+      `${pos}: held on ${w.n} rows, so the reason must not also blame a variance it never failed to measure`);
+  }
+});
+
 test('shrinkage keeps a thin fit close to the incumbent and lets a thick one move further', () => {
   const thin = fitInverseVarianceWeights([2021]).weights;
   const thick = fitInverseVarianceWeights([2021, 2022, 2023, 2024]).weights;

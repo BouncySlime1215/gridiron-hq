@@ -171,10 +171,18 @@ test('the count of unpriced players travels with the numbers they break', () => 
     { team: theirs, gives: [theirPiece] },
     slots
   );
-  // Not a boolean on the deal: which SIDE is unpriced changes who is being
-  // short-changed, so each side carries its own count.
-  assert.equal(ev.me.value_unpriced, 1, 'my side gave one player the market cannot price');
-  assert.equal(ev.them.value_unpriced, 0, 'their side gave none');
+  // Not a boolean on the deal, and not one number per side either: the first
+  // draft of this test asked for `value_unpriced` per side and the code answered
+  // 1 on BOTH, correctly — in a two-party deal each side sees the same union of
+  // players, so a per-side count of gives+gets is the same number twice. What
+  // actually distinguishes anything is which LEG the unpriced player is on, so
+  // each total carries the count of the leg that feeds it.
+  assert.equal(ev.me.value_out_unpriced, 1, 'I gave away one player the market cannot price');
+  assert.equal(ev.me.value_in_unpriced, 0, 'nothing unpriced came back to me');
+  // The same player, seen from the other chair: he is arriving, so it is THEIR
+  // value_in that is understated, not their value_out.
+  assert.equal(ev.them.value_out_unpriced, 0, 'they gave away nothing unpriced');
+  assert.equal(ev.them.value_in_unpriced, 1, 'they received the unpriced player');
 });
 
 test('a fully priced deal is unchanged — the label and the totals still read as before', () => {
@@ -186,8 +194,10 @@ test('a fully priced deal is unchanged — the label and the totals still read a
     { team: theirs, gives: [theirPiece] },
     slots
   );
-  assert.equal(ev.me.value_unpriced, 0);
-  assert.equal(ev.them.value_unpriced, 0);
+  assert.equal(ev.me.value_out_unpriced, 0);
+  assert.equal(ev.me.value_in_unpriced, 0);
+  assert.equal(ev.them.value_out_unpriced, 0);
+  assert.equal(ev.them.value_in_unpriced, 0);
   // The regression half: nothing about a normal deal may change. The label must
   // still be one of the five it always was.
   assert.match(String(ev.fairness),

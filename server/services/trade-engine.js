@@ -417,6 +417,15 @@ function buildAssetUniverse(lg, formatKey, target) {
       vor: v?.vor ?? 0,
       adp: v?.adp ?? null,
       value: m?.value ?? 0,
+      // Whether that 0 is a price or the absence of one. `value` stays a number
+      // because every consumer of this universe sums it, and one line above and
+      // below this the same missing market row already yields null (`adp`,
+      // `pos_rank`) — so the row's absence was always representable here and
+      // only `value` spent it. A player FantasyCalc has no row for on this
+      // format key (a late rookie, a practice-squad call-up, a K or DST in a
+      // format that prices neither) is not worth nothing; he is unpriced, and
+      // anything that adds prices up has to be able to tell the two apart.
+      value_priced: m?.value != null,
       trend30: m?.trend30 ?? null,
       pos_rank: m?.pos_rank ?? null,
       age: m?.age ?? ageByPlayer.get(p.id) ?? null,
@@ -1082,6 +1091,16 @@ export function evaluate(a, b, slots, ctx = {}) {
     const pMonth = playoffLeg(after, false);
     const valueOut = gives.reduce((s, p) => s + Math.max(0, p.value), 0);
     const valueIn = gets.reduce((s, p) => s + Math.max(0, p.value), 0);
+    // How many players on each leg of this side the market could not price.
+    //
+    // Split rather than summed, and that split is the correction to a first
+    // draft of this change that counted `[...gives, ...gets]` as one number:
+    // in a two-party deal both sides see the same union, so a "per side" count
+    // built that way is identical on both sides and distinguishes nothing. A
+    // test caught it. Each number here names exactly the total it breaks —
+    // an unpriced player LEAVING is value missing from value_out, and one
+    // ARRIVING is value missing from value_in.
+    const unpriced = list => list.filter(p => p.value_priced === false).length;
     const givesOut = gives.map(slim), getsIn = gets.map(slim);
 
     const out = {
@@ -1106,6 +1125,7 @@ export function evaluate(a, b, slots, ctx = {}) {
       playoff_lineup_before: bMonth != null ? +bMonth.toFixed(2) : null,
       playoff_lineup_after: pMonth != null ? +pMonth.toFixed(2) : null,
       value_out: valueOut, value_in: valueIn, value_delta: valueIn - valueOut,
+      value_out_unpriced: unpriced(gives), value_in_unpriced: unpriced(gets),
       roster_spots: gets.length - gives.length,
       new_holes: post.holes,
       verdict: verdictFor(post.points - before.points, valueIn - valueOut)
@@ -1171,7 +1191,8 @@ export function evaluate(a, b, slots, ctx = {}) {
     red_flags: redFlags,
     their_window: ctx.theirWindow ?? null,
     their_value_pct: +theirValuePct.toFixed(1),
-    fairness: fairnessLabel(A.value_delta, A.value_out + A.value_in),
+    fairness: fairnessLabel(A.value_delta, A.value_out + A.value_in,
+      A.value_out_unpriced + A.value_in_unpriced),
     // My side's numbers-only evidence line: "give: 5/5 top-24 seasons, ±9%
     // swing, 17 g min · get: 1/1 top-24 seasons, 2026 band 150-290".
     verdict_evidence: verdictEvidence(A.risk)
@@ -1230,8 +1251,27 @@ function tagDeal(give, get, ev) {
   return tags.slice(0, 2);
 }
 
-function fairnessLabel(delta, total) {
+/**
+ * How the books read on this deal, or a refusal to say.
+ *
+ * `unpriced` was already the answer when NO player in the deal had a market
+ * price, because the division has no denominator. The harder case is a deal that
+ * is PARTLY priced: the arithmetic still works, so the label came out confident
+ * and wrong in the one direction that matters — a player the market cannot price
+ * contributes nothing to the side he leaves, so giving him away looks free and
+ * the label reads as a win. On the fixture in
+ * test/unpriced-players-are-not-free.test.js that is literally 'lopsided my way'
+ * for a deal that gives up a starting receiver.
+ *
+ * So the label refuses instead of guessing. It does NOT guess a price: inventing
+ * one from projections would put a made-up number where a measured one belongs,
+ * which is the failure this project keeps finding. `partly unpriced` says what is
+ * true — some of this deal has a market price and some of it does not — and the
+ * per-side `value_unpriced` counts say how much.
+ */
+function fairnessLabel(delta, total, unpriced = 0) {
   if (!total) return 'unpriced';
+  if (unpriced > 0) return 'partly unpriced';
   const pct = (delta / total) * 100;
   if (pct > 12) return 'lopsided my way';
   if (pct > 4) return 'slightly my way';

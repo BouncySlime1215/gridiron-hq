@@ -839,24 +839,27 @@ test('read: the manager page serves the DATED model read, not the store\'s raw p
   }
 });
 
-test('read: an archetype read that FAILED is reported, not served as a store that is empty', async () => {
-  // `archetypesFor` joins `league_season_teams`, whose only CREATE TABLE is in
-  // `scripts/backfill-league-history.mjs` — so on a database where that backfill
-  // has never run it throws rather than returning nothing. The bare `catch {}`
-  // that used to sit here turned "the read broke" into "the build has not run",
-  // which are different facts with different fixes, and CLAUDE.md is explicit
-  // that a layer going inert has to say so.
+test('read: an archetype store that cannot be read says so in the store owner\'s own words', async () => {
+  // This page used to learn the state by CATCHING the exception `archetypesFor`
+  // threw when `league_season_teams` was absent. `manager-archetypes.js` now
+  // answers the question itself — `leagueHistoryState()` reports the table, and
+  // `archetypesFor` returns an empty map instead of throwing — so the state is
+  // READ from the module that owns the store rather than inferred from a fault
+  // this route happened to see. The as-of rule's own words: a stamp, and a
+  // state, must describe the store, not the reader.
   db.exec('ALTER TABLE league_season_teams RENAME TO league_season_teams_hidden');
   try {
     const { body } = await call('GET', '/api/trades/21/managers/signals');
     assert.equal(body.available, true, 'the stored signals underneath are still measured and still served');
     assert.ok(body.archetypes, 'the archetype store gets a block of its own, like transactions and chat');
-    assert.match(String(body.archetypes.read_failed ?? ''), /no such table/i,
-      'and the failure is named rather than swallowed');
     assert.equal(body.archetypes.read_state, 'table_absent',
       'in the same word the archetype module itself serves for this state');
+    assert.match(String(body.archetypes.read_reason ?? ''), /league_season_teams is not on this database/,
+      'and the reason is the store owner\'s sentence, not a sentence this route writes about an exception');
+    assert.match(String(body.archetypes.read_reason ?? ''), /cannot look/i,
+      'which distinguishes "we cannot look" from "this manager is unknown"');
     assert.equal(managerOf(body, 2).archetype, null,
-      'no archetype survives the failure, which is the honest half of it');
+      'no archetype survives the absence, which is the honest half of it');
   } finally {
     db.exec('ALTER TABLE league_season_teams_hidden RENAME TO league_season_teams');
   }
@@ -867,7 +870,7 @@ test('read: a healthy archetype read says the store is fine', async () => {
   // failure whenever it is merely empty, or the sentence means nothing.
   const { body } = await call('GET', '/api/trades/21/managers/signals');
   assert.ok(body.archetypes, 'the block is always served');
-  assert.equal(body.archetypes.read_failed, null, 'no failure when there was none');
+  assert.equal(body.archetypes.read_reason, null, 'no reason to give when the store is readable');
   assert.equal(body.archetypes.read_state, 'present', 'and the state word says so');
   assert.ok(body.archetypes.as_of, 'and it carries the build stamp, like the other two stores');
 });

@@ -122,3 +122,43 @@ test('the absent state is not cached, because a migration can create the table m
     'caching the absence would outlive the migration that fixes it, and the process would keep '
     + 'reporting a table it is now sitting on top of');
 });
+
+/* ------------------- never collected, versus collected and genuinely zero */
+
+/**
+ * A ZERO THAT WAS NEVER COUNTED IS NOT A ZERO.
+ *
+ * An archetype computed over no rows is a real-looking answer about a real
+ * person. So the caller has to be able to tell "this league-season was never
+ * collected" from "it was collected and there is genuinely nothing in it" —
+ * and an empty result says neither.
+ *
+ * No migration creates `league_season_teams` empty for the same reason: an
+ * empty table turns an honest "no such table" into a silent zero. The absence
+ * is served through `reason`, the field this module already uses for
+ * not-built data, rather than through a new field invented ahead of the
+ * confident-zero contract.
+ */
+test('a league-season that was never collected says so, and does not read as a zero', () => {
+  dropHistoryTable();
+  const built = arch.archetypesBuilt(1, 2025);
+  assert.match(built.reason ?? '', /league_season_teams/,
+    'the not-collected state reaches the caller through the reason field, the same one a '
+    + 'never-built archetype uses — a caller seeing rows: 0 with no reason cannot tell the two apart');
+  assert.match(built.reason ?? '', /never collected|not collected|cannot look|no such table|is not on this database/i,
+    'and it says WHICH kind of nothing this is');
+});
+
+test('collected and genuinely empty is a different sentence from never collected', () => {
+  restoreHistoryTable();
+  const collected = arch.archetypesBuilt(1, 2025);
+  const absentClause = /league_season_teams/;
+  assert.ok(!absentClause.test(collected.reason ?? ''),
+    'with the table there, a league-season with no rows is an ordinary empty and must not '
+    + 'borrow the not-collected sentence; otherwise the two states share one answer again '
+    + 'and the whole distinction is decorative');
+  dropHistoryTable();
+  assert.match(arch.archetypesBuilt(1, 2025).reason ?? '', absentClause,
+    'and the same call on the same key says the other thing when the table is gone');
+  restoreHistoryTable();
+});

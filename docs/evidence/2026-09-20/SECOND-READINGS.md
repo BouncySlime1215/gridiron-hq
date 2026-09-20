@@ -41,6 +41,9 @@ none, and every worktree was removed afterwards.
 ## Whole suites, re-measured
 
 Each claimed by its own evidence file; each re-run here. **Every one matched.**
+Where a head is documentation-only over a code head, the figure is the code
+head's and stands for the whole chain: 511eed8 is also a2e7f97, 1e8dddd,
+da8ec48, c986b80 and 1171d66; 64cb90e is also e852884.
 
 | commit | thread | measured: tests / pass / fail / skipped |
 |---|---|---|
@@ -52,6 +55,10 @@ Each claimed by its own evidence file; each re-run here. **Every one matched.**
 | 9fce773 | fantasy plan | 2,975 / 2,934 / 0 / 41 |
 | c6df372 | UI | 2,964 / 2,923 / 0 / 41 |
 | f62896e | Coach | 3,093 / 3,052 / 0 / 41 |
+| dd84efa | Opportunity | 2,962 / 2,921 / 0 / 41 |
+| 511eed8 | Google sign-in | 2,985 / 2,944 / 0 / 41 |
+| 22bbd45 | chat sync | 3,002 / 2,961 / 0 / 41 |
+| 64cb90e | scheduler | 3,054 / 3,013 / 0 / 41 |
 
 Per-file counts re-run and matched: a7ac178 7/7 · b1ee48d 6/6 · 1ed7b79 12/12 ·
 01645a0 9/9 · 52a55cc 6/6 (RED 6 / 0 pass / 6 fail at 84bae8a) · 9fce773's
@@ -208,6 +215,64 @@ The shipped code is correct in every one of these cases — `splitAt` is
 time-based, `toRows` is right, `tools.js` is right. The claim is the narrower
 one this log exists to make: these tests have never been shown capable of
 failing. Closing them is writing rows, not fixing code.
+
+## D34's fix, verified — and the guard that does not guard it
+
+Fantasy plan fixed D34 at `5674cf1` while this log was being written. The fix is
+right: a new `pooled-arms.js` keys every pooled row by `season|team|player_id`,
+so the two arms come out equal-length and aligned by construction and the
+offseason model cannot produce the D34 shape again. `comparison_basis` on every
+interval and an `arm_coverage` report mean a reader can see which rows were
+actually compared.
+
+**The layer described as catching this does not catch it.** `clusteredDiff`
+throws when clustering was *declined*; D34 is the case where clustering is
+*granted* on a misaligned pairing, because `groups.length === n` holds when
+`groups` is sized to the shorter array. Run against the fixed tree:
+
+```
+clusteredDiff(A = 60 rows, B = 30 rows, groups = 30)
+  -> RETURNED, did not throw
+     mean_diff -0.8  ci90 [-0.8,-0.8]  significant=true  clustered=true  n=30
+  truth: the challenger is WORSE by +0.10 on the only season it ran
+```
+
+`pairedBootstrapDiff` was changed to *report* — `clustered` is now on every
+return — not to *refuse*. No length-equality check was added. Today no caller
+can reach it, since the offseason model goes through the new pooling layer, so
+this is defence in depth and not a live bug. One line closes it for every future
+caller: refuse when `valuesA.length !== valuesB.length`.
+
+## Coach changed a test instead of the code, and it holds up
+
+`CLAUDE.md` permits this only when the test is wrong, so it is the one change in
+the set that needs a verdict rather than a reproduction. At `0b8e77d`, "every
+catalogued table exists in the schema" became "…unless only a script creates
+it", because three catalogued tables are genuinely absent until a script runs.
+
+**The premise is enforced, not asserted.** A separate test requires that a table
+the declared schema does not create says who does, and that one it does create
+says nothing; the file check requires a named file that exists **and contains
+that table's literal `CREATE TABLE IF NOT EXISTS <name>`**.
+
+**Both escapes the exemption could open were tried here, and both are caught:**
+
+- a fabricated table whose creator points at a real, existing script file —
+  `be236c57` → `fc49c32c`, 1 fail, on the file check, because that real script
+  carries no DDL for the invented name;
+- a fabricated table naming no creator at all — `be236c57` → `cc5815d1`,
+  3 fail, the changed test among them.
+
+So the replacement is strictly stronger than what it replaced: the old test
+caught "catalogued but absent", the new pair catches "catalogued, absent and
+nothing builds it" and "claims a builder that does not build it". All nine of
+that file's mutation rows reproduce exactly. **Verdict: the change stands.**
+
+**A correction, mine.** The first M71 run here gave 3 red where the table claims
+4. That was this harness, not their table: the spec names two suites and only
+one was run, and the fourth red lives in the other. Re-run against both, it is
+4. Recorded because a second reader's unexplained number costs more than the
+check saves.
 
 ## This log's own check
 

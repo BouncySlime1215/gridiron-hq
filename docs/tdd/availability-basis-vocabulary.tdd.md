@@ -79,13 +79,25 @@ Four values `weeklyAvailability` can serve:
 | neither fit; the player has games on file | `durability_prior` |
 | neither fit; he has none, so the prior is the constant | `default_durability` |
 
-Two consumer arms it never serves, for two different kinds of missing:
+Three consumer arms it never serves, for three different kinds of missing:
 
 - `unfitted_position` — there is no row for this player at all.
   `weeklyAvailability` selects QB, RB, WR and TE, so a kicker is outside the fit
   entirely.
 - `unrecognised` — a row arrived without the field, reachable only from a
   payload built before it existed.
+- `unvouched` — a row arrived with a basis and no usable `active_probability`.
+  The consumer substitutes its own default and must withhold the row's stated
+  basis rather than print it over a number the row did not supply.
+
+**`unvouched` is not `unrecognised`,** and the third arm was added rather than
+widening the second. `unrecognised` is version skew: it decays to zero as every
+producer moves onto this shape. `unvouched` is a live fault in a current
+payload and does not decay. Under one word, a consumer counting either one
+counts both and can separate neither — the same two-quantities-one-name defect
+this file exists to remove, arriving from the consumer side. The shape of the
+error it prevents is the memo key serving a correct fit id over numbers that
+came from the previous fit: a true label over a number it does not describe.
 
 **`unfitted_position` is not `default_durability`,** and folding the two was
 declined deliberately. `default_durability` is a row that exists carrying a
@@ -146,6 +158,29 @@ counts above are both suites together, and the run that reproduces them is
 
 **6 of 6 caught, each by the test that names it. No survivors.**
 
+### The third consumer arm, swept separately
+
+`unvouched` was added after the table above, so it has its own sweep on the same
+harness. Base `availability-basis.js` `a671c036aefb`, restored and re-verified
+after the last row. Run: both suites together, 13 tests.
+
+| Mutation | Verification | Result | Fails | Named tests red |
+|---|---|---|---|---|
+| A1 — drop `unvouched` from the canonical list | APPLIED `a671c036aefb` → `e1d4ff75966a` | RED | 2 | every value this file can serve is a member, and the three consumer arms are not servable *(vocab)* · a row with a basis but no number is its own arm, not version skew *(vocab)* |
+| A2 — make `unvouched` servable on a row | APPLIED `a671c036aefb` → `8fdaeda696d7` | RED | 2 | every value this file can serve is a member, and the three consumer arms are not servable *(vocab)* · a row with a basis but no number is its own arm, not version skew *(vocab)* |
+| A3 — collapse the new arm back onto `unrecognised` | APPLIED `a671c036aefb` → `09a37595ad1e` | RED | 3 | the canonical list is exported, frozen, and has no duplicates *(vocab)* · every value this file can serve is a member, and the three consumer arms are not servable *(vocab)* · a row with a basis but no number is its own arm, not version skew *(vocab)* |
+| **NO-OP CONTROL** — a comment reworded | APPLIED `a671c036aefb` → `fc87ef97092b` | GREEN | 0 | none, and that is the claim |
+| **NO-OP CONTROL 2** — a pattern not in the file | **NO-OP — pattern not found** | — | — | — |
+
+**3 of 3 caught, both controls behaving.** A3 is the row that matters: collapsing
+the arm back onto `unrecognised` is the change somebody tidying this list would
+make, and it fails three tests including the duplicate check, so the list cannot
+quietly acquire two names for one thing or one name for two.
+
+Neither sweep on this file carries a KILL-CONTROL — an edit that must break
+something, proving the suite can fail at all — and neither needs one: every
+mutation row above is itself that proof.
+
 Two controls, doing two different jobs. A is a real edit that must NOT break
 anything, and is the whole point of the change: the tests pin the contract and
 ignore the prose. B shows the harness can report a miss, so an APPLIED row
@@ -179,29 +214,36 @@ above.
 All four servable arms are now exercised and every mutation of them is caught,
 so the honest gap is elsewhere. Two things this file does not pin:
 
-- **The two consumer arms**, `unfitted_position` and `unrecognised`. Neither is
-  servable by construction, so there is nothing here to assert; the tests pin
-  only that they are in the list and out of the servable set. Whoever emits
-  them owns testing them.
+- **The three consumer arms**, `unfitted_position`, `unrecognised` and
+  `unvouched`. None is servable by construction, so there is nothing here to
+  assert about a served row; the tests pin only that each is in the list, out
+  of the servable set, and a distinct entry from the others. Whoever emits them
+  owns testing that they are emitted on the right occasion — the accessor in
+  `player-week-engine.js` is that consumer for all three.
 - **The numbers**, which are `availability-role.test.js`'s job. This file pins
   which path priced a row, never what it priced it at. A mutation that changed
   a role cell's probability without changing which arm answered would pass
   here, correctly, and fail there.
 
-## Checks on this commit's own tree
+## Checks, with the commit they were measured on
 
-Measured at this commit, not inherited from an earlier one:
+A number without a commit beside it is not a measurement, because the same file
+at two commits carries two different correct figures. This file is its own
+example: it read 2,961 / 2,920 at `775e339` and 2,962 / 2,921 at `e53ff1a`,
+because `e53ff1a` added the role fixture that closed the surviving mutation.
+Both were right; neither said which commit it was.
 
-```
-npm run check    exit 0
-  lint           clean
-  typecheck      clean
-  client build   ok
-  start:smoke    passed on an isolated database (32 teams)
-  full suite     2,962 tests · 2,921 pass · 0 fail · 41 skipped
-```
+| measured on | npm run check | full suite |
+|---|---|---|
+| `ef28768` — `unvouched` added (current) | exit 0 · lint, typecheck, client build clean · start:smoke passed on an isolated database (32 teams) | **2,963 tests · 2,922 pass · 0 fail · 41 skipped** |
+| `e53ff1a` — the role fixture that closed the survivor | exit 0, same four | 2,962 · 2,921 · 0 · 41 |
+| `775e339` — before that fixture | exit 0, same four | 2,961 · 2,920 · 0 · 41 |
+
+The current row was executed on the tree as committed, after the mutation
+harness restored the source file and its hash was re-verified
+(`a671c036aefb`). The commits after `ef28768` on this branch are documentation
+only, so they change no test content; `git diff --stat ef28768..HEAD` is the
+check on that claim.
 
 GitHub Actions is out of minutes until 2026-10-01 and the CI workflow is
-disabled deliberately, so this is the only run there is. It was executed on the
-tree as committed, after the mutation harness restored both source files and
-their hashes were re-verified.
+disabled deliberately, so these are the only runs there are.

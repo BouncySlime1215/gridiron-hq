@@ -351,6 +351,77 @@ test('signals: draft and outcome come from this league-season only, labelled by 
     'the career roll-up is not this season');
 });
 
+test('accessor: the pricing path is never handed a metric nothing may price on', () => {
+  // The `priceable` flag lived only in routes/trades.js:446, in the HTTP layer.
+  // managerSignalsFor — "everything the trade engine needs about one league's
+  // managers, in one read" — returned every stored metric in one bag with no
+  // flag, and it is what counterpartyLayer reads. Nothing priced on a draft
+  // metric today, but nothing stopped it either: a reach for
+  // m.metrics.draft_reach_rate would have compiled, run and been wrong.
+  //
+  // So the flag is not a flag any more. An unpriceable row is not in the bag the
+  // pricing path reads, which is a property rather than a rule someone remembers.
+  signals.buildManagerSignals(12);
+  const layer = signals.managerSignalsFor(12);
+  const two = layer.get('2');
+  assert.ok(two, 'roster 2 has signals in league 12');
+
+  // Stored, and readable by the page — see the route test below.
+  assert.equal(metricOf(12, 2, 'draft_reach_rate')?.source, 'draft');
+
+  for (const m of ['draft_auto_rate', 'draft_reach_rate', 'draft_pick_vs_consensus',
+    'draft_name_brand_excess']) {
+    assert.ok(!(m in two.metrics),
+      `${m} comes from a source declared priceable: false, so it must not be in the pricing bag`);
+  }
+  const ctx = two.context ?? {};
+  assert.ok('draft_reach_rate' in ctx, 'it is still readable, in the bag that says what it is');
+  assert.match(two.context_reasons?.draft_reach_rate ?? '', /priceable|never priced|context only/i,
+    'and it carries why nothing may price on it');
+});
+
+test('accessor: an undeclared source fails closed — unpriceable until someone declares it', () => {
+  // The broken copy. A source that is not in SIGNAL_SOURCES has no `priceable`
+  // entry to read, and `spec?.priceable ?? false` in the old route helper got
+  // that right. The accessor has to get it right too, in the same direction:
+  // absent means NOT priceable, never priceable-by-default, or a metric added
+  // without its registry entry silently becomes an input to a price.
+  run(`INSERT OR REPLACE INTO manager_signals (league_id, roster_id, metric, value, n, source, computed_at)
+       VALUES (12, '2', 'invented_metric', 0.9, 40, 'not_a_declared_source', datetime('now'))`);
+  try {
+    const two = signals.managerSignalsFor(12).get('2');
+    assert.ok(!('invented_metric' in two.metrics),
+      'an undeclared source must not reach the pricing bag');
+    assert.ok('invented_metric' in (two.context ?? {}),
+      'it is still surfaced, so a stray writer is visible rather than swallowed');
+    assert.match(two.context_reasons?.invented_metric ?? '', /not declared|undeclared|SIGNAL_SOURCES/i,
+      'and the reason names the registry, which is what a reader has to go fix');
+  } finally {
+    run(`DELETE FROM manager_signals WHERE league_id = 12 AND metric = 'invented_metric'`);
+  }
+});
+
+test('accessor: everything the pricing layer actually reads is still in the pricing bag', () => {
+  // The regression pin for the two above. Partitioning the bag could starve
+  // counterpartyLayer without any test noticing, because a missing metric there
+  // reads as "we know nothing about him" — which is exactly the silent
+  // degradation this whole branch is about. These are the names grepped out of
+  // counterparty-pricing.js: every m.* it reads, plus the two postLossFactor
+  // takes.
+  signals.buildManagerSignals(11);
+  const layer = signals.managerSignalsFor(11);
+  const present = new Set();
+  for (const s of layer.values()) for (const k of Object.keys(s.metrics)) present.add(k);
+  // Only assert the ones this fixture league actually produces; the point is
+  // that partitioning removed none of them, not that all exist everywhere.
+  const stored = new Set(sigRows(11).filter(r => signals.SIGNAL_SOURCES[r.source]?.priceable)
+    .map(r => r.metric));
+  assert.ok(stored.size > 0, 'the fixture must store some priceable metrics for this to mean anything');
+  for (const m of stored) {
+    assert.ok(present.has(m), `${m} is priceable and stored, so the pricing bag must still carry it`);
+  }
+});
+
 test('signals: chat and player views only for trusted identities in the chat league', () => {
   signals.buildManagerSignals(11);
   const chatRosters = new Set(rows(`SELECT DISTINCT roster_id FROM manager_signals

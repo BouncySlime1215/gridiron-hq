@@ -22,7 +22,7 @@ const {
   clientCalls, payloadKeys, keyReads, declarations,
   foreignHandles, handleFor, gatedRegions, blindCaches,
   functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
-  imageDirs, runtimeFilePaths,
+  imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -439,6 +439,119 @@ test('a path joined to a directory inside the image is not repo-root-based', () 
   assert.deepEqual(found.filter(f => f.repoRelative), [],
     'SERVER_ROOT is not the repo root, so this names no repo directory to check');
   assert.deepEqual(found.map(f => f.base), ['SERVER_ROOT'], 'but it is still seen');
+});
+
+test('an uncalled route carries how much work it does for nobody', () => {
+  // 462 route-no-caller findings is, in practice, a rule that reports nothing: two of
+  // the most expensive endpoints in this app sat inside that list for weeks and were
+  // found by hand instead. A DELETE nobody calls and a 300-line join nobody calls are
+  // different facts, and the map printed them identically.
+  const src = [
+    "import { trendExploits } from '../services/trend-exploits.js';",
+    "import { rosterRisk } from '../services/roster-risk.js';",
+    "r.get('/:leagueId/trends', (req, res) => {",
+    "  const t = trendExploits(req.params.leagueId);",
+    "  const r2 = rosterRisk(req.params.leagueId);",
+    "  const rows = db.all('SELECT * FROM player_week_usage JOIN players ON players.id = 1');",
+    "  res.json({ t, r2, rows });",
+    '});',
+    "r.delete('/rankings/:id', (req, res) => {",
+    "  db.run('DELETE FROM rankings WHERE id = ?', req.params.id);",
+    "  res.json({ ok: true });",
+    '});',
+  ].join('\n');
+  const w = routeWorkload(src);
+  const trends = w.find(x => x.path === '/:leagueId/trends');
+  const del = w.find(x => x.path === '/rankings/:id');
+  assert.deepEqual(trends.services.sort(), ['rosterRisk', 'trendExploits']);
+  assert.deepEqual(trends.tables.sort(), ['player_week_usage', 'players']);
+  assert.ok(trends.weight > del.weight,
+    'the join must outrank the delete, or the ranking is not a ranking');
+  assert.deepEqual(del.services, []);
+  assert.deepEqual(del.tables, ['rankings']);
+});
+
+test('THE CASE THAT MOTIVATED THIS: a thin handler over a heavy service outranks a fat one over nothing', () => {
+  // The first version of this ranking counted only the handler body, and
+  // GET /api/trades/:leagueId/trends came 295th of 462 — below the middle of the
+  // list it was supposed to rise to the top of. Its handler is one line; the 324-line
+  // join is in the service it calls. A ranking that buries the case it was built for
+  // is not a ranking, so the cost of what a handler calls has to count.
+  const src = [
+    "import { trendExploits } from '../services/trend-exploits.js';",
+    "r.get('/thin', (req, res) => res.json(trendExploits(req.params.id)));",
+    "r.get('/fat', (req, res) => {",
+    "  const a = 1; const b = 2; const c = 3;",
+    "  const rows = db.all('SELECT * FROM notes');",
+    "  res.json({ a, b, c, rows });",
+    '});',
+  ].join('\n');
+  // The evidence for the bug is the measured rank on the real repository, not this
+  // fixture: a two-route file is too small to reproduce a 462-row ordering, and an
+  // assertion that pretended otherwise would be asserting my own fixture.
+  const flat = routeWorkload(src);
+  assert.equal(flat.find(x => x.path === '/thin').callee_cost, 0,
+    'with no cost function the callee contributes nothing, which is what made the rank wrong');
+
+  const costOf = name => (name === 'trendExploits' ? 40 : 0);
+  const ranked = routeWorkload(src, costOf);
+  assert.ok(ranked.find(x => x.path === '/thin').weight > ranked.find(x => x.path === '/fat').weight,
+    'with it, the thin handler over the heavy service wins');
+  assert.equal(ranked.find(x => x.path === '/thin').callee_cost, 40);
+});
+
+test('a handler claims only its own body, not the next route down', () => {
+  // The whole ranking is worthless if a handler swallows the file after it: every
+  // route in a big router would score the same, which is the state this replaces.
+  const src = [
+    "import { one } from '../services/one.js';",
+    "import { two } from '../services/two.js';",
+    "r.get('/first', (req, res) => { res.json(one()); });",
+    "r.get('/second', (req, res) => { res.json(two()); });",
+  ].join('\n');
+  const w = routeWorkload(src);
+  assert.deepEqual(w.find(x => x.path === '/first').services, ['one']);
+  assert.deepEqual(w.find(x => x.path === '/second').services, ['two']);
+});
+
+test('a route whose path the client builds in a variable is not uncalled', () => {
+  // route-no-caller reports 462 routes on this repository and a share of them are
+  // wrong: clientCalls() sees only inline string literals, and this client builds
+  // paths in variables. GET /api/trades/:leagueId/post-draft-plan and
+  // .../rosters both sit in that list, and `post-draft-plan` appears in the client
+  // once and `rosters` fifty times. A list that long with false positives in it is
+  // why two genuinely dead endpoints went unnoticed inside it.
+  const clientText = "const p = `/trades/${id}/post-draft-plan`; const r = api('/trades/1/rosters');";
+  assert.equal(routeLiteralAbsent('/api/trades/:leagueId/post-draft-plan', clientText), false);
+  assert.equal(routeLiteralAbsent('/api/trades/:leagueId/rosters', clientText), false);
+});
+
+test('a route whose distinctive segment appears nowhere in the client is uncalled', () => {
+  const clientText = "const p = `/trades/${id}/post-draft-plan`;";
+  assert.equal(routeLiteralAbsent('/api/trades/:leagueId/trends', clientText), true);
+  assert.equal(routeLiteralAbsent('/api/decision-inbox', clientText), true);
+});
+
+test('a route that is all parameters after its family is judged on the family', () => {
+  assert.equal(routeLiteralAbsent('/api/players/:id', "api('/players/' + id)"), false);
+  assert.equal(routeLiteralAbsent('/api/players/:id', "api('/leagues/1')"), true);
+});
+
+test('a generic tail segment is not a route\'s distinctive literal', () => {
+  // The first cut judged a route on its LAST literal segment, which made
+  // GET /api/betting/status "called" because some unrelated /status exists in the
+  // client. Five endpoints under /api/betting and /api/edge vanished that way. The
+  // distinctive literal is the longest run of consecutive literals, so the fragment
+  // that must appear is /betting/status, not /status.
+  assert.equal(routeLiteralAbsent('/api/betting/status', "api('/model/status')"), true);
+  assert.equal(routeLiteralAbsent('/api/betting/status', "api('/betting/status')"), false);
+  // The run wins over a longer generic tail even when the tail also appears.
+  assert.equal(routeLiteralAbsent('/api/decision-inbox/summary', "api('/leagues/1/summary')"), true);
+  // Two runs of equal length: the longer, more distinctive name decides, not the later
+  // one. Judged on `resolve` this route is suppressed by any unrelated /resolve while
+  // its own sibling above stays a finding, which is two answers about one endpoint.
+  assert.equal(routeLiteralAbsent('/api/decision-inbox/:id/resolve', "api('/trades/1/resolve')"), true);
+  assert.equal(routeLiteralAbsent('/api/decision-inbox/:id/resolve', "api(`/decision-inbox/${id}/resolve`)"), false);
 });
 
 test('statementTables separates what a statement reads from what it writes', () => {

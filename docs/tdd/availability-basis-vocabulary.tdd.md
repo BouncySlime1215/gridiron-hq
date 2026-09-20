@@ -79,13 +79,25 @@ Four values `weeklyAvailability` can serve:
 | neither fit; the player has games on file | `durability_prior` |
 | neither fit; he has none, so the prior is the constant | `default_durability` |
 
-Two consumer arms it never serves, for two different kinds of missing:
+Three consumer arms it never serves, for three different kinds of missing:
 
 - `unfitted_position` — there is no row for this player at all.
   `weeklyAvailability` selects QB, RB, WR and TE, so a kicker is outside the fit
   entirely.
 - `unrecognised` — a row arrived without the field, reachable only from a
   payload built before it existed.
+- `unvouched` — a row arrived with a basis and no usable `active_probability`.
+  The consumer substitutes its own default and must withhold the row's stated
+  basis rather than print it over a number the row did not supply.
+
+**`unvouched` is not `unrecognised`,** and the third arm was added rather than
+widening the second. `unrecognised` is version skew: it decays to zero as every
+producer moves onto this shape. `unvouched` is a live fault in a current
+payload and does not decay. Under one word, a consumer counting either one
+counts both and can separate neither — the same two-quantities-one-name defect
+this file exists to remove, arriving from the consumer side. The shape of the
+error it prevents is the memo key serving a correct fit id over numbers that
+came from the previous fit: a true label over a number it does not describe.
 
 **`unfitted_position` is not `default_durability`,** and folding the two was
 declined deliberately. `default_durability` is a row that exists carrying a
@@ -126,23 +138,193 @@ lands and kills a different test is unfinished, not a result. Both files were
 restored and their hashes re-verified afterwards (`contingency.js`
 `28bffcd49d70`, `availability-basis.js` `6de130fcae48`).
 
+The rows span two suites, so each test title below names the file it lives in:
+**(vocab)** is `test/availability-basis-vocabulary.test.js` and **(prior)** is
+`test/durability-prior-substitution.test.js`. Without that, a row whose reds fall
+in both files reads as though a named test were missing from the run. The fail
+counts above are both suites together, and the run that reproduces them is
+`node --test --test-concurrency=1 test/availability-basis-vocabulary.test.js test/durability-prior-substitution.test.js`.
+
 | Mutation | Verification | Result | Fails | Named tests red |
 |---|---|---|---|---|
-| collapse the measured/substituted split | APPLIED `28bffcd49d70` → `2696e9fcaa93` | RED | 3 | with no fit on file the basis is the prior, and it says which prior · the default prior behind a default_durability row is the shared constant · the basis does not depend on the wording of the source sentence |
-| remove `availability_basis` from the served row | APPLIED `28bffcd49d70` → `358de206bf53` | RED | 6 | every served row carries a basis from the list · with no fit on file the basis is the prior, and it says which prior · the default prior behind a default_durability row is the shared constant · a fitted pooled rate moves the basis off the prior, for both players · a fitted role cell takes precedence, and the basis says role · the basis does not depend on the wording of the source sentence |
-| stop setting the pooled arm | APPLIED `28bffcd49d70` → `fbb6d1f6fa2f` | RED | 1 | a fitted pooled rate moves the basis off the prior, for both players |
-| mislabel the role arm as `pooled` | APPLIED `28bffcd49d70` → `3d5a1175964a` | RED | 1 | a fitted role cell takes precedence, and the basis says role |
-| serve the default prior as measured | APPLIED `28bffcd49d70` → `dc9e238bf317` | RED | 3 | a fitted pooled rate moves the basis off the prior, for both players · a fitted role cell takes precedence, and the basis says role · a served durability prior says whether it was measured or substituted |
-| derive the fallback probability from the prior | APPLIED `6de130fcae48` → `b17de74027ed` | RED | 1 | the prior and the fallback active probability are independent literals |
-| **CONTROL A** — reword the `source` sentence | APPLIED `28bffcd49d70` → `460bb8d2485d` | GREEN | 0 | none, and that is the claim |
+| collapse the measured/substituted split | APPLIED `28bffcd49d70` → `2696e9fcaa93` | RED | 3 | with no fit on file the basis is the prior, and it says which prior *(vocab)* · the default prior behind a default_durability row is the shared constant *(vocab)* · the basis does not depend on the wording of the source sentence *(vocab)* |
+| remove `availability_basis` from the served row | APPLIED `28bffcd49d70` → `358de206bf53` | RED | 6 | every served row carries a basis from the list *(vocab)* · with no fit on file the basis is the prior, and it says which prior *(vocab)* · the default prior behind a default_durability row is the shared constant *(vocab)* · a fitted pooled rate moves the basis off the prior, for both players *(vocab)* · a fitted role cell takes precedence, and the basis says role *(vocab)* · the basis does not depend on the wording of the source sentence *(vocab)* |
+| stop setting the pooled arm | APPLIED `28bffcd49d70` → `fbb6d1f6fa2f` | RED | 1 | a fitted pooled rate moves the basis off the prior, for both players *(vocab)* |
+| mislabel the role arm as `pooled` | APPLIED `28bffcd49d70` → `3d5a1175964a` | RED | 1 | a fitted role cell takes precedence, and the basis says role *(vocab)* |
+| serve the default prior as measured | APPLIED `28bffcd49d70` → `dc9e238bf317` | RED | 3 | a fitted pooled rate moves the basis off the prior, for both players *(vocab)* · a fitted role cell takes precedence, and the basis says role *(vocab)* · a served durability prior says whether it was measured or substituted *(prior)* |
+| derive the fallback probability from the prior | APPLIED `6de130fcae48` → `b17de74027ed` | RED | 1 | the prior and the fallback active probability are independent literals *(vocab)* |
+| **CONTROL A** — reword the `source` sentence | APPLIED `28bffcd49d70` → `882408f56b24` | GREEN | 0 | none, and that is the claim |
 | **CONTROL B** — a pattern that is not in the file | **NO-OP — pattern not found** | — | — | — |
 
 **6 of 6 caught, each by the test that names it. No survivors.**
+
+### The exact edits
+
+A description of a mutation is not a mutation. Each row's before and after text
+is quoted here verbatim, so a reader can apply it rather than reconstruct it —
+and so two readers who disagree about a row are disagreeing about the same edit.
+`-` is the line as it stands, `+` is what replaced it; a row with no `+` deleted
+the line.
+
+**1 — collapse the measured/substituted split**, `contingency.js`
+`28bffcd49d70` → `2696e9fcaa93`
+```
+-   let basis = priorMeasured ? 'durability_prior' : 'default_durability';
++   let basis = 'durability_prior';
+```
+
+**2 — remove `availability_basis` from the served row**, `contingency.js`
+`28bffcd49d70` → `358de206bf53`
+```
+-       availability_basis: basis,
+```
+
+**3 — stop setting the pooled arm**, `contingency.js`
+`28bffcd49d70` → `fbb6d1f6fa2f`
+```
+-       basis = 'pooled';
+```
+
+**4 — mislabel the role arm as `pooled`**, `contingency.js`
+`28bffcd49d70` → `3d5a1175964a`
+```
+-     basis = 'role';
++     basis = 'pooled';
+```
+
+**5 — serve the default prior as measured**, `contingency.js`
+`28bffcd49d70` → `dc9e238bf317`
+```
+-       durability_prior_measured: measuredPrior != null,
++       durability_prior_measured: true,
+```
+
+**6 — derive the fallback probability from the prior**,
+`availability-basis.js` `6de130fcae48` → `b17de74027ed`
+```
+- export const DEFAULT_ACTIVE_PROBABILITY = 0.92;
++ export const DEFAULT_ACTIVE_PROBABILITY = DEFAULT_DURABILITY_PRIOR;
+```
+
+**CONTROL A — reword the `source` sentence**, `contingency.js`
+`28bffcd49d70` → `882408f56b24`
+```
+- 'weekly injury report + durability prior'
++ 'weekly injury report and durability prior'
+```
+
+**CONTROL B — a pattern that is not in the file.** The pattern searched for is
+`const NOT_IN_CONTINGENCY_JS = 1;`. It is absent, the harness reports NO-OP, and
+no run happens.
+
+**One hash in the table above was re-measured to write this section, and the old
+one is withdrawn.** Rows 1 to 6 were recovered exactly: each row's quoted edit,
+applied to the recorded base, reproduces the recorded after-hash to the
+character, which is a stronger check than remembering the edit. CONTROL A did
+not, because its mutation is free text — any rewording of the sentence is a
+valid control, so the hash is not derivable from the row's description. Rather
+than print text that did not produce `460bb8d2485d`, the control was re-run with
+the wording quoted above and the table now carries its real hash,
+`882408f56b24`, still GREEN with zero failures. `460bb8d2485d` is withdrawn: it
+was a real measurement, but not one this file can now hand a reader.
+
+### The third consumer arm, swept separately
+
+`unvouched` was added after the table above, so it has its own sweep on the same
+harness. Base `availability-basis.js` `a671c036aefb`, restored and re-verified
+after the last row. Run: both suites together, 13 tests.
+
+| Mutation | Verification | Result | Fails | Named tests red |
+|---|---|---|---|---|
+| A1 — drop `unvouched` from the canonical list | APPLIED `a671c036aefb` → `e1d4ff75966a` | RED | 2 | every value this file can serve is a member, and the three consumer arms are not servable *(vocab)* · a row with a basis but no number is its own arm, not version skew *(vocab)* |
+| A2 — make `unvouched` servable on a row | APPLIED `a671c036aefb` → `8fdaeda696d7` | RED | 2 | every value this file can serve is a member, and the three consumer arms are not servable *(vocab)* · a row with a basis but no number is its own arm, not version skew *(vocab)* |
+| A3 — collapse the new arm back onto `unrecognised` | APPLIED `a671c036aefb` → `09a37595ad1e` | RED | 3 | the canonical list is exported, frozen, and has no duplicates *(vocab)* · every value this file can serve is a member, and the three consumer arms are not servable *(vocab)* · a row with a basis but no number is its own arm, not version skew *(vocab)* |
+| **NO-OP CONTROL** — a comment reworded | APPLIED `a671c036aefb` → `fc87ef97092b` | GREEN | 0 | none, and that is the claim |
+| **NO-OP CONTROL 2** — a pattern not in the file | **NO-OP — pattern not found** | — | — | — |
+
+**3 of 3 caught, both controls behaving.** A3 is the row that matters: collapsing
+the arm back onto `unrecognised` is the change somebody tidying this list would
+make, and it fails three tests including the duplicate check, so the list cannot
+quietly acquire two names for one thing or one name for two.
+
+The exact edits, all against `availability-basis.js` `a671c036aefb`:
+
+**A1 → `e1d4ff75966a`** — the last entry and its closing bracket:
+```
+-   'unvouched'
+- ]);
++ ]);
+```
+
+**A2 → `8fdaeda696d7`** — the servable list gains it:
+```
+-   'role', 'pooled', 'durability_prior', 'default_durability'
++   'role', 'pooled', 'durability_prior', 'default_durability', 'unvouched'
+```
+
+**A3 → `09a37595ad1e`** — the arm becomes a duplicate of the one before it:
+```
+-   'unvouched'
++   'unrecognised'
+```
+
+**NO-OP CONTROL → `fc87ef97092b`** — the file's opening line:
+```
+-  * The one vocabulary for "what priced this player's chance to play".
++  * The single vocabulary for "what priced this player's chance to play".
+```
+
+**NO-OP CONTROL 2** — the pattern searched for is
+`const THIS_IS_NOT_IN_THE_FILE = 1;`. Absent, so the harness reports NO-OP.
+
+Neither sweep on this file carries a KILL-CONTROL — an edit that must break
+something, proving the suite can fail at all — and neither needs one: every
+mutation row above is itself that proof.
+
+### Every test in both suites, accounted for
+
+A sweep is only as good as its coverage of the suite, so here is the union of
+the reds across both tables, measured against the 13 tests that run.
+
+**All ten tests in `availability-basis-vocabulary.test.js` are killed by at
+least one row.** Nothing there rests on a row that lands and proves nothing.
+
+**Two tests in `durability-prior-substitution.test.js` are killed by no row, and
+both are deliberate rather than a gap:**
+
+- *the fixture is the case under test: one player measured, one never seen* —
+  this guards the premise, not the behaviour. It asserts the fixture really does
+  contain one player with games on file and one without. No mutation of the
+  classifier can turn it red, because it is not testing the classifier; if it
+  ever does go red, every other row's evidence on this file is void, which is
+  the job it is there to do.
+- *the substituted prior is otherwise indistinguishable, which is why the flag
+  is needed* — this one passes in both states **on purpose**, and that is its
+  whole claim. It says the two rows cannot be told apart by anything except the
+  flag. A mutation that killed it would mean they had become separable by
+  something else, which would make the flag redundant rather than wrong. A test
+  written to pass in both states cannot be killed by a mutation and should not
+  be.
+
+**Neither RED on this branch is a module-absent RED**, so the union above is the
+only accounting needed. Both were re-run to check that rather than assert it:
+`f83c61a` gives 5 tests, 2 pass, 3 fail, and `365fd64` gives 3 tests, 2 pass, 1
+fail. A RED that is red because the module does not resolve has no passes in it;
+these have two each, so each RED is about behaviour, and every test in them
+already carries its own statement.
 
 Two controls, doing two different jobs. A is a real edit that must NOT break
 anything, and is the whole point of the change: the tests pin the contract and
 ignore the prose. B shows the harness can report a miss, so an APPLIED row
 above means something.
+
+In the vocabulary the project has since settled on, **both of these are NO-OP
+controls** — an edit that must break nothing, or a pattern not in the file. This
+table carries no KILL-CONTROL, an edit that must break something and so proves the
+regression test is capable of failing at all. It is not needed here, because every
+one of the six mutation rows is itself that proof: each lands, each turns a named
+test red, and the survivor section below records the one that did not until it was
+closed. A table whose only rows were controls would need one.
 
 ### The survivor that was closed
 
@@ -164,29 +346,37 @@ above.
 All four servable arms are now exercised and every mutation of them is caught,
 so the honest gap is elsewhere. Two things this file does not pin:
 
-- **The two consumer arms**, `unfitted_position` and `unrecognised`. Neither is
-  servable by construction, so there is nothing here to assert; the tests pin
-  only that they are in the list and out of the servable set. Whoever emits
-  them owns testing them.
+- **The three consumer arms**, `unfitted_position`, `unrecognised` and
+  `unvouched`. None is servable by construction, so there is nothing here to
+  assert about a served row; the tests pin only that each is in the list, out
+  of the servable set, and a distinct entry from the others. Whoever emits them
+  owns testing that they are emitted on the right occasion — the accessor in
+  `player-week-engine.js` is that consumer for all three.
 - **The numbers**, which are `availability-role.test.js`'s job. This file pins
   which path priced a row, never what it priced it at. A mutation that changed
   a role cell's probability without changing which arm answered would pass
   here, correctly, and fail there.
 
-## Checks on this commit's own tree
+## Checks, with the commit they were measured on
 
-Measured at this commit, not inherited from an earlier one:
+A number without a commit beside it is not a measurement, because the same file
+at two commits carries two different correct figures. This file is its own
+example: it read 2,961 / 2,920 at `775e339` and 2,962 / 2,921 at `e53ff1a`,
+because `e53ff1a` added the role fixture that closed the surviving mutation.
+Both were right; neither said which commit it was.
 
-```
-npm run check    exit 0
-  lint           clean
-  typecheck      clean
-  client build   ok
-  start:smoke    passed on an isolated database (32 teams)
-  full suite     2,962 tests · 2,921 pass · 0 fail · 41 skipped
-```
+| measured on | npm run check | full suite |
+|---|---|---|
+| `b1b9f2b`/`ef28768` — `unvouched` added (current) | exit 0 · lint, typecheck, client build clean · start:smoke passed on an isolated database (32 teams) | **2,963 tests · 2,922 pass · 0 fail · 41 skipped** |
+| `e53ff1a` — the role fixture that closed the survivor | exit 0, same four | 2,962 · 2,921 · 0 · 41 |
+| `775e339` — before that fixture | exit 0, same four | 2,961 · 2,920 · 0 · 41 |
+
+The current row was executed on the tree as committed, after the mutation
+harness restored the source file and its hash was re-verified
+(`a671c036aefb`). The commits after `ef28768` on this branch are documentation
+only, so they change no test content; `git diff --stat ef28768..HEAD` is the
+check on that claim. The control re-measurement that produced `882408f56b24`
+ran on this same tree and restored `contingency.js` to `28bffcd49d70`.
 
 GitHub Actions is out of minutes until 2026-10-01 and the CI workflow is
-disabled deliberately, so this is the only run there is. It was executed on the
-tree as committed, after the mutation harness restored both source files and
-their hashes were re-verified.
+disabled deliberately, so these are the only runs there are.

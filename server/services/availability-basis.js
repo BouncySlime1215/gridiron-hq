@@ -57,8 +57,19 @@ export const AVAILABILITY_BASIS = Object.freeze([
   // which is a row that exists and carries a substituted prior.
   'unfitted_position',
   // CONSUMER ARM, never served on a row: a row arrived without the field.
-  // Reachable only from a payload built before the field existed.
-  'unrecognised'
+  // Reachable only from a payload built before the field existed. It is version
+  // skew, so it stops occurring once every producer is on this shape -- which is
+  // why the next arm must not share the word.
+  'unrecognised',
+  // CONSUMER ARM, never served on a row: a row arrived WITH a basis and with no
+  // usable `active_probability`. The producer classified it and then served no
+  // number, so a consumer substituting its own default must withhold the row's
+  // stated basis rather than print it over a number the row did not supply --
+  // the same defect as a memo key carrying a correct fit id over numbers from
+  // the previous fit. Distinct from `unrecognised` because this one is a live
+  // fault in a current payload and that one decays to zero; a consumer counting
+  // either must be able to count them apart.
+  'unvouched'
 ]);
 
 /** The subset weeklyAvailability can put on a row it is building. */
@@ -110,10 +121,11 @@ export const DEFAULT_DURABILITY_PRIOR = 0.92;
  * Like the prior, it is not fitted. Nothing can be fitted for a position the
  * availability model does not cover.
  *
- * It pairs with the `default_durability` and `unfitted_position` arms: those
- * two say WHY no computed probability exists, this is the value served in its
- * place. Consumers: player-week-engine.js, trade-engine.js and roster-risk.js,
- * each of which had its own copy before this export existed.
+ * It pairs with the arms that say WHY no computed probability exists --
+ * `default_durability`, `unfitted_position`, and now `unvouched` for a row that
+ * carried a basis and no number -- and is the value served in their place.
+ * Consumers: player-week-engine.js, trade-engine.js and roster-risk.js, each of
+ * which had its own copy before this export existed.
  */
 export const DEFAULT_ACTIVE_PROBABILITY = 0.92;
 

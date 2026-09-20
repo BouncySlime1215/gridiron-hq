@@ -63,18 +63,37 @@ test('the canonical list is exported, frozen, and has no duplicates', () => {
   for (const value of B.AVAILABILITY_BASIS) assert.equal(typeof value, 'string');
 });
 
-test('every value this file can serve is a member, and the two consumer arms are not servable', () => {
+test('every value this file can serve is a member, and the three consumer arms are not servable', () => {
   for (const value of B.SERVABLE_AVAILABILITY_BASIS) {
     assert.ok(B.AVAILABILITY_BASIS.includes(value), `${value} must be in the canonical list`);
   }
-  // `unfitted_position` means there is no row for this player at all, and
-  // `unrecognised` means a row arrived without the field. Neither can be
-  // written onto a row by the thing that builds rows.
-  for (const arm of ['unfitted_position', 'unrecognised']) {
+  // `unfitted_position` means there is no row for this player at all,
+  // `unrecognised` means a row arrived without the field, and `unvouched` means
+  // a row carried a basis but no number. None can be written onto a row by the
+  // thing that builds rows.
+  for (const arm of ['unfitted_position', 'unrecognised', 'unvouched']) {
     assert.ok(B.AVAILABILITY_BASIS.includes(arm), `${arm} must be in the canonical list`);
     assert.equal(B.SERVABLE_AVAILABILITY_BASIS.includes(arm), false,
       `${arm} must not be servable on a row`);
   }
+});
+
+test('a row with a basis but no number is its own arm, not version skew', () => {
+  // These two are both "the consumer could not take the row at its word", and that
+  // is exactly why they must not share a name. `unrecognised` is a payload built
+  // before the field existed, which stops happening once the producers are on the
+  // new shape. `unvouched` is a current payload whose producer classified the row
+  // and then served no number, which is a live fault and should not decay out of a
+  // count of the first. A consumer that folds them cannot tell the two apart, which
+  // is the defect this whole vocabulary exists to remove, arriving from the other
+  // side.
+  assert.ok(B.AVAILABILITY_BASIS.includes('unvouched'), 'unvouched must be a member');
+  assert.equal(B.isAvailabilityBasis('unvouched'), true);
+  assert.equal(B.SERVABLE_AVAILABILITY_BASIS.includes('unvouched'), false,
+    'unvouched is a consumer arm and must never be servable on a row');
+  assert.ok(B.AVAILABILITY_BASIS.includes('unrecognised'), 'unrecognised keeps its meaning');
+  assert.notEqual(B.AVAILABILITY_BASIS.indexOf('unvouched'),
+    B.AVAILABILITY_BASIS.indexOf('unrecognised'));
 });
 
 test('every served row carries a basis from the list', () => {

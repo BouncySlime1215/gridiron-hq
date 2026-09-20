@@ -113,3 +113,101 @@ test('once the season is held the disagreement clears', async () => {
   assert.equal(body.usage_coverage.stamp_disagrees, false);
   assert.equal(body.missing.some(m => m.source === 'nflverse_weekly_usage_seasons'), false);
 });
+
+/*
+ * THE BANNER'S OWN CONTRACT, which is a different question from the one above.
+ *
+ * Everything above answers "is the stamp lying". The banner has to RENDER something,
+ * and the shape it renders from is specified by the thread that owns it —
+ * docs/tdd/usage-coverage-banner.tdd.md §5, on their hold branch. Their client already
+ * exists (client/src/lib/usage-coverage.js), already has its sixteen mutations, and
+ * reads four mutually exclusive states off one key. Nothing serves it.
+ *
+ * The state names are theirs verbatim, not a translation: 'healthy', 'never_run',
+ * 'stale', 'ok_no_rows'. Their client "shows anything else as unrecognised", so a
+ * fifth name invented on this side renders as a shrug on a banner whose entire job is
+ * to stop an app from looking healthy while it projects this season off last season.
+ * Chat sync has no competing vocabulary — searched every remote head for the token and
+ * theirs is the only tree that holds it — so there is nothing to reconcile.
+ *
+ * These are ADDITIONS to the same key, not a second field. usage_coverage keeps job,
+ * seasons, per_season, missing, never_run, stamp and stamp_disagrees, which are the
+ * diagnosis; these eight are what the banner needs to say a sentence.
+ */
+const setLeagueWeek = (week) => {
+  run(`DELETE FROM leagues`);
+  if (week !== null) run(`INSERT INTO leagues (id, platform, league_id, season, name, current_week)
+                          VALUES (1, 'espn', '900', 2026, 'Banner Fixture', ?)`, week);
+};
+const clear2026 = () => run(`DELETE FROM player_week_usage WHERE season = 2026`);
+
+test('the banner contract: every key it names is served, and none is undefined', async () => {
+  stampUsage('ok');
+  const u = (await setup()).usage_coverage;
+  for (const key of ['state', 'season', 'rows', 'latest_week', 'league_week',
+    'seasons_with_rows', 'source_status', 'last_run_at']) {
+    assert.ok(key in u, `usage_coverage.${key} is in the contract and must be served`);
+    assert.notEqual(u[key], undefined, `${key} must be a value or null, never undefined`);
+  }
+  assert.equal(u.season, 2026, 'the season being played, not the newest season held');
+  assert.deepEqual(u.seasons_with_rows, [2022, 2023, 2024, 2025, 2026],
+    'what is being used instead, which is the sentence the banner writes');
+});
+
+test('OK_NO_ROWS: the state this install is actually in', async () => {
+  clear2026();
+  stampUsage('ok');
+  const u = (await setup()).usage_coverage;
+  assert.equal(u.rows, 0, 'no rows for the season being played');
+  assert.equal(u.source_status, 'ok', 'and the source says it ran fine');
+  assert.equal(u.state, 'ok_no_rows');
+  assert.deepEqual(u.seasons_with_rows, [2022, 2023, 2024, 2025],
+    'the banner names what it is projecting off instead');
+});
+
+test('NEVER_RUN outranks ok_no_rows: a fresh clone has made no claim', async () => {
+  clear2026();
+  stampUsage(null);
+  const u = (await setup()).usage_coverage;
+  assert.equal(u.rows, 0, 'zero rows either way — the states are told apart by the stamp');
+  assert.equal(u.source_status, 'never run');
+  assert.equal(u.state, 'never_run',
+    'a fresh clone must not be told its feed reported success');
+  assert.equal(u.last_run_at, null);
+});
+
+test('STALE is about the WEEK, not the season: rows held, but behind the league', async () => {
+  clear2026();
+  stampUsage('ok');
+  run(`INSERT INTO player_week_usage (player_id, season, week, targets) VALUES (1, 2026, 1, 5)`);
+  setLeagueWeek(3);
+  const u = (await setup()).usage_coverage;
+  assert.equal(u.rows > 0, true);
+  assert.equal(u.latest_week, 1);
+  assert.equal(u.league_week, 3);
+  assert.equal(u.state, 'stale',
+    'a season with week 1 in it while the league plays week 3 is not healthy');
+});
+
+test('HEALTHY, and the state is one of exactly the four the client knows', async () => {
+  clear2026();
+  stampUsage('ok');
+  run(`INSERT INTO player_week_usage (player_id, season, week, targets) VALUES (1, 2026, 3, 5)`);
+  setLeagueWeek(3);
+  const u = (await setup()).usage_coverage;
+  assert.equal(u.latest_week, 3);
+  assert.equal(u.state, 'healthy');
+  assert.ok(['healthy', 'never_run', 'stale', 'ok_no_rows'].includes(u.state),
+    'the client shows a fifth name as unrecognised, so there must never be one');
+});
+
+test('no league is not a stale league: league_week null cannot make the state stale', async () => {
+  clear2026();
+  stampUsage('ok');
+  run(`INSERT INTO player_week_usage (player_id, season, week, targets) VALUES (1, 2026, 1, 5)`);
+  setLeagueWeek(null);
+  const u = (await setup()).usage_coverage;
+  assert.equal(u.league_week, null);
+  assert.equal(u.state, 'healthy',
+    'with nothing to be behind, held rows are not evidence of being behind');
+});

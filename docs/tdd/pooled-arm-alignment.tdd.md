@@ -99,6 +99,56 @@ from a clustered one. A caller that asks for clustering cannot tell it was decli
   comparisons and the feature ladder included, where the arms are complete today and the
   assertion is what keeps them that way.
 
+## The follow-on: clustering GRANTED on a pairing that does not exist
+
+Found by the model evidence audit against the first commit on this branch, and it is the same
+defect one level down.
+
+The first version of `clusteredDiff` threw when clustering was **declined**. That is the safe
+direction: an unclustered interval is honest, merely narrower than the truth. It said nothing
+about clustering **granted** on a pairing that does not exist — and `groups.length === n` is
+satisfied *precisely when* `groups` is sized to the shorter array, which is how every pooled
+caller builds it. So the D34 shape itself was still unguarded at the primitive.
+
+I ran the audit's own probe (`scripts/probe-paired-bootstrap-alignment.mjs`, from their hold at
+`198395f`; it reads no database) against both trees myself rather than take the reading second
+hand. 60 baseline rows against 30 challenger rows with 30 groups:
+
+| | `as the code calls it` | `aligned on season B` |
+|---|---|---|
+| `origin/main` `791b131` | mean **-0.8**, ci90 [-0.8, -0.8], significant, n=30 | mean 0.1, ci90 [0.1, 0.1], significant, n=30 |
+| this tree | **refused** — no mean, no CI, no significance | mean 0.1, ci90 [0.1, 0.1], significant, n=30 |
+
+The truth on that fixture is the challenger **worse by +0.10**, and the convention is
+`mean(B) - mean(A)`, so `-0.8` reads as "the challenger wins" — sign inverted, on an interval of
+zero width, flagged significant. The aligned line is identical on both trees, which is what
+establishes the guard changed only the case that had no answer.
+
+**Where the refusal went, and why the two differ.** `pairedBootstrapDiff` **refuses** (returns
+`{ error, lengths, clustered: false }` and no interval): it has around twenty callers, a refusal
+cannot take one down, and a paired statistic on arrays of different lengths has nothing to
+report. `clusteredDiff` **throws**, before it asks the clustered/declined question at all, for
+callers that have already established their rows line up and want a failed audit over a published
+number.
+
+So the earlier sentence "clusteredDiff throws" reads, precisely: it throws when clustering is
+**declined** (from the first commit) and when the **pairing is misaligned** (from this one). The
+second is the one that inverts a sign, and it was unguarded until here.
+
+**Three existing tests had to change, and one was not mine.**
+`paired-bootstrap-clustering.test.js`'s 16(ii) test asserted that a length-mismatched `groups`
+array falls back to the exact ungrouped result. That was the right answer to a question that was
+too narrow: it treated the *groups* as the problem when the *value arrays being different
+lengths* is the problem, and the fallback still returned an interval on a truncated pairing. Its
+original claim is kept, moved onto arrays that are the same length — the only case where the
+groups question can still arise — and the refusal is asserted above it, with the reason in the
+test. My own two changed the same way: the by-index demonstration now writes the truncation out
+by hand, since the primitive will no longer do it, so the two answers can still be compared.
+
+**No caller was reaching it.** Every `offseason-model.js` comparison goes through `poolArm`, so
+nothing live was affected. "No caller today" is not a guard, which is the whole reason this row
+exists.
+
 ## Mutations
 
 Canonical shape. Each row applied alone from the same clean base, both files' SHA-256 (first 12
@@ -120,6 +170,17 @@ checked after the last row.
 | O8 | offseason-model | arm coverage is not served on the result | APPLIED | `360bae562188` -> `3f6fdce25aeb` | 1 | a challenger that fails on one season is compared on the seasons it has |
 | O9 | offseason-model | row keys drop the player, so teammates collide | APPLIED | `360bae562188` -> `9ebe2fc1995a` | 2 | walkForward never lets a model see the season it is graded on |
 | CONTROL | pooled-arms | a comment reworded, no code path touched | APPLIED | `308a8a406084` -> `a9ba9b494c67` | 0 | none, and none should |
+
+Second sweep, for the follow-on above. Base: `backtest-significance.js` `b69314e3f788`,
+`pooled-arms.js` `4f19dd9777ec`. Run adds `test/paired-bootstrap-clustering.test.js`. Both files
+restored and checked.
+
+| # | file | mutation | state | sha256 before -> after | fail | a test that fails |
+|---|---|---|---|---|---|---|
+| A1 | backtest-significance | the primitive truncates to `min()` again instead of refusing | APPLIED | `b69314e3f788` -> `4847b05ad437` | 3 | a MISALIGNED pairing is refused, not granted clustering because the groups happen to fit |
+| A2 | backtest-significance | the refusal returns an interval alongside the error | APPLIED | `b69314e3f788` -> `b755cd9ca323` | 3 | groups longer than n (item 16ii): the mismatched pairing is now refused outright |
+| A3 | pooled-arms | the wrapper checks lengths only after asking about clustering | APPLIED | `4f19dd9777ec` -> `dceb7ad68c5f` | 2 | clusteredDiff throws rather than return an unclustered interval as a clustered one |
+| CONTROL | backtest-significance | a comment reworded, no code path touched | APPLIED | `b69314e3f788` -> `098ab0a81723` | 0 | none, and none should |
 
 **Two rows survived the first sweep and were answered with tests, not weaker mutations.**
 
@@ -149,10 +210,14 @@ Targeted: 45 tests, 45 passed, 0 failed across `pooled-arms.test.js`, `offseason
 and `paired-bootstrap-clustering.test.js` (9 new in the first, 1 added to the second, the third
 untouched and passing against the new `clustered` field).
 
-Full local check `npm run check` on this tree: exit 0 — 2,960 tests, 2,919 passed, 0 failed, 41
-skipped; typecheck, lint and build clean; `start:smoke` passed on an isolated database (32
-teams). That total is lower than other branches in this thread report because this one is off
-`main` and carries none of their tests.
+Targeted after the follow-on: 46 tests, 46 passed, 0 failed across `pooled-arms.test.js`,
+`paired-bootstrap-clustering.test.js` and `offseason-model.test.js`.
+
+Full local check `npm run check`, measured on the tree whose parent is `5674cf1`: exit 0 — 2,961
+tests, 2,920 passed, 0 failed, 41 skipped; typecheck, lint and build clean; `start:smoke` passed
+on an isolated database (32 teams). The first commit measured 2,960/2,919 on the tree whose parent
+is `791b131`. Both totals are lower than other branches in this thread report because this one is
+off `main` and carries none of their tests.
 
 Run on the whole suite, not the targeted files, because an earlier edit in this session replaced
 text between two anchors and deleted a function in the gap: both targeted suites passed while 54
@@ -169,8 +234,10 @@ on unpaired rows is not a weaker measurement, it is not a measurement. The fixtu
 the wrong pairing gives the opposite sign, which is what makes the test a measurement rather than
 a restatement.
 
-**How do we know?** Nine mutations and an inert control, each with the file hash before and
-after, reproduced on a second base. Two survived the first pass and are named above with the
+**How do we know?** Twelve mutations and two inert controls across two sweeps, each with the
+file hash before and after, the first reproduced on a second base. And an outside reading: the
+model evidence audit's own probe, run by me against `origin/main` and against this tree, printing
+`-0.8 significant` before and a refusal after, with the aligned line identical on both. Two survived the first pass and are named above with the
 tests that now kill them. The integration test reaches the `catch` through an injected fitter, so
 the failure path is exercised rather than assumed.
 

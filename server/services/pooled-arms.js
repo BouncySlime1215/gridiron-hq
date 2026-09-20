@@ -86,9 +86,26 @@ export function poolArm(pooled, name, { errs, preds, truth, groups, keys }) {
  * degradation, and these are offline grading paths, not request handlers: a
  * throw here fails a model audit instead of publishing a number nobody can see
  * is wrong.
+ *
+ * It throws on two conditions, and the second was added after the first shipped:
+ * clustering DECLINED (the original), and a MISALIGNED pairing -- two value
+ * arrays of different lengths, where clustering is GRANTED because `groups` was
+ * sized to the shorter one. Only the first was guarded until this commit, and
+ * the second is the one that inverts a sign.
  */
 export function clusteredDiff(valuesA, valuesB, opts) {
   if (!opts?.groups) throw new TypeError('clusteredDiff requires groups; use pairedBootstrapDiff');
+  // MISALIGNED AND GRANTED is the case the first version of this guard missed. It threw when
+  // clustering was DECLINED, which is the safe direction: an unclustered interval is honest,
+  // merely narrower than the truth. Clustering GRANTED on a pairing that does not exist is the
+  // D34 shape itself, and `groups.length === n` is satisfied precisely when `groups` is sized to
+  // the shorter array -- which is how every pooled caller builds it. So the lengths are checked
+  // here, before the clustered/declined question is even asked.
+  if (valuesA.length !== valuesB.length) {
+    throw new RangeError(
+      `two value arrays of different lengths (${valuesA.length} and ${valuesB.length}) have no `
+      + `pairing, so this comparison cannot be made; align the rows first`);
+  }
   const out = pairedBootstrapDiff(valuesA, valuesB, opts);
   if (out.error) return out;
   if (out.clustered !== true) {

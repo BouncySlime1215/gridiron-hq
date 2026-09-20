@@ -93,7 +93,12 @@ test('the same comparison done by index reports a different number, which is the
     season('gbm', 2025, { err: 2.5 })
   ]);
 
-  const byIndex = pairedBootstrapDiff(pooled.no_change.errs, pooled.gbm.errs,
+  // The old call handed both arms straight in and let `n = min(...)` truncate. The primitive
+  // refuses that outright now, so the truncation is written out by hand here: this is the exact
+  // pairing the shipped code produced, reproduced so the two answers can be compared. The
+  // refusal itself is asserted in its own test above.
+  const truncated = pooled.no_change.errs.slice(0, pooled.gbm.errs.length);
+  const byIndex = pairedBootstrapDiff(truncated, pooled.gbm.errs,
     { iterations: 500, seed: 3, groups: pooled.gbm.groups });
   const aligned = comparePooledArms('no_change', pooled.no_change, 'gbm', pooled.gbm,
     { iterations: 500, seed: 3 });
@@ -192,14 +197,51 @@ test('clusteredDiff throws rather than return an unclustered interval as a clust
   assert.equal(clusteredDiff(a, b, { iterations: 200, groups }).clustered, true);
   assert.throws(() => clusteredDiff(a, b, { iterations: 200, groups: groups.slice(0, 10) }),
     /clustering was requested and declined/);
+  // Unequal lengths are caught by the misaligned-pairing guard, which sits before the
+  // declined-clustering question, so this throws with that message rather than the other one.
   assert.throws(() => clusteredDiff(a, b.slice(0, 20), { iterations: 200, groups }),
-    /clustering was requested and declined/);
+    /different lengths \(40 and 20\) have no pairing/);
   assert.throws(() => clusteredDiff(a, b, { iterations: 200 }),
     /requires groups/, 'and it is not a silent pass-through for a caller with no groups');
   // A refusal for too few rows is not a declined clustering, so it comes back as
   // the refusal rather than a throw: the caller gets to report "too thin".
   const thin = clusteredDiff(a.slice(0, 4), b.slice(0, 4), { iterations: 200, groups: groups.slice(0, 4) });
   assert.match(thin.error, /too few paired observations/);
+});
+
+test('a MISALIGNED pairing is refused, not granted clustering because the groups happen to fit', () => {
+  // THE FOLLOW-ON THE MODEL AUDIT FOUND, and it is the D34 shape one level down. The first fix
+  // made clusteredDiff throw when clustering is DECLINED. It said nothing about clustering
+  // GRANTED on a pairing that does not exist: `groups.length === n` holds whenever groups is
+  // sized to the SHORTER array, which is exactly how every pooled caller builds it, so 60 values
+  // against 30 with 30 groups took the clustered path and returned
+  // mean_diff -0.8, ci90 [-0.8, -0.8], significant, clustered, n=30 — while the truth on the
+  // fixture is the challenger 0.10 WORSE. Sign inverted, interval of zero width, flagged
+  // significant. No caller reaches it today because the offseason model goes through poolArm,
+  // and "no caller today" is not a guard.
+  const long = Array.from({ length: 60 }, (_, i) => 1 + (i % 5) * 0.01);
+  const short = Array.from({ length: 30 }, (_, i) => 0.2 + (i % 5) * 0.01);
+  const groups = Array.from({ length: 30 }, (_, i) => `g${i % 6}`);
+
+  assert.throws(() => clusteredDiff(long, short, { iterations: 200, seed: 3, groups }),
+    /two value arrays of different lengths \(60 and 30\) have no pairing/,
+    'the lengths are in the message, because which side is short is the first thing to know');
+
+  // The primitive refuses rather than throws: it has many callers and a refusal cannot crash
+  // one, and a paired test on arrays of different lengths has no defined pairing to report.
+  const low = pairedBootstrapDiff(long, short, { iterations: 200, seed: 3, groups });
+  assert.match(low.error, /different lengths \(60 and 30\)/);
+  assert.equal(low.mean_diff, undefined, 'no interval at all, so no sign to invert');
+  assert.equal(low.significant, undefined);
+  assert.equal(low.clustered, false);
+  assert.deepEqual(low.lengths, [60, 30]);
+
+  // And it is the LENGTHS that are refused, not the groups: equal arrays with fitting groups
+  // still cluster, so the guard cannot be passing by accident.
+  const ok = pairedBootstrapDiff(long, long.map(v => v - 0.5), { iterations: 200, seed: 3,
+    groups: Array.from({ length: 60 }, (_, i) => `g${i % 6}`) });
+  assert.equal(ok.clustered, true);
+  assert.ok(Math.abs(ok.mean_diff + 0.5) < 0.05);
 });
 
 test('coverage names which arms are short and which seasons they are missing', () => {
@@ -229,8 +271,10 @@ test('a caller that asks for clustering is told when it did not get it', () => {
     'no groups asked for, none used');
   assert.equal(pairedBootstrapDiff(a, b, { iterations: 200, groups: groups.slice(0, 10) }).clustered,
     false, 'groups too short: the fallback is honest, and now it is visible');
-  assert.equal(pairedBootstrapDiff(a, b.slice(0, 20), { iterations: 200, groups }).clustered,
-    false, 'groups sized to the longer arm: the mirror case the guard already caught');
+  const mirror = pairedBootstrapDiff(a, b.slice(0, 20), { iterations: 200, groups });
+  assert.equal(mirror.clustered, false, 'groups sized to the longer arm');
+  assert.match(mirror.error, /different lengths/,
+    'and the unequal lengths are refused before the groups question is reached');
   assert.equal(pairedBootstrapDiff(a.slice(0, 4), b.slice(0, 4), { iterations: 200 }).clustered,
     false, 'and the too-few-rows refusal carries the field as well');
   assert.equal(MIN_PAIRED_ROWS, 10);

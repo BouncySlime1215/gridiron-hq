@@ -55,6 +55,28 @@ import { crps } from './backtest.js';
  *   better-or-tied on a lower-is-better metric like CRPS or absolute error).
  */
 export function pairedBootstrapDiff(valuesA, valuesB, { iterations = 2000, seed = 1, groups } = {}) {
+  // TWO ARRAYS OF DIFFERENT LENGTHS HAVE NO PAIRING, so there is nothing for a paired test to
+  // report. This used to truncate to `Math.min(...)` and carry on, and that truncation is the
+  // whole of the defect the model evidence audit called D34: a pooled caller builds `groups` in
+  // lockstep with ONE of the two arrays, so when that array is the shorter one
+  // `groups.length === n` holds, the clustered path below is GRANTED, and the first `n` entries
+  // of the longer array are paired against rows they do not describe. Measured on the audit's
+  // own fixture: 60 values against 30 with 30 groups returned mean_diff -0.8, ci90 [-0.8, -0.8],
+  // significant, clustered, where the truth was +0.10 -- the sign inverted, on an interval of
+  // zero width.
+  //
+  // It is a refusal and not a throw because this function has around twenty callers and a
+  // refusal cannot take one down, and because the refusal is a fact a caller can print. The
+  // wrapper `clusteredDiff` in pooled-arms.js throws on the same condition, for callers that
+  // have already established their rows line up and want a failed audit over a published
+  // number.
+  if (valuesA.length !== valuesB.length) {
+    return {
+      error: `two value arrays of different lengths (${valuesA.length} and ${valuesB.length}) `
+        + `have no pairing, so a paired bootstrap has nothing to measure`,
+      lengths: [valuesA.length, valuesB.length], clustered: false
+    };
+  }
   const n = Math.min(valuesA.length, valuesB.length);
   if (n < 10) {
     return { error: `too few paired observations (${n}) to bootstrap meaningfully`,

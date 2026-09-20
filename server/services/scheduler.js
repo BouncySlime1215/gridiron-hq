@@ -1564,7 +1564,39 @@ export const JOBS = {
   // offThread: each completed season's CSV is ~5.4 MB, and this pulled four of
   // them every three days — see refreshFfOpportunity for why it no longer does.
   ffopportunity: { run: refreshFfOpportunity, maxAgeMinutes: 3 * 24 * 60, tier: 'growth', offThread: true,
-    label: 'ffopportunity weekly expected-fantasy-points benchmark' }
+    label: 'ffopportunity weekly expected-fantasy-points benchmark' },
+  /*
+   * ESPN league transactions, with proposal and decision timestamps.
+   *
+   * Registered 2026-09-20. Before this the work existed only in
+   * scripts/collect-league-transactions.mjs, reachable only from
+   * scripts/refresh-live-data.mjs, which runs on Nick's machine. Nothing on
+   * the deployed app has ever written league_transactions_raw, while six
+   * server modules read it. See server/services/league-transactions.js.
+   *
+   * 'metered', not 'live': ESPN's own view answers with a ~3 day window, so a
+   * 30-minute cadence has two orders of magnitude of headroom, and what is
+   * being metered here is not a paid API but Nick's ESPN session — the same
+   * cookies his browser uses. The live tier's 90 seconds would multiply that
+   * contention for no gain the window needs.
+   *
+   * offThread: the body is a fetch per league followed by a synchronous
+   * BEGIN/upsert/COMMIT over every row in the window. The write is exactly the
+   * shape that holds the request thread, and node:sqlite gives it no way not
+   * to. The worker gets its own module graph and its own DatabaseSync handle;
+   * it is a thread in this process, not a separate process, so it isolates the
+   * event loop and nothing else.
+   *
+   * liveDraftActive() is evaluated here rather than inside the job so the gate
+   * has one definition. It is the 2026-09-06 finding: our sweep hit ESPN with
+   * the same session his browser was drafting on, and ESPN treated that as
+   * concurrent use. Waiting out a draft costs nothing against a 3-day window.
+   */
+  league_transactions: {
+    run: () => import('./league-transactions.js')
+      .then(m => m.collectLeagueTransactions({ skipEspn: liveDraftActive() })),
+    maxAgeMinutes: 30, tier: 'metered', offThread: true,
+    label: 'ESPN league transactions — proposals, accepts, declines, vetoes, with timestamps' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */

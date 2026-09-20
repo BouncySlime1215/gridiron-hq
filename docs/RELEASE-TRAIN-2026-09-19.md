@@ -2254,17 +2254,50 @@ that used to be invisible is now obvious. In the meantime the app is serving in
 short windows between restarts rather than steadily, so opening the site may
 land on a stall.
 
-**How often, measured rather than estimated.** Polling every 60 seconds from
-22:53Z to 01:39Z, 167 reads: **at least 79 process starts, and the app has
-never been seen answering more than 72 seconds into any of them.** Of 51 clean
-reads, 50 landed on different processes.
+**How often, counted rather than estimated.** Polling every 60 seconds from
+22:53:10Z to 01:44:27Z, 173 reads: **58 process starts, one every 180 seconds.**
+The gaps between consecutive starts run 171 to 196 seconds, mean 180, median
+180. That is a metronome, not a scatter, and the regularity is the most useful
+thing in this paragraph.
 
-**Read that as two separate facts, because the gap between them is the
-symptom.** A process lives about three minutes — consecutive starts are 171 to
-376 seconds apart, median 180 — and it answers for at most the first 72 seconds
-of that. It is not dying after 72 seconds; **it is spending most of every life
-alive and not answering**, which is what the watchdog eventually kills it for.
-That is why the first command below is a brake rather than an investigation.
+**If you see "79 restarts" or "376 seconds" anywhere, both are mine and both
+are withdrawn.** 79 was a naive count of distinct start times, which
+double-counts every process read twice, because `uptime_s` is whole seconds;
+clustering gives 58. 376 is not in the data at all. Worked through in 7.0c-0.
+
+**Do not repeat the "72 seconds" claim. It is an artifact of the sampling.**
+The longest life ever observed is 72 seconds, and that is true but empty: the
+poll runs every 60 seconds against a 180-second cycle, which is exactly three
+polls per cycle, so the reads are phase-locked and land at the same point in
+every life. Of 54 clean reads, 41 caught the process at an age of 55 to 58
+seconds. **Not one read in this log has observed the app at an age between 73
+and 170 seconds.** This poll has never looked there. A claim that it stops
+answering after 72 seconds is a claim about the sampler, not the app.
+
+**The readings that do look past 72 seconds are the scheduler thread's, and
+they are the ones to quote.** Sampling on a different cadence, that thread
+caught the last `uptime_s` before six separate dark windows: 95, 97, 93, 91, 94,
+88. Those are lives that reached the high eighties and nineties and then went
+dark — which is the 90-second timer at `scheduler.js:1751`, observed rather
+than derived. My 72 adds nothing to that and should not sit beside it as if it
+were a second, smaller measurement of the same thing.
+
+**What the 180 seconds does support, as arithmetic rather than observation.**
+The boot pass schedules `runIfStale('nfl_model_growth')` at boot + 90 seconds
+(`scheduler.js:1751`), the watchdog exits the process after 60 seconds of a
+blocked loop, and a boot takes roughly 30 seconds. 90 + 60 + 30 = 180, which is
+the measured median to the second. Each cycle then has three phases, and the
+three kinds of read fall out of them exactly: a clean read at ~57 seconds while
+the process is still healthy, a read at ~117 seconds that finds it blocked and
+times out at 25 seconds (all 64 hangs timed out at exactly 25, so a hang is the
+timeout, not a measured block), and a read at ~177 seconds that waits through
+the kill and is answered by the next process at an age of 8 to 20 seconds.
+**Treat this paragraph as inference.** It is consistent with every number
+measured tonight and it is not proved by them; the brake below is what tests it.
+
+That is why the first command is a brake rather than an investigation. If the
+diagnosis is right the cycle stops dead, because the brake returns before the
+90-second timer is ever scheduled.
 
 **Two things about the inbox before anything else, so the rest reads
 straight.** CI is off deliberately and gates none of the merges below — the
@@ -2553,13 +2586,21 @@ sentences would survive being wrong about something else.**
 | `SCHEDULER_DISABLED=1` stops everything | **Read off `791b131`**: `scheduler.js:1732` returns before the boot pass and every timer | this thread |
 | Step 6's 900 s bar | **Derived**, not measured: `intervalMinutes: 5` → a 300 s tier, doubled. No one has watched a stable box on the fixed build | inferred |
 | What each of #56/#59/#61/#63 does | Their PR bodies, plus #59's diff read here | scheduler + this thread |
-| Restart counts | A 300 s poll against a ~160 s cycle — **a floor, never a count** | Trade Brain |
+| 58 restarts, one per 180 s | **Counted here** at 01:45Z: a 60 s poll is below the cycle, so it is a count, not a floor. Clustered within 5 s; stable at every tolerance 1-5 s | this thread |
+| The earlier "79 starts" and "171-376 s" | **Withdrawn.** 79 was the naive count `restart-count.sh` exists to prevent; 376 is not in the data, the widest gap is 196 s | this thread |
+| Reads are phase-locked, so "72 s" means nothing | **Measured here**: 60 s poll into a 180 s cycle is 3 polls per cycle; 41 of 54 clean reads caught an age of 55-58 s, and none between 73 and 170 s | this thread |
+| 90 + 60 + 30 = the 180 s cycle | **Inferred**, not measured: the timer at `:1751`, the 60 s watchdog fuse, a ~30 s boot. It matches the median to the second and is still arithmetic | this thread |
+| Any restart count taken before 22:49Z | A 300 s poll against a ~180 s cycle — **a floor, never a count** | Trade Brain |
 
-**The two rows to watch are the two marked inferred.** If a merge turns out to
-be gated on a check after all, that is the first row failing and the answer is
-Nick's settings page, not the code. If the app dies between 300 and 900 seconds
-after step 6, that is the second row failing and the answer is in the nineteen
-never-run background jobs, not in the boot fix. Both have somewhere to go.
+**Three rows are inferred rather than measured, and each has somewhere to go
+if it fails.** If a merge turns out to be gated on a check after all, that is
+the first one and the answer is Nick's settings page, not the code. If the app
+dies between 300 and 900 seconds after step 6, that is the 900 s bar and the
+answer is in the nineteen never-run background jobs, not in the boot fix. If
+the brake goes on and the restarts continue, that is the 90 + 60 + 30
+arithmetic failing, and the answer is that something outside the scheduler is
+blocking the loop — at which point the six baseline reads below are the next
+instrument, not another guess at which job it is.
 
 ### 7.0c-i Which job, and how it stopped being arithmetic
 

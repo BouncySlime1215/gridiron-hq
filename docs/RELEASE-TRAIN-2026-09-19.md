@@ -2456,6 +2456,35 @@ previous build had its own faults.
   thing that would have recorded the event never ran. #61 is the fix and the
   same reading is why.
 
+### 7.0c-0 Where every claim in the block above comes from
+
+Written because the block is going to be acted on by one person with a
+terminal, and the difference between "measured on the live app" and "read off
+the code and reasoned about" decides what he does when a step does not behave.
+**Nothing here is a hedge on the plan; it is the plan saying which of its
+sentences would survive being wrong about something else.**
+
+| Claim | How we know | Who |
+| --- | --- | --- |
+| Actions allowance spent, 2,000/2,000, resets 1 Oct | Nick's own billing screenshot | Nick |
+| The CI workflow is off, so a push triggers nothing | **Verified here**: one workflow, `state: disabled_manually` | this thread |
+| No merge is gated on a check | Platform rule — private repo on Free has no branch protection. **Not verified against this repo's settings**, which no session can read | inferred |
+| Each PR's suite numbers | Each PR body, its own author's local run before the allowance ran out | per thread |
+| `#59 ⊃ #56`, `#61 ⊃ #59`, `#63 ⊃ #61` | **Verified here** by `git merge-base --is-ancestor`, not by the base GitHub shows | this thread |
+| The blocking job is `nfl_model_growth` on the 90 s timer | **Measured on the live app**: last `uptime_s` before each dark window 95/97/93/91/94/88 across six lives, never near 66 | scheduler |
+| The boot pass blocks ~23 s, under the fuse | **Measured**: request at 41 s answered at 64 s, control at 22 s answered in 0.35 s | Trade Brain |
+| The two blocking steps, and only one can cause the 503 | **Read off `791b131`** and checked here — `nfl-advanced.js:199-200` has `BEGIN`, `nfl-event-archive.js` has none | this thread |
+| `SCHEDULER_DISABLED=1` stops everything | **Read off `791b131`**: `scheduler.js:1732` returns before the boot pass and every timer | this thread |
+| Step 6's 900 s bar | **Derived**, not measured: `intervalMinutes: 5` → a 300 s tier, doubled. No one has watched a stable box on the fixed build | inferred |
+| What each of #56/#59/#61/#63 does | Their PR bodies, plus #59's diff read here | scheduler + this thread |
+| Restart counts | A 300 s poll against a ~160 s cycle — **a floor, never a count** | Trade Brain |
+
+**The two rows to watch are the two marked inferred.** If a merge turns out to
+be gated on a check after all, that is the first row failing and the answer is
+Nick's settings page, not the code. If the app dies between 300 and 900 seconds
+after step 6, that is the second row failing and the answer is in the nineteen
+never-run background jobs, not in the boot fix. Both have somewhere to go.
+
 ### 7.0c-i Which job, and how it stopped being arithmetic
 
 `bootJobs` at `scheduler.js:1740-1744` is exactly twenty jobs, **awaited in

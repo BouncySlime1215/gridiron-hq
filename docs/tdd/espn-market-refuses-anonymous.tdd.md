@@ -69,27 +69,94 @@ different decisions, so they are different states rather than one empty value.
 
 ## RED, by injection — five, each verified applied
 
+**Re-measured at `943d2c5`, this branch's head.** The first version of this
+section was measured when the test file held six cases; `0055a89` added two
+more, and nothing here said which commit the numbers came from. A pass/fail
+count is the evidence that an injection is caught, and with two extra cases the
+counts move even where the same injection is still caught — so a stale number
+is worse than no number, and labelling it would have preserved a figure the
+reader cannot use. It is a six-second run. It was re-run.
+
 Run on a clean committed tree; the harness refuses to start on a dirty one.
+Base: `server/services/espn-market.js` at SHA-256 `4e40b94591c0`. Each row
+applied **alone** from that base and restored before the next, with the file
+hashed before and after, because a pattern that silently matches nothing
+reports as a pass and records a row as caught when nothing was mutated.
 
-```
-### e1 restore the original: fetch anyway when there is no pair  APPLIED 1+ 2-   # pass 2 # fail 4
-### e2 accept half a pair (s2 alone is enough)                   APPLIED 1+ 1-   # pass 5 # fail 1
-### e3 throw after the fetch instead of before it                APPLIED 1+ 1-   # pass 4 # fail 2
-### e4 report collected whenever the query returns a row         APPLIED 1+ 1-   # pass 4 # fail 2
-### e5 fall back to a plausible as-of when the table is empty    APPLIED 1+ 1-   # pass 5 # fail 1
+| row | injection | after | +/- | pass / fail of 8 | caught by |
+|---|---|---|---|---|---|
+| e1 | restore the original: fetch anyway when there is no pair | `e0981665d728` | 1+ 2- | 4 / **4** | 1, 2, 3, 4 |
+| e2 | accept half a pair (s2 alone is enough) | `b7059ac551b6` | 1+ 1- | 7 / **1** | 4 |
+| e3 | throw after the fetch instead of before it | `0bd3a7d3b1cc` | 4+ 4- | 6 / **2** | 2, 4 |
+| e4 | report collected whenever the query returns a row | `94dcb22e5da8` | 1+ 1- | 6 / **2** | 3, 6 |
+| e5 | fall back to a plausible as-of when the table is empty | `64aff9036262` | 1+ 1- | 7 / **1** | 3 |
+
+All five APPLIED — five distinct after-hashes, none equal to the base.
+
+**NO-OP CONTROL** `f104d9f6dfb0`: a comment appended to the `syncEspnMarket`
+signature line. Applied, 8 / 0. A real edit that changes no behaviour reports
+green, so a green row means the edit landed and broke nothing rather than that
+nothing was edited.
+
+**KILL CONTROL** `250094348c4f`: `syncEspnMarket` returns `{ written: 0 }`
+immediately. Applied, 0 / **8** — every case in the file. These tests can fail.
+
+Tests named by title, not ordinal: 1 *a league with no cookie pair is refused,
+by name*; 2 *and no request is made at all*; 3 *and nothing is written, so the
+board still says never collected*; 4 *half a pair is not a pair*; 5 *a league
+WITH cookies still syncs, and sends them*; 6 *once a row exists the freshness
+reads the table, not a job log*; 7 *the label names whose market it is, because
+the table can only hold one*; 8 *rows from before this record existed say so
+rather than guessing*.
+
+### Exact text, per row
+
+e1, the defect itself, restored:
+
+```js
+-  if (!lg.espn_s2 || !lg.swid) throw new EspnMarketCredentialsMissing(leagueRowId, lg.league_id);
+-  headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
++  if (lg.espn_s2 && lg.swid) headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
 ```
 
-e1 is the defect itself. e3 is the one worth reading: throwing *after* the
-request still refuses, still writes nothing, and is still wrong — an
-unauthenticated request left the process. The test that catches it asserts on
-the recorded call list rather than on the outcome, which is why `fetch` is a
-counting stub here and not a module mock.
+e2, half a pair accepted:
+
+```js
+-  if (!lg.espn_s2 || !lg.swid) throw new EspnMarketCredentialsMissing(leagueRowId, lg.league_id);
++  if (!lg.espn_s2) throw new EspnMarketCredentialsMissing(leagueRowId, lg.league_id);
+```
+
+e3, the throw moved below the request — the four-line block is reordered, the
+throw line moving from above `headers.Cookie` to below the `await fetch`.
+
+e4, `collected` from the row's existence rather than its count:
+
+```js
+-  const collected = (r?.n ?? 0) > 0;
++  const collected = !!r;
+```
+
+e5, an as-of invented when the table is empty:
+
+```js
+-  return { ...r, collected, as_of: r?.fetched_at ?? null, source, label };
++  return { ...r, collected, as_of: r?.fetched_at ?? new Date().toISOString(), source, label };
+```
+
+e3 is the one worth reading: throwing *after* the request still refuses, still
+writes nothing, and is still wrong — an unauthenticated request left the
+process. Test 2 catches it by asserting on the recorded call list rather than
+on the outcome, which is why `fetch` is a counting stub here and not a module
+mock. e2 and e3 both redden test 4 by different routes, which is how a guard
+with two ways past it looks in a table.
 
 ## GREEN
 
+At `943d2c5`:
+
 ```
 test/espn-market-refuses-anonymous.test.js
-# tests 6   # pass 6   # fail 0
+# tests 8   # pass 8   # fail 0
 ```
 
 Test 5 is the control: a league **with** cookies still syncs and still sends
@@ -203,6 +270,37 @@ sync on that member's pair and report `source: 'member'`.
 So the swap is one line of source, four rewritten tests and one new one. The
 comment now says that, because a comment that under-quotes the cost of a change
 is how the change gets scheduled into an afternoon that cannot hold it.
+
+## Numbers, and the commits they were measured on
+
+Every figure in this file, with the commit it was taken on. A figure ages into
+a document unless something re-points it, so the commit is part of the figure.
+
+| figure | value | measured at |
+|---|---|---|
+| this file's suite | 8 tests, 8 pass, 0 fail | `943d2c5` |
+| five injections + two controls | table above, base hash `4e40b94591c0` | `943d2c5` |
+| full `npm run check` | **2,958 tests · 2,917 pass · 0 fail · 41 skipped**, exit 0, 875 JS files syntax-checked, build 3.10s, `start:smoke` passed, zero `not ok` | `9a38670` |
+
+**Why the full-check figure taken at `9a38670` honestly describes `943d2c5`.**
+`943d2c5` is a documentation-only commit:
+`git diff --stat 9a38670 943d2c5 -- server test scripts client fly.toml package.json`
+is empty, so the code tree is byte-identical. And no stage of `npm run check`
+reads `docs/` — checked stage by stage rather than assumed:
+
+- `typecheck` is `tsc --noEmit` and `tsconfig.json`'s `include` is `["client/src"]`;
+- `lint` is `scripts/lint.mjs`, whose `roots` are `['server', 'scripts', 'test']`
+  and which collects only `.js` and `.mjs`;
+- `test` globs `test/*.test.js`, and no test reads a file under `docs/` from
+  disk — several name a docs path, every one of them inside a comment;
+- `build` is `vite build --config client/vite.config.ts`;
+- `start:smoke` boots the server.
+
+So a documentation commit cannot move that number, and reusing it is a fact
+about the check rather than an assumption about the commit. If a later commit
+on this branch touches any path above, the figure has to be re-measured and
+this table updated — that is the condition, stated so the next reader can test
+it rather than trust it.
 
 ## The five questions
 

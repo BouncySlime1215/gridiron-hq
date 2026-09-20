@@ -18,7 +18,8 @@
  * are the contract that keeps a chatty manager from dominating the ranking.
  */
 import { rows } from '../db/index.js';
-import { managerSignalsFor, openChatDb, chatDataKey, transactionsCollected } from './manager-signals.js';
+import { managerSignalsFor, openChatDb, chatDataKey, transactionsCollected, archetypesBuilt }
+  from './manager-signals.js';
 import { identityMap } from './manager-identity.js';
 import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from './talk-vs-model.js';
 import { declarationCredibility, untouchableStance } from './bluff-detector.js';
@@ -131,6 +132,10 @@ function percentile(xs, x) {
  */
 export function counterpartyLayer(leagueId, { season, week, rosterContext = null, zero = [] } = {}) {
   const signals = managerSignalsFor(leagueId);
+  // One block per league, shared by every manager entry and frozen for that
+  // reason. `luck_self_view` is priced off this store, so its age travels with
+  // the reading rather than being left for a page to guess at.
+  const archetypesAsOf = Object.freeze(archetypesBuilt(leagueId, season ?? null));
   // Every league-wide read is built ONCE here and handed to whoever needs it,
   // so the deal read and the valuation map cannot end up on different answers.
   const gaps = expectationGaps(season, week);
@@ -242,7 +247,12 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
       // there rather than importing manager-archetypes.js keeps the weekly
       // feature store out of the trade path.
       luck: Number.isFinite(m.outcome_luck_wins)
-        ? { value: m.outcome_luck_wins, n: s.samples.outcome_luck_wins ?? 0 } : null,
+        ? { value: m.outcome_luck_wins, n: s.samples.outcome_luck_wins ?? 0,
+          // The BUILD's stamp, not manager_signals.computed_at: the signal build
+          // can re-copy this value without the archetype build having re-measured
+          // it, so its own stamp would advance while the measurement sat still.
+          as_of: archetypesAsOf.as_of } : null,
+      archetypes: archetypesAsOf,
       negotiation: profiles.byRoster.get(String(id))?.profile ?? null,
       negotiation_n: profiles.byRoster.get(String(id))?.messages_read ?? 0,
       receptiveness_factors: [
@@ -394,7 +404,7 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
   const off = new Set(zero);
   const factors = [];
   const inert = [];
-  const add = (source, effect, n, why) => {
+  const add = (source, effect, n, why, asOf = null) => {
     // `zero` comes first and suppresses the source ENTIRELY, inert entry
     // included: the ablation's arithmetic depends on a zeroed source leaving no
     // trace at all, and an inert entry is a trace.
@@ -409,7 +419,10 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
     // firing. A caller with no reading at all passes n = 0 and lands here too,
     // which is how "we have never measured this" gets a sentence.
     if (n < spec.min_n) {
-      inert.push({ source, reason: `rests on ${n} of the ${spec.min_n} needed (${spec.needs})` });
+      // `as_of` rides the inert entry too. "Not enough scored weeks yet" and "not
+      // enough as of a build three days ago" are different answers, and only the
+      // second tells a reader whether re-running the build would change it.
+      inert.push({ source, reason: `rests on ${n} of the ${spec.min_n} needed (${spec.needs})`, as_of: asOf });
       return;
     }
     // Above its sample and still neutral: a real reading that moves no price.
@@ -419,7 +432,7 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
     if (Math.abs(effect) < 0.001) return;
     const capped = Math.max(-spec.cap, Math.min(spec.cap, effect));
     factors.push({ source, label: spec.label, effect: +capped.toFixed(4), n, cap: spec.cap,
-      fitted: spec.fitted, why });
+      fitted: spec.fitted, why, as_of: asOf });
   };
 
   const owns = managerProfile?.owned?.has(key) ?? false;
@@ -501,7 +514,8 @@ export function playerValuation(managerProfile, player, { zero = [] } = {}) {
       luck
         ? `${luck.value > 0 ? '+' : ''}${luck.value} wins against expectation `
           + `over ${luck.n} scored weeks — he prices this roster the way his record reads`
-        : 'no scored weeks measured for him yet, so his record has not been read for luck');
+        : 'no scored weeks measured for him yet, so his record has not been read for luck',
+      luck?.as_of ?? managerProfile?.archetypes?.as_of ?? null);
   }
 
   // ------------------------------------------- 5. a hole he could fill here

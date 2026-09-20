@@ -193,6 +193,27 @@ function rosterContext(lg) {
  * change; moving it here would shift every cache key in the file for a reason
  * unrelated to the bug.
  */
+/**
+ * How many more weeks this league actually plays, counting from `week`.
+ *
+ * `GAMES` is 17 and is the length of an NFL regular season, not the length of
+ * what is left of one. Multiplying a per-week gain by it and calling the result
+ * "over the season" is right only in week 1: by week 10 it claims more than
+ * twice the points a trade can still deliver, and by week 15 it is fiction —
+ * which is exactly when a manager is most willing to overpay.
+ *
+ * The regular season's remaining weeks plus this league's own playoff weeks,
+ * from `leagueSchedule`, so a league with a short regular season or a four-week
+ * playoff is counted as it really runs rather than as the default. Zero once the
+ * league is over: a trade then buys nothing, and saying so is better than
+ * quietly falling back to a full season.
+ */
+export function seasonWeeksLeft(lg, week) {
+  const w = Math.max(1, Math.min(18, Number(week) || 1));
+  const { regularSeasonEnd, playoffWeeks } = leagueSchedule(lg);
+  return Math.max(0, regularSeasonEnd - w + 1) + playoffWeeks.filter(pw => pw >= w).length;
+}
+
 export function tradeWeekContext(lg = null) {
   if (lg) return { season: SEASON, week: leagueCurrentWeek(lg) };
   const week = Number(process.env.NFL_WEEK) || rows(`SELECT MIN(week) AS week FROM game_lines
@@ -1114,6 +1135,12 @@ export function evaluate(a, b, slots, ctx = {}) {
     if (!weeks || !byeWeeks.length) return get();
     return ((weeks - byeWeeks.length) * get() + byeWeeks.reduce((sum, w) => sum + get(w), 0)) / weeks;
   };
+  // Resolved once per evaluation, never per side: the two sides of one deal are
+  // played out over the same remaining weeks, and computing it twice is how the
+  // two halves of a payload drift apart.
+  const weeksCounted = Number.isFinite(ctx.weeksLeft) ? Math.max(0, ctx.weeksLeft) : GAMES;
+  const weeksBasis = Number.isFinite(ctx.weeksLeft) ? 'weeks_remaining' : 'full_season_default';
+
   const side = (team, gives, gets) => {
     const after = team.players.filter(p => !gives.some(g => g.id === p.id)).concat(gets);
     const before = lineupOf(team.players, 'adj_ppg');
@@ -1133,7 +1160,18 @@ export function evaluate(a, b, slots, ctx = {}) {
       risk: sideRisk(givesOut, getsIn),
       lineup_before: before.points, lineup_after: post.points,
       ppg_delta: +(post.points - before.points).toFixed(2),
-      season_delta: +((post.points - before.points) * GAMES).toFixed(1),
+      // The per-week gain over the weeks this league still plays — NOT over 17.
+      // `weeksCounted` is resolved once above, outside this closure, so both
+      // sides of a deal are multiplied by the same number and the count served
+      // beside them is the one that was actually used.
+      season_delta: +((post.points - before.points) * weeksCounted).toFixed(1),
+      season_delta_weeks: weeksCounted,
+      // Whether that count came from the league or from the fallback. A caller
+      // with a league in hand supplies `ctx.weeksLeft`; one without gets 17 and
+      // this field says so, because a full-season figure presented in November
+      // is the defect this exists to stop, and it must be visible rather than
+      // inferred from the number's size.
+      season_delta_basis: weeksBasis,
       // The lineup change in THIS league's playoff weeks (playoffLeg above: the
       // weekly-rate lineup of each playoff week, byes out, averaged). No opponent
       // adjustment, so this differs from ppg_delta only by WHEN points land: adj_ppg
@@ -1536,6 +1574,9 @@ function findTradesUncached(lg, {
   // normal case for a league with no chat corpus and cost nothing.
   // NB: `target` in this function is the target PLAYER, not the week context.
   const weekNow = tradeWeekContext(lg);
+  // The weeks this league still plays, for season_delta. Read once per search:
+  // it is the same for every package the search evaluates.
+  const weeksLeft = seasonWeeksLeft(lg, weekNow.week);
   // WHEN the points land, not just how many. evaluate()'s playoff_ppg_delta is
   // the lineup change on each player's rate in this league's playoff weeks —
   // byes counted, no opponent adjustment (no schedule-strength signal has passed
@@ -1604,7 +1645,7 @@ function findTradesUncached(lg, {
         if (skew < -0.16 || skew > 0.30) continue;
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
-          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo });
+          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo, weeksLeft });
         if (ev.me.ppg_delta < 0.4) continue;
         // Never even a "closest fit" fallback candidate — no real GM accepts leaving
         // a starting slot empty, whatever the value math says.
@@ -1623,7 +1664,7 @@ function findTradesUncached(lg, {
           const leanGet = side === 'get' ? get.filter(x => x.id !== player.id) : get;
           if (!leanGive.length || !leanGet.length) return false;
           const lean = evaluate({ team: me, gives: leanGive }, { team: them, gives: leanGet }, slots,
-            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo });
+            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo, weeksLeft });
           return lean.me.ppg_delta >= ev.me.ppg_delta - 0.05
             && lean.them.ppg_delta >= ev.them.ppg_delta - 0.05;
         });
@@ -2091,7 +2132,10 @@ function ladderInputs(lg, myTeamId, playoffOdds, useCounterparty = true) {
   const counterparties = useCounterparty
     ? counterpartyLayer(lg.id, { season: weekNow.season, week: weekNow.week })
     : new Map();
-  return { weekNow, odds, horizon, counterparties };
+  // Resolved here so both ladder entry points get the same count from one read,
+  // rather than each deriving its own and drifting.
+  const weeksLeft = seasonWeeksLeft(lg, weekNow.week);
+  return { weekNow, odds, horizon, counterparties, weeksLeft };
 }
 
 /** The same horizon-weighted gain findTrades ranks on, for one ladder rung. */
@@ -2199,7 +2243,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     lg.id, String(owner.roster_id))[0]?.tradeability ?? 'fair';
   if (tier === 'never') return { error: `${owner.owner} is marked "Never trades," so the engine did not generate fake offers for this player.` };
   const ownerCtx = rosterContext(lg).get(String(owner.roster_id));
-  const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
+  const { weekNow, odds, horizon, counterparties, weeksLeft } = ladderInputs(lg, myTeamId, playoffOdds);
 
   // How motivated is the seller? A team with surplus at his position and a hole
   // elsewhere is a much cheaper negotiation than one starting him with no cover.
@@ -2213,7 +2257,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   const memo = new WeakMap();   // both rosters are fixed for this whole ladder (see evaluate())
   const myLine = bestLineup(me.players, slots);
   const addCeiling = freeAddCeiling(me, owner, [target], slots, horizon,
-    { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+    { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo, weeksLeft });
   const upside = addCeiling.weekly;
   const upsideHorizon = addCeiling.horizon_weighted;
   const blockedBy = myLine.slots
@@ -2266,7 +2310,7 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     const ratio = target.value ? giveValue / target.value : 0;
     if (ratio < 0.70 || ratio > 1.65) continue;
     const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
-      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo, weeksLeft });
     const gain = ladderGain(ev, horizon);
     // The horizon-weighted gain is the objective, so it is also the entry gate —
     // it used to be the flat weekly delta, which discarded a package that is worth
@@ -2351,7 +2395,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your team not found in this league' };
   // Same horizon and same counterparty layer as the league-wide search (G6).
-  const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
+  const { weekNow, odds, horizon, counterparties, weeksLeft } = ladderInputs(lg, myTeamId, playoffOdds);
 
   const targets = [...new Set((targetIds ?? []).map(Number))]
     .map(id => resolvePlayer(id, assets, teams)).filter(Boolean);
@@ -2393,7 +2437,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
     // below are gated on rather than on this week alone (see freeAddCeiling).
     const memo = new WeakMap();   // both rosters are fixed for this owner's ladder (see evaluate())
     const addCeiling = freeAddCeiling(me, owner, theirTargets, slots, horizon,
-      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo, weeksLeft });
     const upside = addCeiling.weekly;
     const upsideHorizon = addCeiling.horizon_weighted;
 
@@ -2427,7 +2471,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
       const ratio = targetsValue ? giveValue / targetsValue : 0;
       if (ratio < 0.70 || ratio > 1.65) continue;
       const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
-        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo, weeksLeft });
       const gain = ladderGain(ev, horizon);
       if (gain.value <= 0) continue;
       priced.push({

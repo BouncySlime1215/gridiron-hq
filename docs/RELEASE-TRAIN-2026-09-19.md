@@ -2262,17 +2262,19 @@ of a dozen jobs is the one currently holding the lock."
    **`uptime_s` past 600 and still climbing on the second read is the pass.**
    Anything under 200 on a later read means it restarted again.
 
-3. **One read settles which job it is**, and it is read-only, so it can be done
-   while the app is quiet:
+3. **One read confirms the job by evidence rather than by timing**, and it is
+   read-only, so it can be done while the app is quiet:
    ```
    fly ssh console -a gridiron-hq -C "sqlite3 /data/data.sqlite 'SELECT id, started_at, status FROM nfl_model_growth_runs ORDER BY id DESC LIMIT 10;'"
    fly ssh console -a gridiron-hq -C "ls -la /data"
    ```
    `nfl-model-growth.js:164-166` INSERTs a row with `status: 'running'` **before
    any work starts**, so a process killed mid-job leaves that row behind.
-   **One `'running'` row roughly 90 seconds after each process start proves it;
-   no `'running'` rows kills the diagnosis** and sends the search back to the
-   boot pass. The `ls` is the separate question of what `.bak` files are on the
+   **One `'running'` row roughly 90 seconds after each process start confirms
+   it; no `'running'` rows kills the diagnosis** and sends the search back to
+   the boot pass. The job is already named from the live app (7.0c-i), so this
+   is the check that would have caught us being wrong, not the thing the
+   diagnosis rests on. The `ls` is the separate question of what `.bak` files are on the
    volume — there should be exactly one, from the 22:09Z boot, and it is the
    only copy of the pre-migration rows.
 
@@ -2330,15 +2332,18 @@ of a dozen jobs is the one currently holding the lock."
    fly secrets unset AUTO_HEAVY_SYNC -a gridiron-hq
    ```
 
-**Why two PRs rather than one.** #56 is necessary and not sufficient: the same
-jobs can still wedge once the watchdog is legitimately armed, so the cycle
-re-forms at a slower period. The second moves the boot pass, the 90-second
-timer at `:1751` and the 150-second one at `:1754` off the request thread, per
-job and behind a structural allow-list, with a test that fails if main-thread
-boot work can exceed the watchdog threshold — which is what stops this
-re-forming the next time somebody adds a job.
+**Why three scheduler PRs rather than one**, since each fixes a different link
+and none of them is sufficient alone. **#56** stops the host's own health probe
+arming the watchdog mid-boot; on its own the same jobs still wedge once it is
+legitimately armed, so the cycle re-forms at a slower period. **#59** moves the
+boot pass, the 90-second timer at `:1751` and the 150-second one at `:1754` off
+the request thread, per job and behind a structural allow-list, with a test that
+fails if main-thread boot work can exceed the watchdog threshold — which is what
+stops this re-forming the next time somebody adds a job. **#61** stops the job
+being handed the process again on the next boot. Take out any one of the three
+and the loop has a path back.
 
-**The root cause that PR 2 addresses, in one sentence, because it is the part
+**The root cause that #59 addresses, in one sentence, because it is the part
 that will look already-handled to a reader.** The scheduler *does* have a job
 budget — `DEFAULT_JOB_TIMEOUT_MS = 120_000` at `scheduler.js:1438` — but it is
 applied as a `Promise.race`, and **a race cannot interrupt synchronous work**:
@@ -2396,10 +2401,17 @@ previous build had its own faults.
   volume. It is the row-level rollback and must not be tidied.
 - **The qualifier: job output can be incomplete.** A job writing many rows
   across separate transactions, killed halfway, leaves partial data rather than
-  corruption. Seven jobs sit at exactly `consecutive_failures: 1` — one each,
-  never two — which is the signature of a counter reset by a restart before a
-  second failure can accumulate. So: nothing is corrupted and no data is at
-  risk; **that is not the same as nothing having been affected.**
+  corruption. So: nothing is corrupted and no data is at risk; **that is not
+  the same as nothing having been affected.**
+- **And the counters understate it.** Seven jobs sit at exactly
+  `consecutive_failures: 1` — one each, never two. An earlier version of this
+  section read that as a counter reset by each restart. It is not: `record()`
+  runs only after `run()` returns, so a job killed mid-run never reaches the
+  line that would increment anything, and the row simply stays as the last
+  completed attempt left it. **The counters are not a reset tally, they are a
+  tally that stopped being written**, so they are a floor on how many attempts
+  were abandoned, not a count of them. #61 is the fix and the same reading is
+  why.
 
 ### 7.0c-i Which job, and how it stopped being arithmetic
 

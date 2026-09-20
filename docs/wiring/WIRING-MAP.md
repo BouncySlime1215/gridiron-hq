@@ -33,7 +33,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 ## Findings
 
 **10 missing feed** — a surface depends on something nothing produces.
-**2001 orphan** — something produced that reaches no surface.
+**1955 orphan** — something produced that reaches no surface.
 230 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
@@ -207,8 +207,8 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `field-attached-never-read` | orphan | 4 | 18 | 39 |
 | `value-computed-never-used` | orphan | 0 | 4 | 19 |
 | `table-never-read` | orphan | 0 | 4 | 13 |
-| `export-only-tested` | orphan | 71 | 90 | 200 |
-| `export-imported-by-nothing` | orphan | 132 | 271 | 626 |
+| `export-only-tested` | orphan | 99 | 139 | 289 |
+| `export-imported-by-nothing` | orphan | 94 | 219 | 504 |
 | `route-no-caller` | orphan | 52 | 331 | 79 |
 
 ### `column-read-never-written` — SHOULD WIRE (3)
@@ -967,61 +967,61 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **schema_preflight** `[shared]` — written by 1 file(s), read by nothing
   - server/db/preflight.js:268
 
-### `export-only-tested` — ORPHAN (361)
+### `export-only-tested` — ORPHAN (527)
 
 Grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
+| `server/services/offseason-model.js` | 26 |
+| `server/services/trade-engine.js` | 12 |
+| `server/services/contingency.js` | 11 |
+| `server/betting/nfl/strategy/t60-runner.js` | 10 |
 | `server/services/lineup-brain.js` | 9 |
+| `server/services/offseason-data.js` | 9 |
+| `server/services/counterparty-pricing.js` | 8 |
 | `server/services/execution-slate-reasoning.js` | 8 |
+| `server/services/llm-budget.js` | 8 |
 | `server/services/nfl-sim-shape-calibration.js` | 8 |
+| `scripts/promote-early-week-weights.mjs` | 7 |
+| `scripts/refresh-live-data.mjs` | 7 |
 | `server/betting/nfl/contracts/total-probabilities.js` | 7 |
+| `server/services/book-feeds-extra.js` | 7 |
 | `server/services/kalshi-adverse-selection.js` | 7 |
 | `server/services/nfl-execution-clv-downsize.js` | 7 |
 | `server/services/nfl-family-contribution.js` | 7 |
 | `server/services/trade-proposals.js` | 7 |
 | `server/betting/nfl/contracts/forecast-packet.js` | 6 |
-| `server/services/execution-fill.js` | 6 |
-| `server/services/nfl-candidate-findings.js` | 6 |
-| `server/services/nfl-execution-attribution.js` | 6 |
-| `server/services/nfl-execution-staking-policy.js` | 6 |
-| `server/services/nfl-team-strength.js` | 6 |
-| `server/services/trade-engine.js` | 6 |
-| `scripts/flag-qbr-2026-placeholders.mjs` | 5 |
-| `server/news/twitter-ingest.js` | 5 |
-| `server/services/lineup-posture.js` | 5 |
-| `server/services/nfl-decision-tape.js` | 5 |
-| `server/services/nfl-execution-clv.js` | 5 |
-| _… 118 more files_ | 234 |
+| `server/services/beat-the-close.js` | 6 |
+| _… 156 more files_ | 350 |
 
-### `export-imported-by-nothing` — ORPHAN (1029)
+### `export-imported-by-nothing` — ORPHAN (817)
 
 Grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
-| `server/services/offseason-model.js` | 44 |
 | `scripts/wiring-map.mjs` | 39 |
 | `server/betting/nfl/strategy/margin-distribution.js` | 25 |
 | `server/betting/nfl/strategy/teaser-staking.js` | 24 |
-| `server/services/offseason-data.js` | 24 |
 | `server/betting/nfl/strategy/teaser-season.js` | 19 |
 | `server/services/nfl-joint-score.js` | 18 |
-| `server/services/nfl-sim-policy.js` | 18 |
-| `server/services/contingency.js` | 17 |
-| `server/services/parlay-api.js` | 17 |
-| `scripts/promote-early-week-weights.mjs` | 16 |
+| `server/services/offseason-model.js` | 18 |
 | `server/services/alt-spread-import.js` | 16 |
 | `server/services/forecast-combination.js` | 16 |
-| `server/betting/nfl/strategy/t60-runner.js` | 15 |
-| `server/services/nfl-ensemble-rank.js` | 15 |
+| `server/services/offseason-data.js` | 15 |
 | `server/services/consensus-weights.js` | 14 |
 | `server/services/draft-abstention-audit.js` | 14 |
-| `server/services/nfl-weekly-feature-store-v2.js` | 14 |
 | `server/services/joint-score-backtest.js` | 13 |
-| `server/services/ros-projection.js` | 12 |
-| _… 227 more files_ | 639 |
+| `server/services/nfl-ensemble-rank.js` | 11 |
+| `server/services/nfl-replay.js` | 11 |
+| `server/services/nfl-specialists.js` | 11 |
+| `server/services/nfl-weekly-feature-store-v2.js` | 10 |
+| `server/services/ros-projection.js` | 10 |
+| `scripts/promote-early-week-weights.mjs` | 9 |
+| `server/betting/nfl/forecast/spread-family-adapters.js` | 9 |
+| `server/services/manager-archetypes.js` | 9 |
+| _… 221 more files_ | 506 |
 
 ### `route-no-caller` — ORPHAN (462)
 

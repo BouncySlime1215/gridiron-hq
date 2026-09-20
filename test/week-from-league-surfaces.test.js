@@ -47,6 +47,7 @@ await import('../server/routes/nfldata.js');
 const { freeAgents, waiverUpgrades, sellHigh } = await import('../server/services/waiver-brain.js');
 const { waiverBoard } = await import('../server/services/waiver-wire.js');
 const { byeOutlook, byePatches } = await import('../server/services/roster-risk.js');
+const { tradeWeekContext } = await import('../server/services/trade-engine.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -87,10 +88,17 @@ const main = league(501, LEAGUE_WEEK);
 // print the week and can only be read through what the week changes.
 const late = league(502, 16);
 
-test('no betting line is loaded, so the old path would answer week 1', () => {
+test('no betting line is loaded, so the old path really does answer week 1', () => {
   // Pinning the premise rather than assuming it: without this, every assertion
-  // below could pass for the wrong reason.
+  // below could pass for the wrong reason — each would be comparing the league's
+  // week against a betting-table week that happened to agree.
   assert.equal(rows(`SELECT season FROM game_lines`).length, 0);
+  // And the consequence, stated rather than left implied. The first version of
+  // this test asserted only the empty table, which meant a defect injection
+  // changing the no-league fallback from 1 to 7 left it green: it named a
+  // behaviour ("would answer week 1") that it did not check.
+  assert.equal(tradeWeekContext().week, 1);
+  assert.notEqual(LEAGUE_WEEK, 1, 'and the league week must differ from it, or nothing below separates the two');
 });
 
 test('the waiver list is priced for the league\'s week', () => {

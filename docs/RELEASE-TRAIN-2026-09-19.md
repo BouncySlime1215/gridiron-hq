@@ -2265,7 +2265,9 @@ count, failures, lint, typecheck and smoke — taken before the allowance ran ou
 
 **Do not re-enable the workflow and do not re-run anything**, including from
 the Actions tab, until the allowance resets. A re-run spends the thing that is
-exhausted and fails in two seconds regardless. Written up in full on #35.
+exhausted and fails in two seconds regardless. The full evidence — which runs,
+which branches, the two-second durations — is in a comment on this pull
+request.
 
 **And the emails were the noise, not the work.** Every new pull request sends
 one, and overnight that made the volume look like activity when most of it was
@@ -2275,7 +2277,9 @@ already exist. **So no PR number beyond the ones listed above should appear
 before morning unless it is code that ships.** A number you do not recognise is
 worth a second look for that reason.
 
-**Step 7 is not the first item. Stabilising the app is.**
+**The run sheet's step 7 is not the first item. Stabilising the app is.**
+Everything numbered below is this block's own list, not the run sheet's — the
+two both reach a step 7 and they are different steps.
 
 **There is a purpose-built brake for this already in the code, and it is the
 first command.** `scheduler.js:1732`:

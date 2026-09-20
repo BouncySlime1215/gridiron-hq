@@ -435,176 +435,41 @@ correctly kills nothing. Their own prose gets this right ("a green result is not
 this harness failing to apply an edit"); only the label is the wrong one of the
 two. As it stands the set has no row proving the matcher can miss.
 
-**And the diff is not comment-only.** I was told
-`test/health-route-single.test.js` differs from `main` by twelve lines of block
-comment inside an existing `/** */`, with no `test()` added. The `test()` count
-is right — three at `791b131` and three at `23ed6da`. The rest is not. It is 27
-added lines, the comment opens its own `/*` rather than joining an existing
-`/** */`, and the body changed:
+**WITHDRAWN, AND IT WAS MINE.** This section carried a finding that the
+`test/health-route-single.test.js` diff was not comment-only: 27 added lines,
+the comment opening its own `/*`, and the body changed so that the assertion no
+longer pins the registration's line. Every one of those readings is accurate
+against `791b131`. **That is the wrong base, and nobody told me to use it.** The
+claim I was grading was about `58e311e` → `23ed6da`, the pair their own table
+cites. Measured there:
 
 ```
--    found.push(`${relative(ROOT, file)}:${line} → ${match[3]}`);
-+    found.push(`${relative(ROOT, file)} → ${match[3]}`);
-...
--    ['server/index.js:86 → /api/health'],
-+    ['server/index.js → /api/health'],
+$ git diff 58e311e 23ed6da -- test/health-route-single.test.js
+ 12 insertions(+), 0 deletions(-)
 ```
 
-The assertion no longer pins the registration's line. On the merits that is
-defensible and their comment argues it well — a second registration still lands
-as a second array element and still fails, and the line survives in the failure
-message. But "comment-only" is the description under which a weakened assertion
-passes a second reading unexamined, and this one is a weakened assertion.
+Twelve lines, all of them comment, added inside the block comment that opens at
+`:48`, and no `test()` added. **Their claim is exactly right.** The body change —
+`found` dropping the line number, `['server/index.js:86 → /api/health']` becoming
+`['server/index.js → /api/health']` — landed at `caac88a`, a different commit,
+and was never part of what I was asked about.
 
-## Pass B — regex alternation branches that match nothing
+So the weakened assertion is real and it is *older* than the diff I was grading,
+which makes "the assertion was weakened here" false as stated. I reported it to
+the coordinator before this check and have withdrawn it there.
 
-**Method.** Not one suite run per branch. A preload wraps `assert.match` and
-`assert.doesNotMatch` and records every `(regex, subject)` pair that actually
-reaches them, so one instrumented suite run captures every real fixture; each
-alternation branch is then re-tested alone against the subjects its own
-assertion saw. The pattern is walked character by character, honouring escapes,
-character classes and nesting, so branches inside a group are found too, and a
-group's `(?:`, `(?=`, `(?<!` prefix is carried onto each branch. Run on this
-tree (`main` plus this log), **2,950 tests, 2,909 pass, 0 fail, 41 skipped** —
-the instrument changes no result.
+The fault is one I have spent this whole log naming in other people: **I
+compared against a base nobody named, and did not ask.** A diff is a statement
+about two commits, and quoting one of them is not a citation. When a claim says
+"the diff", the base is part of the claim, and the second reader's first
+question is which base — not the reader's own default.
 
-**25 assertion sites carry an alternation. 49 branches tested, 32 live, 17
-dead.** Six `doesNotMatch` sites are excluded: there every branch matches
-nothing, by design, so the method says nothing about them.
-
-A branch is listed here when **no subject that assertion ever saw** matches it.
-That is a statement about the test, not about the code: it means the suite never
-exercises that branch, so deleting it would go unnoticed. Some are correct
-hedges. This is a list, not a verdict.
-
-| file:line | pattern | branch that matched nothing |
-|---|---|---|
-| `test/availability-honest-degradation.test.js:178` | `/pooled\|injury report/i` | `injury report` |
-| `test/availability-honest-degradation.test.js:192` | `/not the fitted\|not running\|pooled/i` | `pooled` |
-| `test/giacomini-white.test.js:117` | `/collinear\|no variance\|not finite/` | `not finite` |
-| `test/model-integrity.test.js:845` | `/^(unavailable\|[a-f0-9]{40})$/` | `unavailable` |
-| `test/nfl-execution-edge.test.js:441` | `/no_games_near_this_line\|no_qualified/` | `no_qualified` |
-| `test/nfl-t60-packet.test.js:660` | `/mirror\|mismatch\|non-mirrored/i` | `mismatch` |
-| `test/page-explain.test.js:138` | `/not staked\|not acting\|no real money/i` | `not staked`, `no real money` |
-| `test/polymarket-fill-study.test.js:130` | `/discarded\|thrown away\|fetched by captureOrderBooks/` | `discarded` |
-| `test/trade-acceptance.test.js:354` | `/0\.1\|less than\|below/i` | `below` |
-| `test/trade-proposals.test.js:194` | `/could not be read\|malformed\|parse/i` | `malformed`, `parse` |
-| `test/trade-proposals.test.js:477` | `/cut off\|ran out of (output )?room\|output limit/i` | `output limit` |
-| `test/trade-route-retirement.test.js:61` | `/\/api\/\|trade-engine/` | `trade-engine` (5 subjects, all `/api/…`) |
-| `test/valuation-map.test.js:433` | `/1 .*(week\|sample)\|below/i` | `sample`, `below` |
-| `test/valuation-map.test.js:483` | `/manager signals\|no manager data/i` | `no manager data` |
-
-At least one is a hedge that should stay: `model-integrity.test.js:845` accepts
-either a 40-character SHA or the literal `unavailable`, and the second branch is
-for a tree with no git. It is dead here because this tree has git. That is the
-shape of a correct hedge, and it is why these go to owners as a list.
-
-**What the pass does not reach.** Fourteen alternation sites use `.test(` or a
-bare `RegExp` rather than `assert.match`, and the instrument does not see them.
-Six `doesNotMatch` sites are out of scope for the reason above. And the run is
-on `main`'s tests, so a thread's own new tests are covered when its head comes
-through the queue, not here.
-
-### Pass B, widened — the sites `assert.match` could not see
-
-The first instrument only saw `assert.match`, which misses every alternation
-inside a `.some(…)` callback or a bare `if`. The logger now also wraps
-`RegExp.prototype.test`, guarded hard — it records only when the source contains
-a `|`, dedupes on (kind, source, subject) and runs under a budget, so it cannot
-cost anything on the millions of calls it does not care about. Second
-instrumented run: **2,950 / 2,909 / 0 / 41, exit 0** — identical to the clean
-run, so the instrument changes nothing.
-
-The widened capture is noisier and the noise has to be named rather than
-reported. It returns 1,651 "dead" branches, and the great majority are
-**production** regexes reached through a test — `/out|reserve|\bir\b|pup|suspend/`
-handed the string `out` has four branches that match nothing, and that is the
-regex working. Those are excluded by keeping only patterns written literally in
-the test file that ran them: 129 blocks, and then by hand.
-
-**Four genuine additions.** All four are positive assertions where the subject
-is real and a hedge branch never fires:
-
-| file:line | pattern | branch that matched nothing |
-|---|---|---|
-| `test/manager-data-pipeline.test.js:465` | `/leaked tool-call markup\|expected object/` | `leaked tool-call markup` |
-| `test/teaser-execution.test.js:71` | `/break-even\|operating gate/` | `operating gate` |
-| `test/trade-acceptance.test.js:321` | `/0 decided offers\|no decided offers/i` | `no decided offers` |
-| `test/trade-proposals.test.js:300` | `/23\|4\.8/` | `4\.8` |
-
-**Four excluded after reading them, not after counting them.** These come back
-with every branch dead and all four are correct:
-
-- `test/execution-slate-reasoning.test.js:404` — `assert.ok(!/threshold|pass\/fail/i.test(text))`
-- `test/sleeper-crawl.test.js:56` — `assert.ok(!/user[AB]|owner-secret|name-user/.test(dump))`
-- `test/trade-manager-read.test.js:194` — a `.filter(…)` asserted `deepEqual` to `[]`
-- `test/nfl-joint-score.test.js:646` — *the joint model is not wired into any production path*, which walks 119 files looking for a reference and asserts it finds none
-
-Each is a negation. A negation's branches match nothing **because the test
-passes**, and the instrument cannot see the `!` in front of the call. Two
-extension filters (`/\.(?:js|mjs|ts|tsx)$/`, `/\.(ts|tsx|js|jsx)$/`) also come
-back with unmatched branches; they are harness plumbing, not assertions.
-
-So the pass B rule, stated properly: **the method reads a positive assertion and
-says nothing about a negative one.** A tool that reported those eight as
-findings would be worse than no tool, because it would spend a reader's
-attention on four tests that are right.
-
-### A third instance of one habit, mine
-
-The first full check of this commit printed lint, build and smoke and then
-nothing at all where the suite numbers go. The cause was my own command: I piped
-`npm test` into a `grep` for the summary lines, so anything that was not a
-summary line — including whatever went wrong — was thrown away before I could
-read it. The re-run, capturing everything, is green, and that is the run quoted
-above; the green is not back-dated onto the first attempt.
-
-That is the third time tonight, from one habit:
-
-1. the docs-only check whose `grep -v` swallowed an absent commit's empty diff;
-2. the `sed -i` repoint whose result I read off the disk instead of off the
-   running process;
-3. this.
-
-All three are the same fault — **a check that cannot tell "clean" from "never
-ran"** — and it is the exact fault this log exists to find in other people's
-evidence. The rule that follows: **read a check's exit status before filtering
-its output, and treat an ABSENT summary as a failure, never as a pass.** An
-empty result is the most dangerous thing a checker can produce, because it reads
-like silence and silence reads like success.
-
-## The wiring map's backspace fix, graded
-
-Pushed as `d38a65c` while pass A was being written up. Re-run here in a detached
-worktree, `node --test test/wiring-map.test.js`.
-
-**Baseline reproduces exactly**: `8d8bfba36af9`, 78 tests, 78 pass, 0 fail.
-
-| row | their claim | reproduced here |
-|---|---|---|
-| **M1** | `ed770da07307`, 76 / 2, killed by "77, 78" | **exact.** Putting the `0x08` byte back gives `ed770da07307` to the digit and 76 / 2, red on *a bare call on a foreign handle is attributed to that handle, not the app* and *the checker source holds no control characters* |
-
-The fix is real and it is now witnessed in both directions, which is what M-D1
-and M-D2 above said it needed. Two things against the table, both about form.
-
-**The killers are named by ordinal again.** "killed by 77, 78", "killed by 76",
-"killed by 57". This is the finding that was raised against this thread's
-`wiring-map-route-deletions.tdd.md` and fixed there — A1 and A2 now name their
-tests by title. The new file reverts to the ordinal, and an ordinal moves the
-moment a test is inserted above it. The titles are in the run above; they cost
-nothing to write down.
-
-**M4 is not a NO-OP control, for the same reason A3 is not.** "NO-OP CONTROL:
-one word of a comment changed", hash `a8684f00d900`, changed from the baseline —
-so it applied. A NO-OP control is a pattern that is *not found*, hash unchanged,
-proving the matcher can miss; this is the other kind, an applied edit that
-correctly kills nothing. The prose is right both times and the label is wrong
-both times, which makes it a habit rather than a slip. Neither file currently
-has a row proving its matcher can fail to find a pattern.
-
-Their two declared open items — `viaMethod` has no row, and `foreignDefault()`
-takes the first foreign handle in a file — are declared in the right form: an
-open item, not a claim of coverage.
+For the record, since the body change is real and unexamined: at `caac88a` the
+health-route assertion stopped pinning the registration's line, and that is a
+narrowing of what the test guarantees. It is defensible — a second registration
+still lands as a second array element and still fails, and the line survives in
+the failure message — and it is recorded here as an observation about `caac88a`,
+not as a finding against `23ed6da`.
 
 ## What this log does not cover
 

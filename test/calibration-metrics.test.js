@@ -19,9 +19,19 @@ import { brierScore, reliabilityBins } from '../server/services/calibration-metr
 
 const rows = ps => ps.map(([p, y]) => ({ p, y }));
 
+/**
+ * Hand-computed decimals are compared with a tolerance, and only where floating-point
+ * associativity is the only difference. `0.04 + 0.04 + 0.25` summed left to right is not
+ * bit-identical to the same value written as `0.33`, and pinning the implementation to one
+ * summation order would be pinning an accident rather than the arithmetic. Exact equality
+ * is kept below wherever the answer is representable: 0, 1, 0.25, and the bin counts.
+ */
+const close = (actual, expected, message) =>
+  assert.ok(Math.abs(actual - expected) < 1e-12, message ?? `${actual} is not ${expected}`);
+
 test('the Brier score is the mean squared error of a probability', () => {
   // (0.2-0)^2 + (0.8-1)^2 + (0.5-1)^2 = 0.04 + 0.04 + 0.25 = 0.33, over 3.
-  assert.equal(brierScore(rows([[0.2, 0], [0.8, 1], [0.5, 1]])), 0.33 / 3);
+  close(brierScore(rows([[0.2, 0], [0.8, 1], [0.5, 1]])), 0.33 / 3);
   assert.equal(brierScore(rows([[1, 1], [0, 0]])), 0, 'a perfect predictor scores zero');
   assert.equal(brierScore(rows([[1, 0], [0, 1]])), 1, 'and a perfectly wrong one scores one');
   assert.equal(brierScore(rows([[0.5, 1], [0.5, 0]])), 0.25, 'a coin flip scores a quarter');
@@ -31,7 +41,7 @@ test('an alternative predictor is graded on the same rows, through `pick`', () =
   // This is how the report compares the simulation against the base rate and the
   // fitted model without re-deriving the outcome column three times.
   const data = [{ p: 0.9, y: 1, base: 0.5 }, { p: 0.1, y: 0, base: 0.5 }];
-  assert.equal(brierScore(data), (0.01 + 0.01) / 2);
+  close(brierScore(data), 0.01);
   assert.equal(brierScore(data, r => r.base), 0.25);
 });
 

@@ -143,7 +143,15 @@ export function historyStatus() {
  */
 const ZERO_WEEK_ABANDON_SHARE = 0.5;
 
-function regularSeasonWeeks(seasons) {
+/**
+ * The corpus's regular-season team-weeks, after both data-quality rules, with the raw
+ * fields the panel derives from -- `opponent_roster_id` among them.
+ *
+ * Exported because the playoff-odds calibration needs the REMAINING SCHEDULE, which the
+ * panel row does not carry, and reimplementing this query in a script would give that
+ * grading a different population from the model it grades. One query, one population rule.
+ */
+export function regularSeasonWeeks(seasons) {
   const filter = seasons?.length
     ? `AND l.season IN (${seasons.map(() => '?').join(',')})` : '';
   const all = rows(`SELECT l.season, l.league_id, l.num_teams, l.playoff_teams,

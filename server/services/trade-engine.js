@@ -114,6 +114,7 @@ import { horizonWeights, horizonGain, horizonNote, leagueSchedule } from './trad
 // ros_ppg / playoff_ppg (and so adj_ppg): the gated rest-of-season model. This
 // week's number stays the weekly blend.
 import { buildRosProjections } from './ros-projection.js';
+import { leagueCurrentWeek } from './league-week.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -165,14 +166,79 @@ function rosterContext(lg) {
 /* ------------------------------------------------------------------ assets */
 
 /**
- * Build the enriched player universe for a league.
+ * Which week the fantasy side is pricing, for a league.
  *
- * @returns {Map<number, object>} player id -> asset
+ * PASS THE LEAGUE. With one, the week comes from `leagueCurrentWeek(lg)` —
+ * ESPN's own `status.currentMatchupPeriod`, captured at the last league sync.
+ * That is the league's answer to its own question, and it is the same source
+ * the rest of the app already trusts for a league's week.
+ *
+ * Without one it falls back to the first unscored row in `game_lines`, which
+ * is the BETTING side's schedule table. That fallback is why this needs the
+ * league. `game_lines` is filled by the odds feeds, so the fantasy half of the
+ * app was reading its current week out of a table it does not own and does not
+ * fill: a league with no lines loaded, or lines that are all scored, silently
+ * became week 1, and week 1 in September prices a season that has started as
+ * one that has not. `leagueCurrentWeek`'s own docstring puts it plainly —
+ * "Never a hard-coded 1 — that is how the app spent two weeks showing week-1
+ * lineups".
+ *
+ * The fallback is kept, not deleted: a handful of callers have no league in
+ * hand (a script, a player page asked about a player rather than a roster),
+ * and for those an approximate week beats throwing. It is the no-league path
+ * now, rather than the only path.
+ *
+ * `season` stays `SEASON` deliberately. A league's own `season` column can
+ * differ, and reconciling those two is the NFL_SEASON tidy-up, not this
+ * change; moving it here would shift every cache key in the file for a reason
+ * unrelated to the bug.
  */
-export function tradeWeekContext() {
+export function tradeWeekContext(lg = null) {
+  if (lg) return { season: SEASON, week: leagueCurrentWeek(lg) };
   const week = Number(process.env.NFL_WEEK) || rows(`SELECT MIN(week) AS week FROM game_lines
     WHERE season=? AND team_score IS NULL`, SEASON)[0]?.week || 1;
   return { season: SEASON, week: Math.max(1, Math.min(18, Number(week))) };
+}
+
+/**
+ * The projection the fantasy coordinator's correction is applied to.
+ *
+ * It is the STRUCTURAL head, never the ensemble, and that is not a preference —
+ * it is what the correction was fitted and graded as. The fit's training target is
+ * `actualPoints - projection.structural_ppg` (fantasy-coordinator.js:324) and its
+ * walk-forward baseline is "predict zero correction = plain structural projection"
+ * (:519). Add that correction to the ensemble instead and the result was never
+ * graded against anything.
+ *
+ * It is also double-counted, specifically. One of the correction's three experts is
+ * `ensemble_shift`, defined as `projection.ppg - projection.structural_ppg`
+ * (:33-34) — the ensemble calibration itself. Feeding the ensemble as the base
+ * applies that calibration once in the base and again inside the correction.
+ *
+ * Returns null when there is no structural head, so the coordinator is skipped
+ * rather than fed the ensemble as a substitute. In practice `weeklyExpertValues`
+ * already returns null in that case (:408), so the call site's own guard covers
+ * it — this is belt and braces, and it is what the test pins.
+ */
+export function coordinatorBase(weekProjection) {
+  return weekProjection?.structural_ppg ?? null;
+}
+
+/**
+ * How many weeks of football this league has left, counting the current one.
+ *
+ * `GAMES` (17) is the length of an NFL regular season, not the length of what is
+ * left of one, and a trade is only ever evaluated over the latter. Multiplying a
+ * weekly delta by 17 in week 2 prices fifteen games that have already been played
+ * and one this league will never play, because a fantasy season ends at its last
+ * playoff week rather than at week 17 — `leagueSchedule` reads that from the
+ * league's own settings and falls back to the app default when they are not
+ * synced.
+ */
+export function weeksLeftFor(lg, week) {
+  const { playoffWeeks, regularSeasonEnd } = leagueSchedule(lg);
+  const last = playoffWeeks?.length ? Math.max(...playoffWeeks) : regularSeasonEnd;
+  return Math.max(1, last - Number(week) + 1);
 }
 
 /**
@@ -258,7 +324,7 @@ const assetInputsKey = (lg, formatKey, target) =>
   `d${servedInputsDigest(target.season, target.week)}`;
 
 export function assetUniverse(lg, formatKey, requested = null) {
-  const target = requested ?? tradeWeekContext();
+  const target = requested ?? tradeWeekContext(lg);
   return cached(
     `assets:${lg.id}:${formatKey}:${target.season}:${target.week}`,
     fingerprint(ASSET_INPUT_TABLES, assetInputsKey(lg, formatKey, target)),
@@ -351,7 +417,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     // below for ROS/season-long figures, is untouched: the coordinator was
     // only walk-forward validated against weekly outcomes, not season totals.
     const expertValues = weekProjection ? weeklyExpertValues(weekProjection, target.season, target.week, scoring) : null;
-    const coordinated = expertValues ? coordinateFantasy(fantasyFit, expertValues, weeklyPpg) : null;
+    const coordinated = expertValues ? coordinateFantasy(fantasyFit, expertValues, coordinatorBase(weekProjection)) : null;
     const currentWeekBasePpg = coordinated?.ready ? coordinated.corrected_ppg : weeklyPpg;
     // thisGame.mult is exactly 1 while the matchup signal is off (matchups.js#
     // gameMultiplier); kept as a factor so this line needs no edit if a multiplier
@@ -451,7 +517,13 @@ function buildAssetUniverse(lg, formatKey, target) {
       // null when no fit is persisted yet (fantasy_coordinator_refit hasn't
       // run) or this player has no weekly projection to correct.
       fantasy_coordinator: coordinated?.ready
-        ? { corrected_ppg: coordinated.corrected_ppg, correction: coordinated.correction, contributions: coordinated.contributions }
+        // `structural_ppg` is served beside the correction because the two only mean
+        // anything together: corrected_ppg is that base plus the correction, and a
+        // reader who assumed the base was `ppg` above would silently read this as a
+        // bigger or smaller adjustment than it is. It is also what makes the
+        // relationship checkable from the response alone.
+        ? { structural_ppg: coordinated.structural_ppg, corrected_ppg: coordinated.corrected_ppg,
+            correction: coordinated.correction, contributions: coordinated.contributions }
         : null,
       ros_ppg: +rosPpg.toFixed(2),
       // What ros_ppg was built from; null = no ROS entry (no game yet), { failed } = the
@@ -462,6 +534,21 @@ function buildAssetUniverse(lg, formatKey, target) {
         weight_in_season: ros.weight_in_season == null ? null : +ros.weight_in_season.toFixed(3)
       } : rosFailure ? { failed: rosFailure } : null,
       active_probability: +activeProbability.toFixed(3),
+      // WHICH model priced THIS player, as opposed to which model the process
+      // ran. They are not the same fact, and the difference is what was being
+      // printed wrong. `availabilityBasis()` in `context` below is a property of
+      // the process: it says the fit tables are present and the role layer is
+      // in use. But `playerActiveProbability` reaches the fitted role cell only
+      // when that player has a role cell to reach (contingency.js), and drops to
+      // the pooled rates or to the hand-set chain when he does not. So a screen
+      // reading the process basis prints a measured-sounding number for a player
+      // nobody measured. `weeklyAvailability` already works this out per player
+      // and this is the only place that record reaches an asset.
+      //
+      // Null for K and DEF, which `weeklyAvailability` does not cover at all —
+      // the honest answer for a position with no model, and distinct from a
+      // position that has one and fell through it.
+      availability_source: availability?.source ?? null,
       injury_status: availability?.report_status ?? null,
       practice_status: availability?.practice_status ?? null,
       model_cutoff: weekProjection?.player_week_engine?.cutoff ?? `${target.season}-W${Math.max(0, target.week - 1)}`,
@@ -1044,6 +1131,7 @@ const verdictFor = (ppgDelta, valueDelta) => {
  *   package actually makes sense for them, not just whether the numbers pencil out.
  */
 export function evaluate(a, b, slots, ctx = {}) {
+  const weeksLeft = Number.isFinite(ctx.weeksLeft) ? ctx.weeksLeft : null;
   // A team's lineups BEFORE the deal do not depend on the deal, and the trade
   // search evaluates thousands of packages against the same two rosters. Callers
   // that loop (findTrades, offerFor, offerForMany) pass one `memo` per search so
@@ -1093,7 +1181,13 @@ export function evaluate(a, b, slots, ctx = {}) {
       risk: sideRisk(givesOut, getsIn),
       lineup_before: before.points, lineup_after: post.points,
       ppg_delta: +(post.points - before.points).toFixed(2),
-      season_delta: +((post.points - before.points) * GAMES).toFixed(1),
+      // Over the weeks this league has left, not over a whole NFL season. The
+      // caller supplies it (weeksLeftFor above); when it does not, this is null
+      // rather than a plausible wrong number, because the failure mode being
+      // fixed here is precisely a season-long figure that looked reasonable.
+      season_delta: weeksLeft == null ? null : +((post.points - before.points) * weeksLeft).toFixed(1),
+      // So a surface can say WHICH weeks it is, instead of implying a season.
+      season_delta_weeks: weeksLeft,
       // The lineup change in THIS league's playoff weeks (playoffLeg above: the
       // weekly-rate lineup of each playoff week, byes out, averaged). No opponent
       // adjustment, so this differs from ppg_delta only by WHEN points land: adj_ppg
@@ -1304,7 +1398,7 @@ export function myPlayoffOdds(lg, myTeamId = null, print = null) {
   const rosterId = String(myTeamId ?? lg?.my_team_id ?? '');
   const prior = reason => ({ value: null, roster_id: rosterId, source: `0.5 prior — ${reason}` });
   if (!lg?.payload) return prior('this league is not synced yet');
-  const target = tradeWeekContext();
+  const target = tradeWeekContext(lg);
   const { formatKey } = deriveFormat(lg);
   return cached(
     `playoffOdds:${lg.id}:${rosterId}:${target.season}:${target.week}`,
@@ -1406,7 +1500,7 @@ function ideaContext(lg, { me, assets, odds, horizon, counterparties, useCounter
  * to pay it three times over.
  */
 const ideaCtx = (lg, ctx = null) => (ctx?.target && ctx?.formatKey ? ctx
-  : { target: tradeWeekContext(), formatKey: deriveFormat(lg).formatKey, print: ctx?.print ?? null });
+  : { target: tradeWeekContext(lg), formatKey: deriveFormat(lg).formatKey, print: ctx?.print ?? null });
 
 function findTradesKey(lg, opts = {}, ctx = null) {
   const { myTeamId, maxPerSide = 2, requireMutual = true, limit = 25, targetId = null,
@@ -1495,7 +1589,7 @@ function findTradesUncached(lg, {
   // actually behaved. Loaded once for the whole search; empty maps are the
   // normal case for a league with no chat corpus and cost nothing.
   // NB: `target` in this function is the target PLAYER, not the week context.
-  const weekNow = tradeWeekContext();
+  const weekNow = tradeWeekContext(lg);
   // WHEN the points land, not just how many. evaluate()'s playoff_ppg_delta is
   // the lineup change on each player's rate in this league's playoff weeks —
   // byes counted, no opponent adjustment (no schedule-strength signal has passed
@@ -1564,7 +1658,8 @@ function findTradesUncached(lg, {
         if (skew < -0.16 || skew > 0.30) continue;
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
-          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo });
+          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo,
+            weeksLeft: weeksLeftFor(lg, weekNow.week) });
         if (ev.me.ppg_delta < 0.4) continue;
         // Never even a "closest fit" fallback candidate — no real GM accepts leaving
         // a starting slot empty, whatever the value math says.
@@ -1583,7 +1678,8 @@ function findTradesUncached(lg, {
           const leanGet = side === 'get' ? get.filter(x => x.id !== player.id) : get;
           if (!leanGive.length || !leanGet.length) return false;
           const lean = evaluate({ team: me, gives: leanGive }, { team: them, gives: leanGet }, slots,
-            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo });
+            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo,
+              weeksLeft: weeksLeftFor(lg, weekNow.week) });
           return lean.me.ppg_delta >= ev.me.ppg_delta - 0.05
             && lean.them.ppg_delta >= ev.them.ppg_delta - 0.05;
         });
@@ -2045,7 +2141,7 @@ export function resolvePlayer(id, assets, teams) {
  * reads and timing weighting. Inconsistent with findTrades").
  */
 function ladderInputs(lg, myTeamId, playoffOdds, useCounterparty = true) {
-  const weekNow = tradeWeekContext();
+  const weekNow = tradeWeekContext(lg);
   const odds = horizonOdds(lg, myTeamId, playoffOdds);
   const horizon = horizonWeights(weekNow.week, { playoffOdds: odds.value, ...leagueSchedule(lg) });
   const counterparties = useCounterparty
@@ -2226,7 +2322,8 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     const ratio = target.value ? giveValue / target.value : 0;
     if (ratio < 0.70 || ratio > 1.65) continue;
     const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
-      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo,
+        weeksLeft: weeksLeftFor(lg, weekNow.week) });
     const gain = ladderGain(ev, horizon);
     // The horizon-weighted gain is the objective, so it is also the entry gate —
     // it used to be the flat weekly delta, which discarded a package that is worth
@@ -2387,7 +2484,8 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
       const ratio = targetsValue ? giveValue / targetsValue : 0;
       if (ratio < 0.70 || ratio > 1.65) continue;
       const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
-        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo,
+          weeksLeft: weeksLeftFor(lg, weekNow.week) });
       const gain = ladderGain(ev, horizon);
       if (gain.value <= 0) continue;
       priced.push({
@@ -2500,7 +2598,7 @@ export function selfScout(lg, myTeamId) {
   // for every starter, and the schedule strength behind it has no validated signal
   // (matchups.js). What IS known about those weeks is who is on bye in them.
   const { playoffWeeks } = leagueSchedule(lg);
-  const nowWeek = tradeWeekContext().week;
+  const nowWeek = tradeWeekContext(lg).week;
   const playoffByes = lineup.slots.map(s => s.player)
     .filter(p => p?.bye && p.bye >= nowWeek && playoffWeeks.includes(p.bye))
     .map(p => ({ ...slim(p), week: p.bye }));
@@ -2548,7 +2646,7 @@ export function selfScout(lg, myTeamId) {
     team: { roster_id: me.roster_id, owner: me.owner },
     // The live NFL week, so a caller (the My Team ceiling-lineup tab, in
     // particular) doesn't have to hardcode week 1 for the whole season.
-    week: tradeWeekContext().week,
+    week: tradeWeekContext(lg).week,
     rank: myRank, of: allLineups.length,
     lineup: { points: lineup.points, slots: lineup.slots.map(s => ({ slot: s.slot, player: s.player ? slim(s.player) : null })),
               bench: lineup.bench.map(slim), holes: lineup.holes },
@@ -2763,7 +2861,7 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
   const me = requested != null && requested !== '' ? teams.find(t => t.roster_id === String(requested)) : teams[0];
   if (!me) return { error: `team ${requested} is not in this league`, not_found: true };
   const isMine = lg.my_team_id != null && me.roster_id === String(lg.my_team_id);
-  const { season, week } = tradeWeekContext();
+  const { season, week } = tradeWeekContext(lg);
 
   const payload = JSON.parse(lg.payload);
   const espnTeam = payload.teams?.find(t => String(t.id) === me.roster_id);

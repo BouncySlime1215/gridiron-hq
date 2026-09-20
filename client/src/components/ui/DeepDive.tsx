@@ -38,7 +38,14 @@ export interface DeepDiveInput {
   /** A glossary id when the input is itself a known quantity; a plain name otherwise. */
   id?: TermId;
   name?: string;
-  value?: number | null;
+  /**
+   * A number when `id` is set, since the glossary formats it. Otherwise a
+   * phrase, because half of what goes into a number is not itself a number —
+   * "your league's own schedule", "all hand-set" — and forcing those into a
+   * numeric field would push them into the method sentence, where they stop
+   * being inputs a reader can see the basis of.
+   */
+  value?: number | string | null;
   basis: Basis;
   note?: string | null;
 }
@@ -103,7 +110,7 @@ export default function DeepDive({ id, value, basis, basisNote = null, layers, o
         {layers.inputs.map((input, i) => (
           <li key={i}>
             <span className="deep-dive-input-name">{input.id ? term(input.id).name : input.name}</span>
-            <span className="tabular">{input.id ? formatValue(input.id, input.value) : input.value ?? ''}</span>
+            <span className="tabular">{input.id ? formatValue(input.id, Number(input.value)) : input.value ?? ''}</span>
             <BasisChip basis={input.basis} note={input.note} />
           </li>
         ))}

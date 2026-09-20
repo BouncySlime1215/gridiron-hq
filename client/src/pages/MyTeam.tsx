@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import OddsBasis from '../components/OddsBasis';
+import StatBlock from '../components/ui/StatBlock';
+import DeepDive from '../components/ui/DeepDive';
 import { Link } from 'react-router-dom';
 import { api, headshotUrl, useApi } from '../api';
 import { useLeague } from '../state/league';
@@ -28,6 +30,8 @@ export default function MyTeam() {
   const { data: lg, loading: lgLoading, error: lgError, refetch: refetchData } = useApi<any>(active ? `/leagues/${active.id}/data` : null);
   const [teamOverride, setTeamOverride] = useState<string | null>(null);
   const [tab, setTab] = useState<'scout' | 'roster' | 'ceiling'>('scout');
+  // The title-odds drill-down. Closed on arrival: nothing opens on first paint.
+  const [drill, setDrill] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
   // A "my team" pick only means something within the league it was made in — carrying
@@ -166,15 +170,19 @@ export default function MyTeam() {
         <div className="card p-4 mb-4">
           <h3 className="text-sm font-bold text-slate-700 mb-3">Your title odds right now</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">Championship</div>
-              <div className="text-xl font-bold text-slate-800 tabular-nums">{(myTwin.title_odds * 100).toFixed(1)}%</div>
-              {myTwin.title_odds_95 && (
-                <div className="text-[10px] text-slate-400 tabular-nums">
-                  {(myTwin.title_odds_95[0] * 100).toFixed(1)}–{(myTwin.title_odds_95[1] * 100).toFixed(1)}% range
-                </div>
-              )}
-            </div>
+            {/* The first real drill-down. This is the number the page exists to
+                show, and every one of the five layers already existed in the
+                payload and was rendered either as small grey prose below the
+                card or not at all. */}
+            <StatBlock
+              id="title_odds"
+              value={myTwin.title_odds}
+              basis={sim?.projection_fit ? 'fitted' : 'assumed'}
+              note={myTwin.title_odds_95
+                ? `${(myTwin.title_odds_95[0] * 100).toFixed(1)}–${(myTwin.title_odds_95[1] * 100).toFixed(1)}% range`
+                : null}
+              onOpen={() => setDrill(true)}
+            />
             <div>
               <div className="text-[10px] uppercase tracking-wide text-slate-400">Make playoffs</div>
               <div className="text-xl font-bold text-slate-800 tabular-nums">{(myTwin.playoff_odds * 100).toFixed(0)}%</div>
@@ -195,6 +203,48 @@ export default function MyTeam() {
             )}
           </div>
           <OddsBasis sim={sim} />
+          <DeepDive
+            id="title_odds"
+            value={myTwin.title_odds}
+            basis={sim?.projection_fit ? 'fitted' : 'assumed'}
+            open={drill}
+            onClose={() => setDrill(false)}
+            layers={{
+              inputs: [
+                { name: 'Simulated seasons', value: sim?.runs ?? null, basis: 'measured' },
+                { name: 'Games already played',
+                  value: sim?.projection_basis ?? 'not stated', basis: 'measured' },
+                { name: 'Playoff bracket',
+                  value: sim?.playoff_basis === 'default_weeks_15_17' ? 'weeks 15-17, assumed' : "your league's own schedule",
+                  basis: sim?.playoff_basis === 'default_weeks_15_17' ? 'assumed' : 'measured' },
+                { name: 'Projection constants',
+                  value: sim?.projection_fit ? 'a fit, plus hand-set volume numbers' : 'all hand-set',
+                  basis: sim?.projection_fit ? 'pooled' : 'assumed',
+                  note: sim?.projection_fit
+                    ? 'The efficiency numbers come from a fit; the volume numbers behind them are still hand-set, and volume is what moves most when a role changes.'
+                    : null }
+              ],
+              method: 'We play the rest of your season out thousands of times. Each week every '
+                + 'player draws a score from his own range, the players on a team move together '
+                + 'rather than independently, each team fields its best lineup from what it drew, '
+                + 'and the week is played. Then the bracket is seeded and played out. Your number '
+                + 'is how often you finish first.',
+              // Honest and specific. The INPUTS were tested — weekly-backtest.js
+              // replays the weekly projection walk-forward and grades it on the
+              // week it predicted. The title probability itself has never been
+              // scored against real seasons, and there is no harness in this
+              // repository that does it. Saying "tested" here because the inputs
+              // were tested is the overstatement this layer exists to prevent.
+              tested: 'The weekly player projections underneath this were checked by replaying past '
+                + 'seasons week by week and grading each prediction on the week it was for. This '
+                + 'championship number itself has never been scored against real finished seasons '
+                + '— nothing here checks how often a team we gave 20% actually won. Read it as a '
+                + 'considered estimate, not as a measured frequency.',
+              source: sim?.odds_interval
+                ? `The range beside it is ${sim.odds_interval}`
+                : 'The range beside it is run-to-run wobble in the simulation, not uncertainty in the forecast.'
+            }}
+          />
         </div>
       )}
 

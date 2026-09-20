@@ -440,7 +440,7 @@ after:
  * A cite that fails to resolve returns null. It never resolves to something
 ```
 
-## `tools.json` — 10 rows, evidence in `docs/tdd/coach-tool-layer.tdd.md`
+## `tools.json` — 19 rows, evidence in `docs/tdd/coach-tool-layer.tdd.md`
 
 ### M27 — a tool that throws still leaves its half-record in the ledger
 
@@ -567,6 +567,137 @@ before:
 after:
 ```
     return { rows: capped.map(item => ({ item })), columns: ['item'],
+```
+
+### M89 — an array of objects reports only its first column, so a cite on any other lands nowhere
+
+`server/services/coach/tools.js`, suites `test/coach-tools.test.js`
+
+before:
+```
+      const columns = [...new Set(capped.flatMap(row => Object.keys(row)))];
+      return { rows: capped.map(row => ({ ...row })), columns, truncated: capped.length < value.length };
+```
+after:
+```
+      const columns = [...new Set(capped.flatMap(row => Object.keys(row)))];
+      return { rows: capped.map(row => ({ ...row })), columns: columns.slice(0, 1), truncated: capped.length < value.length };
+```
+
+### M90 — a nested array loses its index, so two elements collapse onto one dotted column
+
+`server/services/coach/tools.js`, suites `test/coach-tools.test.js`
+
+before:
+```
+      node.slice(0, maxArray).forEach((item, index) => walk(item, `${prefix}.${index}`));
+```
+after:
+```
+      node.slice(0, maxArray).forEach(item => walk(item, prefix));
+```
+
+### M91 — a null leaf is dropped rather than carried, so an absence disappears from the row
+
+`server/services/coach/tools.js`, suites `test/coach-tools.test.js`
+
+before:
+```
+    if (node === null || typeof node !== 'object') { row[prefix] = node; return; }
+```
+after:
+```
+    if (node === null || typeof node !== 'object') { if (node !== null) row[prefix] = node; return; }
+```
+
+### M92 — the definitions handed to Claude carry the run function with them
+
+`server/services/coach/tools.js`, suites `test/coach-tools.test.js`
+
+before:
+```
+  return COACH_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema }));
+```
+after:
+```
+  return COACH_TOOLS.map(tool => ({ ...tool }));
+```
+
+### M93 — a SQL result enters the ledger with no tables, so nothing downstream knows where it came from
+
+`server/services/coach/tools.js`, suites `test/coach-tools.test.js`
+
+before:
+```
+  if (tool.kind === 'query') {
+    const { result } = tool.run(input);
+    const entry = ledger.record(result);
+```
+after:
+```
+  if (tool.kind === 'query') {
+    const { result } = tool.run(input);
+    const entry = ledger.record({ ...result, tables: [] });
+```
+
+### M94 — a refused query comes back as an empty result instead of a refusal, so the model never sees the boundary
+
+`server/services/coach/tools.js`, suites `test/coach-tools.test.js`
+
+before:
+```
+      const result = safeSelect(input?.sql, input?.params ?? [],
+        input?.max_rows ? { maxRows: int(input.max_rows, 'max_rows') } : {});
+      return { result };
+```
+after:
+```
+      try {
+        const result = safeSelect(input?.sql, input?.params ?? [],
+          input?.max_rows ? { maxRows: int(input.max_rows, 'max_rows') } : {});
+        return { result };
+      } catch { return { result: { sql: input?.sql, params: [], tables: [], columns: [], rows: [], row_count: 0, truncated: false, provenance: {} } }; }
+```
+
+### M95 — a computed number comes back with no cite and no formula, so it cannot be traced
+
+`server/services/coach/tools.js`, suites `test/coach-tools.test.js`
+
+before:
+```
+    const entry = ledger.derive({ op: input?.op, inputs: input?.inputs, label: input?.label });
+    return { entry, summary: { cite: entry.id, value: entry.value, formula: entry.formula } };
+```
+after:
+```
+    const entry = ledger.derive({ op: input?.op, inputs: input?.inputs, label: input?.label });
+    return { entry: null, summary: { value: entry.value } };
+```
+
+### M96 — an unknown tool is refused without naming it or saying what there is instead
+
+`server/services/coach/tools.js`, suites `test/coach-tools.test.js`
+
+before:
+```
+      `There is no tool called ${name}. Coach has: ${COACH_TOOLS.map(t => t.name).join(', ')}.`);
+```
+after:
+```
+      'That tool is not available.');
+```
+
+### M97 — a tool is named in camel case, which the tool-name grammar the model is handed does not allow
+
+`server/services/coach/tools.js`, suites `test/coach-tools.test.js`
+
+before:
+```
+    name: 'catalog_lookup',
+```
+after:
+```
+    name: 'catalogLookup',
 ```
 
 ### NC-tools — NO-OP CONTROL: reword a sentence of the file header, changing no behaviour

@@ -112,6 +112,11 @@ guessing at the injection. A row whose anchor is not in the source is reported N
 APPLIED rather than scoring zero failures — that happened once in this sweep (M12's
 anchor had the wrong punctuation) and is the failure mode the control below exists for.
 
+**Coverage of this file's own suite: 17 of 17.** The union of the tests these rows turn
+red is every test in `coach-tools.test.js`. The first pass covered 9 of 17, which is the
+measurement Model audit made and the reason the nine rows from M79 down exist: a table
+in which every row is killed still says nothing about the tests no row touches.
+
 **The last row of the table is a NO-OP control.** It rewords a sentence of the file's own
 header: the hash moves, so the harness demonstrably applied it, and no test fails, so a
 zero in the "Red" column is a real result rather than a silent non-match. Without it, an
@@ -129,6 +134,15 @@ survives.
 | M33 | sql_select ignores the row ceiling it was asked for *(survived the first pass; the test in the last column was written for it)* | `tools.js` | `e9a0aeca` → `816527e6` | 1 | `coach-tools.test.js` — sql_select honours the row ceiling it was asked for, and says it truncated |
 | M79 | nothing at all comes back as one row holding null, so an absence is citable as a value | `tools.js` | `e9a0aeca` → `79430a5c` | 1 | `coach-tools.test.js` — toRows: nothing at all is no rows, not a row of nothing |
 | M80 | a list of scalars is keyed item rather than value, so the cite grammar shifts under the model | `tools.js` | `e9a0aeca` → `adceb1c0` | 1 | `coach-tools.test.js` — toRows: an array of scalars becomes a row each, under `value` |
+| M89 | an array of objects reports only its first column, so a cite on any other lands nowhere | `tools.js` | `e9a0aeca` → `05b14245` | 1 | `coach-tools.test.js` — toRows: an array of objects is already rows |
+| M90 | a nested array loses its index, so two elements collapse onto one dotted column | `tools.js` | `e9a0aeca` → `615ec134` | 2 | `coach-tools.test.js` — toRows: a nested object becomes one row of dotted scalar columns |
+| M91 | a null leaf is dropped rather than carried, so an absence disappears from the row | `tools.js` | `e9a0aeca` → `07a8852f` | 1 | `coach-tools.test.js` — toRows: a nested object becomes one row of dotted scalar columns |
+| M92 | the definitions handed to Claude carry the run function with them | `tools.js` | `e9a0aeca` → `ee806c63` | 1 | `coach-tools.test.js` — the definitions handed to Claude carry no functions |
+| M93 | a SQL result enters the ledger with no tables, so nothing downstream knows where it came from | `tools.js` | `e9a0aeca` → `306e0629` | 1 | `coach-tools.test.js` — sql_select runs through the guarded layer and lands in the ledger |
+| M94 | a refused query comes back as an empty result instead of a refusal, so the model never sees the boundary | `tools.js` | `e9a0aeca` → `bebf00f8` | 2 | `coach-tools.test.js` — sql_select passes a refusal straight through, so the model sees the boundary |
+| M95 | a computed number comes back with no cite and no formula, so it cannot be traced | `tools.js` | `e9a0aeca` → `38f4f17e` | 1 | `coach-tools.test.js` — compute goes through the ledger, so a worked-out number is traceable |
+| M96 | an unknown tool is refused without naming it or saying what there is instead | `tools.js` | `e9a0aeca` → `c75ae1e1` | 1 | `coach-tools.test.js` — an unknown tool is refused by name rather than ignored |
+| M97 | a tool is named in camel case, which the tool-name grammar the model is handed does not allow | `tools.js` | `e9a0aeca` → `10e6fa78` | 2 | `coach-tools.test.js` — every tool declares a name, a description and an input schema Claude can read |
 | NC-tools | NO-OP CONTROL: reword a sentence of the file header, changing no behaviour | `tools.js` | `e9a0aeca` → `1de5e3b9` | **0** | none — and that is the assertion |
 
 **M79 and M80 were supplied by Model audit**, not found here, and they close the two

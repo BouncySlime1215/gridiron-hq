@@ -183,7 +183,7 @@ export function normPracticeStatus(s) {
  * designation ESPN itself shows; DAY_TO_DAY, an ESPN doubt label with no NFL
  * equivalent, is treated as Questionable. Gate and numbers: docs/tdd/play-chance-live.tdd.md.
  */
-export const ESPN_DESIGNATION_LABEL = Object.freeze({
+const ESPN_DESIGNATION_LABEL = Object.freeze({
   OUT: 'Out (ESPN)',
   INJURY_RESERVE: 'Out (ESPN injured reserve)',
   SUSPENSION: 'Out (ESPN suspension)',

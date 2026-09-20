@@ -145,13 +145,26 @@ export function personVariables(person, { corpus } = {}) {
 
   const add = (id, displayName, family, source, unit, value, n, measuredBy) => {
     const enough = n >= MIN_N;
+    const settled = enough ? finite(value) : null;
+    // Every null says why it is null. There are two reasons and they mean
+    // different things: not enough observations to report, or enough
+    // observations and the quantity still does not exist for this person — a
+    // ratio whose denominator is zero, because he has never once said "you".
+    // A bare null conflates them, and a reader with no reason in front of
+    // them fills it in themselves, usually with "zero".
+    const withheld = !enough
+      ? `only ${n} observations; a variable needs ${MIN_N} to be reported`
+      : settled === null
+        ? `measured on ${n} observations and undefined for him — the quantity has no value here, `
+          + 'which is not the same as being zero'
+        : null;
     out.push({
       id, name: displayName, family, source, unit,
-      value: enough ? finite(value) : null,
+      value: settled,
       n,
       priceable: false,
       measured_by: measuredBy,
-      ...(enough ? {} : { withheld: `only ${n} observations; a variable needs ${MIN_N} to be reported` })
+      ...(withheld ? { withheld } : {})
     });
   };
 

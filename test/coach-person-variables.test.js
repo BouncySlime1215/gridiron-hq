@@ -216,3 +216,26 @@ test('nothing in a profile carries a message, so a derived profile can leave the
   assert.equal(json.includes('INSANE'), false);
   assert.equal(json.includes('x'.repeat(50)), false);
 });
+
+test('a null says which kind of null it is', () => {
+  // Two different nulls, and a reader who cannot tell them apart will guess.
+  // Too few observations is "we do not know yet". Undefined on a full sample
+  // is "this quantity does not exist for him" — a ratio with a zero
+  // denominator, because he has never once said "you". Neither is zero.
+  const thin = varsFor('Thin').reply_latency_p50;
+  assert.equal(thin.value, null);
+  assert.match(thin.withheld, /observations; a variable needs/);
+
+  // Chatty never says "you", so his I/you ratio has a zero denominator on a
+  // full sample: the quantity genuinely does not exist for him.
+  const v = varsFor('Chatty');
+  assert.equal(v.first_person_ratio.value, null);
+  assert.ok(v.first_person_ratio.n >= MIN_N, 'the fixture no longer exercises the undefined case');
+  const undefinedForHim = Object.values(v).filter(x => x.value === null && x.n >= MIN_N);
+  for (const variable of undefinedForHim) {
+    assert.match(variable.withheld, /undefined for him|has no value here/,
+      `${variable.id} is null on a full sample with no reason given`);
+    assert.doesNotMatch(variable.withheld, /needs 5 to be reported/,
+      `${variable.id} blames the sample size for something else`);
+  }
+});

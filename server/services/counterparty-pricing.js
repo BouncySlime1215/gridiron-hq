@@ -199,6 +199,18 @@ function shapeJevAnswer(question, a) {
   };
 }
 
+/**
+ * The model read for a set of rosters — the same call the counterparty layer
+ * makes, exported because the manager page needs rosters the layer never
+ * reaches. The layer is built from `manager_signals` keys, and a manager with
+ * no signals still has a draft record somebody paid a gateway call to read.
+ */
+export function managerModelReads(leagueId, rosterIds = null) {
+  const read = jevEvaluated(leagueId);
+  const ids = rosterIds ?? [...read.by_roster.keys()];
+  return new Map([...ids].map(id => [String(id), jevBlockFor(read, id)]));
+}
+
 /** One manager's block, or the absence that is not his fault. */
 function jevBlockFor(read, rosterId) {
   const entry = read.by_roster.get(String(rosterId)) ?? null;
@@ -234,8 +246,8 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   const archetypesAsOf = Object.freeze(archetypesBuilt(leagueId, season ?? null));
   // The model's read of each person, on its own clock: the Jev pass is opt-in
   // while the archetype build is not, so the two stamps drift apart by design.
-  // Read once per league and handed out per manager; it prices nothing.
-  const jevRead = jevEvaluated(leagueId);
+  // Read once per league and handed out per manager; it prices nothing. The
+  // manager page reads it through the same call, so the two cannot disagree.
   // Every league-wide read is built ONCE here and handed to whoever needs it,
   // so the deal read and the valuation map cannot end up on different answers.
   const gaps = expectationGaps(season, week);
@@ -288,6 +300,7 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
   for (const [rid, names] of rosterOf) rosterSize.set(rid, names.size);
 
   const ids = [...signals.keys()];
+  const jevBlocks = managerModelReads(leagueId, ids);
   const openVals = ids.map(id => signals.get(id).metrics.chat_open_to_trade);
   const talkVals = ids.map(id => signals.get(id).metrics.chat_trade_talk);
 
@@ -360,7 +373,7 @@ export function counterpartyLayer(leagueId, { season, week, rosterContext = null
       // NOT a valuation-map input, and deliberately above the line that marks
       // them: this is a read OF him for a page to show, with the date it was
       // made and, per answer, whether anything was under it.
-      jev: jevBlockFor(jevRead, id),
+      jev: jevBlocks.get(String(id)),
       // ---- the valuation-map inputs, each already reduced to what it means ----
       owned: rosterOf.get(String(id)) ?? new Set(),
       roster_size: rosterSize.get(String(id)) ?? 0,

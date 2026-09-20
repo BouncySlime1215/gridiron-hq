@@ -98,8 +98,15 @@ duplicate of `delta`.
 against it:
 
 - **2,990 tests, 2,949 pass, 0 fail, 41 skipped**, 350.5 s
-- lint clean across 877 JavaScript files; typecheck clean
+- lint clean across **876** JavaScript files; typecheck clean
 - build 0; startup smoke passed on an isolated database (32 teams)
+
+**Correction, 2026-09-20.** This line first said 877. `scripts/lint.mjs` walks
+`server`, `scripts` and `test` on the filesystem, so it counts untracked files
+too; `git ls-tree -r 9bc4bfd -- server scripts test` counts **876** `.js`/`.mjs`
+files, and the same at `3afdb25` and `1f8562e`. The 877 reading therefore
+included a file that is not in the commit. The count is a property of the tree,
+so it is stated from the tree.
 
 `npm ci` has not been run in the container these numbers came from. A fresh clone
 fails the offline-guard tests with `ERR_MODULE_NOT_FOUND` until it is, which looks

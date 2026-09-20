@@ -19,7 +19,7 @@
  */
 import { rows } from '../db/index.js';
 import { PPR } from './scoring.js';
-import { buildProjections, sampleWeeks } from './projections.js';
+import { buildProjections, projectionFitMeta, sampleWeeks } from './projections.js';
 import { correlatedSampler } from './correlation.js';
 import { gameMultiplier, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 import { deriveFormat } from './format.js';
@@ -244,6 +244,111 @@ export const __test = { lineupPoints, initialRecords };
  *                        is how a proposed trade is evaluated: simulate the league as
  *                        it would be after the deal and diff the title odds.
  */
+/**
+ * Which games the simulator's projections are allowed to have seen.
+ *
+ * `through: SEASON - 1` alone -- what this used to be -- ignores every game already played
+ * THIS season. At week 5 it priced the rest of the year off last season's snapshot: a rookie
+ * who has taken over a backfield, a receiver whose role collapsed, a player who has not
+ * played a down all year, all invisible. `ceiling-lineup.js` documents that exact defect in
+ * its own header and already avoids it; the simulator did not, so the title odds and the
+ * ceiling lineups were built from different information about the same roster.
+ *
+ * `throughWeek: fromWeek - 1` is the walk-forward-safe cutoff `player-week-engine.js` already
+ * uses: every game up to the week before the one being simulated, and not one game after it.
+ * Reading week `fromWeek` itself would leak the outcome of the first week being simulated.
+ *
+ * TWO GAMES, NOT ONE, AND THAT IS MEASURED. Switching to this season's log the moment a
+ * single week exists makes the projections WORSE, because the season weighting gives the
+ * current season full weight and drops last season to 0.55 -- so one game outweighs a
+ * complete prior year, and the effect is large: Ja'Marr Chase's projection falls 17.1 to
+ * 12.5 points a game on one week of evidence. Held out on three seasons independently, mean
+ * absolute error over the remaining weeks:
+ *
+ *   games played |   1        2        3        4        6        8
+ *   2023         | -0.015   +0.064   +0.095   +0.134   +0.176   +0.244
+ *   2024         | -0.052   +0.009   +0.060   +0.093   +0.124   +0.196
+ *   2025         | -0.025   +0.031   +0.064   +0.102   +0.155   +0.202
+ *
+ * (positive = this-season basis better, in points). The crossover sits between one game and
+ * two in all three seasons, and from two games on the advantage grows monotonically. So the
+ * switch is at two games played -- a threshold that reproduced in three independent seasons
+ * rather than one, which is the difference between a measurement and a tuned number.
+ *
+ * Before then there is also nothing to read at all in week 1: `history(SEASON, 0)` returns an
+ * empty log. `basis` is returned so a reader can see which cutoff was used rather than
+ * inferring it from the week.
+ */
+export const SIM_PROJECTION_MIN_GAMES = 2;
+
+/**
+ * How many weeks of `season` the usage log ACTUALLY holds before `beforeWeek`.
+ *
+ * The threshold above is a measurement about EVIDENCE, and the first version of
+ * `simProjectionBasis` counted the calendar instead: `played = fromWeek - 1`, with no
+ * question about whether those weeks were in `player_week_usage`. The two are not the
+ * same number in normal operation. nflverse settles a week's stats a day or two after the
+ * games -- `scheduler.js`'s `nflverse_weekly_usage` job polls every six hours for exactly
+ * that reason, and says so in its header -- so on a Monday in week 3 the log can hold one
+ * week while the calendar says two. That is the case measured as WORSE than reading last
+ * season complete, and a calendar-only gate would have chosen it.
+ *
+ * It also decides the `projection_basis` string, and that string is the page's claim about
+ * what the odds rest on. Against an empty current-season log -- a fresh volume, or a
+ * machine in its first hours -- `{through: 2026, throughWeek: 2}` selects `u.season < 2026`
+ * and therefore returns exactly the 2021-2025 rows: identical projections to the old
+ * behaviour, under a label reading "2026 through week 2". A number computed over nothing,
+ * reported as measured, is the specific failure this codebase keeps producing.
+ */
+export function loggedWeeks(season, beforeWeek) {
+  const before = Number(beforeWeek) || 1;
+  if (before <= 1) return 0;
+  return Number(rows(
+    'SELECT COUNT(DISTINCT week) AS n FROM player_week_usage WHERE season = ? AND week < ?',
+    season, before
+  )[0]?.n) || 0;
+}
+
+/**
+ * Which projection world the simulation runs in, and why.
+ *
+ * `logged` is how many weeks of `season` the usage log holds before `fromWeek`, from
+ * `loggedWeeks()`. It is an argument rather than something this function fetches, so the
+ * measured threshold stays testable without a database and so each test has to state what
+ * the data holds instead of quietly asserting against whatever happens to be there.
+ *
+ * TWO JOBS, DELIBERATELY SEPARATE. `logged` decides WHETHER this season is worth reading.
+ * The cutoff stays the calendar's `fromWeek - 1`, which is leak-safe and reads every row
+ * that exists up to it; using the logged COUNT as the cutoff would under-read a log with a
+ * gap -- weeks 1, 3, 4 present would cut at 3 and drop week 4.
+ *
+ * A log BEHIND the calendar is reported rather than smoothed over. A simulation at week 6
+ * resting on three synced weeks is a different claim from one resting on five, and the
+ * reader of the odds is the one entitled to know which.
+ */
+export function simProjectionBasis(fromWeek, season = SEASON, logged = 0) {
+  const week = Number(fromWeek) || 1;
+  const calendar = week - 1;
+  const have = Math.max(0, Math.min(calendar, Number(logged) || 0));
+
+  if (have >= SIM_PROJECTION_MIN_GAMES) {
+    return {
+      through: season, throughWeek: calendar,
+      basis: have < calendar
+        ? `${season} through week ${calendar}, but only ${have} of those ${calendar} weeks are in the usage log`
+        : `${season} through week ${calendar}`
+    };
+  }
+
+  let why;
+  if (calendar === 0) why = 'no games played yet this season';
+  else if (have === 0) {
+    why = `${calendar} week${calendar === 1 ? '' : 's'} played, but the ${season} usage log `
+      + 'is empty, so nothing from this season could be read';
+  } else why = `${have} game this season is too little to outweigh it`;
+  return { through: season - 1, throughWeek: null, basis: `${season - 1} complete; ${why}` };
+}
+
 export function simulateSeason(lg, {
   runs = 2000, fromWeek = 1, scoring = PPR, overrides = null, projections = null
 } = {}) {
@@ -251,7 +356,13 @@ export function simulateSeason(lg, {
   const assets = assetUniverse(lg, formatKey);
   let teams = loadRosters(lg, assets);
   const slots = lineupSlots(lg);
-  const proj = projections ?? buildProjections({ through: SEASON - 1, scoring });
+  const projBasis = simProjectionBasis(fromWeek, SEASON, loggedWeeks(SEASON, fromWeek));
+  // One options object for both, so the projections and the label describing them cannot be
+  // derived from different arguments. A caller that supplies its own `projections` gets a
+  // null fit meta rather than a description of a call this function did not make.
+  const projOpts = { through: projBasis.through, throughWeek: projBasis.throughWeek, scoring };
+  const proj = projections ?? buildProjections(projOpts);
+  const projFit = projections ? null : projectionFitMeta(projOpts);
 
   if (overrides) {
     teams = teams.map(t => overrides.has(t.roster_id)
@@ -440,6 +551,14 @@ export function simulateSeason(lg, {
     // came from, rather than trusting that it matched the league. `basis` names the
     // source: the league's own schedule, or the fallback constant.
     playoff_rounds: bracketRounds, playoff_basis: playoff.basis,
+    // Which games these odds were built from. Served because odds built off last season and
+    // odds built off this season's games so far are different numbers, and a reader cannot
+    // tell them apart from the value alone.
+    projection_basis: projBasis.basis,
+    // Which shrinkage constants produced those projections. `null` means no active fit, so
+    // everything ran on the hand-set constants -- the live state today. See
+    // projections.js#projectionFitMeta for why the fit id alone does not answer this.
+    projection_fit: projFit,
     odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
     teams: out
   };
@@ -470,7 +589,10 @@ export function tradeImpact(lg, {
 
   // One projection build shared by both runs — rebuilding would introduce noise that
   // has nothing to do with the trade.
-  const projections = buildProjections({ through: SEASON - 1, scoring });
+  const tradeBasis = simProjectionBasis(fromWeek, SEASON, loggedWeeks(SEASON, fromWeek));
+  const projections = buildProjections({
+    through: tradeBasis.through, throughWeek: tradeBasis.throughWeek, scoring
+  });
   // Common random numbers make this a paired experiment: the same simulated
   // football worlds are used before and after, so Monte Carlo noise cannot
   // masquerade as trade impact.

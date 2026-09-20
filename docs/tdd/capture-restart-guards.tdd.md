@@ -143,12 +143,21 @@ the same class.
   a reported 1 can be a true 0.5. Change the rounding and this number changes
   with it.
 - The **60-second `RESTART_TOLERANCE_MS`** was hand-set from latency
-  arithmetic. It is now measured, against tonight's log
-  (`/mnt/project-files/restart-health-log.tsv`, 152 reads at a 60-second
-  cadence, 2026-09-19T22:53Z to 2026-09-20T01:24Z): 46 clean reads yielded 46
-  distinct process starts, and all 45 consecutive pairs were **at least 177
-  seconds apart** (median 180, max 376). A 60-second tolerance therefore cannot
-  merge two real lives in this data — the margin is about 3x.
+  arithmetic. It is now measured in both directions, against tonight's log
+  (`/mnt/project-files/restart-health-log.tsv`, 167 reads at a 60-second
+  cadence, 2026-09-19T22:53Z to 2026-09-20T01:39Z), which yielded 51 clean reads
+  across 50 distinct process starts:
+  - **Different processes** are separated by **at least 171 seconds** across all
+    49 such consecutive pairs (median 180, max 376). A 60-second tolerance
+    cannot merge two real lives in this data, with about 2.8x of margin.
+  - **The same process**, read cleanly twice 60 seconds apart, drifted **0
+    seconds** — the one such pair in the log, 01:38:23Z at `uptime_s` 15 and
+    01:39:23Z at 65, both deriving 01:38:18Z. So the drift the tolerance exists
+    to absorb is two orders of magnitude inside it.
+
+  The two sides are 171 seconds and 0 seconds. A threshold anywhere between a
+  few seconds and two minutes would separate them; 60 is not load-bearing, and
+  that is the useful thing to know about it.
 
 **2. How do we know?** 10 tests in `test/capture-span-guard.test.js`, each
 killed by a distinct mutation (the run is pasted above); 4 live readings, also
@@ -156,13 +165,21 @@ above, three of them crossed reads taken while the app was cycling. The
 mutation table is the load-bearing part: a test no mutation can fail proves
 nothing, which is the standard `docs/tdd/week2-numbers.tdd.md` set.
 
-**3. What is NOT known.** The tolerance is measured in one direction only. The
-drift it exists to absorb — two clean reads of the *same* process disagreeing by
-a few seconds — was **never observed tonight**, because the app never answered
-two clean health reads inside one life. 46 clean reads, 46 different processes.
-So the false-positive side of that threshold still rests on arithmetic, and the
-number to re-measure once the app is stable is the drift between two clean reads
-60 seconds apart in one life.
+**3. What is NOT known, and one thing that changed while this was being
+written.** For the first 152 reads of the log the same-process side of the
+tolerance was unmeasured: 46 clean reads had produced 46 *different* process
+starts, because the app had never once answered two clean health reads inside a
+single life. That was stated here as a gap, and then the log closed it — the
+01:38:18Z process survived long enough to be read cleanly twice, at `uptime_s`
+15 and 65, which is where the 0-second drift above comes from. It is recorded
+rather than quietly overwritten because the first version of this file asserted
+the gap, and one observation is a thin basis: **n = 1** on that side, against
+n = 49 on the other. A second pair, once the app is stable, is what would make
+it a measurement rather than an existence proof.
+
+What remains genuinely unknown is the behaviour this tolerance was written for —
+drift across a capture that runs for minutes rather than across one 60-second
+interval — since no capture has been able to run to completion.
 
 **4. Structure.** The predicates live in `scripts/lib/capture-span.mjs` rather
 than in the capture script because the script is a top-level-await module that

@@ -5,7 +5,19 @@
  * from the structural head's `params` (projections.js), and the volume shrinkage
  * behind them has only ever been validated on fantasy POINTS — never on
  * opportunity itself. This grades the opportunity number directly, against the
- * one baseline a user has without us: the player's own season-to-date average.
+ * two baselines a user has without us:
+ *
+ *   - his own SEASON-TO-DATE AVERAGE, the thing anyone can do in his head, and
+ *   - an EWMA of his own recent weeks at alpha 0.4 — the `ewma` baseline in
+ *     `opportunity-model.js:350`, computed by the same recursion as `:64-69`.
+ *     That module's own study (docs/OPPORTUNITY-FINDINGS-2026-09-19.md, section
+ *     3) found a sixteen-feature ridge over air-yards share, WOPR, snap
+ *     trajectory, expected points, vacated teammate share, spread and implied
+ *     total could not beat this EWMA for next-week volume. It has never been
+ *     graded against what the app actually ships, which is what this adds.
+ *
+ * Both baselines are computed from raw usage, so they are byte-identical in
+ * every arm's output file and the comparison reads them from the first.
  *
  * WHAT MAKES THE COMPARISON FAIR, since the interesting run is a BEFORE/AFTER on
  * the volume shrinkage fit and a fitted k moves projections around:
@@ -50,6 +62,15 @@ const WEEKS = { from: 5, to: 17 };
 const MIN_PRIOR_GAMES = 3;
 const MIN_PRIOR_OPPORTUNITIES = 3;
 
+/** `opportunity-model.js:64-69` verbatim, at its own EWMA_ALPHA (`:40`). */
+const EWMA_ALPHA = 0.4;
+function ewma(series) {
+  if (!series.length) return null;
+  let acc = series[0];
+  for (let i = 1; i < series.length; i++) acc = EWMA_ALPHA * series[i] + (1 - EWMA_ALPHA) * acc;
+  return acc;
+}
+
 const mae = values => values.reduce((sum, v) => sum + Math.abs(v), 0) / values.length;
 const arg = flag => { const i = process.argv.indexOf(flag); return i < 0 ? null : process.argv[i + 1]; };
 
@@ -73,6 +94,8 @@ function grade() {
         const meanTargets = prior.reduce((s, p) => s + (p.targets ?? 0), 0) / prior.length;
         const meanCarries = prior.reduce((s, p) => s + (p.carries ?? 0), 0) / prior.length;
         if (meanTargets + meanCarries < MIN_PRIOR_OPPORTUNITIES) continue;
+        const ewmaTargets = ewma(prior.map(p => p.targets ?? 0)) ?? 0;
+        const ewmaCarries = ewma(prior.map(p => p.carries ?? 0)) ?? 0;
         graded.push({
           key: `${season}|${week}|${projection.player_id}`, season,
           player: String(projection.player_id),
@@ -80,6 +103,8 @@ function grade() {
           model_carries: projection.params.carries - (was.carries ?? 0),
           baseline_targets: meanTargets - (was.targets ?? 0),
           baseline_carries: meanCarries - (was.carries ?? 0),
+          ewma_targets: ewmaTargets - (was.targets ?? 0),
+          ewma_carries: ewmaCarries - (was.carries ?? 0),
         });
       }
     }
@@ -99,8 +124,10 @@ function compare(aPath, bPath) {
     for (const metric of ['targets', 'carries']) {
       // The baseline is raw usage, so it is identical in both files; read it from A.
       const baseline = ks.map(k => Math.abs(A.get(k)[`baseline_${metric}`]));
+      const ewmaArm = ks.map(k => Math.abs(A.get(k)[`ewma_${metric}`] ?? NaN));
       const armA = ks.map(k => Math.abs(A.get(k)[`model_${metric}`]));
       const armB = ks.map(k => Math.abs(B.get(k)[`model_${metric}`]));
+      const haveEwma = ewmaArm.every(Number.isFinite);
       // pairedBootstrapDiff(x, y) resamples mean(y) - mean(x), so passing
       // (model, baseline) makes a POSITIVE interval mean the model has less error.
       const gA = pairedBootstrapDiff(armA, baseline, { groups: players });
@@ -109,6 +136,16 @@ function compare(aPath, bPath) {
       console.log(`   own season-to-date average   ${mae(baseline).toFixed(3)}`);
       console.log(`   ${aPath.padEnd(24)} ${mae(armA).toFixed(3)}   baseline-minus-model 90% CI ${JSON.stringify(gA.ci90)}`);
       console.log(`   ${bPath.padEnd(24)} ${mae(armB).toFixed(3)}   baseline-minus-model 90% CI ${JSON.stringify(gB.ci90)}`);
+      if (haveEwma) {
+        // Same convention throughout: a POSITIVE interval means the first named
+        // arm has the smaller error.
+        const gE = pairedBootstrapDiff(ewmaArm, baseline, { groups: players });
+        console.log(`   own recent form, EWMA a=0.4 ${mae(ewmaArm).toFixed(3)}   baseline-minus-ewma  90% CI ${JSON.stringify(gE.ci90)}`);
+        for (const [label, armX] of [[aPath, armA], [bPath, armB]]) {
+          const g = pairedBootstrapDiff(armX, ewmaArm, { groups: players });
+          console.log(`      ewma-minus-${label.padEnd(20)} 90% CI ${JSON.stringify(g.ci90)}`);
+        }
+      }
     }
   }
 }

@@ -21,13 +21,13 @@ itself uses (`nflverse` crosswalk + `stats_player_week`, seasons 2021-2026):
 | Question | Answer |
 |---|---|
 | What is an opportunity made of? | The structural head's `params.targets` / `params.carries` — a shrunk share of a shrunk team volume. No advanced stat enters it. |
-| Is that tested on history? | **It is now. It loses.** Measured below: as shipped it is significantly *worse* than the player's own season-to-date average, on 4,828 paired player-weeks. With the shrinkage fit that is already in the repo but never persisted, it wins. |
+| Is that tested on history? | **It is now. It loses.** Measured below on 4,828 paired player-weeks: as shipped it is significantly *worse* than the player's own season-to-date average, and worse than an EWMA of his own recent games. With the shrinkage fit that is already in the repo but never persisted, it beats both. |
 | Is this trade fair? | "Fair" means the FantasyCalc market price, passed through untouched (`trade-engine.js:418`). Not our judgement, and not tested. |
 | What will they accept? | A band that is honest about being a guess: with no counterparty data it is **2.5%-57.5%**, and `trade-acceptance.js` says in its own header "Nothing here is fitted." |
 | What does it do for me? | A real lineup re-solve on `adj_ppg`, which is 25% this week + 75% rest-of-season. The rest-of-season part is the best-tested number in the app. The 25/75 split itself is a guess. |
 | What's the goal? | Two goals, and the app knows it. Find Deals ranks on points; Title Trades ranks on championship odds and prints a note when they disagree. The championship odds themselves have no historical calibration. |
 | How good is my team? | Two answers that do not talk to each other: a real relative rank against the league's own rosters, and a title percentage simulated from **week 1** on **through-2025** projections. |
-| Where is ML? | Real and validated in the weekly point number (ensemble weights, ridge coordinator). Absent from opportunity, trades, acceptance and title odds. The advanced-stat feature store and the GBM are on the **betting** side and are not shared. |
+| Where is ML? | Real and validated in the weekly point number (ensemble weights, ridge coordinator). Absent from opportunity, trades, acceptance and title odds. The advanced-stat feature store and the GBM are on the **betting** side and are not shared. For next-week *volume* specifically, ML was tried with those stats and lost to a four-line EWMA — a tested negative, not a gap. |
 
 ---
 
@@ -106,6 +106,63 @@ stated thesis (`projections.js:4`) is that opportunity should be trusted.
 caller takes the hardcoded branch at `projections.js:203-206`. **This is a
 database write, not a code change**, and `docs/RUNBOOK-promote-volume-shrinkage.md`
 already describes it.
+
+### And against the strongest baseline the repo already knows about
+
+A season-to-date average is the baseline a *manager* has. The baseline the
+*repository* has is stronger, and it is four lines long: an exponentially
+weighted average of the player's own recent games at alpha 0.4
+(`opportunity-model.js:350`, recursion at `:64-69`). That module's own study
+(`docs/OPPORTUNITY-FINDINGS-2026-09-19.md`, section 3) found that a sixteen-feature
+ridge over air-yards share, WOPR, snap trajectory, ffopportunity expected points,
+vacated teammate share, spread, implied total and opponent funnel **could not beat
+it** for next-week volume. It had never been graded against what the app actually
+ships. Added as a third arm on the same 4,828 rows:
+
+| season | metric | own average | EWMA a=0.4 | **shipped (k = 6/10)** | fitted k |
+|---|---|---|---|---|---|
+| 2024 | targets | 1.773 | 1.804 | **2.006** | 1.749 |
+| 2024 | carries | 1.626 | 1.606 | **2.003** | 1.600 |
+| 2025 | targets | 1.768 | 1.770 | **1.901** | 1.735 |
+| 2025 | carries | 1.602 | 1.588 | **1.943** | 1.575 |
+
+Paired bootstrap clustered by player, interval on `ewma_error - model_error`, so
+positive means the model beats the EWMA:
+
+| season | metric | shipped vs EWMA | fitted k vs EWMA |
+|---|---|---|---|
+| 2024 | targets | [−0.264, −0.146] | **[+0.034, +0.076]** |
+| 2024 | carries | [−0.483, −0.316] | [−0.023, +0.034] |
+| 2025 | targets | [−0.187, −0.078] | **[+0.016, +0.056]** |
+| 2025 | carries | [−0.434, −0.285] | [−0.014, +0.039] |
+
+Three things follow.
+
+1. **As shipped, the whole structural apparatus loses to a four-line recursion**,
+   in all four cells, every interval clear of zero. Not "is inside the noise of" —
+   loses to.
+2. **With the fitted k it beats that recursion on targets** in both seasons, and
+   ties it on carries. So promoting the shrinkage fit is not a marginal MAE
+   improvement: it is the difference between machinery that is worse than the
+   simplest thing in the repo and machinery that is modestly better than it.
+3. The EWMA itself is not better than a plain season average — one of its four
+   cells is significantly worse (2024 targets, [−0.057, −0.006]) and the other
+   three straddle zero. The naive baselines are close to each other; it is the
+   shipped model that is the outlier, in the wrong direction.
+
+Sizes are small in absolute terms — 0.03 to 0.08 of a target per week — and these
+are 90% intervals from a 2,000-iteration bootstrap. The claim is the sign and its
+consistency, not the magnitude.
+
+**What this does to the "use advanced stats and ML" question.** It narrows it.
+The advanced stats are not unexplored: for *next-week volume* they were tried,
+in the most favourable form anyone would build, and they lost to the EWMA — which
+the fitted-k structural head then beats. So the ranked answer for opportunity is
+promote the fit first, and treat air-yards share and WOPR as a tested negative for
+this particular prediction rather than an obvious win waiting to be wired up.
+They remain unexplored for the *efficiency* half (yards per target, catch rate,
+touchdown rate), which is a different question and is where RACR, PACR and CPOE
+would actually speak.
 
 ### What a user is told
 
@@ -488,4 +545,5 @@ GRIDIRON_DB_PATH=/tmp/audit.sqlite node scripts/grade-opportunity-vs-baseline.mj
 GRIDIRON_DB_PATH=/tmp/audit.sqlite node scripts/promote-volume-shrinkage.mjs        # then activate
 GRIDIRON_DB_PATH=/tmp/audit.sqlite node scripts/grade-opportunity-vs-baseline.mjs --out fitted-k.json
 node scripts/grade-opportunity-vs-baseline.mjs --compare shipped-k.json fitted-k.json
+# the season-average and EWMA baselines are emitted by both arms; --compare prints all three
 ```

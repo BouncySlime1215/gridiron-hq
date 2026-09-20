@@ -82,7 +82,15 @@ export const SIGNAL_SOURCES = Object.freeze({
     // study/features/archetypes.md: no draft metric survived a year-over-year
     // repeatability test. Context for a human, never an input to a price.
     priceable: false },
-  chat: { label: 'League chat (private)', refreshed: 'every refresh tick', priceable: true },
+  // NOT "every refresh tick". The corpus is a private SQLite file on Nick's Mac,
+  // never in the deployed image, and its rollup is step 3 of
+  // scripts/refresh-live-data.mjs — off-server by that script's own header. Like
+  // `tx` above, this string is interpolated into the `why` served on every chat
+  // signal row, so a wrong cadence here is a wrong claim per metric on the client.
+  // `chatCorpusState` below serves the real date, and says when there is none.
+  chat: { label: 'League chat (private)',
+    refreshed: 'only when the league_chat step of scripts/refresh-live-data.mjs is run (off-server; see chat.as_of)',
+    priceable: true },
   nick: { label: "Nick's own read (prior, n=3)", refreshed: 'edited in code', priceable: true },
 });
 
@@ -613,6 +621,54 @@ export function archetypesBuilt(leagueId, season) {
   }
   return { as_of: r.as_of ?? null, rows: r.n, first_seen: r.first_seen ?? null,
     collected_by: builder, reason: null };
+}
+
+/**
+ * IS THE CHAT CORPUS EVEN ON THIS MACHINE, AND WHEN WAS IT LAST ROLLED UP.
+ *
+ * The third store, and the one whose absence is the normal case rather than the
+ * exception: the corpus is a private SQLite file on Nick's Mac
+ * (`chatDbPath()`), deliberately never in the deployed image, and its rollup is
+ * step 3 of `scripts/refresh-live-data.mjs` — off-server. So on the live app
+ * `openChatDb()` returns null, every chat read downstream produces nothing, and
+ * a league with no corpus and a manager who never talks produced the same empty.
+ *
+ * Four states, four different sentences, because acting on them differs:
+ *   - no path configured at all;
+ *   - configured but the file is not here (the deployed app, every time);
+ *   - here but the rollup has not written `manager_chat_profile`;
+ *   - here and rolled up, with the date it was rolled up.
+ *
+ * Opens read-only and closes; never throws on absence, and never reports an
+ * absence as a clean empty.
+ */
+export function chatCorpusState() {
+  const roller = 'the league_chat step of scripts/refresh-live-data.mjs (off-server; the corpus is not in the deployed image)';
+  const empty = { as_of: null, rows: 0, first_seen: null, collected_by: roller };
+  const file = chatDbPath();
+  if (!file) return { ...empty, reason: 'no chat corpus path is configured on this machine' };
+  let chat = null;
+  try { chat = openChatDb(); } catch (e) {
+    return { ...empty, reason: `the chat corpus could not be opened: ${String(e?.message ?? e)}` };
+  }
+  if (!chat) {
+    return { ...empty,
+      reason: 'the chat corpus is not on this machine — it lives on Nick\'s Mac and is not in the deployed image' };
+  }
+  try {
+    const r = chat.prepare(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of, MIN(computed_at) AS first_seen
+                            FROM manager_chat_profile`).get();
+    if (!r || !r.n) {
+      return { ...empty, reason: `the chat corpus is here but has no manager profiles yet — run ${roller.split(' (')[0]}` };
+    }
+    return { as_of: r.as_of ?? null, rows: r.n, first_seen: r.first_seen ?? null,
+      collected_by: roller, reason: null };
+  } catch (e) {
+    // A missing table is a real state: the rollup drops and recreates
+    // manager_chat_profile outside a transaction, so a crash between the two
+    // leaves it gone. Reported, never passed off as an empty corpus.
+    return { ...empty, reason: `the chat corpus is here but its rollup tables are not readable: ${String(e?.message ?? e)}` };
+  } finally { try { chat.close(); } catch { /* already closed */ } }
 }
 
 export function unpriceableReason(source) {

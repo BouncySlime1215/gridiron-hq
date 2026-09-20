@@ -493,6 +493,12 @@ test('read: a league whose signals were never built still reports its transactio
   assert.ok(body.transactions, 'the transactions block does not depend on the signal build');
   assert.equal(body.transactions.rows, 0);
   assert.equal(body.transactions.as_of, null);
+  // Same rule for the chat half, and for the same reason: a league with no build
+  // is exactly where someone is asking where the data went, so that is the worst
+  // possible place to drop the two blocks that answer it.
+  assert.ok(body.chat, 'the chat block does not depend on the signal build either');
+  assert.equal(body.chat.as_of, CHAT_ROLLED_UP_AT,
+    'the corpus is a property of the machine, not of this league having been built');
 });
 
 test('read: a database with no transactions table at all says the collector has never run here', async () => {

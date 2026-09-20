@@ -545,6 +545,118 @@ warning but the resolution, decided in advance: **keep whichever side is already
 in the tree and delete the other, because all three assert the identical thing.**
 That turns a stop into a keystroke.
 
+## Pass B, the declared gap closed
+
+The write-up above says pass B ran on `main`'s tests only, so every test written
+on 2026-09-20 was outside it. That gap is now closed rather than left standing.
+Four heads carry those tests and all four were swept, each with the
+instrumented-equals-clean control:
+
+| head | instrumented run | matches its clean run | captured pairs | dead sites |
+|---|---|---|---|---|
+| `557d9f6` UI | 3,196 / 3,155 / 0 / 41 | yes | 3,080 | 25 |
+| `d38a65c` wiring map | 3,026 / 2,985 / 0 / 41 | yes | 1,850 | 24 |
+| `3c0c9c5` Opportunity | 2,963 / 2,922 / 0 / 41 | yes | 1,765 | 22 |
+| `860e1a2` Trade Brain | 2,955 / 2,914 / 0 / 41 | yes | 1,758 | 24 |
+
+**Across all four, exactly one site that is not already on `main`'s list.** The
+rest are inherited. That is the whole answer to the gap, and it is a small one.
+
+### `test/title-odds-drill.test.js:97` — dead for every input, not just this one
+
+```js
+assert.match(backtest, /graded on\s*\n?\s*\*?\s*week W alone|graded on week W alone/,
+  'the weekly backtest no longer grades the week it predicted');
+```
+
+The second branch is **strictly subsumed by the first**: `\s*` matches the empty
+string and `\n?` and `\*?` are both optional, so anything branch two matches,
+branch one matches, and branch one is tried first. Measured, not read off the
+quantifiers:
+
+```
+branch 1 alone vs the real server/services/weekly-backtest.js : MATCHES ("graded on\n * week W alone")
+branch 2 alone vs the same file                               : DOES NOT MATCH
+
+"graded on week W alone"      -> b1 yes | b2 yes
+"graded on  week W alone"     -> b1 yes | b2 no
+"graded on\n * week W alone"  -> b1 yes | b2 no
+"graded onweek W alone"       -> b1 yes | b2 no
+```
+
+### Three kinds of dead branch, and only one of them is ever fine
+
+This is the distinction that makes the list usable, and it came out of having
+both kinds in one report:
+
+1. **Dead for its fixtures.** A statement about the test data. The suite never
+   exercises that branch. "Leave it, it is a correct hedge" is frequently the
+   right answer — `model-integrity.test.js:845` accepting either a SHA or the
+   literal `unavailable` is dead here only because this tree has git.
+2. **Dead because an earlier branch swallows it.** A statement about the regex.
+   Unreachable for any input; no fixture, present or future, can rescue it.
+   Delete it and the meaning changes by exactly nothing. `title-odds-drill:97`.
+3. **Dead because the producer cannot emit it.** A statement about the contract.
+   The assertion describes behaviour the code does not have — and would go on
+   passing if the code started having it.
+
+The third looks most like coverage and is least like it. A report that lists all
+three together, ranked by count, is worse than no report: the responses differ.
+
+## This log's harness, audited against its own standard
+
+Two properties of every figure in this document, checked rather than assumed.
+
+**Source-isolated, not isolated.** Every worktree here symlinks
+`node_modules` to the main checkout. Each run has its own source tree; none has
+its own dependency tree. A concurrent install anywhere in the container would
+pull dependencies out from under every worktree at once and void several runs
+**simultaneously, with no visible failure in any of them**. Checked:
+`node_modules` mtime `2026-09-20T01:51:35Z`, `.package-lock.json` `01:12:19Z`,
+and every run quoted here began after 11:00Z — so the dependency tree was in
+fact constant. That is nobody happening to run an install, not a property of the
+harness. Every figure here carries the label.
+
+**One run had a tree change under it.** The worktrees are detached and dedicated,
+so no checkout can move under them — but the main checkout is where this branch's
+own full check runs, and `HEAD` moved there four times on 2026-09-20 by commit.
+Three are clear of every run. The first instrumented pass B run (12:34:23 to
+~12:47) is not: the write-up was spliced into this file and two new files created
+under `docs/evidence/2026-09-20/passb/` at ~12:40, committed at 12:42:26 — inside
+the window.
+
+It is **not void, and not clean either**. Not void because no file under `test/`
+changed, neither of the two documentation files any test opens at runtime was
+touched, the total came back EQUAL to expected rather than short, and two
+independent runs on stable trees (12:55 and 13:02) give the identical
+2,950 / 2,909 / 0 / 41. **The figure stands on the second reading, not on that
+argument.** Careful about the worktrees and careless about the checkout I was
+standing in.
+
+**So, from here:** every run records `git write-tree` before and after and the
+dependency tree's mtime either side, and prints `tree unchanged across the run;
+dependency tree unchanged` or `VOID` with both pairs shown. A tree that changed
+voids the run whatever the numbers say. A procedure can be followed and still
+fail; a recorded hash either matches or it does not.
+
+**And the wiring-map mutations were run bare.** Every mutation row in the two
+wiring-map gradings above was measured with a bare
+`node --experimental-test-module-mocks --test test/wiring-map.test.js` — no
+`GRIDIRON_DB_PATH`, no `SCHEDULER_DISABLED`, no offline guard. That is the shape
+that gives false reds on suites touching fitted models. Checked both ways on the
+same tree at `d38a65c`: **78 / 78 / 0 / 0 either way.** The figures stand, and
+they stand because that suite scans source text — one assertion reaching a fitted
+model would have diverged them. The check that makes a non-harness run safe is
+not that it passed, it is that it **agrees with the harness on the same tree**.
+
+## A note on `main`
+
+Every figure in this document names the commit it was measured on. `main` was
+`791b131` throughout. When it moves, each figure remains a true reading of the
+tree it names and stops being a statement about `main` — including
+2,950 / 2,909 / 0 / 41, which is `791b131` plus this branch's documentation and
+nothing else.
+
 ## What this log does not cover
 
 - **Cross-file mutation claims.** Where a table asserts that an edit breaks

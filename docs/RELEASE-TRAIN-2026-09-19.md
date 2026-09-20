@@ -2242,6 +2242,13 @@ that used to be invisible is now obvious. In the meantime the app is serving in
 short windows between restarts rather than steadily, so opening the site may
 land on a stall.
 
+**How often, measured rather than estimated, and it is worse than "often".** In
+152 minutes of polling every 60 seconds, **46 clean health reads produced 46
+different process starts** — consecutive starts at least 177 seconds apart,
+median 180, longest 376. **The app has not once answered two clean reads inside
+one life.** That is the number behind "restarting in a loop", and it is why the
+first command below is a brake rather than an investigation.
+
 **Before any of it: CI is off, deliberately, and none of these PRs is red for a
 reason of its own.** The month's GitHub Actions allowance is spent — 2,000 of
 2,000 minutes, resetting **1 October** — which from about 01:00Z on 2026-09-20
@@ -2385,7 +2392,8 @@ of a dozen jobs is the one currently holding the lock."
    ```
 
 **One thing to read rather than run, and it is not part of the sequence
-above.** *Model evidence audit: page linked from the morning message.* It
+above.** [Model evidence audit](https://claude.ai/artifact/WVQqxZwa1FsvXyzir2fsLr)
+(PR #68). It
 answers, for the Model surface, the question this whole block answers for the
 deploy — which numbers are measured and which are guessed. It is separate work
 by another thread, it blocks nothing here, and it is listed so it is not
@@ -2575,6 +2583,16 @@ off-thread would leave the 503 exactly where it is.
 no progress toward clearing `coreLag`. The 2026 rows that *would* clear it come
 from `syncNflverse` at `:187`, first in the branch, which is the step that
 errored at 21:17:44.
+
+**And the stamping fix alone may not clear the gate either — a hedge from the
+scheduler thread, checked here.** `coreLag` (`:181`) is
+`sources.some(s => s.required && !s.current)`, and **four sources are
+`required: true`** (`:76-:83`): `game_lines`, `nfl_team_week_features`,
+`nfl_player_week_features` and `player_week_usage`. So a fix that makes the
+usage stamp honest clears the gate **only if the other three are current on the
+live box**, which nobody has read. The `/status` source view answers it in one
+request on the morning after the app is stable. **Do not read the fix as
+closing this.**
 
 **And a second reason it would not converge even without the kills, found by
 the fantasy plan in their RED/GREEN work and verified here on `791b131`.**

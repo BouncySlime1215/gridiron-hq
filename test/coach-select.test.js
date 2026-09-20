@@ -189,3 +189,18 @@ test('a forbidden word inside a string literal is a value, not a keyword', () =>
   const inline = safeSelect(`SELECT count(*) AS n FROM players WHERE name = 'delete from players'`);
   assert.equal(inline.rows[0].n, 0);
 });
+
+/*
+ * Added because mutation M5 survived: deleting the one-statement check changed
+ * no result, because every multi-statement case the suite tried had a
+ * forbidden keyword in its second statement and was caught by that scan
+ * instead. A second statement that is itself an innocent SELECT pins the check
+ * on its own.
+ */
+test('a second statement is refused even when it is itself only a SELECT', () => {
+  assert.throws(() => safeSelect(`SELECT count(*) AS n FROM players; SELECT 1`), err => {
+    assert.ok(err instanceof CoachQueryRefused, 'must be refused as policy, not left to SQLite');
+    assert.match(err.message, /one statement/i);
+    return true;
+  });
+});

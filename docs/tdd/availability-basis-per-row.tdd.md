@@ -59,6 +59,27 @@ runs**, and the hand-set chain never replaces it. So both map to
 which is the blanket-constant case on a different path entirely — and saying so
 is more useful than picking one.
 
+## Amendment: the sentence alone does not buy "measured"
+
+The first version of this mapped both durability sentences straight to
+`durability_prior`. That is too strong. `durability_prior` claims a number
+worked out from **this player's own record of turning up**, and the deployed
+producer has a blanket-constant case on the same path that writes the same
+sentence. A number that says "his own record" when it is one constant applied
+to everybody is the overstatement this whole field exists to remove.
+
+So the sentence alone now buys `unrecognised` — Unverified — and only an
+explicit `durability_prior_measured === true` on the row buys the stronger
+claim. Read strictly: `!== false` would make every row from the deployed
+server, which carries no flag at all, into a measured one. Three mutations,
+all red:
+
+| Mutation | Result |
+|---|---|
+| an unflagged durability sentence claims a measured record | 8 pass / **1 fail** |
+| a falsy flag is treated as present | 8 pass / **1 fail** |
+| the flag is read loosely (`!== false`), so absent becomes measured | 8 pass / **1 fail** |
+
 ## Two absences, still not the same absence
 
 `availability_source: null` means the player had no availability row:

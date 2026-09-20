@@ -436,11 +436,19 @@ export function playerAvailabilityBasis(player, processBasis) {
   if (text.startsWith('fitted availability by role')) return 'role';
   if (text.startsWith('fitted availability (')) return 'pooled';
   // Both remaining sentences playerActiveProbability builds start from the
-  // player's own durability prior — `contingency.js:639` sets one of them before
-  // any branch runs and the hand-set chain never replaces it. Anything else is a
-  // sentence this function has not been taught, and saying so is the whole
-  // reason the field outranks it.
-  if (text.includes('durability prior')) return 'durability_prior';
+  // player's own durability number — `contingency.js:639` sets one of them
+  // before any branch runs and the hand-set chain never replaces it.
+  //
+  // BUT THE SENTENCE IS NOT ENOUGH TO CALL IT MEASURED. `durability_prior`
+  // claims a number worked out from this player's own record of turning up, and
+  // the deployed producer has a blanket-constant case on the same path that
+  // produces the same sentence. So the sentence alone buys `unrecognised`, and
+  // only an explicit `durability_prior_measured` flag on the row buys the
+  // stronger claim. A number that says "his own record" when it is one constant
+  // applied to everybody is the overstatement this whole field exists to remove.
+  if (text.includes('durability prior')) {
+    return player.durability_prior_measured === true ? 'durability_prior' : 'unrecognised';
+  }
   return 'unrecognised';
 }
 

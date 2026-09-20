@@ -194,10 +194,21 @@ test('every source string weeklyAvailability can build maps to a basis', () => {
     { availability_source: 'fitted availability by role (starter/noreport/full, n=812) x KC' }, null), 'role');
   assert.equal(playerAvailabilityBasis(
     { availability_source: 'fitted availability (QUE/limited, n=1204)' }, null), 'pooled');
+  // The sentence alone does NOT buy the stronger claim. `durability_prior`
+  // says the number came from this player's own record of turning up, and the
+  // deployed producer has a blanket-constant case on the same path that writes
+  // the same sentence. So an unflagged row is Unverified, and only an explicit
+  // flag makes it a measured durability number. A number that says "his own
+  // record" when it is one constant applied to everybody is the overstatement
+  // this field exists to remove.
   assert.equal(playerAvailabilityBasis(
-    { availability_source: 'weekly injury report + durability prior' }, null), 'durability_prior');
+    { availability_source: 'weekly injury report + durability prior' }, null), 'unrecognised');
   assert.equal(playerAvailabilityBasis(
-    { availability_source: 'durability prior only' }, null), 'durability_prior');
+    { availability_source: 'durability prior only' }, null), 'unrecognised');
+  assert.equal(playerAvailabilityBasis(
+    { availability_source: 'durability prior only', durability_prior_measured: true }, null), 'durability_prior');
+  assert.equal(playerAvailabilityBasis(
+    { availability_source: 'durability prior only', durability_prior_measured: false }, null), 'unrecognised');
   assert.equal(playerAvailabilityBasis(
     { availability_source: 'something nobody here has seen' }, null), 'unrecognised');
 });

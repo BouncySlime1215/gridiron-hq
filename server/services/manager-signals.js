@@ -498,17 +498,81 @@ export function refreshManagerData({ leagueIds = null, confirmations = {} } = {}
   } finally { chat?.close(); }
 }
 
-/** Everything the trade engine needs about one league's managers, in one read. */
+/**
+ * Every stored signal for a league, each row carrying whether anything may price
+ * on it and why. The read side: the page shows everything, labelled. The route
+ * used to run this query itself and join the registry in a local helper, which
+ * put the one rule that matters in the one layer that prices nothing.
+ */
+export function signalRowsFor(leagueId) {
+  return rows(`SELECT roster_id, metric, value, n, source, computed_at FROM manager_signals
+               WHERE league_id = ? ORDER BY roster_id, source, metric`, leagueId)
+    .map(r => {
+      const reason = unpriceableReason(r.source);
+      const spec = SIGNAL_SOURCES[r.source] ?? null;
+      return {
+        roster_id: r.roster_id, metric: r.metric, value: r.value, n: r.n,
+        source: r.source, computed_at: r.computed_at,
+        priceable: reason == null,
+        why: spec
+          ? `${spec.label}; refreshed ${spec.refreshed}${reason ? ' — context only, never priced' : ''}`
+          : reason,
+      };
+    });
+}
+
+/**
+ * Why a source's rows may not be priced on, or null when they may.
+ *
+ * THE ONE PLACE THAT DECIDES. This used to be answered in the HTTP layer, at
+ * routes/trades.js, which is the one layer that does not price anything; the
+ * accessor the trade engine reads through returned every metric in one bag with
+ * no flag. Nothing priced on an unpriceable metric — checked by name across
+ * server/ and client/ — but nothing stopped it either, and a rule enforced only
+ * in the consumer that happens to obey it is not a rule.
+ *
+ * An UNDECLARED source returns a reason rather than null: absent must mean not
+ * priceable, never priceable by default, or a metric added without its registry
+ * entry silently becomes an input to a price.
+ */
+export function unpriceableReason(source) {
+  const spec = SIGNAL_SOURCES[source];
+  if (!spec) {
+    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`;
+  }
+  if (spec.priceable) return null;
+  return `${spec.label} is declared priceable: false — context only, never priced`;
+}
+
+/**
+ * Everything the trade engine needs about one league's managers, in one read.
+ *
+ * `metrics` / `samples` / `sources` carry ONLY what may be priced on. Anything
+ * that may not is in `context` / `context_samples` / `context_sources`, with the
+ * reason in `context_reasons`. That is a property, not a convention: a caller on
+ * the pricing path cannot reach a draft metric by name because it is not in the
+ * bag it reads, so the guard survives the next person who has not read this
+ * comment. Nothing is dropped — the page still shows every stored row, through
+ * `signalRowsFor` below.
+ */
 export function managerSignalsFor(leagueId) {
   const out = new Map();
+  const blank = () => ({ metrics: {}, samples: {}, sources: {},
+    context: {}, context_samples: {}, context_sources: {}, context_reasons: {} });
   for (const r of rows('SELECT roster_id, metric, value, n, source FROM manager_signals WHERE league_id = ?', leagueId)) {
-    if (!out.has(r.roster_id)) out.set(r.roster_id, { metrics: {}, samples: {}, sources: {} });
+    if (!out.has(r.roster_id)) out.set(r.roster_id, blank());
     const m = out.get(r.roster_id);
+    const reason = unpriceableReason(r.source);
+    if (reason) {
+      m.context[r.metric] = r.value; m.context_samples[r.metric] = r.n;
+      m.context_sources[r.metric] = r.source; m.context_reasons[r.metric] = reason;
+      continue;
+    }
     m.metrics[r.metric] = r.value; m.samples[r.metric] = r.n; m.sources[r.metric] = r.source;
   }
   for (const r of rows(`SELECT roster_id, player_name, sentiment, n, last_mention
                         FROM manager_player_view WHERE league_id = ?`, leagueId)) {
-    if (!out.has(r.roster_id)) out.set(r.roster_id, { metrics: {}, samples: {}, sources: {} });
+    if (!out.has(r.roster_id)) out.set(r.roster_id, blank());
     const m = out.get(r.roster_id);
     (m.players ??= new Map()).set(r.player_name.toLowerCase(),
       { sentiment: r.sentiment, n: r.n, last: r.last_mention, multiplier: sentimentMultiplier(r.sentiment, r.n) });

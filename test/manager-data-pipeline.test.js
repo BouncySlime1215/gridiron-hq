@@ -408,17 +408,32 @@ test('accessor: everything the pricing layer actually reads is still in the pric
   // degradation this whole branch is about. These are the names grepped out of
   // counterparty-pricing.js: every m.* it reads, plus the two postLossFactor
   // takes.
-  signals.buildManagerSignals(11);
-  const layer = signals.managerSignalsFor(11);
-  const present = new Set();
-  for (const s of layer.values()) for (const k of Object.keys(s.metrics)) present.add(k);
-  // Only assert the ones this fixture league actually produces; the point is
-  // that partitioning removed none of them, not that all exist everywhere.
-  const stored = new Set(sigRows(11).filter(r => signals.SIGNAL_SOURCES[r.source]?.priceable)
-    .map(r => r.metric));
-  assert.ok(stored.size > 0, 'the fixture must store some priceable metrics for this to mean anything');
-  for (const m of stored) {
-    assert.ok(present.has(m), `${m} is priceable and stored, so the pricing bag must still carry it`);
+  // BOTH leagues, and the sources are asserted rather than assumed. The first
+  // version of this pin read league 11 alone, and a mutation that wrongly
+  // partitioned every `tx` metric out of the pricing bag did not fail it —
+  // league 11 stores no `tx` rows, so the pin never reached the case it claimed
+  // to protect. Same shape as the boundary fixture in
+  // docs/tdd/luck-read-not-firing.tdd.md: a pin is only as strong as the rows
+  // the fixture actually gives it.
+  for (const leagueId of [11, 12]) {
+    signals.buildManagerSignals(leagueId);
+    const layer = signals.managerSignalsFor(leagueId);
+    const present = new Set();
+    for (const s of layer.values()) for (const k of Object.keys(s.metrics)) present.add(k);
+    const priceableRows = sigRows(leagueId).filter(r => signals.SIGNAL_SOURCES[r.source]?.priceable);
+    const stored = new Set(priceableRows.map(r => r.metric));
+    assert.ok(stored.size > 0, `league ${leagueId} must store some priceable metrics`);
+    for (const m of stored) {
+      assert.ok(present.has(m),
+        `${m} is priceable and stored in league ${leagueId}, so the pricing bag must still carry it`);
+    }
+  }
+  // And the sources between them must cover every priceable one the registry
+  // declares and these fixtures can produce, so "some priceable metric survived"
+  // cannot pass on one source while another is quietly partitioned away.
+  const seen = new Set([...sigRows(11), ...sigRows(12)].map(r => r.source));
+  for (const want of ['roster', 'standings', 'tx', 'outcome']) {
+    assert.ok(seen.has(want), `the fixtures must exercise the "${want}" source for this pin to mean anything`);
   }
 });
 

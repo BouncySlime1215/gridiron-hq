@@ -25,7 +25,7 @@ import { newsOpportunities } from '../services/news-lag-trader.js';
 import { brainState, managerProfiles, setManagerProfile } from '../services/league-brain.js';
 // The measured manager layer: what has been observed about each counterparty, as
 // opposed to `manager_profiles`, which is the tier Nick set by hand.
-import { SIGNAL_SOURCES, refreshManagerData } from '../services/manager-signals.js';
+import { SIGNAL_SOURCES, refreshManagerData, signalRowsFor } from '../services/manager-signals.js';
 import { identityMap, identityRows, identityWarnings } from '../services/manager-identity.js';
 import { counterpartyLayer, RECEPTIVENESS_RANGE } from '../services/counterparty-pricing.js';
 // Every other route in this file is a read behind a bearer session; the one that
@@ -427,42 +427,23 @@ function jsonSafe(value) {
   return value;
 }
 
-/**
- * One stored signal, with what its source is allowed to be used for and why.
- *
- * `priceable` is LOAD-BEARING, not decoration. The `manager_signals` table has no
- * such column — SIGNAL_SOURCES carries it per source — so the join has to happen
- * here, and a consumer left to guess from the sample size alone would print a
- * draft-sourced metric with a big `n` as a measured fact. `draft` is the one
- * declared source with `priceable: false`, because no draft metric survived the
- * year-over-year repeatability test, and that is exactly the number this layer
- * exists to stop anyone pricing on.
- *
- * `why` is derived from the same registry (its label and its refresh cadence),
- * never written per metric: there is no per-metric explanation in the data, and
- * inventing one would be the first thing here to quietly stop being true.
- */
-function signalOf(r) {
-  const spec = SIGNAL_SOURCES[r.source] ?? null;
-  const priceable = spec?.priceable ?? false;
-  return {
-    metric: r.metric, value: r.value, n: r.n, source: r.source, priceable,
-    why: spec
-      ? `${spec.label}; refreshed ${spec.refreshed}${priceable ? '' : ' — context only, never priced'}`
-      : `source '${r.source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`,
-  };
-}
-
 async function managerSignalsPayload(lg, { week = null } = {}) {
   const leagueId = lg.id;
   const season = lg.season ?? null;
-  const signalRows = rows(`SELECT roster_id, metric, value, n, source, computed_at FROM manager_signals
-                           WHERE league_id = ? ORDER BY roster_id, source, metric`, leagueId);
+  // `signalRowsFor` does the join, not this route. `priceable` is LOAD-BEARING,
+  // not decoration: a consumer left to guess from the sample size alone would
+  // print a draft-sourced metric with a big `n` as a measured fact, and `draft`
+  // is declared priceable: false precisely because no draft metric survived the
+  // year-over-year repeatability test. That rule used to live in a helper here,
+  // in the one layer that prices nothing, while the layer that does price read
+  // through an accessor that could not see it. It now lives beside the registry.
+  const signalRows = signalRowsFor(leagueId);
   const computedAt = signalRows.reduce((max, r) => (max == null || r.computed_at > max ? r.computed_at : max), null);
   const byRoster = new Map();
   for (const r of signalRows) {
     if (!byRoster.has(r.roster_id)) byRoster.set(r.roster_id, []);
-    byRoster.get(r.roster_id).push(signalOf(r));
+    byRoster.get(r.roster_id).push({ metric: r.metric, value: r.value, n: r.n,
+      source: r.source, priceable: r.priceable, why: r.why });
   }
 
   // The synced payload is the roster set of record — a manager with no signals

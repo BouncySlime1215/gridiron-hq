@@ -1050,3 +1050,217 @@ so the run above is the one that covers the shipped behaviour, and it is
 re-run on the docs head as well rather than assumed: those numbers go in the
 hand-over, since a doc cannot state the hash of the commit that adds it without
 chasing its own tail.
+
+---
+
+## Part 7 — Parts 1–5 re-run to the Part 6 evidence standard
+
+**The five questions.**
+
+- **Well built?** The guards written across Parts 1–5 were re-tested against the
+  code as it stands today, not as it stood when each part shipped.
+- **Stats or made up?** Every row is the literal string replaced, the literal
+  string written back, and `sha256(file)[0:16]` on both sides. Nothing is
+  described; everything is quoted, and nothing is transcribed by hand.
+- **How do we know?** 38 injections plus two controls; 37 caught, one correctly
+  reported as superseded, both controls behaving as controls. Two of the
+  originals did **not** hold, and are named below rather than smoothed over.
+- **Pointed anywhere else?** `manager-archetypes.js`, `bluff-detector.js`,
+  `league-chat-sync.js` and `extract_league_chat.py` — everything Parts 1–5
+  touched.
+- **How does it unify?** One standard for what a mutation table may claim, and
+  one runner that produces it.
+
+The tables in Parts 1–5 stay where they are as the historical record of what
+each part claimed at the time. This section supersedes them. What they carried
+was a site count and a description; what a description cannot do is be re-run,
+which is the whole argument for the change.
+
+Runner: **`docs/tdd/mutate-parts-1-5.py`**, committed. It hashes each file
+before and after, refuses to credit a suite result to a row whose two hashes
+match, and restores every file at the end — restoration verified, not assumed:
+
+```
+server/services/manager-archetypes.js  -> 38bca40356463cfa
+server/services/bluff-detector.js      -> 03a7290aeccb3941
+server/services/league-chat-sync.js    -> 5ce105ab17ecc8c0
+scripts/chat/extract_league_chat.py    -> 3fe3c844bc968acf
+```
+
+### What the re-run found
+
+**Two assertions passed on a word they should not have accepted.** Both were
+alternations, and an alternation is satisfied by whichever term survives.
+
+`test/wiring-absent-states.test.js` asserted `WHY_UNSCHEDULED` against
+`/gateway|Jev/`. C3 deleted *"calls a paid gateway per manager"* and the test
+passed on the surviving word *"Jev"* — so the claim the reason exists to make,
+that the pass **costs money** and a timer would spend it for nothing, was
+guarded by nothing. It is now three separate assertions: the pass is named, the
+cost is named, and what it is a reason *against* is named.
+
+The same file asserted the credibility reason against
+`/Mac|Apple Messages|not on this machine/`. C6 deleted the disambiguating
+clause — *"so this is 'not on this machine', not 'nobody has said anything'"* —
+and the test passed on *"Apple Messages"* in the clause before it. That clause
+is the entire point of Part 3's finding 2: an empty credibility map otherwise
+reads downstream as *he has never called a player untouchable*, which is the
+opposite conclusion and moves a trade price. Now two assertions: where the
+corpus comes from, and that this is the absence of a **machine** rather than of
+a conversation.
+
+Both are the Part 6 lesson in a new place. A test that accepts any one of three
+phrasings is asserting its own vocabulary, not the fact.
+
+**One mutation of mine was too weak before it was too strong.** C6's first
+retarget replaced the clause with *"produced here."*, which left the string
+reading *"...and cannot be produced here."* — still matching the strengthened
+assertion, and correctly so, because the meaning survived. A mutation that
+preserves the guarantee is not evidence of a weak test. It was retargeted at
+the clause it is actually about, and then caught.
+
+**E6 no longer has a target, and says so.** *"the age is taken from the rollup
+stamp"* is, as of Part 6, mutation M1 — `freshness()` was rewritten to read the
+block, so the code E6 was written against is gone. The row reports **no edit,
+suite not run**, rather than being quietly dropped or counted as a pass.
+
+### The runs
+
+
+#### Part 1 — the as-of block
+
+| # | File | Replaced (verbatim) | With (verbatim) | after sha | Result |
+|---|---|---|---|---|---|
+| A1 | `manager-archetypes.js` | `` const [ls] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) `` | `` const [ls] = rows(`SELECT COUNT(*) AS n, MIN(computed_at) `` | `89365f487a9fcc46` | caught, 5 |
+| A2 | `manager-archetypes.js` | `      built: builtBlock(leagueId, season, ls, career, priced, stale,⏎        jevBy.get(t.espn_member_id) ?? { n: 0, as_of: null }),` | `      built: undefined,` | `38d0ce679d9a79f5` | caught, 9 |
+| A3 | `manager-archetypes.js` | `  CAREER_LEAGUE, CAREER_SEASON, MANAGER_ARCHETYPE_VERSION);` | `  leagueId, season, MANAGER_ARCHETYPE_VERSION);` | `e032780e196256f1` | caught, 4 |
+| A4 | `manager-archetypes.js` | `    as_of: ls.as_of ?? null,` | `    as_of: ls.as_of ?? career.as_of ?? null,` | `969f8aa880ac3ff8` | caught, 2 |
+| A5 | `manager-archetypes.js` | `    reason: gaps.length ? gaps.join('; ') : null,` | `    reason: null,` | `24f0e78f639cab62` | caught, 5 |
+| A6 | `manager-archetypes.js` | `` const [ls] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of FROM manager_archetypes⏎                     WHERE league_id = ? AND season = ? AND version = ?`,⏎  leagueId, season, MANAGER_ARCHETYPE_VERSION); `` | `` const [ls] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of FROM manager_archetypes⏎                     WHERE (league_id = ? OR 1=1) AND version = ?`,⏎  leagueId, MANAGER_ARCHETYPE_VERSION); `` | `78ff1af6b74a9687` | caught, 8 |
+| A7 | `manager-archetypes.js` | `  if (jev) { out.jev_as_of = jev.as_of ?? null; out.jev_answers = jev.n; }` | `  if (jev) { out.jev_as_of = ls.as_of ?? null; out.jev_answers = jev.n; }` | `e69561155891f75f` | caught, 3 |
+| A8 | `manager-archetypes.js` | `        jevBy.get(t.espn_member_id) ?? { n: 0, as_of: null }),` | `        [...jevBy.values()][0] ?? { n: 0, as_of: null }),` | `9806f0cbbac2780f` | caught, 2 |
+| A9 | `manager-archetypes.js` | `    built_by: ARCHETYPE_BUILDER,` | `    built_by: null,` | `ada445f6b024226b` | caught, 1 |
+| A10 | `manager-archetypes.js` | `  const { ls, career, priced, stale } = builtStamps(leagueId, season);⏎  const jevBy = new Map(` | ``   const { career, priced, stale } = builtStamps(leagueId, season);⏎  const [ls] = rows(`SELECT COUNT(*) AS n, MIN(computed_at) AS as_of FROM manager_archetypes⏎                     WHERE league_id = ? AND season = ? AND version = ?`,⏎  leagueId, season, MANAGER_ARCHETYPE_VERSION);⏎  const jevBy = new Map( `` | `a173d07d8694c148` | caught, 4 |
+
+Caught by, as the runner printed them:
+
+- *every served manager card says when its archetype evidence was built* — A1, A2, A6, A10
+- *the career roll-up is stamped apart from this season, because it is a different key* — A1, A2, A3, A10
+- *the direct read answers with the same stamps the card does* — A1, A2, A3, A7, A10
+- *the priced stamp is the draft and outcome rows only, not every source* — A1
+- *on an ordinary league-season the two readings agree* — A1, A6
+- *the block names what writes the table, and says the server does not* — A2, A9
+- *a league-season the build never covered says so, and borrows no stamp* — A2, A3, A4, A5, A6
+- *the Jev answers carry their own evaluation date, not the archetype build stamp* — A2, A7
+- *a manager with no Jev answers reports none, not the other manager's date* — A2, A7, A8
+- *the card carries the priced stamp too, so one payload answers both questions* — A2, A8, A10
+- *the card carries the stale count too* — A2
+- *a full league-season is clean: no gap reported when both halves are there* — A3, A6
+- *a league-season holding only older-version rows is not reported as never built* — A4, A5, A6
+- *a league-season with no priced rows says so rather than borrowing the unrestricted stamp* — A5, A6
+- *a league-season with rows but none priceable says that, and borrows no date* — A5, A6
+- *a genuinely unbuilt league-season still says never covered, and counts no stale rows* — A5, A6
+
+#### Part 2 — the priced stamp
+
+| # | File | Replaced (verbatim) | With (verbatim) | after sha | Result |
+|---|---|---|---|---|---|
+| B1 | `manager-archetypes.js` | `  leagueId, season, MANAGER_ARCHETYPE_VERSION, ...PRICED_SOURCES);` | `  CAREER_LEAGUE, CAREER_SEASON, MANAGER_ARCHETYPE_VERSION, ...PRICED_SOURCES);` | `6af2f421b50fc68c` | caught, 7 |
+| B2 | `manager-archetypes.js` | `    priced_as_of: priced.as_of ?? null,` | `    priced_as_of: priced.as_of ?? ls.as_of ?? null,` | `0d40c9c519b0c9cc` | caught, 1 |
+| B3 | `manager-archetypes.js` | `export const PRICED_SOURCES = Object.freeze(['draft', 'outcome']);` | `export const PRICED_SOURCES = Object.freeze(['draft']);` | `d2ca50e16da85294` | caught, 1 |
+| B4 | `manager-archetypes.js` | `WHERE league_id = ? AND season = ? AND version = ? AND source IN (` | `WHERE (league_id = ? OR 1=1) AND (season = ? OR 1=1) AND version = ? AND source IN (` | `be8fdb8044e9ba2c` | caught, 7 |
+| B5 | `manager-archetypes.js` | `  if (ls.n && !priced.n) {` | `  if (false && !priced.n) {` | `bd8fed92ea638f36` | caught, 1 |
+
+Caught by, as the runner printed them:
+
+- *a full league-season is clean: no gap reported when both halves are there* — B1
+- *the priced stamp is the draft and outcome rows only, not every source* — B1, B4
+- *on an ordinary league-season the two readings agree* — B1, B4
+- *the priced stamp does not depend on a consumer's metric allowlist* — B1, B4
+- *the card carries the priced stamp too, so one payload answers both questions* — B1, B4
+- *the outcome source counts toward the priced stamp, not only the draft source* — B1, B3, B4
+- *a current league-season reports no stale rows and no reason* — B1
+- *a league-season with rows but none priceable says that, and borrows no date* — B2, B4, B5
+- *a league-season with no priced rows says so rather than borrowing the unrestricted stamp* — B4
+
+#### Part 3 — the absent states
+
+| # | File | Replaced (verbatim) | With (verbatim) | after sha | Result |
+|---|---|---|---|---|---|
+| C1 | `manager-archetypes.js` | `export const RUN_SHEET_ONLY_METRICS = Object.freeze(['capital_hhi']);` | `export const RUN_SHEET_ONLY_METRICS = Object.freeze([]);` | `2db3bc06f857d050` | caught, 2 |
+| C2 | `manager-archetypes.js` | `export const RUN_SHEET_ONLY_METRICS = Object.freeze(['capital_hhi']);` | `export const RUN_SHEET_ONLY_METRICS = Object.freeze(['capital_hhi', 'homer_top_team_share']);` | `2a6793114bfba4e2` | caught, 1 |
+| C3 | `manager-archetypes.js` | `  'The archetype build replays every league-season and the Jev pass calls a paid gateway per manager, '` | `  'The archetype build replays every league-season and the Jev pass runs, '` | `186450e04f6b712e` | caught, 1 |
+| C4 | `bluff-detector.js` | `    return { byManager: new Map(), events: [], available: false, reason: NO_CORPUS_REASON() };` | `    return { byManager: new Map(), events: [], available: false };` | `da10df4699427f39` | caught, 1 |
+| C5 | `bluff-detector.js` | ``   `No chat corpus at ${chatDbPath()}. It is extracted from Apple Messages on Nick's Mac and cannot be ` `` | ``   `No chat corpus. It is extracted from Apple Messages on Nick's Mac and cannot be ` `` | `b7ff87fa20e29e76` | caught, 1 |
+| C6 | `bluff-detector.js` | `  + 'produced on this machine, so this is "not on this machine", not "nobody has said anything".';` | `  + 'read right now.';` | `bd8364f38f4a89ce` | caught, 1 |
+| C7 | `league-chat-sync.js` | `    path: chatDbPath(),⏎    corpus: stats,` | `    corpus: stats,` | `bda184e554690fed` | caught, 1 |
+| C8 | `league-chat-sync.js` | ``       note: `Nothing at ${where}.${carried}${source} The corpus is extracted from Apple Messages on the Mac ` `` | ``       note: `Nothing at ${where}.${carried}${source} The corpus is unavailable ` `` | `c7a2f7377b18d9d3` | caught, 1 |
+
+Caught by, as the runner printed them:
+
+- *every draft metric the build writes is either named by a consumer or declared run-sheet only* — C1
+- *the run-sheet-only list cannot rot: every entry says why, and none is secretly read* — C1, C2
+- *the archetype tables say why nothing schedules them, not just that nothing does* — C3
+- *with no chat corpus the credibility read says it cannot see one, not that nobody spoke* — C4, C5, C6
+- *the corpus status names where it looked, even when there is nothing there* — C7
+- *the absent note says the corpus is Mac-only, so nobody goes looking for a server job* — C8
+
+#### Part 4 — stale versus absent
+
+| # | File | Replaced (verbatim) | With (verbatim) | after sha | Result |
+|---|---|---|---|---|---|
+| D1 | `manager-archetypes.js` | `    stale_version_rows: stale.n,` | `    stale_version_rows: 0,` | `77bde10d5c39c9a3` | caught, 2 |
+| D2 | `manager-archetypes.js` | `  if (!ls.n && stale.n) {` | `  if (false && stale.n) {` | `54ae5392d2999e26` | caught, 1 |
+| D3 | `manager-archetypes.js` | ``       + `${stale.n} row${stale.n === 1 ? '' : 's'} from ${stale.versions ?? 'an earlier version'} ` `` | ``       + `${stale.n} row${stale.n === 1 ? '' : 's'} from an earlier build ` `` | `6e900129d63ad787` | caught, 1 |
+| D4 | `manager-archetypes.js` | ``                         WHERE league_id = ? AND season = ? AND version <> ?`, `` | ``                         WHERE league_id = ? AND season = ? AND (version <> ? OR 1=1)`, `` | `96f4245586b13a2e` | caught, 1 |
+
+Caught by, as the runner printed them:
+
+- *a league-season holding only older-version rows is not reported as never built* — D1, D2, D3
+- *the card carries the stale count too* — D1
+- *a current league-season reports no stale rows and no reason* — D4
+
+#### Part 5 — one clock for the chat data
+
+| # | File | Replaced (verbatim) | With (verbatim) | after sha | Result |
+|---|---|---|---|---|---|
+| E1 | `league-chat-sync.js` | `db.prepare('SELECT MAX(ts_utc) AS m FROM messages')` | `db.prepare('SELECT MAX(sent_at) AS m FROM messages')` | `2678a4640847209a` | caught, 5 |
+| E2 | `league-chat-sync.js` | ``     out.newest_message_error = `messages.ts_utc is not readable on this corpus: ${String(e?.message ?? e)}`; `` | `    out.newest_message_error = undefined;` | `f8786bc8c7c5b195` | caught, 1 |
+| E3 | `league-chat-sync.js` | `    out.newest_message = isoStamp(db.prepare('SELECT MAX(ts_utc) AS m FROM messages').get()?.m);` | `    out.newest_message = db.prepare('SELECT MAX(ts_utc) AS m FROM messages').get()?.m ?? null;` | `63217d9629538b40` | caught, 2 |
+| E4 | `league-chat-sync.js` | `    out.computed_at = isoStamp(r?.c);` | `    out.computed_at = null;` | `1056f01fef8b7e06` | caught, 1 |
+| E5 | `league-chat-sync.js` | ``     ? `pulled on this machine ${isoStamp(pull.finished_at)}`⏎    : (age \|\| hasData ? 'uploaded, not pulled here' : null); `` | ``     ? `pulled on this machine ${isoStamp(pull.finished_at)}`⏎    : null; `` | `7b663410c98bb2dd` | caught, 2 |
+| E6 | `league-chat-sync.js` | `SUPERSEDED-BY-PART-6-M1` | `` | `5ce105ab17ecc8c0` | **NO EDIT — pattern absent, suite not run** |
+| E7 | `league-chat-sync.js` | `export const STATE_MAPPING = Object.freeze({⏎  file_not_on_this_machine:` | `export const STATE_MAPPING = Object.freeze({⏎  removed_by_mutation: 1,⏎  x_file_not_on_this_machine:` | `8ff41cf39701698f` | caught, 1 |
+| E8 | `extract_league_chat.py` | `    return (APPLE_EPOCH + timedelta(seconds=v)).strftime(ISO)` | `    return (APPLE_EPOCH + timedelta(seconds=v)).strftime('%Y-%m-%d %H:%M:%S')` | `5a5b242ccf06efe2` | caught, 1 |
+| E9 | `extract_league_chat.py` | `    normalise_stamps(out)` | `    pass  # normalise_stamps(out)` | `719c441adfa56610` | caught, 1 |
+| E10 | `extract_league_chat.py` | `f"WHERE {col} IS NOT NULL AND {col} NOT LIKE '%T%' AND length({col}) = 19")` | `f"WHERE {col} IS NOT NULL")` | `33b6569f9344826e` | caught, 2 |
+| E11 | `extract_league_chat.py` | `        return (datetime.fromisoformat(ts_utc.replace('T', ' ').rstrip('Z'))` | `        return (datetime.fromisoformat(ts_utc)` | `f5fd0f137b95bb35` | caught, 1 |
+
+Caught by, as the runner printed them:
+
+- *the newest message is actually read — the old query named a column the table does not have* — E1
+- *a corpus written before this change is still dated, and reported in ISO* — E1, E3
+- *every stamp the chat side serves parses as ISO 8601 UTC* — E1, E3
+- *an uploaded corpus is dated by its newest message, not called unknown* — E1, E5
+- *a corpus on disk whose rollup is behind is read that way, producer through consumer* — E1, E4
+- *a corpus whose timestamp column is unreadable says so instead of going quiet* — E2
+- *a corpus that arrived by upload is dated by its messages, with the upload as provenance* — E5
+- *STATE_MAPPING names every state the block can report, including the two it added* — E7
+- *test_message_timestamps_are_iso* — E8
+- *test_the_extract_run_normalises_before_it_inserts* — E9
+- *test_normalise_brings_a_legacy_corpus_up_and_is_idempotent* — E10
+- *test_normalise_leaves_an_already_iso_corpus_alone* — E10
+- *test_league_hour_works_where_fromisoformat_rejects_a_z_suffix* — E11
+
+#### Controls
+
+| # | File | Replaced (verbatim) | With (verbatim) | after sha | Result |
+|---|---|---|---|---|---|
+| CTRL-NOOP | `manager-archetypes.js` | `out.rolled_up_at = isoStamp(` | `out.rolled_up_at = null;` | `38bca40356463cfa` | **NO EDIT — pattern absent, suite not run** |
+| CTRL-GREEN | `manager-archetypes.js` | `export const ARCHETYPE_BUILDER =` | `export const ARCHETYPE_BUILDER = // control: comment-only⏎` | `ea37568cb167ae05` | **SURVIVED** |
+
+`CTRL-NOOP` is the runner checking itself: `out.rolled_up_at` was renamed
+`computed_at` in Part 5, so the pattern cannot match, and the row reports no
+edit instead of a green suite. `CTRL-GREEN` applies, changes the hash and stays
+green, so the 37 red results above are not a suite that fails on anything.
+

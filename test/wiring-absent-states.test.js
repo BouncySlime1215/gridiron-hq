@@ -62,8 +62,18 @@ test('the archetype tables say why nothing schedules them, not just that nothing
   assert.match(archetypes.ARCHETYPE_BUILDER, /by hand/);
   assert.ok(archetypes.WHY_UNSCHEDULED && archetypes.WHY_UNSCHEDULED.length > 40,
     '"never scheduled" is a finding until the reason is written down, then it is a decision');
-  assert.match(archetypes.WHY_UNSCHEDULED, /gateway|Jev/,
-    'the real reason is the Jev pass calling a paid gateway, and it should be the stated one');
+  // TWO FACTS, ASSERTED SEPARATELY. This was one alternation, /gateway|Jev/,
+  // and an alternation is satisfied by whichever term survives: a re-run on
+  // 2026-09-20 dropped "calls a paid gateway per manager" and the assertion
+  // still passed on the word "Jev". The reason has to carry both halves —
+  // WHAT costs money, and WHY a timer is the wrong answer to it — because
+  // either one alone is a sentence that does not settle the question.
+  assert.match(archetypes.WHY_UNSCHEDULED, /Jev/,
+    'the pass that costs money has to be named, or the reason is about nothing in particular');
+  assert.match(archetypes.WHY_UNSCHEDULED, /paid|gateway|costs?\b/,
+    'the cost is the reason; without it "we chose not to schedule it" is a preference, not a decision');
+  assert.match(archetypes.WHY_UNSCHEDULED, /timer|tick|schedul/,
+    'and it has to say what it is a reason AGAINST, or it does not answer "why is nothing scheduled"');
 });
 
 // ---------------------------------------------------------------- finding 2
@@ -73,8 +83,14 @@ test('with no chat corpus the credibility read says it cannot see one, not that 
   assert.equal(out.available, false);
   assert.equal(out.events.length, 0);
   assert.ok(out.reason, 'an empty result with no reason reads as "he has never called anyone untouchable"');
-  assert.match(out.reason, /Mac|Apple Messages|not on this machine/,
-    'the reason has to say the corpus is not producible here, not merely that a file is missing');
+  // Also an alternation, and also too weak: the same re-run deleted the
+  // disambiguating clause outright and the assertion passed on "Apple
+  // Messages" in the clause before it. The two halves are separate claims.
+  assert.match(out.reason, /Apple Messages|Mac/,
+    'where the corpus comes from, so nobody goes looking for a server job that should not exist');
+  assert.match(out.reason, /not on this machine|cannot be produced|not producible/,
+    'and that this is an absence of a MACHINE, not an absence of conversation — the whole point of '
+    + 'the reason is that an empty credibility map otherwise reads as "he has never said that"');
   assert.match(out.reason, /no-such-league_chat\.sqlite/,
     'naming the path it looked at is what makes the state checkable');
 });

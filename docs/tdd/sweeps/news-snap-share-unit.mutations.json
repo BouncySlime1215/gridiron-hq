@@ -1,0 +1,125 @@
+[
+ {
+  "name": "N1 the fraction is rounded at the module default of one decimal",
+  "file": "server/services/news-fantasy-impact.js",
+  "old": "  return { snap_share: round(share, 3), snap_share_unreadable: false };",
+  "new": "  return { snap_share: round(share), snap_share_unreadable: false };",
+  "aimed_at": "U3",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "N2 the served share goes back to being a percentage",
+  "file": "server/services/news-fantasy-impact.js",
+  "old": "  return { snap_share: round(share, 3), snap_share_unreadable: false };",
+  "new": "  return { snap_share: round(share * 100, 3), snap_share_unreadable: false };",
+  "aimed_at": "U1",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "N3 a full snap count falls outside the readable range",
+  "file": "server/services/news-fantasy-impact.js",
+  "old": "  if (!Number.isFinite(share) || share < 0 || share > 1) {",
+  "new": "  if (!Number.isFinite(share) || share < 0 || share >= 1) {",
+  "aimed_at": "U2",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "N4 the upper bound is dropped, so a percent-scaled row passes through",
+  "file": "server/services/news-fantasy-impact.js",
+  "old": "  if (!Number.isFinite(share) || share < 0 || share > 1) {",
+  "new": "  if (!Number.isFinite(share) || share < 0) {",
+  "aimed_at": "U4",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "N5 the lower bound is dropped, so a negative share passes through",
+  "file": "server/services/news-fantasy-impact.js",
+  "old": "  if (!Number.isFinite(share) || share < 0 || share > 1) {",
+  "new": "  if (!Number.isFinite(share) || share > 1) {",
+  "aimed_at": "U5",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "N6 an absent measurement is reported as an unreadable one",
+  "file": "server/services/news-fantasy-impact.js",
+  "old": "  if (offensePct == null) return { snap_share: null, snap_share_unreadable: false };",
+  "new": "  if (offensePct == null) return { snap_share: null, snap_share_unreadable: true };",
+  "aimed_at": "U6",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "N7 a refused value is refused without saying so",
+  "file": "server/services/news-fantasy-impact.js",
+  "old": "    return { snap_share: null, snap_share_unreadable: true };",
+  "new": "    return { snap_share: null, snap_share_unreadable: false };",
+  "aimed_at": "U4",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "N8 the card stops converting the fraction it is handed",
+  "file": "client/src/pages/News.tsx",
+  "old": "  if (actual.snap_share != null) parts.push(`${Math.round(actual.snap_share * 100)}% snaps`);",
+  "new": "  if (actual.snap_share != null) parts.push(`${actual.snap_share}% snaps`);",
+  "aimed_at": "U7",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "N9 the card drops the unreadable clause",
+  "file": "client/src/pages/News.tsx",
+  "old": "  else if (actual.snap_share_unreadable) parts.push('snap share unreadable');\n",
+  "new": "",
+  "aimed_at": "U7",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "CONTROL A (no-op): a pattern that is not in this file",
+  "file": "server/services/news-fantasy-impact.js",
+  "old": "function snapSharePercent(",
+  "new": "function snapSharePct(",
+  "aimed_at": "none",
+  "kind": "no-op control",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "CONTROL B (no-op): a pattern from a different feature entirely",
+  "file": "client/src/pages/News.tsx",
+  "old": "const FAIRNESS_TONE",
+  "new": "const FAIRNESS_TONE_X",
+  "aimed_at": "none",
+  "kind": "no-op control",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ },
+ {
+  "name": "CONTROL C (anchor x2): a pattern present twice, which the runner refuses",
+  "file": "server/services/news-fantasy-impact.js",
+  "old": "snap_share: null",
+  "new": "snap_share: 0",
+  "aimed_at": "none",
+  "kind": "anchor control",
+  "tests": [
+   "test/news-snap-share-unit.test.js"
+  ]
+ }
+]

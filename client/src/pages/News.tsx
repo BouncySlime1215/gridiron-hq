@@ -515,7 +515,12 @@ function usageLine(actual: any) {
   if (actual.attempts) parts.push(`${actual.attempts} att`);
   if (actual.targets) parts.push(`${actual.targets} tgt`);
   if (actual.carries) parts.push(`${actual.carries} car`);
-  if (actual.snap_share != null) parts.push(`${actual.snap_share}% snaps`);
+  // The server hands over a fraction, which is what snap_share means everywhere
+  // on the platform; turning it into a percentage is this card's job. A share the
+  // server could not read is said out loud rather than left off the line, because
+  // a missing clause reads as "he took no snaps".
+  if (actual.snap_share != null) parts.push(`${Math.round(actual.snap_share * 100)}% snaps`);
+  else if (actual.snap_share_unreadable) parts.push('snap share unreadable');
   return parts.join(' · ') || 'no offensive usage';
 }
 

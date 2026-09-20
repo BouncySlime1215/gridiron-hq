@@ -29,6 +29,34 @@ function basisForRow(availabilityRow) {
 }
 const round = (value, digits = 1) => value == null || !Number.isFinite(value) ? null : +value.toFixed(digits);
 
+/**
+ * The share of his team's offensive snaps a player was on the field for, as a
+ * fraction, which is what `player_week_snaps.offense_pct` holds: it is written
+ * straight from nflverse's snap_counts CSV (nflverse.js:283) with no arithmetic
+ * on the way in, and every other reader in this codebase treats it as one.
+ *
+ * This used to sniff the unit per row — `pct * (pct <= 1 ? 100 : 1)` — and serve
+ * a percentage. The arithmetic was right for every legal input, so nothing on
+ * screen was wrong, but it left one stat name carrying two units across the
+ * platform, and it made a unit error upstream undetectable: a row storing 85 for
+ * 85% took the second arm untouched and printed as the right answer by accident.
+ * A negative share took the first and printed as "-20% snaps".
+ *
+ * So the unit is declared once, here, and a value this layer cannot read is
+ * refused with a reason rather than coerced into a plausible one. Three decimals
+ * because a fraction needs them — the default of one flattens a 1% snap share to
+ * zero — and because role-changepoint.js already serves this same quantity at
+ * three.
+ */
+function snapShare(offensePct) {
+  if (offensePct == null) return { snap_share: null, snap_share_unreadable: false };
+  const share = Number(offensePct);
+  if (!Number.isFinite(share) || share < 0 || share > 1) {
+    return { snap_share: null, snap_share_unreadable: true };
+  }
+  return { snap_share: round(share, 3), snap_share_unreadable: false };
+}
+
 function nextTeamGame(team, publishedAt) {
   if (!team || !publishedAt) return null;
   const day = String(publishedAt).slice(0, 10);
@@ -164,7 +192,7 @@ export function newsFantasyTracker(signals) {
           targets: Number(actual?.targets ?? 0), carries: Number(actual?.carries ?? 0),
           attempts: Number(actual?.attempts ?? 0), receptions: Number(actual?.receptions ?? 0),
           receiving_yards: Number(actual?.receiving_yards ?? 0), rushing_yards: Number(actual?.rushing_yards ?? 0),
-          passing_yards: Number(actual?.passing_yards ?? 0), snap_share: actual?.offense_pct == null ? null : round(Number(actual.offense_pct) * (Number(actual.offense_pct) <= 1 ? 100 : 1))
+          passing_yards: Number(actual?.passing_yards ?? 0), ...snapShare(actual?.offense_pct)
         } : null
       }
     };

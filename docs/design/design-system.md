@@ -107,8 +107,21 @@ to notice, and a neutral would bury it.
 
 ### Dark
 
-Every token above gets a dark value. Three states, not two, because the
-default OS setting stamps nothing:
+**Not built. This section is the contract for when it is, not a description of
+what ships.** `client/src/index.css` has no `prefers-color-scheme` block and no
+`data-theme` block, and no token in this document has a dark value. An earlier
+draft of this section read "Every token above gets a dark value", which was a
+promise with nothing behind it — the exact defect the rest of this document is
+about, written into the document itself.
+
+Dark is not a token exercise here. The app still carries several hundred
+hard-coded `slate-*` and `emerald-*` classes from before this system, so
+darkening the ramp while the page stays white would make the basis chips
+unreadable and fix nothing. Dark lands after those surfaces move onto the
+tokens, and not before.
+
+When it does, three states, not two, because the default OS setting stamps
+nothing:
 
 ```css
 :root { /* complete light palette — every token defined here first */ }
@@ -118,6 +131,9 @@ default OS setting stamps nothing:
 
 A colour whose only definition sits inside a media block does not apply in the
 unstamped state. That is the classic bug and it is worth restating every time.
+`test/design-system-tokens.test.js` holds both halves: while there is no dark
+block it asserts the document does not claim one, and the moment a dark block
+appears it requires every basis token to be redefined in all three places.
 
 ---
 
@@ -163,7 +179,7 @@ sets.
 
 ## 4. Components
 
-Four, named here so they are built once. Everything else is composition.
+Five, named here so they are built once. Everything else is composition.
 
 ### Basis chip
 
@@ -199,6 +215,61 @@ so a layer can be shared.
 Plain words at every layer. The raw column name appears at the bottom layer
 only, in the mono face, as a footnote to the canonical name — never as the
 heading.
+
+### Stat table
+
+A grid of the same quantities the stat block shows, for when the question is
+"compare these" rather than "how big is this". It is the fifth component
+because the alternative is every page growing its own, which is exactly what
+happened before: `components/StatTable.tsx` was a rankings-only pair of
+`StatRow` and `StatHeader` with a hard-coded abbreviation map (`TGT`, `RECY`,
+`RECTD`), `any`-typed rows and pre-system colours, and it was imported by one
+page. It is replaced, not kept — a table whose column names live inside itself
+is the label-written-inline bug in grid form.
+
+**Columns are declared by glossary id, never by label.** A column is
+`{ id }`; the header text, the unit, the decimal places and the plain sentence
+all follow from the entry. A caller that can pass a column name is a caller
+that will.
+
+**Headers are mono `--type-label`, and they carry the basis.** A basis chip in
+every cell of a twenty-row table is noise that nobody reads, and dropping the
+basis entirely puts the table back where the rest of this document started. So
+the basis sits **once per column, in the header** — that is the honest position,
+because a column is usually one source. A cell whose basis differs from its
+column's shows its own marker; a cell that matches shows nothing, so the marks
+that appear are the ones that mean something.
+
+**Tone comes from the lexicon's `better`, never from the basis.** Only a
+quantity that says `higher` or `lower` may colour its numbers. `neither` — aDOT
+is the example — is never coloured, because "far downfield" is not good or bad
+on its own. A basis never tints a number; that is what the chip is for.
+
+**A quantity we do not store renders as a struck header and the reason, not as
+an empty column.** Four are in this state today and must never appear as
+numbers: yards per route run and route participation (need a paid charting
+feed), touchdown rate (nothing stores it), red-zone share (being built). A
+column of em dashes reads as "we have no data on this player"; the truth is "we
+have this on nobody", and those are different sentences.
+
+**The first column sticks and the rest scroll.** This is read on a phone. A
+table that reflows into cards loses the comparison that is the only reason it
+is a table.
+
+**No page renders it yet, and that is stated rather than hidden.** Its first
+consumers are the depth-chart panel on the team page and the advanced-stats
+block on the player page, and both are waiting on the normalised stat names —
+building them against invented labels is the exact defect this component
+exists to prevent, so they wait. The existing measured-identity panel on the
+team page is deliberately **not** converted: it carries its own labels from
+`nfl-team-tendencies.js`, and mapping them onto glossary ids before the lexicon
+lands would be inventing the names by another route.
+
+A component nobody imports is dead code that reads as a feature — that was just
+found in this same system, where `useNumberRoll` shipped fully tested and wired
+to nothing. So this paragraph is load-bearing: `test/stat-table.test.js`
+requires either a consumer or this statement, and the day a page imports the
+table, the statement has to go.
 
 ### Glossary
 

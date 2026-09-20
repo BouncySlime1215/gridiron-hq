@@ -586,3 +586,64 @@ body { font-family: var(--font-body); }
   font-size: var(--type-label); line-height: var(--type-label-lh); color: var(--muted);
 }
 .capture-detail a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* --------------------------------------------------------------- stat table
+   Design system section 4, fifth component.
+
+   The first column sticks and the rest scroll sideways. This app is read on a
+   phone, and a table that reflows into cards loses the side-by-side comparison
+   that is the only reason it is a table. */
+.stat-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.stat-table { border-collapse: collapse; width: 100%; }
+.stat-table-caption {
+  caption-side: top; text-align: left;
+  font-size: var(--type-note); line-height: var(--type-note-lh);
+  color: var(--muted); padding-bottom: .4rem;
+}
+/* Mono at --type-label: section 1 says the mono face is for column headers and
+   anything that is literally a key. */
+.stat-table-head-cell {
+  text-align: right; vertical-align: bottom; font-weight: 500;
+  padding: .3rem .5rem .45rem;
+  font-family: var(--font-mono);
+  font-size: var(--type-label); line-height: var(--type-label-lh);
+  color: var(--muted);
+  border-bottom: 1px solid var(--edge);
+  white-space: nowrap;
+}
+.stat-table-name { display: block; }
+.stat-table-basis { margin-top: .2rem; }
+/* A quantity stored nowhere. Struck, with the reason under it — never a column
+   of em dashes, which reads as "no data on this player" instead of "no data on
+   anyone". */
+.stat-table-not-tracked { display: block; text-decoration: line-through; color: var(--subtle); }
+.stat-table-reason { display: block; color: var(--subtle); font-style: italic; }
+.stat-table-row-head {
+  text-align: left; font-weight: 600; padding: .35rem .5rem;
+  border-bottom: 1px solid var(--edge);
+}
+.stat-table-cell {
+  text-align: right; padding: 0;
+  border-bottom: 1px solid var(--edge);
+  font-variant-numeric: tabular-nums;
+}
+.stat-table-cell-button {
+  width: 100%; text-align: right; padding: .35rem .5rem;
+  background: none; border: 0; cursor: pointer; color: inherit;
+  transition: background var(--motion-quick) var(--ease-out);
+}
+.stat-table-cell-button:hover { background: var(--surface); }
+.stat-table-cell-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The exception mark: a 6px dot in the cell's own basis colour, shown ONLY when
+   that cell disagrees with its column. Every mark on screen means something. */
+.stat-table-cell-basis {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-left: .35rem; vertical-align: middle;
+  background: var(--chip, var(--basis-missing));
+}
+.stat-table-sticky {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--bg);
+  /* The hairline is what says there is more to the right on a phone. */
+  box-shadow: 1px 0 0 var(--edge);
+}

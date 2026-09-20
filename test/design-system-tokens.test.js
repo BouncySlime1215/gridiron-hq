@@ -107,3 +107,36 @@ test('the faces the document rejects have not come back as a default', () => {
       `${face} is being loaded`);
   }
 });
+
+test('the document does not promise a dark palette the stylesheet does not have', () => {
+  // This test exists because the document used to say "Every token above gets a
+  // dark value" while index.css had no dark block at all and no token had a
+  // dark value. A design system asserting something untrue about itself is the
+  // same defect as a page printing a number with no basis, one level up.
+  const hasMedia = /@media\s*\(prefers-color-scheme:\s*dark\)/.test(css);
+  const hasAttr = /:root\[data-theme="dark"\]/.test(css);
+
+  if (!hasMedia && !hasAttr) {
+    assert.match(doc, /\*\*Not built\./,
+      'the document describes a dark palette that the stylesheet does not define');
+    assert.doesNotMatch(doc, /Every token above gets a dark value\./,
+      'the document is promising dark values again');
+    return;
+  }
+
+  // Dark has landed. Now the contract binds: all three states, every basis
+  // token in each, or a token falls back to its light value in exactly one of
+  // them and nothing fails.
+  assert.ok(hasMedia && hasAttr,
+    'dark is half-wired: the media query and the [data-theme="dark"] block must both exist, or an explicit choice loses to the OS');
+  const blocks = [
+    css.slice(css.indexOf('@media (prefers-color-scheme: dark)')),
+    css.slice(css.indexOf(':root[data-theme="dark"]'))
+  ];
+  for (const block of blocks) {
+    const scope = block.slice(0, block.indexOf('\n}\n') + 1);
+    for (const t of BASIS) {
+      assert.match(scope, new RegExp(`${t}\\s*:`), `${t} has no dark value in one of the two dark blocks`);
+    }
+  }
+});

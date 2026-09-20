@@ -657,20 +657,27 @@ r.get('/availability', (req, res, next) => {
     // `?week=N` branch above. The two were told apart only by the caller knowing
     // which one it had asked for, which is how a verification read of this path
     // gets mistaken for a reading of the fit. Every row now says so itself, and
-    // the position is carried so a reader can see which rows the fit could never
-    // have covered.
+    // the position is carried so a reader can see the population it is drawn from.
+    //
+    // That population is exactly the fit's own: availability() selects
+    // `WHERE p.position IN ('QB','RB','WR','TE')` (contingency.js:43), so this map
+    // cannot hold a K or a DEF and the row basis is unconditional. It was written as
+    // a ternary against an `unfitted_position` arm that no row could ever take — a
+    // label readable in the source and unobservable on the wire, which is the same
+    // confusion this route exists to remove. `unfitted_position` is a real basis, but
+    // it belongs to /projections/:playerId, which is asked about one named player and
+    // can therefore be asked about a kicker. test/availability-basis-payload.test.js
+    // pins the population, so widening it fails there before this line goes stale.
     const a = memo('avail', () => availability());
     const names = new Map(rows('SELECT id, name, position FROM players').map(p => [p.id, p]));
-    const covered = new Set(['QB', 'RB', 'WR', 'TE']);
     res.json([...a.values()].map(x => {
       const meta = names.get(x.player_id);
-      return {
-        ...x,
-        name: meta?.name,
-        position: meta?.position ?? null,
-        basis: covered.has(meta?.position) ? 'durability_prior' : 'unfitted_position',
-        fitted: false
-      };
+      // `position` is not restated here: availability() already stamps it on every row
+      // it returns (contingency.js:79), from the same players table `names` reads. A
+      // second copy under the spread looked like it was carrying the field and was
+      // only shadowing it with itself, so removing it makes the test below guard the
+      // real source rather than a restatement of it.
+      return { ...x, name: meta?.name, basis: 'durability_prior', fitted: false };
     }).filter(x => x.name).sort((a, b) => a.available - b.available).slice(0, 120));
   } catch (e) { next(e); }
 });

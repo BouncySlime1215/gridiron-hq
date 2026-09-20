@@ -643,6 +643,79 @@ function clientCalls(raw) {
 }
 
 /**
+ * Files that run without anybody importing them.
+ *
+ * Raised by the scheduler thread against this map's own output, and correct:
+ * `module-imported-by-nothing` called `server/scripts/run-nfl-ai-replay.js` dead while
+ * `nfl-ai-replay.js:376` forks it by URL, and `server/scripts/sync-history.js` is
+ * `npm run sync:history`. Neither is imported by anything and both run.
+ *
+ * Same shape as the template-literal and namespace-import blind spots before it: the
+ * extractor sees the construct and loses the path read out of it. Two kinds of root:
+ *
+ *   1. a path handed to fork / Worker / spawn / execFile, usually inside `new URL(...)`
+ *      and relative to the file doing the forking
+ *   2. a file named by a package.json script
+ *
+ * Over-claiming here can only SUPPRESS an orphan finding, never invent one, which is
+ * the safe direction for a rule that reads as "delete this".
+ */
+function entryPointScripts(files, pkg = {}) {
+  const roots = new Set();
+  const RE_URL = /\b(?:fork|spawn|execFile|execFileSync|Worker)\s*\(\s*(?:new\s+URL\s*\(\s*)?['"`]([^'"`]+\.(?:js|mjs|cjs))['"`]/g;
+  const RE_ARGV = /\b(?:fork|spawn|spawnSync|execFile|execFileSync)\s*\(\s*['"`](?:node|npx)['"`]\s*,\s*\[\s*['"`]([^'"`]+\.(?:js|mjs|cjs))['"`]/g;
+  for (const f of files.values()) {
+    if (f.tree === 'test') continue;
+    let m;
+    // `execFileSync('node', ['scripts/x.mjs', out])` — the path is inside the argv
+    // array, and is relative to the working directory rather than to this file, so it
+    // is added as written.
+    RE_ARGV.lastIndex = 0;
+    while ((m = RE_ARGV.exec(f.text))) roots.add(m[1].replace(/^\.\//, ''));
+    RE_URL.lastIndex = 0;
+    while ((m = RE_URL.exec(f.text))) {
+      // Relative to the forking file, the way `new URL(x, import.meta.url)` resolves.
+      const rel = path.posix.normalize(path.posix.join(path.posix.dirname(f.path), m[1]));
+      roots.add(rel.replace(/^\.\//, ''));
+    }
+  }
+  // A package.json script names a file only when it runs one; `npm run a && npm run b`
+  // chains other scripts and adds nothing.
+  const RE_PKG = /(?:^|\s)(?:node|tsx|ts-node)\s+(?:--[^\s]+\s+)*([A-Za-z0-9_./-]+\.(?:js|mjs|cjs))/g;
+  for (const cmd of Object.values(pkg.scripts ?? {})) {
+    let m;
+    RE_PKG.lastIndex = 0;
+    while ((m = RE_PKG.exec(String(cmd)))) roots.add(m[1].replace(/^\.\//, ''));
+  }
+  return roots;
+}
+
+/**
+ * Page files nothing in the app can open.
+ *
+ * A page in `client/src/pages` with no importer is not rendered by anything — the same
+ * condition the `page-never-routed` rule uses, and the same trap it documents: a page
+ * absent from App.tsx may still be live as a TAB (LeagueHub imports Leagues and MyTeam,
+ * DraftHub imports Drafts), so this asks the import graph and not the route table.
+ *
+ * It matters beyond that rule because the literal-absence gate reads the whole client
+ * tree. `Edge.tsx` is one of four survivors of the nine-tab removal and still calls
+ * /edge/movers, /volatility, /schedule-edge, /efficiency and /simulate, so five dead
+ * routes read as called. A caller nobody can reach is not a caller.
+ *
+ * Found by trying to delete a route and checking who called it, not by inspection —
+ * the same way every other blind spot in this file has been found.
+ */
+function unreachablePages(files, importedBy) {
+  const out = new Set();
+  for (const f of files.values()) {
+    if (!/^client\/src\/pages\/[^/]+\.[jt]sx?$/.test(f.path)) continue;
+    if (!(importedBy.get(f.path)?.size)) out.add(f.path);
+  }
+  return out;
+}
+
+/**
  * Route paths this repository hands to somebody outside it.
  *
  * `route-no-caller` asks who in this codebase calls a route, which is the wrong
@@ -1417,6 +1490,12 @@ function findings(model, ann) {
   const out = [];
   const add = (f) => out.push(f);
   const ignored = new Set(ann.expected_orphans ?? []);
+  // Files that run without an importer: forked by URL, or named by a package.json
+  // script. Raised by the scheduler thread against this map's own output; see
+  // entryPointScripts. Treated as roots, so the orphan rules stop calling them dead.
+  let pkgJson = {};
+  try { pkgJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')); } catch { /* no package.json: no script roots, and the fork roots still apply */ }
+  const entryPoints = entryPointScripts(files, pkgJson);
   const assertedProducers = ann.asserted_producers ?? {};
 
   // ---- tables ----------------------------------------------------------
@@ -1484,6 +1563,10 @@ function findings(model, ann) {
   // ---- modules ---------------------------------------------------------
   for (const f of files.values()) {
     if (f.tree === 'test' || ignored.has(`module:${f.path}`)) continue;
+    // An entry point has no importer BY DESIGN. Reporting it as dead is the error the
+    // scheduler thread caught: run-nfl-ai-replay.js is forked, sync-history.js is
+    // `npm run sync:history`, and both run every time something asks them to.
+    if (entryPoints.has(f.path)) continue;
     const kinds = reach.get(f.path) ?? new Set();
     const importers = [...(importedBy.get(f.path) ?? [])];
     const nonTestImporters = importers.filter(i => files.get(i)?.tree !== 'test');
@@ -1700,8 +1783,11 @@ function findings(model, ann) {
   // this client assembles in a variable never reaches `clientCalls()`, so matching
   // against parsed calls alone is what made this rule over-report; see
   // `routeLiteralAbsent`.
+  // Pages nothing can open are excluded: a call site inside an unrenderable page is not
+  // a caller. Five /api/edge routes read as live purely because Edge.tsx still calls them.
+  const deadPages = unreachablePages(files, importedBy);
   const clientText = [...files.values()]
-    .filter(f => f.tree === 'client' || f.tree === 'extension')
+    .filter(f => (f.tree === 'client' || f.tree === 'extension') && !deadPages.has(f.path))
     .map(f => f.text).join('\n');
   // Paths this repository publishes to somebody outside it — a provider redirect_uri, a
   // webhook registration. Nothing here calls them and nothing should, so "no caller" is
@@ -2536,7 +2622,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths };
+export { columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

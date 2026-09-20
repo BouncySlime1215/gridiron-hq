@@ -119,73 +119,22 @@ export function publishRecommendation({
   return toRecommendation(row('SELECT * FROM decision_recommendations WHERE id = ?', id));
 }
 
-/** List open recommendations, most urgent and soonest-expiring first. */
-r.get('/', (req, res, next) => {
-  try {
-    expireStale();
-    const leagueId = req.query.league_id ? Number(req.query.league_id) : null;
-    const params = [];
-    let where = `status = 'open'`;
-    if (leagueId) { where += ' AND league_id = ?'; params.push(leagueId); }
-    const list = rows(`SELECT * FROM decision_recommendations WHERE ${where} ORDER BY
-        CASE urgency WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
-        CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END,
-        datetime(expires_at) ASC, created_at DESC`, ...params);
-    // Belt-and-suspenders re-sort in JS: the SQL CASE above already orders by
-    // urgency, but keeping URGENCY_RANK here documents the contract the
-    // client relies on and guards against the SQL and JS falling out of sync.
-    list.sort((a, b) => (URGENCY_RANK[a.urgency] ?? 2) - (URGENCY_RANK[b.urgency] ?? 2));
-    res.json(list.map(toRecommendation));
-  } catch (e) { next(e); }
-});
-
-/** Badge/summary counts for the Dashboard header. */
-r.get('/summary', (req, res, next) => {
-  try {
-    expireStale();
-    const leagueId = req.query.league_id ? Number(req.query.league_id) : null;
-    const params = [];
-    let where = `status = 'open'`;
-    if (leagueId) { where += ' AND league_id = ?'; params.push(leagueId); }
-    const open = rows(`SELECT urgency FROM decision_recommendations WHERE ${where}`, ...params);
-    res.json({
-      total: open.length,
-      high: open.filter(o => o.urgency === 'high').length,
-      medium: open.filter(o => o.urgency === 'medium').length,
-      low: open.filter(o => o.urgency === 'low').length
-    });
-  } catch (e) { next(e); }
-});
-
-/** Any engine can publish over HTTP too, not just server-side callers — but must authenticate to do it. */
-r.post('/', requireAuthenticated, (req, res, next) => {
-  try {
-    const b = req.body ?? {};
-    const rec = publishRecommendation({
-      dedupKey: b.dedupKey, leagueId: b.leagueId ?? null, sport: b.sport, type: b.type,
-      subjectIds: b.subjectIds ?? [], title: b.title, rationale: b.rationale ?? null,
-      expectedValue: b.expectedValue ?? null, confidence: b.confidence ?? null,
-      urgency: b.urgency ?? 'medium', expiresAt: b.expiresAt ?? null,
-      sourceModel: b.sourceModel, sourceVersion: b.sourceVersion ?? null, link: b.link ?? null
-    });
-    res.json(rec);
-  } catch (e) {
-    if (e.message?.startsWith('publishRecommendation')) return res.status(400).json({ error: e.message });
-    next(e);
-  }
-});
-
-/** Resolve (or dismiss) one recommendation with an outcome. */
-r.post('/:id/resolve', (req, res, next) => {
-  try {
-    const existing = row('SELECT * FROM decision_recommendations WHERE id = ?', req.params.id);
-    if (!existing) return res.status(404).json({ error: 'recommendation not found' });
-    const status = ['actioned', 'dismissed', 'expired'].includes(req.body?.status) ? req.body.status : 'dismissed';
-    const outcome = req.body?.outcome ?? null;
-    run(`UPDATE decision_recommendations SET status = ?, outcome = ?, resolved_at = datetime('now') WHERE id = ?`,
-      status, outcome, req.params.id);
-    res.json(toRecommendation(row('SELECT * FROM decision_recommendations WHERE id = ?', req.params.id)));
-  } catch (e) { next(e); }
-});
+/*
+ * THE FOUR HTTP ROUTES THAT USED TO BE HERE ARE GONE (2026-09-20).
+ *
+ * GET /, GET /summary, POST /, POST /:id/resolve. Nothing in the client called any
+ * of them — verified against the whole client tree, not an `api(` inventory — and no
+ * script dialled them either. They were named by the wiring map's `route-no-caller`
+ * rule for weeks, inside a row that read "decision-inbox.js | 4", which is why nobody
+ * saw them.
+ *
+ * `publishRecommendation` below is NOT dead and must stay: `waiver-brain.js:38` and
+ * `trade-engine.js:59` both import it, and both keep writing. The table keeps filling;
+ * what changed is that the reader is Coach, reading and citing
+ * `decision_recommendations` directly, rather than an HTTP surface no page ever opened.
+ *
+ * The deleted page is not coming back — nav is eight tabs. If a decision inbox is ever
+ * wanted again it belongs on an existing tab, not as a ninth.
+ */
 
 export default r;

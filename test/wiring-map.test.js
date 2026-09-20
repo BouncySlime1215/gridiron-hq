@@ -22,7 +22,7 @@ const {
   clientCalls, payloadKeys, keyReads, declarations,
   foreignHandles, handleFor, gatedRegions, blindCaches,
   functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
-  imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths,
+  imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -596,6 +596,54 @@ test('a bulk rule names its in-scope rows instead of counting them', () => {
   assert.deepEqual(
     bulkInScope([{ subject: 'b', scope: 'shared' }, { subject: 'a', scope: 'shared', weight: 1 }])
       .map(f => f.subject), ['a', 'b']);
+});
+
+test('a script forked by URL or named in package.json is an entry point', () => {
+  // RAISED BY THE SCHEDULER THREAD, and it is right. module-imported-by-nothing called
+  // server/scripts/run-nfl-ai-replay.js dead; nfl-ai-replay.js:376 forks it by URL:
+  //   fork(new URL('../scripts/run-nfl-ai-replay.js', import.meta.url), [String(id)])
+  // and server/scripts/sync-history.js is `npm run sync:history`. Neither is imported
+  // by anything and both run. Same shape as every other blind spot in this file: the
+  // extractor sees the construct and loses the path read out of it.
+  const roots = entryPointScripts(
+    new Map([['server/services/nfl-ai-replay.js', { path: 'server/services/nfl-ai-replay.js', tree: 'server',
+      text: "const child = fork(new URL('../scripts/run-nfl-ai-replay.js', import.meta.url), [String(id)], {});" }]]),
+    { scripts: { 'sync:history': 'node server/scripts/sync-history.js', check: 'npm run typecheck && npm run lint' } });
+  assert.ok(roots.has('server/scripts/run-nfl-ai-replay.js'), 'forked by URL');
+  assert.ok(roots.has('server/scripts/sync-history.js'), 'named in package.json');
+  // A script name that merely chains other npm scripts adds no file.
+  assert.equal([...roots].filter(r => r.includes('typecheck')).length, 0);
+
+  // THIRD SHAPE, and the one the first cut missed: the path is not the first argument
+  // at all, it is inside the argv array after a bare 'node'.
+  //   audit-bottom-up-team-total.mjs:27
+  //   execFileSync('node', ['scripts/_bottom-up-team-total-worker.mjs', OUT_JSON], {})
+  // This path is relative to the working directory, not to the calling file, so it must
+  // NOT be joined with the caller's dirname the way the new URL(...) form is.
+  const argv = entryPointScripts(new Map([['scripts/audit-bottom-up-team-total.mjs',
+    { path: 'scripts/audit-bottom-up-team-total.mjs', tree: 'script',
+      text: "execFileSync('node', ['scripts/_bottom-up-team-total-worker.mjs', OUT_JSON], {});" }]]), {});
+  assert.deepEqual([...argv], ['scripts/_bottom-up-team-total-worker.mjs']);
+});
+
+test('a page nothing can open does not count as a caller', () => {
+  // FOUND BY DELETING, NOT BY INSPECTION. Edge.tsx is one of the four pages left over
+  // from the nine-tab removal: nothing imports it and no route renders it. It still
+  // contains api('/edge/movers'), api('/edge/volatility'), api('/edge/schedule-edge'),
+  // api('/edge/efficiency') and api('/edge/simulate'), and the literal-absence gate
+  // read the whole client tree, so all five routes looked called. They are not.
+  const files = new Map([
+    ['client/src/pages/Edge.tsx', { tree: 'client', path: 'client/src/pages/Edge.tsx' }],
+    ['client/src/pages/DraftRoom.tsx', { tree: 'client', path: 'client/src/pages/DraftRoom.tsx' }],
+    ['client/src/pages/Leagues.tsx', { tree: 'client', path: 'client/src/pages/Leagues.tsx' }],
+  ]);
+  // DraftRoom is routed in App.tsx; Leagues is not routed but IS imported by a live tab,
+  // which is the trap the page-never-routed rule already documents.
+  const importedBy = new Map([
+    ['client/src/pages/DraftRoom.tsx', new Set(['client/src/App.tsx'])],
+    ['client/src/pages/Leagues.tsx', new Set(['client/src/pages/LeagueHub.tsx'])],
+  ]);
+  assert.deepEqual([...unreachablePages(files, importedBy)], ['client/src/pages/Edge.tsx']);
 });
 
 test('a route the server publishes to a third party has an external caller', () => {

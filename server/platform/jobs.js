@@ -4,6 +4,14 @@
 // does provide, honestly: named recurring jobs with status/last-run/last-error
 // visibility and clean cancellation, which is what the Dev Hub's "background
 // job status" and the draft engine's server-owned clock actually need.
+//
+// That last sentence was not true until 2026-09-20. `registerJob` had two
+// callers (routes/drafts.js: the auto-pick clock and the finalize watch) and
+// `jobStatus`/`listJobs` had NONE — the visibility this module exists to
+// provide was built, maintained on every tick, and read by nothing, so
+// `lastError` in particular recorded a draft clock failing and showed it to
+// no one. `GET /api/dev/status` now serves `listJobs()`, which is the reader
+// the comment had been claiming all along.
 const jobs = new Map();
 
 /**
@@ -43,7 +51,13 @@ export function cancelJob(name) {
   const state = jobs.get(name);
   if (!state) return false;
   clearInterval(state.timer);
-  state.status = 'cancelled';
+  // No `state.status = 'cancelled'` here. It used to be, and it could never be
+  // observed: the entry is dropped from the map on the next line, so
+  // `jobStatus(name)` answers null from then on and nothing holds a reference
+  // to the old state object. A cancelled job is visible by its absence, which
+  // is the honest signal; a status field that is written and unreachable is
+  // the kind of thing that later gets read as proof the job was stopped
+  // cleanly.
   jobs.delete(name);
   return true;
 }

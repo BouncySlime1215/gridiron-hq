@@ -63,11 +63,20 @@ export const RESEARCH_ROOT = path.join(PROJECT_ROOT, 'research');
 /** Database migrations, discovered by filename order by `server/db/migrate.js`. */
 export const MIGRATIONS_ROOT = path.join(SERVER_ROOT, 'migrations');
 
-/** A path inside the data root. */
-export const dataPath = (...segments) => path.join(DATA_ROOT, ...segments);
-
-/** A path inside the docs root. */
-export const docsPath = (...segments) => path.join(DOCS_ROOT, ...segments);
+/*
+ * `dataPath()` and `docsPath()` were here and are gone (2026-09-20). They were
+ * `path.join(DATA_ROOT, ...)` and `path.join(DOCS_ROOT, ...)` and had no
+ * caller anywhere in server, client, scripts or test.
+ *
+ * The argument for keeping an unused export in THIS module is the header
+ * above: it exists so something can ask where things resolved to, and an
+ * export nobody calls today may still be part of that surface. That argument
+ * covers the ROOTS, and `resolvedRoots()` below is where it is discharged --
+ * every root is named there and the module's test walks it. It does not cover
+ * two convenience wrappers around `path.join`, which answer nothing about
+ * resolution that `DATA_ROOT` and `DOCS_ROOT` do not already answer, and
+ * which are both still exported.
+ */
 
 /**
  * Every root, with whether it actually exists on disk.

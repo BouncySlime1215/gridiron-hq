@@ -135,6 +135,45 @@ The start/sit figures above match an earlier recorded run (0.6274 → 0.6336) to
 within 0.0004, which means this gate has been run before and the fit was still
 never persisted.
 
+### A second, independent grade — the opportunity number itself
+
+Everything above grades the fit on **points**. The Model evidence audit thread
+graded it on **opportunity**, which is the thing a user actually reads, and got
+the same answer from a different slice: 2024 and 2025, weeks 5-17, 4,828 paired
+player-weeks, baseline the player's own season-to-date average, paired bootstrap
+clustered by player (`scripts/grade-opportunity-vs-baseline.mjs`, PR #68).
+
+The shipped constants **lose in all four cells** against that baseline — an
+average a manager could do in his head — and the fitted constants win all four.
+
+| | 2024 targets | 2024 carries | 2025 targets | 2025 carries |
+|---|---|---|---|---|
+| shipped k = 6 / 10, MAE | 2.006 | 2.003 | 1.901 | 1.943 |
+| own season-to-date average, MAE | 1.773 | 1.626 | 1.768 | 1.602 |
+
+Their fit reproduces the vector measured here to three decimals, from a separate
+rebuild. Three things were checked in their script before citing it: the baseline
+is strictly prior (`week < ?`, not `<=`); `buildPlayerWeekEngine` passes
+`WEEKLY_ROLE_RECENCY` (`player-week-engine.js:271-273`), so this caller is on the
+fitted path and `activeKVectorFor` does not strip the volume metrics from it; and
+`cutoffSafeKVector(predictingSeason)` bounds `k` to seasons before the graded one,
+so neither arm sees the week it predicts.
+
+One label to read precisely: the graded quantity is `projection.params.targets`,
+the engine's reconciled parameter, not the figure the News card prints. The card
+prints `volume.targets_per_game × roleMultiplier × activeProbability`
+(`news-fantasy-impact.js:118`), which is the structural per-game number from
+`projections.js:723` before the engine reconciles it against team totals
+(`player-week-engine.js:225`, `:627`, `:673`). Both sit downstream of the same
+fitted `k`, so the finding's direction carries; the number graded is not the
+number displayed.
+
+**This adds a screen to the list.** The blast-radius measurement in
+`scripts/measure-shrinkage-blast-radius.mjs` named start/sit, trade values, props
+and the ROS list. News fantasy impact belongs on it too: `/news` is routed
+(`client/src/App.tsx:135`) and its "Projected fantasy usage" panel is built from
+`buildPlayerWeekEngine`, which is the fitted path.
+
 ## 3. Teammate absence: the effect is real, the payoff mostly is not
 
 `scripts/study-opportunity-volume.mjs` grades a fitted opportunity model and a
@@ -254,6 +293,34 @@ history to baseline against.
 - **Two scripts were unrunnable off the author's laptop**
   (`eval-redistribution.mjs`, `grade-harness.mjs` hardcoded an absolute
   `/Users/...` path). Now resolved relative to the script.
+
+## Is it well built, is it based on stats, how do we know, where else should it point, what does it unify
+
+**Is it based on stats.** Every number on this page was re-measured on
+2026-09-19 against a database built from the public sources the app itself uses,
+and the live readings that replaced the two hedges were taken on the machine.
+
+**How do we know.** The gate is pre-registered, walk-forward, with the ensemble
+re-fitted inside each arm and a player-clustered paired bootstrap. Where a claim
+is inferred rather than measured it is marked as inferred in the sentence that
+makes it. The graded population is bounded by counting the nflverse source files
+directly rather than by trusting a row count — section 3b.
+
+**What is not evidence.** The level check in
+`scripts/measure-shrinkage-blast-radius.mjs --vs-actuals` grades against the
+season the projection is built from. It shows the current constants sit low, and
+nothing more. The forecast evidence is the gate's, and as of this writing the
+gate has not been run against the live database.
+
+**Where else this should point.** The opportunity signal itself does not earn a
+surface — section 3 refuses it, and the cascade multipliers were refused on the
+same bar in `docs/tdd/cascade-grade.tdd.md`. What does travel is the
+roster-as-of-prior-weeks slice construction: any surface asking "who is out and
+who inherits" hits the same silent-zero defect without it.
+
+**What it unifies.** Two independent grades now agree that the shipped volume
+constants are beaten and the fitted ones win — one on points, one on opportunity,
+built from different rebuilds and different slices.
 
 ## Reproducing this
 

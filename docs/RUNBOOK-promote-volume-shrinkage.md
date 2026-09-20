@@ -30,6 +30,16 @@ gate, the cutoff-safety guard that re-fits when a stored fit would see the seaso
 being graded, and the recency-units guard that keeps the vector off the
 season-long callers it was not fitted for. The only missing thing is a row.
 
+### Confirmed a second time, independently
+
+The benefit was graded again on a different quantity and a different slice by the
+Model evidence audit thread (`scripts/grade-opportunity-vs-baseline.mjs`, PR #68):
+the opportunity numbers rather than the points, 2024 and 2025 weeks 5-17, 4,828
+paired player-weeks against the player's own season-to-date average, clustered by
+player. The shipped constants lose all four cells; the fitted constants win all
+four. Their fit reproduces this one's vector to three decimals from a separate
+rebuild. That is two grades, two rebuilds, two slices, one answer.
+
 ## Where this runs
 
 Both scripts talk to the database directly through `server/db/index.js`, not over

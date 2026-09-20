@@ -2147,3 +2147,44 @@ after:
 ```
  * The single place Coach runs a query it wrote itself.
 ```
+
+## `page-explain.json` — 3 rows, evidence in `docs/tdd/page-explain-assertions.tdd.md`
+
+### P1 — the model's paragraph is cut to its first sentence, so the caveat at the end of it never reaches the screen
+
+`server/services/nfl-page-explain.js`, suites `test/page-explain.test.js`
+
+before:
+```
+    return { paragraph: parsed.paragraph.trim(), limitations, toolCalls };
+```
+after:
+```
+    return { paragraph: `${parsed.paragraph.trim().split('. ')[0]}.`, limitations, toolCalls };
+```
+
+### P2 — the call reports itself as advisory rather than wording-only, which is the whole claim the audit makes
+
+`server/services/nfl-page-explain-audit.js`, suites `test/page-explain.test.js`
+
+before:
+```
+    model, authority: 'wording_only', tool_calls: toolCalls ?? [],
+```
+after:
+```
+    model, authority: 'advisory', tool_calls: toolCalls ?? [],
+```
+
+### NC-page-explain — NO-OP CONTROL: reword a sentence of the file header, changing no behaviour
+
+`server/services/nfl-page-explain.js`, suites `test/page-explain.test.js`
+
+before:
+```
+ * Same "AI explains, never decides" discipline as nfl-pick-explain-ai (see
+```
+after:
+```
+ * The same "AI explains, never decides" discipline as nfl-pick-explain-ai (see
+```

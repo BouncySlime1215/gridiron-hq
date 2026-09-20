@@ -18,9 +18,22 @@ a measurement rather than a mechanism that quietly did nothing.
 It writes nothing outside the file it is mutating and a <spec>.results.json
 beside the spec, and it restores the file unconditionally.
 """
-import hashlib, json, pathlib, subprocess, sys, os
+import hashlib, json, pathlib, subprocess, sys, os, tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
+
+# The same runner `npm test` uses. The module-mock flag and the offline guard
+# matter for suites outside coach/ — test/page-explain.test.js mocks a module
+# and fails to load without the flag — and both are harmless for the rest, so
+# every sweep runs the same way rather than each knowing its own incantation.
+NODE = ['node', '--experimental-test-module-mocks', '--test', '--test-concurrency=1']
+
+
+def test_env():
+    return {**os.environ, 'SCHEDULER_DISABLED': '1',
+            'NODE_OPTIONS': '--import ./test/offline-guard.mjs',
+            'GRIDIRON_DB_PATH': tempfile.mktemp(prefix='gridiron-sweep-', suffix='.sqlite')}
+
 
 def sha(p):
     return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -39,9 +52,8 @@ def run_one(spec):
         text = text.replace(old, new_, 1)
     p.write_text(text)
     after = sha(p)
-    env = {**os.environ, 'SCHEDULER_DISABLED': '1'}
-    out = subprocess.run(['node', '--test', *spec['tests'].split()],
-                         cwd=ROOT, env=env, capture_output=True, text=True)
+    out = subprocess.run(NODE + spec['tests'].split(),
+                         cwd=ROOT, env=test_env(), capture_output=True, text=True)
     lines = [l for l in (out.stdout + out.stderr).splitlines() if l.startswith('not ok')]
     titles = [l.split(' - ', 1)[1] if ' - ' in l else l for l in lines]
     p.write_bytes(before_bytes)
@@ -57,9 +69,8 @@ def run_one(spec):
 
 def baseline(tests):
     """Every test title in these suites, with nothing injected."""
-    env = {**os.environ, 'SCHEDULER_DISABLED': '1'}
-    out = subprocess.run(['node', '--test', *tests.split()],
-                         cwd=ROOT, env=env, capture_output=True, text=True)
+    out = subprocess.run(NODE + tests.split(),
+                         cwd=ROOT, env=test_env(), capture_output=True, text=True)
     titles, failed = [], []
     for line in (out.stdout + out.stderr).splitlines():
         if line.startswith('ok ') or line.startswith('not ok '):

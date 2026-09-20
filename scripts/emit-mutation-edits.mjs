@@ -27,7 +27,8 @@ const EVIDENCE = {
   lexicon: 'coach-stat-lexicon.tdd.md',
   person: 'coach-person-profile.tdd.md',
   grading: 'coach-person-grading.tdd.md',
-  creators: 'coach-table-origins.tdd.md'
+  creators: 'coach-table-origins.tdd.md',
+  'page-explain': 'page-explain-assertions.tdd.md'
 };
 
 const fence = text => '```\n' + text.replace(/\n$/, '') + '\n```';

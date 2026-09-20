@@ -33,7 +33,9 @@ test('every sweep spec is readable and names a file that exists', () => {
     const rows = JSON.parse(fs.readFileSync(path.join(DIR, spec), 'utf8'));
     assert.ok(rows.length, `${spec} has no rows`);
     for (const row of rows) {
-      assert.match(row.id, /^(M\d+|NC-[\w-]+)$/, `${spec}: ${row.id} is not a row id`);
+      // M-numbers for the Coach sweeps, P-numbers for the page-explain pair,
+      // NC- for a no-op control.
+      assert.match(row.id, /^([A-Z]+\d+|NC-[\w-]+)$/, `${spec}: ${row.id} is not a row id`);
       assert.ok(fs.existsSync(row.file), `${spec}: ${row.id} names ${row.file}, which does not exist`);
       assert.ok(String(row.tests).trim(), `${spec}: ${row.id} names no suite`);
       for (const suite of String(row.tests).split(/\s+/)) {
@@ -74,7 +76,7 @@ test('every row quoted in the document is a row some spec actually carries', () 
   // The other direction: the generator could be right and the document still
   // carry a row nobody runs, if it were ever edited by hand between runs.
   const doc = fs.readFileSync(path.join(DIR, 'EDITS.md'), 'utf8');
-  const quoted = [...doc.matchAll(/^### (M\d+|NC-[\w-]+) —/gm)].map(m => m[1]);
+  const quoted = [...doc.matchAll(/^### ([A-Z]+\d+|NC-[\w-]+) —/gm)].map(m => m[1]);
   const known = new Set(specs.flatMap(spec =>
     JSON.parse(fs.readFileSync(path.join(DIR, spec), 'utf8')).map(row => row.id)));
   assert.ok(quoted.length, 'the document quotes no rows at all');

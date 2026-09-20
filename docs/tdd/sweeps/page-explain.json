@@ -1,0 +1,26 @@
+[
+ {
+  "id": "P1",
+  "file": "server/services/nfl-page-explain.js",
+  "tests": "test/page-explain.test.js",
+  "old": "    return { paragraph: parsed.paragraph.trim(), limitations, toolCalls };",
+  "new": "    return { paragraph: `${parsed.paragraph.trim().split('. ')[0]}.`, limitations, toolCalls };",
+  "desc": "the model's paragraph is cut to its first sentence, so the caveat at the end of it never reaches the screen"
+ },
+ {
+  "id": "P2",
+  "file": "server/services/nfl-page-explain-audit.js",
+  "tests": "test/page-explain.test.js",
+  "old": "    model, authority: 'wording_only', tool_calls: toolCalls ?? [],",
+  "new": "    model, authority: 'advisory', tool_calls: toolCalls ?? [],",
+  "desc": "the call reports itself as advisory rather than wording-only, which is the whole claim the audit makes"
+ },
+ {
+  "id": "NC-page-explain",
+  "file": "server/services/nfl-page-explain.js",
+  "tests": "test/page-explain.test.js",
+  "old": " * Same \"AI explains, never decides\" discipline as nfl-pick-explain-ai (see",
+  "new": " * The same \"AI explains, never decides\" discipline as nfl-pick-explain-ai (see",
+  "desc": "NO-OP CONTROL: reword a sentence of the file header, changing no behaviour"
+ }
+]

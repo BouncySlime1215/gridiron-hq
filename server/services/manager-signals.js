@@ -280,16 +280,20 @@ const ARCHETYPE_METRICS = {
 function archetypeIndex(leagueId, season) {
   if (!tableExists('manager_archetypes')) return { present: false, byMember: new Map(), asOf: null };
   const byMember = new Map();
-  let asOf = null;
   for (const r of rows(`SELECT member_id, metric, value, n, source, computed_at FROM manager_archetypes
                         WHERE league_id = ? AND season = ? AND source IN ('draft', 'outcome')`, leagueId, season)) {
     const name = ARCHETYPE_METRICS[r.source]?.[r.metric];
     if (!name || !Number.isFinite(r.value)) continue;
     (byMember.get(r.member_id) ?? byMember.set(r.member_id, []).get(r.member_id))
       .push({ metric: name, value: r.value, n: r.n, source: r.source });
-    if (!asOf || r.computed_at > asOf) asOf = r.computed_at;
   }
-  return { present: true, byMember, asOf };
+  // The build date comes from the STORE, through the one accessor, not from this
+  // loop. It used to be accumulated inside it, after the `continue` above — so the
+  // date reported was "newest stamp among the metrics ARCHETYPE_METRICS maps", and
+  // editing that allowlist silently moved what a reader was told about when the
+  // data was built. Which metrics one consumer copies is not a fact about the age
+  // of the store.
+  return { present: true, byMember, asOf: archetypesBuilt(leagueId, season).as_of };
 }
 
 function rosterSignals(payload, rosterId) {

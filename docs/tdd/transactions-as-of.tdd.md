@@ -387,3 +387,76 @@ carry the stamp of the process that MEASURED it, never the stamp of a process
 that merely copied, scheduled or reported it.** `sync_log` for transactions and
 `manager_signals.computed_at` for archetypes are the same mistake, and both were
 the convenient one.
+
+---
+
+# Part 4: the date that moved when an allowlist was edited (RED `2af8721`)
+
+Found by the chat-sync thread while searching every branch for a second accessor
+on `manager_archetypes`. Their reading of the defect was correct and it is in my
+file, so it is fixed here.
+
+`archetypeIndex` (`manager-signals.js`) accumulated its `asOf` **inside** the row
+loop, after the `continue` that drops any metric not in `ARCHETYPE_METRICS`:
+
+```js
+const name = ARCHETYPE_METRICS[r.source]?.[r.metric];
+if (!name || !Number.isFinite(r.value)) continue;
+…
+if (!asOf || r.computed_at > asOf) asOf = r.computed_at;   // ← after the continue
+```
+
+So `archetypes_as_of` — served by the rebuild route and printed by
+`scripts/build-manager-signals.mjs` — reported *"the newest stamp among the
+metrics this consumer happens to copy"*. Add a metric to `ARCHETYPE_METRICS` and
+the reported build date changes without a single row being written. **Which
+metrics one consumer copies is not a fact about the age of the store.**
+
+GREEN is one line: `asOf: archetypesBuilt(leagueId, season).as_of`, the accessor
+Part 3 added. It was already honest — a SQL `MAX` over the league-season's
+`draft` and `outcome` rows with no allowlist — so this is the first payoff of
+having built it, rather than new code.
+
+## Mutation run, pasted verbatim
+
+```
+BASELINE (no mutation): 27 pass, 0 fail
+A1  the build date goes back to being accumulated inside the mapped-metric loop
+    APPLIED -> killed by: refresh: the reported archetype build date is the store's, …
+A2  the accessor is called without the season, so another season's build leaks in
+    APPLIED -> killed by: (same)
+A3  the accessor is called without the league, so every league shares one date
+    APPLIED -> killed by: (same)
+```
+
+**A2 survived the first pass** — no fixture had a second season for league 12, so
+dropping the season filter changed nothing. Fixed by adding a **later** build
+(07:00) for league 12 in season **2025**: it is the newest row that league has,
+and it must not be this season-view's date. "The store was last built at 07:00"
+is true and useless when what was built was last year. That is the fifth
+fixture-level blind spot of the night and the same kind as the other four
+([[unreachable-branch-no-assertion]] in project memory).
+
+## The five questions, for Part 4
+
+**1. Stats or made up?** Definitional. No number introduced; one wrong derivation
+replaced by the right one.
+
+**2. How do we know?** One test, three mutations, all applied and caught, plus
+the fixture assertion that the two build stamps and the two seasons genuinely
+differ — without which the test would pass for the wrong reason.
+
+**3. Structure.** `archetypeIndex` no longer derives a date at all; it calls the
+accessor. One store, one stamp, one function.
+
+**4. Pointed anywhere else?** This is the general shape worth looking for
+elsewhere: **a summary statistic accumulated inside a loop that `continue`s is a
+statistic about what survived the filter, not about the set.** Worth a sweep of
+the other `as_of`-like fields, which is a job for the wiring-map thread rather
+than a change here.
+
+**5. How does it unify?** Part 3's rule was "carry the stamp of the process that
+measured it". Part 4 is its corollary, and the two together are the whole
+lesson: **a stamp must describe the store, not the reader.** `sync_log` and
+`manager_signals.computed_at` were the wrong *process*; this was the right
+process read through one reader's private allowlist.

@@ -145,17 +145,61 @@ test('the two absences of a source are not the same absence', () => {
   assert.equal(playerAvailabilityBasis({}, null), null);
 });
 
+test('the served field wins over the process basis and over the sentence', () => {
+  // THE FIXTURE THAT WAS RED. On main this function did not exist: lineup-brain
+  // stamped the PROCESS basis onto every row, so a row read 'role' whenever the
+  // tables were loaded, whoever the player was. This branch replaced that with
+  // prefix matching on the display sentence, which is better and still wrong —
+  // the sentence is copy, and rewording it reclassifies every fitted number.
+  //
+  // Now the server states the basis per row and the row's own field wins. The
+  // process basis is the last resort, not the answer.
+  assert.equal(
+    playerAvailabilityBasis({ availability_basis: 'default_durability' }, { basis: 'role' }),
+    'default_durability',
+    'the process basis is overriding what the server said about this player');
+  // And it wins over the sentence too, if the two ever disagree.
+  assert.equal(
+    playerAvailabilityBasis(
+      { availability_basis: 'default_durability',
+        availability_source: 'fitted availability by role (starter/noreport/full, n=812)' },
+      { basis: 'role' }),
+    'default_durability',
+    'a display sentence is outranking the field the server sent');
+});
+
+test('a basis string this app does not know is unrecognised, never a guess', () => {
+  // The whole reason the field beats the sentence. An unknown value must be
+  // visible as unknown: silently folding it into durability_prior is how a
+  // wrong claim ships looking healthy.
+  assert.equal(playerAvailabilityBasis({ availability_basis: 'some_new_thing' }, { basis: 'role' }), 'unrecognised');
+  assert.equal(playerAvailabilityBasis({ availability_basis: '' }, { basis: 'role' }), 'unrecognised');
+  // The four the server does serve pass through unchanged.
+  for (const b of ['role', 'pooled', 'durability_prior', 'default_durability']) {
+    assert.equal(playerAvailabilityBasis({ availability_basis: b }, { basis: 'role' }), b);
+  }
+});
+
 test('every source string weeklyAvailability can build maps to a basis', () => {
-  // The four shapes playerActiveProbability produces, written out rather than
-  // derived from the function that produces them.
+  // The fallback, for a row that arrived without the field — an asset universe
+  // built before it existed, which is reachable because assetUniverse is
+  // fingerprint-cached on table contents rather than on code.
+  //
+  // `constants` is gone from this vocabulary. The two sentences that used to
+  // produce it both start from the player's own durability prior, so they are
+  // durability_prior. A sentence this function does not recognise is
+  // `unrecognised` and not a prior: rewording the copy must show up, not
+  // silently reclassify a fitted number.
   assert.equal(playerAvailabilityBasis(
     { availability_source: 'fitted availability by role (starter/noreport/full, n=812) x KC' }, null), 'role');
   assert.equal(playerAvailabilityBasis(
     { availability_source: 'fitted availability (QUE/limited, n=1204)' }, null), 'pooled');
   assert.equal(playerAvailabilityBasis(
-    { availability_source: 'weekly injury report + durability prior' }, null), 'constants');
+    { availability_source: 'weekly injury report + durability prior' }, null), 'durability_prior');
   assert.equal(playerAvailabilityBasis(
-    { availability_source: 'durability prior only' }, null), 'constants');
+    { availability_source: 'durability prior only' }, null), 'durability_prior');
+  assert.equal(playerAvailabilityBasis(
+    { availability_source: 'something nobody here has seen' }, null), 'unrecognised');
 });
 
 test('the matchup posture is about the same week the call is', () => {

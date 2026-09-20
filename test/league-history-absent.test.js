@@ -56,10 +56,22 @@ test('the state of the history table is readable, and names what creates it', ()
   const absent = arch.leagueHistoryState();
   assert.equal(absent.present, false);
   assert.match(absent.reason ?? '', /league_season_teams/, 'name the table that is missing');
-  assert.match(absent.source ?? '', /064|migration/i,
-    'and what creates it, or the reader is told there is a problem and not how to end it');
+  // THE DISAMBIGUATION IS THE REASON'S JOB, and asserting only the table name
+  // left it unguarded: a mutation deleting this clause survived the first run
+  // of this suite. Naming a missing table tells a reader what broke; this
+  // clause is what stops the absence being read as a finding about a manager.
+  assert.match(absent.reason ?? '', /cannot look|cannot be read|we cannot/i,
+    'that the lookup could not happen');
+  assert.match(absent.reason ?? '', /unknown|nobody|no such manager/i,
+    'and, explicitly, that this is NOT a statement about the manager — the two nulls this '
+    + 'whole guard exists to keep apart');
+  // Two separate assertions, not /064|migration/. That alternation passed with
+  // the migration clause deleted, because the word "migration" survived in the
+  // sentence about the script. One term surviving is not the claim holding.
+  assert.match(absent.source ?? '', /064/,
+    'the migration by number, so a reader can go and look at it');
   assert.match(absent.source ?? '', /backfill-league-history/,
-    'both routes, because the table arriving by two of them is why it can be missing at all');
+    'and the script, because the table arriving by two routes is why it can be missing at all');
 });
 
 test('archetypesFor returns nothing rather than throwing where the table is absent', () => {

@@ -1924,7 +1924,14 @@ describes all four.
 
 **The `fantasy-coordinator.js` half is verified too, at `42bbbc3` on
 `claude/project-thread-f921do-coordinator-head-hold`**, which has no PR yet —
-it is held back by the same freeze. `weeklyProjectionFor` now passes
+it is held back by the same freeze. **The branch head is now `8875c9b`**, and
+the plan keeps naming `42bbbc3` because that is the commit whose *code* was
+read here: `8875c9b` sits on top of it and touches one file,
+`docs/tdd/fantasy-coordinator-head.tdd.md`, +67 lines, no code change
+(checked here against the repository, not taken from the branch's report). The
+branch is `791b131` → `dce4665` RED → `42bbbc3` GREEN → `8875c9b` evidence,
+which is the shape `CLAUDE.md` asks for. **Open the PR from the head; read the
+code at `42bbbc3`.** `weeklyProjectionFor` now passes
 `projection.structural_ppg`, and `corrected_ppg` is **null** when no fit is
 persisted rather than the ensemble number wearing the corrected field's name;
 `ensemble_ppg` publishes that number under its own.
@@ -1935,8 +1942,9 @@ number is identical to today's in every state**. Without `ensemble_ppg` in that
 chain the sheet would have silently dropped to the uncalibrated structural
 figure the moment the field stopped being the ensemble in disguise.
 
-*One thing checked here that the branch's own report does not mention, and it is
-not a problem.* `weeklyProjectionFor` has **two** callers, not one —
+*One thing checked here that the branch's own report did not mention at the time,
+and it is not a problem — the evidence file at `8875c9b` now records it.*
+`weeklyProjectionFor` has **two** callers, not one —
 `draft-assist.js:976` and **`routes/players.js:94`**, which serves
 `weekly_projection` in an API response and is untouched by this branch. So on the
 player route `corrected_ppg` becomes null where it used to carry the ensemble
@@ -1948,7 +1956,8 @@ rather than a side effect of it.
 
 **So both halves exist and both are verified. The skip is lifted on this
 condition and no other: both must be merged before the command runs.** #57 at
-`7c27517`, and the PR the fantasy plan opens from `42bbbc3` after the go. If
+`7c27517`, and the PR the fantasy plan opens from that branch after the go
+(head `8875c9b`, code `42bbbc3`). If
 only one lands, the skip is back — half the fix still refits against a wrong
 base on the other call site.
 

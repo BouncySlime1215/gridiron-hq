@@ -658,3 +658,101 @@ test('readDeal prices through the same valuation map the manager view shows', ()
   assert.equal(reason.multiplier, mapped.multiplier,
     'the deal read and the valuation map must not be able to disagree');
 });
+
+// ============================================ G9 a source that is not firing
+// The header promises that "a source below its minimum sample is reported INERT
+// WITH A REASON rather than dropped". G2b proves that for a reading that exists
+// and is too small a sample. These four cover the states G2b does not reach, in
+// which the served object says nothing at all — or, worse, says something false.
+//
+// League 24 is a league with managers and signals and NO archetype rows, which
+// is the live shape of four of Nick's five leagues.
+insertLeague(24, {
+  members: [member(NICK, 'Nick', 'Matta'), member(HAY, 'Hayden', 'Brook')],
+  teams: [team(1, NICK, { wins: 2, losses: 2, pf: 440, entries: [rosterEntry(701, 'Shopped Man')] }),
+    team(2, HAY, { wins: 2, losses: 2, pf: 440, entries: [rosterEntry(712, 'Quiet Star')] })],
+  schedule: [{ matchupPeriodId: 4, home: { teamId: 1, totalPoints: 100 },
+    away: { teamId: 2, totalPoints: 99 }, winner: 'HOME' }],
+}, { name: 'VM24 no archetypes' });
+identity.matchIdentities(24, { chatNames: [] });
+signals.buildManagerSignals(24, { chat: null });
+
+const NEEDS_24 = new Map([
+  ['1', { needs: new Set(), surplus: new Set(), window: 'contend' }],
+  ['2', { needs: new Set(), surplus: new Set(), window: 'contend' }],
+]);
+const ownerOf = (extra = {}) => ({
+  roster_id: '2', receptiveness: 1, roster_size: 3, owned: new Set(['quiet star']),
+  players: new Map(), reads: new Map(), gaps: new Map(),
+  needs: new Set(), surplus: new Set(), stance: null, negotiation: null, ...extra,
+});
+const QUIET_STAR = { name: 'Quiet Star', position: 'RB', value: 1200 };
+const inertFor = (prof, source) => (pricing.playerValuation(prof, QUIET_STAR).inert ?? [])
+  .find(i => i.source === source) ?? null;
+
+test('G9a: a manager with no luck reading at all is reported, not passed over in silence', () => {
+  // The archetype build produces no luck row for him — the week-2 case for four
+  // of five live leagues. `luck: null` short-circuits the branch before `add` is
+  // ever called, so nothing reaches `inert` and the page has no sentence to say.
+  // "We have never measured his luck" and "we measured it and it says nothing"
+  // are different facts and a reader acts on the second.
+  const inert = inertFor(ownerOf({ luck: null }), 'luck_self_view');
+  assert.ok(inert, 'a source with no reading must still be named as not firing');
+  assert.match(inert.reason, /0 of the 4|scored weeks/i,
+    `the reason must name what is missing, got ${JSON.stringify(inert?.reason)}`);
+});
+
+test('G9b: a reading below its sample is reported even when its effect rounds small', () => {
+  // `add` returns on |effect| < 0.001 BEFORE it checks min_n, so smallness wins
+  // over provenance: 0.05 * (0.01 / 2) = 0.00025. The reading is real, the
+  // sample is one week, and the page is told nothing about either.
+  const inert = inertFor(ownerOf({ luck: { value: 0.01, n: 1 } }), 'luck_self_view');
+  assert.ok(inert, 'a real reading on too small a sample must be reported inert whatever its size');
+  assert.match(inert.reason, /1 of the 4|scored weeks/i);
+});
+
+test('G9c: a manager exactly at expectation is a luck reading, not a missing one', () => {
+  // value 0 is the most confident reading there is — his record is precisely
+  // what his scores earn. It is also the one that disappears entirely.
+  const inert = inertFor(ownerOf({ luck: { value: 0, n: 1 } }), 'luck_self_view');
+  assert.ok(inert, 'a reading of exactly zero is a reading');
+});
+
+test('G9d: a league with no archetype rows is not told the data exists', () => {
+  // valuationMap's last branch is an else: a source that is neither used, nor
+  // chat-blocked, nor inert, nor positional_need is reported as "the data exists
+  // but no player in this league matched it". For luck in a league with no
+  // archetype rows that sentence is false in both halves.
+  const map = pricing.valuationMap(24, { season: SEASON, week: WEEK, players: PLAYERS, rosterContext: NEEDS_24 });
+  assert.equal(map.available, true, 'league 24 has signals, so it gets a map');
+  assert.ok(!map.sources_used.includes('luck_self_view'), 'nothing can be pricing on luck here');
+  const absent = map.sources_absent.find(a => a.source === 'luck_self_view');
+  assert.ok(absent, 'luck must be listed as absent');
+  assert.doesNotMatch(absent.reason, /the data exists/i,
+    `a league with no archetype rows must not be told the data exists, got ${JSON.stringify(absent.reason)}`);
+  assert.match(absent.reason, /0 of the 4|scored weeks/i, 'it must name the missing measurement instead');
+});
+
+test('G9e: zeroing a source still suppresses it completely — no factor and no inert entry', () => {
+  // The regression pin for G9a-d. The ablation in the valuation-map report
+  // depends on `zero` removing a source from the arithmetic ENTIRELY; if the
+  // fixes above start emitting an inert entry for a zeroed source, every
+  // "deals repriced" count in that table silently changes meaning.
+  const prof = ownerOf({ luck: { value: 1.6, n: 4 } });
+  const off = pricing.playerValuation(prof, QUIET_STAR, { zero: ['luck_self_view'] });
+  assert.ok(!(off.factors ?? []).some(f => f.source === 'luck_self_view'), 'zeroed: no factor');
+  assert.ok(!(off.inert ?? []).some(i => i.source === 'luck_self_view'), 'zeroed: and no inert entry either');
+});
+
+test('G9f: a reading with enough sample still prices, unchanged', () => {
+  // The other regression pin: none of this may turn a real factor into a note.
+  const on = pricing.playerValuation(ownerOf({ luck: { value: 1.6, n: 4 } }), QUIET_STAR);
+  const f = (on.factors ?? []).find(x => x.source === 'luck_self_view');
+  assert.ok(f, 'four scored weeks still prices');
+  // 1.6 wins above expectation against LUCK_FULL_WINS of 2 is 0.8 of the cap,
+  // not the cap: this pins the arithmetic, so a fix that changed the strength
+  // curve while keeping the source firing would still be caught here.
+  assert.equal(f.effect, +(pricing.VALUATION_SOURCES.luck_self_view.cap * 0.8).toFixed(4),
+    'at 0.8 of its cap, unchanged');
+  assert.ok(!(on.inert ?? []).some(i => i.source === 'luck_self_view'), 'a firing source is not also inert');
+});

@@ -153,6 +153,13 @@ exactly `git ls-tree -r d5fe7f6 -- server scripts test` filtered to `.js`/`.mjs`
 so the count is of this commit and not of whatever happens to be on the disk;
 build clean; startup smoke 32 teams.
 
+**This catch is correct on this branch and is removed after the merge.** On
+`#41`'s own base, `archetypesFor` still throws when `league_season_teams` is
+absent, so narrowing the catch is the fix; chat sync's branch makes that call
+return an empty map and report the state through `leagueHistoryState()`, and
+the post-merge patch removes the catch rather than leaving one nothing can
+reach. The two are the same rule at two bases, not a contradiction.
+
 ## 3. The undated copy and the dated one were both on the page
 
 `archetypesFor` carried the store's raw `jev` straight onto this payload: the

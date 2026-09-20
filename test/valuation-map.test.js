@@ -438,7 +438,10 @@ test('G2b: a source under its minimum sample is reported inert with its reason, 
   assert.ok(!factorNames(riser).includes('luck_self_view'), 'one week of luck must not price anything');
   const inert = (riser.inert ?? []).find(i => i.source === 'luck_self_view');
   assert.ok(inert, 'the map must say the luck read exists and is not firing');
-  assert.match(inert.reason, /1 .*(week|sample)|below/i);
+  // The sentence the min_n branch writes, whole. A pattern loose enough to take
+  // "1 week" or "below" would pass on a reason that named neither the sample it
+  // has nor the sample it needs.
+  assert.equal(inert.reason, 'rests on 1 of the 4 needed (scored weeks in the archetype build)');
 });
 
 test('G2c: the source registry is the contract — caps, minimum samples and what each needs', () => {
@@ -488,7 +491,11 @@ test('G4b: a league with no manager data says so instead of inventing a map', ()
   const map = mapFor(23);
   assert.equal(map.available, false);
   assert.equal(map.managers.size, 0);
-  assert.match(map.reason, /manager signals|no manager data/i);
+  // One producer, one sentence: counterparty-pricing.js's `empty(...)` call for
+  // a league with no signal rows. It names the script that would build them,
+  // which is the whole value of the sentence and the part a looser pattern drops.
+  assert.equal(map.reason,
+    'no manager signals for this league yet — scripts/build-manager-signals.mjs has not built it');
 });
 
 test('G4c: the chat league lists its chat sources as used', () => {
@@ -544,8 +551,10 @@ test('G10: with the corpus off the machine, a refusal is not priced as a refusal
       'an unread declaration record must not price a player as a refusal that held');
     const inert = (star?.inert ?? []).find(i => i.source === 'untouchable_credibility');
     assert.ok(inert, 'and it must be reported as not firing, not silently dropped');
-    assert.match(inert.reason, /not on this machine|corpus/i,
-      `the reason must name the absence, got ${JSON.stringify(inert?.reason)}`);
+    assert.match(inert.reason, /the chat corpus is not on this machine/,
+      `the reason must name THIS absence — we asked and could not read it — got ${JSON.stringify(inert?.reason)}`);
+    assert.doesNotMatch(inert.reason, /no confirmed chat identity/,
+      'and it must not be the other absence, where no lookup was ever attempted');
   } finally { process.env.GRIDIRON_CHAT_DB_PATH = saved; }
   // And the fixture is restored: with the corpus present it prices again.
   const back = byName(mapFor(21).managers.get('2'), 'Quiet Star');
@@ -582,8 +591,10 @@ test('G10b: with no trusted chat identity, a refusal is not priced either', () =
       'a declaration record nobody looked up must not price a player as a refusal that held');
     const inert = (hype.inert ?? []).find(i => i.source === 'untouchable_credibility');
     assert.ok(inert, 'and it must be reported as not firing, not silently dropped');
-    assert.match(inert.reason, /identity|never (asked|looked)|not read/i,
-      `the reason must name THIS absence, got ${JSON.stringify(inert?.reason)}`);
+    assert.match(inert.reason, /no confirmed chat identity for him/,
+      `the reason must name THIS absence — nobody ever looked him up — got ${JSON.stringify(inert?.reason)}`);
+    assert.doesNotMatch(inert.reason, /not on this machine/,
+      'and it must not be the other absence, where the corpus was asked for and was missing');
   } finally {
     run(`DELETE FROM manager_player_view WHERE league_id = 22 AND player_name = 'hot hype'`);
   }
@@ -832,8 +843,8 @@ test('G9a: a manager with no luck reading at all is reported, not passed over in
   // are different facts and a reader acts on the second.
   const inert = inertFor(ownerOf({ luck: null }), 'luck_self_view');
   assert.ok(inert, 'a source with no reading must still be named as not firing');
-  assert.match(inert.reason, /0 of the 4|scored weeks/i,
-    `the reason must name what is missing, got ${JSON.stringify(inert?.reason)}`);
+  assert.equal(inert.reason, 'rests on 0 of the 4 needed (scored weeks in the archetype build)',
+    'the reason must name the sample it has AND the sample it needs, not one of the two');
 });
 
 test('G9b: a reading below its sample is reported even when its effect rounds small', () => {
@@ -842,7 +853,8 @@ test('G9b: a reading below its sample is reported even when its effect rounds sm
   // sample is one week, and the page is told nothing about either.
   const inert = inertFor(ownerOf({ luck: { value: 0.01, n: 1 } }), 'luck_self_view');
   assert.ok(inert, 'a real reading on too small a sample must be reported inert whatever its size');
-  assert.match(inert.reason, /1 of the 4|scored weeks/i);
+  assert.equal(inert.reason, 'rests on 1 of the 4 needed (scored weeks in the archetype build)',
+    'one week reads as one of four, not as a sentence that merely mentions weeks');
 });
 
 test('G9c: a manager exactly at expectation is a luck reading, not a missing one', () => {
@@ -864,7 +876,8 @@ test('G9d: a league with no archetype rows is not told the data exists', () => {
   assert.ok(absent, 'luck must be listed as absent');
   assert.doesNotMatch(absent.reason, /the data exists/i,
     `a league with no archetype rows must not be told the data exists, got ${JSON.stringify(absent.reason)}`);
-  assert.match(absent.reason, /0 of the 4|scored weeks/i, 'it must name the missing measurement instead');
+  assert.equal(absent.reason, 'rests on 0 of the 4 needed (scored weeks in the archetype build)',
+    'it must name the missing measurement instead, in the inert branch\'s own words');
 });
 
 test('G9g: the priced luck term says when the store behind it was built', () => {
@@ -1072,7 +1085,15 @@ test('G11c: a flat answer is reported as carrying no information, not as a 33% c
   assert.equal(style.informative, false, 'an even spread across three options says nothing');
   assert.equal(sells.informative, false, 'and a boolean at 0.5 is the same non-answer');
   assert.equal(bias.informative, true, '0.60 on one option is a real lean');
-  assert.match(style.why, /even spread|no information/i);
+  // `shapeJevAnswer` writes two different flat sentences: this one, where there
+  // was no evidence to begin with, and one for a draft record that WAS read and
+  // still came back flat. A pattern matching either would pass on the wrong one,
+  // and the difference is the whole point of the flag above.
+  assert.match(style.why,
+    /the answer came back an even spread across the options, which is the honest answer when there is no evidence/,
+    `a flat prior must say it is flat BECAUSE there is nothing under it, got ${JSON.stringify(style.why)}`);
+  assert.doesNotMatch(style.why, /his draft record bears on this question/,
+    'and it must not borrow the sentence for a record that was read and came back flat');
 
   // The boolean's OTHER leg. A boolean is stored as its 'true' row alone, so a
   // reader that takes the stored rows as the whole distribution sees one

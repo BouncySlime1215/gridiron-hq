@@ -123,8 +123,14 @@ test('when the rollup is behind the corpus the age is still the newest message, 
     + 'ROLLED-UP message and lags it by however long since --rollup last ran');
   assert.equal(f.state, 'fresh', 'a two-hour-old conversation is fresh even when the rollup is three days behind');
   assert.equal(f.rollup, 'behind');
-  assert.match(f.note, /rollup/i,
-    'a stale rollup over a fresh corpus is a real, fixable state and it must not be silent');
+  // Assert the FACT, not the word. The first draft matched /rollup/i and failed
+  // a sentence that says the thing in plainer English than "rollup" does; that
+  // is a test asserting its own vocabulary. What has to be in the note is the
+  // cutoff — the stamp a reader compares against the newest message to see the
+  // gap for themselves.
+  assert.match(f.note, new RegExp(hoursAgo(72)),
+    'a stale rollup over a fresh corpus is a real, fixable state, and the note has to name the point '
+    + 'the profiles were built up to or there is nothing to act on');
 });
 
 test('a rollup level by level: current, behind, missing', () => {
@@ -179,4 +185,54 @@ test('STATE_MAPPING names every state the block can report, including the two it
     'present_but_undatable', 'present_and_dated']) {
     assert.ok(key in m, `${key} is a state the block reports and the mapping has to say what it becomes`);
   }
+});
+
+/* --------------------------------- the producer, end to end on a real file */
+
+/**
+ * Everything above hands `freshness()` a literal, which is the right way to
+ * test a pure consumer and the wrong way to leave it: it means no test ever
+ * runs the query that fills the block in. `MIN` for `MAX` on `last_msg`, or
+ * dropping `collected_by`, would pass all nine.
+ *
+ * So one corpus on disk, with the rollup deliberately behind the messages,
+ * read by the real producer and fed to the real consumer.
+ */
+test('a corpus on disk whose rollup is behind is read that way, producer through consumer', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const file = path.join(temp, 'real-corpus.sqlite');
+  const c = new DatabaseSync(file);
+  c.exec(`CREATE TABLE messages (msg_id INTEGER, name TEXT, ts_utc TEXT, text TEXT);
+          CREATE TABLE jev_chat_signals (msg_id INTEGER, question TEXT);
+          CREATE TABLE manager_chat_profile (name TEXT, last_msg TEXT, computed_at TEXT);
+          CREATE TABLE manager_player_sentiment (name TEXT, player TEXT)`);
+  // Two messages. The rollup saw the older one and has not run since the newer.
+  for (const [id, ts] of [[1, '2026-09-14T08:00:00Z'], [2, '2026-09-19T21:30:00Z']]) {
+    c.prepare('INSERT INTO messages VALUES (?, ?, ?, ?)').run(id, 'Alda Reyes', ts, 'hi');
+  }
+  // TWO profile rows with different last_msg, so MIN and MAX are not the same
+  // value and the query cannot pass by accident on a single-row table.
+  c.prepare('INSERT INTO manager_chat_profile VALUES (?,?,?)').run('Alda Reyes', '2026-09-14T08:00:00Z', '2026-09-14T08:05:00Z');
+  c.prepare('INSERT INTO manager_chat_profile VALUES (?,?,?)').run('Bo Nakamura', '2026-09-15T09:00:00Z', '2026-09-15T09:05:00Z');
+  c.close();
+
+  const before = process.env.GRIDIRON_CHAT_DB_PATH;
+  process.env.GRIDIRON_CHAT_DB_PATH = file;
+  try {
+    const stats = chatSync.corpusStats();
+    assert.equal(stats.as_of, '2026-09-15T09:00:00Z',
+      'as_of is the NEWEST message the rollup has seen; MIN would give 2026-09-14 and look like a rollup '
+      + 'that is a day further behind than it is');
+    assert.equal(stats.computed_at, '2026-09-15T09:05:00Z');
+    assert.equal(stats.newest_message, '2026-09-19T21:30:00Z');
+    assert.equal(stats.rows, 2);
+
+    const f = chatSync.freshness(stats, null);
+    assert.equal(f.as_of, '2026-09-19T21:30:00Z', 'the age is the corpus, not the rollup');
+    assert.equal(f.rollup, 'behind');
+    assert.match(f.note, /2026-09-15T09:00:00Z/, 'and the point the profiles reach is in the sentence');
+    assert.match(f.collected_by ?? '', /refresh-live-data/,
+      'the producer fills this in; a literal block in the tests above cannot prove that it does');
+    assert.equal(f.path, file, 'and the path it actually read');
+  } finally { process.env.GRIDIRON_CHAT_DB_PATH = before; }
 });

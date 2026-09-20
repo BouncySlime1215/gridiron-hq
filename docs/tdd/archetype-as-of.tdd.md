@@ -843,3 +843,129 @@ only `unknown` left, messages with no readable date.
   than corrupted, which is the safer failure but is still a silence.
 - **No live measurement.** Fixtures only; the real corpus is on the Mac and this
   box cannot have one.
+
+---
+
+## Part 6 — freshness() reads the corpus block, and the rollup lag stops hiding inside the age
+
+**The five questions.**
+
+- **Well built?** It is the consumer half of a contract that had already landed
+  on another thread's branch. The contract was read out of the source, not out
+  of the commit message describing it.
+- **Stats or made up?** Every date in the badge comes out of the argument. The
+  suite runs with no corpus file on disk and `GRIDIRON_CHAT_DB_PATH` pointed at
+  a path that is never created, so a `freshness()` that resolved anything for
+  itself has nothing to find.
+- **How do we know?** Nine tests failing before, ten passing after, plus one
+  that drives the real producer over a real file; ten mutations injected, ten
+  caught, every injection printing `APPLIED` with its site count.
+- **Pointed anywhere else?** The same block feeds the chat half of the manager
+  card and the Trade Brain's counterparty read.
+- **How does it unify?** One query per fact, one clock for the chat data, one
+  sentence per state — and the state that had no sentence now has one.
+
+### The hash was wrong, and the block was read instead
+
+The brief named `ef3164e` as the commit carrying the landed block. That commit
+is "cut sixteen dead route handlers from trades.js, services untouched".
+`git log --all -S"path_source" -- server/services/manager-signals.js` gives the
+real one: **`34250dc`**, on `origin/claude/project-thread-3xqh5l-accessor-hold`.
+The shape was then taken from the source of `chatCorpusState()` rather than from
+the description of it, which is what turned up the next two findings.
+
+### What the block's `as_of` actually is
+
+`chatCorpusState().as_of` is `MAX(last_msg)` over `manager_chat_profile`. That
+table is rebuilt by `rollup()` in `scripts/chat/extract_league_chat.py`, and two
+things follow that the field name does not say:
+
+1. `rollup()` runs **only under `--rollup`** (`extract_league_chat.py:369`). It
+   is not part of an extract.
+2. Its `base` CTE keeps only rows with `m.name IS NOT NULL` and non-empty text
+   after stripping the object-replacement character.
+
+So `as_of` is *the newest message the rollup has seen*, which lags the corpus by
+however long since the rollup last ran. Serving it as the age — the obvious
+reading of "wire freshness() to the block" — would have made a three-day-old
+rollup over a corpus someone texted in an hour ago read as a dead league. That
+is the same two-states-one-sentence defect Parts 1–5 exist to remove, arriving
+by a new route.
+
+The resolution keeps both facts and conflates neither. The age stays the newest
+message (the 07:15Z ruling, unchanged). The block's `as_of` becomes what the age
+is measured *against*, and the gap is its own field:
+
+```
+rollup: 'current' | 'behind' | 'unknown' | 'missing'
+```
+
+`missing` is the state that was collapsing wrongly. `rows: 0` on the block means
+no manager profiles — which is not "no chat data": the messages are there and
+dated, and the fix is one flag on a script, not a trip to the Mac for a fresh
+pull. It had been reported as `absent`.
+
+### Three states that the consumer must not re-word
+
+`chatCorpusState()` already writes the sentence for each absence, and the
+sentences are not interchangeable:
+
+| Block state | Why a generic sentence is wrong |
+|---|---|
+| no file, `path_source: 'GRIDIRON_CHAT_DB_PATH'` | a typo in an env var; the fix is the variable |
+| no file, `path_source: 'default'` | a machine with genuinely no corpus; the fix is a pull and an upload |
+| file present, `rows: 0` | the rollup has not run; the fix is `--rollup` |
+
+So the block's `reason` is carried word for word and `path_source` is named. The
+test that pins this passes a block whose `path` is `/typo/league_chat.sqlite`
+while the environment points somewhere else entirely, and asserts both that the
+typo path appears and that the environment path does not.
+
+`no_path_configured` came out of `STATE_MAPPING`. `chatDbPath()` always returns
+a string, so it was a row claiming to map a state nothing could reach — the same
+category of dead branch `34250dc` removed on its own side.
+
+### One name for the rollup stamp
+
+`corpusStats()` called it `rolled_up_at`; the block calls it `computed_at`. Two
+names for one field is the thing this branch keeps deleting, so `corpusStats()`
+now emits the block's shape outright — `as_of`, `computed_at`, `rows`, `path`,
+`path_source`, `collected_by`, `reason` — and `freshness()` takes that shape from
+either producer. When `chatCorpusState()` lands on this branch's base, one of the
+two producers is deleted and nothing downstream changes.
+
+### Mutations
+
+Ten injected, ten caught. Each run printed `APPLIED` with the number of matching
+sites before the suite ran; a run that printed `PATTERN MISSED` would have been a
+mutation that never executed, which is the failure mode Part 3 was bitten by.
+
+| # | Injection | Caught by |
+|---|---|---|
+| M1 | age taken from `as_of` before `newest_message` | rollup-behind, ISO, producer end-to-end |
+| M2 | lag comparison reversed | rollup-behind, rollup-levels, end-to-end |
+| M3 | `state.path` dropped for `chatDbPath()` | the decoy-path test |
+| M4 | the block's `reason` not carried | the typo-path test |
+| M5 | `path_source` never read | the typo-path test |
+| M6 | "is there data" keyed on `rows` instead of messages | absent, undatable, empty-corpus |
+| M7 | `MIN(last_msg)` for `MAX` | producer end-to-end |
+| M8 | `collected_by` dropped at the producer | producer end-to-end |
+| M9 | `rollup: 'missing'` unreachable | rollup-levels, not-rolled-up |
+| M10 | block stamps served without `isoStamp` | the legacy-stamp test |
+
+M7 and M8 are the pair worth keeping. Every other test here hands `freshness()`
+a literal, which is the right way to test a pure consumer and the wrong way to
+leave it: nothing was running the query that fills the block in, and both
+injections would have passed a suite of nine. The fixture that closes them puts
+**two** profile rows with different `last_msg` values on disk, so `MIN` and `MAX`
+cannot agree by accident on a one-row table.
+
+### One test was rewritten rather than satisfied
+
+The first draft of the rollup-behind test asserted `/rollup/i` against the note.
+The implementation's sentence is *"The profiles were last built over messages up
+to 2026-09-17T07:46:26Z, so anything said since then is in the corpus but not yet
+in the counterparty read"* — which says the thing in plainer English than the
+word "rollup" does, and failed. That is a test asserting its own vocabulary, the
+same defect `34250dc` reported three of. It now asserts the cutoff stamp: the
+fact a reader needs in order to act, rather than a word.

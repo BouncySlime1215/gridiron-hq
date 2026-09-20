@@ -88,6 +88,22 @@ function SignalFeed() {
         </div>
       )}
 
+      {/* Said once for the page rather than on every card: why every "active" below
+          reads the way it does, and where the fix is written down. Start/Sit carries
+          the full explanation; this does not restate it. */}
+      {data?.availability_basis && data.availability_basis.basis !== 'role' && (
+        <p className="mb-4 text-xs leading-5 text-amber-900">
+          The fitted chance-to-play role layer is not running
+          {data.availability_basis.missing?.length
+            ? ` — ${data.availability_basis.missing.join(' and ')} not loaded` : ''}
+          , so every number marked assumed below is a{' '}
+          {data.availability_basis.basis === 'constants' ? 'hand-set constant' : 'pooled injury-report rate or a hand-set constant'},
+          not a rate measured from real usage. It multiplies into every projected-points figure below.{' '}
+          <Link className="font-semibold text-emerald-700" to="/lineup">Start/Sit</Link> says what that
+          changes and how to fix it.
+        </p>
+      )}
+
       {data?.tracker && (
         <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
           <TrackerMetric label="Modeled" value={data.tracker.modeled} />
@@ -141,7 +157,17 @@ function SignalFeed() {
                       {signed(s.fantasy_model.projected_points - s.fantasy_model.baseline_points)} vs baseline
                     </span>
                   </div>
-                  <div className="mt-1 text-[11px] text-slate-500">Likely range {s.fantasy_model.p10}–{s.fantasy_model.p90} · active {s.fantasy_model.active_probability}%</div>
+                  {/* The chance to play is the same number Start/Sit shows, from the same
+                      fit, and it multiplies straight into the projected points above it.
+                      On any path but 'role' it is a pooled or hand-set figure that reads
+                      identically to a measured one, so the card says which it is. */}
+                  <div className="mt-1 text-[11px] text-slate-500">
+                    Likely range {s.fantasy_model.p10}–{s.fantasy_model.p90} · active {s.fantasy_model.active_probability}%
+                    {s.fantasy_model.availability_basis === 'role' ? ''
+                      : s.fantasy_model.availability_basis === 'unfitted_position'
+                        ? ' (assumed — the fit does not cover this position)'
+                        : ' (assumed)'}
+                  </div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-3">
                   <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">Projected fantasy usage</div>

@@ -137,3 +137,62 @@ test('when floors rank the players, the floor lineup is exactly the floor-optima
   assert.equal(starters(floor)['Back Three'] !== undefined, true, 'the 7.0-floor back starts');
   assert.equal(floor.projected_points, +(9 + 7 + 6 + 5 + 4.8 + 3 + 5.5).toFixed(2));
 });
+
+test('the page repeats what confidence_basis says, instead of leaving it on the wire', () => {
+  // Clear / Lean / Coin flip are thresholds on a MEAN weekly margin. On a
+  // ceiling or floor view the same chips are drawn from a wider, differently
+  // shaped quantity, and the server has said so in `confidence_basis` since the
+  // objectives shipped — to a page that never read it. The chips looked equally
+  // trustworthy on all three views, which is the same defect as an unlabelled
+  // percentage: the reader cannot tell a calibrated call from an uncalibrated
+  // one from the label alone.
+  const src = fs.readFileSync(new URL('../client/src/pages/Lineup.tsx', import.meta.url), 'utf8');
+  assert.match(src, /confidence_basis/, 'the page reads the field');
+  assert.match(src, /startsWith\('uncalibrated_for_'\)/,
+    'and branches on the uncalibrated case rather than printing the raw string');
+  assert.match(src, /set on average weekly points/, 'and says what the labels are calibrated on');
+  assert.match(src, /objective_held_out/,
+    'and names anyone who could not be ranked on the objective actually requested');
+});
+
+/**
+ * The K/D-ST disclosure has to be ON THE RESPONSE, not merely computed.
+ *
+ * Found by mutation rather than by design: deleting `slots_not_modelled` from the
+ * object `lineupCall` returns left all 34 tests across this PR's four files green.
+ * `slotsNotModelled` itself is covered nine ways over in
+ * test/lineup-slots-not-modelled.test.js — but that file calls the pure function
+ * directly and never the surface, so the field could be computed correctly and
+ * dropped on the way out with nothing failing. That is this repository's standing
+ * failure shape, and this is the disclosure that stops Start/Sit rendering a
+ * seven-slot lineup for a nine-slot league in silence.
+ *
+ * The expected slots are written out by hand. Deriving them from the league row
+ * would pass the exact defect this exists to catch.
+ */
+test('the slots nobody models reach the caller, with the sentence that explains them', () => {
+  const roster = allZeroFloors();
+  const id = leagueSeq++;
+  assets = new Map(roster.map(p => [p.asset.id, p.asset]));
+  const payload = { teams: [{ id: 1, name: 'Mine', roster: { entries: roster.map(p => p.entry) } }], schedule: [] };
+  // The same seven modelled slots, plus the two every one of the real leagues starts.
+  const positions = [...SLOTS, 'DEF', 'K', 'BENCH', 'BENCH', 'IR'];
+  run(`INSERT INTO leagues (id, platform, league_id, season, name, my_team_id, team_count, ppr, roster_positions, payload)
+       VALUES (?, 'espn', ?, 2026, 'Kicker and defence', '1', 10, 1, ?, ?)`,
+  id, `kd-${id}`, JSON.stringify(positions), JSON.stringify(payload));
+
+  const call = lineupCall(id, { objective: 'mean', providers: {} });
+  assert.ifError(call.error);
+  assert.deepEqual(call.slots_not_modelled, [{ slot: 'DEF', count: 1 }, { slot: 'K', count: 1 }],
+    'the response carries the two slots the solver never priced');
+  assert.match(String(call.slots_not_modelled_reason ?? ''), /\S/,
+    'and the sentence saying why, because a bare list reads as a failure rather than a scope');
+  assert.equal(call.lineup.length, 7, 'the lineup itself is unchanged: this names the gap, it does not close it');
+
+  // Bench and IR depth must never appear here — it is not a starting slot, and
+  // reporting it would turn a real disclosure into noise nobody reads.
+  const named = call.slots_not_modelled.map(s => s.slot);
+  for (const depth of ['BENCH', 'IR']) {
+    assert.equal(named.includes(depth), false, `${depth} is depth, not a starting slot`);
+  }
+});

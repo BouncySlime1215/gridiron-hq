@@ -43,7 +43,7 @@
 import { rows } from '../db/index.js';
 import { assetUniverse, tradeWeekContext, bestLineup, lineupSlots, FLEX_ELIGIBLE } from './trade-engine.js';
 import { deriveFormat } from './format.js';
-import { startSitWeekPoints } from './lineup-brain.js';
+import { startSitWeekPoints, slotsNotModelled } from './lineup-brain.js';
 
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
 
@@ -212,6 +212,11 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
   const slots = lineupSlots(lg);
+  // The starting slots this league fills that nothing here prices — the same
+  // list Start/Sit names beside the lineup, from the same function, so the two
+  // statements on one page cannot drift apart.
+  const unmodelledSlots = slotsNotModelled(lg, slots);
+  const startingSlotCount = slots.length + unmodelledSlots.reduce((n, s) => n + s.count, 0);
 
   // Both rosters priced on the Start/Sit number, betting-line lift included, and both
   // solved on it. The card used to sum raw current_week_ppg: on the 2026-W2 sync its
@@ -357,8 +362,15 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
     // matchup as scored. SPREAD_SCALE was fitted on the same scope (QB, 2 RB, 2 WR,
     // TE, FLEX graded on their own actual totals), so it is calibrated for exactly
     // the probability printed here; K and DEF add real variance it does not see.
-    win_probability_scope: `modelled skill slots only (${slots.length} of ` +
-      `${JSON.parse(lg.roster_positions ?? '[]').length || slots.length} roster slots); K and DEF excluded`,
+    // The denominator here used to be roster_positions.length, which counts the
+    // bench and the IR slot: a standard ESPN league read "7 of 17 roster slots",
+    // which sounds like ten missing starters rather than two. Starting slots are
+    // compared with starting slots, and the excluded ones are named from the
+    // league rather than assumed to be K and DEF.
+    win_probability_scope: unmodelledSlots.length
+      ? `modelled starting slots only (${slots.length} of ${startingSlotCount}); ` +
+        `${unmodelledSlots.map(s => (s.count > 1 ? `${s.count} ${s.slot}` : s.slot)).join(' and ')} excluded`
+      : `all ${slots.length} starting slots`,
     note: stance === 'neutral'
       ? `Matchup is within ${MATERIAL_EDGE} points. Posture is worth under a third of a percentage point here — start the highest projections and leave it alone.`
       : edge < 0

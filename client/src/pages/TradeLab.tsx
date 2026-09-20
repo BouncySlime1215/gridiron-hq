@@ -117,9 +117,38 @@ export default function TradeLab({ initialTab }: { initialTab?: Tab } = {}) {
         and an AI-written opener you can paste into the league chat — is in{' '}
         <Link className="font-semibold text-emerald-700" to="/trade-brain">Trade Brain</Link>.
       </p>
-      {rosters?.model_context && <div className="mb-4 inline-flex rounded-full bg-sky-50 px-3 py-1 text-[11px] font-bold text-sky-800 ring-1 ring-sky-200">
-        Week {rosters.model_context.week} · cutoff {rosters.model_context.cutoff} · refreshes after every completed week
+      {rosters?.model_context && <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-full bg-sky-50 px-3 py-1 text-[11px] font-bold text-sky-800 ring-1 ring-sky-200">
+          Week {rosters.model_context.week} · cutoff {rosters.model_context.cutoff} · refreshes after every completed week
+        </div>
+        {/* Which availability model priced every player on this page. The field
+            has been on this response since the fit landed and nothing read it,
+            so a hand-set fallback and a measured rate were priced into trade
+            value in exactly the same way, with nothing on screen between them.
+            The full explanation of what a fallback changes lives on Start/Sit;
+            this says which one is in force and does not restate it. */}
+        {rosters.model_context.availability_basis?.basis === 'role' ? (
+          <div className="inline-flex rounded-full bg-slate-50 px-3 py-1 text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">
+            Chance to play: measured
+          </div>
+        ) : rosters.model_context.availability_basis ? (
+          <div className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-900 ring-1 ring-amber-200">
+            Chance to play: assumed, not measured
+          </div>
+        ) : null}
       </div>}
+      {rosters?.model_context?.availability_basis
+        && rosters.model_context.availability_basis.basis !== 'role' && (
+        <p className="mb-4 text-xs leading-5 text-amber-900">
+          Every player's chance to play here is a hand-set fallback rather than a rate measured from
+          real usage
+          {rosters.model_context.availability_basis.missing?.length
+            ? ` — ${rosters.model_context.availability_basis.missing.join(' and ')} not loaded` : ''}
+          . It is multiplied into this week's points, which is a quarter of the value every deal is
+          ranked on. <Link className="font-semibold text-emerald-700" to="/lineup">Start/Sit</Link> says
+          what that changes and how to fix it.
+        </p>
+      )}
 
       {myPlayers.length > 0 && (
         <Untouchables players={myPlayers} ids={untouchable} onToggle={toggleUntouchable} />

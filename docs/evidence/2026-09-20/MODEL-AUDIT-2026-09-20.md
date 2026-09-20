@@ -623,6 +623,79 @@ on disk:
 
 ---
 
+## 6b. The headline claim, checked from the consumer end
+
+Section 1 says a database write flips the opportunity number. That is a claim
+about a *consumer*, so it has to be verified as one: which served number reads
+the promoted row, is the promoted row what that read selects, and what does a
+real player's number become.
+
+**The read is a single line.** `projections.js:461`:
+
+```js
+const k = kOverride === undefined ? activeKVectorFor(rr, { predictingSeason }) : kOverride;
+```
+
+`activeKVectorFor` (`shrinkage-fit.js:515`) → `cutoffSafeKVector` (`:540`) →
+`activeFitMeta` (`:537-539`), which is literally
+`SELECT id, through_season FROM shrinkage_fits WHERE active = 1 ORDER BY id DESC LIMIT 1`.
+So the promoted row **is** what the read selects, and there is exactly one read.
+
+**What a real player's served number becomes**, 2025 week 10 on the scratch
+rebuild, with the row's `active` flag as the only difference:
+
+| player | target share | `params.targets` | structural ppg | **ppg (Start/Sit)** |
+|---|---|---|---|---|
+| Ja'Marr Chase | 0.202 → 0.327 | 7.06 → 12.17 | 13.69 → 23.29 | **16.25 → 22.01** |
+| Christian McCaffrey | 0.155 → 0.248 | 5.13 → 8.30 | 15.99 → 24.85 | **22.26 → 26.69** |
+| Justin Jefferson | 0.187 → 0.311 | 6.01 → 9.87 | 11.40 → 18.39 | **12.95 → 17.14** |
+| Travis Kelce | 0.127 → 0.186 | 4.24 → 6.37 | 8.01 → 11.70 | **8.92 → 11.87** |
+| Chase Claypool | 0.060 → 0.062 | 1.96 → 2.03 | 3.62 → 3.63 | **3.62 → 3.63** |
+
+These are large moves on the number Start/Sit ranks with, and they move in the
+right direction for the right reason: a player with a big established role stops
+being dragged toward the positional average, and a player with almost no sample
+barely moves at all. That last row is the check that the change is shrinkage and
+not a scale factor.
+
+### Two things the consumer end shows that the producer end does not
+
+**1. Season-long callers do not get the fit, by design.** Asked for the vector
+under no `roleRecency`, `activeKVectorFor` returns **null**: the volume entries
+are withheld from every season-long caller — `season-sim`, `draft-assist`,
+`preseason-model`, `week-postmortem`, `ceiling-lineup` — because their evidence is
+accumulated under a different recency and a `k` fitted for one weighting is not
+valid under the other (`shrinkage-fit.js:499-513`, which explains itself well).
+That is correct, and it bounds the claim: the promotion moves **the weekly path**
+— Start/Sit, News, the Trade Lab's this-week number — and leaves the title odds
+and the draft board on the hand-set constants.
+
+**2. The promotion does not take effect on a running process.** The engine
+memoises on `player-week-engine.js:267`:
+
+```js
+const cacheKey = JSON.stringify({ season, week, scoring, kOverride: kOverride ?? 'active',
+  version: PLAYER_WEEK_ENGINE_VERSION, weightFit: weightChampion.id, redistributeVolume });
+```
+
+`weightFit` carries the **weekly ensemble** fit's id, so promoting *that* busts
+the cache by construction. The shrinkage fit enters the key as the constant
+string `'active'`, so flipping `shrinkage_fits.active` changes nothing a running
+process serves. `clearPlayerWeekEngineCache()` exists at `:68` and **has no caller
+anywhere in `server/` or `scripts/`**. This was found the honest way: the first
+run of the check above reported +0.00 on every player, which was the cache, not
+the model.
+
+So the operational sentence needs one more clause: *one database write flips it,
+**and the app has to restart before anyone sees it.*** Tonight that is free,
+because the process is restarting every few minutes anyway. Once the scheduler
+fix lands and the app stays up, a promotion run against the database is invisible
+until a deploy. Reproduce with
+`scratchpad/consumer.mjs`-style A/B and `useCache: false`; with the cache on, the
+two arms are the same object.
+
+---
+
 ## 7. Late findings, and one question this file cannot answer
 
 Added after other threads read the sections above. Each is marked with who

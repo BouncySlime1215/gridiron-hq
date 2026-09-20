@@ -54,20 +54,53 @@ test('no plain-words sentence uses a word the glossary bans', () => {
 
 test('every availability basis the server can emit maps to a chip tier', () => {
   // The server's vocabulary, read out of the file that decides it rather than
-  // copied. contingency.js:574 is the one line that produces these.
+  // copied. This is mid-migration: contingency.js on main emits
+  // role/pooled/constants, and the agreed vocabulary replaces `constants` with
+  // durability_prior and default_durability. Both are accepted here, because
+  // this client must be correct whichever server it is talking to — it ships
+  // ahead of the service, and a chip that vanishes when they disagree is
+  // indistinguishable from a page that forgot to check.
   const line = contingency.match(/const basis = lookup\?\.hasRole \? '(\w+)' : lookup \? '(\w+)' : '(\w+)'/);
   assert.ok(line, 'contingency.js no longer decides the basis where this test looks — re-point it');
   const served = [line[1], line[2], line[3]];
-  assert.deepEqual(served, ['role', 'pooled', 'constants'], 'the server vocabulary changed');
+  const OLD = ['role', 'pooled', 'constants'];
+  const NEW = ['role', 'pooled', 'durability_prior'];
+  assert.ok(
+    JSON.stringify(served) === JSON.stringify(OLD) || JSON.stringify(served) === JSON.stringify(NEW),
+    `the server vocabulary is neither the old nor the agreed one: ${served.join(', ')}`);
 
   const map = chip.slice(chip.indexOf('AVAILABILITY_BASIS'), chip.indexOf('interface Tier'));
-  for (const b of served) {
+  // Every value the server can emit today, plus every value in the agreed
+  // vocabulary, plus the two arms the server never sends and the consumer must
+  // supply itself.
+  for (const b of [...new Set([...served, ...OLD, ...NEW,
+    'default_durability', 'unfitted_position', 'unrecognised'])]) {
     assert.match(map, new RegExp(`\\b${b}:\\s*'`), `the server can emit '${b}' and the chip does not map it`);
+  }
+  // And nothing maps to a tier that does not exist.
+  const tiers = [...map.matchAll(/:\s*'(\w+)'/g)].map(m => m[1]);
+  for (const t of tiers) {
+    assert.match(chip, new RegExp(`^  ${t}: \\{`, 'm'), `the map points at tier '${t}', which has no record`);
   }
 });
 
+test('unrecognised is its own state and never falls through to a neighbour', () => {
+  // The rule with the reason behind it: a basis this app has not been taught,
+  // folded into the nearest tier, is a wrong claim that ships looking healthy.
+  // It is the same failure as the display sentence outranking the served field,
+  // one layer out.
+  const map = chip.slice(chip.indexOf('AVAILABILITY_BASIS'), chip.indexOf('interface Tier'));
+  assert.match(map, /unrecognised: 'unknown'/, 'unrecognised no longer has its own tier');
+  assert.doesNotMatch(map, /unrecognised: '(pooled|assumed|missing|none)'/,
+    'unrecognised is being folded into another tier');
+  const block = chip.match(/\bunknown:\s*\{[^}]*\}/s);
+  assert.ok(block, 'the unknown tier has no record');
+  assert.match(block[0], /label: 'Unverified'/, 'the unknown tier lost the label that distinguishes it from No data');
+  assert.match(block[0], /cannot vouch for it/, 'the unknown tier stopped saying what it means');
+});
+
 test('every chip tier has a sentence and a colour from the basis ramp', () => {
-  const tiers = ['measured', 'fitted', 'pooled', 'assumed', 'none', 'missing'];
+  const tiers = ['measured', 'fitted', 'pooled', 'assumed', 'none', 'missing', 'unknown'];
   for (const t of tiers) {
     const block = chip.match(new RegExp(`\\b${t}:\\s*\\{[^}]*\\}`, 's'));
     assert.ok(block, `tier ${t} has no record`);

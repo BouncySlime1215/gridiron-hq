@@ -28,9 +28,15 @@
 import type { ReactNode } from 'react';
 
 /**
- * The six tiers. Five are the server's own vocabulary; `missing` is the sixth
- * case, which is not a tier the server emits but the state where the field did
- * not arrive at all.
+ * The seven tiers. Five are the server's own vocabulary; `missing` is the state
+ * where the field did not arrive at all, and `unknown` is the state where it
+ * arrived carrying something this app has never been taught.
+ *
+ * `unknown` and `missing` share a colour family on purpose — both mean "we
+ * cannot source this for you", and neither is a verdict about the team. What
+ * separates them is the label, which is the part a reader actually uses: "No
+ * data" means there is no number, "Unverified" means there is one and we cannot
+ * stand behind where it came from.
  *
  * `measured` and `fitted` are deliberately separate even though both are "real".
  * A rate counted from games this season and a number produced by a model fitted
@@ -43,14 +49,39 @@ export type Basis =
   | 'pooled'     // the fitted model's coarse layer — real, but not the validated one
   | 'assumed'    // a hand-set constant nobody fitted
   | 'none'       // nothing priced this at all
-  | 'missing';   // the data is not loaded
+  | 'missing'    // the data is not loaded
+  | 'unknown';   // a source arrived that this app does not recognise
 
-/** The server's availability vocabulary, mapped onto the chip's. */
+/**
+ * The server's availability vocabulary, mapped onto the chip's.
+ *
+ * SIX SERVER VALUES, and they are not all served. `role`, `pooled`,
+ * `durability_prior` and `default_durability` come off the row.
+ * `unfitted_position` is the consumer's reading of a row with no availability
+ * entry at all — `weeklyAvailability` selects QB, RB, WR and TE only, so every
+ * kicker and defence lands there. `unrecognised` is the other consumer arm: a
+ * value this app has not been taught, which must stay visible as unknown.
+ *
+ * `constants` is the OLD name and is still mapped, deliberately. The server
+ * that emits it is on main today; the one that emits the durability pair is
+ * not deployed yet. Dropping the old key would make every Start/Sit row lose
+ * its chip the moment this shipped ahead of the service, and a chip that
+ * vanishes is indistinguishable from a page that forgot to check. It goes when
+ * the new vocabulary is live, not before.
+ *
+ * `durability_prior` is `pooled` rather than `assumed`: it is the player's own
+ * record of turning up, which is real per-player evidence, just not the
+ * validated fit. `default_durability` is `assumed`, because it is one number
+ * applied to everybody.
+ */
 export const AVAILABILITY_BASIS: Record<string, Basis> = {
   role: 'fitted',
   pooled: 'pooled',
+  durability_prior: 'pooled',
+  default_durability: 'assumed',
   constants: 'assumed',
-  unfitted_position: 'none'
+  unfitted_position: 'none',
+  unrecognised: 'unknown'
 };
 
 interface Tier { label: string; plain: string; token: string }
@@ -90,6 +121,11 @@ const TIERS: Record<Basis, Tier> = {
     label: 'No data',
     plain: 'The data this needs is not loaded, so nothing can be shown. This is a gap on our side, not a fact about your team.',
     token: 'var(--basis-missing)'
+  },
+  unknown: {
+    label: 'Unverified',
+    plain: 'This number came with a source we do not recognise, so we cannot tell you how it was worked out. It is not necessarily wrong — we just cannot vouch for it.',
+    token: 'var(--basis-unknown)'
   }
 };
 

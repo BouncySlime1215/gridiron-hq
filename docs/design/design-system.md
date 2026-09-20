@@ -87,7 +87,7 @@ Two additions.
 
 ### The basis scale
 
-Six values, one hue each, and they are **not** semantic colours. A pooled
+Seven values, and they are **not** semantic colours. A pooled
 number is not "bad"; it is differently sourced. So they live in their own
 ramp and never borrow `--good`, `--warn` or `--crit`, which would tell a
 manager that an assumed number is a problem with their team.
@@ -100,6 +100,14 @@ manager that an assumed number is a problem with their team.
 | `--basis-assumed` | `#9a6408` | A hand-set constant |
 | `--basis-none` | `#8d2f27` | Nothing priced this at all |
 | `--basis-missing` | `#5c6461` | The data is not loaded |
+| `--basis-unknown` | `#6b5f52` | A source arrived that this app does not recognise |
+
+`--basis-unknown` is warm where `--basis-missing` is cool, and that is the
+whole difference by design: both mean "we cannot source this for you" and
+neither is a verdict about the team, so they belong in the same family. The
+label carries the distinction a reader actually uses — "No data" means there is
+no number, "Unverified" means there is one and we cannot stand behind where it
+came from.
 
 `--basis-none` sits near `--danger` on purpose and is the one place the two
 ramps nearly touch: "nothing modelled this" is the tier a manager most needs

@@ -33,7 +33,7 @@ const TYPE = ['--font-body', '--font-display', '--font-mono',
   '--type-hero', '--type-stat', '--type-title', '--type-lead', '--type-body',
   '--type-note', '--type-label'];
 const BASIS = ['--basis-measured', '--basis-fitted', '--basis-pooled',
-  '--basis-assumed', '--basis-none', '--basis-missing'];
+  '--basis-assumed', '--basis-none', '--basis-missing', '--basis-unknown'];
 const MOTION = ['--motion-quick', '--motion-base', '--motion-reveal',
   '--motion-settle', '--motion-decay', '--ease-out', '--ease-inout'];
 

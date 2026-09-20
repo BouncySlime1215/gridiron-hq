@@ -298,6 +298,12 @@ a.border-slate-800, a.border-slate-900 { border-color: var(--accent) !important;
   --basis-assumed:  #9a6408;
   --basis-none:     #8d2f27;
   --basis-missing:  #5c6461;
+  /* Seventh stripe, sixth hue plus one: a value arrived and this app does not
+     know it. Warm where --basis-missing is cool, so the two read as the same
+     kind of thing — neither is a verdict about the team — while still being
+     told apart. The label does the real work: "No data" means there is no
+     number, "Unverified" means there is one we cannot vouch for. */
+  --basis-unknown:  #6b5f52;
 
   /* Motion. --motion-base and --ease-out are the values .card and .tr-rise
      already use, promoted to tokens rather than changed. */

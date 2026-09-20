@@ -364,40 +364,84 @@ const TIE_THRESHOLD = 1.5;
 const CLEAR_THRESHOLD = 4.0;
 
 /**
+ * The six availability bases, defined server-side and rendered by BasisChip.
+ *
+ * Four are served per row. `unfitted_position` is never served — it is the
+ * consumer's reading of a row with no availability entry at all, which is every
+ * kicker and defence, since `weeklyAvailability` selects QB, RB, WR and TE
+ * only. `unrecognised` is the other consumer arm: a value arrived that this app
+ * does not know, which must stay visible as unknown rather than being folded
+ * into the nearest neighbour.
+ */
+const SERVED_BASES = new Set(['role', 'pooled', 'durability_prior', 'default_durability']);
+
+/**
  * Which model priced THIS player, which is not always the one the process is on.
  *
  * `playerActiveProbability` reaches the fitted role cell only when the player has a
  * `gap_bucket` AND the cell lookup hits (contingency.js); everyone else falls through
- * to the pooled rates, and past those to the hand-set chain. So a process whose
- * `availabilityBasis()` is 'role' still prices some players pooled, and marking their
- * number measured would be the same overstatement this field exists to remove, one
- * level up.
+ * to the pooled rates, and past those to the durability chain. So a process whose
+ * `availabilityBasis()` is 'role' still prices some players on a prior, and marking
+ * their number fitted would be the same overstatement this field exists to remove,
+ * one level up.
  *
- * `weeklyAvailability` records the answer per player in `source`, carried onto the
- * asset as `availability_source`. That string is the only per-player record of it.
+ * THREE SOURCES OF TRUTH, IN THIS ORDER, AND THE ORDER IS THE POINT.
+ *
+ * 1. `availability_basis` on the row. The server states it; nothing here
+ *    second-guesses it. A value outside the served list is `unrecognised`, not
+ *    the nearest neighbour — an unknown basis that quietly becomes a prior is a
+ *    wrong claim that ships looking healthy.
+ *
+ * 2. `availability_source`, the display sentence, ONLY when the row carried no
+ *    basis field. This used to be the primary path and should not have been: a
+ *    sentence is copy, and rewording "fitted availability by role" would have
+ *    reclassified every fitted number on the page as a prior with nothing
+ *    failing. It survives as a fallback because `assetUniverse` is
+ *    fingerprint-cached on the row counts and timestamps of the tables it
+ *    reads, not on the code that built it, so a deploy does not invalidate a
+ *    universe built before the field existed. A sentence this function does not
+ *    recognise is `unrecognised` for the same reason as above.
+ *
+ * 3. The process basis, last, for a row that carries neither. That is exactly
+ *    what this page served before any of this and is never worse than it.
  *
  * TWO DIFFERENT ABSENCES, and conflating them would be worse than the bug this
- * fixes. `availability_source: null` means the player had no availability row:
- * `weeklyAvailability` selects QB, RB, WR and TE only, so a kicker is not covered
- * by the fit at all and his number is the hand-set constant. The KEY being missing
- * means something else — an asset universe built before this field existed, which
- * is reachable because `assetUniverse` is fingerprint-cached on the row counts and
- * timestamps of the tables it reads, not on the code that built it, so a deploy
- * does not invalidate it. Reading that as 'unfitted_position' would label every
- * player on the page, quarterbacks included, as one the fit does not cover. So an
- * asset with no such key falls back to the process basis, which is exactly what
- * this page served before and is never worse than it.
+ * fixes. `availability_source: null` means the player had no availability row at
+ * all, so the fit does not cover him: `unfitted_position`. The KEY being missing
+ * means something else — an old asset universe, per (2) — and reading that as
+ * `unfitted_position` would label every player on the page, quarterbacks
+ * included, as one the fit does not cover.
+ *
+ * Written defensively on purpose: correct whether or not the row carries the
+ * field, so this does not have to land in step with the service that serves it.
  */
 export function playerAvailabilityBasis(player, processBasis) {
-  if (!player || !('availability_source' in player)) return processBasis?.basis ?? null;
-  const source = player.availability_source;
+  if (!player) return processBasis?.basis ?? null;
+
+  // (1) The server's own statement about this row.
+  if ('availability_basis' in player && player.availability_basis != null) {
+    const served = String(player.availability_basis);
+    return SERVED_BASES.has(served) ? served : 'unrecognised';
+  }
+
+  // (3) Neither field: the process basis, which is what this page served before.
+  if (!('availability_source' in player)) return processBasis?.basis ?? null;
+
   // Present and null: no availability row of any kind for this player.
+  const source = player.availability_source;
   if (source == null) return 'unfitted_position';
+
+  // (2) The sentence, as a fallback only.
   const text = String(source);
   if (text.startsWith('fitted availability by role')) return 'role';
   if (text.startsWith('fitted availability (')) return 'pooled';
-  // Past both fitted paths: the report-status and durability chain.
-  return 'constants';
+  // Both remaining sentences playerActiveProbability builds start from the
+  // player's own durability prior — `contingency.js:639` sets one of them before
+  // any branch runs and the hand-set chain never replaces it. Anything else is a
+  // sentence this function has not been taught, and saying so is the whole
+  // reason the field outranks it.
+  if (text.includes('durability prior')) return 'durability_prior';
+  return 'unrecognised';
 }
 
 /**

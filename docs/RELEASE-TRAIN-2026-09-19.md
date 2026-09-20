@@ -2362,7 +2362,11 @@ loop ended on that restart and has not come back.
 **The final count is 302.** Three hundred and two distinct process starts
 between 22:53Z on the 19th and 13:43:13Z on the 20th — every three minutes for
 fourteen hours and fifty minutes. `bash /mnt/project-files/restart-count.sh`
-recomputes it from every log file. The 302nd start is the brake's own restart,
+recomputes it from every log file, and the same data now has a second home in
+this repository at `docs/evidence/restart-2026-09-19/`, because the shared mount
+went intermittently unreadable on the 20th and the headline number of a release
+should not depend on a file store that can vanish. The in-repo copy reproduces
+302 exactly. The 302nd start is the brake's own restart,
 because setting a secret restarts the machine, so everything after it belongs to
 the quiet period and not to another life. Anyone quoting a larger number is
 counting the fix.
@@ -2885,6 +2889,18 @@ already exist. That is why an unfamiliar PR number is worth a second look.
    lines. Rehearsed here: exactly one conflicted hunk, in that one file,
    nothing else in the tree. **Keep both imports** — delete the three markers
    and leave the two lines. Both are a keystroke, not a stop.
+
+   **One caution on the second one, found only because three branches were
+   rehearsed together rather than two.** The scheduler thread's
+   merge-resolutions hold carries an *identical copy* of the credentials import
+   — same line, byte-identical `leagues.js`, blob `ca0be09` on both branches —
+   and it is **not** a descendant of the branch it came from, so nothing marks
+   it as the same change. A duplicate import is not a conflict, so no tool would
+   have flagged it either way. Rehearsed rather than reasoned about: git merges
+   two identical additions into **one** import, the conflict is still the single
+   hunk, and the resolution is unchanged. But **"keep both" means the
+   credentials import and the outlook import, not every line the markers show
+   you.** The credentials line must end up in the file once.
 
    **The other PRs open tonight are not part of this and can go any time, with
    two orders that do matter.** **#60 after #57**, and the reason is worse

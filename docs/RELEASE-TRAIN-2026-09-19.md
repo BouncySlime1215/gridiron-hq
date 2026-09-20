@@ -2395,12 +2395,38 @@ the event loop, and it is not the signature of memory pressure, connection
 exhaustion or gradual lock contention — which is worth knowing because those
 would each call for a different fix.
 
+**Confirmed by a second instrument that was not looking for it.** The Trade
+Brain thread's ordinary 60-second health log walked out of its phase-lock on
+its own — its logger sleeps the *remainder* of each interval, so every hang
+shifts its phase — and drifted into the same blind window. On the life starting
+**02:04:41Z** the two samplers landed one second apart:
+
+```
+their log   02:06:24Z   200  0.43s   uptime 103   derived start 02:04:41Z
+this probe  02:06:23Z   200  0.21s   age    102
+this probe  02:06:31Z   000  12.0s   age    110   no answer
+```
+
+Different code, different cadence, no shared state. Both got a fast 200 at
+102-103 seconds of age, and the probe got silence eight seconds later. **That
+life's onset is bracketed to (103, 110] by two independent readings**, and a
+fast answer at 103 was predicted by the ladder rather than contradicting it —
+it is one of the three lives in the (102, 110] group above.
+
 **Healthy and fast at 94 seconds. Silent at 102. That is the diagnosis, and it
 is now an observation rather than an inference.** The boot pass schedules
 `runIfStale('nfl_model_growth')` at boot + 90 seconds (`scheduler.js:1751`).
-The onset falls in the eight seconds after that timer fires, which is what the
-code predicts: the job downloads first and a download does not block a loop; the
-synchronous SQLite write that follows it does.
+
+**Why the onset varies by about 16 seconds across lives while the timer is
+flat, which is the obvious objection and has an answer in the code.** The timer
+fires at exactly 90 seconds every time, but the first thing the job does is
+**download**, and a download does not hold an event loop. The synchronous
+SQLite write that follows it is what blocks. So the onset is 90 seconds plus
+however long that fetch took, and a 16-second spread in fetch time over a
+network is unremarkable. **The flat timer and the variable onset are consistent,
+and the gap between them is precisely the part of the job that does not block.**
+It also means the brake is not merely early enough — it returns before the timer
+is scheduled, so neither the download nor the write ever begins.
 
 **The rest of the cycle, now that two of its three terms are measured.** The
 probe timed all eight cycles start to start: **172, 169, 169, 176, 167, 176,
@@ -2728,6 +2754,8 @@ sentences would survive being wrong about something else.**
 | Reads are phase-locked, so "72 s" means nothing | **Measured here**: 60 s poll into a 180 s cycle is 3 polls per cycle; 41 of 54 clean reads caught an age of 55-58 s, and none between 73 and 170 s | this thread |
 | The loop blocks between age 94 and 110 | **Measured here** on eight consecutive lives, 01:50-02:13Z: onset inside (94, 110] on all eight, (94, 102] on five. `uptime_s` = age on every answered row, so each is one process throughout. `blind-window-probe.tsv` | this thread |
 | It stops dead rather than slowing down | **Measured here**: 29 reads at age 78 or more across the eight lives, slowest 0.46 s. No ramp, so not memory pressure or gradual contention | this thread |
+| The 02:04:41Z life's onset is (103, 110] | **Measured twice, independently**: their 60 s log read 103 at 0.43 s, this probe read 102 at 0.21 s one second earlier and nothing at 110. Different code, no shared state | Trade Brain + this thread |
+| The onset varies ~16 s while the timer is flat | **Read off `791b131`**: the job downloads before it writes and a download does not hold the loop, so onset = 90 s + fetch time | this thread |
 | The block is the 90 s timer at `scheduler.js:1751` | **Read off `791b131`** and now matched to the measured onset: the timer fires at 90, the job downloads (non-blocking) and then writes synchronously | this thread |
 | Restart itself takes ~5-20 s | **Derived** from the eight measured cycles (167-179 s) minus onset 94-110 minus the 60 s fuse. The earlier "~30 s boot" was never measured and 90 + 60 + 30 = 180 matched the median by luck | this thread |
 | Any restart count taken before 22:49Z | A 300 s poll against a ~180 s cycle — **a floor, never a count** | Trade Brain |

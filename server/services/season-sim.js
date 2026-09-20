@@ -19,7 +19,7 @@
  */
 import { rows } from '../db/index.js';
 import { PPR } from './scoring.js';
-import { buildProjections, sampleWeeks } from './projections.js';
+import { buildProjections, projectionFitMeta, sampleWeeks } from './projections.js';
 import { correlatedSampler } from './correlation.js';
 import { gameMultiplier, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 import { deriveFormat } from './format.js';
@@ -82,6 +82,80 @@ function fixtures(lg) {
     (out.get(wk) ?? out.set(wk, []).get(wk)).push([String(m.home.teamId), String(m.away.teamId)]);
   }
   return out;
+}
+
+/**
+ * The playoff bracket's real shape: one entry per round, each the NFL weeks that round
+ * is played over.
+ *
+ * WHY THIS IS NOT A CONSTANT. The sim used `PLAYOFF_WEEKS = [15, 16, 17]` from
+ * matchups.js, one week per round, for every league — while reading `playoffTeamCount`
+ * per league from the same payload. matchups.js:392 already says that default "is right
+ * for a 14-week regular season with one-week playoff rounds and wrong for leagues 1 and
+ * 3 as synced", so the defect was documented and nothing acted on it.
+ *
+ * Measured on the synced leagues 2026-09-19: leagues 2 and 5 are 14 regular periods, 6
+ * playoff teams, one-week rounds, playoff periods 15/16/17 — the constant is right for
+ * them. League 4 is 13 regular periods, 4 playoff teams and TWO-week rounds:
+ * `matchupPeriods` maps period 14 to NFL weeks [14, 15] and period 15 to [16, 17]. So
+ * its bracket is a semifinal over weeks 14-15 and a final over 16-17, and the constant
+ * played it as single weeks 15 and 16 — the wrong opponents' byes, week 14 and week 17
+ * never simulated at all, and each round decided on half the points it is really
+ * decided on. A player on bye in week 15 was scoring nothing for that league's entire
+ * semifinal.
+ *
+ * ESPN's `matchupPeriods` is the authority: it maps every matchup period to the NFL
+ * scoring weeks it covers, so it answers both "which weeks" and "how long is a round"
+ * without either being inferred. Rounds beyond `matchupPeriodCount` are the bracket.
+ *
+ * The number of rounds is what the field needs, ceil(log2(teams)), not however many
+ * periods the payload happens to list — a league whose schedule runs past the bracket
+ * should not gain a round.
+ *
+ * `basis` is reported on the response so a reader can tell a league-derived bracket
+ * from the fallback rather than assuming the good case.
+ */
+export function playoffRounds(lg, playoffTeams) {
+  const roundsNeeded = Math.max(1, Math.ceil(Math.log2(Math.max(2, playoffTeams))));
+  const fallback = () => ({
+    rounds: PLAYOFF_WEEKS.slice(0, roundsNeeded).map(w => [w]),
+    basis: 'default_weeks_15_17', rounds_needed: roundsNeeded
+  });
+
+  let payload = null;
+  try { payload = typeof lg?.payload === 'string' ? JSON.parse(lg.payload) : lg?.payload; }
+  catch { return fallback(); }
+  if (!payload) return fallback();
+
+  if (lg?.platform === 'sleeper') {
+    // Sleeper states where the bracket starts and runs one week per round.
+    const start = Number(payload.settings?.playoff_week_start);
+    if (!(start >= 1)) return fallback();
+    return {
+      rounds: Array.from({ length: roundsNeeded }, (_, i) => [start + i]),
+      basis: 'sleeper_playoff_week_start', rounds_needed: roundsNeeded
+    };
+  }
+
+  const settings = payload.settings?.scheduleSettings;
+  const regular = Number(settings?.matchupPeriodCount);
+  const periods = settings?.matchupPeriods;
+  if (!(regular >= 1) || !periods || typeof periods !== 'object') return fallback();
+
+  const bracket = Object.keys(periods)
+    .map(Number).filter(k => Number.isFinite(k) && k > regular).sort((a, b) => a - b)
+    .map(k => (Array.isArray(periods[String(k)]) ? periods[String(k)] : [])
+      .map(Number).filter(w => Number.isFinite(w) && w >= 1))
+    .filter(weeks => weeks.length);
+
+  if (!bracket.length) return fallback();
+  // Fewer periods than the field needs means the payload and the playoff team count
+  // disagree. Use what the league actually lists and say so, rather than inventing a
+  // week that is not in its schedule.
+  if (bracket.length < roundsNeeded) {
+    return { rounds: bracket, basis: 'league_schedule_short_of_field', rounds_needed: roundsNeeded };
+  }
+  return { rounds: bracket.slice(0, roundsNeeded), basis: 'league_schedule', rounds_needed: roundsNeeded };
 }
 
 /**
@@ -170,6 +244,111 @@ export const __test = { lineupPoints, initialRecords };
  *                        is how a proposed trade is evaluated: simulate the league as
  *                        it would be after the deal and diff the title odds.
  */
+/**
+ * Which games the simulator's projections are allowed to have seen.
+ *
+ * `through: SEASON - 1` alone -- what this used to be -- ignores every game already played
+ * THIS season. At week 5 it priced the rest of the year off last season's snapshot: a rookie
+ * who has taken over a backfield, a receiver whose role collapsed, a player who has not
+ * played a down all year, all invisible. `ceiling-lineup.js` documents that exact defect in
+ * its own header and already avoids it; the simulator did not, so the title odds and the
+ * ceiling lineups were built from different information about the same roster.
+ *
+ * `throughWeek: fromWeek - 1` is the walk-forward-safe cutoff `player-week-engine.js` already
+ * uses: every game up to the week before the one being simulated, and not one game after it.
+ * Reading week `fromWeek` itself would leak the outcome of the first week being simulated.
+ *
+ * TWO GAMES, NOT ONE, AND THAT IS MEASURED. Switching to this season's log the moment a
+ * single week exists makes the projections WORSE, because the season weighting gives the
+ * current season full weight and drops last season to 0.55 -- so one game outweighs a
+ * complete prior year, and the effect is large: Ja'Marr Chase's projection falls 17.1 to
+ * 12.5 points a game on one week of evidence. Held out on three seasons independently, mean
+ * absolute error over the remaining weeks:
+ *
+ *   games played |   1        2        3        4        6        8
+ *   2023         | -0.015   +0.064   +0.095   +0.134   +0.176   +0.244
+ *   2024         | -0.052   +0.009   +0.060   +0.093   +0.124   +0.196
+ *   2025         | -0.025   +0.031   +0.064   +0.102   +0.155   +0.202
+ *
+ * (positive = this-season basis better, in points). The crossover sits between one game and
+ * two in all three seasons, and from two games on the advantage grows monotonically. So the
+ * switch is at two games played -- a threshold that reproduced in three independent seasons
+ * rather than one, which is the difference between a measurement and a tuned number.
+ *
+ * Before then there is also nothing to read at all in week 1: `history(SEASON, 0)` returns an
+ * empty log. `basis` is returned so a reader can see which cutoff was used rather than
+ * inferring it from the week.
+ */
+export const SIM_PROJECTION_MIN_GAMES = 2;
+
+/**
+ * How many weeks of `season` the usage log ACTUALLY holds before `beforeWeek`.
+ *
+ * The threshold above is a measurement about EVIDENCE, and the first version of
+ * `simProjectionBasis` counted the calendar instead: `played = fromWeek - 1`, with no
+ * question about whether those weeks were in `player_week_usage`. The two are not the
+ * same number in normal operation. nflverse settles a week's stats a day or two after the
+ * games -- `scheduler.js`'s `nflverse_weekly_usage` job polls every six hours for exactly
+ * that reason, and says so in its header -- so on a Monday in week 3 the log can hold one
+ * week while the calendar says two. That is the case measured as WORSE than reading last
+ * season complete, and a calendar-only gate would have chosen it.
+ *
+ * It also decides the `projection_basis` string, and that string is the page's claim about
+ * what the odds rest on. Against an empty current-season log -- a fresh volume, or a
+ * machine in its first hours -- `{through: 2026, throughWeek: 2}` selects `u.season < 2026`
+ * and therefore returns exactly the 2021-2025 rows: identical projections to the old
+ * behaviour, under a label reading "2026 through week 2". A number computed over nothing,
+ * reported as measured, is the specific failure this codebase keeps producing.
+ */
+export function loggedWeeks(season, beforeWeek) {
+  const before = Number(beforeWeek) || 1;
+  if (before <= 1) return 0;
+  return Number(rows(
+    'SELECT COUNT(DISTINCT week) AS n FROM player_week_usage WHERE season = ? AND week < ?',
+    season, before
+  )[0]?.n) || 0;
+}
+
+/**
+ * Which projection world the simulation runs in, and why.
+ *
+ * `logged` is how many weeks of `season` the usage log holds before `fromWeek`, from
+ * `loggedWeeks()`. It is an argument rather than something this function fetches, so the
+ * measured threshold stays testable without a database and so each test has to state what
+ * the data holds instead of quietly asserting against whatever happens to be there.
+ *
+ * TWO JOBS, DELIBERATELY SEPARATE. `logged` decides WHETHER this season is worth reading.
+ * The cutoff stays the calendar's `fromWeek - 1`, which is leak-safe and reads every row
+ * that exists up to it; using the logged COUNT as the cutoff would under-read a log with a
+ * gap -- weeks 1, 3, 4 present would cut at 3 and drop week 4.
+ *
+ * A log BEHIND the calendar is reported rather than smoothed over. A simulation at week 6
+ * resting on three synced weeks is a different claim from one resting on five, and the
+ * reader of the odds is the one entitled to know which.
+ */
+export function simProjectionBasis(fromWeek, season = SEASON, logged = 0) {
+  const week = Number(fromWeek) || 1;
+  const calendar = week - 1;
+  const have = Math.max(0, Math.min(calendar, Number(logged) || 0));
+
+  if (have >= SIM_PROJECTION_MIN_GAMES) {
+    return {
+      through: season, throughWeek: calendar,
+      basis: have < calendar
+        ? `${season} through week ${calendar}, but only ${have} of those ${calendar} weeks are in the usage log`
+        : `${season} through week ${calendar}`
+    };
+  }
+
+  let why;
+  if (calendar === 0) why = 'no games played yet this season';
+  else if (have === 0) {
+    why = `${calendar} week${calendar === 1 ? '' : 's'} played, but the ${season} usage log `
+      + 'is empty, so nothing from this season could be read';
+  } else why = `${have} game this season is too little to outweigh it`;
+  return { through: season - 1, throughWeek: null, basis: `${season - 1} complete; ${why}` };
+}
+
 export function simulateSeason(lg, {
   runs = 2000, fromWeek = 1, scoring = PPR, overrides = null, projections = null
 } = {}) {
@@ -177,7 +356,13 @@ export function simulateSeason(lg, {
   const assets = assetUniverse(lg, formatKey);
   let teams = loadRosters(lg, assets);
   const slots = lineupSlots(lg);
-  const proj = projections ?? buildProjections({ through: SEASON - 1, scoring });
+  const projBasis = simProjectionBasis(fromWeek, SEASON, loggedWeeks(SEASON, fromWeek));
+  // One options object for both, so the projections and the label describing them cannot be
+  // derived from different arguments. A caller that supplies its own `projections` gets a
+  // null fit meta rather than a description of a call this function did not make.
+  const projOpts = { through: projBasis.through, throughWeek: projBasis.throughWeek, scoring };
+  const proj = projections ?? buildProjections(projOpts);
+  const projFit = projections ? null : projectionFitMeta(projOpts);
 
   if (overrides) {
     teams = teams.map(t => overrides.has(t.roster_id)
@@ -189,13 +374,18 @@ export function simulateSeason(lg, {
   const weeks = [...sched.keys()].filter(w => w >= fromWeek).sort((a, b) => a - b);
   if (!weeks.length) return { error: 'no remaining fixtures in this league schedule' };
 
-  // The bracket is played in NFL weeks 15-17, not in the last three regular-season
-  // weeks. Simulating it on weeks 12-14 would apply the wrong opponents and — far worse —
-  // the wrong byes, handing the title to whoever happened to have a clean week 12.
-  const bracketWeeks = PLAYOFF_WEEKS;
-  const simWeeks = [...new Set([...weeks, ...bracketWeeks])].sort((a, b) => a - b);
-
   const playoffTeams = JSON.parse(lg.payload).settings?.scheduleSettings?.playoffTeamCount ?? 6;
+
+  // The bracket is played in its own NFL weeks, not in the last regular-season weeks.
+  // Simulating it on weeks 12-14 would apply the wrong opponents and — far worse — the
+  // wrong byes, handing the title to whoever happened to have a clean week 12. Which
+  // weeks, and how many of them per round, now come from the league (playoffRounds)
+  // rather than from one constant that was right for some of these leagues and wrong
+  // for others.
+  const playoff = playoffRounds(lg, playoffTeams);
+  const bracketRounds = playoff.rounds;
+  const bracketWeeks = [...new Set(bracketRounds.flat())].sort((a, b) => a - b);
+  const simWeeks = [...new Set([...weeks, ...bracketWeeks])].sort((a, b) => a - b);
 
   // Every player who could be started by anyone, deduplicated.
   const roster = [...new Map(teams.flatMap(t => t.players.map(p => [p.id, p]))).values()]
@@ -312,12 +502,22 @@ export function simulateSeason(lg, {
     for (let round = 0; alive.length > 1 && round <= 5; round++) {
       if (alive.length === 2) for (const id of alive) stats.get(id).finals++;
 
-      const week = bracketWeeks[Math.min(round, bracketWeeks.length - 1)];
-      const wd = weekData.get(week);
-      const drawn = new Map();
-      const vals = wd.draw();
-      for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
-      const score = id => lineupPoints(teams.find(t => t.roster_id === id).players, slots, drawn, wd.expected);
+      // A round can be more than one NFL week (league 4's rounds are two), and a
+      // multi-week round is decided on the TOTAL. Each week inside it gets its own draw
+      // and its own lineup decision, because a manager sets a lineup every week and
+      // week two's byes are not week one's.
+      const roundWeeks = bracketRounds[Math.min(round, bracketRounds.length - 1)];
+      const drawnWeeks = roundWeeks.map(week => {
+        const wd = weekData.get(week);
+        const drawn = new Map();
+        const vals = wd.draw();
+        for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
+        return { drawn, expected: wd.expected };
+      });
+      const score = id => {
+        const players = teams.find(t => t.roster_id === id).players;
+        return drawnWeeks.reduce((sum, w) => sum + lineupPoints(players, slots, w.drawn, w.expected), 0);
+      };
 
       const winners = pairHighLow(playing).map(([a, b]) => {
         if (b == null) return a;
@@ -347,6 +547,18 @@ export function simulateSeason(lg, {
   return {
     runs, weeks: weeks.length, from_week: fromWeek, playoff_teams: playoffTeams,
     standings_carried_in: fromWeek > 1,
+    // Reported so a reader can see the bracket that was actually played and where it
+    // came from, rather than trusting that it matched the league. `basis` names the
+    // source: the league's own schedule, or the fallback constant.
+    playoff_rounds: bracketRounds, playoff_basis: playoff.basis,
+    // Which games these odds were built from. Served because odds built off last season and
+    // odds built off this season's games so far are different numbers, and a reader cannot
+    // tell them apart from the value alone.
+    projection_basis: projBasis.basis,
+    // Which shrinkage constants produced those projections. `null` means no active fit, so
+    // everything ran on the hand-set constants -- the live state today. See
+    // projections.js#projectionFitMeta for why the fit id alone does not answer this.
+    projection_fit: projFit,
     odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
     teams: out
   };
@@ -377,7 +589,10 @@ export function tradeImpact(lg, {
 
   // One projection build shared by both runs — rebuilding would introduce noise that
   // has nothing to do with the trade.
-  const projections = buildProjections({ through: SEASON - 1, scoring });
+  const tradeBasis = simProjectionBasis(fromWeek, SEASON, loggedWeeks(SEASON, fromWeek));
+  const projections = buildProjections({
+    through: tradeBasis.through, throughWeek: tradeBasis.throughWeek, scoring
+  });
   // Common random numbers make this a paired experiment: the same simulated
   // football worlds are used before and after, so Monte Carlo noise cannot
   // masquerade as trade impact.

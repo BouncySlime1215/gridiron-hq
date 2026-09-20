@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import OddsBasis from '../components/OddsBasis';
 import { Link } from 'react-router-dom';
 import { api, headshotUrl, useApi } from '../api';
 import { useLeague } from '../state/league';
@@ -193,9 +194,7 @@ export default function MyTeam() {
               </div>
             )}
           </div>
-          <p className="text-[10px] text-slate-400 mt-2">
-            {sim?.runs?.toLocaleString()} simulated seasons, correlated player outcomes, real playoff bracket weeks 15–17.
-          </p>
+          <OddsBasis sim={sim} />
         </div>
       )}
 

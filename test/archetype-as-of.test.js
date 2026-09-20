@@ -90,7 +90,10 @@ test('every served manager card says when its archetype evidence was built', () 
     assert.ok(card.built, `roster ${rosterId} served an archetype with no build stamp`);
     assert.equal(card.built.as_of, '2026-09-18T04:10:00.000Z',
       'as_of is the NEWEST build stamp for this league-season, not the oldest');
-    assert.equal(card.built.rows, rosterId === '1' ? 2 : 1,
+    // League-season scope, not per-member: the block dates the build that
+    // produced this league-season, and league 32 below asserts 0 for the same
+    // field, so a count borrowed from every league would fail there.
+    assert.equal(card.built.rows, 3,
       'the row count is this league-season\'s own, so an empty one cannot hide behind a full one');
   }
 });
@@ -146,4 +149,28 @@ test('a full league-season is clean: no gap reported when both halves are there'
   assert.equal(built.career_rows, 2);
   assert.equal(built.reason, null,
     'a built league-season must not report itself as missing');
+});
+
+// The direct entry point needs its own assertions, not the card's. The first
+// mutation run injected MIN for MAX and survived, because every stamp check ran
+// through archetypesFor and this function answered from a second copy of the
+// same query. The copy is gone; these are the assertions that would have
+// noticed either way.
+test('the direct read answers with the same stamps the card does', () => {
+  const built = archetypesBuilt(31, 2026, ALDA);
+  assert.equal(built.as_of, '2026-09-18T04:10:00.000Z',
+    'the newest build stamp for this league-season, not the oldest');
+  assert.equal(built.career_as_of, '2026-09-11T04:10:00.000Z');
+  assert.equal(built.jev_as_of, '2026-09-19T09:00:00.000Z');
+  assert.deepEqual(
+    { ...archetypesFor(31, 2026).get('1').built },
+    { ...built },
+    'one shape, or a caller reading the block directly sees a different answer');
+});
+
+test('called without a member, the block leaves the Jev fields off rather than guessing', () => {
+  const built = archetypesBuilt(31, 2026);
+  assert.equal('jev_as_of' in built, false,
+    'a null jev_as_of would read as "no answers stored" when none was asked for');
+  assert.equal('jev_answers' in built, false);
 });

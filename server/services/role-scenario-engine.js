@@ -68,7 +68,7 @@
 import { rows } from '../db/index.js';
 import {
   buildPlayerWeekEngine, playerWeekProjection, teamWeekEventExpectations,
-  eventExpectationFromVolume
+  eventExpectationFromVolume, activeProbabilityFor
 } from './player-week-engine.js';
 import { sampleAllocatedWeekEvents } from './projections.js';
 import { weeklyAvailability, cascades } from './contingency.js';
@@ -120,8 +120,13 @@ export function limitedRoleMultiplier({ fitSeasons = [2022, 2023, 2024] } = {}) 
 export function buildPlayerScenarios({ engine, season, week, playerId }) {
   const projection = playerWeekProjection(engine, playerId);
   if (!projection?.team || !projection.params) return null;
-  const avail = weeklyAvailability(season, week).get(playerId);
-  const activeProbability = Math.max(0, Math.min(1, avail?.active_probability ?? 0.92));
+  const availability = weeklyAvailability(season, week);
+  const avail = availability.get(playerId);
+  // One accessor, one field name. The bare `?? 0.92` this replaced could not tell a fitted
+  // availability rate from the blanket constant, and neither could anything downstream.
+  const { active_probability, availability_basis, availability_source }
+    = activeProbabilityFor(availability, playerId);
+  const activeProbability = Math.max(0, Math.min(1, active_probability));
   const injury = projection.gsis_id ? injuryContext(projection.gsis_id, season, week) : null;
   const onReportButPlayable = !!injury?.on_report
     && injury.report_status !== 'Out' && !/reserve|ir|pup|suspend/i.test(String(avail?.report_status ?? ''));
@@ -189,7 +194,11 @@ export function buildPlayerScenarios({ engine, season, week, playerId }) {
   const total = scenarios.reduce((s, x) => s + x.probability, 0) || 1;
   for (const s of scenarios) s.probability = +(s.probability / total).toFixed(4);
   return { player_id: playerId, name: projection.name, team: projection.team, position: projection.position,
-    season, week, active_probability: activeProbability, injury, role_change: roleChange, scenarios };
+    season, week, active_probability: activeProbability,
+    // Served beside the number, because a scenario built on the blanket constant and one
+    // built on a fitted rate are not the same claim and used to look identical.
+    availability_basis, availability_source,
+    injury, role_change: roleChange, scenarios };
 }
 
 /* ================================================== conserved reallocation */

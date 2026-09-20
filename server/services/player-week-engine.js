@@ -65,6 +65,73 @@ function remember(cache, key, value, limit) {
   return value;
 }
 
+/* ------------------------------------------------- what an availability number rests on */
+
+/**
+ * The chance a player we have no availability read for is active.
+ *
+ * NOT A NEW NUMBER. Five call sites independently wrote `?? 0.92` -- `role-scenario-engine.js`,
+ * `season-sim.js`, `news-fantasy-impact.js`, `roster-risk.js` and `trade-engine.js` -- and none
+ * of them could tell a fitted number from this one. The bug was never the constant; it was
+ * that the constant was invisible. This is the same quantity `contingency.js` calls
+ * `DEFAULT_DURABILITY_PRIOR`, and there is a test asserting the two agree by reading what the
+ * producer actually serves for an unmeasured player rather than by repeating the literal, so
+ * changing it in one place fails there instead of leaving two 0.92s in the codebase.
+ */
+export const DEFAULT_ACTIVE_PROBABILITY = 0.92;
+
+/** The four things an availability number can rest on. Nothing else is ever returned. */
+export const AVAILABILITY_BASES = Object.freeze([
+  'fitted', 'durability_prior', 'default_durability', 'unrecognised'
+]);
+
+/**
+ * WHY `unrecognised` EXISTS AND IS NOT A CODE SMELL. `fitted` is derived from the producer's
+ * `source`, which is a human sentence ("fitted availability by role (...)"), because no
+ * machine-readable field says it yet. A prose change upstream would silently reclassify every
+ * fitted number as a prior -- the exact shape of failure this whole field exists to end. So an
+ * unmatched source is labelled rather than guessed at, and the raw sentence is carried so it
+ * can be read. When `contingency.js` grows a machine-readable basis field, this match and this
+ * value both go.
+ */
+const FITTED_SOURCE = /^fitted availability/i;
+
+/**
+ * What one player's active probability rests on, for a surface that prints the number.
+ *
+ * MAPPED FROM THE FLAG, NEVER FROM THE NUMBER. `durability_prior_measured` is why: a veteran
+ * whose measured prior really is 0.920 is indistinguishable from the default if you compare
+ * the value, and `durability_prior` is served through `toFixed(3)`, so the collision is exact
+ * rather than unlikely. That comparison is the version of this function that would have
+ * looked right.
+ *
+ * A player absent from the map is the common case and not an error: `weeklyAvailability`
+ * covers QB, RB, WR and TE only, so every other position resolves to `default_durability` by
+ * construction.
+ */
+export function activeProbabilityFor(availability, playerId) {
+  const row = availability?.get?.(playerId) ?? null;
+  if (!row) {
+    return {
+      active_probability: DEFAULT_ACTIVE_PROBABILITY,
+      availability_basis: 'default_durability',
+      availability_source: 'no availability read for this player'
+    };
+  }
+  const source = typeof row.source === 'string' ? row.source : '';
+  let basis;
+  if (FITTED_SOURCE.test(source)) basis = 'fitted';
+  else if (row.durability_prior_measured === false) basis = 'default_durability';
+  else if (row.durability_prior_measured === true) basis = 'durability_prior';
+  else basis = 'unrecognised';
+
+  return {
+    active_probability: row.active_probability ?? DEFAULT_ACTIVE_PROBABILITY,
+    availability_basis: basis,
+    availability_source: source || 'the producer served no source'
+  };
+}
+
 export function clearPlayerWeekEngineCache() {
   engineCache.clear();
   distributionCache.clear();

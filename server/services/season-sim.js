@@ -20,6 +20,7 @@
 import { rows } from '../db/index.js';
 import { PPR } from './scoring.js';
 import { buildProjections, sampleWeeks } from './projections.js';
+import { activeProbabilityFor } from './player-week-engine.js';
 import { correlatedSampler } from './correlation.js';
 import { gameMultiplier, matchupModel, PLAYOFF_WEEKS } from './matchups.js';
 import { deriveFormat } from './format.js';
@@ -223,7 +224,10 @@ export function simulateSeason(lg, {
       // who you play, and how the game is expected to unfold.
       const gs = gameScriptFor(p.team_abbr, SEASON, week);
       const mult = { pass: base * gs.pass_mult, rush: base * gs.rush_mult };
-      const activeProbability = activeChance.get(p.id)?.active_probability ?? 0.92;
+      // One accessor, one field name. The bare `?? 0.92` this replaced could not tell a
+      // fitted availability rate from the blanket constant, and nor could the odds it fed.
+      const { active_probability: activeProbability, availability_basis }
+        = activeProbabilityFor(activeChance, p.id);
       const s = sampleWeeks(pr.params, POOL, scoring, mult, activeProbability).sort((a, b) => a - b);
       entries.push({
         p, samples: s,
@@ -231,7 +235,10 @@ export function simulateSeason(lg, {
           id: p.id, position: p.position,
           team: p.team_abbr, opponent: nflWeek.opponent_abbr,
           target_share: pr.volume?.target_share ?? null,
-          active_probability: activeProbability
+          active_probability: activeProbability,
+          // Served, not just read: a probability without its basis is the defect this
+          // replaced, where a fitted rate and the blanket constant printed identically.
+          availability_basis: availability_basis
         }
       });
     }

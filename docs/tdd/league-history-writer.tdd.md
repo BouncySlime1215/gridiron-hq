@@ -166,6 +166,72 @@ both tables, then migrated (`scratchpad/live-shape.mjs`, the live box's shape):
 Full suite at head `b1f0cb6`: **2,957 tests, 0 failed** (2,916 passed, 41 skipped).
 `npm run lint` and `npm run typecheck` clean. CI green on the same commit.
 
+## Is this well built, and where else should it point
+
+**What it feeds today, traced rather than assumed.** Two live paths, both ending
+somewhere Nick acts:
+
+- `league_season_teams` → `manager-archetypes.js:831` (`archetypesFor`) →
+  `server/routes/trades.js:501` → the manager cards on the trades screen. Also
+  `:243` (attributing the ~20% of ESPN draft picks that carry no memberId) and
+  `:819` (naming a member), plus `scripts/build-manager-archetypes.mjs:66`, which
+  is how the member list is enumerated at all.
+- `league_week_scores` → `scripts/luck-panel.mjs:56` (all-play, luck wins) → the
+  archetype store → copied into `manager_signals` as the `outcome` source
+  (`manager-signals.js:268-276`) → `counterpartyLayer` →
+  `counterparty-pricing.js:452-457`, the `luck_self_view` factor that says "+N
+  wins against expectation over N scored weeks — he prices this roster the way
+  his record reads". That is a term in the trade price.
+
+It is also a **calibration** input rather than a runtime read for two shipped
+models: `scripts/fit-posture-calibration.mjs:502` fits posture constants against
+it, and `lineup-posture.js:131` / `trade-horizon.js:47` cite it in their headers
+as what their numbers were checked against. So constants already in production
+rest on a table that, until this PR, nothing kept current.
+
+**Measured versus assumed, stated separately.**
+
+- *Measured:* the mutation results and the live-shaped database run above; that
+  the migration leaves an existing table byte-identical; that a stored prior
+  season is not re-fetched. All from fixtures in this box.
+- *Assumed, and worth naming:* that ESPN's `rankCalculatedFinal`, `playoffSeed`
+  and `record.overall` mean what the original script took them to mean — that
+  came across unchanged and no test pins it. That 900 ms is a polite pace: it is
+  the value the script used across twenty league-seasons without being throttled,
+  which is evidence of absence rather than a measurement. That a 404 means "the
+  league did not exist that season" rather than a permissions or cookie failure —
+  the header records it as established by probing on 2026-09-17, not re-checked
+  here.
+- *Not measured at all:* anything about the deployed app. See the last limit
+  above.
+
+**Where this should point and does not.** The acceptance band
+(`trade-acceptance.js:65`) has exactly three sources — `perception_delta`,
+`receptiveness`, `says_no_holds` — and **all three are `fitted: false`**, with a
+declared `UNANCHORED_CENTRE = 0.30` standing in for an observed rate. These two
+tables plus `league_transactions_raw` are the only pairing in the repository that
+could make an acceptance source *fitted*: a manager's record and luck at the
+moment he answered an offer, joined to whether he accepted. That is the unifying
+move worth taking, and it is not this PR's to make.
+
+Two honest counterweights on unification, so nobody reads the above as a plan:
+
+- The sample is about 12 league-seasons, and ESPN serves only a ~3-day
+  transaction window, so decided offers accumulate forward only
+  (`league-history.js` note 3). A fitted source may not be reachable for a while.
+  The league-season count is from project memory and was not re-counted here.
+- **O4's Team Outlook should probably NOT be pointed at this.** Its own basis
+  module says in its header that it uses 692 public Sleeper leagues *because*
+  Nick's own league-seasons are "small and descriptive". Feeding it this table
+  would trade a large out-of-sample base for a tiny in-sample one. The place it
+  could help is as an in-league comparison shown beside the public-league
+  verdict, not as the estimator.
+
+A third, smaller one: `final_rank` and `playoff_seed` here are an independent
+check on the `PLAYOFF_WEEKS` configuration that is known wrong for league 4 — a
+league whose stored final ranks disagree with its configured playoff weeks is
+detectable rather than needing to be noticed.
+
 ## Known limits
 
 - **M5 is caught indirectly.** The URL assertion lives inside the `fetch` stub, and

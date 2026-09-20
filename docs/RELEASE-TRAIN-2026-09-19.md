@@ -2314,29 +2314,37 @@ of a dozen jobs is the one currently holding the lock."
    needs marking ready for review first. One click each, and it is the kind of
    thing that reads as a broken merge button at seven in the morning.
 
-   **#59, #61 and #63 are a stack, and this is the step that fails silently.**
-   #59's base is #56's branch, #61's is #59's, and #63's is #61's — none of
-   them is `main`. Merging any of them while it still points at the branch
-   below lands it on that branch rather than on `main`, and the deploy then
-   ships without the fix that matters, **with every PR showing as merged**.
-   GitHub retargets a stacked PR automatically only when the base branch is
-   **deleted** after merging, and nothing here is deleting branches. So:
-   merge #56, then for each of #59, #61 and #63 in turn, **change its base to
-   `main` by hand** and merge it. No rebase is planned — all four touch
-   `scheduler.js` and the stack stays — but **check the base each PR shows
-   before merging rather than trusting this sentence**.
+   **#59, #61 and #63 are a stack, retargeted to `main` at 01:02Z**, so there
+   is nothing to do by hand — an earlier version of this step said there was.
+   Each branch already contains the commits below it, so each diff is
+   cumulative and merging them in the order above lands each one on `main`.
+   **Check that each PR shows base `main` before merging** and no more than
+   that. Verified here by containment rather than by what GitHub displays:
+   `#59 ⊃ #56`, `#61 ⊃ #59`, `#63 ⊃ #61`. The same fact is the fallback if a
+   merge goes wrong partway — **#63's branch contains all four**, so merging
+   it alone lands the whole stack.
+
+   **One thing that looks like an omission and is not:** the TDD evidence file
+   for this work, `docs/tdd/boot-restart-cycle.tdd.md`, arrives with #61 and
+   covers #56 and #59 retrospectively. The first two merges are not
+   undocumented; the document just lands third.
 
 6. Turn the scheduler back on and prove it holds:
    ```
    fly secrets unset SCHEDULER_DISABLED -a gridiron-hq
    ```
    then step 2's `curl` again — but **the bar here is `uptime_s` past 900, not
-   600.** Step 2's 600 is measured with the scheduler off, where there is no
-   boot pass, no timer and no tier at all. This one is measured with all of
-   them back, and the background tier fires every 300 seconds, so 900 is the
-   first number that clears two of its ticks. **In that window the app will be
-   busy and still answering** — a slow response is the fixed state, a dark one
-   is not. **Only after this passes does the run sheet resume at step 7.**
+   600**, and it is worth knowing what those 900 seconds are buying. Step 2's
+   600 is measured with the scheduler off, where there is no boot pass, no
+   timer and no tier at all. With the stack in, the boot pass and both delayed
+   timers are off the request thread, so **the risky moment is t+300 s: the
+   first background tier pass.** Nineteen jobs that have never run on this
+   build — 13 growth and 6 metered — come due at once there and run in series
+   on the request thread. 900 covers that pass twice. **In that window the app
+   will be busy and still answering** — a slow response is the fixed state, a
+   dark one is not. **And if it does die between 300 and 900 seconds, the cause
+   is in those nineteen, not in the boot fix**, which is a different
+   investigation and not a reason to doubt the merge. **Only after this passes does the run sheet resume at step 7.**
    Re-enabling without re-proving is how a fix that half-works gets believed.
 
 7. Then, and only then, the run sheet's own step:

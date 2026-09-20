@@ -141,12 +141,19 @@ test('a service tool records rows the same way a query does', () => {
     'a service result still has to say where its data comes from');
 });
 
-test('a service tool names the service it called, so no second implementation can hide', () => {
-  for (const name of ['who_plays', 'team_tendencies', 'coaching_profile']) {
-    const tool = COACH_TOOLS.find(t => t.name === name);
-    assert.ok(tool, `${name} is missing`);
+test('every service tool names a function that really exists, so no second implementation can hide', async () => {
+  const services = COACH_TOOLS.filter(t => t.kind === 'service');
+  assert.ok(services.length >= 4, `only ${services.length} service tools`);
+  for (const tool of services) {
     assert.match(tool.source, /^server\/services\/[a-z-]+\.js#[a-zA-Z]+$/,
-      `${name} does not name the existing service it calls`);
+      `${tool.name} does not name the existing service it calls`);
+    // Shape is not enough: a plausible-looking path that exports nothing by
+    // that name is exactly how a re-implementation would hide behind a
+    // declaration. Import it and look.
+    const [file, fn] = tool.source.split('#');
+    const module = await import(`../${file}`);
+    assert.equal(typeof module[fn], 'function',
+      `${tool.name} says it calls ${tool.source}, which exports no such function`);
   }
 });
 

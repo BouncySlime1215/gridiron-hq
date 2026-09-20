@@ -23,6 +23,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-coach-stats-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -136,4 +137,14 @@ test('chance to play cannot be shown without its basis', () => {
   assert.match(basis.why, /not a measurement/i);
   assert.match(STAT_CONCEPTS.chance_to_play.why, /basis/i,
     'the chance-to-play entry does not send the reader to the basis');
+});
+
+test('the emitted lexicon is the module, not a second copy that has drifted', () => {
+  // The whole claim of this file is one name per stat everywhere. A client
+  // reading a JSON artifact that no longer matches the module would break that
+  // silently, so the artifact is generated and this test is the staleness gate.
+  const emit = spawnSync(process.execPath, ['scripts/emit-stat-lexicon.mjs', '--check'],
+    { encoding: 'utf8' });
+  assert.equal(emit.status, 0,
+    `${emit.stderr}${emit.stdout}\nrun: node scripts/emit-stat-lexicon.mjs`);
 });

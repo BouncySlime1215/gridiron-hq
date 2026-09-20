@@ -6,6 +6,7 @@ import DataBehindNumbers from '../components/DataBehindNumbers';
 import { api } from '../api';
 import { useDeployment } from '../state/deployment';
 import AccountPanel from '../components/AccountPanel';
+import { usePageExplain } from '../components/PageExplainContext';
 
 /**
  * This page used to also carry a manual "League ID / season / espn_s2 / SWID" form
@@ -22,6 +23,16 @@ export default function Settings() {
   // Which of the two installs this is. Everything below that describes sign-in
   // or where data lives reads this rather than asserting the Mac.
   const deployment = useDeployment();
+  // Presence only, never a value. This page carries ESPN cookies, a pairing
+  // code and account controls; the summary is sent to a model, so it says
+  // which install this is and nothing that could be read back out of it.
+  // CLAUDE.md's rule, verbatim: read a value's presence, never its content.
+  usePageExplain('settings', null, {
+    install: deployment ? (deployment.local ? 'local' : 'hosted') : 'unknown',
+    google_sign_in_configured: deployment?.google ?? null,
+    pairing_available: deployment?.pairing ?? null,
+    sync_running: syncing
+  });
 
   return (
     <div className="max-w-2xl">

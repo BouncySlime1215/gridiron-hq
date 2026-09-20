@@ -331,14 +331,32 @@ exists to establish.
 isolated database.
 
 A figure claimed on the commit that prints it is normally false, because the
-commit changes the tree the figure describes. It is not false here, and this is
-checkable rather than asserted: `npm run check` is typecheck, lint, test, build
-and smoke; `scripts/lint.mjs:5` walks `['server', 'scripts', 'test']`; `tsc`
-and `vite build` read the client; and no test opens anything under `docs/tdd/`
-(`test/design-system-tokens.test.js:28` reads `docs/design/design-system.md`
-and `test/nfl-execution-integrity.test.js:258` reads
-`docs/CLAUDE-NEXT-STEPS.md` — those are the only two `docs/` readers in the
-suite). Adding this file therefore cannot move any of the numbers it states.
+commit changes the tree the figure describes. It is not false here, and the
+check is a command rather than a sentence:
+
+```
+git diff --name-only <parent> <child> | grep -E '^docs/design/design-system\.md$|^docs/CLAUDE-NEXT-STEPS\.md$'
+```
+
+Nothing printed means the documentation in the commit is inert to the suite and
+the figure carries. Those two paths are the whole of it: `npm run check` is
+typecheck, lint, test, build and smoke; `scripts/lint.mjs:5` walks
+`['server', 'scripts', 'test']`; `tsc` and `vite build` read the client; and
+five tests open a `docs/` path at runtime — `test/deep-dive.test.js:26`,
+`test/stat-table.test.js:22`, `test/stat-block.test.js:23` and
+`test/design-system-tokens.test.js:28` on `docs/design/design-system.md`, and
+`test/nfl-execution-integrity.test.js:258` on `docs/CLAUDE-NEXT-STEPS.md`.
+`docs/tdd/` and `docs/evidence/` are read by nothing, so adding this file cannot
+move any of the numbers it states.
+
+**Correction, 2026-09-20 12:27Z.** The sentence this replaces said those were
+"the only two `docs/` readers in the suite". There are five, and the three it
+missed read the same design-system file. The conclusion is unchanged — this
+commit touches neither path — but the reason it gave was a count that was
+wrong, and a reader re-deriving it would have found three more files and had no
+way to tell whether the conclusion survived them. The rule is about two paths,
+not about the `docs/` tree, so it is now written as the command that decides it.
+Found by the model evidence audit thread, which ran the grep at `ee923ae`.
 
 The source was restored after the mutation run and verified clean with
 `git status`, not assumed clean because the runner said so.

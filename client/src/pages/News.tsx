@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { ConnectedNewsHub } from '../features/news/NewsHub';
 import { PageLoading, PageError, EmptyState } from '../components/PageState';
+import { usePageExplain } from '../components/PageExplainContext';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -241,6 +242,16 @@ export default function News() {
   const [explainErr, setExplainErr] = useState<string | null>(null);
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
   const [lastDeleteId, setLastDeleteId] = useState<number | null>(null);
+
+  // How many stories are on screen under which filters — the filters matter as
+  // much as the count, because "no news for this team" and "no news at all"
+  // are different answers and the assistant cannot tell them apart otherwise.
+  usePageExplain('news', view, {
+    stories_shown: items?.length ?? 0,
+    team_filter: teamFilter || null,
+    date_filter: date || null,
+    state: itemsLoading ? 'loading' : itemsError ? 'failed' : 'ready'
+  }, teamFilter ? { team_abbr: teamFilter } : null);
 
   const refresh = () => { refetch(); refetchDates(); };
 

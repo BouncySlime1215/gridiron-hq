@@ -5,8 +5,37 @@ import LiveDraft from './LiveDraft';
 import { PageHeader } from '../components/ui/DesignSystem';
 import { useApi } from '../api';
 import { PageData } from '../components/PageState';
+import { usePageExplain } from '../components/PageExplainContext';
 
 type View = 'mock' | 'survival' | 'live' | 'recap';
+
+/**
+ * The four modes, declared once. The tab strip renders this and the assistant
+ * registration names the mode from it, so the two cannot drift into saying
+ * different things about the same screen.
+ */
+const DRAFT_MODES = [['mock', 'Mock & boards'], ['survival', 'Who survives'], ['live', 'Live'], ['recap', 'Recaps']] as const;
+const modeLabel = (view: View) => DRAFT_MODES.find(([id]) => id === view)?.[1] ?? view;
+
+/**
+ * This hub's registration for the floating assistant, as a component rather
+ * than a call in DraftHub itself.
+ *
+ * The live view renders LiveDraft, which registers its own far richer summary
+ * (the board, the clock, whose pick it is). Two registrations in one tree fight
+ * over the same slot: whichever effect runs last wins, and the loser's cleanup
+ * clears the winner on the next render. So this one is simply not mounted while
+ * the live board is up, and the hub speaks only for the modes it owns.
+ *
+ * What it can honestly say is which mode is showing. The rows themselves belong
+ * to the child, which holds them; naming the mode is enough for the assistant to
+ * fetch the right record rather than guess at the page.
+ */
+function DraftHubExplain({ view }: { view: Exclude<View, 'live'> }) {
+  usePageExplain('draft', modeLabel(view), { draft_mode: modeLabel(view) });
+  return null;
+}
+
 export default function DraftHub() {
   const [params] = useSearchParams();
   const requested = params.get('view');
@@ -14,9 +43,9 @@ export default function DraftHub() {
   return <div>
     <PageHeader eyebrow="Fantasy" title="Draft" description="Mock preparation, live ESPN tracking and completed draft recaps live in one workflow." />
     <div role="tablist" aria-label="Draft modes" className="mb-5 flex gap-1 border-b border-slate-200">
-      {([['mock','Mock & boards'],['survival','Who survives'],['live','Live'],['recap','Recaps']] as const).map(([id,label]) => <button key={id} role="tab" aria-selected={view === id} onClick={() => setView(id)} className={`border-b-2 px-3 py-2 text-sm font-semibold ${view === id ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500'}`}>{label}</button>)}
+      {DRAFT_MODES.map(([id,label]) => <button key={id} role="tab" aria-selected={view === id} onClick={() => setView(id)} className={`border-b-2 px-3 py-2 text-sm font-semibold ${view === id ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500'}`}>{label}</button>)}
     </div>
-    {view === 'live' ? <LiveDraft /> : view === 'survival' ? <DraftSurvival /> : <Drafts />}
+    {view === 'live' ? <LiveDraft /> : <><DraftHubExplain view={view} />{view === 'survival' ? <DraftSurvival /> : <Drafts />}</>}
   </div>;
 }
 

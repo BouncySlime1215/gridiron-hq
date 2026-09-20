@@ -1,9 +1,16 @@
 import { Link } from 'react-router-dom';
 import { Team, useApi } from '../api';
 import { PageData, EmptyState } from '../components/PageState';
+import { usePageExplain } from '../components/PageExplainContext';
 
 export default function Teams() {
   const { data: teams, loading, error, refetch } = useApi<Team[]>('/teams');
+  // The index, not a team: no abbr in the event context, because nothing
+  // specific is in view here. The per-team page registers its own.
+  usePageExplain("x's and o's", 'all teams', {
+    teams_listed: teams?.length ?? 0,
+    state: loading && !teams ? 'loading' : error ? 'failed' : 'ready'
+  });
 
   return (
     <div>

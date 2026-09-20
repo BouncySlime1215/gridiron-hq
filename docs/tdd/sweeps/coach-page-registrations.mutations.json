@@ -1,0 +1,175 @@
+[
+ {
+  "name": "M1 nav tab pointed at a page that registers nothing",
+  "file": "client/src/navigation.ts",
+  "old": "{ to: '/teams', label: \"X's & O's\", icon: 'X' }",
+  "new": "{ to: '/pair', label: \"X's & O's\", icon: 'X' }",
+  "aimed_at": "R1",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M2 League Hub stops registering",
+  "file": "client/src/pages/LeagueHub.tsx",
+  "old": "  usePageExplain('league hub', view, {",
+  "new": "  noSuchRegistration('league hub', view, {",
+  "aimed_at": "R1",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M3 X's & O's calls the hook without importing it",
+  "file": "client/src/pages/Teams.tsx",
+  "old": "import { usePageExplain } from '../components/PageExplainContext';\n",
+  "new": "",
+  "aimed_at": "R2",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M4 Settings shadows the shared hook with a local one",
+  "file": "client/src/pages/Settings.tsx",
+  "old": "import { usePageExplain } from '../components/PageExplainContext';\n",
+  "new": "import { usePageExplain } from '../components/PageExplainContext';\nconst usePageExplain2 = () => {};\nconst usePageExplain = () => {};\n",
+  "aimed_at": "R2",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M5 Settings sends the origin instead of which install this is",
+  "file": "client/src/pages/Settings.tsx",
+  "old": "    install: deployment ? (deployment.local ? 'local' : 'hosted') : 'unknown',",
+  "new": "    install: deployment?.origin ?? 'unknown',",
+  "aimed_at": "R3",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M6 Settings grows an unvetted key",
+  "file": "client/src/pages/Settings.tsx",
+  "old": "    sync_running: syncing\n  });",
+  "new": "    sync_running: syncing,\n    pairing_code: pairingCode\n  });",
+  "aimed_at": "R3",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M7 Settings sends a string that is not one of the three install names",
+  "file": "client/src/pages/Settings.tsx",
+  "old": "(deployment.local ? 'local' : 'hosted')",
+  "new": "(deployment.local ? 'local' : 'hosted on fly, signed in as the owner')",
+  "aimed_at": "R3",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M8 News registers the whole story payload",
+  "file": "client/src/pages/News.tsx",
+  "old": "    stories_shown: items?.length ?? 0,",
+  "new": "    stories_shown: items,",
+  "aimed_at": "R4",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M9 League Hub reports a state it can always claim",
+  "file": "client/src/pages/LeagueHub.tsx",
+  "old": "    state: loading && !leagues.length ? 'loading' : error && !leagues.length ? 'failed' : 'ready'",
+  "new": "    state: 'ready'",
+  "aimed_at": "R5",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M10 X's & O's drops its state entirely",
+  "file": "client/src/pages/Teams.tsx",
+  "old": "    teams_listed: teams?.length ?? 0,\n    state: loading && !teams ? 'loading' : error ? 'failed' : 'ready'\n",
+  "new": "    teams_listed: teams?.length ?? 0\n",
+  "aimed_at": "R5",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M11 the Draft hub registers alongside the live board",
+  "file": "client/src/pages/DraftHub.tsx",
+  "old": "    {view === 'live' ? <LiveDraft /> : <><DraftHubExplain view={view} />{view === 'survival' ? <DraftSurvival /> : <Drafts />}</>}",
+  "new": "    {<><DraftHubExplain view={view} />{view === 'live' ? <LiveDraft /> : view === 'survival' ? <DraftSurvival /> : <Drafts />}</>}",
+  "aimed_at": "R6",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M12 the draft summary writes its own mode label",
+  "file": "client/src/pages/DraftHub.tsx",
+  "old": "  usePageExplain('draft', modeLabel(view), { draft_mode: modeLabel(view) });",
+  "new": "  usePageExplain('draft', modeLabel(view), { draft_mode: 'Mock & boards' });",
+  "aimed_at": "R7",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M13 the tab strip goes back to its own inline list",
+  "file": "client/src/pages/DraftHub.tsx",
+  "old": "      {DRAFT_MODES.map(([id,label]) =>",
+  "new": "      {([['mock','Mock & boards'],['survival','Who survives'],['live','Live'],['recap','Recaps']] as const).map(([id,label]) =>",
+  "aimed_at": "R7",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "M14 News puts a count in the event context",
+  "file": "client/src/pages/News.tsx",
+  "old": "  }, teamFilter ? { team_abbr: teamFilter } : null);",
+  "new": "  }, teamFilter ? { team_abbr: teamFilter, stories_shown: items?.length ?? 0 } : null);",
+  "aimed_at": "R8",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "CONTROL A (no-op): a pattern that is not in this file",
+  "file": "client/src/pages/Settings.tsx",
+  "old": "usePageExplain('betting', null, {",
+  "new": "usePageExplain('nothing', null, {",
+  "aimed_at": "none",
+  "kind": "no-op control",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "CONTROL B (no-op): a pattern from a different feature entirely",
+  "file": "client/src/pages/News.tsx",
+  "old": "export const FAIRNESS_TONE",
+  "new": "export const FAIRNESS_TONE_X",
+  "aimed_at": "none",
+  "kind": "no-op control",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ },
+ {
+  "name": "CONTROL C (anchor x2): a pattern present twice, which the runner refuses",
+  "file": "client/src/pages/DraftHub.tsx",
+  "old": "modeLabel(view)",
+  "new": "'Mock & boards'",
+  "aimed_at": "none",
+  "kind": "anchor control",
+  "tests": [
+   "test/coach-page-registrations.test.js"
+  ]
+ }
+]

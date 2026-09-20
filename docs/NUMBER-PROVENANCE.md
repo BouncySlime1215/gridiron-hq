@@ -15,9 +15,26 @@
 >   `ManagerRead.tsx:300`. Nothing here is fitted, which the module says itself.
 > - **Item (c)-9 is closed.** Real playoff odds now reach the trade horizon
 >   (`trade-engine.js:1317-1319` passes `fromWeek: target.week`).
-> - **Item (c)-14 is closed on both halves.** `counterpartyDataKey` is called at
->   `trade-engine.js:1447`; `negotiationProfilesFor` has two callers
->   (`counterparty-pricing.js:147`, `:858`).
+> - **Item (c)-14 is closed on both halves.** Verified by symbol, not taken on
+>   report: `counterpartyDataKey` is defined at `counterparty-pricing.js:917`
+>   (not `:207`) and is called at `trade-engine.js:1447`; `negotiationProfilesFor`
+>   is at `:1042` with two callers, `counterparty-pricing.js:147` and `:858`.
+>   Marked closed inline at item 14 as well.
+> - **The counterparty half now has a document of its own**, and it supersedes
+>   this file's single table row for that area:
+>   `docs/evidence/2026-09-20/trade-brain-signal-provenance.md`, written by the
+>   thread that owns those files. It is **on `claude/project-thread-3xqh5l-trade-brain-provenance`,
+>   not on `main`**, so a fresh clone will not have it. Two of its claims were
+>   re-verified here by symbol: all eight valuation sources carry `fitted: false`
+>   in the data rather than in a comment, and the one source tested against
+>   history — draft behaviour, twelve league-seasons — **failed and is disabled in
+>   code**, `priceable: false` at `manager-signals.js:72-75` with the reason in
+>   the declaration, joined onto every served row by `signalOf`
+>   (`routes/trades.js:445-453`) and written into the row's own `why` string as
+>   "context only, never priced". Its further claim that the counterparty layer
+>   adds nothing detectable over the plain value number is **theirs and is not
+>   re-checked here.** Read that document before re-deriving anything about
+>   counterparty pricing.
 > - **Re-verified at `791b131` and still holding:** (c)-1 (the season sim's
 >   through-2025 basis, `fromWeek` defaulting to 1, rookies dropped, the pinned
 >   15-17 bracket), (c)-2 (the coordinator on the wrong base — now measured), (c)-6
@@ -158,7 +175,7 @@ Classes: **FV** = fitted and checked on a held-out season · **F** = fitted, not
 11. **Fits on stale or different bases.** The spread scale was fit before the lift and before the new chance to play (lineup-posture.js:221-223). The swap sigma was fit on the unadjusted ensemble for weeks 5–17.
 12. **Wrong horizons are shown and sent to Claude.** "Over the season" = × 17 (trade-engine.js:1007; TradeCard.tsx:108). The Target-a-player total = × (18 − week) (trade-engine.js:330; TradeLab.tsx:870). Both go into the sense-check prompt (trades.js:720, :741).
 13. **`offerFor` / `offerForMany`** skip the counterparty read and the horizon weighting that `findTrades` uses (trade-engine.js:1551-1788).
-14. **The `findTrades` cache ignores chat and counterparty inputs** (trade-engine.js:1213-1220). The fix already exists as `counterpartyDataKey` (counterparty-pricing.js:207), but nothing calls it. `negotiationProfilesFor` also has no caller.
+14. ~~**The `findTrades` cache ignores chat and counterparty inputs** (trade-engine.js:1213-1220). The fix already exists as `counterpartyDataKey` (counterparty-pricing.js:207), but nothing calls it. `negotiationProfilesFor` also has no caller.~~ **[Closed on both halves, verified at `791b131` on 2026-09-20.]** `counterpartyDataKey` now lives at `counterparty-pricing.js:917` and is called at `trade-engine.js:1447`; `negotiationProfilesFor` is at `:1042` with two callers, `:147` and `:858`.
 15. **Retired schedule and DvP signals still surface:** as a Start/Sit reason (player-case.js:102), as SOS on the Target panel (TradeLab.tsx:874), and in the LLM prompts (players.js:137, 182; edge.js:304-321).
 16. **Two doors into the same weights.** The ensemble table can now be written by the in-season auto-promotion (weekly-learning.js:220-323, on the loop since `cf6ae18`) as well as the promote scripts. The coordinator refits daily with no gate. A second win-now/playoff split (waiver-brain.js:59) lives in orphaned code.
 17. **The News page projection** uses the engine number without the coordinator or the lift (news-fantasy-impact.js:86-97), so its "baseline" differs from Start/Sit for the same player and week.

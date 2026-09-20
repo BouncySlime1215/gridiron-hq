@@ -50,6 +50,102 @@ The store now gets a block of its own beside `transactions` and `chat`, carrying
 asserts the failure is named; a second test pins that a healthy read reports no
 failure, or the sentence would mean nothing (D8).
 
+## 2b. A reporting catch is better than a silent one and is still not the rule
+
+Raised by chat sync after §2 shipped, and right. The catch above names its
+failure, and it still absorbs **everything**: a missing table, a corrupt file
+and a `TypeError` in the archetype code all become an empty map with a sentence
+beside them. A page that says "the archetype read failed: <TypeError>" still
+serves a 200, and a caller reads that as data.
+
+Two different kinds of thing were being treated as one:
+
+- **A missing `league_season_teams` is an ABSENCE.** Its only `CREATE TABLE` is
+  in an off-server backfill; on a database where that never ran the read cannot
+  succeed however correct the code is. This page's own job — serving the
+  measured signals — does not depend on it, so it continues and says which state
+  it is in.
+- **A `no such column` is a FAULT.** The query and the schema disagree, which is
+  a bug. A catch wide enough to take that turns every future mistake in the
+  archetype code into a quietly empty panel — the exact shape CLAUDE.md names as
+  having shipped two real bugs in this project.
+
+So only the absence is absorbed and everything else is rethrown. The predicate
+matches on the message because node:sqlite carries no error code for this, and
+it is deliberately narrow: `no such column` and `no such function` are faults
+and must not match (N2).
+
+The state word is `table_absent`, which is `manager-archetypes.js`'s own word
+for it (`identity_state` at `48324ff`), not a second vocabulary for one fact
+(N3). `read_state` is the machine-readable half and `read_failed` the sentence
+under it.
+
+**This branch only.** Chat sync's `48324ff` makes `archetypesFor` RETURN an
+empty map instead of throwing when the table is absent, so once that is on
+`main` the absorb branch here stops being reachable for this case and the fact
+must be read from their `leagueHistoryState()` instead. Follow-on 4b removes the
+branch rather than leaving a dead one; it is not a rename of what is here.
+
+### Mutations
+
+Baseline `server/routes/trades.js` at `024f6cd5d2b3`.
+
+| # | injection | verification | named test | result |
+|---|---|---|---|---|
+| 1 | absorb every error again, not only the absence | `APPLIED 024f6cd5d2b3 -> 5ca00e53fba1` | went red | **RED** (1 failing) |
+| 2 | widen the predicate so a fault reads as an absence | `APPLIED 024f6cd5d2b3 -> e85868f3c0ff` | went red | **RED** (1 failing) |
+| 3 | report the state in a word the archetype module does not use | `APPLIED 024f6cd5d2b3 -> 7742c2864ddf` | went red | **RED** (1 failing) |
+| 4 | always report the state as present | `APPLIED 024f6cd5d2b3 -> 5753540ebdb1` | went red | **RED** (1 failing) |
+| 5 | always report the state as table_absent | `APPLIED 024f6cd5d2b3 -> 750754bc3bbe` | went red | **RED** (1 failing) |
+| 6 | CONTROL a pattern that is not in the file | `NO-OP - pattern not found` | — | **-** (0 failing) |
+
+The exact text of every injection, before and after.
+
+**N1 absorb every error again, not only the absence** — `server/routes/trades.js`, APPLIED 024f6cd5d2b3 -> 5ca00e53fba1
+
+```diff
+-     if (!isMissingTable(e)) throw e;
+- 
++ 
+```
+
+**N2 widen the predicate so a fault reads as an absence** — `server/routes/trades.js`, APPLIED 024f6cd5d2b3 -> e85868f3c0ff
+
+```diff
+- const isMissingTable = e => /no such table/i.test(String(e?.message ?? ''));
++ const isMissingTable = e => /no such/i.test(String(e?.message ?? ''));
+```
+
+**N3 report the state in a word the archetype module does not use** — `server/routes/trades.js`, APPLIED 024f6cd5d2b3 -> 7742c2864ddf
+
+```diff
+-     archetypeState = 'table_absent';
++     archetypeState = 'absent';
+```
+
+**N4 always report the state as present** — `server/routes/trades.js`, APPLIED 024f6cd5d2b3 -> 5753540ebdb1
+
+```diff
+-       read_state: archetypeState, read_failed: archetypeError },
++       read_state: 'present', read_failed: archetypeError },
+```
+
+**N5 always report the state as table_absent** — `server/routes/trades.js`, APPLIED 024f6cd5d2b3 -> 750754bc3bbe
+
+```diff
+-   let archetypeState = 'present';
++   let archetypeState = 'table_absent';
+```
+
+**CONTROL a pattern that is not in the file** — `server/routes/trades.js`, NO-OP - pattern not found
+
+```diff
+- const N_NOT_A_REAL_SYMBOL = 1;
++ const N_NOT_A_REAL_SYMBOL = 2;
+```
+
+**5 of 5 killed on the first pass**, each by the test it names, control a `NO-OP`.
+
 ## 3. The undated copy and the dated one were both on the page
 
 `archetypesFor` carried the store's raw `jev` straight onto this payload: the

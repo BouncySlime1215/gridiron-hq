@@ -1858,17 +1858,52 @@ Then:
 fly secrets set AUTO_HEAVY_SYNC=1 -a gridiron-hq
 ```
 
-**One ordering constraint on this command, from the model audit: the
-wrong-base fix PRs merge BEFORE this unset, not after.** `fantasy_coordinator_refit`
-is tier `heavy` (`scheduler.js:1339`) and the heavy tier is empty unless
-`AUTO_HEAVY_SYNC` is `'1'` (`:1759`), so the coordinator correction **has not
-been refit at all on this build**. The moment this command runs it begins
-refreshing, and if it refreshes against the wrong base it writes the defect in
-rather than leaving it where it is. The fix is one argument at two call sites —
+**Read this before running it. As of 02:05Z the honest instruction is: do not
+run this command at all.**
+
+`fantasy_coordinator_refit` is tier `heavy` (`scheduler.js:1339`) and the heavy
+tier is empty unless `AUTO_HEAVY_SYNC` is `'1'` (`:1759`). **Both verified on
+`791b131`.** Whether the flag is set on the live app right now is *not* verified
+here — reading it needs `flyctl`, which is out of bounds overnight — and it does
+not need to be, because **run sheet step 8 unsets it before any database write**.
+So by the time you reach this command the heavy tier is empty for certain, and
+this command is the moment it first runs on the fixed build.
+
+**The one thing that turns on the flag's present value is whether the damage is
+already done, and step 3 of the morning block answers it**: the
+`SELECT id, created_at FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1;`
+row. No row means the refit has never run and nothing wrong-base has been
+written. A row means it has, and its `created_at` says when — in which case this
+step is not the first exposure and the fix is more urgent, not less. The model audit's claim is that it would
+refit against the wrong base — one argument at two call sites,
 `trade-engine.js:354` (feature-audit's file) and `fantasy-coordinator.js:571`
-(the fantasy plan's) — and **the PR numbers are pending from those two
-owners**; fill them in here before running this. Nothing else about this step
-changes: it is still last.
+(the fantasy plan's). *That the base is wrong is the audit's claim and the two
+file owners'; what is verified here is only the tier and the gate.*
+
+**The asymmetry is what decides it.** Leaving the flag alone leaves the defect
+exactly where it has been all along, latent and written nowhere. Running the
+command with no fix merged writes a wrong-base fit into the database, which is
+the one direction that is not free to undo. So:
+
+- **If a PR fixing those two call sites is merged by the time you reach this
+  step**, run the command. That was always the plan.
+- **If no such PR is merged, skip this step entirely and leave
+  `AUTO_HEAVY_SYNC` unset.** Nothing else in the run sheet depends on it. The
+  heavy tier stays empty, which is the state the app has been in since the
+  deploy, and the refit waits for a morning when the fix exists.
+
+**There is no PR number to fill in here, and that is a finding rather than an
+omission.** #57 was offered for the `trade-engine.js:354` half and is not it:
+#57 is the trade-week PR, its diff does not contain the string
+`coordinateFantasy`, and the call is byte-identical to `main` — it moves from
+line 354 to line 379 only because 25 lines were added above it, which is
+probably how the two were confused. A sweep of all 37 open PRs at 02:05Z found
+no coordinator-base fix on either call site. Treat a PR number that appears
+here later as unverified until someone has run
+`git diff origin/main...<branch> -- server/services/trade-engine.js | grep -c coordinateFantasy`
+and got a non-zero answer.
+
+Nothing else about this step changes: it is still last.
 
 **The scheduler thread is right that the flag is no longer the hazard it was,
 and this sheet is right to keep it off until the measuring is done. Those are
@@ -3050,6 +3085,10 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 #     fly secrets set restarts the machines again, so it must not land
 #     mid-capture. If anything still looks unsettled, leave it and do it
 #     tomorrow; nothing degrades while it is unset.
+#     READ 10a FIRST. If no PR fixing the coordinator base has merged, SKIP
+#     this line entirely. Leaving it unset changes nothing; running it starts
+#     the refit, and a wrong-base fit written to the database is the one part
+#     of this sheet that is not free to undo.
 fly secrets set AUTO_HEAVY_SYNC=1 -a gridiron-hq
 ```
 

@@ -590,9 +590,12 @@ export function tradeImpact(lg, {
   // One projection build shared by both runs — rebuilding would introduce noise that
   // has nothing to do with the trade.
   const tradeBasis = simProjectionBasis(fromWeek, SEASON, loggedWeeks(SEASON, fromWeek));
-  const projections = buildProjections({
-    through: tradeBasis.through, throughWeek: tradeBasis.throughWeek, scoring
-  });
+  const tradeProjOpts = { through: tradeBasis.through, throughWeek: tradeBasis.throughWeek, scoring };
+  const projections = buildProjections(tradeProjOpts);
+  // The basis belongs to THIS build, and it is reported because nothing else can report it:
+  // both simulateSeason calls below are handed `projections`, so each one's own
+  // `projection_fit` is null by design -- it describes a build it did not make. Without this
+  // the trade verdict was the one number here served with no statement of what it rests on.
   // Common random numbers make this a paired experiment: the same simulated
   // football worlds are used before and after, so Monte Carlo noise cannot
   // masquerade as trade impact.
@@ -615,6 +618,40 @@ export function tradeImpact(lg, {
       wins_delta: +(a.expected_wins - b.expected_wins).toFixed(2)
     };
   };
-  return { runs, from_week: fromWeek, seed: pairedSeed, paired_simulation: true,
-    me: delta(me.roster_id), them: delta(them.roster_id) };
+  return tradeImpactPayload({
+    runs, fromWeek, seed: pairedSeed,
+    basis: tradeBasis.basis, projOpts: tradeProjOpts,
+    me: delta(me.roster_id), them: delta(them.roster_id)
+  });
 }
+
+/**
+ * The served shape of a trade comparison, in ONE place.
+ *
+ * It is a function rather than an object literal inside `tradeImpact` so the payload can be
+ * asserted without standing up a whole league: the fields a consumer renders are pinned
+ * here, and a field deleted from the payload is a field deleted from this function.
+ *
+ * `projection_basis` is the sentence `simProjectionBasis` already produced and that
+ * `tradeImpact` used to discard.
+ *
+ * `projOpts` IS THE SAME OBJECT THE PROJECTIONS WERE BUILT FROM, and the fit meta is derived
+ * from it here rather than passed in alongside. The first version took a ready-made
+ * `projectionFit`, and a mutation that passed null instead failed no test -- the caller could
+ * describe a build with arguments the build never saw. This is the pattern `simulateSeason`
+ * already uses at its own call site, for the same reason. `projection_fit` is null when no
+ * opts are given, which is the caller-supplied-projections case: a statement about the call,
+ * not a missing value.
+ */
+export function tradeImpactPayload({ runs, fromWeek, seed, basis, projOpts = null, me, them }) {
+  return {
+    runs, from_week: fromWeek, seed, paired_simulation: true,
+    projection_basis: basis ?? null,
+    projection_fit: projOpts ? projectionFitMeta(projOpts) : null,
+    me, them
+  };
+}
+
+/** The fields a trade comparison serves. Read by the tests that pin them. */
+export const TRADE_IMPACT_FIELDS = Object.freeze(
+  Object.keys(tradeImpactPayload({ runs: 0, fromWeek: 1, seed: 0, basis: '', me: null, them: null })));

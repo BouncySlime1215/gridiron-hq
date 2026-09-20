@@ -105,3 +105,120 @@ Baseline: 6 tests, 6 pass, 0 fail. All eleven red.
 The last one is a guard on the *other* side: if the route ever drops its key
 requirement, the panel's minting becomes a pointless round trip that also
 invalidates the user's working bookmarklet, and this fails so someone looks.
+
+---
+
+## Mutation re-run at the stack tip
+
+Re-run against **one tree**, the tip of this stack at `af7f01a`, so every row
+below is measured on the same code rather than on the tree each commit had when
+it was written. Each entry records the mutated file's SHA-256 before and after,
+which is what proves the mutation was APPLIED: a pattern that does not match
+leaves the file unchanged, and the run is then the baseline wearing a
+mutation's name. Each entry names the **test title** that turned red, not the
+rule it was meant to check — a mutation that lands and kills a different test is
+unfinished, not a result. And each quotes the **exact before and after text**,
+not a description of the edit, so the mutation can be reproduced from this file
+rather than taken on trust.
+
+Files mutated: `client/src/components/draft/SourcePill.tsx`, `client/src/index.css`, `server/routes/draft-capture.js`.
+
+**the capture panel drops warnings again** (`client/src/components/draft/SourcePill.tsx`) — APPLIED `e83ce1460b82` → `8f57ddfeb920` — **RED**, 2 failing · killed by *the warning the user never saw is rendered, in the server's own words*
+
+```diff
+-          {d?.warnings?.map((w, i) => (
++          {[].map((w: string, i: number) => (
+```
+
+**the warning's stripe is restyled to --edge** (`client/src/index.css`) — APPLIED `4aabd9008a92` → `2d1c0da54fe3` — **RED**, 1 failing · killed by *the warning the user never saw is rendered, in the server's own words*
+
+```diff
+-.capture-warning {
+-  flex-basis: 100%;
+-  border-left: 3px solid var(--warn);
++.capture-warning {
++  flex-basis: 100%;
++  border-left: 3px solid var(--edge);
+```
+
+**the warning is reworded instead of rendered verbatim** (`client/src/components/draft/SourcePill.tsx`) — APPLIED `e83ce1460b82` → `e3ab37b0343b` — **RED**, 1 failing · killed by *the warning the user never saw is rendered, in the server's own words*
+
+```diff
+-className="capture-warning">{w}<
++className="capture-warning">Setup needed<
+```
+
+**the panel stops minting a key (back to the 400)** (`client/src/components/draft/SourcePill.tsx`) — APPLIED `e83ce1460b82` → `7169b5a38cfe` — **RED**, 1 failing · killed by *the panel mints a key, so the button is not a 400 with documentation in it*
+
+```diff
+-      const minted = await api<{ key?: string }>(`/drafts/${draftId}/ingest-key`, { method: 'POST' });
+-      if (!minted?.key) throw new Error('the server did not return a key');
++      const minted = { key: '' };
+```
+
+**the key is minted but not passed to the route** (`client/src/components/draft/SourcePill.tsx`) — APPLIED `e83ce1460b82` → `a002269ec96c` — **RED**, 1 failing · killed by *the panel mints a key, so the button is not a 400 with documentation in it*
+
+```diff
+-`/drafts/${draftId}/capture-bookmarklet?ingest_key=${encodeURIComponent(minted.key)}`
++`/drafts/${draftId}/capture-bookmarklet`
+```
+
+**the ingest key is held in component state** (`client/src/components/draft/SourcePill.tsx`) — APPLIED `e83ce1460b82` → `d6588a92d1ff` — **RED**, 1 failing · killed by *the key is a credential and never reaches the screen or the state*
+
+```diff
+-      setBm({ open: true, data });
++      setBm({ open: true, data, key: minted.key } as any);
+```
+
+**the ingest key is logged to the console** (`client/src/components/draft/SourcePill.tsx`) — APPLIED `e83ce1460b82` → `9578dd1ade36` — **RED**, 1 failing · killed by *the key is a credential and never reaches the screen or the state*
+
+```diff
+-      setBm({ open: true, data });
++      console.log(minted.key);
++      setBm({ open: true, data });
+```
+
+**loader_url's markup is made unreachable** (`client/src/components/draft/SourcePill.tsx`) — APPLIED `e83ce1460b82` → `c44e64ea7f5e` — **RED**, 1 failing · killed by *every served field is rendered or named as dropped, with a reason*
+
+```diff
+-                {d.loader_url && (
++                {false && (
+```
+
+**href_dry's markup is made unreachable** (`client/src/components/draft/SourcePill.tsx`) — APPLIED `e83ce1460b82` → `dfb895c4d8c4` — **RED**, 1 failing · killed by *every served field is rendered or named as dropped, with a reason*
+
+```diff
+-                {d.href_dry && (
++                {false && (
+```
+
+**the re-mint warning is removed** (`client/src/components/draft/SourcePill.tsx`) — APPLIED `e83ce1460b82` → `10f0e5aedb27` — **RED**, 1 failing · killed by *re-opening the panel invalidates the old bookmarklet, and says so*
+
+```diff
+-                stops working. Drag the new one over it.
++                is still fine.
+```
+
+**the route stops requiring a key** (`server/routes/draft-capture.js`) — APPLIED `9954c53a04c4` → `5a345e94fee9` — **RED**, 1 failing · killed by *the panel mints a key, so the button is not a 400 with documentation in it*
+
+```diff
+-ingest_key required:
++ingest key optional:
+```
+
+**NO-OP CONTROL: a comment word changed in the capture panel** (`client/src/components/draft/SourcePill.tsx`) — APPLIED `e83ce1460b82` → `c0265ade5390` — **green — survived, as intended**
+
+```diff
+- * THE BOOKMARKLET THAT COULD NOT WORK, AND SAID NOTHING.
++ * THE BOOKMARKLET THAT COULD NOT WORK, AND SAID NOTHING (control).
+```
+
+11 mutations applied and red, 1 applied and green. The green
+row is the deliberate no-op control — an edit that is real (the SHA changes) but
+touches nothing any assertion claims to read. A control that went red would mean
+the tests were pinning the file rather than its behaviour.
+
+**Full check on this exact tree:** typecheck clean, 3,182 tests, 3,141 pass, 0 fail, 41 skipped, build 2.61s, startup smoke
+passed on an isolated database. The tree is `af7f01a` plus the working tree of
+the commit this section lands in; the source was restored and verified clean
+after the run.

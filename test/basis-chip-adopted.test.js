@@ -44,7 +44,10 @@ test('all six provenance renderings now use the one component', () => {
   for (const [name, src] of SITES) {
     assert.match(src, /from '\.[./]*(components\/)?ui\/BasisChip'/,
       `${name} no longer imports the shared chip`);
-    assert.match(src, /<BasisChip/, `${name} imports the chip and does not render it`);
+    // The tag has to END here: /<BasisChip/ alone also matches <BasisChipX,
+    // so renaming the element to anything with the same prefix left this green.
+    // Caught by a mutation run, not by reading it.
+    assert.match(src, /<BasisChip[\s/>]/, `${name} imports the chip and does not render it`);
   }
 });
 

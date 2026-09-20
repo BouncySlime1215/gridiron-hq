@@ -133,3 +133,140 @@ Baseline across the three files: 28 tests, 28 pass, 0 fail. All eleven red.
 The last one is the design system's own tests catching a missing token four
 different ways, which is what they were written for: a `var()` naming a token
 nobody defined resolves to nothing and the stripe silently disappears.
+
+---
+
+## Mutation re-run at the stack tip
+
+Re-run against **one tree**, the tip of this stack at `af7f01a`, so every row
+below is measured on the same code rather than on the tree each commit had when
+it was written. Each entry records the mutated file's SHA-256 before and after,
+which is what proves the mutation was APPLIED: a pattern that does not match
+leaves the file unchanged, and the run is then the baseline wearing a
+mutation's name. Each entry names the **test title** that turned red, not the
+rule it was meant to check — a mutation that lands and kills a different test is
+unfinished, not a result. And each quotes the **exact before and after text**,
+not a description of the edit, so the mutation can be reproduced from this file
+rather than taken on trust.
+
+Files mutated: `client/src/components/ui/BasisChip.tsx`, `client/src/index.css`, `server/services/lineup-brain.js`.
+
+**the process basis is stamped on every row again** (`server/services/lineup-brain.js`) — APPLIED `b3881a555c91` → `1b422e1f8da6` — **RED**, 2 failing · killed by *the served field wins over the process basis and over the sentence*
+
+```diff
+-  if ('availability_basis' in player && player.availability_basis != null) {
++  if (false) {
+```
+
+**the display sentence outranks the served field** (`server/services/lineup-brain.js`) — APPLIED `b3881a555c91` → `c03f3b2d44e9` — **RED**, 1 failing · killed by *the served field wins over the process basis and over the sentence*
+
+```diff
+-  if ('availability_basis' in player && player.availability_basis != null) {
+-    const served = String(player.availability_basis);
+-    return SERVED_BASES.has(served) ? served : 'unrecognised';
+-  }
++  if ('availability_basis' in player && player.availability_basis != null && !('availability_source' in player)) {
++    const served = String(player.availability_basis);
++    return SERVED_BASES.has(served) ? served : 'unrecognised';
++  }
+```
+
+**an unknown served value is folded into a durability number** (`server/services/lineup-brain.js`) — APPLIED `b3881a555c91` → `27fa89d86f4e` — **RED**, 1 failing · killed by *a basis string this app does not know is unrecognised, never a guess*
+
+```diff
+-    return SERVED_BASES.has(served) ? served : 'unrecognised';
++    return SERVED_BASES.has(served) ? served : 'durability_prior';
+```
+
+**an unknown sentence is folded into a durability number** (`server/services/lineup-brain.js`) — APPLIED `b3881a555c91` → `d91cc346343d` — **RED**, 1 failing · killed by *every source string weeklyAvailability can build maps to a basis*
+
+```diff
+-  return 'unrecognised';
+-}
++  return 'durability_prior';
++}
+```
+
+**unfitted_position and a missing key are conflated** (`server/services/lineup-brain.js`) — APPLIED `b3881a555c91` → `34ce9b88590d` — **RED**, 1 failing · killed by *the two absences of a source are not the same absence*
+
+```diff
+-  if (!('availability_source' in player)) return processBasis?.basis ?? null;
+-
++  (the text is removed)
+```
+
+**an unflagged durability sentence claims a measured record** (`server/services/lineup-brain.js`) — APPLIED `b3881a555c91` → `8cf0e32b3ef2` — **RED**, 1 failing · killed by *every source string weeklyAvailability can build maps to a basis*
+
+```diff
+-    return player.durability_prior_measured === true ? 'durability_prior' : 'unrecognised';
++    return 'durability_prior';
+```
+
+**a falsy durability flag is treated as present** (`server/services/lineup-brain.js`) — APPLIED `b3881a555c91` → `a5c11d7c913a` — **RED**, 1 failing · killed by *every source string weeklyAvailability can build maps to a basis*
+
+```diff
+-    return player.durability_prior_measured === true ? 'durability_prior' : 'unrecognised';
++    return player.durability_prior_measured !== true ? 'durability_prior' : 'unrecognised';
+```
+
+**the durability flag is read loosely, so absent becomes measured** (`server/services/lineup-brain.js`) — APPLIED `b3881a555c91` → `78826e3924b5` — **RED**, 1 failing · killed by *every source string weeklyAvailability can build maps to a basis*
+
+```diff
+-player.durability_prior_measured === true
++player.durability_prior_measured !== false
+```
+
+**unrecognised is folded into the missing tier** (`client/src/components/ui/BasisChip.tsx`) — APPLIED `76fec1e19a85` → `bd6164adf28e` — **RED**, 1 failing · killed by *unrecognised is its own state and never falls through to a neighbour*
+
+```diff
+-  unrecognised: 'unknown'
++  unrecognised: 'missing'
+```
+
+**the old constants key is dropped before the new server ships** (`client/src/components/ui/BasisChip.tsx`) — APPLIED `76fec1e19a85` → `9c4f774c8c00` — **RED**, 1 failing · killed by *every availability basis the server can emit maps to a chip tier*
+
+```diff
+-  constants: 'assumed',
+-
++  (the text is removed)
+```
+
+**default_durability is dropped from the map** (`client/src/components/ui/BasisChip.tsx`) — APPLIED `76fec1e19a85` → `13742f66622c` — **RED**, 1 failing · killed by *every availability basis the server can emit maps to a chip tier*
+
+```diff
+-  default_durability: 'assumed',
+-
++  (the text is removed)
+```
+
+**the unknown tier loses its distinguishing label** (`client/src/components/ui/BasisChip.tsx`) — APPLIED `76fec1e19a85` → `4eedc6311f04` — **RED**, 1 failing · killed by *unrecognised is its own state and never falls through to a neighbour*
+
+```diff
+-    label: 'Unverified',
++    label: 'No data',
+```
+
+**the --basis-unknown token is removed** (`client/src/index.css`) — APPLIED `4aabd9008a92` → `1240ba00c928` — **RED**, 4 failing · killed by *every basis token the document names is defined in the stylesheet*
+
+```diff
+-  --basis-unknown:  #6b5f52;
+-
++  (the text is removed)
+```
+
+**NO-OP CONTROL: a comment word changed in lineup-brain** (`server/services/lineup-brain.js`) — APPLIED `b3881a555c91` → `7af0e3bc90c6` — **green — survived, as intended**
+
+```diff
+- * Which model priced THIS player,
++ * Which model priced THIS player (control),
+```
+
+13 mutations applied and red, 1 applied and green. The green
+row is the deliberate no-op control — an edit that is real (the SHA changes) but
+touches nothing any assertion claims to read. A control that went red would mean
+the tests were pinning the file rather than its behaviour.
+
+**Full check on this exact tree:** typecheck clean, 3,182 tests, 3,141 pass, 0 fail, 41 skipped, build 2.61s, startup smoke
+passed on an isolated database. The tree is `af7f01a` plus the working tree of
+the commit this section lands in; the source was restored and verified clean
+after the run.

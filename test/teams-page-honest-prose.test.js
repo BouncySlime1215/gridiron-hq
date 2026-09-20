@@ -36,9 +36,17 @@ const seed = read('server/db/seed/teams.js');
 test('a coaching slot that still says TBD renders as an absence, not as a name', () => {
   assert.match(page, /const PLACEHOLDER = \/\\bTBD\\b\/i/, 'the placeholder test is gone');
   assert.match(page, /const coachName = \(v\?: string \| null\) =>/, 'the guard is gone');
-  for (const slot of ['head_coach', 'oc_name', 'dc_name']) {
-    assert.match(page, new RegExp(`coachName\\(team\\.${slot}\\)`),
-      `${slot} is rendered without the placeholder guard`);
+  // Each coordinator appears TWICE — once as the guard that decides whether the
+  // slot renders at all, once as the name inside it — and a whole-file match
+  // cannot tell them apart: dropping the guard left this green, because the
+  // render still carried the call. A raw guard renders "· OC " with nothing
+  // after it, which is the empty-space-where-a-name-belongs case this test
+  // exists to prevent. Both positions are pinned, and the count is the pin.
+  for (const slot of ['oc_name', 'dc_name']) {
+    assert.match(page, new RegExp(`\\{coachName\\(team\\.${slot}\\) && `),
+      `${slot} is guarded by the raw value, so a placeholder renders an empty slot`);
+    assert.equal((page.match(new RegExp(`coachName\\(team\\.${slot}\\)`, 'g')) ?? []).length, 2,
+      `${slot}: the guard and the name it guards must both go through coachName`);
   }
   // And the head coach, which always renders, says so rather than going blank —
   // an empty space where a name belongs reads as a layout bug, not as a fact.

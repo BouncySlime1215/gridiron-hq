@@ -35,13 +35,80 @@ const SENSE_BADGE: Record<string, string> = {
   lopsided: 'bg-crit-tint text-crit border-crit'
 };
 
+/**
+ * THE FAIRNESS LABEL, AND THE TWO VALUES THAT HAD NO TONE.
+ *
+ * `fairnessLabel` (trade-engine.js:1327) opens with `if (!total) return
+ * 'unpriced';`, so the server has always been able to send a sixth value. It
+ * had no entry here, and the fallback was `text-[var(--muted)]` — which is
+ * BYTE-IDENTICAL to the tone for 'even money'. So a deal where nothing could
+ * be priced has been displaying as a perfectly balanced deal, on the deployed
+ * app, for as long as both have existed.
+ *
+ * The two absence values now take colours from the basis ramp, which is the
+ * vocabulary this app uses for "where did this number come from" and exactly
+ * what these are:
+ *
+ *   unpriced          --basis-none     nothing priced this at all
+ *   partly unpriced   --basis-missing  some players had no market row
+ *   anything unknown  --basis-unknown  a value arrived that we do not know
+ *
+ * The fallback keeps a neutral weight, because an unpriced deal is not a bad
+ * deal — it is an unanswered question — but it may never again be the same
+ * tone as an answer. 'partly unpriced' is served by nothing today; it is
+ * mapped ahead of the change that serves it, which costs nothing and means the
+ * hole cannot open a second time. It REPLACES a confident label rather than
+ * sitting beside one, so a deal that reads 'partly unpriced' never also shows
+ * 'even money'.
+ */
 const FAIRNESS_TONE: Record<string, string> = {
   'lopsided my way': 'text-good font-semibold',
   'slightly my way': 'text-good',
   'even money': 'text-[var(--muted)]',
   'slightly their way': 'text-amber-600',
-  'lopsided their way': 'text-crit'
+  'lopsided their way': 'text-crit',
+  unpriced: 'text-[var(--basis-none)]',
+  'partly unpriced': 'text-[var(--basis-missing)]'
 };
+
+/** The tone for a fairness value this build has never heard of. */
+export const FAIRNESS_FALLBACK = 'text-[var(--basis-unknown)]';
+
+/**
+ * What an absence means, in plain words, beside the label.
+ *
+ * Without this the label is a word a manager has to guess at: "unpriced" reads
+ * as a judgement about the deal rather than a statement about what we could
+ * look up. The sentence says which it is.
+ */
+export const FAIRNESS_NOTE: Record<string, string> = {
+  unpriced: 'None of these players has a trade value on file, so there is nothing here to compare. This is not a balanced deal — it is an unanswered question.',
+  'partly unpriced': "We can't price everyone in this trade. Some of these players have no market value we can read, so the numbers below leave them out entirely — the deal may be better or worse than it looks, and we don't know which."
+};
+
+/**
+ * The sentence, with the count spliced in only when the server sent one.
+ *
+ * The count is the players on MY side of the deal that could not be priced —
+ * `me.value_out_unpriced` (leaving) plus `me.value_in_unpriced` (arriving).
+ * Those two cover every player in a two-party deal exactly once, because the
+ * same player is my `out` and their `in`; adding the other chair's pair would
+ * count everybody twice.
+ *
+ * When the fields are absent the sentence keeps its indefinite form. Falling
+ * back to a number would print "0 of these players", which claims the opposite
+ * of what the label says, on every deal, until the day the fields ship.
+ */
+export function fairnessNote(deal: any): string | null {
+  const base = FAIRNESS_NOTE[deal?.fairness];
+  if (!base) return null;
+  if (deal?.fairness !== 'partly unpriced') return base;
+  const n = (deal?.me?.value_out_unpriced ?? 0) + (deal?.me?.value_in_unpriced ?? 0);
+  if (!n) return base;
+  return base.replace('Some of these players have', `${n} of these players ${n === 1 ? 'has' : 'have'}`);
+}
+
+export const fairnessTone = (fairness: string) => FAIRNESS_TONE[fairness] ?? FAIRNESS_FALLBACK;
 
 export const num = (n: number | null | undefined, d = 2) =>
   n == null ? '—' : `${n > 0 ? '+' : ''}${n.toFixed(d)}`;
@@ -87,6 +154,25 @@ export function PlayerPill({ p, tone = 'slate' }: { p: any; tone?: 'give' | 'get
   );
 }
 
+/**
+ * What horizon the season figure was charged over, in the words for that state.
+ *
+ * `season_delta_basis` says which: `weeks_remaining` is the league's own count
+ * of weeks left, `full_season_default` is the fallback a league gets when its
+ * own end is not known. Both arrive with `season_delta_weeks`, the number of
+ * weeks actually multiplied, and that number is what is printed — writing 17
+ * here would go wrong the day the default changes.
+ *
+ * With neither field the server is the untouched one that multiplies by a
+ * fixed 17, so the sentence says so and calls it an assumption.
+ */
+export function horizonPhrase(s: any): string {
+  const weeks = s?.season_delta_weeks;
+  if (weeks == null) return 'if that weekly gain held for a full 17-week season';
+  if (s?.season_delta_basis === 'weeks_remaining') return `over the ${weeks} weeks left`;
+  return `if that weekly gain held for a full ${weeks}-week season, which is a default rather than this league's own length`;
+}
+
 /** One team's outcome. The numbers that matter, in the order they matter. */
 function SideBox({ s, mine }: { s: any; mine: boolean }) {
   return (
@@ -106,7 +192,26 @@ function SideBox({ s, mine }: { s: any; mine: boolean }) {
         <span className="text-[11px] text-[var(--muted)]">ppg to starting lineup</span>
       </div>
       <div className="text-[11px] text-[var(--muted)] mt-0.5 tabular-nums">
-        {s.lineup_before} → {s.lineup_after} · {num(s.season_delta, 0)} over the season
+        {s.lineup_before} → {s.lineup_after}
+        {/* "over the season" was wrong in both directions. Where the server
+            still multiplies by a fixed 17 (trade-engine.js:119, :1096), a week
+            2 league ending in week 16 gets seventeen weeks that do not exist,
+            and "the season" names neither those seventeen nor the fifteen that
+            remain; "the rest of the season" would have been the second wrong
+            answer. So the line names the horizon the number was actually
+            charged over, in each of the three states it can arrive in.
+
+            The served count is what gets printed, never a literal 17 — a
+            default that changes would otherwise leave this sentence asserting
+            a number the payload no longer carries. Without the fields there is
+            nothing to read, so the sentence falls back to what the untouched
+            server does today and says it is an assumption.
+
+            season_delta is null when a caller gave no horizon, so the whole
+            sentence is withheld rather than wrapped around an em dash. */}
+        {s.season_delta != null && (
+          <> · {num(s.season_delta, 0)} {horizonPhrase(s)}</>
+        )}
       </div>
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 mt-2 text-[11px]">
         {/* No "Playoffs (15–17)" row: it showed a schedule tilt that failed validation
@@ -114,6 +219,29 @@ function SideBox({ s, mine }: { s: any; mine: boolean }) {
             (trade-horizon.js), through byes and this week's chance to play only. */}
         <div><dt className="text-[var(--muted)]">Market value</dt>
           <dd className={`tabular-nums font-medium ${s.value_delta > 0 ? 'text-good' : s.value_delta < 0 ? 'text-crit' : 'text-[var(--muted)]'}`}>{num(s.value_delta, 0)}</dd></div>
+        {/* Directly under the number it qualifies, and only where a count is
+            actually non-zero — so this is correct before and after the change
+            that starts serving the fields. A "Market value" of -40 computed
+            with two players left out is a different number from one computed
+            with all of them, and nothing on this card said which it was.
+
+            One line per LEG, not one per side, and each line names the total it
+            explains. A single per-side count is identical on both sides of a
+            two-party deal and so says nothing about who is short-changed; the
+            four fields exist precisely to keep `value_out` and `value_in`
+            answerable separately. Counts of PLAYERS — there is no amount to
+            report, which is the point: an unpriced player contributes no
+            number at all to the figure above. */}
+        {[
+          { n: s.value_out_unpriced, leg: mine ? 'leaving your roster' : 'leaving theirs' },
+          { n: s.value_in_unpriced, leg: mine ? 'arriving on your roster' : 'arriving on theirs' }
+        ].filter(l => (l.n ?? 0) > 0).map(l => (
+          <div key={l.leg} className="col-span-2" title="Some players here have no market price, so this comparison is incomplete.">
+            <dt className="text-[var(--muted)]">Not priced</dt>
+            <dd className="tabular-nums text-[var(--basis-missing)]">
+              {l.n} {l.n === 1 ? 'player' : 'players'} {l.leg} {l.n === 1 ? 'has' : 'have'} no market value we can read
+            </dd></div>
+        ))}
         {s.floor_delta != null && (
           <div title="Change in your starting lineup's total in a bad week (1 week in 10) — estimated from each starter's weekly range, with starters in the same game moving together">
             <dt className="text-[var(--muted)]">Weekly floor</dt>
@@ -226,7 +354,7 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
             FAIR ASK
           </span>
         )}
-        <span className={`text-[11px] ${FAIRNESS_TONE[deal.fairness] ?? 'text-[var(--muted)]'}`}>
+        <span className={`text-[11px] ${fairnessTone(deal.fairness)}`}>
           {deal.fairness}
         </span>
         {deal.joint_ppg != null && (
@@ -241,6 +369,15 @@ export default function TradeCard({ deal, leagueId, compact = false, untouchable
           </span>
         )}
       </div>
+
+      {/* Spelled out, not left on a hover. A title reaches a mouse and nothing
+          else, and this app is read on a phone — the same reason BasisChip
+          renders its sentence rather than hiding it in a tooltip. */}
+      {fairnessNote(deal) && (
+        <p className="text-[11px] leading-relaxed text-[var(--muted)] mb-2">
+          {fairnessNote(deal)}
+        </p>
+      )}
 
       {deal.red_flags?.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-3">

@@ -83,3 +83,180 @@ GRIDIRON_DB_PATH=$(mktemp -u /tmp/gr-XXXXXX).sqlite SCHEDULER_DISABLED=1 \
   node --experimental-test-module-mocks --test --test-concurrency=1 \
   test/title-odds-drill.test.js
 ```
+
+---
+
+## Mutation re-run at the stack tip
+
+Re-run against **one tree**, the tip of this stack at `af7f01a`, so every row
+below is measured on the same code rather than on the tree each commit had when
+it was written. Each entry records the mutated file's SHA-256 before and after,
+which is what proves the mutation was APPLIED: a pattern that does not match
+leaves the file unchanged, and the run is then the baseline wearing a
+mutation's name. Each entry names the **test title** that turned red, not the
+rule it was meant to check — a mutation that lands and kills a different test is
+unfinished, not a result. And each quotes the **exact before and after text**,
+not a description of the edit, so the mutation can be reproduced from this file
+rather than taken on trust.
+
+Files mutated: `client/src/components/ui/OddsGate.tsx`, `client/src/index.css`, `client/src/lib/odds-gate.js`, `client/src/pages/MyTeam.tsx`.
+
+**gateState: fold zero-results into too-early** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `4b83f4b32535` — **RED**, 1 failing · killed by *no games played is its own state, not folded into "too early"*
+
+```diff
+-  if ((gate.weeks_played ?? 0) === 0) return 'no_results';
+-
++  (the text is removed)
+```
+
+**gateState: no gate served blanks the page** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `54d42df91db3` — **RED**, 1 failing · killed by *no games played is its own state, not folded into "too early"*
+
+```diff
+-  if (!gate) return 'published';
++  if (!gate) return 'too_early';
+```
+
+**gateState: published wins over zero results** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `f39da088d62c` — **RED**, 1 failing · killed by *no games played is its own state, not folded into "too early"*
+
+```diff
+-  if (!gate) return 'published';
+-  if ((gate.weeks_played ?? 0) === 0) return 'no_results';
+-  return gate.published ? 'published' : 'too_early';
++  if (!gate) return 'published';
++  if (gate.published) return 'published';
++  return (gate.weeks_played ?? 0) === 0 ? 'no_results' : 'too_early';
+```
+
+**layer 4: drop the week-by-week walk-forward credit** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `bc931c730257` — **RED**, 2 failing · killed by *layer 4 keeps all four parts of what the grading found*
+
+```diff
+-by replaying past '
+-    + 'seasons week by week and grading each prediction on the week it was for.
++against past seasons.
+```
+
+**layer 4: drop how much was graded** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `dda9d7f13a26` — **RED**, 2 failing · killed by *layer 4 keeps all four parts of what the grading found*
+
+```diff
+-on ${weeks} `
++on many `
+```
+
+**layer 4: drop what the grading found** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `2bcfafdf453c` — **RED**, 1 failing · killed by *layer 4 keeps all four parts of what the grading found*
+
+```diff
+-Before week ${w} it did worse than `
+-    + `simply telling every team the same number.
++It has been graded directly.
+```
+
+**layer 4: drop the overconfidence at the two ends** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `a01f7ec14090` — **RED**, 1 failing · killed by *layer 4 keeps all four parts of what the grading found*
+
+```diff
+-  const ends = e?.no_chance_qualify_rate != null && e?.certain_miss_rate != null
++  const ends = false && e?.no_chance_qualify_rate != null && e?.certain_miss_rate != null
+```
+
+**layer 4: drop that this app's own configuration was not graded** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `b231af6011af` — **RED**, 2 failing · killed by *layer 4 keeps all four parts of what the grading found*
+
+```diff
+-  const notGraded = c.not_graded ?
++  const notGraded = false ?
+```
+
+**layer 4: drop the early-week score** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `8a3a0991b48d` — **RED**, 1 failing · killed by *a Brier score is explained wherever one is shown*
+
+```diff
+-  const score = early?.brier != null && early?.base_rate != null
++  const score = false && early?.brier != null && early?.base_rate != null
+```
+
+**layer 4: name the Brier score instead of explaining it** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `3f5750658875` — **RED**, 1 failing · killed by *a Brier score is explained wherever one is shown*
+
+```diff
+-— ${BRIER_IN_WORDS}.`
++(Brier score).`
+```
+
+**layer 4: claim a grading with no calibration served** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `08358c2a3557` — **RED**, 2 failing · killed by *with no calibration served, layer 4 understates rather than inventing*
+
+```diff
+-  if (!c?.graded_team_weeks) {
++  if (false) {
+```
+
+**layer 4: drop the as-of of the grading** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `d39191756485` — **RED**, 1 failing · killed by *the grading carries its own as-of, beside the grade and not in the headline*
+
+```diff
+-const measured = c.measured_on ? `, measured ${c.measured_on}` : '';
++const measured = '';
+```
+
+**layer 4: invent an as-of when none is served** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `13c1e855bd3f` — **RED**, 1 failing · killed by *the grading carries its own as-of, beside the grade and not in the headline*
+
+```diff
+-const measured = c.measured_on ? `, measured ${c.measured_on}` : '';
++const measured = `, measured ${c.measured_on ?? new Date().toISOString().slice(0, 10)}`;
+```
+
+**the component grows its own copy of gateState** (`client/src/components/ui/OddsGate.tsx`) — APPLIED `06404d403447` → `776e844689a5` — **RED**, 1 failing · killed by *the page and this test are calling the same code*
+
+```diff
+-import { gateState, withheldReason } from '../../lib/odds-gate.js';
++import { withheldReason } from '../../lib/odds-gate.js';
++function gateState(g: OddsGate | null | undefined) { return g?.published ? 'published' : 'too_early'; }
+```
+
+**the page ungates the playoff percentage** (`client/src/pages/MyTeam.tsx`) — APPLIED `98c171e444ff` → `b34938213977` — **RED**, 1 failing · killed by *both percentages are gated, not just the headline*
+
+```diff
+-<WithheldOdds gate={sim.odds_gate} label="Make playoffs" />
++<span>{pct(sim.playoff_odds)}</span>
+```
+
+**the withheld state becomes a dead end** (`client/src/pages/MyTeam.tsx`) — APPLIED `98c171e444ff` → `1ed423225c65` — **RED**, 1 failing · killed by *withholding the headline still opens the deep dive*
+
+```diff
+-className="odds-withheld-open" onClick={() => setDrill(true)}
++className="odds-withheld-open"
+```
+
+**the withheld state is styled as a warning** (`client/src/index.css`) — APPLIED `4aabd9008a92` → `95f7f5783d89` — **RED**, 1 failing · killed by *the withheld state is not styled as an error*
+
+```diff
+-.odds-withheld { display: grid;
++.odds-withheld { color: var(--warn); display: grid;
+```
+
+**layer 4 stops delegating, back to a hard-coded sentence** (`client/src/pages/MyTeam.tsx`) — APPLIED `98c171e444ff` → `9ae6c9f33490` — **RED**, 1 failing · killed by *layer 4 does not claim the championship number was tested*
+
+```diff
+-tested: gradedSentence(sim?.odds_gate),
++tested: 'This number has been tested.',
+```
+
+**the ungraded branch claims a grading it was not given** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `18389a938144` — **RED**, 2 failing · killed by *with no calibration served, layer 4 understates rather than inventing*
+
+```diff
+-This championship number itself has not been scored against real finished `
+-      + 'seasons here.
++This championship number has been scored. `
++      + '
+```
+
+**NO-OP CONTROL: a comment word is changed and nothing else** (`client/src/lib/odds-gate.js`) — APPLIED `04cf78d7bbc0` → `4b982d71f139` — **green — survived, as intended**
+
+```diff
+-export const BRIER_IN_WORDS =
++export const BRIER_IN_WORDS = /* control */
+```
+
+19 mutations applied and red, 1 applied and green. The green
+row is the deliberate no-op control — an edit that is real (the SHA changes) but
+touches nothing any assertion claims to read. A control that went red would mean
+the tests were pinning the file rather than its behaviour.
+
+**Full check on this exact tree:** typecheck clean, 3,182 tests, 3,141 pass, 0 fail, 41 skipped, build 2.61s, startup smoke
+passed on an isolated database. The tree is `af7f01a` plus the working tree of
+the commit this section lands in; the source was restored and verified clean
+after the run.

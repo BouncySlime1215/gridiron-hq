@@ -3,7 +3,7 @@ import BasisChip, { AVAILABILITY_BASIS } from '../components/ui/BasisChip';
 import { Link } from 'react-router-dom';
 import { api, useApi } from '../api';
 import { useLeague } from '../state/league';
-import TradeCard, { PlayerPill, num } from '../components/TradeCard';
+import TradeCard, { PlayerPill, num, fairnessTone } from '../components/TradeCard';
 import { usePlayerCard } from '../components/PlayerCard';
 import EvidenceTable from '../components/draft/EvidenceTable';
 import StreakChips from '../components/draft/StreakChips';
@@ -333,7 +333,11 @@ function TitleTrades({ leagueId, teamId }: { leagueId: number; teamId: string | 
                   <span className="text-emerald-700">get</span> {d.i_get.map((p: any) => p.name).join(' + ')}
                 </div>
                 <div className="text-[11px] text-slate-500 mt-1.5">
-                  with <b className="text-slate-700">{d.partner}</b> · {d.fairness}
+                  with <b className="text-slate-700">{d.partner}</b> ·{' '}
+                  {/* The same tone as the card, from the same map. Printed here
+                      as bare text before, so an unpriced deal read as an
+                      ordinary one in the list as well as on the card. */}
+                  <span className={fairnessTone(d.fairness)}>{d.fairness}</span>
                   {d.their_title_delta != null && (
                     <> · their title {(d.their_title_delta * 100).toFixed(2)}%
                       {d.mutual_title_gain && <b className="text-emerald-700"> · both gain</b>}</>

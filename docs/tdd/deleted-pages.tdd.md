@@ -78,3 +78,91 @@ it is being rebuilt as the design system's table component, and deleting it in
 the same commit that deletes its only caller would make that a new component
 rather than a replacement. It is the one knowingly-unimported file in the
 client tree until that lands.
+
+---
+
+## Mutation re-run at the stack tip
+
+Re-run against **one tree**, the tip of this stack at `af7f01a`, so every row
+below is measured on the same code rather than on the tree each commit had when
+it was written. Each entry records the mutated file's SHA-256 before and after,
+which is what proves the mutation was APPLIED: a pattern that does not match
+leaves the file unchanged, and the run is then the baseline wearing a
+mutation's name. Each entry names the **test title** that turned red, not the
+rule it was meant to check — a mutation that lands and kills a different test is
+unfinished, not a result. And each quotes the **exact before and after text**,
+not a description of the edit, so the mutation can be reproduced from this file
+rather than taken on trust.
+
+Files mutated: `client/src/App.tsx`, `client/src/navigation.ts`, `client/src/pages/News.tsx`.
+
+**App.tsx lazy-imports a deleted page again** (`client/src/App.tsx`) — APPLIED `b7e2e067d536` → `db10264cf63d` — **RED**, 1 failing · killed by *nothing imports or renders a deleted page, anywhere in the client*
+
+```diff
+-const Teams = lazy(() => import('./pages/Teams'));
++const Teams = lazy(() => import('./pages/Teams'));
++const Rankings = lazy(() => import('./pages/Rankings'));
+```
+
+**App.tsx renders <Rankings /> on /rankings** (`client/src/App.tsx`) — APPLIED `b7e2e067d536` → `9cd47e95596f` — **RED**, 2 failing · killed by *nothing imports or renders a deleted page, anywhere in the client*
+
+```diff
+-<Route path="/rankings" element={<Navigate to="/league" replace />} />
++<Route path="/rankings" element={<Rankings />} />
+```
+
+**another page imports the deleted StaleBanner** — **NOT APPLIED: the anchor below is not in `client/src/pages/News.tsx` at this tip, so nothing ran.**
+
+```diff
+-import { useState
++import StaleBanner from '../components/StaleBanner';
++import { useState
+```
+
+**the /rankings bookmark redirect is dropped** (`client/src/App.tsx`) — APPLIED `b7e2e067d536` → `9b5579e26f93` — **RED**, 1 failing · killed by *the palette no longer advertises a page that is not there*
+
+```diff
+-<Route path="/rankings" element={<Navigate to="/league" replace />} />
++  (the text is removed)
+```
+
+**the palette re-advertises a deleted page** (`client/src/navigation.ts`) — APPLIED `3bca5e69272f` → `5ff014d6a203` — **RED**, 1 failing · killed by *the palette no longer advertises a page that is not there*
+
+```diff
+-export const DEEP_DESTINATIONS: readonly (readonly [string, string, string])[] = [
++export const DEEP_DESTINATIONS: readonly (readonly [string, string, string])[] = [
++  ['Rankings', '/rankings', 'Your rankings and tiers'],
+```
+
+**a ninth destination appears in the sidebar** (`client/src/navigation.ts`) — APPLIED `3bca5e69272f` → `e9f10f153d26` — **RED**, 1 failing · killed by *the nav is still the eight destinations Nick chose*
+
+```diff
+-{ to: '/news', label: 'News', icon: 'N' },
++{ to: '/news', label: 'News', icon: 'N' },
++    { to: '/model', label: 'The Model', icon: 'M' },
+```
+
+**another page imports the deleted StaleBanner** (`client/src/pages/News.tsx`) — APPLIED `6823539e5c08` → `d585a3e0e078` — **RED**, 1 failing · killed by *nothing imports or renders a deleted page, anywhere in the client*
+
+```diff
+-import { useEffect, useState } from 'react';
++import { useEffect, useState } from 'react';
++import StaleBanner from '../components/StaleBanner';
+```
+
+**NO-OP CONTROL: a comment line is reworded in the nav** (`client/src/navigation.ts`) — APPLIED `3bca5e69272f` → `cabe90c0d63d` — **green — survived, as intended**
+
+```diff
+- * The one place a first-class destination in this app is declared.
++ * The one place a first-class destination in this app is declared (control).
+```
+
+6 mutations applied and red, 1 applied and green, and 1 reported NOT APPLIED — its pattern is not in the file at this tip, so it ran nothing and is counted as a gap rather than as a pass; where a re-anchored version of the same mutation appears in the table, that row is the result. The green
+row is the deliberate no-op control — an edit that is real (the SHA changes) but
+touches nothing any assertion claims to read. A control that went red would mean
+the tests were pinning the file rather than its behaviour.
+
+**Full check on this exact tree:** typecheck clean, 3,182 tests, 3,141 pass, 0 fail, 41 skipped, build 2.61s, startup smoke
+passed on an isolated database. The tree is `af7f01a` plus the working tree of
+the commit this section lands in; the source was restored and verified clean
+after the run.

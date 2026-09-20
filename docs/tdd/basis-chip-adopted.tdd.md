@@ -105,3 +105,131 @@ GRIDIRON_DB_PATH=$(mktemp -u /tmp/gr-XXXXXX).sqlite SCHEDULER_DISABLED=1 \
   node --experimental-test-module-mocks --test --test-concurrency=1 \
   test/basis-chip-adopted.test.js
 ```
+
+---
+
+## Mutation run at the stack tip
+
+Re-run against **one tree**, the tip of this stack at `af7f01a`, so every row
+below is measured on the same code rather than on the tree each commit had when
+it was written. Each entry records the mutated file's SHA-256 before and after,
+which is what proves the mutation was APPLIED: a pattern that does not match
+leaves the file unchanged, and the run is then the baseline wearing a
+mutation's name. Each entry names the **test title** that turned red, not the
+rule it was meant to check — a mutation that lands and kills a different test is
+unfinished, not a result. And each quotes the **exact before and after text**,
+not a description of the edit, so the mutation can be reproduced from this file
+rather than taken on trust.
+
+Files mutated: `client/src/components/DataBehindNumbers.tsx`, `client/src/components/OddsBasis.tsx`, `client/src/components/lineup/WaiverWire.tsx`, `client/src/pages/Lineup.tsx`, `client/src/pages/News.tsx`, `client/src/pages/TradeLab.tsx`.
+
+**T1 Start/Sit stops rendering the shared chip** (`client/src/pages/Lineup.tsx`) — APPLIED `848aedd218a3` → `6c3f56d58f77` — **RED**, 1 failing · killed by *all six provenance renderings now use the one component*
+
+```diff
+-<BasisChip
++<BasisChipX
+```
+
+**T1 News stops rendering the shared chip** (`client/src/pages/News.tsx`) — APPLIED `6823539e5c08` → `fe684f24ca41` — **RED**, 1 failing · killed by *all six provenance renderings now use the one component*
+
+```diff
+-<BasisChip
++<BasisChipX
+```
+
+**T2 the waiver board hand-writes "(assumed)" again** (`client/src/components/lineup/WaiverWire.tsx`) — APPLIED `afabf1bf27df` → `7ac1bb31af88` — **RED**, 1 failing · killed by *the ad-hoc suffixes the chip replaced have not come back*
+
+```diff
+-<BasisChip
++'(assumed)'}{null}<BasisChip
+```
+
+**T3 Start/Sit decides its own wording from the basis** (`client/src/pages/Lineup.tsx`) — APPLIED `848aedd218a3` → `1631498237e8` — **RED**, 1 failing · killed by *the server vocabulary is mapped, never compared to inline*
+
+```diff
+-AVAILABILITY_BASIS[
++// const measured = basis === 'role'
++AVAILABILITY_BASIS[
+```
+
+**T4 the percentage is greyed by its basis again** (`client/src/pages/Lineup.tsx`) — APPLIED `848aedd218a3` → `c7e4c4ca2192` — **RED**, 1 failing · killed by *a low chance to play and an assumed basis are no longer the same grey*
+
+```diff
+-% to play
++% to play{measured ? 1 : 0}
+```
+
+**T4 the low-chance colour is removed** (`client/src/pages/Lineup.tsx`) — APPLIED `848aedd218a3` → `b66e2d2bb055` — **RED**, 1 failing · killed by *a low chance to play and an assumed basis are no longer the same grey*
+
+```diff
+-play < 75 ? 'bg-amber-50
++play < 0 ? 'bg-amber-50
+```
+
+**T5 Trade Lab stops mapping the server basis** (`client/src/pages/TradeLab.tsx`) — APPLIED `7fe62418f0da` → `37916d759c93` — **RED**, 1 failing · killed by *Trade Lab no longer uses the warning colour for a gap on our side*
+
+```diff
+-AVAILABILITY_BASIS[rosters.model_context.availability_basis.basis]
++'assumed'
+```
+
+**T6 the odds bracket loses its chip** (`client/src/components/OddsBasis.tsx`) — APPLIED `503545e44d69` → `ad78b085837b` — **RED**, 1 failing · killed by *the odds bracket says assumed in the basis ramp, not in the warning colour*
+
+```diff
+-basis={assumed ? 'assumed' : 'measured'}
++basis='measured'
+```
+
+**T6 the page rewords the server bracket sentence** (`client/src/components/OddsBasis.tsx`) — APPLIED `503545e44d69` → `1dcf2dba735e` — **RED**, 1 failing · killed by *the odds bracket says assumed in the basis ramp, not in the warning colour*
+
+```diff
+-<span>{bracket}</span>
++<span>{bracket.replace('assumed', 'estimated')}</span>
+```
+
+**T7 the usage row stops saying whether this season is loaded** (`client/src/components/DataBehindNumbers.tsx`) — APPLIED `cbe86bf5faf5` → `b2dbd24bb7d5` — **RED**, 1 failing · killed by *the freshness card says whether THIS season is in each row*
+
+```diff
+-basis={missingThisSeason ? 'missing' : 'measured'}
++basis='measured'
+```
+
+**T7 the game-lines row loses its chip** (`client/src/components/DataBehindNumbers.tsx`) — APPLIED `cbe86bf5faf5` → `8ccf1ffd91c7` — **RED**, 1 failing · killed by *the freshness card says whether THIS season is in each row*
+
+```diff
+-basis={linesThisSeason ? 'measured' : 'missing'}
++basis='measured'
+```
+
+**T7 the freshness card takes the season from the calendar** (`client/src/components/DataBehindNumbers.tsx`) — APPLIED `cbe86bf5faf5` → `7c87ea6b030a` — **RED**, 1 failing · killed by *the freshness card says whether THIS season is in each row*
+
+```diff
+-const season = active?.season ?? null
++const season = new Date().getFullYear()
+```
+
+**NO-OP CONTROL: a comment word in the odds bracket** (`client/src/components/OddsBasis.tsx`) — APPLIED `503545e44d69` → `41a8ac918739` — **green — survived, as intended**
+
+```diff
+- * 
++ *  
+```
+
+12 mutations applied and red, 1 applied and green. The green
+row is the deliberate no-op control — an edit that is real (the SHA changes) but
+touches nothing any assertion claims to read. A control that went red would mean
+the tests were pinning the file rather than its behaviour.
+
+**Two mutations survived the first run, and the assertion was wrong both times.**
+Renaming the rendered element to `<BasisChipX>` on Start/Sit and on News left
+the suite green: the check was `assert.match(src, /<BasisChip/)`, and that
+pattern matches any tag with the same prefix. A page could rename the component
+to something that is not the shared chip and still pass the test whose whole job
+is to prove it renders the shared chip. The assertion now requires the tag to
+end — `/<BasisChip[\s/>]/` — and both mutations are red above. Reading the test
+did not find this; the mutation run did.
+
+**Full check on this exact tree:** typecheck clean, 3,182 tests, 3,141 pass, 0 fail, 41 skipped, build 2.61s, startup smoke
+passed on an isolated database. The tree is `af7f01a` plus the working tree of
+the commit this section lands in; the source was restored and verified clean
+after the run.

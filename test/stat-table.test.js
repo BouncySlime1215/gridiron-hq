@@ -45,7 +45,7 @@ test('the design system names five components, and the table is one', () => {
   assert.ok(spec.length > 800, 'the table section is a heading with nothing under it');
 });
 
-test('a column is declared by glossary id and cannot be given a label', () => {
+test('R1: a column is declared by glossary id and cannot be given a label', () => {
   // Rule 1, and the same rule StatBlock has. A caller that can pass a label is
   // a caller that will, and then one quantity has two names again.
   const iface = table.slice(table.indexOf('export interface StatColumn'), table.indexOf('export interface NotTrackedColumn'));
@@ -55,7 +55,7 @@ test('a column is declared by glossary id and cannot be given a label', () => {
   assert.match(table, /formatValue\(col\.id, value/, 'cells are not formatted through the glossary');
 });
 
-test('the basis is in the header once, and a cell marks itself only when it differs', () => {
+test('R2: the basis is in the header once, and a cell marks itself only when it differs', () => {
   // Rule 2. A chip on every cell of a twenty-row table is noise nobody reads;
   // no chip at all puts the table back where this redesign started.
   assert.match(table, /<BasisChip basis=\{col\.basis\} note=\{col\.basisNote\}/,
@@ -65,7 +65,7 @@ test('the basis is in the header once, and a cell marks itself only when it diff
     'a cell marker shows even when it agrees with its column, or never shows at all');
 });
 
-test('a number is coloured only by the lexicon direction, never by its basis', () => {
+test('R3: a number is coloured only by the lexicon direction, never by its basis', () => {
   // Rule 3. A basis is not a verdict, and `neither` — aDOT is the example — is
   // never coloured, because far downfield is not good or bad on its own.
   const tone = table.slice(table.indexOf('function toneFor'), table.indexOf('export default function StatTable'));
@@ -76,7 +76,7 @@ test('a number is coloured only by the lexicon direction, never by its basis', (
   assert.doesNotMatch(tone, /basis/, 'the tone is being decided from the basis');
 });
 
-test('a quantity stored nowhere is a struck header, not a column of dashes', () => {
+test('R4: a quantity stored nowhere is a struck header, not a column of dashes', () => {
   // Rule 4. Em dashes read as "we have no data on this player". The truth is
   // "we have this on nobody". The four in this state are named in the design
   // system and must never appear as numbers.
@@ -99,7 +99,7 @@ test('the first column sticks, because this is read on a phone', () => {
   assert.match(css, /\.stat-table-scroll \{ overflow-x: auto/, 'the table no longer scrolls sideways');
 });
 
-test('a missing value is an em dash, never a zero, and never an empty cell', () => {
+test('R4: a missing value is an em dash, never a zero, and never an empty cell', () => {
   // A missing number and a zero are different facts, and this project has
   // shipped the bug where they looked the same. formatValue owns that.
   const glossary = read('client/src/lib/glossary.ts');

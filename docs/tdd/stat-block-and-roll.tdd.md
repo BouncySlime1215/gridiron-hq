@@ -124,3 +124,72 @@ Baseline `test/stat-block.test.js`: 12 tests, 12 pass, 0 fail.
 The fourth is there because the `+2` is a fact about `formatValue`, not about
 `StatBlock`. If someone changes the scaling and leaves the offset, nothing in
 `StatBlock` is wrong on its own and the roll goes wrong anyway.
+
+---
+
+## Mutation re-run at the stack tip
+
+Re-run against **one tree**, the tip of this stack at `af7f01a`, so every row
+below is measured on the same code rather than on the tree each commit had when
+it was written. Each entry records the mutated file's SHA-256 before and after,
+which is what proves the mutation was APPLIED: a pattern that does not match
+leaves the file unchanged, and the run is then the baseline wearing a
+mutation's name. Each entry names the **test title** that turned red, not the
+rule it was meant to check — a mutation that lands and kills a different test is
+unfinished, not a result. And each quotes the **exact before and after text**,
+not a description of the edit, so the mutation can be reproduced from this file
+rather than taken on trust.
+
+Files mutated: `client/src/components/ui/StatBlock.tsx`, `client/src/lib/glossary.ts`.
+
+**StatBlock stops importing the roll (hook unwired again)** (`client/src/components/ui/StatBlock.tsx`) — APPLIED `5233ed6bd8a3` → `fc5af49ed4b1` — **RED**, 1 failing · killed by *the roll is actually used, and used by the one component that owns numbers*
+
+```diff
+-import { useNumberRoll } from '../../lib/useNumberRoll';
++  (the text is removed)
+```
+
+**the rolled value is computed and thrown away** (`client/src/components/ui/StatBlock.tsx`) — APPLIED `5233ed6bd8a3` → `14b42cab619c` — **RED**, 1 failing · killed by *the roll is actually used, and used by the one component that owns numbers*
+
+```diff
+-const text = formatValue(id, rolled, { signed });
++const text = formatValue(id, value, { signed });
+```
+
+**the roll threshold uses screen units, killing every percent roll** (`client/src/components/ui/StatBlock.tsx`) — APPLIED `5233ed6bd8a3` → `57beeee442c6` — **RED**, 1 failing · killed by *the roll threshold is in wire units, not screen units*
+
+```diff
+-t.unit === 'percent' ? t.precision + 2 : t.precision
++t.precision
+```
+
+**formatValue stops scaling percent, so the +2 goes stale** (`client/src/lib/glossary.ts`) — APPLIED `651cd69a37a7` → `8df614a9be94` — **RED**, 1 failing · killed by *the roll threshold is in wire units, not screen units*
+
+```diff
+-const scaled = t.unit === 'percent' ? value * 100 : value;
++const scaled = value;
+```
+
+**the accessible name is read from the rolling value** (`client/src/components/ui/StatBlock.tsx`) — APPLIED `5233ed6bd8a3` → `8674afaaf83d` — **RED**, 1 failing · killed by *the accessible name is the settled value, not the rolling one*
+
+```diff
+-${t.name}, ${settledText}. Show where
++${t.name}, ${text}. Show where
+```
+
+**NO-OP CONTROL: whitespace added to a comment, nothing else** (`client/src/components/ui/StatBlock.tsx`) — APPLIED `5233ed6bd8a3` → `daabba1342b9` — **green — survived, as intended**
+
+```diff
+- * THE UNIT THAT GETS CLICKED.
++ * THE UNIT THAT GETS CLICKED. 
+```
+
+5 mutations applied and red, 1 applied and green. The green
+row is the deliberate no-op control — an edit that is real (the SHA changes) but
+touches nothing any assertion claims to read. A control that went red would mean
+the tests were pinning the file rather than its behaviour.
+
+**Full check on this exact tree:** typecheck clean, 3,182 tests, 3,141 pass, 0 fail, 41 skipped, build 2.61s, startup smoke
+passed on an isolated database. The tree is `af7f01a` plus the working tree of
+the commit this section lands in; the source was restored and verified clean
+after the run.

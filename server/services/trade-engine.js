@@ -225,6 +225,23 @@ export function coordinatorBase(weekProjection) {
 }
 
 /**
+ * How many weeks of football this league has left, counting the current one.
+ *
+ * `GAMES` (17) is the length of an NFL regular season, not the length of what is
+ * left of one, and a trade is only ever evaluated over the latter. Multiplying a
+ * weekly delta by 17 in week 2 prices fifteen games that have already been played
+ * and one this league will never play, because a fantasy season ends at its last
+ * playoff week rather than at week 17 — `leagueSchedule` reads that from the
+ * league's own settings and falls back to the app default when they are not
+ * synced.
+ */
+export function weeksLeftFor(lg, week) {
+  const { playoffWeeks, regularSeasonEnd } = leagueSchedule(lg);
+  const last = playoffWeeks?.length ? Math.max(...playoffWeeks) : regularSeasonEnd;
+  return Math.max(1, last - Number(week) + 1);
+}
+
+/**
  * The whole player universe, priced — memoised on the data it reads.
  *
  * This is the most expensive pure function in the fantasy half of the app: it
@@ -1114,6 +1131,7 @@ const verdictFor = (ppgDelta, valueDelta) => {
  *   package actually makes sense for them, not just whether the numbers pencil out.
  */
 export function evaluate(a, b, slots, ctx = {}) {
+  const weeksLeft = Number.isFinite(ctx.weeksLeft) ? ctx.weeksLeft : null;
   // A team's lineups BEFORE the deal do not depend on the deal, and the trade
   // search evaluates thousands of packages against the same two rosters. Callers
   // that loop (findTrades, offerFor, offerForMany) pass one `memo` per search so
@@ -1163,7 +1181,13 @@ export function evaluate(a, b, slots, ctx = {}) {
       risk: sideRisk(givesOut, getsIn),
       lineup_before: before.points, lineup_after: post.points,
       ppg_delta: +(post.points - before.points).toFixed(2),
-      season_delta: +((post.points - before.points) * GAMES).toFixed(1),
+      // Over the weeks this league has left, not over a whole NFL season. The
+      // caller supplies it (weeksLeftFor above); when it does not, this is null
+      // rather than a plausible wrong number, because the failure mode being
+      // fixed here is precisely a season-long figure that looked reasonable.
+      season_delta: weeksLeft == null ? null : +((post.points - before.points) * weeksLeft).toFixed(1),
+      // So a surface can say WHICH weeks it is, instead of implying a season.
+      season_delta_weeks: weeksLeft,
       // The lineup change in THIS league's playoff weeks (playoffLeg above: the
       // weekly-rate lineup of each playoff week, byes out, averaged). No opponent
       // adjustment, so this differs from ppg_delta only by WHEN points land: adj_ppg
@@ -1634,7 +1658,8 @@ function findTradesUncached(lg, {
         if (skew < -0.16 || skew > 0.30) continue;
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
-          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo });
+          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo,
+            weeksLeft: weeksLeftFor(lg, weekNow.week) });
         if (ev.me.ppg_delta < 0.4) continue;
         // Never even a "closest fit" fallback candidate — no real GM accepts leaving
         // a starting slot empty, whatever the value math says.
@@ -1653,7 +1678,8 @@ function findTradesUncached(lg, {
           const leanGet = side === 'get' ? get.filter(x => x.id !== player.id) : get;
           if (!leanGive.length || !leanGet.length) return false;
           const lean = evaluate({ team: me, gives: leanGive }, { team: them, gives: leanGet }, slots,
-            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo });
+            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo,
+              weeksLeft: weeksLeftFor(lg, weekNow.week) });
           return lean.me.ppg_delta >= ev.me.ppg_delta - 0.05
             && lean.them.ppg_delta >= ev.them.ppg_delta - 0.05;
         });
@@ -2296,7 +2322,8 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     const ratio = target.value ? giveValue / target.value : 0;
     if (ratio < 0.70 || ratio > 1.65) continue;
     const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
-      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo,
+        weeksLeft: weeksLeftFor(lg, weekNow.week) });
     const gain = ladderGain(ev, horizon);
     // The horizon-weighted gain is the objective, so it is also the entry gate —
     // it used to be the flat weekly delta, which discarded a package that is worth
@@ -2457,7 +2484,8 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
       const ratio = targetsValue ? giveValue / targetsValue : 0;
       if (ratio < 0.70 || ratio > 1.65) continue;
       const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
-        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo,
+          weeksLeft: weeksLeftFor(lg, weekNow.week) });
       const gain = ladderGain(ev, horizon);
       if (gain.value <= 0) continue;
       priced.push({

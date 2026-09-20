@@ -950,3 +950,175 @@ test('G9f: a reading with enough sample still prices, unchanged', () => {
     'at 0.8 of its cap, unchanged');
   assert.ok(!(on.inert ?? []).some(i => i.source === 'luck_self_view'), 'a firing source is not also inert');
 });
+
+// ======================================================= G11 the Jev model read
+//
+// `manager_archetype_jev` has existed since the archetype build shipped and
+// NOTHING in the trade path read it. It holds a model's answers to exactly the
+// questions the trade engine wants about a person — does he overvalue his own
+// roster, does he counter or decline outright, does he sell low after a bad week
+// — and the trade path priced without ever looking.
+//
+// It is brought in DISPLAYED, not priced, and these gates are what make that
+// claim mean something:
+//
+//  G11a the block carries the stamp of the JEV pass, per manager, and that stamp
+//       is neither the league's newest nor the archetype build's;
+//  G11b `basis` travels, so an answer with no evidence under it cannot read as a
+//       measurement of him;
+//  G11c a flat answer is reported as carrying no information rather than as a
+//       33% chance of something;
+//  G11d deleting the whole store moves no price, multiplier, factor or
+//       receptiveness — the guarantee that this added no weight;
+//  G11e a manager the pass never covered and a store that was never built are
+//       different absences with different sentences;
+//  G11f the read travels with the PERSON, across leagues, because that is what
+//       the store is keyed by.
+//
+// The stamps below are pinned and deliberately unequal to each other AND to
+// ARCH_BUILT_AT. The Jev pass is opt-in (`--jev`, needs a gateway key) while the
+// archetype build is not, so the two run at different times by design — reusing
+// the archetype stamp here would be the exact substitution this family of
+// accessors exists to prevent.
+const JEV_EVAL_HAY = '2026-09-18T03:00:00.000Z';
+const JEV_EVAL_CARL = '2026-09-19T04:30:00.000Z';   // the NEWEST in league 21
+const JEV_MODEL = 'test-model-v1';
+
+function insertJevFixture() {
+  const ins = (memberId, question, outcome, probability, basis, evaluatedAt,
+    { nSeasons = 3, nPicks = 45 } = {}) =>
+    run(`INSERT OR REPLACE INTO manager_archetype_jev
+           (member_id, question, outcome, probability, basis, n_seasons, n_picks, model, state_chars, evaluated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 4000, ?)`,
+    memberId, question, outcome, probability, basis, nSeasons, nPicks, JEV_MODEL, evaluatedAt);
+
+  // Hayden: one answer with evidence and a clear lean, two without evidence and
+  // flat — which is the honest shape of the live store, where five of the eight
+  // questions are `inference_only`.
+  for (const [outcome, p] of Object.entries(
+    { rb_heavy: 0.60, wr_heavy: 0.10, qb_early: 0.10, te_early: 0.10, balanced: 0.10 })) {
+    ins(HAY, 'position_bias', outcome, p, 'draft', JEV_EVAL_HAY);
+  }
+  for (const [outcome, p] of Object.entries({ counters: 0.34, binary: 0.33, never: 0.33 })) {
+    ins(HAY, 'trade_style', outcome, p, 'inference_only', JEV_EVAL_HAY);
+  }
+  ins(HAY, 'sells_low_after_bad_week', 'true', 0.5, 'inference_only', JEV_EVAL_HAY);
+
+  // Carl: evaluated a day later than Hayden, so the newest stamp in the league
+  // belongs to somebody else. A league-wide MAX() reported on Hayden's block
+  // would print Carl's date under Hayden's name.
+  for (const [outcome, p] of Object.entries(
+    { rb_heavy: 0.15, wr_heavy: 0.55, qb_early: 0.10, te_early: 0.10, balanced: 0.10 })) {
+    ins(CARL, 'position_bias', outcome, p, 'draft', JEV_EVAL_CARL, { nSeasons: 2, nPicks: 30 });
+  }
+  // Danny (roster 4 of league 21) is deliberately NOT evaluated.
+}
+insertJevFixture();
+
+const jevOf = (leagueId, rosterId, opts = {}) => layerFor(leagueId, opts).get(rosterId).jev;
+const answerFor = (block, question) => (block?.answers ?? []).find(a => a.question === question);
+
+test('G11a: each manager\'s model read carries HIS OWN evaluation date', () => {
+  const hay = jevOf(21, '2');
+  assert.ok(hay, 'the manager entry carries the Jev block');
+  assert.equal(hay.as_of, JEV_EVAL_HAY, 'his own stamp');
+  assert.notEqual(hay.as_of, JEV_EVAL_CARL,
+    'not the newest evaluation in the league — that one is somebody else\'s');
+  assert.notEqual(hay.as_of, ARCH_BUILT_AT,
+    'and not the archetype build\'s stamp: the Jev pass is a separate, opt-in process');
+  assert.match(hay.evaluated_by, /--jev/, 'the block names what would refresh it');
+  assert.equal(hay.model, JEV_MODEL, 'and which model answered');
+  assert.equal(jevOf(21, '3').as_of, JEV_EVAL_CARL, 'and the other manager carries his');
+});
+
+test('G11b: an answer with no evidence under it cannot read as a measurement of him', () => {
+  const hay = jevOf(21, '2');
+  const bias = answerFor(hay, 'position_bias');
+  const style = answerFor(hay, 'trade_style');
+  assert.ok(bias && style, 'both answers are served');
+
+  assert.equal(bias.basis, 'draft');
+  assert.equal(bias.measured, true, 'the draft record bears on positional habit');
+  assert.equal(style.basis, 'inference_only');
+  assert.equal(style.measured, false,
+    'the store holds no trades at all, so trade style is a prior and not a reading');
+
+  assert.match(style.why, /prior/i, 'and the sentence says so in words, not just in a flag');
+  assert.doesNotMatch(bias.why, /prior/i,
+    'a measured answer must not be described as a prior — the two must not read alike');
+  assert.notEqual(style.why, bias.why);
+});
+
+test('G11c: a flat answer is reported as carrying no information, not as a 33% chance', () => {
+  const hay = jevOf(21, '2');
+  const style = answerFor(hay, 'trade_style');
+  const sells = answerFor(hay, 'sells_low_after_bad_week');
+  const bias = answerFor(hay, 'position_bias');
+
+  // 0.34/0.33/0.33 is what "spread the probability evenly" looks like when a
+  // model rounds. Served as three numbers it invites a page to draw a bar chart
+  // of noise and a reader to conclude he counters slightly more often than not.
+  assert.equal(style.informative, false, 'an even spread across three options says nothing');
+  assert.equal(sells.informative, false, 'and a boolean at 0.5 is the same non-answer');
+  assert.equal(bias.informative, true, '0.60 on one option is a real lean');
+  assert.match(style.why, /even spread|no information/i);
+});
+
+test('G11d: the model read is DISPLAYED and never priced — deleting the store moves no number', () => {
+  // The guarantee the whole item rests on. Half these answers are priors, and a
+  // prior that moves a price is a number invented about a person. If anyone ever
+  // wires `jev` into a factor, a cap or receptiveness, this goes red.
+  const priced = () => {
+    const managers = mapFor(21).managers;
+    return JSON.stringify([...managers.entries()].map(([rid, entry]) => [rid,
+      [...entry.players.entries()].map(([name, v]) =>
+        [name, v.our_value, v.their_value, v.multiplier, factorNames(v),
+          (v.inert ?? []).map(i => i.source).sort()])]));
+  };
+  const before = layerFor(21);
+  assert.ok(answerFor(before.get('2').jev, 'position_bias'), 'precondition: there is a read to remove');
+  assert.equal(before.get('2').jev.priced, false, 'the block says outright that it prices nothing');
+  const pricedBefore = priced();
+  const receptivenessBefore = [...before.entries()].map(([rid, e]) => [rid, e.receptiveness]);
+
+  run('DELETE FROM manager_archetype_jev');
+  try {
+    const after = layerFor(21);
+    assert.equal((after.get('2').jev.answers ?? []).length, 0, 'precondition: the read is gone');
+    assert.equal(priced(), pricedBefore,
+      'no price, multiplier, factor or inert entry may depend on the model read');
+    assert.deepEqual([...after.entries()].map(([rid, e]) => [rid, e.receptiveness]), receptivenessBefore,
+      'and receptiveness is untouched too — it is the other number a "style" read would tempt someone into');
+  } finally {
+    insertJevFixture();
+  }
+});
+
+test('G11e: a manager the pass never covered and a store never built are different absences', () => {
+  const danny = jevOf(21, '4');
+  assert.ok(danny, 'the block is served even when there is nothing in it');
+  assert.equal(danny.as_of, null, 'no stamp is borrowed from the managers who WERE evaluated');
+  assert.equal((danny.answers ?? []).length, 0);
+  assert.ok(typeof danny.reason === 'string' && danny.reason.length > 0);
+
+  run('DELETE FROM manager_archetype_jev');
+  try {
+    const neverRun = jevOf(21, '4');
+    assert.equal(neverRun.as_of, null);
+    assert.notEqual(neverRun.reason, danny.reason,
+      '"the pass has not covered him" and "the pass has never been run" send a reader to different fixes');
+  } finally {
+    insertJevFixture();
+  }
+});
+
+test('G11f: the read travels with the person, not the league', () => {
+  // `manager_archetype_jev` is keyed by member_id alone, deliberately: how a
+  // person negotiates is a fact about him, and archetypesFor() already carries
+  // the career profile across leagues for the same reason.
+  const inTwentyOne = jevOf(21, '2');
+  const inTwentyTwo = jevOf(22, '2');
+  assert.equal(inTwentyTwo.as_of, inTwentyOne.as_of, 'same person, same evaluation');
+  assert.equal(answerFor(inTwentyTwo, 'position_bias')?.top?.outcome,
+    answerFor(inTwentyOne, 'position_bias')?.top?.outcome);
+});

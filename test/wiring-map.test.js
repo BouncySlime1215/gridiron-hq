@@ -1208,3 +1208,96 @@ test('the impact report names the tests that come with a falling symbol', async 
   assert.match(src, /reached by tests only/i,
     'the already-unreached list must separate "no caller at all" from "a test seam"');
 });
+
+/*
+ * A RETIRED MODULE CAN BE NAMED IN A STRING, AND NOTHING BREAKS.
+ *
+ * Three cases turned up on one night, and none of them is an import, so none broke a
+ * build or failed a test:
+ *
+ *   - `server/services/gridiron-model.js:164` declared the registry entry `fantasy.trends`
+ *     with `module: 'weekly-trends + trend-exploits'` while trend-exploits.js was being
+ *     retired whole on the branch that owns it.
+ *   - A note in trend-watch described the same module.
+ *   - The `/brain/plan` tombstone told callers the weekly plan was being rebuilt on the
+ *     Decision Inbox, a successor that no longer existed.
+ *
+ * The first two are a module NAME with no file. The third is a SUCCESSOR PATH no route
+ * answers, which no name-based rule can see, so it is a second rule and not a wider
+ * version of the first.
+ *
+ * Both are report-only. A string that has gone stale is a documentation fault, not a
+ * broken build, and gating on it would fail the suite for a sentence.
+ *
+ * THE FILTER IS PART OF THE RULE. Written the obvious way — any kebab-case token in any
+ * string that is not a file — this produced 1,317 distinct tokens on this tree,
+ * `append-only`, `play-by-play`, `red-zone`, ordinary English. That is not a finding,
+ * it is a word list. Narrowed to the two places a module is actually NAMED as a module —
+ * a filename with its extension inside a string, and the value of a `module:` field when
+ * that value is module-shaped — it produces two, and both are real.
+ */
+test('a string naming a module file that no longer exists is reported', async () => {
+  const { deadModuleNames } = await import('../scripts/wiring-map.mjs');
+
+  const files = [
+    { path: 'server/services/gridiron-model.js', tree: 'server', scope: 'fantasy',
+      raw: "const registry = [{ id: 'fantasy.trends', module: 'weekly-trends + trend-exploits' }];",
+      strings: [{ text: 'weekly-trends + trend-exploits', line: 1 }] },
+    { path: 'server/services/trend-watch.js', tree: 'server', scope: 'fantasy',
+      raw: "const note = 'the roster join lives in trend-exploits.js';",
+      strings: [{ text: 'the roster join lives in trend-exploits.js', line: 1 }] },
+    { path: 'server/services/weekly-trends.js', tree: 'server', scope: 'fantasy', raw: '', strings: [] },
+  ];
+  const found = deadModuleNames(files);
+  const named = found.map(f => f.name).sort();
+  assert.deepEqual(named, ['trend-exploits', 'trend-exploits'],
+    'both the registry field and the note name a module with no file; weekly-trends has one');
+
+  // The filter is the rule: ordinary English must not become a finding.
+  const prose = [{ path: 'server/services/x.js', tree: 'server', scope: 'fantasy',
+    raw: "const t = 'an append-only, play-by-play, red-zone summary';",
+    strings: [{ text: 'an append-only, play-by-play, red-zone summary', line: 1 }] }];
+  assert.deepEqual(deadModuleNames(prose), [],
+    'a kebab-case word in a sentence is a word, not a module');
+});
+
+test('a tombstone whose successor no route answers is reported', async () => {
+  const { deadTombstoneTargets } = await import('../scripts/wiring-map.mjs');
+
+  const routes = [
+    { name: 'GET /api/trades/:leagueId/find', file: 'server/routes/trades.js', line: 10 },
+    { name: 'GET /api/trades/:leagueId/brain/plan', file: 'server/routes/trades.js', line: 20 },
+  ];
+  const files = [{ path: 'server/routes/trades.js', tree: 'server', scope: 'fantasy',
+    raw: [
+      "r.get('/:leagueId/brain/plan', retired('/api/trades/:leagueId/find', 'moved'));",
+      "r.get('/:leagueId/old', retired('/api/decision-inbox', 'rebuilt on the Decision Inbox'));",
+    ].join('\n') }];
+
+  const found = deadTombstoneTargets(files, routes);
+  assert.deepEqual(found.map(f => f.target), ['/api/decision-inbox'],
+    'a successor that exists is fine; one that does not is the whole point of the rule');
+  assert.equal(found[0].file, 'server/routes/trades.js');
+  assert.equal(found[0].line, 2);
+});
+
+/*
+ * A NEW CHECKER IS NOT TRUSTED UNTIL IT REPRODUCES A FINDING SOMEBODY ALREADY MADE BY
+ * HAND. The three cases above cannot fire on THIS tree — trend-exploits.js still exists
+ * here, and /brain/plan's successor /api/trades/:leagueId/find is live — so the fixtures
+ * are the only proof of the mechanism, and fixtures can be written to pass.
+ *
+ * So the rule is held to real data as well. It found two on its first run, in a place
+ * nobody was looking: server/db/schema/nfl-a-to-m.js:18 and nfl-n-to-z.js:11 list
+ * `server/services/nfl-clv.js` and `server/services/nfl-neural-replay.js` in a `sources`
+ * array. Both files were collapsed away by commit 47965a5, "Stage 2: collapse duplicate
+ * engines — one CLV module, one neural-replay engine". The arrays still name them.
+ */
+test('the rule reproduces the two real cases on this tree', async () => {
+  const map = JSON.parse(await readFile(new URL('../docs/wiring/wiring-map.json', import.meta.url), 'utf8'));
+  const rows = map.findings.filter(f => f.rule === 'string-names-a-deleted-module');
+  const subjects = rows.map(r => r.subject).sort();
+  assert.deepEqual(subjects, ['nfl-clv', 'nfl-neural-replay'],
+    'two schema files still list modules that commit 47965a5 collapsed away');
+  for (const r of rows) assert.match(r.evidence[0], /^server\/db\/schema\/nfl-[an]-to-[mz]\.js:\d+$/);
+});

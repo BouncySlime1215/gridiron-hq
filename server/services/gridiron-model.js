@@ -161,7 +161,12 @@ const CAPABILITIES = [
   {
     id: 'fantasy.trends',
     question: 'What has changed about this team lately?',
-    module: 'weekly-trends + trend-exploits',
+    // `trend-exploits` was named here too, and is being retired whole on the branch that
+    // owns it. A module named in a registry entry is not an import: deleting the file
+    // breaks no build and fails no test, and this string would have gone on describing
+    // it. weekly-trends is the substantive half anyway — the Welch t-test below is its
+    // method; trend-exploits was the roster join layered on top.
+    module: 'weekly-trends',
     domain: 'fantasy',
     evidence: { kind: 'method',
       note: 'Welch t-test against the team\'s own baseline, Sidak-corrected across a pre-specified ' +

@@ -289,12 +289,20 @@ run(`INSERT INTO league_member_identity (league_id, roster_id, espn_member_id, e
 LEAGUE, MEMBER[0], LEAGUE, MEMBER[1], LEAGUE, MEMBER[2]);
 
 // ------------------------------------------------------------- transactions
+// Collection stamps are PINNED and deliberately unequal. `last_seen_at` is the
+// collector's own upsert stamp, and nothing in the app read it until 2026-09-20;
+// a fixture where every row shares one second cannot tell the newest stamp from
+// the oldest, which is how a MIN-for-MAX mutation survives.
+const TX_FIRST_SEEN = '2026-09-17T09:00:00Z';
+const TX_SEEN_EARLY = '2026-09-17T22:00:00Z';
+const TX_COLLECTED_AT = '2026-09-18T06:30:00Z';   // the newest — the real "as of"
 function tx(leagueId, id, type, execution, teamId,
-  { related = null, items = [], at = '2026-09-10T00:00:00Z' } = {}) {
+  { related = null, items = [], at = '2026-09-10T00:00:00Z', seenAt = TX_SEEN_EARLY } = {}) {
   run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type,
          proposed_at, team_id, related_tx_id, items_json, first_seen_at, last_seen_at)
-       VALUES (?,?,?,?,NULL,?,?,?,?,?,datetime('now'),datetime('now'))`,
-  leagueId, SEASON, id, type, execution, at, teamId, related, JSON.stringify(items));
+       VALUES (?,?,?,?,NULL,?,?,?,?,?,?,?)`,
+  leagueId, SEASON, id, type, execution, at, teamId, related, JSON.stringify(items),
+  TX_FIRST_SEEN, seenAt);
 }
 const swap = (a, b, pa, pb) => [{ fromTeamId: a, toTeamId: b, playerId: pa, type: 'TRADE' },
   { fromTeamId: b, toTeamId: a, playerId: pb, type: 'TRADE' }];
@@ -327,7 +335,7 @@ tx(LEAGUE, 'wproc', 'WAIVER', 'PROCESS', 2, { at: '2026-09-10T11:00:00Z' });
 // A row AFTER the cutoff used in G5c, written the way the collector writes them
 // today (space-separated), which a string compare would sort BEFORE the cutoff.
 tx(LEAGUE, 'late', 'TRADE_PROPOSAL', 'EXECUTE', 1, { items: swap(1, 2, 500, 600), at: '2026-09-18 23:00:00' });
-tx(LEAGUE, 'late-d', 'TRADE_DECLINE', 'EXECUTE', 2, { related: 'late', at: '2026-09-19 23:00:00' });
+tx(LEAGUE, 'late-d', 'TRADE_DECLINE', 'EXECUTE', 2, { related: 'late', at: '2026-09-19 23:00:00', seenAt: TX_COLLECTED_AT });
 
 identity.matchIdentities(LEAGUE, { chatNames: CHAT_NAME });
 identity.matchIdentities(BARE, { chatNames: [] });
@@ -681,6 +689,70 @@ test('G5c: the cutoff is a parsed date — a space-separated later row must not 
   const later = tactics.timingRead(LEAGUE, { season: SEASON, now: '2026-09-20T00:00:00Z' });
   assert.equal(asOf.get('2').decisions_n, 4, 'the later decline must not be read at 14:00 on the 18th');
   assert.equal(later.get('2').decisions_n, 5, 'and it must be read once the clock passes it');
+});
+
+// ================================================= G5d transaction freshness
+/**
+ * The same rule as the manager read (docs/tdd/transactions-as-of.tdd.md), on the
+ * two consumers that sit between it and a trade card.
+ *
+ * `league_transactions_raw` is written only by scripts/collect-league-transactions.mjs,
+ * spawned only from the off-server refresh loop. fly.toml declares no `processes`,
+ * so on the deployed app these rows are as old as the last time the collector was
+ * run by hand — and a trade card was pricing a counterparty on this history, and
+ * telling him when he last declined an offer, without ever saying the history
+ * stops there.
+ *
+ * One shape everywhere: the same `transactionsCollected` accessor, the same
+ * `transactions` block, so no two surfaces can disagree about the same date.
+ */
+test('G5d: the timing read states when the transactions under it were collected', () => {
+  const read = tactics.timingRead(LEAGUE, { season: SEASON, now: NOW });
+  const hayden = read.get('2');
+  assert.ok(hayden.transactions, 'the per-manager timing read carries the collection block');
+  assert.equal(hayden.transactions.as_of, TX_COLLECTED_AT,
+    'as_of is the NEWEST collection stamp, not the oldest');
+  assert.ok(hayden.transactions.rows > 0);
+  assert.match(hayden.transactions.collected_by, /collect-league-transactions\.mjs/);
+  // A manager with nothing on him still gets the date: "we have not looked since
+  // Thursday" and "he has done nothing" are different answers.
+  const quiet = read.get('6');
+  if (quiet) assert.equal(quiet.transactions.as_of, TX_COLLECTED_AT,
+    'a manager with no decisions still reports when the league was last collected');
+  // The cutoff does not move the collection date. `now` bounds what is READ;
+  // the stamp is when the rows arrived, and conflating them would make the date
+  // look like it tracked the clock.
+  const later = tactics.timingRead(LEAGUE, { season: SEASON, now: '2026-09-20T00:00:00Z' });
+  assert.equal(later.get('2').transactions.as_of, TX_COLLECTED_AT);
+});
+
+test('G5d2: the veto climate states it too, including when there is no veto history', () => {
+  const here = tactics.vetoClimate(LG, { season: SEASON });
+  assert.equal(here.transactions.as_of, TX_COLLECTED_AT);
+  assert.ok(here.transactions.rows > 0);
+  // The early return. A league with no transactions at all returns before any of
+  // the veto arithmetic, and that is exactly where the date was missing.
+  const bare = tactics.vetoClimate(LG_BARE, { season: SEASON });
+  assert.equal(bare.n, 0, 'LG_BARE is the league with no transaction history');
+  assert.ok(bare.transactions, 'the early return carries the block too');
+  assert.equal(bare.transactions.as_of, null, 'nothing collected is null, never a borrowed stamp');
+  assert.equal(bare.transactions.rows, 0);
+  assert.ok(typeof bare.transactions.reason === 'string' && bare.transactions.reason.length > 0);
+});
+
+test('G5d3: how-Nick-looks states it, and one accessor means no two surfaces can disagree', () => {
+  const self = pricing.selfRead(LEAGUE, { season: SEASON });
+  assert.ok(self.transactions, 'selfRead carries the collection block');
+  assert.equal(self.transactions.as_of, TX_COLLECTED_AT);
+  // The unification, asserted rather than asserted-about: all three reads of the
+  // same rows must agree to the character, because all three go through one
+  // accessor. Three hand-rolled MAX() queries is how they come to disagree.
+  const timing = tactics.timingRead(LEAGUE, { season: SEASON, now: NOW }).get('2');
+  const climate = tactics.vetoClimate(LG, { season: SEASON });
+  assert.deepEqual(self.transactions, timing.transactions);
+  assert.deepEqual(self.transactions, climate.transactions);
+  const bare = pricing.selfRead(BARE, { season: SEASON });
+  assert.equal(bare.transactions.as_of, null);
 });
 
 // ============================================================== G6 veto

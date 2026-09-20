@@ -822,12 +822,116 @@ export function managerProfile(memberId) {
 }
 
 /**
+ * WHO WRITES THE TWO TABLES UNDER A MANAGER CARD, AND HOW OFTEN.
+ *
+ * Both are written by `buildManagerArchetypes()` and `storeJevAnswers()`, and
+ * both are reached from exactly one place: `scripts/build-manager-archetypes.mjs`,
+ * which a person runs. No route, no scheduler job and no refresh tick calls
+ * either. So a card is always built from whatever was last produced by hand.
+ */
+export const ARCHETYPE_BUILDER =
+  'scripts/build-manager-archetypes.mjs (run by hand; nothing on the deployed app writes these tables)';
+
+/**
+ * WHEN THE EVIDENCE UNDER ONE MANAGER CARD WAS BUILT.
+ *
+ * The card served at `routes/trades.js:501` carries three things with three
+ * different provenances, and one date for all of them would be wrong for at
+ * least two:
+ *
+ *   - `this_season` — `manager_archetypes` rows keyed (member, league, season).
+ *   - `career` — the same table, but keyed (member, 0, 0). A build only writes
+ *     career rows for members it found draft picks for, so a league-season can
+ *     be freshly built while the career roll-up beside it on the same card is
+ *     older, and the reverse.
+ *   - `jev` — `manager_archetype_jev`, written by a SEPARATE pass after a
+ *     gateway call, with its own `evaluated_at`. Dating those answers by the
+ *     archetype build would report a stamp that pass never wrote.
+ *
+ * THE TABLE'S OWN STAMPS, NEVER `sync_log`. There is no job row to borrow here
+ * anyway, but the rule is the same one the signals payload follows: a job-level
+ * stamp says when a build RAN, not which league-seasons it produced rows for.
+ * A league missing its draft picks is skipped silently by
+ * `buildManagerArchetypes` (`leagueSeasons` comes from `league_draft_picks`),
+ * so the job can succeed while this league-season stays exactly as old as it
+ * was. `MAX(computed_at)` for this league-season is the only value that means
+ * "the build reached this league-season".
+ *
+ * MAX and not MIN: every row of one build shares a single `now`, so on a clean
+ * database the two are equal — but the build `DELETE`s only its own version, so
+ * rows can survive from an earlier run. The question the card is answering is
+ * when this evidence was last refreshed.
+ *
+ * `null` with a reason, never a borrowed stamp: "built this morning" and "never
+ * built" must not look alike. There is no `table_missing` reason because this
+ * module `CREATE TABLE IF NOT EXISTS`es both at import, so the table cannot be
+ * absent wherever this function can be called.
+ *
+ * @param {number} leagueId
+ * @param {number} season
+ * @param {string|null} memberId when given, the block also dates that member's
+ *   stored Jev answers; omitted, the Jev fields are left off rather than
+ *   answered league-wide, which would hand a manager a date for answers that
+ *   are not his.
+ */
+export function archetypesBuilt(leagueId, season, memberId = null) {
+  const { ls, career } = builtStamps(leagueId, season);
+  const jev = memberId == null ? null
+    : rows(`SELECT COUNT(*) AS n, MAX(evaluated_at) AS as_of FROM manager_archetype_jev
+            WHERE member_id = ?`, memberId)[0];
+  return builtBlock(leagueId, season, ls, career, jev);
+}
+
+/** The two stamp reads, written once. The first mutation run caught this file
+ * with the pair copied into both callers: an injection into one left the other
+ * answering correctly, which is the same drift `builtBlock` exists to prevent,
+ * one level up. */
+function builtStamps(leagueId, season) {
+  const [ls] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of FROM manager_archetypes
+                     WHERE league_id = ? AND season = ? AND version = ?`,
+  leagueId, season, MANAGER_ARCHETYPE_VERSION);
+  const [career] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of FROM manager_archetypes
+                         WHERE league_id = ? AND season = ? AND version = ?`,
+  CAREER_LEAGUE, CAREER_SEASON, MANAGER_ARCHETYPE_VERSION);
+  return { ls, career };
+}
+
+/** The one place the block's shape is written, so a per-card build and a direct
+ * call cannot drift apart. `ls`, `career` and `jev` are {n, as_of} rows. */
+function builtBlock(leagueId, season, ls, career, jev) {
+  const gaps = [];
+  if (!ls.n) gaps.push(`no archetype row for league ${leagueId} season ${season} — the build has never covered it`);
+  if (!career.n) gaps.push('no career roll-up on this database — the build has never run here');
+  const out = {
+    as_of: ls.as_of ?? null,
+    rows: ls.n,
+    career_as_of: career.as_of ?? null,
+    career_rows: career.n,
+    built_by: ARCHETYPE_BUILDER,
+    reason: gaps.length ? gaps.join('; ') : null,
+  };
+  if (jev) { out.jev_as_of = jev.as_of ?? null; out.jev_answers = jev.n; }
+  return Object.freeze(out);
+}
+
+/**
  * One league's managers keyed by roster_id, which is what the trade finder
  * addresses people by. The career profile travels with them: a manager's draft
  * behaviour in his 2023 league is evidence about the same person in 2026.
+ *
+ * Every card carries `built`, the block above. It is on the card rather than
+ * beside the collection because the card is where the claim is made: someone
+ * reading "reaches for a QB early, 16 picks" is reading an assertion about
+ * evidence, and its age belongs with it. The league-season and career halves
+ * are read once for the whole map; only the Jev stamp is per member, and that
+ * is one grouped query rather than one per card.
  */
 export function archetypesFor(leagueId, season) {
   const out = new Map();
+  const { ls, career } = builtStamps(leagueId, season);
+  const jevBy = new Map(rows(`SELECT member_id, COUNT(*) AS n, MAX(evaluated_at) AS as_of
+                              FROM manager_archetype_jev GROUP BY member_id`)
+    .map(r => [r.member_id, r]));
   for (const t of rows(`SELECT roster_id, espn_member_id, owner_name FROM league_season_teams
                         WHERE league_id = ? AND season = ?`, leagueId, season)) {
     if (!t.espn_member_id) continue;
@@ -838,6 +942,8 @@ export function archetypesFor(leagueId, season) {
       career: profile.seasons.career ?? null,
       this_season: profile.seasons[`${leagueId}|${season}`] ?? null,
       jev: profile.jev,
+      built: builtBlock(leagueId, season, ls, career,
+        jevBy.get(t.espn_member_id) ?? { n: 0, as_of: null }),
     });
   }
   return out;

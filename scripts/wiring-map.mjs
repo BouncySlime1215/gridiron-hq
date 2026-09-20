@@ -2314,6 +2314,9 @@ function missingFeedTable(model, found) {
 
 function toJson(model, found, ann) {
   const { files, tables, surfaces, jobs, mounts, reachNames } = model;
+  // Columns are derived for the column rules; emitting them costs nothing and saves the
+  // Coach thread deriving the same thing a second way for its table catalogue.
+  const columns = tableColumns(files);
   return {
     generated_by: 'scripts/wiring-map.mjs',
     cannot_see: LIMITS,
@@ -2329,6 +2332,7 @@ function toJson(model, found, ann) {
     mounts,
     tables: [...tables.values()].map(t => ({
       table: t.table, scope: t.scope,
+      columns: [...(columns.get(t.table) ?? [])].sort(),
       created_in: [...new Set(t.creates.map(c => `${c.file}:${c.line}`))],
       written_by: [...new Set(t.writes.filter(w => w.tree !== 'test').map(w => `${w.file}:${w.line}`))],
       read_by: [...new Set(t.reads.filter(r => r.tree !== 'test').map(r => `${r.file}:${r.line}`))],

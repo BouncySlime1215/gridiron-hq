@@ -1412,95 +1412,95 @@ All 527 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **scripts/wiring-map.mjs#acceptGuard** `[shared]` — exported and never imported
   - scripts/wiring-map.mjs:2247
 - **scripts/wiring-map.mjs#annotations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#blastRadius** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#blindCaches** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#bodyRange** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#build** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#bulkInScope** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2535
+  - scripts/wiring-map.mjs:2539
 - **scripts/wiring-map.mjs#clientCalls** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#close** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#CLOSE_HOPS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#columnEvidence** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2535
+  - scripts/wiring-map.mjs:2539
 - **scripts/wiring-map.mjs#declarations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#findings** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#foreignHandles** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#foreignOnlyFile** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2534
+  - scripts/wiring-map.mjs:2538
 - **scripts/wiring-map.mjs#functionReach** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#functionUnits** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#gatedRegions** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#GRANDFATHERED** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2534
+  - scripts/wiring-map.mjs:2538
 - **scripts/wiring-map.mjs#handleFor** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#imageDirs** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2535
+  - scripts/wiring-map.mjs:2539
 - **scripts/wiring-map.mjs#interpolations** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2534
+  - scripts/wiring-map.mjs:2538
 - **scripts/wiring-map.mjs#JOBS** `[shared]` — exported and never imported
   - scripts/wiring-map.mjs:604
 - **scripts/wiring-map.mjs#keyReads** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#LIMITS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#MAX_HOPS** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#missingFeedTable** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#moduleEdges** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#NEVER_BASELINE** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2534
+  - scripts/wiring-map.mjs:2538
 - **scripts/wiring-map.mjs#outboundUrlPaths** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2535
+  - scripts/wiring-map.mjs:2539
 - **scripts/wiring-map.mjs#payloadKeys** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#routeHandlers** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#routeLiteralAbsent** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2535
+  - scripts/wiring-map.mjs:2539
 - **scripts/wiring-map.mjs#routeMounts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#routeWorkload** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2535
+  - scripts/wiring-map.mjs:2539
 - **scripts/wiring-map.mjs#runtimeFilePaths** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2535
+  - scripts/wiring-map.mjs:2539
 - **scripts/wiring-map.mjs#scan** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#schedulerJobs** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#shouldBeWired** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#sqlEdges** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#statementTables** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#surfaceFamilies** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#tableColumns** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#toJson** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#toMarkdown** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2536
+  - scripts/wiring-map.mjs:2540
 - **scripts/wiring-map.mjs#valueUsageCounts** `[shared]` — exported and never imported
-  - scripts/wiring-map.mjs:2534
+  - scripts/wiring-map.mjs:2538
 - **server/draft/engine.js#posInRoundOf** `[fantasy]` — exported and never imported
   - server/draft/engine.js:11
 - **server/draft/engine.js#roundOf** `[fantasy]` — exported and never imported

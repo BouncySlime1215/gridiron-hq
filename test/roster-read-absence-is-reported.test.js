@@ -100,9 +100,16 @@ db.prepare(`INSERT OR REPLACE INTO auth_sessions(user_id,token_hash,expires_at) 
 after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
 
 async function request(url, body = null) {
-  const req = new Readable({ read() { this.push(body ? JSON.stringify(body) : null); if (body) this.push(null); } });
-  req.url = url; req.method = body ? 'POST' : 'GET';
-  req.headers = { authorization: `Bearer ${TOKEN}`, ...(body ? { 'content-type': 'application/json' } : {}) };
+  const payload = body ? JSON.stringify(body) : null;
+  const req = new Readable({ read() { if (payload) this.push(payload); this.push(null); } });
+  req.url = url; req.method = payload ? 'POST' : 'GET';
+  // `content-length` is not decoration: express.json() asks type-is whether the
+  // request has a body at all, and without a length or a transfer-encoding the
+  // answer is no — the body is silently never parsed and the route sees an
+  // empty `req.body`, which reads as "the caller sent nothing".
+  req.headers = { authorization: `Bearer ${TOKEN}`,
+    ...(payload ? { 'content-type': 'application/json',
+      'content-length': String(Buffer.byteLength(payload)) } : {}) };
   req.socket = new PassThrough(); req.connection = req.socket;
   return new Promise((resolve, reject) => {
     const res = new ServerResponse(req); const chunks = [];

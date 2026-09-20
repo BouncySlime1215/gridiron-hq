@@ -149,6 +149,29 @@ const norm = s => (s ?? '').toLowerCase().replace(/[.'’-]/g, '')
  * spot they can't afford to lose, which is exactly what makes an auto-suggested
  * trade read as fake to someone who knows the league.
  */
+/**
+ * Why the counterparty's needs/surplus read is missing from an evaluation, in
+ * words. The `unavailable` wording is copied verbatim from
+ * `counterparty-pricing.js:773`, which reports the same failure of the same
+ * call: two surfaces naming one failure differently is how a reader concludes
+ * they are two different problems.
+ */
+export const ROSTER_READ_ABSENT = {
+  unavailable: 'no roster read for this league (analyzeLeague produced none)',
+  no_team: 'no roster read for this team in the league analysis',
+  not_supplied: 'no roster read was supplied to this evaluation'
+};
+
+/**
+ * `null` when this league cannot be analysed at all, so the caller can say so.
+ *
+ * It used to return an empty Map on the throw, which is the same shape a league
+ * with no needs anywhere produces — and every downstream read then degraded to
+ * absent with no signal, while the offers kept reading as confident as ones
+ * where the plausibility check had actually run. `deriveRosterNeeds` in
+ * counterparty-pricing.js catches this same call and returns null for exactly
+ * this reason; this is the outlier being brought into line, not a new policy.
+ */
 function rosterContext(lg) {
   const byRoster = new Map();
   try {
@@ -159,9 +182,22 @@ function rosterContext(lg) {
         window: t.window
       });
     }
-  } catch { /* analyzeLeague needs the same synced payload findTrades already checked for */ }
+  } catch {
+    // Same synced payload findTrades already checked for. A league that cannot
+    // be analysed has no positional read, which the callers report as absent
+    // rather than pass off as an empty one.
+    return null;
+  }
   return byRoster;
 }
+
+/**
+ * Which of ROSTER_READ_ABSENT applies to one counterparty, or null when the
+ * read is genuinely present. Callers pass the result as `ctx.rosterReadAbsent`.
+ */
+const rosterReadAbsence = (context, teamCtx) =>
+  (context === null ? ROSTER_READ_ABSENT.unavailable
+    : teamCtx ? null : ROSTER_READ_ABSENT.no_team);
 
 /* ------------------------------------------------------------------ assets */
 
@@ -1126,7 +1162,7 @@ const verdictFor = (ppgDelta, valueDelta) => {
  * Score one concrete package from both sides.
  *
  * @param a {{team, gives: asset[]}}  @param b {{team, gives: asset[]}}
- * @param ctx {{theirNeeds?: Set<string>, theirWindow?: object}} real roster context
+ * @param ctx {{theirNeeds?: Set<string>, theirWindow?: object, rosterReadAbsent?: string|null}} real roster context
  *   for team b, from rosterContext() — lets the plausibility check see whether this
  *   package actually makes sense for them, not just whether the numbers pencil out.
  */
@@ -1264,6 +1300,13 @@ export function evaluate(a, b, slots, ctx = {}) {
     plausible: !brokenForThem && (bothImprove || fairEnough),
     red_flags: redFlags,
     their_window: ctx.theirWindow ?? null,
+    // Whether the roster-fit check above actually had a read to run against, and
+    // why not when it did not. It defaults to the not-supplied reason rather
+    // than to null on purpose: a caller that passes no context has not run the
+    // check either, and this field must never say "the check ran" on its behalf.
+    // POST /api/trades/:leagueId/evaluate is exactly that caller today.
+    roster_read_absent: ctx.rosterReadAbsent
+      ?? (ctx.theirNeeds ? null : ROSTER_READ_ABSENT.not_supplied),
     their_value_pct: +theirValuePct.toFixed(1),
     fairness: fairnessLabel(A.value_delta, A.value_out + A.value_in),
     // My side's numbers-only evidence line: "give: 5/5 top-24 seasons, ±9%
@@ -1623,7 +1666,7 @@ function findTradesUncached(lg, {
   for (const them of teams) {
     if (them.roster_id === me.roster_id) continue;
     if (blockedManagers.has(String(them.roster_id))) continue;
-    const theirCtx = context.get(String(them.roster_id));
+    const theirCtx = context?.get(String(them.roster_id));
     const cp = counterparties.get(String(them.roster_id)) ?? null;
     // Whether "he's untouchable" is a fact or an opening price. For a manager
     // whose declarations have held, the player is removed from the search
@@ -1658,7 +1701,8 @@ function findTradesUncached(lg, {
         if (skew < -0.16 || skew > 0.30) continue;
 
         const ev = evaluate({ team: me, gives: give }, { team: them, gives: get }, slots,
-          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo,
+          { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window,
+            rosterReadAbsent: rosterReadAbsence(context, theirCtx), memo,
             weeksLeft: weeksLeftFor(lg, weekNow.week) });
         if (ev.me.ppg_delta < 0.4) continue;
         // Never even a "closest fit" fallback candidate — no real GM accepts leaving
@@ -1678,7 +1722,8 @@ function findTradesUncached(lg, {
           const leanGet = side === 'get' ? get.filter(x => x.id !== player.id) : get;
           if (!leanGive.length || !leanGet.length) return false;
           const lean = evaluate({ team: me, gives: leanGive }, { team: them, gives: leanGet }, slots,
-            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window, memo,
+            { theirNeeds: theirCtx?.needs, theirWindow: theirCtx?.window,
+            rosterReadAbsent: rosterReadAbsence(context, theirCtx), memo,
               weeksLeft: weeksLeftFor(lg, weekNow.week) });
           return lean.me.ppg_delta >= ev.me.ppg_delta - 0.05
             && lean.them.ppg_delta >= ev.them.ppg_delta - 0.05;
@@ -2254,7 +2299,8 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   const tier = rows(`SELECT tradeability FROM manager_profiles WHERE league_id=? AND roster_id=?`,
     lg.id, String(owner.roster_id))[0]?.tradeability ?? 'fair';
   if (tier === 'never') return { error: `${owner.owner} is marked "Never trades," so the engine did not generate fake offers for this player.` };
-  const ownerCtx = rosterContext(lg).get(String(owner.roster_id));
+  const rosterRead = rosterContext(lg);
+  const ownerCtx = rosterRead?.get(String(owner.roster_id));
   const { weekNow, odds, horizon, counterparties } = ladderInputs(lg, myTeamId, playoffOdds);
 
   // How motivated is the seller? A team with surplus at his position and a hole
@@ -2269,7 +2315,8 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
   const memo = new WeakMap();   // both rosters are fixed for this whole ladder (see evaluate())
   const myLine = bestLineup(me.players, slots);
   const addCeiling = freeAddCeiling(me, owner, [target], slots, horizon,
-    { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+    { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window,
+      rosterReadAbsent: rosterReadAbsence(rosterRead, ownerCtx), memo });
   const upside = addCeiling.weekly;
   const upsideHorizon = addCeiling.horizon_weighted;
   const blockedBy = myLine.slots
@@ -2322,7 +2369,8 @@ export function offerFor(lg, { myTeamId, targetId, excludeIds = null, playoffOdd
     const ratio = target.value ? giveValue / target.value : 0;
     if (ratio < 0.70 || ratio > 1.65) continue;
     const ev = evaluate({ team: me, gives: give }, { team: owner, gives: [target] }, slots,
-      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo,
+      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window,
+        rosterReadAbsent: rosterReadAbsence(rosterRead, ownerCtx), memo,
         weeksLeft: weeksLeftFor(lg, weekNow.week) });
     const gain = ladderGain(ev, horizon);
     // The horizon-weighted gain is the objective, so it is also the entry gate —
@@ -2438,7 +2486,7 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
         error: `${owner.owner} is marked "Never trades," so no offers were generated.` });
       continue;
     }
-    const ownerCtx = context.get(String(owner.roster_id));
+    const ownerCtx = context?.get(String(owner.roster_id));
     const targetsValue = theirTargets.reduce((s, p) => s + Math.max(0, p.value), 0);
 
     const withoutThem = bestLineup(owner.players.filter(p => !theirTargets.some(t => t.id === p.id)), slots);
@@ -2450,7 +2498,8 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
     // below are gated on rather than on this week alone (see freeAddCeiling).
     const memo = new WeakMap();   // both rosters are fixed for this owner's ladder (see evaluate())
     const addCeiling = freeAddCeiling(me, owner, theirTargets, slots, horizon,
-      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo });
+      { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window,
+      rosterReadAbsent: rosterReadAbsence(context, ownerCtx), memo });
     const upside = addCeiling.weekly;
     const upsideHorizon = addCeiling.horizon_weighted;
 
@@ -2484,7 +2533,8 @@ export function offerForMany(lg, { myTeamId, targetIds, excludeIds = null, playo
       const ratio = targetsValue ? giveValue / targetsValue : 0;
       if (ratio < 0.70 || ratio > 1.65) continue;
       const ev = evaluate({ team: me, gives: give }, { team: owner, gives: theirTargets }, slots,
-        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window, memo,
+        { theirNeeds: ownerCtx?.needs, theirWindow: ownerCtx?.window,
+        rosterReadAbsent: rosterReadAbsence(context, ownerCtx), memo,
           weeksLeft: weeksLeftFor(lg, weekNow.week) });
       const gain = ladderGain(ev, horizon);
       if (gain.value <= 0) continue;

@@ -2581,7 +2581,13 @@ already exist. That is why an unfamiliar PR number is worth a second look.
    build — 13 growth and 6 metered — come due at once there and run in series
    on the request thread. 900 covers that pass twice. **In that window the app
    will be busy and still answering** — a slow response is the fixed state, a
-   dark one is not. **And if it does die between 300 and 900 seconds, the cause
+   dark one is not. **One of the nineteen is worth naming, because it is the
+   biggest single cost and it is on the request thread:**
+   `trade_asset_universe_warm` (`scheduler.js:1347`, tier `growth`) rebuilds
+   the asset universe for every league, which the scheduler thread measures at
+   five to six seconds per league. With five leagues that is most of the first
+   pass on its own, and it cannot be moved off-thread because what it warms is
+   a module-level `Map` in this process (`compute-cache.js:24`). **And if it does die between 300 and 900 seconds, the cause
    is in those nineteen, not in the boot fix**, which is a different
    investigation and not a reason to doubt the merge. **Only after this passes does the run sheet resume at step 7.**
    Re-enabling without re-proving is how a fix that half-works gets believed.

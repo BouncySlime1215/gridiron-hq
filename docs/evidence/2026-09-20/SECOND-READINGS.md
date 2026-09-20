@@ -139,6 +139,76 @@ because a second reader who hides their misses is not a second reader.
   was "recorded with the commit", and neither its commit message nor
   da8ec48's carries a count.
 
+## Coach at 4e93e98: every row sound, under half the suite covered
+
+Coach's harness is the best in the project. `docs/tdd/sweeps/*.json` carries
+each injection as literal `old`/`new` text, so its table rows are generated
+from the exact patch rather than describing it; it reports **NOT APPLIED
+(anchor xN)** when a pattern matches more than once, which is the failure mode
+that produced a false "caught" elsewhere; and it restores by bytes and proves
+the restore by hash. Twenty-two of its rows were re-run here against three of
+its files and **every hash and every fail count reproduced exactly** — the
+lexicon's five, the grading file's nine, the tool layer's eight.
+
+Its prose is equally careful: three grading mutations survived a first pass and
+say so, each with the fixture the new test needed, and M69 is recorded as a
+deletion — a guard that could not be made to fire, removed rather than kept —
+which is the sixth part applied better than anywhere else in the set.
+
+**The gap is the seventh part, and it is systematic.** Union the tests each
+sweep's rows turn red, subtract from the suite's own test list:
+
+| sweep | tests | turned red by no row |
+|---|---|---|
+| grading | 12 | **2** |
+| lexicon | 12 | **7** |
+| tool layer | 17 | **10** |
+| ask | 23 | **12** |
+| catalog | 31 | **12** |
+| ledger | 28 | **11** |
+| person | 24 and 18 across two overlapping pairings | **21 distinct** |
+
+Across the six sweeps that count cleanly, **54 of 123 tests are turned red by
+nothing** in their own evidence file. Person is listed separately because
+`coach-person-variables.test.js` appears in two of its rows' suite strings, so
+its two lines share tests and cannot simply be added.
+
+**Why the RED commits do not close this, and the point generalises.** The tool
+layer's RED is recorded as "suite written against a module that does not exist;
+0 pass, 1 file erroring on import". That is red for every test at once, for one
+reason, so it shows nothing about any individual test's ability to fail on its
+own terms. Coach builds new modules, so every RED it writes has that shape.
+**Where the RED is module-absent, the injection table is not a supplement to it;
+it is the only per-test evidence in the file**, and the seventh part therefore
+applies to every test in the suite rather than only to the ones a row aims at.
+
+**These are gaps, not equivalent mutants.** Checked rather than asserted, three
+killing rows supplied, each red on exactly its own test:
+
+- `toRows: nothing at all is no rows, not a row of nothing` — return a row of
+  `null` instead of none for null/undefined: `e9a0aeca` → `79430a5c`, 1 fail.
+- ``toRows: an array of scalars becomes a row each, under `value` `` — key the
+  rows `item`: `e9a0aeca` → `adceb1c0`, 1 fail.
+- `grading reports every computed variable, with the people behind each grade` —
+  `n_people: pairs.length` → `n_people: String(pairs.length)`:
+  `ef500418` → `ba61d7e2`, 2 fail.
+
+**One test cannot be closed that way, and it is the sharpest finding in this
+log.** `the split is on time, not on message count, and the report says where it
+fell` names the headline decision of `grading.js`, whose docstring argues it at
+length: a split by message count would put a chatty person's early half months
+away from a quiet person's, so half the signal would be the calendar. The test
+body asserts that `split` equals the 0.7 constant, that `split_at` is truthy,
+and that it matches `/^\d{4}-\d{2}-\d{2}/`. A count-based split returns an ISO
+timestamp too. Replacing the time cut with a genuine count cut moves
+`ef500418` → `5de823f7` and gives **12 pass / 0 fail**: the suite survives the
+exact thing the test is named to prevent.
+
+The shipped code is correct in every one of these cases — `splitAt` is
+time-based, `toRows` is right, `tools.js` is right. The claim is the narrower
+one this log exists to make: these tests have never been shown capable of
+failing. Closing them is writing rows, not fixing code.
+
 ## This log's own check
 
 The rule this log applies to everyone else applies to it. Every figure above

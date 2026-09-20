@@ -317,6 +317,227 @@ carried figure stands. Lint walks `server`, `scripts` and `test` and matches
 `git ls-tree -r --name-only <commit> -- server scripts test | grep -cE '\.(js|mjs)$'`
 — a bare repo-wide `ls-tree` gives a different, wrong number.
 
+## A fault in this log's own harness, found and fixed
+
+Measurements in this log run in detached worktrees driven by shell scripts that
+queue one commit after another. Between 11:46Z and 12:17Z I repointed three of
+those scripts onto new heads with `sed -i`, and told the coordinator the
+repoints had landed. **They had not.** `sed -i` writes a new file and renames it
+over the old one; a shell already executing the old one keeps its open file
+descriptor and keeps reading the original bytes. The scripts on disk said one
+thing and the running processes were executing another.
+
+The tell was a result line: chain 5 reported `4e93e98`, which is where it
+started, not the `0b8e77d` I had moved it to. Reading each process's own script
+back out of `/proc/<pid>/fd/255` — the descriptor the shell holds open — showed
+what each was really carrying:
+
+| chain | on disk | actually held | started? |
+|---|---|---|---|
+| 6 | `ee923ae ef28768` | `6a8df0d ef28768` | yes — a full suite already spent on `6a8df0d` |
+| 7 | merge target `23ed6da` | merge target `4389a7a` | no |
+| 8 | `0fbba41` | `f61f5d4` | no |
+| 9, 10, 11 | — | as on disk | — |
+
+Chains 9, 10 and 11 were never edited mid-run; their descriptors are not marked
+`(deleted)`, and that marker is how the three bad ones were told from the three
+good ones. Seven and eight were stopped and relaunched from new files.
+
+**No figure in this log is affected.** Every suite number here was reported with
+the commit it was measured on, and that pairing came out of the run itself. What
+was wrong was my account of what was still to come — a forecast, stated as a
+fact.
+
+The rule, on the record: **a running script is never edited in place.** A
+repoint is a new file under a new name, and the target a process holds is read
+back from its own descriptor, not from the disk.
+
+## Pass A — control characters
+
+Every `.js` and `.mjs` file under `server/`, `scripts/` and `test/`, at the head
+of all 130 remote branches. Flagged `00`-`08`, `0b`, `0c`, `0e`-`1f` and `7f`;
+tab, newline and carriage return excluded. 878 files per tree.
+
+**One hit in the whole sweep**, and it is in the wiring map's own checker:
+
+```
+scripts/wiring-map.mjs
+  claude/wiring-map-8f96ur            :246
+  claude/wiring-map-8f96ur-census-hold:289
+  claude/wiring-map-8f96ur-route-gate-hold (23ed6da):289
+```
+
+`od -c` on the line gives `( / \b ( [ A - Z a - z _ $ ]` — the character after
+the opening slash is a single `0x08` byte, a literal backspace, where the two
+characters `\` and `b` were meant. At the time of the sweep it was fixed on no
+branch in the repository; the wiring map pushed the fix as `d38a65c` fifteen
+minutes later, and that head is clean under the same sweep and carries the line
+as `/\b([A-Za-z_$][\w$]*)\s*\(\s*$/` at `:304`. On every head that predates it
+`viaHelper` is always `null`, and the two lines below it are dead:
+
+```js
+const viaHelper = before.match(/<BS>([A-Za-z_$][\w$]*)\s*\(\s*$/);
+if (viaHelper && APP_HELPERS.has(viaHelper[1])) return { handle: 'app', where: null };
+if (viaHelper && foreign.has(viaHelper[1])) return { handle: viaHelper[1], where: foreign.get(viaHelper[1]) };
+```
+
+Every query reached through an app helper falls through to "could not
+attribute" instead of being attributed. That is a classification defect in the
+tool that produced the route verdicts.
+
+**Measured, both directions**, in a detached worktree at `23ed6da`,
+`node --test test/wiring-map.test.js`, baseline `b36d8493f9d7` → **75 / 75 / 0**:
+
+| row | injected | sha256 after | result |
+|---|---|---|---|
+| **M-D1** | both `if (viaHelper && …)` lines deleted outright | `717edb2d1121` | **75 pass, 0 fail** |
+| **M-D2** | the `0x08` byte replaced by the two characters `\b`, i.e. the fix | `310daf1dbeeb` | **75 pass, 0 fail** |
+
+Deleting the branches changes nothing and repairing them changes nothing, so the
+helper-attribution path is invisible to the suite in **both** directions. The fix
+needs a test that fails before it and passes after it, or it lands unwitnessed.
+
+## The wiring map's re-measured table, graded
+
+`docs/tdd/wiring-map-route-deletions.tdd.md` at `23ed6da`. The file answers the
+earlier hard finding against it — the RED proofs that were measured two tests
+behind the tree they cited, and named by ordinal. It re-measures by title, with
+a checksum each side. Re-run here at `23ed6da` in a detached worktree.
+
+The table cites `58e311e` as the tree it was measured on while the file ships at
+`23ed6da`. Those are different commits, so the citation was checked rather than
+assumed: `scripts/wiring-map.mjs` is `b36d8493f9d7` at both, and
+`test/wiring-map.test.js` is `0fd0ef741089` at both. The table's tree and the
+delivered tree agree on both files under test.
+
+**Baseline reproduces exactly**: `b36d8493f9d7`, 75 tests, 75 pass, 0 fail.
+
+| row | their claim | reproduced here |
+|---|---|---|
+| **A2** | `a564bc04561d`, 74 pass / 1 fail, *a call wildcard and a route parameter cannot excuse each other in opposite positions* | **exact.** `return !(routeVarOverCallLiteral && callVarOverRouteLiteral);` → `return true;` gives `a564bc04561d` to the digit, 74 / 1, that test red |
+| **A1** | `63eebe1ffc5e`, 74 pass / 1 fail, *outboundUrlPaths sees a path that starts the string, not only one that follows a marker* | **result yes, hash no.** Both readings of "the six-line leading-literal scan is removed" give 74 / 1 with that exact test red — four code lines `6dda1739c3a1`, seven lines with the comment `4f600f939090` — and neither is `63eebe1ffc5e` |
+| **A3** | `f69a77e681d8`, 75 pass / 0 fail, "one comment reworded" | **claim holds, label wrong.** A comment-only edit here moves the hash to `7529036609a5` and leaves 75 / 0, so the substance is right |
+
+Two findings, both narrow.
+
+**A1 is the eighth part earning its keep.** A2 was describable without ambiguity
+and landed on their hash first try. A1 was described rather than quoted, and the
+description does not fix how many lines go, so the row's *effect* is confirmed
+and its *patch* is not reproducible. A hash whose input cannot be reconstructed
+grades the same as no hash. Quote the patch.
+
+**A3 is not a NO-OP control.** In this project a NO-OP CONTROL is a pattern that
+does not exist, reporting `NO-OP — pattern not found` with the hash unchanged;
+it exists to prove the matcher can fail to find something, which is the fault
+the scheduler caught at 02:02Z — a baseline wearing a mutation's name. A3's hash
+*changed*, so it applied. It is the other control kind: an applied edit that
+correctly kills nothing. Their own prose gets this right ("a green result is not
+this harness failing to apply an edit"); only the label is the wrong one of the
+two. As it stands the set has no row proving the matcher can miss.
+
+**And the diff is not comment-only.** I was told
+`test/health-route-single.test.js` differs from `main` by twelve lines of block
+comment inside an existing `/** */`, with no `test()` added. The `test()` count
+is right — three at `791b131` and three at `23ed6da`. The rest is not. It is 27
+added lines, the comment opens its own `/*` rather than joining an existing
+`/** */`, and the body changed:
+
+```
+-    found.push(`${relative(ROOT, file)}:${line} → ${match[3]}`);
++    found.push(`${relative(ROOT, file)} → ${match[3]}`);
+...
+-    ['server/index.js:86 → /api/health'],
++    ['server/index.js → /api/health'],
+```
+
+The assertion no longer pins the registration's line. On the merits that is
+defensible and their comment argues it well — a second registration still lands
+as a second array element and still fails, and the line survives in the failure
+message. But "comment-only" is the description under which a weakened assertion
+passes a second reading unexamined, and this one is a weakened assertion.
+
+## Pass B — regex alternation branches that match nothing
+
+**Method.** Not one suite run per branch. A preload wraps `assert.match` and
+`assert.doesNotMatch` and records every `(regex, subject)` pair that actually
+reaches them, so one instrumented suite run captures every real fixture; each
+alternation branch is then re-tested alone against the subjects its own
+assertion saw. The pattern is walked character by character, honouring escapes,
+character classes and nesting, so branches inside a group are found too, and a
+group's `(?:`, `(?=`, `(?<!` prefix is carried onto each branch. Run on this
+tree (`main` plus this log), **2,950 tests, 2,909 pass, 0 fail, 41 skipped** —
+the instrument changes no result.
+
+**25 assertion sites carry an alternation. 49 branches tested, 32 live, 17
+dead.** Six `doesNotMatch` sites are excluded: there every branch matches
+nothing, by design, so the method says nothing about them.
+
+A branch is listed here when **no subject that assertion ever saw** matches it.
+That is a statement about the test, not about the code: it means the suite never
+exercises that branch, so deleting it would go unnoticed. Some are correct
+hedges. This is a list, not a verdict.
+
+| file:line | pattern | branch that matched nothing |
+|---|---|---|
+| `test/availability-honest-degradation.test.js:178` | `/pooled\|injury report/i` | `injury report` |
+| `test/availability-honest-degradation.test.js:192` | `/not the fitted\|not running\|pooled/i` | `pooled` |
+| `test/giacomini-white.test.js:117` | `/collinear\|no variance\|not finite/` | `not finite` |
+| `test/model-integrity.test.js:845` | `/^(unavailable\|[a-f0-9]{40})$/` | `unavailable` |
+| `test/nfl-execution-edge.test.js:441` | `/no_games_near_this_line\|no_qualified/` | `no_qualified` |
+| `test/nfl-t60-packet.test.js:660` | `/mirror\|mismatch\|non-mirrored/i` | `mismatch` |
+| `test/page-explain.test.js:138` | `/not staked\|not acting\|no real money/i` | `not staked`, `no real money` |
+| `test/polymarket-fill-study.test.js:130` | `/discarded\|thrown away\|fetched by captureOrderBooks/` | `discarded` |
+| `test/trade-acceptance.test.js:354` | `/0\.1\|less than\|below/i` | `below` |
+| `test/trade-proposals.test.js:194` | `/could not be read\|malformed\|parse/i` | `malformed`, `parse` |
+| `test/trade-proposals.test.js:477` | `/cut off\|ran out of (output )?room\|output limit/i` | `output limit` |
+| `test/trade-route-retirement.test.js:61` | `/\/api\/\|trade-engine/` | `trade-engine` (5 subjects, all `/api/…`) |
+| `test/valuation-map.test.js:433` | `/1 .*(week\|sample)\|below/i` | `sample`, `below` |
+| `test/valuation-map.test.js:483` | `/manager signals\|no manager data/i` | `no manager data` |
+
+At least one is a hedge that should stay: `model-integrity.test.js:845` accepts
+either a 40-character SHA or the literal `unavailable`, and the second branch is
+for a tree with no git. It is dead here because this tree has git. That is the
+shape of a correct hedge, and it is why these go to owners as a list.
+
+**What the pass does not reach.** Fourteen alternation sites use `.test(` or a
+bare `RegExp` rather than `assert.match`, and the instrument does not see them.
+Six `doesNotMatch` sites are out of scope for the reason above. And the run is
+on `main`'s tests, so a thread's own new tests are covered when its head comes
+through the queue, not here.
+
+## The wiring map's backspace fix, graded
+
+Pushed as `d38a65c` while pass A was being written up. Re-run here in a detached
+worktree, `node --test test/wiring-map.test.js`.
+
+**Baseline reproduces exactly**: `8d8bfba36af9`, 78 tests, 78 pass, 0 fail.
+
+| row | their claim | reproduced here |
+|---|---|---|
+| **M1** | `ed770da07307`, 76 / 2, killed by "77, 78" | **exact.** Putting the `0x08` byte back gives `ed770da07307` to the digit and 76 / 2, red on *a bare call on a foreign handle is attributed to that handle, not the app* and *the checker source holds no control characters* |
+
+The fix is real and it is now witnessed in both directions, which is what M-D1
+and M-D2 above said it needed. Two things against the table, both about form.
+
+**The killers are named by ordinal again.** "killed by 77, 78", "killed by 76",
+"killed by 57". This is the finding that was raised against this thread's
+`wiring-map-route-deletions.tdd.md` and fixed there — A1 and A2 now name their
+tests by title. The new file reverts to the ordinal, and an ordinal moves the
+moment a test is inserted above it. The titles are in the run above; they cost
+nothing to write down.
+
+**M4 is not a NO-OP control, for the same reason A3 is not.** "NO-OP CONTROL:
+one word of a comment changed", hash `a8684f00d900`, changed from the baseline —
+so it applied. A NO-OP control is a pattern that is *not found*, hash unchanged,
+proving the matcher can miss; this is the other kind, an applied edit that
+correctly kills nothing. The prose is right both times and the label is wrong
+both times, which makes it a habit rather than a slip. Neither file currently
+has a row proving its matcher can fail to find a pattern.
+
+Their two declared open items — `viaMethod` has no row, and `foreignDefault()`
+takes the first foreign handle in a file — are declared in the right form: an
+open item, not a claim of coverage.
+
 ## What this log does not cover
 
 - **Cross-file mutation claims.** Where a table asserts that an edit breaks

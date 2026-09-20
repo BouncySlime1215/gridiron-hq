@@ -2226,17 +2226,23 @@ that used to be invisible is now obvious. In the meantime the app is serving in
 short windows between restarts rather than steadily, so opening the site may
 land on a stall.
 
-**Before any of it: CI is down, and that is not one of these PRs.** Every CI
-run created from about 01:00Z on 2026-09-20 failed two seconds after starting,
-on four different branches at once, having checked out nothing and run no test.
-Runs before roughly 23:15Z were green. The likeliest cause is the month's
-GitHub Actions allowance being spent — run 350 on a private repository at about
-6.5 minutes each is roughly 2,400 minutes against an included 2,000 — but a
-platform incident looks identical from the API, and the billing page is the
-only place that tells them apart. **So expect every PR below to show a red
-check that has nothing to do with its contents**, and if merging is blocked on
-that check, the allowance is the thing to look at rather than the code. Written
-up in full on #35.
+**Before any of it: CI is off, deliberately, and none of these PRs is red for a
+reason of its own.** The month's GitHub Actions allowance is spent — 2,000 of
+2,000 minutes, resetting **1 October** — which from about 01:00Z on 2026-09-20
+made every run fail two seconds after starting, on four branches at once,
+having checked out nothing and run no test. The workflow is now
+`disabled_manually`, so a push triggers nothing at all.
+
+**What that means for the merges below: nothing.** This is a private repository
+on the Free plan, so no required-check rule can exist on `main` and no merge is
+gated on a green check. **A red or missing check on any of these PRs is not a
+statement about its contents.** The evidence that stands in for CI is in each
+PR's own body: every one of them carries its owner's full local run — suite
+count, failures, lint, typecheck and smoke — taken before the allowance ran out.
+
+**Do not re-enable the workflow and do not re-run anything**, including from
+the Actions tab, until the allowance resets. A re-run spends the thing that is
+exhausted and fails in two seconds regardless. Written up in full on #35.
 
 **Step 7 is not the first item. Stabilising the app is.**
 

@@ -104,16 +104,28 @@ premise.
 
 ## 5. Injection sweep
 
-| Injection | Result |
-|---|---|
-| baseline | 26 pass / 0 fail |
-| league refresh reads the league row directly again | **3 fail** |
-| `requireCredentialsForLeague` returns nulls instead of throwing | **6 fail** |
-| league's own stored pair ignored | **1 fail** |
-| most-recently-fetched fallback restored | **5 fail** |
-| commissioner preference dropped | **1 fail** |
-| per-user lookup borrows when the row is missing / blank | **1 / 3 fail** |
-| connect token matches any account | **3 fail** |
+| Injection | Applied (diff) | Result |
+|---|---|---|
+| baseline, no mutation | — | 26 pass / 0 fail |
+| most-recently-fetched fallback restored | 3+/0- | **5 fail** |
+| commissioner preference dropped | 1+/1- | **1 fail** |
+| `requireCredentialsForLeague` never throws | 1+/0- | **6 fail** |
+| league refresh reads the league row directly | 2+/2- | **3 fail** |
+| per-user lookup borrows when the row is **missing** | 2+/1- | **1 fail** |
+| per-user lookup borrows when the row is **blank** | 2+/1- | **3 fail** |
+| connect token matches any account | 1+/1- | **3 fail** |
+| league's own stored pair ignored | 1+/1- | **1 fail** |
+| draft fetch uses a hardcoded wrong pair | 1+/1- | **5 fail** |
+
+**Each mutation is recorded as applied, and that column is not decoration.**
+The first version of this sweep used a plain string substitution with no check
+that the anchor matched. A substitution that silently matches nothing leaves
+the file untouched, and the run that follows is the baseline wearing a
+mutation's name — a green result then reads as "the test caught nothing" when
+it in fact measured nothing. Caught by the scheduler thread on their own sweep,
+where exactly that happened. The rerun asserts the anchor appears exactly once
+before writing and records `git diff --numstat` after, so every row above is
+backed by a file that actually changed.
 
 ## 6. The consequence, stated rather than buried
 

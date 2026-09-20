@@ -471,6 +471,80 @@ still lands as a second array element and still fails, and the line survives in
 the failure message — and it is recorded here as an observation about `caac88a`,
 not as a finding against `23ed6da`.
 
+## The six restart-loop fixes, measured together as well as apart
+
+2026-09-20, ahead of Nick merging them. Six branches measured separately answer
+"is each one green on its own base". That is not the question pressing merge six
+times asks. So the six were also merged.
+
+Detached worktree on `origin/main` `791b131`, merged in the stated order, no
+branch touched:
+
+```
+#56 watchdog-arming    63ca21e | merged clean -> 63ca21e
+#59 boot-offthread     b5b74b5 | merged clean -> b5b74b5
+#61 abandoned-runs     a986f37 | merged clean -> a986f37
+#63 timer-tier         64f3ef2 | merged clean -> 64f3ef2
+#52 nfl-season         dad6e1a | merged clean -> ce22327
+#49 grace-period       3aed429 | merged clean -> 9daa82a
+stacked head 9daa82a
+
+ALL SIX MERGED | exit=0 | 2,986 tests / 2,945 pass / 0 fail / 41 skipped
+```
+
+Zero conflicts, zero reds, exit status read rather than inferred from the
+output. Two findings come out of the merge log, and neither the pass nor a query
+would have given either one.
+
+**The nesting is proved by the operation itself.** On the first four lines the
+head *becomes* the merged sha — which only happens on a fast-forward. Four
+fast-forwards in a row IS the nesting, demonstrated by the exact action a person
+performs rather than by a `merge-base` question about it. Only `#52` and `#49`
+create merge commits. So merging `#56`, `#59` and `#61` after `#63` does nothing
+at all, and merging them before it is four steps to reach one tree.
+
+**The arithmetic is a check almost nobody runs, so here is why it matters.**
+`main` is 2,950 / 2,909. The stacked tree is 2,986 / 2,945 — exactly 36 more
+tests and 36 more passes, with skipped unchanged at 41. So the six bring 36 tests
+between them and **none of them displaces or disables anything that was already
+there**. A stack that quietly dropped or skipped an existing test would show up
+as a smaller gap than the tests it adds, and it would show up **nowhere else**:
+every individual run would still be green, and the merged run would still be
+green. The difference between two totals is the only place that failure is
+visible. Read the two numbers as a subtraction, not as two facts.
+
+**Expiry.** A figure measured against a branch has a shelf life. The six heads
+were snapshotted before the measuring window and re-read after it, and the run
+reports either that no head moved, or which moved and whose figure is therefore
+void. Printing the sha measured beside the numbers is not enough on its own: it
+says what was measured, not whether it is still what is there.
+
+### A conflict waiting in the merge
+
+`test/health-route-single.test.js` has been fixed independently by three threads.
+**Every pair of them conflicts in git**, all four merges tested in detached
+worktrees:
+
+```
+64f3ef2 (#63) + 23ed6da (wiring map) -> CONFLICT in test/health-route-single.test.js
+63ca21e (#56) + 23ed6da (wiring map) -> CONFLICT, same file
+64f3ef2 (#63) + 73e0760 (Coach)      -> CONFLICT, same file
+23ed6da       + 73e0760 (Coach)      -> CONFLICT, same file
+```
+
+- scheduler `63ca21e`: keeps the line in `found`, strips it at comparison with
+  `found.map(e => e.replace(/:\d+ → /, ' → '))`
+- wiring map `23ed6da`: two arrays, `found` without the line, `where` with it
+- Coach `73e0760`: an array of objects, `{ where, at }`
+
+All three compare against `['server/index.js → /api/health']`, so on behaviour
+they are interchangeable and the wiring map's note that this is a known resolve
+rather than a new conflict is right. **But git does not read comments.** Whoever
+merges second stops on a conflict marker. The useful output is therefore not a
+warning but the resolution, decided in advance: **keep whichever side is already
+in the tree and delete the other, because all three assert the identical thing.**
+That turns a stop into a keystroke.
+
 ## What this log does not cover
 
 - **Cross-file mutation claims.** Where a table asserts that an edit breaks

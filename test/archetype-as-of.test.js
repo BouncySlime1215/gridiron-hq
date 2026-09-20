@@ -109,6 +109,18 @@ arch(ALDA, 34, 2026, 'all_play', 'outcome', '2026-09-13T04:10:00.000Z');
 team(35, 2026, '1', BRYN, 'Bryn Okafor');
 arch(BRYN, 35, 2026, 'seasons_observed', 'career', '2026-09-11T04:10:00.000Z');
 
+// League 36, 2026: rows exist, but every one of them was written by an OLDER
+// build version. Trade Brain's read of the accessor caught this: the version
+// filter turned "stale data from a previous build" into rows: 0 with the
+// reason "the build has never covered it", which is the exact conflation the
+// as-of pass exists to remove.
+team(36, 2026, '1', ALDA, 'Alda Reyes');
+const OLD_VERSION = 'manager-archetypes-v0';
+run(`INSERT INTO manager_archetypes
+       (member_id, league_id, season, metric, value, label, n, source, version, computed_at)
+     VALUES (?, 36, 2026, 'auto_draft_rate', 0.4, NULL, 12, 'draft', ?, '2026-08-02T04:10:00.000Z')`,
+ALDA, OLD_VERSION);
+
 test('every served manager card says when its archetype evidence was built', () => {
   const cards = archetypesFor(31, 2026);
   assert.equal(cards.size, 2);
@@ -269,4 +281,43 @@ test('a league-season with rows but none priceable says that, and borrows no dat
     '"built, nothing priceable" must not wear the unrestricted stamp');
   assert.match(built.reason ?? '', /none from draft or outcome|nothing here is priceable/,
     'silence here reads as "never built", which is a different fact');
+});
+
+/**
+ * STALE IS NOT ABSENT. The version filter is right — a price should stand on
+ * the current build — but a league-season holding only older-version rows was
+ * reported identically to one that was never built at all.
+ */
+
+test('a league-season holding only older-version rows is not reported as never built', () => {
+  const built = archetypesBuilt(36, 2026);
+  assert.equal(built.rows, 0, 'the current version genuinely has no rows here');
+  assert.equal(built.as_of, null, 'and no current-version date may be invented for it');
+  assert.equal(built.stale_version_rows, 1,
+    'the older rows are the whole difference between "no data" and "old data"');
+  assert.doesNotMatch(built.reason ?? '', /never covered it/,
+    'that sentence is for a league-season nothing has ever written');
+  assert.match(built.reason ?? '', /manager-archetypes-v0/,
+    'the reason names the version on disk, or a reader cannot tell which build to blame');
+  assert.match(built.reason ?? '', new RegExp(MANAGER_ARCHETYPE_VERSION),
+    'and the version being looked for, or they cannot tell how far behind it is');
+});
+
+test('a genuinely unbuilt league-season still says never covered, and counts no stale rows', () => {
+  const built = archetypesBuilt(32, 2026);
+  assert.equal(built.stale_version_rows, 0);
+  assert.match(built.reason ?? '', /never covered it/,
+    'the two states must not have swapped sentences');
+});
+
+test('a current league-season reports no stale rows and no reason', () => {
+  const built = archetypesBuilt(31, 2026);
+  assert.equal(built.stale_version_rows, 0);
+  assert.equal(built.reason, null);
+});
+
+test('the card carries the stale count too', () => {
+  const card = archetypesFor(36, 2026).get('1');
+  assert.equal(card.built.stale_version_rows, 1);
+  assert.deepEqual({ ...card.built }, { ...archetypesBuilt(36, 2026, ALDA) });
 });

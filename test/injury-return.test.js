@@ -115,6 +115,38 @@ test('a thin cell falls back to its group, then to all reserve weeks, and says w
   assert.equal(noActive.rate, null);
 });
 
+test('the minimum-cell constant is the one the fallback ladder actually uses', () => {
+  // The fallback test above compares a cell with 240 observations against cells with
+  // none, so it passes for ANY value of MIN_CELL -- a retroactive mutation sweep on
+  // 2026-09-20 dropped it to 1 and nothing failed. A threshold needs its own boundary
+  // tested, or it is not a threshold, it is a comment.
+  //
+  // Two weeks on reserve gives each player exactly one horizon-1 observation (week 1 to
+  // week 2), so the cell's n is the player count and the boundary is addressable. The
+  // constant is read off the fit rather than restated, so the test cannot drift from it.
+  const reserveWeeks = players => {
+    const rows = [];
+    for (let i = 0; i < players; i++) {
+      for (let w = 1; w <= 2; w++) {
+        rows.push({ season: 2099, week: w, gsis_id: `m${i}`, position: 'TE',
+          status: 'RES', status_detail: 'R01', played: 0 });
+      }
+    }
+    return rows;
+  };
+  const min = fitFromRows(reserveWeeks(1)).min_cell;
+  assert.ok(min > 1, 'a minimum cell of 1 is no minimum at all');
+
+  const cell = { state: 'ir', group: 'long_term', bucket: '1' };
+  const atThreshold = curveFor(fitFromRows(reserveWeeks(min)), cell, 1);
+  assert.equal(atThreshold.basis, 'cell', `${min} observations is exactly enough`);
+  assert.equal(atThreshold.n, min);
+
+  const below = curveFor(fitFromRows(reserveWeeks(min - 1)), cell, 1);
+  assert.notEqual(below.basis, 'cell',
+    `${min - 1} observations must not be reported as a cell rate`);
+});
+
 test('a horizon past the end of the fit holds the last fitted value and is labelled', () => {
   const panel = [];
   for (let p = 0; p < 60; p++) {
@@ -257,15 +289,39 @@ test('the panel reads availability from snaps, not from the roster status', () =
   assert.equal(season.active, 2);
 });
 
-test('a gap in the panel is not treated as an adjacent week, at any horizon', () => {
-  // Weeks 1 and 3 only. Week 3 is a real week-2 horizon from week 1, but week 2 is
-  // missing, so counting it would grade a path this player was never observed on.
-  const fit = fitFromRows([
-    { season: 2099, week: 1, gsis_id: 'gap1', position: 'TE', status: 'RES', status_detail: 'R01', played: 0 },
-    { season: 2099, week: 3, gsis_id: 'gap1', position: 'TE', status: 'ACT', status_detail: 'A01', played: 1 }
-  ]);
-  assert.deepEqual(fit.reserve_curve, {});
-  assert.deepEqual(fit.curve, {});
+test('a gap in the panel stops the horizon walk; the week past it is never graded', () => {
+  // THIS TEST USED TO PROVE NOTHING. It asserted empty curves on a two-row fixture, and
+  // two rows are below `min_cell`, so the curves are empty whatever the walk does — a
+  // retroactive mutation sweep on 2026-09-20 removed the gap guard and nothing failed.
+  // The fixture now has to be big enough that a wrongly-counted horizon would show.
+  //
+  // 60 players on reserve in weeks 1 and 2, then ACTIVE AND PLAYING in week 4, with week
+  // 3 missing from the panel. Week 4 is a real horizon-3 target from week 1 by
+  // arithmetic, and grading it would credit these players with a return nothing observed
+  // — the panel does not say they were on the roster in week 3 at all.
+  const rows = [];
+  for (let i = 0; i < 60; i++) {
+    for (const [week, status, detail, played] of [
+      [1, 'RES', 'R01', 0], [2, 'RES', 'R01', 0], [4, 'ACT', 'A01', 1]
+    ]) rows.push({ season: 2099, week, gsis_id: `gap${i}`, position: 'TE', status, status_detail: detail, played });
+  }
+  const fit = fitFromRows(rows);
+
+  // Horizon 1 is observed for every player (week 1 -> week 2), so the curve exists.
+  assert.ok(fit.reserve_curve[1], 'the one adjacent pair in this panel is graded');
+  assert.equal(fit.reserve_curve[1].rate, 0, 'nobody played in week 2');
+
+  // Nothing past the gap may appear, at any horizon. Week 4 is the only week anyone
+  // played, so any non-zero rate here is week 4 leaking across a week nobody was observed.
+  for (const k of [2, 3, 4]) {
+    assert.equal(fit.reserve_curve[k], undefined,
+      `horizon ${k} crosses the missing week 3 and must not be graded`);
+  }
+  for (const [key, curve] of Object.entries(fit.curve)) {
+    for (const k of Object.keys(curve)) {
+      assert.equal(Number(k), 1, `cell ${key} graded horizon ${k} across the gap`);
+    }
+  }
 });
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });

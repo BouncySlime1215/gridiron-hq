@@ -55,6 +55,19 @@ restored afterwards.
 | `caac88a` (wiring map) | pass 3 / fail 0 | pass 3 / fail 0 | **fail 1** |
 | `73e0760` | pass 3 / fail 0 | pass 3 / fail 0 | **fail 1** |
 
+**The four files the matrix ran.** Named by content, so the table above can be
+reproduced against the exact bytes rather than against a ref that may move:
+
+| version | git blob id | sha256 (first 16) | bytes |
+|---|---|---|---|
+| `791b131` | `5f94736d60487e3b87e3f0de2facfc9afc5c5109` | `38e57dd4c6eb2e45…` | 4183 |
+| `63ca21e` | `f47e0db31df47732d2462d380abf6698c5829932` | `e8854f7371e388df…` | 4537 |
+| `caac88a` | `d5b021ea8a389b3d4603e396cb8679406fc9ec66` | `0097ba7703dbcba6…` | 5053 |
+| `73e0760` | `97fba11772929f315ae449be6b4e6ad784eb4fe7` | `53b76aca01d1a054…` | 4689 |
+
+Each is `git rev-parse <ref>:test/health-route-single.test.js`; the sha256 is of
+the file content as `git show` emits it.
+
 The shift injection is an unrelated comment inserted at line 10, which moves
 the registration from line 86 to 87 and changes nothing else. The original
 test fails on it — that is the bug all three were fixing, reproduced. The
@@ -86,6 +99,15 @@ explanations kept.
 - on `8709ec6` alone, where that module is **absent** — 3 tests, 3 pass,
   0 fail.
 
+**The files that run named by content**, `test/league-roster-schedule.test.js`:
+
+| version | git blob id | sha256 (first 16) |
+|---|---|---|
+| `791b131` (base) | `601e1184d5c1810b6ad56e0800fc1383955c6c0c` | `8688397f4c8ba20e…` |
+| `8709ec6` (this branch) | `d8c9ad32cb375c3103205163b383ae1277d17479` | `88d77c3b5d48f719…` |
+| `8b1a0363` (#71) | `f5c6c1047a0b180e6af75b615d7b0bc8e7b324b6` | `52b50e58b368b7d4…` |
+| **`e852884` (resolved)** | `79371eee47b2bb7bec2e9ce1d5d64341d26be4a4` | `51eceb8e32040b46…` |
+
 That second run is the one worth having. It means #48/#71 and this branch may
 land in either order without a broken intermediate state, which was an open
 assumption until it was measured.
@@ -95,6 +117,27 @@ assumption until it was measured.
 `8709ec6` (the hold head, unchanged) → `0e0bb86` (merge of `8b1a0363`,
 resolved) → `7462c4c` (merge of `d01df31`, resolved). The hold branch itself
 is untouched and still fast-forwards cleanly.
+
+## The full check
+
+Measured on **`e852884`**, this branch's head at the time of the run, with the
+machine to itself:
+
+```
+3054 tests, 3013 pass, 0 fail, 0 cancelled, 41 skipped
+typecheck + lint + test + build + start:smoke, exit 0
+Application startup smoke passed on isolated database (32 teams).
+```
+
+3054 against this branch's own 3021 — the extra 33 are `8b1a0363`'s credential
+test files (`espn-cookie-owner-e2e`, `espn-credential-ownership`,
+`league-sync-credentials`), which the merge brought in and which pass.
+
+The commit that adds this section is docs-only and touches only this file, so
+it does not reopen that number. That is checkable rather than asserted: the one
+test that reads the docs tree at runtime is
+`test/nfl-execution-integrity.test.js:258`, and it reads
+`docs/CLAUDE-NEXT-STEPS.md`. Nothing reads `docs/tdd/`.
 
 ## The five questions
 

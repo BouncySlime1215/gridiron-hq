@@ -59,6 +59,18 @@ const REGISTRATION = /\.(get|post|put|patch|delete|all|use)\(\s*(['"`])((?:\/[\w
  * file, at this path", and a second one still lands as a second array element and
  * still fails, whether it is in index.js or a router mounted under /api. The line is
  * kept in the failure message, which is where a person actually needs it.
+ *
+ * THREE BRANCHES FIXED THIS THE SAME WAY ON THE SAME NIGHT, independently: the
+ * scheduler's 63ca21e strips the offset with a regex before the comparison, this one
+ * builds two arrays (one compared, one for the message), and Coach's 73e0760 compares
+ * file and path. All three assert "exactly one registration, in index.js, at
+ * /api/health" and keep the line in the failure text, so no behaviour differs between
+ * them and taking any one of them costs nothing. The branch-pair sweep should report
+ * that as a KNOWN resolve, not a new conflict.
+ *
+ * The rule the three of them are evidence for: a test that breaks on unrelated edits is
+ * reported to its owner once, not fixed in place by each thread that trips over it.
+ * Three threads each spent a gate cycle discovering the same two-digit difference.
  */
 test('exactly one route in server/ is registered at a health path', () => {
   const found = [], where = [];

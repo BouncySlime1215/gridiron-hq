@@ -68,9 +68,7 @@ once in the tree, at `docs/tdd/llm-plumbing.tdd.md:104`, as a recommendation tha
 someone *should* wire a route — and `GET /api/dev/usage` and its three siblings are
 still reported dead after the fix, exactly as they should be.
 
-RED proof: delete the six-line scan, and `test/wiring-map.test.js` test 62
-("outboundUrlPaths sees a path that starts the string, not only one that follows a
-marker") fails; 61 pass. Restore it: 62 pass.
+RED proof: see the mutation table at the end of this file, row **A1**.
 
 ## 2. The bug that named the wrong endpoint
 
@@ -103,8 +101,7 @@ that crossing is rejected.
 It costs nothing: `client-call-without-route` and `destination-without-route` are both
 still **0**, so no honest match was broken.
 
-RED proof: replace the return with `return true` (the old rule) and test 61 fails; 60
-pass. Restore: 61 pass.
+RED proof: see the mutation table at the end of this file, row **A2**.
 
 Five routes it revealed, each verified by direct grep as having zero references in any
 tree:
@@ -227,7 +224,7 @@ people to delete the entry instead of landing the file.
 
 ## 7. The gate
 
-`npm run check` exit 0 · `test/wiring-map.test.js` 62/62 ·
+`npm run check` exit 0 · `test/wiring-map.test.js` 75/75 ·
 `test/decision-inbox.test.js` 11/11 · `test/decision-inbox-retired.test.js` 3/3 ·
 full suite 0 fail · `npm run start:smoke` passed on an isolated database ·
 `node scripts/wiring-map.mjs --check` reports no missing-feed findings.
@@ -390,3 +387,49 @@ counted as a dial, a sweep that stops at one level, a construct the extractor se
 loses what was read out of it. The instrument that finds that class of bug is not a
 cleverer regex; it is running the thing on a case whose answer is already known and
 refusing to accept an answer that disagrees.
+
+
+---
+
+## The mutation table
+
+Both RED proofs above were first measured on a tree two tests behind the head this file
+cites, and both were written down by ORDINAL — "test 62 fails" — which names nothing
+once a test is inserted above it. An ordinal is not a name. Re-measured here at
+`58e311e`, by title, with a checksum on each side so a row cannot be a description of an
+edit that was never made.
+
+**Baseline.** `scripts/wiring-map.mjs` sha256 `b36d8493f9d7` ·
+`node --test test/wiring-map.test.js` → **75 tests, 75 pass, 0 fail**.
+
+| row | injected defect | sha256 after | result | test turned red |
+|---|---|---|---|---|
+| **A1** | the six-line leading-literal scan in `outboundUrlPaths` is removed | `63eebe1ffc5e` | 74 pass, 1 fail | *outboundUrlPaths sees a path that starts the string, not only one that follows a marker* |
+| **A2** | `routeAnswersCall` returns `true` unconditionally — the rule as it was before the crossing was rejected | `a564bc04561d` | 74 pass, 1 fail | *a call wildcard and a route parameter cannot excuse each other in opposite positions* |
+| **A3** | **NO-OP CONTROL** — one comment reworded, no behaviour touched | `f69a77e681d8` | 75 pass, 0 fail | none, correctly |
+
+The control is the row that makes the other two mean something. Its checksum differs
+from the baseline, so the file really was rewritten between runs; the suite is unmoved,
+so a green result is not this harness failing to apply an edit. Restored afterwards to
+`b36d8493f9d7`, the baseline.
+
+### What this table does NOT cover
+
+A test that no mutation in a table turns red is in the same position as a mutation
+nothing kills: it is untested by the evidence offered for it, and it gets a row that
+kills it or a stated reason. So, plainly:
+
+**A1 and A2 cover sections 1 and 2 of this file, and nothing else.** Two of the 75
+tests. The rules in section 8 (a column DEFAULT is a writer; one name in two modules)
+and section 9 (what falls when a route is cut) have tests in
+`test/wiring-map.test.js` and `test/route-deletion-impact.test.js`, and the defects
+they pin were each found by hand and are described above — but neither has an injection
+table here. They were written before the table was the standard, and they have not been
+re-measured under it. That is an open item, not a claim of coverage.
+
+The four rules added after them were each measured, and their numbers are in the commit
+that carries them rather than here: the route-fragment pair (6 injections), the
+test-caller class, the SQL census guards, and the table-creation field (6 injections,
+one unkilled and then closed by a precedence assertion, plus a no-op control). Writing
+them down in two places would be two places to go stale, and the commit is the one that
+cannot drift from the code it changed.

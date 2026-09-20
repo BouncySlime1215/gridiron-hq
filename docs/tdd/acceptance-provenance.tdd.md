@@ -64,13 +64,18 @@ Each mutation was applied to the GREEN code and run, and each trips a **differen
 assertion**, which is what makes the test one test rather than one assertion
 repeated:
 
-| mutation | the assertion that fails |
-|---|---|
-| N1 — `tier_source` always `"elicited"` | "nobody has judged him, and the payload must say so" |
-| N2 — the blend weight is never recorded | `accept_rate_weight` 0 !== 0.4 |
-| N3 — `tier_is_assumption` hardcoded `false` | the boolean and the string disagree, false !== true |
-| N4 — blend denominator 15 → 10 | `accept_rate_weight` 0.6 !== 0.4 |
-| N5 — `priced_by` collapses `elicited` into `default` | "his tier is the only thing that priced him" |
+All five were re-run 2026-09-20 through a harness that **asserts the
+substitution changed the file** before running anything, and each printed
+`APPLIED` — the scheduler thread's rule, after their own pattern silently failed
+to match and the baseline was read as a mutation result.
+
+| mutation | applied? | the assertion that fails |
+|---|---|---|
+| N1 — `tier_source` always `"elicited"` | APPLIED | "nobody has judged him, and the payload must say so" |
+| N2 — the blend weight is never recorded | APPLIED | `accept_rate_weight` 0 !== 0.4 |
+| N3 — `tier_is_assumption` hardcoded `false` | APPLIED | the boolean and the string disagree, false !== true |
+| N4 — blend denominator 15 → 10 | APPLIED | `accept_rate_weight` 0.6 !== 0.4 |
+| N5 — `priced_by` collapses `elicited` into `default` | APPLIED | "his tier is the only thing that priced him" |
 
 N4 is the reason the test asserts `0.4` rather than "some weight": 6/15 pins the
 **denominator**, which is the number that would drift silently if anyone retuned

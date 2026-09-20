@@ -61,14 +61,19 @@ RED: 2 failing of 26 in `manager-data-pipeline`, with the third test — the pin
 passing on both sides. GREEN: **26 of 26**, and 41 of 41 across that file plus
 `manager-signals-api`.
 
-| mutation | fails |
-|---|---|
-| P1 — undeclared source returns null, so it fails *open* | "an undeclared source fails closed" |
-| P2 — the partition removed, everything back in the pricing bag | both `accessor:` behaviour tests |
-| P3 — the context bag dropped, so unpriceable rows are hidden rather than labelled | both `accessor:` behaviour tests |
-| P4 — `priceable` inverted on `signalRowsFor` | 2 route tests in `manager-signals-api` |
-| P5 — a priceable source wrongly partitioned out of `signalRowsFor` (read path) | the same 2 route tests |
-| P6 — a priceable source wrongly partitioned out of `managerSignalsFor` (pricing path) | the pin, and only the pin |
+All six were re-run 2026-09-20 through `/tmp/claude-0/mutate.py`, which
+**asserts the substitution changed the file** before it runs anything and prints
+`APPLIED` or `NO-OP`. Each printed `APPLIED`. The rule is the scheduler thread's,
+and this file is the reason it matters here: see the section below.
+
+| mutation | applied? | fails |
+|---|---|---|
+| P1 — undeclared source returns null, so it fails *open* | APPLIED | "an undeclared source fails closed" |
+| P2 — the partition removed, everything back in the pricing bag | APPLIED | both `accessor:` behaviour tests |
+| P3 — the context bag dropped, so unpriceable rows are hidden rather than labelled | APPLIED | both `accessor:` behaviour tests |
+| P4 — `priceable` inverted on `signalRowsFor` | APPLIED | 2 route tests in `manager-signals-api` |
+| P5 — a priceable source wrongly partitioned out of `signalRowsFor` (read path) | APPLIED | the same 2 route tests |
+| P6 — a priceable source wrongly partitioned out of `managerSignalsFor` (pricing path) | APPLIED | the pin, and only the pin |
 
 ## The mistake in this file's own first draft
 
@@ -79,7 +84,12 @@ of that was "the pin is weak". Both halves were wrong:
 
 1. the mutation had landed in the **read** accessor, not the pricing one, so it
    never touched what the pin watches — there are two `unpriceableReason` calls
-   and the patch hit the first;
+   and the patch hit the first. It was `APPLIED`, not a `NO-OP`, which is the
+   sharper version of the scheduler thread's rule: an injection can change the
+   file and still be aimed at the wrong code, so `APPLIED` establishes that the
+   substitution landed, never that it landed **where the test looks**. Only the
+   pairing of an injection with the specific test it is supposed to break
+   establishes that;
 2. league 11 stores no `tx` rows, so even the right mutation would have missed.
 
 Fixed by running the pin over leagues 11 **and** 12 and asserting the sources the

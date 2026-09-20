@@ -73,12 +73,19 @@ reorder broke nothing elsewhere despite touching all eight sources.
 
 Mutations, each applied to the GREEN code and run:
 
-| mutation | fails |
-|---|---|
-| M1 — smallness return put back ahead of `min_n` | G9a, G9b, G9c, G9d |
-| M2 — luck branch guards on `managerProfile?.luck` again | G9a, G9d |
-| M3 — ablation guard moved after the `min_n` branch | G9e, and nothing else |
-| M4 — a missing reading passes `n = 4` instead of `n = 0` | G9a, G9d |
+Every injection below was re-run 2026-09-20 through
+`/tmp/claude-0/mutate.py`, which **asserts the substitution changed the file**
+before it runs anything and prints `APPLIED` or `NO-OP`. That rule comes from the
+scheduler thread, who caught their own pattern silently not matching: a
+substitution that does not land produces a baseline run wearing a mutation's
+name. All four are `APPLIED`.
+
+| mutation | applied? | fails |
+|---|---|---|
+| M1 — smallness return put back ahead of `min_n` | APPLIED | G9a, G9b, G9c, G9d |
+| M2 — luck branch guards on `managerProfile?.luck` again | APPLIED | G9a, G9d |
+| M3 — ablation guard moved after the `min_n` branch | APPLIED | G9e, and nothing else |
+| M4 — a missing reading passes `n = 4` instead of `n = 0` | APPLIED | G9a, G9d |
 
 **M3 killed nothing on the first attempt, and that is the useful entry in this
 table.** G9e originally used a profile with `luck: {value: 1.6, n: 4}`. `min_n` is

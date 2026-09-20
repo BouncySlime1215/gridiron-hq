@@ -26,7 +26,8 @@ rejection is reading the wrong study.
 Selection on **2021 and 2022**. Held-out season **2023**, opened once. **2024 and 2025 are never
 read**, by any stage, so a confirmation remains available that nobody has spent.
 
-1. Coordinate-wise sweep: for each of the eight (metric, position) cells, sweep k over
+1. Coordinate-wise sweep: for each of the eight (metric, position) cells STUDIED — see the
+   correction below, the constant governs twelve — sweep k over
    `{1, 2, 4, 8, 15, 25, 34, 50, 75, 120, 200, 400, ∞}` with every other cell left at 34.
 2. Combine the non-flat winners and grade the combination, because the cells are **not
    independent** — a receiver's ypt changes the team volume every other player is measured
@@ -148,11 +149,46 @@ branches in this thread report because this one is off `main` and carries none o
 The study's own runtime: three stages, 13 grid points over 8 cells on the selection seasons, then
 one held-out replay pair, at roughly 3.7 s per replay on the fixed seed 20260826.
 
+## Correction: the constant governs twelve cells, not eight
+
+**Withdrawn: "one constant governing eight cells".** `K.yards_per = 34` is read at three
+`pickK` sites in `projections.js`, not two:
+
+```
+projections.js:562   pickK(k, 'ypt', a.pos, a.targets,  a.targets,  K.yards_per)
+projections.js:570   pickK(k, 'ypc', a.pos, a.carries,  a.carries,  K.yards_per)
+projections.js:574   pickK(k, 'ypa', a.pos, a.attempts, a.attempts, K.yards_per)
+```
+
+So the constant governs **three** metrics across four positions — twelve (metric, position)
+cells — and this study swept two of them. `ypa`, passing yards per attempt, was never measured.
+
+**What this does and does not change.** Every measured number above stands: the grid, the
+per-cell gains, the four dead cells, the interior optimum near 2 for ypt/WR, the zero for ypc/RB,
+and the held-out 2023 result of 4.580 → 4.555 with `mean_diff -0.0244`, `ci90 [-0.0342, -0.0144]`,
+significant, clustered over 4,389 paired rows. The candidate that produced that result overrode
+`ypt` and `ypc` only, so the held-out gain is a gain from splitting two of the three metrics, and
+it is correctly attributed. What was wrong is the claim about the constant's REACH: it was
+described as governing what the study covered, which understated it by a third.
+
+**Why it matters rather than being a slip of arithmetic.** The whole argument of this study is
+that one constant is asked to fit cells with different amounts of evidence behind them, and `ypa`
+is the strongest instance of exactly that: a quarterback's pass attempts arrive in the hundreds
+where a tight end's targets arrive in the dozens, so `k = 34` means something very different at
+that site than at the other two. Leaving it out did not weaken a measured claim — it left the
+best example of the claim unexamined, and it let a reader infer the constant had been mapped when
+two thirds of it had.
+
+`ypa` is now in scope for the follow-up sweep alongside `K.td_rate` and `K.catch_rate`, which
+have the same shape: `td_rate = 70` is read at three sites (`rec_td_rate`, `rush_td_rate`,
+`pass_td_rate`, so twelve cells) and `catch_rate = 26` at one (four cells).
+
 ## The five questions
 
 **Is this well built?** It is a script with one job, a refusal that stops it lying, and three
 stages in the order that keeps the held-out season held out. The part I would not call well built
-is what it studies: one constant governing eight cells, four of which cannot respond to it.
+is what it studies: one constant governing twelve cells, of which this study measured eight and
+four of those eight cannot respond to it.
 
 **Is this based on stats, or is it made up?** Measured, on 8,700 selection player-weeks and 4,389
 held-out ones, with the boundary probed rather than rounded off. The one thing not measured is what
@@ -170,5 +206,5 @@ one sweep with this script, which takes them as easily. Routed, not run.
 
 **How does it unify?** It does not unify anything yet, deliberately. What it does is turn a
 constant whose header already admitted "it is not a claim that it is correct" into a measured
-statement about which of its eight cells are live, which are dead, and which one is asking a
+statement about which of the eight cells measured are live, which are dead, and which one is asking a
 different question than the one being answered.

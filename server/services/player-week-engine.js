@@ -18,6 +18,7 @@ import {
   weeklyEnsembleContext, weeklyEnsemblePrediction, weeklyEnsembleMode, weeklyEnsembleWeightsFor
 } from './weekly-ensemble.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
+import { activeFitMeta } from './shrinkage-fit.js';
 import { roleChangepoints } from './role-changepoint.js';
 import { opportunityContextMultiplier } from './nfl-player-context.js';
 import {
@@ -130,6 +131,40 @@ export function activeProbabilityFor(availability, playerId) {
     availability_basis: basis,
     availability_source: source || 'the producer served no source'
   };
+}
+
+/**
+ * The shrinkage constants this build will use, as a memo key.
+ *
+ * WHAT THIS REPLACED, AND WHY IT WAS NOT A SMALL BUG. The slot used to read
+ * `kOverride ?? 'active'`. The literal stood in for "whatever the active fit is", so
+ * promoting a fit left the key unchanged and the engine built from the PREVIOUS fit was
+ * served for the life of the process -- nothing calls `clearPlayerWeekEngineCache` on
+ * promotion. It is undetectable from the output: both fits give plausible projections, and
+ * `projectionFitMeta` puts a fit id on the payload, so a promotion could leave the label
+ * naming the new fit while the numbers came from the old one. The label is what a reader
+ * checks, so the wrong pairing is worse than no label.
+ *
+ * AND `??` TREATED TWO DIFFERENT CALLS AS ONE. `kOverride: null` means "no fit, use the
+ * hand-set constants" and `kOverride: undefined` means "use whatever is active"; `??` mapped
+ * both to `'active'`, so a caller explicitly bypassing the fit was served the fitted engine.
+ * The three cases below are the same three `projectionFitMeta` already distinguishes, under
+ * the same names, so the basis a payload reports and the basis the memo keys on cannot drift.
+ *
+ * The key already carried `weightFit: weightChampion.id` for this exact reason on the weekly
+ * weight set. This is the shrinkage fit catching up.
+ */
+function memoKBasis(kOverride) {
+  if (kOverride === undefined) {
+    // `null` when no fit has ever been activated, which is the live state today and must key
+    // distinctly from every real fit -- otherwise the first promotion ever made is invisible.
+    return { fit: activeFitMeta()?.id ?? null };
+  }
+  if (kOverride === null) return 'hand_set_forced';
+  // The vector ITSELF, not a label for it: two callers supplying different vectors are two
+  // different builds. Collapsing them to one string would have been a new collision of the
+  // same kind this function exists to remove, and there is a test for it.
+  return { supplied: kOverride };
 }
 
 export function clearPlayerWeekEngineCache() {
@@ -331,7 +366,7 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
     throw new Error('player-week engine requires an integer season and week');
   }
   const weightChampion = activeWeeklyWeightSet({ season, week });
-  const cacheKey = JSON.stringify({ season, week, scoring, kOverride: kOverride ?? 'active',
+  const cacheKey = JSON.stringify({ season, week, scoring, kBasis: memoKBasis(kOverride),
     version: PLAYER_WEEK_ENGINE_VERSION, weightFit: weightChampion.id, redistributeVolume });
   if (useCache && engineCache.has(cacheKey)) return engineCache.get(cacheKey);
 

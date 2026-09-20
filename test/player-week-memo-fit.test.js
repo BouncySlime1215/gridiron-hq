@@ -116,3 +116,15 @@ test('an explicit kOverride still keys separately from the active fit', () => {
   assert.notEqual(overridden, fitted);
   assert.equal(buildPlayerWeekEngine({ season: 2026, week: 2, kOverride: null }), overridden);
 });
+
+test('two different supplied vectors are two different builds', () => {
+  // Guarding against the fix introducing a new collision: labelling the supplied-vector case
+  // with one string, rather than keying on the vector, would serve one caller's engine to
+  // another. That is the same defect this file is about, arriving by a different route.
+  const engineA = buildPlayerWeekEngine({ season: 2026, week: 2, kOverride: { target_share: { ALL: 4 } } });
+  const engineB = buildPlayerWeekEngine({ season: 2026, week: 2, kOverride: { target_share: { ALL: 9 } } });
+  assert.notEqual(engineA, engineB, 'different constants, different build');
+  assert.equal(
+    buildPlayerWeekEngine({ season: 2026, week: 2, kOverride: { target_share: { ALL: 4 } } }),
+    engineA, 'and the same vector still hits the cache');
+});

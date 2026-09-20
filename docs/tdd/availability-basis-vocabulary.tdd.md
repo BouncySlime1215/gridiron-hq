@@ -153,10 +153,80 @@ counts above are both suites together, and the run that reproduces them is
 | mislabel the role arm as `pooled` | APPLIED `28bffcd49d70` → `3d5a1175964a` | RED | 1 | a fitted role cell takes precedence, and the basis says role *(vocab)* |
 | serve the default prior as measured | APPLIED `28bffcd49d70` → `dc9e238bf317` | RED | 3 | a fitted pooled rate moves the basis off the prior, for both players *(vocab)* · a fitted role cell takes precedence, and the basis says role *(vocab)* · a served durability prior says whether it was measured or substituted *(prior)* |
 | derive the fallback probability from the prior | APPLIED `6de130fcae48` → `b17de74027ed` | RED | 1 | the prior and the fallback active probability are independent literals *(vocab)* |
-| **CONTROL A** — reword the `source` sentence | APPLIED `28bffcd49d70` → `460bb8d2485d` | GREEN | 0 | none, and that is the claim |
+| **CONTROL A** — reword the `source` sentence | APPLIED `28bffcd49d70` → `882408f56b24` | GREEN | 0 | none, and that is the claim |
 | **CONTROL B** — a pattern that is not in the file | **NO-OP — pattern not found** | — | — | — |
 
 **6 of 6 caught, each by the test that names it. No survivors.**
+
+### The exact edits
+
+A description of a mutation is not a mutation. Each row's before and after text
+is quoted here verbatim, so a reader can apply it rather than reconstruct it —
+and so two readers who disagree about a row are disagreeing about the same edit.
+`-` is the line as it stands, `+` is what replaced it; a row with no `+` deleted
+the line.
+
+**1 — collapse the measured/substituted split**, `contingency.js`
+`28bffcd49d70` → `2696e9fcaa93`
+```
+-   let basis = priorMeasured ? 'durability_prior' : 'default_durability';
++   let basis = 'durability_prior';
+```
+
+**2 — remove `availability_basis` from the served row**, `contingency.js`
+`28bffcd49d70` → `358de206bf53`
+```
+-       availability_basis: basis,
+```
+
+**3 — stop setting the pooled arm**, `contingency.js`
+`28bffcd49d70` → `fbb6d1f6fa2f`
+```
+-       basis = 'pooled';
+```
+
+**4 — mislabel the role arm as `pooled`**, `contingency.js`
+`28bffcd49d70` → `3d5a1175964a`
+```
+-     basis = 'role';
++     basis = 'pooled';
+```
+
+**5 — serve the default prior as measured**, `contingency.js`
+`28bffcd49d70` → `dc9e238bf317`
+```
+-       durability_prior_measured: measuredPrior != null,
++       durability_prior_measured: true,
+```
+
+**6 — derive the fallback probability from the prior**,
+`availability-basis.js` `6de130fcae48` → `b17de74027ed`
+```
+- export const DEFAULT_ACTIVE_PROBABILITY = 0.92;
++ export const DEFAULT_ACTIVE_PROBABILITY = DEFAULT_DURABILITY_PRIOR;
+```
+
+**CONTROL A — reword the `source` sentence**, `contingency.js`
+`28bffcd49d70` → `882408f56b24`
+```
+- 'weekly injury report + durability prior'
++ 'weekly injury report and durability prior'
+```
+
+**CONTROL B — a pattern that is not in the file.** The pattern searched for is
+`const NOT_IN_CONTINGENCY_JS = 1;`. It is absent, the harness reports NO-OP, and
+no run happens.
+
+**One hash in the table above was re-measured to write this section, and the old
+one is withdrawn.** Rows 1 to 6 were recovered exactly: each row's quoted edit,
+applied to the recorded base, reproduces the recorded after-hash to the
+character, which is a stronger check than remembering the edit. CONTROL A did
+not, because its mutation is free text — any rewording of the sentence is a
+valid control, so the hash is not derivable from the row's description. Rather
+than print text that did not produce `460bb8d2485d`, the control was re-run with
+the wording quoted above and the table now carries its real hash,
+`882408f56b24`, still GREEN with zero failures. `460bb8d2485d` is withdrawn: it
+was a real measurement, but not one this file can now hand a reader.
 
 ### The third consumer arm, swept separately
 
@@ -176,6 +246,36 @@ after the last row. Run: both suites together, 13 tests.
 the arm back onto `unrecognised` is the change somebody tidying this list would
 make, and it fails three tests including the duplicate check, so the list cannot
 quietly acquire two names for one thing or one name for two.
+
+The exact edits, all against `availability-basis.js` `a671c036aefb`:
+
+**A1 → `e1d4ff75966a`** — the last entry and its closing bracket:
+```
+-   'unvouched'
+- ]);
++ ]);
+```
+
+**A2 → `8fdaeda696d7`** — the servable list gains it:
+```
+-   'role', 'pooled', 'durability_prior', 'default_durability'
++   'role', 'pooled', 'durability_prior', 'default_durability', 'unvouched'
+```
+
+**A3 → `09a37595ad1e`** — the arm becomes a duplicate of the one before it:
+```
+-   'unvouched'
++   'unrecognised'
+```
+
+**NO-OP CONTROL → `fc87ef97092b`** — the file's opening line:
+```
+-  * The one vocabulary for "what priced this player's chance to play".
++  * The single vocabulary for "what priced this player's chance to play".
+```
+
+**NO-OP CONTROL 2** — the pattern searched for is
+`const THIS_IS_NOT_IN_THE_FILE = 1;`. Absent, so the harness reports NO-OP.
 
 Neither sweep on this file carries a KILL-CONTROL — an edit that must break
 something, proving the suite can fail at all — and neither needs one: every
@@ -235,7 +335,7 @@ Both were right; neither said which commit it was.
 
 | measured on | npm run check | full suite |
 |---|---|---|
-| `ef28768` — `unvouched` added (current) | exit 0 · lint, typecheck, client build clean · start:smoke passed on an isolated database (32 teams) | **2,963 tests · 2,922 pass · 0 fail · 41 skipped** |
+| `b1b9f2b`/`ef28768` — `unvouched` added (current) | exit 0 · lint, typecheck, client build clean · start:smoke passed on an isolated database (32 teams) | **2,963 tests · 2,922 pass · 0 fail · 41 skipped** |
 | `e53ff1a` — the role fixture that closed the survivor | exit 0, same four | 2,962 · 2,921 · 0 · 41 |
 | `775e339` — before that fixture | exit 0, same four | 2,961 · 2,920 · 0 · 41 |
 
@@ -243,7 +343,8 @@ The current row was executed on the tree as committed, after the mutation
 harness restored the source file and its hash was re-verified
 (`a671c036aefb`). The commits after `ef28768` on this branch are documentation
 only, so they change no test content; `git diff --stat ef28768..HEAD` is the
-check on that claim.
+check on that claim. The control re-measurement that produced `882408f56b24`
+ran on this same tree and restored `contingency.js` to `28bffcd49d70`.
 
 GitHub Actions is out of minutes until 2026-10-01 and the CI workflow is
 disabled deliberately, so these are the only runs there are.

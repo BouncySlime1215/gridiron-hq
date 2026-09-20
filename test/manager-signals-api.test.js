@@ -768,3 +768,82 @@ test('scheduler: the refresh loop can run the archetype build by name', async ()
   for (const name of loop.FANTASY_LIVE_JOBS) assert.ok(JOBS[name], `${name} is a registered scheduler job`);
   assert.ok(loop.FANTASY_LIVE_JOBS.indexOf('manager_archetypes') > -1);
 });
+
+// ============================ the model read, and a read that failed ========
+//
+// Two fixes to one page, both the same defect in different clothing: a fact
+// about a store arriving without the date it was measured, and a fault arriving
+// as an empty result.
+
+const JEV_AT = '2026-09-19T05:00:00.000Z';
+
+test('read: the manager page serves the DATED model read, not the store\'s raw probabilities', async () => {
+  // `archetypesFor` already carried `jev` — the stored probabilities, with no
+  // evaluation date and no statement of what is under them — onto this payload,
+  // where nothing rendered it. The dated, basis-honest block belongs here, and
+  // serving both would put two shapes of one answer on one payload.
+  const hadIdentity = rows(
+    `SELECT 1 FROM league_member_identity WHERE league_id = 21 AND roster_id = '2'`).length > 0;
+  run(`INSERT OR REPLACE INTO league_member_identity
+         (league_id, roster_id, espn_member_id, espn_name, team_name, match_method, confidence)
+       VALUES (21, '2', ?, 'Aiden Stone', 'Team 2', 'confirmed by Nick', 'confirmed')`, AIDEN);
+  const insJev = (q, o, p, basis) => run(`INSERT OR REPLACE INTO manager_archetype_jev
+      (member_id, question, outcome, probability, basis, n_seasons, n_picks, model, state_chars, evaluated_at)
+      VALUES (?, ?, ?, ?, ?, 3, 45, 'test-model-v1', 4000, ?)`, AIDEN, q, o, p, basis, JEV_AT);
+  for (const [o, p] of Object.entries(
+    { rb_heavy: 0.6, wr_heavy: 0.1, qb_early: 0.1, te_early: 0.1, balanced: 0.1 })) {
+    insJev('position_bias', o, p, 'draft');
+  }
+  for (const [o, p] of Object.entries({ counters: 0.34, binary: 0.33, never: 0.33 })) {
+    insJev('trade_style', o, p, 'inference_only');
+  }
+  try {
+    const { body } = await call('GET', '/api/trades/21/managers/signals');
+    const two = managerOf(body, 2);
+    assert.ok(two.model_read, 'the dated model read reaches the manager');
+    assert.equal(two.model_read.as_of, JEV_AT, 'carrying the stamp of the pass that made it');
+    assert.equal(two.model_read.priced, false, 'and saying outright that it moves no price');
+    const style = two.model_read.answers.find(a => a.question === 'trade_style');
+    assert.ok(style, 'the answers are served, not just the date');
+    assert.equal(style.measured, false, 'an inference_only answer says it is not a measurement');
+    assert.equal(style.informative, false, '0.34/0.33/0.33 is an even spread, not a 34% chance');
+
+    assert.ok(two.archetype, 'the archetype block is still served');
+    assert.ok(!('jev' in two.archetype),
+      'and the store\'s raw, undated copy is not served beside the dated one');
+    assert.deepEqual(emptyObjects(body), [], 'and nothing new arrived as an empty object');
+  } finally {
+    run('DELETE FROM manager_archetype_jev');
+    if (!hadIdentity) run(`DELETE FROM league_member_identity WHERE league_id = 21 AND roster_id = '2'`);
+  }
+});
+
+test('read: an archetype read that FAILED is reported, not served as a store that is empty', async () => {
+  // `archetypesFor` joins `league_season_teams`, whose only CREATE TABLE is in
+  // `scripts/backfill-league-history.mjs` — so on a database where that backfill
+  // has never run it throws rather than returning nothing. The bare `catch {}`
+  // that used to sit here turned "the read broke" into "the build has not run",
+  // which are different facts with different fixes, and CLAUDE.md is explicit
+  // that a layer going inert has to say so.
+  db.exec('ALTER TABLE league_season_teams RENAME TO league_season_teams_hidden');
+  try {
+    const { body } = await call('GET', '/api/trades/21/managers/signals');
+    assert.equal(body.available, true, 'the stored signals underneath are still measured and still served');
+    assert.ok(body.archetypes, 'the archetype store gets a block of its own, like transactions and chat');
+    assert.match(String(body.archetypes.read_failed ?? ''), /no such table/i,
+      'and the failure is named rather than swallowed');
+    assert.equal(managerOf(body, 2).archetype, null,
+      'no archetype survives the failure, which is the honest half of it');
+  } finally {
+    db.exec('ALTER TABLE league_season_teams_hidden RENAME TO league_season_teams');
+  }
+});
+
+test('read: a healthy archetype read says the store is fine', async () => {
+  // The regression pin for the test above: the new block must not report a
+  // failure whenever it is merely empty, or the sentence means nothing.
+  const { body } = await call('GET', '/api/trades/21/managers/signals');
+  assert.ok(body.archetypes, 'the block is always served');
+  assert.equal(body.archetypes.read_failed, null, 'no failure when there was none');
+  assert.ok(body.archetypes.as_of, 'and it carries the build stamp, like the other two stores');
+});

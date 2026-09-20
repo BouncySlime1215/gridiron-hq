@@ -2429,6 +2429,32 @@ seconds**. On the other side of the boundary, **41 reads were issued at an age
 of 110 or more and not one of them answered** — so "it might recover at 120 or
 140" is not merely unobserved, it is 41 attempts without an exception.
 
+**CORRECTED 11:55Z, and the correction matters more than the original claim.**
+That paragraph is true of the eight probe lives and must not be read as true of
+the night. Over the whole passive record — now three log files — **three reads
+answered at an age past 103: 104 at 07:36:48Z, 106 at 11:51:13Z, and 116 at
+04:42:24Z, that last one in 0.34 seconds.** So **110 is not a ceiling**, and
+anyone using "nothing answers past 110" as a diagnostic rule in the morning
+would be using a figure that has already failed three times. The mechanism is
+unaffected — onset is the 90-second timer plus a download of variable length,
+so a slow download moves it later, and 116 is what that looks like — but the
+*bracket* belongs to the probe's twenty-three minutes, not to the night.
+
+*Why the passive logs cannot simply replace the probe here.* They record the age
+of every read that **succeeded** and nothing about the age of one that
+**failed**, because a read that gets no response returns no `uptime_s` to derive
+an age from. So they can raise the observed ceiling, as they just did, but they
+can never produce the "41 attempts at 110 or more, no exceptions" statement.
+Only a probe that times its requests to chosen ages can, and that figure stands
+for the eight lives it measured.
+
+**And a no-response inside the first 60 seconds of a life says nothing about the
+event loop.** `fly.toml` sets `grace_period = "60s"` on the HTTP check, so a
+freshly started machine is not in the routing pool yet and the edge has nothing
+to route to. The 04:40:28Z life shows exactly that shape — no answer at age 56,
+then 0.34 seconds at age 116 — and reading it as "blocked, then recovered" would
+be wrong. Discard early-life failures rather than counting them as blocking.
+
 **And the kind of failure is pinned by a negative result with 137 chances to
 appear: across both instruments tonight, 335 reads, not one 503.** That matters
 because `healthHandler` is written to distinguish exactly this. It runs
@@ -2909,7 +2935,7 @@ sentences would survive being wrong about something else.**
 | 58 restarts, one per 180 s | **Counted here** at 01:45Z: a 60 s poll is below the cycle, so it is a count, not a floor. Clustered within 5 s; stable at every tolerance 1-5 s | this thread |
 | The earlier "79 starts" and "171-376 s" | **Withdrawn.** 79 was the naive count `restart-count.sh` exists to prevent; 376 is not in the data, the widest gap is 196 s | this thread |
 | Reads are phase-locked, so "72 s" means nothing | **Measured here**: 60 s poll into a 180 s cycle is 3 polls per cycle; 41 of 54 clean reads caught an age of 55-58 s, and none between 73 and 170 s | this thread |
-| The loop blocks between age 94 and 110 | **Measured here** on eight consecutive lives, 01:50-02:13Z: onset inside (94, 110] on all eight, (94, 102] on five. `uptime_s` = age on every answered row, so each is one process throughout. `blind-window-probe.tsv` | this thread |
+| The loop blocks between age 94 and 110 **on the eight probe lives** | **Measured here**, 01:50-02:13Z: onset inside (94, 110] on all eight, (94, 102] on five. `uptime_s` = age on every answered row, so each is one process throughout. `blind-window-probe.tsv`. **Not a ceiling for the night: the passive logs hold answered reads at 104, 106 and 116, the last in 0.34 s** | this thread |
 | It stops dead rather than slowing down | **Measured here**: 29 reads at age 78 or more across the eight lives, slowest 0.46 s. No ramp, so not memory pressure or gradual contention | this thread |
 | The 02:04:41Z life's onset is (103, 110] | **Measured twice, independently**: their 60 s log read 103 at 0.43 s, this probe read 102 at 0.21 s one second earlier and nothing at 110. Different code, no shared state | Trade Brain + this thread |
 | The onset varies ~16 s while the timer is flat | **Read off `791b131`**: the job downloads before it writes and a download does not hold the loop, so onset = 90 s + fetch time | this thread |

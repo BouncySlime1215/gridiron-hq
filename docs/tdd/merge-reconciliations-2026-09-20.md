@@ -68,12 +68,64 @@ reproduced against the exact bytes rather than against a ref that may move:
 Each is `git rev-parse <ref>:test/health-route-single.test.js`; the sha256 is of
 the file content as `git show` emits it.
 
-The shift injection is an unrelated comment inserted at line 10, which moves
-the registration from line 86 to 87 and changes nothing else. The original
-test fails on it — that is the bug all three were fixing, reproduced. The
-duplicate injection adds a second `app.get('/api/health', …)`; every version
-including the original still fails on it, which is the guard the file exists
-for and which none of the three weakened.
+**The two injections, quoted rather than described.** Both are applied to
+`server/index.js` at `791b131` (blob `c01a70685b6ebce45c77f65d388b60fe47633558`,
+sha256 `95107fa1edcc7909…`), one at a time, with the file restored in between.
+
+*Injection A — the harmless shift.* Insert one comment line at line 10. Before,
+lines 8-12:
+
+```js
+const PORT = Number(process.env.API_PORT) || 5177;
+try {
+  await assertPortAvailable(PORT);
+} catch (error) {
+  console.error(error.message);
+```
+
+After (sha256 `cba654479519f08e…`):
+
+```js
+const PORT = Number(process.env.API_PORT) || 5177;
+try {
+// mutation A: unrelated comment that shifts later lines
+  await assertPortAvailable(PORT);
+} catch (error) {
+```
+
+The inserted line is a comment, so the program is unchanged; its only effect is
+that `app.get('/api/health', healthHandler());` moves from line 86 to line 87.
+That is the whole of the bug all three versions were fixing, reproduced.
+
+*Injection B — the real fault.* Insert a second registration at line 87. Before,
+lines 85-88:
+
+```js
+
+app.get('/api/health', healthHandler());
+
+// Public only on the loopback interface. It removes the fresh-install token
+```
+
+After (sha256 `63084efe915eb0dd…`):
+
+```js
+
+app.get('/api/health', healthHandler());
+app.get('/api/health', healthHandler()); // mutation B: a second registration
+
+// Public only on the loopback interface. It removes the fresh-install token
+```
+
+`grep -n "app.get('/api/health'"` then reports two registrations, at 86 and 87.
+Every version including the original still fails on this, which is the guard
+the file exists for and which none of the three weakened.
+
+Both injections were re-applied from a clean checkout when this section was
+written, and the quoted text above is what the file actually contained, not a
+reconstruction from the commands. The md5 of the shifted state
+(`dc76647e13479dccfb865f4545f50302`) is the same value the original run
+recorded, so the two runs injected the same bytes.
 
 So the resolution is a **resolve, not a clean merge**, and taking any of the
 three loses nothing. Take `caac88a`.

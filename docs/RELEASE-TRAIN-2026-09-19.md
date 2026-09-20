@@ -2325,8 +2325,17 @@ land on a stall.
 **How often, counted rather than estimated.** Polling every 60 seconds from
 22:53:10Z to 01:44:27Z, 173 reads: **58 process starts, one every 180 seconds.**
 The gaps between consecutive starts run 171 to 196 seconds, mean 180, median
-180. That is a metronome, not a scatter, and the regularity is the most useful
-thing in this paragraph.
+180. That is a metronome, not a scatter, and **the rate is the durable fact
+here, not the total** — the count was 58 at 01:44Z and 75 at 02:35Z, and by the
+time anyone reads this it will be higher again. For the current figure:
+
+```
+bash /mnt/project-files/restart-count.sh
+```
+
+It clusters starts within 5 seconds, and it refuses to add the pre-22:49Z
+300-second stretch (a floor) to the 60-second one (a count), which is the
+distinction every number in this section rests on.
 
 **If you see "79 restarts" or "376 seconds" anywhere, both are mine and both
 are withdrawn.** 79 was a naive count of distinct start times, which

@@ -28,8 +28,9 @@ const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
-const { activeProbabilityFor, DEFAULT_ACTIVE_PROBABILITY, AVAILABILITY_BASES }
-  = await import('../server/services/player-week-engine.js');
+const { activeProbabilityFor } = await import('../server/services/player-week-engine.js');
+const { AVAILABILITY_BASIS, SERVABLE_AVAILABILITY_BASIS, DEFAULT_DURABILITY_PRIOR }
+  = await import('../server/services/availability-basis.js');
 const { weeklyAvailability } = await import('../server/services/contingency.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
@@ -39,109 +40,160 @@ const PLAYER_ID = 900001;
 run(`INSERT INTO players (id, name, position) VALUES (?, ?, ?)`, PLAYER_ID, 'Fixture Receiver', 'WR');
 
 /** One row in `weeklyAvailability`'s served shape. */
-const row = ({ active = 0.9, prior = 0.9, measured = true, source = 'durability prior only' } = {}) => ({
+const row = ({ active = 0.9, prior = 0.9, measured = true, basis = 'durability_prior',
+  source = 'durability prior only' } = {}) => ({
   player_id: 1, name: 'A Player', position: 'WR',
   active_probability: active, durability_prior: prior,
-  durability_prior_measured: measured, source
+  durability_prior_measured: measured, availability_basis: basis, source
 });
 
 const mapOf = (...rows) => new Map(rows.map((r, i) => [i + 1, r]));
 
-test('a fitted rate is reported as fitted, in both shapes the producer emits', () => {
-  for (const source of [
-    'fitted availability (questionable + limited, n=1204)',
-    'fitted availability by role (noreport/starter/full, n=8657) x KC'
-  ]) {
-    const out = activeProbabilityFor(mapOf(row({ active: 0.952, source })), 1);
-    assert.equal(out.availability_basis, 'fitted', source);
-    assert.equal(out.active_probability, 0.952);
+test('the basis the producer states is the basis served, for every servable value', () => {
+  // The whole point of the field: nothing here second-guesses it. Before it existed, this
+  // function classified by matching a human sentence, and a reworded sentence would have
+  // reclassified every fitted number as a prior with nothing failing.
+  for (const basis of SERVABLE_AVAILABILITY_BASIS) {
+    const out = activeProbabilityFor(mapOf(row({ basis, active: 0.61 })), 1);
+    assert.equal(out.availability_basis, basis, basis);
+    assert.equal(out.active_probability, 0.61);
   }
+  // role and pooled are distinguishable ONLY from the field. A prose match cannot tell them
+  // apart, which is why the field had to exist rather than the match being improved.
+  assert.equal(activeProbabilityFor(mapOf(row({ basis: 'role' })), 1).availability_basis, 'role');
+  assert.equal(activeProbabilityFor(mapOf(row({ basis: 'pooled' })), 1).availability_basis, 'pooled');
 });
 
-test('THE COLLISION: a measured prior of exactly 0.920 is not the default', () => {
-  // This is the whole reason the mapping reads the flag. This player's durability prior was
-  // MEASURED from his own career and came out at 0.920, which is byte-identical to the
-  // constant after toFixed(3). A mapping that compared the number would label a real
-  // measurement as a fallback, on precisely the players whose durability is unremarkable --
-  // an error correlated with the population rather than spread as noise.
-  const measuredAt092 = activeProbabilityFor(
-    mapOf(row({ active: 0.92, prior: 0.92, measured: true })), 1);
-  assert.equal(measuredAt092.availability_basis, 'durability_prior',
-    'a measured 0.920 must not be reported as the default');
-
-  const actuallyDefault = activeProbabilityFor(
-    mapOf(row({ active: 0.92, prior: 0.92, measured: false })), 1);
-  assert.equal(actuallyDefault.availability_basis, 'default_durability');
-
-  // Identical numbers, opposite bases. If these two ever agree, the flag is being ignored.
-  assert.equal(measuredAt092.active_probability, actuallyDefault.active_probability);
-  assert.notEqual(measuredAt092.availability_basis, actuallyDefault.availability_basis);
-});
-
-test('a player absent from the map gets the constant and says so', () => {
-  // The common case, not an error: weeklyAvailability covers QB, RB, WR and TE only, so
-  // every other position lands here by construction.
+test('a player with no row at all is unfitted_position, not default_durability', () => {
+  // Two different facts: "the fit does not cover this player" against "a row exists carrying a
+  // substituted prior". weeklyAvailability covers QB, RB, WR and TE, so every kicker and
+  // defence lands here by construction, and a surface showing availability for one is showing
+  // a number no model produced.
   const out = activeProbabilityFor(mapOf(row()), 999);
-  assert.equal(out.active_probability, DEFAULT_ACTIVE_PROBABILITY);
-  assert.equal(out.availability_basis, 'default_durability');
-  assert.match(out.availability_source, /no availability read/i);
+  assert.equal(out.availability_basis, 'unfitted_position');
+  assert.equal(out.active_probability, DEFAULT_DURABILITY_PRIOR,
+    'the number the five replaced call sites gave an uncovered player, unchanged');
+  assert.match(out.availability_source, /no availability row|QB, RB, WR and TE/i);
 });
 
 test('no map at all is the same answer, not a throw', () => {
   // Called from paths that may not have built availability yet; a throw here would take down
-  // the odds, and a silent 0.92 with no basis is what this field exists to stop.
+  // the odds, and a bare number with no basis is what this field exists to stop.
   for (const absent of [null, undefined, {}]) {
     const out = activeProbabilityFor(absent, 1);
-    assert.equal(out.active_probability, DEFAULT_ACTIVE_PROBABILITY);
-    assert.equal(out.availability_basis, 'default_durability');
+    assert.equal(out.availability_basis, 'unfitted_position');
+    assert.equal(out.active_probability, DEFAULT_DURABILITY_PRIOR);
   }
 });
 
-test('an unrecognised source is labelled, never quietly called a prior', () => {
-  // `fitted` is read off a human sentence, because no machine-readable field says it yet. If
-  // that sentence changes upstream, every fitted number would silently become a prior -- the
-  // exact failure this field exists to end. So an unmatched shape is named.
-  const out = activeProbabilityFor(mapOf(row({ source: 'some new wording nobody told us about',
-    measured: null })), 1);
-  assert.equal(out.availability_basis, 'unrecognised');
-  assert.equal(out.availability_source, 'some new wording nobody told us about',
-    'the raw sentence is carried so the mismatch can actually be read');
+test('a row without the field falls back to the prose match, and says so when it cannot tell', () => {
+  // Reachable only from a payload built before the field existed. The fallback reports the
+  // COARSER truth -- pooled -- because role and pooled are indistinguishable from the sentence,
+  // and claiming role would be inventing the finer answer.
+  const noField = ({ source, measured }) => {
+    const r = row({ source, measured });
+    delete r.availability_basis;
+    return r;
+  };
+  assert.equal(
+    activeProbabilityFor(mapOf(noField({ source: 'fitted availability by role (x, n=9)', measured: true })), 1)
+      .availability_basis, 'pooled');
+  assert.equal(
+    activeProbabilityFor(mapOf(noField({ source: 'durability prior only', measured: true })), 1)
+      .availability_basis, 'durability_prior');
+  assert.equal(
+    activeProbabilityFor(mapOf(noField({ source: 'durability prior only', measured: false })), 1)
+      .availability_basis, 'default_durability');
+  assert.equal(
+    activeProbabilityFor(mapOf(noField({ source: 'wording nobody told us about', measured: null })), 1)
+      .availability_basis, 'unrecognised');
 });
 
-test('every basis it can return is a declared one', () => {
-  const seen = new Set();
-  const cases = [
-    row({ source: 'fitted availability (x, n=1)' }),
-    row({ measured: true }), row({ measured: false }), row({ measured: null }),
-    row({ source: '' })
-  ];
-  for (const [i, r] of cases.entries()) {
-    seen.add(activeProbabilityFor(mapOf(...cases), i + 1).availability_basis);
-  }
-  seen.add(activeProbabilityFor(new Map(), 1).availability_basis);
+test('THE COLLISION: a measured prior of exactly 0.920 is not the default', () => {
+  // The row is served at three decimals, so a veteran whose measured prior really is 0.920 is
+  // byte-identical to the substituted constant. A mapping that compared the number would label
+  // a real career measurement as a fallback, on precisely the players whose durability is
+  // unremarkable -- an error correlated with the population rather than spread as noise. This
+  // stays pinned here even though the field now answers it, because the fieldless fallback
+  // still has to get it right.
+  const measuredAt092 = mapOf((() => {
+    const r = row({ active: 0.92, prior: DEFAULT_DURABILITY_PRIOR, measured: true });
+    delete r.availability_basis; return r;
+  })());
+  const actuallyDefault = mapOf((() => {
+    const r = row({ active: 0.92, prior: DEFAULT_DURABILITY_PRIOR, measured: false });
+    delete r.availability_basis; return r;
+  })());
+
+  const a = activeProbabilityFor(measuredAt092, 1), b = activeProbabilityFor(actuallyDefault, 1);
+  assert.equal(a.availability_basis, 'durability_prior', 'a measured 0.920 is not the default');
+  assert.equal(b.availability_basis, 'default_durability');
+  assert.equal(a.active_probability, b.active_probability, 'identical numbers');
+  assert.notEqual(a.availability_basis, b.availability_basis, 'opposite bases');
+});
+
+test('every basis it can return is in the shared vocabulary, and none is defined here', async () => {
+  const engine = await import('../server/services/player-week-engine.js');
+  assert.equal('AVAILABILITY_BASES' in engine, false,
+    'the vocabulary has ONE definition, in availability-basis.js');
+  assert.equal('DEFAULT_ACTIVE_PROBABILITY' in engine, false,
+    'and so does the constant');
+
+  const seen = new Set([
+    ...SERVABLE_AVAILABILITY_BASIS.map(basis =>
+      activeProbabilityFor(mapOf(row({ basis })), 1).availability_basis),
+    activeProbabilityFor(new Map(), 1).availability_basis,
+    activeProbabilityFor(mapOf((() => {
+      const r = row({ measured: null, source: 'unknown' }); delete r.availability_basis; return r;
+    })()), 1).availability_basis
+  ]);
   for (const basis of seen) {
-    assert.ok(AVAILABILITY_BASES.includes(basis), `undeclared basis: ${basis}`);
+    assert.ok(AVAILABILITY_BASIS.includes(basis), `undeclared basis: ${basis}`);
   }
-  assert.ok(seen.size >= 4, `all four bases should be reachable, saw ${[...seen].join(', ')}`);
+  assert.equal(seen.size, 6, `all six arms should be reachable, saw ${[...seen].join(', ')}`);
 });
 
-test('the constant agrees with the producer, read out of a real database', () => {
-  // TWO 0.92s IN THE CODEBASE IS THE THING TO AVOID, and `contingency.js` does not export
-  // DEFAULT_DURABILITY_PRIOR. The first version of this test passed our own constant in as
-  // `prior` and asserted it came back -- which it always does, because that path returns the
-  // prior it was handed. It survived the mutation that changed our constant to 0.85. So this
-  // one asks the producer, against a player it has no availability rows for, what prior it
-  // serves of its own accord. If either side's number moves, this fails.
+test('the number for an uncovered player is the producer\'s own constant, read not copied', () => {
+  // TWO 0.92s IN THE CODEBASE IS THE THING TO AVOID. The constant has one home now
+  // (availability-basis.js) and contingency.js imports it there too, so this asserts the
+  // producer really does substitute the same number for a player with no games on file.
   const availability = weeklyAvailability(2026, 2, { through: 2025 });
   const served = availability.get(PLAYER_ID);
   assert.ok(served, 'the fixture player must be in the map, or this proves nothing');
-  assert.equal(served.durability_prior_measured, false,
-    'the fixture has no games on file, so there is no measured prior');
-  assert.equal(served.durability_prior, DEFAULT_ACTIVE_PROBABILITY,
-    "the producer's own default and ours must be the same number, not two that agree today");
+  assert.equal(served.durability_prior_measured, false);
+  assert.equal(served.durability_prior, DEFAULT_DURABILITY_PRIOR);
+  assert.equal(served.availability_basis, 'default_durability',
+    'the producer states the basis on the row now, rather than leaving it to be guessed');
 
-  // And end to end: the real row, through the real mapping.
   const out = activeProbabilityFor(availability, PLAYER_ID);
   assert.equal(out.availability_basis, 'default_durability');
   assert.equal(out.active_probability, served.active_probability);
+});
+
+test('a basis the vocabulary does not declare is not passed through', () => {
+  // `isAvailabilityBasis` and not a null check. A producer sending a value nobody declared --
+  // a typo, or a new arm added on one side only -- must not reach six downstream switches as
+  // an unknown string they will all fall through on. It is treated as a row that did not say,
+  // so the fallback classifies it and the worst case is the named `unrecognised`.
+  const bogus = activeProbabilityFor(mapOf(row({ basis: 'totally_made_up', measured: true })), 1);
+  assert.notEqual(bogus.availability_basis, 'totally_made_up',
+    'an undeclared value must not be served to consumers as if it were vocabulary');
+  assert.equal(bogus.availability_basis, 'durability_prior',
+    'it falls to the fallback, which here can tell from the flag');
+
+  const bogusAndUnknown = activeProbabilityFor(
+    mapOf(row({ basis: 'role_v2', measured: null, source: 'new wording' })), 1);
+  assert.equal(bogusAndUnknown.availability_basis, 'unrecognised',
+    'and where the fallback cannot tell either, it says so');
+});
+
+test('THE NO-OP CONTROL: rewording the source sentence changes nothing now', () => {
+  // The control Opportunity ran on their side, repeated on mine, because it is the reason the
+  // field exists. A row with the field keeps its basis whatever the prose says -- including
+  // prose that directly contradicts it. Before the field, this test could not have passed.
+  const contradicting = row({ basis: 'role', source: 'durability prior only, honestly' });
+  assert.equal(activeProbabilityFor(mapOf(contradicting), 1).availability_basis, 'role',
+    'the field wins over the sentence, so rewording the sentence is a no-op');
+  const reworded = row({ basis: 'pooled', source: 'availability from fitted league rates (x, n=9)' });
+  assert.equal(activeProbabilityFor(mapOf(reworded), 1).availability_basis, 'pooled');
 });

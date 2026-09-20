@@ -1,121 +1,137 @@
-# One availability field, so five call sites stop guessing
+# One availability field, on one shared vocabulary
 
 2026-09-20. `server/services/player-week-engine.js`, `test/availability-basis.test.js`.
-Branched off Opportunity's `claude/project-thread-w45mur-wiring-names-hold` (a6d00bb), not
-`main` — see "Why not off main".
+Stacked: Opportunity's `9732f83` → this branch. A **merge**, not a fast-forward — this branch
+was `+1/-3` against `9732f83` at the time.
+
+This supersedes the first version of this file. That version described an accessor that
+defined its own three-value list and classified by matching a prose sentence; both are gone, so
+its mutation table described code that no longer exists and is not carried forward. What is
+carried forward is the defect and the two findings.
 
 ## The defect
 
 Five call sites independently wrote `?? 0.92`: `role-scenario-engine.js:124`,
 `season-sim.js:226`, `news-fantasy-impact.js:87`, `roster-risk.js:257` and
-`trade-engine.js:346`. Not one of them could tell a fitted availability rate from the
-blanket constant, and neither could anything downstream, because both arrived as a bare
-number. Every surface printed them identically.
+`trade-engine.js:346`. None could tell a fitted availability rate from the blanket constant,
+and neither could anything downstream, because both arrived as a bare number.
 
-The defect was never the constant's value. It was that the constant was invisible — the same
-shape as a layer going inert while the page keeps printing numbers, which this project has
-shipped twice.
+The defect was never the constant's value. It was that the constant was invisible.
 
-## Why not off main
+## Why the vocabulary is not defined here
 
-`weeklyAvailability` serves `durability_prior_measured` and names its constant
-`DEFAULT_DURABILITY_PRIOR`, and both exist only on Opportunity's hold branch, not on `main`.
-The accessor's whole correctness rests on that flag, so it is branched there. It carries
-their four-file change with it (14 lines in `contingency.js`, plus their tests).
+Three classifiers had grown for one question and none read a field —
+`lineup-brain.js#playerAvailabilityBasis`, this accessor, and `availabilityBasis()` reporting a
+different thing under the same name. `contingency.js` now states `availability_basis` on every
+row, and `availability-basis.js` (Opportunity's) is its one definition. This file imports
+`AVAILABILITY_BASIS`, `DEFAULT_DURABILITY_PRIOR` and `isAvailabilityBasis`, and **defines
+neither the list nor a constant** — there is a test asserting the old exports are gone.
 
-## The mapping reads the flag, never the number
+Two of the six arms are the consumer's to produce, because no row can carry them:
 
-`durability_prior_measured` is the only safe discriminator. A veteran whose measured
-durability prior really is 0.920 is indistinguishable from the default if you compare
-values, and `durability_prior` is served through `toFixed(3)`, so that collision is **exact
-rather than unlikely**. A value comparison would label a real career measurement as a
-fallback, on precisely the players whose durability is unremarkable — an error correlated
-with the population rather than spread as noise. The collision is the fixture the main test
-is built on, because the value-comparing version of this function passes every other test.
-(Credit to Opportunity for spotting the float-compare trap before it was written.)
+- **`unfitted_position`** — there is no row at all. `weeklyAvailability` covers QB, RB, WR and
+  TE, so every kicker and defence lands here by construction. Deliberately **not**
+  `default_durability`, which means a row exists carrying a substituted prior.
+- **`unrecognised`** — a row arrived without the field, reachable only from a payload built
+  before the field existed. Named rather than guessed at.
 
-## A correction to the field contract, and why there are four values
+`isAvailabilityBasis` and not a null check: a value nobody declared — a typo, or an arm added
+on one side only — must not reach six downstream switches as an unknown string. It falls to the
+fallback instead, whose worst case is the named `unrecognised`.
 
-I published three values. There are **four**. `fitted` has to be derived from the producer's
-`source`, which is a human sentence — `fitted availability by role (noreport/starter/full,
-n=8657) x KC` — because no machine-readable field says it yet. A prose change upstream would
-silently reclassify every fitted number as a prior, which is the exact failure this field
-exists to end. So an unmatched source returns `unrecognised` and carries the raw sentence,
-rather than being guessed at.
+## The two quantities that share their digits
 
-- `fitted` — a fitted availability rate produced the number.
-- `durability_prior` — the player's own measured durability prior.
-- `default_durability` — no measured prior, or no row for this player at all.
-- `unrecognised` — the producer's source did not match any known shape. Loud on purpose.
+`DEFAULT_DURABILITY_PRIOR` is an **input**: `contingency.js` substitutes it as the prior and
+then runs the report-status curve over it, so a `default_durability` row's served
+`active_probability` is nowhere near 0.92 for a Questionable player.
 
-`unrecognised` is scaffolding with a removal condition: when `contingency.js` grows a
-machine-readable basis field, the prose match and this value both go. That is a one-line ask
-of Opportunity and is not blocking.
+What this file needs is an **output**-side stand-in: the probability served for a player with no
+row, who never went through the curve. Different quantity, same digits — and the digits are
+shared for a reason that is not a derivation: all five replaced call sites wrote `?? 0.92`, so
+0.92 is what an uncovered player has always been given.
 
-## The constant
+**This is a documented borrow, not a second definition, and it is temporary.** Opportunity is
+adding `DEFAULT_ACTIVE_PROBABILITY` to `availability-basis.js` under its own name; the swap here
+is one line and one import when that head lands. Using the same number changes no served value
+today.
 
-`DEFAULT_ACTIVE_PROBABILITY` is in `player-week-engine.js` because `contingency.js` does not
-export its own. Two 0.92s in the codebase is the thing to avoid, so a test **reads what the
-producer actually serves** for a player it has no availability rows for — a real database, a
-real `weeklyAvailability` call — and asserts the two agree. If either number moves, that test
-fails instead of the app quietly carrying two different "we know nothing" values.
+**What the borrow does not do is justify the value.** Whether a kicker should be priced at 0.92,
+at 1, or refused a number at all is a real question that moves the odds, and it is for Nick's
+list rather than to be settled in a wiring change.
 
-## A test that could not fail
+## Never find the default by comparing the number
 
-The first version of that test passed our own constant in as `prior` and asserted it came
-back. That path returns the prior it was handed, so it always passes; it survived the
-mutation that changed our constant to 0.85. Replaced with the real-database read above. This
-is the third time in this session's work that a mutation has found a test asserting its own
-input — worth naming as a pattern rather than a one-off.
+The row's prior is served at three decimals, so a veteran whose measured prior really is 0.920
+is byte-identical to the substituted constant. A value comparison would label a real career
+measurement as a fallback on precisely the players whose durability is unremarkable — an error
+correlated with the population rather than spread as noise. `durability_prior_measured` is the
+discriminator. Pinned on both sides; row B4 is the mutation.
 
 ## Mutations
 
-| # | mutation | result |
-|---|---|---|
-| A1 | map by comparing the number to the constant | 3 fail |
-| A2 | an unrecognised source falls through to `durability_prior` | 2 fail |
-| A3 | a missing player throws instead of answering | 1 fail |
-| A4 | the fitted match becomes a loose substring | 3 fail |
-| A5 | the constant drifts from the producer's | 1 fail (after the test was fixed) |
-| A6 | a present row ignores the producer's own probability | 1 fail |
+Every row: mutation applied, file hash before → after confirming it changed, failing test named.
+A pattern that does not match is a NO-OP and is not evidence.
 
-All applied and confirmed changed before running.
+| # | mutation | applied (sha256, 12) | fails | test that caught it |
+|---|---|---|---|---|
+| B1 | ignore the served field (`if (false)`) and classify by prose | `51fe1716` → `c4c7661d` | 3 | "the basis the producer states is the basis served…"; "every basis it can return is in the shared vocabulary…"; "THE NO-OP CONTROL…" |
+| B2 | a missing row reports `default_durability` | `51fe1716` → `fe7bfb84` | 3 | "a player with no row at all is unfitted_position, not default_durability"; "no map at all is the same answer, not a throw"; "every basis it can return…" |
+| B3 | the fieldless fallback claims `role` instead of the coarser `pooled` | `51fe1716` → `20e10095` | 1 | "a row without the field falls back to the prose match, and says so when it cannot tell" |
+| B4 | find the default by comparing the number (`durability_prior === DEFAULT_DURABILITY_PRIOR`) | `51fe1716` → `9e805142` | 2 | "a row without the field falls back to the prose match…"; "THE COLLISION: a measured prior of exactly 0.920 is not the default" |
+| B5 | a fieldless unknown falls through to `durability_prior` | `51fe1716` → `6bfcc5c4` | 3 | "a row without the field falls back…"; "every basis it can return…"; "a basis the vocabulary does not declare is not passed through" |
+| B6 | accept any non-null string as vocabulary (`served != null`) | `51fe1716` → `2b58f18f` | 1 | "a basis the vocabulary does not declare is not passed through" |
+| B7 | the loose substring `/prior/i` in place of `/^fitted availability/i` | `51fe1716` → `be214aea` | 3 | "a row without the field falls back…"; "THE COLLISION…"; "a basis the vocabulary does not declare…" |
+| **CONTROL** | reword a comment, changing no behaviour | `51fe1716` → `73840042` | **0** | none, correctly — the control proves the suite is not failing on edits as such |
 
-## The two call sites in my own files
+B6 survived its first run: the check was a null test, so an undeclared string passed straight
+through to consumers. It was answered by the test named above, not by weakening the mutation.
 
-`role-scenario-engine.js` and `season-sim.js` now call the accessor and **serve**
-`availability_basis` on their own payloads — `buildPlayerScenarios` carries
-`availability_basis` and `availability_source`, and the simulator's per-player `meta` carries
-`availability_basis` beside `active_probability`. Reading the basis and not serving it would
-have left the defect exactly where it was. UI owns `news-fantasy-impact.js`; feature audit
-owns `roster-risk.js` and `trade-engine.js`, and imports these exports rather than keeping a
-local copy of the constant.
+**The no-op control is the point of the field**, and it is also a test in its own right: a row
+with `availability_basis: 'role'` and a directly contradicting `source` sentence keeps `role`.
+Before the field existed that test could not have passed, because the sentence *was* the
+classifier.
 
 ## Numbers
 
-7 tests, 7 passed, 0 failed.
-Full local check `npm run check`: exit 0 — 2,960 tests, 2,919 passed, 0 failed, 41 skipped;
+9 tests, 9 passed, 0 failed.
+Full local check `npm run check`: exit 0 — 2,975 tests, 2,934 passed, 0 failed, 41 skipped;
 typecheck, lint and build clean; `start:smoke` passed on an isolated database.
+
+**One failure worth recording, caught by the check and nothing else.** The edit that replaced
+this accessor was applied as a slice between two anchors, and `memoKBasis` — added by the
+previous commit — sat between them and was deleted. Both this file's tests and the memo-key
+tests still passed, because neither imports `buildPlayerWeekEngine`'s cache path; **54 tests in
+other files failed** with `memoKBasis is not defined`. A targeted suite is not a substitute for
+the whole one when the edit is structural rather than logical.
+
+## The two call sites in my own files
+
+`role-scenario-engine.js` and `season-sim.js` **serve** `availability_basis` on their own
+payloads (`buildPlayerScenarios` also carries `availability_source`; the simulator's per-player
+`meta` carries the basis beside `active_probability`). Reading the basis without serving it
+would have left the defect where it was. UI owns `news-fantasy-impact.js`; feature audit owns
+`roster-risk.js` and `trade-engine.js` and imports these rather than keeping local copies.
 
 ## The five questions
 
-**Is this well built?** One accessor, one constant, one field name, four declared values and
-a test asserting nothing outside that list is reachable. It answers rather than throws on
-every degenerate input, because it is called from the odds path.
+**Is this well built?** One vocabulary, defined once in another file and imported. Six declared
+arms, an assertion that nothing outside them is reachable, and a refusal to pass through a value
+the vocabulary does not declare. It answers rather than throws on a null map, an empty map and a
+missing player, because it is called from the odds path.
 
-**Is this based on stats, or is it made up?** It invents no number. It labels which measured
-thing produced one, and where nothing measured did, it says so. `0.92` is not defended here
-as a good number — it is named so that a surface can stop presenting it as a measurement.
+**Is this based on stats, or is it made up?** It invents no number. It reports which measured
+thing produced one, and says so where nothing measured did. `0.92` is not defended here — it is
+named so a surface can stop presenting it as a measurement, and the open question about its
+value is written down above rather than closed quietly.
 
-**How do we know?** Six mutations, all failing, including one that reproduces the exact
-0.920 value collision.
+**How do we know?** Seven mutations, each applied and hash-confirmed, each with the failing test
+named; plus a control that changes nothing and fails nothing.
 
-**Should this data be pointed anywhere else on the platform?** Yes — all five call sites,
-three of which belong to other threads and now import these exports. `weeklyAvailability`
-covers QB, RB, WR and TE only, so **every other position resolves to `default_durability` by
-construction**: any surface showing availability for a K or a DST is showing the constant,
+**Should this data be pointed anywhere else on the platform?** All five call sites, three
+belonging to other threads. And the fact worth repeating: `weeklyAvailability` covers QB, RB, WR
+and TE only, so **every other position resolves to `unfitted_position` by construction** — any
+surface showing availability for a kicker or a defence is showing a number no model produced,
 and now says so.
 
-**How does it unify?** It replaces five independent literals with one import, before a sixth
-was written. The naming follows the same rule as the projection and outlook basis fields: the
-number and the statement of what produced it travel together.
+**How does it unify?** It removes the third of three classifiers for one question and replaces
+five independent literals with one import — before a sixth was written.

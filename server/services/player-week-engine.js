@@ -14,6 +14,9 @@ import { PPR, scoreLine } from './scoring.js';
 import { redistribute } from './opportunity-redistribution.js';
 import { weeklyAvailability } from './contingency.js';
 import {
+  AVAILABILITY_BASIS, DEFAULT_DURABILITY_PRIOR, isAvailabilityBasis
+} from './availability-basis.js';
+import {
   WEEKLY_ROLE_RECENCY,
   weeklyEnsembleContext, weeklyEnsemblePrediction, weeklyEnsembleMode, weeklyEnsembleWeightsFor
 } from './weekly-ensemble.js';
@@ -69,65 +72,78 @@ function remember(cache, key, value, limit) {
 /* ------------------------------------------------- what an availability number rests on */
 
 /**
- * The chance a player we have no availability read for is active.
+ * What one player's active probability rests on, for a surface that prints the number.
  *
- * NOT A NEW NUMBER. Five call sites independently wrote `?? 0.92` -- `role-scenario-engine.js`,
- * `season-sim.js`, `news-fantasy-impact.js`, `roster-risk.js` and `trade-engine.js` -- and none
- * of them could tell a fitted number from this one. The bug was never the constant; it was
- * that the constant was invisible. This is the same quantity `contingency.js` calls
- * `DEFAULT_DURABILITY_PRIOR`, and there is a test asserting the two agree by reading what the
- * producer actually serves for an unmeasured player rather than by repeating the literal, so
- * changing it in one place fails there instead of leaving two 0.92s in the codebase.
- */
-export const DEFAULT_ACTIVE_PROBABILITY = 0.92;
-
-/** The four things an availability number can rest on. Nothing else is ever returned. */
-export const AVAILABILITY_BASES = Object.freeze([
-  'fitted', 'durability_prior', 'default_durability', 'unrecognised'
-]);
-
-/**
- * WHY `unrecognised` EXISTS AND IS NOT A CODE SMELL. `fitted` is derived from the producer's
- * `source`, which is a human sentence ("fitted availability by role (...)"), because no
- * machine-readable field says it yet. A prose change upstream would silently reclassify every
- * fitted number as a prior -- the exact shape of failure this whole field exists to end. So an
- * unmatched source is labelled rather than guessed at, and the raw sentence is carried so it
- * can be read. When `contingency.js` grows a machine-readable basis field, this match and this
- * value both go.
+ * The vocabulary is `availability-basis.js`'s and is not redefined here. `contingency.js` now
+ * states `availability_basis` on every row it builds, so this reads the field. Two arms are
+ * the consumer's to produce because no row can carry them:
+ *
+ *   - `unfitted_position` -- there is NO row for this player. `weeklyAvailability` covers QB,
+ *     RB, WR and TE, so a kicker or a defence is outside the fit entirely. It is deliberately
+ *     not `default_durability`, which means a row exists and carries a substituted prior.
+ *   - `unrecognised` -- a row arrived without the field, reachable only from a payload built
+ *     before the field existed. It is named rather than guessed at, because the prose match
+ *     below is the only thing left that could silently misclassify.
+ *
+ * NEVER FIND A DEFAULTED PRIOR BY COMPARING THE NUMBER. The row's prior is served at three
+ * decimals, so a veteran whose measured prior really is 0.920 is byte-identical to the
+ * substituted constant. `durability_prior_measured` is the discriminator; Opportunity has
+ * pinned that by test on their side and it is pinned again here.
  */
 const FITTED_SOURCE = /^fitted availability/i;
 
 /**
- * What one player's active probability rests on, for a surface that prints the number.
+ * THE NUMBER FOR A PLAYER THE MODEL DOES NOT COVER, AND AN OPEN QUESTION ABOUT IT.
  *
- * MAPPED FROM THE FLAG, NEVER FROM THE NUMBER. `durability_prior_measured` is why: a veteran
- * whose measured prior really is 0.920 is indistinguishable from the default if you compare
- * the value, and `durability_prior` is served through `toFixed(3)`, so the collision is exact
- * rather than unlikely. That comparison is the version of this function that would have
- * looked right.
+ * `DEFAULT_DURABILITY_PRIOR` is an INPUT: contingency.js substitutes it as the prior and then
+ * runs the published report-status curve over it, so a `default_durability` row's served
+ * `active_probability` is nowhere near 0.92 for a Questionable player. What is needed here is
+ * an OUTPUT-side stand-in: the served probability for a player who has no row at all and never
+ * went through the curve. Those are two different quantities that happen to share their digits.
  *
- * A player absent from the map is the common case and not an error: `weeklyAvailability`
- * covers QB, RB, WR and TE only, so every other position resolves to `default_durability` by
- * construction.
+ * The digits are shared for a reason that is not a derivation: every one of the five call sites
+ * this replaced wrote `?? 0.92`, so 0.92 is what an uncovered player has always been given.
+ * Using the same constant preserves that exactly and changes no served number. What it does
+ * NOT do is justify the value: whether a kicker should be priced at 0.92, at 1, or refused a
+ * number at all is a real question and it is on the list for Nick rather than decided here,
+ * because it moves the odds. Until it is answered this is deliberately the same number under a
+ * documented borrow, not a second definition -- and the name it should eventually have belongs
+ * in availability-basis.js beside the prior, not in this file.
  */
+const UNCOVERED_ACTIVE_PROBABILITY = DEFAULT_DURABILITY_PRIOR;
+
 export function activeProbabilityFor(availability, playerId) {
   const row = availability?.get?.(playerId) ?? null;
   if (!row) {
     return {
-      active_probability: DEFAULT_ACTIVE_PROBABILITY,
-      availability_basis: 'default_durability',
-      availability_source: 'no availability read for this player'
+      active_probability: UNCOVERED_ACTIVE_PROBABILITY,
+      availability_basis: 'unfitted_position',
+      availability_source: 'no availability row for this player: the fit covers QB, RB, WR and TE'
     };
   }
+
+  const served = row.availability_basis;
   const source = typeof row.source === 'string' ? row.source : '';
   let basis;
-  if (FITTED_SOURCE.test(source)) basis = 'fitted';
-  else if (row.durability_prior_measured === false) basis = 'default_durability';
-  else if (row.durability_prior_measured === true) basis = 'durability_prior';
-  else basis = 'unrecognised';
+  if (isAvailabilityBasis(served)) {
+    // The producer said so. Nothing here second-guesses it, which is the whole point of the
+    // field: the prose match below was the classifier, and a reworded sentence would have
+    // reclassified every fitted number as a prior with nothing failing.
+    basis = served;
+  } else if (FITTED_SOURCE.test(source)) {
+    // Only reachable from a row built before the field existed. It cannot tell role from
+    // pooled -- that distinction lives in the field -- so it reports the coarser truth.
+    basis = 'pooled';
+  } else if (row.durability_prior_measured === false) {
+    basis = 'default_durability';
+  } else if (row.durability_prior_measured === true) {
+    basis = 'durability_prior';
+  } else {
+    basis = 'unrecognised';
+  }
 
   return {
-    active_probability: row.active_probability ?? DEFAULT_ACTIVE_PROBABILITY,
+    active_probability: row.active_probability ?? UNCOVERED_ACTIVE_PROBABILITY,
     availability_basis: basis,
     availability_source: source || 'the producer served no source'
   };

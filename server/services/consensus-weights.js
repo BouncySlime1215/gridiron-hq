@@ -313,6 +313,57 @@ export function measureSourceErrors(trainSeasons) {
 }
 
 /**
+ * Why a position could not be fitted. A CLOSED SET, checked by the caller, because
+ * the alternative is the sentence this replaced:
+ *
+ *   `fewer than 40 training rows or no measurable variance — held at hand-set weights`
+ *
+ * One string for every cause, produced by one collapsed boolean, printed whether or
+ * not either half of it happened. A reader who saw it could not tell whether the
+ * position had too little history or history that told them nothing, and those have
+ * different fixes: the first waits for seasons, the second means the source is not
+ * discriminating at that position and more of it will not help.
+ *
+ * `no_rows` is separate from `too_few_rows` on purpose. `measureSourceErrors` returns
+ * `variance: null` for a source and position with no rows at all, and `null > 0` is
+ * false, so a zero-row cell used to report a missing variance as well — inventing a
+ * second finding out of the absence of the first. No rows is one fact, not two.
+ */
+export const HELD_BECAUSE = Object.freeze(['no_rows', 'too_few_rows', 'no_variance']);
+
+/**
+ * The causes that actually held, in `HELD_BECAUSE` order, across every source's cell
+ * at one position. Empty means the position is fittable.
+ *
+ * Separate from `fitInverseVarianceWeights` so each branch can be exercised on its own
+ * cells: the live fixtures reach the row-count branch, and nothing in a season of real
+ * football reaches the flat-variance one, which is exactly the branch a reader would
+ * most want to trust when it finally fires.
+ */
+export function heldBecause(cells) {
+  const causes = new Set();
+  for (const c of cells) {
+    if (!c.n) causes.add('no_rows');
+    else if (c.n < MIN_POSITION_ROWS) causes.add('too_few_rows');
+    else if (!(c.variance > 0)) causes.add('no_variance');
+  }
+  return HELD_BECAUSE.filter(k => causes.has(k));
+}
+
+/** One cause, said in words, naming the sources it held for and the number behind it. */
+function causeText(cause, cells) {
+  if (cause === 'no_rows') {
+    return `no training rows at all (${cells.filter(c => !c.n).map(c => c.id).join(', ')})`;
+  }
+  if (cause === 'too_few_rows') {
+    const thin = cells.filter(c => c.n && c.n < MIN_POSITION_ROWS);
+    return `fewer than ${MIN_POSITION_ROWS} training rows (${thin.map(c => `${c.id} ${c.n}`).join(', ')})`;
+  }
+  const flat = cells.filter(c => c.n >= MIN_POSITION_ROWS && !(c.variance > 0));
+  return `no measurable variance (${flat.map(c => c.id).join(', ')})`;
+}
+
+/**
  * Inverse-variance weights per position, shrunk toward the hand-set weights
  * and capped.
  *
@@ -331,10 +382,10 @@ export function fitInverseVarianceWeights(trainSeasons) {
   const weights = {};
   for (const pos of SKILL_POSITIONS) {
     const cells = SOURCE_IDS.map(id => ({ id, ...measured.errors[id].by_position[pos] }));
-    const usable = cells.every(c => c.n >= MIN_POSITION_ROWS && c.variance > 0);
-    if (!usable) {
+    const held = heldBecause(cells);
+    if (held.length) {
       weights[pos] = { ...handShare, fitted: false, n: Math.min(...cells.map(c => c.n)),
-        reason: `fewer than ${MIN_POSITION_ROWS} training rows or no measurable variance — held at hand-set weights` };
+        held_because: held, reason: `${held.map(c => causeText(c, cells)).join('; ')} — held at hand-set weights` };
       continue;
     }
     const inv = Object.fromEntries(cells.map(c => [c.id, 1 / c.variance]));

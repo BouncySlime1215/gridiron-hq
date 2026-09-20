@@ -14,7 +14,7 @@ const { db } = await import('../server/db/index.js');
 const { resetPreseasonCache } = await import('../server/services/preseason-model.js');
 const {
   SOURCE_IDS, HAND_SET_WEIGHTS, PANEL_SEASONS, TEST_SEASONS, FFC_ADP_SOURCE,
-  sourceBoards, measureSourceErrors, fitInverseVarianceWeights, consensusOrder,
+  sourceBoards, measureSourceErrors, fitInverseVarianceWeights, consensusOrder, heldBecause,
   consensusWeightsWalkForward, sourceHistoryCoverage, ffcAdpCoverage, __test
 } = await import('../server/services/consensus-weights.js');
 
@@ -234,11 +234,46 @@ test('weights move toward the lower-variance source, and stay inside the caps', 
 test('a position with too few training rows is held at the hand-set weights rather than fitted on nothing', () => {
   const { weights } = fitInverseVarianceWeights([2021]);
   const thin = Object.entries(weights).filter(([, w]) => !w.fitted);
-  for (const [, w] of thin) {
-    assert.match(w.reason, /fewer than \d+ training rows|no measurable variance/);
+  assert.ok(thin.length, 'a fixture that holds nothing would pass this test without reading a single weight');
+  for (const [pos, w] of thin) {
+    assert.deepEqual(w.held_because, ['too_few_rows'],
+      `${pos}: the cause is a closed-set code, not a sentence a reader has to parse`);
+    assert.match(w.reason, /fewer than \d+ training rows/, `${pos}: and the sentence says the same thing`);
     assert.ok(Math.abs(w.expert_rank - HAND_SET_WEIGHTS.expert_rank / 3) < 1e-9,
       'an unfittable position falls back to the incumbent split exactly');
   }
+});
+
+/*
+ * The classifier on its own cells, one branch per test, because the live fixture
+ * reaches exactly one of the three. A branch no test reaches is a branch nobody has
+ * ever seen run, and this one decides what a reader is told about a position the
+ * model declined to fit.
+ */
+test('heldBecause: a fittable position holds nothing back', () => {
+  assert.deepEqual(heldBecause([{ id: 'a', n: 90, variance: 12 }, { id: 'b', n: 90, variance: 8 }]), []);
+});
+
+test('heldBecause: no rows at all is one fact, not a missing variance as well', () => {
+  assert.deepEqual(heldBecause([{ id: 'a', n: 0, variance: null }, { id: 'b', n: 90, variance: 8 }]),
+    ['no_rows'], 'a zero-row cell must not also be reported as having no measurable variance');
+});
+
+test('heldBecause: too few rows is named on its own', () => {
+  assert.deepEqual(heldBecause([{ id: 'a', n: 12, variance: 12 }, { id: 'b', n: 90, variance: 8 }]),
+    ['too_few_rows']);
+});
+
+test('heldBecause: rows that are all identical leave no variance to weight on', () => {
+  assert.deepEqual(heldBecause([{ id: 'a', n: 90, variance: 0 }, { id: 'b', n: 90, variance: 8 }]),
+    ['no_variance'], 'enough rows and zero variance is the branch no season of real football reaches');
+});
+
+test('heldBecause: two sources can fail in two different ways at once, and both are reported', () => {
+  const both = heldBecause([{ id: 'a', n: 12, variance: 3 }, { id: 'b', n: 90, variance: 0 }]);
+  assert.deepEqual(both, ['too_few_rows', 'no_variance'],
+    'the old single sentence could not have told these apart, because it printed both every time');
+  assert.equal(new Set(both).size, both.length, 'and a cause is named once however many sources hit it');
 });
 
 /*

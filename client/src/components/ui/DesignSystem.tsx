@@ -45,14 +45,31 @@ export function StatTile({ label, value, delta, freshness, tone = 'neutral' }: {
   </Card>;
 }
 
-export function Confidence({ coverage, sample, label }: { coverage: number | null; sample?: number; label?: string }) {
-  const value = coverage == null ? null : Math.max(0, Math.min(1, coverage));
-  const text = label ?? (value == null ? 'Uncalibrated' : value >= .78 ? 'Calibrated' : value >= .65 ? 'Developing' : 'Low confidence');
-  return <div className="inline-flex items-center gap-2" aria-label={`${text}${sample ? `, ${sample} observations` : ''}`}>
-    <span className="h-2 w-20 overflow-hidden rounded-full bg-slate-200"><span className="block h-full bg-emerald-600" style={{ width: `${(value ?? 0) * 100}%` }} /></span>
-    <span className="text-xs font-semibold text-slate-700">{text}</span>{sample != null && <span className="text-xs text-slate-400">n={sample}</span>}
-  </div>;
-}
+/**
+ * There is deliberately no confidence tier here.
+ *
+ * A `<Confidence>` component used to live at this spot. It took a `coverage`
+ * fraction and rendered `Calibrated` at `>= .78`, `Developing` at `>= .65`,
+ * `Low confidence` below, `Uncalibrated` for null. It was removed rather than
+ * relabelled, for reasons that outlast the component:
+ *
+ *   - Coverage is not calibration. Coverage is how much data you have;
+ *     calibration is whether the predictions matched the outcomes. A forecaster
+ *     with complete coverage can be badly calibrated, and this called it
+ *     Calibrated. The two thresholds had nothing behind them.
+ *   - It granted a stronger claim than `BasisChip` does, with less evidence.
+ *     That chip's `fitted` tier means "a model fitted on history, with a fit id
+ *     behind it" (BasisChip.tsx:48); this handed out the calibration word with
+ *     no fit named at all.
+ *   - This project has already measured confidence tiers and rejected them.
+ *     docs/HISTORICAL-TESTS.md:27 records a preregistered null, and the row
+ *     under it reads "No edge and no usable confidence tier, across every
+ *     forecaster tested".
+ *
+ * `test/calibration-claim-needs-a-fit.test.js` is what keeps it out, and it
+ * bans the claim rather than the file: any component that turns a number into a
+ * calibration verdict fails it. Where a number needs provenance, use BasisChip.
+ */
 
 export function Provenance({ source, updatedAt, version, children }: { source: string; updatedAt?: string | null; version?: string | null; children?: ReactNode }) {
   return <details className="text-xs text-slate-500"><summary className="cursor-pointer rounded-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600">Source: {source}{updatedAt ? ` · ${new Date(updatedAt).toLocaleString()}` : ''}</summary>

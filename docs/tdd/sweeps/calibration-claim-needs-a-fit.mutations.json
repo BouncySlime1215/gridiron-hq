@@ -1,0 +1,85 @@
+[
+ {
+  "name": "K1 the confidence tier is put back",
+  "file": "client/src/components/ui/DesignSystem.tsx",
+  "old": " * There is deliberately no confidence tier here.",
+  "new": " * There is deliberately no confidence tier here.\n */\nexport function Confidence({ coverage }: { coverage: number | null }) {\n  return <span>{coverage == null ? 'Uncalibrated' : coverage >= .78 ? 'Calibrated' : 'Developing'}</span>;\n}\n/*",
+  "aimed_at": "C1",
+  "tests": [
+   "test/calibration-claim-needs-a-fit.test.js"
+  ]
+ },
+ {
+  "name": "K2 a verdict comes back on another page, not in the design system",
+  "file": "client/src/pages/Lineup.tsx",
+  "old": "export default function Lineup(",
+  "new": "const verdict = 'Calibrated';\nexport default function Lineup(",
+  "aimed_at": "C1",
+  "tests": [
+   "test/calibration-claim-needs-a-fit.test.js"
+  ]
+ },
+ {
+  "name": "K3 the design system gains a component nobody declared",
+  "file": "client/src/components/ui/DesignSystem.tsx",
+  "old": "export function Card(",
+  "new": "export function Gauge() { return null; }\nexport function Card(",
+  "aimed_at": "C3",
+  "tests": [
+   "test/calibration-claim-needs-a-fit.test.js"
+  ]
+ },
+ {
+  "name": "K4 a coverage number is compared to a bare threshold again",
+  "file": "client/src/components/ui/DesignSystem.tsx",
+  "old": "export function Card(",
+  "new": "const tier = (coverage: number) => coverage >= .78;\nexport function Card(",
+  "aimed_at": "C2",
+  "tests": [
+   "test/calibration-claim-needs-a-fit.test.js"
+  ]
+ },
+ {
+  "name": "K5 the file walker is pointed at one directory instead of the tree",
+  "file": "test/calibration-claim-needs-a-fit.test.js",
+  "old": "    if (entry.isDirectory()) out.push(...sourceFiles(full));",
+  "new": "    if (entry.isDirectory()) continue;",
+  "aimed_at": "C1",
+  "tests": [
+   "test/calibration-claim-needs-a-fit.test.js"
+  ]
+ },
+ {
+  "name": "CONTROL A (no-op): a pattern that is not in this file",
+  "file": "client/src/components/ui/DesignSystem.tsx",
+  "old": "export function ConfidenceMeter(",
+  "new": "export function ConfidenceGauge(",
+  "aimed_at": "none",
+  "kind": "no-op control",
+  "tests": [
+   "test/calibration-claim-needs-a-fit.test.js"
+  ]
+ },
+ {
+  "name": "CONTROL B (no-op): a pattern from a different feature entirely",
+  "file": "client/src/components/ui/DesignSystem.tsx",
+  "old": "const FAIRNESS_TONE",
+  "new": "const FAIRNESS_TONE_X",
+  "aimed_at": "none",
+  "kind": "no-op control",
+  "tests": [
+   "test/calibration-claim-needs-a-fit.test.js"
+  ]
+ },
+ {
+  "name": "CONTROL C (anchor x2): a pattern present twice, which the runner refuses",
+  "file": "client/src/components/ui/DesignSystem.tsx",
+  "old": "export function ",
+  "new": "export const ",
+  "aimed_at": "none",
+  "kind": "anchor control",
+  "tests": [
+   "test/calibration-claim-needs-a-fit.test.js"
+  ]
+ }
+]

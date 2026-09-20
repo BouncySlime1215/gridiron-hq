@@ -169,16 +169,33 @@ export function analyzeLeague(lg) {
 
   // Contention window on the market-capital x core-age grid. Market capital (not VOR)
   // because draft picks are a large share of dynasty capital and only exist as prices.
+  //
+  // The core-age axis is DYNASTY-ONLY, and the league's format decides, not the
+  // roster. In a redraft league there is no next season to accumulate youth for and
+  // no aging vet to sell before he falls off: every player on every roster is worth
+  // exactly what he scores between now and week 17. Running the age axis there
+  // produced advice that is not merely unhelpful but backwards — a weak young team
+  // was told \"Ascending — accumulate youth, sell aging vets while they hold value\",
+  // which in a redraft league means trading away the players who win you games this
+  // year for nothing that exists. The same rule is already applied one screen up:
+  // `dynastyAgeAdjustment` is gated on `isDynasty` for exactly this reason.
+  //
+  // So in redraft the grid collapses to its capital axis and yields the three
+  // format-neutral labels it already had. `core_age` is still computed and still
+  // reported — it is a true fact about the roster and the page may show it — it
+  // simply no longer decides anything. `window.basis` names which axes were used,
+  // so a reader can tell a suppressed age axis from an absent core age.
   const caps = teams.map(t => t.market_capital).sort((a, b) => a - b);
   const median = caps.length % 2 ? caps[(caps.length - 1) / 2]
     : (caps[caps.length / 2 - 1] + caps[caps.length / 2]) / 2 || 1;
   const YOUNG = 25.5, OLD = 27.5;
+  const basis = isDynasty ? 'market_capital_and_core_age' : 'market_capital';
   for (const t of teams) {
     const comp = t.market_capital / (median || 1);
     t.competitiveness = +comp.toFixed(2);
     const strong = comp >= 1.05, weak = comp <= 0.95;
-    const young = t.core_age != null && t.core_age <= YOUNG;
-    const old = t.core_age != null && t.core_age >= OLD;
+    const young = isDynasty && t.core_age != null && t.core_age <= YOUNG;
+    const old = isDynasty && t.core_age != null && t.core_age >= OLD;
     const [label, stance] =
       strong && old ? ['Win-now', 'Window is closing — spend youth and depth on proven help now.']
       : strong && young ? ['Juggernaut', 'Strong and young — hold the core, buy only at the margins.']
@@ -187,7 +204,7 @@ export function analyzeLeague(lg) {
       : strong ? ['Contender', 'Above average — target the upgrade that pushes you over the top.']
       : weak ? ['Retool', 'Below average — move stagnant assets for upside.']
       : ['Balanced', 'Middle of the pack — trade on value, no forced direction.'];
-    t.window = { label, stance };
+    t.window = { label, stance, basis };
   }
   return { teams, averages: avg, per_team: perTeam, format_key: formatKey, is_dynasty: isDynasty };
 }

@@ -102,6 +102,10 @@ test('a question that is missing, empty or not a string is refused with 400', as
   for (const body of [{}, { question: '' }, { question: '   ' }, { question: 42 }]) {
     const response = await ask(body);
     assert.equal(response.status, 400, JSON.stringify(body));
+    // The route says so itself, in JSON. Letting this fall through to the
+    // error handler produces the same status with an HTML body the client
+    // cannot read; mutation M42 proved nothing noticed.
+    assert.deepEqual(await response.json(), { error: 'question is required' });
   }
 });
 

@@ -117,10 +117,14 @@ test('the retry prompt names the exact numbers that failed, so it is actionable'
   setAnthropicClientForTesting(client);
   await askCoach({ question: 'targets?' });
 
-  const retryTurn = client.sent[2];
-  const text = JSON.stringify(retryTurn.messages);
-  assert.match(text, /14/);
-  assert.match(text, /ungrounded_number|not in|cite/i);
+  // The correction turn itself, not the whole history — the assistant's own
+  // rejected draft also contains "14", and matching against that would pass
+  // even if the correction said nothing useful. Mutation M34 proved it did.
+  const correction = client.sent[2].messages.at(-1);
+  assert.equal(correction.role, 'user');
+  assert.match(correction.content, /"14"/);
+  assert.match(correction.content, /ungrounded_number/);
+  assert.match(correction.content, /He saw 14 targets/);
 });
 
 test('a sentence Coach cannot stand up twice does not ship', async () => {

@@ -643,6 +643,65 @@ function clientCalls(raw) {
 }
 
 /**
+ * Route paths this repository hands to somebody outside it.
+ *
+ * `route-no-caller` asks who in this codebase calls a route, which is the wrong
+ * question for a provider callback or a webhook: nothing here calls it and nothing
+ * should. GET /api/auth/google/callback was the top in-scope row of that rule and is
+ * called by Google.
+ *
+ * The Google sign-in thread proposed a category rather than one annotation per route,
+ * and it turns out not to need declaring at all — the evidence is in the repository,
+ * because the server publishes the path itself:
+ *
+ *   google-auth.js:42   return `${publicOrigin(req)}/api/auth/google/callback`;
+ *
+ * So the shape to look for is a path literal sitting directly after an origin: an
+ * interpolation it is appended to, or a written-out absolute URL.
+ *
+ * Two different facts come out of that, and they are kept apart on purpose. A path
+ * inside a `fetch(...)` is CALLED — `chat-sync.mjs:351` dials POST /api/league-chat/upload,
+ * which was the top fantasy row of this rule and is not dead at all, just called by a
+ * script rather than a page. A path merely returned or stored is PUBLISHED for someone
+ * outside to dial. "A maintenance script calls this" and "Google calls this" lead a
+ * reader to opposite conclusions about whether the route can go.
+ *
+ * Deliberately narrow. This gate can only suppress a finding, so a wrong entry costs a
+ * real orphan while a missing entry costs nothing but a row that stays reported. A
+ * third-party URL the server merely FETCHES must not land here, which is why matching
+ * happens against whole route paths later rather than on fragments.
+ */
+function outboundUrlPaths(text) {
+  const out = new Map();
+  const trim = (p) => p.replace(/[.,;:'"`)\]}]+$/, '');
+  // Whether this occurrence sits inside a call that DIALS the URL. A script that
+  // fetches one of our own routes is a caller and the route is not dead; a path merely
+  // returned or stored is published for somebody else to dial. Telling a reader
+  // "a maintenance script calls this" and "Google calls this" are different facts, and
+  // only one of them means the route is ours to keep.
+  const DIALS = new Set(['fetch', 'get', 'post', 'put', 'patch', 'del', 'delete', 'request', 'head', 'api']);
+  // Walk back to the call this occurrence sits inside and read its name. A lookbehind
+  // cannot do it: between the call's `(` and the path there is a template head
+  // (`` `${HOST `` ) or a URL scheme (`'https`), so the name is never adjacent.
+  const kindAt = (i) => {
+    const prefix = text.slice(Math.max(0, i - 120), i);
+    const open = prefix.lastIndexOf('(');
+    if (open < 0 || prefix.indexOf(')', open) >= 0) return 'published';
+    const name = prefix.slice(0, open).match(/([A-Za-z_$][\w$]*)\s*$/)?.[1];
+    return name && DIALS.has(name) ? 'called' : 'published';
+  };
+  const add = (p, k) => { if (out.get(p) !== 'called') out.set(p, k); };
+  let m;
+  // `${origin}/api/x/y` — a path appended to an interpolated origin.
+  const RE_TMPL = /\}(\/[A-Za-z0-9_\-./]+)/g;
+  while ((m = RE_TMPL.exec(text))) add(trim(m[1]), kindAt(m.index));
+  // https://host/api/x/y — an absolute URL written out in full.
+  const RE_ABS = /:\/\/[A-Za-z0-9_.\-]+(\/[A-Za-z0-9_\-./]+)/g;
+  while ((m = RE_ABS.exec(text))) add(trim(m[1]), kindAt(m.index));
+  return out;
+}
+
+/**
  * Is a route's own distinctive path literal absent from the whole client tree?
  *
  * `route-no-caller` matches route paths against `clientCalls()`, which reads inline
@@ -1644,10 +1703,31 @@ function findings(model, ann) {
   const clientText = [...files.values()]
     .filter(f => f.tree === 'client' || f.tree === 'extension')
     .map(f => f.text).join('\n');
+  // Paths this repository publishes to somebody outside it — a provider redirect_uri, a
+  // webhook registration. Nothing here calls them and nothing should, so "no caller" is
+  // the wrong question. Matched whole, never on a fragment, because this only suppresses.
+  const published = new Map();
+  for (const f of files.values()) {
+    if (f.tree !== 'server' && f.tree !== 'script') continue;
+    for (const [u, kind] of outboundUrlPaths(f.text)) published.set(u, kind);
+  }
   for (const r of routePaths) {
     const p = r.name.split(' ')[1];
     if (allCalls.some(c => matches(p, c.path))) continue;
     if (!routeLiteralAbsent(p, clientText)) continue;
+    const outbound = [...published].find(([u]) => matches(p, u));
+    // Not silently dropped: a route nothing in the app calls is worth knowing about even
+    // when something outside it does. It leaves the orphan rule and is reported as what
+    // it is, so a reader deciding whether the route can go has the reason in front of them.
+    if (outbound) {
+      add({ kind: 'context', rule: 'route-called-from-outside-the-app', scope: scopeOfFile(r.file),
+        subject: r.name, weight: 0,
+        detail: outbound[1] === 'called'
+          ? 'no page calls it; a script in this repository dials it over HTTP'
+          : 'no page calls it, and the server publishes this path outward, so the caller is a provider or a webhook',
+        evidence: [`${r.file}:${r.line}`] });
+      continue;
+    }
     if (ignored.has(`route:${r.name}`)) continue;
     const method = r.name.split(' ')[0];
     const w = (workloadByFile.get(r.file) ?? []).find(x => x.line === r.line)
@@ -2452,7 +2532,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope };
+export { columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

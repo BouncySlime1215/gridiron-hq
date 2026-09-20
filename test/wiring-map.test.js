@@ -22,7 +22,7 @@ const {
   clientCalls, payloadKeys, keyReads, declarations,
   foreignHandles, handleFor, gatedRegions, blindCaches,
   functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
-  imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope,
+  imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -596,6 +596,52 @@ test('a bulk rule names its in-scope rows instead of counting them', () => {
   assert.deepEqual(
     bulkInScope([{ subject: 'b', scope: 'shared' }, { subject: 'a', scope: 'shared', weight: 1 }])
       .map(f => f.subject), ['a', 'b']);
+});
+
+test('a route the server publishes to a third party has an external caller', () => {
+  // Raised by the Google sign-in thread: GET /api/auth/google/callback was the top
+  // in-scope row of route-no-caller and nothing in the client calls it, correctly —
+  // Google does. Their proposal was a category rather than one annotation per route,
+  // and it does not need to be declared at all: the server itself hands the path to
+  // the provider, so the evidence is in the repository.
+  //   google-auth.js:42  return `${publicOrigin(req)}/api/auth/google/callback`;
+  const got = outboundUrlPaths('return `${publicOrigin(req)}/api/auth/google/callback`;');
+  assert.deepEqual([...got.keys()], ['/api/auth/google/callback']);
+  assert.equal(got.get('/api/auth/google/callback'), 'published');
+  // An absolute URL written out reads the same way.
+  assert.ok([...outboundUrlPaths("store('https://hooks.example.com/api/webhooks/espn')")
+    .keys()].includes('/api/webhooks/espn'));
+});
+
+test('a script that dials our own route is a caller, not a publisher', () => {
+  // POST /api/league-chat/upload was the TOP fantasy row of route-no-caller, and it is
+  // not dead — scripts/chat-sync.mjs:351 fetches it, and Nick runs that script by hand
+  // (`npm run chat:sync`). The rule never saw it because it only ever scanned the client
+  // tree. Same shape for /api/auth/tunnel-url, dialled by tunnel.mjs and launcher.mjs.
+  // Both suppress the finding, but for opposite reasons, so the kind has to survive.
+  const called = outboundUrlPaths('res = await fetch(`${HOST}/api/league-chat/upload`, { method: 0 })');
+  assert.equal(called.get('/api/league-chat/upload'), 'called');
+  const published = outboundUrlPaths('return `${publicOrigin(req)}/api/auth/google/callback`;');
+  assert.equal(published.get('/api/auth/google/callback'), 'published');
+  // A path that appears both ways is a caller: something here really does dial it.
+  const both = outboundUrlPaths('const u = `${H}/api/x/y`; await fetch(`${H}/api/x/y`);');
+  assert.equal(both.get('/api/x/y'), 'called');
+  // A dialer that has already CLOSED is not the call this path sits in. Walking back to
+  // the nearest `(` finds `fetch(` here and it is the wrong one; without the check that
+  // the call is still open, a published path two statements later reads as dialled.
+  // Found by injection — dropping that check failed nothing until this case existed.
+  const after = outboundUrlPaths('await fetch(z); return `${ORIGIN}/api/a/b`;');
+  assert.equal(after.get('/api/a/b'), 'published');
+});
+
+test('fetching a third-party URL is not publishing one of our routes', () => {
+  // The server calls plenty of outbound URLs that are nobody's route here. If those
+  // leaked into the evidence set they would suppress real findings, and this gate can
+  // only ever suppress — so a false entry is the one direction that costs something.
+  const sleeper = outboundUrlPaths('fetch(`https://api.sleeper.app/v1/players/nfl/trending/${kind}?x=1`)');
+  assert.deepEqual([...sleeper.keys()].filter(p => p.startsWith('/api/')), []);
+  const nflverse = outboundUrlPaths('await eachRow(`${REL}/snap_counts/snap_counts_${season}.csv.gz`)');
+  assert.deepEqual([...nflverse.keys()].filter(p => p.startsWith('/api/')), []);
 });
 
 test('statementTables separates what a statement reads from what it writes', () => {

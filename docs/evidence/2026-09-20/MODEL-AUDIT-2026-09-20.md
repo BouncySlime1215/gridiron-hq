@@ -336,6 +336,28 @@ The fix is one argument at each of the two call sites: pass
 | `opportunity-model.js` (fitted, with the vacated-teammate-share feature) | in the repo | **no consumer** — only `scripts/study-opportunity-volume.mjs` and `test/opportunity-model.test.js` |
 | `nfl-gbm.js` (the gradient-boosted model) | in the repo | betting side only |
 
+### Both teammate-absence estimators are behind no surviving surface
+
+Checked because it was put to this audit as a claim that `contingency.js#cascades()
+ships an ungraded teammate-absence multiplier into six consumers`. **It does not.**
+On main it has two callers: `role-scenario-engine.js:260`, inside a function whose
+own header (`:250-258`) calls itself a consistency check — it tests whether
+beneficiaries' gains sum to more than the starter's workload, and grades no
+projection — and `routes/model.js:569, :575`. Those two routes' only client
+consumer is `Model.tsx:450`, and `Model.tsx` has no `<Route>` in `App.tsx:84-156`
+and is imported by nothing. So no number a user sees is affected by it either.
+(The Opportunity thread reached the same chain independently; this is the agreed
+statement, and the deleted page is Nick's own deliberate removal in `1694694` —
+not something to restore.)
+
+That leaves the real asymmetry. There are two teammate-absence estimators and
+neither is in front of anyone: `opportunity-model.js`, which is fitted and graded
+and whose payoff stayed inside the noise, and `cascades()`, which is ungraded and
+whose page was deleted. The open question is therefore not "wire one of them up"
+but whether a teammate-absence correction earns a place on a **surviving** surface
+— Start/Sit's weekly volume, the waiver board, or the News fantasy impact — and
+that is answered by grading it there, not by restoring a removed tab.
+
 ---
 
 ## 5. Structure — is this well built?

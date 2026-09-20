@@ -1047,8 +1047,16 @@ r.get('/:id/advice', async (req, res, next) => {
           ? `  Our season model (validated, prices missed games): ${t.model_points} pts — ${t.model_rel == null ? 'in line with the board' : Math.abs(t.model_rel) < 0.08 ? 'agrees with ESPN' : `${Math.round(Math.abs(t.model_rel) * 100)}% ${t.model_rel > 0 ? 'MORE' : 'LESS'} bullish than ESPN relative to the rest of the board`}; blended value used for ranking: ${Math.round(t.projected_points)} pts`
           : null,
         // Our own validated weekly model as a second opinion next to ESPN's season number.
-        dsr.week1_projection?.corrected_ppg != null || dsr.week1_projection?.structural_ppg != null
-          ? `  Our model, week 1: ${(dsr.week1_projection.corrected_ppg ?? dsr.week1_projection.structural_ppg).toFixed(1)} ppg${dsr.projected_points != null ? ` (ESPN's season line implies ${(dsr.projected_points / 17).toFixed(1)})` : ''}`
+        // `ensemble_ppg` sits between the two on purpose: `corrected_ppg` is null
+        // whenever no coordinator fit is persisted (fantasy-coordinator.js#
+        // weeklyProjectionFor), which is this app's state until the background refit
+        // has run, and the ensemble number is the one this line has always printed
+        // in that state. Without it here the sheet would quietly drop to the
+        // uncalibrated structural figure the day that field stopped being the
+        // ensemble in disguise.
+        dsr.week1_projection?.corrected_ppg != null || dsr.week1_projection?.ensemble_ppg != null
+          || dsr.week1_projection?.structural_ppg != null
+          ? `  Our model, week 1: ${(dsr.week1_projection.corrected_ppg ?? dsr.week1_projection.ensemble_ppg ?? dsr.week1_projection.structural_ppg).toFixed(1)} ppg${dsr.projected_points != null ? ` (ESPN's season line implies ${(dsr.projected_points / 17).toFixed(1)})` : ''}`
           : null,
         dsr.last_season
           ? `  ${SEASON - 1} actual: ${dsr.last_season.points} pts${dsr.last_season.games ? ` in ${dsr.last_season.games} games` : ''}${dsr.last_season.line ? ` (${dsr.last_season.line})` : ''}`

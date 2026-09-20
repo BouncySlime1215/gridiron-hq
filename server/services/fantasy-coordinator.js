@@ -86,6 +86,18 @@
  * applies the coordinator's correction when a real fit exists, falling back
  * to the plain structural+ensemble number (today's prior behavior)
  * otherwise — never a hard dependency, and never fabricated when unfitted.
+ *
+ * TWO THINGS THAT FOLLOW FROM THE TARGET LINE ABOVE, and were wrong here until
+ * 2026-09-20 (docs/tdd/fantasy-coordinator-head.tdd.md):
+ *   - The correction is added to `structural_ppg`, never to `projection.ppg`.
+ *     The two differ by `ensemble_shift`, which is one of the three experts the
+ *     correction was learned from, so the ensemble head counts that shift twice.
+ *     `weeklyProjectionFor` passed the ensemble; trade-engine.js:354 still does
+ *     and is that file's owner's to fix.
+ *   - A caller's own fallback when no fit exists is its business — that is what
+ *     the paragraph above describes for trade-engine.js's `currentWeekBasePpg`.
+ *     The field NAMED `corrected_ppg` is not a place to put it: unfitted, it is
+ *     null here, and `ensemble_ppg` carries that number under its own name.
  * The fit itself is refit periodically (scheduler.js, not per-request) and
  * persisted, the same pattern weekly-weight-store.js already uses for the
  * ensemble champion weights — a 30-40s walk-forward-style refit has no
@@ -568,12 +580,26 @@ export function weeklyProjectionFor(playerId, { season, week, scoring = PPR } = 
   if (!projection?.params || projection.structural_ppg == null) return null;
   const expertValues = weeklyExpertValues(projection, season, week, scoring);
   const fit = activeFantasyCoordinatorFit();
-  const coordinated = expertValues ? coordinateFantasy(fit, expertValues, projection.ppg) : null;
+  // The structural head, not `projection.ppg`. `coordinateFantasy` adds the
+  // correction to whatever is passed here, and that correction was fitted
+  // against `actual - structural_ppg` (see TARGET in this file's header, and
+  // `target:` in buildFantasyCoordinatorExamples). The gap between the two,
+  // `projection.ensemble_shift`, is itself one of the three experts the fit
+  // learned from, so handing it the ensemble number counts that shift once
+  // outright and a learned multiple of it a second time. Both numbers are
+  // plausible fantasy-point figures, which is why it read as correct.
+  const coordinated = expertValues ? coordinateFantasy(fit, expertValues, projection.structural_ppg) : null;
   return {
     season, week,
     structural_ppg: projection.structural_ppg,
     ensemble_ppg: projection.ppg,
-    corrected_ppg: coordinated?.ready ? coordinated.corrected_ppg : projection.ppg,
+    // null, not the ensemble number, when there is no fit to correct with — which
+    // is the live app's state until the background refit has run. `ensemble_ppg`
+    // above already publishes that number under its own name, so a caller that
+    // wants it is not deprived; a caller reading `corrected_ppg` is told plainly
+    // that nothing corrected it, instead of being handed the uncorrected figure
+    // wearing the corrected one's name.
+    corrected_ppg: coordinated?.ready ? coordinated.corrected_ppg : null,
     coordinator: coordinated?.ready
       ? { correction: coordinated.correction, contributions: coordinated.contributions, confidence: coordinated.confidence }
       : null,

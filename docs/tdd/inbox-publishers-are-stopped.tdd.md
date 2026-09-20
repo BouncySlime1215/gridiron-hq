@@ -19,13 +19,36 @@ git show caac88a:server/routes/decision-inbox.js | grep 'r.get\|r.post' → noth
                                             publishRecommendation survives at :95
 ```
 
-**This commit depends on `4389a7a`.** That commit rebuilds
+**This commit depends on `4389a7a`, and that dependency is measured rather than
+asserted.** That commit rebuilds
 `test/decision-inbox.test.js`, removing the two sections that assert these very
 publishes, and narrows `test/decision-inbox-retired.test.js` from "these files
 contain the string `publishRecommendation`" to
 `typeof publishRecommendation === 'function'`. Without it, the suite after both
 merge would fail on assertions pinning behaviour that was removed by decision.
 This commit is off `main` and touches neither file.
+
+### The dependency, measured
+
+Claiming "these two are green together" is the kind of statement that is easy to
+write and easy to be wrong about, so it was run:
+
+```
+git checkout -b scratch-merge-proof 667fe37
+git merge 4389a7a                 → clean, no conflicts
+npm run check                     → 3,021 tests / 2,980 passed / 0 failed / 41 skipped
+                                    syntax 882 files · build 3.04s · smoke passed · exit 0
+```
+
+On this branch alone the suite is 2,956 / 2,913 / **2 failed** / 41, and both
+failures are the two `test/decision-inbox.test.js` sections `4389a7a` removes.
+Neither branch's own number is wrong; they are green together, and that is now a
+measurement rather than a plan. The scratch branch was deleted; nothing was
+pushed from it.
+
+A third file also pinned this behaviour and neither side had accounted for it —
+`test/lineup-diff-urgency.test.js`, four failures. It is handled in the commit
+after this one rather than left for the merge to discover.
 
 ## Why the table had to lose its writers
 

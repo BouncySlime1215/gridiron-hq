@@ -83,8 +83,8 @@ world must never be able to cite it. M30 made it record and a test kills that.
 
 RED `b590c2a`: suite written against a module that does not exist; 0 pass, 1 file
 erroring on import.
-GREEN `a8c450c`: 15 tests pass, 0 fail. After the mutation runs below and the tests they
-forced, the suite stands at **17 pass, 0 fail**.
+GREEN `a8c450c`: 14 tests pass, 0 fail. The mutation runs below forced three more and
+the suite stands at **17 pass, 0 fail**.
 
 One failure during GREEN was a real defect in another file and is recorded here because
 it was not mine to fix. `test/coach-tools.test.js` failed with `no such table:

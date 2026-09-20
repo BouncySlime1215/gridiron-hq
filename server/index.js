@@ -55,6 +55,7 @@ const { default: draftCaptureRouter, serveCaptureScript } = await import('./rout
 const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
+const { default: coachRouter } = await import('./routes/coach.js');
 
 const app = express();
 // First, so that ANY completed response arms the watchdog -- including a 404
@@ -133,6 +134,9 @@ app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);
 app.use('/api/betting', ...legacyAuthenticated, bettingHubRouter);
 app.use('/api/execution-slate', ...legacyAuthenticated, executionSlateRouter);
+// Coach applies its own auth and rate limit per route (server/routes/coach.js:37),
+// so it is mounted bare rather than behind legacyAuthenticated.
+app.use('/api/coach', coachRouter);
 
 app.use((err, req, res, next) => {
   // AuthenticationError/AuthorizationError (server/platform/auth.js) set a real

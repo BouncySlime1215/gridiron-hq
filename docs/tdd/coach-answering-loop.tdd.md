@@ -92,8 +92,8 @@ the UI thread's, so this slice ships the contract and not the component.
 
 RED `a18996e` (loop) and `45cb1b0` (route): both suites written against modules that do
 not exist; 0 pass.
-GREEN `31680f9`: 20 tests pass, 0 fail. After the mutation runs below and the tests they
-forced, the suites stand at **23 pass, 0 fail** (13 loop, 10 route).
+GREEN `31680f9`: 21 tests pass, 0 fail. The mutation runs below forced two more and the
+suites stand at **23 pass, 0 fail** (13 loop, 10 route).
 
 ## 4. Mutation table — every injection APPLIED, with its diffstat
 

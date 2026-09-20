@@ -88,8 +88,9 @@ time someone ran a script must not read as current.
 
 RED `5d55b6f`: both suites written against modules that do not exist; 0 pass, 2 files
 erroring on import.
-GREEN `3bd6325`: 26 tests pass, 0 fail. After the mutation runs below and the tests they
-forced, the suites stand at **28 pass, 0 fail** (12 ledger, 16 verify).
+GREEN `3bd6325`: **28 pass, 0 fail** (12 ledger, 16 verify), and still 28 after the
+mutation runs below: both survivors were closed by tightening and rewriting tests that
+already existed rather than by adding new ones.
 
 ## 4. Mutation table — every injection APPLIED, with its diffstat
 

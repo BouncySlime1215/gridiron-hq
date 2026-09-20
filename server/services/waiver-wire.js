@@ -154,7 +154,7 @@ export function waiverBoard(lg, { myTeamId, limit = 20, minProjected = 4, minRos
   const payload = JSON.parse(lg.payload);
   const { formatKey } = deriveFormat(lg);
   const assets = assetUniverse(lg, formatKey);
-  const week = tradeWeekContext();
+  const week = tradeWeekContext(lg);
   const owned = rosteredNames(payload);
   const rosterId = String(myTeamId ?? lg.my_team_id);
   const slots = lineupSlots(lg);

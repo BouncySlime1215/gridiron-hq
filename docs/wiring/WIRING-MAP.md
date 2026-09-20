@@ -33,7 +33,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 ## Findings
 
 **10 missing feed** — a surface depends on something nothing produces.
-**1955 orphan** — something produced that reaches no surface.
+**1956 orphan** — something produced that reaches no surface.
 230 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
@@ -208,7 +208,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `value-computed-never-used` | orphan | 0 | 4 | 19 |
 | `table-never-read` | orphan | 0 | 4 | 13 |
 | `export-only-tested` | orphan | 99 | 139 | 289 |
-| `export-imported-by-nothing` | orphan | 94 | 219 | 504 |
+| `export-imported-by-nothing` | orphan | 94 | 219 | 505 |
 | `route-no-caller` | orphan | 52 | 331 | 79 |
 
 ### `column-read-never-written` — SHOULD WIRE (3)
@@ -995,13 +995,13 @@ Grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/services/beat-the-close.js` | 6 |
 | _… 156 more files_ | 350 |
 
-### `export-imported-by-nothing` — ORPHAN (817)
+### `export-imported-by-nothing` — ORPHAN (818)
 
 Grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
-| `scripts/wiring-map.mjs` | 39 |
+| `scripts/wiring-map.mjs` | 40 |
 | `server/betting/nfl/strategy/margin-distribution.js` | 25 |
 | `server/betting/nfl/strategy/teaser-staking.js` | 24 |
 | `server/betting/nfl/strategy/teaser-season.js` | 19 |

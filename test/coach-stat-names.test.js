@@ -122,3 +122,18 @@ test('the stats Nick named by hand are all covered one way or the other', () => 
   ]);
   for (const name of named) assert.ok(known.has(name), `${name} is in neither list`);
 });
+
+test('chance to play cannot be shown without its basis', () => {
+  // Adopted from the fantasy-plan contract: `availability_basis` travels with
+  // `active_probability`, and `default_durability` is a constant rather than a
+  // measurement — a claim resting on one has to say so. K and DST always land
+  // there, because the availability model covers QB/RB/WR/TE only.
+  const basis = STAT_CONCEPTS.availability_basis;
+  assert.ok(basis, 'the basis has no entry of its own');
+  for (const value of ['fitted', 'durability_prior', 'default_durability']) {
+    assert.match(basis.plain, new RegExp(value), `${value} is not explained`);
+  }
+  assert.match(basis.why, /not a measurement/i);
+  assert.match(STAT_CONCEPTS.chance_to_play.why, /basis/i,
+    'the chance-to-play entry does not send the reader to the basis');
+});

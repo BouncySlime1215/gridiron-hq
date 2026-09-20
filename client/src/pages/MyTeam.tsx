@@ -3,6 +3,7 @@ import OddsBasis from '../components/OddsBasis';
 import StatBlock from '../components/ui/StatBlock';
 import DeepDive from '../components/ui/DeepDive';
 import { gateState, WithheldOdds, PublishedCaveat, gradedSentence } from '../components/ui/OddsGate';
+import OutlookPanel from '../components/league/OutlookPanel';
 import { Link } from 'react-router-dom';
 import { api, headshotUrl, useApi } from '../api';
 import { useLeague } from '../state/league';
@@ -72,6 +73,19 @@ export default function MyTeam() {
   // here rather than with the other UI state because it is derived from the
   // simulation response, not from anything the reader did.
   const gate = gateState(sim?.odds_gate);
+  // The fitted model's read on the whole league, which is a different question
+  // from the simulation above and is deliberately shown beside it rather than
+  // blended into it. The route does not exist on every deployment yet, so a
+  // failure here is silent and the panel simply does not render — useApi's
+  // error is not surfaced, because "this build has no outlook route" is not
+  // something a manager can act on.
+  const outlookUrl = active && synced ? `/leagues/${active.id}/outlook` : null;
+  const { data: outlook } = useApi<any>(outlookUrl);
+  // Through teamOptions, which already resolves a roster id to a manager's own
+  // team name on both ESPN and Sleeper. A second resolver here would be right
+  // on one platform and wrong on the other, which is how this page used to be.
+  const teamName = (rosterId: string | number) =>
+    teamOptions.find((t: { id: string; label: string }) => t.id === String(rosterId))?.label ?? `Team ${rosterId}`;
 
   // Once the engine resolves a default team (from the league's saved my_team_id, or
   // its own first-team fallback), reflect that in the picker — without this the
@@ -226,6 +240,7 @@ export default function MyTeam() {
           </div>
           {gate === 'published' && <PublishedCaveat gate={sim?.odds_gate} />}
           <OddsBasis sim={sim} />
+          <OutlookPanel outlook={outlook} teamName={teamName} myRosterId={myTeamId} />
           <DeepDive
             id="title_odds"
             value={myTwin.title_odds}

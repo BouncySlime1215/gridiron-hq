@@ -653,3 +653,47 @@ body { font-family: var(--font-body); }
   /* The hairline is what says there is more to the right on a phone. */
   box-shadow: 1px 0 0 var(--edge);
 }
+
+/* ----------------------------------------------------------- league outlook
+   The fitted model's read on every team. Rows, not a table: each one expands
+   into what is behind its number, and a table row that grows a panel inside it
+   is a layout fight nobody wins. */
+.outlook-panel { margin-top: 1rem; }
+.outlook-head { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; margin-bottom: .5rem; }
+.outlook-title { font-size: var(--type-title); line-height: var(--type-title-lh); font-weight: 700; }
+.outlook-meta { font-size: var(--type-note); color: var(--muted); }
+.outlook-rows { display: grid; gap: .1rem; list-style: none; margin: 0; padding: 0; }
+.outlook-row { border-bottom: 1px solid var(--edge); }
+/* The manager's own team, marked by weight and a rule rather than a fill: a
+   highlighted row in the accent reads as "selected", which it is not. */
+.outlook-row.is-mine .outlook-team { font-weight: 800; }
+.outlook-row.is-mine { border-left: 3px solid var(--accent); }
+.outlook-row-main {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: .75rem; align-items: baseline; width: 100%; text-align: left;
+  padding: .45rem .5rem; background: none; border: 0; cursor: pointer; color: inherit;
+  transition: background var(--motion-quick) var(--ease-out);
+}
+.outlook-row-main:hover { background: var(--surface); }
+.outlook-row-main:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.outlook-team { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outlook-record { color: var(--muted); font-size: var(--type-note); }
+.outlook-probability { font-weight: 700; }
+.outlook-verdict {
+  font-family: var(--font-mono); font-size: var(--type-label); line-height: var(--type-label-lh);
+  padding: .1rem .4rem; border-radius: var(--radius-pill); border: 1px solid var(--edge);
+  color: var(--muted); white-space: nowrap;
+}
+/* Only the one that means something gets a colour, and it is the basis ramp's
+   "assumed" amber rather than --warn: nothing is wrong, this is where attention
+   would pay. A verdict styled as a warning reads as a problem with the team. */
+.outlook-verdict-act_candidate { color: var(--basis-assumed); border-color: var(--basis-assumed); }
+.outlook-why { padding: .25rem .75rem .75rem; font-size: var(--type-note); line-height: var(--type-note-lh); color: var(--muted); }
+.outlook-why-lead { margin-bottom: .3rem; }
+.outlook-parts { list-style: none; margin: 0 0 .4rem; padding: 0; display: grid; gap: .2rem; }
+.outlook-parts li { display: grid; grid-template-columns: 10rem auto minmax(0, 1fr); gap: .5rem; align-items: baseline; }
+.outlook-part-label { font-family: var(--font-mono); font-size: var(--type-label); }
+.outlook-part-value { font-weight: 600; color: var(--ink); }
+.outlook-part-note { font-style: italic; }
+.outlook-why-note { margin-top: .3rem; }
+.outlook-foot { margin-top: .5rem; font-size: var(--type-note); line-height: var(--type-note-lh); color: var(--muted); }

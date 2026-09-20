@@ -56,6 +56,16 @@ export interface Term {
   unit: Unit;
   /** Decimal places when this renders as a number. */
   precision: number;
+  /**
+   * This quantity may never render as 0% or 100%, whatever it rounds to.
+   *
+   * Its producer guarantees the value is neither, and that guarantee does not
+   * survive rounding: at one decimal 0.9999 renders "100.0%". A screen saying
+   * a season is decided in week 3 is a stronger claim than any model here
+   * makes. Set on the entry rather than applied at a call site, so every
+   * surface showing the quantity gets it.
+   */
+  neverCertain?: boolean;
 }
 
 /**
@@ -108,6 +118,19 @@ export const GLOSSARY = {
     plain: 'How often your team makes the playoffs when we play the rest of the season out thousands of times.',
     raw: 'sim.playoff_odds',
     unit: 'percent', precision: 1
+  },
+  /**
+   * NOT the same number as `playoff_odds`, and separate for exactly the reason
+   * this file exists. That one plays the rest of the season out thousands of
+   * times. This one is a model fitted on finished seasons reading the season so
+   * far. Two methods, two answers, and putting them under one name is the
+   * `floor` collision again.
+   */
+  outlook_probability: {
+    name: 'Chance to qualify',
+    plain: 'How often teams in this position have gone on to make the playoffs, from finished seasons we can check.',
+    raw: 'outlook.probability',
+    unit: 'percent', precision: 1, neverCertain: true
   },
   title_delta: {
     name: 'Change in title chance',
@@ -168,6 +191,8 @@ export function term(id: TermId): Term {
   return t;
 }
 
+import { percentText } from './percent.js';
+
 const SUFFIX: Record<Unit, string> = {
   points: '', points_per_game: '/g', percent: '%', count: '', rank: '', weeks: ' wk', none: ''
 };
@@ -186,6 +211,11 @@ export function formatValue(
 ): string {
   const t = term(id);
   if (value == null || !Number.isFinite(value)) return '—';
+  // A quantity that may never read as certain is clamped on the rendered
+  // string, in one place, so every surface showing it gets the same answer.
+  if (t.neverCertain && t.unit === 'percent') {
+    return percentText(value, t.precision, { neverCertain: true }) ?? '—';
+  }
   const scaled = t.unit === 'percent' ? value * 100 : value;
   const sign = signed && scaled > 0 ? '+' : '';
   return sign + scaled.toFixed(t.precision) + SUFFIX[t.unit];

@@ -1293,11 +1293,146 @@ test('a tombstone whose successor no route answers is reported', async () => {
  * array. Both files were collapsed away by commit 47965a5, "Stage 2: collapse duplicate
  * engines — one CLV module, one neural-replay engine". The arrays still name them.
  */
-test('the rule reproduces the two real cases on this tree', async () => {
+test('the rule reproduces the two real cases, and the tree is clean of them now', async () => {
+  const { deadModuleNames } = await import('../scripts/wiring-map.mjs');
+
+  // The two real lines, verbatim, against a tree where the survivors exist and the
+  // collapsed modules do not — which is exactly the state this repository was in.
+  const asFound = [
+    { path: 'server/db/schema/nfl-a-to-m.js', tree: 'server', scope: 'betting', raw: '',
+      strings: [{ text: 'server/services/nfl-clv.js', line: 18 }] },
+    { path: 'server/db/schema/nfl-n-to-z.js', tree: 'server', scope: 'betting', raw: '',
+      strings: [{ text: 'server/services/nfl-neural-replay.js', line: 11 }] },
+    { path: 'server/services/clv-core.js', tree: 'server', scope: 'betting', raw: '', strings: [] },
+    { path: 'server/services/nfl-replay.js', tree: 'server', scope: 'betting', raw: '', strings: [] },
+  ];
+  assert.deepEqual(deadModuleNames(asFound).map(f => `${f.file}:${f.line} ${f.name}`), [
+    'server/db/schema/nfl-a-to-m.js:18 nfl-clv',
+    'server/db/schema/nfl-n-to-z.js:11 nfl-neural-replay',
+  ], 'the rule must still catch the shape it was proved on');
+
+  // And the live tree carries none, because those two entries were fixed on the same
+  // branch the rule landed on. This is the half that rots: if a stale name comes back,
+  // or the rule stops seeing one, this is what says so.
   const map = JSON.parse(await readFile(new URL('../docs/wiring/wiring-map.json', import.meta.url), 'utf8'));
-  const rows = map.findings.filter(f => f.rule === 'string-names-a-deleted-module');
-  const subjects = rows.map(r => r.subject).sort();
-  assert.deepEqual(subjects, ['nfl-clv', 'nfl-neural-replay'],
-    'two schema files still list modules that commit 47965a5 collapsed away');
-  for (const r of rows) assert.match(r.evidence[0], /^server\/db\/schema\/nfl-[an]-to-[mz]\.js:\d+$/);
+  const live = map.findings.filter(f => f.rule === 'string-names-a-deleted-module');
+  assert.deepEqual(live.map(r => `${r.subject} (${r.evidence[0]})`), [],
+    'a string naming a module with no file is a finding, not a thing to leave lying around');
+});
+
+/*
+ * HOW A TABLE COMES TO EXIST, DERIVED AND NOT LISTED.
+ *
+ * Twelve tables in this app are in no migration, and "is there a migration for this?"
+ * is not a question about tidiness. `league_season_teams` is created only by
+ * scripts/backfill-league-history.mjs, and manager-archetypes.js reads it at three
+ * places and throws where the backfill never ran. A table created at import exists
+ * wherever its module is loaded; a table created on first write appears when that path
+ * first runs; a table created by a script exists where somebody remembered to run it.
+ * Those are four different promises.
+ *
+ * So it is a field on every table, derived from the CREATE sites the scan already
+ * collects. Never a hand-kept exception list: a list of twelve is out of date the
+ * moment somebody adds a thirteenth, and nothing would say so.
+ *
+ * Three defects in the first version, each of which produced a confident wrong answer:
+ *
+ *   1. DEPTH WAS MEASURED THROUGH THE LINE ITSELF, so `db.exec(`CREATE TABLE …` read as
+ *      depth 1 — the paren it opens on that very line — and five tables created at
+ *      import were reported as created on first write.
+ *   2. A TEST FIXTURE COUNTED AS A SCRIPT. test/data-lineage-inventory.test.js creates
+ *      deliberately fake tables, and one fixture in THIS file created `weekly_rollup`.
+ *      They landed in the same bucket as a real backfill script.
+ *   3. A DDL CONSTANT COUNTED AS A CREATION. server/services/contingency.js:121 and :133
+ *      hold the availability DDL so the fit script, the loader and the tests share one
+ *      definition; nothing there executes it. Reading the text's location as the
+ *      creation site said those tables exist on every install. They exist where somebody
+ *      ran scripts/fit-availability.mjs.
+ */
+test('the creation site is read from where the DDL runs, not where its text sits', async () => {
+  const { creationSite, depthAtLine, ddlDefinitionName, resolveDefinition } =
+    await import('../scripts/wiring-map.mjs');
+
+  const atImport = "import { db } from '../db/index.js';\ndb.exec(`CREATE TABLE IF NOT EXISTS manager_signals (\n  id INTEGER)`);\n";
+  assert.equal(depthAtLine(atImport, 2), 0, 'depth is measured at the START of the line');
+  assert.equal(creationSite('server/services/manager-signals.js', 2, atImport), 'import');
+
+  const inFunction = "function ensure() {\n  db.exec(`CREATE TABLE IF NOT EXISTS reports (id INTEGER)`);\n}\n";
+  assert.equal(creationSite('server/services/x.js', 2, inFunction), 'first_write');
+
+  assert.equal(creationSite('server/migrations/020_decision_recommendations.js', 5, ''), 'migration');
+  assert.equal(creationSite('server/db/schema/core-and-fantasy.js', 5, ''), 'migration',
+    'the frozen fragments are applied by 000_legacy_schema at database open');
+  assert.equal(creationSite('scripts/backfill-league-history.mjs', 48, ''), 'script');
+  assert.equal(creationSite('test/data-lineage-inventory.test.js', 59, ''), 'test_only',
+    'a table only a test creates is a fixture, not a script table');
+
+  const definition = "export const RATES_DDL = `CREATE TABLE IF NOT EXISTS nfl_availability_rates (\n  n INTEGER)`;\n";
+  assert.equal(creationSite('server/services/contingency.js', 1, definition), 'definition');
+  assert.equal(ddlDefinitionName(definition, 1), 'RATES_DDL');
+  assert.equal(ddlDefinitionName(atImport, 2), null, 'a line that executes DDL is not a definition');
+
+  // And a definition resolves to whoever executes it.
+  const executors = [
+    { path: 'server/services/contingency.js', code: definition },
+    { path: 'scripts/fit-availability.mjs', code: "db.exec(RATES_DDL);\n" },
+  ];
+  assert.deepEqual(resolveDefinition('RATES_DDL', executors),
+    { site: 'script', file: 'scripts/fit-availability.mjs', line: 1 });
+  assert.equal(resolveDefinition('RATES_DDL', [executors[0]]), null,
+    'a definition nothing executes stays a definition — that is a finding, not a gap');
+});
+
+test('the derived field agrees with every table that was catalogued by hand', async () => {
+  const map = JSON.parse(await readFile(new URL('../docs/wiring/wiring-map.json', import.meta.url), 'utf8'));
+  const by = new Map(map.tables.map(t => [t.table, t]));
+
+  // The ten rows of the hand-made catalogue that exist in THIS tree. Two of the twelve
+  // (coach_answers, coach_person_context) and one script table (coach_person_variables)
+  // live on another branch and cannot be checked from here.
+  const catalogued = {
+    manager_signals: ['import', 'server/services/manager-signals.js:42'],
+    manager_player_view: ['import', 'server/services/manager-signals.js:51'],
+    manager_archetypes: ['import', 'server/services/manager-archetypes.js:74'],
+    manager_archetype_jev: ['import', 'server/services/manager-archetypes.js:86'],
+    league_member_identity: ['import', 'server/services/manager-identity.js:17'],
+    nfl_ensemble_rank_reports: ['first_write', null],
+    nfl_availability_rates: ['script', 'scripts/fit-availability.mjs:54'],
+    nfl_availability_role_rates: ['script', 'scripts/fit-availability.mjs:55'],
+    league_season_teams: ['script', 'scripts/backfill-league-history.mjs:48'],
+  };
+  for (const [table, [kind, site]] of Object.entries(catalogued)) {
+    const row = by.get(table);
+    assert.ok(row, `${table} is missing from the census`);
+    assert.equal(row.created_by, kind, `${table} should be ${kind}, not ${row.created_by}`);
+    if (site) assert.equal(row.created_at_site, site, `${table} site`);
+  }
+
+  // The two availability tables keep a pointer to where their DDL is written, which is
+  // the whole reason they were hard to catalogue by hand.
+  assert.equal(by.get('nfl_availability_rates').created_via, 'server/services/contingency.js:121');
+  assert.equal(by.get('nfl_availability_role_rates').created_via, 'server/services/contingency.js:133');
+
+  // decision_recommendations is migration 020, not runtime-created — a correction to
+  // the catalogue that the derived field makes on its own.
+  assert.equal(by.get('decision_recommendations').created_by, 'migration');
+  assert.match(by.get('decision_recommendations').created_at_site, /^server\/migrations\/020_/);
+
+  // PRECEDENCE, which nothing above touches. A mutation setting migration's rank to
+  // last survived the first version of this test: almost every table has exactly one
+  // KIND of create site, so the ordering never came up. `player_gamelog` is created by
+  // a frozen fragment AND by two test fixtures, so the answer depends entirely on
+  // migration winning, and it must, because a table with a migration has one whatever
+  // else also creates it.
+  const mixed = map.tables.find(t => t.table === 'player_gamelog');
+  assert.ok(mixed.created_in.some(c => c.startsWith('server/db/schema/')));
+  assert.ok(mixed.created_in.some(c => c.startsWith('test/')),
+    'this row is only a precedence test while a test also creates it');
+  assert.equal(mixed.created_by, 'migration',
+    'a migration outranks every other create site for the same table');
+
+  // Every table has an answer. A null here means a CREATE the classifier could not
+  // place, which is the one outcome that must never pass silently.
+  const unplaced = map.tables.filter(t => !t.created_by).map(t => t.table);
+  assert.deepEqual(unplaced, [], 'every table in the census must say how it comes to exist');
 });

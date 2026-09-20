@@ -946,6 +946,106 @@ function routePattern(routePath) {
 }
 
 /* ---------------------------------------------------------------------------
+ * HOW A TABLE COMES TO EXIST.
+ *
+ * Twelve tables in this app are in no migration. Some are created at import by the
+ * service that owns them, some on the first write, and some only by a script that may
+ * never have been run on a given box — `league_season_teams` is the last kind, and
+ * manager-archetypes.js reads it at three places and throws where the backfill never
+ * ran. "Is there a migration for this?" is therefore not a yes/no about tidiness; it
+ * is the difference between a table that exists on every install and one that exists
+ * only where somebody remembered to run something.
+ *
+ * So it is a FIELD on every table, derived from the CREATE sites the scan already
+ * collects, and never a hand-kept exception list — a list of twelve is out of date the
+ * moment somebody adds a thirteenth, and nothing would say so.
+ *
+ *   migration    a file under server/migrations/. Authoritative: it runs on every boot.
+ *   import       DDL at the top level of a server module, so importing it creates the
+ *                table. Present wherever the module is loaded.
+ *   first_write  DDL inside a function in a server module. The table appears the first
+ *                time that path runs, and not before.
+ *   script       DDL only reachable from scripts/. Exists where the script was run.
+ *
+ * Precedence is that order, because a table with a migration has one whatever else
+ * also creates it, and a module that creates at import does so before any write path.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Brace depth at the START of a line, over code with strings and comments blanked.
+ *
+ * At the start, deliberately. Counting the line itself reads `db.exec(\`CREATE TABLE`
+ * as depth 1 — the paren it opens on that very line — and so reports five tables that
+ * are created at import as created on first write.
+ */
+function depthAtLine(code, line) {
+  let depth = 0, n = 1;
+  for (const ch of code) {
+    if (ch === '\n') { if (++n >= line) break; continue; }
+    if (ch === '{' || ch === '(') depth++;
+    else if (ch === '}' || ch === ')') depth--;
+  }
+  return depth;
+}
+
+const CREATION_RANK = { migration: 0, import: 1, first_write: 2, script: 3, test_only: 4, definition: 5 };
+
+/**
+ * `const X = \`CREATE TABLE …\`` is a DEFINITION, not a creation. The statement sits
+ * there as text and runs somewhere else — server/services/contingency.js:121 and :133
+ * hold the availability DDL so the fit script, the loader and the tests share one
+ * definition, and only scripts/fit-availability.mjs ever executes it. Reading the text's
+ * location as the creation site would say those two tables exist on every install. They
+ * exist where somebody ran the script.
+ */
+function ddlDefinitionName(code, line) {
+  const text = code.split('\n')[line - 1] ?? '';
+  if (/\b(?:exec|run|prepare)\s*\(/.test(text)) return null;
+  const m = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=/.exec(text);
+  return m ? m[1] : null;
+}
+
+/**
+ * Where a DDL constant is actually EXECUTED. A definition that nothing executes stays a
+ * definition, which is itself worth knowing; a definition executed only by a script
+ * makes the table a script table, which is the honest answer for the two availability
+ * tables — the DDL lives in contingency.js so the fit script, the loader and the tests
+ * share one definition, and only scripts/fit-availability.mjs runs it.
+ */
+function resolveDefinition(name, files) {
+  const re = new RegExp(`\\b(?:exec|run|prepare)\\s*\\(\\s*${name}\\b`);
+  let best = null;
+  for (const f of files) {
+    if (!re.test(f.code ?? '')) continue;
+    const kind = f.path.startsWith('server/migrations/') ? 'migration'
+      : f.path.startsWith('test/') ? 'test_only'
+      : f.path.startsWith('scripts/') ? 'script'
+      : 'import';
+    const line = (f.code.split('\n').findIndex(l => re.test(l)) + 1) || 1;
+    if (!best || CREATION_RANK[kind] < CREATION_RANK[best.site]) best = { site: kind, file: f.path, line };
+  }
+  return best;
+}
+
+function creationSite(file, line, code) {
+  if (file.startsWith('server/migrations/')) return 'migration';
+  // server/db/schema/ IS a migration. The fragments are frozen DDL lifted out of 122
+  // service and route files, and server/migrations/000_legacy_schema.js applies them
+  // once at database open, before any service is imported (server/db/schema/README.md).
+  // Reading them as import-time creates would put two hundred tables in the
+  // no-migration bucket and bury the twelve that are really there.
+  if (file.startsWith('server/db/schema/')) return 'migration';
+  // A table only a test creates is a fixture. It was reported as `script` before, which
+  // put test/data-lineage-inventory.test.js's deliberately fake tables — and one fixture
+  // in this checker's own test file — in the same bucket as a real backfill script.
+  if (file.startsWith('test/')) return 'test_only';
+  if (file.startsWith('scripts/')) return 'script';
+  if (!file.startsWith('server/')) return 'script';
+  if (ddlDefinitionName(code, line)) return 'definition';
+  return depthAtLine(code, line) > 0 ? 'first_write' : 'import';
+}
+
+/* ---------------------------------------------------------------------------
  * A RETIRED MODULE NAMED IN A STRING.
  *
  * A module can be named in a served message, a registry entry or a note, and none of
@@ -1660,9 +1760,31 @@ function build() {
         if (!tableUniverse.has(e.table)) continue;
         const gate = gateFor(gated, f.path, e.line, f.code);
         tableEntry(e.table)[kind].push({ file: f.path, line: e.line, tree: f.tree,
+          ...(kind === 'creates' ? { site: creationSite(f.path, e.line, f.code),
+            defines: ddlDefinitionName(f.code, e.line) } : {}),
           gated_by: gate ? gate.flag : null, handle: e.handle ?? 'app', opened_on: e.opened_on ?? null });
       }
     }
+  }
+  // ONE ANSWER PER TABLE, by the precedence in creationSite() above. `created_by` is
+  // the field; `created_at_site` names the line it was decided from, so a reader can
+  // disagree with it without re-deriving anything. Derived from the CREATE sites the
+  // scan already collects, never from a hand-kept list: a list of twelve is out of date
+  // the moment somebody adds a thirteenth, and nothing would say so.
+  const allFiles = [...files.values()];
+  for (const t of tables.values()) {
+    const resolved = t.creates.map(c => {
+      if (c.site !== 'definition' || !c.defines) return c;
+      const r = resolveDefinition(c.defines, allFiles);
+      // A definition nothing executes stays one. That is not a gap in the parser; it is
+      // a table whose DDL is written down and never run.
+      return r ? { ...c, site: r.site, file: r.file, line: r.line, via: `${c.file}:${c.line}` } : c;
+    });
+    const best = [...resolved].sort((a, b) =>
+      (CREATION_RANK[a.site] ?? 9) - (CREATION_RANK[b.site] ?? 9))[0];
+    t.created_by = best?.site ?? null;
+    t.created_at_site = best ? `${best.file}:${best.line}` : null;
+    t.created_via = best?.via ?? null;
   }
   const fnReach = functionReach(files);
   const columns = tableColumns(files);
@@ -2802,6 +2924,7 @@ function toJson(model, found, ann) {
       table: t.table, scope: t.scope,
       columns: [...(columns.get(t.table) ?? [])].sort(),
       created_in: [...new Set(t.creates.map(c => `${c.file}:${c.line}`))],
+      created_by: t.created_by, created_at_site: t.created_at_site, created_via: t.created_via,
       written_by: [...new Set(t.writes.filter(w => w.tree !== 'test').map(w => `${w.file}:${w.line}`))],
       read_by: [...new Set(t.reads.filter(r => r.tree !== 'test').map(r => `${r.file}:${r.line}`))],
       wiring: close(surfaceFamilies(reachNames, [...new Set(t.reads.filter(r => r.tree !== 'test').map(r => r.file))])),
@@ -3004,7 +3127,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
+export { routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, creationSite, depthAtLine, ddlDefinitionName, resolveDefinition, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

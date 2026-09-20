@@ -309,17 +309,51 @@ plenty of live routes, so the module is reachable and always will be. Inside it,
 function goes dark — and no module-level rule can see that, because the file stays
 reachable either way. So this walks functions.
 
-**40 dying routes → 18 symbols fall, 21 were already unreached.** The two lists are
-separate on purpose: telling somebody a route deletion killed a function that had no
-caller before it would be a false accusation against the deletion.
+**43 dying routes → 24 symbols fall, 26 were already unreached** (10 of those reached
+only by a test, 16 by nothing at all). The lists are separate on purpose: telling
+somebody a route deletion killed a function that had no caller before it would be a
+false accusation against the deletion.
 
 The case that named it, correctly attributed:
 
 ```
 positionLiquidity()     depth 1   only through GET /api/trades/:leagueId/brain/liquidity
 positionRequirements()  depth 2   only through that route → positionLiquidity()
+                                  and by test/pick-reasoning.test.js:114, which goes with it
 shoppingGuidance()      ALREADY UNREACHED — it had no caller before any of this
 ```
+
+### The sixth and seventh wrong answers, found after the first five
+
+**6. A TEST CALLER WAS INVISIBLE, and the report said so in a sentence.** `callSites()`
+grepped `server scripts client` and not `test`, which made the `!isTestPath(s.file)`
+filter in `survivors()` a no-op that read as a deliberate decision. The blind spot was
+not partial, it was total. So `positionRequirements()` printed as "reached only through
+GET /brain/liquidity → positionLiquidity()" while `test/pick-reasoning.test.js:9`
+imports it and `:114` calls it. The verdict was right — a test is not a reason for
+production code to exist, so the symbol does fall — and the SENTENCE was wrong, and the
+sentence is what somebody acts on. They delete it, the suite goes red, and nothing told
+them the test was coming too.
+
+Tests are grepped now, still excluded from `survivors()`, and named on the row instead
+of discarded. "Already unreached" splits into a test seam and nothing at all, because
+those are different decisions.
+
+**7. A NAME INSIDE A STRING COUNTED AS A CALLER**, which is the dial/mention distinction
+the verdict list already made and this report did not. Adding tests to the grep exposed
+it immediately, with three wrong rows in the first run:
+`test/league-brain.test.js:57` lists `'brainState'` in an array of expected export
+names, `test/route-deletion-impact.test.js:64` names `positionLiquidity` in an assertion
+message, and `test/wiring-map.test.js` holds `"const t = trendExploits(...)"` as fixture
+TEXT for the scanner to read. Every one would have told a reader that deleting the
+symbol deletes a test that never touches it.
+
+The same fault was in the production half and cost more: blanking string and regex
+literals before matching moved the report from 39 symbols to 50. Eleven symbols had an
+apparent caller that was a sentence about them. That is the dangerous direction — the
+report was under-stating what a deletion takes down. Among them `waiverUpgrades()`,
+whose one real call is `server/routes/trades.js:191`, inside the handler of
+`GET /brain/waivers`, a route its owner has just ruled delete-route-only.
 
 ### Five wrong answers it gave first
 

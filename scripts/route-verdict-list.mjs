@@ -16,7 +16,7 @@
  */
 import fs from 'node:fs';
 import { execSync, execFileSync } from 'node:child_process';
-import { routePattern } from './wiring-map.mjs';
+import { routePattern, isTestPath } from './wiring-map.mjs';
 
 const d = JSON.parse(fs.readFileSync('docs/wiring/wiring-map.json', 'utf8'));
 const rows = (d.findings || []).filter(x => x.rule === 'route-no-caller' && x.scope !== 'betting');
@@ -62,21 +62,30 @@ const evidence = (file, f) => {
   let out = [];
   try {
     out = execFileSync('git', ['grep', '-n', '-E', '--', `/${f}`,
-      '--', `:!${file}`, ':!docs/wiring', ':!*wiring-map*'],
+      '--', `:!${file}`, ':!docs/wiring', ':!*wiring-map*',
+      // The generators' own prose names routes while explaining why a row was wrong.
+      // Counting that would make this file a caller of everything it reports on.
+      ':!scripts/route-verdict-list.mjs', ':!scripts/route-deletion-impact.mjs'],
       { encoding: 'utf8', maxBuffer: 1 << 24 }).trim().split('\n').filter(Boolean);
   } catch (e) {
     if (e.status === 1) out = [];
     else if (typeof e.stdout === 'string') out = e.stdout.trim().split('\n').filter(Boolean);
     else throw e;
   }
-  const dials = [], mentions = [], unclear = [];
+  // A TEST'S fetch() IS A DIAL, AND IT IS NOT A CALLER. Folded into `dials`, it read
+  // as a live route: GET /api/tradelab/:leagueId/analysis showed "dials: 3", all three
+  // in test/cross-account-league-access.test.js, and a reader scanning for a live route
+  // stops at that number. Its own column instead — real evidence, in the right place.
+  const dials = [], testDials = [], mentions = [], unclear = [];
   for (const l of out) {
     const i = l.indexOf(':'), j = l.indexOf(':', i + 1);
     const file2 = l.slice(0, i), line = l.slice(i + 1, j), text = l.slice(j + 1);
     const k = classify(file2, line, text);
-    (k === 'dial' ? dials : k === 'mention' ? mentions : unclear).push(`${file2}:${line}`);
+    const where = k === 'dial' ? (isTestPath(file2) ? testDials : dials)
+      : k === 'mention' ? mentions : unclear;
+    where.push(`${file2}:${line}`);
   }
-  return { dials, mentions, unclear };
+  return { dials, testDials, mentions, unclear };
 };
 
 // Owner-supplied verdicts. Each one came from the thread that owns the file, with its
@@ -120,6 +129,8 @@ o.push('| `unverified` | this checker found no caller and no owner has ruled —
 o.push('');
 o.push('`dials` and `mentions` are counted separately because they are not the same evidence. A dial is the path inside a call that fetches it. A mention is the same characters in prose, a comment, or an assertion message. **The verdict rests on dials only.** `/api/dev/sources` shows four references and not one of them is a dial: two are documentation, one is a comment in `model-sync-current-season.test.js:6`, one is a message string in `nfl-prospective-collection.test.js:87`. Counting those as callers would have been the inverse of the bug this file was rebuilt to fix.');
 o.push('');
+o.push('**reached by tests only** is a third answer, and it is neither of the other two. A test really does dial the route, so it is not uncalled; a test is not a reason for a route to exist, so it is not live either. Counting those as dials read as live — `GET /api/tradelab/:leagueId/analysis` showed three, all of them in `test/cross-account-league-access.test.js`. Deleting such a route deletes those assertions with it, which is a decision worth making on purpose rather than discovering when the suite goes red.');
+o.push('');
 o.push('`unclear` is a reference this classifier would not call either way. It is not a verdict, it is a request to read the line.');
 o.push('');
 
@@ -129,7 +140,7 @@ for (const file of [...byFile.keys()].sort()) {
   o.push('');
   for (const r of list) {
     const f = frag(r.subject.split(' ')[1]);
-    const { dials, mentions, unclear } = evidence(file, f);
+    const { dials, testDials, mentions, unclear } = evidence(file, f);
     const [status, why] = OVERRIDE[r.subject] ?? ['unverified', ''];
     o.push(`### \`${r.subject}\``);
     o.push('');
@@ -137,6 +148,11 @@ for (const file of [...byFile.keys()].sort()) {
     o.push(`- declared at \`${r.evidence?.[0] ?? ''}\` *(offset is on ${branch} @ ${head})*`);
     o.push(`- fragment searched: \`/${f}\``);
     o.push(`- **dials: ${dials.length}**${dials.length ? ' — ' + dials.join(', ') : ''}`);
+    if (testDials.length) {
+      o.push(`- ${dials.length ? 'also dialled by tests' : '**reached by tests only**'}`
+        + `: ${testDials.length} — ${testDials.join(', ')}`
+        + (dials.length ? '' : ' — deleting this route deletes those assertions too'));
+    }
     o.push(`- mentions: ${mentions.length}${mentions.length ? ' — ' + mentions.join(', ') : ''}`);
     if (unclear.length) o.push(`- unclear, read these: ${unclear.join(', ')}`);
     o.push('');

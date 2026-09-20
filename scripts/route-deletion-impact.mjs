@@ -25,6 +25,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { isTestPath } from './wiring-map.mjs';
 
 const ROOT = process.cwd();
 const MAX_DEPTH = 4;
@@ -129,12 +130,51 @@ const called = (text) => [...new Set([...text.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\
  * costs nothing: the worst case is a symbol that is not listed, and the worst case of
  * the other choice is somebody deleting live code on this report's word.
  */
+/**
+ * The line with its string and regex literals blanked, offsets preserved. A name that
+ * survives this is in code; a name that does not was being talked about.
+ */
+function codeOnly(text) {
+  let out = '', quote = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === '\\') { out += '  '; i++; continue; }
+      if (c === quote) { quote = null; out += c; continue; }
+      out += ' ';
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; continue; }
+    // A regex literal, distinguished from division by what can precede a regex.
+    if (c === '/' && /[(,=:[!&|?{;]\s*$/.test(out)) {
+      let j = i + 1, esc = false, cls = false;
+      for (; j < text.length; j++) {
+        const d = text[j];
+        if (esc) { esc = false; continue; }
+        if (d === '\\') { esc = true; continue; }
+        if (d === '[') cls = true;
+        else if (d === ']') cls = false;
+        else if (d === '/' && !cls) break;
+      }
+      if (j < text.length) { out += ' '.repeat(j - i + 1); i = j; continue; }
+    }
+    out += c;
+  }
+  return out;
+}
+
 const sitesCache = new Map();
 function callSites(name) {
   if (sitesCache.has(name)) return sitesCache.get(name);
   let out = [];
   try {
-    out = execSync(`git grep -n -E '\\b${name}\\b' -- 'server' 'scripts' 'client' || true`,
+    // 'test' IS IN THIS LIST NOW, AND WAS NOT. Without it no call site could ever have
+    // a test path, which made the `!isTestPath(s.file)` filter in survivors() below a
+    // no-op that read as a deliberate decision. The blind spot was not partial: it was
+    // total. positionRequirements() was printed as "reached only through
+    // GET /brain/liquidity → positionLiquidity()" while test/pick-reasoning.test.js:9
+    // imports it and :114 calls it.
+    out = execSync(`git grep -n -E '\\b${name}\\b' -- 'server' 'scripts' 'client' 'test' || true`,
       { encoding: 'utf8', maxBuffer: 1 << 26 }).trim().split('\n').filter(Boolean)
       .map(l => { const i = l.indexOf(':'), j = l.indexOf(':', i + 1);
         return { file: l.slice(0, i), line: +l.slice(i + 1, j), text: l.slice(j + 1) }; })
@@ -147,7 +187,16 @@ function callSites(name) {
       .filter(s => !/^\s*(import|export)\b/.test(s.text))
       // a declaration is not a call site
       .filter(s => !new RegExp(`(function|const|let|var)\\s+${name}\\s*[=(]`).test(s.text))
-      .filter(s => !new RegExp(`export\\s*\\{[^}]*\\b${name}\\b`).test(s.text));
+      .filter(s => !new RegExp(`export\\s*\\{[^}]*\\b${name}\\b`).test(s.text))
+      // A NAME INSIDE A STRING IS NOT A CALL. This is the dial/mention distinction the
+      // verdict list makes, and leaving it out here produced three wrong rows on its
+      // first run with tests included: test/league-brain.test.js:57 lists 'brainState'
+      // in an array of expected export names, test/route-deletion-impact.test.js:64
+      // names positionLiquidity in an assertion message, and test/wiring-map.test.js
+      // holds "const t = trendExploits(...)" as fixture TEXT for the scanner to read.
+      // Every one of those would have told a reader that deleting the symbol deletes a
+      // test that never touches it.
+      .filter(s => new RegExp(`\\b${name}\\b`).test(codeOnly(s.text)));
   } catch { }
   sitesCache.set(name, out);
   return out;
@@ -170,16 +219,32 @@ const falls = new Map();   // "file#name" -> { name, file, depth, why, from, to 
 const insideFalling = (site) => [...falls.values()]
   .some(f => f.file === site.file && site.line >= f.from && site.line <= f.to);
 
-/** The call sites that would still be there after the deletion. */
+/**
+ * The call sites that would still be there after the deletion.
+ *
+ * Tests are excluded, and that judgement is unchanged: a test is not a reason for
+ * production code to exist, so a symbol whose only remaining callers are tests still
+ * falls. What changes is that the exclusion is now real — see callSites() — and that
+ * the tests it drops are reported rather than discarded, by testSites() below.
+ */
 function survivors(name) {
-  return callSites(name).filter(s => !s.file.startsWith('test/')
+  return callSites(name).filter(s => !isTestPath(s.file)
     && !insideDoomed(s) && !insideFalling(s));
+}
+
+/**
+ * The tests that reach this symbol. Not survivors, and not nothing either: deleting the
+ * symbol deletes these assertions, and whoever does it should decide that on purpose
+ * rather than find out when the suite goes red.
+ */
+function testSites(name) {
+  return callSites(name).filter(s => isTestPath(s.file));
 }
 
 function record(name, file, depth, why) {
   const body = functionBody(file, name);
   if (!body) return false;
-  falls.set(`${file}#${name}`, { name, file, depth, why, line: body.line,
+  falls.set(`${file}#${name}`, { name, file, depth, why, line: body.line, tests: testSites(name),
     from: body.line, to: body.line + body.text.split('\n').length - 1 });
   return true;
 }
@@ -250,7 +315,7 @@ while (changed) {
       const name = m[1] ?? m[2];
       if (!name || falls.has(`${file}#${name}`)) continue;
       if (survivors(name).length) continue;
-      const sites = callSites(name).filter(s => !s.file.startsWith('test/'));
+      const sites = callSites(name).filter(s => !isTestPath(s.file));
       // Provenance, in the order that makes it true. A symbol a dying HANDLER calls is
       // killed by that route. A symbol only a FALLING function calls inherits that
       // function's chain, one deeper. A symbol with neither was already unreached
@@ -291,6 +356,12 @@ o.push(`## Falls with the deletion — ${fell.length} symbol(s)`);
 o.push('');
 o.push('Each of these is live today, reached through a route on the dead list and through nothing else. Delete it in the same commit as its route, or say why it stays.');
 o.push('');
+/** Five is enough to see the shape; the rest is a grep away and makes the row unreadable. */
+const someTests = (tests) => {
+  const shown = tests.slice(0, 5).map(t => `\`${t.file}:${t.line}\``).join(', ');
+  return tests.length > 5 ? `${shown}, and ${tests.length - 5} more` : shown;
+};
+
 const group = (list) => {
   const m = new Map();
   for (const r of list) { if (!m.has(r.file)) m.set(r.file, []); m.get(r.file).push(r); }
@@ -303,16 +374,46 @@ for (const [file, list] of group(fell)) {
   for (const r of list.sort((a, b) => a.depth - b.depth)) {
     o.push(`- \`${r.name}()\` — **depth ${r.depth}**, declared at \`${file}:${r.line}\``);
     o.push(`  - reached only through: ${r.why}`);
+    if (r.tests?.length) {
+      o.push(`  - **and by ${r.tests.length} test(s), which go with it**: `
+        + someTests(r.tests));
+    }
   }
   o.push('');
 }
 
+const seams = already.filter(r => r.tests?.length);
+const nothing = already.filter(r => !r.tests?.length);
+
 o.push(`## Already unreached, BEFORE any of this — ${already.length} symbol(s)`);
 o.push('');
-o.push('These are exported from the same modules and have no caller in the repository today, with or without the deletions. **The route deletions did not cause these and must not be blamed for them.** They are here because whoever opens these files to delete the section above should see them in the same pass rather than meeting them later as a surprise. Each one still needs its own owner\'s verdict: an export whose only callers are tests over live code is a test seam and stays.');
+o.push('These are exported from the same modules and have no production caller in the repository today, with or without the deletions. **The route deletions did not cause these and must not be blamed for them.** They are here because whoever opens these files to delete the section above should see them in the same pass rather than meeting them later as a surprise.');
 o.push('');
-for (const [file, list] of group(already)) {
-  o.push(`### ${file}`);
+o.push('They are split, because they are not the same thing and this report used to print them as one list. An export a test calls is a TEST SEAM: it is reached, the suite depends on it, and deleting it deletes those assertions. An export nothing calls at all is reached by nothing. Both still need their owner\'s verdict; only the second one is free.');
+o.push('');
+
+o.push(`### Reached by tests only — ${seams.length} symbol(s)`);
+o.push('');
+o.push('Live under test and dead in production. Deleting one of these is a decision about the test as much as about the code, so it is made deliberately or not at all.');
+o.push('');
+if (!seams.length) o.push('_None._');
+for (const [file, list] of group(seams)) {
+  o.push(`**${file}**`);
+  o.push('');
+  for (const r of list) {
+    o.push(`- \`${r.name}()\` — declared at \`${file}:${r.line}\``);
+    o.push(`  - called by: ${someTests(r.tests)}`);
+  }
+  o.push('');
+}
+
+o.push(`### No caller at all — ${nothing.length} symbol(s)`);
+o.push('');
+o.push('Not production code, not a test seam. Nothing in this repository names these.');
+o.push('');
+if (!nothing.length) o.push('_None._');
+for (const [file, list] of group(nothing)) {
+  o.push(`**${file}**`);
   o.push('');
   for (const r of list) o.push(`- \`${r.name}()\` — declared at \`${file}:${r.line}\``);
   o.push('');

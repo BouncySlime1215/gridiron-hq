@@ -52,6 +52,20 @@ const TREES = [
   { dir: 'test', kind: 'test' },
 ];
 
+/**
+ * Is this path a test? One predicate, shared, because three copies of
+ * `startsWith('test/')` is how two reports came to answer the same question
+ * differently — see routePattern() above for what two copies of one rule cost.
+ *
+ * A test caller is real: it reaches the symbol, and deleting the symbol takes the test
+ * with it. What it is not is a reason for production code to exist. Both reports need
+ * to say which of those they mean, so neither may quietly fold a test into "callers"
+ * or into "nothing".
+ */
+function isTestPath(file) {
+  return file === 'test' || file.startsWith('test/');
+}
+
 // ---------------------------------------------------------------------------
 // Scanning: split a source file into code (comments and string bodies blanked)
 // and the string literals themselves. SQL lives in the strings; imports, routes
@@ -2892,7 +2906,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { routeAnswersCall, routePattern, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
+export { routeAnswersCall, routePattern, isTestPath, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

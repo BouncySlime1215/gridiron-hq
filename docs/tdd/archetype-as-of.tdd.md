@@ -1377,3 +1377,29 @@ assertion is almost always a test that has not decided what it is claiming.**
 Each branch should be its own assertion with its own message, or the test
 passes on whichever phrasing happens to survive.
 
+
+### Part 8b — never collected is not zero
+
+A ruling arrived after the section above: the caller must be able to tell *this
+league-season was never collected* from *it was collected and there is
+genuinely nothing in it*, and the first must never reach a surface as an empty
+archetype. An archetype computed over no rows is a real-looking answer about a
+real person. It is the same distinction as the confident-zero bucket still open
+on the run sheet, so the state is served through **`reason`** — the field this
+block already uses for not-built data — rather than through a new field
+invented ahead of that contract.
+
+Two more tests, red then green: `archetypesBuilt()` with the table dropped
+names it in `reason`; with the table restored, a league-season with no rows
+must **not** borrow that sentence, or the two states share one answer again and
+the distinction is decorative.
+
+Two more mutations on the same runner, both caught:
+
+| # | Replaced (verbatim) | With (verbatim) | after sha | Result |
+|---|---|---|---|---|
+| F10 | `` gaps.push(`${LEAGUE_HISTORY_TABLE} is not on this database, so this league-season was never ` `` | `` gaps.push(`nothing here` `` | `7a35ebc0f3203267` | caught, 2 |
+| F11 | `const history = leagueHistoryState();` + `if (!history.present) {` | same, `if (false) {` | `f70c64582287687b` | caught, 2 |
+
+Unmutated `manager-archetypes.js` at this point = `84c126d40ee3be4f`, restored
+and verified; `CTRL-NOOP` no edit, `CTRL-GREEN` green.

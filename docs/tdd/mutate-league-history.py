@@ -29,6 +29,10 @@ SPEC = [
         "  + 'and a script, '", 'caught'),
  ('F9', "export const LEAGUE_HISTORY_SOURCE =\n  'server/migrations/064_league_history_tables.js (arrives with PR #47; not on main yet) '",
         "export const LEAGUE_HISTORY_SOURCE =\n  'somewhere '", 'caught'),
+ ('F10', "    gaps.push(`${LEAGUE_HISTORY_TABLE} is not on this database, so this league-season was never `",
+        '    gaps.push(`nothing here`', 'caught'),
+ ('F11', '  const history = leagueHistoryState();\n  if (!history.present) {',
+        '  const history = leagueHistoryState();\n  if (false) {', 'caught'),
  ('CTRL-NOOP', 'const cachedLeagueHistoryPresence =', 'const x =', 'no edit expected'),
  ('CTRL-GREEN', '/**\n * Is the table there, right now.', '/**\n * Is the table present, right now.', 'survive expected'),
 ]

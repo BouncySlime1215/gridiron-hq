@@ -161,6 +161,10 @@ test('OK_NO_ROWS: the state this install is actually in', async () => {
   assert.equal(u.rows, 0, 'no rows for the season being played');
   assert.equal(u.source_status, 'ok', 'and the source says it ran fine');
   assert.equal(u.state, 'ok_no_rows');
+  assert.equal(u.season, 2026,
+    'the season being played, even — especially — when it holds nothing. Reading the '
+    + 'newest season that HAS rows would make the field agree with itself in exactly '
+    + 'the state it exists to report, and a mutation doing that survived until this line');
   assert.deepEqual(u.seasons_with_rows, [2022, 2023, 2024, 2025],
     'the banner names what it is projecting off instead');
 });
@@ -180,6 +184,11 @@ test('STALE is about the WEEK, not the season: rows held, but behind the league'
   clear2026();
   stampUsage('ok');
   run(`INSERT INTO player_week_usage (player_id, season, week, targets) VALUES (1, 2026, 1, 5)`);
+  // 2025 week 9, and it is here to make the query's WHERE clause load-bearing. Without
+  // the season filter, MAX(week) over the whole table answers 9, the season being
+  // played looks caught up with the league, and a stale feed reads as healthy. A
+  // mutation dropping that filter survived until this row existed.
+  run(`INSERT INTO player_week_usage (player_id, season, week, targets) VALUES (1, 2025, 9, 5)`);
   setLeagueWeek(3);
   const u = (await setup()).usage_coverage;
   assert.equal(u.rows > 0, true);

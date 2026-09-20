@@ -185,3 +185,84 @@ case is the client half and belongs to whoever owns
 It also does not check the snap-counts feed, which has the same shape and the
 same stamp (`nflverse_snap_counts`, written by the same `recordUsageRun`). One
 feed, one window, one route.
+
+---
+
+# The banner's half of the same key
+
+RED `aff37f9` · GREEN = the commit this section arrives in.
+
+## Whose shape this is
+
+Not mine. `docs/tdd/usage-coverage-banner.tdd.md` §5, written by the thread that owns
+`client/src/components/DataSetupBanner.tsx`, on their hold branch. Their client
+(`client/src/lib/usage-coverage.js`) already exists, already carries sixteen mutations,
+and reads four mutually exclusive states off one key that nothing served.
+
+The eight keys are additions to `usage_coverage`, not a second field. The diagnosis
+half — `job`, `seasons`, `per_season`, `missing`, `never_run`, `stamp`,
+`stamp_disagrees` — is unchanged. The eight new ones are what the banner needs to say
+a sentence:
+
+```
+state              'healthy' | 'never_run' | 'stale' | 'ok_no_rows'
+season             the season being played
+rows               rows in player_week_usage for THAT season
+latest_week        last week of that season with rows, or null
+league_week        the furthest week any league in this install is on, or null
+seasons_with_rows  what is being used instead
+source_status      what the registry last recorded
+last_run_at        the stamp's time, or null
+```
+
+**The state names are theirs verbatim.** Their client shows anything else as
+unrecognised, so a fifth name invented on this side renders as a shrug on the one
+banner that exists to stop this app looking healthy while it projects the season being
+played off last season's usage. Adding a state is a conversation with them, not a
+commit. Chat sync has no competing vocabulary: every remote head was searched for the
+token and theirs is the only tree that holds it, so there was nothing to reconcile.
+
+**`league_week` is null when there are no leagues, and null is not week 0.** This route
+is not league-scoped, so the value is the furthest week any league has reached. With
+nothing to be behind, held rows are not evidence of being behind, and reading a missing
+league as week 0 would make every fresh install stale.
+
+## Mutations
+
+GREEN `server/routes/model.js` sha256 `674bca09c035`, 12 tests, 12 pass.
+
+| id | injected defect | sha256 | pass/fail | killed by |
+|---|---|---|---|---|
+| B1 | check `ok_no_rows` before `never_run` | `26eee6c4cd13` | 11 / 1 | *NEVER_RUN outranks ok_no_rows* |
+| B2 | a missing league counts as week 0 | `62843011bf77` | 11 / 1 | *no league is not a stale league* |
+| B3 | `season` is the newest season HELD | `53b5156d725b` | 11 / 1 | *OK_NO_ROWS: the state this install is actually in* |
+| B4 | `seasons_with_rows` lists the window, not what is held | `2783ae90f777` | 11 / 1 | *OK_NO_ROWS …* |
+| B5 | `latest_week` drops its `WHERE season = ?` | `d2ca4bd3f860` | 10 / 2 | *STALE is about the WEEK …*, *HEALTHY …* |
+| B6 | a fifth state name: `'ok'` for `'healthy'` | `77cd72d497a3` | 10 / 2 | *HEALTHY …*, *no league is not a stale league* |
+| B7 | NO-OP CONTROL: one word of a comment changed | `b805a462ebd8` | 12 / 0 | none, correctly |
+
+**Two of these survived their first run, and both survivors were the test's fault, not
+the mutation's.**
+
+B5 survived because every season in the fixture held week 1 and nothing else, so
+`MAX(week)` with and without the season filter answered the same number. The fixture
+now inserts 2025 week 9 before asserting staleness: without the filter the season being
+played looks caught up with the league, and a stale feed reads as healthy. That row is
+the only reason the `WHERE` clause is load-bearing under test.
+
+B3 survived because the only test asserting `season` ran while the season being played
+DID hold rows, so "the season being played" and "the newest season held" were the same
+number. The assertion moved into the `ok_no_rows` test, where they differ — which is
+the state the field exists to report. A field that agrees with itself in exactly the
+state it is for is the shape of defect this whole document is about.
+
+Both are the same lesson as M7 above and as the two before it tonight: a mutation that
+passes on the first try is a finding about the test.
+
+## What this still does not do
+
+It does not render anything. The banner is the UI thread's, and their client is already
+written against this shape. It does not fix the feed. And `league_week` being the
+furthest week any league has reached is a choice that will read oddly in an install
+with two leagues on different weeks; there is one install, it has five leagues on one
+week, and a per-league answer belongs on a league-scoped route rather than here.

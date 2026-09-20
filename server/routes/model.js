@@ -697,6 +697,45 @@ r.get('/setup-status', (req, res) => {
   // already happened. Wording it as a never-run would send the reader back
   // around the loop that produced the bug.
   const usage_coverage = usageCoverage(usageWindow());
+
+  /*
+   * THE BANNER'S HALF OF THE SAME KEY.
+   *
+   * Everything above diagnoses; these eight say a sentence. The shape and the four
+   * state names are the UI thread's, from docs/tdd/usage-coverage-banner.tdd.md §5,
+   * and their client (client/src/lib/usage-coverage.js) already reads them and already
+   * has its mutations. It "shows anything else as unrecognised", so a fifth name
+   * invented here renders as a shrug on the one banner that exists to stop this app
+   * looking healthy while it projects the season being played off last season's usage.
+   * Adding a state is a conversation with them, not a commit.
+   *
+   * `league_week` is the week the leagues in this install are on. This route is not
+   * league-scoped, so it is the furthest along any of them has reached, and null when
+   * there are none. Null is not "week 0": with nothing to be behind, held rows are not
+   * evidence of being behind, and treating a missing league as week 0 would make every
+   * fresh install stale.
+   */
+  const usageSource = sources.find(s => s.source === 'nflverse_weekly_usage') ?? null;
+  const source_status = usageSource?.last_status ?? 'never run';
+  const rowsThisSeason = usage_coverage.per_season.find(s => s.season === SEASON)?.rows ?? 0;
+  const latest_week = row('SELECT MAX(week) AS w FROM player_week_usage WHERE season = ?', SEASON)?.w ?? null;
+  const league_week = row('SELECT MAX(current_week) AS w FROM leagues WHERE season = ?', SEASON)?.w ?? null;
+  const behind = rowsThisSeason > 0 && latest_week !== null
+    && league_week !== null && latest_week < league_week;
+  Object.assign(usage_coverage, {
+    state: source_status === 'never run' ? 'never_run'
+      : rowsThisSeason === 0 ? 'ok_no_rows'
+      : behind ? 'stale'
+      : 'healthy',
+    season: SEASON,
+    rows: rowsThisSeason,
+    latest_week,
+    league_week,
+    seasons_with_rows: usage_coverage.per_season.filter(s => s.held).map(s => s.season),
+    source_status,
+    last_run_at: usage_coverage.stamp?.at ?? null,
+  });
+
   if (usage_coverage.stamp_disagrees) {
     missing.push({
       source: 'nflverse_weekly_usage_seasons',

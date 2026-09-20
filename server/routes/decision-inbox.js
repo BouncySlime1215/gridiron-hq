@@ -19,14 +19,18 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
 import { rows, row, run } from '../db/index.js';
-import { requireAuthenticated } from '../platform/auth.js';
 
 const r = Router();
 
 const VALID_URGENCY = new Set(['high', 'medium', 'low']);
 const VALID_SPORT = new Set(['NFL', 'MLB']);
 
-function toRecommendation(rec) {
+/**
+ * Exported for `test/decision-inbox.test.js`, which asserts the published shape and no
+ * longer has an HTTP response to read it out of. It is a seam over live code, not dead
+ * code: `publishRecommendation` returns through it on every call.
+ */
+export function toRecommendation(rec) {
   return {
     id: rec.id,
     leagueId: rec.league_id,
@@ -67,7 +71,12 @@ function expireStale() {
        WHERE status = 'open' AND expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now')`);
 }
 
-const URGENCY_RANK = { high: 0, medium: 1, low: 2 };
+/*
+ * `URGENCY_RANK` used to live here and is gone with the routes. It ordered the list
+ * GET / returned — high before medium before low, then soonest expiry. That ordering
+ * was route-side and has no home now; whatever reads this table next orders it itself.
+ * Recording that here rather than leaving a constant nothing uses.
+ */
 
 /**
  * Publishes (or refreshes) one recommendation. This is a plain function, not
@@ -88,6 +97,15 @@ export function publishRecommendation({
   expectedValue = null, confidence = null, urgency = 'medium', expiresAt = null,
   sourceModel, sourceVersion = null, link = null
 }) {
+  // Expiry used to be lazy on the READ path, swept before every GET. Those routes are
+  // gone, so without this line nothing would ever mark a row expired again and every
+  // stale recommendation would read as `open` forever — the table's next reader would
+  // be told to act on things that lapsed weeks ago. Moving the sweep onto the write
+  // path keeps the guarantee with a caller that actually still runs: the two engines
+  // publish on every lineup and waiver recompute, so it fires at least as often as the
+  // reads it used to hang off.
+  expireStale();
+
   if (!dedupKey) throw new Error('publishRecommendation requires dedupKey');
   if (!VALID_SPORT.has(sport)) throw new Error(`publishRecommendation: invalid sport "${sport}"`);
   if (!type || typeof type !== 'string') throw new Error('publishRecommendation requires type');
@@ -132,6 +150,14 @@ export function publishRecommendation({
  * `trade-engine.js:59` both import it, and both keep writing. The table keeps filling;
  * what changed is that the reader is Coach, reading and citing
  * `decision_recommendations` directly, rather than an HTTP surface no page ever opened.
+ *
+ * WHAT WENT WITH THEM, SAID PLAINLY. `POST /:id/resolve` was the only thing that could
+ * ever set `status`, `resolved_at` or `outcome`, so no row can now be marked actioned
+ * or dismissed; rows leave `open` only by expiring. That is not a capability this
+ * deletion removed — nothing called that route either, so nothing has resolved a row
+ * since the table was created. The deletion makes an existing gap visible instead of
+ * leaving four routes standing to imply it was covered. Whoever gives this table a
+ * reader owns giving it a way to drain.
  *
  * The deleted page is not coming back — nav is eight tabs. If a decision inbox is ever
  * wanted again it belongs on an existing tab, not as a ninth.

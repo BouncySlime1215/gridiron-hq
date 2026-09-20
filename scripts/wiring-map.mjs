@@ -744,7 +744,21 @@ function unreachablePages(files, importedBy) {
  * third-party URL the server merely FETCHES must not land here, which is why matching
  * happens against whole route paths later rather than on fragments.
  */
-function outboundUrlPaths(text) {
+/**
+ * `strings` is what a SCRIPT writes as a bare path, and it is a separate scan for a
+ * reason. The two patterns below both need a marker to the LEFT of the path — a `}`
+ * closing an interpolation, or a `://` — and `scripts/bootstrap-data.mjs:104` has
+ * neither: it writes `` `/api/edge/gamelogs/sync?season=${s}&limit=400` ``, where the
+ * literal comes first and the interpolation is in the query string. The route was
+ * therefore reported dead, and the deletion of it was one check away from shipping.
+ * That is the fourth time in this file that the extractor saw the construct and lost
+ * what was read out of it, and the first where the miss pointed at deleting live code.
+ *
+ * Only string BODIES count, and only in the script tree. A path spelled out in a
+ * comment is somebody describing a route, not dialling it, and suppressing a finding
+ * on a sentence would be the same silent over-reach as `accepted_orphan_modules`.
+ */
+function outboundUrlPaths(text, strings = []) {
   const out = new Map();
   const trim = (p) => p.replace(/[.,;:'"`)\]}]+$/, '');
   // Whether this occurrence sits inside a call that DIALS the URL. A script that
@@ -771,6 +785,13 @@ function outboundUrlPaths(text) {
   // https://host/api/x/y — an absolute URL written out in full.
   const RE_ABS = /:\/\/[A-Za-z0-9_.\-]+(\/[A-Za-z0-9_\-./]+)/g;
   while ((m = RE_ABS.exec(text))) add(trim(m[1]), kindAt(m.index));
+  // A bare `/api/...` written as the whole string a script hands to its own HTTP
+  // helper. `called`, not `published`: a path into this app's own API, spelled out in
+  // this repository's own tooling, is this repository dialling itself.
+  for (const { text: body } of strings) {
+    const hit = body.match(/^(\/api\/[A-Za-z0-9_\-./]+)/);
+    if (hit) add(hit[1], 'called');
+  }
   return out;
 }
 
@@ -798,6 +819,47 @@ function outboundUrlPaths(text) {
  * this" about a path the extractor merely could not read — is the failure this exists
  * to stop.
  */
+/**
+ * Does this route answer this call?
+ *
+ * Both sides carry wildcards, and they are not the same kind. A route's `:id` is a
+ * declared parameter. A call's `:p` is an interpolation the extractor could not read
+ * (`/api/model/${leagueId}/trade-impact`). Letting either one match anything was one
+ * rule with two holes in it, and they opened onto each other.
+ *
+ * THE CROSSING. `GET /api/model/ask/:capability` was reported as called, by
+ * `client/src/components/TradeCard.tsx:179`, which calls `/api/model/:p/trade-impact`.
+ * Segment by segment the old rule said yes: `ask` was excused by the call's `:p`, and
+ * `:capability` excused the call's `trade-impact`. Two wildcards slid past each other
+ * in opposite directions and matched two endpoints that have nothing to do with one
+ * another. Nothing in the repository calls `/api/model/ask/:capability`; the map said
+ * something did, and named no file, because the suppression happens before evidence is
+ * collected. That is the worst shape a finding can take — not a missing row, a false
+ * reassurance about a specific endpoint.
+ *
+ * The fix is the crossing itself, not the wildcards. One side being looser than the
+ * other is ordinary and correct: a call may pass `DAL` where the route declares
+ * `:abbr`, and a call may interpolate where the route has a literal. But when BOTH
+ * happen in one comparison, the two paths disagree about where the variable part of
+ * the endpoint is, and no substitution makes them the same URL. Rejecting only that
+ * case leaves every honest match standing and costs nothing.
+ */
+function routeAnswersCall(routePath, callPath) {
+  const a = routePath.split('/').filter(Boolean), b = callPath.split('/').filter(Boolean);
+  if (a.length !== b.length) return false;
+  const isVar = (x) => x.startsWith(':') || x.startsWith('*');
+  let routeVarOverCallLiteral = false;   // route `:id` vs call `DAL` — ordinary
+  let callVarOverRouteLiteral = false;   // call `:p` vs route `ask` — also ordinary, alone
+  for (let i = 0; i < a.length; i++) {
+    const r = a[i], c = b[i];
+    if (isVar(r) && isVar(c)) continue;
+    if (isVar(r)) { routeVarOverCallLiteral = true; continue; }
+    if (isVar(c)) { callVarOverRouteLiteral = true; continue; }
+    if (r !== c) return false;
+  }
+  return !(routeVarOverCallLiteral && callVarOverRouteLiteral);
+}
+
 function routeLiteralAbsent(routePath, clientText) {
   const segs = routePath.split('?')[0].split('/').filter(Boolean);
   const body = segs[0] === 'api' ? segs.slice(1) : segs;
@@ -1207,9 +1269,13 @@ const RE_ADD_COLUMN = /\bALTER\s+TABLE\s+["'`[]?([A-Za-z_]\w*)["'`\]]?\s+ADD\s+(
 const GENERIC_COLUMN = /^(id|name|season|week|team|player_id|created_at|updated_at|value|source|kind|type|status|label|note|notes|data|payload|config|n|scope|position|team_id|league_id|game_id|abbr|slug|version|rank|tier|gap|date|day|year|month)$/i;
 
 /** table -> Set of declared column names, from CREATE TABLE and ALTER ... ADD. */
-function tableColumns(files) {
-  const cols = new Map();
-  const put = (t, c) => { if (!cols.has(t)) cols.set(t, new Set()); cols.get(t).add(c); };
+/**
+ * Every column definition this repository declares, handed to `cb(table, column, def)`
+ * where `def` is the rest of that column's line. One walk, two readers: the column
+ * census and the DEFAULT scan below both need the same parse, and a duplicated CREATE
+ * TABLE parser is the kind of thing that drifts silently between its copies.
+ */
+function forEachColumnDef(files, cb) {
   for (const f of files.values()) {
     for (const { text } of f.strings) {
       if (!looksSql(text)) continue;
@@ -1225,14 +1291,51 @@ function tableColumns(files) {
         if (end === -1) continue;
         for (const line of text.slice(open + 1, end).split(/,(?![^(]*\))/)) {
           const c = /^\s*["'`[]?([A-Za-z_]\w*)/.exec(line);
-          if (c && !/^\s*(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT)\b/i.test(line)) put(m[1], c[1]);
+          if (c && !/^\s*(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT)\b/i.test(line)) cb(m[1], c[1], line);
         }
       }
       RE_ADD_COLUMN.lastIndex = 0;
-      while ((m = RE_ADD_COLUMN.exec(text))) put(m[1], m[2]);
+      while ((m = RE_ADD_COLUMN.exec(text))) cb(m[1], m[2], m[0]);
     }
   }
+}
+
+function tableColumns(files) {
+  const cols = new Map();
+  forEachColumnDef(files, (t, c) => {
+    if (!cols.has(t)) cols.set(t, new Set());
+    cols.get(t).add(c);
+  });
   return cols;
+}
+
+/**
+ * Columns a plain INSERT fills WITHOUT naming them: `DEFAULT (datetime('now'))`,
+ * `DEFAULT 0`, and generated columns.
+ *
+ * `column-read-never-written` GATES, and it reads INSERT and UPDATE column lists. A
+ * DEFAULT appears in neither, so `draft_pick_quarantine.first_seen_at`
+ * (core-and-fantasy.js:562) and `draft_pick_corrections.applied_at` (:579) were both
+ * reported as "null on every row forever" while every insert was in fact stamping them
+ * with the current time. Two false positives on a rule that can fail a build, on
+ * timestamps that are not only written but written automatically.
+ *
+ * `DEFAULT NULL` is excluded on purpose: it writes the same nothing the rule is
+ * complaining about, so counting it as a writer would silence a true finding.
+ *
+ * Triggers need no case here. A trigger body is SQL inside the same string literal as
+ * its CREATE TRIGGER, so its `INSERT INTO t(a,b,c)` is already read as a write by the
+ * ordinary statement scan.
+ */
+function columnDefaults(files) {
+  const out = new Set();
+  forEachColumnDef(files, (t, c, def) => {
+    const rest = def.slice(def.indexOf(c) + c.length);
+    if (/\bGENERATED\s+ALWAYS\b|\bAS\s*\(/i.test(rest)) { out.add(`${t}.${c}`); return; }
+    const d = /\bDEFAULT\s+(.+)$/is.exec(rest);
+    if (d && !/^\s*NULL\b/i.test(d[1])) out.add(`${t}.${c}`);
+  });
+  return out;
 }
 
 /** Which tables a single SQL statement names, and how. */
@@ -1485,7 +1588,7 @@ function annotations(file) {
 }
 
 function findings(model, ann) {
-  const { files, importedBy, tables, reach, reachNames, surfaces, mountByFile } = model;
+  const { files, importsOf, importedBy, tables, reach, reachNames, surfaces, mountByFile } = model;
   void mountByFile;
   const out = [];
   const add = (f) => out.push(f);
@@ -1710,11 +1813,6 @@ function findings(model, ann) {
 
   // ---- routes and client calls ----------------------------------------
   const routePaths = surfaces.filter(s => s.kind === 'route');
-  const matches = (routePath, callPath) => {
-    const a = routePath.split('/').filter(Boolean), b = callPath.split('/').filter(Boolean);
-    if (a.length !== b.length) return false;
-    return a.every((seg, i) => seg.startsWith(':') || b[i].startsWith(':') || seg === b[i]);
-  };
   const allCalls = [];
   for (const f of files.values()) for (const c of f.calls) allCalls.push({ ...c, file: f.path });
   for (const c of allCalls) {
@@ -1722,7 +1820,7 @@ function findings(model, ann) {
     // unknown, not a finding. Saying "no route answers this" about a string we
     // failed to parse is exactly the kind of confident wrong a map must not do.
     if (c.path.includes('$') || c.path.includes('`')) continue;
-    if (routePaths.some(r => matches(r.name.split(' ')[1], c.path))) continue;
+    if (routePaths.some(r => routeAnswersCall(r.name.split(' ')[1], c.path))) continue;
     add({ kind: 'missing-feed', rule: 'client-call-without-route', scope: scopeOfFile(c.file),
       subject: c.path, detail: 'the client calls this path and no route in the repository answers it',
       evidence: [`${c.file}:${c.line}`] });
@@ -1736,7 +1834,7 @@ function findings(model, ann) {
     const declared = new Set([...app.text.matchAll(/<Route\s+path="([^"]*)"/g)].map(x => x[1]));
     for (const m2 of nav.text.matchAll(/\[\s*'[^']*'\s*,\s*'(\/[^']*)'/g)) {
       const dest = m2[1];
-      const hit = [...declared].some(d => matches(d, dest) || d === '*');
+      const hit = [...declared].some(d => routeAnswersCall(d, dest) || d === '*');
       if (hit || ignored.has(`destination:${dest}`)) continue;
       add({ kind: 'missing-feed', rule: 'destination-without-route', scope: 'fantasy', subject: dest,
         detail: 'listed as a place the user can go, and the router has no such route',
@@ -1795,13 +1893,14 @@ function findings(model, ann) {
   const published = new Map();
   for (const f of files.values()) {
     if (f.tree !== 'server' && f.tree !== 'script') continue;
-    for (const [u, kind] of outboundUrlPaths(f.text)) published.set(u, kind);
+    for (const [u, kind] of outboundUrlPaths(f.text, f.tree === 'script' ? f.strings : []))
+      published.set(u, kind);
   }
   for (const r of routePaths) {
     const p = r.name.split(' ')[1];
-    if (allCalls.some(c => matches(p, c.path))) continue;
+    if (allCalls.some(c => routeAnswersCall(p, c.path))) continue;
     if (!routeLiteralAbsent(p, clientText)) continue;
-    const outbound = [...published].find(([u]) => matches(p, u));
+    const outbound = [...published].find(([u]) => routeAnswersCall(p, u));
     // Not silently dropped: a route nothing in the app calls is worth knowing about even
     // when something outside it does. It leaves the orphan rule and is reported as what
     // it is, so a reader deciding whether the route can go has the reason in front of them.
@@ -1858,6 +1957,82 @@ function shouldBeWired(model, ann, add) {
     if (!byFile.has(n.file)) byFile.set(n.file, []);
     byFile.get(n.file).push(n);
   }
+  /*
+   * THE INVERSE: ONE NAME, TWO MODULES.
+   *
+   * `two-names-different-sources` below catches two names in ONE file answering the
+   * same question from different sources. The mirror image is worse and was not
+   * caught at all: the SAME exported name in two modules, meaning different things.
+   * There is nothing to notice at the call site — the import line looks ordinary, the
+   * call compiles, and the answer is wrong with no error.
+   *
+   * Two live cases named this rule on 2026-09-20. `gameScriptFor` is exported by both
+   * `services/gamescript.js` and `services/vegas-fantasy.js`, taking
+   * `(team, season, week)` in one and `(season, week, team, opts)` in the other —
+   * the first two arguments swapped — and `routes/model.js` imported from both files
+   * at once. `buildSeasonRows` was exported by `opportunity-model.js` and
+   * `preseason-model.js` with different meanings, and the collision had been routed
+   * around in prose: a comment reading "same rule as preseason-model.js#buildSeasonRows"
+   * is somebody disambiguating a symbol by hand because the name could not do it.
+   *
+   * A pair is only reported when the two really are different: different parameter
+   * lists, or different tables underneath. A re-export is the same symbol wearing the
+   * same name and is skipped, as is a name only one module exports.
+   */
+  const exportedByName = new Map();
+  for (const n of fnReach.values()) {
+    if (!n.exported) continue;
+    const f = files.get(n.file);
+    if (!f || f.tree !== 'server') continue;
+    if (!exportedByName.has(n.name)) exportedByName.set(n.name, []);
+    exportedByName.get(n.name).push(n);
+  }
+  /*
+   * EXACTLY TWO, AND NO MORE. Written without this, the rule produced 1,895 rows and
+   * was worth nothing: `down()` in forty migrations, `alters()` in every schema file,
+   * `cacheStatus()` in three caches. Those are interface CONVENTIONS — a contract every
+   * module in a family implements on purpose — and a reader reaching for `down` knows
+   * exactly which module they mean, because the family is the point.
+   *
+   * A name in exactly two modules is the opposite: nothing declares it a family, so
+   * nobody is warned. That single line is the difference between a rule and a wall of
+   * text, and this file has been burned by the second before.
+   */
+  for (const [name, list] of [...exportedByName]) {
+    if (new Set(list.map(n => n.file)).size !== 2) exportedByName.delete(name);
+  }
+  const paramsOf = (n) => {
+    const line = (files.get(n.file)?.text.split('\n')[n.line - 1]) ?? '';
+    const m = /\(([^)]*)\)/.exec(line);
+    return m ? m[1].replace(/\s+/g, ' ').trim() : '';
+  };
+  const linked = (x, y) => (importsOf.get(x)?.has(y)) || (importsOf.get(y)?.has(x));
+  for (const [name, list] of exportedByName) {
+    const seen = new Set();
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i], b = list[j];
+        if (a.file === b.file || linked(a.file, b.file)) continue;
+        const key = [a.file, b.file].sort().join('|') + '#' + name;
+        if (seen.has(key) || ignored.has(`collision:${key}`)) continue;
+        const pa = paramsOf(a), pb = paramsOf(b);
+        const extra = [...b.reach].filter(t => !a.reach.has(t))
+          .concat([...a.reach].filter(t => !b.reach.has(t)));
+        if (pa === pb && !extra.length) continue;      // the same thing, twice: not a trap
+        seen.add(key);
+        const why = pa !== pb
+          ? `they take different arguments — (${pa}) against (${pb})`
+          : `they read different tables — ${extra.slice(0, 6).join(', ')}`;
+        add({ kind: 'should-wire', rule: 'same-name-two-modules', scope: scopeOfFile(a.file),
+          subject: `${name}() in ${a.file.split('/').pop()} and ${b.file.split('/').pop()}`,
+          detail: `two modules export this name and ${why}. Neither imports the other, so `
+            + `this is not a re-export: whoever autocompletes the name from the wrong module `
+            + `gets a different answer, with no error and nothing to notice at the call site`,
+          evidence: [`${a.file}:${a.line}`, `${b.file}:${b.line}`] });
+      }
+    }
+  }
+
   for (const [file, list] of byFile) {
     const f = files.get(file);
     if (!f || f.tree === 'test' || f.tree === 'script') continue;
@@ -1926,8 +2101,9 @@ function shouldBeWired(model, ann, add) {
     declared.get(c).add(t);
   }
   const { colRead, colWritten, opaqueWrite } = columnEvidence(files, declared);
+  const defaulted = columnDefaults(files);
   for (const [key, where] of colRead) {
-    if (colWritten.has(key)) continue;
+    if (colWritten.has(key) || defaulted.has(key)) continue;
     const [table, col] = key.split('.');
     if (GENERIC_COLUMN.test(col)) continue;
     // A table in the league chat corpus has no writer here and is not supposed
@@ -2349,7 +2525,7 @@ const SEVERITY = {
   'cache-blind-to-its-inputs': 2.5, 'table-in-another-database': 2.8, 'table-never-scheduled': 3,
   'edge-behind-an-off-flag': 3.5,
   'column-read-never-written': 1.2, 'producer-with-no-caller': 1.4,
-  'two-names-different-sources': 1.6, 'constant-standing-in-for-a-model': 1.7, 'parameter-never-passed': 1.8,
+  'two-names-different-sources': 1.6, 'same-name-two-modules': 1.65, 'constant-standing-in-for-a-model': 1.7, 'parameter-never-passed': 1.8,
   'served-but-not-rendered': 1.9,
   'data-file-not-in-the-image': 3.5, 'module-only-tested': 4, 'module-imported-by-nothing': 5, 'page-never-routed': 3,
   'module-reaches-no-surface': 5, 'field-attached-never-read': 6, 'value-computed-never-used': 7,
@@ -2622,7 +2798,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
+export { routeAnswersCall, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,
@@ -2757,6 +2933,31 @@ const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested',
       console.error('  Fix it, or add it to GRANDFATHERED in scripts/wiring-map.mjs with an owner and a '
         + 'retirement condition — which is a code review, not a data edit.');
     }
+    /*
+     * AN ACCEPT-LIST ENTRY THAT NAMES A FILE THAT IS NOT THERE.
+     *
+     * `_PERMANENT_ORPHAN_REASONS._why` already says a listed module whose retirement
+     * condition has been met "is a defect in this file, not in the module" — but
+     * nothing checked it, so the only thing keeping the list honest was somebody
+     * remembering. An entry naming a path that does not exist is the plainest version
+     * of that: the module was renamed, deleted, or the entry was written ahead of a
+     * branch that never landed. It silences nothing and reads as a decision.
+     *
+     * Report, never gate. An entry can legitimately run ahead of the file — one is
+     * pre-registered here for a module that arrives with PR #72 — and failing a build
+     * on a merge-order accident would teach people to delete the entry rather than
+     * land the file.
+     */
+    const stale = [...new Set((ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []))]
+      .map(e => e.replace(/^module:/, ''))
+      .filter(e => e.includes('/') && !fs.existsSync(path.join(ROOT, e)));
+    if (stale.length) {
+      console.log(`\n${stale.length} accept-list entr(ies) name a file that is not in this tree. `
+        + 'Each is either waiting on a branch or left over from a rename or deletion; '
+        + 'an entry that outlives its file silences nothing and still reads as a decision:');
+      for (const e of stale) console.log(`  ${e}`);
+    }
+
     const blocking = found.filter(f =>
       (f.kind === 'missing-feed' || (f.kind === 'should-wire' && GATING.has(f.rule))
         || (NEW_ORPHAN.has(f.rule) && !orphanOk.has(f.subject) && !orphanOk.has(`module:${f.subject}`)))

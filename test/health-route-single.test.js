@@ -46,19 +46,34 @@ function jsFiles(dir) {
 // second one would arrive next time rather than as another line in index.js.
 const REGISTRATION = /\.(get|post|put|patch|delete|all|use)\(\s*(['"`])((?:\/[\w:-]+)*\/health)\2/g;
 
+/*
+ * THE LINE NUMBER IS NOT PART OF THE CLAIM, and it used to be in the fixture.
+ *
+ * The assertion read `['server/index.js:86 → /api/health']`, so deleting two unrelated
+ * lines higher up the file failed this test with "expected one health registration,
+ * found 1" — a message that reads like a contradiction, on a change that had nothing
+ * to do with health. It cost a full gate cycle on 2026-09-20 to find that the only
+ * difference was 86 against 85.
+ *
+ * Dropping the offset weakens nothing. The guarantee is "one registration, in this
+ * file, at this path", and a second one still lands as a second array element and
+ * still fails, whether it is in index.js or a router mounted under /api. The line is
+ * kept in the failure message, which is where a person actually needs it.
+ */
 test('exactly one route in server/ is registered at a health path', () => {
-  const found = [];
+  const found = [], where = [];
   for (const file of jsFiles(join(ROOT, 'server'))) {
     const src = readFileSync(file, 'utf8');
     for (const match of src.matchAll(REGISTRATION)) {
       const line = src.slice(0, match.index).split('\n').length;
-      found.push(`${relative(ROOT, file)}:${line} → ${match[3]}`);
+      found.push(`${relative(ROOT, file)} → ${match[3]}`);
+      where.push(`${relative(ROOT, file)}:${line} → ${match[3]}`);
     }
   }
   assert.deepEqual(
     found,
-    ['server/index.js:86 → /api/health'],
-    `expected one health registration, found ${found.length}:\n  ${found.join('\n  ')}`,
+    ['server/index.js → /api/health'],
+    `expected one health registration, found ${found.length}:\n  ${where.join('\n  ')}`,
   );
 });
 

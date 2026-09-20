@@ -22,14 +22,6 @@ seedIfEmpty();
 run(`INSERT OR IGNORE INTO schedule_games (season, team_id, week, opponent_abbr, home)
      SELECT 2026, id, 1, abbr, 1 FROM nfl_teams`);
 
-// POST / now requires an authenticated caller (a6-money-path) — any engine
-// publishing a recommendation must identify itself, not just claim to be one.
-const { hashSessionToken } = await import('../server/platform/auth.js');
-db.prepare(`INSERT INTO users (id, subject, display_name) VALUES (1, 'decision-inbox-test-user', 'Test Publisher')`).run();
-db.prepare(`INSERT INTO auth_sessions (user_id, token_hash, expires_at)
-  VALUES (1, ?, datetime('now', '+1 day'))`).run(hashSessionToken('decision-inbox-test-token'));
-const AUTH_HEADER = { Authorization: 'Bearer decision-inbox-test-token' };
-
 // Side-effect imports: assetUniverse() (trade-engine.js) reads tables created
 // ad-hoc at import time by these route files, exactly like test/post-draft-plan.test.js.
 await import('../server/routes/stats.js');       // player_season_stats
@@ -37,143 +29,127 @@ await import('../server/routes/aggregates.js');  // player_metrics
 await import('../server/routes/tradelab.js');    // trending_players
 await import('../server/routes/nfldata.js');     // roster_players
 
-const { default: decisionInboxRouter, publishRecommendation } = await import('../server/routes/decision-inbox.js');
+const { publishRecommendation, toRecommendation } = await import('../server/routes/decision-inbox.js');
 const { lineupDiff } = await import('../server/services/trade-engine.js');
 const { waiverUpgrades } = await import('../server/services/waiver-brain.js');
-const express = (await import('express')).default;
 
-const app = express();
-app.use(express.json());
-app.use('/api/decision-inbox', decisionInboxRouter);
-const server = app.listen(0);
-const { port } = server.address();
-const base = `http://127.0.0.1:${port}/api/decision-inbox`;
+/*
+ * THIS FILE USED TO DRIVE AN EXPRESS APP. The four routes were deleted on 2026-09-20
+ * (nothing called them, in any tree), so every assertion that was really about the
+ * MODULE now goes at the module directly, and the ones that were about the route layer
+ * are gone. What went, and why none of it is a lost assertion:
+ *
+ *   - "a fresh install has no open recommendations", "list is sorted by urgency first",
+ *     "summary counts open by urgency" — GET / and GET /summary did the filtering,
+ *     ordering and counting. That code is deleted, so there is nothing left to assert
+ *     about it. Ordering is now the job of whatever reads the table next.
+ *   - "POST / requires an authenticated caller (a6-money-path)" — the gate was on the
+ *     route. With no route there is no anonymous publish path to close: the only way
+ *     in is importing the function, which needs no session. Keeping a 401 assertion
+ *     against a deleted handler would be a green test guarding nothing.
+ *   - the two resolve tests — `POST /:id/resolve` was the only writer of `status`,
+ *     `resolved_at` and `outcome`. It had no caller either, so no row has ever been
+ *     resolved; the tests were exercising a path the app could not reach. The
+ *     module-level consequence that DOES still hold — a resolved row is never silently
+ *     reopened — is asserted below against a row resolved directly in SQL.
+ *
+ * `openRows()` replaces `fetch(base)`: same shape, read from the table through the
+ * same `toRecommendation` the publish path returns through, so the tests below still
+ * fail if that mapping breaks.
+ */
+const openRows = () => rows(`SELECT * FROM decision_recommendations WHERE status = 'open'`)
+  .map(toRecommendation);
 
-test.after(() => { server.close(); db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
 test('020_decision_recommendations ran and created the table', () => {
   assert.ok(applied.includes('020_decision_recommendations'));
   assert.ok(row(`SELECT name FROM sqlite_master WHERE type='table' AND name='decision_recommendations'`));
 });
 
-/* ------------------------------------------------------------- basic CRUD */
+/* ------------------------------------------------------- publish contract */
 
-test('a fresh install has no open recommendations', async () => {
-  const res = await fetch(base);
-  assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), []);
-});
-
-const post = body => fetch(base, { method: 'POST',
-  headers: { 'Content-Type': 'application/json', ...AUTH_HEADER }, body: JSON.stringify(body) });
-
-test('POST / requires an authenticated caller (a6-money-path)', async () => {
-  const res = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ dedupKey: 'unauthed:1', sport: 'NFL', type: 'trade', title: 'x', sourceModel: 'x' }) });
-  assert.equal(res.status, 401);
-  assert.equal(row(`SELECT COUNT(*) n FROM decision_recommendations WHERE dedup_key='unauthed:1'`).n, 0);
-});
-
-test('publishing a recommendation over HTTP persists it and echoes the shape the client expects', async () => {
-  const res = await post({
+test('publishing persists the row and returns the shape its callers read', () => {
+  const body = publishRecommendation({
     dedupKey: 'test:trade:1', sport: 'NFL', type: 'trade', title: 'Sell high on Player X',
     rationale: 'Market value is diverging from role.', urgency: 'medium',
     sourceModel: 'trade-engine', link: '/trade-lab'
   });
-  assert.equal(res.status, 200);
-  const body = await res.json();
   assert.equal(body.title, 'Sell high on Player X');
   assert.equal(body.status, 'open');
   assert.equal(body.urgency, 'medium');
   assert.deepEqual(body.subjectIds, []);
+  assert.equal(row(`SELECT COUNT(*) n FROM decision_recommendations WHERE dedup_key='test:trade:1'`).n, 1);
 });
 
-test('rejects a publish missing required fields', async () => {
-  const noTitle = await post({ dedupKey: 'x', sport: 'NFL', type: 'trade', sourceModel: 'x' });
-  assert.equal(noTitle.status, 400);
-  const badSport = await post({ dedupKey: 'x', sport: 'NHL', type: 'trade', title: 'x', sourceModel: 'x' });
-  assert.equal(badSport.status, 400);
-  const noDedup = await post({ sport: 'NFL', type: 'trade', title: 'x', sourceModel: 'x' });
-  assert.equal(noDedup.status, 400);
+/*
+ * The deleted POST route turned each of these into a 400. The validation itself was
+ * never the route's — it is in `publishRecommendation`, which throws — so the same
+ * four rules are asserted here, now against the thing that enforces them. An engine
+ * calling this with a bad payload gets an exception, not a silently dropped row.
+ */
+test('a publish missing a required field throws rather than writing a partial row', () => {
+  assert.throws(() => publishRecommendation({ dedupKey: 'x', sport: 'NFL', type: 'trade', sourceModel: 'x' }), /title/);
+  assert.throws(() => publishRecommendation({ dedupKey: 'x', sport: 'NHL', type: 'trade', title: 'x', sourceModel: 'x' }), /invalid sport/);
+  assert.throws(() => publishRecommendation({ sport: 'NFL', type: 'trade', title: 'x', sourceModel: 'x' }), /dedupKey/);
+  assert.throws(() => publishRecommendation({ dedupKey: 'x', sport: 'NFL', type: 'trade', title: 'x' }), /sourceModel/);
+  assert.equal(row(`SELECT COUNT(*) n FROM decision_recommendations WHERE dedup_key='x'`).n, 0);
 });
 
-test('an invalid urgency value falls back to medium rather than rejecting the publish', async () => {
-  const res = await post({ dedupKey: 'test:urgency', sport: 'NFL', type: 'trade', title: 'x', sourceModel: 'x', urgency: 'critical' });
-  const body = await res.json();
+test('an invalid urgency value falls back to medium rather than rejecting the publish', () => {
+  const body = publishRecommendation({ dedupKey: 'test:urgency', sport: 'NFL', type: 'trade', title: 'x', sourceModel: 'x', urgency: 'critical' });
   assert.equal(body.urgency, 'medium');
 });
 
-test('list is sorted by urgency first, then soonest expiry', async () => {
-  await run('DELETE FROM decision_recommendations');
-  const soon = new Date(Date.now() + 3600 * 1000).toISOString();
-  const later = new Date(Date.now() + 7200 * 1000).toISOString();
-  await post({ dedupKey: 'a', sport: 'NFL', type: 'x', title: 'low urgency', sourceModel: 'x', urgency: 'low' });
-  await post({ dedupKey: 'b', sport: 'NFL', type: 'x', title: 'high, expires later', sourceModel: 'x', urgency: 'high', expiresAt: later });
-  await post({ dedupKey: 'c', sport: 'NFL', type: 'x', title: 'high, expires soon', sourceModel: 'x', urgency: 'high', expiresAt: soon });
-  await post({ dedupKey: 'd', sport: 'NFL', type: 'x', title: 'medium', sourceModel: 'x', urgency: 'medium' });
-
-  const list = await (await fetch(base)).json();
-  assert.deepEqual(list.map(r => r.title), [
-    'high, expires soon', 'high, expires later', 'medium', 'low urgency'
-  ]);
-});
-
-test('publishing the same dedupKey again refreshes the open row instead of duplicating it', async () => {
-  await run('DELETE FROM decision_recommendations');
-  const first = await (await post({ dedupKey: 'dupe-1', sport: 'NFL', type: 'x', title: 'v1', sourceModel: 'x', expectedValue: 1 })).json();
-  const second = await (await post({ dedupKey: 'dupe-1', sport: 'NFL', type: 'x', title: 'v2', sourceModel: 'x', expectedValue: 2 })).json();
+test('publishing the same dedupKey again refreshes the open row instead of duplicating it', () => {
+  run('DELETE FROM decision_recommendations');
+  const first = publishRecommendation({ dedupKey: 'dupe-1', sport: 'NFL', type: 'x', title: 'v1', sourceModel: 'x', expectedValue: 1 });
+  const second = publishRecommendation({ dedupKey: 'dupe-1', sport: 'NFL', type: 'x', title: 'v2', sourceModel: 'x', expectedValue: 2 });
   assert.equal(second.id, first.id, 'same dedup key while open must update in place, not create a new id');
 
-  const list = await (await fetch(base)).json();
+  const list = openRows();
   assert.equal(list.length, 1);
   assert.equal(list[0].title, 'v2');
   assert.equal(list[0].expectedValue, 2);
 });
 
-test('resolving with dedupKey still open lets a later publish reopen a fresh row', async () => {
-  const opened = await (await post({ dedupKey: 'dupe-2', sport: 'NFL', type: 'x', title: 'first occurrence', sourceModel: 'x' })).json();
-  await fetch(`${base}/${opened.id}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'actioned' }) });
+/*
+ * The resolve ROUTE is gone and nothing resolves rows today, but the rule this guards
+ * is in `publishRecommendation` itself — its dedup lookup is scoped to `status = 'open'`
+ * precisely so resolution history survives a later republish. The row is resolved here
+ * in SQL, which is what any future resolver will do underneath whatever calls it.
+ */
+test('a resolved row is never silently reopened by a later publish on the same key', () => {
+  run('DELETE FROM decision_recommendations');
+  const opened = publishRecommendation({ dedupKey: 'dupe-2', sport: 'NFL', type: 'x', title: 'first occurrence', sourceModel: 'x' });
+  run(`UPDATE decision_recommendations SET status='actioned', resolved_at=datetime('now') WHERE id=?`, opened.id);
 
-  const reopened = await (await post({ dedupKey: 'dupe-2', sport: 'NFL', type: 'x', title: 'second occurrence', sourceModel: 'x' })).json();
+  const reopened = publishRecommendation({ dedupKey: 'dupe-2', sport: 'NFL', type: 'x', title: 'second occurrence', sourceModel: 'x' });
   assert.notEqual(reopened.id, opened.id, 'a resolved recommendation must not be silently reopened/overwritten');
-
-  const resolvedRow = await (await fetch(base)).json(); // only open rows list
-  assert.equal(resolvedRow.filter(r => r.id === opened.id).length, 0, 'the actioned row must not appear in the open list');
+  assert.equal(openRows().filter(r => r.id === opened.id).length, 0, 'the actioned row must not be open again');
+  assert.equal(row('SELECT title FROM decision_recommendations WHERE id = ?', opened.id).title,
+    'first occurrence', 'the resolved row keeps what it said when it was resolved');
 });
 
-test('resolve requires a real recommendation id', async () => {
-  const res = await fetch(`${base}/does-not-exist/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'dismissed' }) });
-  assert.equal(res.status, 404);
-});
-
-test('resolve records outcome and resolved_at, and defaults to dismissed when no status is given', async () => {
-  const created = await (await post({ dedupKey: 'resolve-outcome', sport: 'NFL', type: 'x', title: 'x', sourceModel: 'x' })).json();
-  const res = await fetch(`${base}/${created.id}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outcome: 'user ignored it' }) });
-  const body = await res.json();
-  assert.equal(body.status, 'dismissed');
-  assert.equal(body.outcome, 'user ignored it');
-  assert.ok(body.resolvedAt);
-});
-
-test('summary counts open recommendations by urgency', async () => {
-  await run('DELETE FROM decision_recommendations');
-  await post({ dedupKey: 's1', sport: 'NFL', type: 'x', title: 'x', sourceModel: 'x', urgency: 'high' });
-  await post({ dedupKey: 's2', sport: 'NFL', type: 'x', title: 'x', sourceModel: 'x', urgency: 'high' });
-  await post({ dedupKey: 's3', sport: 'NFL', type: 'x', title: 'x', sourceModel: 'x', urgency: 'low' });
-  const summary = await (await fetch(`${base}/summary`)).json();
-  assert.deepEqual(summary, { total: 3, high: 2, medium: 0, low: 1 });
-});
-
-test('a recommendation past its expiry is lazily marked expired and drops out of the open list/summary', async () => {
-  await run('DELETE FROM decision_recommendations');
+/*
+ * Expiry used to be swept on the read path, before every GET. With the routes gone the
+ * sweep hangs off `publishRecommendation` instead, so this now asserts something it did
+ * not before: that publishing ANY recommendation expires every other lapsed one. If
+ * that call is ever removed, nothing marks a row expired again and every stale
+ * recommendation reads as open forever.
+ */
+test('publishing expires every lapsed row, including ones it is not about', () => {
+  run('DELETE FROM decision_recommendations');
   publishRecommendation({
     dedupKey: 'expired-1', sport: 'NFL', type: 'x', title: 'stale by now', sourceModel: 'x',
     expiresAt: new Date(Date.now() - 1000).toISOString()
   });
-  const list = await (await fetch(base)).json();
-  assert.equal(list.length, 0);
-  const stored = row(`SELECT status FROM decision_recommendations WHERE dedup_key = 'expired-1'`);
-  assert.equal(stored.status, 'expired');
+  assert.equal(row(`SELECT status FROM decision_recommendations WHERE dedup_key='expired-1'`).status,
+    'open', 'its own publish cannot expire it: the sweep runs before the row exists');
+
+  publishRecommendation({ dedupKey: 'unrelated', sport: 'NFL', type: 'x', title: 'a later, live one', sourceModel: 'x' });
+  assert.equal(row(`SELECT status FROM decision_recommendations WHERE dedup_key='expired-1'`).status, 'expired');
+  assert.deepEqual(openRows().map(r => r.title), ['a later, live one']);
 });
 
 /* ---------------------------------------------- wired-in engine #1: lineup */
@@ -234,7 +210,7 @@ test('lineupDiff() publishes a "start X over Y" recommendation when a real gap e
   assert.equal(diff.swap_out[0].name, weak.name);
   assert.ok(diff.gain > 1, `expected a real gain, got ${diff.gain}`);
 
-  const list = await (await fetch(base)).json();
+  const list = openRows();
   const reco = list.find(r => r.type === 'lineup' && r.leagueId === 201);
   assert.ok(reco, 'lineupDiff() must publish a decision_recommendations row for a real swap');
   assert.equal(reco.title, `Start ${strong.name} over ${weak.name}`);
@@ -245,7 +221,7 @@ test('lineupDiff() publishes a "start X over Y" recommendation when a real gap e
 
   // Recomputing (e.g. the page reloading) must refresh the same row, not spam a duplicate.
   lineupDiff(lg, '1');
-  const listAgain = await (await fetch(base)).json();
+  const listAgain = openRows();
   assert.equal(listAgain.filter(r => r.type === 'lineup' && r.leagueId === 201).length, 1, 're-running lineupDiff() must not duplicate the open recommendation');
 });
 
@@ -279,7 +255,7 @@ test('lineupDiff() does not publish when the submitted lineup already matches op
 
   const lg = row('SELECT * FROM leagues WHERE id = 202');
   lineupDiff(lg, '1');
-  const list = await (await fetch(base)).json();
+  const list = openRows();
   assert.equal(list.filter(r => r.leagueId === 202).length, 0, 'no swap worth recommending should publish nothing');
 });
 
@@ -317,7 +293,7 @@ test('waiverUpgrades() publishes an "add before waivers process" recommendation 
   assert.equal(result.upgrades[0].player.name, strong.name);
   assert.ok(result.upgrades[0].expected_value > 0.75);
 
-  const list = await (await fetch(base)).json();
+  const list = openRows();
   const reco = list.find(r => r.type === 'waiver' && r.leagueId === 301);
   assert.ok(reco, 'waiverUpgrades() must publish a decision_recommendations row for a real upgrade');
   assert.equal(reco.title, `Add ${strong.name} before waivers process`);
@@ -326,7 +302,7 @@ test('waiverUpgrades() publishes an "add before waivers process" recommendation 
   assert.equal(reco.urgency, 'high');
 
   waiverUpgrades(301, { myTeamId: '1' });
-  const listAgain = await (await fetch(base)).json();
+  const listAgain = openRows();
   assert.equal(listAgain.filter(r => r.type === 'waiver' && r.leagueId === 301).length, 1, 're-running waiverUpgrades() must not duplicate the open recommendation');
 });
 
@@ -354,6 +330,6 @@ test('waiverUpgrades() does not publish when no free agent clears the roster', a
 
   const result = waiverUpgrades(302, { myTeamId: '1' });
   assert.equal(result.upgrades.length, 0);
-  const list = await (await fetch(base)).json();
+  const list = openRows();
   assert.equal(list.filter(r => r.leagueId === 302).length, 0);
 });

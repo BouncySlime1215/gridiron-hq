@@ -23,6 +23,7 @@ const {
   foreignHandles, handleFor, gatedRegions, blindCaches,
   functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
   imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts,
+  routeAnswersCall, columnDefaults,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -901,4 +902,140 @@ test('every "a new module reaches nothing" rule gates, including the worst one',
     assert.ok(decl[1].includes(`'${rule}'`),
       `${rule} must gate: a module imported by nothing is worse than one imported only by a test`);
   }
+});
+
+/*
+ * THE CROSSING — two wildcards sliding past each other in opposite directions.
+ *
+ * This is the case that named the rule, read off the live tree: nothing in this
+ * repository calls `GET /api/model/ask/:capability`, and the map said something
+ * did. The suppression happened before evidence was collected, so the endpoint
+ * simply vanished from `route-no-caller` with no file named and nothing to check.
+ * A missing row is a gap; this was a specific false reassurance about a specific
+ * endpoint, which is worse.
+ *
+ * The first case below is that exact pair, verbatim, from
+ * client/src/components/TradeCard.tsx:179. The three after it are the honest
+ * matches the fix must not break — each has a wildcard on one side only, which
+ * is ordinary and correct.
+ */
+test('a call wildcard and a route parameter cannot excuse each other in opposite positions', () => {
+  // THE LIVE CASE. `ask` is excused by the call's `:p`, and `:capability` by the
+  // call's `trade-impact`. Neither substitution survives the other.
+  assert.equal(routeAnswersCall('/api/model/ask/:capability', '/api/model/:p/trade-impact'), false);
+
+  // A call filling a declared parameter with a literal: ordinary, must still match.
+  assert.equal(routeAnswersCall('/api/teams/:abbr', '/api/teams/DAL'), true);
+  // A call interpolating where the route has a literal: also ordinary, must still match.
+  assert.equal(routeAnswersCall('/api/model/ask/capability', '/api/model/:p/capability'), true);
+  // Both sides variable in the same place: the common case.
+  assert.equal(routeAnswersCall('/api/model/:leagueId/simulate', '/api/model/:p/simulate'), true);
+
+  // A literal disagreement is still a literal disagreement, crossing or not.
+  assert.equal(routeAnswersCall('/api/model/status', '/api/model/state'), false);
+  // Length is still the first gate.
+  assert.equal(routeAnswersCall('/api/model/ask/:capability', '/api/model/:p'), false);
+});
+
+/*
+ * THE PATH THAT STARTS THE STRING.
+ *
+ * Both outbound patterns need a marker to the LEFT of the path — a `}` closing an
+ * interpolation, or a `://`. scripts/bootstrap-data.mjs:104 has neither: the literal
+ * comes first and the interpolation is in the query string. Seven routes a bootstrap
+ * script dials were therefore sitting in route-no-caller as "nothing calls this", and
+ * the deletion of one of them was one manual check away from shipping.
+ *
+ * The first string below is that line verbatim. The last two are the limit: a path
+ * that does not start the string is not this pattern's business, and a path that is
+ * only a fragment of a longer word must not match either.
+ */
+test('outboundUrlPaths sees a path that starts the string, not only one that follows a marker', () => {
+  const strings = [
+    { text: '/api/edge/gamelogs/sync?season=' },   // scripts/bootstrap-data.mjs:104, verbatim
+    { text: '/api/aggregates/refresh-all' },       // :102 — feature audit's file
+    { text: 'Weekly boxscores ' },                 // the label beside it, not a path
+    { text: 'api/edge/board' },                    // no leading slash: not a path we serve
+  ];
+  const seen = outboundUrlPaths('', strings);
+  assert.equal(seen.get('/api/edge/gamelogs/sync'), 'called');
+  assert.equal(seen.get('/api/aggregates/refresh-all'), 'called');
+  assert.equal(seen.has('api/edge/board'), false);
+  assert.equal(seen.size, 2);
+
+  // Passing no strings at all must leave the two original patterns exactly as they
+  // were: this is an addition, and a script's own text still has to earn its rows.
+  const textOnly = outboundUrlPaths('fetch(`${origin}/api/edge/board`)');
+  assert.equal(textOnly.get('/api/edge/board'), 'called');
+  assert.equal(outboundUrlPaths('fetch(`${origin}/api/edge/board`)', []).size, 1);
+});
+
+/*
+ * A DEFAULT IS A WRITER, AND `column-read-never-written` GATES.
+ *
+ * The rule reads INSERT and UPDATE column lists. A DEFAULT appears in neither, so
+ * `draft_pick_quarantine.first_seen_at` and `draft_pick_corrections.applied_at` —
+ * both `DEFAULT (datetime('now'))`, at server/db/schema/core-and-fantasy.js:562 and
+ * :579 — were reported as null on every row forever while every insert was in fact
+ * stamping them with the current time. Two false positives on a rule that can fail a
+ * build, about timestamps that are not merely written but written automatically.
+ *
+ * The first two lines below are those two columns, copied from the schema. The rest
+ * are the boundary: DEFAULT NULL writes the same nothing the rule complains about, so
+ * counting it would silence a TRUE finding, and `players.bye_week` (core-and-fantasy.js:94,
+ * `bye_week INTEGER` with no default) is the one real finding this must leave standing.
+ */
+test('a column DEFAULT counts as a writer, and DEFAULT NULL does not', () => {
+  const files = new Map([['server/db/schema/fixture.js', { strings: [{ text: `CREATE TABLE IF NOT EXISTS draft_pick_quarantine (
+      id INTEGER PRIMARY KEY,
+      first_seen_at TEXT DEFAULT (datetime('now')),
+      resolved_at TEXT,
+      reason TEXT
+    )` }, { text: `CREATE TABLE IF NOT EXISTS draft_pick_corrections (
+      id INTEGER PRIMARY KEY,
+      applied_at TEXT DEFAULT (datetime('now'))
+    )` }, { text: `CREATE TABLE IF NOT EXISTS players (
+      id INTEGER PRIMARY KEY,
+      bye_week INTEGER,
+      retired INTEGER DEFAULT 0,
+      nickname TEXT DEFAULT NULL,
+      full_label TEXT GENERATED ALWAYS AS (id || nickname) VIRTUAL
+    )` }] }]]);
+
+  const defaulted = columnDefaults(files);
+  assert.equal(defaulted.has('draft_pick_quarantine.first_seen_at'), true);
+  assert.equal(defaulted.has('draft_pick_corrections.applied_at'), true);
+  assert.equal(defaulted.has('players.retired'), true, 'a bare literal default still writes');
+  assert.equal(defaulted.has('players.full_label'), true, 'a generated column is always filled');
+
+  assert.equal(defaulted.has('players.bye_week'), false, 'no default: the real finding must survive');
+  assert.equal(defaulted.has('draft_pick_quarantine.resolved_at'), false);
+  assert.equal(defaulted.has('players.nickname'), false, 'DEFAULT NULL writes the nothing the rule is about');
+});
+
+/*
+ * THE RULE THAT MUST NOT FIRE ON A CONVENTION.
+ *
+ * `same-name-two-modules` catches one exported name meaning two different things —
+ * `gameScriptFor` in gamescript.js and vegas-fantasy.js, with the first two arguments
+ * swapped, imported from both by the same route file. Written without the
+ * exactly-two-modules filter it produced 1,895 rows: `down()` in forty migrations,
+ * `alters()` in every schema file, `cacheStatus()` in three caches. Those are
+ * interface contracts a family implements on purpose, and nobody reaching for `down`
+ * is confused about which module they mean.
+ *
+ * This asserts the filter is still in the source, because the difference between this
+ * rule and a wall of unreadable text is that one line, and a wall of text is how the
+ * last one died.
+ */
+test('same-name-two-modules only fires on a name in exactly two modules, never on a family', async () => {
+  const src = await readFile(new URL('../scripts/wiring-map.mjs', import.meta.url), 'utf8');
+  const rule = src.slice(src.indexOf('THE INVERSE: ONE NAME, TWO MODULES'),
+    src.indexOf("rule: 'same-name-two-modules'"));
+  assert.match(rule, /new Set\(list\.map\(n => n\.file\)\)\.size !== 2/,
+    'the exactly-two filter is what keeps down() and alters() out of this rule');
+  assert.match(rule, /pa === pb && !extra\.length/,
+    'two modules exporting the same name for the same thing is a re-export, not a trap');
+  assert.match(rule, /linked\(a\.file, b\.file\)/,
+    'if one module imports the other the name is one symbol, not two');
 });

@@ -221,5 +221,23 @@ serving — left for the redesign rather than trimmed now.
 
 ## 6. Full check
 
-`npm run check` — typecheck, lint, suite, build, start:smoke — recorded with
-the commit.
+`npm run check` on `1171d66` — typecheck, lint, suite, build, `start:smoke` —
+**exit 0: 2,985 tests, 2,944 pass, 0 fail, 41 skipped**, and the startup smoke
+passed on an isolated database (32 teams). Nothing else was running against the
+tree while it ran.
+
+`1171d66` carries every line of code, test and evidence this report describes.
+The only change after it is the commit adding these figures, which touches this
+paragraph and nothing the check reads: `scripts/lint.mjs` walks `server`,
+`scripts` and `test` for `.js`/`.mjs` only, `tsc` covers the client, and the
+suite, build and smoke never open `docs/`. A measurement cannot be quoted
+inside the tree it measures without that one step, so the step is named rather
+than hidden.
+
+The same figures held at `c986b80` and `da8ec48`, the two heads before this
+one; each was re-measured rather than carried forward, and each differed from
+its predecessor by wording in this file alone.
+
+CI is not run: GitHub Actions is out of minutes until 2026-10-01 and the
+workflow is deliberately disabled. A red or missing check on a PR carrying this
+work is that, not its content.

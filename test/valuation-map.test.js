@@ -239,14 +239,22 @@ insFf.run(SEASON, WEEK, 'gsis-hot-now', 'Hot Hype', 'KC', 'WR', 8, 60);
 insFf.run(SEASON, WEEK, 'gsis-riser-now', 'Silent Riser', 'KC', 'WR', 7, 60);
 
 // ---- archetypes: luck for league 21, one with a real sample and one with n = 1
-const arch = (memberId, league, season, metric, value, n, source) => run(`INSERT INTO manager_archetypes
+// The build stamps are PINNED and deliberately UNEQUAL. manager_archetypes is
+// written only by scripts/build-manager-archetypes.mjs, by hand, and the luck
+// half of it becomes `luck_self_view` — a term in the trade price. A fixture
+// where every row shares one stamp cannot tell the newest build from the oldest,
+// which is how a MIN-for-MAX mutation survives (docs/tdd/transactions-as-of.tdd.md).
+const ARCH_BUILT_EARLY = '2026-09-18T01:38:39.383Z';
+const ARCH_BUILT_AT = '2026-09-18T02:10:00.000Z';   // the newest — the real "as of"
+const arch = (memberId, league, season, metric, value, n, source, builtAt = ARCH_BUILT_EARLY) =>
+  run(`INSERT INTO manager_archetypes
   (member_id, league_id, season, metric, value, label, n, source, version, computed_at)
-  VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'manager-archetypes-v1', '2026-09-18T01:38:39.383Z')`,
-memberId, league, season, metric, value, n, source);
+  VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'manager-archetypes-v1', ?)`,
+  memberId, league, season, metric, value, n, source, builtAt);
 arch(HAY, 21, SEASON, 'luck_wins', 1.6, 4, 'outcome');   // flattered, and enough weeks to count
 arch(HAY, 21, SEASON, 'all_play', 0.3, 36, 'outcome');
 arch(CARL, 21, SEASON, 'luck_wins', 1.6, 1, 'outcome');  // same flattery, ONE week — must stay inert
-arch(CARL, 21, SEASON, 'all_play', 0.6, 9, 'outcome');
+arch(CARL, 21, SEASON, 'all_play', 0.6, 9, 'outcome', ARCH_BUILT_AT);
 arch(HAY, 22, SEASON, 'luck_wins', 1.6, 4, 'outcome');
 arch(CARL, 22, SEASON, 'luck_wins', -1.2, 4, 'outcome');
 
@@ -731,6 +739,49 @@ test('G9d: a league with no archetype rows is not told the data exists', () => {
   assert.doesNotMatch(absent.reason, /the data exists/i,
     `a league with no archetype rows must not be told the data exists, got ${JSON.stringify(absent.reason)}`);
   assert.match(absent.reason, /0 of the 4|scored weeks/i, 'it must name the missing measurement instead');
+});
+
+test('G9g: the priced luck term says when the store behind it was built', () => {
+  // `luck_self_view` is a TERM IN THE PRICE, and it comes from manager_archetypes,
+  // which is written only by scripts/build-manager-archetypes.mjs — by hand,
+  // off-server. A stale luck read priced into a trade is worse than a stale card,
+  // because nothing on the card says the number moved the money.
+  const layer = layerFor(21);
+  const hayden = layer.get('2');
+  assert.ok(hayden.archetypes, 'the manager entry carries the archetype build block');
+  assert.equal(hayden.archetypes.as_of, ARCH_BUILT_AT,
+    'as_of is the NEWEST build stamp in the store for this league-season');
+  assert.match(hayden.archetypes.collected_by, /build-manager-archetypes\.mjs/);
+  // And on the reading itself, which is what playerValuation is handed.
+  assert.equal(hayden.luck.as_of, ARCH_BUILT_AT,
+    'the luck reading carries the stamp of the build that produced it');
+
+  // Through to the priced factor. This is the assertion the item was about.
+  const priced = byName(hayden, 'Quiet Star').factors.find(f => f.source === 'luck_self_view');
+  assert.ok(priced, 'four scored weeks prices, per G6');
+  assert.equal(priced.as_of, ARCH_BUILT_AT, 'the priced term carries the build date through');
+});
+
+test('G9h: a luck read that is NOT firing still says how old the store is', () => {
+  // The state the live app is actually in: week 2, one scored week, luck inert
+  // league-wide until week 5. "Not enough weeks yet" and "not enough weeks as of
+  // a build three days ago" are different answers, and only the second tells him
+  // whether running the build would change it.
+  const carl = layerFor(21).get('3');
+  const inert = (byName(carl, 'Silent Riser')?.inert ?? []).find(i => i.source === 'luck_self_view');
+  assert.ok(inert, 'one week of luck is inert, per G6');
+  assert.equal(inert.as_of, ARCH_BUILT_AT, 'an inert entry carries the build date too');
+});
+
+test('G9i: a league with no archetype store at all is not given a build date', () => {
+  // League 24 has signals but no archetype rows. A stamp here would be borrowed
+  // from another league, which is the whole defect class this pass is closing.
+  const layer = layerFor(24, { rosterContext: NEEDS_24 });
+  const entry = [...layer.values()][0];
+  assert.ok(entry.archetypes, 'the block is served even when the store is empty for this league');
+  assert.equal(entry.archetypes.as_of, null, 'no rows for this league-season is null, never borrowed');
+  assert.equal(entry.archetypes.rows, 0);
+  assert.ok(typeof entry.archetypes.reason === 'string' && entry.archetypes.reason.length > 0);
 });
 
 test('G9e: zeroing a source still suppresses it completely — no factor and no inert entry', () => {

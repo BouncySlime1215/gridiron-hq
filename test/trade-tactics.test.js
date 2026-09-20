@@ -910,7 +910,14 @@ test('G8b: a league with no chat and no transactions still gets ideas, and says 
     'the chat tactics must be named as absent, not silently missing');
   for (const d of bare.deals) {
     const reason = d.tactics_absent.find(a => a.key === 'sell_the_crush').reason;
-    assert.match(reason, /chat|profile/i);
+    // The two absences are different facts: "he has talked, just not about
+    // these players" and "we have no read of him at all". Only the second is
+    // reachable from this fixture, so the assertion names it and rules the
+    // other one out, rather than matching either.
+    assert.match(reason, /no chat read or negotiation profile touching any player in this deal/,
+      `the reason must say nothing about him was read, got ${JSON.stringify(reason)}`);
+    assert.doesNotMatch(reason, /nothing he has said prices a player/,
+      'and it must not be the sentence for a manager whose chat WAS read');
   }
 });
 

@@ -238,10 +238,69 @@ function storeYardageCv(season, gsisId) {
 /** roster_id -> espn_member_id for one league-season, used to attribute the
  *  ~20% of picks ESPN returns without a memberId. */
 function teamMembers(leagueId, season) {
-  return new Map(rows(`SELECT roster_id, espn_member_id, owner_name, team_name,
-                              wins, losses, points_for, final_rank
-                       FROM league_season_teams WHERE league_id = ? AND season = ?`, leagueId, season)
-    .map(t => [String(t.roster_id), t]));
+  return teamMembersState(leagueId, season).byRoster;
+}
+
+/**
+ * WHAT CREATES `league_season_teams`, AND WHY IT CAN BE MISSING.
+ *
+ * Two routes, which is the whole problem. `server/migrations/064_league_history_tables.js:29`
+ * creates it — its own comment names `managerProfile()` and `archetypesFor()`
+ * as the readers it builds the member index for — and
+ * `scripts/backfill-league-history.mjs` creates it too, for boxes that
+ * backfilled before the migration existed. Migration 064 is not on `main`; it
+ * arrives with PR #47, the base this work is stacked on. So on `main` today
+ * `runMigrations()` leaves the table absent and every read below throws, and
+ * after #47 it does not. A database restored from a backup older than 064 is
+ * in the same state.
+ *
+ * A thrown `no such table` is the worst of the three possible answers. The
+ * caller's nearest try/catch turns it into an empty result, and an empty
+ * result is indistinguishable from "we looked and there is nothing here" —
+ * the silent empty this module's whole as-of family exists to delete.
+ */
+export const LEAGUE_HISTORY_TABLE = 'league_season_teams';
+
+export const LEAGUE_HISTORY_SOURCE =
+  'server/migrations/064_league_history_tables.js (arrives with PR #47; not on main yet) '
+  + 'and scripts/backfill-league-history.mjs, which creates the same table for boxes that '
+  + 'backfilled before the migration existed';
+
+/**
+ * Is the table there, right now.
+ *
+ * DELIBERATELY NOT CACHED. A migration can create this table inside the life
+ * of a process — `runMigrations()` runs at startup, and #47 merging is exactly
+ * that event — so a cached absence would outlive the thing that fixes it and
+ * the process would go on reporting a table it is sitting on top of.
+ */
+export function leagueHistoryState() {
+  const [hit] = rows(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    LEAGUE_HISTORY_TABLE);
+  if (hit) return Object.freeze({ present: true, reason: null, source: LEAGUE_HISTORY_SOURCE });
+  return Object.freeze({
+    present: false,
+    reason: `${LEAGUE_HISTORY_TABLE} is not on this database, so roster-to-member identity cannot be `
+      + 'read at all. This is "we cannot look", not "this manager is unknown".',
+    source: LEAGUE_HISTORY_SOURCE,
+  });
+}
+
+/**
+ * roster_id -> team row for one league-season, WITH the reason when there is
+ * none. Used to attribute the ~20% of picks ESPN returns without a memberId,
+ * so an empty map here quietly unattributes a fifth of the draft.
+ */
+export function teamMembersState(leagueId, season) {
+  const state = leagueHistoryState();
+  if (!state.present) return Object.freeze({ ...state, byRoster: new Map() });
+  return Object.freeze({
+    ...state,
+    byRoster: new Map(rows(`SELECT roster_id, espn_member_id, owner_name, team_name,
+                                   wins, losses, points_for, final_rank
+                            FROM league_season_teams WHERE league_id = ? AND season = ?`,
+    leagueId, season).map(t => [String(t.roster_id), t])),
+  });
 }
 
 /**
@@ -816,9 +875,24 @@ export function managerProfile(memberId) {
     jev[r.question] ??= { basis: r.basis, n_seasons: r.n_seasons, n_picks: r.n_picks, p: {} };
     jev[r.question].p[r.outcome] = r.probability;
   }
-  const identity = rows(`SELECT owner_name, team_name, league_id, season FROM league_season_teams
-                         WHERE espn_member_id = ? ORDER BY season DESC LIMIT 1`, memberId)[0] ?? null;
-  return { member_id: memberId, identity, seasons: Object.fromEntries(seasons), jev };
+  // TWO NULLS THAT MEAN OPPOSITE THINGS, kept apart. `identity: null` with
+  // the table present says this member is not in it — an ordinary answer. With
+  // the table absent it says nothing could be looked up at all. Collapsed into
+  // one null, "who is this?" silently becomes "nobody".
+  const history = leagueHistoryState();
+  const identity = history.present
+    ? rows(`SELECT owner_name, team_name, league_id, season FROM league_season_teams
+            WHERE espn_member_id = ? ORDER BY season DESC LIMIT 1`, memberId)[0] ?? null
+    : null;
+  const identity_state = !history.present ? 'table_absent' : (identity ? 'present' : 'no_row');
+  return {
+    member_id: memberId,
+    identity,
+    identity_state,
+    identity_reason: history.present ? null : history.reason,
+    seasons: Object.fromEntries(seasons),
+    jev,
+  };
 }
 
 /**
@@ -1031,6 +1105,12 @@ export function archetypesFor(leagueId, season) {
   const jevBy = new Map(rows(`SELECT member_id, COUNT(*) AS n, MAX(evaluated_at) AS as_of
                               FROM manager_archetype_jev GROUP BY member_id`)
     .map(r => [r.member_id, r]));
+  // No table is no cards, and it must not be an exception: routes/trades.js
+  // wraps this call in a bare catch, so a throw here and an empty result there
+  // are the same thing to every surface downstream. Returning empty says the
+  // same thing without pretending a fault did not happen — `leagueHistoryState()`
+  // is what a caller reads to tell the two apart.
+  if (!leagueHistoryState().present) return out;
   for (const t of rows(`SELECT roster_id, espn_member_id, owner_name FROM league_season_teams
                         WHERE league_id = ? AND season = ?`, leagueId, season)) {
     if (!t.espn_member_id) continue;

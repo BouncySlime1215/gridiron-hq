@@ -1264,3 +1264,116 @@ Caught by, as the runner printed them:
 edit instead of a green suite. `CTRL-GREEN` applies, changes the hash and stays
 green, so the 37 red results above are not a suite that fails on anything.
 
+
+---
+
+## Part 8 — `league_season_teams` absent is reported, not thrown
+
+**The five questions.**
+
+- **Well built?** Three served readers stopped throwing a raw SQLite error and
+  started reporting the absence in the shape they already return.
+- **Stats or made up?** The migration that creates the table was opened and
+  read; the relayed account of it was wrong and is corrected below.
+- **How do we know?** Five failing tests before, five passing after; nine
+  mutations and two controls, all accounted for, with hashes on both sides.
+- **Pointed anywhere else?** `routes/trades.js` calls `archetypesFor` — and
+  swallows it, which is the other half of this and belongs to another thread.
+- **How does it unify?** Same rule as Parts 1–7: an absence is a state with a
+  name, not an empty result.
+
+### The relayed finding was wrong about the cause
+
+It said `league_season_teams` is created only by
+`scripts/backfill-league-history.mjs`, with no migration. There **is** a
+migration: `server/migrations/064_league_history_tables.js:29`, and its own
+comment names `managerProfile()` and `archetypesFor()` as the readers it builds
+the member index for — it was written for these call sites.
+
+What is true, and what the failure Trade Brain hit actually was: **064 is not
+on `origin/main`.** It arrives with PR #47, the base this branch is stacked on.
+So on `main` today `runMigrations()` leaves the table absent and all three
+readers throw; on this branch, and after #47 merges, they do not. A database
+restored from a backup older than 064 is in the same state. The table arriving
+by two routes — a migration and a backfill script — is the reason it can be
+missing at all, and is why the guard is worth having after the merge too.
+
+This is the fifth relayed premise on this thread to need correcting before use.
+The rule that came out of it, now agreed: relay the branch, and let the thread
+find the commit.
+
+### The three nulls, and the one that was two
+
+`managerProfile().identity` was `null` both when the table holds no row for
+this member and when there is no table. Those are opposite facts — *this
+manager is unknown to us* and *we could not look* — and one null carried both.
+It is now `identity_state: 'present' | 'no_row' | 'table_absent'`, with
+`identity_reason` naming the table when the third applies.
+
+`teamMembers()` fed pick attribution for the ~20% of picks ESPN returns with no
+memberId. An empty map there silently unattributes a fifth of a draft;
+`teamMembersState()` returns the same map with the reason beside it.
+
+`archetypesFor()` returns an empty Map rather than throwing, and
+`leagueHistoryState()` is what a caller reads to tell an empty league from an
+absent table.
+
+**The absence is deliberately not cached.** `runMigrations()` runs at startup
+and #47 merging is exactly that event, so a cached absence would outlive the
+migration that fixes it and the process would go on reporting a table it is
+sitting on top of.
+
+### The other half of this belongs to Trade Brain
+
+`routes/trades.js:500-503` wraps the `archetypesFor` call in a **bare catch**:
+
+```js
+  try {
+    const { archetypesFor } = await import('../services/manager-archetypes.js');
+    archetypes = archetypesFor(leagueId, season);
+  } catch { archetypes = new Map(); }
+```
+
+A missing table, a corrupt database and a programming error are all "simply no
+archetype" to that line, and CLAUDE.md names this exact shape as having shipped
+two real bugs already: *"If a layer goes inert, the surface must say so."* Until
+it reads `leagueHistoryState()`, everything above is invisible on the trades
+surface — the reported absence is caught and discarded one frame up. The file
+is Trade Brain's under the one-editor rule, so it has been raised, not edited.
+
+### Mutations
+
+Runner **`docs/tdd/mutate-league-history.py`**, committed. Suite named per the
+Part 7 finding: `test/league-history-absent.test.js`,
+`test/archetype-as-of.test.js`, `test/wiring-absent-states.test.js`. Unmutated
+`manager-archetypes.js` = `349b500899444cde`, restored and verified.
+
+| # | Replaced (verbatim) | With (verbatim) | after sha | Result |
+|---|---|---|---|---|
+| F1 | ``   const [hit] = rows(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,⏎    LEAGUE_HISTORY_TABLE); `` | `  const hit = true;` | `5c39a94b79cada23` | caught, 5 |
+| F2 | `  if (hit) return Object.freeze({ present: true, reason: null, source: LEAGUE_HISTORY_SOURCE });` | `  if (!hit) return Object.freeze({ present: true, reason: null, source: LEAGUE_HISTORY_SOURCE });` | `8a85284f202ce16b` | caught, 14 |
+| F3 | `      + 'read at all. This is "we cannot look", not "this manager is unknown".',` | `      + 'read at all.',` | `08549035883c2c0a` | caught, 1 |
+| F4 | `  if (!state.present) return Object.freeze({ ...state, byRoster: new Map() });` | `  if (false) return Object.freeze({ ...state, byRoster: new Map() });` | `7cb0f86cb7423e11` | caught, 1 |
+| F5 | `  const identity_state = !history.present ? 'table_absent' : (identity ? 'present' : 'no_row');` | `  const identity_state = identity ? 'present' : 'no_row';` | `74f7a98f763030ca` | caught, 1 |
+| F6 | `  if (!leagueHistoryState().present) return out;` | `  if (false) return out;` | `9bec817354fecedd` | caught, 1 |
+| F7 | `    identity_reason: history.present ? null : history.reason,` | `    identity_reason: null,` | `cf31d2d4b8fb38ff` | caught, 1 |
+| F8 | `  + 'and scripts/backfill-league-history.mjs, which creates the same table for boxes that '` | `  + 'and a script, '` | `f7c464c8caa0fab8` | caught, 1 |
+| F9 | `export const LEAGUE_HISTORY_SOURCE =⏎  'server/migrations/064_league_history_tables.js (arrives with PR #47; not on main yet) '` | `export const LEAGUE_HISTORY_SOURCE =⏎  'somewhere '` | `7d66a6f5b2bfd662` | caught, 1 |
+| CTRL-NOOP | `const cachedLeagueHistoryPresence =` | `const x =` | `349b500899444cde` | **NO EDIT — pattern absent, suite not run** |
+| CTRL-GREEN | `/**⏎ * Is the table there, right now.` | `/**⏎ * Is the table present, right now.` | `03ed66de1d69d78d` | **SURVIVED** |
+
+**F3 and F9 survived their first run, and both were the Part 7 defect again.**
+F3 deleted the clause *"This is 'we cannot look', not 'this manager is
+unknown'"* and the test passed, because it asserted only that the reason names
+the table. Naming a missing table tells a reader what broke; that clause is the
+entire reason the guard exists. F9 replaced the migration half of
+`LEAGUE_HISTORY_SOURCE` and passed `/064|migration/i` on the word "migration"
+surviving in the sentence about the script — an alternation again, satisfied by
+the term that was not mutated.
+
+Three alternation failures now, in three separate files, found only by
+mutation. The pattern is worth stating plainly: **a regex alternation in an
+assertion is almost always a test that has not decided what it is claiming.**
+Each branch should be its own assertion with its own message, or the test
+passes on whichever phrasing happens to survive.
+

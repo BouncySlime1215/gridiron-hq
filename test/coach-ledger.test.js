@@ -104,10 +104,16 @@ test('a derivation over a non-numeric cell fails, rather than producing NaN', ()
 test('dividing by zero is refused rather than returned as Infinity', () => {
   const ledger = newLedger();
   ledger.record(queryResult([{ a: 1, zero: 0 }]));
-  assert.throws(() => ledger.derive({ op: 'quotient', inputs: ['r1#0.a', 'r1#0.zero'], label: 'x' }),
-    LedgerError);
-  assert.throws(() => ledger.derive({ op: 'percent_of', inputs: ['r1#0.a', 'r1#0.zero'], label: 'x' }),
-    LedgerError);
+  // The message matters as much as the throw: the model is told what to say
+  // instead, and a bare 'did not produce a finite number' does not tell it.
+  // Added after mutation M17 survived on the finite-value check alone.
+  for (const op of ['quotient', 'percent_of']) {
+    assert.throws(() => ledger.derive({ op, inputs: ['r1#0.a', 'r1#0.zero'], label: 'x' }), err => {
+      assert.ok(err instanceof LedgerError);
+      assert.match(err.message, /divide by zero/);
+      return true;
+    });
+  }
 });
 
 test('a derived value can be the input to another, and the chain is readable', () => {

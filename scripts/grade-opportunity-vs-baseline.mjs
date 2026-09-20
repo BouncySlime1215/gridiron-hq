@@ -22,12 +22,18 @@
  * WHAT MAKES THE COMPARISON FAIR, since the interesting run is a BEFORE/AFTER on
  * the volume shrinkage fit and a fitted k moves projections around:
  *
- *   - The population is defined from RAW USAGE ONLY — at least three prior
- *     in-season games and a prior mean of at least 3 targets+carries. Nothing in
- *     the gate reads a model output, so activating the fit cannot change WHO is
- *     graded. Filtering on `structural_ppg` instead (the obvious choice) silently
- *     drops ~14% of rows when the fit is on, and the two arms are then measuring
- *     different populations.
+ *   - The population is gated on RAW USAGE — at least three prior in-season
+ *     games and a prior mean of at least 3 targets+carries. Filtering on
+ *     `structural_ppg` instead (the obvious choice) silently drops ~14% of rows
+ *     when the fit is on, and the two arms are then measuring different
+ *     populations.
+ *
+ *     Do NOT read that as "the gate touches no model output": `if
+ *     (!projection.params) continue` below IS model-dependent, since the engine
+ *     decides who gets a params block at all. What makes the arms comparable is
+ *     not the gate, it is `--compare` grading the INTERSECTION of the two
+ *     output files, so a row missing from either arm is scored in neither.
+ *     Credit that, not the gate. (Raised by the Opportunity thread, 2026-09-20.)
  *   - Each arm writes its rows keyed by `season|week|player_id`; `--compare`
  *     grades only the intersection, so both arms and the baseline share every row.
  *   - The engine for week w reads only weeks < w (buildPlayerWeekEngine is

@@ -24,7 +24,7 @@ itself uses (`nflverse` crosswalk + `stats_player_week`, seasons 2021-2026):
 | Is that tested on history? | **It is now. It loses.** Measured below on 4,828 paired player-weeks: as shipped it is significantly *worse* than the player's own season-to-date average, and worse than an EWMA of his own recent games. With the shrinkage fit that is already in the repo but never persisted, it beats both. |
 | Is this trade fair? | "Fair" means the FantasyCalc market price, passed through untouched (`trade-engine.js:418`). Not our judgement, and not tested. |
 | What will they accept? | A band that is honest about being a guess: with no counterparty data it is **2.5%-57.5%**, and `trade-acceptance.js` says in its own header "Nothing here is fitted." |
-| What does it do for me? | A real lineup re-solve on `adj_ppg`, which is 25% this week + 75% rest-of-season. The rest-of-season part is the best-tested number in the app. The 25/75 split itself is a guess. |
+| What does it do for me? | A real lineup re-solve on `adj_ppg`, which is 25% this week + 75% rest-of-season. The rest-of-season part is the best-tested number in the app. The 25/75 split itself is a guess, and the rest-of-season half carries no availability term — which bites on the graded middle (a partial chance to play), not on a confirmed season-ender, which is caught elsewhere. |
 | What's the goal? | Two goals, and the app knows it. Find Deals ranks on points; Title Trades ranks on championship odds and prints a note when they disagree. The championship odds themselves have no historical calibration. |
 | How good is my team? | Two answers that do not talk to each other: a real relative rank against the league's own rosters, and a title percentage simulated from **week 1** on **through-2025** projections. |
 | Where is ML? | Real and validated in the weekly point number (ensemble weights, ridge coordinator). Absent from opportunity, trades, acceptance and title odds. The advanced-stat feature store and the GBM are on the **betting** side and are not shared. For next-week *volume* specifically, ML was tried with those stats and lost to a four-line EWMA — a tested negative, not a gap. |
@@ -37,6 +37,19 @@ itself uses (`nflverse` crosswalk + `stats_player_week`, seasons 2021-2026):
 
 `News.tsx:149-153` prints `N att · N tgt · N car · N% tgt share`. That comes from
 `projections.js`, which builds volume as:
+
+> **Precision, after the Opportunity thread read this file.** What the card
+> renders is `projection.volume.targets_per_game × roleMultiplier ×
+> activeProbability` (`news-fantasy-impact.js:118`), a what-if scenario scaled by
+> a role multiplier and the chance he plays. What the backtest below grades is
+> `projection.params.targets`. Those are the **same number** before scaling —
+> `projections.js:723` sets `targets_per_game` from the same local as
+> `params.targets` at `:697`, and the only step that can separate them,
+> `applyRedistribution`, runs behind `redistributeVolume = false`
+> (`player-week-engine.js:262`, `:381`). So the graded quantity is the card's
+> quantity before the scenario multipliers, and the verdict carries. The earlier
+> shorthand "the 6 tgt · 12 car a user reads" named the scaled number and has
+> been corrected here rather than left to imply the multipliers were graded.
 
 - a player's **target share** and **carry share**, shrunk toward a positional
   prior (`projections.js:719-720`: 0.06 target share, 0.25 carry share for RB
@@ -230,8 +243,22 @@ const decisionPpg = 0.25 * currentWeekPpg + 0.75 * rosPpg;
   3.58/3.12/2.85/2.79 → 2.37/2.32/2.42/2.44, **12 of 12 checks passed**
   (`ros-projection.js:44-67`).
 - `0.25 / 0.75` — a guess. Nothing has measured it.
-- `rosPpg` carries **no availability term** (`trade-engine.js:365-367`), so 75%
-  of a player's trade value survives an injury that ends his season.
+- `rosPpg` carries **no availability term** (`trade-engine.js:365-367`).
+
+> **Correction, raised by the thread that owns `trade-engine.js` and verified
+> here.** An earlier draft of this file said "75% of a player's trade value
+> survives an injury that ends his season." **That is withdrawn.** Trade *value*
+> is the market map — `value: m?.value ?? 0` at `trade-engine.js:419` — and it
+> never reads `adj_ppg`. What `adj_ppg` drives is `bestLineup` (its default key,
+> `:611`), and therefore `ppg_delta`, `season_delta` and every "does this trade
+> improve my Sunday" sentence. The confirmed season-ending case is also caught,
+> not missed: `available: false` at `:441` is guarded at `:616`, `:203` and
+> `:448`. What is genuinely unguarded is the graded middle — a 40-60% chance for
+> some weeks, an IR stint with a return — plus the hand-set 0.92 default chance
+> to play at `:346`. That is a smaller and more specific defect than the sentence
+> it replaces, and the proposed fix (a rest-of-season availability persistence
+> curve fitted walk-forward from `player_week_usage`) is a new model and needs
+> Nick's word.
 
 Two display numbers on the same card are on the wrong horizon:
 `season_delta = ppg_delta × 17` at `trade-engine.js:1096` (`GAMES = 17` at `:119`)
@@ -405,7 +432,13 @@ Two things make this a different case from the volume constants.
 
 **The priors themselves are measured, not invented.** `:416-426` pools every
 player-week at the position and takes the real rate; the literals beside each one
-(`|| 7.5`, `|| 0.63`, `|| 0.05`) fire only when the denominator is zero.
+(`|| 7.5`, `|| 0.63`, `|| 0.05`) are fallbacks. Say the fallback condition
+precisely, because this repository has shipped two silent-fallback bugs: `rate()`
+returns `null` on a zero denominator, **and a measured rate of exactly zero is
+falsy too**, so `|| 7.5` fires on a null *or* a zero rate. Over pooled
+multi-season QB/RB/WR/TE windows a pooled rate of exactly zero does not occur, so
+it is inert today — but "only on a zero denominator" is not what the code says,
+and that is the shape both earlier bugs had.
 
 **And the fitted alternative was tried and rejected on evidence, with the reason
 recorded.** `shrinkage-fit.js:465-473`:
@@ -496,10 +529,23 @@ Two consequences that are live today:
   (run as a child process by the archetype build) → `manager_archetypes`
   (`source: 'outcome'`, `metric: 'luck_wins'`) → `manager-signals.js:264-276` →
   `counterparty-pricing.js:452-457`, where it adds a capped adjustment to what a
-  package is worth to that manager. `counterparty-pricing.js:55-56` already says
-  it is inert at week 2. But unlike `perception_delta` in `trade-acceptance.js`,
-  the `if` at `:452` has no `skip()` branch, so the inertness is in a comment and
-  not on the object — no page can say "we have no luck read on him".
+  package is worth to that manager.
+
+  **Mechanism corrected after the Trade Brain thread verified it; the conclusion
+  holds and the real defect is worse.** An earlier draft said the inertness "is
+  in a comment and not on the object". That is false: `add()` pushes
+  `{source, reason}` onto `inert` when the sample is short
+  (`counterparty-pricing.js:383-386`), and `valuationMap` carries it into
+  `sources_absent` with the reason (`:750`, `:770-771`). Two other paths are the
+  silent ones. `add()` returns on `Math.abs(effect) < 0.001` at `:381`, **before**
+  the `min_n` branch, so a below-threshold effect is dropped without a reason —
+  and that applies to all eight sources, not just luck. And the luck branch
+  guards on `managerProfile?.luck` at `:452`, so a manager with no archetype row
+  never calls `add()` at all and falls through to the `else` at `:775`, which
+  serves **"the data exists but no player in this league matched it"** — false in
+  both halves, and the live shape of four of Nick's five leagues. Trade Brain has
+  a RED/GREEN fix on their branch with the evidence file
+  `docs/tdd/luck-read-not-firing.tdd.md`.
 - **The posture calibration cannot be re-run without a human first.**
   `lineup-posture.js:131` and `trade-horizon.js:47` cite `league_week_scores` as
   what their constants were checked against. Note the shape precisely: neither
@@ -574,6 +620,61 @@ on disk:
 5. **Calibrate the title odds against real finishes**, the way every other number
    in this repo has been gated. Until then the honest label on that percentage is
    that its noise is measured and its accuracy is not.
+
+---
+
+## 7. Late findings, and one question this file cannot answer
+
+Added after other threads read the sections above. Each is marked with who
+verified it.
+
+**A component that prints the word "Calibrated" with no fit behind it.**
+`client/src/components/ui/DesignSystem.tsx:47-49` — `Confidence` renders
+"Calibrated" at coverage ≥ .78, "Developing" at ≥ .65, "Low confidence" below,
+from three literals. Nothing fits those cuts. Raised by the UI thread, verified
+here: `grep` for `<Confidence` across `client/src` returns **no consumer**, which
+is the only reason it is not a live false claim today. It belongs in the
+provenance record as an unfitted, unrendered claim so that wiring it up later is
+a deliberate act rather than an accident.
+
+**A claim about O4 that this audit cannot check, and says so.** The fantasy plan
+thread reports that the team-outlook model cannot run in production, because
+`history-corpus.js:48` opens `data/derived/sleeper_history.sqlite` under
+`process.cwd()` and the Dockerfile runtime stage does not copy it. **Neither
+`history-corpus.js` nor `team-outlook.js` exists on `origin/main` at `791b131`**
+— the tree has 1,312 files and no path matching either name, and nothing under
+`server/` mentions `sleeper_history`. The finding may well be correct on their
+branch; it is not a finding about the deployed build and is not folded into this
+file's classifications. Recorded rather than repeated.
+
+**`cascades()` was graded and refused.** The Opportunity thread's numbers, theirs
+to claim: walk-forward, 2024 n=49 over 14 players, 2025 n=77 over 21, with the
+player-clustered 90% interval straddling zero in both. Their sentence, worth
+keeping because it is the honest shape of a half-working signal: the with-starter
+number reads low on an absence week and the without-starter number reads high, so
+the published pair brackets the truth — mechanism real, calibration not. Read the
+n before quoting either. This supersedes nothing in section 4; it confirms that
+neither teammate-absence estimator has earned a surface.
+
+### The count this file will not give
+
+Asked for one sentence stating the fitted-versus-hand-set split as a count: how
+many served numbers are fitted, how many are literals. **This file cannot support
+that number and neither can `NUMBER-PROVENANCE.md`.** Both are prose tables. A row
+bundles several constants under one classification in some places and classifies
+each constant separately in others, so any grep-derived total — and a grep does
+return one — counts rows and letters, not served numbers. Producing a defensible
+count means re-tabulating one row per served number, which is real work and has
+not been done.
+
+What can be said without inventing anything: **every number this audit traced to
+a promotion gate is in the points path** — rest-of-season projection, the weekly
+ensemble weights, the coordinator ridge, the availability fit — and **every number
+it traced in the advice layer above them is a hand-set literal**: the fairness
+cuts, the acceptance band, the 25/75 decision blend, the trade-value floor, the
+bye-risk and waiver thresholds, the contention grid, the draft-board source
+weights, the confidence cuts above. That is a statement about where the line
+falls, which the evidence supports, rather than a ratio it does not.
 
 ---
 

@@ -19,15 +19,12 @@ import { rows } from '../db/index.js';
 import { shrink, mean } from './stats-util.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
 import { espnStatusById } from './player-availability.js';
-import { AVAILABILITY_FIT_BASIS } from './availability-basis.js';
+import { AVAILABILITY_FIT_BASIS, DEFAULT_DURABILITY_PRIOR } from './availability-basis.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
 // A starter has to have missed this many games for the split to mean anything.
 const MIN_MISSED = 3;
-// Stands in for a durability prior when a player has no games on file at all.
-// It is a default, not a measurement, and every row that uses it says so.
-const DEFAULT_DURABILITY_PRIOR = 0.92;
 // Who can inherit whose workload. Receivers and tight ends share a target pool; backs
 // share carries; quarterbacks are a closed shop.
 const INHERITS = { QB: ['QB'], RB: ['RB'], WR: ['WR', 'TE'], TE: ['TE', 'WR'] };

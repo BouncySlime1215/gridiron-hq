@@ -72,6 +72,23 @@ export const SERVABLE_AVAILABILITY_BASIS = Object.freeze([
  */
 export const AVAILABILITY_FIT_BASIS = Object.freeze(['role', 'pooled', 'constants']);
 
+/**
+ * The durability prior served when a player has no games on file at all, and
+ * therefore the number behind every `default_durability` row.
+ *
+ * It lives here rather than in contingency.js because it is half of a contract:
+ * a consumer that shows or explains a defaulted prior needs the same number
+ * contingency.js substituted, and a second copy of it elsewhere is a silent
+ * disagreement waiting to happen. Read the row's `durability_prior_measured`
+ * flag to find the default — never compare a served prior to this constant,
+ * because the row is rounded to three places and a real measurement can land on
+ * the same value.
+ *
+ * It is not fitted. Nothing can be fitted for a player with no games; the point
+ * of naming it is that a default says it is one, not that it is a good guess.
+ */
+export const DEFAULT_DURABILITY_PRIOR = 0.92;
+
 /** True when `value` is a member of the canonical row vocabulary. */
 export function isAvailabilityBasis(value) {
   return AVAILABILITY_BASIS.includes(value);

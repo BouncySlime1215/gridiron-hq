@@ -92,6 +92,17 @@ test('with no fit on file the basis is the prior, and it says which prior', () =
     'no games on file means the standing constant, not a measurement');
 });
 
+test('the default prior behind a default_durability row is the shared constant', () => {
+  // One definition, imported by contingency.js and by any consumer that needs
+  // to explain the number. A second copy elsewhere would disagree silently.
+  assert.equal(typeof B.DEFAULT_DURABILITY_PRIOR, 'number');
+  assert.equal(served.get(202).availability_basis, 'default_durability');
+  assert.equal(served.get(202).durability_prior, +B.DEFAULT_DURABILITY_PRIOR.toFixed(3));
+  // And the measured player's prior is NOT that number, so the row above is
+  // pinning the substitution rather than a coincidence.
+  assert.notEqual(served.get(201).durability_prior, served.get(202).durability_prior);
+});
+
 test('a fitted pooled rate moves the basis off the prior, for both players', () => {
   // One league-scope rate for "no report, no practice status" is enough for the
   // pooled lookup to answer, and it answers for everyone — including the player

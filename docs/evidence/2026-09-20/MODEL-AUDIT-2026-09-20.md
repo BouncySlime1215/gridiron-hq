@@ -27,6 +27,7 @@ itself uses (`nflverse` crosswalk + `stats_player_week`, seasons 2021-2026):
 | What does it do for me? | A real lineup re-solve on `adj_ppg`, which is 25% this week + 75% rest-of-season. The rest-of-season part is the best-tested number in the app. The 25/75 split itself is a guess, and the rest-of-season half carries no availability term — which bites on the graded middle (a partial chance to play), not on a confirmed season-ender, which is caught elsewhere. |
 | What's the goal? | Two goals, and the app knows it. Find Deals ranks on points; Title Trades ranks on championship odds and prints a note when they disagree. The championship odds themselves have no historical calibration. |
 | How good is my team? | Two answers that do not talk to each other: a real relative rank against the league's own rosters, and a title percentage simulated from **week 1** on **through-2025** projections. |
+| Are the efficiency numbers tested? | **They are now, and they mostly hold.** Nothing on a nine-point grid beats the shipped `yards_per: 34`, `catch_rate: 26` or `td_rate: 70` on 2024-2025, and every value *below* each literal loses. But all six curves bottom out at or above the literal, and on 2023 — a season the grid never saw — `k = 68` beats 34 for yards per target, interval clear of zero. The defect is not that 34 is wrong; it is that one constant serves yards per target, per carry and per attempt, and the three disagree about what it should be. |
 | Where is ML? | Real and validated in the weekly point number (ensemble weights, ridge coordinator). Absent from opportunity, trades, acceptance and title odds. The advanced-stat feature store and the GBM are on the **betting** side and are not shared. For next-week *volume* specifically, ML was tried with those stats and lost to a four-line EWMA — a tested negative, not a gap. |
 
 ---
@@ -501,6 +502,140 @@ This is the same shape as the efficiency `|| 7.5` fallback above and as the two
 silent-fallback bugs in this repository's history: **a branch that has never
 fired, guarding a unit nobody recorded.**
 
+### Graded overnight: the three hand-set constants, swept on three seasons
+
+Everything above this line says the efficiency constants are hand-set and that
+the one efficiency experiment on record tested the **fitter**, not the literals.
+That gap is now closed. `scripts/grade-efficiency-vs-baseline.mjs` does to
+`yards_per`, `catch_rate` and `td_rate` exactly what `int_rate`'s own comment
+(`projections.js:100-123`) already did to the fifth constant: a geometric grid,
+scored on held-out data, winner taken on evidence rather than on taste.
+
+**How it is set up, and why each choice is the fair one.**
+
+- Every arm is the real `buildProjections`, called with a `kOverride` that moves
+  one constant family and nothing else. `pickK` (`:203-206`) takes `rawN` when a
+  fit supplies k and `hardcodedN` otherwise; for every efficiency metric those
+  two are the same expression, so a supplied k changes the constant and only the
+  constant.
+- Every arm passes an override, so `activeKVectorFor` is never consulted
+  (`:461`) and the **volume** half sits at its hardcoded constants in all arms,
+  whether or not the database has an active shrinkage fit. This is a study of
+  the efficiency constants; nothing else is allowed to move.
+- `k = 0` and `k = Infinity` are *in the grid*, so the two baselines a manager
+  has without us come out of the same machinery as the shipped arm: `k = 0` is
+  his own rate to date, unshrunk; `k = Infinity` is the positional prior alone
+  (`shrinkSafe`, `:209`).
+- The gate is on **forward** usage — 20+ forward targets or carries, 40+ for the
+  touchdown rates, 60+ forward attempts for quarterbacks. Forward usage is never
+  an input to any arm, so the gate cannot favour one, and one cutoff builds one
+  row set, so all nine arms are scored on identical rows by construction.
+- Significance is a paired bootstrap **clustered by player**: one player appears
+  at up to ten cutoffs in a season and those errors are not independent draws.
+  The first version of this script clustered only the first metric family — the
+  `groups` array was filled once globally instead of once per family — and
+  `pairedBootstrapDiff` silently falls back to an *unclustered* resample when
+  `groups.length !== n` (`backtest-significance.js:80`, and the comment above it
+  explains why that fallback is deliberate). Unclustered intervals are too
+  narrow, and in the smoke run they produced a "beats shipped" on
+  `rec_td_rate` that did not survive the fix. Nothing below comes from that run.
+
+**Result 1: nothing on the grid beats a shipped literal on 2024-2025.** Twenty
+cutoffs, weeks 5 through 14 of each season, scored on what the player did in the
+weeks after the cutoff.
+
+| metric | rows / players | shipped k | shipped MAE | grid minimum | beats shipped? |
+|---|---|---|---|---|---|
+| yards per target | 2,811 / 259 | 34 | 1.3535 | **68** (1.3374) | no — 90% CI [-0.0004, +0.0317] |
+| catch rate | 2,811 / 259 | 26 | 0.0707 | **52** (0.0702) | no — [-0.0003, +0.0013] |
+| yards per carry | 1,821 / 156 | 34 | **0.8190** | 34 — the literal is the minimum | — |
+| yards per attempt | 751 / 59 | 34 | 0.6690 | 300 (0.6395) | no — [-0.0289, +0.0824] |
+| receiving TD rate | 1,181 / 158 | 70 | 0.0260 | 140 (0.0257) | no — [-0.0001, +0.0007] |
+| rushing TD rate | 1,131 / 104 | 70 | 0.0184 | 140 (0.0183) | no — [-0.0002, +0.0004] |
+
+**Result 2: but the direction is systematic, and it is one direction.** Every
+value *below* a literal loses, most of them with the interval clear of zero —
+and five of the six MAE curves bottom out *above* the literal. The efficiency
+half is conservative in the right direction and consistently a notch too
+trusting of the player's own rate. No single cell above proves that; the fact
+that all six point the same way is the finding.
+
+**Result 3: confirmed out of sample on 2023, a season the grid never saw.** The
+grid minimum for yards per target on 2024-2025 was 68. Re-run against 2023
+alone, with nothing else changed, `k = 68` beats the shipped 34 with the
+interval clear of zero:
+
+| 2023 | shipped k=34 | k=68 | shipped-minus-68 90% CI |
+|---|---|---|---|
+| yards per target | 1.4318 | **1.4065** | **[+0.0036, +0.0482]** |
+| yards per carry | 0.7722 | **0.7428** | **[+0.0046, +0.0588]** |
+
+Picked on one set and confirmed on another is the shape this repository already
+requires of a promotion, so for **yards per target** this is a real
+recommendation: `K.yards_per` is too low, and roughly double is better. It
+should go through the same gate the volume fit got, not straight into the file.
+
+**Result 4: and the three metrics sharing that constant disagree about it.**
+Read the yards-per-carry row twice. On 2023 `k = 68` beats 34 outright; on
+2024-2025 **34 is the grid minimum** and 68 is slightly worse. Yards per attempt
+is worse again: its 2024-2025 curve falls all the way out to 300, and its 2023
+curve has the minimum at 34. One literal, `yards_per: 34`, is doing three
+different jobs, and the evidence for what it should be points in three
+directions. That is the structural finding here — not "34 is wrong" but **"34 is
+one number where the code needs three"**, the same shape as the volume half,
+which already keys its constants per metric and per position.
+
+Note also that yards per carry's 2023 win is weaker evidence than yards per
+target's, and the difference matters: 68 was *chosen* on 2024-2025 for targets
+and then confirmed, which is a pre-registered comparison; for carries 68 was not
+the pick, so its 2023 win is one uncorrected comparison out of eight.
+
+**What the sweep does not say.** It says the estimator is well tuned within its
+own family. It says nothing about whether that family is the right one — the
+outside-signal arm (aDOT, air-yards share, CPOE, RACR, PACR, all already columns
+on `player_week_usage`) is still untried, and is still the one ML build in the
+fantasy half with a prior reason to work. One earlier reading is also withdrawn
+here: the 2024-2025 touchdown-rate arms are biased low at every k (-0.0060 on
+receiving), which looked like a prior-level defect until 2023 came back at
+-0.0014. It is not stable across seasons and is not a calibration finding.
+
+### The efficiency half shrinks percentages with the wrong helper, and it costs nothing
+
+`stats-util.js:31-48` is explicit: use `shrinkRate`, not `shrink`, "whenever
+`observed` and `prior` are both proportions in [0,1]", because a fixed `k` on a
+raw proportion "over-corrects near the middle of the range and under-corrects
+near the edges". Every caller of `shrinkRate` in this repository is on the MLB
+side (`mlb-projections.js:282,283,294`). The NFL efficiency half shrinks
+`catch_rate` and all three touchdown rates — proportions, every one — with plain
+`shrink` (`projections.js:564-578`).
+
+That is a falsifiable prediction, not a style complaint. Catch rate sits near
+0.63, the middle of the range, so it should be the case that suffers most.
+
+`scripts/grade-proportion-shrinkage.mjs` measures it without touching a server
+file. `shrink` is linear in the evidence weight `w = n/(n+k)`, and
+`buildProjections` hands back all three terms if asked three times for the same
+cutoff — `k = 0` gives `observed`, `k = Infinity` gives `prior`, `k = literal`
+gives `shipped` — so `w = (shipped - prior)/(observed - prior)`, and the arcsine
+arm is `shrinkRate` evaluated at the identical weight on the identical rows.
+
+| metric | rows / players | plain `shrink` (ships) | arcsine `shrinkRate` | verdict |
+|---|---|---|---|---|
+| catch rate | 2,162 / 251 | **0.07133** | 0.07151 | no detectable difference, [-0.0004, 0] |
+| receiving TD rate | 500 / 121 | **0.02801** | 0.02840 | no detectable difference, [-0.0008, 0] |
+| rushing TD rate | 263 / 54 | **0.02342** | 0.02386 | no detectable difference, [-0.0011, +0.0002] |
+
+The helper the docstring names is very slightly *worse* on all three, and on the
+one metric where its own reasoning predicts the largest gain — catch rate, 2,162
+rows, 251 players — there is no gain at all. So: **the rule is real, the code
+breaks it, and fixing it would make the model marginally worse.** Recorded here
+so nobody tidies it up later and quietly loses ground. (Rows where the player's
+own rate is within 0.02 of the prior are dropped, since `w` is reconstructed by
+dividing by that difference. For the touchdown rates that drops most of the
+population — 681 of 1,181 and 868 of 1,131 — so those two lines are a bound on
+the most extreme players, not a reading on everyone. The catch-rate line keeps
+2,162 of 2,811 and is the one to trust.)
+
 ### Both teammate-absence estimators are behind no surviving surface
 
 Checked because it was put to this audit as a claim that `contingency.js#cascades()
@@ -867,4 +1002,12 @@ GRIDIRON_DB_PATH=/tmp/audit.sqlite node scripts/promote-volume-shrinkage.mjs    
 GRIDIRON_DB_PATH=/tmp/audit.sqlite node scripts/grade-opportunity-vs-baseline.mjs --out fitted-k.json
 node scripts/grade-opportunity-vs-baseline.mjs --compare shipped-k.json fitted-k.json
 # the season-average and EWMA baselines are emitted by both arms; --compare prints all three
+
+# the three hand-set efficiency constants, swept against held-out forward usage.
+# Read-only: it activates nothing, so it does not care which fit is active.
+GRIDIRON_DB_PATH=/tmp/audit.sqlite node scripts/grade-efficiency-vs-baseline.mjs
+# the out-of-sample confirmation is the same script with SEASONS = [2023]
+
+# plain shrink vs the arcsine shrinkRate the docstring asks for, on the proportions
+GRIDIRON_DB_PATH=/tmp/audit.sqlite node scripts/grade-proportion-shrinkage.mjs
 ```

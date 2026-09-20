@@ -91,6 +91,10 @@ could not re-verify every row inside the hour this was asked for.
 | D26 | For next-week **volume**, advanced stats were tried in a 16-feature ridge and lost to a four-line EWMA — a tested negative, not a gap **[v]** | `opportunity-model.js` | **Decided** — do not propose this build | — |
 | D27 | Fitting the **efficiency** k was tried and rejected on evidence (2025 4.773 vs 4.749) **[v]** | `shrinkage-fit.js:465-473` | **Decided** — do not re-open | — |
 | D28 | Outside signals for the **efficiency** half (aDOT, air-yards share, CPOE, RACR, PACR — all already on the same table) have never been tried **[v]** | `player_week_usage` | **Open** — the one ML build with a prior reason to work | Nick's word |
+| D30 | **The three hand-set efficiency constants are now swept and graded**, the way `int_rate` already was. Twenty cutoffs over 2024-2025, scored on held-out forward usage, paired bootstrap clustered by player: nothing on a nine-point grid beats `yards_per: 34`, `catch_rate: 26` or `td_rate: 70`, and every value *below* each literal loses **[v]** | `projections.js:94-125`, `scripts/grade-efficiency-vs-baseline.mjs` | **Closed — they hold.** D27 tested the fitter; this tests the literals, and they survive | — |
+| D31 | **But `yards_per: 34` is one constant doing three jobs, and the three disagree.** Five of six MAE curves bottom out above their literal; on 2023, a season the grid never saw, `k = 68` beats 34 for yards per target with the interval clear of zero ([+0.0036, +0.0482]) — chosen on one set, confirmed on another. Yards per carry wants 68 on 2023 and 34 on 2024-2025; yards per attempt wants 34 on 2023 and 300 on 2024-2025 **[v]** | `projections.js:97`, read at `:562`, `:570`, `:576` | **Open** — split the constant per metric (and per position, as the volume half already does), then re-fit. Needs a promotion gate, not a file edit | fantasy plan (owns `projections.js`) |
+| D32 | **The efficiency half shrinks proportions with the helper the codebase tells it not to use** — plain `shrink` on `catch_rate` and all three TD rates, where `stats-util.js:31-48` says to use `shrinkRate`; every `shrinkRate` caller is on the MLB side. **Measured: switching would be very slightly worse** on all three, and on catch rate (2,162 rows, 251 players), where its own reasoning predicts the biggest gain, there is none **[v]** | `projections.js:564-578` vs `stats-util.js:44-48`, `scripts/grade-proportion-shrinkage.mjs` | **Closed — leave it.** Recorded so nobody tidies it up and loses ground | — |
+| D33 | Withdrawn: the 2024-2025 touchdown-rate arms are biased low at every k (-0.0060 receiving), which read as a prior-level defect until 2023 came back at -0.0014. Not stable across seasons **[v]** | — | **Withdrawn by its author** | — |
 
 ## E. Scope and housekeeping (`/mnt/project-files/remaining-work-scope.md`)
 
@@ -119,9 +123,17 @@ land. The freeze is the only thing between them and main.
 **The open list is dominated by one shape**: a number that is hand-set where it
 could be fitted, or fitted where nothing reads it. B1/D1/D2 (the shrinkage
 promotion), D5 (a validated correction added to the wrong base), D24/D25 (the
-advice layer's literals and the table that would let them be fitted), D28 (the
-efficiency half) and B3 (a fitted quantity attached to every projection and read
-by nothing) are all the same defect wearing different clothes. The single
+advice layer's literals and the table that would let them be fitted), D28/D31
+(the efficiency half) and B3 (a fitted quantity attached to every projection and
+read by nothing) are all the same defect wearing different clothes.
+
+That shape now has a worked example of how to close one. D30-D32 took the three
+ungraded efficiency constants and the one style rule the file breaks, and
+answered all four with measurements rather than argument: two closed as correct
+(the literals hold; the "wrong" helper is right here), one closed as withdrawn,
+and one left open in a *smaller and more precise* form than it started — not
+"34 is wrong" but "one constant is serving three metrics that disagree". A
+hand-set number is not a defect. A hand-set number nobody has swept is. The single
 highest-value item is still B1/D1: it is a database write, it is already gated,
 and it moves the number the lineup is ranked by by four to six points a week —
 provided D3 is handled, because otherwise the write is invisible until a

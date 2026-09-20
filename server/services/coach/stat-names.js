@@ -145,6 +145,14 @@ export const STAT_CONCEPTS = Object.freeze({
     'Times he lost the ball and the other team recovered it.',
     'Negative points, and a back who fumbles twice tends to lose goal-line work.'),
 
+  // --- where he stands on his own team ---
+  depth_chart_position: concept('Position', 'label', 'neither',
+    'The position group a player is listed in — quarterback, running back, wide receiver, tight end and so on.',
+    'It decides which slot he can fill in a lineup and who he is actually competing with for the ball. A player listed at one position and used like another is the thing worth noticing, which is why this is stored separately from how he is used.', 'this app'),
+  depth_chart_rank: concept('Depth-chart rank', 'place', 'lower',
+    'Where he is listed among his own team\'s players at that position: 1 is the starter, 2 is behind him, and so on.',
+    'It is the cheapest available signal for whether a player will see the field at all, and it moves before the box score does — a back going from 2 to 1 is next week\'s volume, visible this week. It is a listing rather than a measurement, so it can be stale or wrong, and snap share is what settles an argument between them.', 'this app'),
+
   // --- availability ---
   chance_to_play: concept('Chance to play', 'probability 0-1', 'higher',
     'How likely this player is to be on the field this week, worked out from the official injury report, beat-reporter signals and his recent snap counts together.',
@@ -203,7 +211,12 @@ export const STAT_FIELDS = Object.freeze({
   'off_pfr_adv_season.on_target_pct': 'on_target_rate',
   'off_pfr_adv_season.pocket_time': 'pocket_time',
 
-  'off_qbr_season.qbr_total': 'qbr'
+  'off_qbr_season.qbr_total': 'qbr',
+
+  'players.position': 'depth_chart_position',
+  'players.depth_rank': 'depth_chart_rank',
+  'off_depth_chart.pos_abb': 'depth_chart_position',
+  'off_depth_chart.pos_rank': 'depth_chart_rank'
 });
 
 /**

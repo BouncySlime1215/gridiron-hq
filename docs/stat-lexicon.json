@@ -1,8 +1,8 @@
 {
   "_generated_by": "scripts/emit-stat-lexicon.mjs from server/services/coach/stat-names.js",
   "_do_not_edit": "Edit stat-names.js and re-run the script. Edits here are overwritten.",
-  "concept_count": 36,
-  "field_count": 40,
+  "concept_count": 38,
+  "field_count": 44,
   "concepts": {
     "targets": {
       "name": "Targets",
@@ -276,6 +276,22 @@
       "why": "Negative points, and a back who fumbles twice tends to lose goal-line work.",
       "source": "nflverse"
     },
+    "depth_chart_position": {
+      "name": "Position",
+      "unit": "label",
+      "better": "neither",
+      "plain": "The position group a player is listed in — quarterback, running back, wide receiver, tight end and so on.",
+      "why": "It decides which slot he can fill in a lineup and who he is actually competing with for the ball. A player listed at one position and used like another is the thing worth noticing, which is why this is stored separately from how he is used.",
+      "source": "this app"
+    },
+    "depth_chart_rank": {
+      "name": "Depth-chart rank",
+      "unit": "place",
+      "better": "lower",
+      "plain": "Where he is listed among his own team's players at that position: 1 is the starter, 2 is behind him, and so on.",
+      "why": "It is the cheapest available signal for whether a player will see the field at all, and it moves before the box score does — a back going from 2 to 1 is next week's volume, visible this week. It is a listing rather than a measurement, so it can be stale or wrong, and snap share is what settles an argument between them.",
+      "source": "this app"
+    },
     "chance_to_play": {
       "name": "Chance to play",
       "unit": "probability 0-1",
@@ -333,7 +349,11 @@
     "off_pfr_adv_season.pressure_pct": "pressure_rate",
     "off_pfr_adv_season.on_target_pct": "on_target_rate",
     "off_pfr_adv_season.pocket_time": "pocket_time",
-    "off_qbr_season.qbr_total": "qbr"
+    "off_qbr_season.qbr_total": "qbr",
+    "players.position": "depth_chart_position",
+    "players.depth_rank": "depth_chart_rank",
+    "off_depth_chart.pos_abb": "depth_chart_position",
+    "off_depth_chart.pos_rank": "depth_chart_rank"
   },
   "not_stored": [
     {

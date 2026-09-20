@@ -28,7 +28,7 @@ it. The fix is not a better prompt; it is a list.
 
 ## 2. What was built
 
-**36 concepts.** Each is an id (internal), a `name` (what a person reads, the same on
+**38 concepts.** Each is an id (internal), a `name` (what a person reads, the same on
 every screen), and four fields that do the work:
 
 ```js
@@ -43,7 +43,7 @@ fantasy terms. `better` says which direction is good, because a number with no d
 is just a number — and it is `'neither'` where neither direction is good, which is the
 honest answer for a handful of them.
 
-**40 field mappings.** `STAT_FIELDS` maps `table.column` to a concept, so a screen
+**44 field mappings.** `STAT_FIELDS` maps `table.column` to a concept, so a screen
 labels a number by asking rather than by hard-coding a string. Two different columns can
 map to the same concept — `player_week_snaps.offense_pct` and `nfl_snaps.offense_pct`
 are both snap share — which is the point: one concept, one name, however many places
@@ -97,7 +97,7 @@ place, so a rename does not quietly orphan it.
 
 **Is this well built?** It is a data file with three small functions over it, and its
 whole claim to correctness is that the tests check it against the live schema rather
-than against itself. The weakness is that the mapping is written by hand: 40 of the
+than against itself. The weakness is that the mapping is written by hand: 44 of the
 app's columns are named here and the rest are not, so an unnamed column still gets
 whatever the screen calls it. That is a coverage number that should grow, and it is
 better than a generator that would invent plausible prose for columns nobody has
@@ -110,7 +110,7 @@ outside authority. The `why` sentences are judgements about fantasy relevance an
 written as such; they make no numerical claim.
 
 **How do we know?** 11 tests and 3 injections, each stated above with its diffstat, all
-killed. The strongest of them is the schema check: each of the 40 `table.column` keys in `STAT_FIELDS`
+killed. The strongest of them is the schema check: each of the 44 `table.column` keys in `STAT_FIELDS`
 is verified to exist by querying `pragma_table_info` on the database the app creates, so
 a mapping cannot rot silently when a column is renamed.
 
@@ -132,11 +132,27 @@ target_share')` and gets the name, the plain sentence, the reason and the direct
 Coach cites the same words in an answer. The unification is only real once the screens
 call it, which they do not yet.
 
+## 7. Added after the first pass
+
+The UI thread's stat-table work named eleven quantities its depth-chart and
+advanced-stats panels need. Eight were already here — target share, air-yards share,
+snap share, WOPR, aDOT, RACR, PACR and catch rate (mapped from
+`off_ngs_season.catch_percentage`) — and expected points was too, as
+`expected_fantasy_points`. Two were genuinely missing and are now in: **Position** and
+**Depth-chart rank**, mapped from `players.position`, `players.depth_rank`,
+`off_depth_chart.pos_abb` and `off_depth_chart.pos_rank`, which is the case the
+one-concept-many-columns design exists for.
+
+Depth-chart rank's `why` says the thing a panel must not leave out: it is a listing
+rather than a measurement, so it can be stale or wrong, and snap share is what settles
+an argument between them. A rank shown with the same authority as a measured share is
+the failure this lexicon is meant to prevent.
+
 ## 6. What this slice does not do
 
 Nothing reads it yet. `docs/stat-lexicon.json` is emitted and gated, but the client does
 not import it and still labels its own numbers, and Coach does not yet put the plain
-sentence beside a cited number in an answer. Coverage is 40 columns of a 215-table schema, chosen as the ones that appear
+sentence beside a cited number in an answer. Coverage is 44 columns of a 215-table schema, chosen as the ones that appear
 on screens people look at, so a question about an unnamed column gets a number with no
 explanation rather than a wrong one. And `availability_basis` is the only non-stat
 concept in the list; the other "how do we know this" fields — fit ids, sample sizes,

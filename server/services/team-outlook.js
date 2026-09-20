@@ -342,109 +342,16 @@ export function verdictFor(prob, thresholds) {
 
 /* ------------------------------------------------- a live league's panel rows */
 
-/** Regular-season periods only, and only ones that have actually been played. */
-const PLAYED_UNDECIDED = 'UNDECIDED';
-
-/**
- * One of Nick's own leagues, in the shape `weeklyPanel` takes.
+/*
+ * `espnWeeklyRows` USED TO LIVE HERE and now lives in `./espn-weekly-scores.js`.
  *
- * WHY THE PAYLOAD AND NOT A TABLE. No table in this database holds per-week fantasy team
- * scores -- checked against `core-and-fantasy.js` and every migration. What does hold them
- * is `leagues.payload`: `routes/leagues.js:125` requests `view=mMatchup` and `:160` stores
- * the entire ESPN response, so `schedule[].home.totalPoints` has been sitting there
- * unparsed since the first sync. This reads it rather than adding a table, because a table
- * would need a writer, a migration and a backfill to hold what is already stored.
- *
- * THE ROW THAT MUST NOT EXIST. ESPN returns the WHOLE season's schedule, including weeks
- * not yet played, and an unplayed matchup comes back with `totalPoints: 0` and
- * `winner: 'UNDECIDED'`. A zero admitted as a real score is the worst available outcome
- * here: it drags the league's mean and standard deviation down, so `points_z` is wrong for
- * every OTHER week too, and the team with the most unplayed weeks looks like the worst
- * team in the league. (The corpus has a data-quality rule for exactly this shape, at
- * league level; this is the same failure arriving one row at a time.) So a period is
- * admitted only when it is decided AND both sides carry a number AND at least one of them
- * is above zero -- three conditions because each catches a case the others do not: a
- * completed week really can have a 0 on one side, and `winner` is absent from some
- * payloads.
- *
- * `made_playoffs` and `champion` are the model's OUTCOME, and for a season in progress they
- * have not happened. They are null rather than 0, and every row carries
- * `outcome_known: false`, which `fitOutlook` refuses. A 0 would have read as "did not
- * qualify" and fitted silently.
+ * It is re-exported below so existing importers keep working, but new readers should import
+ * it from that module directly. It moved because it is not part of this model: it parses the
+ * weekly scores ESPN has been storing in `leagues.payload` since the first sync, and four
+ * consumers want them -- the outlook panel, the luck read, the season simulator and the
+ * feature-audit thresholds. This file exists only on the O4 branch and is absent from main,
+ * so anything importing the parser from here would have had to wait for O4 to merge, and
+ * would have pulled in a fitted model to read a score it does not use. That is the shape that
+ * ends in a second parser and two numbers for one quantity on two pages.
  */
-export function espnWeeklyRows(lg) {
-  let payload = null;
-  try { payload = typeof lg?.payload === 'string' ? JSON.parse(lg.payload) : lg?.payload; }
-  catch { return { rows: [], ok: false, reason: 'league payload is not readable' }; }
-  if (!payload) return { rows: [], ok: false, reason: 'league has never been synced' };
-
-  const schedule = Array.isArray(payload.schedule) ? payload.schedule : null;
-  if (!schedule?.length) {
-    return { rows: [], ok: false, reason: 'league payload carries no schedule (synced without view=mMatchup)' };
-  }
-  const settings = payload.settings?.scheduleSettings ?? {};
-  const regularPeriods = Number(settings.matchupPeriodCount) || null;
-  const teams = Array.isArray(payload.teams) ? payload.teams : [];
-  const numTeams = teams.length || null;
-  const playoffTeams = Number(settings.playoffTeamCount) || null;
-  // `payload_season` is what the payload actually came from, which is not always
-  // `leagues.season`: syncEspnLeague falls back to last season when the current one returns
-  // empty rosters, and migration 062_league_payload_season exists to record that.
-  const season = Number(lg?.payload_season ?? lg?.season) || null;
-
-  const sideOf = side => {
-    const teamId = side?.teamId ?? null;
-    const points = Number(side?.totalPoints);
-    return { teamId, points: Number.isFinite(points) ? points : null };
-  };
-
-  const rows = [];
-  let skippedUnplayed = 0, skippedPostseason = 0;
-  for (const m of schedule) {
-    const week = Number(m?.matchupPeriodId);
-    if (!Number.isFinite(week) || week < 1) continue;
-    if (regularPeriods != null && week > regularPeriods) { skippedPostseason++; continue; }
-
-    const home = sideOf(m?.home), away = sideOf(m?.away);
-    const decided = m?.winner == null || String(m.winner).toUpperCase() !== PLAYED_UNDECIDED;
-    const bothScored = home.points != null && away.points != null;
-    const anyPoints = (home.points ?? 0) > 0 || (away.points ?? 0) > 0;
-    if (!(decided && bothScored && anyPoints)) { skippedUnplayed++; continue; }
-
-    for (const [self, opp] of [[home, away], [away, home]]) {
-      if (self.teamId == null) continue;
-      rows.push({
-        season,
-        league_id: String(lg?.league_id ?? lg?.id ?? 'app'),
-        num_teams: numTeams,
-        playoff_teams: playoffTeams,
-        roster_id: String(self.teamId),
-        week,
-        points: self.points,
-        opponent_roster_id: opp.teamId == null ? null : String(opp.teamId),
-        made_playoffs: null,
-        champion: null,
-        outcome_known: false
-      });
-    }
-  }
-
-  if (!rows.length) {
-    return { rows: [], ok: false,
-      reason: `no played regular-season weeks in this league's payload (${skippedUnplayed} periods not yet played)`,
-      skipped_unplayed: skippedUnplayed, skipped_postseason: skippedPostseason };
-  }
-  const weeks = [...new Set(rows.map(r => r.week))].sort((a, b) => a - b);
-  return {
-    rows, ok: true,
-    season, num_teams: numTeams, playoff_teams: playoffTeams,
-    // How long the regular season RUNS, which is not how many weeks have been played.
-    // `weeklyPanel` derives `weeks_left` from the rows it is handed, so for a live league it
-    // reports zero at the last played week -- the model told the season is over. A consumer
-    // cannot correct that without this number, and it is null rather than a guess when the
-    // payload does not carry it. See `league-outlook.js`.
-    regular_periods: regularPeriods,
-    weeks_played: weeks.length, last_week: weeks[weeks.length - 1],
-    skipped_unplayed: skippedUnplayed, skipped_postseason: skippedPostseason
-  };
-}
+export { espnWeeklyRows } from './espn-weekly-scores.js';

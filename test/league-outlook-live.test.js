@@ -50,8 +50,9 @@ const { db } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
-const { fitOutlook, fitThresholds, predictOutlook, predictFrom, espnWeeklyRows,
+const { fitOutlook, fitThresholds, predictOutlook, predictFrom,
   verdictFor, OUTLOOK_FEATURES, OUTLOOK_GATE, VERDICTS } = await import('../server/services/team-outlook.js');
+const { espnWeeklyRows } = await import('../server/services/espn-weekly-scores.js');
 const { leagueOutlook } = await import('../server/services/league-outlook.js');
 const { weeklyPanel, historyStatus } = await import('../server/services/history-corpus.js');
 const { saveOutlookFit, activeOutlookFit } = await import('../server/services/outlook-fit-store.js');
@@ -374,4 +375,15 @@ test("an unsynced league gets the producer's own reason, not a fit reason", () =
   const out = leagueOutlook({ id: 9, league_id: 'L9', season: 2026, payload: null });
   assert.equal(out.ready, false);
   assert.match(out.reason, /never been synced/i);
+});
+
+test('the parser has one definition, and the old path still reaches it', async () => {
+  // It moved out of team-outlook.js into espn-weekly-scores.js so consumers can read weekly
+  // scores without importing a fitted model, and so they do not wait on this branch merging.
+  // team-outlook.js re-exports it for existing importers; two definitions is the thing to
+  // avoid, and this asserts there is one function, not two that agree today.
+  const model = await import('../server/services/team-outlook.js');
+  const parser = await import('../server/services/espn-weekly-scores.js');
+  assert.equal(model.espnWeeklyRows, parser.espnWeeklyRows,
+    'the re-export must be the same function object, not a second copy');
 });

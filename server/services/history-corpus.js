@@ -253,7 +253,7 @@ export function excludedByDataQuality(seasons = null) {
  * So a caller may supply rows in `regularSeasonWeeks`'s own shape --
  * `{season, league_id, num_teams, playoff_teams, roster_id, week, points,
  * opponent_roster_id, made_playoffs, champion}` -- and every derivation below runs on them
- * unchanged. `team-outlook.js`'s `espnWeeklyRows` is the one producer.
+ * unchanged. `espn-weekly-scores.js`'s `espnWeeklyRows` is the one producer.
  *
  * Supplied rows skip the two data-quality rules, deliberately: those exist to drop
  * abandoned and off-scale leagues from a public crawl, and a league Nick is playing in is

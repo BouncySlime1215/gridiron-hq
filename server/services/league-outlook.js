@@ -43,8 +43,9 @@
  */
 import { weeklyPanel } from './history-corpus.js';
 import { activeOutlookFit, outlookFitStatus } from './outlook-fit-store.js';
+import { espnWeeklyRows } from './espn-weekly-scores.js';
 import {
-  espnWeeklyRows, featureRow, predictOutlook, verdictFor, decompose, OUTLOOK_FEATURES
+  featureRow, predictOutlook, verdictFor, decompose, OUTLOOK_FEATURES
 } from './team-outlook.js';
 
 const notReady = reason => ({ ready: false, reason });

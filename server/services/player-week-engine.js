@@ -14,7 +14,7 @@ import { PPR, scoreLine } from './scoring.js';
 import { redistribute } from './opportunity-redistribution.js';
 import { weeklyAvailability } from './contingency.js';
 import {
-  AVAILABILITY_BASIS, DEFAULT_DURABILITY_PRIOR, isAvailabilityBasis
+  AVAILABILITY_BASIS, DEFAULT_ACTIVE_PROBABILITY, isAvailabilityBasis
 } from './availability-basis.js';
 import {
   WEEKLY_ROLE_RECENCY,
@@ -93,24 +93,26 @@ function remember(cache, key, value, limit) {
 const FITTED_SOURCE = /^fitted availability/i;
 
 /**
- * THE NUMBER FOR A PLAYER THE MODEL DOES NOT COVER, AND AN OPEN QUESTION ABOUT IT.
+ * THE NUMBER FOR A PLAYER THE MODEL DOES NOT COVER.
  *
- * `DEFAULT_DURABILITY_PRIOR` is an INPUT: contingency.js substitutes it as the prior and then
- * runs the published report-status curve over it, so a `default_durability` row's served
- * `active_probability` is nowhere near 0.92 for a Questionable player. What is needed here is
- * an OUTPUT-side stand-in: the served probability for a player who has no row at all and never
- * went through the curve. Those are two different quantities that happen to share their digits.
+ * This used to borrow `DEFAULT_DURABILITY_PRIOR`, with a note saying the borrow was wrong in
+ * kind and the right name belonged beside the prior. It does now, so this reads it instead.
  *
- * The digits are shared for a reason that is not a derivation: every one of the five call sites
- * this replaced wrote `?? 0.92`, so 0.92 is what an uncovered player has always been given.
- * Using the same constant preserves that exactly and changes no served number. What it does
- * NOT do is justify the value: whether a kicker should be priced at 0.92, at 1, or refused a
- * number at all is a real question and it is on the list for Nick rather than decided here,
- * because it moves the odds. Until it is answered this is deliberately the same number under a
- * documented borrow, not a second definition -- and the name it should eventually have belongs
- * in availability-basis.js beside the prior, not in this file.
+ * The distinction the borrow was papering over is real and availability-basis.js states it:
+ * `DEFAULT_DURABILITY_PRIOR` is an INPUT, substituted as the prior before contingency.js runs
+ * the published report-status curve over it, so a `default_durability` row's served
+ * probability is nowhere near 0.92 for a Questionable player. `DEFAULT_ACTIVE_PROBABILITY` is
+ * the OUTPUT: the probability served for a player who has no row and never went through the
+ * curve. Two quantities, same digits, two exports with two docstrings, pinned as independent
+ * literals by a test on the producer's side -- so revising the prior cannot silently move a
+ * served probability here.
+ *
+ * What is still open is the VALUE, not the name: whether a kicker should be priced at 0.92, at
+ * 1, or refused a number at all is a real question that moves the odds, and it is on the list
+ * for Nick. Reading the producer's constant changes no served number today; it means there is
+ * one place to change when that question is answered instead of six.
  */
-const UNCOVERED_ACTIVE_PROBABILITY = DEFAULT_DURABILITY_PRIOR;
+const UNCOVERED_ACTIVE_PROBABILITY = DEFAULT_ACTIVE_PROBABILITY;
 
 export function activeProbabilityFor(availability, playerId) {
   const row = availability?.get?.(playerId) ?? null;
@@ -142,8 +144,28 @@ export function activeProbabilityFor(availability, playerId) {
     basis = 'unrecognised';
   }
 
+  // A ROW THAT CARRIES NO NUMBER DOES NOT GET TO KEEP ITS LABEL. `weeklyAvailability` always
+  // sets `active_probability`, so this is unreachable from the live producer and defensive
+  // against a hand-built map -- but if it is ever reached, serving the substituted constant
+  // under the row's own declared basis would print "this came from the pooled fit" over a
+  // number that came from a constant. That is the exact defect this accessor exists to
+  // remove, arriving from the other side, and it is the same shape as the memo key serving a
+  // correct fit id over numbers from the previous fit. The number is still served, because a
+  // throw here would take down the odds; what is withheld is the claim about where it came
+  // from.
+  const missing = row.active_probability == null || !Number.isFinite(row.active_probability);
+  if (missing) {
+    return {
+      active_probability: UNCOVERED_ACTIVE_PROBABILITY,
+      availability_basis: 'unrecognised',
+      availability_source: `this player's availability row carries no active probability, so `
+        + `the default was substituted and its stated basis (${served ?? 'none'}) is not `
+        + `vouched for`
+    };
+  }
+
   return {
-    active_probability: row.active_probability ?? UNCOVERED_ACTIVE_PROBABILITY,
+    active_probability: row.active_probability,
     availability_basis: basis,
     availability_source: source || 'the producer served no source'
   };

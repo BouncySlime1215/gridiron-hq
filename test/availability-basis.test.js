@@ -29,7 +29,8 @@ const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
 const { activeProbabilityFor } = await import('../server/services/player-week-engine.js');
-const { AVAILABILITY_BASIS, SERVABLE_AVAILABILITY_BASIS, DEFAULT_DURABILITY_PRIOR }
+const { AVAILABILITY_BASIS, SERVABLE_AVAILABILITY_BASIS, DEFAULT_DURABILITY_PRIOR,
+  DEFAULT_ACTIVE_PROBABILITY }
   = await import('../server/services/availability-basis.js');
 const { weeklyAvailability } = await import('../server/services/contingency.js');
 
@@ -71,7 +72,7 @@ test('a player with no row at all is unfitted_position, not default_durability',
   // a number no model produced.
   const out = activeProbabilityFor(mapOf(row()), 999);
   assert.equal(out.availability_basis, 'unfitted_position');
-  assert.equal(out.active_probability, DEFAULT_DURABILITY_PRIOR,
+  assert.equal(out.active_probability, DEFAULT_ACTIVE_PROBABILITY,
     'the number the five replaced call sites gave an uncovered player, unchanged');
   assert.match(out.availability_source, /no availability row|QB, RB, WR and TE/i);
 });
@@ -82,8 +83,53 @@ test('no map at all is the same answer, not a throw', () => {
   for (const absent of [null, undefined, {}]) {
     const out = activeProbabilityFor(absent, 1);
     assert.equal(out.availability_basis, 'unfitted_position');
-    assert.equal(out.active_probability, DEFAULT_DURABILITY_PRIOR);
+    assert.equal(out.active_probability, DEFAULT_ACTIVE_PROBABILITY);
   }
+});
+
+test('a row with a basis but no number keeps the number and loses the label', () => {
+  // The mutation that found this: `row.active_probability ?? CONSTANT` could be changed to
+  // `?? 1` and nothing failed, because no fixture had a row present with no number in it.
+  // weeklyAvailability always sets one, so this is defensive -- but the branch decides what a
+  // reader is told, and serving the substituted default under the row's own `pooled` label
+  // would say the fit produced a number it never produced. Same shape as a memo key serving
+  // the correct fit id over the previous fit's numbers.
+  const cases = [
+    ['null', r => { r.active_probability = null; }],
+    ['undefined', r => { r.active_probability = undefined; }],
+    ['the key absent entirely', r => { delete r.active_probability; }],
+    ['NaN', r => { r.active_probability = NaN; }],
+    ['a string', r => { r.active_probability = 'n/a'; }]
+  ];
+  for (const [broken, breakIt] of cases) {
+    const r = row({ basis: 'pooled', source: 'fitted availability (pooled)' });
+    breakIt(r);
+    const out = activeProbabilityFor(mapOf(r), 1);
+    assert.equal(out.active_probability, DEFAULT_ACTIVE_PROBABILITY,
+      'the number is still served: a throw here takes down the odds');
+    assert.equal(out.availability_basis, 'unrecognised',
+      `a substituted default must not be labelled 'pooled' (active was ${broken})`);
+    assert.match(out.availability_source, /carries no active probability/);
+    assert.match(out.availability_source, /pooled/, 'and it says what the row claimed');
+  }
+});
+
+test('the uncovered value reads the OUTPUT-side constant, which no assertion on its value can prove', () => {
+  // The two constants are both 0.92, deliberately and independently, so every assertion above
+  // passes whichever one this module imports. That makes the wrong import invisible to the
+  // suite -- and the wrong import is not cosmetic: DEFAULT_DURABILITY_PRIOR is an INPUT that
+  // contingency.js runs the report-status curve over, so reading it here would silently move
+  // a served probability the first time that prior is revised for a reason to do with the
+  // curve. The only thing that can catch it is which name is in the import, so that is what
+  // is asserted.
+  const src = fs.readFileSync('server/services/player-week-engine.js', 'utf8');
+  const imported = src.slice(0, src.indexOf("} from './availability-basis.js';"));
+  assert.match(imported, /DEFAULT_ACTIVE_PROBABILITY/,
+    'the served value for an uncovered player is the output-side constant');
+  assert.equal(/DEFAULT_DURABILITY_PRIOR/.test(imported), false,
+    'the durability prior is contingency.js\'s input and has no business being read here');
+  assert.equal(DEFAULT_ACTIVE_PROBABILITY, DEFAULT_DURABILITY_PRIOR,
+    'they share their digits today, which is exactly why the names have to be checked');
 });
 
 test('a row without the field falls back to the prose match, and says so when it cannot tell', () => {

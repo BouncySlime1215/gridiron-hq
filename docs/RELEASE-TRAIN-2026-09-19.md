@@ -2267,6 +2267,14 @@ count, failures, lint, typecheck and smoke — taken before the allowance ran ou
 the Actions tab, until the allowance resets. A re-run spends the thing that is
 exhausted and fails in two seconds regardless. Written up in full on #35.
 
+**And the emails were the noise, not the work.** Every new pull request sends
+one, and overnight that made the volume look like activity when most of it was
+bookkeeping. From 01:31Z no thread opens a documentation-only pull request,
+comments on one, or closes one; work continues as commits on the branches that
+already exist. **So no PR number beyond the ones listed above should appear
+before morning unless it is code that ships.** A number you do not recognise is
+worth a second look for that reason.
+
 **Step 7 is not the first item. Stabilising the app is.**
 
 **There is a purpose-built brake for this already in the code, and it is the

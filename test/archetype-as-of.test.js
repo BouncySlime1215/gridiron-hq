@@ -95,6 +95,20 @@ arch(BRYN, 33, 2026, 'career_influence', 'draft', '2026-09-17T04:10:00.000Z');
 // priced stamp: the trade path reads draft and outcome only.
 arch(BRYN, 33, 2026, 'seasons_observed', 'career', '2026-09-18T04:10:00.000Z');
 
+// League 34, 2026: the outcome source carries the newest priced row here, so
+// dropping 'outcome' from PRICED_SOURCES is visible. League 33 cannot show it
+// — there the newest priced row has to be the unmapped DRAFT metric, for the
+// allowlist test — so the two rules need two fixtures.
+team(34, 2026, '1', ALDA, 'Alda Reyes');
+arch(ALDA, 34, 2026, 'auto_draft_rate', 'draft', '2026-09-10T04:10:00.000Z');
+arch(ALDA, 34, 2026, 'all_play', 'outcome', '2026-09-13T04:10:00.000Z');
+
+// League 35, 2026: rows on the key, but none of them priceable. "Built but
+// nothing to price off" is a different answer from "never built", and neither
+// may borrow the other's date.
+team(35, 2026, '1', BRYN, 'Bryn Okafor');
+arch(BRYN, 35, 2026, 'seasons_observed', 'career', '2026-09-11T04:10:00.000Z');
+
 test('every served manager card says when its archetype evidence was built', () => {
   const cards = archetypesFor(31, 2026);
   assert.equal(cards.size, 2);
@@ -238,4 +252,21 @@ test('the card carries the priced stamp too, so one payload answers both questio
   assert.equal(card.built.priced_as_of, '2026-09-17T04:10:00.000Z');
   assert.deepEqual({ ...card.built }, { ...archetypesBuilt(33, 2026, BRYN) },
     'the card and the direct read are one shape, priced fields included');
+});
+
+test('the outcome source counts toward the priced stamp, not only the draft source', () => {
+  const built = archetypesBuilt(34, 2026);
+  assert.equal(built.priced_as_of, '2026-09-13T04:10:00.000Z',
+    'the newest priced row here is an outcome row, and outcomes are priced');
+  assert.equal(built.priced_rows, 2);
+});
+
+test('a league-season with rows but none priceable says that, and borrows no date', () => {
+  const built = archetypesBuilt(35, 2026);
+  assert.equal(built.rows, 1, 'fixture sanity: the key has a row');
+  assert.equal(built.priced_rows, 0);
+  assert.equal(built.priced_as_of, null,
+    '"built, nothing priceable" must not wear the unrestricted stamp');
+  assert.match(built.reason ?? '', /none from draft or outcome|nothing here is priceable/,
+    'silence here reads as "never built", which is a different fact');
 });

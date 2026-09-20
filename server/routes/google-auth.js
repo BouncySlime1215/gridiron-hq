@@ -162,6 +162,12 @@ r.get('/google/start', legacyRateLimit({ limit: 30, windowMs: 60_000 }), async (
   }
 });
 
+// Called by Google, not by this app. Google's authorization server sends the
+// user's browser here after they consent, at the redirect URI registered on
+// the OAuth client and built by redirectUriFor() above. Nothing in client/
+// references this path and nothing should: a route with only an external
+// caller looks unreachable to a caller-graph sweep, so this is accepted, not
+// dead. Deleting it breaks sign-in with no failing test to show for it.
 r.get('/google/callback', legacyRateLimit({ limit: 30, windowMs: 60_000 }), async (req, res, next) => {
   const state = typeof req.query.state === 'string' ? req.query.state : '';
   const flow = state

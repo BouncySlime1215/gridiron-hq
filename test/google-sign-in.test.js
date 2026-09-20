@@ -33,6 +33,7 @@ const { default: localAuthRouter } = await import('../server/routes/local-auth.j
 const { default: leaguesRouter } = await import('../server/routes/leagues.js');
 const { legacyAuthenticated } = await import('../server/platform/legacy-access.js');
 const { _resetOidcCaches } = await import('../server/platform/google-oidc.js');
+const { hashSessionToken } = await import('../server/platform/auth.js');
 const express = (await import('express')).default;
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -348,6 +349,28 @@ test('disabling an account revokes the sessions it already holds', async () => {
   assert.match(callback.headers.get('location'), /error=disabled/);
 });
 
+/**
+ * The case above passes even if `u.disabled_at IS NULL` is deleted from the
+ * session query, because disabling also revokes that account's live sessions
+ * and `s.revoked_at IS NULL` catches the token on its own. So that guard had
+ * no test of its own, and it is not redundant: server/platform/provision-auth.js
+ * inserts an auth_sessions row directly for any user id an operator names,
+ * disabled or not, and never looks at disabled_at. This is the only thing
+ * standing between a disabled account and a working bearer token.
+ */
+test('a live, unrevoked session belonging to a disabled account is still refused', async () => {
+  const token = crypto.randomBytes(32).toString('base64url');
+  run(`INSERT INTO auth_sessions (user_id, token_hash, expires_at)
+       VALUES (?,?,datetime('now','+30 days'))`, globalThis.__friendId, hashSessionToken(token));
+
+  const session = row(`SELECT revoked_at FROM auth_sessions WHERE token_hash=?`, hashSessionToken(token));
+  assert.equal(session.revoked_at, null, 'the session must be unrevoked, or this asserts the other guard');
+  assert.notEqual(row('SELECT disabled_at FROM users WHERE id=?', globalThis.__friendId).disabled_at, null,
+    'the account must still be disabled from the previous case');
+
+  assert.equal((await fetch(`${base}/auth/session`, { headers: { Authorization: `Bearer ${token}` } })).status, 401);
+});
+
 test('an administrator cannot disable their own account', async () => {
   const response = await fetch(`${base}/auth/accounts/${globalThis.__ownerId}/disabled`, {
     method: 'POST',
@@ -366,6 +389,33 @@ test('logout revokes only the session that was used', async () => {
     { headers: { Authorization: `Bearer ${extra}` } })).status, 401);
   assert.equal((await fetch(`${base}/auth/session`,
     { headers: { Authorization: `Bearer ${globalThis.__ownerToken}` } })).status, 200);
+});
+
+/**
+ * logout-all had no test of any kind, and it is the only other writer of
+ * revoked_at. Without this, a logout-all that quietly behaved like logout —
+ * ending the calling session and leaving every other one alive — would pass
+ * the whole suite, which is the opposite of what "I lost my phone" needs.
+ *
+ * Three live sessions for one account, so the assertion distinguishes "all of
+ * them" from "this one": two tokens issued here plus the one the earlier
+ * cases have been using.
+ */
+test('logout-all ends every session the account holds, not just the caller\'s', async () => {
+  const first = (await (await completeWith((await signInAs({ sub: 'google-nick', email: 'owner@example.com' })).cookie)).json()).token;
+  const second = (await (await completeWith((await signInAs({ sub: 'google-nick', email: 'owner@example.com' })).cookie)).json()).token;
+  const older = globalThis.__ownerToken;
+  for (const token of [first, second, older]) {
+    assert.equal((await fetch(`${base}/auth/session`, { headers: { Authorization: `Bearer ${token}` } })).status, 200,
+      'all three must be live before the call, or this asserts nothing');
+  }
+
+  assert.equal((await fetch(`${base}/auth/logout-all`,
+    { method: 'POST', headers: { Authorization: `Bearer ${first}` } })).status, 200);
+
+  for (const token of [first, second, older]) {
+    assert.equal((await fetch(`${base}/auth/session`, { headers: { Authorization: `Bearer ${token}` } })).status, 401);
+  }
 });
 
 test('return_to is only ever a path on this origin', async () => {

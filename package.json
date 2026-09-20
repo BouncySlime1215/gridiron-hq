@@ -38,7 +38,8 @@
     "build:manager-archetypes": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/build-manager-archetypes.mjs",
     "build:evidence-dataset": "node scripts/build-evidence-dataset.mjs",
     "build:role-scenario-lab": "node scripts/build-role-scenario-lab.mjs",
-    "backfill:prop-quote-reconcile": "node scripts/backfill-prop-quote-reconcile.mjs"
+    "backfill:prop-quote-reconcile": "node scripts/backfill-prop-quote-reconcile.mjs",
+    "backfill:news-entities": "node scripts/backfill-news-entities.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

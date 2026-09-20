@@ -6,6 +6,13 @@
  *     --subject owner@example.com --league-id 1 --role commissioner --draft-team 7:1
  *
  * The raw bearer token is printed once; only its SHA-256 digest is persisted.
+ *
+ * Nothing in this repository imports this file, and nothing should: it is a
+ * command an operator runs in a shell, like the scripts under scripts/. A
+ * caller-graph sweep reports it as unimported, which is true and is not a
+ * finding — the caller is a person at a terminal. Deleting it takes away the
+ * only way to provision the first administrator of a fresh self-hosted
+ * install, with no failing test to show for it.
  */
 import crypto from 'node:crypto';
 import { runMigrations } from '../db/migrate.js';

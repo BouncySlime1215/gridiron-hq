@@ -99,17 +99,28 @@ Every check was run against a deliberately broken copy. A test that stays green
 under a mutation is a test that proves nothing, so a surviving injection is
 treated as a defect in the test, not a pass.
 
-| Injection | Result |
-|---|---|
-| baseline, no injection | 26 pass / 0 fail |
-| most-recently-fetched fallback restored | **5 fail** |
-| commissioner preference dropped | **1 fail** |
-| `requireCredentialsForLeague` returns nulls instead of throwing | **6 fail** |
-| league refresh reads the league row directly again | **3 fail** |
-| per-user lookup borrows when the row is **missing** | **1 fail** |
-| per-user lookup borrows when the row is **blank** | **3 fail** |
-| connect token matches any account | **3 fail** |
-| league's own stored pair ignored | **1 fail** |
+| Injection | Applied (diff) | Result |
+|---|---|---|
+| baseline, no mutation | — | 26 pass / 0 fail |
+| most-recently-fetched fallback restored | 3+/0- | **5 fail** |
+| commissioner preference dropped | 1+/1- | **1 fail** |
+| `requireCredentialsForLeague` never throws | 1+/0- | **6 fail** |
+| league refresh reads the league row directly | 2+/2- | **3 fail** |
+| per-user lookup borrows when the row is **missing** | 2+/1- | **1 fail** |
+| per-user lookup borrows when the row is **blank** | 2+/1- | **3 fail** |
+| connect token matches any account | 1+/1- | **3 fail** |
+| league's own stored pair ignored | 1+/1- | **1 fail** |
+| draft fetch uses a hardcoded wrong pair | 1+/1- | **5 fail** |
+
+**Each mutation is recorded as applied, and that column is not decoration.**
+The first version of this sweep used a plain string substitution with no check
+that the anchor matched. A substitution that silently matches nothing leaves
+the file untouched, and the run that follows is the baseline wearing a
+mutation's name — a green result then reads as "the test caught nothing" when
+it in fact measured nothing. Caught by the scheduler thread on their own sweep,
+where exactly that happened. The rerun asserts the anchor appears exactly once
+before writing and records `git diff --numstat` after, so every row above is
+backed by a file that actually changed.
 
 **One injection survived on the first pass** and produced a real test: a
 fallback in `credentialsForUser` for a *missing* row went undetected, because
@@ -131,3 +142,55 @@ covered only against an empty database, as it is for every migration here.
 
 2,975 tests, 2,934 passed, 0 failed, 41 skipped. `npm run typecheck`,
 `npm run lint`, `npm run build`, `npm run start:smoke` clean.
+
+## The five questions
+
+**Is this well built?** One module answers "whose credentials?" and every ESPN
+fetch that names a league goes through it. The resolution order is fixed and
+deterministic — the league's own pair, then a member (commissioner first, then
+lowest user id), then a refusal — so the answer cannot change under a caller
+because somebody else happened to sync.
+
+**Is it measured, or asserted?** Measured, and where it is not, that is said in
+the same sentence. The borrow was reproduced on a `791b131` worktree over real
+HTTP and the actual cookie printed; the anonymous league refresh was executed
+(200, three ESPN calls, `Cookie: null`) rather than read off the source; the
+player-pool table is a real request at three limits. Still inferred and labelled
+as such: that ESPN cookies could not exceed the 1042 anonymous ceiling (the
+with-cookies side was never run), and that migration 063 behaves on the
+production database, since the fixture is real-shaped but is not a copy of it.
+
+**Audit the structure.** The defect was one lookup existing twice in files that
+drifted apart, so the fix is one module and no second copy. `espnGet` and
+`fetchEspn` now take our `leagues.id`, which is the only value that says whose
+credentials a request may use. Failure is a typed error with a status, not a
+null, because the failure being replaced was silent.
+
+**Audit the overall build.** Nine deliberate mutations were run against the
+code; eight turned the suite red immediately. The ninth survived and was
+treated as a missing test rather than a pass — every fixture account had a row,
+so "an account that has never connected" was never asked for. That case is now
+pinned and all nine fail. Numbers for the full local check are at the end of
+this document.
+
+**Should this data point anywhere else, and is it unified?** Not completely,
+and the gap is named rather than implied. `server/services/espn-market.js:19,31`
+still reads `espn_s2`/`swid` off the league row and sends no cookie when that
+row is bare — the same shape as the league-refresh bug fixed here.
+
+**It is latent, not live, and the distinction is load-bearing.** Nothing on
+`main` imports that module and nothing calls `syncEspnMarket`: the only two
+references are a filename string and a comment in
+`db/schema/core-and-fantasy.js`, neither of which is an import. So the
+anonymous fetch cannot happen today — it becomes reachable the moment a caller
+is wired, which is also when it stops being cheap to fix. An earlier draft of
+this section said a connected owner "gets" an anonymous fetch; that was
+present tense for something unreachable, and it is corrected here. Verified by
+grep over `server/`, `scripts/` and `test/` rather than assumed in either
+direction; feature-audit, the file's owner under the one-editor rule,
+independently verified the same thing on `791b131`.
+
+`espn-market.js` is allocated to that thread, so it is routed rather than
+edited here, and they will route those two lines through this resolver when a
+caller is wired. At that point every credential read on the platform goes
+through the one resolver.

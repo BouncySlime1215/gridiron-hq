@@ -56,7 +56,10 @@ import { crps } from './backtest.js';
  */
 export function pairedBootstrapDiff(valuesA, valuesB, { iterations = 2000, seed = 1, groups } = {}) {
   const n = Math.min(valuesA.length, valuesB.length);
-  if (n < 10) return { error: `too few paired observations (${n}) to bootstrap meaningfully` };
+  if (n < 10) {
+    return { error: `too few paired observations (${n}) to bootstrap meaningfully`,
+      n, clustered: false };
+  }
 
   const diffs = new Array(iterations);
   // CORRECTED 2026-09-12 sweep item 16(ii): this used to accept any `groups`
@@ -77,7 +80,18 @@ export function pairedBootstrapDiff(valuesA, valuesB, { iterations = 2000, seed 
   // below (the same safe fallback the too-SHORT case already used), exactly
   // like the existing 'groups shorter than n is ignored gracefully' test
   // already expects for the other direction.
-  if (groups && groups.length === n) {
+  // Whether the clustered path was actually taken, and therefore whether this
+  // interval accounts for within-group correlation. A caller that passes
+  // `groups` is asserting its observations are correlated within a unit, and
+  // the fallback below is HONEST but WIDER-than-it-should-be in the other
+  // direction: it under-covers exactly as the ungrouped bootstrap always did.
+  // Both refusals above and below are silent from the caller's side -- the
+  // returned interval looks identical either way -- so the caller cannot tell
+  // that its clustering request was declined unless the answer says so. It
+  // says so now: `clustered` is on every return, and a caller that passes
+  // `groups` should assert it is true rather than trust that it was used.
+  const clustered = Boolean(groups && groups.length === n);
+  if (clustered) {
     const byGroup = new Map();
     for (let i = 0; i < n; i++) {
       const key = groups[i];
@@ -119,7 +133,7 @@ export function pairedBootstrapDiff(valuesA, valuesB, { iterations = 2000, seed 
     mean_diff: +mean_diff.toFixed(4), ci90: [+lo.toFixed(4), +hi.toFixed(4)],
     p_b_better: +p_b_better.toFixed(3),
     significant: !(lo <= 0 && hi >= 0),
-    n, iterations
+    n, iterations, clustered
   };
 }
 

@@ -3082,6 +3082,23 @@ reading, not less: it is now a discriminator. A `running` row stamped about 90
 seconds into a life says that job did start; the absence of one across several
 lives points at the tier instead.*
 
+*It cannot be answered ahead of the morning, and the near miss is worth writing
+down so nobody spends time on it twice. The table is served: `latestRun()`
+(`nfl-model-growth.js:112`) reaches HTTP as `model_growth.latest_run` through
+`nflModelGrowthStatus` (`:118`) into `profitabilityOperations`
+(`nfl-profitability.js:222`) and out of `GET /api/nfl-betting/profitability`
+(`routes/nfl-betting.js:197`). But that router is mounted behind
+`legacyAuthenticated` (`index.js:132`), which is `[requireAuthenticated,
+legacyRateLimit()]` (`platform/legacy-access.js:22`) and returns 401 to an
+anonymous caller. There is no credential in this session and there should not
+be one. Two further reasons not to want the shortcut even if it existed:
+`profitabilityOperations` runs more than a dozen aggregate reads in one
+synchronous pass, which is exactly the kind of work being blamed for the
+blocking — running it would risk causing a restart and then counting it — and
+`latest_run` would arrive without the timestamps of the lives around it. **So
+step 3 stays a SQL read over `fly ssh console`, on the brake, where the app is
+quiet and the row can be read next to a known-good `uptime_s`.**
+
 **Two main-thread blockers stack in every life, and conflating them is what cost
 the evening.** Trade Brain's own health log caught the earlier one directly: a
 request issued 41 seconds into a life was not answered until about 64 seconds

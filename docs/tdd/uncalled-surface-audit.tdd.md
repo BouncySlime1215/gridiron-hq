@@ -241,3 +241,186 @@ its predecessor by wording in this file alone.
 CI is not run: GitHub Actions is out of minutes until 2026-10-01 and the
 workflow is deliberately disabled. A red or missing check on a PR carrying this
 work is that, not its content.
+
+---
+
+## Appendix A — the exact text of every injection
+
+A row that describes an edit cannot be re-run from the description; a row that
+quotes it can. Everything below is extracted from the scripts that actually
+ran, not retyped, so the quoted text is the text that was matched and written.
+Each sweep asserted its `before` text appeared exactly once before writing, and
+restored the file afterwards.
+
+### News backfill — §2
+
+Injected into `server/routes/espn.js`. Each pair is the exact text matched and the exact text
+written in its place, copied from the script that ran, so a reader can reproduce
+the row without reconstructing it from a description.
+
+**stop filtering to unfilled rows**
+
+before:
+```js
+WHERE entities_json IS NULL OR published_at IS NULL
+```
+after:
+```js
+WHERE 1=1
+```
+must turn red: `a second run finds nothing left to do`
+
+**stamp the run time instead of the story date**
+
+before:
+```js
+const fallbackPublishedAt = item.date ? new Date(`${item.date}T12:00:00Z`).toISOString() : new Date().toISOString();
+```
+after:
+```js
+const fallbackPublishedAt = new Date().toISOString();
+```
+must turn red: `published_at is backdated to the story date, not to now`
+
+**overwrite an existing published_at**
+
+before:
+```js
+UPDATE news_items SET entities_json = ?, published_at = COALESCE(published_at, ?) WHERE id = ?
+```
+after:
+```js
+UPDATE news_items SET entities_json = ?, published_at = ? WHERE id = ?
+```
+must turn red: `a story that already has a publish time keeps it while its entities are filled in`
+
+**count every row as having resolved a player**
+
+before:
+```js
+if (entities.players.length) resolved++;
+```
+after:
+```js
+resolved++;
+```
+must turn red: `a story that names nobody we track is answered, not left NULL`
+
+**leave a no-match story NULL instead of answering it**
+
+before:
+```js
+update.run(JSON.stringify(entities), fallbackPublishedAt, item.id);
+```
+after:
+```js
+update.run(entities.players.length ? JSON.stringify(entities) : null, fallbackPublishedAt, item.id);
+```
+must turn red: `a story that names nobody we track is answered, not left NULL`
+
+**report success without writing anything**
+
+before:
+```js
+    update.run(JSON.stringify(entities), fallbackPublishedAt, item.id);
+    updated++;
+```
+after:
+```js
+    updated++;
+```
+must turn red: `a story left without entities gets them, and names the player it mentions`
+
+**CONTROL — pattern that does not exist in the file**
+
+before:
+```js
+const fallbackPublishedAt = moment(item.date).toISOString();
+```
+after:
+```js
+const fallbackPublishedAt = null;
+```
+control row: this text is not in the file, so nothing ran.
+
+### Session guards — §3
+
+Injected into `server/platform/auth.js`. Each pair is the exact text matched and the exact text
+written in its place, copied from the script that ran, so a reader can reproduce
+the row without reconstructing it from a description.
+
+**drop the revoked-session guard**
+
+before:
+```js
+s.revoked_at IS NULL
+      AND 
+```
+after:
+```
+(nothing — the matched text is deleted outright)
+```
+must turn red: `logout revokes only the session that was used`
+
+**drop the disabled-account guard**
+
+before:
+```js
+ AND u.disabled_at IS NULL
+```
+after:
+```
+(nothing — the matched text is deleted outright)
+```
+must turn red: `a live, unrevoked session belonging to a disabled account is still refused`
+
+**CONTROL — pattern that does not exist in the file**
+
+before:
+```js
+AND s.locked_at IS NULL
+```
+after:
+```
+(nothing — the matched text is deleted outright)
+```
+control row: this text is not in the file, so nothing ran.
+
+### logout-all — §3
+
+Injected into `server/routes/google-auth.js`. Each pair is the exact text matched and the exact text
+written in its place, copied from the script that ran, so a reader can reproduce
+the row without reconstructing it from a description.
+
+**logout-all ends only the calling session**
+
+before:
+```js
+run(`UPDATE auth_sessions SET revoked_at=datetime('now') WHERE user_id=? AND revoked_at IS NULL`, req.auth.userId);
+  res.json({ ok: true });
+});
+
+// ------------------------------------------------------------------- invites
+```
+after:
+```js
+run(`UPDATE auth_sessions SET revoked_at=datetime('now') WHERE id=? AND revoked_at IS NULL`, req.auth.sessionId);
+  res.json({ ok: true });
+});
+
+// ------------------------------------------------------------------- invites
+```
+must turn red: `logout-all ends every session the account holds, not just the caller's`
+
+**CONTROL — pattern that does not exist in the file**
+
+before:
+```js
+UPDATE auth_sessions SET expired_at=datetime('now')
+```
+after:
+```
+(nothing — the matched text is deleted outright)
+```
+control row: this text is not in the file, so nothing ran.
+

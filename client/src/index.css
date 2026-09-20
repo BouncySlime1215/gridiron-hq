@@ -546,3 +546,43 @@ body { font-family: var(--font-body); }
 /* Rides alongside a published percentage. Publishing is not the same as being
    right, and the overconfidence was measured at every week. */
 .odds-caveat { margin-top: .5rem; font-size: var(--type-note); line-height: 1.5; color: var(--muted); }
+
+/* ------------------------------------------------------------------ capture
+   The ESPN-tab bookmarklet panel (components/draft/SourcePill.tsx).
+
+   `.capture-warning` is the one place in this file that is allowed to be
+   `--warn` and mean it: the server has told us the bookmarklet cannot load on
+   an https page, so the thing the user is about to drag to their bookmarks bar
+   is known not to work. That is not degraded data, it is a broken action, and
+   it is the difference between finding out now and finding out during a live
+   draft. It is a warning, not an error, because the fix is one command away and
+   nothing has gone wrong yet. */
+.capture-panel {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem;
+  font-size: var(--type-note); line-height: var(--type-note-lh); color: var(--muted);
+}
+.capture-warning {
+  flex-basis: 100%;
+  border-left: 3px solid var(--warn);
+  padding: .3rem .55rem;
+  background: var(--surface);
+  color: var(--warn);
+}
+.capture-note { flex-basis: 100%; }
+.capture-actions { display: inline-flex; gap: .5rem; flex-wrap: wrap; }
+.capture-drag {
+  font-weight: 700; padding: .15rem .5rem; border-radius: 6px;
+  border: 1px solid var(--edge); background: var(--surface); color: var(--ink);
+  cursor: grab; user-select: none;
+}
+.capture-drag-quiet { font-weight: 500; color: var(--muted); }
+/* The raw facts — origin, loader URL, byte count — in the mono face, because
+   they are literally keys and URLs rather than prose. Design system section 1:
+   the mono is for anything that is a key. */
+.capture-detail {
+  flex-basis: 100%;
+  display: flex; flex-wrap: wrap; gap: .1rem .75rem;
+  font-family: var(--font-mono);
+  font-size: var(--type-label); line-height: var(--type-label-lh); color: var(--muted);
+}
+.capture-detail a { text-decoration: underline; text-underline-offset: 2px; }

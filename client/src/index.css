@@ -359,3 +359,66 @@ body { font-family: var(--font-body); }
   color: var(--muted);
 }
 .basis-line .basis-chip { flex: none; cursor: default; }
+
+/* ── Stat block ───────────────────────────────────────────────────────────
+   A number, its name, its basis, one line of why. NOT a card: no border, no
+   fill, no shadow. Six of these in a row should read as six facts about one
+   thing, not as six separate objects. */
+.stat-block {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    'label label'
+    'value basis'
+    'note  note';
+  align-items: baseline;
+  gap: .125rem .5rem;
+  justify-items: start;
+  text-align: left;
+  padding: .25rem;
+  margin: -.25rem;          /* the padding is hit area, not layout */
+  border-radius: 6px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+}
+.stat-block-label {
+  grid-area: label;
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.stat-block-value {
+  grid-area: value;
+  font-size: var(--type-stat);
+  line-height: var(--type-stat-lh);
+  font-weight: 700;
+  font-stretch: 118%;
+  color: var(--ink);
+}
+.stat-block-hero .stat-block-value { font-size: var(--type-hero); line-height: var(--type-hero-lh); font-stretch: 125%; }
+.stat-block-basis { grid-area: basis; align-self: center; }
+.stat-block-note {
+  grid-area: note;
+  font-size: var(--type-note);
+  line-height: 1.5;
+  color: var(--muted);
+  margin-top: .125rem;
+}
+
+/* Up and down only where they genuinely mean better and worse. Never set from
+   the basis: a basis is an attribute, not a verdict, and that separation is the
+   whole reason the ramp exists. */
+.stat-block-value.tone-good { color: var(--good); }
+.stat-block-value.tone-crit { color: var(--crit); }
+
+/* Interactive only when something opens. A block with no deep dive behind it
+   must not look clickable — a hover state that leads nowhere is a worse lie
+   than no affordance at all. */
+.stat-block.is-interactive { cursor: pointer; transition: background var(--motion-quick) var(--ease-out); }
+.stat-block.is-interactive:hover { background: var(--panel); }
+.stat-block.is-interactive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stat-block.is-interactive:hover .stat-block-label { color: var(--ink); }

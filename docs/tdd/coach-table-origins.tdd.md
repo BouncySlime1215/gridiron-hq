@@ -151,6 +151,16 @@ by that one test and by nothing else.
 
 ## 4. Mutation table — every injection APPLIED, by hash
 
+**Coverage, measured not asserted.** This sweep's 7 injections run against the catalog and select
+suites and kill 8 of their tests; the other 29 are killed by the catalog sweep, which
+shares those suites. The count that matters is the union across both files.
+Across all eight Coach sweeps the union of red titles covers **159 of the 159 tests** in
+the twelve `test/coach-*` suites, from 155 injections. Nothing in these suites is
+turned red by nothing. The full check was green on the tree at `e249cc5`: **3,116 tests,
+3,075 pass, 0 fail, 41 skipped, 475.3 s**, build and startup smoke on an isolated
+database included, `npm run check` exit 0. Reproduce the coverage with the harness's
+`--baseline` mode and the spec file beside it.
+
 Every row was re-measured at this head, and every row is reproducible:
 
     python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/creators.json

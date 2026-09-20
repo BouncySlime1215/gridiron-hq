@@ -168,3 +168,106 @@ top-level-await module that reaches ESPN on import, the same reason
 `capture-availability-baseline.mjs` had no test before its predicates were
 extracted (`docs/tdd/capture-restart-guards.tdd.md`). This change reads what
 the collector wrote; it does not exercise the writing.
+
+---
+
+# Part 2: the two trade-path consumers (RED `788193d`, GREEN below)
+
+The manager read states its collection date. The two reads that sit between it
+and a trade card did not, and they are the ones Nick actually sees: `timingRead`
+tells him when a manager last declined one of his offers, `vetoClimate` prices
+how vetoable a package is, and `selfRead` paces his own next offer — all three
+from the same rows nothing on the deployed app collects.
+
+Three surfaces, one accessor, one field name. `transactionsCollected` is
+imported into `trade-tactics.js` and `counterparty-pricing.js` and the result is
+`Object.freeze`d, because in `timingRead` one league-level block is shared by
+every roster object and a caller mutating it would change every manager's date
+at once.
+
+Where each one sits, and why there:
+
+- **`timingRead`** — on the per-roster object, beside its existing `source` and
+  `fitted`. A manager with no decisions gets the date too: "we have not looked
+  since Thursday" and "he has done nothing" are different answers, and the
+  blank object is what a quiet manager returns.
+- **`vetoClimate`** — set **before** the `!tx.length` early return. That return
+  is exactly where a league with nothing collected looked identical to a league
+  with no veto history.
+- **`selfRead`** — set **before** the `me == null` early return, for the same
+  reason: without it, a league Nick has not claimed and a league nobody has ever
+  collected look the same, and the reason names only the first.
+
+One improvement that falls out for free. All three functions wrap their read in
+`try { … } catch { tx = [] }` — a bare catch that turns a missing table into "no
+transactions", which is the shape CLAUDE.md names as having shipped two real
+bugs here. The catches are untouched (not this change's scope), but the block now
+distinguishes the two states: an absent table reports "the collector has never
+run here" rather than passing as an empty collection.
+
+## Mutation run, pasted verbatim
+
+```
+BASELINE (no mutation): 36 pass, 0 fail
+C1  the timing read drops the block from the per-manager object
+    APPLIED -> killed by: G5d; G5d3
+C2  the timing read's date tracks the READ cutoff instead of the collection
+    APPLIED -> killed by: G5d; G5d3
+C3  the veto climate sets the block AFTER the no-transactions early return
+    APPLIED -> killed by: G5d2
+C4  selfRead sets the block after the no-roster early return, so the unavailable path has no date
+    APPLIED -> killed by: G5d4
+C5  the veto climate rolls its own MAX() instead of the shared accessor, and drifts
+    APPLIED -> killed by: G5d2; G5d3
+C6  selfRead reports every league's collection, not this league's
+    APPLIED -> killed by: G5d3
+```
+
+Six injections, six applied, six caught.
+
+**C4 survived the first pass, and the reason is worth recording.** `selfRead`'s
+`me == null` branch — a league with no roster marked as Nick's — had **no test
+at all**, in any file: every fixture league in `trade-tactics.test.js` and
+`valuation-map.test.js` is created with `my_team_id` defaulted to `'1'`. So the
+mutation that moved the collection date below that early return changed nothing
+any test could see. Fixed by adding league 33 with a null `my_team_id` and
+G5d4. That is the third fixture-level blind spot the mutation discipline found
+tonight, all of the same kind: **a branch a fixture cannot reach is a branch no
+assertion protects, however many assertions are written about it.**
+
+**C2 and C5 are the two that matter most**, and neither is a strawman:
+
+- **C2** makes the date track `now`, the read cutoff. `timingRead` already takes
+  `now` to stay cutoff-safe, so conflating "what I read" with "when it arrived"
+  is the natural mistake, and it would make the date appear to advance on every
+  call while the rows sat still. G5d asserts the date is unmoved when the cutoff
+  moves a clock-day forward.
+- **C5** re-rolls the query locally instead of calling the shared accessor, and
+  drifts. G5d3 catches it because it asserts the three reads are `deepEqual` to
+  each other, not that each is individually plausible. That is the difference
+  between testing a value and testing the unification, and it is the only
+  assertion in this change that would survive someone "tidying up" the import.
+
+## The five questions, for Part 2
+
+**1. Stats or made up?** Definitional, class D, exactly as Part 1 — a column
+maximum, a count, a column minimum. No threshold introduced.
+
+**2. How do we know?** Four tests, six mutations, the run above; all six applied.
+
+**3. Structure.** Neither consumer computes its own date; both call the one
+accessor that already serves the manager read. `Object.freeze` on the shared
+block. `trade-tactics.js` gained its first import beyond `rows`, and there is no
+cycle: `manager-signals.js` imports only `db`, `manager-identity` and `paths`.
+
+**4. Pointed anywhere else?** One left, `manager-archetypes.js`, routed to the
+chat-sync thread — it is not this thread's file. After that, every consumer of
+`league_transactions_raw` states its input's age.
+
+**5. How does it unify?** This is the answer to the question rather than another
+instance of it. Part 1 established the rule; Part 2 is the rule applied to
+every consumer of one table through one accessor, with G5d3 asserting the three
+agree. The standing rule that came out of it, now beyond this table: **an "as
+of" must come from the data's own stamps for the thing being described, never
+from a job-level stamp** — because a job that catches per-item failures and
+continues will report success while one item silently stays stale.

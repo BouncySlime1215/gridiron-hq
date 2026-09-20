@@ -18,7 +18,7 @@
  * are the contract that keeps a chatty manager from dominating the ranking.
  */
 import { rows } from '../db/index.js';
-import { managerSignalsFor, openChatDb, chatDataKey } from './manager-signals.js';
+import { managerSignalsFor, openChatDb, chatDataKey, transactionsCollected } from './manager-signals.js';
 import { identityMap } from './manager-identity.js';
 import { talkReads, expectationGaps, rosterOwnership, HOT_GAP_PER_GAME } from './talk-vs-model.js';
 import { declarationCredibility, untouchableStance } from './bluff-detector.js';
@@ -853,10 +853,17 @@ export function selfRead(leagueId, { season = null } = {}) {
     league_id: leagueId, available: false, reason: null, my_roster_id: me,
     to_each_manager: new Map(), known_shopping: [], veto_votes_against: 0, veto_voters: [],
     profile: null, sources: [],
+    // How old the history behind all of this is. Nick's own offer record is read
+    // from the same table nothing on the deployed app writes, so a pacing line
+    // ("you last asked him on the 14th") is only as current as the last manual
+    // collection. Served on the unavailable path too — a `null` here with no date
+    // reads as "he has never offered anybody anything".
+    transactions: null,
   };
+  const yr = season ?? lg.season ?? null;
+  out.transactions = Object.freeze(transactionsCollected(leagueId, yr));
   if (me == null) return { ...out, reason: 'this league has no roster marked as Nick\'s' };
 
-  const yr = season ?? lg.season ?? null;
   let tx = [];
   try {
     tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json

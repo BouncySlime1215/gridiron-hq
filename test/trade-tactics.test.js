@@ -159,6 +159,11 @@ insertLeague(LEAGUE, leaguePayload());
 const barePayload = leaguePayload();
 barePayload.settings.tradeSettings.vetoVotesRequired = 5;
 insertLeague(BARE, barePayload);
+// A third league with NO roster marked as Nick's. selfRead returns early on that,
+// and no test had ever reached that branch — which is how a mutation moving the
+// collection date below the early return survived the first mutation pass.
+const UNCLAIMED = 33;
+insertLeague(UNCLAIMED, leaguePayload(), null);
 
 // Market values. The seed carries none, and a valuation map over a league where
 // every player is worth 0 would prove nothing — so the fixture prices them, on
@@ -753,6 +758,19 @@ test('G5d3: how-Nick-looks states it, and one accessor means no two surfaces can
   assert.deepEqual(self.transactions, climate.transactions);
   const bare = pricing.selfRead(BARE, { season: SEASON });
   assert.equal(bare.transactions.as_of, null);
+});
+
+test('G5d4: a league with no roster marked as Nick\'s still reports the collection date', () => {
+  // The unavailable path. Without the date here, a league Nick has not claimed
+  // and a league nobody has ever collected look the same, and the reason only
+  // names the first of the two.
+  const self = pricing.selfRead(UNCLAIMED, { season: SEASON });
+  assert.equal(self.available, false);
+  assert.match(self.reason, /no roster marked as Nick/);
+  assert.ok(self.transactions, 'the early return carries the block');
+  assert.equal(self.transactions.rows, 0, 'this league has no transactions of its own');
+  assert.equal(self.transactions.as_of, null);
+  assert.ok(typeof self.transactions.reason === 'string' && self.transactions.reason.length > 0);
 });
 
 // ============================================================== G6 veto

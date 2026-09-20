@@ -169,6 +169,27 @@ const callWith = (availability_basis, active_probability) => {
   return call;
 };
 
+/**
+ * The five assertions below replaced two pipe alternations, and each one carries the
+ * mutation that motivated it, re-run AFTER the split. A replacement a neighbouring
+ * clause can satisfy is not a split, so "it looks tighter" is not the test -- the row
+ * is. Run with --experimental-test-module-mocks; without it this file does not load at
+ * all and reports one failure that is not a test result.
+ *
+ * | assertion                          | mutation                                        | old | new |
+ * |---|---|---|---|
+ * | effect names the pooled rate       | `pooled injury-report rate` -> `pooled rate`    |  0  |  1  |
+ * | effect carries the placeholder read| `known-low placeholder` -> `rough placeholder`  |  0  |  1  |
+ * | effect is not the constants branch | the ternary always takes the constants side     |  0  |  1  |
+ * | the caveat rides with the number   | caveat -> `not running from the fitted layer`   |  0  |  1  |
+ * | the caveat names the inert layer   | `is not running (docs/...)` -> `is idle (...)`  |  0  |  1  |
+ *
+ * `old` is the failure count against the two alternations, `new` against the split.
+ * Every row is 0 -> 1: each mutation slid past the alternation and is caught now.
+ * The third row is not isolated -- the ternary swap fails the first two as well -- and
+ * it is recorded that way rather than dressed up with a contrived edit that only it
+ * would catch.
+ */
 test('an inert role layer is reported on the lineup call with its reason, like counterparty-pricing', () => {
   const note = callWith(POOLED, 0.574).availability_note;
   assert.ok(note, 'the pooled basis is a degradation and must be named');

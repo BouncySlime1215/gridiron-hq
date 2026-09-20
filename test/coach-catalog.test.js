@@ -133,3 +133,18 @@ test('every redacted column named by the catalog actually exists on its table', 
     }
   }
 });
+
+test('every stat the lexicon names sits in a table Coach is allowed to read', async () => {
+  // These two lists drifted the moment the lexicon grew: stat-names.js named
+  // columns of off_ngs_season, off_pfr_adv_season, off_qbr_season and
+  // off_depth_chart while the catalog did not list any of them, so Coach could
+  // label a number it could not retrieve. A stat with a careful plain-English
+  // explanation and no way to fetch it is worse than one with neither: it
+  // invites a question that can only be answered from training.
+  const { STAT_FIELDS } = await import('../server/services/coach/stat-names.js');
+  const readable = new Set(readableTables());
+  const unreadable = [...new Set(Object.keys(STAT_FIELDS).map(field => field.split('.')[0]))]
+    .filter(table => !readable.has(table));
+  assert.deepEqual(unreadable, [],
+    `the lexicon names columns of tables Coach cannot read: ${unreadable.join(', ')}`);
+});

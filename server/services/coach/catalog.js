@@ -119,6 +119,28 @@ export const COACH_TABLES = Object.freeze({
     'what a story actually asserts, as structured fields rather than prose: signal type, status, body part, probability the player is unavailable, role change, confidence, and the span of text it came from',
     'nfl_news_signals job', 'auto'),
 
+  // --- season-long advanced stats, from nflverse's own release files ---
+  // These five are the tables stat-names.js already names columns of, which
+  // meant Coach could label a number it was not allowed to read. They refresh
+  // ONCE after a season ends (nfl-offseason-cycle.js:47, fired by the
+  // nfl_offseason_cycle job), not weekly — an answer standing on them is
+  // talking about a completed season, and the freshness line says so.
+  off_ngs_season: t('one player in one season, for one kind of usage (receiving, rushing or passing)',
+    "Next Gen Stats' own season aggregates from the tracking data: separation and cushion at the catch point, air-yards share, YAC over expected, catch rate, rush efficiency and rush yards over expected, time to throw, aggressiveness and completion percentage over expected",
+    'the offseason cycle, once after a season ends', 'auto'),
+  off_pfr_adv_season: t('one player in one season, for one kind of usage',
+    "Pro Football Reference's advanced season table: average depth of target, yards before and after the catch per reception and per attempt, broken tackles, drop rate, pressure rate, on-target rate, pocket time and play-action attempts",
+    'the offseason cycle, once after a season ends', 'auto'),
+  off_qbr_season: t('one quarterback in one season',
+    "ESPN's Total QBR and its parts: total QBR, points added, qualifying plays, total EPA and the raw score, with whether he met the attempt threshold to qualify",
+    'the offseason cycle, once after a season ends', 'auto'),
+  off_depth_chart: t('one player at one position on one team, in one season',
+    'the depth chart as it was published: position group, rank within it, the slot label, and the week the listing was taken from. A LISTING, not a measurement — it can be stale or wrong, and snap share is what settles a disagreement between them',
+    'the offseason cycle, once after a season ends', 'auto'),
+  off_team_season_stats: t('one team in one season',
+    'the season totals a team posted on offence: attempts, carries, completions, passing and rushing yards and touchdowns, sacks suffered, passing and rushing EPA, air yards, targets and first downs. The denominator behind any share',
+    'the offseason cycle, once after a season ends', 'auto'),
+
   // --- what the app itself concluded ---
   weekly_prediction_snapshots: t('one player in one week, at one cutoff',
     'the weekly projection as it stood at a stated cutoff, with its components (structural, season-to-date, last three, last one) and the engine version that produced it. The record that makes a projection gradeable after the fact',

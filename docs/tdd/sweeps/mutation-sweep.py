@@ -15,6 +15,13 @@ reported NOT APPLIED rather than silently scoring zero failures, and each
 spec file ends with a NO-OP control so that a zero in the failure column is
 a measurement rather than a mechanism that quietly did nothing.
 
+For each test it turns red, a row records the file and line of the assertion
+that actually threw, taken from the runner's own stack frame. Which assertion
+caught an injection is not a detail: a row aimed at a negation can be killed
+by a positive assertion standing beside it, in which case the positive is
+measured twice and the negation not at all. The line makes that checkable from
+the output instead of by reading the diff.
+
 A row normally names one file. A row may instead name `files`, a list of
 {file, edits} groups applied together, for the case where the behaviour under
 attack is guarded twice and removing either guard alone changes nothing a
@@ -24,7 +31,7 @@ rows that measure it stay in the spec beside the two-file row.
 It writes nothing outside the files it is mutating and a <spec>.results.json
 beside the spec, and it restores every file it touched unconditionally.
 """
-import hashlib, json, pathlib, subprocess, sys, os, tempfile
+import hashlib, json, pathlib, re, subprocess, sys, os, tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 
@@ -52,6 +59,36 @@ def groups(spec):
              [tuple(e) for e in (spec.get('edits') or [[spec['old'], spec['new']]])])]
 
 
+FRAME = re.compile(r'\(file://(?P<path>[^)]*?):(?P<line>\d+):\d+\)')
+
+
+def failures(text):
+    """('not ok' lines, their titles, and where each assertion actually threw).
+
+    The third is the point. node:test's TAP block carries a `stack:` whose
+    first frame is the assertion that failed, so a row can say which line
+    caught it rather than only which test did.
+    """
+    out_lines = text.splitlines()
+    lines, titles, killers = [], [], []
+    for i, line in enumerate(out_lines):
+        if not line.startswith('not ok'):
+            continue
+        lines.append(line)
+        titles.append(line.split(' - ', 1)[1] if ' - ' in line else line)
+        where = '-'
+        for follow in out_lines[i + 1:i + 40]:
+            if follow.startswith('not ok') or follow.startswith('ok '):
+                break
+            m = FRAME.search(follow)
+            if m:
+                path = m.group('path')
+                where = f"{path[len(str(ROOT)) + 1:] if path.startswith(str(ROOT)) else path}:{m.group('line')}"
+                break
+        killers.append(where)
+    return lines, titles, killers
+
+
 def run_one(spec):
     gs = groups(spec)
     originals = [p.read_bytes() for p, _ in gs]
@@ -72,8 +109,7 @@ def run_one(spec):
     after = '+'.join(sha(p)[:8] for p, _ in gs)
     out = subprocess.run(NODE + spec['tests'].split(),
                          cwd=ROOT, env=test_env(), capture_output=True, text=True)
-    lines = [l for l in (out.stdout + out.stderr).splitlines() if l.startswith('not ok')]
-    titles = [l.split(' - ', 1)[1] if ' - ' in l else l for l in lines]
+    lines, titles, killers = failures(out.stdout + out.stderr)
     for (p, _), before_bytes in zip(gs, originals):
         p.write_bytes(before_bytes)
     restored = '+'.join(sha(p)[:8] for p, _ in gs)
@@ -83,7 +119,7 @@ def run_one(spec):
     # subtracted from the suite. A capped list makes the union look thinner
     # than it is, which is the flattering direction.
     return {**spec, 'status': status, 'before': before, 'after': after,
-            'fails': len(lines), 'titles': titles}
+            'fails': len(lines), 'titles': titles, 'killers': killers}
 
 
 def baseline(tests):
@@ -114,7 +150,7 @@ if __name__ == '__main__':
         r = run_one(spec)
         results.append(r)
         print(f"{r['id']}|{r['status']}|{r['before']}->{r['after']}|fails={r['fails']}|"
-              f"{(r['titles'] or ['-'])[0]}", flush=True)
+              f"{(r.get('killers') or ['-'])[0]}|{(r['titles'] or ['-'])[0]}", flush=True)
     out = pathlib.Path(sys.argv[1]).with_suffix('.results.json')
     prev = json.loads(out.read_text()) if out.exists() else []
     byid = {x['id']: x for x in prev}

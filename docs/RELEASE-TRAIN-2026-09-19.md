@@ -12,9 +12,15 @@ against `origin/main`. It is byte for byte the tree the suite ran green on:
 2,950 tests, 2,909 passed, 0 failed, 41 skipped, plus a clean `npm ci`,
 typecheck, lint, client build and start-up smoke test.
 
-**Not deployed yet, and no database has been written.** Everything from section
-6 onward is still ahead. The proved tree also remains published as
-`claude/release-train-2yv3x6-proof` for anyone who needs to diff against it.
+**Deployed 22:09Z on 2026-09-19, and no database has been written.** The deploy
+exposed a pre-existing stall and the machine then restarted every three minutes
+for fourteen hours and fifty minutes — **302 times, ending at 13:43Z on
+2026-09-20 when the scheduler brake went on.** It has been up on one process
+ever since. The brake is a hold, not a fix: section 7.0b-END is what was
+measured, and the six pull requests in section 1 are what lets it come off.
+Everything from section 6 onward is still ahead. The proved tree also remains
+published as `claude/release-train-2yv3x6-proof` for anyone who needs to diff
+against it.
 
 ## How to read the code references in this file
 
@@ -2347,13 +2353,69 @@ One clock on it: Fly caps restarts, and this machine already hit
 `max restart count of 10` earlier tonight. If it hits the cap again it stops and
 stays stopped, and nothing can be read until someone is at a terminal.
 
+### 7.0b-END The brake went on at 13:43Z, and it stopped
+
+**Written at 16:10Z on 2026-09-20, after the fact rather than during it.** Nick
+ran `fly secrets set SCHEDULER_DISABLED=1 -a gridiron-hq` at about 13:43Z. The
+loop ended on that restart and has not come back.
+
+**The final count is 302.** Three hundred and two distinct process starts
+between 22:53Z on the 19th and 13:43:13Z on the 20th — every three minutes for
+fourteen hours and fifty minutes. `bash /mnt/project-files/restart-count.sh`
+recomputes it from every log file. The 302nd start is the brake's own restart,
+because setting a secret restarts the machine, so everything after it belongs to
+the quiet period and not to another life. Anyone quoting a larger number is
+counting the fix.
+
+**The prediction was written down before the test, which is the only reason the
+result means anything.** This section said the pass was `uptime_s` past 600 on
+one process. An anchored probe read `/api/health` every twenty seconds from
+13:44:51Z to 13:53:31Z: **twenty-seven reads, every one answered, the same
+process start derived from every one, `uptime_s` climbing unbroken from 99 to
+619, slowest read 0.40 seconds.** The three passive loggers have run ever since
+without a break:
+
+| Window | Reads | Answered | Dark | Distinct processes |
+| --- | --- | --- | --- | --- |
+| 22:53Z–13:43Z, before the brake | 1,345 | 883 | **462 (34.3%)** | 302 |
+| 13:44Z onward, under the brake | 321 | **321** | **0** | **1** |
+
+The first braked life went straight through the 94-to-110-second band that had
+ended every life before it, and the process is now past two hours of uptime.
+
+**What this does and does not prove.** It proves the blocking work is downstream
+of `scheduler.js:1732`, which is a single `return` upstream of the boot pass and
+of every timer in the function. It does **not** discriminate between the two
+ninety-second candidates, and it cannot: one statement unarms both, so a quiet
+machine is equally consistent with either. Attribution waits for the unset and
+for the `nfl_model_growth_runs` read in section 5, and it did not need settling
+first — which is the point of a brake that stops both.
+
+**Read that query carefully when it is run.** A `running` row starting about
+ninety seconds after a restart settles the attribution. **No recent rows settles
+nothing**, because the row is inserted at `nfl-model-growth.js:163-166`, which is
+early but not first: the warehouse snapshot and its hash run above it, so a job
+that blocked inside the snapshot leaves no row and is indistinguishable from a
+job that never started.
+
+**What is still true from the section above.** The brake is a hold, not a fix.
+Nothing in the machine has changed except that the scheduler is not running, so
+the app is serving with no background work at all — no ingests, no fits, no
+refreshes, and every timestamp on the site frozen at 13:43Z. That is expected
+and it is not a second fault. The fixes are the six pull requests, and the loop
+comes back the moment the brake is unset without them.
+
 ### 7.0c The morning, in order
 
-The app has been restarting in a loop since the deploy — but the stalling
+**Read 7.0b-END first: the loop ended at 13:43Z on 2026-09-20 when the brake
+went on, after 302 restarts. This section was written while it was still
+running, and it is kept as written because the morning's order still holds.**
+
+The app restarted in a loop from the deploy until the brake — but the stalling
 underneath it was already happening in the afternoon on the old build, measured
-between 16:08 and 19:25Z. **In practice it answers normally for about the first
-95 seconds of each life and then goes silent until it is restarted**, so the
-site works in windows rather than being down. What the release added is a watchdog that kills a
+between 16:08 and 19:25Z. **In practice it answered normally for about the first
+95 seconds of each life and then went silent until it was restarted**, so the
+site worked in windows rather than being down. What the release added is a watchdog that kills a
 stuck process so the host restarts it, which very likely explains why a problem
 that used to be invisible is now obvious. In the meantime the app is serving in
 short windows between restarts rather than steadily, so opening the site may
@@ -2710,9 +2772,9 @@ already exist. That is why an unfamiliar PR number is worth a second look.
    ```
    fly deploy -a gridiron-hq
    ```
-   **All six are open as drafts, and GitHub will not merge a draft** — each
-   needs marking ready for review first. One click each, and it is the kind of
-   thing that reads as a broken merge button at seven in the morning.
+   **All six are already marked ready for review** (done at 13:20Z), so the
+   merge button works on each of them and there is nothing to click first. An
+   earlier version of this step said they were drafts; they are not any more.
 
    **#59, #61 and #63 are a stack, retargeted to `main` at 01:02Z**, so there
    is nothing to do by hand — an earlier version of this step said there was.
@@ -2728,6 +2790,84 @@ already exist. That is why an unfamiliar PR number is worth a second look.
    for this work, `docs/tdd/boot-restart-cycle.tdd.md`, arrives with #61 and
    covers #56 and #59 retrospectively. The first two merges are not
    undocumented; the document just lands third.
+
+   **The six were merged here first, onto `main` at `791b131`, and the merged
+   result was tested as one tree rather than six branches.** All six merge
+   clean and the first four fast-forward. The tree after step 4 is byte
+   identical to #63's own tree, `12dbbcc49b640c0be9ddd0c5610041a69df73c41`,
+   which is the separate check that the rehearsal is sound; the tree after all
+   six is `69440335b063cb59deaa1f3963b0f4a1de207481`. `npm ci` then `npm test` in a dedicated worktree, with the tree hash recorded before and after the run: **2,986 tests, 2,945 passing, 0 failing, 41 skipped, exit 0.** `main` measures 2,950 and 2,909, so the six add exactly 36 tests and 36 passes with the skip count unchanged. Reproduced independently by two threads.
+   Rehearsed three times by three threads, agreeing on the tree. **Compare
+   trees, never merge commits** — a rehearsal's merge commit carries an author
+   and a timestamp, so it exists nowhere but the container that made it, while
+   a tree is content and reproduces exactly.
+
+   **If you rehearse this yourself, run the suite in its own worktree.** Not a
+   style preference — it is a trap this thread walked into and had to throw a
+   whole run away for. `npm test` globs `test/*.test.js` once, when the command
+   starts, but opens each file when its turn comes. Running it in the main
+   checkout and then switching that checkout to another branch mid-run deletes
+   the files that exist only on the stack, and the run ends with
+   `ERR_MODULE_NOT_FOUND` naming **the stack's own new test files**. That reads
+   as "the merged stack breaks the tests it adds" and is completely false. A
+   real regression and an instrument failure are indistinguishable in that
+   output. So:
+
+   ```
+   git worktree add /tmp/stack <branch>
+   cd /tmp/stack && npm ci && npm test
+   ```
+
+   and record `git rev-parse HEAD^{tree}` **before and after** the run beside
+   the numbers. A figure whose tree was not pinned at both ends is not a
+   measurement. `git reflog --date=iso` is what settles it after the fact, by
+   putting any checkout inside or outside the run's window.
+
+   **The brake still stops everything after these six land, and that was
+   checked on the merged tree rather than on `main`.** It matters for the order
+   above: the merges and the deploy happen with `SCHEDULER_DISABLED=1` still
+   set, so the deployed build has to honour the switch or the loop returns
+   before anyone reaches the unset. On tree `6944033` the early return is at
+   `scheduler.js:1927` and every timer in the function is below it — the boot
+   pass at `:1940`, the growth timeout at `:1964`, the reports timeout at
+   `:1968`, the live tier at `:2015`, the background tier at `:2016`. The
+   function grew above the return; the return did not move past anything. Two
+   things now run before it and neither arms anything: `reapAbandonedRuns()`
+   at `:1914`, one parameterised `SELECT` over rows whose status is `running`
+   and one parameterised `UPDATE` each, synchronous, bounded, no timer and no
+   network, placed ahead of the brake deliberately so the log is honest when
+   nothing will run; and `onBootComplete?.()` at `:1931`, which only sets the
+   watchdog's arming flag.
+
+   **The watchdog also gets stronger after this deploys, not weaker.** Today it
+   is armed about fifteen seconds into each life by the platform's own first
+   probe response. After the merge the liveness path arms nothing at all, and
+   the arm is held as a flag and applied the moment the server listens — so the
+   sixty-second stall check is tested continuously and starts a few seconds
+   *earlier* in each life. #63 adds the test on exactly that path, `an arm that
+   arrives before the watchdog starts is not lost`, because with the brake on
+   `onBootComplete` fires synchronously from the early return, before
+   `app.listen`.
+
+   **Four collisions are waiting behind this train, and none of them touches
+   any of the six.** Three are pre-resolved on the scheduler thread's
+   resolutions hold branch, with an evidence file: the scheduler file itself,
+   the health route fixed three ways, and the roster schedule test. The fourth
+   is the one found here, and the two worth carrying in full are these. The
+   first is
+   `test/health-route-single.test.js`, fixed three different ways on three
+   branches, all asserting the identical thing — it fires when the wiring-map
+   branch or Coach's lands, and the resolution is **keep whichever side is
+   already in the tree and delete the other**. The second is
+   `server/routes/leagues.js`, and it is named by the work rather than by pull
+   request number on purpose, because the numbers move and the bodies of work
+   do not: the league-credentials branch adds
+   `import { requireCredentialsForLeague } from '../platform/espn-credentials.js'`
+   and the outlook-route branch adds
+   `import { leagueOutlook } from '../services/league-outlook.js'`, on adjacent
+   lines. Rehearsed here: exactly one conflicted hunk, in that one file,
+   nothing else in the tree. **Keep both imports** — delete the three markers
+   and leave the two lines. Both are a keystroke, not a stop.
 
    **The other PRs open tonight are not part of this and can go any time, with
    two orders that do matter.** **#60 after #57**, and the reason is worse

@@ -37,7 +37,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { rows } = await import('../server/db/index.js');
 const {
-  COACH_TABLES, COLLECTION_MODES, catalogEntry, readableTables, catalog, catalogCoverage
+  COACH_TABLES, COLLECTION_MODES, catalogEntry, readableTables, catalog, catalogCoverage, splitAbsent
 } = await import('../server/services/coach/catalog.js');
 
 // The migrations have to run: decision_recommendations is migration 020, and a
@@ -249,4 +249,16 @@ test('the audit of Coach’s own answers is readable, but the answers themselves
     assert.ok(entry.redact.includes(blob), `${blob} is not withheld`);
   }
   assert.ok(entry.columns.includes('numbers_checked'), 'the audit columns are still described');
+});
+
+test('an absent table is sorted by whether anything is known to build it', () => {
+  // catalogCoverage() can only ever be called against whatever this database
+  // holds, so the bucketing is tested with a list of its own. players is
+  // catalogued and created by the declared schema: if it were ever absent that
+  // is a broken database, not a script nobody ran, and it must never be
+  // filed under not_built_yet.
+  const split = splitAbsent(['coach_person_variables', 'players', 'nfl_availability_rates']);
+  assert.deepEqual(split.not_built_yet, ['coach_person_variables', 'nfl_availability_rates']);
+  assert.deepEqual(split.missing_from_database, ['players']);
+  assert.deepEqual(splitAbsent([]), { not_built_yet: [], missing_from_database: [] });
 });

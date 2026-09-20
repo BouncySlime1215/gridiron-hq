@@ -42,14 +42,16 @@ export const COLLECTION_MODES = Object.freeze(['auto', 'by_hand', 'derived', 'se
 /**
  * One catalog entry.
  *
- * `createdAtRuntimeBy` is the honest half of this record. Eleven tables in
- * this repository are created by no migration — seven when a service module is
- * imported, one on its first write, and three only by a script somebody has to
+ * `createdAtRuntimeBy` is the honest half of this record. Nineteen tables of
+ * the app database are created by neither `server/db/schema/` nor a migration:
+ * three by the database layer itself at boot, seven when a service module is
+ * imported, one on its first write, and eight only by a script somebody has to
  * run — so "Coach may read it" and "it is there" are different claims. A table
- * a migration creates says nothing here; a table that comes from anywhere else
- * says, in a sentence, what brings it into being. The query layer reads this
- * to explain an absent table instead of passing SQLite's wording along, and a
- * test asserts that every file named here exists and holds the CREATE TABLE.
+ * the declared schema creates says nothing here; a table that comes from
+ * anywhere else says, in a sentence, what brings it into being. The query layer
+ * reads this to explain an absent table instead of passing SQLite's wording
+ * along, and a test asserts that every file named here exists and holds the
+ * CREATE TABLE.
  */
 const t = (grain, means, freshness, collection, redact = [], createdAtRuntimeBy = null) =>
   Object.freeze({ grain, means, freshness, collection, redact: Object.freeze(redact),
@@ -78,6 +80,12 @@ const IMPORT_COACH_CONTEXT =
 const SCRIPT_PERSON_PROFILES =
   '`scripts/build-person-profiles.mjs` creates it, and nothing else does, so it has not been built '
   + 'on any machine where that script has not been run';
+const SCRIPT_LEAGUE_TRANSACTIONS =
+  '`scripts/collect-league-transactions.mjs` creates it, and nothing else does, so it has '
+  + 'not been built on any machine where that script has not been run';
+const SCRIPT_LEAGUE_HISTORY =
+  '`scripts/backfill-league-history.mjs` creates it, and nothing else does, so it has not '
+  + 'been built on any machine where that script has not been run';
 const SCRIPT_FIT_AVAILABILITY =
   '`scripts/fit-availability.mjs` creates it from the DDL in `server/services/contingency.js`, and '
   + 'nothing else does, so it has not been built on any machine where that script has not been run';
@@ -279,6 +287,26 @@ export const COACH_TABLES = Object.freeze({
     'refitted with nfl_availability_rates, by hand', 'derived', [],
     SCRIPT_FIT_AVAILABILITY),
 
+  // --- the league's own history, which only a script ever writes ---
+  //
+  // Finding 7 in the round of audits this work sits in: every manager read,
+  // archetype and counterparty price in this app stands on rows a person
+  // collected by hand. league_transactions_raw is where they land, and it is
+  // not merely refreshed by hand — it is CREATED by hand, so on a fresh clone
+  // it does not exist at all and nothing on any surface says so.
+  league_transactions_raw: t('one transaction in one league and season',
+    'every add, drop, trade and waiver claim as ESPN returned it: who did it, when it was proposed and processed, what was bid, whether it went through, and the raw payload behind it. The only record of what a manager has actually done',
+    'collected by hand; nothing refreshes it on a schedule', 'by_hand', [],
+    SCRIPT_LEAGUE_TRANSACTIONS),
+  league_season_teams: t('one team in one league and season',
+    'the finished season for a team: record, points for and against, final rank and playoff seed, with the owner behind it',
+    'backfilled by hand, one run per league', 'by_hand', [],
+    SCRIPT_LEAGUE_HISTORY),
+  league_week_scores: t('one team in one week of one season',
+    'what a team actually scored that week, who it played and whether the week was a playoff week — the history behind "is he lucky or good"',
+    'backfilled with league_season_teams, by hand', 'by_hand', [],
+    SCRIPT_LEAGUE_HISTORY),
+
   // --- what the app has already told Nick to do ---
   decision_recommendations: t('one recommendation the app has made',
     'the Decision Inbox: what an engine told Nick to do, how urgent it was, what it expected to be worth, whether he actioned, dismissed or ignored it, and how it turned out. The one table that answers "what has the app told me and did I act on it"',
@@ -332,18 +360,28 @@ export function catalogCoverage() {
                         AND name NOT LIKE 'sqlite_%' ORDER BY name`).map(r => r.name);
   const readable = new Set(readableTables());
   const absent = readableTables().filter(name => !exists(name));
-  // Two different things, and collapsing them would hide both. A table that is
-  // absent and says a script builds it is a machine that has not run the
-  // script; a table that is absent and says nothing is a catalog that is
-  // wrong. Only the second is a defect, and only the first can be fixed by
-  // running something.
-  const notBuiltYet = absent.filter(name => /scripts\//.test(COACH_TABLES[name].created_at_runtime_by ?? ''));
-  const notBuilt = new Set(notBuiltYet);
   return {
     catalogued: readable.size,
     in_database: present.length,
     uncatalogued: present.filter(name => !readable.has(name)),
-    not_built_yet: notBuiltYet,
-    missing_from_database: absent.filter(name => !notBuilt.has(name))
+    ...splitAbsent(absent)
   };
+}
+
+/**
+ * Why a catalogued table is not in the database, which is two different things
+ * and must not be one bucket. Absent while naming a script is a machine where
+ * nobody has run the script — fixable by running it, and not a defect. Absent
+ * while naming nothing is a catalog that is wrong, which is a defect and the
+ * only one of the two anybody should be paged about.
+ *
+ * Exported because it is the part worth testing with a list of its own:
+ * catalogCoverage() can only ever be called against whatever this database
+ * happens to hold, so a bucketing mistake would be invisible there.
+ */
+export function splitAbsent(absent) {
+  const notBuiltYet = absent.filter(name =>
+    /scripts\//.test(COACH_TABLES[name]?.created_at_runtime_by ?? ''));
+  const notBuilt = new Set(notBuiltYet);
+  return { not_built_yet: notBuiltYet, missing_from_database: absent.filter(name => !notBuilt.has(name)) };
 }

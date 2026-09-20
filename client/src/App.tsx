@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { PlayerCardProvider } from './components/PlayerCard';
 import { LeagueProvider } from './state/league';
+import { useDeployment } from './state/deployment';
 import LeagueSwitcher from './components/LeagueSwitcher';
 import DevHub from './components/DevHub';
 import RefreshAll from './components/RefreshAll';
@@ -57,6 +58,10 @@ export default function App() {
   useEffect(() => { if (isMobile) setCollapsed(true); }, [isMobile, location.pathname, location.search]);
   const drawerOpen = isMobile && !collapsed;
   const rail = !isMobile && collapsed;
+  // Whether this browser is on the Mac or on the hosted app. Null until the
+  // probe answers, and the footer renders nothing for null rather than picking
+  // a default, because either default is a claim about where the data is.
+  const deployment = useDeployment();
   const inBetting = location.pathname.startsWith('/betting') || location.pathname.startsWith('/props') || location.pathname.startsWith('/nfl-board');
   const pageLabel = destinationLabel(location.pathname);
 
@@ -108,7 +113,16 @@ export default function App() {
             </NavLink>)}
           </div>)}
         </nav>
-        {!rail && <div className="px-2 pt-2 text-[10px] text-slate-400">Local app · data stays on your Mac</div>}
+        {!rail && deployment && (
+          // Asked, not assumed. This line used to say "Local app · data stays on
+          // your Mac" to everyone, including every hosted visitor signed in with
+          // a Google account against a database on a server volume.
+          <div className="px-2 pt-2 text-[10px] text-slate-400">
+            {deployment.local
+              ? 'Local app · data stays on this Mac'
+              : 'Hosted · signed in, data lives on the server'}
+          </div>
+        )}
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

@@ -183,7 +183,10 @@ test('V3/V4/V5/V6: the panel prices the player per manager, with provenance and 
     assert.ok('as_of' in f, 'every factor carries its as_of, even when null');
     assert.ok(typeof f.why === 'string' && f.why, 'every factor says why in words');
   }
+  assert.ok(v.inert.length >= 1,
+    'this fixture has no archetype build, so luck_self_view is under its min_n and must be reported inert');
   for (const i of v.inert) {
+    assert.ok(typeof i.source === 'string' && i.source);
     assert.ok(typeof i.reason === 'string' && i.reason,
       'a source too small to fire is reported with its reason, not dropped');
   }
@@ -199,7 +202,23 @@ test('V3/V4/V5/V6: the panel prices the player per manager, with provenance and 
     assert.ok(Number.isFinite(a.their_value_without));
     assert.ok(Math.abs((v.their_value - a.their_value_without) - a.delta) < 1e-6,
       'delta is their_value minus the re-run without that source');
-    assert.ok(Math.abs(a.delta) > 0, 'suppressing a source that fired really changes the price');
+    assert.ok(Number.isFinite(a.multiplier_without));
+    assert.ok(Math.abs((v.multiplier - a.multiplier_without) - a.multiplier_delta) < 1e-6,
+      'multiplier_delta is the multiplier minus the re-run without that source');
+    assert.ok(Math.abs(a.multiplier_delta) > 0,
+      'suppressing a source that fired really moves the multiplier');
+  }
+
+  // The reason the multiplier is reported at all. This fixture's player has no
+  // projection, so our_value is 0 and every VALUE delta is 0 however hard the
+  // sources pull -- a panel carrying the value alone would say "this source does
+  // nothing" about two sources doing plenty. Pinned so the field is not tidied
+  // away as a duplicate of `delta`.
+  if (v.our_value === 0) {
+    assert.ok(rival.ablation.every(a => a.delta === 0),
+      'an unpriced player has no value movement to show');
+    assert.ok(rival.ablation.some(a => a.multiplier_delta !== 0),
+      'and the multiplier is where the ablation is visible for him');
   }
 
   // V6 — the clamp reported here is the per-player one, and nothing else
@@ -208,4 +227,31 @@ test('V3/V4/V5/V6: the panel prices the player per manager, with provenance and 
   for (const k of ['deal_score', 'perception_factor', 'score_delta']) {
     assert.ok(!(k in vm), `the panel carries no ${k}: it is a read of the sources, not an input to the deal score`);
   }
+});
+
+test('V2b: two different absences give two different sentences, and neither is a crash', async () => {
+  const { payload, theirs } = rosterPair();
+  insertLeague(203, payload);
+  // This league HAS a manager layer, so "nothing to show" here cannot be the
+  // unbuilt-layer answer. The rule the whole panel rests on is that an absence
+  // says which absence it is; two absences that read alike are one absence.
+  seedSentiment(203, theirs[0].name);
+
+  const unpriced = (await request('/api/trades/203/player/99999999')).body.valuation_map;
+  const unbuilt = (await request(`/api/trades/201/player/${theirs[0].id}`)).body.valuation_map;
+
+  assert.ok(unpriced, 'the panel is present even when it has nothing to say');
+  assert.equal(unpriced.available, false);
+  assert.ok(typeof unpriced.reason === 'string' && unpriced.reason.length > 20);
+  assert.deepEqual(unpriced.managers, []);
+
+  assert.equal(unbuilt.available, false);
+  assert.notEqual(unpriced.reason, unbuilt.reason,
+    'a player this model never priced and a league whose layer was never built are different absences');
+
+  // A player nobody priced is not a broken layer. The route reports a thrown
+  // fault rather than swallowing it, which is right -- but reporting a KNOWN
+  // absence as a fault would be the panel lying about its own provenance.
+  assert.ok(!/failed to build/.test(unpriced.reason),
+    'an unpriced player is answered by the panel, not by its error handler');
 });

@@ -102,19 +102,25 @@ Five additions to the evidence standard came out of these runs.
 
 ## Findings raised against specific files
 
-- **wiring map, `wiring-map-route-deletions.tdd.md` @ 8307d09** — states
+Each is stated **as of the commit named**. Several are already answered on hold
+branches this log has not yet re-read; a finding here is a reading of one tree,
+not a standing claim about the thread.
+
+- **wiring map, `wiring-map-route-deletions.tdd.md`, as of 8307d09** — states
   `test/wiring-map.test.js 62/62` and reports its RED proofs by ordinal
   ("test 62 … fails; 61 pass"). At that exact commit the file is **64 tests,
   64 pass**: the RED was measured on a tree two tests behind the one cited.
   Re-run at head and name both by title.
-- **fantasy plan, `player-week-memo-fit.tdd.md`** — byte-identical at 9fce773,
+- **fantasy plan, `player-week-memo-fit.tdd.md`, as of 9fce773** — byte-identical there,
   so its `2,966 / 2,925` line is stale against that head's measured
   `2,975 / 2,934`. A file carried unchanged onto a new head carries its old
   numbers with it.
-- **Part 5 is the weakest-enforced part of the standard** — a full check with
+- **Part 5 was the weakest-enforced part of the standard**, as of the heads read
+  up to 2026-09-20 11:23Z — a full check with
   numbers, in the file, is missing outright in five files and stale in two.
   One sweep proposed: every thread states the numbers **and the commit they
-  were measured on**.
+  were measured on**. Adopted project-wide the same day, so this row is a
+  record of what was found, not an outstanding complaint.
 
 ## Corrections to my own readings
 
@@ -132,6 +138,23 @@ because a second reader who hides their misses is not a second reader.
 - I over-credited c986b80 on part 5. Its §6 states only that `npm run check`
   was "recorded with the commit", and neither its commit message nor
   da8ec48's carries a count.
+
+## This log's own check
+
+The rule this log applies to everyone else applies to it. Every figure above
+names the commit it was measured on, per row. The log itself was written
+against **861bbd8** on `claude/project-thread-w0gpjt-hold`, where `npm run
+lint` is clean across 878 JavaScript files and `npm run typecheck` is clean.
+No whole-suite figure is claimed *for this branch*: it adds documentation and
+one script that reads nothing, and the suites quoted above are other people's
+trees, each named.
+
+Where a head is documentation-only over a code head, the suite figure is the
+code head's and is reported against it. That is not an assumption here — it
+was checked with `git diff --name-only`, which returns nothing outside `docs/`
+for 1171d66 → c986b80 → da8ec48 → 511eed8, for 572e838 → 22bbd45, and for
+e852884 → 64cb90e. The suite, build and smoke never read `docs/`, and lint
+walks `server`, `scripts` and `test`.
 
 ## What this log does not cover
 

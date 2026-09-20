@@ -155,11 +155,17 @@ export const VALUE_GIVEAWAY_LAMBDA = 0.9;
  * playerId)` in player-week-engine.js, returning
  * `{ active_probability, availability_basis }` with `availability_basis` one of
  * `fitted`, `durability_prior`, `default_durability`. When that export exists,
- * this constant and the local basis helper below must go and the call sites
- * must use the accessor — `test/availability-basis-is-labelled.test.js` fails
- * the moment the real export appears, so the swap cannot be forgotten.
+ * this constant and the local basis helper below go and the call sites use the
+ * accessor.
+ *
+ * DELIBERATELY NAMED DIFFERENTLY from the accessor's constant, so the two can
+ * sit on main at the same time without colliding and without any merge order
+ * between them. An earlier draft of this change asserted that both could never
+ * exist at once, which would have turned main red between two merges that each
+ * passed alone — the branch-pair collision shape in a new costume. A distinct
+ * name makes the swap an ordinary follow-up instead of a coupling.
  */
-export const DEFAULT_ACTIVE_PROBABILITY = 0.92;
+export const FALLBACK_ACTIVE_PROBABILITY = 0.92;
 
 /**
  * Which of the three bases priced one player's chance to play.
@@ -487,7 +493,7 @@ function buildAssetUniverse(lg, formatKey, target) {
     const scheduleTilt = sched.signal === true;
     const tr = trending.get(p.id);
     const availability = active.get(p.id);
-    const activeProbability = availability?.active_probability ?? DEFAULT_ACTIVE_PROBABILITY;
+    const activeProbability = availability?.active_probability ?? FALLBACK_ACTIVE_PROBABILITY;
     const availabilityBasis = availabilityBasisFor(availability);
     const weeklyPpg = weekProjection?.ppg ?? (proj / GAMES);
     const thisGame = sched.games?.find(game => game.week === target.week) ?? null;
@@ -3023,7 +3029,7 @@ export function lineupDiff(lg, myTeamId, { assets: pricedAssets = null } = {}) {
     .filter(x => x.in && !sureZero(x.in) && (x.in.week_points ?? 0) > 0 && x.gap > 0.005)
     .map(x => {
       const versusZero = !x.out || sureZero(x.out);
-      const p = versusZero ? (x.in.active_probability ?? DEFAULT_ACTIVE_PROBABILITY) : swapRightProbability(x.gap);
+      const p = versusZero ? (x.in.active_probability ?? FALLBACK_ACTIVE_PROBABILITY) : swapRightProbability(x.gap);
       return {
         slot: slotOf.get(x.in.id),
         in: brief(x.in),

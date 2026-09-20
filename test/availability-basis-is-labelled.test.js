@@ -12,20 +12,20 @@
  * "0.87 because we measured him" are different claims wearing the same shape.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * THIS FILE CONTAINS A DELIBERATE TRIPWIRE. READ BEFORE MERGING.
+ * `FALLBACK_ACTIVE_PROBABILITY` and `availabilityBasisFor` in trade-engine.js
+ * are TEMPORARY. The fantasy plan is landing the real pair in
+ * player-week-engine.js: `DEFAULT_ACTIVE_PROBABILITY` and
+ * `activeProbabilityFor(availabilityMap, playerId)` returning
+ * `{ active_probability, availability_basis }`.
  *
- * `DEFAULT_ACTIVE_PROBABILITY` and `availabilityBasisFor` in trade-engine.js are
- * TEMPORARY. The fantasy plan is landing the real pair in player-week-engine.js:
- * `DEFAULT_ACTIVE_PROBABILITY` and `activeProbabilityFor(availabilityMap,
- * playerId)` returning `{ active_probability, availability_basis }`.
+ * The names differ on purpose, so both can sit on main at once with no merge
+ * order between them. An earlier draft of this file asserted that both could
+ * never exist together; that would have turned main red between two merges
+ * that each passed alone, which is the branch-pair collision shape in a new
+ * costume. The swap to the accessor is an ordinary follow-up, not a coupling.
  *
- * The last test below fails as soon as BOTH exist. That is intended and it is a
- * true statement — two definitions of one constant is the duplication being
- * removed, not a state to live in. It means the two changes must ride the same
- * train: when the fantasy plan's export lands, trade-engine's local pair is
- * deleted and the call sites move to the accessor, in that merge or the one
- * beside it. Recorded here rather than in a message because a message is not
- * where the person merging will be looking.
+ * What is still enforced below: this file's own constant is defined exactly
+ * once, so the literal cannot quietly scatter again while the follow-up waits.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -45,8 +45,8 @@ const engine = await import('../server/services/trade-engine.js');
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); });
 
 test('the default is named once and is a probability', () => {
-  assert.equal(typeof engine.DEFAULT_ACTIVE_PROBABILITY, 'number');
-  assert.ok(engine.DEFAULT_ACTIVE_PROBABILITY > 0 && engine.DEFAULT_ACTIVE_PROBABILITY <= 1);
+  assert.equal(typeof engine.FALLBACK_ACTIVE_PROBABILITY, 'number');
+  assert.ok(engine.FALLBACK_ACTIVE_PROBABILITY > 0 && engine.FALLBACK_ACTIVE_PROBABILITY <= 1);
 });
 
 test('a player nothing measured is default_durability, not a quiet number', () => {
@@ -79,20 +79,16 @@ test('the literal is gone from both files', () => {
   }
 });
 
-test('TRIPWIRE: the temporary local pair must not outlive the real one', async () => {
-  // See the header. This is expected to fail on the merge that lands
-  // player-week-engine.js's accessor, and the fix is to delete trade-engine's
-  // local pair and call the accessor instead — not to weaken this test.
-  let real = {};
-  try { real = await import('../server/services/player-week-engine.js'); } catch { real = {}; }
-  const realHasIt = typeof real.activeProbabilityFor === 'function'
-    || typeof real.DEFAULT_ACTIVE_PROBABILITY === 'number';
-  if (!realHasIt) {
-    assert.equal(typeof engine.DEFAULT_ACTIVE_PROBABILITY, 'number',
-      'until the real accessor lands, trade-engine holds the only definition');
-    return;
+test('the fallback is defined once, in one file, and nowhere else', () => {
+  // The part of the old tripwire worth keeping, pointed at my own files only.
+  // Two definitions of one constant is the duplication being removed; a second
+  // one appearing here is a regression regardless of what other modules export.
+  const defs = [];
+  for (const f of ['server/services/trade-engine.js', 'server/services/roster-risk.js']) {
+    const src = fs.readFileSync(f, 'utf8');
+    for (const m of src.matchAll(/^(export )?const FALLBACK_ACTIVE_PROBABILITY\s*=/gm)) {
+      defs.push(`${f}: ${m[0].trim()}`);
+    }
   }
-  assert.equal(engine.DEFAULT_ACTIVE_PROBABILITY, undefined,
-    'player-week-engine now exports the real accessor: delete trade-engine\'s temporary '
-    + 'DEFAULT_ACTIVE_PROBABILITY and availabilityBasisFor and call activeProbabilityFor instead');
+  assert.equal(defs.length, 1, `expected one definition, found: ${defs.join(' | ')}`);
 });

@@ -340,7 +340,29 @@ async function refreshEspnRosters() {
  * payload underneath it just never refreshed itself). Same missing-schedule
  * class of bug as every other "silently stopped updating" fix this session.
  */
-async function refreshLeagueRosters() {
+/**
+ * Exported, and the export is the point.
+ *
+ * test/league-roster-schedule.test.js stubs `globalThis.fetch` on the main
+ * thread and asserts real rows: that a renamed league's payload refreshes, and
+ * that one league's 500 does not stop the next league syncing. Driven through
+ * `runIfStale`, those assertions hold only while this job runs INLINE -- a
+ * worker has its own globals and its own connection, so the stub never reaches
+ * it and both tests go red the moment the job moves off the request thread.
+ *
+ * That made a genuinely useful pair of tests into a reason not to fix
+ * anything, which is backwards. Exporting the body lets them call it directly,
+ * so they assert the behaviour rather than the thread it happens on, and a
+ * separate assertion keeps the thing the first test was really named for --
+ * that this is wired to the scheduler at all, which is the regression it was
+ * written for (a real trade never reached Trade Lab because nothing re-fetched
+ * leagues.payload).
+ *
+ * Same move as #45's ffOpportunitySeasons, and for the same reason: an
+ * off-thread job cannot be reached from the main thread's test process, so
+ * test the work directly and test the wiring separately.
+ */
+export async function refreshLeagueRosters() {
   const skipEspn = liveDraftActive();
   const { syncEspnLeague, syncSleeperLeague } = await import('../routes/leagues.js');
   const leagues = rows('SELECT * FROM leagues');
@@ -1253,7 +1275,7 @@ export const JOBS = {
     label: 'Sleeper player universe (sleeper_id, overall rank, injury flag)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
-  league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live',
+  league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live', offThread: true,
     label: "Each connected league's own roster (trades, waivers, drops) — was manual-only" },
   // Free (ESPN scoreboard). Hourly, so the last stored line before kickoff is a
   // usable closing reference for settlement and so finals land within the hour.
@@ -1678,24 +1700,6 @@ export const ON_REQUEST_THREAD = new Map([
   ['mlb_schedule', 'MLB feed; the fantasy half of this app never reads it'],
   ['mlb_probables', 'MLB feed; the fantasy half of this app never reads it'],
   ['mlb_boxscores', 'MLB feed; the fantasy half of this app never reads it'],
-  // Fantasy-side and audited safe on module state -- liveDraftActive() reads
-  // SQLite, not process memory -- and still here, because moving it would
-  // silently void two tests that are worth more than the move.
-  //
-  // test/league-roster-schedule.test.js stubs globalThis.fetch on the main
-  // thread and then asserts the real rows: that a renamed league's payload is
-  // refreshed, and that one league's 500 does not stop the next league
-  // syncing. A worker has its own globals and its own connection, so the stub
-  // never reaches it, the offline guard blocks the real call, and both tests
-  // go red. They would not be "fixed" by deleting them: they are the only
-  // thing standing between a per-league loop and a silent regression where
-  // one bad league stops the rest.
-  //
-  // The way out is the one #45 took for ffOpportunitySeasons -- export the
-  // decision so it can be tested directly instead of through runIfStale --
-  // and that is a change to the job, not to the schedule. Not tonight, and
-  // not without saying so.
-  ['league_rosters', 'moving it off-thread would void two live tests that assert real per-league rows'],
 
   // Not out of scope -- already solved a different way. refreshManagerSignals
   // calls refreshManagerSignalsOffThread (:647), which runs the heavy build in

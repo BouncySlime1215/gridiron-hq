@@ -2368,6 +2368,13 @@ of a dozen jobs is the one currently holding the lock."
    fly secrets unset AUTO_HEAVY_SYNC -a gridiron-hq
    ```
 
+**One thing to read rather than run, and it is not part of the sequence
+above.** *Model evidence audit: page linked from the morning message.* It
+answers, for the Model surface, the question this whole block answers for the
+deploy — which numbers are measured and which are guessed. It is separate work
+by another thread, it blocks nothing here, and it is listed so it is not
+discovered a week later.
+
 **Why three scheduler PRs rather than one**, since each fixes a different link
 and none of them is sufficient alone. **#56** stops the host's own health probe
 arming the watchdog mid-boot; on its own the same jobs still wedge once it is

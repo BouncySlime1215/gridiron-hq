@@ -36,17 +36,29 @@ public ADP and ranks written as its own market twice a day.
 
 ## Fix
 
-Refuse before the fetch, with the league named:
+Refuse before the fetch, with the league named. Quoted verbatim from
+`server/services/espn-market.js:80-81` at `9a38670`, the commit that made the
+code read this way:
 
 ```js
-  if (!lg.espn_s2 || !lg.swid) throw new EspnCredentialsMissing(leagueRowId, lg.league_id);
+  if (!lg.espn_s2 || !lg.swid) throw new EspnMarketCredentialsMissing(leagueRowId, lg.league_id);
   headers.Cookie = `espn_s2=${lg.espn_s2}; SWID=${lg.swid}`;
 ```
 
-`EspnCredentialsMissing` is defined in this file on purpose. The shared
-resolver (`platform/espn-credentials.js`, PR #48) is not on main, and this
-refusal must not wait on it; when #48 lands the throw site is a one-line swap
-to `credentialsForLeague` and the local class goes.
+`EspnMarketCredentialsMissing` is defined in this file on purpose, and the
+name is deliberately distinct from the shared resolver's
+`EspnCredentialsMissing` (`platform/espn-credentials.js`, PR #48) rather than
+merely different: two classes exported under one name cannot be told apart by
+a `catch`, which is the fault §1 measures. The shared resolver is not on main
+and this refusal must not wait on it. **Adopting the resolver is not a
+one-line swap** — what it actually costs is measured in §1 and stated in §3,
+and anyone planning that work should read §3 before budgeting for it.
+
+Against the previous commit on this branch the only observable difference is
+`err.name`. The message is byte-identical, the status is still 409, and the
+constructor and `leagueRowId` are unchanged. So this is not "nothing moves":
+the one thing that moves is the one thing the change exists to move, and a
+changed name in a log is deliberate.
 
 `espnMarketFreshness` now answers `collected`, `as_of` and a `label` from the
 table's **own** stamps — never a job log. A job that ran and wrote nothing, or
@@ -132,9 +144,12 @@ caller could act on — connect ESPN, then sync again — into a 500 it cannot,
 with nothing in any log to say a credential was the problem.
 
 **The collision was live, not latent, and the proof is in this branch's own
-tests.** They depend on the class identity three times: `err instanceof
-EspnCredentialsMissing` at `test/espn-market-refuses-anonymous.test.js:74`, and
-`assert.rejects(..., EspnCredentialsMissing)` at :111 and :112. The shape that
+tests.** At `0055a89`, the commit before the rename, they depended on the
+class identity three times: `err instanceof EspnCredentialsMissing` at
+`test/espn-market-refuses-anonymous.test.js:74`, and
+`assert.rejects(..., EspnCredentialsMissing)` at :111 and :112. Those three
+sites are still there at the same line numbers in the current tree; they now
+name `EspnMarketCredentialsMissing`, which is what this change did. The shape that
 would silently miss is one already written here twice, before any other caller
 exists. An earlier version of the comment above the class said it "can go when
 the resolver lands", which is an intent; the collision was exported anyway,

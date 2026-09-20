@@ -16,11 +16,133 @@
   "desc": "the call reports itself as advisory rather than wording-only, which is the whole claim the audit makes"
  },
  {
+  "id": "P3",
+  "file": "server/routes/betting-hub.js",
+  "tests": "test/page-explain.test.js",
+  "old": "    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key \u2014 add one in the Dev Hub (top right).' });\n",
+  "new": "",
+  "desc": "the missing-key guard is gone, so a keyless request is handed to the model instead of being answered with a 400 (FOREIGN FILE \u2014 see the evidence file)"
+ },
+ {
+  "id": "P4",
+  "file": "server/routes/betting-hub.js",
+  "tests": "test/page-explain.test.js",
+  "old": "    if (!route) return res.status(400).json({ error: 'route is required' });\n",
+  "new": "",
+  "desc": "a request with no route is accepted and explained anyway, so the assistant describes a page nobody named (FOREIGN FILE \u2014 see the evidence file)"
+ },
+ {
+  "id": "P5",
+  "file": "server/services/nfl-page-explain.js",
+  "tests": "test/page-explain.test.js",
+  "old": "        const result = runTool(block.name, block.input);",
+  "new": "        const result = block.input ?? {};",
+  "desc": "the loop echoes the model's own tool arguments back as the tool result instead of running the lookup, so the answer is grounded in what the model asked for rather than in the database"
+ },
+ {
+  "id": "P6",
+  "file": "server/services/nfl-page-explain.js",
+  "tests": "test/page-explain.test.js",
+  "old": "        toolCalls.push({ name: block.name, input: block.input ?? {} });",
+  "new": "        toolCalls.push({ name: block.name, input: {} });",
+  "desc": "the audit records which tool ran but not what it was asked, so the stored trail cannot be re-run or checked"
+ },
+ {
+  "id": "P7",
+  "file": "server/services/nfl-page-explain.js",
+  "tests": "test/page-explain.test.js",
+  "old": "const MAX_TOOL_ROUNDS = 4;",
+  "new": "const MAX_TOOL_ROUNDS = 5;",
+  "desc": "the cap that bounds cost and stops this becoming an unbounded agent is raised by one round"
+ },
+ {
+  "id": "P8",
+  "file": "server/services/nfl-page-explain.js",
+  "tests": "test/page-explain.test.js",
+  "old": "    if (isFinalRound && toolCalls.length) {",
+  "new": "    if (isFinalRound && toolCalls.length > 3) {",
+  "desc": "an answer that ran out of lookup rounds is presented as complete, with the cut-short note withheld in exactly the case that produces it"
+ },
+ {
+  "id": "P9",
+  "file": "server/services/page-explain-tools.js",
+  "tests": "test/page-explain.test.js",
+  "old": "  if (!TOOL_NAMES.has(name)) return { error: `Unknown tool '${name}'` };\n",
+  "new": "",
+  "desc": "the declared-name whitelist is removed and an unknown name falls through to the switch default instead of being refused at the door"
+ },
+ {
+  "id": "P10",
+  "file": "server/services/page-explain-tools.js",
+  "tests": "test/page-explain.test.js",
+  "edits": [
+   [
+    "    name: 'decay_watch_status',",
+    "    name: 'set_stake',"
+   ],
+   [
+    "      case 'decay_watch_status':",
+    "      case 'set_stake':"
+   ]
+  ],
+  "desc": "a stake-shaped name is declared to the model and wired to a live branch, which is the exact thing this file's header promises cannot exist"
+ },
+ {
+  "id": "P11",
+  "file": "server/services/claude.js",
+  "tests": "test/page-explain.test.js",
+  "old": "  if (!key) {\n    const err = new Error('No Anthropic API key configured \u2014 add one in the Dev Hub (top right) to enable AI features.');\n    err.status = 400;\n    throw err;\n  }\n",
+  "new": "",
+  "desc": "the second missing-key guard, the one inside callClaude, is removed while the route's own guard stays (FOREIGN FILE \u2014 see the evidence file)"
+ },
+ {
+  "id": "P12",
+  "file": "server/routes/betting-hub.js",
+  "files": [
+   {
+    "file": "server/routes/betting-hub.js",
+    "edits": [
+     [
+      "    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key \u2014 add one in the Dev Hub (top right).' });\n",
+      ""
+     ]
+    ]
+   },
+   {
+    "file": "server/services/claude.js",
+    "edits": [
+     [
+      "  if (!key) {\n    const err = new Error('No Anthropic API key configured \u2014 add one in the Dev Hub (top right) to enable AI features.');\n    err.status = 400;\n    throw err;\n  }\n",
+      ""
+     ]
+    ]
+   }
+  ],
+  "tests": "test/page-explain.test.js",
+  "desc": "both missing-key guards are removed at once, so a keyless request reaches the SDK and the endpoint crashes instead of answering 400 (FOREIGN FILES \u2014 see the evidence file)"
+ },
+ {
   "id": "NC-page-explain",
   "file": "server/services/nfl-page-explain.js",
   "tests": "test/page-explain.test.js",
   "old": " * Same \"AI explains, never decides\" discipline as nfl-pick-explain-ai (see",
   "new": " * The same \"AI explains, never decides\" discipline as nfl-pick-explain-ai (see",
-  "desc": "NO-OP CONTROL: reword a sentence of the file header, changing no behaviour"
+  "desc": "NO-OP CONTROL (applied, kills nothing): reword a sentence of the file header, changing no behaviour \u2014 the hash moves and the failure column stays at zero"
+ },
+ {
+  "id": "NC-tools",
+  "file": "server/services/page-explain-tools.js",
+  "tests": "test/page-explain.test.js",
+  "old": " * Read-only tool set for the page-explain assistant's tool-use loop",
+  "new": " * The read-only tool set for the page-explain assistant's tool-use loop",
+  "desc": "NO-OP CONTROL (applied, kills nothing): reword a sentence of the file header, changing no behaviour \u2014 the hash moves and the failure column stays at zero"
+ },
+ {
+  "id": "NC-absent-page-explain",
+  "file": "server/services/nfl-page-explain.js",
+  "tests": "test/page-explain.test.js",
+  "old": "const MAX_TOOL_ROUNDS = 3;",
+  "new": "const MAX_TOOL_ROUNDS = 9;",
+  "desc": "NO-OP CONTROL (anchor absent, nothing applied): a plausible but absent anchor, which must be reported NOT APPLIED with the file's hash unchanged rather than scoring a zero that looks like a measurement"
  }
 ]

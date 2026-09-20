@@ -53,10 +53,16 @@ export function render() {
     const rows = JSON.parse(fs.readFileSync(file, 'utf8'));
     out.push(`## \`${spec}.json\` — ${rows.length} rows, evidence in \`docs/tdd/${evidence}\``, '');
     for (const row of rows) {
-      const edits = row.edits ?? [[row.old, row.new]];
-      out.push(`### ${row.id} — ${row.desc}`, '', `\`${row.file}\`, suites \`${row.tests}\``, '');
-      for (const [before, after] of edits) {
-        out.push('before:', fence(before), 'after:', fence(after === '' ? '(the line is removed)' : after), '');
+      // `files` is the harness's two-file form; everything else is one file
+      // and renders exactly as it always did.
+      const groups = row.files ?? [{ file: row.file, edits: row.edits ?? [[row.old, row.new]] }];
+      const where = groups.map(group => `\`${group.file}\``).join(' and ');
+      out.push(`### ${row.id} — ${row.desc}`, '', `${where}, suites \`${row.tests}\``, '');
+      for (const group of groups) {
+        if (groups.length > 1) out.push(`in \`${group.file}\`:`, '');
+        for (const [before, after] of group.edits) {
+          out.push('before:', fence(before), 'after:', fence(after === '' ? '(the line is removed)' : after), '');
+        }
       }
     }
   }

@@ -41,12 +41,19 @@ test('every sweep spec is readable and names a file that exists', () => {
       for (const suite of String(row.tests).split(/\s+/)) {
         assert.ok(fs.existsSync(suite), `${spec}: ${row.id} names suite ${suite}, which does not exist`);
       }
-      const edits = row.edits ?? [[row.old, row.new]];
-      assert.ok(edits.length, `${spec}: ${row.id} has no substitution`);
-      for (const [before, after] of edits) {
-        assert.equal(typeof before, 'string', `${spec}: ${row.id} has no text to replace`);
-        assert.equal(typeof after, 'string', `${spec}: ${row.id} has nothing to replace it with`);
-        assert.notEqual(before, after, `${spec}: ${row.id} replaces text with itself`);
+      // A row normally edits one file. `files` is the two-file form, for a
+      // behaviour guarded in two places where removing either guard alone
+      // changes nothing a caller can see (page-explain.json's P12).
+      const groups = row.files ?? [{ file: row.file, edits: row.edits ?? [[row.old, row.new]] }];
+      assert.ok(groups.length, `${spec}: ${row.id} edits no file`);
+      for (const group of groups) {
+        assert.ok(fs.existsSync(group.file), `${spec}: ${row.id} names ${group.file}, which does not exist`);
+        assert.ok(group.edits?.length, `${spec}: ${row.id} has no substitution for ${group.file}`);
+        for (const [before, after] of group.edits) {
+          assert.equal(typeof before, 'string', `${spec}: ${row.id} has no text to replace`);
+          assert.equal(typeof after, 'string', `${spec}: ${row.id} has nothing to replace it with`);
+          assert.notEqual(before, after, `${spec}: ${row.id} replaces text with itself`);
+        }
       }
       assert.ok(String(row.desc ?? '').trim(), `${spec}: ${row.id} says nothing about what it does`);
     }

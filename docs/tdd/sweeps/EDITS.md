@@ -2148,7 +2148,7 @@ after:
  * The single place Coach runs a query it wrote itself.
 ```
 
-## `page-explain.json` — 3 rows, evidence in `docs/tdd/page-explain-assertions.tdd.md`
+## `page-explain.json` — 15 rows, evidence in `docs/tdd/page-explain-assertions.tdd.md`
 
 ### P1 — the model's paragraph is cut to its first sentence, so the caveat at the end of it never reaches the screen
 
@@ -2176,7 +2176,167 @@ after:
     model, authority: 'advisory', tool_calls: toolCalls ?? [],
 ```
 
-### NC-page-explain — NO-OP CONTROL: reword a sentence of the file header, changing no behaviour
+### P3 — the missing-key guard is gone, so a keyless request is handed to the model instead of being answered with a 400 (FOREIGN FILE — see the evidence file)
+
+`server/routes/betting-hub.js`, suites `test/page-explain.test.js`
+
+before:
+```
+    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
+```
+after:
+```
+(the line is removed)
+```
+
+### P4 — a request with no route is accepted and explained anyway, so the assistant describes a page nobody named (FOREIGN FILE — see the evidence file)
+
+`server/routes/betting-hub.js`, suites `test/page-explain.test.js`
+
+before:
+```
+    if (!route) return res.status(400).json({ error: 'route is required' });
+```
+after:
+```
+(the line is removed)
+```
+
+### P5 — the loop echoes the model's own tool arguments back as the tool result instead of running the lookup, so the answer is grounded in what the model asked for rather than in the database
+
+`server/services/nfl-page-explain.js`, suites `test/page-explain.test.js`
+
+before:
+```
+        const result = runTool(block.name, block.input);
+```
+after:
+```
+        const result = block.input ?? {};
+```
+
+### P6 — the audit records which tool ran but not what it was asked, so the stored trail cannot be re-run or checked
+
+`server/services/nfl-page-explain.js`, suites `test/page-explain.test.js`
+
+before:
+```
+        toolCalls.push({ name: block.name, input: block.input ?? {} });
+```
+after:
+```
+        toolCalls.push({ name: block.name, input: {} });
+```
+
+### P7 — the cap that bounds cost and stops this becoming an unbounded agent is raised by one round
+
+`server/services/nfl-page-explain.js`, suites `test/page-explain.test.js`
+
+before:
+```
+const MAX_TOOL_ROUNDS = 4;
+```
+after:
+```
+const MAX_TOOL_ROUNDS = 5;
+```
+
+### P8 — an answer that ran out of lookup rounds is presented as complete, with the cut-short note withheld in exactly the case that produces it
+
+`server/services/nfl-page-explain.js`, suites `test/page-explain.test.js`
+
+before:
+```
+    if (isFinalRound && toolCalls.length) {
+```
+after:
+```
+    if (isFinalRound && toolCalls.length > 3) {
+```
+
+### P9 — the declared-name whitelist is removed and an unknown name falls through to the switch default instead of being refused at the door
+
+`server/services/page-explain-tools.js`, suites `test/page-explain.test.js`
+
+before:
+```
+  if (!TOOL_NAMES.has(name)) return { error: `Unknown tool '${name}'` };
+```
+after:
+```
+(the line is removed)
+```
+
+### P10 — a stake-shaped name is declared to the model and wired to a live branch, which is the exact thing this file's header promises cannot exist
+
+`server/services/page-explain-tools.js`, suites `test/page-explain.test.js`
+
+before:
+```
+    name: 'decay_watch_status',
+```
+after:
+```
+    name: 'set_stake',
+```
+
+before:
+```
+      case 'decay_watch_status':
+```
+after:
+```
+      case 'set_stake':
+```
+
+### P11 — the second missing-key guard, the one inside callClaude, is removed while the route's own guard stays (FOREIGN FILE — see the evidence file)
+
+`server/services/claude.js`, suites `test/page-explain.test.js`
+
+before:
+```
+  if (!key) {
+    const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
+    err.status = 400;
+    throw err;
+  }
+```
+after:
+```
+(the line is removed)
+```
+
+### P12 — both missing-key guards are removed at once, so a keyless request reaches the SDK and the endpoint crashes instead of answering 400 (FOREIGN FILES — see the evidence file)
+
+`server/routes/betting-hub.js` and `server/services/claude.js`, suites `test/page-explain.test.js`
+
+in `server/routes/betting-hub.js`:
+
+before:
+```
+    if (!getApiKey()) return res.status(400).json({ error: 'No Anthropic API key — add one in the Dev Hub (top right).' });
+```
+after:
+```
+(the line is removed)
+```
+
+in `server/services/claude.js`:
+
+before:
+```
+  if (!key) {
+    const err = new Error('No Anthropic API key configured — add one in the Dev Hub (top right) to enable AI features.');
+    err.status = 400;
+    throw err;
+  }
+```
+after:
+```
+(the line is removed)
+```
+
+### NC-page-explain — NO-OP CONTROL (applied, kills nothing): reword a sentence of the file header, changing no behaviour — the hash moves and the failure column stays at zero
 
 `server/services/nfl-page-explain.js`, suites `test/page-explain.test.js`
 
@@ -2187,4 +2347,30 @@ before:
 after:
 ```
  * The same "AI explains, never decides" discipline as nfl-pick-explain-ai (see
+```
+
+### NC-tools — NO-OP CONTROL (applied, kills nothing): reword a sentence of the file header, changing no behaviour — the hash moves and the failure column stays at zero
+
+`server/services/page-explain-tools.js`, suites `test/page-explain.test.js`
+
+before:
+```
+ * Read-only tool set for the page-explain assistant's tool-use loop
+```
+after:
+```
+ * The read-only tool set for the page-explain assistant's tool-use loop
+```
+
+### NC-absent-page-explain — NO-OP CONTROL (anchor absent, nothing applied): a plausible but absent anchor, which must be reported NOT APPLIED with the file's hash unchanged rather than scoring a zero that looks like a measurement
+
+`server/services/nfl-page-explain.js`, suites `test/page-explain.test.js`
+
+before:
+```
+const MAX_TOOL_ROUNDS = 3;
+```
+after:
+```
+const MAX_TOOL_ROUNDS = 9;
 ```

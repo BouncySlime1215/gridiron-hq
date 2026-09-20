@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import OddsBasis from '../components/OddsBasis';
 import StatBlock from '../components/ui/StatBlock';
 import DeepDive from '../components/ui/DeepDive';
+import { gateState, WithheldOdds, PublishedCaveat, gradedSentence } from '../components/ui/OddsGate';
 import { Link } from 'react-router-dom';
 import { api, headshotUrl, useApi } from '../api';
 import { useLeague } from '../state/league';
@@ -67,6 +68,10 @@ export default function MyTeam() {
   const simUrl = active && synced ? `/model/${active.id}/simulate?runs=1500` : null;
   const { data: sim } = useApi<any>(simUrl);
   const myTwin = sim?.teams?.find((t: any) => String(t.roster_id) === String(myTeamId));
+  // Whether the championship and playoff percentages are shown at all. Declared
+  // here rather than with the other UI state because it is derived from the
+  // simulation response, not from anything the reader did.
+  const gate = gateState(sim?.odds_gate);
 
   // Once the engine resolves a default team (from the league's saved my_team_id, or
   // its own first-team fallback), reflect that in the picker — without this the
@@ -174,19 +179,36 @@ export default function MyTeam() {
                 show, and every one of the five layers already existed in the
                 payload and was rendered either as small grey prose below the
                 card or not at all. */}
-            <StatBlock
-              id="title_odds"
-              value={myTwin.title_odds}
-              basis={sim?.projection_fit ? 'fitted' : 'assumed'}
-              note={myTwin.title_odds_95
-                ? `${(myTwin.title_odds_95[0] * 100).toFixed(1)}–${(myTwin.title_odds_95[1] * 100).toFixed(1)}% range`
-                : null}
-              onOpen={() => setDrill(true)}
-            />
-            <div>
-              <div className="text-[10px] uppercase tracking-wide text-slate-400">Make playoffs</div>
-              <div className="text-xl font-bold text-slate-800 tabular-nums">{(myTwin.playoff_odds * 100).toFixed(0)}%</div>
-            </div>
+            {/* The gate decides whether a percentage is shown at all. The
+                deep dive opens either way: withholding the headline is not the
+                same as pretending there is nothing behind it, and someone who
+                wants to know WHY there is no number should be one tap from the
+                grading that says so. */}
+            {gate === 'published' ? (
+              <StatBlock
+                id="title_odds"
+                value={myTwin.title_odds}
+                basis={sim?.projection_fit ? 'fitted' : 'assumed'}
+                note={myTwin.title_odds_95
+                  ? `${(myTwin.title_odds_95[0] * 100).toFixed(1)}–${(myTwin.title_odds_95[1] * 100).toFixed(1)}% range`
+                  : null}
+                onOpen={() => setDrill(true)}
+              />
+            ) : (
+              <button type="button" className="odds-withheld-open" onClick={() => setDrill(true)}>
+                <WithheldOdds gate={sim.odds_gate} label="Championship" />
+              </button>
+            )}
+            {/* Same simulation, same grading — in fact the playoff number is the
+                one that WAS graded. It cannot stay a bare percentage while the
+                championship number beside it is withheld on that grading's
+                strength. */}
+            {gate === 'published' ? (
+              <StatBlock id="playoff_odds" value={myTwin.playoff_odds}
+                basis={sim?.projection_fit ? 'fitted' : 'assumed'} />
+            ) : (
+              <WithheldOdds gate={sim.odds_gate} label="Make playoffs" />
+            )}
             <div>
               <div className="text-[10px] uppercase tracking-wide text-slate-400">Expected record</div>
               <div className="text-xl font-bold text-slate-800 tabular-nums">{myTwin.expected_wins}W</div>
@@ -202,6 +224,7 @@ export default function MyTeam() {
               </div>
             )}
           </div>
+          {gate === 'published' && <PublishedCaveat gate={sim?.odds_gate} />}
           <OddsBasis sim={sim} />
           <DeepDive
             id="title_odds"
@@ -235,11 +258,7 @@ export default function MyTeam() {
               // scored against real seasons, and there is no harness in this
               // repository that does it. Saying "tested" here because the inputs
               // were tested is the overstatement this layer exists to prevent.
-              tested: 'The weekly player projections underneath this were checked by replaying past '
-                + 'seasons week by week and grading each prediction on the week it was for. This '
-                + 'championship number itself has never been scored against real finished seasons '
-                + '— nothing here checks how often a team we gave 20% actually won. Read it as a '
-                + 'considered estimate, not as a measured frequency.',
+              tested: gradedSentence(sim?.odds_gate),
               source: sim?.odds_interval
                 ? `The range beside it is ${sim.odds_interval}`
                 : 'The range beside it is run-to-run wobble in the simulation, not uncertainty in the forecast.'

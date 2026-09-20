@@ -505,3 +505,44 @@ body { font-family: var(--font-body); }
 .deep-dive-layer { animation: dd-reveal var(--motion-reveal) var(--ease-inout) both; }
 @keyframes dd-reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .deep-dive-layer { animation: none; } }
+
+/* ── Withheld odds ────────────────────────────────────────────────────────
+   What stands where a percentage would be when the grading says the number is
+   worse than a base rate.
+
+   Deliberately NOT a card, not amber, and not an error state. Nothing is broken
+   and nothing is wrong with the manager's team. It occupies the same slot, at
+   the same weight, as the number it replaces — a state that shrinks or greys
+   reads as "this bit failed to load", which is a different and wrong message. */
+.odds-withheld { display: grid; gap: .125rem; justify-items: start; text-align: left; }
+.odds-withheld-label {
+  font-family: var(--font-mono);
+  font-size: var(--type-label);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.odds-withheld-value {
+  font-size: var(--type-lead);
+  line-height: 1.2;
+  font-weight: 700;
+  font-stretch: 112%;
+  color: var(--ink);
+}
+.odds-withheld-why { font-size: var(--type-note); line-height: 1.5; color: var(--muted); margin-top: .25rem; }
+
+/* The withheld state opens the same deep dive the number would have. Someone
+   who wants to know why there is no percentage should be one tap from the
+   grading that says so. */
+.odds-withheld-open {
+  display: block; width: 100%; text-align: left;
+  padding: .25rem; margin: -.25rem; border: 0; border-radius: 6px;
+  background: none; color: inherit; font: inherit; cursor: pointer;
+  transition: background var(--motion-quick) var(--ease-out);
+}
+.odds-withheld-open:hover { background: var(--panel); }
+.odds-withheld-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Rides alongside a published percentage. Publishing is not the same as being
+   right, and the overconfidence was measured at every week. */
+.odds-caveat { margin-top: .5rem; font-size: var(--type-note); line-height: 1.5; color: var(--muted); }

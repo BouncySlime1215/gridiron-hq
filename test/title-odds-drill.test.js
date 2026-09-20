@@ -20,6 +20,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+// Layer 4 is built, not literal, since the odds gate landed; call it rather
+// than reading a string the page no longer contains. See test/odds-gate.test.js.
+import { gradedSentence } from '../client/src/lib/odds-gate.js';
 
 const read = rel => fs.readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 const page = read('client/src/pages/MyTeam.tsx');
@@ -50,18 +53,46 @@ test('nothing opens on first paint', () => {
 });
 
 test('layer 4 does not claim the championship number was tested', () => {
-  // The precise claim: the inputs were graded, this number was not. Both halves
-  // have to survive. Dropping the second half is the overstatement; dropping
-  // the first understates work that really was done.
-  const tested = between('tested:', 'source:');
-  assert.ok(tested.length > 50, 'layer 4 is gone');
-  assert.match(tested, /never been scored against real finished seasons/,
+  // THIS TEST WAS CHANGED WHEN THE ODDS GATE LANDED, AND WHY.
+  //
+  // It used to assert the literal sentence in MyTeam.tsx. Layer 4 is no longer
+  // a literal: `gradedSentence(sim?.odds_gate)` builds it from what the server
+  // says was graded, because the playoff side of this simulation HAS now been
+  // graded — 184,959 real team-weeks — and a hard-coded "never been scored"
+  // would be a false claim in the other direction.
+  //
+  // The intent is unchanged and both halves still have to survive: the inputs
+  // were graded, and whatever has not been graded is said so. So this checks
+  // the page still delegates, and checks the claim where it is now made.
+  assert.match(layers, /tested: gradedSentence\(sim\?\.odds_gate\)/,
+    'layer 4 stopped delegating to the graded sentence');
+  assert.match(page, /import \{[^}]*gradedSentence[^}]*\} from '\.\.\/components\/ui\/OddsGate'/,
+    'the page no longer imports the sentence it renders');
+
+  // With nothing graded served, the original claim must still be the one made.
+  const ungraded = gradedSentence(undefined);
+  assert.match(ungraded, /not been scored against real finished\s+seasons/,
     'layer 4 stopped saying the championship number itself is ungraded');
-  assert.match(tested, /week by week/, 'layer 4 stopped crediting the backtest that did happen');
-  assert.doesNotMatch(tested, /\bcalibrated\b/i,
-    'layer 4 is calling an unscored probability calibrated');
-  // And the claim it makes is checkable: the harness it credits exists and
-  // grades weeks, and no harness grades the season sim's title odds.
+
+  // With a grading served, it reports that grading and still names what the
+  // grading did not cover. Neither form may say "calibrated".
+  const graded = gradedSentence({
+    published: false, min_week: 4, weeks_played: 0, reason: null,
+    calibration: {
+      graded_team_weeks: 184959,
+      by_week: { 2: { brier: 0.2855, base_rate: 0.2410 } },
+      extremes: { no_chance_qualify_rate: 0.1212, certain_miss_rate: 0.1011 },
+      not_graded: "this app's own configuration"
+    }
+  });
+  assert.match(graded, /grading did not cover/,
+    'a graded payload stopped naming what the grading left out');
+  for (const s of [ungraded, graded]) {
+    assert.match(s, /week by week/, 'layer 4 stopped crediting the backtest that did happen');
+    assert.doesNotMatch(s, /\bcalibrated\b/i, 'layer 4 is calling an unscored probability calibrated');
+  }
+
+  // And the claim it credits is checkable: the harness exists and grades weeks.
   const backtest = read('server/services/weekly-backtest.js');
   assert.match(backtest, /graded on\s*\n?\s*\*?\s*week W alone|graded on week W alone/,
     'the weekly backtest no longer grades the week it predicted');

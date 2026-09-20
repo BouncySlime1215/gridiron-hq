@@ -2,8 +2,9 @@
  * The simulator routes start from the league's real week.
  *
  * `GET /api/model/:leagueId/simulate` and `POST /api/model/:leagueId/trade-impact` both
- * defaulted `from_week` to 1, and neither UI caller passes it — Model.tsx and
- * MyTeam.tsx both request `?runs=N` only. `simulateSeason` carries in a real record
+ * defaulted `from_week` to 1, and no UI caller passes it — MyTeam.tsx requests
+ * `?runs=N` only. (Model.tsx was the other caller and has since been deleted,
+ * unrouted and unimported; MyTeam.tsx is the live one, and still sends no week.) `simulateSeason` carries in a real record
  * only when fromWeek > 1 (its `initialRecords`), so every playoff and title number on
  * screen was simulated with the standings thrown away.
  *

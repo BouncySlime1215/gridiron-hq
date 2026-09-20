@@ -153,9 +153,27 @@ reproducible.
 **8 of 8 killed on the first pass**, each by the test it names, file restored
 clean, control a `NO-OP`.
 
-## 5. Surviving mutations
+## 5. Surviving mutations, and the union over a module-absent RED
 
-None.
+None survived.
+
+`test/trade-season-span.test.js` is a new file, so its RED was the
+`fmtSeasonSpan` import failing — which node reports as one file-level
+`not ok 1 - test/trade-season-span.test.js`, red for a single reason and
+therefore no evidence about any individual test in it. Where that is the shape
+of the RED, the union of the mutation rows has to cover every test in the suite
+or the uncovered ones are unguarded:
+
+| test | killed by |
+|---|---|
+| D11a the weeks left are named, in the plural the count calls for | D2 |
+| D11b a season-length default says it is a default | D3 |
+| D11c a payload without the fields keeps today's sentence | D1 |
+
+Three tests, three killing rows, union complete — no test is missed and none
+needs a stated reason. The three additions to `test/manager-signals-api.test.js`
+do not need this: that file and its imports already existed, so each went red on
+its own assertion with its own message.
 
 One thing deliberately not guarded: no test asserts the prompt's *wording*
 around the span, only that the count and the basis reach it and that the
@@ -187,5 +205,22 @@ and **a value that is a prior, or a default, must say so where it is read**.
 
 ## Full check on the exact tree
 
-Recorded in `docs/tdd/jev-model-read.tdd.md`, which is the head these changes
-were measured on; both were checked together.
+`npm run check` — typecheck, lint, suite, build, `start:smoke` — exit 0 on
+**`7156e8a`** (`claude/project-thread-3xqh5l-accessor-hold`), working tree clean
+and nothing else running against it:
+
+- **3,006 tests, 2,965 pass, 0 fail, 41 skipped**, 357.5 s
+- lint clean across 877 JavaScript files; typecheck clean
+- build 0; startup smoke passed on an isolated database (32 teams)
+
+The file count is stated from the tree, not from the reading:
+`git ls-tree -r 7156e8a -- server scripts test` counts 877 `.js`/`.mjs`, which is
+exactly what `scripts/lint.mjs` walks. It walks the filesystem, so an untracked
+file inflates it — that is how an earlier 877 came to be reported for a commit
+containing 876 (`docs/tdd/valuation-panel.tdd.md`).
+
+`npm ci` has not been run in the container these numbers came from. A fresh clone
+fails the offline-guard tests with `ERR_MODULE_NOT_FOUND` until it is, which looks
+exactly like a regression and is not one. CI is not run: GitHub Actions is out of
+minutes until 2026-10-01 and the workflow is disabled deliberately, so red or
+missing checks are that and not this branch's content.

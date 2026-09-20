@@ -1,10 +1,18 @@
 import { useState } from 'react';
 import { api, useApi } from '../api';
+import { coverageState, canRetry, coverageHeadline, coverageDetail } from '../lib/usage-coverage';
+import type { UsageCoverage } from '../lib/usage-coverage';
 
 interface SetupStatus {
   needs_setup: boolean;
   missing: { source: string; label: string }[];
   checked: number;
+  /**
+   * Whether the player-usage table actually holds rows for the season being
+   * played — which `needs_setup` cannot answer, because it only counts sources
+   * that never ran. Not served yet; the banner is correct before and after.
+   */
+  usage_coverage?: UsageCoverage | null;
 }
 
 /**
@@ -29,7 +37,13 @@ export default function DataSetupBanner() {
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
-  if (!status?.needs_setup || dismissed) return null;
+  // Two independent reasons to show this bar. `needs_setup` is "a source never
+  // ran"; `usage_coverage` is "a source ran and the table is still empty", which
+  // the old check reported as healthy. Either one renders it.
+  const coverage = coverageState(status?.usage_coverage);
+  const coverageWrong = coverage != null && coverage !== 'healthy';
+  if (dismissed) return null;
+  if (!status?.needs_setup && !coverageWrong) return null;
 
   const close = () => {
     try { sessionStorage.setItem('data-setup-dismissed', '1'); } catch { /* private mode */ }
@@ -52,24 +66,42 @@ export default function DataSetupBanner() {
     } finally { setBusy(false); }
   };
 
+  // The state that must not offer a retry. Running the same pull again is what
+  // produced the empty table; a button that cannot help teaches a reader to
+  // ignore the bar, and this is the one bar they most need to not ignore.
+  const retryable = coverage == null ? true : canRetry(coverage);
+  const headline = coverageWrong
+    ? coverageHeadline(coverage, status?.usage_coverage)
+    : 'This install is missing historical model data';
+  const detail = coverageWrong ? coverageDetail(coverage, status?.usage_coverage) : null;
+  // A table that reports success and holds nothing is worse than a gap, so it
+  // is not dressed in the same amber as "you have not run the backfill yet".
+  const alarm = coverage === 'ok_no_rows' || coverage === 'unrecognised';
+  const skin = alarm
+    ? 'border-rose-200 bg-rose-50 text-rose-900'
+    : 'border-amber-200 bg-amber-50 text-amber-900';
+
   return (
-    <div className="flex w-full flex-wrap items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
+    <div className={`flex w-full flex-wrap items-center gap-2 border-b px-4 py-1.5 text-xs ${skin}`}>
       <span aria-hidden>⚠</span>
-      <span className="font-semibold">
-        This install is missing historical model data
-      </span>
-      <span className="text-amber-700">
-        ({status.missing.map(m => m.label).join(', ')})
-      </span>
+      <span className="font-semibold">{headline}</span>
+      {detail && <span className={alarm ? 'text-rose-700' : 'text-amber-700'}>{detail}</span>}
+      {!coverageWrong && status?.missing?.length ? (
+        <span className="text-amber-700">
+          ({status.missing.map(m => m.label).join(', ')})
+        </span>
+      ) : null}
       {err && <span className="font-semibold text-rose-700">{err}</span>}
       {done && !err && <span className="font-semibold text-emerald-700">Updated.</span>}
-      <button onClick={runSync} disabled={busy}
-        className="ml-1 flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2 py-0.5 font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-60">
-        {busy && <span className="inline-block animate-spin leading-none">↻</span>}
-        {busy ? 'Updating — this can take a few minutes…' : 'Update now'}
-      </button>
+      {retryable && (
+        <button onClick={runSync} disabled={busy}
+          className="ml-1 flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2 py-0.5 font-bold text-amber-900 transition hover:bg-amber-100 disabled:opacity-60">
+          {busy && <span className="inline-block animate-spin leading-none">↻</span>}
+          {busy ? 'Updating — this can take a few minutes…' : 'Update now'}
+        </button>
+      )}
       <button onClick={close} aria-label="Dismiss for now"
-        className="ml-auto text-amber-500 hover:text-amber-800">✕</button>
+        className={`ml-auto ${alarm ? 'text-rose-500 hover:text-rose-800' : 'text-amber-500 hover:text-amber-800'}`}>✕</button>
     </div>
   );
 }

@@ -1836,6 +1836,22 @@ Then:
    cached dataset built under another availability fit, so it will say if it is
    stale rather than quietly using it.
 
+   **One thing about its output will be uninformative, and it is not a reason to
+   wait.** The script's `league_week_scores` block reports a cross-check — the
+   pooled within-team SD of real ESPN team-week scores, the 24.1 and CV 0.20
+   that `lineup-posture.js:131` and `trade-horizon.js:47` cite as corroboration.
+   `league_week_scores` has had **no automatic writer** until #47's job, so that
+   corroboration was computed against whatever happened to be in the table, and
+   the re-fit's will be too until #47's `league_history` job has run once —
+   which, being in the 300-second background tier, cannot happen before step 6
+   passes. **The fit itself does not depend on it.** Read
+   `fit-posture-calibration.mjs:499-517`: the block writes
+   `result.league_week_scores` and prints it, and nothing downstream reads it —
+   not the winner selection, not the gate, not a shipped parameter. So run the
+   re-fit when the chain reaches it and treat that one number as pending.
+   *Raised by the chat-sync thread as a reason to wait; checked here, and the
+   waiting part does not hold.*
+
 ### 10a. Put the heavy tier back — last, and only after every after-read
 
 ```

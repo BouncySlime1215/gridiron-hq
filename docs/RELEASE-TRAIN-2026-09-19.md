@@ -2753,9 +2753,49 @@ Six server files read that table — `bluff-detector.js`,
 read, archetype and counterparty price on the live app is computed from
 whatever rows were last collected by hand, with no indication on any surface
 that the data has an age. **Nothing here needs doing tonight and it is not a
-deploy risk**; it is a morning decision about where that collector should run,
-a scheduled worker on Fly or a cron job on his own machine, and the scheduler
-thread has the recommendation.
+deploy risk**; it is a morning decision about where that collector should run.
+
+**The scheduler thread's recommendation, and it is neither of the two options
+this document offered.** Both were wrong for reasons that are checkable here:
+
+- **A cron on his own machine loses rows permanently when the laptop sleeps.**
+  `refresh-live-data.mjs:95-96` says so in the source — *"ESPN only answers with
+  the last ~3 days, so this must run every tick or the proposals are lost."*
+  Proposal and decline timestamps are exactly what the manager reads are built
+  from, and they cannot be backfilled.
+- **A second Fly process group would run against no database.** `fly.toml`
+  declares one `[[mounts]]` (`gridiron_data` → `/data`) and no `processes`
+  section; a second process group does not get the volume.
+
+**So: the collector's body becomes a registry job in the scheduler, metered
+tier, `offThread`** — which brings `sync_log`, `maxAgeMinutes` staleness and the
+retry backoff with it, none of which a script spawned by hand has. It also needs
+a real migration for `league_transactions_raw`, which the script creates ad hoc
+with `CREATE TABLE IF NOT EXISTS` at `collect-league-transactions.mjs:21`, and
+credentials through `platform/espn-credentials.js` rather than the direct
+`SELECT … espn_s2, swid FROM leagues` it does today. **Recorded as the decision;
+it is built on the scheduler thread's hold branch and merges on Nick's word.**
+
+*Three things checked here before recording it, two of which change how the
+sentence should read.*
+
+1. **`offThread` is a worker thread, not a process.** `job-worker.js` is a
+   `node:worker_threads` entry point — its own module graph and therefore its
+   own `DatabaseSync` handle, which is the property that matters, but the same
+   process. It does not survive a restart and it is not isolated from an OOM.
+   Worth stating plainly because "its own process" would make it sound like the
+   Fly process group this recommendation just ruled out.
+2. **A metered job will not run at all until the restart cycle is fixed.** The
+   metered tier is part of the background tier on `intervalMinutes`, which
+   `index.js:75` sets to 5 — and the app has not lived 5 minutes since 22:53Z.
+   That is an argument for this ordering rather than against the plan: the
+   collector starts working when the cycle stops, and not before. Nothing about
+   item 8 should be read as delivering fresh manager data ahead of step 1.
+3. **One porting detail.** `collect-league-transactions.mjs:17` sets
+   `process.env.SCHEDULER_DISABLED = '1'` before importing the database, so that
+   the standalone script does not start a scheduler. Inside the scheduler that
+   line has to go, and it is the kind of line that survives a copy-paste and
+   then disables the thing it is running in.
 
 **Why three scheduler PRs rather than one**, since each fixes a different link
 and none of them is sufficient alone. **#56** stops the host's own health probe

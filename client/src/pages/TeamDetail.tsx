@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import BasisChip from '../components/ui/BasisChip';
 import { Link, useParams } from 'react-router-dom';
 import { api, Team, headshotUrl, useApi } from '../api';
 import { Headshot } from '../components/PlayerRow';
@@ -40,6 +41,22 @@ function benchFor(depthMulti: Record<string, SlotPlayer[]> | undefined, phase: P
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * A coaching slot whose stored value is still a placeholder.
+ *
+ * `server/db/seed/teams.js` was written before the season and left thirteen of
+ * these behind — "TBD (camp)", "Jeff Hafley's successor (TBD)". Camp is over;
+ * rendering those as if they were a person's name is the page asserting a fact
+ * it does not have. Who the coordinator actually is cannot be answered from
+ * anything in this repository, so the honest render is the absence, not a
+ * guess.
+ */
+const PLACEHOLDER = /\bTBD\b/i;
+const coachName = (v?: string | null) => (v && !PLACEHOLDER.test(v) ? v : null);
+/** Said once, used on every hand-written card on this page. */
+const SEED_NOTE = 'Written by hand rather than measured, and the app does not record when. '
+  + 'The measured identity above is computed from play-by-play and is the one to trust where they disagree.';
 
 const PHASE_TABS: { key: Phase; label: string }[] = [
   { key: 'offense', label: 'Offense' },
@@ -110,9 +127,9 @@ export default function TeamDetail() {
           <div>
             <h1 className="text-2xl font-bold leading-tight">{team.name}</h1>
             <div className="text-xs text-slate-600">
-              HC <span className="text-slate-800">{team.head_coach}</span>
-              {team.oc_name && <> · OC <span className="text-slate-800">{team.oc_name}</span></>}
-              {team.dc_name && <> · DC <span className="text-slate-800">{team.dc_name}</span></>}
+              HC <span className="text-slate-800">{coachName(team.head_coach) ?? 'not recorded'}</span>
+              {coachName(team.oc_name) && <> · OC <span className="text-slate-800">{coachName(team.oc_name)}</span></>}
+              {coachName(team.dc_name) && <> · DC <span className="text-slate-800">{coachName(team.dc_name)}</span></>}
             </div>
           </div>
         </div>
@@ -210,15 +227,30 @@ export default function TeamDetail() {
           </div>
         )}
 
+        {/* These two cards are hand-written prose. The Measured identity block
+            above them is computed from thousands of team-weeks of play-by-play,
+            and until now the two sat side by side in the same card at the same
+            weight, so a sentence somebody typed before the season read as
+            authoritatively as a percentile. The chip says which is which. The
+            app records no date for this text — `nfl_teams` has no timestamp
+            column and the edit route writes none — so the label says it is
+            undated rather than inventing a date, which is the only honest
+            version available. */}
         <div className="grid md:grid-cols-2 gap-4 mt-4">
           <div className="card p-4">
-            <h3 className="text-sm font-bold text-emerald-600 mb-1">Scheme — {phaseScheme}</h3>
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-sm font-bold text-emerald-600">Scheme — {phaseScheme}</h3>
+              <BasisChip basis="assumed" note={SEED_NOTE} />
+            </div>
             <p className="text-sm text-slate-700 leading-relaxed">{phaseDetail}</p>
           </div>
           <div className="card p-4">
-            <h3 className="text-sm font-bold text-amber-600 mb-1">
-              {unit ? UNIT_LABEL[unit] : 'Coach & Fantasy Outlook'}
-            </h3>
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-sm font-bold text-amber-600">
+                {unit ? UNIT_LABEL[unit] : 'Coach & Fantasy Outlook'}
+              </h3>
+              <BasisChip basis="assumed" note={SEED_NOTE} />
+            </div>
             <p className="text-sm text-slate-700 leading-relaxed">
               {unit ? (unitAnalysis[unit] ?? 'No analysis yet.') : team.coach_analysis}
             </p>

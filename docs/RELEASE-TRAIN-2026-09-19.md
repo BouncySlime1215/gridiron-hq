@@ -2868,7 +2868,7 @@ sentences would survive being wrong about something else.**
 | Restart itself takes ~5-20 s | **Derived** from the eight measured cycles (167-179 s) minus onset 94-110 minus the 60 s fuse. The earlier "~30 s boot" was never measured and 90 + 60 + 30 = 180 matched the median by luck | this thread |
 | Both wrong-base call sites are fixed | **Verified here** by content, not by PR number: #57 `7c27517` passes `coordinatorBase(weekProjection)`; `42bbbc3` passes `projection.structural_ppg` and nulls `corrected_ppg` when unfitted. Neither is merged yet | this thread |
 | No surface changes when `corrected_ppg` goes null | **Verified here**: `drafts.js` widened to `?? ensemble_ppg ??`; a tree-wide search finds no other reader, including the untouched `routes/players.js:94` caller | this thread |
-| TWO things start at t+90 s, not one | **Verified here on `791b131`**: `:1751`'s timer AND `tier('live', live, 90_000)` at `:1800` — `liveIntervalSeconds` is 90 and `index.js:75` passes only `intervalMinutes: 5`; `setInterval`, no leading call. 21 of 24 live jobs are on the request thread. **The onset cannot distinguish them** | this thread |
+| TWO things start at t+90 s, not one | **Verified here on `791b131`**: `:1751`'s timer AND `tier('live', live, 90_000)` at `:1800` — `liveIntervalSeconds` is 90 and `index.js:75` passes only `intervalMinutes: 5`; `setInterval`, no leading call. 23 of 24 live jobs are on the request thread (only `evidence_daemon` declares `offThread`). **The onset cannot distinguish them** | scheduler + this thread |
 | No merged PR moves the live tier | **Verified here** by reading #59's and #63's diffs: #63 sets `offThread: true` on `nfl_model_growth`, the boot pass and the two timers only. So the deploy may not be sufficient | this thread |
 | 22 background jobs have never run, not 19 | **Verified here**: 26 in the background tier, less 2 in `bootJobs` and 2 on their own timers = 18 growth + 4 metered. With 12 heavy gated off, 34 of 62 | scheduler + this thread |
 | The loop is blocked, not the database locked | **Measured here**: 335 reads across both instruments, 137 failures, **zero 503s**. `healthHandler` returns 503 when `SELECT 1` throws with the loop alive; every failure was instead no response at all | this thread |
@@ -3009,10 +3009,16 @@ document.** Two things start at t+90 s, not one:
   `setInterval` with **no leading call** — so the live tier's first pass is at
   t+90 s exactly, alongside the timer.
 
-**The live tier is 24 jobs, and 21 of them run on the request thread.** Only
-`player_rosters`, `nfl_book_feeds_extra` and `evidence_daemon` declare
-`offThread`, and `:1605` resolves the rest to false because
-`job.offThread ?? job.tier === 'heavy'` is false for a live job. Several have
+**The live tier is 24 jobs, and 23 of them run on the request thread.** Only
+`evidence_daemon` (`:1314`) declares `offThread` among live jobs — the file has
+exactly seven such declarations (`:1141`, `:1144`, `:1147`, `:1187`, `:1314`,
+`:1335`, `:1432`) and the other six are growth-tier. `:1605` resolves the rest
+to false, because `job.offThread ?? job.tier === 'heavy'` is false for a live
+job. *An earlier version of this paragraph said 21, naming `player_rosters` and
+`nfl_book_feeds_extra` as off-thread. They are not: `:1114` and `:1180` carry no
+such flag, and the count came from a text search that matched the word in a
+neighbouring comment rather than the property. The scheduler thread caught it.*
+Several have
 three- to five-minute cadences (`polymarket_line_watch`, `nfl_play_by_play`,
 `prediction_markets`, `polymarket` at 3; `nfl_book_feeds_fast`,
 `nfl_pick_watch`, `nfl_t60_runner` at 5), so they are due on essentially every
@@ -3037,6 +3043,19 @@ reading its diff, neither it nor #59 alters `tier('live', ...)`,
 `liveIntervalSeconds`, or any live job's flags. **So if the live tier is the
 blocker, the deploy will not stop the cycle.**
 
+**One more thing about step 6's proof, from the scheduler thread and checked
+here on #63's branch: the first 90 seconds after the unset are not
+representative of the next 90.** #63 passes `runIfStale(j, { offThread:
+bootOffThread(j) })` for the boot pass (`:1952`) but the tier helper calls
+`runIfStale(j)` with **no override** (`:1859`). So **fourteen live jobs run in a
+worker once at boot and then come back onto the request thread at 90 seconds and
+every 90 seconds after** — the 18 live jobs that are also in `BOOT_JOBS`, less
+`evidence_daemon`, which is already off-thread, and less the three book-feeds
+jobs, which `MAIN_THREAD_ONLY` (`:1588-1592`) pins to the main thread because
+they share `_directBookLastSeen` and `_providerBackoff`. **A quiet first 90
+seconds after the unset therefore proves nothing.** The bar is 900 seconds for
+this reason among others.
+
 **Read step 6 accordingly. If the app still dies around three minutes after the
 brake comes off, that is NOT evidence the boot fix failed and it is not a
 reason to roll back.** It means the other thing that starts at 90 seconds is
@@ -3045,6 +3064,18 @@ the one holding the loop, and the next move is to put the brake back on
 way) and take the live tier off the request thread as a follow-up. The four PRs
 are still correct and still worth merging; what is not established is that they
 are *sufficient*.
+
+**Do not bundle the live-tier move into the morning merge, on the scheduler
+thread's recommendation and this sheet's agreement.** They have it ready, and
+it should still wait, for a reason about evidence rather than risk: **the brake
+stops the live tier too, so moving it cannot help the 600-second proof at step
+2 — and shipping it in the same deploy would give a death in the 900-second
+window two candidate causes instead of one.** The whole value of this sequence
+is that each step has one thing to blame. Their other two reasons hold as well:
+the four three-minute betting jobs the `:1723` comment actually blames are not
+among those moved, and the cost of running that tier in a worker is unmeasured.
+If Nick would rather have one deploy than two, it is his call and their branch
+is ready.
 
 *The `nfl_model_growth_runs` query in step 3 becomes more useful under this
 reading, not less: it is now a discriminator. A `running` row stamped about 90

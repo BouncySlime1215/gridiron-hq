@@ -80,6 +80,110 @@
   "desc": "the list of variables that cannot be computed is dropped"
  },
  {
+  "id": "M121",
+  "file": "server/services/coach/people/context.js",
+  "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",
+  "old": "    author: 'Nick Matta',\n    statedAt: '2026-09-20T04:30:38Z'",
+  "new": "    author: 'Coach',\n    statedAt: '2026-09-20T04:30:38Z'",
+  "desc": "the seeded rule is attributed to Coach rather than to the person who said it"
+ },
+ {
+  "id": "M122",
+  "file": "server/services/coach/people/context.js",
+  "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",
+  "old": "    if (existing) continue;",
+  "new": "    if (false) continue;",
+  "desc": "seeding is no longer idempotent, so every run adds the rule again"
+ },
+ {
+  "id": "M123",
+  "file": "server/services/coach/people/context.js",
+  "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",
+  "old": "    applies_when: 'we, us, our, we\\'re, we need',",
+  "new": "    applies_when: 'us, our',",
+  "desc": "the Josh Smith rule loses the trigger it exists for, so \"we need a QB\" no longer fires"
+ },
+ {
+  "id": "M124",
+  "file": "server/services/coach/people/context.js",
+  "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",
+  "old": "  return String(trigger).split(',').map(part => part.trim()).filter(Boolean)",
+  "new": "  return String(trigger).split(/[,\\s]+/).map(part => part.trim()).filter(Boolean)",
+  "desc": "a multi-word trigger is split into words, so \"the league\" fires on \"league night\""
+ },
+ {
+  "id": "M125",
+  "file": "server/services/coach/people/context.js",
+  "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",
+  "old": "    .filter(rule => !rule.applies_when || triggerHits(rule.applies_when, text));",
+  "new": "    .filter(rule => rule.applies_when && triggerHits(rule.applies_when, text));",
+  "desc": "a rule with no trigger applies to no message rather than to every message"
+ },
+ {
+  "id": "M126",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "const minutes = (a, b) => (Date.parse(b) - Date.parse(a)) / 60_000;",
+  "new": "const minutes = (a, b) => (Date.parse(b) - Date.parse(a)) / 1_000;",
+  "desc": "reply time is measured in seconds and reported under a label that says minutes"
+ },
+ {
+  "id": "M127",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "const LONG_MESSAGE_CHARS = 200;",
+  "new": "const LONG_MESSAGE_CHARS = 20;",
+  "desc": "a long message starts at twenty characters, so almost everything is one"
+ },
+ {
+  "id": "M128",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "  add('confidence_volatility', 'How much his confidence swings', 'disposition', 'computed', 'standard deviations',\n    stdev(confidences), confidences.length,",
+  "new": "  add('confidence_volatility', 'How much his confidence swings', 'disposition', 'extractor', 'standard deviations',\n    confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null, confidences.length,",
+  "desc": "confidence volatility becomes the mean read off the extractor, which is the number it exists to go beyond"
+ },
+ {
+  "id": "M129",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "  add('non_fantasy_share', 'How much of it is not fantasy', 'context', 'signal', 'share of 1',\n    signalShare('topic.non_fantasy'), total,",
+  "new": "  add('non_fantasy_share', 'How much of it is not fantasy', 'context', 'computed', 'share of 1',\n    rate(text => !/trade|start|sit|waiver|lineup|him|qb/i.test(text)), total,",
+  "desc": "the non-fantasy share is guessed from keywords here instead of read from the classifier"
+ },
+ {
+  "id": "M130",
+  "file": "server/services/coach/people/variables.js",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "    'the mean character count of his messages');",
+  "new": "    `the mean character count of his messages, the longest being: ${mine.map(m => String(m.text)).sort((a, b) => b.length - a.length)[0] ?? ''}`);",
+  "desc": "a profile quotes the longest message to show its working, so message text leaves the machine"
+ },
+ {
+  "id": "M131",
+  "file": "scripts/build-person-profiles.mjs",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "if (WRITE) ensureTable();",
+  "new": "ensureTable();",
+  "desc": "the dry run creates the derived table, so \"nothing was written\" is not quite true"
+ },
+ {
+  "id": "M132",
+  "file": "scripts/build-person-profiles.mjs",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "    PRIMARY KEY (person, variable))",
+  "new": "    PRIMARY KEY (person, variable, built_at))",
+  "desc": "built_at joins the key, so a second run appends a second copy of every row"
+ },
+ {
+  "id": "M133",
+  "file": "scripts/build-person-profiles.mjs",
+  "tests": "test/coach-person-variables.test.js test/coach-person-profile-script.test.js",
+  "old": "pointing the script somewhere: run it where the corpus is.`);\n  process.exit(1);",
+  "new": "pointing the script somewhere: run it where the corpus is.`);\n  process.exit(0);",
+  "desc": "a machine with no corpus exits zero, so a run sheet reads a no-op as success"
+ },
+ {
   "id": "NC-context",
   "file": "server/services/coach/people/context.js",
   "tests": "test/coach-person-context.test.js test/coach-person-variables.test.js",

@@ -1336,7 +1336,7 @@ after:
  * One name for each stat, everywhere, and an explanation someone who never deals
 ```
 
-## `person.json` — 12 rows, evidence in `docs/tdd/coach-person-profile.tdd.md`
+## `person.json` — 25 rows, evidence in `docs/tdd/coach-person-profile.tdd.md`
 
 ### M46 — a context trigger matches as a substring, so "we" fires on "week"
 
@@ -1469,6 +1469,183 @@ export const NOT_COMPUTED = Object.freeze([
 after:
 ```
 export const NOT_COMPUTED = Object.freeze([]); const NOT_COMPUTED_DROPPED = Object.freeze([
+```
+
+### M121 — the seeded rule is attributed to Coach rather than to the person who said it
+
+`server/services/coach/people/context.js`, suites `test/coach-person-context.test.js test/coach-person-variables.test.js`
+
+before:
+```
+    author: 'Nick Matta',
+    statedAt: '2026-09-20T04:30:38Z'
+```
+after:
+```
+    author: 'Coach',
+    statedAt: '2026-09-20T04:30:38Z'
+```
+
+### M122 — seeding is no longer idempotent, so every run adds the rule again
+
+`server/services/coach/people/context.js`, suites `test/coach-person-context.test.js test/coach-person-variables.test.js`
+
+before:
+```
+    if (existing) continue;
+```
+after:
+```
+    if (false) continue;
+```
+
+### M123 — the Josh Smith rule loses the trigger it exists for, so "we need a QB" no longer fires
+
+`server/services/coach/people/context.js`, suites `test/coach-person-context.test.js test/coach-person-variables.test.js`
+
+before:
+```
+    applies_when: 'we, us, our, we\'re, we need',
+```
+after:
+```
+    applies_when: 'us, our',
+```
+
+### M124 — a multi-word trigger is split into words, so "the league" fires on "league night"
+
+`server/services/coach/people/context.js`, suites `test/coach-person-context.test.js test/coach-person-variables.test.js`
+
+before:
+```
+  return String(trigger).split(',').map(part => part.trim()).filter(Boolean)
+```
+after:
+```
+  return String(trigger).split(/[,\s]+/).map(part => part.trim()).filter(Boolean)
+```
+
+### M125 — a rule with no trigger applies to no message rather than to every message
+
+`server/services/coach/people/context.js`, suites `test/coach-person-context.test.js test/coach-person-variables.test.js`
+
+before:
+```
+    .filter(rule => !rule.applies_when || triggerHits(rule.applies_when, text));
+```
+after:
+```
+    .filter(rule => rule.applies_when && triggerHits(rule.applies_when, text));
+```
+
+### M126 — reply time is measured in seconds and reported under a label that says minutes
+
+`server/services/coach/people/variables.js`, suites `test/coach-person-variables.test.js test/coach-person-profile-script.test.js`
+
+before:
+```
+const minutes = (a, b) => (Date.parse(b) - Date.parse(a)) / 60_000;
+```
+after:
+```
+const minutes = (a, b) => (Date.parse(b) - Date.parse(a)) / 1_000;
+```
+
+### M127 — a long message starts at twenty characters, so almost everything is one
+
+`server/services/coach/people/variables.js`, suites `test/coach-person-variables.test.js test/coach-person-profile-script.test.js`
+
+before:
+```
+const LONG_MESSAGE_CHARS = 200;
+```
+after:
+```
+const LONG_MESSAGE_CHARS = 20;
+```
+
+### M128 — confidence volatility becomes the mean read off the extractor, which is the number it exists to go beyond
+
+`server/services/coach/people/variables.js`, suites `test/coach-person-variables.test.js test/coach-person-profile-script.test.js`
+
+before:
+```
+  add('confidence_volatility', 'How much his confidence swings', 'disposition', 'computed', 'standard deviations',
+    stdev(confidences), confidences.length,
+```
+after:
+```
+  add('confidence_volatility', 'How much his confidence swings', 'disposition', 'extractor', 'standard deviations',
+    confidences.length ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null, confidences.length,
+```
+
+### M129 — the non-fantasy share is guessed from keywords here instead of read from the classifier
+
+`server/services/coach/people/variables.js`, suites `test/coach-person-variables.test.js test/coach-person-profile-script.test.js`
+
+before:
+```
+  add('non_fantasy_share', 'How much of it is not fantasy', 'context', 'signal', 'share of 1',
+    signalShare('topic.non_fantasy'), total,
+```
+after:
+```
+  add('non_fantasy_share', 'How much of it is not fantasy', 'context', 'computed', 'share of 1',
+    rate(text => !/trade|start|sit|waiver|lineup|him|qb/i.test(text)), total,
+```
+
+### M130 — a profile quotes the longest message to show its working, so message text leaves the machine
+
+`server/services/coach/people/variables.js`, suites `test/coach-person-variables.test.js test/coach-person-profile-script.test.js`
+
+before:
+```
+    'the mean character count of his messages');
+```
+after:
+```
+    `the mean character count of his messages, the longest being: ${mine.map(m => String(m.text)).sort((a, b) => b.length - a.length)[0] ?? ''}`);
+```
+
+### M131 — the dry run creates the derived table, so "nothing was written" is not quite true
+
+`scripts/build-person-profiles.mjs`, suites `test/coach-person-variables.test.js test/coach-person-profile-script.test.js`
+
+before:
+```
+if (WRITE) ensureTable();
+```
+after:
+```
+ensureTable();
+```
+
+### M132 — built_at joins the key, so a second run appends a second copy of every row
+
+`scripts/build-person-profiles.mjs`, suites `test/coach-person-variables.test.js test/coach-person-profile-script.test.js`
+
+before:
+```
+    PRIMARY KEY (person, variable))
+```
+after:
+```
+    PRIMARY KEY (person, variable, built_at))
+```
+
+### M133 — a machine with no corpus exits zero, so a run sheet reads a no-op as success
+
+`scripts/build-person-profiles.mjs`, suites `test/coach-person-variables.test.js test/coach-person-profile-script.test.js`
+
+before:
+```
+pointing the script somewhere: run it where the corpus is.`);
+  process.exit(1);
+```
+after:
+```
+pointing the script somewhere: run it where the corpus is.`);
+  process.exit(0);
 ```
 
 ### NC-context — NO-OP CONTROL: reword the file's opening line, changing no behaviour

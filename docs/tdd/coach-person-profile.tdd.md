@@ -162,8 +162,45 @@ survives.
 | M53 | a continuation of a speaker's own turn counts as a reply *(survived the first pass; the test in the last column was written for it)* | `variables.js` | `0eac7e63` → `ad79b8ad` | 1 | `coach-person-variables.test.js` — talking to himself is not replying to anyone |
 | M54 | a message carries through into the profile, on a person with enough messages to clear the sample floor | `variables.js` | `0eac7e63` → `e545a3e1` | 1 | `coach-person-profile-script.test.js` — nothing the script stored carries a message, so the table can leave the machine |
 | M55 | the list of variables that cannot be computed is dropped | `variables.js` | `0eac7e63` → `b59a978a` | 1 | `coach-person-variables.test.js` — a variable we cannot compute is named, with what is missing |
+| M121 | the seeded rule is attributed to Coach rather than to the person who said it | `context.js` | `0fd8c764` → `63229056` | 2 | `coach-person-context.test.js` — the Josh Smith rule is there, as a row, with who said it and when |
+| M122 | seeding is no longer idempotent, so every run adds the rule again | `context.js` | `0fd8c764` → `999be6fe` | 3 | `coach-person-context.test.js` — seeding twice does not duplicate it |
+| M123 | the Josh Smith rule loses the trigger it exists for, so "we need a QB" no longer fires | `context.js` | `0fd8c764` → `45292b53` | 2 | `coach-person-context.test.js` — "we" fires on the sentence Nick described |
+| M124 | a multi-word trigger is split into words, so "the league" fires on "league night" | `context.js` | `0fd8c764` → `950be2e1` | 1 | `coach-person-context.test.js` — a multi-word phrase matches as a phrase, not as its words |
+| M125 | a rule with no trigger applies to no message rather than to every message | `context.js` | `0fd8c764` → `515f5375` | 1 | `coach-person-context.test.js` — a rule with no trigger applies to the person always, not to no message |
+| M126 | reply time is measured in seconds and reported under a label that says minutes | `variables.js` | `0eac7e63` → `881908ac` | 2 | `coach-person-variables.test.js` — reply latency is the real median of the real gaps |
+| M127 | a long message starts at twenty characters, so almost everything is one | `variables.js` | `0eac7e63` → `b05b23f3` | 1 | `coach-person-variables.test.js` — style variables count what they say they count |
+| M128 | confidence volatility becomes the mean read off the extractor, which is the number it exists to go beyond | `variables.js` | `0eac7e63` → `8eedba9e` | 1 | `coach-person-variables.test.js` — confidence volatility is computed, because the extractor only keeps the mean |
+| M129 | the non-fantasy share is guessed from keywords here instead of read from the classifier | `variables.js` | `0eac7e63` → `1320a4b6` | 1 | `coach-person-variables.test.js` — the non-fantasy share comes from the signal the extractor already writes |
+| M130 | a profile quotes the longest message to show its working, so message text leaves the machine | `variables.js` | `0eac7e63` → `52ebca30` | 2 | `coach-person-variables.test.js` — nothing in a profile carries a message, so a derived profile can leave the machine |
+| M131 | the dry run creates the derived table, so "nothing was written" is not quite true | `build-person-profiles.mjs` | `9836f45d` → `a01b7337` | 1 | `coach-person-profile-script.test.js` — the dry run reports every person and writes nothing |
+| M132 | built_at joins the key, so a second run appends a second copy of every row | `build-person-profiles.mjs` | `9836f45d` → `1cf97370` | 1 | `coach-person-profile-script.test.js` — running it twice replaces rather than duplicates |
+| M133 | a machine with no corpus exits zero, so a run sheet reads a no-op as success | `build-person-profiles.mjs` | `9836f45d` → `ff5a973f` | 1 | `coach-person-profile-script.test.js` — a machine without the corpus is told so plainly, and exits non-zero |
 | NC-context | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `context.js` | `0fd8c764` → `5f3ac758` | **0** | none — and that is the assertion |
 | NC-variables | NO-OP CONTROL: reword the file's opening line, changing no behaviour | `variables.js` | `0eac7e63` → `df76e2b3` | **0** | none — and that is the assertion |
+
+**M121 to M133, found by the union check.** The first ten rows turned 16 of the 29
+tests across these three suites red, which means thirteen tests were asserting properties
+nothing was aimed at. Thirteen rows were written for them: the seed's attribution, its
+idempotence, the "we" trigger the rule exists for, phrase matching, the untriggered-rule
+default, reply time in the wrong unit under a label that says minutes, the long-message
+threshold, confidence volatility collapsing back into the mean it exists to go beyond,
+the non-fantasy share guessed from keywords instead of read from the classifier, a
+profile quoting its longest message, the dry run creating the table, a second run
+appending instead of replacing, and a corpus-less machine exiting zero. None survived,
+so no test changed. The union now covers all 29:
+
+```
+python3 docs/tdd/sweeps/mutation-sweep.py docs/tdd/sweeps/person.json
+python3 docs/tdd/sweeps/mutation-sweep.py --baseline \
+  'test/coach-person-context.test.js test/coach-person-variables.test.js'
+python3 docs/tdd/sweeps/mutation-sweep.py --baseline \
+  'test/coach-person-variables.test.js test/coach-person-profile-script.test.js'
+```
+
+M130 is worth reading beside M54. Both are the same worry — message text reaching a
+profile — at the two places it could happen: M54 stores it, M130 writes it into the
+sentence that says how a variable was measured. The second is the likelier accident,
+because a `measured_by` string is prose and prose invites an example.
 
 **M53, the survivor.** Replacing the reply rule with a bare "did anyone else speak
 before this" changed nothing the suite could see. The fixture's ten reply pairs were each
@@ -193,11 +230,12 @@ from a text chain is behaviour — when someone replies, how long they write, ho
 they hedge, how they sound when they are losing — so that is what these are, and calling
 them anything more would be the invention this whole rebuild exists to remove.
 
-**How do we know?** 23 tests and 10 injections, each stated above with the file's SHA-256
+**How do we know?** 29 tests and 23 injections, each stated above with the file's SHA-256
 before and after it, all now killed, beside one no-op control per source file that moves
 the hash and kills nothing; one survived the first pass and produced a new fixture and
 test, and M54 was sharpened in this sweep so that it clears the sample floor, which moved
-its killer to the test that says no message text may reach the stored table. The grading harness
+its killer to the test that says no message text may reach the stored table. Every one of
+the 29 tests is red under at least one injection, measured rather than asserted. The grading harness
 is not built yet, so the correct statement about accuracy is that there isn't one: these
 numbers are arithmetic that has been verified, not predictions that have been checked.
 

@@ -23,7 +23,7 @@ const {
   foreignHandles, handleFor, gatedRegions, blindCaches,
   functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
   imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts,
-  routeAnswersCall, columnDefaults,
+  routeAnswersCall, columnDefaults, docsCitations,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -1530,4 +1530,73 @@ test('the checker source holds no control characters', async () => {
     }
     assert.deepEqual(bad, [], 'a control character in source is a corrupted escape, not a character');
   }
+});
+
+
+/*
+ * A CITATION IS A PROMISE, AND THIS REPOSITORY BREAKS 80 OF THEM.
+ *
+ * `server/routes/aggregates.js:217` says "See docs/CONSENSUS_WEIGHTS.md before
+ * re-attempting this". The file is real and it is at
+ * docs/evidence/historical/CONSENSUS_WEIGHTS.md. So the one pointer whose entire job is
+ * to stop somebody redoing an experiment that already failed is broken at exactly the
+ * moment of the redo — the reader types the path, gets nothing, and concludes the note
+ * is stale.
+ *
+ * Two states, not one, and the difference decides what to do. MOVED: the basename
+ * resolves somewhere under docs/, so the citation is repairable mechanically and the
+ * document is still there to read. GONE: no file of that name exists anywhere, so the
+ * citation is a claim about something that no longer exists and needs a person.
+ *
+ * This rule reads f.raw, not the scanned views, and that is the whole reason it can
+ * exist: scan() blanks comment bodies in both `code` and `text`, and nearly every
+ * citation in this repository is in a comment. Report-only — it never gates, because a
+ * broken link should not stop a deploy.
+ */
+const docFixture = (path, raw) => ({ path, raw, tree: 'server', scope: null, strings: [] });
+
+test('a citation that resolves is not a finding, and one that moved says where it went', () => {
+  const index = {
+    has: new Set(['docs/reference/fantasy/PRESEASON_MODEL.md', 'docs/HERE.md']),
+    byBase: new Map([['PRESEASON_MODEL.md', ['docs/reference/fantasy/PRESEASON_MODEL.md']],
+      ['HERE.md', ['docs/HERE.md']]]),
+  };
+  const out = docsCitations([
+    docFixture('server/a.js', '// see docs/HERE.md for the method\n'),
+    docFixture('server/b.js', 'const x = 1;\n// measured in docs/PRESEASON_MODEL.md.\n'),
+    docFixture('server/c.js', '// the plan was docs/NEVER_EXISTED.md\n'),
+  ], index);
+
+  assert.equal(out.some(r => r.cited === 'docs/HERE.md'), false,
+    'a citation that resolves is not a finding');
+
+  const moved = out.find(r => r.cited === 'docs/PRESEASON_MODEL.md');
+  assert.ok(moved, 'a citation in a COMMENT must be seen: that is where nearly all of them are');
+  assert.equal(moved.state, 'moved');
+  assert.equal(moved.line, 2, 'the line is the line of the citation, not of the file');
+  assert.deepEqual(moved.resolves_to, ['docs/reference/fantasy/PRESEASON_MODEL.md']);
+
+  const gone = out.find(r => r.cited === 'docs/NEVER_EXISTED.md');
+  assert.ok(gone);
+  assert.equal(gone.state, 'gone');
+  assert.deepEqual(gone.resolves_to, [],
+    'gone means no file of that name anywhere, which is a different job from repointing');
+});
+
+test('the rule reproduces the citation that was found by hand', async () => {
+  const map = JSON.parse(await readFile(new URL('../docs/wiring/wiring-map.json', import.meta.url), 'utf8'));
+  const rows = (map.findings ?? []).filter(f => f.rule === 'docs-citation-points-at-nothing');
+  assert.ok(rows.length, 'the rule must fire on this tree, which has 80 of these');
+
+  // The one that named the rule. A new checker is not trusted until it reproduces a
+  // finding somebody already made by hand.
+  const consensus = rows.find(r => r.evidence?.[0]?.startsWith('server/routes/aggregates.js')
+    && r.subject === 'docs/CONSENSUS_WEIGHTS.md');
+  assert.ok(consensus, 'aggregates.js cites docs/CONSENSUS_WEIGHTS.md and the file is elsewhere');
+  assert.match(consensus.detail, /docs\/evidence\/historical\/CONSENSUS_WEIGHTS\.md/,
+    'a row that cannot say where the document went leaves the reader exactly where they were');
+
+  // And it must not fire on a citation that is correct.
+  assert.equal(rows.some(r => r.subject === 'docs/tdd/wiring-map-route-deletions.tdd.md'), false,
+    'this file exists and is cited: a rule that flags it is a rule nobody will read twice');
 });

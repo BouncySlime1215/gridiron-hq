@@ -233,14 +233,24 @@ tx('f1', 'FREEAGENT', 'EXECUTE', 'EXECUTED', 4);
 
 // Archetype rows: this league-season, plus a career row and another league's
 // row for the same person, neither of which may leak into league 12.
-const arch = (league, season, metric, value, n, source) => run(`INSERT INTO manager_archetypes
+const ARCH_BUILT_EARLY = '2026-09-18T01:38:39.383Z';
+// The NEWEST row in league 12's store, and deliberately a metric ARCHETYPE_METRICS
+// does not map. The reported build date must be this one: it is when the build
+// last wrote, and which metrics one consumer happens to copy is not a fact about
+// the store's age.
+const ARCH_BUILT_AT = '2026-09-18T05:00:00.000Z';
+const arch = (league, season, metric, value, n, source, builtAt = ARCH_BUILT_EARLY) =>
+  run(`INSERT INTO manager_archetypes
   (member_id, league_id, season, metric, value, label, n, source, version, computed_at)
-  VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'manager-archetypes-v1', '2026-09-18T01:38:39.383Z')`,
-AIDEN, league, season, metric, value, n, source);
+  VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'manager-archetypes-v1', ?)`,
+  AIDEN, league, season, metric, value, n, source, builtAt);
 arch(12, 2026, 'auto_draft_rate', 0, 16, 'draft');
 arch(12, 2026, 'reach_rate', 0.25, 16, 'draft');
 arch(12, 2026, 'luck_wins', 0.6, 1, 'outcome');
 arch(12, 2026, 'all_play', 0.33, 3, 'outcome');
+// Written by the same build run, in the same store, for the same league-season —
+// and NOT in ARCHETYPE_METRICS, so the signal layer copies no value from it.
+arch(12, 2026, 'beat_median_streak', 3, 4, 'outcome', ARCH_BUILT_AT);
 arch(0, 0, 'luck_wins', -2.5, 40, 'career');
 arch(11, 2026, 'reach_rate', 0.9, 16, 'draft');
 
@@ -487,6 +497,21 @@ test('refresh: one call covers every league, uses chat names only where Nick con
   assert.equal(byId.get(13).skipped, 'league not synced');
   assert.equal(r.status, 'ok');
   assert.ok(!JSON.stringify(r).includes('secret-s2'), 'never echoes league credentials');
+});
+
+test('refresh: the reported archetype build date is the store\'s, not the newest metric this consumer maps', () => {
+  // `archetypes_as_of` is served (routes/trades.js rebuild route) and printed by
+  // scripts/build-manager-signals.mjs. It was accumulated INSIDE the row loop,
+  // after a `continue` that drops any metric not in ARCHETYPE_METRICS — so the
+  // date it reported was "newest stamp among the metrics this consumer maps", and
+  // it would move if that map were edited. Editing a consumer's allowlist must not
+  // change what a reader is told about when the data was built.
+  const l12 = new Map(signals.refreshManagerData().leagues.map(l => [l.league_id, l])).get(12);
+  assert.equal(l12.archetypes, 'present');
+  assert.equal(l12.archetypes_as_of, ARCH_BUILT_AT,
+    'the newest row in this league-season\'s store is the build date, mapped or not');
+  assert.notEqual(ARCH_BUILT_AT, ARCH_BUILT_EARLY,
+    'the fixture has two build stamps, or this assertion proves nothing');
 });
 
 test('refresh: a chat table missing mid-rollup fails the chat league only; chat-free leagues still build', () => {

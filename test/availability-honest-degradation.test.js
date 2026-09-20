@@ -175,7 +175,17 @@ test('an inert role layer is reported on the lineup call with its reason, like c
   assert.equal(note.basis, 'pooled');
   assert.match(note.inert, /role/i, 'names the layer that is not running');
   assert.match(note.reason, /nfl_availability_role_rates/, 'names why, down to the table');
-  assert.match(note.effect, /pooled|injury report/i, 'says what the shown percentages actually are');
+  // One assertion per claim, not an alternation. `effect` has exactly two possible
+  // values, chosen by a ternary on the basis, and this fixture is the pooled one --
+  // so an alternation here does not express a closed set, it accepts three wordings
+  // of the one string the fixture can produce. The `injury report` branch never
+  // matched anything at all: the producer writes `injury-report`, hyphenated.
+  assert.match(note.effect, /pooled injury-report rate/,
+    'names the layer that is actually pricing the numbers');
+  assert.match(note.effect, /known-low placeholder/,
+    'and says how to read it, which is the half a reader acts on');
+  assert.doesNotMatch(note.effect, /hand-set constant/,
+    'this is the pooled branch of the ternary, not the constants one');
   assert.match(note.fix, /fit-availability/, 'says what makes it live again');
 });
 
@@ -189,8 +199,14 @@ test('a chance-to-play warning never reads as a fitted number while the layer is
   const degraded = callWith(POOLED, 0.574).warnings.find(w => w.player === 'Jayden Placeholder');
   assert.ok(degraded, 'a 57% chance to play is still flagged');
   assert.match(degraded.issue, /57% likely to suit up and see the ball/, 'the number is still shown');
-  assert.match(degraded.issue, /not the fitted|not running|pooled/i,
-    'and is never shown bare: the reason travels with it');
+  // Same again: the fixture pins the basis, so exactly one sentence is produced and
+  // the three branches were three wordings of it. Two matched and one (`pooled`)
+  // never did, so a reworded caveat could slide through on whichever branch still
+  // happened to hit.
+  assert.match(degraded.issue, /but that is not the fitted number:/,
+    'the caveat is attached to the number, not left to the reader to infer');
+  assert.match(degraded.issue, /the role layer is not running/,
+    'and names the layer that is inert, not just that something is wrong');
   assert.equal(degraded.availability_basis, 'pooled');
 
   const fitted = callWith(ROLE, 0.574).warnings.find(w => w.player === 'Jayden Placeholder');

@@ -16,7 +16,7 @@ import { simulateSeason, tradeImpact } from '../services/season-sim.js';
 import { fitCorrelations, correlationTable, clearCorrelationCache } from '../services/correlation.js';
 import { fitGameScript, gameScriptFor, syncHistoricalLines, syncCurrentLines, linesFor, clearGameScriptCache } from '../services/gamescript.js';
 import { availability, weeklyAvailability, cascades, handcuffValue } from '../services/contingency.js';
-import { syncAll as syncNflverse, usageSeasons, usageFor } from '../services/nflverse.js';
+import { syncAll as syncNflverse, usageSeasons, usageCoverage, usageFor } from '../services/nflverse.js';
 import { syncAllAdvanced } from '../services/nfl-advanced.js';
 import { syncPbpSeason } from '../services/nfl-pbp.js';
 import { nflDataConsistencyAudit } from '../services/nfl-data-consistency.js';
@@ -593,9 +593,30 @@ r.get('/availability', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/*
+ * The window `usage_coverage` is asked about, derived from NFL_SEASON rather than
+ * typed out. usageCoverage() called with no argument asks only about the seasons
+ * already held, so `missing` is empty and `stamp_disagrees` is false by
+ * construction — the caller has to name what it EXPECTS or the check answers
+ * nothing. Five seasons because that is the lookback the usage model runs on.
+ *
+ * Derived, not literal, on purpose: a hardcoded list of years is exactly how
+ * nflverse_weekly_usage came to stamp itself green for a season it never fetched
+ * (routes/nfl-betting.js still carries '2021,...,2025' at six sites). A window
+ * written as SEASON - n follows the season over; a list of years does not.
+ */
+const USAGE_LOOKBACK = 5;
+const usageWindow = () =>
+  Array.from({ length: USAGE_LOOKBACK }, (_, i) => SEASON - (USAGE_LOOKBACK - 1) + i);
+
 r.get('/status', (req, res) => {
   res.json({
     usage_seasons: usageSeasons(),
+    // usage_seasons says what is held. This says what is held AND whether the feed's
+    // own sync_log stamp agrees with it: `stamp_disagrees` true means the feed is
+    // lying rather than merely stale, which is the only failure the freshness
+    // surfaces beside it can describe.
+    usage_coverage: usageCoverage(usageWindow()),
     correlations_fitted: row('SELECT COUNT(*) AS n FROM correlation_estimates')?.n ?? 0,
     gamescript_fitted: row('SELECT COUNT(*) AS n FROM gamescript_model')?.n ?? 0,
     lines: rows('SELECT season, COUNT(*) AS n FROM game_lines GROUP BY season ORDER BY season DESC'),

@@ -1251,7 +1251,9 @@ test('a test caller is its own class, counted separately and never silently drop
   assert.equal(isTestPath('client/src/pages/TradeLab.tsx'), false);
   assert.equal(isTestPath('server/services/trade-engine.js'), false,
     'a production file whose name contains "test" nowhere near the path root is not a test');
-  assert.equal(isTestPath('docs/tdd/latest.md'), false);
+  // Built rather than written: a literal docs/*.md path in this file is read by the
+  // citation rule as a citation, and this one named a document that has never existed.
+  assert.equal(isTestPath(['docs', 'tdd', 'latest.md'].join('/')), false);
 });
 
 test('both reports read that one predicate rather than carrying their own', async () => {
@@ -1612,9 +1614,14 @@ test('the checker source holds no control characters', async () => {
  */
 // The fixture paths are BUILT rather than written, and that is not fussiness. This
 // rule reads raw source, the test tree is in scope, and the first draft of these
-// fixtures wrote `docs/NEVER_EXISTED.md` as a literal — so the checker found five
-// citations in its own test file and reported them as findings about the repository.
-// Same fault as the zz_fixture_* rename two commits ago, in a new rule.
+// fixtures wrote that path as a literal — so the checker found five citations in its
+// own test file and reported them as findings about the repository. Same fault as the
+// zz_fixture_* rename two commits ago, in a new rule.
+//
+// This sentence does not name the path either. The first version of this comment
+// explained the fix by quoting the literal it was about, which put the row straight
+// back into the report — a comment describing a fixture is read by the rule exactly
+// like the fixture.
 const D = 'docs';
 const docFixture = (path, raw) => ({ path, raw, tree: 'server', scope: null, strings: [] });
 
@@ -1731,4 +1738,43 @@ test('a query handed to a handle by method call is that handle, and the app is t
   assert.equal(g.foreignOnlyFile, true, 'no app-db import, so no app handle');
   assert.equal(handleFor(g, g.text.indexOf('SELECT msg_id FROM zz_fixture_chat_table LIMIT 1') - 1, gForeign).handle,
     'hist', 'a file with no app database cannot answer "app"');
+});
+
+
+/*
+ * AN ABSOLUTE PATH FROM SOMEBODY'S LAPTOP IS STILL A CITATION.
+ *
+ * A second, by-hand pass over the other direction — citations written INSIDE the
+ * markdown under docs/, pointing at source — reported 17 missing files on its first
+ * run. Thirteen of them were the resolver, not the docs: those citations carry
+ * absolute paths beginning with a home directory, and a resolver that matches a fixed
+ * prefix fails on a path that is perfectly good. A gate that cries wolf on its first
+ * run gets an exception added to it and is then ignored, which is worse than not
+ * having it.
+ *
+ * This rule was never going to hit that, because it resolves by BASENAME and its
+ * pattern starts at the `docs/` segment wherever that segment sits. That is worth a
+ * test rather than a claim: the failure mode is known now, and an assertion is the
+ * only thing that stops a later "tidy the regex" from introducing it.
+ */
+test('a citation carrying an absolute path from a developer machine still resolves', () => {
+  const D = 'docs';
+  const moved = `${D}/reference/fantasy/OFFSEASON_MODEL.md`;
+  const index = { has: new Set([moved]), byBase: new Map([['OFFSEASON_MODEL.md', [moved]]]) };
+  const at = (raw) => docsCitations([{ path: 'server/services/x.js', raw, scope: null }], index);
+
+  const home = at(`// the fit is described in /Users/somebody/Code/gridiron-hq/${D}/OFFSEASON_MODEL.md\n`);
+  assert.equal(home.length, 1, 'the docs/ segment is the citation, whatever sits to the left of it');
+  assert.equal(home[0].cited, `${D}/OFFSEASON_MODEL.md`);
+  assert.deepEqual(home[0].resolves_to, [moved],
+    'resolving by basename is what makes an absolute path harmless');
+
+  // The same document, cited at its real path, is not a finding at all.
+  assert.deepEqual(at(`// see ${moved}\n`), [],
+    'a citation that is correct must never appear, or the report is noise');
+
+  // And a repo-relative citation to the same moved document still resolves.
+  const rel = at(`// see ${D}/OFFSEASON_MODEL.md\n`);
+  assert.equal(rel.length, 1);
+  assert.equal(rel[0].state, 'moved');
 });

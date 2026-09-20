@@ -2308,10 +2308,11 @@ cycle, so the reads were phase-locked — 41 of 54 clean reads caught the proces
 at an age of 55 to 58 seconds, and not one read all night saw an age between 73
 and 170. 72 was the edge of where we looked.
 
-**What the app actually does, measured on one life at 01:50Z.** An anchored
-probe — lock onto a clean read, derive that process's start, then time reads to
-land at chosen ages of that same process — walked straight through the window
-the poll cannot see. `/mnt/project-files/blind-window-probe.tsv`, anchor
+**What the app actually does, measured on eight consecutive lives between
+01:50Z and 02:13Z.** An anchored probe — lock onto a clean read, derive that
+process's start, then time reads to land at chosen ages of that same process —
+walked straight through the window the poll cannot see, once per life.
+`/mnt/project-files/blind-window-probe.tsv`. One life in full, anchor
 01:50:28Z:
 
 ```
@@ -2332,6 +2333,28 @@ age  13   200  7.866s   uptime_s 13   anchor (new life)
 `uptime_s` matches the age on every answered row, so it is the anchored process
 replying throughout, not a new one wearing its number.
 
+**All eight lives, as the last age that answered and the first that did not:**
+
+```
+01:50:28Z   94 -> 102      01:58:58Z  102 -> 110      02:07:37Z  102 -> 110
+01:53:20Z   94 -> 102      02:01:54Z   94 -> 102      02:10:36Z   94 -> 102
+01:56:09Z   94 -> 102      02:04:41Z  102 -> 110
+```
+
+**The onset is inside (94, 110] on every one of them**, and inside (94, 102] on
+five of the eight. The two brackets differ only because a blocked read costs the
+probe 12 seconds, which shifts the rest of that life's ladder — not because the
+app behaved differently.
+
+**And it does not slow down first. It stops.** Twenty-nine reads landed at an
+age of 78 or more across the eight lives, and **the slowest of them took 0.46
+seconds**. There is no ramp, no creeping latency, no degradation to watch for:
+the app is fully healthy and then, within one eight-second step, answers
+nothing at all. That is the signature of a single synchronous operation seizing
+the event loop, and it is not the signature of memory pressure, connection
+exhaustion or gradual lock contention — which is worth knowing because those
+would each call for a different fix.
+
 **Healthy and fast at 94 seconds. Silent at 102. That is the diagnosis, and it
 is now an observation rather than an inference.** The boot pass schedules
 `runIfStale('nfl_model_growth')` at boot + 90 seconds (`scheduler.js:1751`).
@@ -2339,12 +2362,19 @@ The onset falls in the eight seconds after that timer fires, which is what the
 code predicts: the job downloads first and a download does not block a loop; the
 synchronous SQLite write that follows it does.
 
-**The rest of the cycle, now that two of its three terms are measured.** This
-life ran 01:50:28Z to 01:53:20Z — 172 seconds. Onset at 94 to 102, plus the
+**The rest of the cycle, now that two of its three terms are measured.** The
+probe timed all eight cycles start to start: **172, 169, 169, 176, 167, 176,
+179, 168 seconds** — a range of 167 to 179. Onset at 94 to 110, plus the
 watchdog's 60-second fuse (`loop-watchdog.js:58`, `60_000` unless overridden),
-leaves **10 to 18 seconds for the restart itself**. An earlier version of this
-section put the boot at 30 seconds and wrote 90 + 60 + 30 = 180; that matched
-the median by luck and the third term was never measured. It is the small one.
+leaves **roughly 5 to 20 seconds for the restart itself**. An earlier version of
+this section put the boot at 30 seconds and wrote 90 + 60 + 30 = 180; that
+matched the median by luck and the third term was never measured. It is the
+small one.
+
+*One discrepancy stated rather than smoothed:* the probe's directly timed cycles
+run 167-179 seconds, while the passive 60-second log's clustered gaps run
+171-196. Both are reported with their method. I have not established why they
+differ and am not going to guess; nothing in this block turns on the difference.
 
 **What this means for Nick before he touches anything: the app is not sick for
 most of its life. It is healthy for about 95 seconds, then one scheduled job
@@ -2650,9 +2680,10 @@ sentences would survive being wrong about something else.**
 | 58 restarts, one per 180 s | **Counted here** at 01:45Z: a 60 s poll is below the cycle, so it is a count, not a floor. Clustered within 5 s; stable at every tolerance 1-5 s | this thread |
 | The earlier "79 starts" and "171-376 s" | **Withdrawn.** 79 was the naive count `restart-count.sh` exists to prevent; 376 is not in the data, the widest gap is 196 s | this thread |
 | Reads are phase-locked, so "72 s" means nothing | **Measured here**: 60 s poll into a 180 s cycle is 3 polls per cycle; 41 of 54 clean reads caught an age of 55-58 s, and none between 73 and 170 s | this thread |
-| The loop blocks between age 94 and 102 | **Measured here**, anchored probe on one life at 01:50:28Z: 200 in 0.17 s at 94, no answer in 12 s at 102, 114, 126, 138, 150, 165. `uptime_s` = age on every answered row, so it is one process throughout. `blind-window-probe.tsv` | this thread |
+| The loop blocks between age 94 and 110 | **Measured here** on eight consecutive lives, 01:50-02:13Z: onset inside (94, 110] on all eight, (94, 102] on five. `uptime_s` = age on every answered row, so each is one process throughout. `blind-window-probe.tsv` | this thread |
+| It stops dead rather than slowing down | **Measured here**: 29 reads at age 78 or more across the eight lives, slowest 0.46 s. No ramp, so not memory pressure or gradual contention | this thread |
 | The block is the 90 s timer at `scheduler.js:1751` | **Read off `791b131`** and now matched to the measured onset: the timer fires at 90, the job downloads (non-blocking) and then writes synchronously | this thread |
-| Restart itself takes 10-18 s | **Derived** from the measured life: cycle 172 s minus onset 94-102 minus the 60 s fuse. The earlier "~30 s boot" was never measured and 90 + 60 + 30 = 180 matched the median by luck | this thread |
+| Restart itself takes ~5-20 s | **Derived** from the eight measured cycles (167-179 s) minus onset 94-110 minus the 60 s fuse. The earlier "~30 s boot" was never measured and 90 + 60 + 30 = 180 matched the median by luck | this thread |
 | Any restart count taken before 22:49Z | A 300 s poll against a ~180 s cycle — **a floor, never a count** | Trade Brain |
 
 **Three things below are not measured, and each has somewhere to go if it

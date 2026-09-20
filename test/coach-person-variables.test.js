@@ -78,6 +78,21 @@ say('Thin', '2026-09-03T10:00:00Z', 'hi');
 say('Thin', '2026-09-03T10:05:00Z', 'ok');
 say('Thin', '2026-09-03T10:06:00Z', 'sure');
 
+// A third person whose shape is the one the reply rule exists for: five clean
+// exchanges, then a burst where he answers once and then keeps talking to
+// himself. Only the first message of that burst is a reply — the other two
+// follow HIS OWN last message, not Nick's, and counting them would report a
+// man who answers in three minutes as one who answers in one.
+for (let i = 0; i < 5; i++) {
+  const hour = String(10 + i).padStart(2, '0');
+  say('ME', `2026-09-04T${hour}:00:00Z`, 'thoughts?', 'dm', 'dm:chatty');
+  say('Chatty', `2026-09-04T${hour}:02:00Z`, 'yeah ok', 'dm', 'dm:chatty');
+}
+say('ME', '2026-09-04T16:00:00Z', 'so are you in', 'dm', 'dm:chatty');
+say('Chatty', '2026-09-04T16:02:00Z', 'yeah im in', 'dm', 'dm:chatty');
+say('Chatty', '2026-09-04T16:03:00Z', 'actually hold on', 'dm', 'dm:chatty');
+say('Chatty', '2026-09-04T16:05:00Z', 'ok now im in', 'dm', 'dm:chatty');
+
 // Signals: two of Quick's messages are non-fantasy, one is trade talk.
 signal(21, 'topic.non_fantasy', 0.9);
 signal(22, 'topic.non_fantasy', 0.8);
@@ -115,6 +130,16 @@ test('reply latency is the real median of the real gaps', () => {
   assert.equal(v.reply_latency_p50.value, 2, 'ten replies, each two minutes after Nick');
   assert.equal(v.reply_latency_p50.unit, 'minutes');
   assert.equal(v.reply_latency_p50.n, 10);
+});
+
+test('talking to himself is not replying to anyone', () => {
+  const v = varsFor('Chatty');
+  // Six messages of his follow a message of Nick's. Three of those six are the
+  // burst, and only its first line answers anything; the two after it answer
+  // him. Six, not eight.
+  assert.equal(v.reply_latency_p50.n, 6, 'a continuation of his own turn was counted as a reply');
+  assert.equal(v.reply_latency_p50.value, 2, 'every real reply in the fixture is two minutes');
+  assert.equal(v.reply_latency_p90.n, 6);
 });
 
 test('a thin variable is withheld, not reported as zero', () => {

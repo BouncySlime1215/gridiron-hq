@@ -119,3 +119,79 @@ not a disagreement about the method.
   this 2,500-league corpus or on twelve league-seasons.** This checkout has the
   2,500-league file; whether Nick's clone does is still unconfirmed, and any
   figure quoted to him needs that answered first.
+
+## Correction, and what the morning message must say
+
+An independent read pointed out that **neither `server/services/history-corpus.js`
+nor `server/services/team-outlook.js` exists on `origin/main` at `791b131`**.
+Verified here: `git ls-tree -r 791b131 -- server/services/` matches neither path,
+main carries 1,312 files, and the only file on main mentioning `sleeper_history` is
+`scripts/collect-sleeper-history.mjs`. Both modules live only on this thread's
+branches (`…-outlook-basis`, PR #42, and this one stacked on it).
+
+So the earlier statement — "O4 cannot run in production because the corpus is not
+in the image" — was true but incomplete, and the order matters for anyone reading
+it. The accurate version:
+
+> **O4 is not on `main` at all.** It ships when PR #42 merges, and even then it
+> cannot produce a number on the deployed app until this fit store merges too,
+> because the corpus is never in the image. Two merges, in that order, and neither
+> of them changes a published figure.
+
+That is also why nothing was ever "broken in production" here: there was nothing in
+production to break. The finding is about what would have happened the moment a
+consumer was wired, which is exactly when it would have been hardest to see.
+
+## Which corpus the O4 figures were measured on
+
+This container's `data/derived/sleeper_history.sqlite`, built by
+`scripts/collect-sleeper-history.mjs`: **2,500 leagues, 27,586 team-seasons,
+seasons 2021-2025**, read live today. Earlier notes circulating a "~1,913 league"
+figure are stale — the crawl grew. Whether **Nick's own clone** has that file built
+is unconfirmed, and it matters: on a clone without it every O4 number resolves to
+nothing, and on a clone with a smaller crawl the audit's figures are not the ones
+quoted here. The run sheet therefore needs the corpus build command before
+`node scripts/fit-team-outlook.mjs --write`, not only the fit command.
+
+## Mutation bookkeeping
+
+Every mutation in the two tables above was verified **applied**: the driver asserts
+its anchor string occurs exactly once in the pristine source before editing and
+reports `ANCHOR NOT FOUND` with the match count instead of running the suite
+otherwise, because a silent no-op reads as a green sweep. Each mutation was
+restored from a pristine copy before the next one ran, and the final restore was
+checked with `git diff`.
+
+## The five questions
+
+Nick's standing rule of 2026-09-20 01:21Z.
+
+1. **Is it well built?** It is plumbing, and it is built to fail loudly. Two tables,
+   one read path returning the shape the model already uses, one writer script that
+   refuses more often than it writes. The twelve guarded rules exist because every
+   one of them fails silently otherwise.
+2. **Is it based on stats or made up?** The store holds fitted numbers and no
+   chosen ones: coefficients, `mu`, `sd` and `intercept` from the IRLS fit, `k` from
+   the variance decomposition, and thresholds as quantiles of fitted probabilities
+   rather than round numbers. The only constants here are structural (which weeks to
+   fit, `l2 = 1.0`), and both come from `OUTLOOK_GATE`, which was pre-registered in
+   `docs/tdd/team-outlook.tdd.md` before anything was fitted.
+3. **How do we know?** Measured, not asserted: 2,500 leagues and 27,586
+   team-seasons, `k = 7.2` from 26,836 team-seasons, weeks 2-8 each fitted on
+   ~26,400-26,800 rows and every week sign-clean, thresholds `watch 0.4121` /
+   `act_candidate 0.1986` from 186,678 fitted probabilities, and 186,678 rows priced
+   twice with 0 mismatches. What we do NOT know is whether the model earns its
+   keep — that is `scripts/audit-team-outlook.mjs`'s held-out gate, unchanged by
+   this, and its figures still need the corpus question above answered before being
+   quoted.
+4. **Should this data be pointed anywhere else?** Yes, and it cannot be until
+   someone wires it: nothing reads `activeOutlookFit()` yet. The natural consumers
+   are a League Hub verdict and the Trade Brain's "is this team in trouble" read,
+   both in route files this thread does not own. `outlookFitStatus()` exists so those
+   surfaces can say "not fitted on this deployment" rather than render a blank.
+5. **How does it unify?** Two ways. The fit is stored once and read by everything,
+   instead of each caller re-deriving a model from a corpus most machines do not
+   have; and `weeklyPanel({ rows })` means an app league's features come from the
+   same code the model was fitted on, rather than a second implementation for live
+   data. The thing that makes both safe is the stored feature list: one definition of
+   what the coefficients mean, checked on every read.

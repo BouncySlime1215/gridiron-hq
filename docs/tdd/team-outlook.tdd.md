@@ -499,3 +499,50 @@ needs deciding rather than guessing.
 Also unclosed: whether the corpus is built on Nick's own clone, and therefore whether the
 audit figures already published were measured on the full crawl or on his twelve
 league-seasons.
+
+### The shared producer: shape and module path — 2026-09-20
+
+`espnWeeklyRows` is deliberately a shared producer rather than a Team Outlook
+private, because per-week fantasy team scores per league-season are the missing
+input under several hand-set thresholds elsewhere (a bye-risk multiplier, a waiver
+constant, a contention grid's band, draft-board weights). One parser, one shape,
+one place to correct.
+
+**Module path:** `server/services/team-outlook.js`.
+**Call:** `espnWeeklyRows(lg)`, where `lg` is a row of `leagues` carrying
+`payload` (string or object), `payload_season` (migration `062_league_payload_season`),
+`season`, and `league_id`/`id`. It reads nothing else and writes nothing.
+
+**Returns** `{ rows, ok, reason?, season, num_teams, playoff_teams, weeks_played,
+last_week, skipped_unplayed, skipped_postseason }`. `ok: false` always carries
+`reason` in words: payload unreadable, never synced, or no schedule (the last means
+the league was synced without `view=mMatchup`).
+
+**Each row**, which is `regularSeasonWeeks`' shape so `weeklyPanel({ rows })` takes
+it unchanged:
+
+| field | source in the payload | parsed or inferred |
+|---|---|---|
+| `season` | `leagues.payload_season ?? leagues.season` | parsed; `payload_season` first because `syncEspnLeague` falls back to last season |
+| `league_id` | `leagues.league_id ?? leagues.id`, as a string | parsed |
+| `roster_id` | `schedule[].home.teamId` / `.away.teamId`, as a string | parsed |
+| `week` | `schedule[].matchupPeriodId` | parsed |
+| `points` | `schedule[].{home,away}.totalPoints` | parsed |
+| `opponent_roster_id` | the other side's `teamId` | parsed |
+| `num_teams` | `payload.teams.length` | parsed |
+| `playoff_teams` | `settings.scheduleSettings.playoffTeamCount` | parsed |
+| `made_playoffs`, `champion` | — | **null: the season has not finished** |
+| `outcome_known` | — | **always `false`**, which `fitOutlook` refuses |
+
+**What is inferred rather than read:** which periods count as regular season
+(`matchupPeriodId <= settings.scheduleSettings.matchupPeriodCount`; a payload
+without that setting admits every period), and whether a period was played
+(decided AND both sides carry a number AND at least one is above zero — three
+conditions because ESPN returns the whole season with `totalPoints: 0` and
+`winner: 'UNDECIDED'` for unplayed weeks, a completed week really can have a 0 on
+one side, and `winner` is absent from some payloads).
+
+**A consumer wanting these as league-season features calls `weeklyPanel({ rows })`
+and nothing else**, so the feature math is single-sourced; a consumer wanting raw
+scores reads `rows` directly. Neither may pass them to `fitOutlook`, which throws on
+`outcome_known: false`.

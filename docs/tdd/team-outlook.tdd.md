@@ -391,3 +391,111 @@ is the only code that opens `data/derived/sleeper_history.sqlite`.
 different datasets in this project: the public crawl and Nick's own ESPN leagues. A name
 that reads as obvious to its author is not evidence that it is unclaimed, and the only thing
 that surfaced this was a merge someone ran on purpose. Neither module's tests could have.
+
+---
+
+## 7.9 The model could not run where it would be consumed, and what that changed — 2026-09-20
+
+**The finding that reordered the work.** The Team Outlook model is unconsumed, and the
+reason is not an oversight. It **cannot run on the deployed app at all**, by construction:
+
+- `history-corpus.js:48` opens `path.join(process.cwd(), 'data', 'derived', 'sleeper_history.sqlite')`
+  read-only and returns **null** rather than throwing when the file is missing.
+- `Dockerfile`'s runtime stage copies exactly `--from=build /app/client/dist`, `server` and
+  `scripts`. **`data/` is never in the image.** On Fly `process.cwd()` is `/app`, so that
+  path does not exist and cannot.
+
+`history-corpus.js`'s own header had already recorded that the corpus "is a derived artifact
+built by `scripts/collect-sleeper-history.mjs`; it is not part of" the repo. The conclusion
+was never drawn. So `fitOutlook`, `fitThresholds`, `verdictFor`, the k from
+`varianceComponents` and the `no_results_yet` decomposition all work on a developer checkout
+and return nothing in production.
+
+This is worth recording in this file rather than only in a PR, because the shape recurs: a
+module whose tests pass, whose audit script prints real numbers, and whose data source is
+absent from the only environment anyone will read it in. **An `accepted_orphan_modules` entry
+would have recorded the symptom and buried the cause.** The wiring question "what consumes
+this?" has a second half — "and can it answer there?" — and only the first half was being
+asked.
+
+**A second, independent blocker underneath it:** no table in this database holds per-week
+fantasy team scores. Checked against `core-and-fantasy.js` and every migration. So even with
+a fit available, there was nothing to score for one of Nick's own leagues.
+
+### What was built, and what was deliberately not
+
+The second blocker is fixable without deciding where the fit lives, so that is what this
+change does. It does **not** wire a consumer: a chip pointed at a verdict that resolves to
+nothing in production is worse than the heuristic label it would replace, because the
+heuristic at least renders.
+
+**`weeklyPanel({ rows })`.** A caller may now supply rows in `regularSeasonWeeks`'s own
+shape and every derivation runs on them unchanged. The alternative — a second implementation
+of all-play, the shrunk z-score and `games_back` for app leagues — is the one outcome that
+had to be avoided: the features would drift from the ones the model was fitted on and
+nothing would say so. Supplied rows skip the two data-quality rules on purpose, because
+those exist to drop abandoned and off-scale leagues from a public crawl, and a league Nick
+is playing in is not a candidate for exclusion.
+
+**`espnWeeklyRows(lg)`** reads `leagues.payload`, which has held the weekly scores since the
+first sync: `routes/leagues.js:125` requests `view=mMatchup` and `:160` stores the entire
+response. No table, no migration, no backfill — the data was already there.
+
+### The row that must not exist
+
+ESPN returns the whole season's schedule, and a week that has not been played comes back
+with `totalPoints: 0` and `winner: 'UNDECIDED'`. **Admitting one zero is not one bad row.**
+`weeklyPanel` computes the league-season mean and standard deviation from the rows it is
+given, so a false zero moves the scale and `points_z` is then wrong for every *other* week
+too — and the team with the most unplayed weeks reads as the worst team in the league. It is
+the same failure the corpus has a league-level rule for (§7.7), arriving one row at a time.
+
+A period is admitted only when it is **decided**, **both sides carry a number**, and **at
+least one is above zero**. Three conditions, individually redundant and jointly necessary:
+
+| Condition | The case only it catches |
+|---|---|
+| `decided` | a payload that carries `winner`, where a future week is 0-0 |
+| `anyPoints` | a payload with **no `winner` key at all**, where "decided" reads true |
+| `bothScored` | a malformed side with no `totalPoints` |
+
+and `anyPoints` is `||` rather than `&&` because a completed week really can have a 0 on one
+side. Mutating it to `&&` drops that week, which is the mirror of admitting an unplayed one.
+
+### The fit refuses live rows
+
+`made_playoffs` is the model's outcome, and for a season in progress it has not happened.
+Live rows carry it as `null` with `outcome_known: false`. `fitOutlook` reads `made_playoffs`
+as `y`, where `null` becomes `0`, so **a panel of live rows would fit a model of "nobody
+qualifies"** — wrong signs, no error, no way to see it in the numbers. `fitOutlook` now
+throws on `outcome_known === false`, strictly, so a corpus row that lacks the field entirely
+is unaffected. The flag has to be carried explicitly through `weeklyPanel`, whose output
+object is built field by field rather than spread; the first version dropped it there and
+the guard silently did nothing, which is how that mutation was found.
+
+### Mutations, as run
+
+11 tests in `test/league-outlook-rows.test.js`. Every load-bearing line was reverted and the
+file re-run:
+
+| Reverted to | Result |
+|---|---|
+| every scheduled period admitted | 5 of 11 fail |
+| `anyPoints` dropped | 1 fails — the winner-less payload |
+| `anyPoints` as `&&` instead of `\|\|` | 1 fails — the real zero |
+| postseason periods admitted | 3 fail |
+| `outcome_known` not carried through `weeklyPanel` | 1 fails |
+| the `fitOutlook` guard removed | 1 fails |
+
+### Still open, and not this change's to close
+
+Persisting the fit in this database — coefficients per week, the thresholds, the k and the
+`through_season` they were fitted on — written by a script on a machine that has the corpus
+and read at request time. That is a migration plus a store plus a writer, and until it
+exists no consumer can be wired. `server/migrations/` already carries **two 062s** on main
+(`062_google_identity_and_invites.js` and `062_league_payload_season.js`), so the number
+needs deciding rather than guessing.
+
+Also unclosed: whether the corpus is built on Nick's own clone, and therefore whether the
+audit figures already published were measured on the full crawl or on his twelve
+league-seasons.

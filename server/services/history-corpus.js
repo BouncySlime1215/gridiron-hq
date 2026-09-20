@@ -232,8 +232,27 @@ export function excludedByDataQuality(seasons = null) {
  * week 4. Nothing here reads a later week, which is what makes the panel usable as a
  * prediction input rather than a description.
  */
-export function weeklyPanel({ seasons = null } = {}) {
-  const raw = regularSeasonWeeks(seasons);
+/*
+ * `rows` is how a league that is NOT in the corpus gets the same features.
+ *
+ * The corpus lives in `data/derived/sleeper_history.sqlite`, which the Fly image does not
+ * contain (the Dockerfile's runtime stage copies `client/dist`, `server` and `scripts`
+ * only), and one of Nick's own ESPN leagues is not in it at all. Both cases need a panel
+ * row computed the same way, and the one thing that must not happen is a second
+ * implementation of all-play, the shrunk z-score and `games_back` for app leagues: the
+ * features would drift from the ones the model was fitted on, and nothing would say so.
+ *
+ * So a caller may supply rows in `regularSeasonWeeks`'s own shape --
+ * `{season, league_id, num_teams, playoff_teams, roster_id, week, points,
+ * opponent_roster_id, made_playoffs, champion}` -- and every derivation below runs on them
+ * unchanged. `team-outlook.js`'s `espnWeeklyRows` is the one producer.
+ *
+ * Supplied rows skip the two data-quality rules, deliberately: those exist to drop
+ * abandoned and off-scale leagues from a public crawl, and a league Nick is playing in is
+ * not a candidate for exclusion. It is his league whatever its scale.
+ */
+export function weeklyPanel({ seasons = null, rows: suppliedRows = null } = {}) {
+  const raw = suppliedRows ?? regularSeasonWeeks(seasons);
   if (!raw.length) return [];
 
   // League-season scoring scale, from the regular-season weeks themselves.
@@ -319,7 +338,13 @@ export function weeklyPanel({ seasons = null } = {}) {
         games_back: null,
         // The outcome. Never an input.
         made_playoffs: r.made_playoffs ? 1 : 0,
-        champion: r.champion ? 1 : 0
+        champion: r.champion ? 1 : 0,
+        // Carried through because this object is built field by field rather than spread,
+        // so anything the supplied row said about itself is otherwise dropped here. A live
+        // league's rows arrive with `false` and `fitOutlook` refuses them; corpus rows come
+        // from completed seasons in `sh_team_seasons`, so `true` is a statement about them
+        // and not a default standing in for a missing answer.
+        outcome_known: r.outcome_known ?? true
       });
     }
   }

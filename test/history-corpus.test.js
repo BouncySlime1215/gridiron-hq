@@ -197,7 +197,16 @@ test('the outcome is carried but is never one of the known-at-week fields', asyn
     // the standings behind games_back are the standings as they stood that week.
     'win_pct', 'wins_so_far', 'head_to_head_games', 'points_so_far', 'games_back'];
   const outcomes = ['made_playoffs', 'champion'];
-  assert.deepEqual(Object.keys(row).sort(), [...known, ...outcomes].sort());
+  // Neither known-at-week nor an outcome: a statement about whether the outcome has
+  // HAPPENED yet. A live league's rows arrive through weeklyPanel's `rows` argument with
+  // `false`, and `fitOutlook` throws on them, because `made_playoffs` is null for a season
+  // in progress and a logistic fit would read that null as "did not qualify". Corpus rows
+  // come from completed seasons, so `true` here is a claim rather than a default. It is
+  // listed separately so that adding it stayed a deliberate act -- this assertion is what
+  // made it one.
+  const provenance = ['outcome_known'];
+  assert.equal(row.outcome_known, true, 'a corpus row is a finished season');
+  assert.deepEqual(Object.keys(row).sort(), [...known, ...outcomes, ...provenance].sort());
 });
 
 test('the variance decomposition removes the sampling error from the observed spread', async () => {

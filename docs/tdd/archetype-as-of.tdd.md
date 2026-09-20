@@ -636,3 +636,210 @@ one vocabulary, where before the first two shared a sentence.
   and some old ones reports `rows > 0` with the stale count beside it and no
   reason, because the current build did cover it. Whether that deserves its own
   sentence is a question for the first time it happens.
+
+---
+
+# Part 5: one clock for the chat data
+
+RED `8782471`, then GREEN. Same branch, on top of Part 4's `f2f321b`. Files:
+`server/services/league-chat-sync.js`, `scripts/chat/extract_league_chat.py`,
+tests `test/chat-age.test.js` and `scripts/chat/test_extract_league_chat.py`.
+
+Two rulings from the coordinator after the wording comparison in Part 3:
+normalise chat's stamps at the producer, and settle which of three candidate
+dates *is* the age of the chat data.
+
+## The defect nobody had seen
+
+`corpusStats()` read:
+
+```js
+out.newest_message = db.prepare('SELECT MAX(sent_at) AS m FROM messages').get()?.m ?? null;
+```
+
+**`messages` has no `sent_at` column.** It is `ts_utc`
+(`extract_league_chat.py:84`). So the prepare threw on every corpus that has
+ever existed, a bare `catch {}` swallowed it, and `newest_message` has always
+been `null` — with a comment explaining the null as "an older corpus without
+the column", which made the permanent failure look like a handled edge case.
+
+That is the shape CLAUDE.md names: *no bare `catch {}` that swallows a fault*.
+It also made the second ruling unanswerable, because the value the ruling names
+as the age was the one value the code could never produce.
+
+Fixed with the real column, and the catch now records
+`newest_message_error` naming `ts_utc` rather than reporting silence. Mutations
+E1 and E2.
+
+## Ruling one: ISO 8601 UTC at the producer
+
+Four producers on the chat side wrote SQLite's `YYYY-MM-DD HH:MM:SS`:
+
+| Where | Was | Now |
+|---|---|---|
+| `apple_ts()` → `messages.ts_utc` | `strftime('%Y-%m-%d %H:%M:%S')` | `'%Y-%m-%dT%H:%M:%SZ'` |
+| `extract_runs.ran_at` | the same, inline | `now_iso()` |
+| `manager_chat_profile.computed_at` | `datetime('now')` | `strftime('%Y-%m-%dT%H:%M:%SZ','now')` |
+| `manager_player_sentiment.computed_at` | `datetime('now')` | the same |
+
+Everything else on the manager card — the transactions collector
+(`collect-league-transactions.mjs:31`), the archetype build, the pull record —
+is `new Date().toISOString()`. Two fields called `as_of` side by side that
+cannot be compared is worse than one missing field.
+
+**The hazard that makes this more than a format change.** The extractor is
+incremental: it resumes from `MAX(msg_id)` and never re-reads a row it has. So
+changing the writer alone would leave an existing corpus holding both formats —
+and the two do not sort against each other, because `T` is `0x54` and a space is
+`0x20`. Every ISO row would beat every legacy row in `MAX(ts_utc)` whatever its
+date, so the "newest message" would be the newest *new-format* message.
+
+Hence `normalise_stamps()`, run **before the watermark is read**, not after:
+`MAX(msg_id)` is unaffected either way, but every later reader of `MAX(ts_utc)`
+is wrong for as long as the two formats coexist. It is idempotent (guarded on
+the missing `T` and a length of 19), covers all four columns, and tolerates the
+two rollup tables not existing yet on a first pull. Mutations E8, E9, E10.
+
+`league_hour()` now accepts both formats. `datetime.fromisoformat` only accepts
+a trailing `Z` from **Python 3.11**, and the Mac that runs this script may be
+older than the box these tests run on — so the test patches
+`fromisoformat` to the pre-3.11 behaviour and asserts both formats still give
+the same hour. Mutation E11. (Without that patch the test passes on this box
+whatever the code does, which is how E11 survived its first run.)
+
+## Ruling two: the age is the newest message
+
+Three candidates, and the surfaces had picked different ones:
+
+- the newest message in the corpus — **the age**;
+- the rollup's `computed_at` — provenance;
+- the last local pull's `finished_at` — provenance.
+
+`freshness()` now computes staleness from the newest message and carries
+`as_of` plus a `provenance` string. The consequence the ruling called out:
+**an uploaded corpus is no longer `unknown`.** It has messages, so it has an
+age; what it lacks is a local pull, which is provenance —
+`"uploaded, not pulled here"`. Mutations E5 and E6.
+
+`unknown` now means one thing only: messages exist and none of them can be
+dated. That is the state the `sent_at` defect would have produced if it had
+ever been visible.
+
+## The client enum is unchanged
+
+`LeagueChatPull.tsx` types `state` as a closed union and colours off it, so the
+four upstream states are mapped onto it rather than widening it, and the
+mapping is `STATE_MAPPING` rather than folklore living in the branches:
+
+| Upstream state | Client state |
+|---|---|
+| no path configured | `absent` |
+| file not on this machine | `absent` |
+| present but no messages | `absent` |
+| present but undatable | `unknown` |
+| present and dated | `fresh` / `aging` / `stale`, by the age of the newest message |
+
+Mutation E7.
+
+## Mutation run, both languages
+
+Baseline **JS 8 pass / 0 fail, Python 28 pass / 0 fail.** Eleven injections,
+eleven applied, eleven caught.
+
+```
+E1  the newest-message query names sent_at again              killed (4 failing)
+E2  the throw goes back into a bare catch with no reason      killed (1)
+E3  stamps are served raw, so a legacy corpus reports non-ISO killed (2)
+E4  the rollup stamp is dropped                               killed (2)
+E5  an uploaded corpus goes back to being called unknown      killed (2)
+E6  the age is taken from the rollup stamp                    killed (1)
+E7  the state mapping is removed                              killed (1)
+E8  message timestamps go back to SQLite format               killed (1)
+E9  the normalise pass is skipped                             killed (1)
+E10 normalise stops guarding, so a second run corrupts        killed (2)
+E11 league_hour only accepts the legacy format again          killed (1)
+```
+
+**Three survived the first pass, and each was a different kind of hole.**
+
+- **E2** — no fixture had a corpus whose timestamp column is genuinely
+  unreadable, only one with no messages. Added: a `messages` table with rows
+  and no `ts_utc`.
+- **E9** — `normalise_stamps()` being *correct* is not the same as it being
+  *called*. Every test hit it directly; none ran the extract path. Added an
+  end-to-end run against a corpus seeded with a legacy row.
+- **E11** — the compatibility claim could not fail on this box, because Python
+  3.11 accepts the `Z`. Added the patched-`fromisoformat` test above.
+
+The pattern across Parts 1–5 is now consistent enough to name: **a surviving
+mutation is a question about which of three things is missing** — the code is
+duplicated (A1), the fixture cannot tell two states apart (B2, B3, E2), or the
+call site is untested while the function is (E9, and E11 as its environmental
+cousin).
+
+## The five questions
+
+**Is this well built?** It deletes an always-broken query, replaces four ad-hoc
+stamps with one format, and adds one idempotent migration that runs where it
+cannot be skipped. The client contract is unchanged.
+
+**Is this based on stats, or made up?** Timestamps the corpus already holds. The
+one judgement — which of three dates is "the age" — was ruled on, and the other
+two are still served, labelled as provenance rather than dropped.
+
+**How do we know?** The missing column is `extract_league_chat.py:84` against
+`league-chat-sync.js`'s old query. The sort hazard is the byte values of `T` and
+space. The 3.11 boundary is tested by patching, not asserted. Seven tests failed
+before, thirty-six pass after across two languages, eleven mutations caught.
+
+**Should this data point anywhere else?** `isoStamp` is exported and is the
+right thing for any other reader of a SQLite-stamped column. Nothing else in my
+files has one; the first candidate elsewhere is whatever Trade Brain's final
+`chatCorpusState` reads, which is the same rollup column and will now be ISO at
+the source.
+
+**How does it unify?** Every stamp on a manager card — transactions,
+archetypes, Jev, chat — is now one format, and "how old is this" has one
+answer per store instead of three for the chat one.
+
+## Two existing tests asserted the rule this replaces
+
+The full check came back **2 failing** on the first run, both in
+`test/league-chat-sync.test.js`, and both were asserting the OLD contract:
+
+```
+not ok 884 - freshness degrades with age, and only a recent pull reads as up to date
+  'unknown' !== 'fresh'
+not ok 885 - a corpus that arrived by upload is marked as never pulled here, not as fresh
+  The input did not match /Never pulled/i. Input: 'Chat data of unknown age'
+```
+
+Their fixture was `{ messages: 250 }` with a pull stamp and no
+`newest_message`, because under the old rule the **pull stamp was the age**.
+Test 885 asserted in its own title that an uploaded corpus is `unknown`, which
+is precisely what the ruling overturns.
+
+Rewritten to the new rule rather than the code bent back to pass them, and said
+so in a comment above them with the date. CLAUDE.md's rule is *fix the
+implementation, not the test, unless the test is wrong* — here the
+specification changed by an explicit decision, which is the "unless". The
+replacements are stronger than what they replace: one of them now asserts the
+case that motivated the ruling, that pulling a week-old conversation five
+minutes ago does not make the conversation recent. A third was added for the
+only `unknown` left, messages with no readable date.
+
+## Known limits, Part 5
+
+- **`freshness()` is not yet wired to Trade Brain's `chatCorpusState`**, as
+  instructed: their final block shape is not landed. The four-state split is
+  mapped and declared here, but `freshness` still derives its own absence
+  branch. That wiring is the next step and is one call.
+- **`normalise_stamps` fixes a corpus only when the extractor next runs**, which
+  is on the Mac. A corpus uploaded to Fly before the next pull keeps its legacy
+  stamps — which is exactly why `isoStamp` normalises on the way out too. Both
+  layers are load-bearing; neither alone is enough.
+- **The length-19 guard means a stamp with fractional seconds is left alone.**
+  No producer writes one today. If one appears, it is skipped silently rather
+  than corrupted, which is the safer failure but is still a silence.
+- **No live measurement.** Fixtures only; the real corpus is on the Mac and this
+  box cannot have one.

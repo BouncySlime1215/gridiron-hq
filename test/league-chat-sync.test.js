@@ -94,19 +94,37 @@ test('a corpus that is absent or empty is never called anything but absent', () 
   }
 });
 
-test('freshness degrades with age, and only a recent pull reads as up to date', () => {
-  const stats = { messages: 250 };
-  assert.equal(sync.freshness(stats, { finished_at: hoursAgo(1) }).state, 'fresh');
-  assert.equal(sync.freshness(stats, { finished_at: hoursAgo(24) }).state, 'aging');
-  assert.equal(sync.freshness(stats, { finished_at: hoursAgo(24 * 5) }).state, 'stale');
+/*
+ * These two tests asserted the OLD contract, in which the pull stamp WAS the
+ * age. That contract was overturned deliberately (2026-09-20): the age of the
+ * chat data is the newest message in the corpus, and the pull stamp and the
+ * rollup stamp are provenance shown beside it, never alternative ages. The
+ * tests are rewritten to the new rule rather than the code being bent back to
+ * pass them — see docs/tdd/archetype-as-of.tdd.md, Part 5, for why.
+ */
+
+test('freshness degrades with the age of the conversation, not with the age of the pull', () => {
+  const recentPull = { finished_at: hoursAgo(1) };
+  assert.equal(sync.freshness({ messages: 250, newest_message: hoursAgo(1) }, recentPull).state, 'fresh');
+  assert.equal(sync.freshness({ messages: 250, newest_message: hoursAgo(24) }, recentPull).state, 'aging');
+  assert.equal(sync.freshness({ messages: 250, newest_message: hoursAgo(24 * 5) }, recentPull).state, 'stale');
   // The stale label is the one a person acts on, so it says days, not hours.
-  assert.match(sync.freshness(stats, { finished_at: hoursAgo(24 * 5) }).label, /5 days/);
+  assert.match(sync.freshness({ messages: 250, newest_message: hoursAgo(24 * 5) }, recentPull).label, /5 days/);
+  // The point of the rule: pulling a week-old conversation five minutes ago
+  // does not make the conversation recent, and the old code said it did.
+  assert.equal(sync.freshness({ messages: 250, newest_message: hoursAgo(24 * 7) }, recentPull).state, 'stale');
 });
 
-test('a corpus that arrived by upload is marked as never pulled here, not as fresh', () => {
+test('a corpus that arrived by upload is dated by its messages, with the upload as provenance', () => {
+  const f = sync.freshness({ messages: 250, newest_message: hoursAgo(2) }, null);
+  assert.equal(f.state, 'fresh', 'it has messages, so it has an age; no local pull is not no age');
+  assert.match(f.provenance ?? '', /uploaded, not pulled here/);
+});
+
+test('messages that carry no readable date are the only unknown left', () => {
   const f = sync.freshness({ messages: 250 }, null);
   assert.equal(f.state, 'unknown');
-  assert.match(f.label, /Never pulled/i);
+  assert.equal(f.as_of, null);
 });
 
 /* ------------------------------------------------------------- the whole card */

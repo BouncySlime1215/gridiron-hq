@@ -100,11 +100,46 @@ export function corpusStats() {
     sentiment_rows: count('manager_player_sentiment'),
     newest_message: null,
   };
+  // `ts_utc`, not `sent_at`. The old query named a column this table has never
+  // had (`extract_league_chat.py:84`), so it threw on every corpus and a bare
+  // catch turned that into `newest_message: null` — the swallowed fault, and
+  // the reason "how old is the chat data" could not be answered from here at
+  // all. A genuinely older corpus with no such column is still tolerated, but
+  // it is reported as a reason rather than as silence.
   try {
-    out.newest_message = db.prepare('SELECT MAX(sent_at) AS m FROM messages').get()?.m ?? null;
-  } catch { /* an older corpus without the column reports null rather than failing the page */ }
+    out.newest_message = isoStamp(db.prepare('SELECT MAX(ts_utc) AS m FROM messages').get()?.m);
+  } catch (e) {
+    out.newest_message = null;
+    out.newest_message_error = `messages.ts_utc is not readable on this corpus: ${String(e?.message ?? e)}`;
+  }
+  try {
+    out.rolled_up_at = isoStamp(db.prepare('SELECT MAX(computed_at) AS m FROM manager_chat_profile').get()?.m);
+  } catch { out.rolled_up_at = null; }
   db.close();
   return out;
+}
+
+/**
+ * Every stamp the chat side serves, in ISO 8601 UTC.
+ *
+ * The extractor now writes ISO, but a corpus pulled before that change carries
+ * SQLite's `YYYY-MM-DD HH:MM:SS`, and those two do not sort against each other
+ * (`T` is 0x54, space is 0x20, so any ISO row beats every legacy row whatever
+ * its date). Normalising on the way out is what lets one card carry chat's
+ * `as_of` beside the transactions' and the archetype build's, both of which are
+ * `new Date().toISOString()`.
+ *
+ * Unparseable input returns null rather than a guess: a wrong date on a
+ * freshness badge is worse than no date.
+ */
+export function isoStamp(value) {
+  if (value == null || value === '') return null;
+  const raw = String(value).trim();
+  const iso = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/.test(raw)
+    ? `${raw.replace(' ', 'T').replace(/(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/, '')}Z`
+    : raw;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? new Date(ms).toISOString().replace(/\.000Z$/, 'Z') : null;
 }
 
 /**
@@ -116,26 +151,62 @@ export function corpusStats() {
  * the trade cards can be taken at face value without a second thought.
  */
 export function freshness(stats, pull) {
+  const age = stats?.newest_message ? isoStamp(stats.newest_message) : null;
+  // Provenance, never an age. The rollup stamp says when the profiles were
+  // rebuilt and the pull stamp says when this machine last ran the extractor;
+  // neither is how old the conversation is, and both can be newer than the
+  // newest message by days.
+  const provenance = pull?.finished_at
+    ? `pulled on this machine ${isoStamp(pull.finished_at)}`
+    : (stats?.messages ? 'uploaded, not pulled here' : null);
+  const rolled = stats?.rolled_up_at ? `; profiles rebuilt ${stats.rolled_up_at}` : '';
+
   if (!stats || !stats.messages) {
     // "Not on this machine", not "not pulled recently". The corpus comes out of
     // Apple Messages via a script that needs a Mac and Full Disk Access, so on
     // the deployed box this state is permanent and correct, and a reader who
     // takes it for a broken sync goes looking for a server job that does not
-    // and should not exist.
-    return { state: 'absent', label: 'No chat data here',
+    // and should not exist. It can still be uploaded here, which is the half a
+    // "cannot be produced here" sentence leaves out.
+    return { state: 'absent', label: 'No chat data here', as_of: null, provenance: null,
       note: `Nothing at ${chatDbPath()}. The corpus is extracted from Apple Messages on the Mac and cannot be `
         + 'produced on this machine — pull it there and upload it. Until then every ladder is priced on our '
         + 'numbers only, and the counterparty half of the Trade Brain is off.' };
   }
-  const at = pull?.finished_at ? Date.parse(pull.finished_at) : null;
-  if (!at) return { state: 'unknown', label: 'Never pulled from here', note: 'The corpus was uploaded, not pulled on this machine.' };
-  const hours = (Date.now() - at) / 3.6e6;
-  if (hours < 12) return { state: 'fresh', label: 'Up to date', note: null };
-  if (hours < 48) return { state: 'aging', label: `${Math.round(hours)} hours old`,
-    note: 'Still usable. Pull before acting on a timing read.' };
-  return { state: 'stale', label: `${Math.round(hours / 24)} days old`,
-    note: 'Sentiment and timing reads are from before this week. Pull from the laptop.' };
+  if (!age) {
+    // Messages exist and none of them can be dated. Rare, and genuinely
+    // unknown: reporting it as fresh or stale would be inventing an answer.
+    return { state: 'unknown', label: 'Chat data of unknown age', as_of: null, provenance,
+      note: stats.newest_message_error
+        ?? 'The corpus has messages but no readable timestamp on any of them.' };
+  }
+  const hours = (Date.now() - Date.parse(age)) / 3.6e6;
+  const said = `Newest message ${age}${provenance ? ` (${provenance})` : ''}${rolled}.`;
+  if (hours < 12) return { state: 'fresh', label: 'Up to date', as_of: age, provenance, note: said };
+  if (hours < 48) {
+    return { state: 'aging', label: `${Math.round(hours)} hours old`, as_of: age, provenance,
+      note: `${said} Still usable. Pull before acting on a timing read.` };
+  }
+  return { state: 'stale', label: `${Math.round(hours / 24)} days old`, as_of: age, provenance,
+    note: `${said} Sentiment and timing reads are from before this week. Pull from the laptop.` };
 }
+
+/**
+ * Which client state each upstream state becomes.
+ *
+ * The client types `state` as a closed union and colours off it
+ * (`LeagueChatPull.tsx`), so the four states the corpus can actually be in are
+ * mapped onto it here rather than being widened. Written down because a
+ * mapping that lives only in the branches above is folklore: the next person
+ * to add a state has to be able to see what it should collapse to.
+ */
+export const STATE_MAPPING = Object.freeze({
+  no_path_configured: 'absent',
+  file_not_on_this_machine: 'absent',
+  present_but_no_messages: 'absent',
+  present_but_undatable: 'unknown',
+  present_and_dated: 'fresh | aging | stale, by the age of the newest message',
+});
 
 /**
  * Everything the panel needs, in one call, from any machine.

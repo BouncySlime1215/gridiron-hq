@@ -418,5 +418,9 @@ for (const [file, list] of group(nothing)) {
   for (const r of list) o.push(`- \`${r.name}()\` — declared at \`${file}:${r.line}\``);
   o.push('');
 }
-fs.writeFileSync('/mnt/project-files/route-deletion-impact.md', o.join('\n') + '\n');
+// OUT so a test can point this at a fixture tree and read what it wrote. The four
+// guards this file used to carry were assertions about its own SOURCE TEXT — they
+// pinned the shape of a regex, not the answer the report gives — and three real
+// defects went through them untouched.
+fs.writeFileSync(process.env.OUT || '/mnt/project-files/route-deletion-impact.md', o.join('\n') + '\n');
 console.log(`${rows.length} symbols across ${byFile.size} files, from ${doomed.length} dying routes`);

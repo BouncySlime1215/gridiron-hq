@@ -85,6 +85,80 @@ function fixtures(lg) {
 }
 
 /**
+ * The playoff bracket's real shape: one entry per round, each the NFL weeks that round
+ * is played over.
+ *
+ * WHY THIS IS NOT A CONSTANT. The sim used `PLAYOFF_WEEKS = [15, 16, 17]` from
+ * matchups.js, one week per round, for every league — while reading `playoffTeamCount`
+ * per league from the same payload. matchups.js:392 already says that default "is right
+ * for a 14-week regular season with one-week playoff rounds and wrong for leagues 1 and
+ * 3 as synced", so the defect was documented and nothing acted on it.
+ *
+ * Measured on the synced leagues 2026-09-19: leagues 2 and 5 are 14 regular periods, 6
+ * playoff teams, one-week rounds, playoff periods 15/16/17 — the constant is right for
+ * them. League 4 is 13 regular periods, 4 playoff teams and TWO-week rounds:
+ * `matchupPeriods` maps period 14 to NFL weeks [14, 15] and period 15 to [16, 17]. So
+ * its bracket is a semifinal over weeks 14-15 and a final over 16-17, and the constant
+ * played it as single weeks 15 and 16 — the wrong opponents' byes, week 14 and week 17
+ * never simulated at all, and each round decided on half the points it is really
+ * decided on. A player on bye in week 15 was scoring nothing for that league's entire
+ * semifinal.
+ *
+ * ESPN's `matchupPeriods` is the authority: it maps every matchup period to the NFL
+ * scoring weeks it covers, so it answers both "which weeks" and "how long is a round"
+ * without either being inferred. Rounds beyond `matchupPeriodCount` are the bracket.
+ *
+ * The number of rounds is what the field needs, ceil(log2(teams)), not however many
+ * periods the payload happens to list — a league whose schedule runs past the bracket
+ * should not gain a round.
+ *
+ * `basis` is reported on the response so a reader can tell a league-derived bracket
+ * from the fallback rather than assuming the good case.
+ */
+export function playoffRounds(lg, playoffTeams) {
+  const roundsNeeded = Math.max(1, Math.ceil(Math.log2(Math.max(2, playoffTeams))));
+  const fallback = () => ({
+    rounds: PLAYOFF_WEEKS.slice(0, roundsNeeded).map(w => [w]),
+    basis: 'default_weeks_15_17', rounds_needed: roundsNeeded
+  });
+
+  let payload = null;
+  try { payload = typeof lg?.payload === 'string' ? JSON.parse(lg.payload) : lg?.payload; }
+  catch { return fallback(); }
+  if (!payload) return fallback();
+
+  if (lg?.platform === 'sleeper') {
+    // Sleeper states where the bracket starts and runs one week per round.
+    const start = Number(payload.settings?.playoff_week_start);
+    if (!(start >= 1)) return fallback();
+    return {
+      rounds: Array.from({ length: roundsNeeded }, (_, i) => [start + i]),
+      basis: 'sleeper_playoff_week_start', rounds_needed: roundsNeeded
+    };
+  }
+
+  const settings = payload.settings?.scheduleSettings;
+  const regular = Number(settings?.matchupPeriodCount);
+  const periods = settings?.matchupPeriods;
+  if (!(regular >= 1) || !periods || typeof periods !== 'object') return fallback();
+
+  const bracket = Object.keys(periods)
+    .map(Number).filter(k => Number.isFinite(k) && k > regular).sort((a, b) => a - b)
+    .map(k => (Array.isArray(periods[String(k)]) ? periods[String(k)] : [])
+      .map(Number).filter(w => Number.isFinite(w) && w >= 1))
+    .filter(weeks => weeks.length);
+
+  if (!bracket.length) return fallback();
+  // Fewer periods than the field needs means the payload and the playoff team count
+  // disagree. Use what the league actually lists and say so, rather than inventing a
+  // week that is not in its schedule.
+  if (bracket.length < roundsNeeded) {
+    return { rounds: bracket, basis: 'league_schedule_short_of_field', rounds_needed: roundsNeeded };
+  }
+  return { rounds: bracket.slice(0, roundsNeeded), basis: 'league_schedule', rounds_needed: roundsNeeded };
+}
+
+/**
  * Lineup total with the decision made from pre-kickoff expectations.
  *
  * `expected` decides who starts; `drawn` decides what those starters score. The
@@ -189,13 +263,18 @@ export function simulateSeason(lg, {
   const weeks = [...sched.keys()].filter(w => w >= fromWeek).sort((a, b) => a - b);
   if (!weeks.length) return { error: 'no remaining fixtures in this league schedule' };
 
-  // The bracket is played in NFL weeks 15-17, not in the last three regular-season
-  // weeks. Simulating it on weeks 12-14 would apply the wrong opponents and — far worse —
-  // the wrong byes, handing the title to whoever happened to have a clean week 12.
-  const bracketWeeks = PLAYOFF_WEEKS;
-  const simWeeks = [...new Set([...weeks, ...bracketWeeks])].sort((a, b) => a - b);
-
   const playoffTeams = JSON.parse(lg.payload).settings?.scheduleSettings?.playoffTeamCount ?? 6;
+
+  // The bracket is played in its own NFL weeks, not in the last regular-season weeks.
+  // Simulating it on weeks 12-14 would apply the wrong opponents and — far worse — the
+  // wrong byes, handing the title to whoever happened to have a clean week 12. Which
+  // weeks, and how many of them per round, now come from the league (playoffRounds)
+  // rather than from one constant that was right for some of these leagues and wrong
+  // for others.
+  const playoff = playoffRounds(lg, playoffTeams);
+  const bracketRounds = playoff.rounds;
+  const bracketWeeks = [...new Set(bracketRounds.flat())].sort((a, b) => a - b);
+  const simWeeks = [...new Set([...weeks, ...bracketWeeks])].sort((a, b) => a - b);
 
   // Every player who could be started by anyone, deduplicated.
   const roster = [...new Map(teams.flatMap(t => t.players.map(p => [p.id, p]))).values()]
@@ -312,12 +391,22 @@ export function simulateSeason(lg, {
     for (let round = 0; alive.length > 1 && round <= 5; round++) {
       if (alive.length === 2) for (const id of alive) stats.get(id).finals++;
 
-      const week = bracketWeeks[Math.min(round, bracketWeeks.length - 1)];
-      const wd = weekData.get(week);
-      const drawn = new Map();
-      const vals = wd.draw();
-      for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
-      const score = id => lineupPoints(teams.find(t => t.roster_id === id).players, slots, drawn, wd.expected);
+      // A round can be more than one NFL week (league 4's rounds are two), and a
+      // multi-week round is decided on the TOTAL. Each week inside it gets its own draw
+      // and its own lineup decision, because a manager sets a lineup every week and
+      // week two's byes are not week one's.
+      const roundWeeks = bracketRounds[Math.min(round, bracketRounds.length - 1)];
+      const drawnWeeks = roundWeeks.map(week => {
+        const wd = weekData.get(week);
+        const drawn = new Map();
+        const vals = wd.draw();
+        for (let i = 0; i < wd.ids.length; i++) drawn.set(wd.ids[i], vals[i]);
+        return { drawn, expected: wd.expected };
+      });
+      const score = id => {
+        const players = teams.find(t => t.roster_id === id).players;
+        return drawnWeeks.reduce((sum, w) => sum + lineupPoints(players, slots, w.drawn, w.expected), 0);
+      };
 
       const winners = pairHighLow(playing).map(([a, b]) => {
         if (b == null) return a;
@@ -347,6 +436,10 @@ export function simulateSeason(lg, {
   return {
     runs, weeks: weeks.length, from_week: fromWeek, playoff_teams: playoffTeams,
     standings_carried_in: fromWeek > 1,
+    // Reported so a reader can see the bracket that was actually played and where it
+    // came from, rather than trusting that it matched the league. `basis` names the
+    // source: the league's own schedule, or the fallback constant.
+    playoff_rounds: bracketRounds, playoff_basis: playoff.basis,
     odds_interval: 'run-to-run Monte Carlo error only; excludes the shared error of the fixed per-player outcome pools',
     teams: out
   };

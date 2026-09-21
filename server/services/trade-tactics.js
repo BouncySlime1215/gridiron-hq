@@ -37,6 +37,10 @@
  * can never be reading two different numbers for the same player.
  */
 import { rows } from '../db/index.js';
+// One accessor for "when were these rows collected", shared with the manager
+// read and counterparty-pricing. Three hand-rolled MAX() queries is how three
+// surfaces come to print three different dates for one collection.
+import { transactionsCollected } from './manager-signals.js';
 
 /**
  * Every hand-set number in this file, in one place, so a reviewer can see the
@@ -246,6 +250,7 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
   // (waivers clear on the league's clock, not his).
   const ownAction = t => t.type !== 'DRAFT' && t.execution_type !== 'PROCESS';
 
+  const collected = Object.freeze(transactionsCollected(leagueId, yr));
   const out = new Map();
   const blank = id => ({
     roster_id: String(id), decisions_n: 0, decisions_reason: null, median_hours: null,
@@ -255,6 +260,12 @@ export function timingRead(leagueId, { season = null, now = null } = {}) {
     // counterparty-pricing#selfRead (`to_each_manager[].last_offer_at`), which
     // is the one place that reads the offer items. Not duplicated here.
     source: 'league_transactions_raw', fitted: false,
+    // WHEN THESE ROWS WERE COLLECTED, not when they were read. `now` bounds what
+    // is read; this is when the rows arrived, and the deployed app never collects
+    // any (fly.toml declares no `processes`; the only writer runs off-server by
+    // hand). A manager with no decisions gets the date too: "we have not looked
+    // since Thursday" and "he has done nothing" are different answers.
+    transactions: collected,
   });
   // Every roster in the league, so "we have nothing on him" is a stated answer
   // rather than a missing key.
@@ -378,8 +389,13 @@ export function vetoClimate(lg, { season = null, priceOfPlayer = null } = {}) {
     team_count: teamCount, n: 0, priceable_n: 0, reference_n: 0, observed_max_votes: 0, observed: [],
     reference: null, reference_skew_pct: null, fitted: false,
     source: 'ESPN league settings + league_transactions_raw',
+    transactions: null,
   };
   const yr = season ?? lg?.season ?? null;
+  // Set BEFORE the `!tx.length` early return below. That return is exactly where
+  // a league with nothing collected looked identical to a league with no veto
+  // history, and those are opposite facts.
+  climate.transactions = Object.freeze(transactionsCollected(lg?.id ?? null, yr));
   let tx = [];
   try {
     tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json

@@ -233,14 +233,29 @@ tx('f1', 'FREEAGENT', 'EXECUTE', 'EXECUTED', 4);
 
 // Archetype rows: this league-season, plus a career row and another league's
 // row for the same person, neither of which may leak into league 12.
-const arch = (league, season, metric, value, n, source) => run(`INSERT INTO manager_archetypes
+const ARCH_BUILT_EARLY = '2026-09-18T01:38:39.383Z';
+// The NEWEST row in league 12's store, and deliberately a metric ARCHETYPE_METRICS
+// does not map. The reported build date must be this one: it is when the build
+// last wrote, and which metrics one consumer happens to copy is not a fact about
+// the store's age.
+const ARCH_BUILT_AT = '2026-09-18T05:00:00.000Z';
+const arch = (league, season, metric, value, n, source, builtAt = ARCH_BUILT_EARLY) =>
+  run(`INSERT INTO manager_archetypes
   (member_id, league_id, season, metric, value, label, n, source, version, computed_at)
-  VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'manager-archetypes-v1', '2026-09-18T01:38:39.383Z')`,
-AIDEN, league, season, metric, value, n, source);
+  VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'manager-archetypes-v1', ?)`,
+  AIDEN, league, season, metric, value, n, source, builtAt);
 arch(12, 2026, 'auto_draft_rate', 0, 16, 'draft');
 arch(12, 2026, 'reach_rate', 0.25, 16, 'draft');
 arch(12, 2026, 'luck_wins', 0.6, 1, 'outcome');
 arch(12, 2026, 'all_play', 0.33, 3, 'outcome');
+// Written by the same build run, in the same store, for the same league-season —
+// and NOT in ARCHETYPE_METRICS, so the signal layer copies no value from it.
+arch(12, 2026, 'beat_median_streak', 3, 4, 'outcome', ARCH_BUILT_AT);
+// A LATER build, in the same league and the same store, for a DIFFERENT season.
+// It is the newest row league 12 has, and it must not be this season-view's date:
+// "the store was last built at 07:00" is true and useless if what was built was
+// last year.
+arch(12, 2025, 'all_play', 0.5, 14, 'outcome', '2026-09-18T07:00:00.000Z');
 arch(0, 0, 'luck_wins', -2.5, 40, 'career');
 arch(11, 2026, 'reach_rate', 0.9, 16, 'draft');
 
@@ -351,6 +366,92 @@ test('signals: draft and outcome come from this league-season only, labelled by 
     'the career roll-up is not this season');
 });
 
+test('accessor: the pricing path is never handed a metric nothing may price on', () => {
+  // The `priceable` flag lived only in routes/trades.js:446, in the HTTP layer.
+  // managerSignalsFor — "everything the trade engine needs about one league's
+  // managers, in one read" — returned every stored metric in one bag with no
+  // flag, and it is what counterpartyLayer reads. Nothing priced on a draft
+  // metric today, but nothing stopped it either: a reach for
+  // m.metrics.draft_reach_rate would have compiled, run and been wrong.
+  //
+  // So the flag is not a flag any more. An unpriceable row is not in the bag the
+  // pricing path reads, which is a property rather than a rule someone remembers.
+  signals.buildManagerSignals(12);
+  const layer = signals.managerSignalsFor(12);
+  const two = layer.get('2');
+  assert.ok(two, 'roster 2 has signals in league 12');
+
+  // Stored, and readable by the page — see the route test below.
+  assert.equal(metricOf(12, 2, 'draft_reach_rate')?.source, 'draft');
+
+  for (const m of ['draft_auto_rate', 'draft_reach_rate', 'draft_pick_vs_consensus',
+    'draft_name_brand_excess']) {
+    assert.ok(!(m in two.metrics),
+      `${m} comes from a source declared priceable: false, so it must not be in the pricing bag`);
+  }
+  const ctx = two.context ?? {};
+  assert.ok('draft_reach_rate' in ctx, 'it is still readable, in the bag that says what it is');
+  assert.match(two.context_reasons?.draft_reach_rate ?? '', /priceable|never priced|context only/i,
+    'and it carries why nothing may price on it');
+});
+
+test('accessor: an undeclared source fails closed — unpriceable until someone declares it', () => {
+  // The broken copy. A source that is not in SIGNAL_SOURCES has no `priceable`
+  // entry to read, and `spec?.priceable ?? false` in the old route helper got
+  // that right. The accessor has to get it right too, in the same direction:
+  // absent means NOT priceable, never priceable-by-default, or a metric added
+  // without its registry entry silently becomes an input to a price.
+  run(`INSERT OR REPLACE INTO manager_signals (league_id, roster_id, metric, value, n, source, computed_at)
+       VALUES (12, '2', 'invented_metric', 0.9, 40, 'not_a_declared_source', datetime('now'))`);
+  try {
+    const two = signals.managerSignalsFor(12).get('2');
+    assert.ok(!('invented_metric' in two.metrics),
+      'an undeclared source must not reach the pricing bag');
+    assert.ok('invented_metric' in (two.context ?? {}),
+      'it is still surfaced, so a stray writer is visible rather than swallowed');
+    assert.match(two.context_reasons?.invented_metric ?? '', /not declared|undeclared|SIGNAL_SOURCES/i,
+      'and the reason names the registry, which is what a reader has to go fix');
+  } finally {
+    run(`DELETE FROM manager_signals WHERE league_id = 12 AND metric = 'invented_metric'`);
+  }
+});
+
+test('accessor: everything the pricing layer actually reads is still in the pricing bag', () => {
+  // The regression pin for the two above. Partitioning the bag could starve
+  // counterpartyLayer without any test noticing, because a missing metric there
+  // reads as "we know nothing about him" — which is exactly the silent
+  // degradation this whole branch is about. These are the names grepped out of
+  // counterparty-pricing.js: every m.* it reads, plus the two postLossFactor
+  // takes.
+  // BOTH leagues, and the sources are asserted rather than assumed. The first
+  // version of this pin read league 11 alone, and a mutation that wrongly
+  // partitioned every `tx` metric out of the pricing bag did not fail it —
+  // league 11 stores no `tx` rows, so the pin never reached the case it claimed
+  // to protect. Same shape as the boundary fixture in
+  // docs/tdd/luck-read-not-firing.tdd.md: a pin is only as strong as the rows
+  // the fixture actually gives it.
+  for (const leagueId of [11, 12]) {
+    signals.buildManagerSignals(leagueId);
+    const layer = signals.managerSignalsFor(leagueId);
+    const present = new Set();
+    for (const s of layer.values()) for (const k of Object.keys(s.metrics)) present.add(k);
+    const priceableRows = sigRows(leagueId).filter(r => signals.SIGNAL_SOURCES[r.source]?.priceable);
+    const stored = new Set(priceableRows.map(r => r.metric));
+    assert.ok(stored.size > 0, `league ${leagueId} must store some priceable metrics`);
+    for (const m of stored) {
+      assert.ok(present.has(m),
+        `${m} is priceable and stored in league ${leagueId}, so the pricing bag must still carry it`);
+    }
+  }
+  // And the sources between them must cover every priceable one the registry
+  // declares and these fixtures can produce, so "some priceable metric survived"
+  // cannot pass on one source while another is quietly partitioned away.
+  const seen = new Set([...sigRows(11), ...sigRows(12)].map(r => r.source));
+  for (const want of ['roster', 'standings', 'tx', 'outcome']) {
+    assert.ok(seen.has(want), `the fixtures must exercise the "${want}" source for this pin to mean anything`);
+  }
+});
+
 test('signals: chat and player views only for trusted identities in the chat league', () => {
   signals.buildManagerSignals(11);
   const chatRosters = new Set(rows(`SELECT DISTINCT roster_id FROM manager_signals
@@ -401,6 +502,26 @@ test('refresh: one call covers every league, uses chat names only where Nick con
   assert.equal(byId.get(13).skipped, 'league not synced');
   assert.equal(r.status, 'ok');
   assert.ok(!JSON.stringify(r).includes('secret-s2'), 'never echoes league credentials');
+});
+
+test('refresh: the reported archetype build date is the store\'s, not the newest metric this consumer maps', () => {
+  // `archetypes_as_of` is served (routes/trades.js rebuild route) and printed by
+  // scripts/build-manager-signals.mjs. It was accumulated INSIDE the row loop,
+  // after a `continue` that drops any metric not in ARCHETYPE_METRICS — so the
+  // date it reported was "newest stamp among the metrics this consumer maps", and
+  // it would move if that map were edited. Editing a consumer's allowlist must not
+  // change what a reader is told about when the data was built.
+  const l12 = new Map(signals.refreshManagerData().leagues.map(l => [l.league_id, l])).get(12);
+  assert.equal(l12.archetypes, 'present');
+  assert.equal(l12.archetypes_as_of, ARCH_BUILT_AT,
+    'the newest row in this league-season\'s store is the build date, mapped or not');
+  assert.notEqual(ARCH_BUILT_AT, ARCH_BUILT_EARLY,
+    'the fixture has two build stamps, or this assertion proves nothing');
+  // And the season filter is load-bearing: league 12's newest row overall is a
+  // 2025 build at 07:00, which is a true statement about the store and the wrong
+  // answer to "how old is what this page is showing".
+  assert.equal(rows(`SELECT MAX(computed_at) AS a FROM manager_archetypes WHERE league_id = 12`)[0].a,
+    '2026-09-18T07:00:00.000Z', 'the fixture has a newer row in another season');
 });
 
 test('refresh: a chat table missing mid-rollup fails the chat league only; chat-free leagues still build', () => {

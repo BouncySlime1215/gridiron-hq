@@ -59,13 +59,27 @@ primary_region = "iad"
   #
   # timeout 5s: generous enough to ride out a brief main-thread pause without
   # bouncing the machine, short enough that a real wedge is caught within a
-  # couple of intervals. grace_period 60s: boot runs migrations and seed
-  # reconciliation against the volume before `app.listen`, and a restart loop
-  # caused by an impatient check would be worse than the bug being fixed.
+  # couple of intervals.
+  #
+  # grace_period 300s, and the number is set against this app's own measured
+  # boot rather than against the wedge this check was added for. A cold start
+  # here was measured at 60 to 180 seconds on 2026-09-19, before anything else
+  # happens — and a boot with pending migrations additionally runs them and a
+  # `VACUUM INTO` of a ~445 MB database, all ahead of `app.listen`. At 60s the
+  # check began before a normal boot had finished.
+  #
+  # What that costs is not a restart: a failing health check takes the machine
+  # out of the routing pool and never restarts it (only a process exit does).
+  # On a single-machine app updated in place there is nothing else to route to,
+  # so an evicted machine is a 502 with an empty body for as long as the check
+  # keeps failing — while the app is booting perfectly well. The comment this
+  # replaces said a restart loop caused by an impatient check would be worse
+  # than the bug being fixed; that was the right argument attached to a number
+  # too small to honour it.
   [[services.http_checks]]
     interval = "15s"
     timeout = "5s"
-    grace_period = "60s"
+    grace_period = "300s"
     method = "get"
     path = "/api/health"
     protocol = "http"

@@ -238,10 +238,69 @@ function storeYardageCv(season, gsisId) {
 /** roster_id -> espn_member_id for one league-season, used to attribute the
  *  ~20% of picks ESPN returns without a memberId. */
 function teamMembers(leagueId, season) {
-  return new Map(rows(`SELECT roster_id, espn_member_id, owner_name, team_name,
-                              wins, losses, points_for, final_rank
-                       FROM league_season_teams WHERE league_id = ? AND season = ?`, leagueId, season)
-    .map(t => [String(t.roster_id), t]));
+  return teamMembersState(leagueId, season).byRoster;
+}
+
+/**
+ * WHAT CREATES `league_season_teams`, AND WHY IT CAN BE MISSING.
+ *
+ * Two routes, which is the whole problem. `server/migrations/064_league_history_tables.js:29`
+ * creates it — its own comment names `managerProfile()` and `archetypesFor()`
+ * as the readers it builds the member index for — and
+ * `scripts/backfill-league-history.mjs` creates it too, for boxes that
+ * backfilled before the migration existed. Migration 064 is not on `main`; it
+ * arrives with PR #47, the base this work is stacked on. So on `main` today
+ * `runMigrations()` leaves the table absent and every read below throws, and
+ * after #47 it does not. A database restored from a backup older than 064 is
+ * in the same state.
+ *
+ * A thrown `no such table` is the worst of the three possible answers. The
+ * caller's nearest try/catch turns it into an empty result, and an empty
+ * result is indistinguishable from "we looked and there is nothing here" —
+ * the silent empty this module's whole as-of family exists to delete.
+ */
+export const LEAGUE_HISTORY_TABLE = 'league_season_teams';
+
+export const LEAGUE_HISTORY_SOURCE =
+  'server/migrations/064_league_history_tables.js (arrives with PR #47; not on main yet) '
+  + 'and scripts/backfill-league-history.mjs, which creates the same table for boxes that '
+  + 'backfilled before the migration existed';
+
+/**
+ * Is the table there, right now.
+ *
+ * DELIBERATELY NOT CACHED. A migration can create this table inside the life
+ * of a process — `runMigrations()` runs at startup, and #47 merging is exactly
+ * that event — so a cached absence would outlive the thing that fixes it and
+ * the process would go on reporting a table it is sitting on top of.
+ */
+export function leagueHistoryState() {
+  const [hit] = rows(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    LEAGUE_HISTORY_TABLE);
+  if (hit) return Object.freeze({ present: true, reason: null, source: LEAGUE_HISTORY_SOURCE });
+  return Object.freeze({
+    present: false,
+    reason: `${LEAGUE_HISTORY_TABLE} is not on this database, so roster-to-member identity cannot be `
+      + 'read at all. This is "we cannot look", not "this manager is unknown".',
+    source: LEAGUE_HISTORY_SOURCE,
+  });
+}
+
+/**
+ * roster_id -> team row for one league-season, WITH the reason when there is
+ * none. Used to attribute the ~20% of picks ESPN returns without a memberId,
+ * so an empty map here quietly unattributes a fifth of the draft.
+ */
+export function teamMembersState(leagueId, season) {
+  const state = leagueHistoryState();
+  if (!state.present) return Object.freeze({ ...state, byRoster: new Map() });
+  return Object.freeze({
+    ...state,
+    byRoster: new Map(rows(`SELECT roster_id, espn_member_id, owner_name, team_name,
+                                   wins, losses, points_for, final_rank
+                            FROM league_season_teams WHERE league_id = ? AND season = ?`,
+    leagueId, season).map(t => [String(t.roster_id), t])),
+  });
 }
 
 /**
@@ -816,18 +875,255 @@ export function managerProfile(memberId) {
     jev[r.question] ??= { basis: r.basis, n_seasons: r.n_seasons, n_picks: r.n_picks, p: {} };
     jev[r.question].p[r.outcome] = r.probability;
   }
-  const identity = rows(`SELECT owner_name, team_name, league_id, season FROM league_season_teams
-                         WHERE espn_member_id = ? ORDER BY season DESC LIMIT 1`, memberId)[0] ?? null;
-  return { member_id: memberId, identity, seasons: Object.fromEntries(seasons), jev };
+  // TWO NULLS THAT MEAN OPPOSITE THINGS, kept apart. `identity: null` with
+  // the table present says this member is not in it — an ordinary answer. With
+  // the table absent it says nothing could be looked up at all. Collapsed into
+  // one null, "who is this?" silently becomes "nobody".
+  const history = leagueHistoryState();
+  const identity = history.present
+    ? rows(`SELECT owner_name, team_name, league_id, season FROM league_season_teams
+            WHERE espn_member_id = ? ORDER BY season DESC LIMIT 1`, memberId)[0] ?? null
+    : null;
+  const identity_state = !history.present ? 'table_absent' : (identity ? 'present' : 'no_row');
+  return {
+    member_id: memberId,
+    identity,
+    identity_state,
+    identity_reason: history.present ? null : history.reason,
+    seasons: Object.fromEntries(seasons),
+    jev,
+  };
+}
+
+/**
+ * WHO WRITES THE TWO TABLES UNDER A MANAGER CARD, AND HOW OFTEN.
+ *
+ * Both are written by `buildManagerArchetypes()` and `storeJevAnswers()`, and
+ * both are reached from exactly one place: `scripts/build-manager-archetypes.mjs`,
+ * which a person runs. No route, no scheduler job and no refresh tick calls
+ * either. So a card is always built from whatever was last produced by hand.
+ */
+export const ARCHETYPE_BUILDER =
+  'scripts/build-manager-archetypes.mjs (run by hand; nothing on the deployed app writes these tables)';
+
+/**
+ * The sources the trade path prices off: this league-season's own draft
+ * behaviour and its outcomes. `career` is excluded deliberately — it is keyed
+ * (member, 0, 0) and travels across leagues, so a career row landing on the
+ * same query would date a league-season by evidence from another one.
+ *
+ * NO METRIC ALLOWLIST, and that is the point of this constant existing here.
+ * `manager-signals.js:271` (`archetypeIndex`) derives its own `asOf` from the
+ * same rows, but updates it INSIDE the row loop, after a `continue` that drops
+ * any metric missing from that module's `ARCHETYPE_METRICS` map. So the date it
+ * serves at `:425` is "the newest stamp among the metrics this consumer maps",
+ * and editing that map silently moves it. `priced_as_of` answers the question
+ * actually being asked — when the build last wrote a priceable row for this
+ * league-season — which is why a consumer switching to it will see a different
+ * value in exactly the case where the old one was wrong.
+ */
+export const PRICED_SOURCES = Object.freeze(['draft', 'outcome']);
+
+/**
+ * WHY NOTHING SCHEDULES THESE TWO TABLES, written down so it stops being a
+ * finding and starts being a decision.
+ *
+ * `buildManagerArchetypes()` replays every league-season in
+ * `league_draft_picks` — 1,738 picks over 12 league-seasons today — and the
+ * pass beside it, `storeJevAnswers()`, sends each manager's draft state to a
+ * paid gateway and stores the answers. The first is expensive and idempotent;
+ * the second costs money per run and produces a number that does not change
+ * between drafts. A timer on either would spend on both every tick to refresh
+ * a table whose inputs move once a year, on draft day.
+ *
+ * So the build stays on the run sheet. What was wrong was not the absence of a
+ * scheduler, it was that no served surface said how old the result was — fixed
+ * by `archetypesBuilt` above, which is the honest version of a timer: the card
+ * tells you when to run it.
+ */
+export const WHY_UNSCHEDULED =
+  'The archetype build replays every league-season and the Jev pass calls a paid gateway per manager, '
+  + 'for inputs that change once a year on draft day. A timer would spend on every tick for nothing; '
+  + 'the as-of block says when it was last run instead.';
+
+/**
+ * Draft metrics this file computes that NO NAMED CONSUMER reads.
+ *
+ * They are not dead: `metricRepeatability()` and `splitHalfReliability()` read
+ * every `source='draft'` metric generically, and both are called only from
+ * `scripts/build-manager-archetypes.mjs`. So these appear in the run sheet's
+ * repeatability table and nowhere a person makes a decision — not in
+ * `manager-signals.js`'s `ARCHETYPE_METRICS`, not in `jevStateFor`'s summary,
+ * not in the client.
+ *
+ * The list exists so that stays a statement rather than something the next
+ * reader has to re-derive by grep, and so a metric added later cannot quietly
+ * join them: the test on this list fails if an entry has no reason.
+ */
+export const RUN_SHEET_ONLY_METRICS = Object.freeze(['capital_hhi']);
+
+export const RUN_SHEET_ONLY_REASON = Object.freeze({
+  capital_hhi:
+    'Herfindahl concentration of draft capital across skill positions. Kept because the repeatability '
+    + 'report needs candidate metrics to test, and a metric is dropped on evidence rather than on '
+    + 'nobody having wired it yet. It is not centred on its league-season, so it is not comparable '
+    + 'across leagues and must not be served until it is.',
+});
+
+/**
+ * WHEN THE EVIDENCE UNDER ONE MANAGER CARD WAS BUILT.
+ *
+ * The card served at `routes/trades.js:501` carries three things with three
+ * different provenances, and one date for all of them would be wrong for at
+ * least two:
+ *
+ *   - `this_season` — `manager_archetypes` rows keyed (member, league, season).
+ *   - `career` — the same table, but keyed (member, 0, 0). A build only writes
+ *     career rows for members it found draft picks for, so a league-season can
+ *     be freshly built while the career roll-up beside it on the same card is
+ *     older, and the reverse.
+ *   - `jev` — `manager_archetype_jev`, written by a SEPARATE pass after a
+ *     gateway call, with its own `evaluated_at`. Dating those answers by the
+ *     archetype build would report a stamp that pass never wrote.
+ *
+ * THE TABLE'S OWN STAMPS, NEVER `sync_log`. There is no job row to borrow here
+ * anyway, but the rule is the same one the signals payload follows: a job-level
+ * stamp says when a build RAN, not which league-seasons it produced rows for.
+ * A league missing its draft picks is skipped silently by
+ * `buildManagerArchetypes` (`leagueSeasons` comes from `league_draft_picks`),
+ * so the job can succeed while this league-season stays exactly as old as it
+ * was. `MAX(computed_at)` for this league-season is the only value that means
+ * "the build reached this league-season".
+ *
+ * MAX and not MIN: every row of one build shares a single `now`, so on a clean
+ * database the two are equal — but the build `DELETE`s only its own version, so
+ * rows can survive from an earlier run. The question the card is answering is
+ * when this evidence was last refreshed.
+ *
+ * `null` with a reason, never a borrowed stamp: "built this morning" and "never
+ * built" must not look alike. There is no `table_missing` reason because this
+ * module `CREATE TABLE IF NOT EXISTS`es both at import, so the table cannot be
+ * absent wherever this function can be called.
+ *
+ * `priced_as_of` / `priced_rows` are the same league-season restricted to
+ * `PRICED_SOURCES`, which is what the trade path reads. They are here rather
+ * than in a second accessor so `manager-signals.js` can switch to this one
+ * without a second query over the same table. See `PRICED_SOURCES` for why the
+ * two values differ and when.
+ *
+ * @param {number} leagueId
+ * @param {number} season
+ * @param {string|null} memberId when given, the block also dates that member's
+ *   stored Jev answers; omitted, the Jev fields are left off rather than
+ *   answered league-wide, which would hand a manager a date for answers that
+ *   are not his.
+ */
+export function archetypesBuilt(leagueId, season, memberId = null) {
+  const { ls, career, priced, stale } = builtStamps(leagueId, season);
+  const jev = memberId == null ? null
+    : rows(`SELECT COUNT(*) AS n, MAX(evaluated_at) AS as_of FROM manager_archetype_jev
+            WHERE member_id = ?`, memberId)[0];
+  return builtBlock(leagueId, season, ls, career, priced, stale, jev);
+}
+
+/** The two stamp reads, written once. The first mutation run caught this file
+ * with the pair copied into both callers: an injection into one left the other
+ * answering correctly, which is the same drift `builtBlock` exists to prevent,
+ * one level up. */
+function builtStamps(leagueId, season) {
+  const [ls] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of FROM manager_archetypes
+                     WHERE league_id = ? AND season = ? AND version = ?`,
+  leagueId, season, MANAGER_ARCHETYPE_VERSION);
+  const [career] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of FROM manager_archetypes
+                         WHERE league_id = ? AND season = ? AND version = ?`,
+  CAREER_LEAGUE, CAREER_SEASON, MANAGER_ARCHETYPE_VERSION);
+  const [priced] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of FROM manager_archetypes
+                         WHERE league_id = ? AND season = ? AND version = ? AND source IN (${PRICED_SOURCES.map(() => '?').join(', ')})`,
+  leagueId, season, MANAGER_ARCHETYPE_VERSION, ...PRICED_SOURCES);
+  // Rows on this key from a PREVIOUS build version. The version filter above is
+  // right — a price should stand on the current build, not on whatever a
+  // superseded one left behind — but without this count the filter turns stale
+  // data into `rows: 0`, indistinguishable from a league-season nothing has
+  // ever written. Those two states lead to opposite actions: re-run the build,
+  // or find out why this league has no draft picks on file.
+  const [stale] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of,
+                               GROUP_CONCAT(DISTINCT version) AS versions FROM manager_archetypes
+                        WHERE league_id = ? AND season = ? AND version <> ?`,
+  leagueId, season, MANAGER_ARCHETYPE_VERSION);
+  return { ls, career, priced, stale };
+}
+
+/** The one place the block's shape is written, so a per-card build and a direct
+ * call cannot drift apart. `ls`, `career` and `jev` are {n, as_of} rows. */
+function builtBlock(leagueId, season, ls, career, priced, stale, jev) {
+  const gaps = [];
+  // NEVER COLLECTED IS NOT ZERO. Without this clause a league-season whose
+  // `league_season_teams` is absent reports `rows: 0` in exactly the words a
+  // league-season the build simply never covered does, and an archetype over
+  // no rows is a real-looking answer about a real person. It is the same
+  // distinction as the confident-zero bucket still open on the run sheet; until
+  // that contract is settled the state is served through `reason`, the field
+  // this block already uses for not-built data, rather than through a new one.
+  const history = leagueHistoryState();
+  if (!history.present) {
+    gaps.push(`${LEAGUE_HISTORY_TABLE} is not on this database, so this league-season was never `
+      + 'collected — this is not a zero, and nothing here should be read as a measurement. '
+      + `It is created by ${LEAGUE_HISTORY_SOURCE}`);
+  }
+  if (!ls.n && stale.n) {
+    // Stale, not absent. Named versions on both sides: "which build wrote what
+    // is here" and "which build is being asked for" are the two facts needed to
+    // decide whether re-running fixes it.
+    gaps.push(`no row for league ${leagueId} season ${season} at version ${MANAGER_ARCHETYPE_VERSION}, but `
+      + `${stale.n} row${stale.n === 1 ? '' : 's'} from ${stale.versions ?? 'an earlier version'} `
+      + `(last written ${stale.as_of}) — this is stale, not missing; re-run the build`);
+  } else if (!ls.n) {
+    gaps.push(`no archetype row for league ${leagueId} season ${season} — the build has never covered it`);
+  }
+  if (!career.n) gaps.push('no career roll-up on this database — the build has never run here');
+  if (ls.n && !priced.n) {
+    gaps.push(`league ${leagueId} season ${season} has archetype rows but none from ${PRICED_SOURCES.join(' or ')}`
+      + ' — nothing here is priceable');
+  }
+  const out = {
+    as_of: ls.as_of ?? null,
+    rows: ls.n,
+    career_as_of: career.as_of ?? null,
+    career_rows: career.n,
+    priced_as_of: priced.as_of ?? null,
+    priced_rows: priced.n,
+    stale_version_rows: stale.n,
+    built_by: ARCHETYPE_BUILDER,
+    reason: gaps.length ? gaps.join('; ') : null,
+  };
+  if (jev) { out.jev_as_of = jev.as_of ?? null; out.jev_answers = jev.n; }
+  return Object.freeze(out);
 }
 
 /**
  * One league's managers keyed by roster_id, which is what the trade finder
  * addresses people by. The career profile travels with them: a manager's draft
  * behaviour in his 2023 league is evidence about the same person in 2026.
+ *
+ * Every card carries `built`, the block above. It is on the card rather than
+ * beside the collection because the card is where the claim is made: someone
+ * reading "reaches for a QB early, 16 picks" is reading an assertion about
+ * evidence, and its age belongs with it. The league-season and career halves
+ * are read once for the whole map; only the Jev stamp is per member, and that
+ * is one grouped query rather than one per card.
  */
 export function archetypesFor(leagueId, season) {
   const out = new Map();
+  const { ls, career, priced, stale } = builtStamps(leagueId, season);
+  const jevBy = new Map(rows(`SELECT member_id, COUNT(*) AS n, MAX(evaluated_at) AS as_of
+                              FROM manager_archetype_jev GROUP BY member_id`)
+    .map(r => [r.member_id, r]));
+  // No table is no cards, and it must not be an exception: routes/trades.js
+  // wraps this call in a bare catch, so a throw here and an empty result there
+  // are the same thing to every surface downstream. Returning empty says the
+  // same thing without pretending a fault did not happen — `leagueHistoryState()`
+  // is what a caller reads to tell the two apart.
+  if (!leagueHistoryState().present) return out;
   for (const t of rows(`SELECT roster_id, espn_member_id, owner_name FROM league_season_teams
                         WHERE league_id = ? AND season = ?`, leagueId, season)) {
     if (!t.espn_member_id) continue;
@@ -838,6 +1134,8 @@ export function archetypesFor(leagueId, season) {
       career: profile.seasons.career ?? null,
       this_season: profile.seasons[`${leagueId}|${season}`] ?? null,
       jev: profile.jev,
+      built: builtBlock(leagueId, season, ls, career, priced, stale,
+        jevBy.get(t.espn_member_id) ?? { n: 0, as_of: null }),
     });
   }
   return out;

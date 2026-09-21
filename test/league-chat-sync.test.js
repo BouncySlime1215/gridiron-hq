@@ -55,7 +55,20 @@ test('on a machine with no Messages database the capability says so, and says wh
   const cap = sync.extractionCapability();
   assert.equal(cap.can, false);
   assert.equal(cap.reason, 'no_messages_db');
-  assert.match(cap.detail, /cloud box|laptop/i, 'the reason must point at the machine that can do it');
+  // NOT A CLOSED SET. The detail carries two separate facts — where you are
+  // ("this is a cloud box, not the Mac") and what to do ("pull from the
+  // laptop") — and /cloud box|laptop/ passed with the second sentence deleted
+  // outright, which is the half a person acts on. Each fact is its own
+  // assertion; see docs/tdd/archetype-as-of.tdd.md Parts 7 and 8.
+  assert.match(cap.detail, /cloud box|not the Mac/i,
+    'where this is, so nobody goes hunting for a broken sync on a box that can never have one');
+  // /laptop|Mac/ was the first attempt at this half and it ALSO passed the
+  // mutation, because "not the Mac" in the sentence before it matched. The
+  // assertion has to be about the action, which is the thing that disappears
+  // when the actionable sentence does.
+  assert.match(cap.detail, /pull|upload/i,
+    'and what to DO about it, which is the only part of the message anyone acts on; matching a '
+    + 'place name instead matched the place named in the sentence that says you cannot');
 });
 
 test('a Messages database that exists but cannot be opened is reported as access, not absence', () => {
@@ -94,19 +107,37 @@ test('a corpus that is absent or empty is never called anything but absent', () 
   }
 });
 
-test('freshness degrades with age, and only a recent pull reads as up to date', () => {
-  const stats = { messages: 250 };
-  assert.equal(sync.freshness(stats, { finished_at: hoursAgo(1) }).state, 'fresh');
-  assert.equal(sync.freshness(stats, { finished_at: hoursAgo(24) }).state, 'aging');
-  assert.equal(sync.freshness(stats, { finished_at: hoursAgo(24 * 5) }).state, 'stale');
+/*
+ * These two tests asserted the OLD contract, in which the pull stamp WAS the
+ * age. That contract was overturned deliberately (2026-09-20): the age of the
+ * chat data is the newest message in the corpus, and the pull stamp and the
+ * rollup stamp are provenance shown beside it, never alternative ages. The
+ * tests are rewritten to the new rule rather than the code being bent back to
+ * pass them — see docs/tdd/archetype-as-of.tdd.md, Part 5, for why.
+ */
+
+test('freshness degrades with the age of the conversation, not with the age of the pull', () => {
+  const recentPull = { finished_at: hoursAgo(1) };
+  assert.equal(sync.freshness({ messages: 250, newest_message: hoursAgo(1) }, recentPull).state, 'fresh');
+  assert.equal(sync.freshness({ messages: 250, newest_message: hoursAgo(24) }, recentPull).state, 'aging');
+  assert.equal(sync.freshness({ messages: 250, newest_message: hoursAgo(24 * 5) }, recentPull).state, 'stale');
   // The stale label is the one a person acts on, so it says days, not hours.
-  assert.match(sync.freshness(stats, { finished_at: hoursAgo(24 * 5) }).label, /5 days/);
+  assert.match(sync.freshness({ messages: 250, newest_message: hoursAgo(24 * 5) }, recentPull).label, /5 days/);
+  // The point of the rule: pulling a week-old conversation five minutes ago
+  // does not make the conversation recent, and the old code said it did.
+  assert.equal(sync.freshness({ messages: 250, newest_message: hoursAgo(24 * 7) }, recentPull).state, 'stale');
 });
 
-test('a corpus that arrived by upload is marked as never pulled here, not as fresh', () => {
+test('a corpus that arrived by upload is dated by its messages, with the upload as provenance', () => {
+  const f = sync.freshness({ messages: 250, newest_message: hoursAgo(2) }, null);
+  assert.equal(f.state, 'fresh', 'it has messages, so it has an age; no local pull is not no age');
+  assert.match(f.provenance ?? '', /uploaded, not pulled here/);
+});
+
+test('messages that carry no readable date are the only unknown left', () => {
   const f = sync.freshness({ messages: 250 }, null);
   assert.equal(f.state, 'unknown');
-  assert.match(f.label, /Never pulled/i);
+  assert.equal(f.as_of, null);
 });
 
 /* ------------------------------------------------------------- the whole card */

@@ -93,8 +93,42 @@ did.
 ## How do we know
 
 `npm run check` — typecheck, lint, the whole suite, build and `start:smoke` —
-on the tree this branch head points at. Figures and the guard either side of the
-run are in **The check** below.
+run on this branch merged with PR #86's head `85caa0d` (which itself carries
+`origin/main` at `ac31922d`, the commit that fixed the archetype-read
+regression). Exit 0:
+
+```
+tests     3207
+pass      3166
+fail         0
+skipped     41
+duration 401.8 s
+smoke     startup passed on an isolated database (32 teams)
+```
+
+3207 against #86's own 3193: the 14 added here, and nothing removed.
+
+What was measured either side of the run:
+
+```
+git status --porcelain   empty before AND empty after
+git write-tree           2bd0dce1bec0 before, 2bd0dce1bec0 after
+HEAD^{tree}              2bd0dce1bec0 — the same tree, so the figures describe
+                         the commit and not a working copy of it
+node_modules mtime       1789853354 before, 1789853354 after
+files written            nothing outside client/dist/, which is gitignored
+                         build output and invisible to porcelain
+```
+
+Both halves of the guard are recorded deliberately. `git write-tree` hashes the
+index, so on its own it cannot see an unstaged edit landing mid-run — which is
+the exact failure the guard exists for. `git status --porcelain` is the
+load-bearing half.
+
+That run is on the tree at the GREEN commit plus the merge. The commit that adds
+this file touches `docs/` only and no code, so the figures above still describe
+the code being reviewed. CI is enabled on this repository and will report on the
+pull request; the run above is the local half of the gate, not the whole of it.
 
 ## Mutation sweep
 

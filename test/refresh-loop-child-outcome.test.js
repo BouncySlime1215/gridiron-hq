@@ -180,10 +180,38 @@ test('a truncated run does not mark manager signals fresh, or the next tick skip
   assert.notEqual(second.skipped, true, 'a truncated run was cached as a success and the next tick skipped');
 });
 
-test('secrets never reach the log line', () => {
+test('secrets never reach the log line on a good run', () => {
   const { spawn } = fakeSpawn({
     'collect-league-transactions.mjs': { status: 0, stdout: 'espn_s2=SECRETVALUE\ntransactions: seen 1, new 0, failed 0\n' } });
   const { lines, log } = logger();
   LOOP.transactionsCapture({ spawn, log });
   assert.doesNotMatch(lines[0], /SECRETVALUE|espn_s2/);
+});
+
+/*
+ * The two paths that actually quote the child's own output back. The good-run
+ * case above proves almost nothing on its own: the line it logs is the matched
+ * summary, and a credential would never be inside that. The mutation sweep found
+ * this -- dropping the secret filter entirely left the test above passing.
+ */
+test('secrets never reach the log line when the report was truncated', () => {
+  // The truncated message quotes the last line it DID see, which is exactly where
+  // a credential echoed mid-run would be.
+  const { spawn } = fakeSpawn({
+    'collect-league-transactions.mjs': { status: 0, stdout: 'starting\nespn_s2=SECRETVALUE\n' } });
+  const { lines, log } = logger();
+  LOOP.transactionsCapture({ spawn, log });
+  assert.match(lines[0], /ERROR/);
+  assert.doesNotMatch(lines[0], /SECRETVALUE|espn_s2/);
+});
+
+test('secrets never reach the log line when the child exited non-zero', () => {
+  // The failure path joins the child's problem lines into the log line.
+  const { spawn } = fakeSpawn({
+    'collect-roster-snapshots.mjs': { status: 1, stdout: 'league 1 ERROR SWID={SECRETVALUE} rejected\nroster_snapshots: partial\n' } });
+  const { lines, log } = logger();
+  const { record } = recorder();
+  LOOP.rosterSnapshots({ spawn, log, record });
+  assert.match(lines[0], /ERROR/);
+  assert.doesNotMatch(lines[0], /SECRETVALUE|SWID/);
 });

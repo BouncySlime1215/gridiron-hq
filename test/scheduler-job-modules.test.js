@@ -201,6 +201,46 @@ test('a job that hands work to a worker thread resolves to the module the worker
   assert.deepEqual(j.runImports, ['server/services/manager-signals.js', 'server/services/report-worker.js']);
 });
 
+test('a run function that only wraps another local function is followed', () => {
+  // The real manager_signals entry runs refreshManagerSignals, whose body
+  // holds no import, no spawn and no Worker — it awaits
+  // refreshManagerSignalsOffThread() and then shapes the result for a
+  // sync_log row. Stopping at the first body would report the scheduler and
+  // call that an answer.
+  //
+  // One local call is followed; two would be a guess about which one is the
+  // work, so the hop stops and the row says the scheduler.
+  const jobs = build(`
+    export function offThread() {
+      const worker = new Worker(new URL('./report-worker.js', import.meta.url), {
+        workerData: { module: './manager-signals.js', fn: 'refreshManagerData' },
+      });
+      return worker;
+    }
+    async function refreshSignals() {
+      const out = await offThread();
+      return { leagues: out?.leagues ?? [] };
+    }
+    export const JOBS = { manager_signals: { run: refreshSignals, tier: 'growth', label: 'signals' } };
+  `);
+  const j = job(jobs, 'manager_signals');
+  assert.equal(j.runModule, 'server/services/manager-signals.js');
+  assert.equal(j.runVia, 'worker-thread');
+  assert.deepEqual(j.runHops, ['refreshSignals', 'offThread']);
+});
+
+test('two local calls stop the hop rather than picking one', () => {
+  const jobs = build(`
+    async function partOne() { await import('./mlb.js'); }
+    async function partTwo() { await import('./nflverse.js'); }
+    async function refreshBoth() { await partOne(); await partTwo(); }
+    export const JOBS = { both: { run: refreshBoth, tier: 'heavy', label: 'both' } };
+  `);
+  const j = job(jobs, 'both');
+  assert.equal(j.runVia, 'local-body');
+  assert.equal(j.runModule, 'server/services/scheduler.js');
+});
+
 test('every job in the real scheduler resolves to something', async () => {
   const src = await readFile(new URL(`../${SCHED}`, import.meta.url), 'utf8');
   const jobs = build(src);

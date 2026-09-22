@@ -247,6 +247,18 @@ const M = [
   // ---- control: no change at all. Must come back GREEN, or the harness lies ----
   { id: 'CONTROL', suites: LEDGER, claim: 'the harness itself',
     edits: [{ file: SVC, find: 'const RAW_TABLE = ', replace: 'const RAW_TABLE = ' }] },
+
+  // ---- control: a pattern that CANNOT match. Must come back BAD_ROW ----
+  // CONTROL above proves the harness notices when it changed nothing. It does not
+  // prove the bad-row detector works, because no row is designed to trip it, and a
+  // detector nothing ever fires is a detector nobody has tested. A row whose `find`
+  // is absent from the file must be reported as not-applied; if it is ever scored
+  // KILLED or SURVIVED instead, every other row's verdict is worth nothing, because
+  // the harness would be scoring mutations it never made.
+  { id: 'NOTAPPLIED', suites: LEDGER, expectBad: true,
+    claim: 'the not-applied detector itself',
+    edits: [{ file: SVC, find: 'this string is not in trade-outcomes.js and must never be',
+      replace: 'unreachable' }] },
 ];
 
 const treeBefore = git('write-tree');
@@ -324,13 +336,23 @@ for (const r of results) {
 
 const control = results.find(r => r.id === 'CONTROL');
 const survivors = results.filter(r => r.verdict === 'SURVIVED' && r.id !== 'CONTROL');
-const badRows = results.filter(r => r.verdict === 'BAD_ROW');
+// A row carrying expectBad is SUPPOSED to come back BAD_ROW, so it is not a fault —
+// but it becomes one the moment it does not, which is the whole point of having it.
+const expectedBad = new Set(M.filter(m => m.expectBad).map(m => m.id));
+const badRows = results.filter(r => r.verdict === 'BAD_ROW' && !expectedBad.has(r.id));
+const detectorFailed = results.filter(r => expectedBad.has(r.id) && r.verdict !== 'BAD_ROW');
 console.log(`\nrows ${results.length} | killed ${results.filter(r => r.verdict === 'KILLED').length}`
-  + ` | survived ${survivors.length} | bad ${badRows.length} | control ${control?.verdict}`);
+  + ` | survived ${survivors.length} | bad ${badRows.length} | control ${control?.verdict}`
+  + ` | not-applied control ${results.find(r => r.id === 'NOTAPPLIED')?.verdict}`);
 console.log(`survivors: ${survivors.map(r => r.id).join(', ') || 'none'}`);
 
 if (moved) {
   console.error('\nTHE TREE MOVED DURING THE RUN — every figure above is void. Restore it first.');
   process.exit(2);
 }
-if (control?.verdict !== 'SURVIVED' || badRows.length || survivors.length) process.exit(1);
+for (const r of detectorFailed) {
+  console.error(`\n${r.id} was expected to come back BAD_ROW and came back ${r.verdict}.`
+    + ' The not-applied detector did not fire, so no verdict in this run can be trusted.');
+}
+if (control?.verdict !== 'SURVIVED' || badRows.length || survivors.length
+    || detectorFailed.length) process.exit(1);

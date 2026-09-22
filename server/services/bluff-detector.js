@@ -280,11 +280,12 @@ export function untouchableStance(leagueId, rosterId, credibility) {
                         AND confidence IN (${TRUSTED_CONFIDENCE.map(() => '?').join(',')})`,
   leagueId, String(rosterId), ...TRUSTED_CONFIDENCE)[0];
   const cred = ident?.chat_name ? credibility?.byManager?.get(ident.chat_name) : null;
-  // Which roster history his declarations were filtered against, for the note. Only
-  // when the record was actually read: with no corpus there is no ownership check to
-  // qualify. Not returned as a field: every consumer of the stance reads stance / note /
-  // respect / probe / credibility, and routes/trades.js:485 serves the note as word_note.
-  const history = credibility?.available === true ? credibility.roster_history ?? null : null;
+  // Which roster history his declarations were filtered against, for the note. Only a
+  // record that was read carries one (declarationCredibility's no-corpus return has no
+  // roster_history: no ownership check ran). Not returned as a field: every consumer of
+  // the stance reads stance / note / respect / probe / credibility, and
+  // routes/trades.js:485 serves the note as word_note.
+  const history = credibility?.roster_history ?? null;
   const declared = rows(`SELECT player_name, sentiment, n, last_mention FROM manager_player_view
                          WHERE league_id = ? AND roster_id = ? AND sentiment >= 2.9 AND n >= 3
                            AND last_mention >= date('now', '-30 days')`, leagueId, String(rosterId));

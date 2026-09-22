@@ -7,8 +7,10 @@ import fs from 'node:fs';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-model-test-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
-const { __test: sim } = await import('../server/services/season-sim.js');
 const { db } = await import('../server/db/index.js');
+const { runMigrations } = await import('../server/db/migrate.js');
+await runMigrations(); // buildProjections (via replaySeasonWeekly, auditPlayerHeads) reads nfl_projection_range_fits (migration 064)
+const { __test: sim } = await import('../server/services/season-sim.js');
 const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../server/services/mlb-projections.js');
 const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine,
   withEphemeralEnsembleArtifacts } = await import('../server/services/nfl-ensemble.js');

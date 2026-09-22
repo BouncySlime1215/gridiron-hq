@@ -156,8 +156,22 @@ function fitRates(seasons) {
   // fitted by pooling: total touchdowns across all players, allocated to classes
   // in proportion to exposure, solved by iteration. Two passes is enough — the
   // classes are far apart in rate, so it converges immediately.
-  const seedRush = { goal_line_carries: 0.15, red_zone_carries: 0.06, carries: 0.01 };
-  const seedRec = { end_zone_targets: 0.30, red_zone_targets: 0.12, targets: 0.03 };
+  // A seed per class, and every class needs one: a class with no seed fits to
+  // null and touchdownRates() returns a rate that is not a probability. The
+  // starting values are the league band rates measured on play-by-play
+  // 2022-2025, so the iteration begins near the answer rather than at a guess;
+  // they are starting points either way, refit below from actual exposure.
+  //
+  // red_zone_carries and red_zone_targets changed MEANING when the tiers split
+  // — each is now only the 11-to-20 band, not that band pooled with the one
+  // inside the 10 — so their seeds moved with them. 0.06 and 0.12 were the
+  // blended rates of the old wider tiers.
+  const seedRush = {
+    goal_line_carries: 0.15, inside_10_carries: 0.16, red_zone_carries: 0.045, carries: 0.01
+  };
+  const seedRec = {
+    goal_to_go_targets: 0.38, end_zone_targets: 0.29, red_zone_targets: 0.135, targets: 0.03
+  };
   let rushRate = Object.fromEntries(GROUPS.map(g => [g, { ...seedRush }]));
   let recRate = Object.fromEntries(GROUPS.map(g => [g, { ...seedRec }]));
 

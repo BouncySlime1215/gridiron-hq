@@ -95,3 +95,17 @@ test('the play-by-play ingest emits an inside-10 carry counter', async () => {
   assert.match(src, /inside_10_carries:/, 'the counter reaches the weekly feature blob');
   assert.match(src, /yl100 <= 10\) p\.rush_i10\+\+/, 'counted at the 10, from the same yardline field');
 });
+
+/**
+ * Every class needs a seed. A class without one fits to null, and
+ * touchdownRates() then returns a "rate" that is not a probability — which is
+ * exactly how adding the two tiers broke the suite before this test existed.
+ * The unit tests above all exercised exclusive() and none of them touched the
+ * fit, so the gap was only caught by the full run.
+ */
+test('every opportunity class has a seed rate', async () => {
+  const src = fs.readFileSync(new URL('../server/services/td-regression.js', import.meta.url), 'utf8');
+  const seeds = key => new RegExp(`${key}:\\s*0?\\.\\d+`).test(src);
+  for (const c of RUSH_CLASSES) assert.ok(seeds(c.key), `${c.key} has no seed rate`);
+  for (const c of REC_CLASSES) assert.ok(seeds(c.key), `${c.key} has no seed rate`);
+});

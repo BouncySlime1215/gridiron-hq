@@ -196,3 +196,60 @@ export default function DataFreshnessBanner() {
     </div>
   );
 }
+
+interface DataCreditEntry {
+  repo: string;
+  dataset: string | null;
+  name: string;
+  href: string;
+  license: 'CC BY 4.0' | 'CC BY-SA 4.0';
+  licenseUrl: string;
+}
+
+/**
+ * The credit the data licences ask for. nflverse-data is CC BY 4.0; FTN's
+ * charting (which nflverse redistributes) and ffopportunity's expected points
+ * are CC BY-SA 4.0, and FTN asks to be credited as "FTN Data via nflverse".
+ * Each licence wants the source named, the licence linked, and a note that the
+ * data was changed.
+ *
+ * This mirrors `sources` on GET /api/data-freshness, which stays the one list
+ * of what the app loads and under which licence; test/data-credit-line.test.js
+ * fails if the two disagree. It is written out here rather than read from that
+ * response because the credit has to be on screen even while the request is
+ * loading or after it fails, and the banner above has a whole branch for that.
+ */
+export const DATA_CREDITS: readonly DataCreditEntry[] = [
+  { repo: 'nflverse/nflverse-data', dataset: null, name: 'nflverse', href: 'https://github.com/nflverse/nflverse-data',
+    license: 'CC BY 4.0', licenseUrl: 'https://creativecommons.org/licenses/by/4.0/' },
+  { repo: 'nflverse/nflverse-data', dataset: 'ftn_charting', name: 'FTN Data via nflverse',
+    href: 'https://github.com/nflverse/nflverse-data/releases/tag/ftn_charting',
+    license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/' },
+  { repo: 'ffverse/ffopportunity', dataset: null, name: 'ffopportunity', href: 'https://github.com/ffverse/ffopportunity',
+    license: 'CC BY-SA 4.0', licenseUrl: 'https://creativecommons.org/licenses/by-sa/4.0/' }
+];
+
+const creditLink = 'underline decoration-slate-300 underline-offset-2 hover:text-slate-700';
+
+/**
+ * One quiet line under every page. It takes no props and reads no state, so
+ * nothing the freshness banner does (all current, dismissed, request failed)
+ * can hide it.
+ */
+export function DataCredit() {
+  return (
+    <footer className="border-t border-slate-200 px-4 py-3 text-[11px] leading-relaxed text-slate-500 sm:px-6 lg:px-8">
+      Data from{' '}
+      {DATA_CREDITS.map((c, i) => (
+        <span key={`${c.repo}#${c.dataset ?? ''}`}>
+          {i > 0 && (i === DATA_CREDITS.length - 1 ? ' and ' : ', ')}
+          <a href={c.href} target="_blank" rel="noreferrer" className={creditLink}>{c.name}</a>
+          {' ('}
+          <a href={c.licenseUrl} target="_blank" rel="noreferrer license" className={creditLink}>{c.license}</a>
+          {')'}
+        </span>
+      ))}
+      , adapted for this app.
+    </footer>
+  );
+}

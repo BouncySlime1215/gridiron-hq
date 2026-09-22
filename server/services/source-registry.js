@@ -28,6 +28,7 @@
  * regardless of which route triggered it.
  */
 import { lastRun, minutesSince, JOBS as SCHEDULED_JOBS } from './scheduler.js';
+import { db as defaultDb } from '../db/index.js';
 
 /**
  * Sources that only run when someone calls their /sync route — no timer, by
@@ -421,10 +422,12 @@ export function servedTables() {
       table: 'roster_players',
       season_col: null, week_col: null, updated_col: 'fetched_at', grain: 'week',
       current_rule: {
-        text: 'League rosters are current when every connected league was '
-          + 'refreshed within the last day. This is the one table where a '
-          + 'timestamp is the right test, because a roster has no season or '
-          + 'week of its own — it is simply whatever it was when we last looked.',
+        text: 'Team rosters are current when every NFL team was refreshed '
+          + 'within the last day. This is the one table where a timestamp is '
+          + 'the right test, because a roster has no season or week of its own '
+          + '— it is simply whatever it was when we last looked. MIN rather '
+          + 'than MAX on purpose: one team pulled an hour ago does not make '
+          + 'the other thirty-one current.',
         sql: 'SELECT CASE WHEN MIN(fetched_at) >= datetime(\'now\', \'-1 day\') '
           + 'THEN 1 ELSE 0 END AS current FROM roster_players',
         params: [],
@@ -566,4 +569,131 @@ export function servedTables() {
       },
     },
   ];
+}
+
+/* ---------------------------------------- running the rules the registry publishes */
+
+/**
+ * The values a `current_rule` may bind, and the only ones.
+ *
+ * Kept to a closed list rather than "whatever the caller passed" so that a rule
+ * asking for something nobody can supply fails at the rule, naming what it
+ * wanted, instead of binding `undefined` and returning a verdict that looks
+ * like an answer.
+ */
+const BINDABLE = ['season', 'week'];
+
+/**
+ * Run one served table's rule and say whether that table is current.
+ *
+ * WHY THIS LIVES HERE AND NOT IN THE CONSUMER. `servedTables()` above publishes
+ * the rules; for a while nothing ran them, and when a consumer was written it
+ * guessed the shape — it read `current_rule.predicate`, a WHERE fragment, where
+ * this file emits `current_rule.sql`, a whole query. Neither field exists in the
+ * other's shape, so the predicate came back `undefined`, an empty predicate fell
+ * through to "count every row in the table", and the consumer's placeholder
+ * guard was satisfied because zero placeholders matched zero binds.
+ *
+ * Measured on 2026-09-22 against a real migrated database with
+ * `player_week_usage` holding 2021-2025 and nothing for the season being served
+ * — the specimen the whole feature exists for — that read **fresh**, with
+ * fifteen rows and no rule sentence. The same database with this registry absent
+ * read **stale**. A mismatch that fails open is worse than no consumer at all,
+ * so the evaluator ships next to the rules it evaluates and the consumer
+ * delegates.
+ *
+ * A note on why the rules are whole queries rather than WHERE fragments, since a
+ * fragment is the obvious simplification and it does not work. Two of the
+ * seventeen rules are universals, not existentials: `roster_players` asks whether
+ * EVERY team was refreshed within a day (`MIN(fetched_at) >= ...`), and
+ * `gamescript_model` asks whether BOTH of its targets are fitted
+ * (`COUNT(DISTINCT target) >= 2`). A fragment matching one row answers "at least
+ * one team is fresh" and "at least one target is fitted" — the first is weaker
+ * than a plain row count and the second IS the half-fitted-model bug the rule was
+ * written to catch. Those two are exactly the rules worth having, so the contract
+ * is the shape that can carry them.
+ *
+ * Throws, deliberately, on any rule it cannot run: no SQL, a placeholder count
+ * that disagrees with the bind list, a bind name outside BINDABLE, a query that
+ * returns no row or a value that is not 0 or 1. A freshness check that cannot
+ * answer must not answer "fine" — that is the entire lesson of the seam above.
+ * Callers that need one bad rule not to blank the panel use
+ * `servedTableVerdicts` below, which reports the failure rather than hiding it.
+ */
+export function evaluateServedTable(entry, { season, week, database = defaultDb } = {}) {
+  const table = entry?.table ?? '(no table)';
+  const rule = entry?.current_rule ?? {};
+  const sql = typeof rule.sql === 'string' ? rule.sql.trim() : '';
+  if (!sql) {
+    throw new Error(`source-registry: ${table} has no runnable SQL in its current_rule`);
+  }
+
+  const params = Array.isArray(rule.params) ? rule.params : [];
+  const placeholders = (sql.match(/\?/g) ?? []).length;
+  if (placeholders !== params.length) {
+    throw new Error(`source-registry: ${table} rule has ${placeholders} placeholders `
+      + `but ${params.length} param${params.length === 1 ? '' : 's'}`);
+  }
+
+  const values = params.map(name => {
+    if (!BINDABLE.includes(name)) {
+      throw new Error(`source-registry: ${table} rule binds "${name}", which the evaluator `
+        + `cannot supply; it knows ${BINDABLE.join(' and ')}`);
+    }
+    return name === 'season' ? season : week;
+  });
+
+  // Positional binds, spread — `?` rather than named parameters precisely so no
+  // caller has to know which named-parameter dialect node:sqlite accepts.
+  const answer = database.prepare(sql).get(...values);
+  if (answer === undefined) {
+    throw new Error(`source-registry: ${table} rule returned no row; `
+      + `a rule must return exactly one row with one column`);
+  }
+  const value = Object.values(answer)[0];
+  if (value !== 0 && value !== 1) {
+    throw new Error(`source-registry: ${table} rule returned ${JSON.stringify(value)}; `
+      + `a rule must return 1 when current and 0 when not`);
+  }
+
+  return {
+    table,
+    current: value === 1,
+    rule: rule.text ?? '',
+    grain: entry.grain ?? null,
+    reader: entry.reader ?? null,
+    error: null,
+  };
+}
+
+/**
+ * Every served table's verdict, with a rule that threw REPORTED rather than
+ * dropped.
+ *
+ * Three states, and the third is the point: `true` current, `false` not current,
+ * and `null` meaning the check itself could not run, carrying `error` with the
+ * reason. A panel that silently omitted a table whose rule threw would be the
+ * same lie by a quieter route — the reader counts the rows they can see and
+ * concludes everything listed is everything there is. So the entry stays, the
+ * verdict is unknown, and the reason travels to the surface.
+ *
+ * This is not a bare catch that swallows a fault. The error is converted into a
+ * reported value on the response, which is the only place a user could ever find
+ * out; `evaluateServedTable` still throws for any caller that wants the fault.
+ */
+export function servedTableVerdicts({ entries = servedTables(), season, week, database = defaultDb } = {}) {
+  return entries.map(entry => {
+    try {
+      return evaluateServedTable(entry, { season, week, database });
+    } catch (err) {
+      return {
+        table: entry?.table ?? '(no table)',
+        current: null,
+        rule: entry?.current_rule?.text ?? '',
+        grain: entry?.grain ?? null,
+        reader: entry?.reader ?? null,
+        error: err.message,
+      };
+    }
+  });
 }

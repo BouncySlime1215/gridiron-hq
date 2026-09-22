@@ -26,7 +26,7 @@ const { weeklyAvailability } = await import('../server/services/contingency.js')
 const { createExperiment } = await import('../server/services/nfl-experiments.js');
 const { applyNflPolicy, NFL_PRODUCTION_POLICY } = await import('../server/services/nfl-policy.js');
 const { uncertainty } = await import('../server/services/nfl-replay.js');
-const { validateEvidenceCutoff, captureEvidenceManifest, featureContracts, recordGateAudit, promoteEligibleAudit } = await import('../server/services/model-governance.js');
+const { validateEvidenceCutoff, captureEvidenceManifest, featureContracts, recordGateAudit, promoteEligibleAudit, registry: governanceRegistry } = await import('../server/services/model-governance.js');
 const { nflMarketMovement } = await import('../server/services/market-movement.js');
 const { evidenceDaemonStatus } = await import('../server/services/evidence-daemon.js');
 const { startAiBlindReplay, normalizeReview, agentLearningMemory } = await import('../server/services/nfl-ai-replay.js');
@@ -1156,11 +1156,24 @@ test('evidence manifests are content-addressed and cannot duplicate silently', (
 });
 
 test('feature contracts make critical missing inputs abstain and gate audits stay blocked', () => {
-  const contracts = featureContracts('MLB');
-  assert.ok(contracts.some(x => x.feature_key === 'confirmed_lineup' && x.missing_behavior === 'abstain' && x.leakage_risk === 'critical'));
-  const audit = recordGateAudit({ sport: 'MLB', market: 'nrfi', modelVersion: 'test-v1',
+  const contracts = featureContracts('NFL');
+  assert.ok(contracts.some(x => x.feature_key === 'market_consensus' && x.missing_behavior === 'abstain' && x.leakage_risk === 'critical'));
+  const audit = recordGateAudit({ sport: 'NFL', market: 'spread', modelVersion: 'test-v2',
     gates: [{ id: 'prices', label: 'Real prices', passed: false, actual: 0, target: '>= 150' }], evidence: { priced: 0 } });
   assert.equal(audit.verdict, 'blocked');
+});
+
+// PR #128 removed MLB from the product. The three MLB models this seed used
+// to register (nrfi, pitcher_strikeouts, batter_total_bases) have no capture
+// path any more, so the seed must not present them as live: a fresh database
+// should come up with zero MLB feature contracts and zero MLB registry rows.
+// This does not touch any database already carrying those rows from an older
+// seed run — only the seed a new database gets.
+test('MLB governance models retired by #128 are not seeded as live', () => {
+  assert.deepEqual(featureContracts('MLB'), [],
+    'PR #128 removed MLB; the seed must not register live feature contracts for it');
+  assert.deepEqual(governanceRegistry('MLB'), [],
+    'PR #128 removed MLB; the seed must not register live champion/challenger rows for it');
 });
 
 test('champion registry cannot promote a blocked audit', () => {

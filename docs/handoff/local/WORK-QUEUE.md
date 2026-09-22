@@ -326,3 +326,5 @@ Time-bound: S-02 then S-03 before week 5 (2026-10-08); S-15 before week 11; week
 
 | ID | From PR | Goal | Files | Acceptance |
 |---|---|---|---|---|
+| INT-116-1 | #116 | Fix the stale "namespace import" blind-spot claim for `importersOfSymbol` now that #116 resolves `import * as ns` / dynamic namespace imports | `docs/tdd/symbol-reach.tdd.md` (137-141) | "What this does NOT settle" lists only re-export chain and computed property as blind spots for `importersOfSymbol`; does not touch `docs/tdd/wiring-map-namespace-imports.tdd.md` (different tool, unaffected by #116) |
+| INT-128-1 | #128 | Remove or explicitly annotate the 13 stale `'MLB'` seed rows in `model-governance.js` for markets (`nrfi`, `pitcher_strikeouts`, `batter_total_bases`) whose model code #128 deleted | `server/services/model-governance.js` (CONTRACTS 24-33, registry seed 86-88), `test/model-integrity.test.js:1159` | `grep -c "'MLB'" server/services/model-governance.js` returns 0, or every remaining line carries a dated "kept for audit trail, models removed 2026-09-22" comment; `test/model-integrity.test.js`'s `featureContracts('MLB')` assertion updated to match whichever choice is made |

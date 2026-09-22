@@ -317,6 +317,33 @@ function foreignHandles(file) {
  * The handle a SQL literal was handed to: 'app', or the name of a local
  * DatabaseSync. Read by looking back from the string to the call that takes it.
  */
+
+/**
+ * How many times `name` is invoked in `code`.
+ *
+ * A syntactic call, `name(`, plus a JOB REGISTRATION, `run: name`. The second
+ * is why this exists. `producer-with-no-caller` counted only the first, and a
+ * scheduler job is registered as `run: refreshLeagueRosters` and invoked by the
+ * runner as `job.run()`, so the name is never followed by a paren anywhere in
+ * the repository. That producer had a direct caller until #95 moved the work
+ * off the request thread; when the direct call went, a rule that had always
+ * been incomplete turned into a red build on main.
+ *
+ * A registration IS a call -- something runs it on a timer. Counting it is not
+ * a weakening: a name that merely appears in prose or as a longer identifier's
+ * prefix still counts zero, which is pinned.
+ */
+export function callSites(code, name) {
+  const count = (re) => (code.match(re) ?? []).length;
+  return count(new RegExp(`\\b${name}\\s*\\(`, 'g'))
+    + count(new RegExp(`\\brun\\s*:\\s*${name}\\b`, 'g'));
+}
+
+// Receivers that are the app's own connection by convention. Anything else
+// named in front of .prepare/.exec/.run is a handle this resolver has not
+// identified, and is reported as itself rather than as the app.
+const DB_RECEIVERS = new Set(['db', 'database', 'conn', 'connection']);
+
 function handleFor(file, offset, foreign) {
   const before = file.text.slice(Math.max(0, offset - 120), offset);
   // A file that opens a handle of its own and never imports the app's database module
@@ -338,7 +365,24 @@ function handleFor(file, offset, foreign) {
   if (viaMethod) {
     const name = viaMethod[1];
     if (foreign.has(name)) return { handle: name, where: foreign.get(name) };
-    return file.foreignOnlyFile ? foreignDefault() : { handle: 'app', where: null };
+    if (file.foreignOnlyFile) return foreignDefault();
+    // An EXPLICIT receiver this resolver does not recognise is UNKNOWN, and
+    // unknown is not the app's. td-features.js is handed both handles by its
+    // caller -- buildTdFeatures({ appDb, nflDb, seasons }) -- and queries the
+    // nflverse one as `nflDb.prepare(...)`. It opens nothing itself, so it is
+    // not a foreign-only file, and answering 'app' here reported two nflverse
+    // tables as read by a live surface and written by nothing, which took main
+    // red. The default below is written for a BARE call with no receiver; a
+    // receiver that is named and unrecognised is a different question.
+    //
+    // Measured before this was written: 24 sites repo-wide use an explicit
+    // non-db receiver and were attributed to the app, and naming them honestly
+    // moves exactly two tables -- the two that were wrong. `appDb`, `app` and
+    // `rdb` change nothing, because every table they touch is also read through
+    // the app's own handle somewhere else, which is what the every() in the
+    // foreign-only rule is for.
+    if (DB_RECEIVERS.has(name)) return { handle: 'app', where: null };
+    return { handle: name, where: null };
   }
   const viaHelper = before.match(/\b([A-Za-z_$][\w$]*)\s*\(\s*$/);
   if (viaHelper && foreign.has(viaHelper[1])) {
@@ -3326,7 +3370,7 @@ function shouldBeWired(model, ann, add) {
         for (const a of imp.aliases ?? []) if (a.imported === n.name) localNames.add(a.local);
       }
       for (const local of localNames) {
-        const hits = (o.code.match(new RegExp(`\\b${local}\\s*\\(`, 'g')) ?? []).length;
+        const hits = callSites(o.code, local);
         calls += Math.max(0, o.path === n.file && local === n.name ? hits - 1 : hits);
       }
     }

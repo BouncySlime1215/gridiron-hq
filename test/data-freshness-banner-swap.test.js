@@ -75,3 +75,33 @@ test('the failed-check message says the absence of a warning means nothing', () 
   assert.match(c, /not the same as|does not mean|no warning/i,
     'the failure message does not say that silence here is not an all-clear');
 });
+
+/**
+ * The fourth verdict has to survive the trip to the screen.
+ *
+ * `tableFreshness` now returns `unknown` for a table whose current-data rule
+ * could not be asked, precisely so that "I could not check" stops coming out as
+ * "current". A banner that has no rendering path for the word undoes that in
+ * the last inch: `STATUS_STYLE[t.status]` returns undefined, reading `.chip`
+ * off it throws, and the whole panel goes blank — the silent all-clear again,
+ * by crash this time.
+ *
+ * And `unknown` must not be counted as "not current" either. Behind and
+ * unchecked are different problems with different fixes: one needs the feed
+ * re-run, the other needs the registry entry repaired. The headline sentence
+ * says which of the two it is looking at.
+ */
+test('the banner renders the unknown verdict instead of crashing on it', () => {
+  const c = read('client/src/components/DataFreshnessBanner.tsx');
+  assert.match(c, /unknown:/, 'no rendering path for status "unknown"');
+  assert.match(c, /'fresh' \| 'stale' \| 'empty' \| 'unknown'/,
+    'the status type still lists three states, so a fourth one is a type error');
+});
+
+test('an unchecked source is not reported to the user as a stale one', () => {
+  const c = read('client/src/components/DataFreshnessBanner.tsx');
+  assert.match(c, /status === 'unknown'/,
+    'the banner never separates a source it could not check from one that is behind');
+  assert.match(c, /could not be checked|not checked|unchecked/i,
+    'nothing in the banner says a source went unchecked');
+});

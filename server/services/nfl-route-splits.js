@@ -113,7 +113,7 @@ export function upsertRouteSplits(rows, fetchedAt = new Date().toISOString()) {
   const stmt = db.prepare(`INSERT INTO nfl_route_splits
     (season, week, player_id, kind, player_name, team, position, qualifies, stats, source_fetched_at)
     VALUES (?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(season, week, player_id) DO UPDATE SET
+    ON CONFLICT(season, week, player_id, kind) DO UPDATE SET
       stats=excluded.stats, team=excluded.team, position=excluded.position,
       player_name=excluded.player_name, qualifies=excluded.qualifies,
       source_fetched_at=excluded.source_fetched_at`);

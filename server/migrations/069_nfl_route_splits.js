@@ -31,7 +31,7 @@ export function up(db) {
       qualifies INTEGER NOT NULL DEFAULT 0,
       stats TEXT NOT NULL,
       source_fetched_at TEXT NOT NULL,
-      PRIMARY KEY (season, week, player_id)
+      PRIMARY KEY (season, week, player_id, kind)
     );
     CREATE INDEX IF NOT EXISTS nfl_route_splits_player
       ON nfl_route_splits (player_id, season, week);

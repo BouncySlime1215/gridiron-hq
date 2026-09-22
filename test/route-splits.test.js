@@ -151,3 +151,18 @@ test('syncRouteSplits stores what it pulled and reports its misses', async () =>
   const stored = db.prepare(`SELECT COUNT(*) n FROM nfl_route_splits WHERE season=2026`).get().n;
   assert.equal(stored, 1);
 });
+
+/**
+ * The key is four columns, matching nfl_ngs exactly
+ * (server/db/schema/nfl-a-to-m.js:46), where one player-week holds a passing, a
+ * receiving and a rushing row. Only 'routes' exists here today; the point is
+ * that a second slice of the same source can land without altering an applied
+ * migration, which this project does not do.
+ */
+test('two kinds coexist for one player-week', () => {
+  const routes = cleanRouteRow(payload(), 2023, 7);
+  upsertRouteSplits([routes, { ...routes, kind: 'routes_vs_man' }]);
+  const kinds = db.prepare(`SELECT kind FROM nfl_route_splits
+    WHERE season=2023 AND week=7 AND player_id='00-0036900' ORDER BY kind`).all().map(r => r.kind);
+  assert.deepEqual(kinds, ['routes', 'routes_vs_man']);
+});

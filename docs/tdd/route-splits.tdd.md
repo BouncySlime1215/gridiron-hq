@@ -25,11 +25,24 @@ under the one-editor rule; Scheduler confirmed no collision on source-registry.
 | the join key | `nfl_ngs`'s key column is named **`player_id`**, not `gsis_id`, and holds `r.player_gsis_id` (`server/services/nfl-advanced.js:113`) |
 | season-aggregate convention | week 0 already means "season aggregate" in this codebase (`server/services/nfl-advanced.js:111`) |
 
-**Decision: BUILD.** Nothing to extend and no prior copy to unify against. The
-handoff's prose said the table is "keyed by gsis_id"; corrected at the source —
-the join needs no crosswalk, but the column is `player_id`, and SQL written
-against a literal `nfl_ngs.gsis_id` would not compile. The delivered data files
-already use `player_id`, so only the prose was wrong.
+**Decision: BUILD.** Nothing to extend and no prior copy to unify against.
+
+On the join key, the record should be accurate about who was right. The handoff
+prose read "keyed by gsis_id", which this thread flagged as a column that does
+not exist. R&D's reply corrected the correction: `gsis_id` is genuinely the
+field name in **nflsavant's own JSON response**, the delivered rows already used
+`player_id`, and no SQL in the package was written against a wrong column. The
+flag was worth raising and the wording has been sharpened at the source, but the
+claim that it "would not compile" overstated a documentation ambiguity as a
+code defect. Recorded here rather than quietly dropped.
+
+Two things in the handoff spec **were** wrong, both surfaced by the same read
+and both fixed here:
+- it called for a "new migration" while describing `nfl_ngs`, which is not in a
+  migration at all (`server/db/schema/nfl-a-to-m.js:43-47`, created ad-hoc at
+  import);
+- it gave the table a three-column primary key when `nfl_ngs`'s own key is four
+  (`season, week, player_id, kind`).
 
 **Migration number.** Allocated 069 by the coordinator, then verified here
 rather than assumed: all 150 remote branch tips were fetched and their
@@ -55,12 +68,27 @@ with a `week=0` sentinel the second is correctly rejected with
 **Fix:** `week INTEGER NOT NULL`, season aggregates at week 0 — which is
 already this codebase's own convention, not a new one.
 
+### And a second key decision, from R&D's spec correction
+
+The key is **four columns**, `(season, week, player_id, kind)`, matching
+`nfl_ngs` exactly (`server/db/schema/nfl-a-to-m.js:46`), where one player-week
+holds a passing, a receiving and a rushing row. Only `'routes'` exists here
+today; the point is that a second slice of this source can land later without
+altering an applied migration, which this project does not do. Changed while the
+migration was still unapplied anywhere — the cheap moment to change it.
+
+**Why a migration and not `server/db/schema/`,** given that `nfl_ngs` lives
+there: `server/db/migrate.js:10-20` states the rule outright — migrations govern
+schema added "going forward", and centralising the ~40 existing ad-hoc CREATE
+sites is explicitly a separate, higher-risk project. A table added tonight is
+going forward.
+
 ## 3. RED → GREEN
 
 | Commit | Evidence |
 |---|---|
 | `369ac56` TDD RED | 11 tests, failing with `ERR_MODULE_NOT_FOUND` on the migration — a genuinely absent source file, with `node_modules` installed (`npm ci` exit 0), not the missing-dependency failure CLAUDE.md warns reads identically |
-| `1081b1e` TDD GREEN | 11/11 pass |
+| `1081b1e` TDD GREEN | 11/11 pass; 12/12 after the four-column key was added |
 
 **Mutation test — five deliberate defects, each caught by its own test:**
 
@@ -71,7 +99,8 @@ already this codebase's own convention, not a new one.
 | absent shell efficiency zeroed instead of null | 1 fail |
 | failing fetch swallowed into an empty result | 1 fail |
 | generated prose `summary` ingested | 1 fail |
-| restored | 11/11 pass |
+| key narrowed back to three columns | 4 fail |
+| restored | 12/12 pass |
 
 ## 4. Numbers
 

@@ -179,6 +179,8 @@ test('a 404 for a completed season is a failed download, not a skip', () => {
     assert.equal(step.http_status, 404);
     assert.notEqual(step.skipped, true);
     assert.equal(step.absence, undefined, `${season} is not labelled not_published`);
+    assert.match(step.note ?? '', /completed season it is a fault/,
+      `the note a person reads does not call ${season}'s 404 normal; it was: ${step.note}`);
     assert.equal(verdictFor(step).status, 'ingest_error');
     assert.deepEqual(result.skipped_steps ?? [], []);
   }

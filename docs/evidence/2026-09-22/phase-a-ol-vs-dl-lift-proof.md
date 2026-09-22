@@ -10,9 +10,14 @@ detection at all, and the reason it still fails is instructive.
 ## 1. The feature and why it was worth testing
 
 The [weekly ceiling result](./weekly-ceiling-the-model-is-already-there.md)
-established that player-descriptive features are exhausted and only
-**week-specific** information can help. OL-vs-DL is week-specific by
-construction: it changes with the opponent.
+argued that only **week-specific** information can help, player-descriptive
+features being exhausted. **Corrected 2026-09-22:** that document's v2 withdraws
+the "exhausted" half — there is about +0.067 R² of player-level headroom, not
++0.0037. What survives is the reason week-specific features are a distinct
+class: no season-long average of a player can carry what makes *this* week
+different for him. OL-vs-DL is week-specific by construction, it changes with
+the opponent, and it was worth testing on that basis either way. The result
+below is its own measurement and does not depend on the withdrawn figure.
 
 True line-matchup grades are PFF and paid. The free proxy, from
 `play_by_play`: how well a team protects (sacks and QB hits allowed per pass

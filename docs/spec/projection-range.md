@@ -212,10 +212,21 @@ drops it to 29.30% against their 26%. **The two methods agree once the
 population is matched**; the earlier 45.48% should be cited as a raw share, not
 as signal.
 
-Note the ceiling result in
-`docs/evidence/2026-09-22/weekly-ceiling-the-model-is-already-there.md` does not
-rest on that figure — it rests on a leave-one-out oracle comparison, which is
-an empirical benchmark and unaffected by this correction.
+**Corrected 2026-09-22, and this is the sharpest instance of the bias above.**
+An earlier version of this paragraph said the ceiling result in
+`docs/evidence/2026-09-22/weekly-ceiling-the-model-is-already-there.md` did not
+rest on the raw share, because it rested on a leave-one-out oracle comparison —
+"an empirical benchmark and unaffected by this correction". **That was exactly
+backwards.** The leave-one-out oracle is itself a noisy estimate of a player's
+level, which is the same upward bias in a different costume, and the 0.4548 that
+document offered as its variance ceiling is the raw share this section had
+already flagged. Its headline is withdrawn in v2 and the headroom re-derived
+from the corrected variance components.
+
+The lesson is the one this section was written to make: **this correction is not
+a footnote about one number. It applies to every statistic built from a player's
+own sample mean**, and the one place it was explicitly exempted is the place it
+mattered most.
 
 ## The five questions
 

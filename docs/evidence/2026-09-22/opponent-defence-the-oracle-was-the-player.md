@@ -139,11 +139,20 @@ interval — is ΔMSE +0.1156, which is **+0.00198 R² on a baseline of 0.32957,
 0.3% of the model's error.** That is the *optimistic* end of a perfect-hindsight
 feature. The point estimate is +0.00091 R² and the interval contains zero.
 
-This fits `weekly-ceiling-the-model-is-already-there.md`, which put the model at
-98.9% of a hindsight per-player oracle with total headroom of +0.0037 R². An
-opponent term claiming a quarter of that headroom from a feature the model
-cannot even forecast was never plausible, and now it is measured rather than
-argued.
+**Corrected 2026-09-22.** An earlier version of this paragraph cited
+`weekly-ceiling-the-model-is-already-there.md` as putting the model at 98.9% of
+a hindsight oracle with total headroom of +0.0037 R², and argued that an
+opponent term claiming a quarter of that headroom was never plausible. **That
+ceiling figure is withdrawn** — see that document's v2, which measures the
+headroom at about +0.067 R² instead. Against the corrected figure the oracle
+here claims roughly 3% of the headroom, not 25%.
+
+**The result above is unaffected**, because it never rested on the ceiling
+number. It rests on its own leave-player-out hindsight oracle measured on these
+rows: +0.00198 R² at the optimistic end of the interval, point estimate
++0.00091, interval containing zero. A feature whose *perfect-hindsight* form
+cannot clear its own confidence interval does not become viable because there
+is more headroom elsewhere.
 
 **The honest limit of this result.** What is dead is *team-level pass defence
 quality* as a weekly fantasy feature. A team-week EPA average is coarse. It does

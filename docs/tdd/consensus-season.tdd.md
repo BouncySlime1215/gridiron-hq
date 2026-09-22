@@ -57,11 +57,31 @@ run numbers).
 ## Note on production, which this change does not fix
 
 The season the predicate binds to is `Number(process.env.NFL_SEASON) || new
-Date().getFullYear()`. **`NFL_SEASON` is not set in production** — `fly.toml`'s
-`[env]` block holds only `HOST` — so the live app takes the calendar-year branch.
-That is correct today and wrong from 2027-01-01, when a January read of the 2026
-season will ask for 2027. Setting the secret is a deploy-time step, not a code
-change, and is tracked separately.
+Date().getFullYear()`.
+
+When this file was written, `NFL_SEASON` was not set in production: `fly.toml`'s
+`[env]` block held only `HOST`, so the live app took the calendar-year branch.
+That was correct in 2026 and would have been wrong from 2027-01-01, when a
+January read of the 2026 season asks for 2027.
+
+That is no longer true, and the correction is recorded here rather than the
+paragraph being deleted. #52 (`Tell the deployment which NFL season it is
+playing`, squash-merged as `9075e33`) added `NFL_SEASON = "2026"` to that same
+`[env]` block, and it is present on `654ff93`:
+
+```toml
+[env]
+  HOST = "0.0.0.0"
+  ...
+  NFL_SEASON = "2026"
+```
+
+So the deploy-time step this section said was outstanding is done, and the
+calendar-year branch is no longer the one production takes. The predicate in
+this PR is unchanged by that: it reads whichever season the environment names,
+and #52 only makes the environment name one. What #52 does add is a standing
+cost this file should carry: the pin has to be bumped each September, and a
+stale pin is a wrong season everywhere at once.
 
 ## Injection
 

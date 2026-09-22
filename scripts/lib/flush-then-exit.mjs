@@ -51,3 +51,6 @@ export function writeThenExit(text, { code = 0, stream = process.stdout, exit = 
 export function printJsonThenExit(value, { code = 0, stream = process.stdout, exit = process.exit } = {}) {
   writeThenExit(`${JSON.stringify(value, null, 2)}\n`, { code, stream, exit });
 }
+
+/** RED stub — not implemented yet. */
+export function exitWhenFlushed() { throw new Error('exitWhenFlushed is not implemented'); }

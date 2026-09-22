@@ -343,3 +343,93 @@ on rows it touched, and an absent field printed with a `|| 'NONE'` default
 reads exactly like a measured zero. It was printed that way once, for
 `roster-risk`, `trend-exploits`, `manager-archetypes` and five others,
 before the field was measured for all 98.
+
+---
+
+# Third pass: a false alarm I raised, and the two rows that really moved
+
+I raised an alarm that the handler scanner was truncating 43% of route
+handler bodies and asked for the reachability findings to be held. **The
+alarm was wrong and I withdraw it.** What follows is what actually happened,
+because the sequence matters more than the conclusion.
+
+## The alarm, and why it was wrong
+
+Validating the fragment against the brief's own evidence rule — a file:line,
+a query with its result, or a request with its response, never prose — showed
+that 46 of 48 graded rows carried no file:line at all. Filling that in forced
+a specific importer line per row, and `roster-risk`'s came back as
+`server/routes/trades.js:36`, a live route file, which contradicted its
+`half_done` grade.
+
+Chasing that, I found `manager-archetypes` imported at
+`server/routes/trades.js:501`, which the handler block starting at
+`:374` did not contain. I concluded the block had closed early, wrote a
+detector that flagged any block ending more than 80 characters before the
+next handler declaration, and it reported 238 of 548 — 43%.
+
+**The detector was the broken instrument.** It assumed handlers are
+contiguous. They are not: helper functions and doc comments sit between them.
+`server/routes/trades.js:374-385` is the whole of
+`POST /:leagueId/brain/managers/:rosterId`, correctly delimited. Line 501 is
+inside a file-level helper — the "measured manager layer" — which
+`GET /:leagueId/managers/signals` at `:553` calls.
+
+A construct-aware paren matcher, written to fix the supposed truncation,
+returned exactly the same span for that handler: 374 to 385. That is what
+established the original scanner had been right, and it is the only reason
+the retraction is well founded rather than a second guess.
+
+## The two faults that were real
+
+**Thirteen.** The handler scan read only the bindings a handler block itself
+names. A handler that delegates to a file-level helper reached nothing that
+helper reaches. Following local helpers transitively within the route file
+raises services named directly by some handler from 185 to 189, and services
+named by a handler a routed page requests from 41 to 46.
+
+**Fourteen.** The first run of the rewritten scanner reported zero services
+reached by any of 548 handlers, because `named()` returned the binding NAMES
+and the caller filtered them with `startsWith('server/services/')`, which
+matches no name. A total of zero is the one result too absurd to ship; a
+total that is merely wrong is the dangerous kind, and the twelfth fault — the
+43% — was exactly that.
+
+## The delta, row by row
+
+Two rows of 98 changed status, both `half_done` to `unclassified`:
+
+| row | was | is | why |
+|---|---|---|---|
+| `manager-archetypes` | half_done | unclassified | `server/routes/trades.js:501` imports `archetypesFor` inside the helper that `GET /:leagueId/managers/signals` (`:553`) calls, and `client/src/pages/TradeBrain.tsx` requests `/api/trades/:id/managers/signals` |
+| `talk-vs-model` | half_done | unclassified | `server/services/counterparty-pricing.js:23`, reached from the same handler |
+
+Final counts: **9 `dead`, 36 `half_done`, 1 `silently_broken`,
+52 `unclassified`** pending a live row count.
+
+Unchanged, and therefore never actually at risk:
+
+- the 9 `dead` rows, identical;
+- the `trade-tactics` `silently_broken` row, identical;
+- the six tables created nowhere or only by test fixtures, identical;
+- the 12 route files with no caller in the surface `App.tsx` reaches —
+  `accolades`, `aggregates`, `decision-inbox`, `execution-slate`, `mlb`,
+  `nfl-betting`, `nfl-market`, `props-tickets`, `props`, `stats`, `tradelab`,
+  `wong` — identical;
+- the 16 betting-facing reclassifications, identical, same 16 names;
+- the freshness-registry reconciliation, which never touched handler blocks.
+
+The client-side findings — the seven files `App.tsx` cannot reach,
+`StaleBanner.tsx` among them — come from an import-closure walk over
+`client/src` and never used a handler block. They were not exposed.
+
+## What the episode is actually about
+
+The alarm cost two threads a hold on findings that were correct. It was
+raised on a measurement from an instrument built in the same minute to check
+another instrument, and reported before the new instrument had been checked
+against a case whose answer was already known. The rule that would have
+caught it is the one already in use for everything else here: before a number
+is reported, run the instrument against a case whose answer is known
+independently. `trades.js:374` was exactly that case, and it was available
+before the alarm, not after.

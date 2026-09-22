@@ -11,7 +11,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -80,6 +80,11 @@
    "scripts/unified-margin-audit-significance.mjs",
    "test/always-valid-significance.test.js",
    "test/paired-bootstrap-clustering.test.js"
+  ],
+  "evidence": [
+   "server/services/contingency.js:20",
+   "server/services/fantasy-coordinator.js:100",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -97,7 +102,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -141,6 +146,10 @@
    "scripts/promote-weekly-ensemble.mjs",
    "scripts/test-new-heads.mjs",
    "test/model-integrity.test.js"
+  ],
+  "evidence": [
+   "server/routes/model.js:14",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -159,7 +168,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -187,6 +196,10 @@
   "reachable": "yes — via a caller on a live surface: server/services/fantasy-coordinator.js",
   "nonServerImporters": [
    "test/boom-bust.test.js"
+  ],
+  "evidence": [
+   "server/services/fantasy-coordinator.js:98",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -217,6 +230,12 @@
    "scripts/_bottom-up-team-total-worker.mjs",
    "scripts/_recheck-variance-only.mjs",
    "test/bottom-up-team-total.test.js"
+  ],
+  "evidence": [
+   "grep for an import of bottom-up-team-total.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "scripts/_bottom-up-team-total-worker.mjs:64",
+   "scripts/_recheck-variance-only.mjs:23",
+   "test/bottom-up-team-total.test.js:37"
   ]
  },
  {
@@ -250,6 +269,10 @@
   ],
   "nonServerImporters": [
    "test/decision-leftovers-home-away.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/trades/${leagueId}/ceiling-lineup?team_id=${teamId}&week=${week}&trials=3000",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -264,7 +287,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -293,6 +316,10 @@
   "reachable": "yes — via a caller on a live surface: server/services/fantasy-coordinator.js",
   "nonServerImporters": [
    "test/confidence-tier.test.js"
+  ],
+  "evidence": [
+   "server/services/fantasy-coordinator.js:102",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -307,7 +334,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -334,6 +361,11 @@
   "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-ensemble.js, server/services/nfl-market.js",
   "nonServerImporters": [
    "test/conformal-calibration.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-ensemble.js:38",
+   "server/services/nfl-market.js:24",
+   "no importer of conformal.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -364,7 +396,7 @@
    "/league /api/model/${leagueId}/trade-impact",
    "/trade-lab /api/model/${leagueId}/trade-impact"
   ],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -409,6 +441,11 @@
    "test/pinned-baselines.test.js",
    "test/play-chance-live.test.js",
    "test/ros-projection-failures.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -429,7 +466,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -466,6 +503,12 @@
   "nonServerImporters": [
    "test/decision-leftovers-home-away.test.js",
    "test/draft-lookahead-variance.test.js"
+  ],
+  "evidence": [
+   "server/routes/model.js:16",
+   "server/services/ceiling-lineup.js:33",
+   "server/services/draft-lookahead.js:63",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -475,7 +518,7 @@
   "path": "server/services/counterparty-pricing.js",
   "lines": 1083,
   "status": "unclassified",
-  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
   "reads": [
    "league_transactions_raw",
    "leagues",
@@ -489,8 +532,10 @@
    "league_transactions_raw",
    "negotiation_profiles"
   ],
-  "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerDirect": [
+   "/trade-brain /api/trades/${activeId}/managers/signals"
+  ],
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -506,9 +551,8 @@
   ],
   "carriedFromAudit": true,
   "evidence": [
-   "server/services/counterparty-pricing.js:813-817 — the same bare `catch { tx = []; }` over league_transactions_raw",
-   "server/services/counterparty-pricing.js:895-900 — but it reports itself: out.available = out.sources.length > 0, and when false sets reason \"nothing the league can see: no captured transactions for this league and no chat corpus\"",
-   "so it is NOT silently broken on this axis; it degrades and says so"
+   "reached from /trade-brain /api/trades/${activeId}/managers/signals",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ],
   "note": "the stated reason misattributes the cause — it says no transactions were captured, where the truth at this commit is that league_transactions_raw is not created anywhere. A reader would look for a stalled collector, not a missing migration. Row-level finding, not a status change. wired vs decoration still needs the live count for `leagues`, `league_chat_messages`.",
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
@@ -524,15 +568,11 @@
   ],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
   "serverImporters": [
    "server/routes/trades.js",
    "server/services/trade-engine.js"
   ],
-  "liveImporters": [
-   "server/routes/trades.js",
-   "server/services/trade-engine.js"
-  ],
-  "reachable": "yes — via a caller on a live surface: server/routes/trades.js, server/services/trade-engine.js",
   "nonServerImporters": [
    "test/manager-data-pipeline.test.js",
    "test/trade-acceptance.test.js",
@@ -559,7 +599,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -589,6 +629,10 @@
   "reachable": "yes — via a caller on a live surface: server/routes/betting-hub.js",
   "nonServerImporters": [
    "test/decay-watch.test.js"
+  ],
+  "evidence": [
+   "server/routes/betting-hub.js:707",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -614,6 +658,10 @@
   "serverImporters": [],
   "nonServerImporters": [
    "test/draft-abstention-audit.test.js"
+  ],
+  "evidence": [
+   "grep for an import of draft-abstention-audit.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "test/draft-abstention-audit.test.js:20"
   ]
  },
  {
@@ -679,6 +727,12 @@
   ],
   "nonServerImporters": [
    "test/draft-assist-bestball.test.js"
+  ],
+  "evidence": [
+   "reached from /draft /api/drafts/${id}/advice",
+   "reached from /draft /api/drafts/${id}/advice?refresh=1",
+   "reached from /draft /api/drafts/${id}/assist",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -716,6 +770,12 @@
   ],
   "nonServerImporters": [
    "test/draft-lookahead-variance.test.js"
+  ],
+  "evidence": [
+   "reached from /draft /api/drafts/${id}/advice",
+   "reached from /draft /api/drafts/${id}/advice?refresh=1",
+   "reached from /draft /api/drafts/${id}/lookahead",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -732,7 +792,7 @@
   "handlerDirect": [
    "/draft /api/edge/draft-survival?seat=${seat}&teams=${teams}&trials=3000"
   ],
-  "handlerTransitive": 60,
+  "handlerTransitive": 62,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -755,7 +815,11 @@
   "serverImporters": [
    "server/routes/edge.js"
   ],
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "reached from /draft /api/edge/draft-survival?seat=${seat}&teams=${teams}&trials=3000",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
  },
  {
   "id": "dynasty-age-curve",
@@ -771,7 +835,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -800,6 +864,10 @@
   "reachable": "yes — via a caller on a live surface: server/routes/tradelab.js, server/services/trade-engine.js",
   "nonServerImporters": [
    "test/dynasty-age-curve.test.js"
+  ],
+  "evidence": [
+   "server/services/trade-engine.js:69",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -826,7 +894,7 @@
    "/teams/:abbr /api/players/${id}",
    "/trade-lab /api/players/${id}"
   ],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -856,6 +924,12 @@
   ],
   "nonServerImporters": [
    "test/fantasy-coordinator.test.js"
+  ],
+  "evidence": [
+   "reached from /drafts/:id /api/players/${id}",
+   "reached from /league /api/players/${id}",
+   "reached from /players/:id /api/players/${id}",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -874,7 +948,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -906,6 +980,11 @@
   "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/services/player-week-engine.js",
   "nonServerImporters": [
    "scripts/sync-ffopportunity.mjs"
+  ],
+  "evidence": [
+   "server/routes/model.js:40",
+   "server/services/player-week-engine.js:28",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -928,7 +1007,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -957,7 +1036,14 @@
    "server/routes/nfl-betting.js"
   ],
   "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:6",
+   "server/services/football-first.js:84",
+   "server/services/nfl-player-value.js:15",
+   "server/services/player-case.js:34",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
  },
  {
   "id": "forecast-combination",
@@ -984,6 +1070,11 @@
   ],
   "nonServerImporters": [
    "test/forecast-combination.test.js"
+  ],
+  "evidence": [
+   "server/services/joint-score-backtest.js:53",
+   "server/services/opportunity-model.js:27",
+   "no importer of forecast-combination.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -998,7 +1089,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1027,6 +1118,12 @@
   "nonServerImporters": [
    "test/diebold-mariano.test.js",
    "test/giacomini-white.test.js"
+  ],
+  "evidence": [
+   "server/services/forecast-combination.js:39",
+   "server/services/joint-score-backtest.js:54",
+   "server/services/nfl-ensemble.js:32",
+   "no importer of forecast-comparison.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -1048,7 +1145,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1121,6 +1218,12 @@
    "test/signal-latency-book-lag.test.js",
    "test/verified-events-cutoff.test.js",
    "test/week1-readiness.test.js"
+  ],
+  "evidence": [
+   "server/routes/model.js:17",
+   "server/services/ceiling-lineup.js:35",
+   "server/services/fantasy-coordinator.js:96",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -1141,7 +1244,7 @@
    "/league /api/model/${leagueId}/trade-impact",
    "/trade-lab /api/model/${leagueId}/trade-impact"
   ],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1168,6 +1271,11 @@
   ],
   "nonServerImporters": [
    "test/gridiron-model.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -1186,7 +1294,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1217,6 +1325,10 @@
   "nonServerImporters": [
    "test/historical-adp-scrapes.test.js",
    "test/historical-adp.test.js"
+  ],
+  "evidence": [
+   "server/routes/model.js:37",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -1244,6 +1356,10 @@
   "serverImporters": [],
   "nonServerImporters": [
    "test/nfl-joint-score.test.js"
+  ],
+  "evidence": [
+   "grep for an import of joint-score-backtest.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "test/nfl-joint-score.test.js:57"
   ]
  },
  {
@@ -1283,6 +1399,11 @@
    "test/league-brain.test.js",
    "test/lineup-evidence.test.js",
    "test/trade-route-retirement.test.js"
+  ],
+  "evidence": [
+   "reached from /trade-brain /api/trades/${activeId}/brain/managers",
+   "reached from /trade-brain /api/trades/${leagueId}/brain/managers/${profile.roster_id}",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -1326,6 +1447,10 @@
    "test/lineup-evidence.test.js",
    "test/lineup-floor-objective.test.js",
    "test/lineup-surfaces-agree.test.js"
+  ],
+  "evidence": [
+   "reached from /lineup /api/trades/${leagueId}/lineup?objective=${objective}",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -1360,6 +1485,10 @@
    "test/decision-leftovers-lineup.test.js",
    "test/lineup-surfaces-agree.test.js",
    "test/posture-calibration.test.js"
+  ],
+  "evidence": [
+   "reached from /lineup /api/trades/${leagueId}/posture",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -1381,7 +1510,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 72,
+  "handlerTransitive": 74,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1411,6 +1540,10 @@
    "test/llm-budget-per-league.test.js",
    "test/llm-plumbing.test.js",
    "test/trade-proposals.test.js"
+  ],
+  "evidence": [
+   "server/services/claude.js:7",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -1419,8 +1552,8 @@
   "kind": "model",
   "path": "server/services/manager-archetypes.js",
   "lines": 1044,
-  "status": "half_done",
-  "reason": "reachable only from server/index.js (a job surface); no handler a routed page requests names it or pulls it in",
+  "status": "unclassified",
+  "reason": "reachable: named directly by a handler a routed page requests. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
   "reads": [
    "espn_player_market",
    "league_draft_picks",
@@ -1440,9 +1573,13 @@
    "league_draft_picks",
    "league_season_teams"
   ],
-  "handlerDirect": [],
-  "handlerTransitive": 0,
-  "pages": [],
+  "handlerDirect": [
+   "/trade-brain /api/trades/${activeId}/managers/signals"
+  ],
+  "handlerTransitive": 1,
+  "pages": [
+   "/trade-brain"
+  ],
   "carriedFromAudit": true,
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [
@@ -1457,6 +1594,7 @@
   ],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "reachable": "yes — named directly by a handler a routed page requests",
   "serverImporters": [
    "server/routes/trades.js"
   ],
@@ -1466,6 +1604,10 @@
    "test/manager-signals-api.test.js",
    "test/trade-tactics.test.js",
    "test/valuation-map.test.js"
+  ],
+  "evidence": [
+   "reached from /trade-brain /api/trades/${activeId}/managers/signals",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -1505,7 +1647,7 @@
    "/trade-lab /api/trades/${leagueId}/title-trades?team_id=${teamId}&shortlist=6",
    "/trade-lab /api/trades/dvp?position=${pos}"
   ],
-  "handlerTransitive": 62,
+  "handlerTransitive": 64,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1538,6 +1680,12 @@
   "nonServerImporters": [
    "test/decision-leftovers-home-away.test.js",
    "test/matchups-no-signal.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/trades/${leagueId}/ceiling-lineup?team_id=${teamId}&week=${week}&trials=3000",
+   "reached from /league /api/trades/${leagueId}/explain",
+   "reached from /league /api/trades/${leagueId}/sense-check",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -1574,7 +1722,13 @@
   "serverImporters": [
    "server/routes/news.js"
   ],
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "reached from /news /api/news/${id}",
+   "reached from /news /api/news/signals${team ? ",
+   "reached from /teams/:abbr /api/news/${n.id}",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
  },
  {
   "id": "nfl-bitemporal",
@@ -1594,7 +1748,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1622,6 +1776,10 @@
    "test/evidence-dataset.test.js",
    "test/nfl-t60-packet.test.js",
    "test/nfl-team-card-injury-cutoff.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-advanced.js:25",
+   "no importer of nfl-bitemporal.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -1643,7 +1801,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1670,6 +1828,11 @@
   "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-auto-picks.js, server/services/nfl-model-growth.js",
   "nonServerImporters": [
    "test/nfl-candidate-findings.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-auto-picks.js:12",
+   "server/services/nfl-model-growth.js:42",
+   "no importer of nfl-candidate-findings.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -1686,7 +1849,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1723,6 +1886,13 @@
    "test/model-integrity.test.js",
    "test/nfl-drive-sim-clock-rules.test.js",
    "test/nfl-drive-tape.test.js"
+  ],
+  "evidence": [
+   "server/betting/nfl/forecast/spread-family-adapters.js:93",
+   "server/routes/nfl-betting.js:1180",
+   "server/services/nfl-espn-pbp.js:32",
+   "server/services/nfl-expert-council.js:20",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -1753,6 +1923,10 @@
   ],
   "nonServerImporters": [
    "test/nfl-ensemble-rank.test.js"
+  ],
+  "evidence": [
+   "server/services/forecast-combination.js:41",
+   "no importer of nfl-ensemble-rank.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -1773,7 +1947,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1837,6 +2011,13 @@
    "test/nfl-weather-per-team-response.test.js",
    "test/spread-family-adapters.test.js",
    "test/t60-packet-sourced-board.test.js"
+  ],
+  "evidence": [
+   "server/betting/nfl/forecast/spread-family-adapters.js:92",
+   "server/routes/nfl-betting.js:34",
+   "server/services/decision-basis.js:129",
+   "server/services/forecast-combination.js:40",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -1856,7 +2037,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1884,7 +2065,13 @@
    "server/routes/nfl-betting.js"
   ],
   "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:1264",
+   "server/services/live-edge.js:179",
+   "server/services/scheduler.js:1351",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
  },
  {
   "id": "nfl-expert-coordinator",
@@ -1904,7 +2091,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -1933,6 +2120,11 @@
    "test/contextual-coordinator.test.js",
    "test/coordinator-shrinkage.test.js",
    "test/model-integrity.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-expert-council.js:19",
+   "server/services/nfl-specialist-audit.js:19",
+   "no importer of nfl-expert-coordinator.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -1963,7 +2155,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2008,6 +2200,13 @@
    "test/nfl-expert-council-shopping-receipt-cutoff.test.js",
    "test/nfl-slice-diagnostic.test.js",
    "test/price-shopper-archive.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:84",
+   "server/services/evidence-daemon.js:19",
+   "server/services/nfl-blind-audit.js:25",
+   "server/services/nfl-diagnostic.js:13",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -2027,7 +2226,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2059,6 +2258,13 @@
   "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
   "nonServerImporters": [
    "test/nfl-external-ratings.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-market.js:20",
+   "server/services/beat-the-close.js:35",
+   "server/services/line-move-study.js:33",
+   "server/services/nfl-matchup-specialists.js:29",
+   "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -2086,6 +2292,10 @@
   "nonServerImporters": [
    "test/family-contribution-scoring.test.js",
    "test/nfl-family-contribution.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:1451",
+   "no importer of nfl-family-contribution.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -2100,7 +2310,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2129,6 +2339,13 @@
   "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-auto-picks.js, server/services/nfl-coordination-audit.js, server/services/nfl-cover-calibration.js, server/services/nfl-ensemble.js",
   "nonServerImporters": [
    "test/nfl-cover-identity.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-auto-picks.js:16",
+   "server/services/nfl-coordination-audit.js:3",
+   "server/services/nfl-cover-calibration.js:4",
+   "server/services/nfl-ensemble.js:33",
+   "no importer of nfl-forecast-identity.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -2147,7 +2364,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2180,6 +2397,13 @@
   "nonServerImporters": [
    "test/nfl-gbm-weather-fallback.test.js",
    "test/nfl-team-strength.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:1595",
+   "server/services/boom-bust.js:73",
+   "server/services/nfl-expert-council.js:14",
+   "server/services/nfl-team-strength.js:52",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -2210,6 +2434,11 @@
   "nonServerImporters": [
    "scripts/run-news-event-impact.mjs",
    "test/nfl-news-event-impact.test.js"
+  ],
+  "evidence": [
+   "grep for an import of nfl-news-event-impact.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "scripts/run-news-event-impact.mjs:31",
+   "test/nfl-news-event-impact.test.js:17"
   ]
  },
  {
@@ -2247,7 +2476,11 @@
    "server/services/draft-assist.js"
   ],
   "reachable": "yes — via a caller on a live surface: server/routes/nfl-betting.js, server/services/draft-assist.js",
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/services/draft-assist.js:22",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
  },
  {
   "id": "nfl-online-neural",
@@ -2268,7 +2501,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2304,6 +2537,13 @@
   "nonServerImporters": [
    "test/model-integrity.test.js",
    "test/week1-readiness.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:65",
+   "server/services/evidence-daemon.js:17",
+   "server/services/nfl-auto-picks.js:14",
+   "server/services/nfl-coordination-audit.js:4",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -2324,7 +2564,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2353,6 +2593,11 @@
    "scripts/nfl-2022-2025-rebuild.mjs",
    "test/nfl-orthogonal-specialists.test.js",
    "test/nfl-weekly-state.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-expert-council.js:26",
+   "server/services/nfl-model-growth.js:39",
+   "no importer of nfl-orthogonal-specialists.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -2376,7 +2621,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2411,6 +2656,13 @@
   "nonServerImporters": [
    "scripts/opener-clv-pass2.mjs",
    "test/model-integrity.test.js"
+  ],
+  "evidence": [
+   "server/betting/nfl/forecast/spread-family-adapters.js:94",
+   "server/routes/nfl-betting.js:47",
+   "server/services/nfl-availability.js:28",
+   "server/services/nfl-ensemble.js:34",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -2425,7 +2677,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2471,6 +2723,13 @@
    "test/nfl-moneyline-domain.test.js",
    "test/nfl-policy-contract.test.js",
    "test/nfl-replay-error-analysis.test.js"
+  ],
+  "evidence": [
+   "server/betting/nfl/strategy/t60-runner.js:49",
+   "server/routes/nfl-market.js:8",
+   "server/services/nfl-auto-picks.js:10",
+   "server/services/nfl-blind-audit.js:21",
+   "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -2500,6 +2759,11 @@
   "nonServerImporters": [
    "test/nfl-preseason-blend.test.js",
    "test/preseason-blend-cutoff.test.js"
+  ],
+  "evidence": [
+   "grep for an import of nfl-preseason-blend.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "test/nfl-preseason-blend.test.js:46",
+   "test/preseason-blend-cutoff.test.js:48"
   ]
  },
  {
@@ -2526,7 +2790,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2577,6 +2841,14 @@
    "test/nfl-replay-qualitative-segments.test.js",
    "test/nfl-rolling-leaders.test.js",
    "test/paired-bootstrap-clustering.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:36",
+   "server/routes/nfl-market.js:10",
+   "server/services/decision-basis.js:128",
+   "server/services/model-intelligence.js:8",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches",
+   "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -2600,7 +2872,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2628,7 +2900,13 @@
    "server/routes/nfl-betting.js"
   ],
   "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:632",
+   "server/services/nfl-rookie-ingest.js:10",
+   "server/services/nfl-roster-strength.js:15",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
  },
  {
   "id": "nfl-roster-strength",
@@ -2657,7 +2935,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2691,6 +2969,13 @@
    "scripts/opener-clv-pass2.mjs",
    "test/model-integrity.test.js",
    "test/nfl-roster-strength-pff-normalization.test.js"
+  ],
+  "evidence": [
+   "server/betting/nfl/forecast/spread-family-adapters.js:95",
+   "server/routes/nfl-betting.js:76",
+   "server/services/nfl-ensemble.js:36",
+   "server/services/nfl-expert-council.js:24",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -2711,7 +2996,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2740,6 +3025,11 @@
   "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
   "nonServerImporters": [
    "test/nfl-model-fixes.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-betting.js:1438",
+   "server/services/nfl-rookies.js:38",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -2767,6 +3057,10 @@
   "serverImporters": [],
   "nonServerImporters": [
    "test/nfl-team-strength.test.js"
+  ],
+  "evidence": [
+   "grep for an import of nfl-team-strength.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "test/nfl-team-strength.test.js:6"
   ]
  },
  {
@@ -2798,7 +3092,11 @@
   "serverImporters": [
    "server/routes/teams.js"
   ],
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "reached from /teams/:abbr /api/teams/${abbr}/tendencies",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
  },
  {
   "id": "nfl-teamrankings-lookup",
@@ -2812,7 +3110,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2838,6 +3136,10 @@
   "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-ensemble.js",
   "nonServerImporters": [
    "test/nfl-teamrankings-lookup.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-ensemble.js:27",
+   "no importer of nfl-teamrankings-lookup.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -2864,7 +3166,11 @@
   "serverImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:73",
+   "no importer of nfl-unified-engine.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
  },
  {
   "id": "nfl-weather-history",
@@ -2883,7 +3189,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2913,6 +3219,12 @@
   "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
   "nonServerImporters": [
    "test/nfl-weather-history.test.js"
+  ],
+  "evidence": [
+   "server/routes/nfl-market.js:21",
+   "server/services/line-move-study.js:31",
+   "server/services/scheduler.js:526",
+   "server/routes/nfl-market.js is mounted at server/index.js:139, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
   ]
  },
  {
@@ -2932,7 +3244,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -2962,6 +3274,13 @@
   "nonServerImporters": [
    "test/nfl-gbm-weather-fallback.test.js",
    "test/nfl-weather-forecast.test.js"
+  ],
+  "evidence": [
+   "server/services/beat-the-close.js:33",
+   "server/services/line-move-study.js:30",
+   "server/services/nfl-weather-history.js:20",
+   "server/services/scheduler.js:546",
+   "no importer of nfl-weather.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -2990,7 +3309,7 @@
    "/league /api/model/${leagueId}/trade-impact",
    "/trade-lab /api/model/${leagueId}/trade-impact"
   ],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3032,6 +3351,11 @@
    "test/model-integrity.test.js",
    "test/offseason-data.test.js",
    "test/ros-projection.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3056,7 +3380,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3089,6 +3413,11 @@
   "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js, server/services/trade-engine.js",
   "nonServerImporters": [
    "test/offseason-model.test.js"
+  ],
+  "evidence": [
+   "server/services/lineup-brain.js:46",
+   "server/services/trade-engine.js:84",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3122,6 +3451,11 @@
   "nonServerImporters": [
    "scripts/study-opportunity-volume.mjs",
    "test/opportunity-model.test.js"
+  ],
+  "evidence": [
+   "grep for an import of opportunity-model.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "scripts/study-opportunity-volume.mjs:17",
+   "test/opportunity-model.test.js:31"
   ]
  },
  {
@@ -3139,7 +3473,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3165,7 +3499,11 @@
    "server/services/player-week-engine.js"
   ],
   "reachable": "yes — via a caller on a live surface: server/services/player-week-engine.js",
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/services/player-week-engine.js:14",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
  },
  {
   "id": "pick-confidence",
@@ -3181,7 +3519,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3208,7 +3546,12 @@
    "server/routes/nfl-betting.js"
   ],
   "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:7",
+   "server/services/forward-ledger.js:273",
+   "server/routes/nfl-betting.js is mounted at server/index.js:140, and no /api path it serves is requested by any file the import closure of client/src/App.tsx reaches"
+  ]
  },
  {
   "id": "picks",
@@ -3224,7 +3567,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3251,7 +3594,11 @@
    "server/services/trade-engine.js"
   ],
   "reachable": "yes — via a caller on a live surface: server/routes/tradelab.js, server/services/trade-engine.js",
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/services/trade-engine.js:57",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
  },
  {
   "id": "player-career",
@@ -3270,7 +3617,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3301,6 +3648,11 @@
   "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js, server/services/trade-engine.js",
   "nonServerImporters": [
    "test/player-career.test.js"
+  ],
+  "evidence": [
+   "server/services/lineup-brain.js:44",
+   "server/services/trade-engine.js:82",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3334,7 +3686,11 @@
    "server/services/lineup-brain.js"
   ],
   "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js",
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/services/lineup-brain.js:43",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
  },
  {
   "id": "player-week-engine",
@@ -3356,7 +3712,7 @@
    "/league /api/model/${leagueId}/trade-impact",
    "/trade-lab /api/model/${leagueId}/trade-impact"
   ],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3401,6 +3757,11 @@
    "test/player-week-engine-weights.test.js",
    "test/prediction-log-served-model.test.js",
    "test/props-team-volume-dispersion.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3426,7 +3787,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3468,6 +3829,12 @@
    "test/draft-abstention-audit.test.js",
    "test/preseason-band-calibration.test.js",
    "test/preseason-model.test.js"
+  ],
+  "evidence": [
+   "server/services/draft-assist.js:24",
+   "server/services/draft-lookahead.js:64",
+   "server/services/lineup-brain.js:45",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3489,7 +3856,7 @@
    "/league /api/model/${leagueId}/trade-impact",
    "/trade-lab /api/model/${leagueId}/trade-impact"
   ],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3539,6 +3906,11 @@
    "test/qbr-projection-signal.test.js",
    "test/ros-projection-failures.test.js",
    "test/weekly-level.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3564,6 +3936,10 @@
   "serverImporters": [],
   "nonServerImporters": [
    "test/purged-walk-forward.test.js"
+  ],
+  "evidence": [
+   "grep for an import of purged-walk-forward.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "test/purged-walk-forward.test.js:4"
   ]
  },
  {
@@ -3598,6 +3974,10 @@
    "scripts/run-purged-evaluation.mjs",
    "test/nfl-operations-overfitting-gate.test.js",
    "test/research-trials.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-research.js:14",
+   "no importer of research-trials.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -3627,6 +4007,10 @@
   ],
   "nonServerImporters": [
    "test/role-scenario-engine.test.js"
+  ],
+  "evidence": [
+   "server/services/role-scenario-lab.js:21",
+   "no importer of role-scenario-engine.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -3644,7 +4028,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3674,6 +4058,10 @@
    "scripts/fit-ros-projection.mjs",
    "test/ros-projection-failures.test.js",
    "test/ros-projection.test.js"
+  ],
+  "evidence": [
+   "server/services/trade-engine.js:116",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3700,7 +4088,11 @@
   "serverImporters": [
    "server/routes/trades.js"
   ],
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/trades.js:36",
+   "no importer of roster-risk.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
  },
  {
   "id": "scoring",
@@ -3717,7 +4109,7 @@
    "/league /api/model/${leagueId}/trade-impact",
    "/trade-lab /api/model/${leagueId}/trade-impact"
   ],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3767,6 +4159,11 @@
    "test/scoring.test.js",
    "test/trade-engine-correctness.test.js",
    "test/weekly-level.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3786,7 +4183,7 @@
    "/trade-lab /api/model/${leagueId}/trade-impact",
    "/trade-lab /api/trades/${leagueId}/sense-check"
   ],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3815,6 +4212,12 @@
   "nonServerImporters": [
    "test/model-integrity.test.js",
    "test/trade-engine-correctness.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /league /api/trades/${leagueId}/sense-check",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3837,7 +4240,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3874,6 +4277,10 @@
    "scripts/promote-weekly-ensemble.mjs",
    "scripts/test-new-heads.mjs",
    "test/mlb-nrfi-shrinkage.test.js"
+  ],
+  "evidence": [
+   "server/services/projections.js:31",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3891,7 +4298,7 @@
    "/league /api/model/${leagueId}/trade-impact",
    "/trade-lab /api/model/${leagueId}/trade-impact"
   ],
-  "handlerTransitive": 63,
+  "handlerTransitive": 65,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -3970,6 +4377,11 @@
    "test/trade-engine-correctness.test.js",
    "test/trial-statistics.test.js",
    "test/weekly-level.test.js"
+  ],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -3978,8 +4390,8 @@
   "kind": "model",
   "path": "server/services/talk-vs-model.js",
   "lines": 201,
-  "status": "half_done",
-  "reason": "exists and has importers, but no consumer on a live surface: transitive import is not a consumer",
+  "status": "unclassified",
+  "reason": "reachable through a live caller. wired vs decoration turns on current rows, which this container cannot measure (local zero, live reading pending)",
   "reads": [
    "leagues",
    "manager_player_view",
@@ -3988,7 +4400,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4010,10 +4422,16 @@
   "serverImporters": [
    "server/services/counterparty-pricing.js"
   ],
-  "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/counterparty-pricing.js",
+  "liveImporters": [
+   "server/services/counterparty-pricing.js"
+  ],
+  "reachable": "yes — via a caller on a live surface: server/services/counterparty-pricing.js",
   "nonServerImporters": [
    "scripts/build-negotiation-profiles.mjs"
+  ],
+  "evidence": [
+   "server/services/counterparty-pricing.js:23",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -4057,7 +4475,13 @@
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
   "serverImporters": [],
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "grep for an import of td-features.js under server/ at 654ff93 -> no matches; the only import statements are outside the application",
+   "no import statement for td-features.js anywhere in the repository, tests included",
+   "pbp_participation: created nowhere in the repository, test files included",
+   "play_by_play: created nowhere in the repository, test files included"
+  ]
  },
  {
   "id": "td-regression",
@@ -4097,6 +4521,11 @@
   "reachable": "yes — via a caller on a live surface: server/routes/trades.js, server/services/lineup-brain.js",
   "nonServerImporters": [
    "test/td-regression.test.js"
+  ],
+  "evidence": [
+   "server/routes/trades.js:42",
+   "server/services/lineup-brain.js:41",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -4111,7 +4540,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4139,6 +4568,10 @@
   "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js",
   "nonServerImporters": [
    "test/trade-acceptance.test.js"
+  ],
+  "evidence": [
+   "server/services/trade-engine.js:93",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -4176,6 +4609,7 @@
    "/lineup /api/trades/${leagueId}/rosters",
    "/players/:id /api/players/${id}",
    "/teams/:abbr /api/players/${id}",
+   "/trade-brain /api/trades/${activeId}/managers/signals",
    "/trade-brain /api/trades/${leagueId}/proposals",
    "/trade-lab /api/model/${leagueId}/trade-impact",
    "/trade-lab /api/players/${id}",
@@ -4187,7 +4621,7 @@
    "/trade-lab /api/trades/${leagueId}/player/${picked.id}",
    "/trade-lab /api/trades/${leagueId}/sense-check"
   ],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4252,6 +4686,12 @@
    "test/trade-engine-correctness.test.js",
    "test/trade-evidence.test.js",
    "test/trade-tactics.test.js"
+  ],
+  "evidence": [
+   "reached from /drafts/:id /api/players/${id}",
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /league /api/players/${id}",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -4266,7 +4706,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4294,6 +4734,10 @@
   "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js",
   "nonServerImporters": [
    "test/trade-engine-correctness.test.js"
+  ],
+  "evidence": [
+   "server/services/trade-engine.js:113",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -4313,7 +4757,7 @@
    "league_transactions_raw"
   ],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4377,7 +4821,11 @@
   "serverImporters": [
    "server/routes/trades.js"
   ],
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/trades.js:38",
+   "no importer of trend-exploits.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
  },
  {
   "id": "trial-statistics",
@@ -4405,6 +4853,10 @@
    "scripts/run-historical-leaderboard.mjs",
    "scripts/run-purged-evaluation.mjs",
    "test/trial-statistics.test.js"
+  ],
+  "evidence": [
+   "server/services/nfl-research.js:15",
+   "no importer of trial-statistics.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -4425,7 +4877,7 @@
    "/league /api/model/${leagueId}/trade-impact",
    "/trade-lab /api/model/${leagueId}/trade-impact"
   ],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4448,7 +4900,12 @@
   "serverImporters": [
    "server/routes/model.js"
   ],
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "reached from /league /api/model/${leagueId}/trade-impact",
+   "reached from /trade-lab /api/model/${leagueId}/trade-impact",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
+  ]
  },
  {
   "id": "waiver-brain",
@@ -4464,7 +4921,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4503,6 +4960,12 @@
    "test/posture-calibration.test.js",
    "test/trade-route-retirement.test.js",
    "test/waiver-brain.test.js"
+  ],
+  "evidence": [
+   "server/routes/trades.js:35",
+   "server/services/lineup-brain.js:40",
+   "server/services/trade-engine.js:73",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -4534,6 +4997,10 @@
   ],
   "nonServerImporters": [
    "test/decision-leftovers-waivers.test.js"
+  ],
+  "evidence": [
+   "reached from /lineup /api/trades/${leagueId}/waivers",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -4548,7 +5015,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4587,6 +5054,11 @@
    "scripts/promote-weekly-ensemble.mjs",
    "scripts/test-new-heads.mjs",
    "scripts/verify-qbr-integration.mjs"
+  ],
+  "evidence": [
+   "server/services/nfl-blind-audit.js:17",
+   "server/services/player-head-validation.js:4",
+   "no importer of weekly-backtest.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
   ]
  },
  {
@@ -4601,7 +5073,7 @@
   "writes": [],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4646,6 +5118,10 @@
    "test/model-integrity.test.js",
    "test/player-week-engine-weights.test.js",
    "test/weekly-early-week-blend.test.js"
+  ],
+  "evidence": [
+   "server/services/player-week-engine.js:19",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -4667,7 +5143,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4708,6 +5184,11 @@
    "test/weekly-prediction-snapshot-mode-migration.test.js",
    "test/weekly-retrain-coverage.test.js",
    "test/weekly-retrain-early-carry.test.js"
+  ],
+  "evidence": [
+   "server/routes/model.js:36",
+   "server/services/league-week.js:10",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  },
  {
@@ -4734,7 +5215,11 @@
   "serverImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "nonServerImporters": []
+  "nonServerImporters": [],
+  "evidence": [
+   "server/routes/nfl-betting.js:8",
+   "no importer of weekly-walkforward.js is named by a handler that a routed page requests; reachability was decided on the importer set above"
+  ]
  },
  {
   "id": "weekly-weight-store",
@@ -4752,7 +5237,7 @@
   ],
   "undeclaredTables": [],
   "handlerDirect": [],
-  "handlerTransitive": 59,
+  "handlerTransitive": 61,
   "pages": [
    "/draft",
    "/drafts/:id",
@@ -4797,6 +5282,11 @@
    "test/weekly-promotion-rollback.test.js",
    "test/weekly-retrain-coverage.test.js",
    "test/weekly-retrain-early-carry.test.js"
+  ],
+  "evidence": [
+   "server/services/player-week-engine.js:20",
+   "server/services/trade-engine.js:66",
+   "status withheld: this container cannot count rows. server/data.sqlite has only 000_legacy_schema applied and 213 of its 215 tables hold zero rows"
   ]
  }
 ]

@@ -196,8 +196,15 @@ const usageRow = (playerId, season, week, team, position = 'WR') =>
   run(`INSERT OR IGNORE INTO player_week_usage (player_id, season, week, team, position) VALUES (?,?,?,?,?)`,
     playerId, season, week, team, position);
 
-/** Players 1-8, WR, two teams; BBB is on a bye in 2025 week 6. */
-function seedFixture() {
+/** The default fixture's actual scores for players 1-8, before the week offset. */
+const ACTUALS = [22, 3, 15, 9, 12, 12, 7, 19];
+const defaultActual = (id, week) => ACTUALS[id - 1] + week;
+
+/**
+ * Players 1-8, WR, two teams; BBB is on a bye in 2025 week 6.
+ * `actual(id, week, season)` overrides what each player scored.
+ */
+function seedFixture({ actual = defaultActual } = {}) {
   for (let id = 1; id <= 8; id++) run(`INSERT OR IGNORE INTO players (id, name, position) VALUES (?, ?, 'WR')`, id, `Fixture ${id}`);
   run(`INSERT OR IGNORE INTO players (id, name, position) VALUES (90, 'Filler A', 'WR'), (91, 'Filler B', 'WR')`);
   const team = id => (id <= 4 ? 'AAA' : 'BBB');
@@ -213,9 +220,10 @@ function seedFixture() {
 
   const rowsFor = (season, week) => Array.from({ length: 8 }, (_, i) => {
     const id = i + 1;
-    // Ours and the average disagree on every adjacent pair; actuals follow neither exactly.
+    // Ours prefers the higher id, the average the lower id: they disagree on EVERY pair.
+    // The default actuals follow neither exactly.
     return { player_id: id, week, position: 'WR', prediction: 9 + id, season_to_date: 18 - id,
-      actual: [22, 3, 15, 9, 12, 12, 7, 19][i] + week, played: true };
+      actual: actual(id, week, season), played: true };
   });
   fixtureRows = {
     2024: [...rowsFor(2024, 5), ...rowsFor(2024, 6)],
@@ -294,6 +302,173 @@ test('the result names its windows, both rules, the universe, the scoring and th
   assert.ok(typeof result.verdict === 'string');
   assert.equal(result.configuration.champions[2025][5], 'frozen-2023', 'the champion per graded week is recorded');
   assert.equal(result.configuration.champions[2026][2], 'frozen-2023');
+  // Addendum 1 §1: the replay is today's configuration, not the number served at the time.
+  assert.doesNotMatch(result.policy, /would have served/i);
+  assert.match(result.forward.label, /replay/i);
+  assert.match(result.forward.label, /not the projection the app served/i);
+});
+
+/* ------------------------------------------------------- the grade's values */
+
+const KNOWN_K = () => ({ target_share: { ALL: 0.2 } });
+
+test('direction is the sign of points per decision, and says when there is nothing to sign', () => {
+  assert.equal(S.directionOf({ n: 3, points_per_decision: 0.4 }), 'ours_ahead');
+  assert.equal(S.directionOf({ n: 3, points_per_decision: -0.4 }), 'dumb_ahead');
+  assert.equal(S.directionOf({ n: 3, points_per_decision: 0 }), 'even');
+  assert.equal(S.directionOf({ n: 0, points_per_decision: null }), 'no_disagreements');
+  assert.equal(S.directionOf({ status: 'not_available', reason: 'no rows' }), 'not_available');
+  assert.equal(S.directionOf(null), 'not_available');
+});
+
+test('the default fixture grades to the hand-counted values: ours loses, so a swapped rule would flip the sign', () => {
+  // Counted by hand, not by the code: ours starts the higher id, the average the lower
+  // id, so every pair is a disagreement. An 8-player week: 28 disagreements, points
+  // (ours minus theirs) summing to -7, 13.5 wins (players 5 and 6 tie). The 4-player
+  // week (2025 W6, BBB on a bye): 6 disagreements, sum -27, 2 wins. Past = three
+  // 8-player weeks and one 4-player week: n 90, points -48 / 90, wins 42.5 / 90.
+  seedFixture();
+  const result = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+  assert.equal(result.past.n, 90);
+  assert.equal(result.past.per_season[2024].n, 56);
+  assert.equal(result.past.per_season[2025].n, 34);
+  assert.equal(result.past.points_per_decision, -0.5333);
+  assert.equal(result.past.win_rate, 0.4722);
+  assert.equal(result.past.direction, 'dumb_ahead');
+  assert.equal(result.forward.n, 28);
+  assert.equal(result.forward.points_per_decision, -0.25);
+  assert.equal(result.forward.win_rate, 0.4821);
+  assert.equal(result.forward.direction, 'dumb_ahead');
+  assert.notEqual(result.verdict, 'beats_dumb');
+});
+
+test('when our projection orders the actuals right, every call is won and the verdict is beats_dumb', () => {
+  // Actual = 2 x id + 1: the higher id always scores more. Points per disagreement =
+  // (3 weeks x 168 + 20) / 90 = 5.8222.
+  seedFixture({ actual: id => 2 * id + 1 });
+  const result = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+  assert.equal(result.past.n, 90);
+  assert.equal(result.past.win_rate, 1);
+  assert.equal(result.past.points_per_decision, 5.8222);
+  assert.equal(result.past.direction, 'ours_ahead');
+  assert.deepEqual(result.gates.map(g => g.passed), [true, true, true, true]);
+  assert.equal(result.verdict, 'beats_dumb');
+});
+
+test('G4 reads the forward rows: a forward season against our projection leaves the verdict unconfirmed', () => {
+  // Past as above (every call won); 2026 week 2 reversed (actual = 40 - 2 x id), so
+  // our pick loses every forward disagreement by 2 x (id gap): -168 / 28 = -6.
+  seedFixture({ actual: (id, week, season) => (season === 2026 ? 40 - 2 * id : 2 * id + 1) });
+  const result = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+  assert.equal(result.past.win_rate, 1);
+  assert.equal(result.forward.n, 28);
+  assert.equal(result.forward.win_rate, 0);
+  assert.equal(result.forward.points_per_decision, -6);
+  assert.equal(result.gates[3].id, 'G4');
+  assert.equal(result.gates[3].value, -6);
+  assert.equal(result.gates[3].passed, false);
+  assert.equal(result.verdict, 'beats_dumb_unconfirmed_forward');
+});
+
+/* ------------------------------ what the app served, and the literal dumb rule */
+
+const SERVED_AS_OF = '2026-09-17T18:56:10.819Z';
+/** Our served week-2 projection (weekly-learning.js#captureWeeklyPredictions's table). */
+function seedServed(predictions) {
+  run('DELETE FROM weekly_prediction_snapshots WHERE season = 2026');
+  for (const [id, prediction] of Object.entries(predictions)) {
+    run(`INSERT INTO weekly_prediction_snapshots (season, week, player_id, position, as_of, cutoff, engine_version,
+         structural, prediction, weight_fit, mode)
+         VALUES (2026, 2, ?, 'WR', ?, '2026-W1', 'fixture', ?, ?, 'frozen-2023', 'position_ensemble')`,
+    Number(id), SERVED_AS_OF, prediction, prediction);
+  }
+}
+/** ESPN's week-2 projection per league (collect-roster-snapshots.mjs#writePeriod's table). */
+function seedEspn(rowsToWrite) {
+  run('DELETE FROM league_roster_snapshots WHERE season = 2026');
+  for (const { league, id, projected, source = 'final' } of rowsToWrite) {
+    run(`INSERT INTO league_roster_snapshots (league_id, season, scoring_period_id, team_id, espn_player_id, player_id,
+         position, lineup_slot_id, is_starter, projected_points, source, first_seen_at, changed_at)
+         VALUES (?, 2026, 2, 1, ?, ?, 'WR', 20, 0, ?, ?, '2026-09-22T00:00:00Z', '2026-09-22T00:00:00Z')`,
+    league, 1000 + id, id, projected, source);
+  }
+}
+/** Players 1-8's served projections: ours still prefers the higher id among 1-4, the lower among 5-8. */
+const SERVED = { 1: 10, 2: 11, 3: 12, 4: 13, 5: 25, 6: 24, 7: 23, 8: 22 };
+const ESPN_ROWS = [
+  // Players 1-3 carried by two leagues with the same value: one value.
+  ...[[1, 10.5], [2, 14], [3, 13.5]].flatMap(([id, projected]) => [{ league: 1, id, projected }, { league: 2, id, projected }]),
+  { league: 1, id: 4, projected: 7.5 },          // below 8.0: not startable by ESPN
+  { league: 1, id: 5, projected: 13 }, { league: 1, id: 6, projected: 12.5 }, { league: 1, id: 7, projected: 12 },
+  { league: 1, id: 8, projected: 15 }, { league: 2, id: 8, projected: 15.5 },   // the leagues disagree: excluded
+  { league: 3, id: 2, projected: 30, source: 'live' },                          // a live row is never read
+];
+
+test('what the app served is graded against the average on the replay rows, with only the projection swapped', () => {
+  seedFixture();
+  seedServed(SERVED);
+  seedEspn(ESPN_ROWS);
+  const result = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+  const served = result.forward.served;
+  // Hand count, 2026 week 2 (actual = the default + 2; the offset cancels): of 28 pairs
+  // ours (served) and the average agree on the 6 pairs inside players 5-8. Inside 1-4:
+  // 6 disagreements, sum -27, 2 wins; across (ours takes 5-8, the average 1-4): 16,
+  // sum +4, 8 wins. n 22, points -23 / 22, wins 10 / 22.
+  assert.equal(served.vs_average.rows, 8);
+  assert.equal(served.vs_average.excluded.no_snapshot, 0);
+  assert.equal(served.vs_average.pairs, 28);
+  assert.equal(served.vs_average.n, 22);
+  assert.equal(served.vs_average.points_per_decision, -1.0455);
+  assert.equal(served.vs_average.win_rate, 0.4545);
+  assert.equal(served.vs_average.direction, 'dumb_ahead');
+  assert.equal(result.forward.n, 28, 'the replay grade itself is unchanged by the served arm');
+  assert.deepEqual(served.weeks, [{ week: 2, captured_at: SERVED_AS_OF, weight_fit: ['frozen-2023'],
+    replay_champion: 'frozen-2023', same_weights: true, k_fit_id: 1, k_fitted_at: '2026-09-18T00:00:00Z',
+    served_before_k_fit: true }]);
+  assert.match(served.label, /served/i);
+});
+
+test("the literal rule: what the app served against ESPN's projection, one value per player-week, final rows only", () => {
+  seedFixture();
+  seedServed(SERVED);
+  seedEspn(ESPN_ROWS);
+  const result = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+  const espn = result.forward.served.vs_espn;
+  // Hand count: player 8 is dropped (two leagues, two values), player 4 is below 8.0
+  // by ESPN, so players 1, 2, 3, 5, 6, 7 make 15 pairs. They disagree on 7:
+  // (2,3) +12, (2,5) +9, (2,6) +9, (2,7) +4, (3,5) -3, (3,6) -3, (3,7) -8.
+  // n 7, points +20 / 7, wins 4 / 7. Had the live row been read, player 2 would be
+  // dropped as conflicting and the count would differ.
+  assert.equal(espn.excluded.espn_conflicting_player_weeks, 1);
+  assert.equal(espn.excluded.no_espn, 1);
+  assert.equal(espn.excluded.no_snapshot, 0);
+  assert.equal(espn.rows, 7);
+  assert.equal(espn.pairs, 15);
+  assert.equal(espn.n, 7);
+  assert.equal(espn.points_per_decision, 2.8571);
+  assert.equal(espn.win_rate, 0.5714);
+  assert.equal(espn.direction, 'ours_ahead');
+  assert.match(espn.baseline, /ESPN/);
+});
+
+test('the served arms never move the verdict or the gates (addendum 1: descriptive only)', () => {
+  seedFixture({ actual: id => 2 * id + 1 });
+  seedServed({});
+  seedEspn([]);
+  const without = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+  assert.equal(without.forward.served.vs_average.status, 'not_available');
+  assert.match(without.forward.served.vs_average.reason, /weekly_prediction_snapshots/);
+  assert.equal(without.forward.served.vs_average.direction, 'not_available');
+  assert.equal(without.forward.served.vs_espn.status, 'not_available');
+  // Served projections that reverse the replay's order, and an ESPN rule that agrees with the actuals.
+  seedServed({ 1: 22, 2: 21, 3: 20, 4: 19, 5: 18, 6: 17, 7: 16, 8: 15 });
+  seedEspn([1, 2, 3, 4, 5, 6, 7, 8].map(id => ({ league: 1, id, projected: 8 + id })));
+  const withServed = S.runStartSitGate({ iterations: 200, resolveK: KNOWN_K });
+  assert.equal(withServed.forward.served.vs_espn.direction, 'dumb_ahead');
+  assert.deepEqual(withServed.gates, without.gates);
+  assert.equal(withServed.verdict, without.verdict);
+  seedServed({});
+  seedEspn([]);
 });
 
 test('with no rows for a season later than the past window, the forward window is not available, not zero', () => {

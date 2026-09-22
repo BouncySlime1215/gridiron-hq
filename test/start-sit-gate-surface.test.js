@@ -48,7 +48,9 @@ const fixtureResult = (verdict = 'not_distinguishable') => ({
   past: { seasons: [2024, 2025], weeks: [5, 18], n: 120, win_rate: 0.53, points_per_decision: 0.4,
     ci90: { player: { points: [-0.2, 1.0], win_rate: [0.48, 0.58] }, week: { points: [-0.4, 1.2] } },
     failing_weeks: [{ season: 2025, week: 9, n: 7, points_per_decision: -2.1, win_rate: 0.29, failing: true }] },
-  forward: { season: 2026, weeks: [2, 2], n: 11, points_per_decision: 0.9 },
+  forward: { season: 2026, weeks: [2, 2], n: 11, points_per_decision: 0.9, direction: 'ours_ahead',
+    served: { vs_average: { n: 4, points_per_decision: -0.3, direction: 'dumb_ahead' },
+      vs_espn: { status: 'not_available', reason: 'no ESPN projection', direction: 'not_available' } } },
   gates: [{ id: 'G1', passed: false }, { id: 'G2', passed: false }, { id: 'G3', passed: false }, { id: 'G4', passed: true }],
   controls: { passed: verdict !== 'instrument_fault' },
 });
@@ -155,14 +157,30 @@ test('the Lineup page shows the gate panel, and the panel reads the route', () =
   assert.match(panel, /useApi<[^>]+>\('\/gates\/start-sit'\)/);
 });
 
-test('the panel names every verdict, the basis and the sign convention, and hides no failing week', () => {
+test('the panel names every verdict and every direction, and renders the basis', () => {
+  // Rendered behaviour (every failing week, direction only) is test/start-sit-gate-panel.test.js.
   const panel = read('client/src/components/lineup/StartSitGate.tsx');
   for (const v of ['beats_dumb', 'beats_dumb_unconfirmed_forward', 'not_distinguishable', 'loses_to_dumb',
     'no_disagreements', 'instrument_fault', 'not_run']) {
     assert.ok(panel.includes(`${v}:`) || panel.includes(`'${v}'`), `the panel has no wording for ${v}`);
   }
-  for (const field of ['baseline', 'policy', 'universe', 'sign_convention', 'scoring', 'failing_weeks', 'mde80', 'forward']) {
+  for (const d of ['ours_ahead', 'dumb_ahead', 'even', 'no_disagreements', 'not_available']) {
+    assert.ok(panel.includes(`${d}:`), `the panel has no wording for direction ${d}`);
+  }
+  for (const field of ['baseline', 'policy', 'universe', 'scoring', 'failing_weeks', 'forward', 'served', 'vs_espn']) {
     assert.ok(panel.includes(field), `the panel does not render ${field}`);
   }
   assert.doesNotMatch(panel, /\.slice\(/, 'the panel trims nothing: every failing week is shown');
+});
+
+test('the job detail (sync_log, which the Coach can read) carries the verdict and directions, never a rate or a size', async () => {
+  const detail = await S.refreshStartSitGate({ run: () => ({ ...fixtureResult('beats_dumb'), model_version: 'configB|detail' }) });
+  for (const [key, value] of Object.entries(detail)) {
+    assert.ok(typeof value === 'string' || value === null || (key === 'audit_id' && Number.isInteger(value)),
+      `${key} = ${JSON.stringify(value)} would put a number in sync_log`);
+  }
+  assert.equal(detail.verdict, 'beats_dumb');
+  assert.equal(detail.forward_direction, 'ours_ahead');
+  assert.equal(detail.served_vs_average_direction, 'dumb_ahead');
+  assert.equal(detail.served_vs_espn_direction, 'not_available');
 });

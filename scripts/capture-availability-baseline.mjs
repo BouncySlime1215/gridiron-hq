@@ -59,6 +59,7 @@
  */
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { processSpan, spanWarning, readCrossedRestart } from './lib/capture-span.mjs';
 
 const BASE = process.env.GRIDIRON_BASE_URL ?? 'https://gridiron-hq.fly.dev';
 const TOKEN = process.env.GRIDIRON_FLY_TOKEN ?? '';
@@ -107,6 +108,37 @@ async function get (path) {
   return last;
 }
 
+/**
+ * Which process answered this capture.
+ *
+ * `/api/health` reports `uptime_s`, so wall clock minus uptime names the
+ * process a reading came from. That matters more than it looks. The memos in
+ * routes/model.js and draft-assist.js carry no fit id and no seed, so the only
+ * thing that busts them is a restart. A capture that spans one therefore mixes
+ * answers from two different caches — the leagues read before it memoised from
+ * the old state, the leagues read after it recomputed — and nothing in the
+ * output would say so. Compared against a baseline, a restart in the middle
+ * would read as the fit having moved something, which is precisely the
+ * conclusion this script exists to support and must therefore not manufacture.
+ */
+async function processIdentity () {
+  const res = await get('/api/health');
+  if (res.status !== 200 || !Number.isFinite(res.body?.uptime_s)) {
+    return { read: false, status: res.status,
+      detail: res.text ?? 'a 200 with no uptime_s: the health shape changed' };
+  }
+  // The read proves its own validity before it is used for anything. Fly's edge
+  // replays a held request into the machine that comes up, so a 200 can be
+  // answered by a process that did not exist when the request was sent.
+  if (readCrossedRestart(res.body.uptime_s, res.ms)) {
+    return { read: false, crossed_restart: true, uptime_s: res.body.uptime_s, ms: res.ms,
+      detail: `answered by a process ${res.body.uptime_s}s old after ${Math.round(res.ms / 1000)}s `
+        + 'in flight, so the app restarted while this read was open' };
+  }
+  return { read: true, uptime_s: res.body.uptime_s, ms: res.ms,
+    started_at: new Date(Date.now() - res.body.uptime_s * 1000).toISOString() };
+}
+
 /** A digest of the whole response, so a change anywhere shows even if no field below moved. */
 const digest = value => crypto.createHash('sha256')
   .update(JSON.stringify(value, (_k, v) => (v instanceof Object && !Array.isArray(v)
@@ -135,6 +167,18 @@ function handleFor (offer) {
       injury_status: target.injury_status ?? null, practice_status: target.practice_status ?? null,
       active_probability: num(target.active_probability),
       value: num(target.value), adj_ppg: num(target.adj_ppg), ppg: num(target.ppg),
+      // THE UNDAMPED FIELD, and the one to read first. active_probability multiplies
+      // current_week_ppg directly (trade-engine.js:359), but the value everything else
+      // is built on is decisionPpg = 0.25 * currentWeekPpg + 0.75 * rosPpg (:385), and
+      // rosPpg carries no availability term at all (:360, "per game played, the same
+      // basis it has always had"). So availability prices exactly a QUARTER of the
+      // decision value. This field's move is exactly delta_a / a0 — 36% for 0.70 to
+      // 0.95 — for EVERY player alike, with no dependence on his base rates. The move
+      // in adj_ppg is not: it is 0.25*c*da / (0.25*c*a0 + 0.75*r), which is +6.8% when
+      // the current-week base equals the rest-of-season rate and varies per player
+      // either side of that. Read this field first; adj_ppg alone is the effect seen
+      // through an attenuator of 1 + 3r/(c*a0), roughly 3x to 9x across a roster.
+      current_week_ppg: num(target.current_week_ppg),
       ros_ppg: num(target.ros_ppg), floor: num(target.floor), ceiling: num(target.ceiling)
     },
     their_cost: num(offer?.their_cost),
@@ -231,10 +275,14 @@ function pickTargets (rosters) {
   const others = (rosters?.teams ?? []).filter(t => String(t.roster_id) !== mine);
   const all = others.flatMap(t => (t.players ?? []).map(p => ({ ...p, roster_id: t.roster_id })))
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0) || a.id - b.id);
-  const carrying = p => {
-    const i = String(p.injury ?? '').trim().toUpperCase();
-    return i && i !== 'ACTIVE' && i !== 'NORMAL';
-  };
+  // `injury` on this response is a 0/1 FLAG, not a designation string
+  // (trade-engine.js:440 sets it to 1 when the player is in the season-ending set or
+  // carries a non-probable report status). An earlier version of this stringified it
+  // and tested the result for emptiness, so "0" passed and every player looked
+  // injured — which is why the second target came back as simply the next most
+  // valuable player, priced ABOVE the healthy one. Test the flag.
+  const carrying = p => p.injury === 1 || p.injury === true
+    || (typeof p.injury === 'string' && !/^(0|active|normal)?$/i.test(p.injury.trim()));
   const top = all[0] ?? null;
   const hurt = all.find(p => carrying(p) && p.id !== top?.id) ?? null;
   return { top, hurt };
@@ -279,6 +327,15 @@ async function captureLeague (leagueId, forcedTarget, forcedHurt) {
     return out;
   }
   out.handle = handleFor(offer.body);
+  // A 200 is not an answer. The whole point of this capture is the availability
+  // basis, so a response that carries no basis has told us nothing while looking
+  // like a successful read — record that as the failure it is rather than a
+  // handle full of nulls. (A basis of `constants` is a real answer; absent is not.)
+  if (!out.handle.availability_basis && !out.handle.availability_basis_flat) {
+    out.error = 'offer returned 200 but carried no availability basis — '
+      + 'the response shape changed, or this build predates the basis field';
+    return out;
+  }
 
   if (hurt) {
     const hurtOffer = await get(`/api/trades/${leagueId}/offer`
@@ -321,6 +378,15 @@ const flatten = (value, prefix = '') => {
 };
 
 function report (before, after) {
+  // Movement is only attributable to the fit if each capture was answered by
+  // one process. Say so before the numbers rather than under them, because the
+  // numbers are what gets quoted.
+  const notes = [spanWarning(before.process_span, 'the baseline'),
+    spanWarning(after.process_span, 'this capture')].filter(Boolean);
+  if (notes.length) {
+    console.log('\nREAD THE COUNTS BELOW AS UNATTRIBUTED:');
+    for (const note of notes) console.log(`  ${note}`);
+  }
   let moved = 0, same = 0;
   for (const league of after.leagues) {
     const was = before.leagues.find(l => l.league_id === league.league_id);
@@ -404,12 +470,36 @@ How to read the above:
                               drop is expected and partly definitional. Do not quote
                               0.001 as "one in a thousand chance of playing".
 
+  target.current_week_ppg     Where the effect is undamped, so read it before
+                              adj_ppg or value, and it is the CLEAN one: its move is
+                              exactly delta_a / a0, the same for every player, with no
+                              dependence on his base rates. For 0.70 to 0.95 that is
+                              36%, and 36% here is the mechanism working.
+
+                              adj_ppg will move far less and by an amount that varies
+                              per player: 0.25*c*da / (0.25*c*a0 + 0.75*r), which is
+                              +6.8% when the current-week base equals the
+                              rest-of-season rate. Expect single digits; do not
+                              promise which single digit. The decision blend is 0.25
+                              current-week and 0.75 rest-of-season, and only the first
+                              carries an availability term at all, so a percentage
+                              that moved twenty-five points beside a trade value that
+                              moved seven is that weight working as designed.
+
   playoff_odds, horizon_*     Expected to move, and by more than the availability
                               number alone suggests, because the seeded season
                               simulation reads the same tables once per simulated
                               week (season-sim.js:212) on top of the direct read.
                               Expect the odds to RISE where they were depressed by
                               players being priced as less available than they are.
+                              This is the STRONG instrument for detecting the fit.
+                              The sim applies availability per player per remaining
+                              week with no blend, while the trade engine damps it at a
+                              single point by 1 + 3r/(c*a0) — about 5x for a player
+                              whose two base rates are equal, and 3x to 9x across a
+                              roster. So if both readings come
+                              back and only the odds have moved clearly, that is the
+                              expected shape, not a partial failure.
 
   find.*.acceptance           A deal can ACQUIRE or LOSE its acceptance band here
                               with nothing in the counterparty layer having
@@ -458,6 +548,10 @@ const baseline = COMPARE ? JSON.parse(fs.readFileSync(COMPARE, 'utf8')) : null;
 const leagues = baseline ? baseline.leagues.map(l => l.league_id) : LEAGUES;
 const run = { base: BASE, captured_at: new Date().toISOString(), leagues: [] };
 
+// Read the process before and after, not once. One reading names a process; two
+// name whether it stayed the same one for the length of the capture.
+run.process_before = await processIdentity();
+
 for (const id of leagues) {
   const was = baseline?.leagues.find(l => l.league_id === id) ?? null;
   const league = await captureLeague(id, was?.target_id ?? null, was?.injured_target_id ?? null);
@@ -477,6 +571,27 @@ for (const id of leagues) {
         : `; ${league.lineup_error ?? 'no lineup reading'}`)}`);
 }
 
+run.process_after = await processIdentity();
+run.process_span = processSpan(run.process_before, run.process_after);
+
 if (baseline) report(baseline, run);
 if (OUT) { fs.writeFileSync(OUT, JSON.stringify(run, null, 2)); console.log(`\nwritten to ${OUT}`); }
-process.exitCode = run.leagues.every(l => l.error) ? 1 : 0;
+// ANY league failing is a failed run. `every` here meant four of five leagues
+// could fail and the process would still exit 0, which is the same
+// healthy-looking-and-not-working shape this capture exists to catch.
+const failed = run.leagues.filter(l => l.error);
+if (failed.length) {
+  console.error(`\n${failed.length} of ${run.leagues.length} league(s) failed: `
+    + failed.map(l => `${l.league_id} (${l.error})`).join('; '));
+}
+// A capture that spanned a restart is a failed capture even when every league
+// came back 200, because its leagues no longer share a memo state and a later
+// --compare would report the restart as movement. An unknown span is loud but
+// not fatal: the health route can be slow while the offer reads succeed, and
+// refusing there would make the script unusable exactly when it is needed. The
+// verdict is recorded either way, and report() refuses to count movement
+// against a capture whose span is not clean.
+const spanNote = spanWarning(run.process_span, 'this capture');
+if (spanNote) console.error(`\n${spanNote}`);
+const spanned = run.process_span?.known === true && run.process_span.same_process === false;
+process.exitCode = (failed.length || spanned) ? 1 : 0;

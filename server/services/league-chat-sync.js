@@ -100,11 +100,90 @@ export function corpusStats() {
     sentiment_rows: count('manager_player_sentiment'),
     newest_message: null,
   };
+  // `ts_utc`, not `sent_at`. The old query named a column this table has never
+  // had (`extract_league_chat.py:84`), so it threw on every corpus and a bare
+  // catch turned that into `newest_message: null` — the swallowed fault, and
+  // the reason "how old is the chat data" could not be answered from here at
+  // all. A genuinely older corpus with no such column is still tolerated, but
+  // it is reported as a reason rather than as silence.
+  //
+  // The table can also be absent outright — a corpus file that exists (so
+  // this function is past the no-corpus-at-all check above) but was never run
+  // through the one thing in this repo that creates `messages`. That used to
+  // throw into the same catch as a column-read failure, reporting the same
+  // shape for two different problems. `newest_message_state` names which one.
+  const messagesTablePresent = Boolean(
+    db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'messages'`).get());
+  if (!messagesTablePresent) {
+    out.newest_message = null;
+    out.newest_message_state = 'table_absent';
+    out.newest_message_reason = 'messages is not on this corpus database — created only by '
+      + 'scripts/chat/extract_league_chat.py, so a corpus file that exists but was never run through '
+      + 'it has no age to report here. This is not the same as a corpus with zero messages.';
+  } else {
+    try {
+      out.newest_message = isoStamp(db.prepare('SELECT MAX(ts_utc) AS m FROM messages').get()?.m);
+      out.newest_message_state = 'present';
+    } catch (e) {
+      out.newest_message = null;
+      out.newest_message_state = 'read_failed';
+      out.newest_message_error = `messages.ts_utc is not readable on this corpus: ${String(e?.message ?? e)}`;
+    }
+  }
+  // THE BLOCK'S OWN TWO STAMPS, under the block's own names. `as_of` is
+  // MAX(last_msg): the newest message that survived the rollup, as of the last
+  // time the rollup ran. `computed_at` is when that rollup ran. They answer
+  // different questions and `newest_message` above answers a third, which is
+  // why all three are here rather than one being picked as "the" date.
   try {
-    out.newest_message = db.prepare('SELECT MAX(sent_at) AS m FROM messages').get()?.m ?? null;
-  } catch { /* an older corpus without the column reports null rather than failing the page */ }
+    const r = db.prepare('SELECT MAX(last_msg) AS a, MAX(computed_at) AS c FROM manager_chat_profile').get();
+    out.as_of = isoStamp(r?.a);
+    out.computed_at = isoStamp(r?.c);
+  } catch {
+    // A corpus rolled up before `last_msg` existed, or with the table dropped
+    // mid-rebuild. Null here means "the rollup cannot say", which `freshness()`
+    // reports as rollup: 'unknown' rather than as a rollup that is up to date.
+    out.as_of = null;
+    try {
+      out.computed_at = isoStamp(db.prepare('SELECT MAX(computed_at) AS m FROM manager_chat_profile').get()?.m);
+    } catch { out.computed_at = null; }
+  }
+  out.rows = out.managers ?? 0;
+  out.path_source = process.env.GRIDIRON_CHAT_DB_PATH ? 'GRIDIRON_CHAT_DB_PATH' : 'default';
+  out.collected_by = CHAT_COLLECTOR;
+  out.reason = out.messages ? null : `the chat corpus at ${file} is here but has no messages in it`;
   db.close();
   return out;
+}
+
+/**
+ * Who puts the corpus here. Carried in every state, because "the rollup is
+ * behind" and "there is nothing here" are both dead ends without it.
+ */
+export const CHAT_COLLECTOR =
+  'the league_chat step of scripts/refresh-live-data.mjs (off-server; --rollup rebuilds the profiles)';
+
+/**
+ * Every stamp the chat side serves, in ISO 8601 UTC.
+ *
+ * The extractor now writes ISO, but a corpus pulled before that change carries
+ * SQLite's `YYYY-MM-DD HH:MM:SS`, and those two do not sort against each other
+ * (`T` is 0x54, space is 0x20, so any ISO row beats every legacy row whatever
+ * its date). Normalising on the way out is what lets one card carry chat's
+ * `as_of` beside the transactions' and the archetype build's, both of which are
+ * `new Date().toISOString()`.
+ *
+ * Unparseable input returns null rather than a guess: a wrong date on a
+ * freshness badge is worse than no date.
+ */
+export function isoStamp(value) {
+  if (value == null || value === '') return null;
+  const raw = String(value).trim();
+  const iso = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/.test(raw)
+    ? `${raw.replace(' ', 'T').replace(/(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/, '')}Z`
+    : raw;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? new Date(ms).toISOString().replace(/\.000Z$/, 'Z') : null;
 }
 
 /**
@@ -115,27 +194,145 @@ export function corpusStats() {
  * week and it working from last week's mood. `fresh` is the only state where
  * the trade cards can be taken at face value without a second thought.
  */
-export function freshness(stats, pull) {
-  if (!stats || !stats.messages) {
-    return { state: 'absent', label: 'No chat data',
-      note: 'Every ladder is priced on our numbers only — the counterparty half of the Trade Brain is off.' };
+export function freshness(state, pull) {
+  // EVERY FACT BELOW COMES OUT OF `state`. Nothing here resolves a path, opens
+  // a database or counts a row: `chatCorpusState()` in manager-signals.js is
+  // the one reader of the corpus's condition, and a second reader that
+  // disagreed with it would be worse than no badge at all. `corpusStats()` in
+  // this file produces the same shape locally until that function lands on
+  // this branch. The only lookup left is the last-resort path for a caller
+  // that passed nothing, which is not a state the app reaches.
+  const age = isoStamp(state?.newest_message ?? state?.as_of ?? null);
+  const rolledUp = isoStamp(state?.computed_at ?? null);
+  const seenByRollup = isoStamp(state?.as_of ?? null);
+  // WHETHER THERE IS CHAT DATA IS A QUESTION ABOUT MESSAGES, not about
+  // profiles. `corpusStats()` counts both and its message count is the
+  // authority; the block counts only profiles, where rows > 0 can only come
+  // from messages having been there. Reading `rows` first got this backwards
+  // in both directions: a corpus whose profile table is unreadable reported as
+  // having nothing in it, and a leftover profile row over zero messages
+  // reported as having something.
+  const rows = state?.rows ?? 0;
+  const hasData = state?.messages != null ? state.messages > 0 : rows > 0;
+  const where = state?.path ?? chatDbPath();
+  const collected_by = state?.collected_by ?? null;
+
+  // Provenance, never an age. The rollup stamp says when the profiles were
+  // rebuilt and the pull stamp says when this machine last ran the extractor;
+  // neither is how old the conversation is, and both can be newer than the
+  // newest message by days.
+  const provenance = pull?.finished_at
+    ? `pulled on this machine ${isoStamp(pull.finished_at)}`
+    : (age || hasData ? 'uploaded, not pulled here' : null);
+
+  // HOW FAR BEHIND THE ROLLUP IS, as its own fact. `as_of` is the newest
+  // message the rollup has seen; `newest_message` is the newest message there
+  // is. `rollup()` runs only under --rollup and its base CTE drops messages
+  // with no sender name and no text, so the two part company routinely. Folded
+  // into the age, a three-day-old rollup over a corpus someone texted in an
+  // hour ago reads as a dead league — the wrong fix, on a true-looking badge.
+  let rollup = 'current';
+  if (!rows && !seenByRollup) rollup = 'missing';
+  else if (!seenByRollup) rollup = 'unknown';
+  else if (age && Date.parse(seenByRollup) < Date.parse(age) - 6e4) rollup = 'behind';
+  const rollupNote = {
+    missing: 'The messages are here but the rollup has never run over them, so there are no manager '
+      + `profiles and the counterparty read is off. Re-run ${collected_by ?? 'the league_chat refresh step'}.`,
+    unknown: 'The profiles exist but cannot say which message they last saw, so how far behind they are '
+      + 'is not knowable from this corpus.',
+    behind: seenByRollup
+      ? `The profiles were last built over messages up to ${seenByRollup}, so anything said since then is `
+        + 'in the corpus but not yet in the counterparty read.'
+      : '',
+    current: '',
+  }[rollup];
+
+  const carried = state?.reason ? ` ${state.reason}.` : '';
+  const shared = { as_of: null, provenance: null, rollup, collected_by, path: where };
+
+  if (!age && !hasData) {
+    // "Not on this machine", not "not pulled recently". The corpus comes out of
+    // Apple Messages via a script that needs a Mac and Full Disk Access, so on
+    // the deployed box this state is permanent and correct, and a reader who
+    // takes it for a broken sync goes looking for a server job that does not
+    // and should not exist. It can still be uploaded here, which is the half a
+    // "cannot be produced here" sentence leaves out. The block's own reason is
+    // carried word for word: it is what distinguishes a mistyped
+    // GRIDIRON_CHAT_DB_PATH from a machine that genuinely has no corpus, and a
+    // sentence written here instead would throw that distinction away.
+    const source = state?.path_source
+      ? ` The path came from ${state.path_source === 'default' ? 'the in-repo default' : state.path_source}.`
+      : '';
+    return { ...shared, state: 'absent', label: 'No chat data here',
+      note: `Nothing at ${where}.${carried}${source} The corpus is extracted from Apple Messages on the Mac `
+        + 'and cannot be produced on this machine — pull it there and upload it. Until then every ladder is '
+        + 'priced on our numbers only, and the counterparty half of the Trade Brain is off.' };
   }
-  const at = pull?.finished_at ? Date.parse(pull.finished_at) : null;
-  if (!at) return { state: 'unknown', label: 'Never pulled from here', note: 'The corpus was uploaded, not pulled on this machine.' };
-  const hours = (Date.now() - at) / 3.6e6;
-  if (hours < 12) return { state: 'fresh', label: 'Up to date', note: null };
-  if (hours < 48) return { state: 'aging', label: `${Math.round(hours)} hours old`,
-    note: 'Still usable. Pull before acting on a timing read.' };
-  return { state: 'stale', label: `${Math.round(hours / 24)} days old`,
-    note: 'Sentiment and timing reads are from before this week. Pull from the laptop.' };
+  if (!age) {
+    // Messages exist and none of them can be dated. Rare, and genuinely
+    // unknown: reporting it as fresh or stale would be inventing an answer.
+    return { ...shared, state: 'unknown', label: 'Chat data of unknown age', provenance,
+      note: state?.newest_message_error
+        ?? (state?.reason ? state.reason : 'The corpus has messages but no readable timestamp on any of them.') };
+  }
+
+  const hours = (Date.now() - Date.parse(age)) / 3.6e6;
+  const rolled = rolledUp ? ` Profiles rebuilt ${rolledUp}.` : '';
+  const said = `Newest message ${age}${provenance ? ` (${provenance})` : ''}.${rolled}`
+    + `${rollupNote ? ` ${rollupNote}` : ''}${carried}`;
+  const dated = { ...shared, as_of: age, provenance };
+  if (hours < 12) return { ...dated, state: 'fresh', label: 'Up to date', note: said };
+  if (hours < 48) {
+    return { ...dated, state: 'aging', label: `${Math.round(hours)} hours old`,
+      note: `${said} Still usable. Pull before acting on a timing read.` };
+  }
+  return { ...dated, state: 'stale', label: `${Math.round(hours / 24)} days old`,
+    note: `${said} Sentiment and timing reads are from before this week. Pull from the laptop.` };
 }
 
-/** Everything the panel needs, in one call, from any machine. */
+/**
+ * Which client state each upstream state becomes.
+ *
+ * The client types `state` as a closed union and colours off it
+ * (`LeagueChatPull.tsx`), so the states the corpus can actually be in are
+ * mapped onto it here rather than being widened. Written down because a
+ * mapping that lives only in the branches above is folklore: the next person
+ * to add a state has to be able to see what it should collapse to.
+ *
+ * `no_path_configured` is gone. `chatDbPath()` always returns a string — the
+ * environment variable or the in-repo default — so it was a state nothing
+ * could reach, and mapping it was a claim about behaviour that never ran.
+ * `path_source` carries the distinction that does exist.
+ *
+ * `present_but_not_rolled_up` is new, and was the one collapsing wrongly:
+ * messages on disk with no manager profiles is chat data, dated, with the
+ * counterparty read off — not an absent corpus, and the fix is a flag on a
+ * script rather than a trip to the Mac.
+ */
+export const STATE_MAPPING = Object.freeze({
+  file_not_on_this_machine: 'absent',
+  present_but_no_messages: 'absent',
+  present_but_not_rolled_up: 'fresh | aging | stale, by the newest message, with rollup: missing',
+  present_but_undatable: 'unknown',
+  present_and_dated: 'fresh | aging | stale, by the age of the newest message',
+  rolled_up_behind_the_corpus: 'the age is unaffected; reported as rollup: behind',
+});
+
+/**
+ * Everything the panel needs, in one call, from any machine.
+ *
+ * `path` is at the top level, not only inside `corpus`, because the case that
+ * needs it most is the one where `corpus` is null: on a box with no file there
+ * is nothing else to say, and "we looked here" is the whole answer. It was
+ * assembled inside `corpusStats()` and read by nothing, which meant the absent
+ * state was the one state that said least.
+ */
 export function status() {
   const stats = corpusStats();
   const pull = lastPull();
   return {
     capability: extractionCapability(),
+    path: chatDbPath(),
     corpus: stats,
     last_pull: pull,
     freshness: freshness(stats, pull),

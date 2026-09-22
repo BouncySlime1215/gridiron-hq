@@ -5,33 +5,38 @@ import { PageLoading, PageError } from '../PageState';
  * "Does our projection beat the dumb rule?" — the standing start/sit gate (plan item C12).
  *
  * Reads GET /api/gates/start-sit (server/services/gates/start-sit-gate.js), which the
- * weekly start_sit_gate job stores. Every number, every threshold and every sentence of
- * basis comes from that response; nothing here restates a constant. The verdict is shown
- * whichever way it lands, and every week our projection lost is listed, never trimmed.
+ * weekly start_sit_gate job stores. DIRECTION ONLY (standing rule 3): sizes and rates
+ * measured on a replay do not carry over to a live lineup, so the panel says which way
+ * each result points and never by how much. The route still serves the full evidence
+ * for the Auditor; this component reads only the verdict, each window's `direction`,
+ * the failing weeks' season and week, and the sentences of basis. Every failing week is
+ * listed, never trimmed.
  */
 
-type Interval = [number, number] | null;
+interface WeekRow { season: number; week: number }
 
-interface WeekRow { season: number; week: number; n: number; win_rate: number | null; points_per_decision: number | null }
+type Direction = 'ours_ahead' | 'dumb_ahead' | 'even' | 'no_disagreements' | 'not_available';
+
+interface Arm { status?: string; reason?: string; direction?: Direction; baseline?: string }
+
+interface ServedWeek {
+  week: number; captured_at: string | null; replay_champion: string | null;
+  same_weights: boolean; served_before_k_fit: boolean | null;
+}
 
 interface GateWindow {
-  status?: string; reason?: string;
+  status?: string; reason?: string; label?: string;
   season?: number; seasons?: number[]; weeks?: [number, number];
-  n?: number; pairs?: number; agreement_share?: number | null;
-  win_rate?: number | null; points_per_decision?: number | null;
-  ci90?: { player?: { points?: Interval; win_rate?: Interval }; week?: { points?: Interval; clusters?: number } };
-  mde80?: { points: number | null; win_rate: number | null };
-  pair_accuracy?: { policy: number | null; baseline: number | null };
+  direction?: Direction;
   failing_weeks?: WeekRow[];
+  served?: { label?: string; weeks?: ServedWeek[]; vs_average?: Arm; vs_espn?: Arm };
 }
 
 interface GateResult {
   status: string; reason?: string; stored_at?: string;
   verdict?: string;
-  policy?: string; baseline?: string; universe?: string; scoring?: string;
-  sign_convention?: string; replay_caveat?: string;
+  policy?: string; baseline?: string; universe?: string; scoring?: string; replay_caveat?: string;
   past?: GateWindow; forward?: GateWindow;
-  configuration?: { k_control?: { season: number; target_share_k: number }[] };
 }
 
 const VERDICT: Record<string, { label: string; chip: string; say: string }> = {
@@ -51,10 +56,33 @@ const VERDICT: Record<string, { label: string; chip: string; say: string }> = {
     say: 'The weekly gate job has not stored a result yet.' },
 };
 
-const pct = (v: number | null | undefined) => (v == null || !Number.isFinite(v) ? '—' : `${(v * 100).toFixed(1)}%`);
-const pts = (v: number | null | undefined) =>
-  (v == null || !Number.isFinite(v) ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}`);
-const range = (ci: Interval | undefined, f: (v: number) => string) => (ci ? `${f(ci[0])} to ${f(ci[1])}` : 'not computable');
+/** One direction in words, naming whose pick it was. */
+const DIRECTION: Record<Direction, (dumb: string) => string> = {
+  ours_ahead: () => 'our pick scored more',
+  dumb_ahead: dumb => `${dumb}'s pick scored more`,
+  even: () => 'dead even',
+  no_disagreements: () => 'they never disagreed',
+  not_available: () => 'not available yet',
+};
+const say = (arm: Arm | GateWindow | undefined, dumb: string) => {
+  if (!arm?.direction) return 'not available yet';
+  if (arm.direction === 'not_available' && arm.reason) return `not available yet (${arm.reason})`;
+  return DIRECTION[arm.direction](dumb);
+};
+
+/** The past window in words, from the pre-registered verdict and the direction of the pooled grade. */
+function pastSentence(verdict: string | undefined, past: GateWindow): string {
+  if (verdict === 'beats_dumb' || verdict === 'beats_dumb_unconfirmed_forward') {
+    return 'where the two disagreed, our pick scored more, and it held up under the test set before the run.';
+  }
+  if (verdict === 'loses_to_dumb') return 'where the two disagreed, the average\'s pick scored more, clearly.';
+  if (verdict === 'no_disagreements') return 'the two never disagreed.';
+  if (verdict === 'instrument_fault') return 'these weeks could not be graded.';
+  if (past.direction === 'ours_ahead') return 'our pick scored a little more, but not by enough to be sure.';
+  if (past.direction === 'dumb_ahead') return 'the average\'s pick scored a little more, but not by enough to be sure.';
+  return 'too close to call.';
+}
+
 const weeksLabel = (w?: [number, number]) => (w ? (w[0] === w[1] ? `week ${w[0]}` : `weeks ${w[0]}-${w[1]}`) : '');
 
 export default function StartSitGate() {
@@ -84,8 +112,11 @@ function Body({ data, loading, error, onRetry }: {
   const v = VERDICT[data.verdict ?? ''] ?? { label: data.verdict ?? '—', chip: 'bg-slate-100 text-slate-700 ring-slate-200', say: '' };
   const past = data.past ?? {};
   const fwd = data.forward ?? {};
+  const served = fwd.served;
   const failing = past.failing_weeks ?? [];
   const passed = data.verdict === 'beats_dumb';
+  // Forward weeks the app served on different settings from today's replay, and why.
+  const differs = (served?.weeks ?? []).filter(w => w.served_before_k_fit || !w.same_weights);
 
   return (
     <>
@@ -97,43 +128,53 @@ function Body({ data, loading, error, onRetry }: {
       </div>
 
       <p className="mt-3 text-sm leading-6 text-slate-700">
-        In {past.seasons?.join(' and ')} ({weeksLabel(past.weeks)}), our projection and the dumb rule disagreed on{' '}
-        <b className="text-slate-950">{past.n ?? 0}</b> of {past.pairs ?? 0} startable pairs. Our pick scored more{' '}
-        <b className="text-slate-950">{pct(past.win_rate)}</b> of the time (90% range{' '}
-        {range(past.ci90?.player?.win_rate, pct)}), and{' '}
-        <b className="text-slate-950">{pts(past.points_per_decision)}</b> points per disagreement (90% range{' '}
-        {range(past.ci90?.player?.points, pts)} across players; {range(past.ci90?.week?.points, pts)} across weeks).
+        <b className="text-slate-950">Past seasons</b> ({past.seasons?.join(' and ')}, {weeksLabel(past.weeks)}):{' '}
+        {pastSentence(data.verdict, past)}
       </p>
 
-      <p className="mt-2 text-sm leading-6 text-slate-700">
-        {fwd.status
-          ? `This season: ${fwd.reason ?? 'not available yet'}.`
-          : `This season (${fwd.season}, ${weeksLabel(fwd.weeks)}): ${fwd.n ?? 0} disagreements, `
-            + `our pick ${pts(fwd.points_per_decision)} points per disagreement, `
-            + `${pct(fwd.win_rate)} won.`}
-      </p>
+      {fwd.status ? (
+        <p className="mt-2 text-sm leading-6 text-slate-700">This season: {fwd.reason ?? 'not available yet'}.</p>
+      ) : (
+        <div className="mt-2 space-y-1 text-sm leading-6 text-slate-700">
+          <p>
+            <b className="text-slate-950">This season</b> ({fwd.season}, {weeksLabel(fwd.weeks)}), today's model replayed:{' '}
+            {say(fwd, 'the average')}.
+          </p>
+          {served && (
+            <p>
+              What the app actually served that week: against the average, {say(served.vs_average, 'the average')};
+              against ESPN's projection (the literal "start the highest projection"), {say(served.vs_espn, 'ESPN')}.
+            </p>
+          )}
+          {differs.map(w => (
+            <p key={w.week} className="text-xs leading-5 text-slate-500">
+              The week {w.week} projection was served before today's model settings existed
+              ({[w.served_before_k_fit ? 'the fitted volume numbers' : null, !w.same_weights ? 'different blend weights' : null]
+                .filter(Boolean).join(', ')}), so what the app served and today's replay are not the same projection.
+            </p>
+          ))}
+          <p className="text-xs leading-5 text-slate-500">Few weeks so far: this season shows direction, not proof.</p>
+        </div>
+      )}
 
-      {!passed && past.mde80 && (
+      {!passed && (
         <p className="mt-2 text-xs leading-5 text-slate-500">
-          The smallest edge these weeks could reliably detect is {pts(past.mde80.points)} points per disagreement
-          ({pct(past.mde80.win_rate)} of win rate). A smaller real edge would not show up here, so "no proven edge"
-          is not the same as "no edge".
+          "No proven edge" is not the same as "no edge": these weeks may be too few to show a small one.
         </p>
       )}
 
       <div className="mt-3">
         <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">
-          Weeks our projection lost ({failing.length})
+          Weeks our projection lost
         </div>
         {failing.length === 0 ? (
           <p className="mt-1 text-xs text-slate-500">None: our pick outscored the dumb rule's pick in every graded week.</p>
         ) : (
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {failing.map(w => (
-              <span key={`${w.season}-${w.week}`}
-                className="whitespace-nowrap rounded-md bg-rose-50 px-2 py-0.5 font-mono text-[11px] tabular-nums text-rose-800 ring-1 ring-rose-200"
-                title={`${w.n} disagreements, ${pct(w.win_rate)} won`}>
-                {w.season} W{w.week} {pts(w.points_per_decision)}
+              <span key={`${w.season}-${w.week}`} data-failing-week={`${w.season}-${w.week}`}
+                className="whitespace-nowrap rounded-md bg-rose-50 px-2 py-0.5 font-mono text-[11px] tabular-nums text-rose-800 ring-1 ring-rose-200">
+                {w.season} W{w.week}
               </span>
             ))}
           </div>
@@ -145,11 +186,15 @@ function Body({ data, loading, error, onRetry }: {
         <dl className="mt-2 space-y-1.5">
           <div><dt className="inline font-semibold text-slate-600">Ours: </dt><dd className="inline">{data.policy}</dd></div>
           <div><dt className="inline font-semibold text-slate-600">Dumb rule: </dt><dd className="inline">{data.baseline}</dd></div>
+          {served?.vs_espn?.baseline && (
+            <div><dt className="inline font-semibold text-slate-600">Literal rule: </dt><dd className="inline">{served.vs_espn.baseline}</dd></div>
+          )}
+          {fwd.label && <div><dt className="inline font-semibold text-slate-600">This season, replayed: </dt><dd className="inline">{fwd.label}</dd></div>}
+          {served?.label && <div><dt className="inline font-semibold text-slate-600">This season, served: </dt><dd className="inline">{served.label}</dd></div>}
           <div><dt className="inline font-semibold text-slate-600">Which calls: </dt><dd className="inline">{data.universe}</dd></div>
           <div><dt className="inline font-semibold text-slate-600">Scoring: </dt><dd className="inline">{data.scoring}</dd></div>
-          <div><dt className="inline font-semibold text-slate-600">Reading the numbers: </dt><dd className="inline">{data.sign_convention}</dd></div>
-          <div><dt className="inline font-semibold text-slate-600">Pick accuracy on all pairs: </dt>
-            <dd className="inline">ours {pct(past.pair_accuracy?.policy)}, dumb rule {pct(past.pair_accuracy?.baseline)}</dd></div>
+          <div><dt className="inline font-semibold text-slate-600">Why no numbers: </dt>
+            <dd className="inline">sizes measured on a replay do not carry over to your live lineups, so this panel shows only which way each result points.</dd></div>
           {data.replay_caveat && <div><dt className="inline font-semibold text-slate-600">Limit: </dt><dd className="inline">{data.replay_caveat}</dd></div>}
           {data.stored_at && <div><dt className="inline font-semibold text-slate-600">Measured: </dt><dd className="inline">{data.stored_at} UTC</dd></div>}
         </dl>

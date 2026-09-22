@@ -2,42 +2,134 @@
  * Which bare catches sit over a SQL read, and of which table.
  *
  * Read-only. It reports candidates and decides nothing: a bare catch over a
- * read of a table that no migration creates is the shape of the bug this
- * repository has now shipped three times, not proof of one.
- *
- * STRIPS COMMENTS FIRST. The naive version matched `FROM` in English prose —
- * this repo's comments are long and say things like "read from the store" — and
- * reported `the`, `this`, `node` and `python` as tables. A scan that cannot
- * tell a comment from a query cannot enumerate anything.
+ * read of a table that no migration creates is the SHAPE of the bug this
+ * repository has now shipped three times, not proof of a fourth.
  *
  *   node scripts/swallow-scan.mjs [root=server]
+ *
+ * Three things it has to get right, each of which it got wrong first:
+ *
+ *  - A COMMENT IS NOT A QUERY. The naive version matched `FROM` in English
+ *    prose — this repo's comments are long and say "read from the store" — and
+ *    reported `the`, `this`, `node` and `python` as tables.
+ *  - THE TRY IT MATCHES MUST BE THE TRY THAT MATCHES. A line scan for the
+ *    nearest preceding `try` is stolen by a closed inner `try {} catch {}`, in
+ *    one direction losing the read and in the other charging an inner catch's
+ *    read to the outer one. So the block is found by matching braces, and a
+ *    read belongs to the INNERMOST try that contains it.
+ *  - NO FIXED LOOKBACK. The real maximum span between `try` and `catch` in
+ *    server/ is 122 lines. A cap makes the scan incomplete, not cheap, and an
+ *    enumeration that reports fewer sites than exist is worse than none.
+ *
+ * Known blind spot, deliberately left open and stated rather than papered over:
+ * a query built by concatenation or interpolation (`'SELECT … FROM ' + table`,
+ * `FROM ${table}`) has no literal table name to find, so this scan cannot see
+ * it. counterparty-pricing.js:922 was exactly that shape. Every site this
+ * reports is real; the set it reports is a floor, not a total.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** Remove // and block comments without touching string contents. */
-export function stripComments(src) {
-  let out = '', i = 0, state = 'code', quote = '';
+const REGEX_OK_AFTER = new Set(['return', 'typeof', 'case', 'in', 'of', 'do', 'else',
+  'void', 'delete', 'instanceof', 'new', 'yield', 'await']);
+
+/**
+ * `src` with every comment, string body and regex literal blanked to spaces,
+ * newlines kept so line numbers survive, plus the span of each string body.
+ *
+ * The blanking is what makes brace matching trustworthy: `/^[a-z_]{1,64}$/`
+ * and a template literal holding `${a ? `(${b})` : ''}` both carry braces that
+ * are not code, and counting them would put every try block after them in the
+ * wrong place.
+ */
+export function mask(src) {
+  const out = new Array(src.length);
+  const strings = [];
+  const blank = (from, to) => {
+    for (let k = from; k < to && k < src.length; k++) out[k] = src[k] === '\n' ? '\n' : ' ';
+  };
+  // A stack, because `${…}` inside a template literal is code, and that code
+  // may open another template literal. This repo does that on several lines.
+  const stack = [{ kind: 'code', depth: 0 }];
+  let i = 0, prevChar = '', word = '', prevWord = '';
+  const regexAllowed = () => prevChar === '' || '(,=:[!&|?+-*%~^;{}'.includes(prevChar)
+    || REGEX_OK_AFTER.has(prevWord);
+
   while (i < src.length) {
+    const top = stack[stack.length - 1];
     const c = src[i], d = src[i + 1];
-    if (state === 'code') {
-      if (c === '/' && d === '/') { state = 'line'; out += ' '; i += 2; continue; }
-      if (c === '/' && d === '*') { state = 'block'; out += ' '; i += 2; continue; }
-      if (c === '"' || c === "'" || c === '`') { state = 'str'; quote = c; out += c; i++; continue; }
-      out += c; i++; continue;
+
+    if (top.kind === 'template') {
+      if (c === '\\') { blank(i, i + 2); i += 2; continue; }
+      if (c === '`') {
+        strings.push({ start: top.start, end: i, value: src.slice(top.start, i) });
+        stack.pop(); blank(i, i + 1); i++; continue;
+      }
+      if (c === '$' && d === '{') {
+        blank(i, i + 2); i += 2; stack.push({ kind: 'code', depth: 0 });
+        prevChar = '{'; prevWord = ''; continue;
+      }
+      blank(i, i + 1); i++; continue;
     }
-    if (state === 'line') { if (c === '\n') { state = 'code'; out += '\n'; } i++; continue; }
-    if (state === 'block') {
-      if (c === '*' && d === '/') { state = 'code'; i += 2; continue; }
-      out += c === '\n' ? '\n' : ' '; i++; continue;
+
+    if (c === '/' && d === '/') { const s = i; while (i < src.length && src[i] !== '\n') i++; blank(s, i); continue; }
+    if (c === '/' && d === '*') {
+      const s = i; i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++;
+      i = Math.min(i + 2, src.length); blank(s, i); continue;
     }
-    if (state === 'str') {
-      if (c === '\\') { out += c + (d ?? ''); i += 2; continue; }
-      if (c === quote) { state = 'code'; }
-      out += c; i++; continue;
+    if (c === '/' && regexAllowed()) {
+      const s = i; i++;
+      let inClass = false;
+      while (i < src.length && src[i] !== '\n') {
+        const ch = src[i];
+        if (ch === '\\') { i += 2; continue; }
+        if (ch === '[') inClass = true;
+        else if (ch === ']') inClass = false;
+        else if (ch === '/' && !inClass) break;
+        i++;
+      }
+      i++;
+      while (i < src.length && /[dgimsuvy]/.test(src[i])) i++;
+      blank(s, i); prevChar = '/'; prevWord = ''; continue;
     }
+    if (c === '"' || c === "'") {
+      const s = i; i++;
+      const body = i;
+      while (i < src.length && src[i] !== c) { if (src[i] === '\\') i++; i++; }
+      strings.push({ start: body, end: i, value: src.slice(body, i) });
+      i++; blank(s, i); prevChar = c; prevWord = ''; continue;
+    }
+    if (c === '`') { blank(i, i + 1); i++; stack.push({ kind: 'template', start: i }); continue; }
+
+    if (c === '{') top.depth++;
+    else if (c === '}') {
+      // The `}` that closes a `${…}` returns us to the template it opened in.
+      if (top.depth === 0 && stack.length > 1) { stack.pop(); blank(i, i + 1); i++; continue; }
+      top.depth--;
+    }
+    out[i] = c;
+    if (!/\s/.test(c)) prevChar = c;
+    if (/[A-Za-z0-9_$]/.test(c)) word += c;
+    else { if (word) prevWord = word; word = ''; }
+    i++;
   }
-  return out;
+  return { masked: out.map(ch => ch ?? ' ').join(''), strings };
+}
+
+/** Every `try { … }` in masked source, as the span between its own braces. */
+export function tryBlocks(masked) {
+  const blocks = [];
+  for (const m of masked.matchAll(/\btry\s*\{/g)) {
+    const open = m.index + m[0].length - 1;
+    let depth = 0, j = open;
+    for (; j < masked.length; j++) {
+      if (masked[j] === '{') depth++;
+      else if (masked[j] === '}' && --depth === 0) break;
+    }
+    if (depth === 0 && j < masked.length) blocks.push({ open, close: j });
+  }
+  return blocks;
 }
 
 /** Table names any SQL in `text` reads or writes, lowercased, deduplicated. */
@@ -49,28 +141,28 @@ export function tablesIn(text) {
 
 /**
  * Every bare `catch {}` in `src` that sits over a SQL read, with the tables it
- * would swallow a fault from.
+ * would swallow a fault from, and the 1-based line of the `catch`.
+ *
+ * A read is charged to the innermost `try` that contains it and to that one
+ * only, so the count is a count of sites somebody can go and fix.
  */
 export function scanSource(src) {
-  const lines = stripComments(src).split('\n');
+  const { masked, strings } = mask(src);
+  const blocks = tryBlocks(masked);
   const hits = [];
-  for (let i = 0; i < lines.length; i++) {
-    if (!/catch\s*\{/.test(lines[i])) continue;
-    // From the NEAREST preceding `try`, not a fixed window: a 12-line lookback
-    // swept in the SQL of an earlier try block and attributed it to this catch.
-    let start = -1;
-    for (let j = i; j >= Math.max(0, i - 25); j--) if (/\btry\s*\{/.test(lines[j])) { start = j; break; }
-    if (start < 0) continue;
-    const block = lines.slice(start, i + 1).join('\n');
-    // `import x from 'node:fs'` is not a SQL read, and matching it reported
-    // `node` and `python` as tables. Only count FROM/JOIN/INTO/UPDATE that sit
-    // inside a quoted string — every query in this repo is one.
-    const sql = [...block.matchAll(/`([^`]*)`|'([^']*)'|"([^"]*)"/g)]
-      .map(m => m[1] ?? m[2] ?? m[3]).join('\n');
-    const tables = tablesIn(sql);
-    if (tables.length) hits.push({ line: i + 1, tables });
+  for (const b of blocks) {
+    const after = /^\s*catch\s*\{/.exec(masked.slice(b.close + 1));
+    if (!after) continue;                       // `catch (e)`, `finally`, or neither
+    const inner = strings.filter(s => s.start > b.open && s.end <= b.close
+      // innermost: no other try block sits between this one and the string
+      && !blocks.some(o => o.open > b.open && o.close <= b.close
+        && s.start > o.open && s.end <= o.close));
+    const tables = tablesIn(inner.map(s => s.value).join('\n'));
+    if (!tables.length) continue;
+    const catchAt = b.close + 1 + after[0].indexOf('catch');
+    hits.push({ line: masked.slice(0, catchAt).split('\n').length, tables });
   }
-  return hits;
+  return hits.sort((a, b) => a.line - b.line);
 }
 
 /** Every table name a CREATE TABLE under `dirs` brings into being. */
@@ -78,9 +170,12 @@ export function migratedTables(dirs) {
   const names = new Set();
   for (const dir of dirs) {
     for (const f of jsFiles(dir)) {
-      const src = stripComments(readFileSync(f, 'utf8'));
-      for (const m of src.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"']?([a-z_][a-z_0-9]*)/gi)) {
-        names.add(m[1].toLowerCase());
+      const { masked, strings } = mask(readFileSync(f, 'utf8'));
+      void masked;
+      for (const s of strings) {
+        for (const m of s.value.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"']?([a-z_][a-z_0-9]*)/gi)) {
+          names.add(m[1].toLowerCase());
+        }
       }
     }
   }
@@ -109,7 +204,7 @@ function main(root) {
   }
   const risky = hits.filter(h => h.unmigrated.length);
   console.log(`tables a migration or schema file creates: ${migrated.size}`);
-  console.log(`bare catches over a real SQL read: ${hits.length}`);
+  console.log(`bare catches over a literal SQL read: ${hits.length}`);
   console.log(`  of those, reading a table with NO migration: ${risky.length}\n`);
   for (const h of risky) console.log(`${h.file}:${h.line}  ${h.unmigrated.join(', ')}`);
 }

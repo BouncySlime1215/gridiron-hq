@@ -72,12 +72,25 @@ test('the generated inventory is a real inventory, not an empty shell', () => {
     `expected a substantial row set, got ${json.rows?.length ?? 'none'}. `
     + 'A generator that writes an empty file passes a mere existence check.');
   // Every row carries a legal status and evidence-or-reason. That is what
-  // `--check` enforces; asserting it here means the WRITTEN artifact is
+  // `--check` enforces; asserting it on the WRITTEN artifact means the file is
   // checked, not just the in-memory rows the gate happened to look at.
-  const statuses = new Set(json.rows.map(r => r.status));
-  for (const s of statuses) {
-    assert.match(s, /^(wired|half_done|dead_or_stale|silently_broken|phantom_table|unclassified)$/,
-      `illegal status "${s}" in the written artifact`);
+  const LEGAL = new Set(['wired', 'half_done', 'dead', 'silently_broken',
+    'referenced_but_never_created', 'unclassified']);
+  for (const r of json.rows) {
+    // A BLANK status is legal on a model row and only there. Model rows are
+    // emitted ungraded on purpose so the model-evidence audit thread grades
+    // them — nobody grades their own rows. Asserting that here is the point:
+    // "blank" leaking onto a non-model row would be the inventory quietly
+    // declining to judge something it is supposed to judge, which reads
+    // identically to a clean run.
+    if (!r.status) {
+      assert.equal(r.kind, 'model',
+        `row ${r.id} (kind ${r.kind}) was written with a blank status. Blank is `
+        + 'reserved for model rows, which are left for the audit thread to grade.');
+      continue;
+    }
+    assert.ok(LEGAL.has(r.status),
+      `illegal status "${r.status}" on row ${r.id} in the written artifact`);
   }
   for (const r of json.rows) {
     assert.ok(r.evidence || r.reason,

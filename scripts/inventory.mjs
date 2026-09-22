@@ -42,7 +42,7 @@
  *                  grades their own rows.
  *   unclassified   the generator could not defend any of the above; carries a reason.
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, mkdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,8 +52,21 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MAP = path.join(ROOT, 'docs/wiring/wiring-map.json');
 const OVERLAY = path.join(ROOT, 'docs/inventory/evidence-overlay.json');
 const AUDIT = path.join(ROOT, 'docs/inventory/model-audit-rows-654ff93.json');
-const OUT_JSON = path.join(ROOT, 'docs/inventory/inventory.json');
-const OUT_MD = path.join(ROOT, 'docs/inventory/INVENTORY.md');
+// `--out <dir>` writes the pair somewhere else, the way scripts/wiring-map.mjs
+// already allows. Without it the only way to exercise this generator was to let
+// it overwrite the committed artifacts, which dirties the tree mid-suite — and
+// an unstaged write is invisible to a `git write-tree` guard, because that
+// hashes the index. So "run the generator" and "keep the tree clean" were
+// mutually exclusive, and the generator went untested.
+const OUT_DIR = (() => {
+  const i = process.argv.indexOf('--out');
+  const next = i === -1 ? null : process.argv[i + 1];
+  return next && !next.startsWith('--')
+    ? path.resolve(ROOT, next)
+    : path.join(ROOT, 'docs/inventory');
+})();
+const OUT_JSON = path.join(OUT_DIR, 'inventory.json');
+const OUT_MD = path.join(OUT_DIR, 'INVENTORY.md');
 
 const STATUSES = ['wired', 'half_done', 'dead', 'silently_broken', 'decoration'];
 // A table can carry one status the five do not cover. A "phantom" table is named in SQL
@@ -745,6 +758,7 @@ const doc = { generated_by: 'scripts/inventory.mjs', generated_at: new Date().to
   from_map: map.generated_at, commit: meta.commit,
   local_db: { readable: local.readable, path: path.relative(ROOT, local.dbPath), tables: local.tables, non_empty: local.nonEmpty },
   counts: tally(rows), rows };
+mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(OUT_JSON, JSON.stringify(doc, null, 2) + '\n');
 writeFileSync(OUT_MD, renderMd(rows, meta));
 console.log(`wrote ${path.relative(ROOT, OUT_JSON)} and ${path.relative(ROOT, OUT_MD)}: ${rows.length} rows`);

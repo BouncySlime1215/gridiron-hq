@@ -1,0 +1,90 @@
+[
+ {
+  "id": "M61",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "const passes = skill > 0 && rank !== null && rank >= GRADE_MIN_SPEARMAN;",
+  "new": "const passes = true;",
+  "desc": "every variable passes"
+ },
+ {
+  "id": "M62",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "const passes = skill > 0 && rank !== null && rank >= GRADE_MIN_SPEARMAN;",
+  "new": "const passes = skill > 0;",
+  "desc": "a positive skill score alone is a pass; the rank check is dropped"
+ },
+ {
+  "id": "M63",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "    if (pairs.length < minPeople) {",
+  "new": "    if (false) {",
+  "desc": "grade a variable however few people have a value in both halves"
+ },
+ {
+  "id": "M64",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "    if (spec.source === 'extractor') {",
+  "new": "    if (false) {",
+  "desc": "grade the extractor's whole-chain aggregates as if they could be split"
+ },
+ {
+  "id": "M65",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "    if (mseBase === 0) {",
+  "new": "    if (false) {",
+  "desc": "compute a skill score when every late value is identical"
+ },
+ {
+  "id": "M66",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "  run(`UPDATE coach_person_variables SET priceable = 0`);",
+  "new": "  // no reset",
+  "desc": "applying grades does not reset priceable first"
+ },
+ {
+  "id": "M67",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "  for (const id of report.passed) {",
+  "new": "  for (const id of [...report.passed, ...report.failed]) {",
+  "desc": "failed variables are made priceable alongside the passing ones"
+ },
+ {
+  "id": "M68",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "  return new Date(lo + (hi - lo) * fraction).toISOString();",
+  "new": "  return new Date(lo + (hi - lo) * 0.99).toISOString();",
+  "desc": "the split falls at 0.99 of the span rather than 0.7"
+ },
+ {
+  "id": "M77",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "  const span = corpus.prepare(`SELECT MIN(ts_utc) AS lo, MAX(ts_utc) AS hi FROM messages`).get();\n  if (!span?.lo || !span?.hi) return null;\n  const lo = Date.parse(span.lo);\n  const hi = Date.parse(span.hi);\n  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return null;\n  return new Date(lo + (hi - lo) * fraction).toISOString();",
+  "new": "  const all = corpus.prepare(`SELECT ts_utc FROM messages ORDER BY ts_utc`).all();\n  if (!all.length) return null;\n  return all[Math.floor((all.length - 1) * fraction)].ts_utc;",
+  "desc": "the cut is made on message count rather than on time"
+ },
+ {
+  "id": "M78",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": "      n_people: pairs.length",
+  "new": "      n_people: String(pairs.length)",
+  "desc": "the people count comes back as a string, so a caller's arithmetic on it silently concatenates"
+ },
+ {
+  "id": "NC-grading",
+  "file": "server/services/coach/people/grading.js",
+  "tests": "test/coach-person-grading.test.js test/coach-person-profile-script.test.js",
+  "old": " * Does a person variable measure the person, or the week it was measured in?",
+  "new": " * Does a person variable measure the person, or the fortnight it was measured in?",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ }
+]

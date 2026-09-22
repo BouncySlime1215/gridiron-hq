@@ -56,6 +56,12 @@ convention (`pairedBootstrapDiff(arm, baseline)`, so the interval is
 mean_diff +0.1052   90% CI [+0.0680, +0.1437]   significant: true
 ```
 
+**Read `mean_diff` as what it is.** `+0.1052` is the mean of the 2,000 resampled
+differences (`backtest-significance.js:114`), not the observed difference. **The
+observed difference is the `+0.1044` in the table above**, and that is the point
+estimate this document quotes. The interval is the bootstrap's and is quoted as
+the bootstrap's.
+
 **Pre-registered branch 1 fired: the interval excludes zero in favour of the
 fitted prior.** Under the pre-registration alone that made it the default. It
 is *not* the default, because the metric that fired branch 1 cannot see
@@ -103,7 +109,7 @@ harm; it is one cell of a descriptive split. What is tested is the total.
 
 Rows with 3-5 prior games, where `K.share = 6` puts six sevenths of the weight
 on the prior and any effect should be largest: **554 rows, 262 players,
-+0.1740, 90% CI [+0.1052, +0.2403]**.
+observed +0.1740, bootstrap mean +0.1727, 90% CI [+0.1052, +0.2403]**.
 
 It is larger than the primary, in the direction and for the reason the
 mechanism says. **It is reported because it was pre-registered, not because it
@@ -119,7 +125,7 @@ availability. The repository's own availability-inclusive metric,
 population if he played the week before and scores a week he missed as a real
 **0**. Graded on the same two arms, same seed, same gate:
 
-| metric | n | legacy MAE | fitted MAE | legacy − fitted | 90% CI | significant |
+| metric | n | legacy MAE | fitted MAE | legacy − fitted, **observed** | 90% CI, **bootstrap** | significant |
 |---|---|---|---|---|---|---|
 | conditional on played (**pre-registered primary**) | 2,367 | 1.9005 | 1.7961 | **+0.1044** | [+0.0661, +0.1460] | yes |
 | `decision_including_dnp` (**not pre-registered**) | 2,427 | 2.0352 | 2.0488 | **−0.0136** | [−0.0499, +0.0225] | **no** |
@@ -144,15 +150,28 @@ left is the part of the error the level cannot explain. On that measure the
 fitted prior wins under **both** metrics, and significantly:
 
 ```
-conditional   de-biased legacy − fitted  +0.1273  90% CI [+0.0965, +0.1573]  significant
-incl. DNP     de-biased legacy − fitted  +0.0482  90% CI [+0.0249, +0.0713]  significant
+conditional   de-biased legacy − fitted  OBSERVED +0.1269
+                                         bootstrap mean +0.1273, 90% CI [+0.0965, +0.1573]  significant
+incl. DNP     de-biased legacy − fitted  OBSERVED +0.0482
+                                         bootstrap mean +0.0481, 90% CI [+0.0249, +0.0713]  significant
 ```
+
+**CORRECTED 2026-09-22.** This block previously gave `+0.1273` as the
+conditional de-biased gain. That is `pairedBootstrapDiff`'s `mean_diff`
+(`backtest-significance.js:114`), which is **the mean of the resampled
+differences, not the observed full-sample difference** — the function does not
+return the observed one at all. The observed value is **+0.1269**. The two agree
+to four decimals here, which is why it went unnoticed and is not why it is being
+fixed: a bootstrap mean quoted as a point estimate is the wrong quantity whether
+or not it happens to be close. **Every point estimate in this document is now
+the observed difference; every `mean_diff` is labelled as the bootstrap mean it
+is.**
 
 So the two results are not in conflict; they are measuring different things.
 
 - **The prior carries information.** After both arms are level-corrected it is
   ahead on every metric tried. On the conditional metric the de-biased gain
-  (+0.1273) is *larger* than the raw gain (+0.1044), which means the legacy
+  (+0.1269 observed) is *larger* than the raw gain (+0.1044 observed), which means the legacy
   arm's level error was partly flattering it on MAE rather than costing it —
   what MAE rewards on a right-skewed target distribution with mass at zero is
   not the mean.
@@ -348,7 +367,7 @@ target per game, which is not a margin.
 
 Flipping the default is a pure flag inversion, and the grade was re-run to prove
 it rather than assumed. Every figure returns identically: 1.9005 and 1.7961,
-`+0.1044`, bootstrap `+0.1052 [+0.0680, +0.1437]`, both controls at exactly
+observed `+0.1044`, bootstrap mean `+0.1052` with 90% CI `[+0.0680, +0.1437]`, both controls at exactly
 `0.000e+0`, and the same by-position split. Nothing about the measurement
 depends on which way the default points.
 

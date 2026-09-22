@@ -1,0 +1,170 @@
+[
+ {
+  "id": "M34",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  return `Your answer did not pass the grounding check and was not shown to the user.\n\n${lines.join('\\n')}\n\nFix it. You may call a tool to retrieve what is missing if you have rounds left. If a claim cannot be supported by something you actually retrieved, remove it and put the gap in \"refusals\" instead \u2014 that is the correct answer, not a failure. Reply with only the JSON object.`;",
+  "new": "  return 'Try again. Reply with only the JSON object.';",
+  "desc": "the correction turn is a bare re-roll that names no violation"
+ },
+ {
+  "id": "M35",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "    if (verification.ok) break;",
+  "new": "    break;",
+  "desc": "the first draft ships whether or not it verified"
+ },
+ {
+  "id": "M36",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "      answer = { claims: [], refusals: [...answer.refusals, refusalFor(verification)], as_of: answer.as_of };",
+  "new": "      answer = { claims: answer.claims, refusals: [...answer.refusals, refusalFor(verification)], as_of: answer.as_of };",
+  "desc": "a second failed check still ships the claims, with the refusal beside them"
+ },
+ {
+  "id": "M37",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "      tools: isFinalRound ? undefined : toolDefinitions()",
+  "new": "      tools: toolDefinitions()",
+  "desc": "the last round still offers tools, so Coach can end on a lookup it will never run"
+ },
+ {
+  "id": "M38",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "    if (!expected) throw e;",
+  "new": "    throw e;",
+  "desc": "a refusal from the query layer ends the question instead of going back as a result"
+ },
+ {
+  "id": "M39",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "    const expected = e instanceof CoachQueryRefused || e instanceof CoachQueryFailed\n      || e instanceof CoachToolError || e instanceof LedgerError;",
+  "new": "    const expected = true;",
+  "desc": "any error at all is swallowed into a tool result"
+ },
+ {
+  "id": "M40",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "const askAccess = [requireAuthenticated, legacyRateLimit({ limit: ASK_LIMIT_PER_MINUTE, windowMs: 60_000 })];",
+  "new": "const askAccess = [(_q, _s, n) => n(), legacyRateLimit({ limit: ASK_LIMIT_PER_MINUTE, windowMs: 60_000 })];",
+  "desc": "the ask route stops requiring a signed-in user"
+ },
+ {
+  "id": "M41",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "const askAccess = [requireAuthenticated, legacyRateLimit({ limit: ASK_LIMIT_PER_MINUTE, windowMs: 60_000 })];",
+  "new": "const askAccess = [requireAuthenticated];",
+  "desc": "the ask route stops rate limiting"
+ },
+ {
+  "id": "M42",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  if (!question) return res.status(400).json({ error: 'question is required' });",
+  "new": "  if (!question) { const e = new Error('question is required'); e.status = 400; return next(e); }",
+  "desc": "the route's own 400 falls through to the error handler instead of answering in JSON"
+ },
+ {
+  "id": "M110",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  const ledgerJson = ledger.toJson();",
+  "new": "  const ledgerJson = { queries: [], derived: [] };",
+  "desc": "the answer ships with an empty ledger, so no cite in it resolves"
+ },
+ {
+  "id": "M111",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "        row_count: entry.row_count, tables: entry.tables, truncated: entry.truncated,",
+  "new": "        row_count: 0, tables: entry.tables, truncated: entry.truncated,",
+  "desc": "the trace reports no rows for a query that returned rows"
+ },
+ {
+  "id": "M112",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  const emit = event => { plan.push(event); onEvent(event); };",
+  "new": "  const emit = event => { onEvent(event); };",
+  "desc": "the trace is streamed but never kept, so the answer carries no plan"
+ },
+ {
+  "id": "M113",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "    if (verification.ok) break;",
+  "new": "    if (verification.ok && answer.claims.length) break;",
+  "desc": "an answer that is only a refusal is sent back for a retry it does not need"
+ },
+ {
+  "id": "M114",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "      feature: 'coach:answer', model, maxTokens: MAX_OUTPUT_TOKENS,",
+  "new": "      feature: 'page-explain', model, maxTokens: MAX_OUTPUT_TOKENS,",
+  "desc": "Coach's spend is booked against the page-explain budget line"
+ },
+ {
+  "id": "M115",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  const auditId = recordCoachAnswer({",
+  "new": "  const auditId = !verification.ok ? null : recordCoachAnswer({",
+  "desc": "only a verified answer is written to the audit, so the rejections vanish"
+ },
+ {
+  "id": "M116",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "${catalogBrief()}",
+  "new": "(call catalog_lookup to find out what there is)",
+  "desc": "the system prompt no longer lists the tables Coach may read"
+ },
+ {
+  "id": "M117",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  if (question.length > MAX_QUESTION_CHARS) {",
+  "new": "  if (false) {",
+  "desc": "a question past the length ceiling is sent to Claude instead of refused"
+ },
+ {
+  "id": "M118",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  try { res.json({ tables: readableTables(), coverage: catalogCoverage(), catalog: catalog() }); }",
+  "new": "  try { res.json({ tables: readableTables(), catalog: catalog() }); }",
+  "desc": "the catalog route stops reporting how much of the catalog is in the database"
+ },
+ {
+  "id": "M119",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "  try { res.json({ answers: recentCoachAnswers({ limit: req.query.limit }) }); }",
+  "new": "  try { res.json({ answers: [] }); }",
+  "desc": "the audit route answers with an empty list rather than the answers"
+ },
+ {
+  "id": "M120",
+  "file": "server/routes/coach.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": "    send(res, { t: 'result', ...result });",
+  "new": "    send(res, { t: 'result' });",
+  "desc": "the stream ends with a result event that carries no result"
+ },
+ {
+  "id": "NC-ask",
+  "file": "server/services/coach/ask.js",
+  "tests": "test/coach-ask.test.js test/coach-route.test.js",
+  "old": " * Question in, verified answer out.",
+  "new": " * A question in, a verified answer out.",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ }
+]

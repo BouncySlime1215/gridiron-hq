@@ -517,6 +517,12 @@ export function isWeeklyRoleRecency(rr) {
  * moved to the apply side. So under any other recency the volume entries are
  * withheld and those callers keep the hand-picked constants they were validated
  * with. They are not claimed to be right, only untested with the fitted k.
+ *
+ * ceiling-lineup is on that list correctly TODAY (ceiling-lineup.js:62 passes
+ * no roleRecency) but is being moved off it: Auditor §R44.2 couples this line
+ * to a ceiling-lineup fix putting it on WEEKLY_ROLE_RECENCY, since it feeds the
+ * weekly engine, not a season-long view. That half is pending; when it lands,
+ * drop ceiling-lineup from the list above.
  */
 export function activeKVectorFor(rr, { predictingSeason } = {}) {
   const v = cutoffSafeKVector(predictingSeason);

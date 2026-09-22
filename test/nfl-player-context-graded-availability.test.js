@@ -20,10 +20,18 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const { db, run, rows } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
-const { fitGradedAvailability, gradedAvailabilityMultiplier } = await import('../server/services/nfl-player-context.js');
+const {
+  fitGradedAvailability, gradedAvailabilityMultiplier, GRADED_AVAILABILITY_ENABLED
+} = await import('../server/services/nfl-player-context.js');
 const { recordRevision } = await import('../server/services/nfl-bitemporal.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
+
+// Every test below that grades the multiplier's REAL behaviour opts in
+// explicitly: Auditor §R40 ships it default-off (GRADED_AVAILABILITY_ENABLED
+// false), so without this the consumer would return the neutral 1 and these
+// tests would be grading the kill switch instead of the logic under it.
+const ENABLED = { enabled: true };
 
 let nextId = 1;
 const insertPlayer = (name, position, gsisId) => {
@@ -127,7 +135,7 @@ test('G1 invariant: an unreported player-week gets a multiplier of EXACTLY 1, ne
   const id = insertPlayer('No Report Player', 'WR', 'gsis-noreport-1');
   // No injury report recorded at all for this player-week.
   const decisionAt = '2024-09-25T12:00:00Z';
-  const result = gradedAvailabilityMultiplier('gsis-noreport-1', 2024, 3, decisionAt, fit.ratios);
+  const result = gradedAvailabilityMultiplier('gsis-noreport-1', 2024, 3, decisionAt, fit.ratios, ENABLED);
   assert.equal(result.multiplier, 1, 'unreported must be exactly 1, not close to 1');
   assert.equal(result.known, false);
 });
@@ -139,7 +147,7 @@ test('a bucket collapsed by the minN floor (Doubtful) also resolves to exactly 1
     publishedAt: '2024-09-26T18:00:00Z', observedAt: '2024-09-26T18:05:00Z',
     provenance: 'captured', sourceId: 'nflverse_injuries', entitySeason: 2024, entityWeek: 4
   });
-  const result = gradedAvailabilityMultiplier('gsis-collapsed-1', 2024, 4, '2024-09-27T12:00:00Z', fit.ratios);
+  const result = gradedAvailabilityMultiplier('gsis-collapsed-1', 2024, 4, '2024-09-27T12:00:00Z', fit.ratios, ENABLED);
   assert.equal(result.multiplier, 1,
     'Doubtful is not in fit.ratios (collapsed for n<minN), so the consumer must fall back to exactly 1, ' +
     'not silently apply some other value');
@@ -152,7 +160,7 @@ test('a retained bucket (Questionable) applies its fitted ratio through the cons
     publishedAt: '2024-10-03T18:00:00Z', observedAt: '2024-10-03T18:05:00Z',
     provenance: 'captured', sourceId: 'nflverse_injuries', entitySeason: 2024, entityWeek: 5
   });
-  const result = gradedAvailabilityMultiplier('gsis-live-q-1', 2024, 5, '2024-10-04T12:00:00Z', fit.ratios);
+  const result = gradedAvailabilityMultiplier('gsis-live-q-1', 2024, 5, '2024-10-04T12:00:00Z', fit.ratios, ENABLED);
   assert.equal(result.bucket, 'Questionable');
   assert.equal(result.retained, true);
   assert.equal(result.multiplier, fit.ratios.Questionable);
@@ -177,17 +185,17 @@ test('LOOK-AHEAD GUARD: a decision at Wednesday sees Wednesday\'s designation, n
     provenance: 'captured', sourceId: 'nflverse_injuries', entitySeason: 2024, entityWeek: 6
   });
 
-  const wednesday = gradedAvailabilityMultiplier('gsis-lookahead-1', 2024, 6, '2024-10-09T20:00:00Z', fit.ratios);
+  const wednesday = gradedAvailabilityMultiplier('gsis-lookahead-1', 2024, 6, '2024-10-09T20:00:00Z', fit.ratios, ENABLED);
   assert.equal(wednesday.bucket, null, 'Wednesday must see the pre-downgrade state (no report_status yet)');
   assert.equal(wednesday.multiplier, 1);
 
-  const sunday = gradedAvailabilityMultiplier('gsis-lookahead-1', 2024, 6, '2024-10-13T17:00:00Z', fit.ratios);
+  const sunday = gradedAvailabilityMultiplier('gsis-lookahead-1', 2024, 6, '2024-10-13T17:00:00Z', fit.ratios, ENABLED);
   assert.equal(sunday.bucket, 'Questionable', 'Sunday must see the Friday downgrade');
   assert.equal(sunday.retained, true);
 });
 
 test('empty-source no-op: a player with zero injury-feature revisions of any kind is unaffected', () => {
-  const result = gradedAvailabilityMultiplier('gsis-never-reported', 2024, 7, '2024-10-16T12:00:00Z', fit.ratios);
+  const result = gradedAvailabilityMultiplier('gsis-never-reported', 2024, 7, '2024-10-16T12:00:00Z', fit.ratios, ENABLED);
   assert.equal(result.multiplier, 1);
   assert.equal(result.known, false);
   assert.equal(result.reason, 'feature_never_recorded');
@@ -247,4 +255,31 @@ test('CONDITIONING FIX: a player who deteriorates during the week is fit under h
     'ratio is 0 here (none played), distinct from this file\'s other fixture -- proves this bucket came from this block, not a leftover');
   assert.equal(seasonFit.buckets.Out, undefined,
     'nothing should land in Out for 2023: every one of these players\' EARLIEST status was Questionable, never Out');
+});
+
+test('Auditor §R40: GRADED_AVAILABILITY_ENABLED defaults false, and nothing in this repo sets it true', () => {
+  assert.equal(GRADED_AVAILABILITY_ENABLED, false,
+    'default-off until the R19.6-conditioned fit is independently regraded (Auditor §R19.5/§R19.6). ' +
+    'Flipping this is a one-line, reviewable change; leaving the multiplier as unreachable dead code ' +
+    'instead would let a future call site switch it on with nothing to review');
+});
+
+test('Auditor §R40: the flag is a hard kill switch, not a formality -- it overrides a real, retained bucket', () => {
+  // The "retained bucket (Questionable)" test above proves fit.ratios.Questionable
+  // is a real value strictly between 0 and 1 on this fixture data. With the flag
+  // off, gradedAvailabilityMultiplier must STILL return the neutral 1 -- which is
+  // what shows the flag check runs before the bucket lookup, rather than this
+  // fixture merely falling through to one of the already-neutral branches.
+  assert.ok(fit.ratios.Questionable > 0 && fit.ratios.Questionable < 1,
+    'sanity: this bucket really is non-trivial in the fixture data');
+  recordRevision({
+    entity: 'player:gsis-flag-off-1:2024:8', feature: 'injury_report',
+    value: { report_status: 'Questionable', practice_status: 'Limited Participation', injury: 'ankle' },
+    publishedAt: '2024-10-17T18:00:00Z', observedAt: '2024-10-17T18:05:00Z',
+    provenance: 'captured', sourceId: 'nflverse_injuries', entitySeason: 2024, entityWeek: 8
+  });
+  const result = gradedAvailabilityMultiplier('gsis-flag-off-1', 2024, 8, '2024-10-18T12:00:00Z', fit.ratios);
+  assert.equal(result.multiplier, 1);
+  assert.equal(result.known, false);
+  assert.equal(result.reason, 'graded_availability_disabled');
 });

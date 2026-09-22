@@ -504,6 +504,28 @@ export function fitGradedAvailability(seasons, { minN = 30 } = {}) {
 }
 
 /**
+ * Plan 01's kill switch (Auditor §R40). FALSE, and nothing in this repository
+ * sets it true: `gradedAvailabilityMultiplier` returns the neutral 1 for every
+ * input while it is off, so the multiplier ships without changing a single
+ * served number. It stays off until the §R19.6-conditioned fit (population
+ * taken from each entity's earliest `nfl_feature_revisions` row rather than
+ * `nfl_injuries`' final value) has been independently regraded -- the refit
+ * came out numerically identical on this container's data, which is a property
+ * of that data, not evidence the conditioning question is settled.
+ *
+ * Why a flag rather than leaving it unreachable: with no call site at all, the
+ * first caller to wire it up switches live behaviour with nothing in the diff
+ * that says so. With the flag, wiring and enabling are separate one-line
+ * changes, and the second one is the reviewable event.
+ *
+ * It is the DEFAULT, not a hard block: `gradedAvailabilityMultiplier(...,
+ * { enabled: true })` runs the real logic, which is how this unit's own tests
+ * grade it. A caller that opts in has said so in its own diff, which is the
+ * property the flag exists to create.
+ */
+export const GRADED_AVAILABILITY_ENABLED = false;
+
+/**
  * The as-of-safe consumer: `fitted` is `fitGradedAvailability(...).ratios`.
  *
  * `decisionAt` is mandatory and is read through `valueAsKnown` against
@@ -522,7 +544,12 @@ export function fitGradedAvailability(seasons, { minN = 30 } = {}) {
  * same baseline. Every branch below that is not a retained, on-report
  * bucket returns the literal number `1`.
  */
-export function gradedAvailabilityMultiplier(gsisId, season, week, decisionAt, fitted) {
+export function gradedAvailabilityMultiplier(
+  gsisId, season, week, decisionAt, fitted, { enabled = GRADED_AVAILABILITY_ENABLED } = {}
+) {
+  if (!enabled) {
+    return { multiplier: 1, bucket: null, known: false, reason: 'graded_availability_disabled' };
+  }
   if (!gsisId || !decisionAt) return { multiplier: 1, bucket: null, known: false };
   const entity = `player:${gsisId}:${season}:${week}`;
   const known = valueAsKnown(entity, 'injury_report', decisionAt);

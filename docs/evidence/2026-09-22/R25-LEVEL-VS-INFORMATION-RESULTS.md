@@ -103,6 +103,20 @@ debiasing re-run against three different bias sources, all on the same
 | 2021 (adjacent season) | 4.2934 | 4.3501 | −0.0567 | +0.0564 | [0.0311, 0.0819] | yes |
 | 2022 (itself, in-sample upper bound) | 4.2915 | 4.3470 | −0.0556 | +0.0553 | [0.0303, 0.0809] | yes |
 
+**Why the 2023-anchored row shows both −0.0572 and +0.0569** (Auditor §R47,
+non-blocking): they are two different statistics, not one number that moved.
+`debiased_delta` −0.0572 is the exact full-sample difference of the two
+MAEs (shipped − control, = −0.057211). `mean_diff` +0.0569 is
+`pairedBootstrapDiff`'s own output: the mean over 2,000 player-clustered
+resamples of (control − shipped), rounded to 4dp. So the sign is the
+convention (which arm is subtracted from which), and the 0.0003 magnitude
+is **resampling variation, not rows and not a code change** — n is 4,359
+on both, over 550 distinct player clusters of unequal size, so the mean
+over resamples is not identical to the full-sample statistic. Verified by
+re-running the same rows under five seeds: mean_diff comes back 0.0569,
+0.0572, 0.0567, 0.0571, 0.0573 — straddling the exact 0.057211, with every
+CI excluding zero. The table below quotes the default-seed run.
+
 All three agree within 0.002 and are significant in the same direction:
 once both arms are centred, **shipped beats control on 2022**, whichever
 season the centring is anchored on — including the in-sample anchor,

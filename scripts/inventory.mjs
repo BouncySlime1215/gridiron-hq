@@ -51,6 +51,7 @@ import { DatabaseSync } from 'node:sqlite';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MAP = path.join(ROOT, 'docs/wiring/wiring-map.json');
 const OVERLAY = path.join(ROOT, 'docs/inventory/evidence-overlay.json');
+const AUDIT = path.join(ROOT, 'docs/inventory/model-audit-rows-654ff93.json');
 const OUT_JSON = path.join(ROOT, 'docs/inventory/inventory.json');
 const OUT_MD = path.join(ROOT, 'docs/inventory/INVENTORY.md');
 
@@ -377,6 +378,69 @@ function buildRows(map, local) {
 // An overlay row REPLACES a generated row with the same id (the thread saw the truth
 // the static pass could only guess at) and is otherwise appended. The overlay never
 // edits inventory.json; it is a separate, reviewable input.
+/*
+ * GRADED ROWS FROM ANOTHER THREAD.
+ *
+ * The model-evidence audit thread graded 16 service files and 12 route files,
+ * each with its own evidence array, at 654ff93. Their file is vendored here
+ * verbatim, sha256 f08e3fd3288e2b046cc5011d25eccade22ba159c70a411c284c4d1055a1b6fd4,
+ * so the merge is reproducible and their bytes are not the mount's only copy.
+ *
+ * Merging is not overwriting. This generator is a party to the disagreement,
+ * so it does not get to decide it. Where the two readings agree, theirs wins,
+ * because their row carries per-consumer evidence and this one carries a
+ * summary. Where they disagree the row goes to `unclassified` naming BOTH
+ * readings and the definition each rests on, because a contested verdict is
+ * not a verdict and `unclassified` is exactly what the contract reserves for
+ * a row nobody can defend yet.
+ *
+ * The live disagreement is what counts as a live surface: this map counts a
+ * mounted route, theirs counts a consumer reachable from client/src/App.tsx's
+ * import closure. Adopting one definition project-wide is a bigger call than
+ * this merge and is deliberately not made here.
+ */
+function loadAudit() {
+  if (!existsSync(AUDIT)) return [];
+  const o = JSON.parse(readFileSync(AUDIT, 'utf8'));
+  return Array.isArray(o.rows) ? o.rows : [];
+}
+
+const CLAIMS_LIVE = /reaches a live surface/;
+
+function applyAudit(rows, audit) {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const byPath = new Map(rows.map((r) => [r.path, r]));
+  const out = { agreed: 0, contested: 0, unmatched: [] };
+  for (const a of audit) {
+    const mine = byId.get(`${a.kind}:${a.id}`) ?? byPath.get(a.path);
+    if (!mine) { out.unmatched.push(a.id); continue; }
+    const theirs = `${a.status}: ${(a.evidence || []).slice(-1)[0] || ''}`;
+    const contested = mine.status !== a.status
+      && mine.status !== ''
+      && !(mine.status === 'unclassified' && !CLAIMS_LIVE.test(mine.reason || ''));
+    if (contested) {
+      out.contested++;
+      byId.set(mine.id, { ...mine, status: 'unclassified', evidence: undefined,
+        reason: `CONTESTED, not yet adjudicated. This map: ${mine.status} — `
+          + `${(mine.evidence || mine.reason || '').replace(/\s+/g, ' ')}. `
+          + `Model-evidence audit at 654ff93: ${theirs}. `
+          + `The two rest on different definitions of a live surface: a mounted route here, `
+          + `a consumer reachable from client/src/App.tsx's import closure there. Neither reading `
+          + `is withdrawn and neither is adopted.`,
+        owner_thread: mine.owner_thread ?? 'model-evidence-audit',
+        note: `${mine.note ? mine.note + '; ' : ''}contested with the model-evidence audit` });
+    } else {
+      out.agreed++;
+      byId.set(mine.id, { ...mine, status: a.status,
+        evidence: (a.evidence || []).join(' | ') || mine.evidence,
+        reason: undefined,
+        owner_thread: 'model-evidence-audit',
+        note: `${a.scope ? a.scope + '; ' : ''}graded by the model-evidence audit at ${short(a.commit || '654ff93')}` });
+    }
+  }
+  return { rows: [...byId.values()], stats: out };
+}
+
 function applyOverlay(rows, overlay) {
   const byId = new Map(rows.map((r) => [r.id, r]));
   for (const o of overlay.rows) {
@@ -515,7 +579,7 @@ function check(rows) {
   return problems;
 }
 
-export { buildRows, classify, check, tally };
+export { buildRows, classify, check, tally, applyAudit };
 
 /* ------------------------------------------------------------------ main */
 
@@ -530,7 +594,8 @@ const map = loadMap();
 const overlay = loadOverlay();
 const local = localRowCounts();
 let rows = buildRows(map, local);
-rows = applyOverlay(rows, overlay);
+const audit = applyAudit(rows, loadAudit());
+rows = applyOverlay(audit.rows, overlay);
 rows.sort((a, b) => (a.kind + a.id).localeCompare(b.kind + b.id));
 
 const problems = check(rows);
@@ -559,5 +624,6 @@ writeFileSync(OUT_JSON, JSON.stringify(doc, null, 2) + '\n');
 writeFileSync(OUT_MD, renderMd(rows, meta));
 console.log(`wrote ${path.relative(ROOT, OUT_JSON)} and ${path.relative(ROOT, OUT_MD)}: ${rows.length} rows`);
 console.log('counts:', JSON.stringify(tally(rows)));
+console.log(`model-audit rows merged: ${audit.stats.agreed} agreed, ${audit.stats.contested} contested` + (audit.stats.unmatched.length ? `, ${audit.stats.unmatched.length} unmatched: ${audit.stats.unmatched.join(', ')}` : ', 0 unmatched'));
 
 }

@@ -32,9 +32,15 @@ test('every job is accounted for, on every tier', () => {
       && !MAIN_THREAD_ONLY.has(name) && !ON_REQUEST_THREAD.has(name))
     .map(([name]) => name);
   assert.deepEqual(unaccounted, [],
-    'these jobs run on the request thread and nothing says why. Move them off-thread, '
-    + 'or add them to ON_REQUEST_THREAD with the reason, or to MAIN_THREAD_ONLY if they '
-    + 'genuinely cannot move. A job that blocks the app is allowed; an unexplained one is not');
+    'these jobs run on the request thread and nothing says why. THE TIER DOES NOT DO IT: '
+    + "resolveOffThread reads `job.offThread ?? job.tier === 'heavy'`, so only the heavy "
+    + "tier goes off-thread by default and a 'growth', 'live' or 'metered' job needs "
+    + '`offThread: true` on its own definition. Choosing a lighter tier to stay clear of '
+    + "the heavy tier's AUTO_HEAVY_SYNC gate therefore also puts the job on the request "
+    + 'thread, which is not what the author of such a job is usually choosing. So: add '
+    + '`offThread: true`, or add them to ON_REQUEST_THREAD with the reason, or to '
+    + 'MAIN_THREAD_ONLY if they genuinely cannot move. A job that blocks the app is '
+    + 'allowed; an unexplained one is not');
 });
 
 test('the boot pass and the live timer agree about the same job', () => {

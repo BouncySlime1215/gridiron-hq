@@ -376,3 +376,55 @@ And whether any of these six ever completes on the live box. None of them has
 run once on this build: the process has not survived past the first background
 pass. That is what the scheduler stack (#56, #59, #61, #63) is for, and it is
 measured by the deploy, not here.
+
+---
+
+## Known collision: PR #89's `league_history` job (found 2026-09-22, before either merged)
+
+PR #89 (`claude/project-thread-sytruo-asof-rebase` @ `b04c1ad`) adds a job this
+branch has never seen:
+
+    league_history: { run: refreshLeagueHistory, maxAgeMinutes: 12 * 60, tier: 'growth',
+      timeoutMs: 300_000, label: 'League history: final standings and weekly scores ...' }
+
+`tier: 'growth'` with no `offThread` flag, so `resolveOffThread` returns
+**false** and the job runs **on the request thread with a five-minute budget**.
+When both branches land, two tests in this file fail:
+
+- *every job is accounted for, on every tier* — `league_history` is neither
+  off-thread nor in either list.
+- *the count is going down, not up* — `onThread` becomes 30 against the
+  `<= 29` bound, and `ON_REQUEST_THREAD.size + MAIN_THREAD_ONLY.size` (29) no
+  longer equals it.
+
+**The fix is one line in #89, not here**, and it is `offThread: true` on that
+job definition. Not an `ON_REQUEST_THREAD` entry: nothing in
+`server/services/league-history.js` (as #89 ships it) holds state that a worker
+would break. Its only module scope is `now` and `sleep` (`:55,56`), both pure;
+its pacing is a `sleep()` **within** one run rather than a `_lastCallAt` that
+must survive between runs, which is what forces `sportsgameodds.js` and
+`odds-api.js` to stay inline; and every write is a parameterised
+`INSERT ... ON CONFLICT` through the shared handle (`:117,148`), which is what
+every off-thread job already does. A five-minute job that reads ESPN and writes
+SQLite synchronously is the exact shape this list exists to keep off the
+request thread.
+
+**Nothing can be pre-registered on this branch to absorb it.** The test at
+`:85` asserts every `ON_REQUEST_THREAD` name is a real job, so an entry for a
+job that does not exist here fails immediately. That is the right behaviour and
+is not worth weakening for one known collision.
+
+**Why #89 arrived at `'growth'` is worth reading, because it was reasoning
+carefully and still landed on the request thread.** Its own comment says
+`'growth', not 'heavy'` so that "there is nothing here the `heavy` tier's
+`AUTO_HEAVY_SYNC` gate should be deciding" — avoiding the "silently never runs"
+failure. That reasoning is sound about the gate and silent about the thread,
+because `resolveOffThread` couples the two: the only tier that goes off-thread
+by default is the one behind the gate. Anyone avoiding the gate also leaves the
+worker, and nothing in `JOBS` says so at the point of writing a job. The
+failure message on the test above now says it outright.
+
+**Left as a proposal, not done here:** flipping the default to off-thread
+unless listed. It would have caught this without anyone reading a message, but
+it re-decides the thread for all twenty-nine currently-inline jobs at once,
+which is a change of its own with its own evidence, not a coordinating fix.

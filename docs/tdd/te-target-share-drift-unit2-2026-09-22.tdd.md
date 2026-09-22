@@ -86,15 +86,31 @@ within a factor of two of the briefed range:**
 | flat player-week average, share>0 | 0.1090 | 0.1070 | 0.1094 | 0.1117 | 0.1165 |
 | per-player-season avg, then league avg | 0.0860 | 0.0874 | 0.0877 | 0.0894 | 0.0961 |
 
-Both readings put TE target share in the 0.086-0.117 range across every
-season in this container's real data, with a season-over-season drift on
-the order of 0.001-0.003, roughly 4-10x smaller than the briefed
-0.011133/season. A TE target share of 0.21-0.24 (the briefed endpoints)
-would mean a tight end drawing roughly a quarter of the team's targets
-league-wide — higher than even an elite pass-catching TE's own individual
-season, let alone a league average. Neither reading above reproduces
-anything close to it, and a third population (top-TE-per-team, the
-"starting TE" reading) also lands at 0.086-0.109, not 0.21-0.24.
+A third definition — for each team-season, the TE with the most total
+targets that season (the "starting TE" reading), league-averaged:
+
+| definition | 2021 | 2022 | 2023 | 2024 | 2025 |
+|---|---:|---:|---:|---:|---:|
+| starting TE per team, avg of season target-share | 0.1564 | 0.1624 | 0.1609 | 0.1672 | 0.1736 |
+
+(query: `WITH te_season AS (SELECT player_id, season, team, SUM(targets)
+total_targets, AVG(target_share) avg_share FROM player_week_usage JOIN
+players ON players.id=player_week_usage.player_id WHERE position='TE' AND
+target_share IS NOT NULL AND target_share>0 AND team IS NOT NULL GROUP BY
+player_id, season, team), ranked AS (SELECT *, ROW_NUMBER() OVER (PARTITION
+BY team, season ORDER BY total_targets DESC) rn FROM te_season) SELECT
+season, AVG(avg_share), COUNT(*) FROM ranked WHERE rn=1 GROUP BY season`,
+32 teams every season — run against this same container's `server/
+data.sqlite`.)
+
+All three readings put TE target share in the 0.086-0.174 range across
+every season in this container's real data, with a season-over-season
+drift on the order of 0.001-0.005 — the "starting TE" reading (definition 3)
+comes closest to the briefed endpoints but still tops out around 0.174, not
+0.2449, and its own season-over-season drift (2021→2025: (0.1736-0.1564)/4
+= 0.0043/season) is still roughly 2.6x smaller than the briefed
+0.011133/season. None of the three reproduces the briefed 0.2115/0.2449
+endpoints or their implied per-season drift.
 
 **Reconcile-or-explain, per this session's own standing discipline for a
 relayed figure that doesn't check out (same pattern as the Unit 4

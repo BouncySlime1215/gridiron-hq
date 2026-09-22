@@ -70,7 +70,8 @@ const fitId = saveFit({
     `CRPS delta ${crpsTest.mean_diff} CI ${JSON.stringify(crpsTest.ci90)} (${crpsTest.significant ? 'significant' : 'noise'}); ` +
     `MAE delta ${maeTest.mean_diff} CI ${JSON.stringify(maeTest.ci90)} (${maeTest.significant ? 'significant' : 'noise'}); ` +
     `coverage_80 ${fit.distribution.coverage_80}. ` +
-    (beatsCrps && coverageOk ? 'Beats hardcoded on the CRPS gate with real power; activated.'
+    (beatsCrps && coverageOk
+      ? `Beats hardcoded on the CRPS gate with real power; ${shouldActivate ? 'activated by this run.' : 'not activated by this run (rerun with --activate to activate).'}`
       : 'Did not clear the significance+coverage bar on this run; not activated by this run.')
 });
 

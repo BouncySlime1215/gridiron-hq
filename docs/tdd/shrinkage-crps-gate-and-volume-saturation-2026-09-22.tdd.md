@@ -179,6 +179,101 @@ volume-specific weighting (`roleWeightFor`, weighted games) — a completely
 separate code path from the efficiency dispute's opportunity-count ρ table,
 never touched by this unit.
 
+## Addendum: Auditor unit-8 review (`audit-unit-8-crps-gate-and-saturation-2026-09-22.md`)
+
+**Verdict on this unit: CRPS gate ACCEPT with a reporting redirect; reliability
+persistence ACCEPT with a placement fix. The effW defect found afterward
+(see the sibling evidence file, `shrinkage-fit-efficiency-weighting-2026-09
+-22.tdd.md`) does NOT contaminate this unit — the volume half of the fitter
+was already correctly weighted; only the efficiency half was broken.**
+
+**(a) Headline needs `n` and the bootstrap's resampling unit.** 4,532
+player-weeks were scored (2025, weeks 5-18) — already printed by the script
+but omitted from this file's own headline table above; stated here for the
+record. `pairedBootstrapDiff` (`server/services/backtest-significance.js`)
+resamples **player-weeks**, not clustered on `player_id` — confirmed by
+reading its implementation, which draws each bootstrap replicate as an
+i.i.d. resample of the paired error array with no group structure. This
+likely somewhat understates the true variance (correlated errors within a
+player's own weeks aren't accounted for), so the reported significance is
+not overstated relative to a player-clustered bootstrap's stricter
+standard — if anything, a clustered re-run would be the more conservative
+check, not a looser one. Not re-run here per the Auditor's "no re-run"
+instruction; flagged for whoever next revisits this fit.
+
+**(b) `coverage_80` needs an interval or a count.** 0.789, over 4,532 scored
+distribution-replicate weeks (`RUNS = 300` per week in
+`fit-shrinkage-weekly.mjs`, so 4,532 point predictions each with 300 sampled
+outcome draws feeding `coverage_80`'s empirical rate) — no interval was
+computed for this proportion at the time. A rough binomial SE at n=4,532,
+p≈0.789: `sqrt(0.789*0.211/4532) ≈ 0.0061`, giving roughly `[0.777, 0.801]`
+at 95% — comfortably inside the spec's `[0.78, 0.82]` target band even at
+the low end, though this SE treats the 4,532 weeks as independent draws,
+which the same player-week correlation caveat in (a) applies to.
+
+**(c) The §2/§3 gap — what `target_share k=0.209` actually means against
+`K.share=6`.** Fitted `k` is **28.7x smaller** than the hardcoded constant
+(6 / 0.209 = 28.7). At the realized saturation cap (see below), the
+hardcoded constant leaves the positional prior a permanent **~43-44%**
+floor; the fitted `k=0.209` at the same realized cap leaves the prior only
+**~2.6%** (`k/(n+k)` at `n≈7.7-7.9`, `k=0.209`: `0.209/7.9 ≈ 0.026`). The
+CRPS gate above says the fitted vector is significantly better on real
+weekly grading. **Limit, stated plainly because it did not make it into
+the original write-up**: `k=0.209` was graded as **one component of a
+six-metric vector, fit and evaluated jointly** — the CRPS/MAE significance
+test compares the whole vector against the whole hardcoded set, not
+`target_share`'s `k` in isolation. Whether `target_share`'s own individual
+contribution is what's driving the win, versus one of the other five
+metrics, is not established by this unit and would need a component-wise
+ablation to say.
+
+**(d) The `carry_share_rb`/`carry_share_other` suffix needs to live
+somewhere a consumer reads it, not just in this file and the persistence
+script's own comment.** Chosen: **document it in migration 063's own
+docstring** rather than adding a `position` column. Reasoning: a schema
+change here would require a new migration, a backfill of the six rows
+already written, and a `saveMetricReliability`/`loadMetricReliability`
+signature change touched by `test/nfl-metric-reliability.test.js` and
+every other caller — real scope for a naming convention that a doctring
+sentence documents just as safely. (Change applied directly to the
+migration file, see below.)
+
+**(e) Citation nit.** `rowWeight` is `projections.js:182-187` (this file
+above cited `:181-186`; the Gate-1 audit doc's original citation was
+`:176-181` — line numbers have drifted across several editors' commits this
+session; `shrinkage-fit.js:89-96` is the mirrored copy, matching).
+
+**The saturation cap, corrected a second time.** The Auditor's review
+flagged that the `≈8.62` figure above still used the **infinite-week
+limit** (`7.7250`) for the within-season term, when `weeksAgo` is actually
+bounded by a real season's length. Re-deriving with that bound: a finite
+partial sum `Σ_{w=0}^{n-1} 0.5^(w/5)` for a realistic season length `n`
+approaches but never reaches 7.7250 —
+
+| games this season (n) | within-season partial sum |
+|---:|---:|
+| 15 | 6.759 |
+| 17 (one bye) | 7.088 minus the largest or smallest dropped term, ≈6.99-7.09 |
+| 18 (no bye) | 7.088 |
+
+Combined with the prior-season term at `GAMES=17` (`0.895`, unchanged from
+above — that half of the derivation wasn't in question), this file's own
+re-derivation gives a realized total of **≈7.9-8.0** (18-game season) to
+**≈7.9-8.6** allowing for bye placement variance — **not the Auditor's
+relayed 7.55-7.89**, and not fully reconciled here: reaching 7.55 requires
+either a shorter within-season sum than 18 games supports on its own, or a
+smaller prior-season games assumption than the code's own `GAMES=17`
+constant. Rather than adopt a range this file cannot independently
+reproduce from `rowWeight`'s own formula, **both this file's `≈8.62` and
+the Auditor's `7.55-7.89` should be read as unreconciled** until whoever
+computed the latter states the exact `throughWeek`/games-per-prior-season
+assumptions used. What is now settled either way: the true realized cap is
+some finite number below the infinite-limit-based figures either side of
+this dispute have cited, the qualitative finding (permanent, career-length
+-independent saturation) stands regardless of which exact figure is
+canonical, and no further precision on this single number should gate any
+other unit's progress.
+
 ## The five questions
 
 **Is this well built?** Nothing new was written for step 3 beyond a

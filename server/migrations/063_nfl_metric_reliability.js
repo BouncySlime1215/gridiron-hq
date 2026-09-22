@@ -23,6 +23,17 @@ export const name = '063_nfl_metric_reliability';
  * versioned fit log), which this table does not replace. A re-fit here
  * overwrites the prior row for the same key via upsert, in
  * saveMetricReliability().
+ *
+ * There is deliberately NO position column, but a metric can be fit
+ * separately per position (e.g. carry_share for RB vs OTHER -- two real,
+ * different variance decompositions under one metric name in
+ * shrinkage-fit.js's VOLUME_METRICS). Convention, not enforced by the
+ * schema: a position split is encoded as a metric-name suffix
+ * (`carry_share_rb`, `carry_share_other`), not a second row under the
+ * bare metric name -- the UNIQUE constraint would let the second upsert
+ * silently overwrite the first otherwise. See
+ * scripts/persist-volume-metric-reliability.mjs's `metricKey()` for the
+ * one place this convention is applied.
  */
 export function up(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS nfl_metric_reliability (

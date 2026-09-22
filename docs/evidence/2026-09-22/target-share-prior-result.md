@@ -1,9 +1,23 @@
 # The target-share prior, graded: +0.1044 targets of MAE on weeks played, and a null once missed weeks are counted
 
+**VERDICT 2026-09-22: this does NOT ship as the default.** The evidence was
+accepted; the change was not. `sharePrior: 'per_position'` selects the measured
+prior and the shipped default stays the single `0.06` constant, on purpose,
+until the coupled grade in section 9 exists.
+
 **Read section 5 before quoting the headline.** The pre-registered primary is a
 real win. A second metric, added afterwards at the auditor's instruction, is a
 null — and the reason the two disagree is the most useful thing this unit
-found.
+found, and the reason for the verdict.
+
+**Scope of every figure below, and it is a real limit.** They grade a *replay*
+predictor. The arm is production's own `buildProjections`, but it runs on a rig
+holding two tables where the live weekly engine reads twenty-three, so what is
+measured is production's code on a strict subset of production's inputs.
+**Equivalence between the replay predictor and the one that serves the app is
+unestablished** — a separate thread is establishing whether the replay's
+structural head is production's code or a reimplementation. Until that comes
+back, nothing here transfers to a claim about what users see.
 
 **Read `target-share-prior-preregistration.md` first.** It was committed
 (`d2f04ff4`) before this grade was run, and it fixed the metric, the split, the
@@ -42,8 +56,12 @@ convention (`pairedBootstrapDiff(arm, baseline)`, so the interval is
 mean_diff +0.1052   90% CI [+0.0680, +0.1437]   significant: true
 ```
 
-**Pre-registered branch 1: the interval excludes zero in favour of the fitted
-prior, so it ships as the default.** That is what the code does.
+**Pre-registered branch 1 fired: the interval excludes zero in favour of the
+fitted prior.** Under the pre-registration alone that made it the default. It
+is *not* the default, because the metric that fired branch 1 cannot see
+availability and the metric that can comes back null — section 5, and the
+verdict in section 9. The pre-registration is left exactly as written; what
+overrode it is recorded rather than edited into it.
 
 ## 2. The controls, which are the reason to believe the harness
 
@@ -189,7 +207,7 @@ fitted or served.
 
 **(ii) What the QB 0 is.** It is **measured, and it is also a structural zero**,
 and the two agree. Measured: 0.0004 over 2,615 weeks, of which 2,588 are zero.
-Structural: `projections.js:578` sets `targets = a.pos === 'QB' ? 0 : …`, so no
+Structural: `projections.js:605` sets `targets = a.pos === 'QB' ? 0 : …`, so no
 target-share prior of any value can reach a quarterback's projection. The
 quantity is therefore not a shrinkage target that does work; it exists so the
 `??` fallback at `positionalPriors()` cannot silently hand a quarterback a
@@ -222,6 +240,20 @@ shrank every position's observed target share toward it with `K.share = 6`
 was pulled toward 0.06 whatever his position. That behaviour is still reachable
 and is the arm scored above, as `buildProjections({ sharePrior: 'legacy' })` —
 the same code, one flag, not a re-implementation.
+
+**New standing item, answered here because it should have been answered first:
+state what production actually does with the quantity, read off the applying
+line, and fit against that.** Production shrinks the player's observed share
+toward the prior and then multiplies: `tgtShare = shrinkSafe(tgtShareObs,
+targetSharePrior, n, k)` and `targets = tgtShare × tv.pass_att`
+(`projections.js:599, 605`). Two things follow that were not read off the line
+before fitting. First, the prior is applied to **every** player-week the engine
+produces, with no availability condition anywhere between the shrink and the
+multiply — which is precisely why the availability-inclusive metric is the
+right one and why fitting on weeks-played alone was the wrong conditioning set
+to reason from. Second, the prior's influence is set by `K.share = 6` at the
+same line, so "the prior" is never served on its own; what reaches a user is
+the pair.
 
 **Rig defect to declare: `players.espn_id` is NULL for all 1,483 rows.**
 `qbrTrailingForPlayer` returns `null` on a null id (`nfl-qbr.js:129`), so the
@@ -271,6 +303,54 @@ orders. The figures mirror exactly (`+0.1052` against `−0.1052`,
 sign convention is being read the right way round rather than assumed. The
 reported orientation is the repository's own, matching
 `scripts/grade-opportunity-vs-baseline.mjs:139`.
+
+## 9. The verdict, and the unit it creates
+
+**Accepted as evidence, refused as a default.** Criteria (i), (ii), (iii), (iv)
+and (vi) were met; (v) is a recorded miss, correctly not back-filled, and the
+post-hoc smallest-callable statement is what makes the DNP null informative
+rather than merely quiet.
+
+**The ruling, and it is not a rejection of the measurement.** The legacy
+constant's downward bias and the availability multiplier being fitted elsewhere
+are one finding seen from two sides:
+
+- **This prior alone removes a hedge with nothing to replace it.** That is
+  exactly what section 5 measures.
+- **The multiplier alone, applied over a biased prior, double-counts.** It would
+  be discounting a projection that is already discounted by accident.
+
+So neither ships alone, and **the coupled grade is the unit**: the availability
+multiplier refitted on as-of status first, then the fitted prior graded with the
+multiplier on top, pre-registered, **with the power check declared in advance
+this time** — the one criterion this unit missed.
+
+### What the code does in the meantime
+
+`sharePrior: 'per_position'` selects the measured prior. Omitting the flag,
+which is what every live call does, keeps `0.06`. `role_prior.mode` reports
+which one was used, so a caller can tell them apart without knowing which way
+the default points. `test/target-share-prior.test.js` pins the default
+explicitly, with the reason in the test body, so that flipping it requires
+meeting the argument rather than editing an assertion.
+
+**The constant therefore stays wrong about the population on purpose.** That is
+a trade the next unit is meant to end, not a state to settle into.
+
+### One number that must never travel alone
+
+The DNP interval's lower bound is **−0.0499** against the pre-registration's
+**−0.05** tolerance. It passes. It is never to be written as "within tolerance"
+without the two numbers beside it — the margin is one ten-thousandth of a
+target per game, which is not a margin.
+
+### Reproduced after the reversal
+
+Flipping the default is a pure flag inversion, and the grade was re-run to prove
+it rather than assumed. Every figure returns identically: 1.9005 and 1.7961,
+`+0.1044`, bootstrap `+0.1052 [+0.0680, +0.1437]`, both controls at exactly
+`0.000e+0`, and the same by-position split. Nothing about the measurement
+depends on which way the default points.
 
 ## The five questions
 

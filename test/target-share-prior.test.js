@@ -107,8 +107,10 @@ for (const [id, pos] of [[9001, 'WR'], [9002, 'RB'], [9003, 'TE']]) {
 const shareOf = (projections, id) => projections.get(id).volume.target_share;
 const reportedPrior = (projections, id) => projections.get(id).role_prior.target_share;
 
+const PER_POSITION = { through: 2023, kOverride: null, sharePrior: 'per_position' };
+
 test('a thin receiver and a thin back are not shrunk toward the same share', () => {
-  const p = buildProjections({ through: 2023, kOverride: null });
+  const p = buildProjections(PER_POSITION);
   const wr = shareOf(p, 9001);
   const rb = shareOf(p, 9002);
   assert.ok(wr > rb, `expected the receiver above the back, got WR ${wr} vs RB ${rb}`);
@@ -122,7 +124,7 @@ test('a thin receiver and a thin back are not shrunk toward the same share', () 
 test('the projection reports the prior it actually used', () => {
   // `role_prior` is served to callers; a fixed 0.06 there while the head shrinks
   // toward something else would be a second, silent copy of the constant.
-  const p = buildProjections({ through: 2023, kOverride: null });
+  const p = buildProjections(PER_POSITION);
   const wr = reportedPrior(p, 9001);
   const rb = reportedPrior(p, 9002);
   assert.ok(Math.abs(wr - 0.13) < 0.01, `expected the receiver prior near 0.13, got ${wr}`);
@@ -130,7 +132,7 @@ test('the projection reports the prior it actually used', () => {
 });
 
 test('the prior counts weeks with no targets, because the estimand does', () => {
-  const p = buildProjections({ through: 2023, kOverride: null });
+  const p = buildProjections(PER_POSITION);
   const te = shareOf(p, 9003);
   // TEs average 0.10 over every week and 0.20 over their busy weeks only. A thin
   // TE observed at 0.09 lands near the former; the latter would drag him to ~0.19.
@@ -138,14 +140,34 @@ test('the prior counts weeks with no targets, because the estimand does', () => 
   assert.ok(te > 0.07, `expected the tight end above his own thin observation, got ${te}`);
 });
 
-test('the legacy single prior stays reachable for a backtest', () => {
-  const p = buildProjections({ through: 2023, kOverride: null, sharePrior: 'legacy' });
+test('the DEFAULT is still the single legacy constant, by audit ruling', () => {
+  // This is the ruling of 2026-09-22 made executable, and it is the reason the
+  // three tests above have to ask for the per-position prior by name. The
+  // measured prior beats the constant on the weeks a player plays (+0.1044
+  // targets of MAE) and is a null once missed weeks count (-0.0136, 90% CI
+  // [-0.0499, +0.0225]), because the constant's downward bias was standing in
+  // for an availability term the model does not have. Removing the hedge with
+  // nothing to replace it is not an improvement, so the two have to be graded
+  // together before either ships. If this test starts failing, that grade is
+  // what is owed — not a change to the assertion.
+  const p = buildProjections({ through: 2023, kOverride: null });   // no flag: what every live call does
   const wr = shareOf(p, 9001);
   const rb = shareOf(p, 9002);
   const te = shareOf(p, 9003);
   assert.ok(Math.abs(wr - rb) < 1e-9 && Math.abs(wr - te) < 1e-9,
-    `legacy arm must shrink all three toward one number, got ${wr}, ${rb}, ${te}`);
+    `the default must shrink all three toward one number, got ${wr}, ${rb}, ${te}`);
   const legacy = (1 * THIN_OBSERVED + 6 * 0.06) / 7;
   assert.ok(Math.abs(wr - legacy) < 0.005,
     `expected the legacy constant ${legacy.toFixed(4)}, got ${wr.toFixed(4)}`);
+});
+
+test('role_prior.mode names which prior was used, on both arms', () => {
+  // A caller reading role_prior has to be able to tell the two apart without
+  // knowing which way the default currently points.
+  const dflt = buildProjections({ through: 2023, kOverride: null });
+  const fitted = buildProjections(PER_POSITION);
+  assert.equal(dflt.get(9001).role_prior.mode, 'flat_structural_head');
+  assert.equal(fitted.get(9001).role_prior.mode, 'per_position_structural_head');
+  assert.ok(Math.abs(dflt.get(9001).role_prior.target_share - 0.06) < 1e-9,
+    'the default arm must report the constant it actually used');
 });

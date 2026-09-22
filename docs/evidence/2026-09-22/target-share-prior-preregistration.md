@@ -1,5 +1,14 @@
 # Pre-registration: the per-position target-share prior
 
+> **Outcome, appended 2026-09-22 and appended only.** Branch 1 below fired on
+> the metric this document fixed in advance, and the change still does **not**
+> ship as the default: an availability-inclusive metric that this document did
+> not name came back null, and the audit ruled that the fitted prior and the
+> availability multiplier are one finding and neither ships alone. See
+> `target-share-prior-result.md` sections 5 and 9. **Nothing above this line was
+> edited after the fact** — the decision rule stands as written, and what
+> overrode it is recorded here rather than folded into it.
+
 **Written and committed before the grade was run.** Nothing in this file was
 chosen after seeing a result on the graded season. It exists so the decision
 rule cannot be adjusted to fit whatever comes back.

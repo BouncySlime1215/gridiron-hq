@@ -92,10 +92,10 @@ const GAMES = 17;
  * method-of-moments between-player variance is inflated for those metrics.
  */
 /**
- * The single target-share prior every pass-catcher used to be shrunk toward.
- * Kept as the no-rows fallback and as the `sharePrior: 'legacy'` arm so a
- * backtest can grade the two on identical inputs. It is not a measured mean of
- * anything: see positionalPriors().
+ * The single target-share prior every pass-catcher is shrunk toward. It is NOT
+ * a measured mean of anything — see positionalPriors() — and it is still the
+ * default, because the measured replacement is only better on a metric that
+ * cannot see availability. Also the no-rows fallback.
  */
 const LEGACY_TARGET_SHARE_PRIOR = 0.06;
 
@@ -453,10 +453,11 @@ function positionalPriors(log) {
  *
  * @param through   last season allowed as evidence (exclusive of the season being predicted)
  * @param scoring   league scoring rules
- * @param sharePrior `'legacy'` forces the single 0.06 target-share prior every
- *   position used before 2026-09-22, so a backtest can grade the per-position
- *   prior against it on identical inputs. Omit for the measured per-position
- *   prior, which is what ships.
+ * @param sharePrior `'per_position'` selects the measured per-position
+ *   target-share prior. The DEFAULT is the single 0.06 constant, which is what
+ *   ships: the per-position prior is better on the weeks a player plays and a
+ *   null once missed weeks are counted, and the audit ruled it must not become
+ *   the default on its own. See the block at the shrink call below.
  * @param kOverride fitted shrinkage vector {metric: {position: k}} to use instead of
  *   the hardcoded K constants below. Omit to use whichever fit (if any) has been
  *   proven to beat hardcoded and marked active (see shrinkage-fit.js); pass `null`
@@ -543,14 +544,16 @@ export function buildProjections({
     const tgtShareObs = a.tgtShareW ? a.tgtShare / a.tgtShareW : 0;
     const tgtShareK = pickK(k, 'target_share', 'ALL', a.tgtShareW, a.tgtShareW, K.share);
     /*
-     * FIXED 2026-09-22. Was one global 0.06 for three non-exchangeable
+     * MEASURED 2026-09-22, and deliberately NOT made the default. Was one
+     * global 0.06 for three non-exchangeable
      * positions. 0.06 is not the mean of anything: opportunity rows 2021-2024,
      * with 2025 held out and zero-target weeks included, give WR 0.1322
      * (n=9,787), TE 0.0972 (n=4,825), RB 0.0647 (n=6,112). Only RB was near it,
      * so a thin-evidence receiver was being pulled toward half his position's
      * normal workload. positionalPriors() now measures the prior per position
-     * on the same estimand this shrinks toward, and `sharePrior: 'legacy'`
-     * restores the old constant for a paired backtest.
+     * on the same estimand this shrinks toward, and `sharePrior:
+     * 'per_position'` selects it for a paired backtest. Omitting the flag —
+     * which is what every live call does — keeps the old constant.
      *
      * CORRECTION to the note this replaces, so it is not repeated: it cited a
      * +6.60 pts/g bias on QBs with under two effective games as evidence for
@@ -558,6 +561,10 @@ export function buildProjections({
      * below, so the target-share prior never reaches a quarterback. That figure
      * has another source — the carry-share prior or the QB attempts arm — and
      * is not evidence about this constant.
+     *
+     * NOT THE DEFAULT, by audit ruling 2026-09-22. `sharePrior: 'per_position'`
+     * selects it; omitting the flag keeps the 0.06 constant. The reason is
+     * below, and it is not that the measurement was weak.
      *
      * GRADED, and read the caveat with the number: held-out 2025, paired
      * bootstrap clustered by player, +0.1044 targets of MAE against the legacy
@@ -570,6 +577,15 @@ export function buildProjections({
      * availability term this model does not have. See
      * docs/evidence/2026-09-22/target-share-prior-result.md section 5.
      *
+     * THE RULING, and why it is not a rejection: the legacy bias and the
+     * availability multiplier Plan 01 is fitting are one finding from two
+     * sides. Shipping this prior alone removes a hedge with nothing to replace
+     * it; shipping the multiplier alone over a biased prior double-counts. So
+     * the two must be graded TOGETHER, pre-registered, and neither ships alone.
+     * Until that grade exists this flag stays off by default and the constant
+     * below stays wrong about the population on purpose, which is a trade the
+     * next unit is meant to end rather than a state to leave alone.
+     *
      * STILL OPEN, and deliberately not changed here: K.share = 6 against the
      * fitter's ~0.4. The prior and the weight it carries interact — a weaker k
      * reduces how much any prior matters — so they have to be fitted together,
@@ -577,9 +593,9 @@ export function buildProjections({
      * only because the old one was wrong about the population rather than
      * mistuned against it.
      */
-    const targetSharePrior = sharePrior === 'legacy'
-      ? LEGACY_TARGET_SHARE_PRIOR
-      : (prior.target_share ?? LEGACY_TARGET_SHARE_PRIOR);
+    const targetSharePrior = sharePrior === 'per_position'
+      ? (prior.target_share ?? LEGACY_TARGET_SHARE_PRIOR)
+      : LEGACY_TARGET_SHARE_PRIOR;
     const tgtShare = shrinkSafe(tgtShareObs, targetSharePrior, tgtShareK.n, tgtShareK.k);
     const carShareObs = tv.rush_att ? rolePerGame(a.roleCarries) / tv.rush_att : 0;
     const carShareK = pickK(k, 'carry_share', carryShareGroup, a.roleW, a.roleW, K.share);
@@ -752,7 +768,7 @@ export function buildProjections({
       espn_id: a.espn_id, sleeper_id: a.sleeper_id, gsis_id: a.gsis_id,
       evidence_games: a.games, evidence_weight: +n.toFixed(1), seasons: [...a.seasons].sort(),
       role_prior: {
-        mode: sharePrior === 'legacy' ? 'flat_structural_head' : 'per_position_structural_head',
+        mode: sharePrior === 'per_position' ? 'per_position_structural_head' : 'flat_structural_head',
         // The prior actually used, not a literal beside it.
         target_share: +targetSharePrior.toFixed(4),
         carry_share: a.pos === 'RB' ? 0.25 : 0.02

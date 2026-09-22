@@ -26,17 +26,6 @@
 import { rows } from '../db/index.js';
 import { solveLinear } from './forecast-combination.js';
 
-/** Positions we model, and the opportunity each one is actually competing for. */
-export const OPPORTUNITY_STATS = Object.freeze({
-  QB: 'attempts',
-  RB: 'carries',
-  WR: 'targets',
-  TE: 'targets'
-});
-
-/** RBs get a second head: their receiving work is a different competition. */
-export const SECONDARY_STATS = Object.freeze({ RB: 'targets' });
-
 const EWMA_ALPHA = 0.4;
 const MIN_PRIOR_GAMES = 2;
 const SKILL_POSITIONS = ['QB', 'RB', 'WR', 'TE'];
@@ -132,7 +121,7 @@ function teamStatFor(position, stat) {
  * availability model's question, and mixing the two is how an opportunity model
  * ends up being graded on somebody else's job.
  */
-export function buildSeasonRows(season, { positions, stat, startWeek = 5, endWeek = 18 } = {}) {
+export function buildOpportunityRows(season, { positions, stat, startWeek = 5, endWeek = 18 } = {}) {
   const usage = loadSeasonUsage(season);
   if (!usage.length) return [];
   const injuries = loadSeasonInjuries(season);

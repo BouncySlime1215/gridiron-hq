@@ -143,27 +143,101 @@ convergence.** The lower end has gone 205 → 196 → 172 → 178 and the upper 
 estimate, not a demonstrated floor**, and the next correction should be expected
 to move it again.
 
-**And 178 still contains a category that is not a surface at all.** A
+**And whatever the `wired` cell reads, it contains a category that is not a
+surface at all.** A
 `package.json` script is an entry point by §2's own `wired` test, so a module
 reached only by one grades `wired` — but a script is not the fantasy product,
-it is a command somebody types or a job runs. Of the 178, **109 reach a real
-fantasy route and 69 reach only a script.** Read 109 as "reachable when a
-person uses the app" and 178 as "reachable by any non-betting entry point
-including the command line". §2a is where the 69 get decided one at a time;
-until then the honest statement of how much fantasy product is wired to a
-route is **109**, and that number should be the one a plan reads before it
-reads any other. The Auditor confirmed the method and internal consistency
-only, not the 27-member `job-reach only` list against another thread's map.
+it is a command somebody types or a job runs. On the tree measured below,
+**106 of the 169 reach a mounted fantasy route or the client, and 63 reach only
+a script.** Read 106 as "reachable when a person uses the app" and 169 as
+"reachable by any non-betting entry point including the command line". §2a is
+where the 63 get decided one at a time; until then the honest statement of how
+much fantasy product is wired to a route is **106**, and that number should be
+the one a plan reads before it reads any other. The Auditor confirmed the
+method and internal consistency only, not the 27-member `job-reach only` list
+against another thread's map.
 
-| | request reach only | request + job reach |
+**The `wired` cell of the request column was never measured, and the column did
+not add up (Auditor §R54.1).** It printed **178** while the other five cells
+printed the **172** measurement they were taken from, so the column summed to
+**325** under a printed total of **319**. The +6 is §2b's hand-adjustment —
+adding back the 12 function-body edges that sit in route-reached modules — and
+it was applied to one cell without taking those six files out of the cells they
+came from. Nobody has named which six files move, or what they stop being.
+**An adjustment that cannot be applied to a whole column does not belong in
+one**, so it stays in §2b prose and the table prints measured cells only, with
+its sum.
+
+**Re-measured on a tree that is in this repository.** The 172/228 pair was
+measured on tree `500bab36`, commit `b0c1616d`; neither object is reachable
+from this repository, so nobody can re-run it. The table below is `c90d2834`
+(`main` after #129), which anyone can check out.
+
+**Cite the population, not the repository.** A whole-tree write-tree hash moves
+when any file in the repository moves, so it cannot tell a reader whether the
+*subject set* changed. The population here is two subtrees, and these are the
+hashes that matter:
+
+    git rev-parse HEAD:server/services   # 2c900fff on c90d2834
+    git rev-parse HEAD:server/modeling   # 6bbd8e6a on c90d2834
+
+That population is **321** files, not the 319 of the earlier measurement.
+`data-freshness.js`, `league-history.js` and `player-advanced-stats.js` came in
+and `trend-exploits.js` went out between the two trees, which is part of why
+the `wired` cell reads 169 and not 172 — the rest is the six-file adjustment
+above. Two threads reached 321 and these two subtree hashes independently.
+
+**The headline bracket at the top of this section is unchanged and is with the
+Auditor**; do not read this table as having revised it.
+
+| on `c90d2834` | request reach only | request + job reach |
 |---|---|---|
-| `wired` (fantasy) | **178** | **228** |
+| `wired` (fantasy) | **169** | **225** |
 | `wired-betting-only` | 65 | 55 |
 | `wired-mlb-only` | 6 | 3 |
 | `wired-offproduct-only` | 18 | 2 |
-| `hand-run-script` | 11 | 10 |
-| `unreached` | 47 | 21 |
-| **total** | **319** | **319** |
+| `hand-run-script` | 13 | 11 |
+| `unreached` | 50 | 25 |
+| **column sum** | **321** | **321** |
+
+Each column is one command, from the repository root. `REACH_MODE=request`
+gives the left column and `REACH_MODE=request+job` the right:
+
+    REACH_MODE=request node --input-type=module -e '
+    import fs from "node:fs"; import { execSync } from "node:child_process";
+    import * as R from "./scripts/reach-grade.mjs";
+    const MODE = process.env.REACH_MODE;
+    const files = execSync("git ls-files", { encoding: "utf8", maxBuffer: 1 << 28 }).split("\n")
+      .map(s => s.trim()).filter(f => /\.(mjs|js|jsx)$/.test(f) && !f.startsWith("test/")
+        && !f.startsWith("client/dist/") && !/\.test\.(mjs|js)$/.test(f));
+    const read = f => { try { return fs.readFileSync(f, "utf8"); } catch { return null; } };
+    const raw = MODE === "request" ? R.classifyImportEdges({ files, read }).request
+                                   : R.buildImporterGraph({ files, read });
+    const importers = R.dropRouteBootEdges(raw);
+    const mounted = R.mountedRoutes(read("server/index.js") || "");
+    const scripts = R.packageScriptEntries(JSON.parse(read("package.json")));
+    const isEntry = f => mounted.has(f) || scripts.has(f) || f.startsWith("client/src/");
+    const isHandRun = f => !isEntry(f) && /^(scripts|server\/scripts)\//.test(f) && !(raw[f] && raw[f].size);
+    const tally = new Map(); let n = 0;
+    for (const f of files.filter(f => /^server\/(services|modeling)\//.test(f)).sort()) {
+      const g = R.gradeReach(R.reachableEntries(importers, f, { isEntry }), { isHandRunScript: isHandRun }).grade;
+      tally.set(g, (tally.get(g) || 0) + 1); n += 1;
+    }
+    console.log(MODE, execSync("git rev-parse HEAD", { encoding: "utf8" }).trim());
+    for (const [g, c] of [...tally].sort()) console.log(" ", g.padEnd(22), c);
+    console.log("  COLUMN SUM".padEnd(25), n);
+    '
+
+**The CLI cannot produce the left column, which is why only the right one ever
+came out of a command.** `repoGraph` builds its graph with `buildImporterGraph`
+at `scripts/reach-grade.mjs:352`, and that function does not separate
+module-scope edges from function-body ones. The CLI at `:364` calls `repoGraph`
+and nothing else (`:372`), and `classifyImportEdges` (`:125`) has no caller in
+the repository outside `test/reach-grader-all-paths.test.js:363` and the
+command above. So **every figure that has ever come out of
+`node scripts/reach-grade.mjs` is a request+job figure**; the request-only end
+has only ever come from a hand-written driver, which is why it has moved four
+times while the upper end moved once.
 
 Three things widen it, and each has its own section:
 

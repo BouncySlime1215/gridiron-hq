@@ -37,7 +37,9 @@ const { rows, row, run } = await import('../server/db/index.js');
 await (await import('../server/db/migrate.js')).runMigrations();
 
 const {
-  classifyInjuryDirection, resolveInjuryClaim, resolveInjuryClaims, sourceTrustScore, orderByTrust
+  classifyInjuryDirection, resolveInjuryClaim, resolveInjuryClaims,
+  classifyRoleDirection, resolveRoleChangeClaim, resolveRoleChangeClaims,
+  sourceTrustScore, orderByTrust
 } = await import('../server/services/beat-reporter-accuracy.js');
 
 // ---- fixtures ---------------------------------------------------------
@@ -62,15 +64,24 @@ function setSnaps(playerId, season, week, offenseSnaps) {
     playerId, season, week, offenseSnaps, offenseSnaps > 0 ? 0.7 : 0);
 }
 
+/** Role-change ground truth is read from offense_pct, not offense_snaps, so
+ * this fixture controls the share directly rather than deriving it. */
+function setSnapsPct(playerId, season, week, offensePct) {
+  run(`INSERT INTO player_week_snaps (player_id, season, week, offense_snaps, offense_pct)
+       VALUES (?,?,?,?,?)
+       ON CONFLICT(player_id, season, week) DO UPDATE SET offense_pct=excluded.offense_pct, offense_snaps=excluded.offense_snaps`,
+    playerId, season, week, Math.round(offensePct * 65), offensePct);
+}
+
 let eventSeq = 0;
-function makeEvent({ playerName, team = 'KC', claimText, publishedAt, handle = 'RotoRealist' }) {
+function makeEvent({ playerName, team = 'KC', claimText, publishedAt, handle = 'RotoRealist', claimType = 'injury_status' }) {
   const event_id = `ev-${++eventSeq}`;
   run(`INSERT INTO nfl_news_events
        (event_id, source_kind, source_ref, content_hash, player_key, player_id, player_name, team,
         claim_type, claim_text, evidence_span, source_name, source_url, reporter_handle,
         published_at, first_seen_time, extractor_version)
-       VALUES (?,'news_item',?,?,?,?,?,?,'injury_status',?,?,?,?,?,?,?,'test-1')`,
-    event_id, event_id, `hash-${event_id}`, playerName.toLowerCase(), null, playerName, team,
+       VALUES (?,'news_item',?,?,?,?,?,?,?,?,?,?,?,?,?,?,'test-1')`,
+    event_id, event_id, `hash-${event_id}`, playerName.toLowerCase(), null, playerName, team, claimType,
     claimText, claimText, 'Test Wire', 'https://example.test', handle, publishedAt, publishedAt);
   return event_id;
 }
@@ -256,6 +267,180 @@ test('resolveInjuryClaim: unresolved for a defensive position, since offense_sna
   const res = resolveInjuryClaim(ev, { asOf: '2026-12-01T00:00:00Z' });
   assert.equal(res.resolved_state, 'unresolved');
   assert.match(res.resolved_reason, /position.*not covered/i);
+});
+
+// ---- classifyRoleDirection -----------------------------------------------
+
+test('classifyRoleDirection reads a confirmed-starter or expanded-role claim as role_up', () => {
+  assert.equal(classifyRoleDirection('He will be the starting running back this week.'), 'role_up');
+  assert.equal(classifyRoleDirection('Expects an expanded role in the passing game.'), 'role_up');
+});
+
+test('classifyRoleDirection reads a benched or reduced-role claim as role_down', () => {
+  assert.equal(classifyRoleDirection('He has been benched and loses the starting job.'), 'role_down');
+  assert.equal(classifyRoleDirection('Now in a committee with a reduced role.'), 'role_down');
+});
+
+test('classifyRoleDirection returns null when the text carries no role-change signal', () => {
+  assert.equal(classifyRoleDirection('Signed a two-year contract extension.'), null);
+});
+
+// ---- resolveRoleChangeClaim ------------------------------------------------
+//
+// Weeks/dates below are deliberately pushed out to 2027, distinct from every
+// week already used above and from each other: the game lookup is
+// `date >= claimDate ORDER BY date ASC LIMIT 1` across ALL of this team's
+// scheduled games (not scoped to a season/week), and fixtures accumulate
+// across the whole file as tests run in order, so a colliding date would let
+// an earlier or later test's game answer this one's query.
+
+test('resolveRoleChangeClaim: role_up confirmed by a real snap-share jump', () => {
+  const player = makePlayer('Role Up Confirmed RB', 'RB');
+  setSnapsPct(player, 2026, 1, 0.30);
+  makeGame(2026, 2, '2027-02-01');
+  setSnapsPct(player, 2026, 2, 0.55);
+  const eventId = makeEvent({
+    playerName: 'Role Up Confirmed RB', claimText: 'He will be the starting running back this week.',
+    publishedAt: '2027-01-30T12:00:00Z', claimType: 'role_change',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveRoleChangeClaim(ev, { asOf: '2027-02-02T00:00:00Z' });
+  assert.equal(res.predicted_direction, 'role_up');
+  assert.equal(res.resolved_state, 'confirmed');
+  assert.equal(res.season, 2026);
+  assert.equal(res.week, 2);
+});
+
+test('resolveRoleChangeClaim: role_up contradicted when the share actually fell', () => {
+  const player = makePlayer('Role Up Contradicted WR', 'WR');
+  setSnapsPct(player, 2026, 1, 0.50);
+  makeGame(2026, 7, '2027-02-08');
+  setSnapsPct(player, 2026, 7, 0.20);
+  const eventId = makeEvent({
+    playerName: 'Role Up Contradicted WR', claimText: 'Expects an expanded role in the passing game.',
+    publishedAt: '2027-02-06T12:00:00Z', claimType: 'role_change',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveRoleChangeClaim(ev, { asOf: '2027-02-09T00:00:00Z' });
+  assert.equal(res.resolved_state, 'contradicted');
+});
+
+test('resolveRoleChangeClaim: role_down confirmed by a real snap-share drop', () => {
+  const player = makePlayer('Role Down Confirmed WR', 'WR');
+  setSnapsPct(player, 2026, 6, 0.65);
+  makeGame(2026, 14, '2027-02-15');
+  setSnapsPct(player, 2026, 14, 0.25);
+  const eventId = makeEvent({
+    playerName: 'Role Down Confirmed WR', claimText: 'He has been benched and loses the starting job.',
+    publishedAt: '2027-02-13T12:00:00Z', claimType: 'role_change',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveRoleChangeClaim(ev, { asOf: '2027-02-16T00:00:00Z' });
+  assert.equal(res.predicted_direction, 'role_down');
+  assert.equal(res.resolved_state, 'confirmed');
+});
+
+test('resolveRoleChangeClaim: unresolved when the share barely moved, not forced either way', () => {
+  const player = makePlayer('Flat Share WR', 'WR');
+  setSnapsPct(player, 2026, 1, 0.40);
+  makeGame(2026, 15, '2027-02-22');
+  setSnapsPct(player, 2026, 15, 0.45);
+  const eventId = makeEvent({
+    playerName: 'Flat Share WR', claimText: 'Expects an expanded role in the passing game.',
+    publishedAt: '2027-02-20T12:00:00Z', claimType: 'role_change',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveRoleChangeClaim(ev, { asOf: '2027-02-23T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /not a big enough move/i);
+});
+
+test('resolveRoleChangeClaim: unresolved when there is no prior-week snap share to compare against', () => {
+  const player = makePlayer('No Baseline WR', 'WR');
+  makeGame(2026, 21, '2027-03-01');
+  setSnapsPct(player, 2026, 21, 0.50);
+  const eventId = makeEvent({
+    playerName: 'No Baseline WR', claimText: 'He will be the starting wide receiver this week.',
+    publishedAt: '2027-02-27T12:00:00Z', claimType: 'role_change',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveRoleChangeClaim(ev, { asOf: '2027-03-02T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /no prior-week/i);
+});
+
+test('resolveRoleChangeClaim: unresolved for a defensive position, same offense-snap guard as injury_status', () => {
+  const player = makePlayer('Role Change LB', 'LB');
+  makeGame(2026, 16, '2027-03-08');
+  const eventId = makeEvent({
+    playerName: 'Role Change LB', claimText: 'He will be the starting linebacker this week.',
+    publishedAt: '2027-03-06T12:00:00Z', claimType: 'role_change',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveRoleChangeClaim(ev, { asOf: '2027-03-09T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /position.*not covered/i);
+});
+
+test('resolveRoleChangeClaim: unresolved when the game has not been played yet, same guard as injury_status', () => {
+  const player = makePlayer('Role Change Future WR', 'WR');
+  makeGame(2026, 17, '2027-03-15');
+  const eventId = makeEvent({
+    playerName: 'Role Change Future WR', claimText: 'He will be the starting wide receiver this week.',
+    publishedAt: '2027-03-13T12:00:00Z', claimType: 'role_change',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveRoleChangeClaim(ev, { asOf: '2027-03-14T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /not.*played/i);
+});
+
+test('resolveRoleChangeClaim: unresolved when no role direction classifies from the claim text', () => {
+  const player = makePlayer('No Direction WR', 'WR');
+  makeGame(2026, 18, '2027-03-22');
+  const eventId = makeEvent({
+    playerName: 'No Direction WR', claimText: 'Practiced fully and is on track for Sunday.',
+    publishedAt: '2027-03-20T12:00:00Z', claimType: 'role_change',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveRoleChangeClaim(ev, { asOf: '2027-03-23T00:00:00Z' });
+  assert.equal(res.predicted_direction, null);
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /no role direction/i);
+});
+
+// ---- resolveRoleChangeClaims (batch) ---------------------------------------
+
+test('resolveRoleChangeClaims writes one upserted row per role_change event, and leaves injury_status alone', () => {
+  const injuryPlayer = makePlayer('Untouched Injury WR', 'WR');
+  makeGame(2026, 19, '2027-03-29');
+  setSnaps(injuryPlayer, 2026, 19, 0);
+  const injuryEventId = makeEvent({
+    playerName: 'Untouched Injury WR', claimText: 'Ruled out this week.',
+    publishedAt: '2027-03-27T12:00:00Z',
+  });
+
+  const rolePlayer = makePlayer('Batch Role RB', 'RB');
+  setSnapsPct(rolePlayer, 2026, 19, 0.20);
+  makeGame(2026, 20, '2027-04-05');
+  setSnapsPct(rolePlayer, 2026, 20, 0.55);
+  const roleEventId = makeEvent({
+    playerName: 'Batch Role RB', claimText: 'He will be the starting running back this week.',
+    publishedAt: '2027-04-03T12:00:00Z', claimType: 'role_change', handle: 'RoleReporter',
+  });
+
+  const result = resolveRoleChangeClaims({ asOf: '2027-04-06T00:00:00Z' });
+  assert.ok(result.resolved >= 1);
+  const stored = row(`SELECT * FROM beat_reporter_claim_resolutions WHERE event_id=?`, roleEventId);
+  assert.equal(stored.resolved_state, 'confirmed');
+  assert.equal(stored.reporter_handle, 'RoleReporter');
+  assert.equal(row(`SELECT * FROM beat_reporter_claim_resolutions WHERE event_id=?`, injuryEventId), null,
+    'resolveRoleChangeClaims must not touch injury_status events');
+
+  // Re-running does not duplicate the row (upsert on event_id).
+  resolveRoleChangeClaims({ asOf: '2027-04-06T00:00:00Z' });
+  const count = row(`SELECT COUNT(*) AS n FROM beat_reporter_claim_resolutions WHERE event_id=?`, roleEventId).n;
+  assert.equal(count, 1);
 });
 
 // ---- resolveInjuryClaims (batch) ----------------------------------------

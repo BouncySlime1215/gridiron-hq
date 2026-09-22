@@ -1546,7 +1546,12 @@ test('the derived field agrees with every table that was catalogued by hand', as
     nfl_ensemble_rank_reports: ['first_write', null],
     nfl_availability_rates: ['script', 'scripts/fit-availability.mjs:54'],
     nfl_availability_role_rates: ['script', 'scripts/fit-availability.mjs:55'],
-    league_season_teams: ['script', 'scripts/backfill-league-history.mjs:48'],
+    // MOVED, and the move is real. It was created by scripts/backfill-league-history.mjs:48
+    // when this catalogue was made by hand; #89 landed server/migrations/064_league_history_tables.js,
+    // which creates it. The map reported the change and the catalogue had not. A table that
+    // gains a migration stops being something an operator has to remember to run, which is the
+    // distinction `created_by` exists to draw — so the new value is the interesting one.
+    league_season_teams: ['migration', 'server/migrations/064_league_history_tables.js:29'],
   };
   for (const [table, [kind, site]] of Object.entries(catalogued)) {
     const row = by.get(table);
@@ -1984,9 +1989,20 @@ test('every job in the real scheduler is cited at a line holding that job key', 
     .map((j) => `${j.name} cited :${j.line} -> ${JSON.stringify((lines[j.line - 1] ?? '').trim().slice(0, 50))}`);
   assert.deepEqual(wrong, [], `${wrong.length} of ${jobs.length} job citations point at the wrong line`);
 
-  // The specific number the scheduler thread read by hand, before this map
-  // existed to disagree with them.
-  assert.equal(jobs.find((j) => j.name === 'player_rosters')?.line, 1196);
+  // The scheduler thread read `player_rosters` at :1196 by hand, before this map
+  // existed to disagree with them, and that number was asserted as a constant. It
+  // survived until #89 and #91 added lines above it and the job moved to :1217 —
+  // at which point the assertion was measuring scheduler.js's layout, a file this
+  // thread does not own, and not the map's arithmetic at all.
+  //
+  // What the hand-read number was actually worth is a SECOND OPINION: somebody
+  // found that line without using the scanner. So take the second opinion the same
+  // way every run, by reading the file directly, and let the citation move when the
+  // file does. A frozen line number in another thread's file is a fixture that goes
+  // stale on somebody else's commit and says nothing when it does.
+  const byHand = lines.findIndex((l) => /\bplayer_rosters\s*:\s*\{/.test(l)) + 1;
+  assert.ok(byHand > 0, 'player_rosters is not in scheduler.js any more');
+  assert.equal(jobs.find((j) => j.name === 'player_rosters')?.line, byHand);
 
   // The census, counted a different way than schedulerJobs counts it, because
   // a defect injection that dropped the FIRST job left every surviving

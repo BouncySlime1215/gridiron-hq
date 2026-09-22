@@ -56,6 +56,26 @@ export function isBettingEntryPoint(file) {
   return BETTING_ENTRY_POINTS.includes(file);
 }
 
+/**
+ * The other off-product surface (Auditor §R18.1).
+ *
+ * `/api/mlb` is not betting and it is not the fantasy product either. Folding
+ * it into `wired-betting-only` would record a false fact, and leaving it in the
+ * fantasy `wired` total hides the most droppable category of all — MLB is not
+ * in the approved product. So it gets its own label, on the same explicit-list
+ * precedent as the betting surfaces: the list is the test.
+ */
+export const MLB_ENTRY_POINTS = Object.freeze([
+  'server/routes/mlb.js',
+]);
+
+/** 'betting' | 'mlb' | 'fantasy' — 'fantasy' is the default, so a new route counts as product. */
+export function surfaceLabel(file) {
+  if (BETTING_ENTRY_POINTS.includes(file)) return 'betting';
+  if (MLB_ENTRY_POINTS.includes(file)) return 'mlb';
+  return 'fantasy';
+}
+
 const SOURCE_EXT = /\.(js|mjs|ts|tsx)$/;
 /** Build output is not a consumer: it is a copy of code already counted. */
 const NOT_A_CONSUMER = f => f.startsWith('client/dist/');
@@ -252,11 +272,14 @@ export function reachableEntries(importers, start, { isEntry, maxDepth = Infinit
  * non-betting entry point makes the row `wired`; none at all makes it
  * `unreached` -- which is a statement about code, not about data.
  */
-export function gradeReach(reach, { isBettingEntry = isBettingEntryPoint, isHandRunScript = () => false } = {}) {
+export function gradeReach(reach, { isBettingEntry = isBettingEntryPoint, label = surfaceLabel, isHandRunScript = () => false } = {}) {
   const entries = [...reach.entries.keys()].sort();
-  const betting = entries.filter(isBettingEntry);
-  const nonBetting = entries.filter(e => !isBettingEntry(e));
-  const base = { entries, betting, nonBetting, handRun: [], paths: reach.entries, truncated: Boolean(reach.truncated) };
+  const labelOf = e => (isBettingEntry(e) ? 'betting' : label(e));
+  const betting = entries.filter(e => labelOf(e) === 'betting');
+  const mlb = entries.filter(e => labelOf(e) === 'mlb');
+  const fantasy = entries.filter(e => labelOf(e) === 'fantasy');
+  const nonBetting = entries.filter(e => labelOf(e) !== 'betting');
+  const base = { entries, betting, mlb, fantasy, nonBetting, handRun: [], paths: reach.entries, truncated: Boolean(reach.truncated) };
 
   if (reach.truncated) {
     return { ...base, grade: 'indeterminate', reason: 'the walk was truncated at the depth limit, so the entry-point set is incomplete' };
@@ -268,12 +291,21 @@ export function gradeReach(reach, { isBettingEntry = isBettingEntryPoint, isHand
     }
     return { ...base, grade: 'unreached', reason: 'no entry point imports this module, directly or transitively' };
   }
-  if (nonBetting.length === 0) {
-    return { ...base, grade: 'wired-betting-only', reason: `every entry point is a betting surface: ${betting.join(', ')}` };
+  // Off-product reach: no fantasy entry point at all. Which off-product surface
+  // is a sub-label, never a fold — §R18.1: recording an MLB-only module as
+  // betting-only states a false fact the Phase A plan then reads.
+  if (fantasy.length === 0) {
+    if (mlb.length === 0) {
+      return { ...base, grade: 'wired-betting-only', reason: `every entry point is a betting surface: ${betting.join(', ')}` };
+    }
+    if (betting.length === 0) {
+      return { ...base, grade: 'wired-mlb-only', reason: `every entry point is an MLB surface: ${mlb.join(', ')}` };
+    }
+    return { ...base, grade: 'wired-offproduct-only', reason: `no fantasy entry point; reached from betting (${betting.join(', ')}) and MLB (${mlb.join(', ')})` };
   }
-  const shown = nonBetting.slice(0, 3).join(', ');
-  const rest = nonBetting.length > 3 ? ` (+${nonBetting.length - 3} more)` : '';
-  return { ...base, grade: 'wired', reason: `reached outside betting via ${shown}${rest}` };
+  const shown = fantasy.slice(0, 3).join(', ');
+  const rest = fantasy.length > 3 ? ` (+${fantasy.length - 3} more)` : '';
+  return { ...base, grade: 'wired', reason: `reached from the fantasy product via ${shown}${rest}` };
 }
 
 /** The real repository, as a graph plus the entry-point predicate that goes with it. */

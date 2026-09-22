@@ -123,29 +123,65 @@ quoted anywhere. Run:
 **First sweep, 2026-09-22. Quote this as a BRACKET, not a point.** Across the
 319 tracked files in `server/services/` and `server/modeling/`:
 
-> **196–233 `wired` · 55–65 `wired-betting-only` · 21–47 `unreached`
-> · 10–11 `hand-run-script`  — each column summing to 319**
+> **172–228 `wired` · 55–65 `wired-betting-only` · 3–6 `wired-mlb-only`
+> · 2–18 `wired-offproduct-only` · 10–11 `hand-run-script` · 21–47 `unreached`
+> — each column summing to 319**
 
 **The ends are bounds, not alternatives**, and the bracket, never either end, is
-what goes into the Phase A plan. Two things widen it:
-
-- **The script rule (§2a)** — 13 files whose grade turns on how a `package.json`
-  script entry point is classified.
-- **Request reach against job reach (§2b)** — 26 files with no request path at
-  all. This is the larger of the two and it overlaps the first.
-
-The Auditor's §R17 put the lower end at 205, derived by excluding paths through
-`scheduler.js`. **Measured by mechanism rather than by file name it is 196**,
-because a function-body import defers reach wherever it occurs and
-`scheduler.js` is not the only place it occurs. The two figures are the same
-finding at different precision; 196 is the one to quote.
+what goes into the Phase A plan.
 
 | | request reach only | request + job reach |
 |---|---|---|
-| `wired` | 196 | 233 |
+| `wired` (fantasy) | **172** | **228** |
 | `wired-betting-only` | 65 | 55 |
+| `wired-mlb-only` | 6 | 3 |
+| `wired-offproduct-only` | 18 | 2 |
 | `hand-run-script` | 11 | 10 |
 | `unreached` | 47 | 21 |
+| **total** | **319** | **319** |
+
+Three things widen it, and each has its own section:
+
+- **The script rule (§2a)** — 13 files whose grade turns on how a
+  `package.json` script entry point is classified.
+- **Request reach against job reach (§2b)** — **27 files with no request path
+  at all**, re-derived exhaustively (see the method note there).
+- **The off-product surfaces (§2c)** — `/api/mlb` is neither betting nor
+  fantasy, and a module reached only from it was previously counted in the
+  fantasy `wired` total.
+
+**How the lower end moved, and why the earlier numbers were higher.** The
+Auditor's §R17 put it at 205, derived by excluding paths through
+`scheduler.js`. Measured by mechanism rather than by file name that became 196,
+because a function-body import defers reach wherever it occurs. Adding the
+`/api/mlb` label (§R18.1) takes it to **172**: 24 of the files the earlier
+figures counted as fantasy `wired` on the request path reach no fantasy route
+at all. Each revision moved the same direction, and each was a false fact
+removed rather than a figure re-derived.
+
+## 2c. Off-product surfaces (Auditor §R18.1)
+
+Betting is not the only surface that is not the fantasy product. **`/api/mlb`
+is neither**, and it is the most droppable category of the three, because MLB is
+not in the approved product at all.
+
+So the surface list carries a **label**, and `wired-betting-only` is not
+renamed:
+
+| surface | label |
+|---|---|
+| `nfl-market.js`, `nfl-betting.js`, `betting-hub.js`, `wong.js`, `execution-slate.js` | `betting` |
+| `mlb.js` | `mlb` |
+| every other mounted route | `fantasy` — **the default** |
+
+Fantasy is the default so that a route nobody has classified counts as product
+and a new surface cannot silently leave the total. The grades that follow:
+**`wired`** (at least one fantasy entry point — one is enough, whatever else it
+reaches), **`wired-betting-only`**, **`wired-mlb-only`**, and
+**`wired-offproduct-only`** where there is no fantasy entry point and the
+off-product ones are mixed. Folding an MLB-only module into
+`wired-betting-only` would state a false fact the Phase A plan then reads;
+leaving it in `wired` hides it.
 
 ## 2b. Request reach and job reach are two reaches, never summed (Auditor §R17.4)
 
@@ -160,6 +196,24 @@ called. This repo has **1,687 module-scope imports against 240 inside function
 bodies**, and `scheduler.js:1064` is the live case: `await import('./nfl-auto-picks.js')`
 inside `refreshNflDecisionLedger()`. Calling the bucket "via `scheduler.js`"
 would encode one file where the mechanism is what matters.
+
+**The 27 were re-derived exhaustively, and the method is the point (§R18.3).**
+The earlier figure of 28 came from a proxy — excluding paths through
+`scheduler.js` — and an earlier claim of mine generalised from the three
+shortest paths to all thirteen, which was wrong. Both are replaced by the same
+enumeration the route test uses: for each file, **every** entry point on the
+request graph and **every** entry point on the full graph, with membership being
+`full > 0 and request == 0`. No shortest path is consulted. **Removing an edge class and re-running
+reachability is all-paths by construction** — the question "does ANY path avoid
+these edges" is answered by whether the node is reachable at all once they are
+gone, so no path needs enumerating. The Wiring map thread reached the same
+construction independently by removing `scheduler.js` as a *node*; removing the
+function-body edge *class* is the same argument one level more general, since it
+catches deferred reach wherever it occurs rather than in one file. `nfl-candidate-findings.js`
+is correctly **not** a member (§R18.2): it has request reach, from betting and
+MLB surfaces. Every member of this bucket is a file the plan is told to ignore,
+so the expensive direction of error is inclusion, and the enumeration is what
+guards it.
 
 **`SCHEDULER_DISABLED=1` is excluded from the criterion.** It is operational
 state, not architecture, and it is not in `fly.toml`, so a deploy can drop it.

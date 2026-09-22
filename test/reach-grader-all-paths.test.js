@@ -28,6 +28,7 @@ import assert from 'node:assert/strict';
 import {
   BETTING_ENTRY_POINTS,
   buildImporterGraph,
+  MLB_ENTRY_POINTS,
   classifyImportEdges,
   dropRouteBootEdges,
   gradeReach,
@@ -35,6 +36,7 @@ import {
   mountedRoutes,
   reachableEntries,
   repoGraph,
+  surfaceLabel,
 } from '../scripts/reach-grade.mjs';
 
 /**
@@ -396,4 +398,50 @@ test('job-reach-only is a grade about mechanism, and is never added to the reque
   assert.notEqual(onRequest.grade, onEither.grade,
     'the two reaches disagree here, which is the whole reason they are reported apart');
   void deferred;
+});
+
+/*
+ * Auditor R18.1: /api/mlb is not betting and is not the fantasy product either.
+ * Folding it into wired-betting-only records a false fact the Phase A plan
+ * reads; leaving it in the fantasy wired total hides the most droppable
+ * category, since MLB is not in the approved product. It gets its own label on
+ * the same explicit-list precedent, and betting-only is NOT renamed.
+ */
+
+const ENTRY_R = f => f.startsWith('server/routes/');
+
+test('a module reached only through /api/mlb is mlb-only, not betting-only and not wired', () => {
+  const fixture = { 'server/services/subject.js': ['server/routes/mlb.js'] };
+  const graded = gradeReach(reachableEntries(fixture, 'server/services/subject.js', { isEntry: ENTRY_R }));
+  assert.equal(graded.grade, 'wired-mlb-only');
+  assert.deepEqual(graded.mlb, ['server/routes/mlb.js']);
+  assert.deepEqual(graded.betting, [], 'calling this betting would state a false fact');
+  assert.deepEqual(graded.fantasy, []);
+});
+
+test('betting and MLB together, with no fantasy route, is off-product — not folded into either', () => {
+  const fixture = { 'server/services/subject.js': ['server/routes/mlb.js', 'server/routes/nfl-betting.js'] };
+  const graded = gradeReach(reachableEntries(fixture, 'server/services/subject.js', { isEntry: ENTRY_R }));
+  assert.equal(graded.grade, 'wired-offproduct-only');
+  assert.equal(graded.betting.length, 1);
+  assert.equal(graded.mlb.length, 1);
+  assert.match(graded.reason, /no fantasy entry point/);
+});
+
+test('one fantasy route outweighs any number of off-product ones', () => {
+  const fixture = {
+    'server/services/subject.js': ['server/routes/mlb.js', 'server/routes/nfl-betting.js', 'server/routes/model.js'],
+  };
+  const graded = gradeReach(reachableEntries(fixture, 'server/services/subject.js', { isEntry: ENTRY_R }));
+  assert.equal(graded.grade, 'wired');
+  assert.deepEqual(graded.fantasy, ['server/routes/model.js']);
+  assert.match(graded.reason, /fantasy product/);
+});
+
+test('the MLB surface list is explicit, and fantasy is the default for an unlisted route', () => {
+  assert.deepEqual([...MLB_ENTRY_POINTS], ['server/routes/mlb.js']);
+  assert.equal(surfaceLabel('server/routes/mlb.js'), 'mlb');
+  assert.equal(surfaceLabel('server/routes/nfl-betting.js'), 'betting');
+  assert.equal(surfaceLabel('server/routes/trades.js'), 'fantasy',
+    'a route nobody has classified counts as product, so a new surface cannot silently leave the total');
 });

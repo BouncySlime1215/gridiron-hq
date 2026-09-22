@@ -46,6 +46,13 @@
  * mutate the CALL SITE in routes/trades.js, which no row touched before, and
  * C-EQUIV is a designed survivor there: an equivalent mutant that must survive.
  *
+ * THE SKEPTIC PASS added three rows for two gaps independent reviewers found on
+ * 169ada38. M41 swaps the observed writer's give/get, which passed every suite
+ * until G1 asserted the package's direction. C8/C9 put back the route's old
+ * proposer (the query string, which the app's own call never sends) and a
+ * query-first variant; both are killed by the two route tests added in the RED
+ * 1ea59528.
+ *
  * Nothing here writes to the repository. It edits a file, runs a suite, and puts
  * the file back byte for byte, refusing to continue if it cannot; `git write-tree`
  * is printed either side so a reader can see the tree did not move.
@@ -292,6 +299,14 @@ const M = [
     claim: 'an unparseable items_json is named, not read as a deal with no counterparty',
     find: '    return { error: `its items_json is not valid JSON (${e.message}), so the parties cannot be read` };',
     replace: '    return { items: [] };' },
+  // M41 (skeptic pass): the observed package's direction. Before 74d0ad7c no
+  // assertion read give_json or get_json, and this swap passed every suite.
+  { id: 'M41', file: SVC, suites: LEDGER,
+    claim: 'the observed writer files what left the proposer as give, what arrived as get',
+    edits: [{ file: SVC, find: '    if (String(i?.fromTeamId) === proposer) give.push(i);',
+      replace: '    if (String(i?.fromTeamId) === proposer) get.push(i);' },
+    { file: SVC, find: '    else if (String(i?.toTeamId) === proposer) get.push(i);',
+      replace: '    else if (String(i?.toTeamId) === proposer) give.push(i);' }] },
 
   // ---- the CALL SITE: routes/trades.js, the recorder's only caller ----
   // A rule tested only through the service is not a rule about what the route
@@ -299,19 +314,19 @@ const M = [
   // handling; the route suite is what must notice.
   { id: 'C1', file: RTE, suites: ROUTE,
     claim: 'the route hands the recorder the live result, not a cache-shaped one',
-    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,',
-    replace: "        ideas, result: { ...result, source: 'cache' }, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null," },
+    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,',
+    replace: "        ideas, result: { ...result, source: 'cache' }, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null," },
   { id: 'C2', file: RTE, suites: ROUTE,
     claim: 'the route hands the recorder the whole slate',
-    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,',
-    replace: '        ideas: [], result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,' },
+    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,',
+    replace: '        ideas: [], result, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,' },
   { id: 'C3', file: RTE, suites: ROUTE,
     claim: 'the route stamps the prompt version that made the decision',
-    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,',
-    replace: '        ideas, result, modelVersion: null, proposerTeamId: req.query.team_id ?? null,' },
+    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,',
+    replace: '        ideas, result, modelVersion: null, proposerTeamId: found?.me?.roster_id ?? null,' },
   { id: 'C4', file: RTE, suites: ROUTE,
-    claim: 'the route records which team asked',
-    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,',
+    claim: 'the route records which team the slate was priced for',
+    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,',
     replace: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: null,' },
   { id: 'C5', file: RTE, suites: ROUTE,
     claim: 'the route files rows under the league\'s own season',
@@ -324,6 +339,18 @@ const M = [
     claim: 'a failed ledger write never fails the proposals',
     find: "      ledger = { state: 'write_failed', reason: String(e?.message ?? e) };",
     replace: '      throw e;' },
+  // C8/C9 (skeptic pass): the proposer is the ENGINE's team. C8 puts back the
+  // line as it shipped, which stamped NULL on every row the app's own call writes
+  // (the client sends no team_id). C9 keeps the engine's team but lets the query
+  // win, which is wrong exactly when the engine could not find the asked-for team.
+  { id: 'C8', file: RTE, suites: ROUTE,
+    claim: 'the proposer is not read from the query string (the client sends none)',
+    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,',
+    replace: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,' },
+  { id: 'C9', file: RTE, suites: ROUTE,
+    claim: 'the engine\'s team wins over the query\'s when the two differ',
+    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,',
+    replace: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? found?.me?.roster_id ?? null,' },
 
   // ---- designed survivor: an EQUIVALENT mutant at the call site ----
   // `lg.season` comes from a real column, so it is null or a number, never

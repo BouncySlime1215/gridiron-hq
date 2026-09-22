@@ -161,3 +161,55 @@ test('resolveOutDir honours --out, and falls back when it is not usable', () => 
   assert.equal(resolveOutDir(['node', 'x.mjs', '--out', '--verbose'], fallback, base), fallback,
     '--out immediately followed by another flag is a missing value, not a directory named --verbose');
 });
+
+/*
+ * The other two evidence generators do not have a `registry_summary`, and both
+ * serialise deliberately: `freeze-baseline.mjs` ends its file with a newline,
+ * and `joint-score-report.mjs` post-processes its JSON so 408 per-game rows stay
+ * one line each instead of pretty-printing to 580KB.
+ *
+ * Both of those are reasons a script would keep its own `writeFileSync` and skip
+ * the guard, which is exactly how the guard stops being on the write path. So
+ * the guard takes the stamp location and the serialiser as inputs rather than
+ * dictating them.
+ */
+
+test('the stamp location is the caller\'s to choose', () => {
+  const outDir = tmp('stampat');
+  const { file } = writeEvidenceReport({
+    outDir, filename: 'r.json', report: { season: 2025, table: [] },
+    sources: { players_rows_read: 41 }, required: ['players_rows_read'],
+    stampAt: 'inputs',
+  });
+  const w = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(w.inputs.sources, { players_rows_read: 41 });
+  assert.equal(w.registry_summary, undefined,
+    'a report with no registry_summary must not grow one');
+  assert.equal(w.season, 2025);
+});
+
+test('a custom serialiser is used, and still gets the stamped report', () => {
+  const outDir = tmp('serialize');
+  const seen = [];
+  const { file } = writeEvidenceReport({
+    outDir, filename: 'r.json', report: { a: 1 },
+    sources: { n: 3 }, required: ['n'], stampAt: 'inputs',
+    serialize: (r) => { seen.push(r); return JSON.stringify(r) + '\n'; },
+  });
+  const raw = fs.readFileSync(file, 'utf8');
+  assert.ok(raw.endsWith('}\n'), 'the caller\'s formatting must survive');
+  assert.ok(!raw.includes('\n  '), 'the default pretty-printer must not have run');
+  assert.deepEqual(seen[0].inputs.sources, { n: 3 },
+    'the serialiser must receive the STAMPED report, not the original — '
+    + 'otherwise the counts are computed, checked, and then dropped on the floor');
+});
+
+test('a custom serialiser does not run when a required source is empty', () => {
+  const outDir = tmp('serialize-refuse');
+  let ran = false;
+  assert.throws(() => writeEvidenceReport({
+    outDir, filename: 'r.json', report: { a: 1 }, sources: { n: 0 }, required: ['n'],
+    serialize: (r) => { ran = true; return JSON.stringify(r); },
+  }), EmptyEvidenceSourceError);
+  assert.equal(ran, false, 'the refusal comes first; nothing is even rendered');
+});

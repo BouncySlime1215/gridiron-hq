@@ -47,7 +47,16 @@ export function parseHighlights(wikitext) {
     pro_bowls: num(/(\d+)×\s*\[?\[?Pro Bowl/i) || (/\[\[Pro Bowl/i.test(text) ? 1 : 0),
     first_team_all_pro: num(/(\d+)×\s*First-team\s*\[?\[?All-Pro/i) || (/First-team\s*\[?\[?All-Pro/i.test(text) ? 1 : 0),
     second_team_all_pro: num(/(\d+)×\s*Second-team\s*\[?\[?All-Pro/i) || (/Second-team\s*\[?\[?All-Pro/i.test(text) ? 1 : 0),
-    super_bowls: num(/(\d+)×\s*\[?\[?Super Bowl champion/i) || (/Super Bowl\s*(champion|[IVXL]+\s*champion)/i.test(text) ? 1 : 0),
+    // `(?:\]\])?` is the whole fix: both patterns allowed an OPENING `[[` and
+    // neither allowed the CLOSING one, so `[[Super Bowl]] champion` — the form
+    // English Wikipedia actually uses — counted zero. Super Bowls were the only
+    // accolade affected because they are the only one whose label needs a word
+    // OUTSIDE the link; `Pro Bowl` and `All-Pro` are matched as the link target,
+    // where the closing brackets fall after the matched text and never
+    // interfere. "champion" is still required immediately after, so an
+    // appearance, a loss, and a `[[Super Bowl MVP]]` line all still count zero.
+    super_bowls: num(/(\d+)×\s*\[?\[?Super Bowl(?:\]\])?\s*champion/i)
+      || (/\[?\[?Super Bowl(?:\]\])?\s*(champion|[IVXL]+\s*champion)/i.test(text) ? 1 : 0),
     all_rookie: /All-Rookie/i.test(text) ? 1 : 0,
     major_awards: majors.join(', ') || null,
     // `block` is now the block's TEXT, not a match object, so an empty block is

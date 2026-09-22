@@ -41,7 +41,7 @@ route, because no page does. It would start costing the moment a UI ships
 against unfixed code.
 
 **The Anthropic key IS configured** — `/api/dev/status` reports
-`api_key.configured: true`, masked `sk-ant-…zAAA`. This corrects the older
+`api_key.configured: true`, masked `sk-ant-[redacted]`. This corrects the older
 note in [[gridiron-live-data-state]] that said it was unset. Two consequences:
 the proposals path will make real paid calls the moment it is deployed, and
 until PR #25 lands each of those calls pays for an answer the code discards

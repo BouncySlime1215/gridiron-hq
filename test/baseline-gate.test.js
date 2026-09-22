@@ -114,6 +114,26 @@ test('the week-clustered interval is pairedBootstrapDiff itself, grouped by seas
   assert.equal(g.ci90.week.clusters, 4);
 });
 
+test('below 2 week clusters the week-clustered interval is null, with a reason (Auditor ruling A7)', () => {
+  // One week is one cluster: every resample draws that same week back, so the "interval"
+  // came out [x, x], a point and not an interval (the ruling's -3.4207 to -3.4207).
+  const oneWeek = mixed().map(x => ({ ...x, week: 5 }));
+  const g = G.gradeDecisions(oneWeek, { iterations: 300, seed: 1 });
+  assert.equal(g.ci90.week.clusters, 1);
+  assert.equal(g.ci90.week.points, null, `one week cluster gave a week interval ${JSON.stringify(g.ci90.week.points)}`);
+  assert.equal(g.ci90.week.win_rate, null, `one week cluster gave a week win-rate interval ${JSON.stringify(g.ci90.week.win_rate)}`);
+  assert.match(g.ci90.week.note ?? '', /fewer than 2 week clusters/);
+  // The player interval does not lean on weeks, so it is still reported.
+  assert.ok(Array.isArray(g.ci90.player.points) && g.ci90.player.points[0] < g.ci90.player.points[1]);
+  // Control, known-nonzero: the same decisions over two weeks give a real interval.
+  const twoWeeks = mixed().map(x => ({ ...x, week: 5 + (x.week % 2) }));
+  const g2 = G.gradeDecisions(twoWeeks, { iterations: 300, seed: 1 });
+  assert.equal(g2.ci90.week.clusters, 2);
+  assert.ok(Array.isArray(g2.ci90.week.points) && g2.ci90.week.points[0] < g2.ci90.week.points[1],
+    `two clusters: ${JSON.stringify(g2.ci90.week.points)}`);
+  assert.equal(g2.ci90.week.note, null);
+});
+
 test('the interval is reproducible from its seed', () => {
   const a = G.gradeDecisions(mixed(), { iterations: 300, seed: 9 });
   const b = G.gradeDecisions(mixed(), { iterations: 300, seed: 9 });

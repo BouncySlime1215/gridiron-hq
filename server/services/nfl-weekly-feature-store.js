@@ -142,27 +142,34 @@ function teamHistory(season, week, team, limit = 12) {
     FROM nfl_injuries WHERE team=? AND season>=? AND (season<? OR (season=? AND week<?))
     GROUP BY season,week ORDER BY season DESC,week DESC LIMIT ?`, team, TRUSTED_HISTORY_START,
   season, season, week, limit), 'injury_');
+  // Participation is not a weekly feed. nflverse publishes a season's file only
+  // after that season's post-season (nflreadr load_participation), so at any
+  // kickoff in `season` the newest file anyone could hold is `season - 1`, and
+  // that is all the live cycle can ever serve (it records the current season's
+  // 404 as a skip). Reading earlier weeks of `season` itself, as the weekly
+  // feeds above do, would put look-ahead into any vector built for a season
+  // after it was backfilled (a re-freeze, a team card) and give one key two
+  // meanings between training and serving. The charting_ family joins through
+  // nfl_play_formations for the possession team, so it has the same cutoff.
   merge(optionalRows(`SELECT season,CAST(substr(game_id,6,2) AS INTEGER) week,
       AVG(CASE WHEN offense_formation='SHOTGUN' THEN 1.0 ELSE 0.0 END) shotgun_share,
       AVG(CASE WHEN offense_formation='EMPTY' THEN 1.0 ELSE 0.0 END) empty_share,
       AVG(CASE WHEN offense_formation='SINGLEBACK' THEN 1.0 ELSE 0.0 END) singleback_share,
       AVG(NULLIF(defenders_in_box,0)) defenders_in_box,AVG(pass_rushers) pass_rushers,COUNT(*) plays
-    FROM nfl_play_formations WHERE possession=? AND season>=? AND
-      (season<? OR (season=? AND CAST(substr(game_id,6,2) AS INTEGER)<?))
+    FROM nfl_play_formations WHERE possession=? AND season>=? AND season<?
     GROUP BY season,CAST(substr(game_id,6,2) AS INTEGER)
     ORDER BY season DESC,week DESC LIMIT ?`, team, TRUSTED_HISTORY_START,
-  season, season, week, limit), 'formation_');
+  season, limit), 'formation_');
   merge(optionalRows(`SELECT f.season,CAST(substr(f.game_id,6,2) AS INTEGER) week,
       AVG(c.motion) motion_share,AVG(c.play_action) play_action_share,AVG(c.screen) screen_share,
       AVG(c.rpo) rpo_share,AVG(c.out_of_pocket) out_of_pocket_share,
       AVG(c.contested) contested_share,AVG(NULLIF(c.defense_box,0)) charted_box,COUNT(*) charted_plays
     FROM nfl_play_formations f JOIN nfl_play_charting c
       ON c.game_id=f.game_id AND c.play_id=f.play_id
-    WHERE f.possession=? AND f.season>=? AND (f.season<? OR
-      (f.season=? AND CAST(substr(f.game_id,6,2) AS INTEGER)<?))
+    WHERE f.possession=? AND f.season>=? AND f.season<?
     GROUP BY f.season,CAST(substr(f.game_id,6,2) AS INTEGER)
     ORDER BY f.season DESC,week DESC LIMIT ?`, team, TRUSTED_HISTORY_START,
-  season, season, week, limit), 'charting_');
+  season, limit), 'charting_');
   return [...byStamp.values()].sort((a, b) => b.season - a.season || b.week - a.week).slice(0, limit);
 }
 

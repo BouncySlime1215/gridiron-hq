@@ -305,9 +305,10 @@ Existing coverage of `nfl-player-context.js` (no prior test file existed for
 it) unaffected — nothing else in the file was touched.
 
 Full local check re-run under the atomic guard (`verify2x-v4.sh`) after the
-§R19.6 fix, isolated worktree, two independent runs: 2996 tests, 2955 pass,
-0 fail, 41 skipped, exit 0 both times; primary tree write-tree, porcelain
-status, and `node_modules` mtime unchanged before/after.
+§R19.6 fix, isolated worktree, two independent runs: 2997 tests, 2956 pass,
+0 fail, 41 skipped, exit 0 both times (one more test than the pre-fix
+figure, the new RED test 8); primary tree write-tree, porcelain status, and
+`node_modules` mtime unchanged before/after.
 
 ## The five questions
 

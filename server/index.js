@@ -42,8 +42,6 @@ const { default: espnConnectRouter } = await import('./routes/espn-connect.js');
 const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
 const { default: dataFreshnessRouter } = await import('./routes/data-freshness.js');
-const { default: propsRouter } = await import('./routes/props.js');
-const { default: propsTicketsRouter } = await import('./routes/props-tickets.js');
 const { default: nflMarketRouter } = await import('./routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('./routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('./routes/betting-hub.js');
@@ -138,8 +136,10 @@ app.use('/api/model', ...legacyAuthenticated, modelRouter);
 // contents, not a liveness check. The unauthenticated probe stays
 // platform/health.js's alone.
 app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
-app.use('/api/props', ...legacyAuthenticated, propsRouter);
-app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
+// server/routes/props.js and props-tickets.js (the MLB props board and its saved
+// slips) were unmounted here (SY-06, 2026-09-22): MLB was removed from the product
+// in #128, and no client page ever called either path. See
+// docs/wiring/annotations.json's accepted_orphan_modules for why the two files stay.
 app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
 app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);

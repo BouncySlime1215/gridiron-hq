@@ -12,7 +12,6 @@ import { totalPicksStanding, gradeTotalPicks } from '../services/nfl-props.js';
 import { accuracy } from '../services/nfl-market.js';
 import { countVariables } from '../services/nfl-features.js';
 import { usage as oddsUsage } from '../services/odds-api.js';
-import { rows } from '../db/index.js';
 import { realBreakEven, riskModes } from '../services/nfl-execution-edge.js';
 import { wongHistory, teaserEV } from '../services/nfl-teasers.js';
 import { propEdgeEvidence } from '../services/nfl-prop-clv.js';
@@ -59,22 +58,6 @@ function nflStanding() {
 }
 
 /**
- * MLB's ledger lives in localStorage-backed auto-picks on the client for the
- * slip, but the auto-pick table is server-side, so the record is computed the
- * same way here. Grading needs the results feed, which the props route already
- * proxies — so this reports only what can be settled from stored picks.
- */
-function mlbStanding() {
-  const picks = rows(`SELECT * FROM props_auto_picks ORDER BY pick_date DESC, rank`);
-  return {
-    tracked_picks: picks.length,
-    days_tracked: new Set(picks.map(p => p.pick_date)).size,
-    latest_slate: picks[0]?.pick_date ?? null,
-    note: 'Grading runs client-side against the results feed on the Auto Picks page.'
-  };
-}
-
-/**
  * What actually has a case for being +EV right now, cached hourly.
  *
  * Prediction (win-accuracy/margin-MAE above) and execution are different
@@ -109,7 +92,6 @@ r.get('/summary', (req, res, next) => {
         model: modelAccuracy?.error ? null : modelAccuracy,
         variables: countVariables()
       },
-      mlb: { standing: mlbStanding() },
       odds_api: oddsUsage(),
       edges: edgeSnapshot()
     });

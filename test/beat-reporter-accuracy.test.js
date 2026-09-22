@@ -45,8 +45,8 @@ const {
 const KC = row(`SELECT id FROM nfl_teams WHERE abbr='KC'`)?.id
   ?? (run(`INSERT INTO nfl_teams (abbr,name,conference,division) VALUES ('KC','Kansas City Chiefs','AFC','West')`), row(`SELECT id FROM nfl_teams WHERE abbr='KC'`).id);
 
-function makePlayer(name) {
-  run(`INSERT INTO players (name, position, team_id) VALUES (?, 'WR', ?)`, name, KC);
+function makePlayer(name, position = 'WR') {
+  run(`INSERT INTO players (name, position, team_id) VALUES (?, ?, ?)`, name, position, KC);
   return row(`SELECT id FROM players WHERE name=?`, name).id;
 }
 
@@ -131,6 +131,25 @@ test('resolveInjuryClaim: sidelined claim confirmed by zero snaps in the next ga
   assert.equal(res.resolved_state, 'confirmed');
   assert.equal(res.season, 2026);
   assert.equal(res.week, 3);
+});
+
+test('resolveInjuryClaim: sidelined claim confirmed when the player has no snap row at all but teammates do', () => {
+  // Real nflverse snap-count data only carries a row for a player who logged at
+  // least one snap — a player ruled out has NO row, not a zero row. Confirmed by
+  // hand-checking against real 2025 week-1 data (Will Hernandez, ARI, "Out": no
+  // snap_counts row while 47 ARI teammates have one for that same game).
+  const player = makePlayer('No Row At All WR');
+  const teammate = makePlayer('Row Present Teammate');
+  makeGame(2026, 12, '2026-11-23');
+  setSnaps(teammate, 2026, 12, 40); // proves the team's week-12 box score exists
+  const eventId = makeEvent({
+    playerName: 'No Row At All WR', claimText: 'Ruled out for this week\'s game.',
+    publishedAt: '2026-11-21T12:00:00Z',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveInjuryClaim(ev, { asOf: '2026-11-24T00:00:00Z' });
+  assert.equal(res.resolved_state, 'confirmed');
+  assert.match(res.resolved_reason, /no offensive-snap row/i);
 });
 
 test('resolveInjuryClaim: sidelined claim contradicted when the player actually played', () => {
@@ -220,6 +239,23 @@ test('resolveInjuryClaim: unresolved when the player name does not resolve to a 
   const res = resolveInjuryClaim(ev, { asOf: '2026-11-17T00:00:00Z' });
   assert.equal(res.resolved_state, 'unresolved');
   assert.match(res.resolved_reason, /player/i);
+});
+
+test('resolveInjuryClaim: unresolved for a defensive position, since offense_snaps cannot speak for it', () => {
+  // Confirmed by hand-checking against real 2025 week-1 nflverse data: a CB (Jaire
+  // Alexander) cleared to play read as "confirmed... 0 offensive snaps" before this
+  // guard existed, which would have called a real, correct claim contradicted purely
+  // because cornerbacks don't record offensive snaps.
+  const player = makePlayer('Shutdown CB', 'CB');
+  makeGame(2026, 13, '2026-11-30');
+  const eventId = makeEvent({
+    playerName: 'Shutdown CB', claimText: 'Cleared to play, full practice all week.',
+    publishedAt: '2026-11-28T12:00:00Z',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveInjuryClaim(ev, { asOf: '2026-12-01T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /position.*not covered/i);
 });
 
 // ---- resolveInjuryClaims (batch) ----------------------------------------

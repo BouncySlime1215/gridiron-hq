@@ -57,15 +57,21 @@ export function classifyInjuryDirection(text) {
 
 function resolvePlayerId(playerName, teamId) {
   const wanted = normalizePlayerName(playerName);
-  if (!wanted) return { id: null, reason: 'player name is empty' };
-  const candidates = rows(`SELECT id, name FROM players WHERE team_id = ?`, teamId)
+  if (!wanted) return { id: null, position: null, reason: 'player name is empty' };
+  const candidates = rows(`SELECT id, name, position FROM players WHERE team_id = ?`, teamId)
     .filter(p => normalizePlayerName(p.name) === wanted);
-  if (candidates.length === 1) return { id: candidates[0].id, reason: null };
+  if (candidates.length === 1) return { id: candidates[0].id, position: candidates[0].position, reason: null };
   if (candidates.length === 0) {
-    return { id: null, reason: `player name did not resolve to a unique roster row (found 0 on this team)` };
+    return { id: null, position: null, reason: `player name did not resolve to a unique roster row (found 0 on this team)` };
   }
-  return { id: null, reason: `player name matched ${candidates.length} roster rows on this team, ambiguous` };
+  return { id: null, position: null, reason: `player name matched ${candidates.length} roster rows on this team, ambiguous` };
 }
+
+/** player_week_snaps.offense_snaps only measures offensive plays (confirmed against
+ * real nflverse data) — a defensive player who played a full game still reads as
+ * absent/zero there, which would misread as "did not play". Injury-status resolution
+ * is scoped to the positions that table actually speaks for. */
+const OFFENSE_SNAP_POSITIONS = new Set(['QB', 'RB', 'FB', 'WR', 'TE']);
 
 /**
  * Resolve one injury_status event against schedule + snap data.
@@ -110,26 +116,42 @@ export function resolveInjuryClaim(event, { asOf = new Date().toISOString() } = 
       week: game.week, resolved_reason: `game has not been played yet (scheduled ${game.date})` };
   }
 
-  const { id: playerId, reason: playerReason } = resolvePlayerId(event.player_name, team.id);
+  const { id: playerId, position, reason: playerReason } = resolvePlayerId(event.player_name, team.id);
   if (!playerId) {
     return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
       week: game.week, resolved_reason: playerReason };
+  }
+  if (!OFFENSE_SNAP_POSITIONS.has(position)) {
+    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
+      week: game.week, resolved_reason: `position '${position}' is not covered by offense-snap ground truth` };
   }
 
   const snaps = row(`SELECT offense_snaps FROM player_week_snaps WHERE player_id = ? AND season = ? AND week = ?`,
     playerId, game.season, game.week);
   if (!snaps) {
-    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
-      week: game.week, resolved_reason: 'no snap data yet for that week' };
+    // player_week_snaps only carries a row for a player who logged at least one snap
+    // (confirmed against real nflverse data: an "Out" player has no row at all, not a
+    // zero row) — so absence only means "no data yet" when NOTHING for this team/week
+    // has landed. When teammates already have rows, the box score exists and this
+    // player's absence from it is itself the evidence: he did not play.
+    const teamHasData = row(`SELECT 1 FROM player_week_snaps pws JOIN players p ON p.id = pws.player_id
+                              WHERE p.team_id = ? AND pws.season = ? AND pws.week = ? LIMIT 1`,
+      team.id, game.season, game.week);
+    if (!teamHasData) {
+      return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
+        week: game.week, resolved_reason: 'no snap data yet for that week' };
+    }
   }
 
-  const played = (snaps.offense_snaps ?? 0) > 0;
+  const played = (snaps?.offense_snaps ?? 0) > 0;
   const actual = played ? 'played' : 'did_not_play';
   const predicted = direction === 'sidelined' ? 'did_not_play' : 'played';
   const resolved_state = predicted === actual ? 'confirmed' : 'contradicted';
   const resolved_reason = played
     ? `player logged ${snaps.offense_snaps} offensive snaps in week ${game.week}`
-    : `player logged zero offensive snaps in week ${game.week}`;
+    : snaps
+      ? `player logged zero offensive snaps in week ${game.week}`
+      : `no offensive-snap row for this player in week ${game.week} while teammates have one — did not play`;
 
   return { ...base, predicted_direction: direction, resolved_state, season: game.season, week: game.week,
     resolved_reason };

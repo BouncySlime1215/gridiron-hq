@@ -116,14 +116,30 @@ test('the routes reason says there is no routes data, not that the player has no
   assert.equal(stat(get(1), 'route_participation').unavailable_reason,
     stat(get(3), 'route_participation').unavailable_reason,
     'the routes reason changes with the player, so it is describing the wrong thing');
+
+  // The three assertions above all compare the constant against itself, so
+  // rewriting the constant moves both sides together and they notice nothing.
+  // The sweep proved it: a reason rewritten to "this player has no routes on
+  // file" survived every one of them. What has to be pinned is the CLAIM — that
+  // the data does not exist here, said without reference to any player.
+  assert.match(UNAVAILABLE.routes, /no routes-run data exists/i,
+    'the reason no longer says the data itself is absent from the platform');
+  assert.doesNotMatch(UNAVAILABLE.routes, /\bthis player\b|\bhe\b|\bhis\b|on file for/i,
+    'the routes reason describes a player rather than the platform, which turns a '
+    + 'missing data source into a claim about someone\'s workload');
 });
 
 test('snap share is not offered as route participation under another name', () => {
   const participation = stat(get(), 'route_participation');
   const snaps = stat(get(), 'snap_share');
   assert.equal(participation.value, null);
-  assert.equal(snaps.value, 0.84, 'snap share is a real measurement and should be shown');
-  assert.notMatch(String(participation.label), /snap/i);
+  // Tolerance, not equality: (0.88 + 0.80) / 2 lands on 0.8400000000000001 in
+  // binary floating point. Pinning the exact double would fail on a correct
+  // change to how the mean is taken rather than on a wrong one.
+  assert.ok(Math.abs(snaps.value - 0.84) < 1e-9,
+    `snap share is a real measurement and should be shown; got ${snaps.value}`);
+  assert.doesNotMatch(String(participation.label), /snap/i,
+    "route participation is wearing snap share's name");
 });
 
 test('touchdown rate is computed, with its denominator named', () => {
@@ -150,8 +166,59 @@ test('a player with no usage rows at all is reported as such, not as all-zero', 
   const report = playerAdvancedStats(999, { season: SEASON, database: db });
   assert.equal(report.weeks_measured, 0);
   for (const s of report.stats) assert.equal(s.value, null, `${s.key} invented a value`);
+  // And the reason has to be the right absence. "No snap counts on file"
+  // describes a table target share does not read; "no usage rows" is what
+  // actually happened. A sweep row that flipped only the reason survived every
+  // assertion above until this one existed.
+  const share = report.stats.find(s => s.key === 'target_share');
+  assert.equal(share.unavailable_reason, UNAVAILABLE.noUsage,
+    'a player with no usage rows is explained by something other than the missing rows');
 });
 
 test('weeks_measured says how much data is behind the numbers', () => {
   assert.equal(get(1).weeks_measured, 2);
+});
+
+/**
+ * The block has to reach the page, and the three absences have to survive the
+ * trip. A service that reports them honestly and a panel that filters them out
+ * before rendering is the same silence with more steps.
+ *
+ * Source-text checks, because there is no DOM harness in this repository.
+ */
+const read = p => fs.readFileSync(p, 'utf8');
+
+test('the panel is mounted on the player page and asks the right endpoint', () => {
+  const page = read('client/src/pages/PlayerDetail.tsx');
+  assert.match(page, /<AdvancedStatsPanel/, 'the block never reaches the player page');
+  const panel = read('client/src/components/AdvancedStatsPanel.tsx');
+  assert.match(panel, /useApi<[^>]*>\(`\/players\/\$\{playerId\}\/advanced-stats`\)/,
+    'the panel does not call the advanced-stats endpoint');
+});
+
+test('the panel renders the unmeasurable stats rather than filtering them away', () => {
+  const panel = read('client/src/components/AdvancedStatsPanel.tsx');
+  assert.match(panel, /unavailable_reason/,
+    'the panel never shows why a stat has no number');
+  // Anchored on the absent list being built and rendered, not on the word
+  // appearing somewhere: a panel that computed `absent` and then never mapped
+  // over it would still contain the identifier.
+  // Both lists must be mapped over. The first draft of this assertion forbade
+  // `stats.filter(s => s.value != null)` outright, which fails on the correct
+  // code: the panel legitimately splits the stats in two and that filter is how
+  // it builds the measured half. What must not happen is only one half being
+  // rendered, so both maps are what gets pinned.
+  assert.match(panel, /measured\.map\(/, 'the measured stats are never rendered');
+  assert.match(panel, /absent\.map\(/,
+    'the unmeasurable stats are computed and then dropped before rendering');
+});
+
+test('a failed load is not rendered as a player with no advanced stats', () => {
+  const panel = read('client/src/components/AdvancedStatsPanel.tsx');
+  const errorGuard = panel.indexOf('if (error');
+  const silentReturn = panel.indexOf('if (!report');
+  assert.ok(errorGuard >= 0, 'the panel has no branch for a failed request');
+  assert.ok(silentReturn >= 0, 'the early return is gone; this test pins its ordering');
+  assert.ok(errorGuard < silentReturn,
+    'the silent return runs first, so a failed load renders nothing at all');
 });

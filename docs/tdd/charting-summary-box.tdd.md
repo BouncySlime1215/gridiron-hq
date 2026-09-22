@@ -85,11 +85,25 @@ than kept with a test written to justify it.
 | M7 | revert binding to interpolation | killed (5) |
 | M8 | season argument dropped | killed (3) |
 
-## What is NOT established
+## Production magnitude — MEASURED after the fact
 
-The production magnitude of this bug is unmeasured. The container's scratch
-database holds **zero** `nfl_play_charting` rows, so the real-data figures that
-back the sibling fix (9,219 uncharted box rows on 2024, 22 of them on a
-dropback) have no counterpart here. What is proven is the defect, its direction
-and its fix — not how far off the live number currently reads. Quantifying it
-needs an ingest against the real feed, which this has not done.
+The section that stood here said the live magnitude was unestablished, because
+the container held zero `nfl_play_charting` rows. It has since been measured
+directly against the real 2024 FTN file, in response to a challenge from the
+Feature audit thread that the defect might be an artefact of the fixture:
+
+- `n_defense_box` has **0 blank cells and 11,601 literal zeros** in 48,031 rows.
+- Shipped `AVG` reads **4.6252**; `AVG(NULLIF(...))` reads **6.0980**.
+
+So the defect is real in production data, not only in the fixture, and the
+fixture's 4.50-against-6.00 understates it slightly rather than inventing it.
+
+The challenge was well founded and its reasoning was sound: `num()` does return
+`null` for an empty cell, and `AVG()` does skip NULL. The premise is what fails
+— this feed never writes an empty cell for that column. It writes `0`.
+
+Independent corroboration: the participation feed, a separately produced
+dataset, gives `AVG(NULLIF(defenders_in_box, 0))` = **6.0970** against FTN's
+**6.0980** — agreement to 0.001 on the corrected figure, while the two raw
+figures disagree with each other by 0.247. Full workings:
+`docs/evidence/feed-zero-contamination-measured.md`.

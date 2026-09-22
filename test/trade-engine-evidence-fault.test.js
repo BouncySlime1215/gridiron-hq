@@ -91,3 +91,73 @@ test('playerRiskProfile marks the unreadable case as unknown, not unproven', () 
   assert.equal(profile.seasons, 0);
   assert.equal(profile.top24, 0);
 });
+
+/**
+ * The pair, asserted together: the whole fix is that these two cases stop
+ * producing the same sentence, so neither reading means anything without the
+ * other in the same breath.
+ */
+test('thrown and null careers are told apart: unknown vs a genuine "no NFL record"', () => {
+  _setEvidenceSources({ careerLine: () => { throw new Error('career query failed'); } });
+  const thrown = packageRisk([playerWithEvidence(10, 'Real Veteran')]);
+
+  _setEvidenceSources({ careerLine: () => null });
+  const genuinelyNone = packageRisk([playerWithEvidence(11, 'Genuine Rookie')]);
+
+  assert.equal(thrown.players[0].profile, 'unknown');
+  assert.equal(genuinelyNone.players[0].profile, 'unproven');
+  assert.match(thrown.headline_read, /could not be read/i);
+  assert.match(genuinelyNone.headline_read, /no NFL record/i);
+  assert.notEqual(thrown.headline_read, genuinelyNone.headline_read);
+});
+
+/**
+ * packageRisk sums over `withRecord` (seasons > 0), which drops an unknown
+ * player. Without the count, a package whose second record failed to load
+ * reports the first player's seasons as though they were the whole package.
+ */
+test('an unreadable record in a package is counted, not silently dropped from the sums', () => {
+  let call = 0;
+  _setEvidenceSources({
+    careerLine: () => { call += 1; if (call === 2) throw new Error('career query failed'); return VETERAN_CAREER; }
+  });
+
+  const read = packageRisk([playerWithEvidence(20, 'Readable Veteran'), playerWithEvidence(21, 'Unreadable Veteran')]);
+
+  assert.equal(read.unreadable, 1);
+  // The sums still cover only the readable player — that is what makes the
+  // count load-bearing rather than cosmetic.
+  assert.equal(read.seasons, 5);
+  assert.equal(read.players.length, 2);
+  assert.equal(read.players[1].profile, 'unknown');
+});
+
+test('a package with every record readable reports nothing unreadable', () => {
+  _setEvidenceSources({ careerLine: () => VETERAN_CAREER });
+
+  const read = packageRisk([playerWithEvidence(30, 'A'), playerWithEvidence(31, 'B')]);
+
+  assert.equal(read.unreadable, 0);
+  assert.equal(read.seasons, 10);
+});
+
+/**
+ * Stated because it is a real consequence and not obvious: playerEvidence
+ * memoises per player, so a TRANSIENT throw is sticky — the player reads
+ * "record could not be read" until the cache turns over (buildAssetUniverse
+ * clears it on a data change, _setEvidenceSources clears it, and it clears
+ * itself past 5000 entries). The cache is kept because evaluate() runs
+ * thousands of times inside findTrades() and an always-throwing source would
+ * otherwise be re-invoked on every one of them.
+ */
+test('a faulted evidence read is memoised like any other, so the fault is sticky', () => {
+  let calls = 0;
+  _setEvidenceSources({ careerLine: () => { calls += 1; throw new Error('transient'); } });
+
+  const first = playerEvidence(40);
+  const second = playerEvidence(40);
+
+  assert.equal(calls, 1, 'the throwing source is called once, not per lookup');
+  assert.deepEqual(first, second);
+  assert.deepEqual(second.evidence_unreadable, ['career']);
+});

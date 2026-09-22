@@ -107,6 +107,25 @@ const stubPreseason = () => ({ points: 250.4, ppg: 14.7, expected_games: 16.2, p
 const stubOffseason = () => ({ opportunity_multiplier: 0.88, ppg_multiplier: 0.9, confidence: 'medium',
   drivers: ['new OC', 'lost 40 targets to a signing'] });
 
+/**
+ * Force the next findTrades() to actually re-run.
+ *
+ * Its cache is fingerprinted on manager_profiles' row COUNT and MAX(updated_at)
+ * (`tradeIdeasFingerprint`, trade-engine.js:1478 — a tier edited in place changes
+ * no row count, so the column is stamped). An upsert that sets only
+ * `tradeability` moves NEITHER, so the second search silently returns the first
+ * one's deals. Every test below that compares two searches has to move the
+ * stamp itself, and writes a strictly newer `updated_at` on the SAME row at the
+ * 'fair' default tier: the cheapest real data change that leaves every
+ * valuation input, and the engine's own filtering, exactly as they were.
+ */
+let cacheBust = 0;
+const reSearch = () => run(
+  `INSERT INTO manager_profiles (league_id, roster_id, tradeability, updated_at)
+   VALUES (?, '6', 'fair', ?)
+   ON CONFLICT(league_id, roster_id) DO UPDATE SET updated_at = excluded.updated_at`,
+  301, `2099-01-01T00:00:${String(cacheBust++).padStart(2, '0')}Z`);
+
 /* --------------------------------------------------------------- attach */
 
 test('evidence attaches to every player on both sides of every deal, compacted', () => {
@@ -149,16 +168,113 @@ test('the offseason multiplier is never applied: the valuation is identical with
   const lg = rows('SELECT * FROM leagues WHERE id = 301')[0];
   const withEv = findTrades(lg, { myTeamId: '1', maxPerSide: 1, requireMutual: false, limit: 20 });
   _setEvidenceSources({ careerLine: () => null, preseasonProjection: () => null, offseasonAdjustment: () => null });
-  // A real data change is what busts the search cache; flipping a manager
-  // profile is the cheapest one that leaves every valuation input alone.
-  run(`INSERT INTO manager_profiles (league_id, roster_id, tradeability) VALUES (?,?,'fair')
-       ON CONFLICT(league_id, roster_id) DO UPDATE SET tradeability='fair'`, 301, '6');
+  reSearch();
   const without = findTrades(lg, { myTeamId: '1', maxPerSide: 1, requireMutual: false, limit: 20 });
   const key = d => `${d.partner_id}:${d.i_give.map(p => p.id)}>${d.i_get.map(p => p.id)}`;
   const strip = d => ({ key: key(d), ppg: d.me.ppg_delta, value: d.me.value_delta, score: d.score, verdict: d.me.verdict });
   assert.deepEqual(withEv.deals.map(strip), without.deals.map(strip), 'ppg, value, score and verdict never move with evidence');
   for (const p of without.deals.flatMap(d => [...d.i_give, ...d.i_get])) {
     assert.equal('career' in p, false); assert.equal('preseason' in p, false); assert.equal('offseason' in p, false);
+  }
+});
+
+/**
+ * The same guarantee as the test above, but with a layer that THREW rather
+ * than one that returned null — the case recording the fault could plausibly
+ * have weakened, and the one the old degrade test never exercised.
+ *
+ * Split deliberately: the decision half (ppg, value, score, verdict) must be
+ * byte-identical, and the text half is allowed to differ, because saying "this
+ * record could not be read" is the entire point of recording the fault.
+ */
+test('a THROWN evidence layer moves no ppg, value, score or verdict, and adds no data field', () => {
+  const lg = rows('SELECT * FROM leagues WHERE id = 301')[0];
+  const strip = d => ({
+    key: `${d.partner_id}:${d.i_give.map(p => p.id)}>${d.i_get.map(p => p.id)}`,
+    ppg: d.me.ppg_delta, value: d.me.value_delta, score: d.score, verdict: d.me.verdict
+  });
+
+  _setEvidenceSources({ careerLine: () => null, preseasonProjection: () => null, offseasonAdjustment: () => null });
+  reSearch();
+  const silent = findTrades(lg, { myTeamId: '1', maxPerSide: 1, requireMutual: false, limit: 20 });
+
+  _setEvidenceSources({
+    careerLine: () => { throw new Error('career query failed'); },
+    preseasonProjection: () => null,
+    offseasonAdjustment: () => null
+  });
+  reSearch();
+  const thrown = findTrades(lg, { myTeamId: '1', maxPerSide: 1, requireMutual: false, limit: 20 });
+
+  assert.ok(thrown.deals.length, 'the fixture must produce deals for this comparison to mean anything');
+  // Liveness, asserted on REFERENCE identity rather than on any field: a cache
+  // hit hands back the very object the first search returned, so a comparison
+  // of two stale halves would pass every assertion below while testing nothing.
+  // Reference identity is the one check that cannot be satisfied by the fix
+  // itself, which is why it and not the text is what pins the cache here.
+  assert.notEqual(thrown, silent, 'the second search returned the cached first one');
+
+  assert.deepEqual(thrown.deals.map(strip), silent.deals.map(strip),
+    'ppg, value, score and verdict never move because an evidence layer threw');
+  for (const p of thrown.deals.flatMap(d => [...d.i_give, ...d.i_get])) {
+    assert.equal('career' in p, false, 'a failed layer adds no data field');
+    assert.equal('preseason' in p, false);
+    assert.equal('offseason' in p, false);
+    assert.deepEqual(p.evidence_unreadable, ['career'], 'which layer failed is recorded');
+  }
+});
+
+/**
+ * The text half of the split above: the evidence line under the verdict is
+ * where packageNumbers() surfaces, and it must not report a package whose
+ * record it could not read as one with no record.
+ */
+test('the verdict evidence line states an unreadable record instead of "0 seasons on record"', () => {
+  const lg = rows('SELECT * FROM leagues WHERE id = 301')[0];
+
+  _setEvidenceSources({
+    careerLine: () => { throw new Error('career query failed'); },
+    preseasonProjection: () => null,
+    offseasonAdjustment: () => null
+  });
+  reSearch();
+  const thrown = findTrades(lg, { myTeamId: '1', maxPerSide: 1, requireMutual: false, limit: 20 });
+
+  assert.ok(thrown.deals.length, 'fixture produces deals to read the line off');
+  for (const d of thrown.deals) {
+    assert.match(d.verdict_evidence, /could not be read/);
+    assert.doesNotMatch(d.verdict_evidence, /0 seasons on record/);
+  }
+});
+
+/**
+ * The third surface, and the one that reads worst when it is wrong:
+ * packageRisk sums seasons over `withRecord` (`seasons > 0`), which drops an
+ * unknown player, so a two-man package with one unreadable record used to
+ * report the readable man's five seasons as though they were the package's.
+ * Here half the league's careers throw, so both sides of every deal are mixed,
+ * and the line has to say what share of the package it actually read.
+ */
+test('a partly unreadable package reports the shortfall, not the readable half as the whole', () => {
+  const lg = rows('SELECT * FROM leagues WHERE id = 301')[0];
+
+  _setEvidenceSources({
+    careerLine: id => { if (id % 2) throw new Error('career query failed'); return provenCareer(); },
+    preseasonProjection: () => null,
+    offseasonAdjustment: () => null
+  });
+  reSearch();
+  const mixed = findTrades(lg, { myTeamId: '1', maxPerSide: 2, requireMutual: false, limit: 50 });
+
+  // The shortfall is a property of ONE package, so the mix has to be inside a
+  // single side — a readable give against an unreadable get says nothing here.
+  const isMixed = side => side.some(p => p.evidence_unreadable) && side.some(p => p.career);
+  const partial = mixed.deals.filter(d => isMixed(d.i_give) || isMixed(d.i_get));
+  assert.ok(partial.length, 'the fixture must produce a package mixing a readable and an unreadable record');
+  for (const d of partial) {
+    // "3/15 top-24 seasons for 1 of 2, 1 record could not be read" — the count
+    // the sum was taken over, next to the package size it is being read as.
+    assert.match(d.verdict_evidence, /top-24 seasons for \d+ of \d+, \d+ records? could not be read/);
   }
 });
 

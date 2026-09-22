@@ -137,9 +137,10 @@ async function main() {
   // The served fit's own cutoff: fantasy_coordinator_fits.through_season of the row
   // activeFantasyCoordinatorFit() reads (the latest, fantasy-coordinator.js:378-382).
   const servedThrough = dbRows('SELECT through_season FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1')[0]?.through_season ?? null;
-  report.fits = Object.fromEntries(Object.entries(fits).map(([k, v]) => [k, {
+  fits.served = { fitS: servedFit, through: servedThrough };
+  report.fits = Object.fromEntries(Object.entries(fits).filter(([k]) => k !== 'served').map(([k, v]) => [k, { through: v.through,
     structural_residual: summarizeFit(v.fitS), ensemble_residual: summarizeFit(v.fitE), ensemble_residual_rows_dropped: v.dropped }]));
-  report.fits.served = { ...summarizeFit(servedFit), authority: servedFit.authority,
+  report.fits.served = { ...summarizeFit(servedFit), through: servedThrough, authority: servedFit.authority,
     fit_row: dbRows('SELECT id, through_season, rows, created_at FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1')[0] ?? null };
   if (fits.forward) {
     const a = fits.forward.fitS.coefficients, b = servedFit.coefficients ?? [];
@@ -162,14 +163,15 @@ async function main() {
     const projPinned = { ...proj, ppg: +raw.toFixed(2), ensemble_shift: +(raw - proj.structural_ppg).toFixed(4) };
     return lib.constructArms(projPinned, { season, week, ...ctx });
   };
-  const gradeSeason = (season, weeks, ctxFor, { servedWrapperParity = false, sensitivity = false } = {}) => {
+  // Every grade receives the whole `fits` registry; lib.gradingContext picks the season's
+  // fits and checks their cutoff, so no call site chooses a fit (prereg §3, §10.2).
+  const gradeSeason = (season, weeks, lambdaFor, { servedWrapperParity = false, sensitivity = false } = {}) => {
     const truth = actuals(season, PPR);
     const all = [];
     for (const week of weeks) {
       const engine = buildPlayerWeekEngine({ season, week, scoring: PPR });
-      const ctx = ctxFor(week);
-      // ---- Stop condition 2 at the call site: the fits this grade receives end before it.
-      lib.assertContextCutoff(ctx, season);
+      // ---- Stop condition 2 at the grade itself: the season's fits end before it.
+      const ctx = lib.gradingContext(season, fits, lambdaFor(week));
       for (const row of lib.eligibleRows(week, engine, truth)) {
         const arms = lib.constructArms(row.proj, { season, week, scoring: PPR, ...ctx });
         // ---- Stop condition 3a: D equals Start/Sit's own week_points on the same input.
@@ -199,8 +201,7 @@ async function main() {
     .map(w => [w, { played: list.filter(r => r.week === w && r.played).length, decision: list.filter(r => r.week === w && r.decision).length }]));
 
   if (mode === '--smoke') {
-    const rows = gradeSeason(2024, [6], () => ({ fitS: fits.split.fitS, fitE: fits.split.fitE, lambda: 1,
-      fitSThrough: fits.split.through, fitEThrough: fits.split.through }), { sensitivity: true });
+    const rows = gradeSeason(2024, [6], () => 1, { sensitivity: true });
     // ---- Stop condition 4: known-nonzero control.
     if (!rows.some(r => r.played) || !rows.some(r => r.decision)) throw new Error('smoke: 2024 W6 produced no graded rows');
     report.smoke = { rows_2024_w6: weekCounts(rows), parity_rows_checked: parityChecked,
@@ -214,8 +215,7 @@ async function main() {
   // ---- λ for S3 (and m0) on the 2024 fit split; coordinator arms use the <=2023 fits.
   let lambda;
   if (mode === '--full') {
-    const split = gradeSeason(FIT_SPLIT, range(2, 17), () => ({ fitS: fits.split.fitS, fitE: fits.split.fitE, lambda: 1,
-      fitSThrough: fits.split.through, fitEThrough: fits.split.through }));
+    const split = gradeSeason(FIT_SPLIT, range(2, 17), () => 1);
     lambda = {};
     report.fit_split = { season: FIT_SPLIT, rows: weekCounts(split), lambda: {}, m0: {} };
     for (const w of WINDOWS) {
@@ -241,8 +241,7 @@ async function main() {
   if (mode === '--full') {
     console.log(`HOLDOUT LOOK: grading ${HELD_OUT} weeks 2-17 once, against ${prereg.path} @ ${prereg.commit}`);
     report.holdout_look = { season: HELD_OUT, at: new Date().toISOString(), prereg_commit: prereg.commit };
-    const held = gradeSeason(HELD_OUT, range(2, 17), week => ({ fitS: fits.heldOut.fitS, fitE: fits.heldOut.fitE,
-      lambda: lambda[lib.weekWindow(week)], fitSThrough: fits.heldOut.through, fitEThrough: fits.heldOut.through }), { sensitivity: true });
+    const held = gradeSeason(HELD_OUT, range(2, 17), week => lambda[lib.weekWindow(week)], { sensitivity: true });
     report.held_out = { season: HELD_OUT, rows: weekCounts(held), parity_rows_checked: parityChecked, windows: {} };
     for (const w of [...WINDOWS, '2-17 (report-only)']) {
       const rowsW = w.startsWith('2-17') ? held : inWindow(held, w);
@@ -266,8 +265,7 @@ async function main() {
   report.forward = { season: FORWARD, weeks: forwardWeeks, coordinator_fit: 'served (activeFantasyCoordinatorFit) for B, D, S1; <=2025 ensemble-residual refit for S2' };
   if (forwardWeeks.length) {
     const before = parityChecked;
-    const fwd = gradeSeason(FORWARD, forwardWeeks, week => ({ fitS: servedFit, fitE: fits.forward.fitE,
-      lambda: lambda[lib.weekWindow(week)], fitSThrough: servedThrough, fitEThrough: fits.forward.through }), { servedWrapperParity: true });
+    const fwd = gradeSeason(FORWARD, forwardWeeks, week => lambda[lib.weekWindow(week)], { servedWrapperParity: true });
     report.forward.rows = weekCounts(fwd);
     report.forward.parity_rows_checked = parityChecked - before;
     report.forward.all = gradeWindow(lib, fwd, { ARMS, CANDIDATES, m0: null, light: true });

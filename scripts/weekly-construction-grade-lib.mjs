@@ -299,3 +299,28 @@ export function assertContextCutoff(ctx, season) {
   }
   return true;
 }
+
+/**
+ * Which fits grade which season (prereg §3), in one place. A slot holds a pair built from
+ * real examples, `{ fitS, fitE, through }`, so a fit's cutoff travels with it: handing the
+ * <=2025 pair to the 2025 grade fails here, whatever the caller meant.
+ *   2024 (fit split, m0 and lambda): the <=2023 pair.
+ *   2025 (held out):                 the <=2024 pair.
+ *   2026 (forward):                  the SERVED fit for B/D/S1, the <=2025 ensemble-residual refit for S2.
+ */
+export const SEASON_SLOTS = Object.freeze({
+  2024: Object.freeze({ S: 'split', E: 'split' }),
+  2025: Object.freeze({ S: 'heldOut', E: 'heldOut' }),
+  2026: Object.freeze({ S: 'served', E: 'forward' })
+});
+
+export function gradingContext(season, fits, lambda) {
+  const slots = SEASON_SLOTS[season];
+  if (!slots) throw new Error(`cutoff: no fits are registered to grade ${season}`);
+  const s = fits?.[slots.S], e = fits?.[slots.E];
+  if (!s?.fitS) throw new Error(`cutoff: ${season} needs a fit in slot ${slots.S}`);
+  if (!e?.fitE) throw new Error(`cutoff: ${season} needs an ensemble-residual fit in slot ${slots.E}`);
+  const ctx = { fitS: s.fitS, fitE: e.fitE, fitSThrough: s.through, fitEThrough: e.through, lambda };
+  assertContextCutoff(ctx, season);
+  return ctx;
+}

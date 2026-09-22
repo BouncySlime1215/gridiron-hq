@@ -28,6 +28,7 @@ const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const { buildFitSpecs } = await import('../server/services/shrinkage-fit.js');
 const { RECENCY } = await import('../server/services/projections.js');
+const { WEEKLY_ROLE_RECENCY } = await import('../server/services/weekly-ensemble.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -41,6 +42,13 @@ const insertWeek = (playerId, season, week, team, targets) => run(
     attempts, passing_yards, passing_tds, interceptions, carries, rushing_yards, rushing_tds)
    VALUES (?,?,?,?, 'OPP', 'WR', ?, 6, 80, 0.5, 0,0,0,0,0,0,0)`,
   playerId, season, week, team, targets);
+
+const insertShareWeek = (playerId, season, week, team, targetShare) => run(
+  `INSERT INTO player_week_usage
+   (player_id, season, week, team, opponent, position, targets, target_share, receptions, receiving_yards, receiving_tds,
+    attempts, passing_yards, passing_tds, interceptions, carries, rushing_yards, rushing_tds)
+   VALUES (?,?,?,?, 'OPP', 'WR', 5, ?, 3, 40, 0.3, 0,0,0,0,0,0,0)`,
+  playerId, season, week, team, targetShare);
 
 // Two WR players, identical weekly target counts (10/week, 8 weeks), one
 // entirely in the cutoff season (back=0), one entirely one season earlier
@@ -88,4 +96,33 @@ test('the ypt spec weights a prior-season row by RECENCY.seasonDecay, not by raw
   const oppRatio = doubleOppWeight / currentSeasonWeight;
   assert.ok(Math.abs(oppRatio - 2) < 1e-9,
     `expected double the weekly opportunity count to double the weight, got ratio ${oppRatio}`);
+});
+
+// Plan 07 §2.3 RED test 4: roleW already reaches the volume specs correctly
+// (WEEKLY_ROLE_RECENCY overlaid on RECENCY -> seasonDecay 0.05, not 0.35).
+// This pins that a future one-line edit to this fix's plumbing cannot widen
+// `effW` (plain RECENCY, seasonDecay 0.35) into a volume call site by
+// mistake -- if it did, this ratio would silently jump from 0.05 to 0.35.
+insertPlayer(4, 'Current Season Share WR', 'WR', 9104);
+insertPlayer(5, 'Prior Season Share WR', 'WR', 9105);
+for (let w = 1; w <= 8; w++) {
+  insertShareWeek(4, 2024, w, 'AAA', 0.2);
+  insertShareWeek(5, 2023, w, 'BBB', 0.2);
+}
+
+test('the volume side (target_share) still weights by WEEKLY_ROLE_RECENCY.seasonDecay, unmoved by the efficiency-side fix', () => {
+  const specs = buildFitSpecs(2024);
+  const share = specs.find(s => s.metric === 'target_share' && s.position === 'ALL');
+  assert.ok(share, 'expected a target_share spec');
+
+  const weightOf = group => share.observations.filter(o => o.group === group).reduce((s, o) => s + o.weight, 0);
+  const currentSeasonWeight = weightOf(4);
+  const priorSeasonWeight = weightOf(5);
+  assert.ok(currentSeasonWeight > 0 && priorSeasonWeight > 0, 'both players must contribute observations');
+
+  const seasonRatio = priorSeasonWeight / currentSeasonWeight;
+  assert.ok(Math.abs(seasonRatio - WEEKLY_ROLE_RECENCY.seasonDecay) < 1e-9,
+    `expected the volume spec's prior-season ratio to stay at WEEKLY_ROLE_RECENCY.seasonDecay ` +
+    `(${WEEKLY_ROLE_RECENCY.seasonDecay}), got ${seasonRatio} -- this is RECENCY.seasonDecay (${RECENCY.seasonDecay}) ` +
+    `if effW has leaked into a volume call site`);
 });

@@ -5,7 +5,8 @@
 > WITHDRAWN.** It compared the model against a *noisy estimate* of a ceiling and
 > read the agreement between two noisy estimates as proof there was nothing
 > left. The real headroom is **about +0.067 R², roughly eighteen times what was
-> claimed**, and the model sits at **about 80% of the ceiling, not 98.9%**.
+> claimed**, and the model sits at **82.7% of the ceiling, not 98.9%** — the
+> ANOVA figure §2 tells readers to cite, not a rounded stand-in.
 > Revision history at the end. Do not quote the old figure; it has been cited
 > elsewhere and those citations need correcting.
 >
@@ -92,10 +93,25 @@ decimal places. There is nothing left in it for the ceiling to be, and 0.3854 is
 the number the 0.4548 decomposes into.
 
 On the error scale: the true-level RMSE floor is `√σ²w = 6.0926` against the
-model's 6.4146, so **+0.3220 RMSE** of headroom. MAE has no exact variance
-decomposition; scaling the leave-one-out oracle's MAE by its RMSE ratio puts the
-floor near **4.49**, giving roughly **+0.31 MAE** of headroom against the
-**+0.0895** the first version quoted — about three and a half times larger.
+model's 6.4146, so **+0.3220 RMSE** of headroom.
+
+MAE has no exact variance decomposition, so the MAE floor is scaled from the
+RMSE floor through the leave-one-out oracle's own ratio of the two. **Both
+inputs come from the ANOVA ceiling, 0.3854 — the figure this document tells
+readers to cite — not from the 0.4012 one**, and the derivation is:
+
+```
+MAE floor  = oracle MAE × (RMSE floor / oracle RMSE)
+           = 4.7167 × (6.0926 / 6.3973)          # 6.0926 = √σ²w = √37.1200
+           = 4.4921
+MAE headroom = 4.8062 − 4.4921 = 0.3141
+```
+
+So **+0.3141 MAE** of headroom against the **+0.0895** the first version
+quoted — about three and a half times larger. (Had the 0.4012 ceiling been used
+instead, the floor would be 4.4335 and the headroom 0.3727, which would make
+every share in §3 about a fifth smaller. It was not used; §3's shares are
+against 0.3141 and are correct as printed.)
 
 Correspondingly the within-player share is **61.5%** (`σ²w/(σ²b + σ²w)` =
 37.1200/60.3944; the oracle-inversion method gives 59.9%), not the 54.5% the
@@ -110,12 +126,17 @@ amount of knowing *who* he is can reach.
 
 ## 3. The four features: the arithmetic changes, the verdicts do not
 
-| feature | measured gain | share of the **published** 0.0895 headroom | share of the **corrected** ~0.31 headroom |
+**Both columns are on the MAE scale**, not the R² scale §2 uses — a feature's
+gain was measured in MAE, so its share has to be taken against MAE headroom. The
+denominators are the first version's **+0.0895 MAE** and the corrected
+**+0.3141 MAE** derived in §2.1.
+
+| feature | measured gain (MAE) | share of the **published** 0.0895 MAE headroom | share of the **corrected** 0.3141 MAE headroom |
 |---|---|---|---|
-| depth-chart rank | +0.0031 MAE | 3.5% | ~1.0% |
-| practice participation | +0.0007 MAE | 0.8% | ~0.2% |
-| route share | +0.0008 MAE | 0.9% | ~0.3% |
-| red-zone touches inside 10 | +0.0004 MAE | 0.4% | ~0.1% |
+| depth-chart rank | +0.0031 | 3.5% | 1.0% |
+| practice participation | +0.0007 | 0.8% | 0.2% |
+| route share | +0.0008 | 0.9% | 0.3% |
+| red-zone touches inside 10 | +0.0004 | 0.4% | 0.1% |
 
 **All four still failed, and they failed on their own evidence** — none cleared
 its own confidence interval, and that is a fact about each feature's measurement
@@ -165,7 +186,8 @@ should be abandoned.
 1. **Week-specific features are still the better bet, but "drop the
    player-descriptive remainder" is SUSPENDED.** It rested on a headroom figure
    that was too small by a factor of eighteen. Re-derive the ordering against
-   the corrected headroom before dropping anything. OL-vs-DL first is unaffected
+   the corrected headroom — **+0.0668 R², equivalently +0.3141 MAE** — before
+   dropping anything. OL-vs-DL first is unaffected
    — it was first on its own merits.
 
 2. **Ship the uncertainty, not just the projection. Unchanged, and
@@ -226,7 +248,9 @@ and a headroom figure nobody had checked is exactly that.**
   recorded that its own check had passed because two errors cancelled. The oracle was a noisy
   estimate of a ceiling rather than a ceiling, and the 0.4548 offered as the
   variance ceiling was the R² of an overfit in-sample predictor. Corrected
-  headroom ~+0.067 R², model at ~80%. The four feature declines stand on their
+  headroom ~+0.067 R², model at ~80% — the adjudication below pins both to
+  +0.0668 R² and 82.7%, which are the figures to quote. The four feature
+  declines stand on their
   own evidence; the recommendation to drop the category is suspended; the
   recommendation to ship a range is unchanged and strengthened.
 

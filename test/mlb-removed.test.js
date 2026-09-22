@@ -173,3 +173,18 @@ test('the MLB props board and its saved-ticket router are not mounted', () => {
   assert.ok(!/['"]\/api\/props-tickets['"]/.test(index),
     'server/index.js still mounts /api/props-tickets, which no client page calls');
 });
+
+test('betting-hub.js no longer computes an MLB standing from the now-unmounted props route', () => {
+  // Unmounting props.js above stops anything from ever writing props_auto_picks again
+  // (only writer was GET /auto-picks in that router). betting-hub.js's own comment says
+  // its MLB standing "needs the results feed, which the props route already proxies" --
+  // so left in place, /api/betting/summary would silently freeze at whatever tracked_picks
+  // existed the moment props.js came out: a route answering from a feed that has silently
+  // stopped, the exact shape #128's own commit called out when it took the MLB jobs and
+  // router out together rather than leaving one half standing.
+  const src = read('server/routes/betting-hub.js');
+  assert.ok(!/mlbStanding/.test(src),
+    'betting-hub.js still defines/calls mlbStanding(), which reads props_auto_picks -- a table '
+    + 'nothing writes once props.js is unmounted');
+  assert.ok(!/\bmlb:\s*\{/.test(src), 'server/routes/betting-hub.js still reports an mlb key from /summary');
+});

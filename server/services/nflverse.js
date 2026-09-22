@@ -13,7 +13,7 @@
  */
 import { db, rows, row, run } from '../db/index.js';
 import { findPlayerMatch, normalizePlayerName } from './player-identity.js';
-import { recordSync } from './scheduler.js';
+import { recordSync, lastRun, statusFromDetail } from './scheduler.js';
 
 const RELEASE = 'https://github.com/nflverse/nflverse-data/releases/download';
 
@@ -296,7 +296,63 @@ export async function syncSnapCounts(season) {
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return { season, inserted };
+  return { season, rows: records.length, inserted };
+}
+
+/**
+ * What one season's sync actually did, as distinct from whether it threw.
+ *
+ * THE BUG THIS NAMES. `syncWeeklyUsage` throws only on a fetch or a schema
+ * failure. A season whose CSV downloaded cleanly but matched no player in the
+ * crosswalk returns `{ rows: 4210, inserted: 0, unmatched: 4210 }` — a plain
+ * object with no `error` key — and the old `usage.error ? 'error' : 'ok'`
+ * stamped that green. A feed reporting 'ok' over a table it wrote nothing to is
+ * how the live 2026 usage gap stayed invisible: `nfl-model-growth.js:187` asks
+ * for the current season on every boot, gated on `coreLag`, which is true
+ * precisely because `player_week_usage` has no rows for it.
+ *
+ * `upstream_empty` is kept separate on purpose. Zero published records is not a
+ * failure of ours — a season before its first regular-season game legitimately
+ * has none — but it is not a success either, so it must not read as fresh.
+ */
+export function usageSeasonOutcome(result) {
+  if (result?.error) return 'error';
+  const records = Number(result?.rows) || 0;
+  const inserted = Number(result?.inserted) || 0;
+  if (records === 0) return 'upstream_empty';
+  return inserted === 0 ? 'unmatched' : 'ok';
+}
+
+/**
+ * One verdict for a whole multi-season run, shaped for `statusFromDetail`.
+ *
+ * THE BUG THIS FIXES. `syncAll` used to call `recordSync` inside its season
+ * loop. `sync_log` holds one row per job, so the last season overwrote every
+ * earlier verdict, and `record()` resets `consecutive_failures` on anything
+ * that is not an error. Five failed seasons followed by one success therefore
+ * left the feed reading 'ok' with no accumulated backoff.
+ *
+ * The `seasons`/`failed` pair is the countable-batch shape `statusFromDetail`
+ * already understands: 'ok' when nothing failed, 'partial' when some did,
+ * 'error' when they all did. `skipped` is set only when the entire run found
+ * nothing published, which is that function's own vocabulary for did-no-work.
+ */
+export function usageRunSummary(results = []) {
+  const per_season = results.map(result => ({
+    season: result?.season ?? null,
+    outcome: usageSeasonOutcome(result),
+    rows: Number(result?.rows) || 0,
+    inserted: Number(result?.inserted) || 0,
+    unmatched: Number(result?.unmatched) || 0,
+    error: result?.error ?? null
+  }));
+  const failed = per_season.filter(s => s.outcome === 'error' || s.outcome === 'unmatched');
+  const empty = per_season.filter(s => s.outcome === 'upstream_empty');
+  const summary = { seasons: per_season.length, failed: failed.length, empty: empty.length, per_season };
+  if (per_season.length && empty.length === per_season.length) {
+    summary.skipped = `nothing published upstream for ${empty.map(s => s.season).join(', ')}`;
+  }
+  return summary;
 }
 
 /** Everything, in dependency order. */
@@ -307,14 +363,25 @@ export async function syncAll(seasons) {
     recordSync('nflverse_crosswalk', 'ok', result.crosswalk);
   } catch (e) { recordSync('nflverse_crosswalk', 'error', e.message); throw e; }
   for (const s of seasons) {
-    const usage = await syncWeeklyUsage(s).catch(e => ({ season: s, error: e.message }));
-    result.usage.push(usage);
-    recordSync('nflverse_weekly_usage', usage.error ? 'error' : 'ok', usage);
-    const snaps = await syncSnapCounts(s).catch(e => ({ season: s, error: e.message }));
-    result.snaps.push(snaps);
-    recordSync('nflverse_snap_counts', snaps.error ? 'error' : 'ok', snaps);
+    result.usage.push(await syncWeeklyUsage(s).catch(e => ({ season: s, error: e.message })));
+    result.snaps.push(await syncSnapCounts(s).catch(e => ({ season: s, error: e.message })));
   }
+  Object.assign(result, recordUsageRun(result));
   return result;
+}
+
+/**
+ * One stamp per feed for a whole run, written after the loop rather than inside
+ * it. Separated from `syncAll` so the part that was wrong is reachable without a
+ * network fetch: `sync_log` gains exactly one row per feed per run, and its
+ * status is derived from what the run wrote.
+ */
+export function recordUsageRun({ usage = [], snaps = [] } = {}) {
+  const usage_summary = usageRunSummary(usage);
+  const snaps_summary = usageRunSummary(snaps);
+  recordSync('nflverse_weekly_usage', statusFromDetail(usage_summary), usage_summary);
+  recordSync('nflverse_snap_counts', statusFromDetail(snaps_summary), snaps_summary);
+  return { usage_summary, snaps_summary };
 }
 
 /* ------------------------------------------------------------------ reads */
@@ -329,4 +396,44 @@ export function usageFor(playerId, seasons = null) {
 /** Seasons we actually hold usage for. */
 export function usageSeasons() {
   return rows('SELECT season, COUNT(*) AS rows, COUNT(DISTINCT player_id) AS players FROM player_week_usage GROUP BY season ORDER BY season');
+}
+
+/**
+ * Coverage as the table reports it, deliberately not as the status row does.
+ *
+ * Every freshness surface in this app reads `sync_log` — `source-registry.js`,
+ * the scheduler's staleness check, the health payload. That row is a claim made
+ * by the last run about itself, and the two defects above are how it came to be
+ * wrong: one stamp per season with the last winning, and a green stamp for a
+ * season that inserted nothing. So this asks `player_week_usage` directly and
+ * then reports whether the stamp agrees, which is a thing worth knowing on its
+ * own — a disagreement means the feed is lying, not merely stale, and staleness
+ * is the only failure the existing surfaces can describe.
+ *
+ * `never_run` is not a disagreement. A feed with no `sync_log` row has made no
+ * claim to contradict, and calling that a lie would fire on every fresh clone.
+ */
+export function usageCoverage(seasons = null, { job = 'nflverse_weekly_usage' } = {}) {
+  const held = new Map(usageSeasons().map(r => [Number(r.season), r]));
+  const wanted = (seasons ?? [...held.keys()]).map(Number);
+  const per_season = wanted.map(season => {
+    const row = held.get(season);
+    const count = Number(row?.rows) || 0;
+    return { season, rows: count, players: Number(row?.players) || 0, held: count > 0 };
+  });
+  const missing = per_season.filter(s => !s.held).map(s => s.season);
+  const stamp = lastRun(job);
+  return {
+    job,
+    seasons: wanted,
+    per_season,
+    missing,
+    never_run: !stamp,
+    stamp: stamp ? {
+      status: stamp.last_status,
+      at: stamp.last_run_at,
+      consecutive_failures: stamp.consecutive_failures
+    } : null,
+    stamp_disagrees: missing.length > 0 && stamp?.last_status === 'ok'
+  };
 }

@@ -24,7 +24,7 @@ The agent reads the card(s) and answers, with a grep or command behind every lin
 5. **Plan:** does it close a plan item's bar, unblock or obsolete a queued unit, or change another unit's acceptance test?
 6. **Follow-ups:** each needed change becomes a unit `INT-<pr>-<n>` (one PR, files, acceptance test), added to the queue and the board.
 
-The verdict replaces `_pending_` in the card. Units go into `WORK-QUEUE.md` section 7 and onto the plan board. Plan-item status changes go onto the board.
+The verdict replaces `_pending_` in the card, then `python3 ~/gridiron-local/bin/render-integration-log.py` rebuilds INTEGRATION-LOG.md (Nick asked for this log to be kept). Units go into `WORK-QUEUE.md` section 7 and onto the plan board. Plan-item status changes go onto the board.
 
 ## Step 3: synergy review (about every 5 merges)
 

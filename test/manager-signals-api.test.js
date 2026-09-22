@@ -630,8 +630,14 @@ test('read: the transactions source does not advertise a refresh the server neve
   // on every single tx signal row, so the claim reached the client per metric.
   assert.doesNotMatch(SIGNAL_SOURCES.tx.refreshed, /every refresh tick/,
     'the deployed app runs no refresh tick that touches this table');
-  assert.match(SIGNAL_SOURCES.tx.refreshed, /collect-league-transactions\.mjs/,
-    'the source names what actually writes it, so a reader knows what to run');
+  // The sibling of the chat entry above, and it had the same defect one shape
+  // along: a registry CONSTANT asserted by a fragment. The whole string is the
+  // contract, and the fragment pinned only the script — not that it runs
+  // off-server, and not where a reader finds the date, which are the other two
+  // facts the sentence exists to carry.
+  assert.equal(SIGNAL_SOURCES.tx.refreshed,
+    'only when scripts/collect-league-transactions.mjs is run (off-server; see transactions.as_of)',
+    'the source names what actually writes it, where that runs, and where its date lives');
   const { body } = await call('GET', '/api/trades/21/managers/signals');
   const why = metricOf(managerOf(body, 2), 'tx_decisions_made').why;
   assert.doesNotMatch(why, /every refresh tick/, 'the per-signal why carries the corrected claim too');

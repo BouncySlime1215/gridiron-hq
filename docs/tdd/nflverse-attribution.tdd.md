@@ -102,6 +102,15 @@ was a real gap in the test. #133 `1ff383c` requires an exact match or a followin
 `/`, and M9 is now killed. The test was fixed, not the implementation, and the fix
 is its own commit so it can be seen.
 
+**Controls.** Two controls run with the sweep. The runner exits 1 if either one does not behave as designed:
+
+- **C1:** rewording the `modification` note is a real code edit that no test pins, so it must survive.
+- **C2:** a replace whose target text is not in the file must be reported `INVALID`, not counted as killed.
+
+Result: 10 of 10 mutants killed, 2 of 2 controls as designed.
+
+**RED re-run after the assertion change.** The test file as fixed in #133 `1ff383c` was run against the unfixed code: RED `74c4449`, with only the test file taken from `1ff383c`. It fails 4 of 4. M9 dying is the liveness proof for the new path-boundary assertion.
+
 Test 3 finds the release URL in **nine** files under `server/`: `nflverse.js`,
 `nfl-advanced.js`, `nfl-event-archive.js`, `nfl-formations.js`, `nfl-officials.js`,
 `nfl-pbp.js`, `nfl-qbr.js`, `nfl-rookie-ingest.js` and `offseason-data.js`. All

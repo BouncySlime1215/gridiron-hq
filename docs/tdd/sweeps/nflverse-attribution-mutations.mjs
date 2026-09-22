@@ -26,30 +26,52 @@ const mutations = [
   ['M10 descriptor names a narrower release URL', src, (s) => s.replace('  release_url: RELEASE,', "  release_url: RELEASE + '/players',")],
 ];
 
-const code = (s) => s.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+// Controls. The surviving control rewords the modification note, which the
+// tests require to exist but deliberately do not pin: if it is killed, the
+// tests over-pin. The not-applied control targets text that is not in the
+// file, so the runner must report it INVALID rather than count it as killed.
+const controls = [
+  ['C1 modification reworded (must survive)', src, (s) => s.replace(/  modification: '[^']*',/, "  modification: 'Reshaped into model features.',"), 'survived'],
+  ['C2 pattern absent (must be INVALID)', src, (s) => s.replace("data_license: 'ODbL'", "data_license: 'CC0'"), 'invalid'],
+];
+
+const code =(s) => s.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nflverse-mut-'));
 const wt = path.join(dir, 'wt');
 execFileSync('git', ['-C', root, 'worktree', 'add', '--detach', '-q', wt, 'HEAD']);
 fs.symlinkSync(path.join(root, 'node_modules'), path.join(wt, 'node_modules'));
 let survivors = 0;
+let controlFailures = 0;
 try {
-  for (const [name, file, mutate] of mutations) {
+  for (const [name, file, mutate, expected] of [...mutations, ...controls]) {
     const target = path.join(wt, file);
     const before = fs.readFileSync(target, 'utf8');
     const after = mutate(before);
-    if (code(after) === code(before)) { console.log(`INVALID  ${name} (changed nothing, or only comments)`); survivors++; continue; }
-    fs.writeFileSync(target, after);
-    const r = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--test', 'test/nflverse-attribution.test.js'], {
-      cwd: wt, encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '--import ./test/offline-guard.mjs' }
-    });
-    fs.writeFileSync(target, before);
-    const failed = (r.stdout.match(/^not ok \d+ - (.*)$/gm) || []).map((l) => l.replace(/^not ok \d+ - /, ''));
-    if (r.status === 0) { survivors++; console.log(`SURVIVED ${name}`); }
-    else console.log(`killed   ${name}  <- ${failed.join(' | ')}`);
+    let outcome;
+    let failed = [];
+    if (code(after) === code(before)) outcome = 'invalid';
+    else {
+      fs.writeFileSync(target, after);
+      const r = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--test', 'test/nflverse-attribution.test.js'], {
+        cwd: wt, encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '--import ./test/offline-guard.mjs' }
+      });
+      fs.writeFileSync(target, before);
+      failed = (r.stdout.match(/^not ok \d+ - (.*)$/gm) || []).map((l) => l.replace(/^not ok \d+ - /, ''));
+      outcome = r.status === 0 ? 'survived' : 'killed';
+    }
+    const detail = failed.length ? `  <- ${failed.join(' | ')}` : '';
+    if (expected) {
+      if (outcome !== expected) controlFailures++;
+      console.log(`${outcome === expected ? 'control ' : 'CONTROL FAILED'} ${name}: ${outcome}${detail}`);
+    } else {
+      if (outcome !== 'killed') survivors++;
+      const label = { invalid: 'INVALID ', survived: 'SURVIVED', killed: 'killed  ' }[outcome];
+      console.log(`${label} ${name}${outcome === 'invalid' ? ' (changed nothing, or only comments)' : ''}${detail}`);
+    }
   }
 } finally {
   execFileSync('git', ['-C', root, 'worktree', 'remove', '--force', wt]);
   fs.rmSync(dir, { recursive: true, force: true });
 }
-console.log(`\n${mutations.length} applied, ${mutations.length - survivors} killed, ${survivors} survived or invalid`);
-process.exit(survivors ? 1 : 0);
+console.log(`\n${mutations.length} applied, ${mutations.length - survivors} killed, ${survivors} survived or invalid; ${controls.length - controlFailures} of ${controls.length} controls as designed`);
+process.exit(survivors || controlFailures ? 1 : 0);

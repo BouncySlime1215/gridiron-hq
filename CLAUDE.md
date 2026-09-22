@@ -96,12 +96,14 @@ talking to Nick first.
   comments. Its rule loses.
 - **80% coverage minimum, and mandatory unit + integration + Playwright E2E
   on everything.** There is no Playwright here, and the suite runs against
-  `timeout-minutes: 20` in `.github/workflows/ci.yml`. CI had never once
-  completed on `main` — every run was cut off at that mark — until PR #7
-  brought the runtime back inside the budget. A coverage floor and a new E2E
-  tier would spend the headroom #7 just bought. Revisit once there is margin
-  to spare, and raise the timeout deliberately rather than rediscovering it
-  at twenty minutes.
+  `timeout-minutes: 20` in `.github/workflows/ci.yml`. CI had never completed
+  on `main` — its one and only run, 2026-09-13, was cancelled at the
+  20-minute mark. PR #7 brought the runtime to ~7-9 minutes, demonstrated on
+  PR branches; main has not been pushed since, so there is still no
+  completed run on main. A coverage floor and a new E2E tier would spend the
+  headroom #7 measured. Revisit once there is margin to spare on main itself,
+  and raise the timeout deliberately rather than rediscovering it at twenty
+  minutes.
 - **"NEVER mutate, always spread."** Written for a React/TypeScript codebase.
   This is Node, Express and SQLite, and the rule would flag ordinary correct
   code on nearly every file.

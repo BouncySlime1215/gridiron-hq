@@ -118,6 +118,21 @@ grades `wired` as a file and §1 already says why that answers nothing about its
 orphaned routes. A file graded `unreached` is settled — nothing inside it is
 reachable. A file graded `wired` means only that *something* in it is.
 
+**`unreached` has one known false negative, and it is large.** The graph is
+built from literal import specifiers. `server/db/migrate.js:35,49` loads
+migrations with `readdirSync` plus a computed `import()`, so **62 of
+`server/migrations/`'s 63 files grade `unreached` while running on every boot.**
+Across all 458 tracked files under `server/`: 303 `wired`, 54
+`wired-betting-only`, 10 `hand-run-script`, 91 `unreached` — of which 62 are
+those migrations. Before filing any `unreached` row, check for a directory
+load, a re-export chain, or a namespace import.
+
+**All 31 route files are mounted** — 28 `wired`, 3 `wired-betting-only` (the
+three betting surfaces themselves). An earlier reading of 19 orphaned routes was
+a defect in the grader, not a finding: the walk never tested whether the subject
+was itself an entry point, so a mounted route graded `unreached`. Fixed, and
+`test('a module that is itself an entry point is reached, by itself')` pins it.
+
 ### `half-done`
 The code is correct and reachable in principle, and the last hop was never
 built. The producer exists, the consumer does not, or the writer exists and

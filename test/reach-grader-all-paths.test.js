@@ -286,3 +286,38 @@ test('a hand-run script does not upgrade or downgrade a module that also has a r
   assert.equal(graded.grade, 'wired');
   assert.deepEqual(graded.handRun, []);
 });
+
+/*
+ * Found while preparing a set-level diff against another thread's grader: 19 of
+ * this repo's 31 route files came back `unreached`. A mounted route IS an entry
+ * point, so that answer is impossible. The walk starts at the subject and only
+ * ever tests the nodes it walks UP to, so the subject's own entry-point status
+ * was never checked.
+ */
+
+test('a module that is itself an entry point is reached, by itself', () => {
+  const importers = { 'server/routes/model.js': [] };
+  const isEntry = f => f === 'server/routes/model.js';
+  const reach = reachableEntries(importers, 'server/routes/model.js', { isEntry });
+
+  assert.deepEqual([...reach.entries.keys()], ['server/routes/model.js'],
+    'a mounted route grading `unreached` is impossible: it is the thing that serves');
+  assert.deepEqual(reach.entries.get('server/routes/model.js'), ['server/routes/model.js'],
+    'the path to itself is itself, with no hops');
+  assert.equal(gradeReach(reach).grade, 'wired');
+});
+
+test('a betting route grades betting-only when nothing else reaches it', () => {
+  const importers = { 'server/routes/nfl-betting.js': [] };
+  const isEntry = f => f === 'server/routes/nfl-betting.js';
+  const graded = gradeReach(reachableEntries(importers, 'server/routes/nfl-betting.js', { isEntry }));
+  assert.equal(graded.grade, 'wired-betting-only',
+    'counting a betting route as a non-betting reach for itself would hide it from the grade');
+});
+
+test('an unmounted route is still unreached: being a route file is not being an entry point', () => {
+  const importers = { 'server/routes/ghost.js': [] };
+  const isEntry = f => f === 'server/routes/model.js';
+  const graded = gradeReach(reachableEntries(importers, 'server/routes/ghost.js', { isEntry }));
+  assert.equal(graded.grade, 'unreached');
+});

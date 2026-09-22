@@ -144,6 +144,11 @@ export function reachableEntries(importers, start, { isEntry, maxDepth = Infinit
   };
   const entries = new Map();
   const seen = new Set([start]);
+  // The subject may BE an entry point -- a mounted route is the thing that
+  // serves, so it cannot be `unreached`. The walk only ever tests the nodes it
+  // walks up to, so without this 19 of this repo's 31 route files came back
+  // unreached. Found while diffing this grader against another thread's.
+  if (isEntry(start)) entries.set(start, [start]);
   let frontier = [[start, [start]]];
   let depth = 0;
   let truncated = false;

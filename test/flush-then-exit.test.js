@@ -177,8 +177,12 @@ test('the fixed shape still exits 0, so a caller reading the status sees success
 for (const script of ['scripts/luck-panel.mjs', 'scripts/build-manager-archetypes.mjs']) {
   test(`${script} prints its captured report through the helper, not console.log then exit`, () => {
     const src = readFileSync(path.join(REPO, script), 'utf8');
-    assert.match(src, /from '\.\/lib\/flush-then-exit\.mjs'|from '\.\.\/scripts\/lib\/flush-then-exit\.mjs'/,
-      `${script} does not import the flush helper`);
+    // The module path, not the import STYLE: luck-panel.mjs must load this
+    // dynamically (it sets SCHEDULER_DISABLED before anything else loads) and
+    // build-manager-archetypes.mjs loads it statically. Either satisfies the
+    // thing being asserted, which is that the report goes through the helper.
+    assert.match(src, /lib\/flush-then-exit\.mjs/,
+      `${script} does not load the flush helper`);
     // The shape that caused this: a JSON report logged, then an exit, with
     // nothing in between that could flush it.
     assert.doesNotMatch(src, /console\.log\(JSON\.stringify\([\s\S]{0,4000}?\);\s*\n?\s*process\.exit\(/,

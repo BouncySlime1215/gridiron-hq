@@ -39,6 +39,13 @@
  * populated one, so a consumer checking `read_state === 'present'` got undefined on
  * the one path where the data is really there.
  *
+ * THE LANDING PASS (work-queue F-05, merged with main bd56319b) added two kinds
+ * of row. M33-M40 put back, one at a time, the shapes the slate recorder used to
+ * read and no producer emits (`idea_id`, `{ idea_id, reason }`, `give` / `get`,
+ * `counterparty.roster_id`), plus the refused-run and corrupt-items guards. C1-C7
+ * mutate the CALL SITE in routes/trades.js, which no row touched before, and
+ * C-EQUIV is a designed survivor there: an equivalent mutant that must survive.
+ *
  * Nothing here writes to the repository. It edits a file, runs a suite, and puts
  * the file back byte for byte, refusing to continue if it cannot; `git write-tree`
  * is printed either side so a reader can see the tree did not move.
@@ -52,8 +59,10 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const MIG = 'server/migrations/067_outcome_ledgers.js';
 const SVC = 'server/services/trade-outcomes.js';
 const TAC = 'server/services/trade-tactics.js';
+const RTE = 'server/routes/trades.js';
 const LEDGER = ['test/trade-outcomes.test.js'];
 const TACTICS = ['test/trade-tactics.test.js'];
+const ROUTE = ['test/trade-outcomes-route.test.js'];
 
 const git = (...a) => execFileSync('git', a, { cwd: REPO, encoding: 'utf8' }).trim();
 
@@ -251,6 +260,82 @@ const M = [
         find: "    throw new Error('trade-outcomes: model_p_accept is required and was not given');",
         replace: '    return { mid: null, low: null, high: null, basis: null };' }] },
 
+  // ---- the landing pass (F-05): the recorder read against the PRODUCERS' shapes ----
+  // Each of these puts back one piece of the shape the recorder used to read and
+  // no producer emits. All eight were live defects until 031e4931; the RED at
+  // 88ed3722 is what failed on them.
+  { id: 'M33', file: SVC, suites: LEDGER,
+    claim: 'what was sent is read from idea_ids, the verifier\'s own field',
+    find: '  const sent = new Set((result.proposals ?? []).flatMap(citedIdeas));',
+    replace: '  const sent = new Set((result.proposals ?? []).map(p => p?.idea_id).filter(Boolean).map(String));' },
+  { id: 'M34', file: SVC, suites: LEDGER,
+    claim: 'idea_ids is a list: a proposal merging two ideas sends both',
+    find: '  return (Array.isArray(proposal?.idea_ids) ? proposal.idea_ids : [])',
+    replace: '  return (Array.isArray(proposal?.idea_ids) ? proposal.idea_ids.slice(0, 1) : [])' },
+  { id: 'M35', file: SVC, suites: LEDGER,
+    claim: 'a rejection\'s violations land on the ideas its proposal cited',
+    find: '    for (const id of citedIdeas(r?.proposal)) {', replace: '    for (const id of citedIdeas(r)) {' },
+  { id: 'M36', file: SVC, suites: LEDGER,
+    claim: 'the package is the engine\'s i_give / i_get',
+    find: '      give: idea?.i_give ?? [], get: idea?.i_get ?? [],',
+    replace: '      give: idea?.give ?? [], get: idea?.get ?? [],' },
+  { id: 'M37', file: SVC, suites: LEDGER,
+    claim: 'the other side is the engine\'s partner_id',
+    find: '  const v = idea?.partner_id ?? null;', replace: '  const v = idea?.counterparty?.roster_id ?? null;' },
+  { id: 'M38', file: SVC, suites: LEDGER,
+    claim: 'a run that made no selection writes no rows',
+    find: "  if (result.refused && result.problem !== 'all_rejected') {", replace: '  if (false) {' },
+  { id: 'M39', file: SVC, suites: LEDGER,
+    claim: 'an all-rejected run is still a decision, and records the verifier\'s words',
+    find: "  if (result.refused && result.problem !== 'all_rejected') {", replace: '  if (result.refused) {' },
+  { id: 'M40', file: SVC, suites: LEDGER,
+    claim: 'an unparseable items_json is named, not read as a deal with no counterparty',
+    find: '    return { error: `its items_json is not valid JSON (${e.message}), so the parties cannot be read` };',
+    replace: '    return { items: [] };' },
+
+  // ---- the CALL SITE: routes/trades.js, the recorder's only caller ----
+  // A rule tested only through the service is not a rule about what the route
+  // passes it. Each row changes one argument or one line of the route's own
+  // handling; the route suite is what must notice.
+  { id: 'C1', file: RTE, suites: ROUTE,
+    claim: 'the route hands the recorder the live result, not a cache-shaped one',
+    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,',
+    replace: "        ideas, result: { ...result, source: 'cache' }, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null," },
+  { id: 'C2', file: RTE, suites: ROUTE,
+    claim: 'the route hands the recorder the whole slate',
+    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,',
+    replace: '        ideas: [], result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,' },
+  { id: 'C3', file: RTE, suites: ROUTE,
+    claim: 'the route stamps the prompt version that made the decision',
+    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,',
+    replace: '        ideas, result, modelVersion: null, proposerTeamId: req.query.team_id ?? null,' },
+  { id: 'C4', file: RTE, suites: ROUTE,
+    claim: 'the route records which team asked',
+    find: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,',
+    replace: '        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: null,' },
+  { id: 'C5', file: RTE, suites: ROUTE,
+    claim: 'the route files rows under the league\'s own season',
+    find: '      ledger = recordProposalSlate(lg.id, lg.season ?? null, {',
+    replace: '      ledger = recordProposalSlate(lg.id, 2025, {' },
+  { id: 'C6', file: RTE, suites: ROUTE,
+    claim: 'the ledger state reaches the response surface',
+    find: '    res.json({ ...result, outcome_ledger: ledger });', replace: '    res.json(result);' },
+  { id: 'C7', file: RTE, suites: ROUTE,
+    claim: 'a failed ledger write never fails the proposals',
+    find: "      ledger = { state: 'write_failed', reason: String(e?.message ?? e) };",
+    replace: '      throw e;' },
+
+  // ---- designed survivor: an EQUIVALENT mutant at the call site ----
+  // `lg.season` comes from a real column, so it is null or a number, never
+  // undefined, and the service's requireFields treats null and undefined alike
+  // (`== null`). Dropping `?? null` changes nothing any caller can observe. It
+  // must come back SURVIVED. If it is ever KILLED, a test is pinning the route's
+  // spelling rather than its behaviour, and every call-site kill above is suspect.
+  { id: 'C-EQUIV', file: RTE, suites: ROUTE, expectSurvive: true,
+    claim: 'an equivalent mutant at the call site (designed survivor)',
+    find: '      ledger = recordProposalSlate(lg.id, lg.season ?? null, {',
+    replace: '      ledger = recordProposalSlate(lg.id, lg.season, {' },
+
   // ---- control: no change at all. Must come back GREEN, or the harness lies ----
   { id: 'CONTROL', suites: LEDGER, claim: 'the harness itself',
     edits: [{ file: SVC, find: 'const RAW_TABLE = ', replace: 'const RAW_TABLE = ' }] },
@@ -326,7 +411,7 @@ for (const m of M) {
   }
 
   results.push({
-    id: m.id, claim: m.claim, bad, nFail,
+    id: m.id, claim: m.claim, bad, nFail, expectSurvive: !!m.expectSurvive,
     failed: [...out.matchAll(/^not ok \d+ - (.+)$/gm)].map(x => x[1]),
     sites: [...new Set([...out.matchAll(/(test\/[\w-]+\.test\.js):(\d+):\d+/g)]
       .map(x => `${x[1]}:${x[2]}`))],
@@ -346,13 +431,18 @@ for (const r of results) {
   console.log(`           ${r.claim}`);
   for (const f of r.failed.slice(0, 3)) console.log(`           killed by: ${f}`);
   if (r.bad) console.log(`           detail: ${r.bad}`);
-  if (r.verdict === 'SURVIVED' && r.id !== 'CONTROL') {
+  if (r.verdict === 'SURVIVED' && r.id !== 'CONTROL' && !r.expectSurvive) {
     console.log('           *** NOTHING FAILED — this contract has no test ***');
   }
 }
 
 const control = results.find(r => r.id === 'CONTROL');
-const survivors = results.filter(r => r.verdict === 'SURVIVED' && r.id !== 'CONTROL');
+// A designed survivor is SUPPOSED to survive; it becomes the finding the moment
+// it is killed, because then a test is pinning spelling rather than behaviour.
+const expectedSurvive = new Set(M.filter(m => m.expectSurvive).map(m => m.id));
+const survivors = results.filter(r => r.verdict === 'SURVIVED' && r.id !== 'CONTROL'
+  && !expectedSurvive.has(r.id));
+const designedSurvivorFailed = results.filter(r => expectedSurvive.has(r.id) && r.verdict !== 'SURVIVED');
 // A row carrying expectBad is SUPPOSED to come back BAD_ROW, so it is not a fault —
 // but it becomes one the moment it does not, which is the whole point of having it.
 const expectedBad = new Set(M.filter(m => m.expectBad).map(m => m.id));
@@ -360,7 +450,8 @@ const badRows = results.filter(r => r.verdict === 'BAD_ROW' && !expectedBad.has(
 const detectorFailed = results.filter(r => expectedBad.has(r.id) && r.verdict !== 'BAD_ROW');
 console.log(`\nrows ${results.length} | killed ${results.filter(r => r.verdict === 'KILLED').length}`
   + ` | survived ${survivors.length} | bad ${badRows.length} | control ${control?.verdict}`
-  + ` | not-applied control ${results.find(r => r.id === 'NOTAPPLIED')?.verdict}`);
+  + ` | not-applied control ${results.find(r => r.id === 'NOTAPPLIED')?.verdict}`
+  + ` | designed survivor ${[...expectedSurvive].map(id => results.find(r => r.id === id)?.verdict).join(',') || '-'}`);
 console.log(`survivors: ${survivors.map(r => r.id).join(', ') || 'none'}`);
 
 if (moved) {
@@ -371,5 +462,9 @@ for (const r of detectorFailed) {
   console.error(`\n${r.id} was expected to come back BAD_ROW and came back ${r.verdict}.`
     + ' The not-applied detector did not fire, so no verdict in this run can be trusted.');
 }
+for (const r of designedSurvivorFailed) {
+  console.error(`\n${r.id} was designed to SURVIVE and came back ${r.verdict}.`
+    + ' A test is pinning the call site\'s spelling, not its behaviour.');
+}
 if (control?.verdict !== 'SURVIVED' || badRows.length || survivors.length
-    || detectorFailed.length) process.exit(1);
+    || detectorFailed.length || designedSurvivorFailed.length) process.exit(1);

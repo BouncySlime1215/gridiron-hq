@@ -177,7 +177,8 @@ S-00"). Nothing above the line was edited afterwards.*
 | pre-registration | `51c3fddd` | docs: pre-register the 2025 holdout census and BH method for S-00 |
 | ledger (data, before any BH number) | `bedb7882` | docs: seed the 2025 holdout ledger with every look found in docs/evidence and docs/tdd |
 | contract + BH run | `a9a2d80c` | docs: statistical method contract with BH over the holdout ledger |
-| this evidence file | (the commit that adds this section) | docs: S-00 evidence |
+| this evidence file | `7da8facb` | docs: S-00 evidence: census, BH result, forward weeks, mutation sweep, findings |
+| review round 1 fixes (section 13) | (the commit that adds section 13) | docs: S-00 review round 1: name the 2026 job, the second pair-accuracy producer and the registry's sealed season |
 
 The PR number is not assigned yet. The branch is pushed and no PR is opened,
 per the unit's instructions. Cite these as `#N` + subject + sha once a PR
@@ -330,6 +331,60 @@ result ships default-off, labelled "unconfirmed forward". A weeks 1-4 gate has
 two weeks. No league or manager data was read. Only `player_week_usage` season,
 week and row counts were queried.
 
+### 6b. The other 2026 producers (added in review round 1, same copy)
+
+Same local copy (not production, made 2026-09-22 16:33 local). Each query was
+run from the worktree root with `D="file:.local-db/data.sqlite?immutable=1"`.
+No league, manager or credential column was selected.
+
+```
+# A. actuals: player_week_usage (writer syncWeeklyUsage, nflverse.js:245)
+sqlite3 "$D" "SELECT week, COUNT(*) FROM player_week_usage WHERE season = 2026 GROUP BY week;"
+# 1|527
+# 2|525
+
+# B. pregame snapshots: weekly_prediction_snapshots (writer captureWeeklyPredictions, weekly-learning.js:63)
+sqlite3 "$D" "SELECT season, week, COUNT(*), SUM(actual IS NOT NULL) FROM weekly_prediction_snapshots GROUP BY season, week;"
+# 2026|2|1183|0
+
+# C. snapshots that already have an actual (settleable on the next run) and pass the retrain's season_to_date filter
+sqlite3 "$D" "SELECT COUNT(*), SUM(s.season_to_date IS NOT NULL) FROM weekly_prediction_snapshots s
+  JOIN player_week_usage u ON u.season = s.season AND u.week = s.week AND u.player_id = s.player_id WHERE s.season = 2026;"
+# 351|351
+
+# D. fits: weekly_ensemble_fits (writer saveWeeklyFit, weekly-weight-store.js:140, insert :147)
+sqlite3 "$D" "SELECT id, through_season, through_week, promoted, json_extract(weights_json, '\$.early.weeks') FROM weekly_ensemble_fits ORDER BY id;"
+# 1|2025|18|1|
+# 2|2025|18|1|[2,4]
+
+# E. job fits on 2026 (the rule-5 query) and its known-nonzero control
+sqlite3 "$D" "SELECT id, through_season, through_week, promoted FROM weekly_ensemble_fits WHERE through_season >= 2026;"
+# (no rows)
+sqlite3 "$D" "SELECT id, through_season, through_week, promoted FROM weekly_ensemble_fits WHERE through_season >= 2025;"
+# 1|2025|18|1          <- control: the same filter finds rows one season earlier
+# 2|2025|18|1
+
+# F. model registry tables, with a known-nonzero table in the same query as control
+sqlite3 "$D" "SELECT 'model_experiments', COUNT(*) FROM model_experiments UNION ALL SELECT 'model_dataset_versions', COUNT(*)
+  FROM model_dataset_versions UNION ALL SELECT 'model_backtests', COUNT(*) FROM model_backtests
+  UNION ALL SELECT 'weekly_ensemble_fits', COUNT(*) FROM weekly_ensemble_fits;"
+# model_experiments|0
+# model_dataset_versions|0
+# model_backtests|0
+# weekly_ensemble_fits|2   <- control
+
+# G. the job's last run (table sync_log)
+sqlite3 "$D" "SELECT job, last_run_at, last_status, runs, json_extract(last_detail, '\$.settlement') FROM sync_log WHERE job = 'nfl_weekly_learning';"
+# nfl_weekly_learning|2026-09-19T02:00:31.333Z|ok|2|{"pending":1183,"settled":0}
+```
+
+Read together: 2026 actuals exist for weeks 1-2, the job holds week-2 snapshots
+only, none are settled yet, and no fit has used 2026. Week 2 is inside the
+stored early window `[2,4]`, which the retrain excludes (`weekly-learning.js:237`),
+so no 2026 fit can happen before week-5 rows settle. How the rule-5 check relates
+to this job is in `STATS-METHOD.md` rule 5, "The job that already fits and gates
+on 2026".
+
 ## 7. Mutation sweep of the BH command
 
 Tests: the command's two built-in assertions (literature control and
@@ -368,14 +423,47 @@ output. Each mutant is a `sed` on the extracted script. Scratch run, on
   they control different errors. Unifying them is a follow-up, because it needs
   a grant for `audit-registry.js`. `server/services/decision-basis.js:210,281`
   is a third Šidák use, over decision-basis components. Not touched.
-- **Decision win rate:** `startSitPairAccuracy`
-  (`scripts/promote-early-week-weights.mjs:153`) is the replay producer.
-  `DECISION_CURVE` (`server/services/lineup-brain.js:268`) is static. Live
-  producers are C-01 to C-03. The contract says to reuse the first, not quote the
-  second as live, and wait for the third.
-- **Forward weeks:** `player_week_usage` / `syncWeeklyUsage` is the only writer
-  of weekly actuals found (`git grep -n -E "INSERT (OR [A-Z]+ )?INTO player_week_usage" origin/main -- server scripts`
-  returns one line, `server/services/nflverse.js:260`).
+- **Decision win rate, two replay producers that disagree:**
+  `startSitPairAccuracy` (`scripts/promote-early-week-weights.mjs:153`) and
+  `decisionRanking` (`scripts/promote-volume-shrinkage.mjs:118`, check 4 of the
+  volume-shrinkage promotion gate). They keep different pairs, and on one input
+  they return 1 pair / 0 versus 3 pairs / 0.3333 (section 13, B2). The contract
+  names `startSitPairAccuracy` canonical. Routing `decisionRanking` through it is
+  a named follow-up (needs a grant for that script). `DECISION_CURVE`
+  (`server/services/lineup-brain.js:268`) is static. Live producers are C-01 to
+  C-03. The first version of this section missed `decisionRanking`. Review
+  round 1 found it. The structural grep
+  `git grep -n -E "pairs\+\+|pairs \+= 1" origin/main -- server scripts` returns 4
+  lines. Two are these two producers (the known-nonzero control). The other two
+  are `scripts/calibrate-home-field-rate.mjs:50` (game margins) and
+  `server/betting/nfl/strategy/teaser-leg-rates.js:610` (betting). Neither is a
+  start/sit rate.
+- **Forward weeks, three tables:** `player_week_usage` / `syncWeeklyUsage` is the
+  only writer of weekly actuals found
+  (`git grep -n -E "INSERT (OR [A-Z]+ )?INTO player_week_usage" origin/main -- server scripts`
+  returns one line, `server/services/nflverse.js:260`). The first version of
+  this section stopped there. It missed the job `nfl_weekly_learning`
+  (`scheduler.js:1395`), which writes pregame 2026 snapshots to
+  `weekly_prediction_snapshots` (`weekly-learning.js:63`), settles them (`:157`),
+  and is built to fit and auto-promote weekly weights on them into
+  `weekly_ensemble_fits` (`:224`, `:310`, `saveWeeklyFit` at
+  `weekly-weight-store.js:140`). On the same copy the two forward sources
+  disagree on coverage. Actuals cover weeks 1-2 (1,052 rows). Snapshots cover
+  week 2 only (1,183 captured, 0 settled) (section 6b). They also grade
+  different numbers: the snapshot holds ensemble `ppg`, not the served number
+  (work queue S-12). `STATS-METHOD.md` rule 5 now says rule 5 governs a unit's
+  ship decision. It also says every job fit on 2026 is an `F` row that the next
+  unit logs. The follow-up is for the job to log or hold its own promotions
+  (needs a grant for `weekly-learning.js`).
+- **Sealed holdout season, two sources that disagree:** this contract (2025 is
+  held out) and `createWalkForwardSplits` (`server/modeling/walk-forward.js:35`),
+  which seals the latest season in the pinned dataset and throws for 2025 once
+  the dataset holds a 2026 week (section 13, B3). The registry is unused on the
+  copy (0 rows in `model_experiments`, `model_dataset_versions` and
+  `model_backtests`; section 6b F). `STATS-METHOD.md` rule 2 now states the
+  registry's rule and how its openings enter the ledger. Changing
+  `walk-forward.js` is not this unit's call. It is named for C-10, which owns
+  that file.
 - **New fields:** none in code. The ledger's columns have one reader, the
   command in `STATS-METHOD.md` rule 3, which parses every column it uses (id,
   domain, family, est, lo, hi, level, p, better, shipped, note).
@@ -433,6 +521,16 @@ outcome against a prediction. So no row was appended for S-00 itself.
   written as a proposal.
 - The line numbers in the ledger are on `d6d7bd5a`. Later edits to the cited
   files move them. The ledger's anchor method makes each one re-findable.
+- Rule 5's handling of the job `nfl_weekly_learning` is manual: a unit runs one
+  query and logs job fits on 2026 as `F` rows. Nothing makes the job do it, and
+  nothing stops it auto-promoting a fit trained on 2026 without a
+  pre-registration. The fix is in `server/services/weekly-learning.js`, which
+  this docs-only unit has no grant for (follow-up, section 13).
+- Section 1, row 5 says `walk-forward.js` "never counts" openings. That is
+  inaccurate: it allows one opening per experiment. It also names only "the
+  last season" without saying that this becomes 2026 once a dataset holds a
+  2026 week. Section 13 corrects it. Section 1 is left as committed because it
+  belongs to the pre-registration commit `51c3fddd`.
 
 ## 12. Nick's five questions
 
@@ -459,7 +557,12 @@ outcome against a prediction. So no row was appended for S-00 itself.
    scattered across 56 files. One BH producer, reused and cross-checked. The
    second multiplicity producer (`audit-registry.js` Šidák) is named with both
    verdicts on the same input, and unifying the two is the named follow-up.
-   Eight rules that each cite the older rule they consolidate.
+   Three more pairs of producers are named with values on the same input (review
+   round 1, section 13): the job `nfl_weekly_learning` against rule 5's forward
+   check, `decisionRanking` against `startSitPairAccuracy`, and the registry's
+   sealed season against "2025 is held out". For each one the contract says
+   which governs, and names the follow-up that would merge them. Eight rules
+   that each cite the older rule they consolidate.
 
 **Defect or gap fixed:** no ledger of 2025 looks and no single statistical
 method existed (audit, section 1, on `d6d7bd5a`). **Incumbent, by command:** the
@@ -469,3 +572,103 @@ folders, and any enforcement (no test or guard fails a PR that skips a rule).
 **What would make it wrong:** a look missed inside the census folders, a
 misread interval or sign in a row, or a classification a reviewer would reverse.
 Each row cites its line, so each is checkable.
+
+## 13. Review round 1 (structure lens): three blocking findings, all confirmed
+
+An independent reviewer found three places where the contract named one producer
+and a second one exists on `origin/main` (`d6d7bd5a`). I re-checked each one
+before changing anything. All three hold. No code changed. The fixes are text in
+`STATS-METHOD.md`, `HOLDOUT-LEDGER.md` and this file.
+
+| id | finding | my check | fixed in |
+|---|---|---|---|
+| B1 | Rule 5 left out the job `nfl_weekly_learning`, which captures 2026 snapshots and is built to fit, gate and auto-promote on them. "No fit and no gate has seen 2026" and "did not exist before" were wrong | read `weekly-learning.js:49,63,155,157,224,243,255,304,310,319`, `weekly-weight-store.js:140,147`, `scheduler.js:547,1395,2116` on `origin/main`. Queries in section 6b: snapshots are week 2 only (1,183, 0 settled); actuals are weeks 1-2 (1,052); fits are 2, both through 2025 W18 | `STATS-METHOD.md` intro and rule 5 ("The job that already fits and gates on 2026": producers, both counts, which governs, `F`-row duty, follow-up); `HOLDOUT-LEDGER.md` intro and "2026 forward looks"; section 8; checklist item 5 |
+| B2 | Rule 6 named `startSitPairAccuracy` as the only start/sit pair-accuracy producer. `decisionRanking` in `scripts/promote-volume-shrinkage.mjs:118` computes the same concept with a different pair filter | the script below. It runs both functions, copied from `origin/main`, on one input: 3 pairs / 0.3333 against 1 pair / 0. Control: 3 / 0.3333 for both | `STATS-METHOD.md` rule 6 (second table row, both values, why `startSitPairAccuracy` is canonical, follow-up); section 8 |
+| B3 | The contract says 2025 is sealed. `createWalkForwardSplits` seals the latest season in the dataset and throws for 2025 once a 2026 week is present. "Never counted looks" was inaccurate | the script below: 2026 sealed by default, 2025 throws, control 2025 sealed. Also read `server/routes/model.js:157,172,317,348-349,371-377`: the dataset is caller-posted, and one opening is allowed per experiment | `STATS-METHOD.md` rule 2 ("The model registry seals a different season") and its consolidates line; `HOLDOUT-LEDGER.md` intro; sections 8 and 11 |
+
+### B2 command (run from the worktree root)
+
+```bash
+T=$(mktemp -d)
+{ git show origin/main:scripts/promote-volume-shrinkage.mjs | sed -n '118,138p'
+  git show origin/main:scripts/promote-early-week-weights.mjs | sed -n '153,174p' | sed 's/^export //'
+  cat <<'JS'
+const run = newC => {
+  const p = [{ id: 'a', old: 10, neu: 10, act: 5 }, { id: 'b', old: 8, neu: 8, act: 12 }, { id: 'c', old: 5, neu: newC, act: 9 }];
+  const arm = f => new Map(p.map(x => [x.id, { week: 5, position: 'WR', prediction: x[f], actual: x.act }]));
+  const ss = startSitPairAccuracy(p.map(x => ({ week: 5, position: 'WR', actual: x.act, preds: { old: x.old, new: x.neu } })), ['old', 'new']);
+  return JSON.stringify({ decisionRanking: decisionRanking(arm('old'), arm('neu')),
+    startSitPairAccuracy: { pairs: ss.pairs, old: +ss.accuracy.old.toFixed(4), new: +ss.accuracy.new.toFixed(4) } });
+};
+console.log('new arm c=3:', run(3));
+console.log('control, new arm c=6:', run(6));
+JS
+} > "$T/pairs.mjs" && node "$T/pairs.mjs"
+```
+
+Output, 2026-09-22:
+
+```
+new arm c=3: {"decisionRanking":{"pairs":3,"old":0.3333,"new":0.3333},"startSitPairAccuracy":{"pairs":1,"old":0,"new":0}}
+control, new arm c=6: {"decisionRanking":{"pairs":3,"old":0.3333,"new":0.3333},"startSitPairAccuracy":{"pairs":3,"old":0.3333,"new":0.3333}}
+```
+
+Lines 118-138 of `promote-volume-shrinkage.mjs` are `decisionRanking` whole.
+Lines 153-174 of `promote-early-week-weights.mjs` are `startSitPairAccuracy`
+whole. The script copies both from `origin/main` and does not import either
+file, so neither script's top-level code runs.
+
+### B3 command (run from the worktree root)
+
+```bash
+T=$(mktemp -d); git archive origin/main server/modeling | tar -x -C "$T"
+cat > "$T/wf.mjs" <<'JS'
+import { createWalkForwardSplits } from './server/modeling/walk-forward.js';
+const obs = (season, weeks) => weeks.map(week => ({ player_id: 'p1', season, week, as_of: new Date(Date.UTC(season, 8, week)).toISOString(), actual: 10 }));
+const base = [...obs(2024, [1, 2, 3]), ...obs(2025, [1, 2, 3])];
+const with26 = [...base, ...obs(2026, [1, 2])];
+const show = (label, rows, opts) => {
+  try { const h = createWalkForwardSplits(rows, opts).holdout; console.log(label, JSON.stringify({ season: h.season, state: h.state })); }
+  catch (e) { console.log(label, 'throws:', e.message); }
+};
+show('2024-2026w2, default:', with26, {});
+show('2024-2026w2, holdoutSeason 2025:', with26, { holdoutSeason: 2025 });
+show('control 2024-2025, holdoutSeason 2025:', base, { holdoutSeason: 2025 });
+JS
+node "$T/wf.mjs"
+```
+
+Output, 2026-09-22:
+
+```
+2024-2026w2, default: {"season":2026,"state":"sealed"}
+2024-2026w2, holdoutSeason 2025: throws: final holdout must be the latest season
+control 2024-2025, holdoutSeason 2025: {"season":2025,"state":"sealed"}
+```
+
+This is synthetic input, so it shows what the code does, not what any stored
+experiment did. On the local copy no experiment exists (section 6b F).
+
+### The BH result did not move
+
+These fixes add text and change no ledger row. I re-ran the BH command
+(`sed -n '/^```python holdout-ledger-bh$/,/^```$/p' docs/evidence/STATS-METHOD.md | sed '1d;$d' | python3 -`)
+before and after the edits on this working tree. The two outputs are
+byte-identical: 84 lines, sha256 prefix `dd6984615923901c`, still 153 rows,
+76 `FL`, 11 BH primary discoveries, 12 sensitivity and 8 Šidák.
+`grep -c -E '^\| L[0-9]{3} ' docs/evidence/HOLDOUT-LEDGER.md` returns 153, and
+the same grep for `F` rows returns 0.
+
+### Follow-ups these findings add (named, not done: each needs a file grant this docs-only unit does not have)
+
+1. `server/services/weekly-learning.js`: make `retrainWeeklyWeights` write a
+   forward-look record for every fit on 2026, or hold its promotion default-off
+   until a pre-registered gate exists. Until then, each statistical unit runs the
+   rule-5 query and logs job fits as `F` rows.
+2. `scripts/promote-volume-shrinkage.mjs`: route check 4 through
+   `startSitPairAccuracy`, which will change the printed check-4 pair counts.
+3. `server/modeling/walk-forward.js`: C-10 owns it ("holdout sealed by hash").
+   It should decide whether the registry seals by season number or by "latest in
+   dataset", and whether openings are counted across experiments. The contract
+   now states today's behaviour and how registry openings enter the ledger.
+

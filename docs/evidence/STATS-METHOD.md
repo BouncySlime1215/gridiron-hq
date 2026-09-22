@@ -8,10 +8,15 @@ each rule is answered in its evidence file. "Not applicable, because ..." is an
 answer. Silence is not.
 
 This file consolidates rules that were scattered across memory files, module
-comments and handoffs. It adds three things that did not exist before: a ledger
-of every look at 2025 (rule 2), a false-discovery correction across that ledger
-(rule 3), and a forward-holdout gate on 2026 (rule 5). Where a rule already
-existed, its source is named next to it.
+comments and handoffs. It adds two things that did not exist before: a ledger
+of every look at 2025 (rule 2) and a false-discovery correction across that
+ledger (rule 3). It also sets a forward rule on 2026 for every unit's ship
+decision (rule 5). That rule is not the first code to gate on 2026. The
+scheduled job `nfl_weekly_learning` already captures 2026 forecasts, and it is
+built to fit and auto-promote weekly weights on them. The model registry's
+sealed holdout also picks its own season. Rules 2 and 5 name both and say how
+each relates to this contract. Where a rule already existed, its source is named
+next to it.
 
 Written 2026-09-22 by unit S-00 (plan item 18, Goodhart guards), on
 `origin/main` at `d6d7bd5a`. Evidence file:
@@ -67,10 +72,44 @@ Pooled or multi-season results that include 2025 count as looks at 2025
 Fitting or tuning on 2025 without reporting a 2025 metric is not a row, but the
 evidence file must say so, because it spends the season too.
 
+**The model registry seals a different season.** The registry's holdout code
+does not follow "2025 is the held-out season". `createWalkForwardSplits`
+(`server/modeling/walk-forward.js:35`) seals the **latest season in the pinned
+dataset** (`holdoutSeason ?? seasons.at(-1)`, `:42`). For any other season it
+throws `final holdout must be the latest season` (`:44`). The dataset is
+whatever a caller posts to `POST /registry/datasets`
+(`server/routes/model.js:157`, insert into table `model_dataset_versions` at
+`:172`). So:
+
+- An experiment whose dataset includes any 2026 week seals **2026** and refuses
+  `holdout_season: 2025`. Its walk-forward folds then score every earlier
+  period, 2025 included (`walk-forward.js:46-51`), and that fold run is a look at
+  2025 like any pooled run.
+- An experiment whose dataset ends at 2025 seals 2025. Opening it is a look at
+  2025.
+- `openFinalHoldout` (`walk-forward.js:112-118`) marks the holdout `opened_once`.
+  The holdout route refuses a second opening **for the same experiment**
+  (`server/routes/model.js:317`). It writes protocol `sealed_holdout` to table
+  `model_backtests` (`:348-349`). Promotion requires that row
+  (`server/routes/model.js:371-377`). Nothing counts openings **across**
+  experiments: ten experiments can each open 2025 once. That is the gap this
+  ledger fills.
+
+How the two relate: a registry opening of 2025 is a ledger row. A registry
+opening of 2026 is a rule-5 forward look (an `F` row in `HOLDOUT-LEDGER.md`).
+Neither gate replaces the other. A registry promotion needs the registry's
+sealed-holdout row **and** this contract's rules. Today the path is unused. On a
+local copy (not production, 2026-09-22), `model_experiments`,
+`model_dataset_versions` and `model_backtests` each have 0 rows. Control:
+`weekly_ensemble_fits` has 2 rows on the same copy. The commands are in section
+6b of the evidence file.
+
 *Consolidates:* Nick's statistical discipline (a), 2026-09-22; "validated on
 2025 once" in the house ship rule (`server/services/matchups.js:33-35`); the
-sealed-holdout label in `server/modeling/walk-forward.js:35-55`, which marks the
-season sealed but never counted looks.
+model registry's sealed holdout (`server/modeling/walk-forward.js:35-55` and
+`openFinalHoldout` at `:112-118`). That holdout allows one opening per
+experiment but does not count openings across experiments, and it seals the
+latest season in the dataset, not 2025.
 
 ## Rule 3. False discovery control across the feature-lift family
 
@@ -366,11 +405,13 @@ which the unit before it had missed.
 ## Rule 5. A result ships ON only if it also holds forward, on 2026
 
 2025 is partly spent (rule 2), and fit-1, the promoted weekly weights, was
-trained on 2023-2025 (`scripts/fit-weekly-coverage.mjs:62,66`). **2026 is the
-only season that no fit and no gate has seen.** So a model result ships ON only
-if it passes its pre-registered rule on 2025 **and** holds on the 2026 weeks
-already played. Otherwise it ships default-off, behind a named flag, labelled
-**"unconfirmed forward"** wherever it appears.
+trained on 2023-2025 (`scripts/fit-weekly-coverage.mjs:62,66`). **No promoted
+fit has been trained on 2026 yet.** On a local copy (not production,
+2026-09-22), table `weekly_ensemble_fits` has 2 rows, both trained through 2025
+week 18. That will change once the job described below fits on 2026. So a model
+result ships ON only if it passes its pre-registered rule on 2025 **and** holds
+on the 2026 weeks already played. Otherwise it ships default-off, behind a named
+flag, labelled **"unconfirmed forward"** wherever it appears.
 
 - **Weeks already played** means the distinct 2026 regular-season weeks in table
   `player_week_usage`, written by `syncWeeklyUsage`
@@ -393,7 +434,74 @@ already played. Otherwise it ships default-off, behind a named flag, labelled
   "2026 forward looks" section of `HOLDOUT-LEDGER.md`, so 2026 does not get spent
   silently the way 2025 did.
 
-*Consolidates:* Nick's statistical discipline (b), 2026-09-22; the "2026 FORWARD"
+### The job that already fits and gates on 2026
+
+Rule 5 is not the only forward gate. The scheduled job `nfl_weekly_learning`
+(`server/services/scheduler.js:1395`, runner `refreshWeeklyLearning` at `:547`,
+which calls `runWeeklyLearningCycle` at `server/services/weekly-learning.js:401`)
+does four things each run:
+
+| step | function (file:line) | table and write |
+|---|---|---|
+| capture | `captureWeeklyPredictions`, `weekly-learning.js:49` | `weekly_prediction_snapshots`, `INSERT OR IGNORE` at `:63` (pregame, first write wins) |
+| settle | `settleWeeklyPredictions`, `:155` | same table, `UPDATE ... SET actual` at `:157`, with the actual read from `player_week_usage` |
+| fit and gate | `retrainWeeklyWeights`, `:224` | fits on the older 80% of settled rows (`:255`) and gates on the newest 20%: player-clustered paired bootstrap (`:304`), rank and coverage. `promoted` at `:310` |
+| promote | `saveWeeklyFit`, `server/services/weekly-weight-store.js:140` | `weekly_ensemble_fits`, insert at `:147`. A promoted row becomes the served weekly vector |
+
+The fit needs 250 settled rows outside the stored early window
+(`minSettled`, `:224`, checked at `:243`; early-window filter at `:237`). The
+job's gate is fixed in code, but it has no pre-registration under rule 1, and
+it writes nothing to `HOLDOUT-LEDGER.md`. It is on the heavy tier, which runs on the timer only when
+`AUTO_HEAVY_SYNC=1` (`scheduler.js:2116`). Table `sync_log` on the local copy
+shows it has run twice, last at 2026-09-19 02:00 UTC, status ok. What
+triggered those runs was not determined.
+
+**Forward sources, same copy** (local copy, not production, 2026-09-22;
+commands in section 6b of the evidence file):
+
+| table (writer) | what it holds for 2026 | count |
+|---|---|---|
+| `player_week_usage` (`syncWeeklyUsage`, `nflverse.js:245`) | actuals | weeks 1-2, 1,052 rows (527 + 525) |
+| `weekly_prediction_snapshots` (`captureWeeklyPredictions`, `weekly-learning.js:63`) | pregame snapshots | week 2 only: 1,183 captured, 0 settled. 351 of them already have an actual in `player_week_usage` and are waiting for the next settle run |
+| `weekly_ensemble_fits` (`saveWeeklyFit`, `weekly-weight-store.js:147`) | fits | 2 rows, both through 2025 week 18, both promoted. None trained on 2026 |
+
+The two forward records also grade different numbers. The snapshot's
+`prediction` is the ensemble `ppg` in PPR (`weekly-learning.js:86`, default
+scoring at `:49`), without coordinator, availability or lift. A rule-5 replay
+over `player_week_usage` grades the number the unit serves. Work queue S-12 adds
+the served number to the snapshot row.
+
+**Which governs.**
+
+- **A unit's ship decision:** rule 5 governs. It is graded on
+  `player_week_usage` actuals through a replay of the number the unit serves.
+  The snapshot table can stand in only when that number is the ensemble `ppg`
+  itself.
+- **The job's own promotions:** each one is a model result shipping ON without a
+  pre-registration or a ledger row. Under this contract, every job fit that
+  trains or gates on a 2026 week is a 2026 forward look, and it must appear as
+  an `F` row in `HOLDOUT-LEDGER.md`. That applies whether or not the fit was
+  promoted. The job cannot write that row itself. So every statistical unit
+  runs
+  `SELECT id, through_season, through_week, promoted FROM weekly_ensemble_fits WHERE through_season >= 2026`
+  on its own DB copy, and logs any row not yet in the ledger as an `F` row.
+  Follow-up (needs a file grant for `server/services/weekly-learning.js`):
+  make the job write that record itself, or hold its promotion default-off
+  until a pre-registered gate exists.
+- **Once the job fits on a 2026 week, that week is in-sample for the served
+  weights.** A unit's rule-5 check names the incumbent fit id it froze at
+  pre-registration. It states whether a job fit used any week in its forward
+  window, using the same query. If one did, the incumbent's forward error on
+  those weeks is flattered, and the evidence says so.
+- **When this starts:** weeks 2-4 are excluded while the stored early window is
+  `[2,4]` (fit 2's `early.weeks` on the local copy), and there are no week-1
+  snapshots. So the first fit on 2026 needs 250 settled rows from week 5 or
+  later. Week 2 has 351 settleable rows, all with `season_to_date` set (the
+  retrain's other filter), so one settled week is probably enough. The first fit would then come on the first job run after week 5's
+  usage rows land. That timing is a guess from the week-2 counts, not a query.
+
+*Consolidates:* Nick's statistical discipline (b), 2026-09-22; the forward loop
+in `server/services/weekly-learning.js` (above); the "2026 FORWARD"
 row of the sealed-season plan in
 `docs/evidence/historical/model-diagnostic-2026-08-26.md:758-759`; "the
 genuinely untouched promotion set is the frozen 2026 forward ledger"
@@ -409,10 +517,34 @@ MAE governs a displayed number.
 
 | call | dumb baseline (Nick, 2026-09-22) | producer to reuse | status |
 |---|---|---|---|
-| projection change feeding start/sit | the incumbent projection, and the player's season-to-date average, on one common pair set | `startSitPairAccuracy`, `scripts/promote-early-week-weights.mjs:153` | exists; reuse it, do not re-implement |
+| projection change feeding start/sit | the incumbent projection, and the player's season-to-date average, on one common pair set | `startSitPairAccuracy`, `scripts/promote-early-week-weights.mjs:153` | exists and is canonical; reuse it, do not re-implement |
+| same concept, second producer | the old arm | `decisionRanking`, `scripts/promote-volume-shrinkage.mjs:118` (check 4 of that promotion gate, used at `:221`) | exists, and gives a **different** value on the same input (below). Do not use it for new work. Follow-up: route it through `startSitPairAccuracy` |
 | start/sit call | start the highest projection | none yet | work queue C-01 |
 | waiver call | add the highest-projected free agent | none yet | work queue C-02 |
 | trade call | offer fair value (the market price) | none yet | work queue C-03 |
+
+**Two pair-accuracy producers disagree.** Both judge pairs within week and
+position and score ties 0.5. They keep different pairs.
+`startSitPairAccuracy` keeps a pair only when **every** model projects both
+players at 4 or more (`promote-early-week-weights.mjs:156`). `decisionRanking`
+keeps it when the **old** arm alone does (`promote-volume-shrinkage.mjs:122`).
+So when the new arm drops a player below 4, `decisionRanking` still judges that
+pair. Same input, both functions taken from `origin/main` at `d6d7bd5a`: 3 WRs
+in week 5, old arm 10 / 8 / 5, new arm 10 / 8 / 3, actuals 5 / 12 / 9.
+
+| producer | pairs | old | new |
+|---|---|---|---|
+| `decisionRanking` | 3 | 0.3333 | 0.3333 |
+| `startSitPairAccuracy` | 1 | 0 | 0 |
+
+Control: with the new arm at 6 instead of 3 (both arms at 4 or more), both
+return 3 pairs and 0.3333. The script is in section 13 of the evidence file.
+So a check-4 value printed by the volume-shrinkage gate is not comparable with
+a `startSitPairAccuracy` value. `startSitPairAccuracy` is canonical because it
+grades every model on one common pair set, it is exported, and it has a test
+(`test/weekly-early-week-blend.test.js`). Moving `decisionRanking` onto it is a
+follow-up. It needs a file grant for `scripts/promote-volume-shrinkage.mjs`,
+which this docs-only unit does not have.
 
 Until C-01 to C-03 exist, a unit writes "no producer yet (C-0x)" in that cell.
 It never writes a hand-made rate. `DECISION_CURVE`
@@ -489,8 +621,9 @@ section 3.
 3. For an `FL` result, the command's verdict for the new row: BH primary,
    sensitivity, Šidák (rule 3).
 4. For a decline, the MDE at 80% power (rule 4).
-5. The forward check on 2026, or "unconfirmed forward" and the flag name
-   (rule 5).
+5. The forward check on 2026, or "unconfirmed forward" and the flag name,
+   plus the `weekly_ensemble_fits` query for job fits on 2026, with any new
+   `F` rows (rule 5).
 6. Decision win rate against the dumb baseline, or "no producer yet (C-0x)"
    (rule 6).
 7. The replay configuration, with the k control's output (rule 7).

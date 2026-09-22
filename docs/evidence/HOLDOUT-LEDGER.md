@@ -7,6 +7,18 @@ time anyone computes something on it and then decides what to do next
 reader can see how much of 2025 is already spent before trusting a new 2025
 number.
 
+"2025 is the held-out season" is this contract's rule for fantasy model work
+done in units. Two pieces of code pick a season differently, and
+`STATS-METHOD.md` says how each relates:
+
+- The model registry's sealed holdout (`server/modeling/walk-forward.js:35-44`)
+  seals the latest season in the pinned dataset. Once a dataset holds any 2026
+  week, it seals 2026 and refuses 2025. It allows one opening per experiment and
+  does not count openings across experiments (rule 2).
+- The scheduled job `nfl_weekly_learning` (`server/services/weekly-learning.js`)
+  is built to fit and auto-promote weekly weights on settled 2026 snapshots
+  (rule 5).
+
 **The rule** (`docs/evidence/STATS-METHOD.md`, rule 2): a unit that computes
 anything on 2025 outcomes appends one row per hypothesis test here, in the same
 commit as the result. Rows are never edited or deleted. A correction is a new
@@ -275,7 +287,19 @@ every such check is a look at 2026. Record it here with the same columns and an
 `F` id (F001, F002, ...), so 2026 is not spent silently the way 2025 was.
 The BH command reads only `L` rows.
 
-None yet.
+Two sources of `F` rows besides a unit's own rule-5 check:
+
+- **Job fits.** Every `weekly_ensemble_fits` row with `through_season >= 2026`,
+  written by `saveWeeklyFit` (`server/services/weekly-weight-store.js:140`) from
+  the job `nfl_weekly_learning`, is a 2026 forward look, promoted or not. The job
+  does not write this ledger, so the next statistical unit logs any such row
+  here (`STATS-METHOD.md` rule 5).
+- **Registry openings of 2026.** A `model_backtests` row with protocol
+  `sealed_holdout` and season 2026 (`server/routes/model.js:348-349`).
+
+None yet. On a local copy (not production, 2026-09-22), `weekly_ensemble_fits`
+has 2 rows, both through 2025 week 18 (the known-nonzero control), and
+`model_backtests` has 0 rows.
 
 ## File classification: every file the census returns
 

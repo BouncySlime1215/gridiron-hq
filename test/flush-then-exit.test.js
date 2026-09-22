@@ -177,15 +177,19 @@ test('the fixed shape still exits 0, so a caller reading the status sees success
 for (const script of ['scripts/luck-panel.mjs', 'scripts/build-manager-archetypes.mjs']) {
   test(`${script} prints its captured report through the helper, not console.log then exit`, () => {
     const src = readFileSync(path.join(REPO, script), 'utf8');
-    // The module path, not the import STYLE: luck-panel.mjs must load this
-    // dynamically (it sets SCHEDULER_DISABLED before anything else loads) and
-    // build-manager-archetypes.mjs loads it statically. Either satisfies the
-    // thing being asserted, which is that the report goes through the helper.
+    // The CALL, not the import. An earlier version of this test asserted only
+    // that the module path appeared in the source, and a mutation that put
+    // console.log(JSON.stringify(...)) back while leaving the now-unused import
+    // in place went undetected — which is exactly the regression a later edit
+    // would make. The import alone proves nothing about what the script prints.
+    assert.match(src, /printJsonThenExit\(/,
+      `${script} does not call printJsonThenExit`);
     assert.match(src, /lib\/flush-then-exit\.mjs/,
       `${script} does not load the flush helper`);
-    // The shape that caused this: a JSON report logged, then an exit, with
-    // nothing in between that could flush it.
-    assert.doesNotMatch(src, /console\.log\(JSON\.stringify\([\s\S]{0,4000}?\);\s*\n?\s*process\.exit\(/,
-      `${script} still logs a JSON report and then exits without flushing`);
+    // The shape that caused this, in any form: a JSON report handed straight to
+    // console.log. Neither script has another such call, so this is an absolute
+    // rather than a proximity rule — proximity was the hole M8 walked through.
+    assert.doesNotMatch(src, /console\.log\(JSON\.stringify\(/,
+      `${script} still logs a JSON report through console.log, which does not flush before exit`);
   });
 }

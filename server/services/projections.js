@@ -95,6 +95,11 @@ const GAMES = 17;
 const K = {
   share: 6,          // target/carry share — stable, trust it early (weighted games)
   team_volume: 10,   // team pass/rush rate — stable (weighted games)
+  // "raw" here means unweighted BY THIS k, not unweighted period: the
+  // opportunity/target counts pickK receives (a.targets/a.carries/a.attempts)
+  // already carry seasonWeight's cross-season decay (0.35/0.1225/0.042875 for
+  // one/two/three seasons back, RECENCY.seasonDecay) before this k shrinks
+  // them further.
   yards_per: 34,     // yards per opportunity — regress hard (raw opportunities)
   catch_rate: 26,    // raw targets
   td_rate: 70,       // the most regression-prone number in fantasy (raw opportunities)

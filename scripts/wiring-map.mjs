@@ -317,6 +317,72 @@ function foreignHandles(file) {
  * The handle a SQL literal was handed to: 'app', or the name of a local
  * DatabaseSync. Read by looking back from the string to the call that takes it.
  */
+
+/**
+ * How many times `name` is invoked in `code`.
+ *
+ * A syntactic call, `name(`, plus a JOB REGISTRATION, `run: name`. The second
+ * is why this exists. `producer-with-no-caller` counted only the first, and a
+ * scheduler job is registered as `run: refreshLeagueRosters` and invoked by the
+ * runner as `job.run()`, so the name is never followed by a paren anywhere in
+ * the repository. That producer had a direct caller until #95 moved the work
+ * off the request thread; when the direct call went, a rule that had always
+ * been incomplete turned into a red build on main.
+ *
+ * A registration IS a call -- something runs it on a timer. Counting it is not
+ * a weakening: a name that merely appears in prose or as a longer identifier's
+ * prefix still counts zero, which is pinned.
+ */
+export function callSites(code, name) {
+  const count = (re) => (code.match(re) ?? []).length;
+  return count(new RegExp(`\\b${name}\\s*\\(`, 'g'))
+    + count(new RegExp(`\\brun\\s*:\\s*${name}\\b`, 'g'));
+}
+
+
+/**
+ * Every query running on a receiver this resolver could not identify.
+ *
+ * Naming an unrecognised receiver instead of calling it 'app' fixes a false
+ * positive and buys a FALSE NEGATIVE if nothing says so: a table whose only
+ * reads go through an unidentified receiver is filed as belonging to another
+ * database, and table-in-another-database is `context`, which the gate does not
+ * print. A real app table read that way would leave the gate's output without a
+ * word. Trading a finding you can see for one you cannot is not an improvement.
+ *
+ * So the resolver's ignorance is reported, with a count and the list, on every
+ * run. Report, never gate -- the same posture the stale accept-list entries
+ * have, and for the same reason: this is a note to a human, and a build that
+ * fails on it teaches people to rename their variable `db`.
+ *
+ * "Resolved" means the file opened that handle itself. A receiver the file was
+ * HANDED -- a parameter, a property, a return value -- is exactly what this
+ * cannot see, and is the whole list.
+ */
+export function unresolvedReceivers(tables, files) {
+  const byKey = new Map();
+  for (const t of tables.values()) {
+    for (const e of [...t.reads, ...t.writes]) {
+      if (!e.handle || e.handle === 'app') continue;
+      const f = files.get(e.file);
+      if ((f?.foreign_handles ?? []).includes(e.handle)) continue;
+      const key = `${e.file}:${e.line}:${e.handle}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, { file: e.file, line: e.line, receiver: e.handle, tables: new Set() });
+      }
+      byKey.get(key).tables.add(t.table);
+    }
+  }
+  return [...byKey.values()]
+    .map(r => ({ file: r.file, line: r.line, receiver: r.receiver, tables: [...r.tables].sort() }))
+    .sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
+}
+
+// Receivers that are the app's own connection by convention. Anything else
+// named in front of .prepare/.exec/.run is a handle this resolver has not
+// identified, and is reported as itself rather than as the app.
+const DB_RECEIVERS = new Set(['db', 'database', 'conn', 'connection']);
+
 function handleFor(file, offset, foreign) {
   const before = file.text.slice(Math.max(0, offset - 120), offset);
   // A file that opens a handle of its own and never imports the app's database module
@@ -338,7 +404,24 @@ function handleFor(file, offset, foreign) {
   if (viaMethod) {
     const name = viaMethod[1];
     if (foreign.has(name)) return { handle: name, where: foreign.get(name) };
-    return file.foreignOnlyFile ? foreignDefault() : { handle: 'app', where: null };
+    if (file.foreignOnlyFile) return foreignDefault();
+    // An EXPLICIT receiver this resolver does not recognise is UNKNOWN, and
+    // unknown is not the app's. td-features.js is handed both handles by its
+    // caller -- buildTdFeatures({ appDb, nflDb, seasons }) -- and queries the
+    // nflverse one as `nflDb.prepare(...)`. It opens nothing itself, so it is
+    // not a foreign-only file, and answering 'app' here reported two nflverse
+    // tables as read by a live surface and written by nothing, which took main
+    // red. The default below is written for a BARE call with no receiver; a
+    // receiver that is named and unrecognised is a different question.
+    //
+    // Measured before this was written: 24 sites repo-wide use an explicit
+    // non-db receiver and were attributed to the app, and naming them honestly
+    // moves exactly two tables -- the two that were wrong. `appDb`, `app` and
+    // `rdb` change nothing, because every table they touch is also read through
+    // the app's own handle somewhere else, which is what the every() in the
+    // foreign-only rule is for.
+    if (DB_RECEIVERS.has(name)) return { handle: 'app', where: null };
+    return { handle: name, where: null };
   }
   const viaHelper = before.match(/\b([A-Za-z_$][\w$]*)\s*\(\s*$/);
   if (viaHelper && foreign.has(viaHelper[1])) {
@@ -3326,7 +3409,7 @@ function shouldBeWired(model, ann, add) {
         for (const a of imp.aliases ?? []) if (a.imported === n.name) localNames.add(a.local);
       }
       for (const local of localNames) {
-        const hits = (o.code.match(new RegExp(`\\b${local}\\s*\\(`, 'g')) ?? []).length;
+        const hits = callSites(o.code, local);
         calls += Math.max(0, o.path === n.file && local === n.name ? hits - 1 : hits);
       }
     }
@@ -4079,6 +4162,20 @@ const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested',
         + 'module that is wired now; an entry that outlives its reason silences nothing and still '
         + 'reads as a decision:');
       for (const s of stale) console.log(`  ${s.entry} — ${s.why}`);
+    }
+
+    // The resolver's own ignorance, printed so that naming an unrecognised
+    // receiver cannot quietly turn a finding into a silence. See
+    // unresolvedReceivers above for why this is reported and never gated.
+    const unresolved = unresolvedReceivers(model.tables, model.files);
+    if (unresolved.length) {
+      console.log(`\n${unresolved.length} quer(ies) run on a receiver this resolver could not identify. `
+        + 'Each is a handle the file was handed rather than one it opened, so which database it is '
+        + 'cannot be read from this file alone. They are reported as their own handle, NOT as the app, '
+        + 'which means any table read only this way is filed as belonging to another database:');
+      for (const u of unresolved) {
+        console.log(`  ${u.file}:${u.line} \`${u.receiver}\` — ${u.tables.join(', ')}`);
+      }
     }
 
     const blocking = found.filter(f =>

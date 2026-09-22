@@ -54,10 +54,12 @@ Test file `test/weekly-construction-grade.test.js`. Command for every run:
 | test fix | `c94adb9e` test: pin the level-band edge and every reproduction field (kills N8, N10) | 44 / 44 pass; N8 and N10 had survived on `17e0b84b` |
 | RED 5 | `bc570529` test: the consumer summary must split 'no game this week' into bye and no team (RED) | `not ok 44 - summarizeConsumerParity …` — `Expected values to be strictly deep-equal: + undefined - { bye_with_team: 1, no_team: 1, total: 2 }` (43 pass, 1 fail) |
 | GREEN 5 | `9b541006` feat: split the consumer summary's no-game count into bye and no team (GREEN) | 44 / 44 pass |
+| test fix | `b3528a56` test: pin compareArms' Spearman sign, gradeWeekRows' served-call arguments and gradeWindow's per-arm outputs | 48 / 48 pass. Tests only, no library change. Kills the 13 survivors of the liveness re-check (section 4b), all 44 / 0 on the previous test file. |
 
 RED 2 and RED 3 exist because a mutation found a hole (section 4, rows R1 and R2). RED 4 exists
 because the audits' mutants survived (section 4a). RED 5 exists because the first
-`--consumer-parity` run counted 674 teamless players as byes.
+`--consumer-parity` run counted 674 teamless players as byes. The `b3528a56` test fix exists because
+the liveness re-check found survivors on `5809d845` (section 4b).
 
 ## 3. What it does
 
@@ -177,6 +179,52 @@ Runner call sites after amendment 1 (standing rows, not executed by the unit sui
 | C3 (runner) | arm and reference swapped at the runner's `compareArms` call | Gone: the runner has no `compareArms` call (`grep -c` = 0). The same swap inside `lib.gradeWindow` is killed (C3 above). |
 | C4 (runner) | the held-out grade handed `lib.UNIT_LAMBDA` instead of the fit-split λ | Stopped at run time by `lib.assertS3UsedLambda(held, recordedLambda(report))`, which reads the λ recorded in `report.fit_split`, not the variable the grade was handed. The assert itself is unit-tested (N2). Not demonstrated on the copy: the only forward weeks (week 2, λ = 1) cannot tell λ = 1 from `UNIT_LAMBDA`, and a demonstration on 2025 would be a new look. Read from the code. |
 
+
+### 4b. Liveness re-check survivors (on `5809d845`, closed by `b3528a56`)
+
+The liveness re-check ran its own sweep on `5809d845` (tree `34cacc1c`, its worktree
+`wt/S-02-recheck`, since removed) and found three blocking survivors: U1d, G2/G3 and DW1. The
+same sweep left U1e, U3c, G1, BP1 and HM1 alive too. This pass added four more mutants of the
+same kind (U1f, G4, DW2, DW3). The library was right each time; the tests did not look.
+
+What each survivor would have done to the committed result (the re-check's reading, checked by a
+python read of `weekly-construction-grade-output.json`; no mutant was run on real rows): under
+U1d, window 2-4 S1's ΔSpearman +0.0232 reads -0.0232, S1 fails the rule, and the 2-4 winner
+changes from S1 to B (pass set B, D, S1, S2; MAE B 4.368, D 4.386, S2 4.377). Under DW1, weeks 5-17 C's decision win rate 0.537, CI on rate - 0.5
+[+0.005, +0.070], reads 0.463 with a CI below 0. G2 and G3 would probably be caught at run time
+by stop condition 3a (D against `startSitWeekPoints` at the true season and week), read from the
+code, not run. No committed number changes in this pass: the code that produced them is
+unchanged (`git diff 5809d845 b3528a56 -- scripts/` prints nothing).
+
+Harness: scratchpad `s02c/mutate.py` (the re-check's `mutate2.py` pointed at this worktree, plus
+U1f, G4, DW2, DW3) and `s02c/run.sh` (the test command in section 2). "Before" runs the
+`5809d845` test file (copied to an untracked `test/zz-s02-before.test.js`, deleted after);
+"after" runs the `b3528a56` test file, tree `eb68e0fa`. `git status --porcelain` printed `''`
+after the after-sweep. Results (pass / fail):
+
+| # | Mutant | Before (`5809d845` tests) | After (`b3528a56`) | Killed by |
+|---|---|---|---|---|
+| U1d | compareArms ΔSpearman sign flipped (lib:160) | survived 44 / 0 | killed 47 / 1 | compareArms: dSpearman is arm minus reference … |
+| U1e | compareArms MDE % of ΔMAE on the arm's MAE, not the reference's | survived 44 / 0 | killed 47 / 1 | same |
+| U1f | compareArms MDE % of ΔDNP on the arm's MAE | survived 44 / 0 | killed 47 / 1 | same |
+| G1 | gradeWeekRows drops scoring | survived 44 / 0 | killed 47 / 1 | gradeWeekRows hands the served expert and lift functions … |
+| G2 | gradeWeekRows hands constructArms season - 1 | survived 44 / 0 | killed 47 / 1 | same |
+| G3 | gradeWeekRows hands constructArms week - 1 | survived 44 / 0 | killed 47 / 1 | same |
+| G4 | gradeWeekRows hands constructArms a fixed season 2025 | survived 44 / 0 | killed 47 / 1 | same (2024 week 6 case) |
+| DW1 | gradeWindow decision win rate with arm and base swapped (lib:383) | survived 44 / 0 | killed 47 / 1 | gradeWindow (full): each candidate's decision win rate … |
+| DW2 | gradeWindow decision win rate on the two-arm pair set, not the common set | survived 44 / 0 | killed 47 / 1 | same |
+| DW3 | gradeWindow decision win rate on every row, not decision rows | survived 44 / 0 | killed 47 / 1 | same |
+| BP1 | gradeWindow position split with arm and reference swapped | survived 44 / 0 | killed 47 / 1 | same |
+| HM1 | gradeWindow headroom uses m0 of A for every arm | survived 44 / 0 | killed 47 / 1 | same |
+| U3c | armSummary n_decision counts played rows | survived 44 / 0 | killed 47 / 1 | armSummary counts played rows and decision rows apart |
+| EQ | designed survivor (equivalent reduce order) | survived 44 / 0 | **survived** 48 / 0, as designed | - |
+| NA | designed not-applied control | NOT APPLIED | NOT APPLIED | - |
+| K1 | known-kill control: S2 on the structural base | killed 42 / 2 | killed 46 / 2 | arm S2 uses its own fit … |
+
+The after-sweep also re-ran every other mutant in the re-check list on `b3528a56`: U1, U2, U1b,
+U2b, U2c, U1c, C3, C3b, C4, C4b, C4c, C4d, C4e, C1, C2, C2b, C2c, C1b, M0, M0b, U3, U3b, H1, H2,
+H3, P1, P2, P3. All 28 killed (fail counts 1 to 4). Nothing that was killed before came back.
+
 ## 5. The numbers
 
 All from `node --max-old-space-size=3072 scripts/weekly-construction-grade.mjs --full` on
@@ -259,8 +307,10 @@ B −0.441 [−0.855, −0.021]. Result file section 6b.
 1. **Well built?** Yes, for a measurement of the construction before availability. Every arm
    calls the served functions, pinned by identity and by the arguments they receive, and checked
    row by row against `startSitWeekPoints` (lift step) and `weeklyProjectionFor`. The page number
-   is decomposed onto the arms exactly (1,196 / 1,196). 27 of 27 original mutants and every
-   amendment-1 mutant are killed (section 4a). Four runner holes were found by mutation; the
+   is decomposed onto the arms exactly (1,196 / 1,196). 27 of 27 original mutants, every
+   amendment-1 mutant and every re-check mutant are killed (sections 4a-4b: 41 of 41 on
+   `b3528a56`, plus the known-kill control; the designed survivor lives and the not-applied
+   control is reported). Four runner holes were found by mutation; the
    runner no longer holds the grading call sites.
 2. **Stats or made up?** Stats. Backtest on 2025 held out, fit ≤ 2024, player-clustered
    bootstrap, and a pre-registered rule. One figure was made up and is withdrawn: "a nine-starter

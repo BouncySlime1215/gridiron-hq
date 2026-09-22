@@ -366,7 +366,7 @@ async function consumerParity({ lib, PPR, buildPlayerWeekEngine, activeFantasyCo
     if (!d.b_parity) throw new Error(`consumer parity: player ${id} served B ${asset.fantasy_coordinator.corrected_ppg} vs study B ${arms.B}`);
     if (!d.current_week_identity) throw new Error(`consumer parity: player ${id} current_week_ppg ${asset.current_week_ppg} vs B x mult x p ${d.expected_current_week_ppg}`);
     const a = avail.get(id);
-    checked.push({ ...d, position: asset.position, no_report: !asset.injury_status,
+    checked.push({ ...d, position: asset.position, no_report: !asset.injury_status, no_team: !asset.team_abbr,
       p_is_durability_prior: a ? a.active_probability === a.durability_prior : null });
   }
   log(`consumer parity: ${checked.length} assets checked`);

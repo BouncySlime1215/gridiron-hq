@@ -501,7 +501,13 @@ export function summarizeConsumerParity(checked, quota = STARTER_QUOTA) {
     n_checked: checked.length,
     b_parity_holds: checked.filter(c => c.b_parity).length,
     current_week_identity_holds: checked.filter(c => c.current_week_identity).length,
-    byes: checked.length - playing.length,
+    // current_week_ppg is 0 when the player's team has no game this week (a bye) and when
+    // he has no team at all (no players.team_id): trade-engine.js:334-337, :348, :359.
+    no_game_this_week: {
+      total: checked.length - playing.length,
+      no_team: checked.filter(c => c.bye && c.no_team).length,
+      bye_with_team: checked.filter(c => c.bye && !c.no_team).length
+    },
     page_differs_from_arm_D: playing.filter(c => c.page !== c.arm_D).length,
     page_over_arm_D: quantiles(playing.filter(c => c.arm_D > 0).map(c => c.page_over_D)),
     active_probability: {
@@ -512,7 +518,7 @@ export function summarizeConsumerParity(checked, quota = STARTER_QUOTA) {
         ? +(withPrior.filter(c => c.p_is_durability_prior).length / withPrior.length).toFixed(3) : null
     },
     game_mult_values: [...new Set(playing.map(c => c.mult))].sort((a, b) => a - b),
-    team_differs: checked.filter(c => c.team_differs).length,
+    team_differs_among_playing: playing.filter(c => c.team_differs).length,
     starter_proxy: {
       quota, n: starters.length,
       mean_arm_D: meanOf(starters, c => c.arm_D), mean_page: meanOf(starters, c => c.page),

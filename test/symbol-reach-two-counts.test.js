@@ -304,3 +304,69 @@ test('a test importer never upgrades a symbol that production reaches by one rou
   assert.equal(graded.grade, 'wired-betting-only');
   assert.equal(graded.counts.tests, 1);
 });
+
+/**
+ * RED, 2026-09-22. The namespace-import hole.
+ *
+ * importersOfSymbol handles `import { name }` and the `const { name } = await
+ * import()` destructuring, and nothing else. `import * as ns` is not read at
+ * all, so a symbol only ever called as `ns.name()` reports ZERO importers
+ * while having real ones.
+ *
+ * Found by being wrong in public: asked for the importers of
+ * dispatchTriggeredCapture, the tool said none. There are two, and both are
+ * scheduler jobs calling it through a namespace import. On that answer a
+ * `dead` row would have been filed against a function the scheduler runs.
+ *
+ * The rule is not "a namespace import reaches everything". `import * as ns`
+ * binds the whole module, so counting it for every export would turn one
+ * import into a reach for every symbol in the file and over-count exactly as
+ * badly in the other direction. It counts when the property is actually
+ * accessed -- `ns.name` -- which is what the real call sites do.
+ */
+test('importersOfSymbol counts a namespace import whose property is accessed', () => {
+  const sources = {
+    'server/services/defining.js': 'export async function dispatchTriggeredCapture() {}\nexport function other() {}',
+    'server/services/job-a.js': "import * as dispatch from './defining.js';\nexport async function run() { return dispatch.dispatchTriggeredCapture(); }",
+    'server/services/job-b.js': "import * as d from './defining.js';\nexport const go = () => d.dispatchTriggeredCapture();",
+  };
+  const found = importersOfSymbol(
+    { files: Object.keys(sources), read: f => sources[f] },
+    'server/services/defining.js',
+    'dispatchTriggeredCapture',
+  );
+  assert.deepEqual(found.map(f => f.file).sort(), ['server/services/job-a.js', 'server/services/job-b.js'],
+    'both callers reach it through the namespace object, so both are importers');
+});
+
+/*
+ * This one PASSES in RED, and passes for the wrong reason: today the tool
+ * returns nothing for any namespace import, so "not a reach" is true by
+ * accident. It is written now because its job starts at GREEN, as the guard
+ * against fixing the hole by counting `import * as` for every export. A
+ * fixture drawn from the bug is not automatically a test of the fix -- the
+ * same trap the enclosingDeclaration mutation walked into on this file.
+ */
+test('a namespace import is not a reach for a symbol it never touches', () => {
+  const sources = {
+    'server/services/defining.js': 'export function used() {}\nexport function untouched() {}',
+    'server/services/caller.js': "import * as mod from './defining.js';\nexport const go = () => mod.used();",
+  };
+  const found = importersOfSymbol(
+    { files: Object.keys(sources), read: f => sources[f] },
+    'server/services/defining.js',
+    'untouched',
+  );
+  assert.deepEqual(found, [],
+    'binding the module is not using every export: `untouched` is still unimported');
+});
+
+test('smoke: dispatchTriggeredCapture has two non-test importers on this repo, not zero', () => {
+  const report = repoSymbolReport('server/services/nfl-capture-dispatch.js', ['dispatchTriggeredCapture']);
+  const row = report.symbols[0];
+  assert.deepEqual(row.importers.map(i => i.file).sort(),
+    ['server/services/nfl-espn-line-watch.js', 'server/services/polymarket-lines.js'],
+    'both call it as dispatch.dispatchTriggeredCapture() through a namespace import');
+  assert.notEqual(row.grade, 'unused-in-code',
+    'a function two scheduler jobs run is not a deletion candidate');
+});

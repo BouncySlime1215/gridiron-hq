@@ -36,7 +36,14 @@
     "column-read-never-written draft_pick_quarantine.first_seen_at",
     "column-read-never-written players.bye_week",
     "column-read-never-written users.disabled_at",
-    "league_season_teams"
+    "league_season_teams",
+    "table-never-written league_draft_picks",
+    "column-read-never-written league_draft_picks.auto_draft_type_id",
+    "column-read-never-written league_draft_picks.is_auto",
+    "column-read-never-written league_draft_picks.member_id",
+    "column-read-never-written league_draft_picks.overall_pick",
+    "column-read-never-written league_draft_picks.pick_id",
+    "column-read-never-written league_draft_picks.round"
   ],
   "_ACCEPTED_README": "accepted_missing_feeds is a RATCHET, not approval. Each entry is a gap that already existed when the check was turned on, so CI fails on anything NEW rather than on day one. Fixing one means deleting its line here. Nothing should ever be added to this list to make a build pass — add it only when turning the check on over existing debt. Entries with a rule name in front come from the should-wire family: a column nothing writes, or a producer nothing calls. They are real and they are pre-existing; the gate exists so the eleventh does not become the twelfth silently.",
   "accepted_orphan_modules": [
@@ -85,7 +92,11 @@
     "server/services/purged-walk-forward.js",
     "server/services/sleeper-history.js",
     "server/services/td-features.js",
-    "server/services/vegas-fantasy.js"
+    "server/services/vegas-fantasy.js",
+    "server/services/roster-risk.js",
+    "server/services/trend-watch.js",
+    "server/services/week-postmortem.js",
+    "server/services/position-liquidity.js"
   ],
   "_ORPHAN_README": "Modules that exist today and reach no live surface. Every one was checked on 2026-09-19: they are deliberate research, a measured-and-declined experiment, or half of a split that never finished. They are listed so the build fails on the NEXT one, not on these. Adding to this list is how you say out loud that a module is landing unwired on purpose - put the reason in the review, not here.",
   "_NEWLY_BASELINED_2026_09_19": {
@@ -102,5 +113,13 @@
   },
   "_NEVER_BASELINE": {
     "_why": "producer-with-no-caller CANNOT be silenced from this file. The list of protected rules, and the six grandfathered exceptions, live in NEVER_BASELINE and GRANDFATHERED in scripts/wiring-map.mjs - deliberately in the checker's own source and not here, because a never-baseline list that the check reads out of the file it is policing can be removed by the same edit it exists to prevent. Silencing one is a code review with a name on it, not a data edit. An entry added here naming that rule is refused, reported by name on every run, and has no effect. Raised by the Opportunity thread, 2026-09-19."
+  },
+  "_NEWLY_BASELINED_2026_09_22": {
+    "_why": "Baselined at the moment PR #108 was checked against merged main (1a13614, carrying #91 and #89), NOT because any of it is fine. Same rule as the 2026-09-19 block above: a gate that is red the day it arrives gets switched off. Every one of the eleven was verified on origin/main ALONE, with the wiring branch out of the picture, so none of them is an artefact of the map changes in #108 — they are main's state today. Each was sent to its owning thread as work. Remove the entry when the work lands; scripts/wiring-map.mjs now reports an entry whose module got wired, so a forgotten line here shows up on every run.",
+    "league_draft_picks (1 table + 6 columns)": "NOT a gap this map found first: #89 had already checked it and written the answer down at server/services/manager-archetypes.js:569-596. Nothing in this repository creates or writes the table. The comments in server/migrations/064_league_history_tables.js and scripts/backfill-league-history.mjs naming scripts/collect-league-transactions.mjs's sibling collector as its owner are wrong — that file creates only league_transactions_raw. Whatever wrote the 1,738 live rows those comments cite is not part of this codebase, which is exactly what the finding says. #89 landed leagueDraftPicksState() and test/league-draft-picks-absent.test.js so the absence is a named empty result rather than a raw \"no such table\" out of the scheduler. The six columns are the same fact read a second way: read at manager-archetypes.js:627/:632, written by no INSERT or UPDATE here, because the writer is not here. RETIRES WHEN: a writer lands in the repository, or the readers move to a table that has one. Owner: the thread that landed #89.",
+    "server/services/roster-risk.js": "274 lines, 3 exports, landed by cfa0e6f. Bye-week and injury-cliff risk on a real roster — the one thing in the brain that does not optimise an average week. Imported by nothing, not even a test. Built, documented, wired to no surface. RETIRES WHEN: a route or job calls it. Owner: the Trade Brain thread.",
+    "server/services/trend-watch.js": "243 lines, 3 exports, landed by #91 (e3e7602). Sweeps every team and reports the difference against the last sweep. Imported by nothing: the two hits in server/db/schema/mlb-model-misc.js are its path inside a string and a comment, not an import. RETIRES WHEN: a job runs the sweep. Owner: the thread that landed #91.",
+    "server/services/week-postmortem.js": "176 lines, 1 export, landed by cfa0e6f. Decomposes a week into decision cost, projection error and variance — \"was I wrong or was I unlucky\". Imported by nothing at all. RETIRES WHEN: a route serves it. Owner: the Trade Brain thread.",
+    "server/services/position-liquidity.js": "214 lines, 3 exports, landed by d89c729. Which positions can actually be traded for in this league; written because the planner kept returning an empty page. Imported only by test/pick-reasoning.test.js — built, verified against a real ten-team league, and never wired in, which is the module-only-tested shape this gate exists to catch. RETIRES WHEN: the trade planner calls it. Owner: whoever owns the trade-planner work."
   }
 }

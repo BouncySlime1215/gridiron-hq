@@ -1,20 +1,22 @@
 /**
- * Beat reporter source map — historical accuracy for injury_status and
- * role_change.
+ * Beat reporter source map — historical accuracy for injury_status,
+ * role_change, and return_from_injury.
  *
  * Nick's ask (PART 5): "Score sources historically: whose reports actually
  * predicted outcomes vs. who cried wolf." `source-validation.js` already
  * answers a different question — is this handle who it claims to be — and
  * this does not repeat that check. This answers: when this handle said a
- * player would or wouldn't play (injury_status) or take on more/less of the
- * offense (role_change), did that actually happen?
+ * player would or wouldn't play (injury_status, return_from_injury) or take
+ * on more/less of the offense (role_change), did that actually happen?
  *
- * Both slices share player_week_snaps as ground truth — injury_status reads
- * whether the player logged any offensive snaps at all, role_change reads the
- * swing in offense_pct against the player's own prior week. The other three
- * types (transaction, return_from_injury, suspension) each need their own
- * ground-truth read and are deliberately not attempted here — "prove a small
- * slice before building on it" (Composer protocol).
+ * All three share player_week_snaps as ground truth. injury_status and
+ * return_from_injury both reduce to the same played-or-not read (shared via
+ * playedOrNot()) and differ only in the vocabulary that decides which side of
+ * "played" a claim commits to; role_change reads the swing in offense_pct
+ * against the player's own prior week instead. The remaining two types
+ * (transaction, suspension) each need their own ground-truth read and are
+ * deliberately not attempted here — "prove a small slice before building on
+ * it" (Composer protocol).
  *
  * Direction is read by keyword, not by a second model call. The extractor
  * (nfl-news-events.js) is already the one hallucination surface in this
@@ -118,6 +120,35 @@ function locateGameAndPlayer(event, asOf) {
 }
 
 /**
+ * Ground truth shared by every claim_type that reduces to "did this player
+ * log an offensive snap in the game the claim points at" — injury_status and
+ * return_from_injury both resolve this way, just with different vocabularies
+ * deciding which side of "played" a given claim commits to.
+ */
+function playedOrNot(team, game, playerId) {
+  const snaps = row(`SELECT offense_snaps FROM player_week_snaps WHERE player_id = ? AND season = ? AND week = ?`,
+    playerId, game.season, game.week);
+  if (!snaps) {
+    // player_week_snaps only carries a row for a player who logged at least one snap
+    // (confirmed against real nflverse data: an "Out" player has no row at all, not a
+    // zero row) — so absence only means "no data yet" when NOTHING for this team/week
+    // has landed. When teammates already have rows, the box score exists and this
+    // player's absence from it is itself the evidence: he did not play.
+    const teamHasData = row(`SELECT 1 FROM player_week_snaps pws JOIN players p ON p.id = pws.player_id
+                              WHERE p.team_id = ? AND pws.season = ? AND pws.week = ? LIMIT 1`,
+      team.id, game.season, game.week);
+    if (!teamHasData) return { known: false, reason: 'no snap data yet for that week' };
+  }
+  const played = (snaps?.offense_snaps ?? 0) > 0;
+  const reason = played
+    ? `player logged ${snaps.offense_snaps} offensive snaps in week ${game.week}`
+    : snaps
+      ? `player logged zero offensive snaps in week ${game.week}`
+      : `no offensive-snap row for this player in week ${game.week} while teammates have one — did not play`;
+  return { known: true, played, reason };
+}
+
+/**
  * Resolve one injury_status event against schedule + snap data.
  *
  * `event` is a row from nfl_news_events (or anything with the same shape:
@@ -148,35 +179,18 @@ export function resolveInjuryClaim(event, { asOf = new Date().toISOString() } = 
   }
   const { team, game, playerId } = located;
 
-  const snaps = row(`SELECT offense_snaps FROM player_week_snaps WHERE player_id = ? AND season = ? AND week = ?`,
-    playerId, game.season, game.week);
-  if (!snaps) {
-    // player_week_snaps only carries a row for a player who logged at least one snap
-    // (confirmed against real nflverse data: an "Out" player has no row at all, not a
-    // zero row) — so absence only means "no data yet" when NOTHING for this team/week
-    // has landed. When teammates already have rows, the box score exists and this
-    // player's absence from it is itself the evidence: he did not play.
-    const teamHasData = row(`SELECT 1 FROM player_week_snaps pws JOIN players p ON p.id = pws.player_id
-                              WHERE p.team_id = ? AND pws.season = ? AND pws.week = ? LIMIT 1`,
-      team.id, game.season, game.week);
-    if (!teamHasData) {
-      return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
-        week: game.week, resolved_reason: 'no snap data yet for that week' };
-    }
+  const outcome = playedOrNot(team, game, playerId);
+  if (!outcome.known) {
+    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
+      week: game.week, resolved_reason: outcome.reason };
   }
 
-  const played = (snaps?.offense_snaps ?? 0) > 0;
-  const actual = played ? 'played' : 'did_not_play';
   const predicted = direction === 'sidelined' ? 'did_not_play' : 'played';
+  const actual = outcome.played ? 'played' : 'did_not_play';
   const resolved_state = predicted === actual ? 'confirmed' : 'contradicted';
-  const resolved_reason = played
-    ? `player logged ${snaps.offense_snaps} offensive snaps in week ${game.week}`
-    : snaps
-      ? `player logged zero offensive snaps in week ${game.week}`
-      : `no offensive-snap row for this player in week ${game.week} while teammates have one — did not play`;
 
   return { ...base, predicted_direction: direction, resolved_state, season: game.season, week: game.week,
-    resolved_reason };
+    resolved_reason: outcome.reason };
 }
 
 /** Shared by every claim_type's batch resolver: run `resolverFn` over `events`
@@ -206,6 +220,66 @@ function resolveAndStore(events, resolverFn, asOf) {
 export function resolveInjuryClaims({ limit = 500, asOf } = {}) {
   const events = rows(`SELECT * FROM nfl_news_events WHERE claim_type = 'injury_status' ORDER BY event_id LIMIT ?`, limit);
   return resolveAndStore(events, resolveInjuryClaim, asOf);
+}
+
+const RETURNING = /\b(activated from (the )?(ir|injured reserve)\b|designated (for|to) return|eligible to return|cleared to return|will make his return|expected to return|returns? to action|off (the )?injured reserve|removed from (the )?injured reserve|practice window (has been |was )?opened?|returning (to action|this week))\b/i;
+const STILL_OUT = /\b(will not return|has not been cleared to return|remains? on (the )?injured reserve|not (yet )?ready to return|to miss (another|more) week|stays? on ir|another week away)\b/i;
+
+/**
+ * Read the direction a return_from_injury claim's text commits to.
+ *
+ * No existing rule set covers this vocabulary — STATUS_RULES/ROLE_RULES
+ * (nfl-news-signal.js) classify current availability and role, not
+ * "activated from IR" language, so this is its own classifier, same as
+ * classifyInjuryDirection is its own rather than a reuse of STATUS_RULES.
+ */
+export function classifyReturnDirection(text) {
+  const t = String(text ?? '');
+  if (RETURNING.test(t)) return 'returning';
+  if (STILL_OUT.test(t)) return 'still_out';
+  return null;
+}
+
+/**
+ * Resolve one return_from_injury event. Same played-or-not ground truth as
+ * resolveInjuryClaim (via the shared playedOrNot helper) — only the
+ * vocabulary deciding which side of "played" the claim commits to differs.
+ */
+export function resolveReturnFromInjuryClaim(event, { asOf = new Date().toISOString() } = {}) {
+  const base = { event_id: event.event_id, reporter_handle: event.reporter_handle ?? null,
+    claim_type: event.claim_type, resolved_at: new Date().toISOString(), season: null, week: null };
+
+  const direction = classifyReturnDirection(event.evidence_span || event.claim_text);
+  if (direction === null) {
+    return { ...base, predicted_direction: null, resolved_state: 'unresolved',
+      resolved_reason: 'no return-from-injury direction classified from the claim text' };
+  }
+
+  const located = locateGameAndPlayer(event, asOf);
+  if (!located.ok) {
+    return { ...base, predicted_direction: direction, resolved_state: 'unresolved',
+      season: located.season, week: located.week, resolved_reason: located.resolved_reason };
+  }
+  const { team, game, playerId } = located;
+
+  const outcome = playedOrNot(team, game, playerId);
+  if (!outcome.known) {
+    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
+      week: game.week, resolved_reason: outcome.reason };
+  }
+
+  const predicted = direction === 'returning' ? 'played' : 'did_not_play';
+  const actual = outcome.played ? 'played' : 'did_not_play';
+  const resolved_state = predicted === actual ? 'confirmed' : 'contradicted';
+
+  return { ...base, predicted_direction: direction, resolved_state, season: game.season, week: game.week,
+    resolved_reason: outcome.reason };
+}
+
+/** Resolve every return_from_injury event and upsert the verdict. */
+export function resolveReturnFromInjuryClaims({ limit = 500, asOf } = {}) {
+  const events = rows(`SELECT * FROM nfl_news_events WHERE claim_type = 'return_from_injury' ORDER BY event_id LIMIT ?`, limit);
+  return resolveAndStore(events, resolveReturnFromInjuryClaim, asOf);
 }
 
 /** How large an offense_pct swing (0-1 scale, i.e. percentage points of snap

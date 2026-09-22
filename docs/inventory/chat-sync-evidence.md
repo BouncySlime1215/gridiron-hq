@@ -116,12 +116,35 @@ but flagged here since it lives in a file I own.
 
 ## server/services/bluff-detector.js
 
+**Gate found, and a data claim attributed rather than re-verified.**
+`counterparty-pricing.js:144` gates the call: `identityMap(leagueId).size ?
+declarationCredibility() : null` — `identityMap(leagueId)` (`manager-identity.js:159-164`)
+queries `league_member_identity WHERE league_id = ? AND chat_name IS NOT NULL
+AND confidence IN (trusted)`. I confirmed the gate exists and is a real,
+data-driven per-league condition, not a hardcoded league id — **I did not
+independently query the live `league_member_identity` table myself; this
+container's DB is an isolated test instance, not the live one.** Opportunity
+reported (per the coordinator's relay, 2026-09-22 07:47Z) that only league 4
+currently has trusted rows there. Taking that as Opportunity's measurement,
+attributed, not mine: if true, `identityMap(leagueId).size` is falsy for
+leagues 1, 2, 3 and 5, so `declarationCredibility()` is never called for them
+and `credibility` stays `null` — the code path runs and returns without
+error for every league, which is the exact shape the contract's
+`silently broken` test describes (§2), but the row's data claim rests on
+Opportunity's query, not one I ran here.
+
 | symbol | file:line | consumers (with/without) | reached from | evidence |
 |---|---|---|---|---|
-| `declarationCredibility` | `:149` | 15/15 | `server/services/counterparty-pricing.js:24,144` (imported and called) → `counterparty-pricing.js` is imported by `routes/trades.js:30` (mounted `/api/trades`) and by `trade-engine.js:86` | `git grep -n "\bdeclarationCredibility\b" 42478b1 -- server client scripts` → `counterparty-pricing.js:24,144`; call confirmed real: `identityMap(leagueId).size ? declarationCredibility() : null` (`:144`), not a dead import. |
-| `untouchableStance` | `:241` | 5/5 | same chain: `counterparty-pricing.js:24,213` → `routes/trades.js` / `trade-engine.js` | `git grep -n "\buntouchableStance\b" 42478b1 -- server client scripts` → `counterparty-pricing.js:24,213`; call confirmed real: `stance: untouchableStance(leagueId, id, credibility)` (`:213`). |
+| `declarationCredibility` | `:149` | 15/15 | `server/services/counterparty-pricing.js:24,144` (imported and called) → `counterparty-pricing.js` is imported by `routes/trades.js:30` (mounted `/api/trades`) and by `trade-engine.js:86` — **but gated by `identityMap(leagueId).size` (see note above), so "reached" is conditional on that table having trusted rows for the league in question** | `git grep -n "\bdeclarationCredibility\b" 42478b1 -- server client scripts` → `counterparty-pricing.js:24,144`; call confirmed real: `identityMap(leagueId).size ? declarationCredibility() : null` (`:144`), not a dead import, but conditional per the gate. |
+| `untouchableStance` | `:241` | 5/5 | same chain: `counterparty-pricing.js:24,213` → `routes/trades.js` / `trade-engine.js`; `untouchableStance(leagueId, rosterId, credibility)` itself queries `league_member_identity WHERE league_id = ? AND roster_id = ?` (`:243-244`) directly, so it has its own per-league gate independent of `declarationCredibility`'s | `git grep -n "\buntouchableStance\b" 42478b1 -- server client scripts` → `counterparty-pricing.js:24,213`; call confirmed real: `stance: untouchableStance(leagueId, id, credibility)` (`:213`). Its own identity query is a second, separate per-league condition from the one gating `declarationCredibility` — worth the grader checking both, not assuming one gate covers both symbols. |
 | `BLUFF_WINDOW_DAYS` | `:36` | 2/2, all test + defining file | internal only, default for `declarationCredibility`'s `windowDays` param | `git grep -n "\bBLUFF_WINDOW_DAYS\b" 42478b1 -- server client scripts` → zero outside defining file. |
 | `PRIOR_BLUFF_RATE` / `PRIOR_WEIGHT` | `:38` / `:39` | 3/3, 2/2 | internal only | Same — zero outside defining file. |
+
+**Checked, not applicable to this file:** the coordinator's other flagged
+trap, `manager_profiles` being a 0-row table, does not touch any of my four
+files — `grep -n "manager_profiles" server/services/{league-chat-sync,manager-archetypes,league-history,bluff-detector}.js`
+returns zero hits in all four. It is read at `trade-engine.js:1490`, which is
+outside my allocation.
 
 ---
 

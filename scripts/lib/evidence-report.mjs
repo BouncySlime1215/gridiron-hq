@@ -85,19 +85,28 @@ export function resolveOutDir(argv, fallbackDir, base = process.cwd()) {
  * throws afterwards has already published the artifact it was guarding, and
  * leaves a directory behind saying a run happened.
  *
- * `sources` is stamped at `registry_summary.sources` -- inside the section both
- * of these reports already use for "what this run was built from" -- and merged
- * so nothing already there is displaced. Nothing else in the report is touched.
+ * `sources` is stamped at `<stampAt>.sources`, merged so nothing already there
+ * is displaced. The default section is `registry_summary`, which the two
+ * evaluation reports already use for "what this run was built from"; a report
+ * shaped differently names its own. Nothing else in the report is touched.
+ *
+ * `serialize` is the caller's, because the alternative is worse. Two of the four
+ * generators format on purpose -- a trailing newline, and per-game rows kept to
+ * one line each so an evidence file does not pretty-print to 580KB -- and a
+ * guard that takes their formatting away is a guard they route around, which is
+ * precisely how it stops being on the write path. It receives the STAMPED
+ * report, so the counts cannot be computed, checked and then dropped.
  */
-export function writeEvidenceReport({ outDir, filename, report, sources, required = [] }) {
+export function writeEvidenceReport({
+  outDir, filename, report, sources, required = [],
+  stampAt = 'registry_summary',
+  serialize = (r) => JSON.stringify(r, null, 2),
+}) {
   assertEvidenceSources(sources, required, path.join(outDir, filename));
 
-  const stamped = {
-    ...report,
-    registry_summary: { ...(report?.registry_summary ?? {}), sources },
-  };
+  const stamped = { ...report, [stampAt]: { ...(report?.[stampAt] ?? {}), sources } };
   fs.mkdirSync(outDir, { recursive: true });
   const file = path.join(outDir, filename);
-  fs.writeFileSync(file, JSON.stringify(stamped, null, 2));
+  fs.writeFileSync(file, serialize(stamped));
   return { file, report: stamped };
 }

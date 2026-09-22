@@ -28,13 +28,22 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { scan } from '../scripts/wiring-map.mjs';
 
+// `resolveOutDir: false` means the generator had its own `--out` before this
+// work and keeps it: `joint-score-report.mjs` parses flags with its own
+// `value('out', …)` and takes a full PATH, not a directory. Asserting
+// `resolveOutDir` there would force a worse interface for the sake of a
+// uniform-looking test.
 const GENERATORS = [
-  'scripts/run-purged-evaluation.mjs',
-  'scripts/run-historical-leaderboard.mjs',
+  { file: 'scripts/run-purged-evaluation.mjs', resolveOutDir: true },
+  { file: 'scripts/run-historical-leaderboard.mjs', resolveOutDir: true },
+  { file: 'scripts/freeze-baseline.mjs', resolveOutDir: true },
+  { file: 'scripts/joint-score-report.mjs', resolveOutDir: false },
 ];
 
-for (const file of GENERATORS) {
-  const code = scan(fs.readFileSync(file, 'utf8')).code;
+for (const { file, resolveOutDir } of GENERATORS) {
+  const src = scan(fs.readFileSync(file, 'utf8'));
+  const code = src.code;   // comments AND string bodies blanked — structural questions
+  const text = src.text;   // comments blanked, strings intact — content questions
 
   test(`${file} writes its report only through the guard`, () => {
     assert.match(code, /writeEvidenceReport\s*\(/,
@@ -44,9 +53,15 @@ for (const file of GENERATORS) {
       + 'would still pass and the unguarded report would still land');
   });
 
-  test(`${file} takes --out so it can be run without overwriting committed evidence`, () => {
-    assert.match(code, /resolveOutDir\s*\(/,
-      'a hardcoded output directory is why this generator could never be '
+  test(`${file} can write somewhere other than the committed evidence`, () => {
+    // `resolveOutDir(` is a call, so it is asked of `code`. The flag name `'out'`
+    // is a STRING, so it is asked of `text` — `code` blanks string bodies, and a
+    // first version asked `code` for `value('out'` and failed on a correct file.
+    // Same two views, same rule, and getting it backwards is how this thread's
+    // own producer sweep once reported zero artifacts.
+    assert.match(resolveOutDir ? code : text,
+      resolveOutDir ? /resolveOutDir\s*\(/ : /value\s*\(\s*'out'/,
+      'a hardcoded output directory is why these generators could never be '
       + 'exercised: every trial run overwrote the committed report it was '
       + 'meant to be checked against');
   });

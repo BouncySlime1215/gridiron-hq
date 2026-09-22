@@ -77,6 +77,14 @@ function makeEvent({ playerName, team = 'KC', claimText, publishedAt, handle = '
 
 function insertResolution({ handle, claimType = 'injury_status', state }) {
   const event_id = `manual-${++eventSeq}`;
+  // beat_reporter_claim_resolutions.event_id references nfl_news_events, so a
+  // sourceTrustScore-only fixture still needs a (minimal) parent row.
+  run(`INSERT INTO nfl_news_events
+       (event_id, source_kind, source_ref, content_hash, claim_type, claim_text, evidence_span,
+        published_at, first_seen_time, extractor_version)
+       VALUES (?,'news_item',?,?,?,?,?,?,?,'test-1')`,
+    event_id, event_id, `hash-${event_id}`, claimType, 'fixture claim', 'fixture claim',
+    '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z');
   run(`INSERT INTO beat_reporter_claim_resolutions
        (event_id, reporter_handle, claim_type, predicted_direction, resolved_state, resolved_reason, resolved_at)
        VALUES (?,?,?,?,?,?,datetime('now'))`,
@@ -127,14 +135,14 @@ test('resolveInjuryClaim: sidelined claim confirmed by zero snaps in the next ga
 
 test('resolveInjuryClaim: sidelined claim contradicted when the player actually played', () => {
   const player = makePlayer('Sidelined Contradicted WR');
-  makeGame(2026, 3, '2026-09-21');
-  setSnaps(player, 2026, 3, 45);
+  makeGame(2026, 8, '2026-10-26');
+  setSnaps(player, 2026, 8, 45);
   const eventId = makeEvent({
     playerName: 'Sidelined Contradicted WR', claimText: 'Doubtful for this week\'s matchup.',
-    publishedAt: '2026-09-19T12:00:00Z',
+    publishedAt: '2026-10-24T12:00:00Z',
   });
   const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
-  const res = resolveInjuryClaim(ev, { asOf: '2026-09-22T00:00:00Z' });
+  const res = resolveInjuryClaim(ev, { asOf: '2026-10-27T00:00:00Z' });
   assert.equal(res.resolved_state, 'contradicted');
 });
 
@@ -153,14 +161,14 @@ test('resolveInjuryClaim: clear claim confirmed when the player played', () => {
 
 test('resolveInjuryClaim: clear claim contradicted when the player did not play', () => {
   const player = makePlayer('Clear Contradicted WR');
-  makeGame(2026, 4, '2026-09-28');
-  setSnaps(player, 2026, 4, 0);
+  makeGame(2026, 9, '2026-11-02');
+  setSnaps(player, 2026, 9, 0);
   const eventId = makeEvent({
     playerName: 'Clear Contradicted WR', claimText: 'Expected to play after practicing fully.',
-    publishedAt: '2026-09-26T12:00:00Z',
+    publishedAt: '2026-10-31T12:00:00Z',
   });
   const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
-  const res = resolveInjuryClaim(ev, { asOf: '2026-09-29T00:00:00Z' });
+  const res = resolveInjuryClaim(ev, { asOf: '2026-11-03T00:00:00Z' });
   assert.equal(res.resolved_state, 'contradicted');
 });
 
@@ -179,14 +187,14 @@ test('resolveInjuryClaim: unresolved when the game has not been played yet, not 
 
 test('resolveInjuryClaim: unresolved when the claim text does not commit to a direction', () => {
   const player = makePlayer('Uncertain WR');
-  makeGame(2026, 3, '2026-09-21');
-  setSnaps(player, 2026, 3, 30);
+  makeGame(2026, 10, '2026-11-09');
+  setSnaps(player, 2026, 10, 30);
   const eventId = makeEvent({
     playerName: 'Uncertain WR', claimText: 'Listed as questionable, a game-time decision.',
-    publishedAt: '2026-09-19T12:00:00Z',
+    publishedAt: '2026-11-07T12:00:00Z',
   });
   const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
-  const res = resolveInjuryClaim(ev, { asOf: '2026-09-22T00:00:00Z' });
+  const res = resolveInjuryClaim(ev, { asOf: '2026-11-10T00:00:00Z' });
   assert.equal(res.resolved_state, 'unresolved');
   assert.match(res.resolved_reason, /questionable|day-to-day|direction/i);
 });
@@ -203,13 +211,13 @@ test('resolveInjuryClaim: unresolved when the reporter\'s team abbreviation is n
 });
 
 test('resolveInjuryClaim: unresolved when the player name does not resolve to a roster row', () => {
-  makeGame(2026, 3, '2026-09-21');
+  makeGame(2026, 11, '2026-11-16');
   const eventId = makeEvent({
     playerName: 'Nobody On The Roster', claimText: 'Ruled out this week.',
-    publishedAt: '2026-09-19T12:00:00Z',
+    publishedAt: '2026-11-14T12:00:00Z',
   });
   const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
-  const res = resolveInjuryClaim(ev, { asOf: '2026-09-22T00:00:00Z' });
+  const res = resolveInjuryClaim(ev, { asOf: '2026-11-17T00:00:00Z' });
   assert.equal(res.resolved_state, 'unresolved');
   assert.match(res.resolved_reason, /player/i);
 });

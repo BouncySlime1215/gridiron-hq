@@ -112,3 +112,79 @@ export function projectionRangeFor(table, pos, yhat) {
   while (b < NBIN - 1 && yhat > edges[b]) b++;
   return bins[b];
 }
+
+/* ------------------------------------------------ causal walk-forward gate */
+
+/**
+ * Walks a set of graded player-weeks forward exactly the way the spec's own
+ * reference script (intervals2.py) does: group into (season, week) batches,
+ * order those batches chronologically, and for each one -- once at least
+ * `minHist` prior rows have accumulated -- fit the quantile table from ONLY
+ * the rows seen so far, score the batch against that table, then fold the
+ * batch's own rows into history for the next one. A row is never scored
+ * against a table that has seen its own outcome.
+ *
+ * This is section 7's requirement made runnable: the spec's own 80.74%
+ * coverage was measured on a research baseline, not production, and must be
+ * re-measured before being quoted to a user. Feed this function real,
+ * causally-generated production rows (server/services/weekly-backtest.js's
+ * replaySeasonWeekly output, tagged with season and mapped to
+ * {pos, yhat: prediction, y: actual}) to get that real number. This
+ * function itself is data-source-agnostic and takes whatever rows it is
+ * given, in any order.
+ *
+ * @param rows [{season, week, pos, yhat, y}]
+ * @param opts.minHist rows required before scoring starts (the spec's own
+ *   script defaults this to 2000 for a full production run; small values are
+ *   for fast, synthetic tests).
+ * @returns {{n, coverage, meanWidth, byPosition, scored}}
+ */
+export function causalCoverageReport(rows, { minHist = 2000 } = {}) {
+  const batches = new Map();
+  for (const r of rows) {
+    const key = `${r.season}|${r.week}`;
+    if (!batches.has(key)) batches.set(key, []);
+    batches.get(key).push(r);
+  }
+  const orderedKeys = [...batches.keys()].sort((a, b) => {
+    const [sa, wa] = a.split('|').map(Number), [sb, wb] = b.split('|').map(Number);
+    return sa - sb || wa - wb;
+  });
+
+  let history = [];
+  const scored = [];
+  for (const key of orderedKeys) {
+    const batchRows = batches.get(key);
+    if (history.length >= minHist) {
+      const table = fitProjectionRangeTable(history);
+      for (const r of batchRows) {
+        const band = projectionRangeFor(table, r.pos, r.yhat);
+        if (!band) continue;
+        scored.push({
+          season: r.season, week: r.week, pos: r.pos, yhat: r.yhat, y: r.y,
+          lo: band.lo, hi: band.hi, covered: r.y >= band.lo && r.y <= band.hi
+        });
+      }
+    }
+    history = history.concat(batchRows);
+  }
+
+  const n = scored.length;
+  const coverage = n ? scored.filter(r => r.covered).length / n : 0;
+  const meanWidth = n ? scored.reduce((s, r) => s + (r.hi - r.lo), 0) / n : 0;
+
+  const byPosition = {};
+  for (const r of scored) {
+    const g = (byPosition[r.pos] ??= { n: 0, covered: 0, widthSum: 0 });
+    g.n++;
+    if (r.covered) g.covered++;
+    g.widthSum += r.hi - r.lo;
+  }
+  for (const g of Object.values(byPosition)) {
+    g.coverage = g.n ? g.covered / g.n : 0;
+    g.meanWidth = g.n ? g.widthSum / g.n : 0;
+    delete g.widthSum;
+  }
+
+  return { n, coverage, meanWidth, byPosition, scored };
+}

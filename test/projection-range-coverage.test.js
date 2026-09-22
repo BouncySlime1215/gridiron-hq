@@ -66,6 +66,16 @@ test('rows out of chronological input order are still walked forward in (season,
   assert.deepEqual(shuffled.scored, inOrder.scored);
 });
 
+test('a row landing BELOW the band\'s lower edge is a miss, not silently covered', () => {
+  // Distinct from the "above hi" case below: this exercises the lower-bound
+  // half of the covered check on its own, so dropping just `y >= band.lo`
+  // (while `y <= band.hi` stays intact) is still caught.
+  const week1 = batch(2020, 1, 300, 'WR', i => i % 50, i => Math.max(0, i % 50));
+  const week2 = batch(2020, 2, 40, 'WR', () => 25, () => -9999);
+  const report = causalCoverageReport([...week1, ...week2], { minHist: 300 });
+  assert.equal(report.coverage, 0, 'every row landed below lo; none should count as covered');
+});
+
 test('coverage is the fraction of scored rows whose actual y fell within [lo, hi]', () => {
   const week1 = batch(2020, 1, 300, 'WR', i => i % 50, i => Math.max(0, i % 50));
   // Week 2: half the rows score wildly outside any plausible band (y=9999), half score normally.

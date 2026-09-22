@@ -8,8 +8,8 @@ it renders a constant, a default or an empty list, and it looks fine.
 | table | scope | written by | read by | reached from |
 | --- | --- | --- | --- | --- |
 | `espn_player_market` | fantasy | `server/services/espn-market.js:45` | `aggregates.js`<br>`consensus-weights.js`<br>`espn-market.js`<br>`manager-archetypes.js` | /api/aggregates /api/drafts /api/leagues /api/players /api/trades |
+| `league_draft_picks` | fantasy | **nothing** | `manager-archetypes.js`<br>`backfill-league-history.mjs` | /api/trades |
 | `league_roster_snapshots` | fantasy | `server/migrations/058_league_roster_snapshots.js:59`<br>`scripts/collect-roster-snapshots.mjs:113`<br>`scripts/collect-roster-snapshots.mjs:116`<br>`scripts/collect-roster-snapshots.mjs:118` | `bluff-detector.js`<br>`collect-roster-snapshots.mjs` | /api/trades /api/players |
-| `league_season_teams` | fantasy | `scripts/backfill-league-history.mjs:112` | `manager-archetypes.js`<br>`build-manager-archetypes.mjs`<br>`luck-panel.mjs` | /api/trades |
 | `league_transactions_raw` | fantasy | `scripts/collect-league-transactions.mjs:34` | `counterparty-pricing.js`<br>`manager-signals.js`<br>`trade-tactics.js`<br>`build-negotiation-profiles.mjs` | /api/league-chat /api/trades /api/players /api/accolades /api/aggregates |
 | `nfl_availability_rates` | fantasy | `scripts/fit-availability.mjs:412`<br>`scripts/fit-availability.mjs:414` | `contingency.js`<br>`availability-decision-calibration.mjs`<br>`fit-availability.mjs` | /api/model /api/news /api/players /api/trades /api/accolades |
 | `nfl_availability_role_rates` | fantasy | `scripts/fit-availability.mjs:418`<br>`scripts/fit-availability.mjs:421` | `contingency.js`<br>`availability-decision-calibration.mjs` | /api/model /api/news /api/players /api/trades /api/accolades |

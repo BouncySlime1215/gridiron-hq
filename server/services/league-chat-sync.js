@@ -106,11 +106,29 @@ export function corpusStats() {
   // the reason "how old is the chat data" could not be answered from here at
   // all. A genuinely older corpus with no such column is still tolerated, but
   // it is reported as a reason rather than as silence.
-  try {
-    out.newest_message = isoStamp(db.prepare('SELECT MAX(ts_utc) AS m FROM messages').get()?.m);
-  } catch (e) {
+  //
+  // The table can also be absent outright — a corpus file that exists (so
+  // this function is past the no-corpus-at-all check above) but was never run
+  // through the one thing in this repo that creates `messages`. That used to
+  // throw into the same catch as a column-read failure, reporting the same
+  // shape for two different problems. `newest_message_state` names which one.
+  const messagesTablePresent = Boolean(
+    db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'messages'`).get());
+  if (!messagesTablePresent) {
     out.newest_message = null;
-    out.newest_message_error = `messages.ts_utc is not readable on this corpus: ${String(e?.message ?? e)}`;
+    out.newest_message_state = 'table_absent';
+    out.newest_message_reason = 'messages is not on this corpus database — created only by '
+      + 'scripts/chat/extract_league_chat.py, so a corpus file that exists but was never run through '
+      + 'it has no age to report here. This is not the same as a corpus with zero messages.';
+  } else {
+    try {
+      out.newest_message = isoStamp(db.prepare('SELECT MAX(ts_utc) AS m FROM messages').get()?.m);
+      out.newest_message_state = 'present';
+    } catch (e) {
+      out.newest_message = null;
+      out.newest_message_state = 'read_failed';
+      out.newest_message_error = `messages.ts_utc is not readable on this corpus: ${String(e?.message ?? e)}`;
+    }
   }
   // THE BLOCK'S OWN TWO STAMPS, under the block's own names. `as_of` is
   // MAX(last_msg): the newest message that survived the rollup, as of the last

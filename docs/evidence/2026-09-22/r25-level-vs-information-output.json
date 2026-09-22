@@ -1,0 +1,154 @@
+{
+  "bias_season": 2023,
+  "bias_n": 4389,
+  "seasons": {
+    "2021": {
+      "n": 4341,
+      "shipped": {
+        "n": 4341,
+        "rawMae": 4.677730669727332,
+        "rawMeanSignedError": 0.3828488684205424,
+        "medianBias": -1.1280000000000001,
+        "debiasedMae": 4.574942827273386,
+        "m0": 0.9125636672325974,
+        "scaledMae": 4.634103887689785,
+        "headroom": 0.04362678203754644
+      },
+      "control": {
+        "n": 4341,
+        "rawMae": 4.633586568674618,
+        "rawMeanSignedError": 0.20368386937744196,
+        "medianBias": -0.7000000000000001,
+        "debiasedMae": 4.5621603643994835,
+        "m0": 0.8854636385996556,
+        "scaledMae": 4.549010272270028,
+        "headroom": 0.08457629640458997
+      },
+      "raw_delta": 0.044144101052713935,
+      "debiased_delta": 0.01278246287390239,
+      "level_share": 0.031361638178811546,
+      "information_share": 0.01278246287390239,
+      "raw_bootstrap": {
+        "mean_diff": -0.0439,
+        "ci90": [
+          -0.0746,
+          -0.0147
+        ],
+        "p_b_better": 0.992,
+        "significant": true,
+        "n": 4341,
+        "iterations": 2000
+      },
+      "debiased_bootstrap": {
+        "mean_diff": -0.0121,
+        "ci90": [
+          -0.0415,
+          0.0182
+        ],
+        "p_b_better": 0.746,
+        "significant": false,
+        "n": 4341,
+        "iterations": 2000
+      }
+    },
+    "2022": {
+      "n": 4359,
+      "shipped": {
+        "n": 4359,
+        "rawMae": 4.4448137865183925,
+        "rawMeanSignedError": 0.12577057846661188,
+        "medianBias": -1.1280000000000001,
+        "debiasedMae": 4.292798825860292,
+        "m0": 0.9125636672325974,
+        "scaledMae": 4.384305723064029,
+        "headroom": 0.060508063454363104
+      },
+      "control": {
+        "n": 4359,
+        "rawMae": 4.4433092087897315,
+        "rawMeanSignedError": 0.0662659576868794,
+        "medianBias": -0.7000000000000001,
+        "debiasedMae": 4.350009463641816,
+        "m0": 0.8854636385996556,
+        "scaledMae": 4.343199865371505,
+        "headroom": 0.10010934341822608
+      },
+      "raw_delta": 0.0015045777286610829,
+      "debiased_delta": -0.05721063778152402,
+      "level_share": 0.058715215510185104,
+      "information_share": -0.05721063778152402,
+      "raw_bootstrap": {
+        "mean_diff": -0.0014,
+        "ci90": [
+          -0.0301,
+          0.0281
+        ],
+        "p_b_better": 0.532,
+        "significant": false,
+        "n": 4359,
+        "iterations": 2000
+      },
+      "debiased_bootstrap": {
+        "mean_diff": 0.0569,
+        "ci90": [
+          0.0316,
+          0.0826
+        ],
+        "p_b_better": 0,
+        "significant": true,
+        "n": 4359,
+        "iterations": 2000
+      }
+    },
+    "2024": {
+      "n": 4419,
+      "shipped": {
+        "n": 4419,
+        "rawMae": 4.485492978344031,
+        "rawMeanSignedError": 0.5201243790854366,
+        "medianBias": -1.1280000000000001,
+        "debiasedMae": 4.3944201818099,
+        "m0": 0.9125636672325974,
+        "scaledMae": 4.474935845534683,
+        "headroom": 0.01055713280934878
+      },
+      "control": {
+        "n": 4419,
+        "rawMae": 4.412696669190346,
+        "rawMeanSignedError": 0.4561124160745344,
+        "medianBias": -0.7000000000000001,
+        "debiasedMae": 4.367027484782942,
+        "m0": 0.8854636385996556,
+        "scaledMae": 4.3960285219086925,
+        "headroom": 0.016668147281653667
+      },
+      "raw_delta": 0.07279630915368518,
+      "debiased_delta": 0.02739269702695779,
+      "level_share": 0.04540361212672739,
+      "information_share": 0.02739269702695779,
+      "raw_bootstrap": {
+        "mean_diff": -0.0724,
+        "ci90": [
+          -0.1016,
+          -0.0424
+        ],
+        "p_b_better": 1,
+        "significant": true,
+        "n": 4419,
+        "iterations": 2000
+      },
+      "debiased_bootstrap": {
+        "mean_diff": -0.027,
+        "ci90": [
+          -0.057,
+          0.0037
+        ],
+        "p_b_better": 0.933,
+        "significant": false,
+        "n": 4419,
+        "iterations": 2000
+      }
+    }
+  }
+}
+(Use `node --trace-warnings ...` to show where the warning was created)

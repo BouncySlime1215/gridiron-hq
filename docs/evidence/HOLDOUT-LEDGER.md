@@ -15,9 +15,10 @@ done in units. Two pieces of code pick a season differently, and
   seals the latest season in the pinned dataset. Once a dataset holds any 2026
   week, it seals 2026 and refuses 2025. It allows one opening per experiment and
   does not count openings across experiments (rule 2).
-- The scheduled job `nfl_weekly_learning` (`server/services/weekly-learning.js`)
-  is built to fit and auto-promote weekly weights on settled 2026 snapshots
-  (rule 5).
+- Two scheduled jobs, `nfl_weekly_learning` and `nfl_model_growth`, call the
+  same retrain, `retrainWeeklyWeights` (`server/services/weekly-learning.js`),
+  which is built to fit and auto-promote weekly weights on settled 2026
+  snapshots (rule 5).
 
 **The rule** (`docs/evidence/STATS-METHOD.md`, rule 2): a unit that computes
 anything on 2025 outcomes appends one row per hypothesis test here, in the same
@@ -290,10 +291,15 @@ The BH command reads only `L` rows.
 Two sources of `F` rows besides a unit's own rule-5 check:
 
 - **Job fits.** Every `weekly_ensemble_fits` row with `through_season >= 2026`,
-  written by `saveWeeklyFit` (`server/services/weekly-weight-store.js:140`) from
-  the job `nfl_weekly_learning`, is a 2026 forward look, promoted or not. The job
-  does not write this ledger, so the next statistical unit logs any such row
-  here (`STATS-METHOD.md` rule 5).
+  written by `saveWeeklyFit` (`server/services/weekly-weight-store.js:140`), is a
+  2026 forward look, promoted or not. Rows come from `retrainWeeklyWeights`
+  (`server/services/weekly-learning.js:224`) or from the hand-run promotion
+  scripts through `promoteWeeklyFitChecked` (`weekly-weight-store.js:174`). The
+  same query catches both. Two jobs call the retrain:
+  `nfl_weekly_learning` (`weekly-learning.js:407`) and `nfl_model_growth`
+  (`server/services/nfl-model-growth.js:308`). Neither writes this ledger, so
+  the next statistical unit logs any such row here, whichever job wrote it
+  (`STATS-METHOD.md` rule 5).
 - **Registry openings of 2026.** A `model_backtests` row with protocol
   `sealed_holdout` and season 2026 (`server/routes/model.js:348-349`).
 

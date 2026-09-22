@@ -11,11 +11,12 @@ This file consolidates rules that were scattered across memory files, module
 comments and handoffs. It adds two things that did not exist before: a ledger
 of every look at 2025 (rule 2) and a false-discovery correction across that
 ledger (rule 3). It also sets a forward rule on 2026 for every unit's ship
-decision (rule 5). That rule is not the first code to gate on 2026. The
-scheduled job `nfl_weekly_learning` already captures 2026 forecasts, and it is
-built to fit and auto-promote weekly weights on them. The model registry's
-sealed holdout also picks its own season. Rules 2 and 5 name both and say how
-each relates to this contract. Where a rule already existed, its source is named
+decision (rule 5). That rule is not the first code to gate on 2026. Two
+scheduled jobs, `nfl_weekly_learning` and `nfl_model_growth`, already capture
+2026 forecasts. Both call the same retrain, which is built to fit and
+auto-promote weekly weights on them. The model registry's sealed holdout also
+picks its own season. Rules 2 and 5 name each of these and say how each relates
+to this contract. Where a rule already existed, its source is named
 next to it.
 
 Written 2026-09-22 by unit S-00 (plan item 18, Goodhart guards), on
@@ -408,7 +409,7 @@ which the unit before it had missed.
 trained on 2023-2025 (`scripts/fit-weekly-coverage.mjs:62,66`). **No promoted
 fit has been trained on 2026 yet.** On a local copy (not production,
 2026-09-22), table `weekly_ensemble_fits` has 2 rows, both trained through 2025
-week 18. That will change once the job described below fits on 2026. So a model
+week 18. That will change once either job described below fits on 2026. So a model
 result ships ON only if it passes its pre-registered rule on 2025 **and** holds
 on the 2026 weeks already played. Otherwise it ships default-off, behind a named
 flag, labelled **"unconfirmed forward"** wherever it appears.
@@ -434,12 +435,21 @@ flag, labelled **"unconfirmed forward"** wherever it appears.
   "2026 forward looks" section of `HOLDOUT-LEDGER.md`, so 2026 does not get spent
   silently the way 2025 did.
 
-### The job that already fits and gates on 2026
+### The jobs that already fit and gate on 2026
 
-Rule 5 is not the only forward gate. The scheduled job `nfl_weekly_learning`
-(`server/services/scheduler.js:1395`, runner `refreshWeeklyLearning` at `:547`,
-which calls `runWeeklyLearningCycle` at `server/services/weekly-learning.js:401`)
-does four things each run:
+Rule 5 is not the only forward gate. Two scheduled jobs call the same weekly
+capture, settle and retrain functions in `server/services/weekly-learning.js`:
+
+| job (`server/services/scheduler.js`) | path to the functions | when it reaches them |
+|---|---|---|
+| `nfl_weekly_learning` (`:1395`, heavy tier) | runner `refreshWeeklyLearning` (`:547`) calls `runWeeklyLearningCycle` (`weekly-learning.js:401`): capture the current week (`:405`), settle (`:406`), retrain (`:407`) | every run |
+| `nfl_model_growth` (`:1416`, growth tier, off-thread) | runner `refreshNflModelGrowth` (`:1008`) calls `runNflModelGrowthCycle` (`server/services/nfl-model-growth.js:201`): settle (`:307`), retrain (`:308`), capture the next week (`:311`) | only when a finalized week exists and the core sources are current (`nfl-model-growth.js:284`) |
+
+The same growth cycle can also be started by hand through
+`POST /api/nfl-betting/profitability/model-growth/run`
+(`server/routes/nfl-betting.js:229`, mounted at `server/index.js:144`).
+
+The functions both jobs share:
 
 | step | function (file:line) | table and write |
 |---|---|---|
@@ -448,13 +458,42 @@ does four things each run:
 | fit and gate | `retrainWeeklyWeights`, `:224` | fits on the older 80% of settled rows (`:255`) and gates on the newest 20%: player-clustered paired bootstrap (`:304`), rank and coverage. `promoted` at `:310` |
 | promote | `saveWeeklyFit`, `server/services/weekly-weight-store.js:140` | `weekly_ensemble_fits`, insert at `:147`. A promoted row becomes the served weekly vector |
 
+Two hand-run promotion scripts also write `weekly_ensemble_fits`, through
+`promoteWeeklyFitChecked` (`weekly-weight-store.js:174`):
+`scripts/promote-early-week-weights.mjs:418` and
+`scripts/promote-weekly-ensemble.mjs:309`. A unit that runs one of those is
+under rules 1-5 directly.
+
 The fit needs 250 settled rows outside the stored early window
 (`minSettled`, `:224`, checked at `:243`; early-window filter at `:237`). The
-job's gate is fixed in code, but it has no pre-registration under rule 1, and
-it writes nothing to `HOLDOUT-LEDGER.md`. It is on the heavy tier, which runs on the timer only when
-`AUTO_HEAVY_SYNC=1` (`scheduler.js:2116`). Table `sync_log` on the local copy
-shows it has run twice, last at 2026-09-19 02:00 UTC, status ok. What
-triggered those runs was not determined.
+gate is fixed in code, but it has no pre-registration under rule 1, and it
+writes nothing to `HOLDOUT-LEDGER.md`.
+
+**How the jobs run today.** The web server runs with `SCHEDULER_DISABLED=1`
+(stated at `scripts/refresh-live-data.mjs:7`; the running server's environment
+was not read). That flag returns before any tier starts (`scheduler.js:2067`). So the in-server
+timer, and the `AUTO_HEAVY_SYNC=1` gate on the heavy tier (`scheduler.js:2116`),
+do not decide whether either job runs. The off-server loop
+`scripts/refresh-live-data.mjs` sets `SCHEDULER_DISABLED=1` in its own process
+(`:40`) and runs both jobs by name through `runIfStale` (`scheduler.js:1882`) on
+their 6-hour `maxAgeMinutes`: `nfl_weekly_learning` at `:57` and
+`nfl_model_growth` at `:64`. If the in-server scheduler is ever turned back on,
+`nfl_model_growth` also runs on the growth tier, which has no env gate
+(`scheduler.js:2115`), and 90 seconds after boot (`:2106`).
+
+**What the local copy shows** (not production, 2026-09-22; commands in sections
+6b and 14 of the evidence file). Table `sync_log`: `nfl_weekly_learning` ran
+twice, last 2026-09-19 02:00 UTC, ok. `nfl_model_growth` ran 4 times, last
+2026-09-22 19:43 UTC, error (it exceeded its 120-second worker budget). Table
+`nfl_model_growth_runs` (writer `runNflModelGrowthCycle`, insert at
+`nfl-model-growth.js:205`, update at `:337`): two finished runs reached the
+weekly functions. Run 2 (2026-09-17) captured the 1,183 week-2 snapshots. All
+1,183 rows carry that run's single `as_of` timestamp (set at
+`weekly-learning.js:61`). So `nfl_model_growth` wrote them, not
+`nfl_weekly_learning`. Run 4 (2026-09-19) settled 0 of 1,183 and did not train
+("need 250 settled snapshots outside the early-week window"). Both jobs have
+already called the retrain on 2026 data. Neither had enough settled rows to
+fit.
 
 **Forward sources, same copy** (local copy, not production, 2026-09-22;
 commands in section 6b of the evidence file):
@@ -462,7 +501,7 @@ commands in section 6b of the evidence file):
 | table (writer) | what it holds for 2026 | count |
 |---|---|---|
 | `player_week_usage` (`syncWeeklyUsage`, `nflverse.js:245`) | actuals | weeks 1-2, 1,052 rows (527 + 525) |
-| `weekly_prediction_snapshots` (`captureWeeklyPredictions`, `weekly-learning.js:63`) | pregame snapshots | week 2 only: 1,183 captured, 0 settled. 351 of them already have an actual in `player_week_usage` and are waiting for the next settle run |
+| `weekly_prediction_snapshots` (`captureWeeklyPredictions`, `weekly-learning.js:63`; on this copy called from `nfl_model_growth` run 2) | pregame snapshots | week 2 only: 1,183 captured, 0 settled. 351 of them already have an actual in `player_week_usage` and are waiting for the next settle run |
 | `weekly_ensemble_fits` (`saveWeeklyFit`, `weekly-weight-store.js:147`) | fits | 2 rows, both through 2025 week 18, both promoted. None trained on 2026 |
 
 The two forward records also grade different numbers. The snapshot's
@@ -477,18 +516,23 @@ the served number to the snapshot row.
   `player_week_usage` actuals through a replay of the number the unit serves.
   The snapshot table can stand in only when that number is the ensemble `ppg`
   itself.
-- **The job's own promotions:** each one is a model result shipping ON without a
+- **The jobs' own promotions:** each one is a model result shipping ON without a
   pre-registration or a ledger row. Under this contract, every job fit that
   trains or gates on a 2026 week is a 2026 forward look, and it must appear as
   an `F` row in `HOLDOUT-LEDGER.md`. That applies whether or not the fit was
-  promoted. The job cannot write that row itself. So every statistical unit
-  runs
+  promoted, and whichever job ran it. Neither job can write that row itself.
+  Both save through `saveWeeklyFit`, so one query catches fits from either.
+  Every statistical unit runs
   `SELECT id, through_season, through_week, promoted FROM weekly_ensemble_fits WHERE through_season >= 2026`
   on its own DB copy, and logs any row not yet in the ledger as an `F` row.
   Follow-up (needs a file grant for `server/services/weekly-learning.js`):
-  make the job write that record itself, or hold its promotion default-off
-  until a pre-registered gate exists.
-- **Once the job fits on a 2026 week, that week is in-sample for the served
+  make `retrainWeeklyWeights` (`:224`) write that record itself, or hold its
+  promotion default-off until a pre-registered gate exists. The change belongs
+  in `retrainWeeklyWeights`, because that one function covers both callers.
+  Turning off or changing only `nfl_weekly_learning`, or relying on
+  `AUTO_HEAVY_SYNC` being unset, would leave `nfl_model_growth`
+  (`nfl-model-growth.js:308`) able to auto-promote a fit trained on 2026.
+- **Once a job fits on a 2026 week, that week is in-sample for the served
   weights.** A unit's rule-5 check names the incumbent fit id it froze at
   pre-registration. It states whether a job fit used any week in its forward
   window, using the same query. If one did, the incumbent's forward error on
@@ -497,11 +541,12 @@ the served number to the snapshot row.
   `[2,4]` (fit 2's `early.weeks` on the local copy), and there are no week-1
   snapshots. So the first fit on 2026 needs 250 settled rows from week 5 or
   later. Week 2 has 351 settleable rows, all with `season_to_date` set (the
-  retrain's other filter), so one settled week is probably enough. The first fit would then come on the first job run after week 5's
-  usage rows land. That timing is a guess from the week-2 counts, not a query.
+  retrain's other filter), so one settled week is probably enough. The first
+  fit would then come on the first run of either job after week 5's usage rows
+  land. That timing is a guess from the week-2 counts, not a query.
 
 *Consolidates:* Nick's statistical discipline (b), 2026-09-22; the forward loop
-in `server/services/weekly-learning.js` (above); the "2026 FORWARD"
+in `server/services/weekly-learning.js`, called from both jobs (above); the "2026 FORWARD"
 row of the sealed-season plan in
 `docs/evidence/historical/model-diagnostic-2026-08-26.md:758-759`; "the
 genuinely untouched promotion set is the frozen 2026 forward ledger"

@@ -178,7 +178,8 @@ S-00"). Nothing above the line was edited afterwards.*
 | ledger (data, before any BH number) | `bedb7882` | docs: seed the 2025 holdout ledger with every look found in docs/evidence and docs/tdd |
 | contract + BH run | `a9a2d80c` | docs: statistical method contract with BH over the holdout ledger |
 | this evidence file | `7da8facb` | docs: S-00 evidence: census, BH result, forward weeks, mutation sweep, findings |
-| review round 1 fixes (section 13) | (the commit that adds section 13) | docs: S-00 review round 1: name the 2026 job, the second pair-accuracy producer and the registry's sealed season |
+| review round 1 fixes (section 13) | `1c9d6650` | docs: S-00 review round 1: name the 2026 job, the second pair-accuracy producer and the registry's sealed season |
+| review round 2 fixes (section 14) | listed in section 14 | docs: S-00 review round 2: name nfl_model_growth as the second caller of the weekly retrain |
 
 The PR number is not assigned yet. The branch is pushed and no PR is opened,
 per the unit's instructions. Cite these as `#N` + subject + sha once a PR
@@ -442,19 +443,22 @@ output. Each mutant is a `sed` on the extracted script. Scratch run, on
   only writer of weekly actuals found
   (`git grep -n -E "INSERT (OR [A-Z]+ )?INTO player_week_usage" origin/main -- server scripts`
   returns one line, `server/services/nflverse.js:260`). The first version of
-  this section stopped there. It missed the job `nfl_weekly_learning`
-  (`scheduler.js:1395`), which writes pregame 2026 snapshots to
-  `weekly_prediction_snapshots` (`weekly-learning.js:63`), settles them (`:157`),
-  and is built to fit and auto-promote weekly weights on them into
-  `weekly_ensemble_fits` (`:224`, `:310`, `saveWeeklyFit` at
-  `weekly-weight-store.js:140`). On the same copy the two forward sources
+  this section stopped there. It missed the weekly functions that write pregame
+  2026 snapshots to `weekly_prediction_snapshots` (`weekly-learning.js:63`),
+  settle them (`:157`), and are built to fit and auto-promote weekly weights on
+  them into `weekly_ensemble_fits` (`:224`, `:310`, `saveWeeklyFit` at
+  `weekly-weight-store.js:140`). Two jobs call them: `nfl_weekly_learning`
+  (`scheduler.js:1395`; review round 1 found it) and `nfl_model_growth`
+  (`scheduler.js:1416`, `nfl-model-growth.js:307-311`; review round 2 found it,
+  section 14). On the local copy, `nfl_model_growth` wrote all 1,183 week-2
+  snapshots. On the same copy the two forward sources
   disagree on coverage. Actuals cover weeks 1-2 (1,052 rows). Snapshots cover
   week 2 only (1,183 captured, 0 settled) (section 6b). They also grade
   different numbers: the snapshot holds ensemble `ppg`, not the served number
   (work queue S-12). `STATS-METHOD.md` rule 5 now says rule 5 governs a unit's
   ship decision. It also says every job fit on 2026 is an `F` row that the next
-  unit logs. The follow-up is for the job to log or hold its own promotions
-  (needs a grant for `weekly-learning.js`).
+  unit logs. The follow-up is for `retrainWeeklyWeights`, which both jobs call,
+  to log or hold its own promotions (needs a grant for `weekly-learning.js`).
 - **Sealed holdout season, two sources that disagree:** this contract (2025 is
   held out) and `createWalkForwardSplits` (`server/modeling/walk-forward.js:35`),
   which seals the latest season in the pinned dataset and throws for 2025 once
@@ -521,11 +525,13 @@ outcome against a prediction. So no row was appended for S-00 itself.
   written as a proposal.
 - The line numbers in the ledger are on `d6d7bd5a`. Later edits to the cited
   files move them. The ledger's anchor method makes each one re-findable.
-- Rule 5's handling of the job `nfl_weekly_learning` is manual: a unit runs one
-  query and logs job fits on 2026 as `F` rows. Nothing makes the job do it, and
-  nothing stops it auto-promoting a fit trained on 2026 without a
-  pre-registration. The fix is in `server/services/weekly-learning.js`, which
-  this docs-only unit has no grant for (follow-up, section 13).
+- Rule 5's handling of the jobs `nfl_weekly_learning` and `nfl_model_growth` is
+  manual: a unit runs one query and logs job fits on 2026 as `F` rows. Nothing
+  makes either job do it, and nothing stops either one auto-promoting a fit
+  trained on 2026 without a pre-registration. The fix is in
+  `retrainWeeklyWeights` (`server/services/weekly-learning.js:224`), which both
+  jobs call and which this docs-only unit has no grant for (follow-up, sections
+  13 and 14).
 - Section 1, row 5 says `walk-forward.js` "never counts" openings. That is
   inaccurate: it allows one opening per experiment. It also names only "the
   last season" without saying that this becomes 2026 once a dataset holds a
@@ -558,7 +564,8 @@ outcome against a prediction. So no row was appended for S-00 itself.
    second multiplicity producer (`audit-registry.js` Šidák) is named with both
    verdicts on the same input, and unifying the two is the named follow-up.
    Three more pairs of producers are named with values on the same input (review
-   round 1, section 13): the job `nfl_weekly_learning` against rule 5's forward
+   rounds 1 and 2, sections 13 and 14): the weekly retrain, called by the jobs
+   `nfl_weekly_learning` and `nfl_model_growth`, against rule 5's forward
    check, `decisionRanking` against `startSitPairAccuracy`, and the registry's
    sealed season against "2025 is held out". For each one the contract says
    which governs, and names the follow-up that would merge them. Eight rules
@@ -664,7 +671,8 @@ the same grep for `F` rows returns 0.
 1. `server/services/weekly-learning.js`: make `retrainWeeklyWeights` write a
    forward-look record for every fit on 2026, or hold its promotion default-off
    until a pre-registered gate exists. Until then, each statistical unit runs the
-   rule-5 query and logs job fits as `F` rows.
+   rule-5 query and logs job fits as `F` rows. (Round 2: this one function covers
+   both callers, `nfl_weekly_learning` and `nfl_model_growth`. See section 14.)
 2. `scripts/promote-volume-shrinkage.mjs`: route check 4 through
    `startSitPairAccuracy`, which will change the printed check-4 pair counts.
 3. `server/modeling/walk-forward.js`: C-10 owns it ("holdout sealed by hash").
@@ -672,3 +680,107 @@ the same grep for `F` rows returns 0.
    dataset", and whether openings are counted across experiments. The contract
    now states today's behaviour and how registry openings enter the ledger.
 
+
+## 14. Review round 2 (structure lens): B1 was only half fixed, confirmed
+
+The reviewer re-checked head `1c9d6650` and found B2 and B3 fixed. B1 was still
+partly open. Round 1 named one job, `nfl_weekly_learning`, as the thing that
+settles, retrains and auto-promotes on 2026. A second job, `nfl_model_growth`,
+calls the same functions. Round 1 also said the heavy tier runs only with
+`AUTO_HEAVY_SYNC=1` and that what triggered the job's runs "was not
+determined". The code answers that: the off-server loop runs both jobs by name.
+I re-checked every claim before editing. All of them hold, and one fact goes
+further than the review: on the local copy, the week-2 snapshots were written
+by `nfl_model_growth`, not by `nfl_weekly_learning`. No code changed.
+
+Commands, run from the worktree root. Code on `origin/main` (`d6d7bd5a`); rows
+on the local copy (not production, made 2026-09-22 16:33 EDT),
+`D="file:.local-db/data.sqlite?immutable=1"`.
+
+```sh
+# A. every caller of the settle and retrain functions
+git grep -n -E "retrainWeeklyWeights\(\)|settleWeeklyPredictions\(\)" origin/main -- server scripts
+# server/services/nfl-model-growth.js:307:      const playerSettlement = settleWeeklyPredictions();
+# server/services/nfl-model-growth.js:308:      const playerTraining = retrainWeeklyWeights();
+# server/services/weekly-learning.js:155:export function settleWeeklyPredictions() {
+# server/services/weekly-learning.js:406:    settlement: settleWeeklyPredictions(),
+# server/services/weekly-learning.js:407:    training: retrainWeeklyWeights()
+
+# B. how the jobs run today
+git grep -n -E "SCHEDULER_DISABLED = '1'|SCHEDULER_DISABLED === '1'|'nfl_weekly_learning',|'nfl_model_growth'," origin/main -- scripts/refresh-live-data.mjs server/services/scheduler.js
+# scripts/refresh-live-data.mjs:40:process.env.SCHEDULER_DISABLED = '1';
+# scripts/refresh-live-data.mjs:57:  'nfl_weekly_learning',
+# scripts/refresh-live-data.mjs:64:  'nfl_model_growth',   // finalized-week ingest, shadow settlement, next-week fit — 6h maxAge
+# server/services/scheduler.js:2067:  if (process.env.SCHEDULER_DISABLED === '1') {
+# server/services/scheduler.js:2106:  setTimeout(() => { runIfStale('nfl_model_growth', { offThread: true }).catch(() => {}); },
+
+# C. the docs at 1c9d6650 never named the second job; control: they do name the first
+git grep -c -E "nfl_model_growth|nfl-model-growth|refresh-live-data" 1c9d6650 -- docs/evidence/STATS-METHOD.md docs/evidence/HOLDOUT-LEDGER.md docs/tdd/2026-09-22-stats-method-contract.tdd.md
+# (no output, exit 1)
+git grep -c -E "nfl_weekly_learning" 1c9d6650 -- docs/evidence/STATS-METHOD.md docs/evidence/HOLDOUT-LEDGER.md docs/tdd/2026-09-22-stats-method-contract.tdd.md
+# docs/evidence/HOLDOUT-LEDGER.md:2
+# docs/evidence/STATS-METHOD.md:2
+# docs/tdd/2026-09-22-stats-method-contract.tdd.md:6
+
+# D. both jobs in table sync_log
+sqlite3 "$D" "SELECT job, last_run_at, last_status, runs, consecutive_failures FROM sync_log WHERE job IN ('nfl_weekly_learning','nfl_model_growth') ORDER BY job;"
+# nfl_model_growth|2026-09-22T19:43:59.064Z|error|4|1        (last_detail: exceeded its 120s budget in a worker thread)
+# nfl_weekly_learning|2026-09-19T02:00:31.333Z|ok|2|0
+
+# E. table nfl_model_growth_runs (writer runNflModelGrowthCycle, insert nfl-model-growth.js:205, update :337):
+#    id, started, status, captured, capture week, settlement, trained, reason
+sqlite3 "$D" "SELECT id, started_at, status, json_extract(detail_json,'\$.player_learning.next_week_capture.captured'), json_extract(detail_json,'\$.player_learning.next_week_capture.week'), json_extract(detail_json,'\$.player_learning.settlement'), json_extract(detail_json,'\$.player_learning.training.trained'), json_extract(detail_json,'\$.player_learning.training.reason') FROM nfl_model_growth_runs ORDER BY id;"
+# 1|2026-09-03T18:15:37.505Z|waiting|||||
+# 2|2026-09-17T18:54:59.272Z|ok|1183|2|{"pending":0,"settled":0}|0|need 250 settled snapshots
+# 3|2026-09-18T03:00:10.793Z|running|||||
+# 4|2026-09-19T01:54:30.810Z|ok|0||{"pending":1183,"settled":0}|0|need 250 settled snapshots outside the early-week window (weeks 2-4 are served by the stored early buckets)
+# 5|2026-09-22T19:41:59.421Z|running|||||
+
+# F. who wrote the week-2 snapshots: one as_of for all rows, inside growth run 2
+sqlite3 "$D" "SELECT season, week, count(*), count(DISTINCT as_of), min(as_of) FROM weekly_prediction_snapshots GROUP BY season, week;"
+# 2026|2|1183|1|2026-09-17T18:56:10.819Z
+
+# G. the other job's last retrain result (control: same reason, from the other caller)
+sqlite3 "$D" "SELECT json_extract(last_detail,'\$.training.trained'), json_extract(last_detail,'\$.training.reason') FROM sync_log WHERE job='nfl_weekly_learning';"
+# 0|need 250 settled snapshots outside the early-week window (weeks 2-4 are served by the stored early buckets)
+```
+
+Read together:
+
+- `captureWeeklyPredictions` sets one `now` per call (`weekly-learning.js:61`)
+  and counts only rows it actually inserts (`captured += insert.run(...).changes`,
+  `:84-93`, `INSERT OR IGNORE` at `:63`). Growth run 2 started at 18:54:59,
+  reported 1,183 captured for week 2, and all 1,183 rows carry one `as_of`,
+  18:56:10.819. So that run wrote them.
+- Both jobs have already called `retrainWeeklyWeights` on 2026 rows. Both
+  stopped at the 250-row minimum (`:243`). The first fit on 2026 can come from
+  either one.
+- The in-server timer is off when `SCHEDULER_DISABLED=1` (`scheduler.js:2067`),
+  which is how the app is run (`refresh-live-data.mjs:7`; I did not read the
+  running server's environment). So `AUTO_HEAVY_SYNC` does not decide anything
+  today. Liveness on this Mac, from the process list rather
+  than the DB (`ps -axo pid,etime,command` and `lsof -a -p <pid> -d cwd`, at
+  2026-09-22T21:13:46Z): `scripts/refresh-live-data.mjs --loop 900` is running
+  from the main clone. Two copies of it are running, one for about 5 days and
+  one started with the web server about 25 minutes earlier. That is reported
+  here, not acted on (see the report's open questions).
+
+What changed, text only:
+
+| file | change |
+|---|---|
+| `STATS-METHOD.md` intro | two jobs share the retrain, not one |
+| `STATS-METHOD.md` rule 5 | section renamed "The jobs that already fit and gate on 2026". A job table covers both paths (`scheduler.js:1395/:547`, `weekly-learning.js:401/:405-407`; `scheduler.js:1416/:1008`, `nfl-model-growth.js:201/:284/:307/:308/:311`) and the hand route (`nfl-betting.js:229`, mounted at `index.js:144`). The two hand-run promotion scripts that also write `weekly_ensemble_fits` are named (`promoteWeeklyFitChecked`, `weekly-weight-store.js:174`; `promote-early-week-weights.mjs:418`, `promote-weekly-ensemble.mjs:309`). The `AUTO_HEAVY_SYNC` and "not determined" sentences are replaced with "How the jobs run today" (`scheduler.js:2067`, `refresh-live-data.mjs:40/:57/:64`, `runIfStale` at `scheduler.js:1882`, growth tier ungated at `:2115`, boot pass at `:2106`) and the local-copy rows from D to F above. The follow-up is scoped to `retrainWeeklyWeights` (`:224`), and the text says why a change to one job is not enough |
+| `HOLDOUT-LEDGER.md` | intro bullet and the "Job fits" bullet name both callers (`weekly-learning.js:407`, `nfl-model-growth.js:308`) and the hand-run writer `promoteWeeklyFitChecked` (`weekly-weight-store.js:174`) |
+| this file | section 3 (round-1 sha filled in), 8, 11, 12, 13 follow-up 1, and this section |
+
+What still holds from round 1: fits from either job go through `saveWeeklyFit`
+into `weekly_ensemble_fits`, so the rule-5 query in checklist item 5
+(`WHERE through_season >= 2026`) catches both. It still returns no rows on the
+local copy, and the same filter at `>= 2025` returns 2 (section 6b E).
+
+The BH output did not move. The command was run on a `git archive` of
+`1c9d6650` (the two docs plus `scripts/model-lab`) and on this working tree
+after the edits. `cmp` reports the two outputs identical: 84 lines, sha256
+prefix `dd6984615923901c`. `grep -c -E '^\| L[0-9]{3} '` on the ledger returns
+153 and the `F` grep returns 0.

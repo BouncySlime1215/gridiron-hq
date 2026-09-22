@@ -140,3 +140,62 @@ and nobody should describe it as more than it is.
    than adding a parallel one, so a number on a regression card and a number in
    the fitted rates still come from one place. `fitRates` refits the league
    rates from history, so no constant is hand-set.
+
+---
+
+## Amendment, same night: which half of the change earns the result
+
+The ablation in `docs/evidence/redzone-tier-ablation.mjs` moved rushing and
+receiving from three tiers to four **at the same time**, and reported one
+number for the pair. A reader would take that as both halves earning their
+place. It does not say that, and the decomposition below says something
+narrower.
+
+Prompted by the R&D thread withdrawing its own receiving recommendation after
+re-measuring the band rates: 1.41x between the two halves of the inside-10
+receiving tier, against 3.53x on the rushing side.
+
+Each arm scored against the same 3/3 baseline, on the same 5,229 rows, paired
+and player-clustered, 2,000 resamples, seed 20260917.
+`docs/evidence/redzone-tier-decomposition.mjs`.
+
+| arm | MAE | vs baseline | mean paired change | 95% CI | zero |
+|---|---:|---:|---:|---|---|
+| 3 rush / 3 rec (before) | 0.27196 | — | — | — | — |
+| 4 rush / 3 rec | 0.27133 | -0.230% | -0.000626 | [-0.001019, -0.000053] | excluded |
+| 3 rush / 4 rec | 0.27072 | -0.456% | -0.001240 | [-0.002076, +0.000418] | **included** |
+| 4 rush / 4 rec (shipped) | 0.27010 | -0.684% | -0.001859 | [-0.002678, -0.000125] | excluded |
+
+Two things are true at once and neither should be dropped in the retelling:
+
+1. **The receiving tier has the larger point estimate**, twice the rushing
+   tier's, and the two are very nearly additive (-0.230 and -0.456 predict
+   -0.686; the pair measures -0.684). So the band-rate ratio R&D withdrew on —
+   1.41x against 3.53x — does **not** rank the two halves by what they are
+   worth to the served forecast. A ratio between bands is not an effect size;
+   volume and how badly the pooled rate misprices the players in each band
+   matter as much, and this is the shape `nfl-model-watch.js:1-18` exists to
+   warn about.
+2. **The receiving tier is not individually significant.** Its interval
+   includes zero. The rushing tier's does not, despite the smaller point
+   estimate — it is the tighter of the two.
+
+So the correct statement about the receiving half is **"not established"**, not
+"it does nothing" and not "it is the bigger win". R&D reached the right
+conclusion by a route that does not support it; the right reason is the
+interval, not the ratio.
+
+The shipped 4/4 combination is what the gate tests and it passes. Nothing is
+being ripped out here on a decomposition that was not the pre-registered
+comparison. What changes is the claim: the original commit message and §3b
+should be read as establishing the **pair**, and only the rushing half on its
+own. Whether to keep the receiving tier is routed up rather than decided here —
+the argument for keeping it is that the shipped combination passes the gate;
+the argument against is that every extra class divides the same exposure, and
+`MIN_EXPOSURE 200` is a real constraint on the smaller groups.
+
+**Correction to §3b above.** Where it says the ablation "cannot run here for
+the same missing-database reason", that was true when written and is no longer:
+`syncPbpSeason` was called directly for 2022-2025, which is why these numbers
+exist. §3b's "until it does, this is a guess" has been answered for the pair
+and is still open for the receiving half alone.

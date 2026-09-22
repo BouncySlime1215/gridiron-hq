@@ -7,6 +7,8 @@ Work-queue unit R-02 (plan item 21, pipeline fragility). Branch
 
 Sections 1-3 (audit, licence gate, extend-or-build) were committed first, in
 `03efefdd`, before any test was written. Sections 4-9 were added after.
+Section 10 answers the independent skeptics' review of `d8ae7352`; where it
+corrects an earlier section, the earlier text is marked "corrected, see 10".
 
 Commits, oldest first:
 
@@ -18,6 +20,19 @@ Commits, oldest first:
 | `3671ff16` | test: participation's LA is stored as the canonical LAR, and a blank possession stays unknown (RED) |
 | `6dd3d2a5` | fix: participation rows store the canonical team code, so the Rams join their formation history (GREEN) |
 | `d15d599e` | test: pin the season the growth cycle asks nflverse for (kills surviving call-site mutant C2) |
+| `d8ae7352` | docs: RED/GREEN, real-data numbers, re-freeze gap and mutation sweep for the participation 404 skip |
+| `90175c96` | test: a completed season's participation 404 stays a failure, and so do 403, 429 and 410 (RED) |
+| `a162c26b` | fix: only the season in progress may 404 as "not published"; a completed season's 404 stays a failure (GREEN) |
+| `f0c48e47` | test: a team vector sees participation only from seasons before its own, as nflverse publishes it (RED) |
+| `f133269d` | fix: team history reads participation only from seasons before the target, matching when nflverse publishes it (GREEN) |
+| `5256cc89` | test: pin what the backfill command does, not just its guards: the season it asks for, the rows it stores, exit 1 on a 404 |
+| `dba47f86` | test: a 404 for the last completed season is a failure too (kills boundary mutants M13 and C5) |
+| `072c690c` | test: the writer's note on a completed season's 404 must not call it normal (RED) |
+| `eda2376a` | fix: the participation 404 note says it is expected only for the season in progress and a fault for a completed one (GREEN) |
+
+`eda2376a` is the last code commit. The commit after it changes only this
+file (corrections in this header and in sections 3, 4, 6, 8 and 9, and the
+new section 10); its sha is in the PR.
 
 **What changes for Nick, in two sentences.** In season, the growth job stops
 calling itself broken every time it asks for this season's formation file,
@@ -27,7 +42,10 @@ record. Completed seasons now load with one command,
 `GRIDIRON_DB_PATH=<db> SCHEDULER_DISABLED=1 node scripts/backfill-formations.mjs 2025`,
 and on a local copy of the database that fills 45,184 plays for 2025 and gives
 32 of 32 team vectors built for 2026 week 3 their formation features (0 of 32
-before).
+before). A team vector only ever sees participation from seasons before its
+own, because that is all anyone has at kickoff: nflverse publishes a season
+after its post-season. A 404 for a season that is already complete is still
+reported as a failure.
 
 ## 1. Audit: what already exists for this surface (tree `bd56319b`)
 
@@ -113,6 +131,8 @@ interaction between #92 and #119 and the missing way to load a completed season.
    (`skipped: true, absence: 'not_published'`) with no `error` key. Any other
    status, or a throw, stays a failure. The judgement lives with the caller that
    knows which season is in progress; the writer only reports the fact.
+   (Corrected, see 10.1: at `d8ae7352` the caller did not check which season
+   was in progress; it now passes `availableSeason()` to the rule.)
 3. `cycleOutcome` (`:168`): **extend** so a skipped step is counted as a skip,
    named in the `ok` note and returned as a field, never as a failure.
 4. Prior seasons: **build one thin named command**, not a timer.
@@ -201,9 +221,11 @@ carrying both `error` and `skipped` is a failure.
 
 RED 1 files plus the two pre-existing growth test files: **28 tests, 28 pass.**
 Neighbouring files that import either changed module
-(`charting-summary-box-contamination`, `formations-participation-columns`,
-`forward-ledger`, `ftn-charting`, `nfl-weekly-feature-store-feed-zero`,
-`week1-readiness`): **35 tests, 35 pass.**
+(`charting-summary-box-contamination` 5, `formations-participation-columns` 9,
+`forward-ledger` 6, `ftn-charting` 2, `nfl-weekly-feature-store-feed-zero` 3,
+`week1-readiness` 7): **32 tests, 32 pass.** (Corrected, see 10.4: this line
+said 35 at `d8ae7352`; re-run on `ed0337bb` gives 32, and none of these files
+changes on any sha of the branch before `f0c48e47`.)
 
 ### RED 2: `3671ff16`, found by the real-data run in section 5
 
@@ -229,7 +251,12 @@ not ok 4 - a blank possession stays unknown, not an empty-string team
 `reconcileHistoricalTeamCodes` (`nfl-advanced.js:441`) already rewrites this
 column, but only when a growth cycle reaches it with every core source current
 (`nfl-model-growth.js:310`), so a backfilled season would sit unjoinable until
-then. 4 of 4 pass; with the other formations and growth files, 28 of 28.
+then. 4 of 4 pass. With the other formations and growth files
+(`formations-possession-team-code` 4, `formations-participation-columns` 9,
+`growth-participation-404-skip` 8, `growth-participation-season-gate` 3,
+`backfill-formations-command` 3, `growth-cycle-outcome` 14), run together on
+`6dd3d2a5`: **41 tests, 41 pass.** (Corrected, see 10.4: this line said "28 of
+28" and named no files.)
 
 ## 5. The numbers (local copy, not production)
 
@@ -317,7 +344,9 @@ formation-free state.
 
 **What does pick it up.** Every vector frozen after the backfill: the table
 above shows fresh builds carry formation features. The cycle freezes
-`finalized_week + 1` each time (`nfl-model-growth.js:314`).
+`finalized_week + 1` each time (`nfl-model-growth.js:314`). Since `f133269d`
+those features come only from seasons before the vector's own (section 10.2),
+which for an in-season vector is all it could ever see anyway.
 
 **A bigger version of the same gap, found while measuring (reported, not
 fixed).** 2026 weeks 5-18 are already frozen: 416 team vectors created
@@ -339,9 +368,13 @@ carry a `created_at` after their cutoff. That changes model inputs, which
 standing rule 2 sends to the Independent Auditor. It is not a pipeline unit's
 call.
 
-**The exact command, if the Auditor approves a re-freeze.** Verified on the
-local copy only, in a scratch checkout of `bd56319b` with the constant edited
-to a probe string and then restored (`git status` clean after):
+**The exact command, if the Auditor approves a re-freeze.** Leak-free only
+from `f133269d` on: before that, `teamHistory` read participation by game
+week, so re-freezing a completed season put that season's earlier weeks into
+its own vectors, which nobody had at kickoff (section 10.2 has the skeptic's
+reproduction and the fix). Originally verified on the local copy only, in a
+scratch checkout of `bd56319b` with the constant edited to a probe string and
+then restored (`git status` clean after):
 
 1. Load the completed seasons first, one per run:
    `GRIDIRON_DB_PATH=<db> SCHEDULER_DISABLED=1 node scripts/backfill-formations.mjs <season>` for 2022, 2023, 2024, 2025.
@@ -350,9 +383,16 @@ to a probe string and then restored (`git status` clean after):
    the defect above):
    `GRIDIRON_DB_PATH=<db> SCHEDULER_DISABLED=1 node --input-type=module -e "const s = await import('./server/services/nfl-weekly-feature-store.js'); console.log(JSON.stringify(s.backfillTeamFeatureVectors({ seasons: [2022, 2023, 2024, 2025], startWeek: 5, endWeek: 18 })))"`
 
-Probe result for 2025 week 5 under the probe version: `targets 28, frozen 28,
-existing 0, failures 0`; 28 of 28 rows carry `formation_` keys; average
-`feature_count` 2,679 against 2,426 for the v1 rows of the same week.
+Probe result for 2025 week 5 under the probe version, **on the `bd56319b`
+read, withdrawn**: `targets 28, frozen 28, existing 0, failures 0`; 28 of 28
+rows carried `formation_` keys (average `feature_count` 2,679 against 2,426),
+but those keys were 2025 weeks 1-4, published in February 2026. That was
+look-ahead, not a success. On the fixed read, with only 2025 loaded on this
+copy, a 2025 week-5 build has **0 of 28** vectors with `formation_` keys, which
+is correct: the only participation published before that kickoff is 2024 and
+earlier, and this copy has not loaded 2024 (section 10.2). A re-freeze of 2025
+that carries formations needs step 1 to load 2024 first; that run was not
+done here (one download per the coordinator's instruction).
 
 ## 7. Mutation sweep
 
@@ -414,6 +454,22 @@ findings".
   is not measured; putting it on the timer is a separate decision.
 - **Frozen vectors keep their formation-free state**, and 2026 weeks 5-18 are
   pre-frozen from week-1 history (section 6). Auditor decision.
+- **The v2 research store has the same look-ahead, not fixed here.**
+  `server/services/nfl-weekly-feature-store-v2.js:619-638` reads
+  `nfl_play_formations` and the charting join in the weekly shape, and its
+  `participation()` satellite (`:240`) is merged through `mergePrior` (`:140`),
+  which also admits earlier weeks of the target season. v2 is study code used
+  only by `scripts/backfill-feature-store.mjs` and
+  `scripts/grade-feature-vector.mjs`, and not this unit's file; any lift
+  measured through it on participation features carries the look-ahead.
+- **charting_ features lose same-season values in re-frozen vectors.** FTN
+  charting itself is published weekly, but `teamHistory` gets the possession
+  team by joining it to `nfl_play_formations`, so it inherits participation's
+  cutoff. Serving never had same-season charting_ values either (no
+  current-season participation rows exist in season), so this is parity, not a
+  loss against serving. Taking possession from play-by-play instead would give
+  both training and serving in-season charting: a feature change for the
+  Auditor.
 - **`scripts/nfl-2022-2025-rebuild.mjs:129` still filters `<= 2023`** before
   calling `ingestFormations`. Not this unit's file; reported.
 - **The POST route defaults to season 2023** (`nfl-betting.js:1544`). Not
@@ -421,9 +477,15 @@ findings".
 - **Only 2025 was measured on real data.** 2022 (NGS era, 22 MB, lower fill per
   R&D's measurement) was not loaded here.
 - The `ok` note and `skipped_steps` are only as right as the rule that 404 means
-  "not published". If nflverse moved the release, every season would 404 and
-  the cycle would report a skip; the backfill command would still fail loudly
-  (exit 1) on a completed season.
+  "not published". If nflverse moved the release, the season in progress would
+  still read as a skip, but a completed season asked for through the route now
+  ends `ingest_error` (10.1), and the backfill command exits 1 (10.3).
+- The season in progress is `availableSeason()`: `NFL_SEASON` (production sets
+  `"2026"`, `fly.toml:24`), else the newest `game_lines` season. Between the
+  Super Bowl and the day that season's file appears, its 404 is still recorded
+  as a skip, which is correct. A stale `NFL_SEASON` would make the rule treat
+  the wrong season as in progress; keeping that setting current is outside
+  this unit.
 
 **Defect fixed**, on tree `bd56319b`: `nfl-model-growth.js:247` +
 `:177-178` (the #92 x #119 interaction) and `nfl-formations.js:120` (raw team
@@ -435,29 +497,289 @@ that means something other than "not published".
 
 ## 9. Nick's five questions
 
-1. **Well built?** Yes. Three existing functions extended, one small command
-   added, no new table, no migration, no deleted data. RED fails on the unfixed
-   code for the stated reason; 13 of 13 non-control mutants die, including
-   three at the call site; the designed survivor survives and the control
-   reports not applied.
+1. **Well built?** Yes. Four existing functions extended (the writer, the skip
+   rule, the verdict, the team-history read), one small command added, no new
+   table, no migration, no deleted data. Each RED fails on the unfixed code for
+   the stated reason. Final sweep (10.7): 25 of 25 non-control mutants die, 7 of 7 of them at a call site; the designed survivor survived and the control reports not applied.
 2. **Stats or made up?** Neither a stat nor a model number: this is plumbing.
    The counts are real rows from nflverse on a local copy (45,184 plays for
-   2025, 0 before) and the 404 is a real response.
-3. **How we know:** tests (RED then GREEN, 42 targeted tests), a mutation sweep,
-   and real-data runs on a local copy with a known-nonzero control first. No
-   backtest, because nothing here changes a prediction by itself. The one
-   hand-set rule is "a 404 for the cycle's own season is a skip", taken from
-   nflreadr's own statement that participation is "provided after all
-   post-season games are completed".
+   2025, 0 before) and the 404 is a real response. The one number that looked
+   like a result, "28 of 28 re-frozen vectors carry formation keys", was
+   look-ahead and is withdrawn (10.2).
+3. **How we know:** tests (four RED/GREEN pairs; 176 tests across 16 files on
+   `eda2376a`, which are listed in 10.6), mutation sweeps, and real-data runs on a
+   local copy with a known-nonzero control first. No backtest, because nothing
+   here changes a prediction by itself. The hand-set rules are two: "a 404 for
+   the season in progress is a skip" and "a team vector sees participation
+   only from earlier seasons", both taken from nflreadr's statement that
+   participation is "provided after all post-season games are completed".
 4. **Pointed anywhere else?** The run status is written to
-   `nfl_model_growth_runs` (`nfl-model-growth.js:358-363`), read by
-   `latestRun()` and `nflModelGrowthStatus()`, which `nfl-profitability.js:222`
-   serves. The formation rows feed `teamHistory` -> `buildTeamFeatureVector` ->
-   `freezeWeeklyFeatureState` (`nfl-model-growth.js:314`) and `buildTeamCard`
-   (`nfl-team-card.js:178`), and the `/formations` routes (`nfl-betting.js:1551`,
-   `:1561`). No client page reads the growth status directly.
+   `nfl_model_growth_runs` (`nfl-model-growth.js:374-375`), read by
+   `latestRun()` (`:112`) and `nflModelGrowthStatus()`, which
+   `nfl-profitability.js:222` serves. The formation rows feed `teamHistory`
+   (`nfl-weekly-feature-store.js:114`, participation reads `:159`, `:169`) ->
+   `buildTeamFeatureVector` -> `freezeWeeklyFeatureState`
+   (`nfl-model-growth.js:327`) and `buildTeamCard` (`nfl-team-card.js:188`),
+   and the `/formations` routes (`nfl-betting.js:1551`, `:1561`). No client
+   page reads the growth status directly.
 5. **How it unifies:** one writer (`ingestFormations`), one team-code map
-   (`team-codes.js`), one verdict function (`cycleOutcome`). The skip is a field
-   (`skipped`, `absence: 'not_published'`, `skipped_steps`), so a person and a
-   program read the same absence. The backfill goes through the same writer the
-   cycle and the route use; no second ingest path.
+   (`team-codes.js`), one verdict function (`cycleOutcome`), one notion of the
+   season in progress (`availableSeason()`, the same one the cycle runs). The
+   skip is a field (`skipped`, `absence: 'not_published'`, `skipped_steps`), so
+   a person and a program read the same absence. The backfill goes through the
+   same writer the cycle and the route use; no second ingest path. Training
+   and serving now read participation with the same cutoff.
+
+## 10. Independent review of `d8ae7352`, and what changed
+
+Two skeptic lenses (claims and statistics; test liveness) raised six
+blocking findings. All six were right; each is answered below with the
+command that shows it and the commit that fixes it. Every number here is on a
+local copy or a temp database, not production.
+
+### 10.1 A completed season's 404 was recorded as "not published" (fixed)
+
+`unpublishedSeasonSkip` skipped any 404, on the premise that the cycle's
+season is the one being played. `POST /profitability/model-growth/run`
+(`server/routes/nfl-betting.js:229-233`) passes the season its body names, so
+a 404 for a published season was filed as "not published yet".
+
+Reproduction, the skeptic's own script run on both trees (temp DB; week-1
+finals for 2024 and 2026 in `game_lines`; participation stubbed to 404;
+`runNflModelGrowthCycle({ season: 2024, force: true })`):
+
+```
+d8ae7352: skipped_steps ["formation_participation"]
+          step {"season":2024,"skipped":true,"absence":"not_published","http_status":404,...}
+dba47f86: skipped_steps []
+          step {"season":2024,"http_status":404,"error":"participation for 2024 returned 404",...}
+```
+
+(Both runs end `source_lag` because the temp DB has no team features; the
+step's own verdict through `cycleOutcome` with no lag is `ingest_error`, which
+the test pins.)
+
+- **RED 3, `90175c96`**, `test/growth-participation-404-skip.test.js`:
+  **11 tests, 9 pass, 2 fail** (re-run on the committed sha in a scratch
+  worktree). The acceptance assertion:
+  ```
+  not ok 7 - a 404 for a completed season is a failed download, not a skip
+    error: a completed season's 404 is a fault; step was {"season":2024,"skipped":true,
+      "absence":"not_published","http_status":404,...}
+  ```
+- **GREEN 3, `a162c26b`**: `unpublishedSeasonSkip(step, season, inProgressSeason)`
+  skips only a 404 whose season is the one in progress or later, and never
+  when the season in progress is not a finite number. The call site passes
+  `availableSeason()` (`NFL_SEASON`, which production sets to `"2026"` at
+  `fly.toml:24`, else the newest `game_lines` season). 404-skip,
+  growth-cycle-outcome and season-gate: **28 tests, 28 pass.**
+- **Boundary, `dba47f86`**: the first full sweep on `5256cc89` found two
+  survivors, M13 (rule also skips `season - 1`) and C5 (call site hands the
+  rule `availableSeason() - 1`), because the test's completed season was two
+  seasons back. The tests now check both 2025 and 2024; both mutants die.
+- **The note a person reads, RED `072c690c` / GREEN `eda2376a`**: after the
+  fix, the step for 2024 still carried the writer's note "a season is
+  published only after its post-season is complete", which reads as normal.
+  RED: `not ok 7 ... the note a person reads does not call 2025's 404 normal`.
+  The writer (which does not know the season in progress) now says the 404 is
+  expected only while the season is in progress and a fault for a completed
+  season.
+- **The real 404, final tree, real network** (scratchpad `real-404.mjs`, season
+  in progress 2026, which is `MAX(game_lines.season)` on the local copy):
+  step `{"season":2026,"skipped":true,"absence":"not_published","http_status":404}`,
+  verdict `ok`, skipped `["formation_participation"]`. Unchanged.
+
+### 10.2 The documented re-freeze put future participation into past vectors (fixed)
+
+`teamHistory` (`server/services/nfl-weekly-feature-store.js`) read
+`nfl_play_formations` by game week, `season < S OR (season = S AND week < w)`,
+the shape of the feeds that really are published weekly. Participation is
+published once a year, after the post-season (the 2025 file's last-modified is
+2026-02-10). So after a backfill, any vector built for a week of a loaded
+season (the section-6 re-freeze, a team card, `buildTeamCard` at
+`nfl-team-card.js:188` uses the same builder) carried that season's earlier
+weeks, while the served in-season vector can only ever see last season's. One
+key, two meanings.
+
+Reproduction without any version bump, pure reads through
+`buildTeamFeatureVector` (scratchpad `asof-probe.mjs`), on a `cp` of the
+section-5 local copy after its 2025 backfill (sha256 prefix
+`42cab57c99195104`; local copy, not production):
+
+| read | `a162c26b` (weekly shape) | `f133269d` (fixed) |
+|---|---|---|
+| SQL: KC 2025 week-4 shotgun share | 0.662791 | 0.662791 |
+| SQL: KC 2025 week-18 shotgun share (last 2025 week) | 0.493827 | 0.493827 |
+| KC 2025 wk 5 vector `formation_shotgun_share__latest` | **0.662791** (= 2025 week 4: look-ahead) | absent (no participation published before that kickoff is loaded on this copy) |
+| KC 2025 wk 5 vector `charting_motion_share__latest` | 0.55814 | absent |
+| KC 2026 wk 3 vector `formation_shotgun_share__latest` | 0.493827 | 0.493827 |
+| 2025 wk 5 vectors with `formation_` / `charting_` keys | 28 / 28 of 28 | **0 / 0 of 28** |
+| control: 2025 wk 5 vectors with `injury_` keys | 28 of 28 | 28 of 28 |
+| 2026 wk 3 vectors with `formation_` / `charting_` keys (known-nonzero) | 32 / 32 of 32 | 32 / 32 of 32 |
+
+**What is served does not move.** sha256 over `(team, evidence_hash,
+feature_count)` for all 32 builds of 2026 week 3 (scratchpad `serve-hash.mjs`;
+`evidence_hash` covers the whole history): `7bffcc29254bf55c` on `f0c48e47`
+and on `f133269d`, 88,146 features on both. Production `nfl_play_formations`
+has 0 rows (section 5), so no production vector changes either. What does
+change is what a re-frozen or rebuilt past vector contains, which is model
+input: listed for the Independent Auditor with the re-freeze decision
+(section 6).
+
+- **RED 4, `f0c48e47`**, `test/team-history-participation-as-of.test.js` with
+  `test/nfl-weekly-feature-store-feed-zero.test.js`: **8 tests, 5 pass, 3 fail**
+  (re-run on the committed sha):
+  ```
+  not ok 4 - a 2025 week-5 vector sees no 2025 participation: its latest shotgun share is 2024's
+    expected: 0   actual: 1
+  not ok 6 - the history rows themselves carry no same-season participation
+    + [4, 3, 2, 1]   - []
+  ```
+  The two that pass on the unfixed code are guards: weekly feeds still read
+  the target season's earlier weeks, and prior-season participation still
+  reaches the vector (the known-nonzero case, which kills a deleted read).
+- **A test that was wrong, changed in the RED commit:** the #87 feed-zero test
+  read 2025 week-1 participation from a 2025 week-2 history, which is exactly
+  the look-ahead. It now reads the same rows from a 2026 week-1 history; its
+  three sentinel assertions are unchanged and pass on both trees.
+- **GREEN 4, `f133269d`**: the `formation_` and `charting_` reads take
+  `season >= TRUSTED_HISTORY_START AND season < target`. `charting_` joins
+  through `nfl_play_formations` for the possession team, so it inherits the
+  same cutoff (section 8 has what that costs). **8 tests, 8 pass.**
+
+### 10.3 The backfill command's behaviour had no test (tests added)
+
+`5256cc89` spawns `scripts/backfill-formations.mjs` for real against a
+migrated temp database, with `fetch` replaced by a stub preloaded through
+`node --import` (no network). A 200 for 2025: asks for exactly
+`pbp_participation_2025.csv`, stores 3 rows, all under 2025, prints the
+attribution, exits 0. A 404: exits 1, writes nothing, stderr names the 404. A
+503: exits 1. The code was already right, so these pass on it; their liveness
+is the skeptic's two survivors, now killed (SC1 = their S1, `season - 1`;
+SC2 = their S2, `process.exitCode = 0`).
+
+### 10.4 Two test counts that did not reproduce (corrected)
+
+- GREEN 1 neighbours: **32**, not 35 (per-file on `ed0337bb`: 5 + 9 + 6 + 2 +
+  3 + 7). Section 4 is corrected.
+- GREEN 2: **41 of 41** for the six named files on `6dd3d2a5`. The "28 of 28"
+  named no files; my guess at its source is a re-run of the GREEN 1 set
+  (14 + 8 + 3 + 3 = 28 on that tree). Section 4 is corrected.
+
+### 10.5 403, 429 and 410 were untested (tests added)
+
+`90175c96` runs the cycle with 403, 429 and 410 for the season in progress
+and adds all three to the pinned rule. They pass on the fixed and unfixed
+rule alike, since only 404 was ever skipped; their liveness is the skeptic's
+U1 (every 4xx becomes a skip), killed by 2 tests in sweep 3 and again in
+the final sweep on `eda2376a` (10.7).
+
+### 10.6 Final run
+
+Tree `eda2376a` (a clean detached checkout of it), 16 files: the 13 that
+import `nfl-model-growth.js`, `nfl-weekly-feature-store.js` or
+`nfl-formations.js` directly, `backfill-formations-command` (runs
+`scripts/backfill-formations.mjs` as a child process),
+`nfl-team-card-injury-cutoff` (reaches `nfl-weekly-feature-store.js` through
+`nfl-team-card.js:15`) and `nfl-weekly-feature-store-v2-feed-zero` (the v2
+twin of the feed-zero test; it imports no changed module):
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node --experimental-test-module-mocks --test --test-reporter=tap <16 files>`:
+exit 0, **176 tests, 176 pass, 0 fail, 0 cancelled, 0 skipped**, stderr empty
+(scratchpad `r02/final4.tap`). Per file (counted on `dba47f86`,
+scratchpad `r02/final3.tap`, same 176 total; `eda2376a` adds one assertion
+to an existing test and no test): growth-participation-404-skip 11,
+backfill-formations-command 6, team-history-participation-as-of 5,
+nfl-weekly-feature-store-feed-zero 3, growth-cycle-outcome 14,
+growth-participation-season-gate 3, formations-possession-team-code 4,
+formations-participation-columns 9, charting-summary-box-contamination 5,
+forward-ledger 6, ftn-charting 2, week1-readiness 7, model-integrity 88,
+nfl-team-card-injury-cutoff 5, nfl-weekly-feature-store-v2-feed-zero 3,
+nfl-weekly-state 5. The first eight of those sum to 55, which is the sweep's
+baseline count on `eda2376a` (10.7).
+
+Not run here: 28 more test files reach a changed module indirectly, almost
+all through `scheduler.js` (found by listing the server modules that import a
+changed module, then the tests that import those). The Gate phase's single
+`npm run check` runs them.
+
+`node scripts/wiring-map.mjs --check` on `eda2376a`: exit 0, "no
+missing-feed findings" (scratchpad `r02/wiring4.out`; its last three lines
+match the `dba47f86` run).
+
+### 10.7 Final mutation sweep (tree `eda2376a`)
+
+Harness: scratchpad `mutate4.py` (same rules as section 7: one mutant at a
+time, applied only if the target text occurs exactly once, md5 before, after
+and after restore). v4 differs from v3 in where it runs: it mutates a detached
+scratch worktree checked out at `eda2376a`, refuses to start on the builder
+worktree, refuses to start unless that scratch tree is clean and at the stated
+sha, runs the unmutated test set first (baseline 55 of 55
+pass), restores the file on SIGTERM, SIGHUP or SIGINT, writes one line per
+mutant as it goes, and checks `git status --porcelain` is empty at the end.
+Test set: the 8 files that pin this unit
+(growth-participation-404-skip, backfill-formations-command,
+growth-cycle-outcome, growth-participation-season-gate,
+formations-possession-team-code, formations-participation-columns,
+team-history-participation-as-of, nfl-weekly-feature-store-feed-zero),
+55 tests. Tree `eda2376a`. Output: scratchpad `r02/sweep4.jsonl`, baseline tap `r02/sweep4-base.tap`. **25 of 25 non-control mutants die, 7 of 7 of them at a call site; the designed survivor survived and the control reports not applied.**
+
+| id | kind | file | mutation | verdict | killed by (first two) |
+|---|---|---|---|---|---|
+| M1 | unit | `nfl-model-growth.js` | skip rule: any status becomes a skip | KILLED | any other participation status is still a failed download; a 403, a 429 or a 410 for the season in progress is still a failed … (+1) |
+| M2 | unit | `nfl-model-growth.js` | skip rule: never skip | KILLED | the cycle records the current-season participation 404 as a skip, …; cycleOutcome counts that 404 as a skip, not a failed download (+2) |
+| U1 | unit | `nfl-model-growth.js` | skeptic U1: every 4xx becomes a skip | KILLED | a 403, a 429 or a 410 for the season in progress is still a failed …; the production skip rule, pinned directly |
+| M11 | unit | `nfl-model-growth.js` | in-progress check deleted: any season 404 is a skip | KILLED | a 404 for a completed season is a failed download, not a skip; the production skip rule, pinned directly |
+| M12 | unit | `nfl-model-growth.js` | in-progress check excludes the season in progress | KILLED | the cycle records the current-season participation 404 as a skip, …; cycleOutcome counts that 404 as a skip, not a failed download (+2) |
+| M13 | unit | `nfl-model-growth.js` | in-progress check off by one: last completed season skips | KILLED | a 404 for a completed season is a failed download, not a skip; the production skip rule, pinned directly |
+| M3 | unit | `nfl-model-growth.js` | cycleOutcome: skip list ignores an error key | KILLED | a step that carries an error is a failure even if it also says skipped |
+| M4 | unit | `nfl-model-growth.js` | cycleOutcome: skip flag beats an error | KILLED | a step that carries an error is a failure even if it also says skipped |
+| M5 | unit | `nfl-model-growth.js` | ok note no longer names the skip | KILLED | cycleOutcome counts that 404 as a skip, not a failed download |
+| M6 | unit | `nfl-model-growth.js` | run record drops skipped_steps | KILLED | the stored run record carries the skip as a field |
+| M7 | unit | `nfl-formations.js` | writer drops http_status | KILLED | the cycle records the current-season participation 404 as a skip, …; cycleOutcome counts that 404 as a skip, not a failed download (+4) |
+| M8 | unit | `nfl-formations.js` | writer stores the raw team code | KILLED | the feed's LA is stored as the canonical LAR |
+| M9 | unit | `nfl-formations.js` | blank possession stored as empty string | KILLED | a blank possession stays unknown, not an empty-string team |
+| M10 | unit | `backfill-formations.mjs` | command accepts a pre-2016 season | KILLED | it refuses a season nflverse could not have published |
+| F1 | unit | `nfl-weekly-feature-store.js` | formation read includes the target season (look-ahead) | KILLED | a 2025 week-5 vector sees no 2025 participation: its latest shotgun …; the history rows themselves carry no same-season participation |
+| F2 | unit | `nfl-weekly-feature-store.js` | charting read includes the target season (look-ahead) | KILLED | the charting family, joined through participation, has the same cutoff; the history rows themselves carry no same-season participation |
+| F3 | unit | `nfl-weekly-feature-store.js` | formation read returns nothing | KILLED | defenders_in_box history excludes literal-zero sentinel plays from …; a 2025 week-5 vector sees no 2025 participation: its latest shotgun … (+1) |
+| F4 | unit | `nfl-weekly-feature-store.js` | weekly team-feature read also cut to prior seasons (over-restriction) | KILLED | weekly feeds still read the target season's earlier weeks |
+| C1 | call-site | `nfl-model-growth.js` | call site stores the raw writer result (pre-fix wiring) | KILLED | the cycle records the current-season participation 404 as a skip, …; cycleOutcome counts that 404 as a skip, not a failed download (+1) |
+| C2 | call-site | `nfl-model-growth.js` | call site asks nflverse for the wrong season | KILLED | the cycle asks nflverse for its own season, once; a 404 for a completed season is a failed download, not a skip |
+| C3 | call-site | `nfl-model-growth.js` | call site hands the rule the wrong season | KILLED | the cycle records the current-season participation 404 as a skip, …; a 404 for a completed season is a failed download, not a skip |
+| C4 | call-site | `nfl-model-growth.js` | call site trusts the cycle season as the one in progress | KILLED | a 404 for a completed season is a failed download, not a skip |
+| C5 | call-site | `nfl-model-growth.js` | call site hands the rule last season as in progress | KILLED | a 404 for a completed season is a failed download, not a skip |
+| SC1 | call-site | `backfill-formations.mjs` | skeptic S1: command loads season - 1 | KILLED | a published season: asks for exactly that file, stores its rows, …; a 404 writes nothing and exits 1, so the failure is seen |
+| SC2 | call-site | `backfill-formations.mjs` | skeptic S2: command exits 0 after a failed download | KILLED | a 404 writes nothing and exits 1, so the failure is seen; any other download error exits 1 too |
+| S1 | designed-survivor | `nfl-model-growth.js` | equivalent: numeric coercion of a numeric status | SURVIVED | none |
+| N1 | not-applied-control | `nfl-formations.js` | target text absent: must report NOT APPLIED | NOT APPLIED | n/a |
+
+md5 base / restored: `nfl-model-growth.js` 74ff3a55 / 74ff3a55; `nfl-formations.js` 7c00d244 / 7c00d244; `backfill-formations.mjs` 2fc2ebfc / 2fc2ebfc; `nfl-weekly-feature-store.js` d4124fb9 / d4124fb9.
+
+The first run of this sweep, on `5256cc89`, had two survivors (M13, C5); the
+test was strengthened in `dba47f86` (10.1) and both die above. The skeptic's
+own mutants are here under their ids: U1, and S1/S2 as SC1/SC2 (renamed
+because S1 is this harness's designed survivor).
+
+**A harness fault, found by the skeptic and fixed.** An earlier attempt at
+this final sweep used `mutate3.py`, which mutated the builder worktree in
+place. It stopped partway through without running its restore: no process
+of it remained and its output files were 0 bytes (my guess is that it was
+killed, since an exception would have run its `finally` restore). It left
+mutant C3 (`season + 1` handed to the skip rule) in the builder's
+`server/services/nfl-model-growth.js` (md5 `ed111c40`, byte for byte C3's
+mutant in the table above, against the committed `74ff3a55`). It produced
+no output, and no result from it is used anywhere.
+The file was restored with `git checkout -- server/services/nfl-model-growth.js`
+(md5 `74ff3a55` again). No commit ever held the mutant: on each of the eight
+commits `90175c96`..`eda2376a`, `git show <sha>:server/services/nfl-model-growth.js | grep -c 'season + 1, availableSeason()'`
+gives 0, while the real call text `ingestFormations(season), season, availableSeason()`
+gives 1 on each from `a162c26b` on (the known-nonzero control; `90175c96` is
+the RED commit before that call existed). The commit that adds this section
+touches only this evidence file.
+
+### 10.8 Holdout looks
+
+No model metric, grade or outcome was computed on 2025. The 2025 reads in this
+unit are feature-vector builds for 2025 week 5 on a local copy (counting
+`formation_` keys and reading one feature value, 10.2) and row counts of the
+2025 participation file (section 5). No label or result was read.

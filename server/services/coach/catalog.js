@@ -177,6 +177,20 @@ export const COACH_TABLES = Object.freeze({
   nfl_news_signals: t('one typed signal extracted from one story about one player',
     'what a story actually asserts, as structured fields rather than prose: signal type, status, body part, probability the player is unavailable, role change, confidence, and the span of text it came from',
     'nfl_news_signals job', 'auto'),
+  nfl_news_events: t('one general claim extracted from one story or press conference about one player',
+    "a typed claim (not limited to availability), with the exact span of text it came from, the reporter and " +
+    "publish time versus when the app first saw it, and whether it reads as new or a restatement of something " +
+    "already known. beat_reporter_claim_resolutions grades the injury_status claims here against what actually " +
+    "happened",
+    "runProspectiveCollection (server/services/nfl-prospective-collection.js), which its own " +
+    "RESTART_LIMITATION constant says is manual, on-demand collection only — not a background daemon", 'by_hand'),
+  beat_reporter_claim_resolutions: t('one graded injury_status claim from nfl_news_events',
+    "whether the claim was confirmed or contradicted by the player's actual offensive-snap count the week the " +
+    "game was played, or left unresolved with a named reason (game not played yet, position outside " +
+    "offense-snap ground truth, team or player did not resolve). sourceTrustScore " +
+    "(server/services/beat-reporter-accuracy.js) grades a reporter from these rows, never from the raw claims",
+    "resolveInjuryClaims (server/services/beat-reporter-accuracy.js), which nothing calls on a schedule — " +
+    "someone has to run it", 'by_hand'),
 
   // --- season-long advanced stats, from nflverse's own release files ---
   // These five are the tables stat-names.js already names columns of, which

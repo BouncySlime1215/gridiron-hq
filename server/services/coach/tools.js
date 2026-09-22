@@ -27,6 +27,7 @@ import { catalog, catalogEntry, readableTables, catalogCoverage } from './catalo
 import { whoPlays } from '../who-plays.js';
 import { teamTendencies } from '../nfl-team-tendencies.js';
 import { coachingProfile, footballContext } from '../football-context.js';
+import { sourceTrustScore } from '../beat-reporter-accuracy.js';
 
 export class CoachToolError extends Error {
   constructor(message) { super(message); this.name = 'CoachToolError'; }
@@ -101,6 +102,11 @@ const team = value => {
   const abbr = String(value ?? '').trim().toUpperCase();
   if (!/^[A-Z]{2,4}$/.test(abbr)) throw new CoachToolError(`team must be an NFL abbreviation, got ${JSON.stringify(value)}.`);
   return abbr;
+};
+const nonEmptyString = (value, field) => {
+  const s = String(value ?? '').trim();
+  if (!s) throw new CoachToolError(`${field} must be a non-empty string, got ${JSON.stringify(value)}.`);
+  return s;
 };
 
 /**
@@ -211,6 +217,22 @@ export const COACH_TOOLS = Object.freeze([
       home: { type: 'string' }, away: { type: 'string' } } },
     call: input => footballContext(int(input.season, 'season'), int(input.week, 'week'),
       team(input.home), team(input.away))
+  }),
+  service({
+    name: 'source_trust',
+    source: 'server/services/beat-reporter-accuracy.js#sourceTrustScore',
+    tables: ['beat_reporter_claim_resolutions'],
+    description: 'How often one beat reporter\'s injury_status claims have actually been confirmed by what ' +
+      'happened, from resolved claims only — this is the "who actually predicts outcomes vs. who cried wolf" ' +
+      'question. state is "none" (zero resolved claims — no score, never read this as measured-and-bad), ' +
+      '"pooled" (fewer than 5 resolved claims — the raw rate is blended toward the claim-type baseline so one ' +
+      'lucky or unlucky call does not read as a measured 100% or 0%), or "measured" (5 or more — the raw rate ' +
+      'stands). Raw SQL cannot reproduce the pooled-shrinkage math, which is why this is a tool and not a query.',
+    input_schema: { type: 'object', required: ['handle'], properties: {
+      handle: { type: 'string', description: 'reporter_handle exactly as stored in nfl_news_events' },
+      claim_type: { type: 'string', description: 'restrict to one claim type, e.g. "injury_status"; omit for all types' } } },
+    call: input => sourceTrustScore(nonEmptyString(input.handle, 'handle'),
+      { claimType: input.claim_type ? nonEmptyString(input.claim_type, 'claim_type') : null })
   })
 ]);
 

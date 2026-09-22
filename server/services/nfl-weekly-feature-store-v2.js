@@ -262,7 +262,7 @@ function participation() {
     statement = handle.prepare(`
       SELECT b.season season, b.week week, b.posteam posteam, b.defteam defteam,
              p.defense_man_zone_type mz, p.defense_coverage_type shell,
-             p.defenders_in_box box, p.number_of_pass_rushers rushers,
+             NULLIF(p.defenders_in_box,0) box, NULLIF(p.number_of_pass_rushers,0) rushers,
              p.was_pressure pressure, p.time_to_throw ttt,
              p.offense_personnel off_pers, p.defense_personnel def_pers,
              p.offense_players off_players, p.offense_positions off_positions,

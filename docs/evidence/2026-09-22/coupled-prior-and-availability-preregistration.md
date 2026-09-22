@@ -287,9 +287,57 @@ that does not run weekly is not grading the fitted k at all — it is grading
 
 - `roleRecency: WEEKLY_ROLE_RECENCY`, passed **explicitly** at every
   `buildProjections` call in every arm. Not inherited, not defaulted.
-- **`kOverride` omitted**, so `activeKVectorFor` supplies the fitted volume
-  vector. The previous unit passed `kOverride: null` and therefore forced the
-  hardcoded constants; this one must not, or the declaration above is empty.
+- **`kOverride` omitted**, so `activeKVectorFor` is the one that resolves the
+  volume vector. The previous unit passed `kOverride: null` and therefore forced
+  the hardcoded constants; this one must not, or the declaration above is empty.
+
+### Where the fitted vector actually comes from (Auditor R62.5)
+
+**Omitting `kOverride` is necessary and NOT sufficient, and saying only
+"omitted" would have left this unit one empty table away from grading the
+constant it exists to avoid.** **All line numbers in this subsection are on `origin/main` @ `c90d2834`**, the
+same tree §1b names; `projections.js` numbering differs on this branch, and
+`shrinkage-fit.js` is identical on both. The resolution chain is
+`projections.js:484` → `activeKVectorFor(rr, { predictingSeason })`
+(`shrinkage-fit.js:515`) → `cutoffSafeKVector` (`:540`) → `activeKVector`
+(`:449`), and `activeKVector` reads the **database**: `shrinkage_fits` where
+`active = 1`, then that fit's rows from `shrinkage_k`. **With no active fit it
+returns `null`**, `pickK` (`projections.js:211`) takes the hardcoded branch, and
+the k is `K.share = 6`.
+
+That is not hypothetical. **`projections.js:206-209` records that no fitted k has
+ever been persisted — `shrinkage_fits` and `shrinkage_k` are both empty wherever
+this code has run.** So on a rig in that state, omitting `kOverride` yields
+exactly what `kOverride: null` yields, and **§2c's own wiring control stops the
+grade at `K.share = 6` before any arm runs.** The control would do its job; the
+declaration would still have been empty.
+
+**So the fitted vector must arrive by one of exactly two routes, and the run
+states which one it took:**
+
+1. **Persisted.** An active fit written to the rig's database, with a
+   **cutoff-safe `through_season` for every graded season** — `cutoffSafeKVector`
+   re-fits the same `(metric, position)` pairs on seasons `<= predictingSeason - 1`
+   when the stored fit reaches into the season being predicted (`:538-540`), so a
+   fit whose `through_season` includes 2025 does not leak into a 2025 grade.
+2. **Passed.** The fitter's output handed in **as `kOverride`, as the fitted
+   object** — never `null`, never `undefined`.
+
+**These two are not interchangeable in general, and the difference is worth
+stating because it is a trap for the next unit.** Passing the object explicitly
+**bypasses `activeKVectorFor` entirely** (`:484` branches before it), including
+the rule that withholds volume entries under any non-weekly recency
+(`:516-521`). Under **this** unit's configuration B the two routes agree,
+because weekly recency is exactly the case where nothing is withheld — so route
+2 is safe *here* and would be unsafe under any other recency. **A future unit
+that reaches for route 2 outside weekly recency is handing callers a k fitted
+for a different weighting, which is the units error `shrinkage-fit.js`'s own
+header exists to prevent.**
+
+**The run reports which route it took, the fit's `id` and `through_season`, and
+the resolved `target_share`/`ALL` value, beside the wiring control's result.** A
+grade that cannot say where its k came from has not established configuration B,
+whatever the control returns.
 
 ### Wiring control on the k, run before the arms and reported either way
 

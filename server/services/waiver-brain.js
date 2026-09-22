@@ -42,7 +42,53 @@ import {
 import { gameScriptFor } from './gamescript.js';
 
 const r2 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(2));
-const SCORED = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DST']);
+
+// The one unfitted number in a waiver upgrade, named so it cannot be mistaken
+// for a solved one. Nobody has to agree to a waiver claim, so there is no
+// counterparty to model and nothing here was fitted against outcomes; the only
+// real friction is another manager claiming first, and 0.9 is a hand-set haircut
+// for it. It is a claim-friction factor, NOT a confidence in the recommendation
+// and NOT an acceptance rate of the kind the trade engine fits. Every use of it
+// reads this constant, so the payload's two numbers cannot drift apart.
+const CLAIM_FRICTION = 0.9;
+// Two shapes on purpose, following this file's own rule about per-row notes
+// (see the `vegas` field below: a note on every row trains a reader to skip
+// them). The per-row field is one short token a surface can branch on; the
+// sentence that explains it is stated once, beside `not_modelled` and
+// `scored_on`, which are the other two places this payload explains itself.
+const CLAIM_FRICTION_BASIS = 'hand-set';
+const CLAIM_FRICTION_WHY =
+  'Acceptance is not fitted on this board. A waiver claim needs nobody to agree, ' +
+  'so there is no counterparty to model and nothing here was scored against ' +
+  'outcomes. The 0.9 is a flat allowance for another manager claiming first, ' +
+  'applied equally to every row — it lowers every expected value by a tenth and ' +
+  'changes no ordering within this list. A trade\'s acceptance probability, which ' +
+  'these gains are deliberately rankable against, IS fitted; that is the ' +
+  'difference this field exists to make visible.';
+// The positions this file will consider at all. 'DEF' is the literal every
+// writer of `players.position` uses — drafts.js, draft-assist.js,
+// draft-lookahead.js, nfl-roster-strength.js. This set said 'DST' and was the
+// only occurrence of that spelling in the server tree, so it matched no row and
+// no defense had ever reached the free-agent pool, in five leagues that all
+// start one.
+const SCORED = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']);
+
+// The positions the LINEUP SOLVER scores, which is a smaller set and a
+// different question. `bestLineup` filters its pool and its slot list to
+// QB/RB/WR/TE by deliberate design (trade-engine.js: "K and D/ST are near-random
+// week to week and roughly interchangeable, so including them adds noise to
+// every lineup comparison").
+//
+// That design is not in dispute here. Its CONSEQUENCE was: a kicker or defense
+// that reaches the pool changes the solved lineup by exactly zero, so it is
+// dropped by every `gain > 0` threshold downstream and the surface shows an
+// absence with no explanation. A position nobody modelled and a position nobody
+// rates are indistinguishable to a reader, and only one of them is a fact about
+// the roster.
+//
+// Must track `bestLineup`'s own filter. If K or DEF are ever added there, this
+// set moves with it and the honesty note below stops being printed on its own.
+const LINEUP_MODELLED = new Set(['QB', 'RB', 'WR', 'TE']);
 
 /** Fantasy playoffs are weeks 15-17 in the overwhelming majority of leagues. */
 const PLAYOFFS_START = 15;
@@ -178,7 +224,11 @@ export function freeAgents(lg, { limit = 400 } = {}) {
     .filter(p => !owned.has(p.id) && SCORED.has(p.position))
     // A free agent with no projection is not an opportunity, it is a name.
     .filter(p => (p.adj_ppg ?? 0) > 0 && p.available !== false)
-    .map(p => ({ ...p, horizon_value: horizonValue(p, week) }))
+    // Whether the lineup solver can put a number on this player at all. Carried
+    // on the row so every consumer of this pool — waiverUpgrades here, and
+    // byePatches in roster-risk.js — can tell "no gain" apart from "not
+    // modelled" without re-deriving the position rules.
+    .map(p => ({ ...p, horizon_value: horizonValue(p, week), lineup_modelled: LINEUP_MODELLED.has(p.position) }))
     .sort((a, b) => b.horizon_value - a.horizon_value)
     .slice(0, limit);
 }
@@ -245,7 +295,15 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
   const worstBench = droppable[0] ?? null;
 
   const upgrades = [];
+  // Positions that were in the pool and could never have produced a gain,
+  // because the solver does not score them. Collected rather than inferred from
+  // an empty list, so the note below states a fact about the model instead of
+  // leaving the reader to conclude one about the roster.
+  const unmodelled = [...new Set(available.filter(fa => !fa.lineup_modelled).map(fa => fa.position))].sort();
   for (const fa of available) {
+    // Dropped here, named below. Falling out at `gain <= 0.05` instead would be
+    // the same list and a different meaning: a structural zero read as a verdict.
+    if (!fa.lineup_modelled) continue;
     // Re-solve the lineup with this player on the roster. Adding without
     // dropping is the honest test of whether he helps at all; the drop is a
     // roster-space question answered separately below.
@@ -263,11 +321,13 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
       horizon_value: fa.horizon_ppg,
       season_value: fa.adj_ppg ?? null,
       ppg_gain: r2(gain),
-      // Same units as a trade's gain, so the two can be ranked against each
-      // other. Acceptance is ~1 because nobody has to agree to a waiver claim —
-      // the only real friction is another manager claiming first.
-      accept_probability: 0.9,
-      expected_value: r2(gain * 0.9),
+      // Same units as a trade's gain, so the two can be ranked against each other.
+      // The basis travels with the number, because that is the one thing a page
+      // ranking a fitted acceptance probability beside an unfitted one cannot
+      // otherwise know. One token here; the sentence is on the payload.
+      accept_probability: CLAIM_FRICTION,
+      accept_probability_basis: CLAIM_FRICTION_BASIS,
+      expected_value: r2(gain * CLAIM_FRICTION),
       replaces: displaced ? slim(displaced) : null,
       drop_candidate: worstBench ? slim(worstBench) : null,
       trending: fa.trending ?? null,
@@ -306,7 +366,19 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
         subjectIds: [top.player.id, ...(top.replaces ? [top.replaces.id] : [])],
         title: `Add ${top.player.name} before waivers process`,
         rationale: top.why + (top.drop_candidate ? ` Drop candidate: ${top.drop_candidate.name}.` : ''),
-        expectedValue: top.expected_value, confidence: top.accept_probability,
+        expectedValue: top.expected_value,
+        // Deliberately null, and NOT top.accept_probability. This column is
+        // shared: the trade publisher writes `headline.p_right` into it
+        // (trade-engine.js:2874) — a fitted estimate of how often that model is
+        // right. A waiver's 0.9 is a different quantity entirely, a hand-set
+        // claim-friction haircut, and writing it here would put two unlike
+        // numbers under one heading where nothing downstream could separate
+        // them. An absent confidence is a smaller lie than a borrowed one.
+        // Whether a waiver recommendation is right is answerable — it wants a
+        // walk-forward over past claims — and until it is answered this stays
+        // null. The friction factor is still on the upgrade itself, with its
+        // basis, for anything that wants it.
+        confidence: null,
         urgency: top.expected_value >= 2 ? 'high' : top.expected_value >= 1.2 ? 'medium' : 'low',
         // This league's actual waiver-processing day isn't threaded into this
         // module today, so this is a judgment-call heuristic (72h) rather than
@@ -321,6 +393,21 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
     league: lg.name, owner: me.owner, season, week,
     playoff_weight: weight,
     pool_size: available.length,
+    // Not a warning and not an error: a statement of what this list does not
+    // cover, printed whenever the pool held such a player. Empty when it did
+    // not, so it never becomes the sort of note that appears on every page and
+    // trains a reader to skip it.
+    not_modelled: unmodelled.length
+      ? { positions: unmodelled, in_pool: available.filter(fa => !fa.lineup_modelled).length,
+          why: `${unmodelled.join(' and ')} are not scored by the lineup solver, so no ${unmodelled.join(' or ')} ` +
+            'can appear above however well he is playing. Their absence here is a limit of the model, not a read on them.' }
+      : null,
+    // Stated once rather than per row, like `not_modelled` above and `scored_on`
+    // below: it is the same sentence for every upgrade in the list. Named for the
+    // thing rather than for the row's field, so one name never carries two shapes
+    // in one response — `acceptance` is an object here, and each upgrade's
+    // `accept_probability_basis` is the bare token.
+    acceptance: { basis: CLAIM_FRICTION_BASIS, value: CLAIM_FRICTION, why: CLAIM_FRICTION_WHY },
     vegas_lines_available: available.filter(p => p.vegas?.applied).length,
     scored_on: `Lineups are solved on a horizon value: ${Math.round(weight * 100)}% the fantasy playoff weeks ` +
       `(weekly rate, byes counted, no matchup adjustment) and ${100 - Math.round(weight * 100)}% this week plus ` +
@@ -344,7 +431,9 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
         ? 'No free agent could be priced, so nothing was searched. That is missing data, not a verdict ' +
           'on your roster.'
         : 'No free agent would crack your lineup. That is a good sign about the roster, not a failure ' +
-          'of the search.'
+          'of the search.' + (unmodelled.length
+            ? ` It does not cover ${unmodelled.join(' or ')}, which this model does not score at all.`
+            : '')
   };
 }
 

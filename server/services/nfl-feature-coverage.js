@@ -45,7 +45,6 @@ export function nflFeatureCoverage() {
     jsonFamily('player_week_play', 'nfl_player_week_features', 'features', { entity: 'player' }),
     jsonFamily('next_gen_stats', 'nfl_ngs', 'stats', { kind: 'kind', entity: 'player' }),
     jsonFamily('pfr_advanced', 'nfl_pfr_adv', 'stats', { kind: 'kind', entity: 'player' }),
-    jsonFamily('route_splits', 'nfl_route_splits', 'stats', { kind: 'kind', entity: 'player' }),
     jsonFamily('licensed_pff', 'nfl_external_player_grades', 'facets_json', { entity: 'player' }),
     columnFamily('play_by_play', 'nfl_play_by_play', ['event_id', 'season', 'week', 'sequence', 'text']),
     columnFamily('snap_counts', 'nfl_snaps', ['season', 'week', 'player_id', 'player_name', 'team', 'position']),

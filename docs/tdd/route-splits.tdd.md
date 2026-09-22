@@ -1,5 +1,29 @@
 # nfl_route_splits — TDD report
 
+> **WITHDRAWN 2026-09-22, and the code is not in this branch.** §4d below
+> measured nflsavant against the nflverse participation feed this repo already
+> downloads and found it a **strict subset** — 106 receivers against 500, and
+> the sparse-coverage-shell weakness §5 records as inherent to the data turned
+> out to be an artifact of the worse source. So the loader, its migration, its
+> tests and its feature-store reader have been removed rather than shipped:
+> `server/migrations/069_nfl_route_splits.js`,
+> `server/services/nfl-route-splits.js`, `test/route-splits.test.js`,
+> `test/route-splits-feature-store.test.js`, the `source-registry.js` and
+> `nfl-feature-coverage.js` registrations, and the
+> `nfl-weekly-feature-store.js` read.
+>
+> **This document is kept on purpose.** It is the evidence for the decision,
+> and §4d is the measurement anyone rebuilding this should start from. The
+> replacement is not a new third-party source: it is the nflverse columns that
+> **migration 070 in this same branch already adds** — `was_pressure`,
+> `defense_man_zone_type`, `defense_coverage_type` and `time_to_throw` on
+> `nfl_play_formations`. That is the unit, and it is unbuilt.
+>
+> The process lesson is in `docs/RD-HANDOFF-CONTRACT.md`: the intake gate now
+> asks what we already download that carries this, and why the new source beats
+> it. Nobody asked, so nobody answered, and correct code was written against
+> the wrong feed.
+
 **Item:** per-receiver targets broken out by route family (13) and coverage
 shell (7), each with EPA per target, catch % and success %, from nflsavant.com's
 open JSON API. Handed over by the Data & techniques R&D thread as a package

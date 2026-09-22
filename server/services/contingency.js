@@ -19,6 +19,7 @@ import { rows } from '../db/index.js';
 import { shrink, mean } from './stats-util.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
 import { espnStatusById } from './player-availability.js';
+import { AVAILABILITY_FIT_BASIS, DEFAULT_DURABILITY_PRIOR } from './availability-basis.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SKILL = ['QB', 'RB', 'WR', 'TE'];
@@ -215,7 +216,7 @@ export function normPracticeStatus(s) {
  * designation ESPN itself shows; DAY_TO_DAY, an ESPN doubt label with no NFL
  * equivalent, is treated as Questionable. Gate and numbers: docs/tdd/play-chance-live.tdd.md.
  */
-export const ESPN_DESIGNATION_LABEL = Object.freeze({
+const ESPN_DESIGNATION_LABEL = Object.freeze({
   OUT: 'Out (ESPN)',
   INJURY_RESERVE: 'Out (ESPN injured reserve)',
   SUSPENSION: 'Out (ESPN suspension)',
@@ -603,7 +604,11 @@ function fittedAvailability() {
   const lookup = rates.length || roleRates.length ? buildAvailabilityLookup({ rates, roleRates }) : null;
   const missing = [['nfl_availability_rates', rates], ['nfl_availability_role_rates', roleRates]]
     .filter(([, list]) => !list.length).map(([table]) => table);
-  const basis = lookup?.hasRole ? 'role' : lookup ? 'pooled' : 'constants';
+  // Emitted from AVAILABILITY_FIT_BASIS rather than written out here, so the
+  // strings have one definition. This is the PROCESS basis (which fit tables
+  // are loaded), not a row's `availability_basis` — see availability-basis.js.
+  const [ROLE_FIT, POOLED_FIT, NO_FIT] = AVAILABILITY_FIT_BASIS;
+  const basis = lookup?.hasRole ? ROLE_FIT : lookup ? POOLED_FIT : NO_FIT;
   if (missing.length) {
     // Once per fit stamp: this function only re-reads when the stamp changes.
     console.warn(`[contingency] chance to play is priced on the '${basis}' path: ${missing.join(' and ')} ` +
@@ -664,11 +669,18 @@ export function availabilityDegradation(basis) {
  * One player's chance to be active, from whatever is on file. Shared by
  * weeklyAvailability and the fit script's gate, so what was validated is what runs.
  */
-export function playerActiveProbability({ fitted, report, prior, role = null, useRole = true }) {
+export function playerActiveProbability({
+  fitted, report, prior, role = null, useRole = true, priorMeasured = true
+}) {
   const status = String(report?.report_status ?? '').toLowerCase();
   const practice = String(report?.practice_status ?? '').toLowerCase();
   let active = prior;
   let source = report ? 'weekly injury report + durability prior' : 'durability prior only';
+  // The machine-readable twin of `source`. `source` is display prose and free
+  // to be reworded; this is the contract, from availability-basis.js. The two
+  // must be set together at every branch below or a consumer is back to
+  // guessing from the sentence.
+  let basis = priorMeasured ? 'durability_prior' : 'default_durability';
 
   const roleCell = useRole && fitted?.hasRole && role?.gap_bucket
     ? fitted.roleLookup({
@@ -688,11 +700,14 @@ export function playerActiveProbability({ fitted, report, prior, role = null, us
     // log loss 0.554 -> 0.721) — see docs/tdd/play-chance.tdd.md.
     // Same team ratio as the league path, for a listed player only.
     let p = roleCell.p;
-    let basis = roleCell.basis;
+    // The fit cell's own label, which goes in the display sentence. Not the
+    // row's `availability_basis`, which is the contract value set below.
+    let cellBasis = roleCell.basis;
     const tr = report ? fitted.teamRatio(report.team, status) : null;
-    if (tr) { p *= tr.ratio; basis += ` x ${tr.team}`; }
+    if (tr) { p *= tr.ratio; cellBasis += ` x ${tr.team}`; }
     active = p;
-    source = `fitted availability by role (${basis}, n=${roleCell.n})`;
+    source = `fitted availability by role (${cellBasis}, n=${roleCell.n})`;
+    basis = 'role';
     // Only if the fit's own selection (on 2024, never 2025) chose it.
     if (!report && fitted.roleConfig?.durabilityCap) active = Math.min(active, prior);
   } else {
@@ -707,6 +722,7 @@ export function playerActiveProbability({ fitted, report, prior, role = null, us
       // survives a held-out season.
       active = measured.p;
       source = `fitted availability (${measured.basis}, n=${measured.n})`;
+      basis = 'pooled';
     } else {
       if (/out|reserve|ir|pup|suspend/.test(status)) active = 0.01;
       else if (/doubtful/.test(status)) active = Math.min(active, 0.15);
@@ -725,7 +741,7 @@ export function playerActiveProbability({ fitted, report, prior, role = null, us
     if (!report) active = Math.min(active, prior);
   }
 
-  return { active: Math.max(0.001, Math.min(0.995, active)), source };
+  return { active: Math.max(0.001, Math.min(0.995, active)), source, basis };
 }
 
 /* ------------------------------------------------------------- scoring */
@@ -930,17 +946,27 @@ export function weeklyAvailability(season, week, { through = season - 1, useRole
   const roles = useRole && fitted?.hasRole ? roleStates(season, week) : null;
 
   for (const p of players) {
-    const prior = base.get(p.id)?.available ?? 0.92;
+    // No availability() row means no games on file through the cutoff, so there
+    // is no measured durability prior to serve. The constant that stands in is
+    // inside the range measured priors occupy, so the substitution has to be
+    // stated on the row: a caller reading `durability_prior` alone cannot tell
+    // a career measurement from this default.
+    const measuredPrior = base.get(p.id)?.available ?? null;
+    const prior = measuredPrior ?? DEFAULT_DURABILITY_PRIOR;
     const nflReport = p.gsis_id ? reports.get(String(p.gsis_id)) ?? null : null;
     const role = roles?.get(p.id) ?? null;
     const espnNow = espnStatus && p.espn_id != null ? espnStatus.get(String(p.espn_id))?.status ?? null : null;
     const week_ = weekDesignation({ report: nflReport, espnStatus: espnNow, team: p.team ?? role?.team ?? null });
     const report = week_.report;
-    const { active, source } = playerActiveProbability({ fitted, report, prior, role, useRole });
+    const { active, source, basis } = playerActiveProbability({
+      fitted, report, prior, role, useRole, priorMeasured: measuredPrior != null
+    });
     out.set(p.id, {
       player_id: p.id, name: p.name, position: p.position,
       active_probability: +active.toFixed(3),
       durability_prior: +prior.toFixed(3),
+      durability_prior_measured: measuredPrior != null,
+      availability_basis: basis,
       report_status: report?.report_status ?? null,
       practice_status: report?.practice_status ?? null,
       designation: week_.designation,

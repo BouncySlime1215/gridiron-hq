@@ -372,8 +372,22 @@ export function resolveRoleChangeClaims({ limit = 500, asOf } = {}) {
   return resolveAndStore(events, resolveRoleChangeClaim, asOf);
 }
 
-const SUSPENDED = /\b(suspended|serving (a |his |her )?\d+-game suspension|suspension (has been |was )?(upheld|announced|imposed)|banned (for|through) \d+ games?|remains? suspended|still suspended|ineligible (to play|for (the )?season) (due to|following) (a |his |her )?suspension)\b/i;
-const REINSTATED = /\b(reinstated( from (his |her )?suspension)?|suspension (has been |was )?lifted|eligible to (return|play) (following|after) (his |her )?suspension|back from suspension|cleared to (return|play) after serving (his |her )?suspension|suspension (is )?over)\b/i;
+/**
+ * Deliberately requires a copula (is/was/has been/remains/still) directly
+ * before "suspended", not the bare word — a hand-check against real 2025
+ * wire language ("Chiefs officially activated Rice off the suspended list")
+ * showed the bare word alone false-positives on a claim that is actually
+ * about a *return* from suspension, which is worse than the honest
+ * 'unresolved' this whole feature exists to prefer over a wrong answer.
+ */
+/** Digit or spelled-out game count — real wire copy uses both
+ * ("6-game suspension" and "six-game suspension"). Kept as a required part
+ * of the "serve/serving a suspension" alternative (rather than dropped)
+ * specifically so it does not also match "after serving his suspension" —
+ * a completed-suspension phrase that belongs to REINSTATED, not SUSPENDED. */
+const GAME_COUNT = '(?:\\d+|one|two|three|four|five|six|seven|eight|nine|ten)';
+const SUSPENDED = new RegExp(`\\b((?:is|was|has been|remains?|still) suspended|(?:will )?serv(?:e|ing) (?:a |his |her )?${GAME_COUNT}-game suspension|suspension (has been |was )?(upheld|announced|imposed)|banned (for|through) \\d+ games?|ineligible (to play|for (the )?season) (due to|following) (a |his |her )?suspension)\\b`, 'i');
+const REINSTATED = /\b(reinstated( from (his |her )?suspension)?|suspension (has been |was )?lifted|activated\b.{0,25}\bsuspended list|eligible to (return|play).{0,20}(following|after) (serving )?(his |her )?suspension|back from suspension|cleared to (return|play) after serving (his |her )?suspension|suspension (is )?over)\b/i;
 
 /**
  * Read the direction a suspension claim's text commits to.
@@ -386,11 +400,23 @@ const REINSTATED = /\b(reinstated( from (his |her )?suspension)?|suspension (has
  * return" and "reinstated" describe different real events even though both
  * predict the same played/did-not-play outcome — collapsing them would
  * blur what the claim actually said in `predicted_direction`.
+ *
+ * REINSTATED is checked first, unlike classifyInjuryDirection/
+ * classifyReturnDirection's "more definite state wins" ordering — a
+ * suspension-ending story routinely mentions the (now-completed) suspension
+ * as backstory in the same sentence as the reinstatement itself ("reinstated
+ * after serving his six-game suspension"), which also matches SUSPENDED's
+ * game-count pattern. A hand-check against exactly that real construction
+ * showed SUSPENDED-first reads such a sentence as still-suspended — the
+ * wrong direction, not just a missed one. `reinstated` is checked first
+ * because it is the unambiguous signal in that overlap; nothing in this
+ * unit's vocabulary or tests produces a sentence where SUSPENDED should win
+ * over an explicit `reinstated`/return-eligible phrase.
  */
 export function classifySuspensionDirection(text) {
   const t = String(text ?? '');
-  if (SUSPENDED.test(t)) return 'suspended';
   if (REINSTATED.test(t)) return 'reinstated';
+  if (SUSPENDED.test(t)) return 'suspended';
   return null;
 }
 

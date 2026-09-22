@@ -96,17 +96,18 @@ talking to Nick first.
   comments. Its rule loses.
 - **80% coverage minimum, and mandatory unit + integration + Playwright E2E
   on everything.** There is no Playwright here, and the suite runs against
-  `timeout-minutes: 20` in `.github/workflows/ci.yml`. CI had never completed
-  on `main` — its one and only run, 2026-09-13, was cancelled at the
-  20-minute mark. PR #7 brought the runtime to ~7-9 minutes, demonstrated on
-  PR branches; main has not been pushed since, so there is still no
-  completed run on main. The workflow (id `357164314`) is also currently
-  `disabled_manually` — 351 runs total, none since 2026-09-20T01:03Z — so no
-  open PR gets a CI signal right now and `npm run check`, run locally, is the
-  whole gate. A coverage floor and a new E2E tier would spend the headroom
-  #7 measured. Revisit once there is margin to spare on main itself and CI is
-  re-enabled, and raise the timeout deliberately rather than rediscovering it
-  at twenty minutes.
+  `timeout-minutes: 20` in `.github/workflows/ci.yml`. CI has run seven times
+  on `main`, ever, checked directly against the Actions API: four early runs
+  (2026-09-13 ×3, 2026-09-15 ×1) all hit the 20-minute budget and were
+  cancelled, but three have completed since PR #7's runtime fix landed — run
+  252 (2026-09-19, success, ~6.5 min) first, then two more on 2026-09-22.
+  "CI had never once completed on `main`" is false as of today; it was true
+  only through 2026-09-15. The workflow (id `357164314`) is active, not
+  disabled, and gets a real CI signal on every push and PR now. A coverage
+  floor and a new E2E tier would still spend headroom this project can't
+  spare while `main`'s own runs aren't reliably green yet — revisit once
+  `main` holds green for a stretch, not just once, and raise the timeout
+  deliberately rather than rediscovering it at twenty minutes.
 - **"NEVER mutate, always spread."** Written for a React/TypeScript codebase.
   This is Node, Express and SQLite, and the rule would flag ordinary correct
   code on nearly every file.

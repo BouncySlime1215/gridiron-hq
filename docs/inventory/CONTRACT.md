@@ -153,7 +153,30 @@ from the quote tape"), `audit-passing-specialists.mjs`,
 tooling, but that has not been established file by file and no grade has been
 changed on it. If all 13 were classified betting the sweep would read
 **220 / 68 / 10 / 21**. Until a rule for classifying script entry points exists,
-`wired` is an upper bound and this is the largest single reason. So roughly one file in six that a
+`wired` is an upper bound. It is not, however, the largest
+reason — the next one is.
+
+**Import reach is not call reach, and `scheduler.js` is where the two diverge
+most.** This grader answers "can the module be loaded from an entry point",
+which is an upper bound on "does the entry point call it".
+`gamescript.js:21` imports one function, `recordSync`, from `scheduler.js`, and
+that single edge pulls the whole scheduler graph — **357 modules** — into reach
+from every route that transitively imports `gamescript.js`.
+`scheduler.js:1064` then does a lazy `await import('./nfl-auto-picks.js')`
+inside a job body, and `nfl-auto-picks.js:12` imports `promotedFindingVeto`
+from `nfl-candidate-findings.js`, which reads `nfl_blind_audit_runs` at
+`nfl-candidate-findings.js:249`. That is how a betting-audit table ends up
+"reachable from `/api/trades`" — through a utility import and a lazy job-body
+import, with no fantasy handler calling any of it.
+
+**28 of the 233 `wired` files are `wired` only through a path crossing
+`scheduler.js`.** Excluding such paths gives **205 `wired` / 81
+`wired-betting-only` / 10 `hand-run-script` / 23 `unreached`**. Excluding them
+is *not* proposed as the rule — the scheduler genuinely runs jobs at boot and
+what it calls is genuinely reached — but the figure bounds the error, and two
+facts sharpen it: the edge that carries most of it is a one-function import,
+and `SCHEDULER_DISABLED=1` is set on the live app, so the jobs are not running
+there at all. **No grade has been changed on any of this.** So roughly one file in six that a
 first-path trace would have called `wired` is reachable only through a betting
 surface. That is the overstatement this grade was added to prevent, measured
 rather than asserted.

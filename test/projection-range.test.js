@@ -41,23 +41,38 @@ test('fitProjectionRangeTable bins each position into 8 equal-count bins by yhat
   assert.equal(table.WR.bins.length, 8);
 });
 
-test('a position with fewer than 8x150 rows is pooled across all positions rather than fit alone', () => {
+test('two positions each below 8x150 rows are both pooled onto the SAME combined fit, not each fit alone', () => {
+  // WR and TE get DIFFERENT, non-overlapping yhat ranges (0-49 vs 100-149).
+  // If each fit alone, their edges would live entirely within their own
+  // range and never match. If truly pooled onto one combined fit, both
+  // tables are identical AND span the full 0-149 range -- neither is
+  // achievable by coincidence, unlike same-shaped fixtures would allow.
   const history = [];
-  for (let i = 0; i < 1200; i++) history.push({ pos: 'WR', yhat: i % 50, y: Math.max(0, i % 50) });
-  for (let i = 0; i < 50; i++) history.push({ pos: 'TE', yhat: i, y: Math.max(0, i) }); // far under 1200
+  for (let i = 0; i < 600; i++) history.push({ pos: 'WR', yhat: i % 50, y: Math.max(0, i % 50) });
+  for (let i = 0; i < 600; i++) history.push({ pos: 'TE', yhat: 100 + (i % 50), y: Math.max(0, i % 50) });
   const table = fitProjectionRangeTable(history);
-  // A pooled position's table is the SAME object as the full-population fit,
-  // not a thin TE-only one built from 50 rows.
-  assert.equal(table.TE, table.WR, 'TE pools onto the full population, same table object');
+  assert.deepEqual(table.WR.edges, table.TE.edges, 'both under threshold -> same pooled edges');
+  assert.deepEqual(table.WR.bins, table.TE.bins, 'both under threshold -> same pooled bins');
+  assert.ok(table.WR.edges.some(e => e < 50) && table.WR.edges.some(e => e >= 100),
+    'the pooled edges must span BOTH positions\' ranges, proving they were actually combined');
 });
 
-test('the lower edge is floored at 0 and never goes negative, even when the empirical p10 would be', () => {
+test('a position AT OR ABOVE 8x150 rows gets its own fit, not the pooled one -- the threshold is a floor, not a ceiling', () => {
+  const history = [];
+  for (let i = 0; i < 1200; i++) history.push({ pos: 'WR', yhat: i % 100, y: Math.max(0, (i % 100) - 10) });
+  for (let i = 0; i < 50; i++) history.push({ pos: 'TE', yhat: i, y: Math.max(0, i - 10) });
+  const table = fitProjectionRangeTable(history);
+  assert.notDeepEqual(table.WR.edges, table.TE.edges, 'WR (1200 rows) fits alone; TE (50 rows) pools -- different tables');
+});
+
+test('the lower edge is floored at 0 and never goes negative, even when the raw empirical p10 would be', () => {
   const history = [];
   for (let i = 0; i < 1200; i++) {
-    // A distribution where the true 10th percentile of y is well below 0 if
-    // not floored -- y is only floored at 0 itself (fantasy points can't be
-    // negative), so the spec's own floor on `lo` is the thing under test.
-    history.push({ pos: 'WR', yhat: 5, y: Math.max(0, 5 + ((i % 21) - 15)) });
+    // Deliberately NOT floored in the fixture itself -- y ranges roughly
+    // -15 to +5, so the raw (unfloored) p10 of this bin is well below 0.
+    // The code's own Math.max(0, ...) is the only thing that can prevent a
+    // negative lo here; without it this test would see lo < 0.
+    history.push({ pos: 'WR', yhat: 5, y: 5 + ((i % 21) - 15) });
   }
   const table = fitProjectionRangeTable(history);
   const band = projectionRangeFor(table, 'WR', 5);
@@ -77,22 +92,25 @@ test('projectionRangeFor returns null for a position that was never in the fitti
   assert.equal(projectionRangeFor(table, 'K', 5), null);
 });
 
-test('the band is asymmetric when the outcome distribution is floored -- never silently symmetrised', () => {
-  // Low projections: a floored, right-skewed outcome (many exact zeros, a
-  // long right tail) -- section 2's own worked case. The lower tail cannot
-  // hold 10% of the mass once more than 10% of true outcomes sit at 0, so
-  // the fitted upper tail must absorb the rest of the 20% miss, producing a
-  // visibly wider gap above than below the projection.
-  const history = [];
-  for (let i = 0; i < 1200; i++) {
-    const isZero = i % 3 === 0; // a third of outcomes are exactly 0
-    history.push({ pos: 'WR', yhat: 2, y: isZero ? 0 : 2 + (i % 25) });
-  }
+test('the fitted upper tail absorbs exactly what the floored lower tail could not hold -- pinned to the exact formula, not just "wider on top"', () => {
+  // Hand-computable bin: 30 zeros + values 1..70 (100 rows total), all at
+  // yhat=2. quantile(sorted, 0.10) -> index 0.10*99=9.9, both neighbors are
+  // 0 (within the first 30 zeros) -> raw p10 = 0 -> lo = 0. f_lo = fraction
+  // of values STRICTLY below lo(=0) = 0 (nothing is negative). Per section
+  // 2: upperP = 1 - (0.20 - f_lo) = 1 - 0.20 = 0.80 -> index 0.80*99=79.2,
+  // landing between the 50th and 51st of the 1..70 values (index 79 = value
+  // 50, index 80 = value 51) -> hi = 50 + 0.2 = 50.2.
+  // A NAIVE symmetric band (ignoring f_lo, upperP fixed at 0.90) would
+  // instead land at index 89.1 -> value 60 + 0.1 = 60.1 -- a different,
+  // wrong number this test would also catch.
+  const history = [
+    ...Array.from({ length: 30 }, () => 0),
+    ...Array.from({ length: 70 }, (_, k) => k + 1)
+  ].map(y => ({ pos: 'WR', yhat: 2, y }));
   const table = fitProjectionRangeTable(history);
   const band = projectionRangeFor(table, 'WR', 2);
-  assert.equal(band.lo, 0, 'more than 10% of outcomes are 0, so the floored 10th percentile is exactly 0');
-  const upperGap = band.hi - 2, lowerGap = 2 - band.lo;
-  assert.ok(upperGap > lowerGap, `expected an asymmetric band (upper gap ${upperGap} > lower gap ${lowerGap})`);
+  assert.equal(band.lo, 0);
+  assert.ok(Math.abs(band.hi - 50.2) < 1e-9, `expected hi = 50.2 (f_lo-adjusted), got ${band.hi}`);
 });
 
 test('range_n (the row count the band came from) travels with the band, so a thin bin is visible', () => {

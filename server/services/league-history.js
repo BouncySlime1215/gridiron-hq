@@ -226,6 +226,24 @@ export async function backfillLeagueHistory({
           log?.(`  ${lg.id}/${season}: league did not exist`);
           continue;
         }
+        // A 200 that did not carry mTeam is a failed read, not an empty
+        // league-season. fetchView() only returns null on a 404 (counted apart
+        // as not_existing) and only throws on !r.ok, so this shape arrives
+        // looking exactly like a successful fetch -- and note 2 in this file's
+        // header records that a 200 missing a requested view is real behaviour
+        // of this API. Counted as a failure rather than as ok-with-zero-rows
+        // because statusFromDetail() reads `failed` against `attempted`: left
+        // as ok, a run that wrote nothing reports itself healthy and
+        // league_season_teams stays empty, which is the state this file exists
+        // to end. An empty `schedule` is NOT this case -- a season that has not
+        // played yet is real, and its team rows still land below.
+        if (!(payload.teams ?? []).length) {
+          const error = 'ESPN 200 without the mTeam view — no teams array in the payload';
+          out.failed++;
+          out.league_seasons.push({ league_id: lg.id, season, error });
+          log?.(`  ${lg.id}/${season}: ERROR ${error}`);
+          continue;
+        }
         const teamWeeks = saveScores(lg, season, payload);
         const teams = saveTeams(lg, season, payload);
         out.ok++; out.team_weeks += teamWeeks; out.teams += teams;

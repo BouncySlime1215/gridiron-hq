@@ -100,18 +100,18 @@ function getCookies() {
   let s2 = get('espn_s2'), swid = get('swid');
   if (s2 && swid) return { s2, swid, source: 'bookmarklet' };
 
+  // Deliberately NOT backfilled into app_settings. Two different leagues can
+  // legitimately carry two different accounts' cookies (the manual paste-per-league
+  // path, leagues.js's own UPDATE), so writing this one league's credential into the
+  // single shared app_settings slot would pin it as "the account of record" for
+  // every future caller - permanently, with no connect action taken, just because
+  // this happened to be the most recently fetched league at the time someone else's
+  // /status or /discover call ran. Read-through only: re-derived on every call, and
+  // never a standing global identity handed to a caller who never chose it.
   const lg = row(`SELECT espn_s2, swid FROM leagues
                   WHERE platform = 'espn' AND espn_s2 IS NOT NULL AND swid IS NOT NULL
                   ORDER BY fetched_at DESC LIMIT 1`);
-  if (lg?.espn_s2 && lg?.swid) {
-    // Backfill so every code path agrees from here on, and the manual-form user gets
-    // the same "connected" fast path (Find my leagues, etc.) with no extra steps.
-    run(`INSERT INTO app_settings (key, value) VALUES ('espn_s2', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`, lg.espn_s2);
-    run(`INSERT INTO app_settings (key, value) VALUES ('swid', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`, lg.swid);
-    return { s2: lg.espn_s2, swid: lg.swid, source: 'manual form' };
-  }
+  if (lg?.espn_s2 && lg?.swid) return { s2: lg.espn_s2, swid: lg.swid, source: 'manual form' };
   return { s2: null, swid: null, source: null };
 }
 

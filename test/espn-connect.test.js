@@ -279,6 +279,51 @@ test('a paste with nothing usable in it is a clear 400, not a silent success', a
   assert.match((await res.json()).error, /espn_s2 and SWID/);
 });
 
+/* ------------------------------------------------------ shared-slot lock-in */
+
+// getCookies()'s fallback (app_settings empty) reads whichever ESPN league
+// was most recently fetched. leagues.js:51 lets two different leagues carry
+// two different accounts' cookies (the manual paste-per-league path), so
+// this fallback firing for one caller must never leave a *persistent* trace
+// that a later, unrelated caller inherits.
+test('reading a per-league credential through the fallback does not pin it as the shared global account of record', async () => {
+  resetState();
+  run(`INSERT INTO leagues (platform, league_id, season, name, espn_s2, swid)
+       VALUES ('espn','111',2026,'Account A League','account-a-s2',?)`, GOOD_SWID);
+
+  const res = await realFetch(`${base}/status`, { headers: AUTH });
+  assert.equal((await res.json()).connected, true, 'status must still read through to the league-level credential');
+
+  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`), undefined,
+    'a read must not silently promote one league\'s credential into the shared app_settings slot');
+  assert.equal(row(`SELECT value FROM app_settings WHERE key='swid'`), undefined,
+    'same for swid — nothing should have been written by a plain status read');
+});
+
+test('a later sync of a second account\'s league cannot silently flip the account status/discover already read', async () => {
+  resetState();
+  const SWID_A = GOOD_SWID;
+  const SWID_B = '{99999999-8888-7777-6666-555544443333}';
+  run(`INSERT INTO leagues (platform, league_id, season, name, espn_s2, swid, fetched_at)
+       VALUES ('espn','111',2026,'Account A League','account-a-s2',?,datetime('now','-1 hour'))`, SWID_A);
+
+  // First caller reads through the fallback — account A.
+  const first = await (await realFetch(`${base}/status`, { headers: AUTH })).json();
+  assert.equal(first.connected, true);
+
+  // A background sync of an unrelated account's league bumps fetched_at —
+  // "nobody connecting anything; one sync of their league does it."
+  run(`INSERT INTO leagues (platform, league_id, season, name, espn_s2, swid, fetched_at)
+       VALUES ('espn','222',2026,'Account B League','account-b-s2',?,datetime('now'))`, SWID_B);
+
+  // Before the fix, app_settings was already permanently written with account
+  // A's cookies on the first call, so this couldn't even flip later — the
+  // deeper bug is that it locked onto *a* stranger's account at all and kept
+  // serving it forever. The fix removes that persistence outright.
+  assert.equal(row(`SELECT value FROM app_settings WHERE key='espn_s2'`), undefined,
+    'no caller\'s read should have left a standing global identity for the next unrelated caller to inherit');
+});
+
 test('discover loads the current account leagues from stored cookies', async () => {
   resetState();
   run(`INSERT INTO app_settings (key,value) VALUES ('espn_s2',?),('swid',?)`, GOOD_S2, GOOD_SWID);

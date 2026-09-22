@@ -23,7 +23,7 @@ const {
   foreignHandles, handleFor, gatedRegions, blindCaches,
   functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
   imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts,
-  routeAnswersCall, columnDefaults, docsCitations, sameNameCollisions,
+  routeAnswersCall, columnDefaults, docsCitations, sameNameCollisions, docsRuntimeReads,
 } = await import('../scripts/wiring-map.mjs');
 
 test('scan keeps string bodies out of the code view and offsets intact', () => {
@@ -1777,4 +1777,73 @@ test('a citation carrying an absolute path from a developer machine still resolv
   const rel = at(`// see ${D}/OFFSEASON_MODEL.md\n`);
   assert.equal(rel.length, 1);
   assert.equal(rel[0].state, 'moved');
+});
+
+
+/*
+ * A PATH IN A STRING IS AN EDGE NO IMPORT GRAPH CAN SEE.
+ *
+ * `docs/CLAUDE-NEXT-STEPS.md` is not documentation. `nfl-research-lab.js:279` reads it
+ * off disk and serves it, and `nfl-execution-integrity.test.js` compares it byte for
+ * byte, so editing a markdown file changes what a route returns and turns the suite
+ * red. Nothing in the map said so: 2,331 findings and not one mentioned that file.
+ *
+ * The parts were all there. `runtimeFilePaths()` has read `path.join(BASE, '…')` since
+ * it was written — but fed exactly one question, whether the Docker image copies the
+ * directory, behind a gate requiring BASE to be a recognised repo-root name.
+ * `nfl-research-lab.js` joins a local `root`, so the row was dropped before anything
+ * looked at it. The gap was not a missing parser. It was a file read modelled as a
+ * deployment question and never as a dependency.
+ */
+test('a source module reading a file under docs at runtime is an edge, and it is reported', () => {
+  const D = 'docs';
+  const index = { has: new Set([`${D}/CLAUDE-NEXT-STEPS.md`]), byBase: new Map() };
+  const file = (path, tree, text) => ({ path, tree, text, scope: null, strings: [] });
+
+  // A SERVED read: the running application returns the contents of this file.
+  const served = docsRuntimeReads([file('server/services/nfl-research-lab.js', 'server',
+    `export async function researchMasterPlan() {\n`
+    + `  return fs.readFile(path.join(root, '${D}/CLAUDE-NEXT-STEPS.md'), 'utf8');\n}`)], index);
+  assert.equal(served.length, 1, 'the read that named this rule must be the row it produces');
+  assert.equal(served[0].cited, `${D}/CLAUDE-NEXT-STEPS.md`);
+  assert.equal(served[0].klass, 'served', 'a server module makes it application data');
+  assert.equal(served[0].exists, true);
+
+  // A local `root` rather than PROJECT_ROOT is the exact reason the existing rule
+  // dropped this row, so it is asserted rather than assumed.
+  assert.equal(runtimeFilePaths(`fs.readFile(path.join(root, '${D}/CLAUDE-NEXT-STEPS.md'))`)[0]
+    .repoRelative, false, 'the old gate discards this, which is why a second rule exists');
+
+  // TOOLING is a different consequence and gets a different class: moving the file
+  // breaks a report, not a route.
+  const tooling = docsRuntimeReads([file('scripts/route-verdict-list.mjs', 'script',
+    `const d = JSON.parse(fs.readFileSync('${D}/wiring/route-verdicts.json', 'utf8'));`)], index);
+  assert.equal(tooling.length, 1);
+  assert.equal(tooling[0].klass, 'tooling');
+  assert.equal(tooling[0].exists, true, 'this one is in the repository');
+
+  // A read of a path that is not there is the strongest row of the three, and the
+  // rule finds one on this tree: nfl-learned-shadow-explain.js builds a docs/ path
+  // under an audit directory no commit has produced.
+  const missing = docsRuntimeReads([file('server/services/x.js', 'server',
+    `fs.readFileSync(path.join(PROJECT_ROOT, '${D}/betting-model/nowhere/LATEST.json'))`)], index);
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].exists, false, 'a path nothing produces is the row worth having');
+
+  // A test file is not in scope. This file is full of docs/ paths, and reading them
+  // would make the checker report its own fixtures as facts about the repository
+  // for the fourth time.
+  assert.deepEqual(docsRuntimeReads([file('test/x.test.js', 'test',
+    `fs.readFileSync('${D}/CLAUDE-NEXT-STEPS.md')`)], index), []);
+});
+
+test('the rule reproduces the runtime docs read that was found by hand', async () => {
+  const map = JSON.parse(await readFile(new URL('../docs/wiring/wiring-map.json', import.meta.url), 'utf8'));
+  const rows = map.findings.filter(f => f.rule === 'source-reads-a-file-under-docs');
+  assert.ok(rows.length, 'the rule must fire on this tree');
+
+  const plan = rows.find(r => r.evidence[0].startsWith('server/services/nfl-research-lab.js'));
+  assert.ok(plan, 'the read another thread found by hand is the one this must reproduce');
+  assert.match(plan.subject, /CLAUDE-NEXT-STEPS\.md$/);
+  assert.match(plan.detail, /application data rather than documentation/);
 });

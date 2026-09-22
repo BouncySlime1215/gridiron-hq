@@ -48,7 +48,8 @@ already made without it, and this is that row.
 
 ## Mutations
 
-Baseline GREEN `scripts/wiring-map.mjs` sha256 `5150c4a9f235`, 82 tests, 82 pass.
+Baseline GREEN `scripts/wiring-map.mjs` sha256 `5150c4a9f235`, 82 tests, 82 pass,
+measured on the tree that became **2992340**, which is the tree this file ships on.
 
 | id | injected defect | sha256 | pass/fail | killed by |
 |---|---|---|---|---|
@@ -62,6 +63,36 @@ already existed, so on those two the new one is confirmation rather than coverag
 is the thirteen-false-failures fault in its exact shape — a pattern that accepts
 `see docs/X.md` and rejects `/Users/somebody/repo/docs/X.md` — and it passes
 81 tests. Only the new one fails.
+
+### The exact edits
+
+A description of an edit is not the edit. Each row's before and after, verbatim, so a
+reader can apply it without guessing what was meant.
+
+**D1** — `scripts/wiring-map.mjs`, the citation pattern:
+```
+-      for (const m of raw.matchAll(/\bdocs\/[A-Za-z0-9._/-]*[A-Za-z0-9_-]\.md\b/g)) {
++      for (const m of raw.matchAll(/^docs\/[A-Za-z0-9._\/-]*[A-Za-z0-9_-]\.md/gm)) {
+```
+
+**D2** — the resolution lookup:
+```
+-      const resolves_to = index.byBase.get(base) ?? [];
++      const resolves_to = index.byBase.get(cited) ?? [];
+```
+
+**D3**, the control — a comment, no behaviour:
+```
+-      // EVERY OCCURRENCE, not one per file.
++      // EVERY INSTANCE, not one per file.
+```
+
+**D4** — the pattern demands whitespace or a line start to its left, which is the
+thirteen-false-failures fault in its exact shape:
+```
+-      for (const m of raw.matchAll(/\bdocs\/[A-Za-z0-9._/-]*[A-Za-z0-9_-]\.md\b/g)) {
++      for (const m of raw.matchAll(/(?<=^|\s)docs\/[A-Za-z0-9._\/-]*[A-Za-z0-9_-]\.md\b/g)) {
+```
 
 ## What is NOT checked, said out loud
 

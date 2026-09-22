@@ -85,6 +85,12 @@ result cannot be the harness failing to apply the edit.
 | M3 | app-helper branch back above the foreign-only check | `cd45f17c360b` | 77 / 1 | *a file with its own handle and no app-db import is foreign throughout* |
 | M4 | NO-OP CONTROL: one word of a comment changed | `a8684f00d900` | 78 / 0 | none, correctly |
 
+**M1 to M4 describe their edits rather than quoting them.** The standard is verbatim
+before and after, and these four predate it. Re-running them at head would change their
+counts and make the table disagree with the commit it documents, so they stay as they
+are and are named here as non-compliant rather than left to look finished. M5 to M9
+below meet it.
+
 ## What this table does NOT cover
 
 `viaMethod` — the `x.prepare(` / `x.exec(` question — has no row here. It was never
@@ -162,9 +168,10 @@ wrong attribution does not print a wrong row, it merges into a right one.
 
 ## The claim was too strong
 
-Baseline GREEN `scripts/wiring-map.mjs` sha256 `9bcf6ed6ab84`, 81 tests, 81 pass.
-Same method as above: each row applied to the GREEN file alone, suite re-run, file
-restored, checksum on every row including the control.
+Baseline GREEN `scripts/wiring-map.mjs` sha256 `9bcf6ed6ab84`, 81 tests, 81 pass,
+measured on the tree that became **0833bf6**, the tree this section ships on. Same
+method as above: each row applied to the GREEN file alone, suite re-run, file restored,
+checksum on every row including the control.
 
 | id | mutation | sha256 | pass/fail | killed by |
 |---|---|---|---|---|
@@ -173,6 +180,42 @@ restored, checksum on every row including the control.
 | M7 | the `$` anchor dropped, so the method may sit anywhere in the window | `a7f7b64f5820` | 79 / 2 | *sqlEdges attributes a query to the handle that ran it*, *a query handed to a handle by method call …* |
 | M8 | the method branch answers `app` where the file has no app handle | `ce9697fa8ad0` | 80 / 1 | *a query handed to a handle by method call …* |
 | M9 | NO-OP CONTROL: one word of a comment changed | `d89023963069` | 81 / 0 | none, correctly |
+
+### The exact edits
+
+**M5** — the method branch deleted:
+```
+-  const viaMethod = before.match(/([A-Za-z_$][\w$]*)\s*\.\s*(?:prepare|exec|run|all|get)\s*\(\s*$/);
++  const viaMethod = null;
+```
+
+**M6** — one method dropped from the list:
+```
+-  const viaMethod = before.match(/([A-Za-z_$][\w$]*)\s*\.\s*(?:prepare|exec|run|all|get)\s*\(\s*$/);
++  const viaMethod = before.match(/([A-Za-z_$][\w$]*)\s*\.\s*(?:prepare|run|all|get)\s*\(\s*$/);
+```
+
+**M7** — the end anchor dropped, so the method may sit anywhere in the 120-character
+window rather than immediately left of the string:
+```
+-  const viaMethod = before.match(/([A-Za-z_$][\w$]*)\s*\.\s*(?:prepare|exec|run|all|get)\s*\(\s*$/);
++  const viaMethod = before.match(/([A-Za-z_$][\w$]*)\s*\.\s*(?:prepare|exec|run|all|get)\s*\(\s*/);
+```
+
+**M8** — the branch answers `app` in a file that has no app handle. This is the row
+nothing else catches:
+```
+-    return file.foreignOnlyFile ? foreignDefault() : { handle: 'app', where: null };
++    return { handle: 'app', where: null };
+```
+
+**M9**, the control — a comment, no behaviour:
+```
+-  // KNOWN LIMIT: when such a file opens MORE than one foreign handle
++  // KNOWN CAVEAT: when such a file opens MORE than one foreign handle
+```
+
+### What the rows mean
 
 Three of the five were already covered. *sqlEdges attributes a query to the handle
 that ran it* and *the app handle is recognised when it arrives through a dynamic

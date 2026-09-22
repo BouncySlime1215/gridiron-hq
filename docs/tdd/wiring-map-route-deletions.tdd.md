@@ -303,7 +303,8 @@ coverage. Closing it changed the section: one of the two rules turned out to be 
 by a regex over its own source, and one mutation survived its first run.
 
 **Baseline.** `scripts/wiring-map.mjs` sha256 `5150c4a9f235` ·
-`node --test test/wiring-map.test.js` → **81 tests, 81 pass, 0 fail**.
+`node --test test/wiring-map.test.js` → **81 tests, 81 pass, 0 fail**, measured on the
+tree that became **46defc7**, which is the tree carrying this section.
 
 | row | injected defect | sha256 after | result | test turned red |
 |---|---|---|---|---|
@@ -321,6 +322,51 @@ with guard 1 relaxed the rule still skipped them — guard 2 was holding the fam
 guard 1 was never reached. A fixture that cannot distinguish two guards tests neither.
 Each member differs from the others now, and the slice of exactly two of them is
 asserted to FIRE, so guard 1 is measured as a count rather than as a line of text.
+
+### The exact edits
+
+**C1** — `columnDefaults()`, `scripts/wiring-map.mjs`:
+```
+-    if (d && !/^\s*NULL\b/i.test(d[1])) out.add(`${t}.${c}`);
++    if (d) out.add(`${t}.${c}`);
+```
+
+**C2** — the same function, short-circuited to the behaviour it had before the fix:
+```
+ function columnDefaults(files) {
+   const out = new Set();
++  if (out) return out;
+```
+
+**C3** — `sameNameCollisions()`, the exactly-two guard:
+```
+-    if (new Set(list.map(n => n.file)).size !== 2) continue;
++    if (new Set(list.map(n => n.file)).size < 2) continue;
+```
+
+**C4** — the same function, the actually-different guard:
+```
+-        if (pa === pb && !extra.length) continue;      // the same thing, twice: not a trap
++        if (false) continue;      // the same thing, twice: not a trap
+```
+
+**C5** — the same function, the re-export guard:
+```
+-        if (a.file === b.file || linked(a.file, b.file)) continue;
++        if (a.file === b.file) continue;
+```
+
+**C6** — the same function, an accepted collision comes back:
+```
+-        if (seen.has(key) || ignored.has(`collision:${key}`)) continue;
++        if (seen.has(key)) continue;
+```
+
+**C7**, the control — a comment, no behaviour:
+```
+-    // EXACTLY TWO, AND NO MORE — see the comment at the call site.
++    // EXACTLY TWO, AND NO FEWER — see the comment at the call site.
+```
 
 **What extracting the rule cost.** `sameNameCollisions` is exported for the test, so
 the map gains one `export-imported-by-nothing` row about it — 522 → 523. That row is
@@ -445,6 +491,14 @@ edit that was never made.
 | **A1** | the six-line leading-literal scan in `outboundUrlPaths` is removed | `63eebe1ffc5e` | 74 pass, 1 fail | *outboundUrlPaths sees a path that starts the string, not only one that follows a marker* |
 | **A2** | `routeAnswersCall` returns `true` unconditionally — the rule as it was before the crossing was rejected | `a564bc04561d` | 74 pass, 1 fail | *a call wildcard and a route parameter cannot excuse each other in opposite positions* |
 | **A3** | **NO-OP CONTROL** — one comment reworded, no behaviour touched | `f69a77e681d8` | 75 pass, 0 fail | none, correctly |
+
+**A1 to A3 describe their edits rather than quoting them, and that is an open item.**
+The standard is that a row carries its before and after verbatim, because a description
+is something a reader has to reconstruct. These three were measured at `58e311e`, two
+baselines ago; quoting them honestly means re-running them at head, which changes their
+counts and makes the table disagree with the commit it was written for. They stay as
+they are, named as non-compliant, until that re-measure happens. C1 to C7 above and the
+D rows in `docs/tdd/docs-citations-resolve-by-basename.tdd.md` meet the standard.
 
 The control is the row that makes the other two mean something. Its checksum differs
 from the baseline, so the file really was rewritten between runs; the suite is unmoved,

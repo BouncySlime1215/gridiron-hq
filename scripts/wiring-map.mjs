@@ -1159,6 +1159,50 @@ function docsIndex() {
   return { has, byBase };
 }
 
+/**
+ * A source module that reads a file under docs/ AT RUNTIME.
+ *
+ * `docs/CLAUDE-NEXT-STEPS.md` is not documentation. `nfl-research-lab.js:279` reads it
+ * off disk and serves it over `/research-lab/plan`, and `nfl-execution-integrity.test.js`
+ * compares it byte for byte, so editing a markdown file turns the suite red and changes
+ * what a route returns. That is application data wearing a document's clothes, and no
+ * import graph can see it: there is no import, only a path in a string.
+ *
+ * The map already parsed runtime paths — `runtimeFilePaths()` — but fed them to exactly
+ * one question, whether the Docker image copies the directory, behind a gate requiring
+ * the base to be a recognised repo-root name. `nfl-research-lab.js` joins a local
+ * `root`, so the row was discarded before anything looked at it. A file read was modelled
+ * as a deployment question and never as a dependency.
+ *
+ * Two classes, because the consequence differs and a rule that merges them teaches
+ * nobody: `served` is a server module, where editing the file changes what the running
+ * application returns; `tooling` is a script, where editing it changes what a report
+ * says. Report-only in both cases — depending on a file is not a defect, it is a fact
+ * worth being unable to miss.
+ */
+function docsRuntimeReads(files, index) {
+  const out = [];
+  const READ = /(?:readFile|readFileSync|createReadStream|sendFile)\s*\(\s*['"`](docs\/[^'"`]+)['"`]/g;
+  for (const f of files) {
+    const klass = f.tree === 'server' ? 'served' : f.tree === 'script' ? 'tooling' : null;
+    if (!klass) continue;
+    const seen = new Set();
+    const note = (cited, offset) => {
+      if (seen.has(cited)) return;
+      seen.add(cited);
+      out.push({ file: f.path, line: f.text.slice(0, offset).split('\n').length,
+        cited, klass, exists: index.has.has(cited) || fs.existsSync(path.join(ROOT, cited)),
+        scope: f.scope });
+    };
+    for (const r of runtimeFilePaths(f.text)) {
+      if (r.dir !== 'docs') continue;
+      note(r.path, f.text.indexOf(r.path.split('/').pop()));
+    }
+    for (const m of f.text.matchAll(READ)) note(m[1], m.index);
+  }
+  return out;
+}
+
 function docsCitations(files, index) {
   const out = [];
   const seen = new Set();
@@ -2291,6 +2335,25 @@ function findings(model, ann) {
         evidence: [`${d.file}:${d.line}`] });
     }
   }
+  // ---- a source module that reads a file under docs/ at runtime -----------
+  // Report-only. See docsRuntimeReads(): a path in a string is an edge no import
+  // graph can see, and one of these is served over a route.
+  {
+    const index = docsIndex();
+    for (const d of docsRuntimeReads([...files.values()], index)) {
+      add({ kind: 'context', rule: 'source-reads-a-file-under-docs', scope: d.scope,
+        subject: d.cited, weight: 0,
+        detail: !d.exists
+          ? `${d.file} reads this path at runtime and no such file exists — the read fails `
+            + 'wherever it is reached'
+          : d.klass === 'served'
+            ? `${d.file} reads this file at runtime, so it is application data rather than `
+              + 'documentation: editing or moving it changes what the running app returns'
+            : `${d.file} reads this file at runtime, so moving it breaks a tool rather than `
+              + 'a document',
+        evidence: [`${d.file}:${d.line}`] });
+    }
+  }
   for (const d of deadTombstoneTargets([...files.values()], surfaces.filter(s => s.kind === 'route'))) {
     add({ kind: 'context', rule: 'tombstone-points-at-nothing', scope: d.scope, subject: d.target,
       weight: 0,
@@ -3276,7 +3339,7 @@ function toMarkdown(model, found, ann) {
 // ---------------------------------------------------------------------------
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
-export { sameNameCollisions, routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, docsCitations, creationSite, depthAtLine, ddlDefinitionName, resolveDefinition, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
+export { sameNameCollisions, docsRuntimeReads, routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, docsCitations, creationSite, depthAtLine, ddlDefinitionName, resolveDefinition, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

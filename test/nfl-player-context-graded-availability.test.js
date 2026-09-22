@@ -348,9 +348,38 @@ function normaliseSource(src) {
   return out;
 }
 
-// Every local name in this file that refers to the target function.
+// Every local name in this file that refers to the target function. A parse
+// that only knows the exported name misses an alias entirely -- this project's
+// own reach tooling carried that blind spot (§R33), so it is resolved here
+// rather than assumed away.
+//
+// A namespace call (`ctx.gradedAvailabilityMultiplier(...)`) needs no binding
+// of its own: the call-site pattern is anchored on a word boundary and `.` is
+// not a word character, so the bare name matches inside the member expression.
 function localBindingsFor(code, target) {
-  return new Set([target]);
+  const names = new Set([target]);
+  const ident = '[A-Za-z_$][\\w$]*';
+
+  // `import { target as gam } from ...` and
+  // `const { target: gam } = await import(...)`. Both spell the rename
+  // differently (`as` vs `:`) and both are in R54.3's required cases.
+  const braced = /(?:import|const|let|var)\s*\{([^}]*)\}\s*(?:from|=)/g;
+  for (const match of code.matchAll(braced)) {
+    for (const spec of match[1].split(',')) {
+      const renamed = spec.trim().match(new RegExp(`^${target}\\s*(?:as|:)\\s*(${ident})$`));
+      if (renamed) names.add(renamed[1]);
+    }
+  }
+
+  // `const gam = ctx.target;` and `const gam = (await import(...)).target;`.
+  // The lookahead is what keeps a plain CALL from being read as an alias:
+  // in `const m = (id) => target(id, ...)` the target is being invoked, and
+  // `m` is not another name for it.
+  const indirect = new RegExp(
+    `(?:const|let|var)\\s+(${ident})\\s*=\\s*[^;\\n]*?\\b${target}\\b\\s*(?!\\s*\\()`, 'g');
+  for (const match of code.matchAll(indirect)) names.add(match[1]);
+
+  return names;
 }
 
 function splitTopLevelArgs(argText) {
@@ -540,6 +569,14 @@ test('Auditor §R51.1: the real tree scans clean -- no caller under server/ or s
     `sanity: the scan must be reading the real repository, found only ${records.length} files under server/+scripts/`);
   assert.ok(records.some(r => r.path === 'server/services/nfl-player-context.js'),
     'sanity: the scan must include the file that declares the multiplier');
+
+  // The binding resolver must not hallucinate names. In the declaring file the
+  // only local name for the target is the exported one, so anything extra here
+  // means a call is being read as an alias -- which would make every finding
+  // the scan reports afterwards suspect rather than merely noisy.
+  const declaring = records.find(r => r.path === 'server/services/nfl-player-context.js');
+  assert.deepEqual([...localBindingsFor(normaliseSource(declaring.source), TARGET)], [TARGET],
+    'expected exactly one local binding in the declaring file, the exported name');
 
   const declarations = records
     .flatMap(r => (r.source.includes(TARGET) ? callSitesIn(r) : []))

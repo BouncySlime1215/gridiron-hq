@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { verifyLeagueConfig, CONFIG_VERIFICATION_KEYS } from '../server/services/league-config-verification.js';
+import { verifyLeagueConfig, summarizeConfigReport, CONFIG_VERIFICATION_KEYS } from '../server/services/league-config-verification.js';
 import { REAL_1PPR_ITEMS } from './fixtures/espn-scoring-items.js';
 
 /**
@@ -100,11 +100,11 @@ test('ESPN: bench/IR slot ids (unmapped) are counted as dropped, not silently ab
   // 20 = bench (a real ESPN slot id, not in this codebase's name map), 21 = IR.
   const report = verifyLeagueConfig(espnLeague({
     scoringItems: REAL_1PPR_ITEMS,
-    lineupSlotCounts: { 0: 1, 2: 2, 4: 2, 6: 1, 23: 1, 20: 6, 21: 2 } // 6 named + 8 unnamed = 14 total
+    lineupSlotCounts: { 0: 1, 2: 2, 4: 2, 6: 1, 23: 1, 20: 6, 21: 2 } // 7 named + 8 unnamed = 15 total
   }));
   assert.equal(report.lineup_slots.status, 'defaulted', 'a dropped slot means the setting is not fully confirmed');
-  assert.equal(report.lineup_slots.total_slots, 14);
-  assert.equal(report.lineup_slots.named_slots, 6);
+  assert.equal(report.lineup_slots.total_slots, 15);
+  assert.equal(report.lineup_slots.named_slots, 7);
   assert.equal(report.bench_ir.status, 'unavailable');
   assert.equal(report.bench_ir.dropped_slot_count, 8);
 });
@@ -201,6 +201,34 @@ test('a league with mixed confirmation produces a loud_warning naming exactly th
   assert.ok(!report.unconfirmed_settings.includes('keeper_dynasty'), 'dynasty was confirmed here and must not be listed as unconfirmed');
   assert.equal(report.confirmed_count, CONFIG_VERIFICATION_KEYS.length - report.unconfirmed_settings.length);
   assert.match(report.loud_warning, /scoring/);
+});
+
+test('ESPN never gets a waiver_type value even if a payload coincidentally carries a league.settings shape -- the platform gate blocks it, not a lucky field-path miss', () => {
+  const lg = {
+    platform: 'espn', ppr: 1, roster_positions: null,
+    payload: JSON.stringify({ settings: {}, league: { settings: { waiver_type: 'faab' } } })
+  };
+  const report = verifyLeagueConfig(lg);
+  assert.equal(report.waiver_type.status, 'unavailable',
+    'ESPN must never report a confirmed or best_effort waiver type, regardless of payload shape -- there is '
+    + 'no verified field mapping for it on ESPN at all');
+});
+
+test('summarizeConfigReport: loud_warning is null only when every setting is confirmed', () => {
+  const allConfirmed = Object.fromEntries(CONFIG_VERIFICATION_KEYS.map(k => [k, { status: 'confirmed' }]));
+  const summary = summarizeConfigReport(allConfirmed);
+  assert.equal(summary.unconfirmed_settings.length, 0);
+  assert.equal(summary.confirmed_count, CONFIG_VERIFICATION_KEYS.length);
+  assert.equal(summary.loud_warning, null, 'a fully-confirmed report must not carry a warning');
+});
+
+test('summarizeConfigReport: one unconfirmed setting is enough to produce a loud_warning', () => {
+  const mostlyConfirmed = Object.fromEntries(CONFIG_VERIFICATION_KEYS.map(k => [k, { status: 'confirmed' }]));
+  mostlyConfirmed.faab_budget = { status: 'unavailable' };
+  const summary = summarizeConfigReport(mostlyConfirmed);
+  assert.equal(summary.unconfirmed_settings.length, 1);
+  assert.equal(summary.confirmed_count, CONFIG_VERIFICATION_KEYS.length - 1);
+  assert.match(summary.loud_warning, /faab_budget/);
 });
 
 test('a malformed payload JSON string does not throw, and everything reads unavailable', () => {

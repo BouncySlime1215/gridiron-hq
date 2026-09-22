@@ -76,6 +76,41 @@ undefined` — no test hook, no new tiers. GREEN is 7/7.
 | counter moved from the 10 to the 20 | 1 fail |
 | restored | 7/7 pass |
 
+## 3b. The ablation — it passes, and the margin is small
+
+Run after ingesting play-by-play 2022-2025 locally (21,427 player-weeks). Fit
+on 2022-2024, scored **once** on 2025, replicating `fitRates` exactly (EM over
+player-weeks, 12 iterations, `MIN_EXPOSURE` 200) with the class set and seeds as
+parameters, so nothing in the repo was modified to run it. Both arms are the
+real before and after, each with its own seeds. 5,229 scored player-weeks.
+
+| | MAE | RMSE | Poisson NLL | bias |
+|---|---:|---:|---:|---:|
+| three tiers (before) | 0.27196 | 0.44280 | 0.45006 | -4.59% |
+| four tiers (after) | **0.27010** | **0.44186** | **0.44861** | -4.85% |
+| change | -0.68% | -0.21% | -0.32% | +0.26 pt worse |
+
+**Significance, not just direction.** Paired, player-clustered bootstrap on the
+per-row absolute error, 2,000 resamples, seed 20260917, 591 players: mean change
+**-0.001859**, 95% CI **[-0.002678, -0.000125]**. The interval **excludes zero**,
+so the improvement is real rather than noise.
+
+**It is the tiers, not the seeds.** Refitting the four-tier arm with every seed
+scaled by 0.5, 0.75, 1.5 and 2 moves the test MAE only between 0.27005 and
+0.27068 — all of them still better than the three-tier arm's 0.27196. The seeds
+wash out in the fit, which is what the EM is supposed to do and the confound
+worth ruling out given that the seeds changed in the same commit.
+
+**The honest caveat.** Total-touchdown bias gets slightly *worse*, from -4.59%
+to -4.85% — the model under-predicts league touchdowns a little more than
+before. The split improves per-player accuracy and does not fix, and mildly
+aggravates, a pre-existing under-prediction. That is worth someone's attention
+on its own and is not this change's to fix.
+
+**Scale.** A 0.68% reduction in mean absolute error on expected touchdowns is a
+small correction. It is the correction the measurement predicted, it is real,
+and nobody should describe it as more than it is.
+
 ## 4. The five questions
 
 1. **Is this well built?** The arithmetic, yes — the tiers partition the touches
@@ -83,9 +118,12 @@ undefined` — no test hook, no new tiers. GREEN is 7/7.
    all die. It is additive: nothing existing in either file changed behaviour on
    a freshly ingested database.
 2. **Is it based on stats, or made up?** R&D's band rates are measured on
-   play-by-play 2022-2025 with stated n. **This thread did not re-derive them** —
-   there is no populated database in this container, so they are quoted, not
-   verified. Flagged as such rather than repeated as if checked.
+   play-by-play 2022-2025 with stated n. **This thread still has not re-derived
+   them.** A local ingest now exists, but it stores per-player-week totals rather
+   than per-play bands (`nfl_play_by_play` comes back empty), so 16.4%-versus-4.5%
+   cannot be checked from it — that needs raw play-by-play. The rates stay
+   quoted. What *is* measured here is whether the split predicts better, which
+   is §3b.
 3. **How do we know?** For the arithmetic, §3. For the value of the split,
    **we do not know yet**: the gate is an A/B ablation, four tiers against
    three, fit 2022-2024 and tested on 2025, scored through `backtest.js`'s CRPS

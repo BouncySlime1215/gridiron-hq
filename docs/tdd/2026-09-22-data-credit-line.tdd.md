@@ -129,7 +129,8 @@ there is no hypothesis, held-out split or ship rule to register.
 
 ## 3. RED → GREEN
 
-`test/data-credit-line.test.js`, 7 tests. It is the repo's first test that
+`test/data-credit-line.test.js`, 7 tests at RED and GREEN (9 after the
+skeptic round below). It is the repo's first test that
 renders a client component: the TSX is transpiled with the repo's own
 `typescript` (`transpileModule`, `jsx: react-jsx`), its `../api` import is
 swapped for a stub whose `useApi` returns the state each case picks, and it is
@@ -186,6 +187,106 @@ exits 0. Known-error control: a file passing `foo={1}` to `DataCredit` and
 assigning a licence string to a `number` gets 2 errors, exit 2. `node --check`
 passes on all four changed JS files.
 
+### Skeptic round 1 (head `687b9c39`): the tests were too weak, not the component
+
+An independent skeptic found three gaps. All three were real; reproduced
+before any test was touched by adding the skeptic's mutants to the sweep
+(M16-M21, section 5) and running it against `687b9c39`:
+**21 applied, 15 killed, 6 SURVIVED** (M16-M21, each 7 pass / 0 fail), 3 of 3
+controls as designed. Output kept at
+`scratchpad/f08-sweep-before-687b9c39.txt` (not committed).
+
+1. **Statelessness was claimed, not pinned.** `react-dom/server` runs no
+   effects and has no `window`, so a credit that hid itself in a `useEffect`
+   once the banner was dismissed (M16, skeptic U1) or only when `window`
+   exists (M18, U3) passed every render.
+2. **The call-site check read only the characters before `<DataCredit />`.**
+   A condition followed by a wrapper element got through: `{cond && <div>
+   <DataCredit /> </div>}` (M20, S1) and `<div hidden><DataCredit /></div>`
+   (M21, S2). The one-line `{cond && <DataCredit />}` (S3) was already killed;
+   it is M14.
+3. **"Visible" was not pinned.** Tests 1-3 read text with tags stripped, so a
+   `hidden` class on the footer (M17, U2) passed.
+
+The component did not change behaviour. The fix is in the tests, in two
+commits:
+
+- **`0f49ceb2`** "test: pin the credit's statelessness, visibility and call
+  site that react-dom/server cannot see (F-08)". The file now has 9 tests; the
+  old tests 4-7 are now 6-9.
+  - **New test 4, visible.** No element of the rendered credit carries a hiding
+    class (`hidden`, `sr-only`, `invisible`, `collapse`, `opacity-0`,
+    `text-transparent`, `h-0`/`w-0`/`size-0`/`scale-0` and kin, with any
+    variant prefix such as `max-sm:`), a `hidden`, `inert` or
+    `aria-hidden="true"` attribute, or an inline `display:none`,
+    `visibility:hidden`, `opacity:0` or `font-size:0`. Checked in the
+    fresh-and-dismissed state and in a failed check with browser globals.
+    Known-nonzero control: the checker flags all 7 marks in a known-hidden
+    sample and none in a known-visible one.
+  - **New test 5, stateless**, four pins. (1) `DataCredit()` called as a plain
+    function outside any render returns an element; a hook call throws there.
+    Control: the banner, which uses `useState`, throws. (2) Five states (no
+    report; fresh and dismissed; behind in a browser; fresh and dismissed in a
+    browser; failed check, dismissed, in a browser) render byte-identical
+    markup and never call the freshness route. "In a browser" means
+    `window`, `document` and `localStorage` exist and all say dismissed. (3)
+    Its compiled source matches no hook call and no browser global
+    (`sessionStorage`, `localStorage`, `window`, `document`, `globalThis`,
+    `navigator`, `location`, `matchMedia`). Control: the banner's source
+    yields exactly `sessionStorage`, `useApi(`, `useState(`. (4) Read with the
+    TypeScript AST, the only names DataCredit's body takes from outside itself
+    are `DATA_CREDITS` and `creditLink`, and both are module-level `const`s
+    whose initialisers reference nothing. Control: the same walk finds
+    `useApi`, `useState` and `sessionStorage` in the banner.
+  - **Test 9 (was 7), call site, now on the TypeScript AST.** The credit is a
+    prop-less `<DataCredit />` whose parent is the same node as `<main>`'s
+    parent, placed after `<main>`. Every node from it up to App's `return` is a
+    plain element or fragment (no `&&`, ternary, callback or call), and none
+    carries a hiding class or attribute. That `return` is App's last top-level
+    statement. Known-nonzero control: the JSX checker finds real hiding in
+    App.tsx (the header's `hidden sm:inline` label and the drawer overlay's
+    `aria-hidden="true"`).
+- **`3d215a60`** "test: AST failures print their message, a hook call fails by
+  name, the component says what the test holds it to (F-08)". While checking
+  the kills, M20 and M21 showed that `assert.equal` on two TypeScript nodes
+  dumps the whole circular syntax tree into the TAP output. Identity is now
+  compared with `assert.ok(a === b, message)`. A hook call now fails as
+  "DataCredit calls a hook". DataCredit's doc comment names the pin, so a
+  future editor updates the test on purpose. The sweep's `spawnSync` gets a
+  64 MB buffer.
+
+Two more mutants were written to get past the skeptic's own proposed fix (a
+`toString()` regex): **M22** reads `window.sessionStorage` once at module load
+into a constant that DataCredit checks, and **M23** computes `DATA_CREDITS` as
+`[]` in a browser once dismissed. Neither name appears in DataCredit's body,
+and the module loads without `window` in the test, so both **SURVIVED** the
+`687b9c39` tests (7 pass / 0 fail, exit 0) and pass pins (1)-(3). Pin (4)
+kills them.
+
+**Liveness, one failing assertion per new mutant, on `3d215a60`** (a
+throwaway worktree per mutant, same test command; scratch runner
+`scratchpad/f08-fix/messages.mjs`):
+
+| mutant | result | failing assertion |
+|---|---|---|
+| M16 `useEffect` hides after mount (U1) | 8 pass / 1 fail | test 5: "DataCredit calls a hook: called outside a render it threw TypeError: Cannot read properties of null (reading 'useState')" |
+| M17 `hidden` class on the footer (U2) | 8 / 1 | test 4: "with all_fresh=true and dismissed=true, part of the credit is hidden" |
+| M18 hides when `window` says dismissed (U3) | 7 / 2 | test 4: "with a failed freshness check, in a browser, the credit does not render its footer"; test 5: "with all fresh, dismissed, in a browser, the credit renders differently" |
+| M19 `max-sm:hidden` on each entry | 8 / 1 | test 4: "with all_fresh=true and dismissed=true, part of the credit is hidden" |
+| M20 condition + wrapper div (S1) | 8 / 1 | test 9: "the credit is not a direct sibling of <main> … its parent is JsxElement "<div className="mt-auto"> <DataCredit /> </div>"" |
+| M21 `<div hidden>` wrapper (S2) | 8 / 1 | test 9: same message, parent `<div hidden><DataCredit /></div>` |
+| M22 browser read at module load | 8 / 1 | test 5: "DataCredit uses something from outside its body other than DATA_CREDITS and creditLink" |
+| M23 `DATA_CREDITS` computed in a browser | 8 / 1 | test 5: "DATA_CREDITS is computed from something rather than written out as data" |
+
+On `3d215a60` with the unchanged component: **9 of 9 pass, exit 0**. The
+three suites that read `DataFreshnessBanner.tsx` (`data-credit-line`,
+`data-freshness-banner-swap`, `data-freshness-grain`): **22 tests, 22 pass,
+0 fail, 0 skipped**, exit 0. The server files are unchanged since `1d875dea`,
+so the 17-file neighbour run above was not repeated. Typecheck of the banner
+file with the repo's `tsconfig` options: exit 0; the 2-error control file:
+exit 2, 2 errors. The rendered credit text is unchanged
+(`node .local-db/render-credit.mjs`).
+
 ## 4. What it does
 
 On screen, under every page of the app (App's main column, after `<main>`):
@@ -216,36 +317,50 @@ above a thin rule, with no icon, badge or colour of its own.
 
 After the change, `GET /api/data-freshness` `sources` lists three sources:
 nflverse-data (CC BY 4.0), ffopportunity (CC BY-SA 4.0) and nflverse-data
-`ftn_charting` (CC BY-SA 4.0). Test 4 fails if the on-screen list and that
-array ever differ in source or licence. Test 5 fails if the FTN descriptor's
-`release_url` stops being the URL `ingestCharting` fetches.
+`ftn_charting` (CC BY-SA 4.0). Test 6 fails if the on-screen list and that
+array ever differ in source or licence. Test 7 fails if the FTN descriptor's
+`release_url` stops being the URL `ingestCharting` fetches. (Test numbers from
+here on are the 9-test file at `3d215a60`; the RED and GREEN output in
+section 3 uses the 7-test numbering it ran with.)
 
 Nav: `client/src/navigation.ts` untouched (`git diff --stat origin/main -- client/src/navigation.ts`
 is empty). It still has 8 `to:` entries.
 
-## 5. Mutation sweep: 15 applied, 15 killed; 2 of 2 controls as designed
+## 5. Mutation sweep: 23 applied, 23 killed; 3 of 3 controls as designed
 
 `node docs/tdd/sweeps/data-credit-line-mutations.mjs`. It runs in a throwaway
-git worktree at HEAD (`1d875dea`) and never writes the working tree. Wall time
-17.8 s.
+git worktree at HEAD and never writes the working tree. On `3d215a60`:
+**23 applied, 23 killed, 0 survived or invalid; 3 of 3 controls as designed**,
+exit 0, 73 s wall (machine load about 12). The first run, on `1d875dea` with
+M1-M15 and C1-C2, gave 15 of 15 killed in 17.8 s; on `687b9c39` with M16-M21
+added, 15 killed and 6 survived (section 3). Test numbers below are the 9-test
+file.
 
 | | mutation | where | killed by |
 |---|---|---|---|
-| M1 | credit returns null when `all_fresh` | unit | tests 1, 3 |
-| M2 | credit returns null once dismissed | unit | tests 1, 3 |
-| M3 | FTN dropped from `DATA_CREDITS` | unit | tests 1, 2, 4 |
-| M4 | FTN credited under CC BY 4.0 | unit | tests 1, 2, 4 |
-| M5 | FTN named "FTN Data" without "via nflverse" | unit | tests 1, 2 |
+| M1 | credit returns null when `all_fresh` | unit | tests 1, 3, 4, 5 |
+| M2 | credit returns null once dismissed | unit | tests 1, 3, 4, 5 |
+| M3 | FTN dropped from `DATA_CREDITS` | unit | tests 1, 2, 5, 6 |
+| M4 | FTN credited under CC BY 4.0 | unit | tests 1, 2, 5, 6 |
+| M5 | FTN named "FTN Data" without "via nflverse" | unit | tests 1, 2, 5 |
 | M6 | licence names shown but not linked | unit | test 3 |
 | M7 | "adapted for this app" removed | unit | test 3 |
-| M8 | route drops FTN from `sources` | producer | tests 4, 5 |
-| M9 | ffopportunity back to CC BY 4.0 | producer | tests 4, 6 |
-| M10 | FTN descriptor names `…/ftn_charts` | producer | test 5 |
-| M11 | FTN descriptor not frozen | producer | test 5 |
-| M12 | `ingestCharting` fetches a different release (`nfl-formations.js`) | loader | test 5 |
-| M13 | App no longer renders `<DataCredit />` | call site | test 7 |
-| M14 | App renders it as `{!inBetting && <DataCredit />}` | call site | test 7 |
-| M15 | App renders it above the page, beside the banner | call site | test 7 |
+| M8 | route drops FTN from `sources` | producer | tests 6, 7 |
+| M9 | ffopportunity back to CC BY 4.0 | producer | tests 6, 8 |
+| M10 | FTN descriptor names `…/ftn_charts` | producer | test 7 |
+| M11 | FTN descriptor not frozen | producer | test 7 |
+| M12 | `ingestCharting` fetches a different release (`nfl-formations.js`) | loader | test 7 |
+| M13 | App no longer renders `<DataCredit />` | call site | test 9 |
+| M14 | App renders it as `{!inBetting && <DataCredit />}` (skeptic S3) | call site | test 9 |
+| M15 | App renders it above the page, beside the banner | call site | test 9 |
+| M16 | `useState` + `useEffect` hide it after mount once dismissed (skeptic U1) | unit | test 5 |
+| M17 | `hidden` class on the footer (skeptic U2) | unit | test 4 |
+| M18 | returns null when `window.sessionStorage` says dismissed (skeptic U3) | unit | tests 4, 5 |
+| M19 | `max-sm:hidden` on each credit entry | unit | test 4 |
+| M20 | `{cond && <div className="mt-auto"><DataCredit /></div>}` (skeptic S1) | call site | test 9 |
+| M21 | `<div hidden><DataCredit /></div>` (skeptic S2) | call site | test 9 |
+| M22 | browser read once at module load into a constant DataCredit checks | unit | test 5 |
+| M23 | `DATA_CREDITS` computed as `[]` in a browser once dismissed | unit | test 5 |
 
 **Controls:**
 - **C1, designed survivor:** the footer's text colour, `text-slate-500` →
@@ -253,6 +368,9 @@ git worktree at HEAD (`1d875dea`) and never writes the working tree. Wall time
   So the tests do not over-pin styling.
 - **C2, not applied:** a replace aimed at `data_license: 'ODbL'`, which is not
   in the file. It was reported **INVALID** and not counted as killed.
+- **C3, designed survivor for the call site:** `<main>`'s padding `p-4` →
+  `p-5`. It **survived**, so the AST check pins the credit's placement, not
+  App's markup.
 
 ## 6. Known defects and what this does not cover
 
@@ -280,28 +398,46 @@ git worktree at HEAD (`1d875dea`) and never writes the working tree. Wall time
    this line with "officials and schedules".
 4. **The FTN descriptor lives outside its loader.** Unit R-02 is editing
    `nfl-formations.js`, so `FTN_CHARTING_SOURCE` went into a new file, tied to
-   the loader by test 5 (M12 proves the tie). Follow-up: once R-02 merges, move
+   the loader by test 7 (M12 proves the tie). Follow-up: once R-02 merges, move
    the descriptor next to `ingestCharting`.
 5. **No browser check.** The render is `react-dom/server`, and placement is
    checked from App's source. Nobody has looked at it in a running app. The
    `#133` test finds `NFLVERSE_SOURCE` with `sources.find(s => s.repo === 'nflverse/nflverse-data')`,
    and FTN shares that `repo`. That test passes only because nflverse comes first
    in the array. The ordering is kept, and it is fragile.
+6. **What the visibility and statelessness pins still do not see.** They read
+   the credit's own markup and App's JSX. They do not see a stylesheet rule
+   elsewhere that targets the footer, a sibling that covers it (a fixed
+   overlay), off-screen positioning (`absolute -left-[9999px]`, a translate),
+   or text the same colour as the background (C1 shows colour is
+   deliberately unpinned). The closure pin (test 5, part 4) is strict on
+   purpose: extracting a helper component or constant fails it until the test
+   names the new dependency. The early `return` in App for `/sign-in` and
+   `/sign-in/complete` renders outside the chrome with no credit; those pages
+   fetch only `/api/auth/providers` and `/api/auth/google/complete`
+   (`grep -n fetch client/src/pages/SignIn*.tsx`), so no licensed data is
+   shown there.
 
 ## 7. Nick's five questions
 
 1. **Well built?** Yes. The server's `sources` stays the one list of what the
    app loads and under which licence. The on-screen line mirrors it, and a test
    fails if they differ. The credit is its own component, mounted once and
-   unconditionally, so no banner state can hide it. 15 of 15 mutants die,
-   including three at the App call site and one in the loader.
+   unconditionally, so no banner state can hide it. After the skeptic round,
+   the tests also pin what server rendering cannot see: no hooks or browser
+   reads (directly or through what it closes over), nothing hidden, and a
+   plain sibling of `<main>` in App's syntax tree. 23 of 23 mutants die,
+   including five at the App call site and one in the loader.
 2. **Stats or made up?** Neither. There are no statistics here. The licences
    were fetched and quoted: nflverse-data `LICENSE.md` sha256 `2a82ac9b…`,
    nflreadr `R/load_ftn_charting.R` at `23f915a5`, and the ffopportunity README
    at `74dcb35a`.
 3. **How we know:** no backtest applies. What stands behind it: RED `801e5b89`
    fails 7 of 7, GREEN `1d875dea` passes 7 of 7, 203 of 203 in the neighbouring
-   suites, and the sweep kills 15 of 15 with 2 of 2 controls as designed. The
+   suites. After the skeptic round, `3d215a60` passes 9 of 9, the three
+   banner-reading suites pass 22 of 22, and the sweep kills 23 of 23 with 3 of
+   3 controls as designed; the 6 skeptic mutants (and 2 more of the same
+   family) survived the old tests and each now fails a named assertion. The
    loaders were grepped, and the local copy (not production) holds 190,389 FTN
    charting rows and 28,596 ffopportunity rows, so both sources are really used.
 4. **Pointed anywhere else?** Yes. The corrected ffopportunity licence also
@@ -311,7 +447,7 @@ git worktree at HEAD (`1d875dea`) and never writes the working tree. Wall time
 5. **How it unifies:** there is one source list, on the freshness route, with
    one descriptor shape (`repo`, `dataset`, `data_license`, `license_url`), and
    one credit line checked against it. A new licensed source needs one
-   descriptor and one `DATA_CREDITS` row. Test 4 fails until both exist.
+   descriptor and one `DATA_CREDITS` row. Test 6 fails until both exist.
 
 **Defect fixed:** no visible credit anywhere
 (`client/src/components/DataFreshnessBanner.tsx:132` returns null, and nothing
@@ -320,9 +456,9 @@ else names a source; tree `d6d7bd5a`). FTN was missing from `sources`
 (`server/services/ffopportunity.js:21`).
 **Incumbent:** none. `grep -rn -i -E "CC BY|…|nflverse" client/src` found no
 credit.
-**Does NOT cover:** ShareAlike obligations, nfldata, Open-Meteo, and a browser
-check.
+**Does NOT cover:** ShareAlike obligations, nfldata, Open-Meteo, a browser
+check, and the hiding routes listed in section 6 item 6.
 **What would make it wrong:** a licensed source that the app loads but that
-is missing from `sources`. Test 4 only holds the two lists to each other, so a
+is missing from `sources`. Test 6 only holds the two lists to each other, so a
 source missing from both is invisible to it. Or a licence that changes upstream
 after 2026-09-22.

@@ -1231,10 +1231,13 @@ async function refreshSleeperPlayers() {
 }
 
 export const JOBS = {
-  mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, tier: 'live', label: 'MLB schedule and results' },
+  mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, tier: 'live', offThread: true,
+    label: 'MLB schedule and results' },
   mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, tier: 'heavy', label: 'MLB player game logs' },
-  mlb_boxscores: { run: refreshMlbBoxscores, maxAgeMinutes: 30, tier: 'live', label: 'MLB final boxscore settlement' },
-  mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, tier: 'live', label: 'MLB probable starters' },
+  mlb_boxscores: { run: refreshMlbBoxscores, maxAgeMinutes: 30, tier: 'live', offThread: true,
+    label: 'MLB final boxscore settlement' },
+  mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, tier: 'live', offThread: true,
+    label: 'MLB probable starters' },
   mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, tier: 'heavy', label: "Tomorrow's MLB picks" },
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live', offThread: true,
     label: 'Player team assignments — the actual fix for stale roster spots' },
@@ -1726,9 +1729,15 @@ export const ON_REQUEST_THREAD = new Map([
   ['decay_watch', 'model-evidence side, out of scope for this thread'],
   // LIVE TIER. These run inline every 90 seconds' worth of staleness check,
   // and each is the app answering nothing for as long as it takes. They are
-  // here rather than off-thread for the same two reasons as above: the betting
-  // model is out of scope for this thread, and the MLB feeds are a different
-  // sport this app's fantasy half never reads.
+  // here rather than off-thread because the betting model is out of scope for
+  // this thread.
+  //
+  // The three MLB feeds used to be here too, excused as "a different sport
+  // this app's fantasy half never reads". That was true and it was the wrong
+  // conclusion: a job nobody reads blocks the request thread for exactly as
+  // long as a job everybody reads. They hold no module-level state, their
+  // whole product is rows, and they already ran in a worker at boot, so the
+  // excuse was covering a job that had nothing stopping it. Moved 2026-09-22.
   //
   // The four on a 3-minute cadence are also where a worker per run stops being
   // free, and that is worth measuring before moving them rather than assuming
@@ -1743,9 +1752,6 @@ export const ON_REQUEST_THREAD = new Map([
   ['nfl_forward_settle', 'betting side, out of scope'],
   ['nfl_lines', 'betting side, out of scope'],
   ['nfl_prop_clv_free', 'betting side, out of scope'],
-  ['mlb_schedule', 'MLB feed; the fantasy half of this app never reads it'],
-  ['mlb_probables', 'MLB feed; the fantasy half of this app never reads it'],
-  ['mlb_boxscores', 'MLB feed; the fantasy half of this app never reads it'],
 
   // Not out of scope -- already solved a different way. refreshManagerSignals
   // calls refreshManagerSignalsOffThread (:647), which runs the heavy build in

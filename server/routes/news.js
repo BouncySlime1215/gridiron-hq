@@ -249,6 +249,7 @@ r.get('/signals', requireAuthenticated, (req, res) => {
     roster_size: myKeys.size,
     signals: tracked.signals,
     coverage: newsSignalCoverage(),
+    availability_basis: tracked.availability_basis,
     tracker: tracked.tracker
   });
 });

@@ -66,14 +66,31 @@ db.exec(`CREATE TABLE IF NOT EXISTS manager_player_view (
 export const SIGNAL_SOURCES = Object.freeze({
   roster: { label: 'ESPN roster', refreshed: 'every league sync', priceable: true },
   standings: { label: 'ESPN record and last matchup', refreshed: 'every league sync', priceable: true },
-  tx: { label: 'ESPN transactions', refreshed: 'every refresh tick (league_transactions_raw)', priceable: true },
+  // NOT "every refresh tick". league_transactions_raw has one writer —
+  // scripts/collect-league-transactions.mjs, spawned only from
+  // scripts/refresh-live-data.mjs, an OFF-SERVER loop — and fly.toml declares no
+  // `processes`, so nothing on the deployed app has ever written a row. This
+  // string is not decoration: signalRowsFor interpolates it into the `why`
+  // served on every tx signal, so a wrong cadence here is a wrong claim per
+  // metric on the client. `transactionsCollected` below serves the real date.
+  tx: { label: 'ESPN transactions',
+    refreshed: 'only when scripts/collect-league-transactions.mjs is run (off-server; see transactions.as_of)',
+    priceable: true },
   outcome: { label: 'All-play and luck (luck-panel, via the archetype build)',
     refreshed: 'when scripts/build-manager-archetypes.mjs runs', priceable: true },
   draft: { label: "This season's draft (archetype build)", refreshed: 'when scripts/build-manager-archetypes.mjs runs',
     // study/features/archetypes.md: no draft metric survived a year-over-year
     // repeatability test. Context for a human, never an input to a price.
     priceable: false },
-  chat: { label: 'League chat (private)', refreshed: 'every refresh tick', priceable: true },
+  // NOT "every refresh tick". The corpus is a private SQLite file on Nick's Mac,
+  // never in the deployed image, and its rollup is step 3 of
+  // scripts/refresh-live-data.mjs — off-server by that script's own header. Like
+  // `tx` above, this string is interpolated into the `why` served on every chat
+  // signal row, so a wrong cadence here is a wrong claim per metric on the client.
+  // `chatCorpusState` below serves the real date, and says when there is none.
+  chat: { label: 'League chat (private)',
+    refreshed: 'only when the league_chat step of scripts/refresh-live-data.mjs is run (off-server; see chat.as_of)',
+    priceable: true },
   nick: { label: "Nick's own read (prior, n=3)", refreshed: 'edited in code', priceable: true },
 });
 
@@ -271,16 +288,20 @@ const ARCHETYPE_METRICS = {
 function archetypeIndex(leagueId, season) {
   if (!tableExists('manager_archetypes')) return { present: false, byMember: new Map(), asOf: null };
   const byMember = new Map();
-  let asOf = null;
   for (const r of rows(`SELECT member_id, metric, value, n, source, computed_at FROM manager_archetypes
                         WHERE league_id = ? AND season = ? AND source IN ('draft', 'outcome')`, leagueId, season)) {
     const name = ARCHETYPE_METRICS[r.source]?.[r.metric];
     if (!name || !Number.isFinite(r.value)) continue;
     (byMember.get(r.member_id) ?? byMember.set(r.member_id, []).get(r.member_id))
       .push({ metric: name, value: r.value, n: r.n, source: r.source });
-    if (!asOf || r.computed_at > asOf) asOf = r.computed_at;
   }
-  return { present: true, byMember, asOf };
+  // The build date comes from the STORE, through the one accessor, not from this
+  // loop. It used to be accumulated inside it, after the `continue` above — so the
+  // date reported was "newest stamp among the metrics ARCHETYPE_METRICS maps", and
+  // editing that allowlist silently moved what a reader was told about when the
+  // data was built. Which metrics one consumer copies is not a fact about the age
+  // of the store.
+  return { present: true, byMember, asOf: archetypesBuilt(leagueId, season).as_of };
 }
 
 function rosterSignals(payload, rosterId) {
@@ -498,17 +519,310 @@ export function refreshManagerData({ leagueIds = null, confirmations = {} } = {}
   } finally { chat?.close(); }
 }
 
-/** Everything the trade engine needs about one league's managers, in one read. */
+/**
+ * Every stored signal for a league, each row carrying whether anything may price
+ * on it and why. The read side: the page shows everything, labelled. The route
+ * used to run this query itself and join the registry in a local helper, which
+ * put the one rule that matters in the one layer that prices nothing.
+ */
+export function signalRowsFor(leagueId) {
+  return rows(`SELECT roster_id, metric, value, n, source, computed_at FROM manager_signals
+               WHERE league_id = ? ORDER BY roster_id, source, metric`, leagueId)
+    .map(r => {
+      const reason = unpriceableReason(r.source);
+      const spec = SIGNAL_SOURCES[r.source] ?? null;
+      return {
+        roster_id: r.roster_id, metric: r.metric, value: r.value, n: r.n,
+        source: r.source, computed_at: r.computed_at,
+        priceable: reason == null,
+        why: spec
+          ? `${spec.label}; refreshed ${spec.refreshed}${reason ? ' — context only, never priced' : ''}`
+          : reason,
+      };
+    });
+}
+
+/**
+ * Why a source's rows may not be priced on, or null when they may.
+ *
+ * THE ONE PLACE THAT DECIDES. This used to be answered in the HTTP layer, at
+ * routes/trades.js, which is the one layer that does not price anything; the
+ * accessor the trade engine reads through returned every metric in one bag with
+ * no flag. Nothing priced on an unpriceable metric — checked by name across
+ * server/ and client/ — but nothing stopped it either, and a rule enforced only
+ * in the consumer that happens to obey it is not a rule.
+ *
+ * An UNDECLARED source returns a reason rather than null: absent must mean not
+ * priceable, never priceable by default, or a metric added without its registry
+ * entry silently becomes an input to a price.
+ */
+/**
+ * WHEN THE TRANSACTIONS UNDER THIS LEAGUE'S SIGNALS WERE LAST COLLECTED.
+ *
+ * `manager_signals.computed_at` is when the BUILD ran. It is not when the rows
+ * the build read were collected, and the two can be arbitrarily far apart:
+ * `scripts/collect-league-transactions.mjs` catches a per-league failure and
+ * continues, so a league whose ESPN cookies expired keeps its old rows while
+ * the build downstream recomputes happily. `computed_at` moves; the evidence
+ * underneath does not. Nothing in the app read these stamps before this.
+ *
+ * `last_seen_at` is the collector's own upsert stamp — every row it saw in the
+ * window gets today's value — so MAX(last_seen_at) is exactly "the collector
+ * last ran and reached ESPN for this league". MIN(first_seen_at) is how far
+ * back the forward capture reaches, which is a window and not a history: ESPN's
+ * mTransactions2 answers with about three days, so anything older was never
+ * captured at all.
+ *
+ * Absent table or no rows is `as_of: null` with a reason, never a borrowed
+ * stamp: "collected this morning" and "never collected" must not look alike.
+ */
+export function transactionsCollected(leagueId, season) {
+  const collector = 'scripts/collect-league-transactions.mjs (off-server; nothing on the deployed app writes this table)';
+  const empty = { as_of: null, rows: 0, first_seen: null, collected_by: collector };
+  if (!tableExists('league_transactions_raw')) {
+    return { ...empty, reason: 'league_transactions_raw does not exist on this database — the collector has never run here' };
+  }
+  const [r] = rows(`SELECT COUNT(*) AS n, MAX(last_seen_at) AS as_of, MIN(first_seen_at) AS first_seen
+                    FROM league_transactions_raw WHERE league_id = ? AND (? IS NULL OR season = ?)`,
+  leagueId, season ?? null, season ?? null);
+  if (!r || !r.n) {
+    return { ...empty, reason: `no transactions collected for this league yet — run ${collector.split(' (')[0]}` };
+  }
+  return { as_of: r.as_of ?? null, rows: r.n, first_seen: r.first_seen ?? null,
+    collected_by: collector, reason: null };
+}
+
+/**
+ * WHEN THE ARCHETYPE STORE BEHIND THE OUTCOME AND DRAFT SIGNALS WAS BUILT.
+ *
+ * Same rule as `transactionsCollected`, same shape, for the same reason: the
+ * `outcome` half of `manager_archetypes` becomes `luck_self_view`, which is a
+ * TERM IN THE TRADE PRICE, and the store is written only by
+ * `scripts/build-manager-archetypes.mjs` — by hand, off-server. A stale luck
+ * read priced into a deal is worse than a stale card, because nothing on the
+ * card says that number moved the money.
+ *
+ * Not `manager_signals.computed_at`, deliberately. That is when the signal build
+ * COPIED the value across; the signal build can re-run without the archetype
+ * build having run, so its stamp advances while the measurement underneath sits
+ * still. That is precisely the substitution this accessor exists to prevent.
+ */
+export function archetypesBuilt(leagueId, season) {
+  const builder = 'scripts/build-manager-archetypes.mjs (off-server; nothing on the deployed app writes this store)';
+  const empty = { as_of: null, rows: 0, first_seen: null, collected_by: builder };
+  if (!tableExists('manager_archetypes')) {
+    return { ...empty, reason: 'manager_archetypes does not exist on this database — the build has never run here' };
+  }
+  const [r] = rows(`SELECT COUNT(*) AS n, MAX(computed_at) AS as_of, MIN(computed_at) AS first_seen
+                    FROM manager_archetypes WHERE league_id = ? AND (? IS NULL OR season = ?)
+                      AND source IN ('draft', 'outcome')`, leagueId, season ?? null, season ?? null);
+  if (!r || !r.n) {
+    return { ...empty, reason: `no archetype rows for this league yet — run ${builder.split(' (')[0]}` };
+  }
+  return { as_of: r.as_of ?? null, rows: r.n, first_seen: r.first_seen ?? null,
+    collected_by: builder, reason: null };
+}
+
+/**
+ * IS THE CHAT CORPUS EVEN ON THIS MACHINE, AND WHEN WAS IT LAST ROLLED UP.
+ *
+ * The third store, and the one whose absence is the normal case rather than the
+ * exception: the corpus is a private SQLite file on Nick's Mac
+ * (`chatDbPath()`), deliberately never in the deployed image, and its rollup is
+ * step 3 of `scripts/refresh-live-data.mjs` — off-server. So on the live app
+ * `openChatDb()` returns null, every chat read downstream produces nothing, and
+ * a league with no corpus and a manager who never talks produced the same empty.
+ *
+ * Four states, four different sentences, because acting on them differs:
+ *   - no path configured at all;
+ *   - configured but the file is not here (the deployed app, every time);
+ *   - here but the rollup has not written `manager_chat_profile`;
+ *   - here and rolled up, with the date it was rolled up.
+ *
+ * Opens read-only and closes; never throws on absence, and never reports an
+ * absence as a clean empty.
+ */
+export function chatCorpusState() {
+  const roller = 'the league_chat step of scripts/refresh-live-data.mjs (off-server)';
+  // `chatDbPath()` always returns a string — the env var or the in-repo default —
+  // so "no path is configured" is not a reachable state and reporting it as one
+  // was a branch no test could ever enter. What IS worth saying is WHICH path,
+  // and where it came from: a mistyped GRIDIRON_CHAT_DB_PATH and a machine that
+  // genuinely has no corpus are the same absence with very different fixes.
+  const file = chatDbPath();
+  const path_source = process.env.GRIDIRON_CHAT_DB_PATH ? 'GRIDIRON_CHAT_DB_PATH' : 'default';
+  const empty = { as_of: null, computed_at: null, rows: 0, path: file, path_source, collected_by: roller };
+
+  let chat = null;
+  try { chat = openChatDb(); } catch (e) {
+    return { ...empty, reason: `the chat corpus at ${file} could not be opened: ${String(e?.message ?? e)}` };
+  }
+  if (!chat) {
+    // BOTH HALVES, because one of them alone sends the reader to the wrong fix.
+    // It cannot be produced here: the corpus is extracted from Apple Messages on
+    // Nick's Mac, and no amount of deploying will make it appear. It CAN be put
+    // here: POST /api/league-chat/upload (server/routes/league-chat.js) exists
+    // for exactly that, and scripts/chat-sync.mjs is what posts to it.
+    return { ...empty,
+      reason: `there is no chat corpus at ${file} — it cannot be produced on this machine `
+        + '(it is extracted from Apple Messages on Nick\'s Mac) but it can be uploaded to this one '
+        + 'with POST /api/league-chat/upload' };
+  }
+  try {
+    // TWO STAMPS, TWO FACTS, and conflating them is how a stale corpus reads as
+    // current. `as_of` is the newest message anyone in the corpus sent: the age
+    // of the DATA. `computed_at` is when the rollup last ran over it: the age of
+    // the AGGREGATE. The rollup runs every fifteen minutes whether or not a
+    // single new message arrived, so computed_at is always young and says
+    // nothing about whether the chat half of a manager read is current.
+    //
+    // No MIN() here. manager_chat_profile is built CREATE TABLE AS with one
+    // `datetime('now') AS computed_at` for the whole table
+    // (scripts/chat/extract_league_chat.py), so MIN and MAX of it are equal by
+    // construction — a "first seen" that is really just the same stamp again.
+    const r = chat.prepare(`SELECT COUNT(*) AS n, MAX(last_msg) AS as_of, MAX(computed_at) AS computed_at
+                            FROM manager_chat_profile`).get();
+    if (!r || !r.n) {
+      return { ...empty,
+        reason: `the chat corpus at ${file} is here but has no manager profiles yet — run ${roller}` };
+    }
+    return { as_of: r.as_of ?? null, computed_at: r.computed_at ?? null, rows: r.n,
+      path: file, path_source, collected_by: roller, reason: null };
+  } catch (e) {
+    // A missing table is a real state: the rollup drops and recreates
+    // manager_chat_profile outside a transaction, so a crash between the two
+    // leaves it gone. Reported, never passed off as an empty corpus.
+    return { ...empty, reason: `the chat corpus at ${file} is here but its rollup tables are not readable: ${String(e?.message ?? e)}` };
+  } finally { try { chat.close(); } catch { /* already closed */ } }
+}
+
+/**
+ * WHEN THE MODEL READ OF EACH MANAGER WAS EVALUATED.
+ *
+ * The fourth store, and the one whose stamp is least like its neighbour's.
+ * `manager_archetype_jev` holds a model's answers to typed questions about one
+ * manager's draft record — does he overvalue what he owns, does he counter or
+ * decline outright, does he sell low after a bad week. They are written by
+ * `scripts/build-manager-archetypes.mjs`, the same script that writes
+ * `manager_archetypes`, but ONLY when it is passed `--jev`, which is opt-in and
+ * needs a gateway key (`scheduler.js` reports the job as "not run — opt-in").
+ *
+ * So the archetype build's `computed_at` and this pass's `evaluated_at` are two
+ * clocks that drift apart by design: the build can run nightly while the model
+ * answers sit untouched for weeks. Serving `archetypesBuilt().as_of` beside a
+ * Jev answer would date a measurement by a process that did not make it — the
+ * substitution this whole family of accessors exists to prevent.
+ *
+ * The stamp is returned PER MANAGER, not per league. `storeJevAnswers` stamps
+ * each member as he is evaluated and the pass can stop halfway through a league
+ * (it costs money per manager), so a league-wide MAX() would print the newest
+ * manager's date under everybody's name.
+ *
+ * Four absences, four sentences, because the fix differs in each:
+ *   - the table is not on this database at all;
+ *   - it is here and empty: the pass has never been run;
+ *   - it has rows, but none for anyone in this league;
+ *   - it covers this league, but not this manager.
+ * The last one is answered by the consumer, from an empty `by_roster` entry.
+ *
+ * Nothing here prices. The trade path serves these answers as a read of the
+ * person and never as a term: half of them carry `basis: 'inference_only'`,
+ * which is the store saying in its own column that the number is a prior.
+ */
+export function jevEvaluated(leagueId) {
+  const evaluator = 'scripts/build-manager-archetypes.mjs --jev (off-server; opt-in, needs a gateway key, '
+    + 'and nothing on the deployed app writes this store)';
+  const empty = { as_of: null, rows: 0, evaluated_by: evaluator, by_roster: new Map() };
+  if (!tableExists('manager_archetype_jev')) {
+    return { ...empty, reason: 'manager_archetype_jev does not exist on this database — the Jev pass has never run here' };
+  }
+  const [total] = rows('SELECT COUNT(*) AS n FROM manager_archetype_jev');
+  if (!total?.n) {
+    return { ...empty,
+      reason: 'the Jev pass has never been run: it is opt-in, and `npm run build:manager-archetypes -- --jev` '
+        + 'is what would answer these questions' };
+  }
+  // The store is keyed by member_id alone — on purpose, because how a person
+  // negotiates is a fact about the person and not about one of his leagues —
+  // so the roster mapping is the join and the answers travel across leagues.
+  //
+  // `league_member_identity`, not `league_season_teams`. The second is the
+  // mapping `manager-archetypes.js` itself joins on, and it is created only by
+  // `scripts/backfill-league-history.mjs`: on any database where that backfill
+  // has never run the table is simply absent, and a read through it throws
+  // rather than returning an absence. `league_member_identity` is written by
+  // `matchIdentities` on every league sync, so it is present wherever a league
+  // is. Its `confidence` column is not consulted here: that gate governs
+  // attributing CHAT to a roster, and an ESPN member id is an ESPN fact — a
+  // manager whose chat name was never confirmed still has one.
+  const answered = rows(`SELECT i.roster_id AS roster_id, j.member_id AS member_id, j.question AS question,
+                                j.outcome AS outcome, j.probability AS probability, j.basis AS basis,
+                                j.n_seasons AS n_seasons, j.n_picks AS n_picks, j.model AS model,
+                                j.evaluated_at AS evaluated_at
+                         FROM manager_archetype_jev j
+                         JOIN league_member_identity i ON i.espn_member_id = j.member_id
+                         WHERE i.league_id = ?`, leagueId);
+  if (!answered.length) {
+    return { ...empty,
+      reason: 'the Jev pass has run, but for no manager in this league — it is run one manager at a time '
+        + 'and costs a gateway call each, so a partial store is the normal state' };
+  }
+  const byRoster = new Map();
+  let newest = null;
+  for (const r of answered) {
+    const key = String(r.roster_id);
+    if (!byRoster.has(key)) {
+      byRoster.set(key, { roster_id: key, member_id: r.member_id, as_of: null, model: r.model ?? null,
+        questions: {} });
+    }
+    const entry = byRoster.get(key);
+    // HIS newest, and separately the league's, which are different facts.
+    if (r.evaluated_at && (entry.as_of == null || r.evaluated_at > entry.as_of)) entry.as_of = r.evaluated_at;
+    if (r.evaluated_at && (newest == null || r.evaluated_at > newest)) newest = r.evaluated_at;
+    entry.questions[r.question] ??= { basis: r.basis, n_seasons: r.n_seasons, n_picks: r.n_picks, p: {} };
+    entry.questions[r.question].p[r.outcome] = r.probability;
+  }
+  return { as_of: newest, rows: answered.length, evaluated_by: evaluator, by_roster: byRoster, reason: null };
+}
+
+export function unpriceableReason(source) {
+  const spec = SIGNAL_SOURCES[source];
+  if (!spec) {
+    return `source '${source}' is not declared in SIGNAL_SOURCES, so nothing may price on it`;
+  }
+  if (spec.priceable) return null;
+  return `${spec.label} is declared priceable: false — context only, never priced`;
+}
+
+/**
+ * Everything the trade engine needs about one league's managers, in one read.
+ *
+ * `metrics` / `samples` / `sources` carry ONLY what may be priced on. Anything
+ * that may not is in `context` / `context_samples` / `context_sources`, with the
+ * reason in `context_reasons`. That is a property, not a convention: a caller on
+ * the pricing path cannot reach a draft metric by name because it is not in the
+ * bag it reads, so the guard survives the next person who has not read this
+ * comment. Nothing is dropped — the page still shows every stored row, through
+ * `signalRowsFor` below.
+ */
 export function managerSignalsFor(leagueId) {
   const out = new Map();
+  const blank = () => ({ metrics: {}, samples: {}, sources: {},
+    context: {}, context_samples: {}, context_sources: {}, context_reasons: {} });
   for (const r of rows('SELECT roster_id, metric, value, n, source FROM manager_signals WHERE league_id = ?', leagueId)) {
-    if (!out.has(r.roster_id)) out.set(r.roster_id, { metrics: {}, samples: {}, sources: {} });
+    if (!out.has(r.roster_id)) out.set(r.roster_id, blank());
     const m = out.get(r.roster_id);
+    const reason = unpriceableReason(r.source);
+    if (reason) {
+      m.context[r.metric] = r.value; m.context_samples[r.metric] = r.n;
+      m.context_sources[r.metric] = r.source; m.context_reasons[r.metric] = reason;
+      continue;
+    }
     m.metrics[r.metric] = r.value; m.samples[r.metric] = r.n; m.sources[r.metric] = r.source;
   }
   for (const r of rows(`SELECT roster_id, player_name, sentiment, n, last_mention
                         FROM manager_player_view WHERE league_id = ?`, leagueId)) {
-    if (!out.has(r.roster_id)) out.set(r.roster_id, { metrics: {}, samples: {}, sources: {} });
+    if (!out.has(r.roster_id)) out.set(r.roster_id, blank());
     const m = out.get(r.roster_id);
     (m.players ??= new Map()).set(r.player_name.toLowerCase(),
       { sentiment: r.sentiment, n: r.n, last: r.last_mention, multiplier: sentimentMultiplier(r.sentiment, r.n) });

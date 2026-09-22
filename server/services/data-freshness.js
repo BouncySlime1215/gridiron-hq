@@ -184,6 +184,10 @@ export function tableFreshness(entry, { currentSeason, currentWeek, database = d
     last_write: null,
     current_rule: rule.description ?? rule.text ?? null,
     status: 'empty',
+    // Whether the table is in this database at all. `status` folds "absent" into
+    // `empty` for the panel; a reader that has to say WHICH absence it is reads this
+    // field instead of parsing `note` (tableState below).
+    present: false,
     note: null
   };
 
@@ -194,6 +198,7 @@ export function tableFreshness(entry, { currentSeason, currentWeek, database = d
   const present = database.prepare(
     `SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(table);
   if (!present) return { ...base, note: 'table not present in this database' };
+  base.present = true;
 
   base.row_count = database.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
   if (base.row_count === 0) return base;
@@ -236,6 +241,32 @@ export function tableFreshness(entry, { currentSeason, currentWeek, database = d
     base.note = `current-data rule could not be evaluated: ${e.message}`;
   }
   return base;
+}
+
+/**
+ * One table's state, for a READER to carry on the output it already returns: the
+ * same verdict as tableFreshness, with the one distinction its `status` folds away
+ * made a field.
+ *
+ *   table_absent  not in this database (nothing ever created it here)
+ *   empty         present, zero rows (its writer never ran here)
+ *   stale         rows, none satisfying the entry's current-data rule
+ *   fresh         at least one row satisfies it
+ *   unknown       the rule could not be asked (tableFreshness says why in `note`)
+ *
+ * Built for the hand-fed fantasy tables (S-18), where a reader that returns an empty
+ * collection reads downstream as a fact about football ("not trending", "never
+ * reversed") when it is a fact about a writer nobody ran.
+ */
+export function tableState(entry, { currentSeason = null, currentWeek = null, database = defaultDb } = {}) {
+  const f = tableFreshness(entry, { currentSeason, currentWeek, database });
+  return {
+    table: f.table,
+    state: f.present ? f.status : 'table_absent',
+    rows: f.row_count,
+    last_write: f.last_write,
+    rule: f.current_rule
+  };
 }
 
 /** Freshness for every entry in a registry. */

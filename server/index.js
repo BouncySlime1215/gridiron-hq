@@ -41,6 +41,7 @@ const { default: tradesRouter } = await import('./routes/trades.js');
 const { default: espnConnectRouter } = await import('./routes/espn-connect.js');
 const { default: leagueChatRouter } = await import('./routes/league-chat.js');
 const { default: modelRouter } = await import('./routes/model.js');
+const { default: dataFreshnessRouter } = await import('./routes/data-freshness.js');
 const { default: propsRouter } = await import('./routes/props.js');
 const { default: propsTicketsRouter } = await import('./routes/props-tickets.js');
 const { default: decisionInboxRouter } = await import('./routes/decision-inbox.js');
@@ -132,6 +133,12 @@ app.use('/api/league-chat', ...legacyAuthenticated, leagueChatRouter);
 // is invisible on a Mac bound to loopback and wide open the moment the same
 // process is reachable at a public URL.
 app.use('/api/model', ...legacyAuthenticated, modelRouter);
+// Reads the served tables themselves rather than the sync log, replacing the
+// banner that called a job which ran and wrote zero rows "healthy". Gated like
+// the rest: whether the data is current is an answer about this install's own
+// contents, not a liveness check. The unauthenticated probe stays
+// platform/health.js's alone.
+app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
 app.use('/api/props', ...legacyAuthenticated, propsRouter);
 app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
 app.use('/api/decision-inbox', ...legacyAuthenticated, decisionInboxRouter);

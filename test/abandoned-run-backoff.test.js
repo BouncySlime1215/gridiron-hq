@@ -99,6 +99,39 @@ test('a run that never reported back is recorded as the failure it was', () => {
   assert.equal(JSON.parse(logged.last_detail).abandoned, true);
 });
 
+test('the two fields a person reads off an abandoned run are pinned', () => {
+  // `schedulerStatus()` serves `last_detail` verbatim (scheduler.js, the
+  // sync_log projection), so every key written here reaches a reader. The
+  // wiring map's served-field deletion check found `error` and `reason`
+  // unpinned: delete either and the whole suite stayed green, which means a
+  // refactor could have quietly removed the only two fields that say WHY a
+  // job is marked failed.
+  //
+  // `abandoned: true` is already pinned by the test above and is the machine
+  // flag. These two are the human ones, and they are not interchangeable:
+  // `error` is what a status view shows in a column next to the job, and
+  // `reason` is the sentence that stops the reader concluding the job itself
+  // is broken when what happened is that the process died underneath it.
+  const startedAt = new Date(Date.now() - 45_000).toISOString();
+  leaveAbandonedRow('__test_served_fields', startedAt);
+  scheduler.reapAbandonedRuns();
+
+  const detail = JSON.parse(scheduler.lastRun('__test_served_fields').last_detail);
+
+  assert.equal(detail.error, 'abandoned',
+    'the detail must carry an `error` field; it is what a status surface shows beside '
+    + 'the job, and without it a killed run reads as a failure with no stated cause');
+  assert.equal(typeof detail.reason, 'string',
+    'the detail must carry a `reason` sentence, not only a flag');
+  assert.match(detail.reason, /process died before this job reported back/,
+    'the reason must say the PROCESS died rather than that the job failed — those send '
+    + 'the reader to different places, and this project has already lost weeks to a '
+    + 'symptom being reported as its own cause');
+  assert.match(detail.reason, /recordStart/,
+    'and it must name where to look, so the next person does not have to find the '
+    + 'mechanism from the word "abandoned" alone');
+});
+
 test('the boot after a kill does not start the same job again', () => {
   // The whole cycle, in one assertion. Started a moment ago, killed, reaped.
   leaveAbandonedRow('__test_cycle', new Date().toISOString());

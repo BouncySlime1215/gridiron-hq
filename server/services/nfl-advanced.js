@@ -166,7 +166,11 @@ export async function syncPfrAdv(seasons) {
     }
   }
   return { rows: total, failures, complete: failures.length === 0,
-    known_coverage: 'The nflverse weekly PFR advanced release begins in 2024; earlier 404s are source absence, not empty football data.' };
+    // Corrected 2026-09-22: the previous claim that this release begins in 2024 was
+    // wrong, and it hid six seasons of real data behind a comment. Measured row counts
+    // for advstats_week_rec, each file carrying only its own season: 2018 4,292,
+    // 2019 4,269, 2020 4,428, 2021 4,608, 2022 4,547, 2023 4,594, 2024 4,453, 2025 4,533.
+    known_coverage: 'The nflverse weekly PFR advanced release covers 2018-2025 (verified 2026-09-22 by download: 4,292 rows in 2018 rising to 4,533 in 2025). A 404 inside that range is a fetch failure, not source absence.' };
 }
 
 /* ------------------------------------------------------------- snap counts */

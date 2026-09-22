@@ -885,4 +885,4 @@ export function weeklyFeatureStoreStatus() {
     policy: 'Feature count is reported with coverage; missing values remain explicit and never become zero evidence. Earlier quarantined seasons are not used in rolling state.' };
 }
 
-export const __test = { transforms, slope, ewma, numericObject, TRANSFORMS };
+export const __test = { transforms, slope, ewma, numericObject, TRANSFORMS, teamHistory };

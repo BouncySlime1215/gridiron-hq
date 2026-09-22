@@ -140,10 +140,22 @@ const daysBetween = (a, b) => (Date.parse(b) - Date.parse(a)) / 86400000;
  * Always the same shape: `{ byManager, events, available }`. With no chat DB
  * `available` is false and both collections are empty.
  */
+/** Why there is no corpus here, naming the path so the state is checkable. */
+const NO_CORPUS_REASON = () =>
+  `No chat corpus at ${chatDbPath()}. It is extracted from Apple Messages on Nick's Mac and cannot be `
+  + 'produced on this machine, so this is "not on this machine", not "nobody has said anything".';
+
 const credibilityCache = new Map();
 export function declarationCredibility({ windowDays = BLUFF_WINDOW_DAYS } = {}) {
   const chat = openChatDb();
-  if (!chat) return { byManager: new Map(), events: [], available: false };
+  // Not "no data". On any box but Nick's Mac the corpus CANNOT exist: it is
+  // extracted from ~/Library/Messages/chat.db by a Python script needing Full
+  // Disk Access, so Fly will never have one. An empty result with no reason
+  // reads downstream as "he has never called a player untouchable", which is
+  // the opposite conclusion and moves a trade price.
+  if (!chat) {
+    return { byManager: new Map(), events: [], available: false, reason: NO_CORPUS_REASON() };
+  }
   try {
     const key = `${chatDbPath()}|${chatDataKey(chat)}`;
     const hit = credibilityCache.get(windowDays);

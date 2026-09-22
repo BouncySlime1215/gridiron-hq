@@ -206,3 +206,110 @@ loop (`scripts/refresh-live-data.mjs`) and has not ticked since it was wired.
 Everything above was measured on a `VACUUM INTO` copy with that build run, which
 is why the all-league path is exercised rather than assumed. No production write
 was made.
+
+## "No captured transactions" was a claim about the league, not about a read (2026-09-22)
+
+CLAUDE.md, §2: *"Errors are handled or they throw. No bare `catch {}` that
+swallows a fault — this project has shipped two real bugs of exactly that shape,
+where a silent catch deleted a whole data layer and the page kept printing
+numbers as if nothing had happened. If a layer goes inert, the surface must say
+so."*
+
+This is the third. It is worth setting out in full because `selfRead` is not a
+function that forgot to report — it is a function that **has** the reporting
+channel, `available` and `reason`, and filled it with a false sentence.
+
+### The line
+
+```js
+let tx = [];
+try {
+  tx = rows(`SELECT ... FROM league_transactions_raw WHERE league_id = ? AND season = ?`, leagueId, yr);
+} catch { tx = []; }
+```
+
+Nothing downstream can tell that `[]` apart from a real empty result. Sixty
+lines later, the function reaches:
+
+```js
+out.available = out.sources.length > 0;
+if (!out.available) {
+  out.reason = 'nothing the league can see: no captured transactions for this league and no chat corpus';
+}
+```
+
+That sentence is a positive factual claim about the league. It was made on three
+different states and is true of one.
+
+### Why this is live and not hypothetical
+
+`league_transactions_raw` is in **no migration**. `scripts/collect-league-transactions.mjs`
+creates it and nothing else does. So on any database where that hand-run,
+cookie-gated capture has never run, the table does not exist, `rows()` throws
+`no such table`, the catch absorbs it, and Nick is told his league has no
+transaction history.
+
+"Nobody has ever collected this" and "your league has no history" send a person
+to fix two different things, and only the first names something he can act on.
+
+### The quiet half
+
+The half above only fires when nothing else is available. When a chat corpus IS
+present the function returns `available: true`, `reason: null`, and an empty
+`to_each_manager` — so **"he has sent nobody anything" and "we could not read
+what he sent" are the same answer to a caller.** No caveat, no null, nothing to
+notice. This is the half that would have survived a review.
+
+### RED -> GREEN
+
+| | commit | result |
+|---|---|---|
+| RED | `6043bfa` | 29 tests, 27 pass, **2 fail** |
+| GREEN | `5f0da99` | valuation-map + trade-tactics + manager-data-pipeline, **86 pass**, 0 fail |
+
+The RED assertions are ordered so the failure prints the sentence itself rather
+than only a missing field:
+
+```
+not ok 25 - G5e2: "no captured transactions" is a claim about the league
+  actual: 'nothing the league can see: no captured transactions for this league and no chat corpus'
+  operator: doesNotMatch
+```
+
+### What G5e was measuring
+
+Directly above the new tests, G5e asserts:
+
+```js
+assert.ok(self.reason.length > 0);
+```
+
+Which is true of any sentence at all, including the false one. Ask the question
+this branch has been asking of every assertion — *what would have to change in
+the code for this to go red?* — and the answer is: the reason would have to
+become empty. Not wrong. Empty. It is left in place rather than rewritten,
+because moving it would hide which test caught what; G5e2 is what makes it mean
+something.
+
+### The fix
+
+`tx_read_state` is `'not_attempted' | 'absent' | 'unreadable' | 'read'`, set on
+every path and declared in the initial object literal so the early return for a
+league with no roster of Nick's carries it too. A field that is only there when
+the read succeeded is a field a consumer cannot rely on — the same defect as
+`read_state` on `vetoClimate`, which set it on two paths of three.
+
+Each reason sentence is now true of exactly one state, and each points at a
+different thing to go and fix.
+
+It is reported rather than thrown: one uncollected table must not take down
+every trade search. But it is reported **as a fault**, which is the distinction
+CLAUDE.md is drawing. The rule is not "never catch". It is that a layer which
+has gone inert must say so, and `[]` does not say so.
+
+### Not touched
+
+`trade-engine.js:1843` holds `catch { self = null; }`, the same family, and
+consumes this function. That file belongs to the Feature audit thread. The
+contract it was waiting on now exists on this side: the enum above, with
+`reason` carrying a sentence that is true of the state it names.

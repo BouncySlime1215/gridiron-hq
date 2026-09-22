@@ -3,6 +3,13 @@
 A sweep of every `assert.match` in this thread's files whose pattern is an
 alternation — a literal regex with a `|` in it, on one line, against one value.
 
+That was the scope for two passes. It widened twice, and both widenings are
+recorded rather than folded in: first to a FRAGMENT of a registry constant
+(site 22, §2c), then to a pattern that cannot test its own claim at all
+(site 23, §2d). Neither has a `|` in it. The scope is now the shape — an
+assertion whose pattern admits more than the sentence it claims — and the pipe
+is one symptom of it.
+
 **The rule being applied.** An alternation is legitimate when it asserts
 membership of a CLOSED SET and every branch is a real outcome the code can
 produce: "this is one of the three problems, and each of the three is a state
@@ -21,18 +28,19 @@ mutation the old pattern also killed is marked as such rather than claimed.
 
 ## The five questions
 
-- **Well built?** The subject is the test suite itself. Twenty-two assertions
+- **Well built?** The subject is the test suite itself. Twenty-three assertions
   across seven files asserted the existence of a sentence rather than its
   content; each now names the one clause that carries the fact, and, where two
   sentences in the same code are confusable, rules the other one out by name.
-  Fourteen were found in the first pass (§1, §2) and eight in the second (§2c),
-  which covers the rest of this thread's allocated suites.
+  Fourteen were found in the first pass (§1, §2), eight in the second (§2c),
+  and one in a third (§2d) run by reading for the SHAPE after the second pass
+  had declared itself complete by grep.
 - **Stats or made up?** Neither — these are string contracts. The numbers here
   are mutation counts, and every one of them was run, not reasoned about.
-- **How do we know?** Thirty mutations, each applied to the PRODUCER of the
+- **How do we know?** Thirty-two mutations, each applied to the PRODUCER of the
   sentence, with the file's SHA-256 before and after, plus a control that must
-  be a no-op. Twenty-two are positives: all twenty-two are killed by the new
-  assertion, and twenty-one of twenty-two survived the assertion they replaced.
+  be a no-op. Twenty-four are positives: all twenty-four are killed by the new
+  assertion, and twenty-three of twenty-four survived the assertion they replaced.
   The exception (M9) was killed by a different test in the same file, which is
   recorded as such. Eight are negations and are counted separately, for the
   reason in §2b. The table is re-derivable by anyone: the runner and the
@@ -41,7 +49,9 @@ mutation the old pattern also killed is marked as such rather than claimed.
   carried over the rest of this thread's allocated suites and found eight more,
   including one (site 21) whose alternation had a branch the code cannot produce
   at all, and one (site 22) that the pass's own new rule caught after its first
-  application had missed it. Files outside this thread's allocation were read and left
+  application had missed it. It pointed one place further still, and §2d is
+  that: the completeness claim §2c closes with is true of the grep and false of
+  the suite. Files outside this thread's allocation were read and left
   alone: `trade-verify.test.js:212` is a tense variant of one phrase, which is
   a real closed set.
 - **How does it unify?** One question answers every case: *can the fixture
@@ -219,6 +229,55 @@ found it, and the count above would have read zero with it still in place. The
 pattern is findable by grep; the SHAPE is not. Any later pass should read for
 the shape.
 
+**A later pass did, and found one — §2d.** The paragraph above is left standing
+rather than edited, because the zero it reports is still true: the point is
+exactly that a true zero was not a clean suite.
+
+## 2d. The third pass: one site, and an assertion that could not test its claim
+
+Read for the shape this time rather than for a pattern, over the same suites:
+**every regex assertion whose subject is an imported value.** That is the rule
+site 22 produced, applied where it had not yet been.
+
+| # | Site | Pattern | What the pattern could test | Fixed to |
+|---|------|---------|------------------------------|----------|
+| 23 | `trade-proposals.test.js:150` the prompt version in the cache key | `assert.match(PROMPT_VERSION, /\S/)` | that a string is not blank — **true of every non-empty string** | the key is sha256 over exactly `{ v, league, prompt }`, in that order |
+
+The message on that line read *"the prompt version is part of the key by
+construction"*, and it sat inside a test named *a changed slate, a different
+league, or a bumped prompt version all miss*. The test's own name promised that
+the bumped version misses. Nothing in it checked that. `/\S/` cannot check it:
+it takes a string and asks whether it has a non-space character in it, which is
+a fact about the constant and not about the key at all.
+
+**This is the class neither earlier pass could have found, by construction.** No
+pipe, so the grep was blind to it. No alternation either, so site 22's rule did
+not reach it — that rule was about a FRAGMENT of a constant standing in for the
+whole. Here the pattern is not a fragment of anything; it is a claim about a
+different subject. What finds it is asking, of each assertion, *what would have
+to change in the code for this to go red?* For `/\S/` on a module constant the
+answer is "nothing a caller can do", and that is the whole finding.
+
+**Why the fix is two assertions, and why their order matters.** `PROMPT_VERSION`
+is a module constant and cannot be bumped from a test, so the claim has to be
+tested as what it actually is — a fact about the material the key hashes:
+
+1. `cacheKeyFor(4, [idea()])` equals sha256 over exactly `{ v, league, prompt }`,
+   in that order. Without this, the line below would be a test of the test: two
+   independent implementations of one idea agreeing with each other proves
+   neither is right.
+2. Change ONLY the version in that material, and the key differs.
+
+**The honest reading of the two rows.** M31 removes `v` from the material; M32
+leaves it in and moves it last. Both go red, and **both are killed at the same
+line — `trade-proposals.test.js:171`, which is assertion 1.** Assertion 2 has no
+producer edit behind it and cannot have one: once assertion 1 pins the key to
+sha256 over that exact material, "a different version gives a different key" is
+a property of sha256 rather than of this code. So assertion 1 is the one doing
+the work and assertion 2 states the claim in the test's own terms. Recorded here
+rather than left looking like two independent checks — which would be the same
+mistake as the line it replaced, one level up.
+
 ## 3. Mutations
 
 Every row: the producer file's SHA-256 (first 12) before and after, the exact
@@ -284,6 +343,8 @@ Baselines: `server/services/trade-tactics.js` `c5808df9aa97`,
 | M28 | the declared-unpriceable reason also claims the source is undeclared | `APPLIED bbc1ebea6dab -> 9366cb155c7e` | **RED** 27/26/1 at `:399` | pass, not comparable |
 | M29 | the undeclared-source reason also claims declared priceable: false | `APPLIED bbc1ebea6dab -> 29889afda31e` | **RED** 27/26/1 at `:422` | pass, not comparable |
 | M30 | the transactions cadence keeps the script name and drops everything else | `APPLIED bbc1ebea6dab -> 3d4be4b1d5f7` | **RED** 27/26/1 at `:638` | **survived** 27/27/0 |
+| M31 | the cache key stops hashing the prompt version | `APPLIED 2a529fd8a9b6 -> d4ebc426b664` | **RED** 55/54/1 at `:171` | **survived** 54/54/0 |
+| M32 | the version stays in the key but moves to the end of the material | `APPLIED 2a529fd8a9b6 -> 1464d2457957` | **RED** 55/54/1 at `:171` | **survived** 54/54/0 |
 | CONTROL | a pattern that is not in the file | `NO-OP - pattern not found` | — | — |
 
 M13 to M18 are the first pass's negation rows, added after §2b. Each is killed
@@ -292,8 +353,11 @@ running them: those six assertions had no mutation behind them and were
 therefore six assertions nobody had shown could fail. Their "old" column is a
 pass in every case and carries no information, for the reason §2b gives.
 
-M19 to M29 are the second pass (§2c), and are split by the same rule: M19 to
-M27 are positives, M28 and M29 are the two negations that pass added. M29 is
+M19 to M30 are the second pass (§2c), and are split by the same rule: M19 to
+M27 and M30 are positives, M28 and M29 are the two negations that pass added.
+M31 and M32 are the third pass (§2d), both positive, and both killed at the
+same line — which §2d records as a finding rather than leaving it to look like
+two independent checks. M29 is
 worth a line of its own, because the first version of it was a defective row
 rather than a result. It inserted the confusable clause into the MIDDLE of the
 sentence, which broke the positive assertion's contiguous match, so the runner
@@ -310,16 +374,19 @@ diff.
 |---|---|---|---|
 | positive, first pass (M1-M12) | 12 | 12 of 12 | **11 of 12** |
 | positive, second pass (M19-M27, M30) | 10 | 10 of 10 | **10 of 10** |
-| positive, total | 22 | 22 of 22 | **21 of 22** |
+| positive, third pass (M31-M32) | 2 | 2 of 2 | **2 of 2** |
+| positive, total | 24 | 24 of 24 | **23 of 24** |
 | negation (M13-M18, M28-M29) | 8 | 8 of 8 | **not comparable** |
 | control | 1 | `NO-OP` as listed | — |
 
 The one positive that did not survive its old assertion is M9, in the first
 pass, and it is recorded in the table as killed by a DIFFERENT test in the same
 file rather than by the assertion under measurement. Every one of the ten
-second-pass positives survived, which is the stronger result and the expected
-one: a hedge that the fixture can only satisfy one branch of will pass any
-rewording that keeps any branch.
+second-pass positives survived, and both third-pass rows did, which is the
+stronger result and the expected one: a hedge that the fixture can only satisfy
+one branch of will pass any rewording that keeps any branch. The third pass is
+the limiting case of that — `/\S/` survives every possible rewording of the
+producer, because no rewording of the producer can reach it.
 
 ### The edits
 
@@ -603,6 +670,35 @@ which is the whole defect: the fragment was satisfied by a string that had lost
 both of the other facts the sentence carries. Site 22, the sibling entry §2c
 records as this section's own miss.
 
+**M31** — `server/services/trade-proposals.js`, APPLIED `2a529fd8a9b6 -> d4ebc426b664`
+
+```diff
+-    v: PROMPT_VERSION,
++    league_only: true,
+```
+
+The version leaves the hashed material entirely, which is the defect the old
+line claimed to rule out and could not: `/\S/` on the constant passes here
+unchanged, because the constant is still a non-blank string — it just no longer
+reaches the key. Killed at `trade-proposals.test.js:171`.
+
+**M32** — `server/services/trade-proposals.js`, APPLIED `2a529fd8a9b6 -> 1464d2457957`
+
+```diff
+   const material = JSON.stringify({
+-    v: PROMPT_VERSION,
+     league: String(leagueId),
+     prompt: proposalsPrompt(ideas ?? []),
++    v: PROMPT_VERSION,
+   });
+```
+
+The subtler of the two: the version is still in the key, so any assertion of the
+form "the version is in there somewhere" passes. What changes is the ORDER of
+the serialised material, and therefore every key — so the assertion has to know
+the exact material, not merely that the version appears in it. Killed at
+`trade-proposals.test.js:171`, the same line as M31, for the reason §2d gives.
+
 **M28** — `manager-signals.js`, APPLIED `bbc1ebea6dab -> 9366cb155c7e`, NEGATION
 
 ```diff
@@ -630,38 +726,69 @@ the wrong assertion.
 Full check on the tree these commits carry, `npm run check` — typecheck, lint,
 the whole suite, build and `start:smoke` — exit 0:
 
-**3,007 tests, 2,966 pass, 0 fail**; lint clean over 877 JavaScript files, which
-is also the tracked count from `git ls-tree` (the walker counts untracked files
-too, so the two agreeing is worth stating rather than assuming); build clean;
-startup smoke passed on an isolated database.
+**3,008 tests, 2,967 pass, 0 fail, 41 skipped**, 467.6 s; lint clean over 877
+JavaScript files; build clean; startup smoke passed on an isolated database.
 
-Two things about that figure, because a suite number with neither is a number
-nobody can grade.
+That 877 is also the tracked count — but only against the right set, and the
+loose version of this sentence is a trap I walked into while writing it. The
+walker visits `server`, `scripts` and `test` and counts `.js` and `.mjs`
+(`scripts/lint.mjs:5`), so the figure to compare is
+`git ls-tree -r --name-only HEAD -- server scripts test | grep -cE '\.(js|mjs)$'`,
+which is 877. Repo-wide `.js` alone is 780 and repo-wide `.js|.mjs` is 890;
+either of those looks like a discrepancy and is only a different question. The
+walker counts untracked files too, so the two agreeing is worth stating rather
+than assuming — there are no untracked `.js`/`.mjs` under those three roots.
+
+Three things about that figure, because a suite number with none of them is a
+number nobody can grade.
 
 **What moved during the run, measured either side.** `git write-tree` before and
-after: `796327de6fe4` both times. `node_modules` mtime before and after:
-`1789835330` both times. A tree that moves inside the window voids the run
-whatever the numbers say, and an install anywhere in the container voids it the
-same way with nothing failing visibly — neither shows up as anything but a wrong
-number, so a recorded hash that either matches or does not is the only check that
-works. Both matched.
+after matched, and `node_modules` mtime before and after matched. The two hashes
+themselves are in the commit message of the commit that carries this paragraph,
+not here: a number describing a tree cannot live inside the tree it describes,
+because writing it in changes it. A tree that moves inside the window voids the
+run whatever the numbers say, and an install anywhere in the container voids it
+the same way with nothing failing visibly — neither shows up as anything but a
+wrong number, so a recorded hash that either matches or does not is the only
+check that works.
+
+**And what that pair does not measure.** `git write-tree` hashes the INDEX, not
+the working tree, and this run was started with two paths modified and unstaged
+— this file and `docs/tdd/sweeps/hedged-assertions.mutations.json`. An edit to
+either during the window would have left both write-tree hashes identical and
+gone unrecorded. What actually pins those two is mtime: 07:14:21Z and 07:14:36Z,
+both before the run's own snapshot at 07:14:43Z and its last line at 07:23:26Z.
+A guard that reports on a state it cannot see is the same shape as the
+assertions this whole file is about, so it is written down rather than left to
+be inferred from a matching hash that never had the chance to differ.
 
 **Which isolation this was.** Not source-isolated and not dependency-isolated:
 this ran in place in the container's own working tree against the container's
-single `node_modules`, with nothing else running against either. That is a weaker
-guarantee than an isolated run and the pair of hashes above is what stands in for
-it — they say nothing moved, not that nothing could have.
+single `node_modules`, with nothing else running against either. That is a
+weaker guarantee than an isolated run and the measurements above are what stand
+in for it — they say nothing moved, not that nothing could have.
 
 `npm ci` has not been run in this container. A fresh clone fails the
 offline-guard tests with `ERR_MODULE_NOT_FOUND` until it is, which looks exactly
 like a regression and is not one.
+
+**The base is three commits behind `main`, and that bounds what the total
+means.** This branch was cut at `791b131`; `origin/main` is at `654ff93`, three
+commits ahead (#49, #52, #63). Those three touch `server/index.js`,
+`server/platform/loop-watchdog.js`, `server/services/scheduler.js`, `fly.toml`
+and nine test files. Checked, not assumed: the intersection between the files
+they touch and the files this branch touches is empty, and the intersection
+between them and the seven suites the mutation table runs is also empty. So the
+**3,008** total is a total for this tree and will move when `main` comes in —
+those nine test files are not in it — while every per-row result in §3 is
+measured in suites `main` does not touch and is unaffected by the merge.
 
 **One caveat on the "docs are invisible to the suite" shortcut**, which this file
 is a natural place to get wrong. It is false in exactly one place:
 `test/nfl-execution-integrity.test.js:258` reads `docs/CLAUDE-NEXT-STEPS.md` byte
 for byte, because `nfl-research-lab.js:279` serves that file at runtime and
 `paths.js:55` names it `CANONICAL_PLAN`. Editing that one path can turn the suite
-red. No commit on this branch touches it — checked against each commit, not
+red. No commit on this branch touches it — checked against the branch diff, not
 assumed — so reusing a suite figure across the docs-only commits here is sound.
 Every other path under `docs/` is invisible to typecheck, lint, the suite, the
 build and the smoke.

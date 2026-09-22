@@ -377,7 +377,7 @@
   },
   {
    "id": "M32",
-   "what": "the cache key hashes the version under a different name, so a bump no longer reaches it the same way",
+   "what": "the version stays in the key but moves to the end of the material, so the test's own reconstruction of what is hashed no longer matches",
    "shape": "positive",
    "file": "server/services/trade-proposals.js",
    "suites": [

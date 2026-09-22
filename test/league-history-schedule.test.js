@@ -82,7 +82,14 @@ test('a scheduled run fills standings and weekly scores for the current season',
     return { ok: true, status: 200, json: async () => payload(2026) };
   };
 
-  const result = await runIfStale('league_history', { force: true });
+  // offThread: false — this assertion is about what the writer puts in the
+  // database, not which thread runs it. league_history moved to a real Worker
+  // (6c6c672), a separate V8 isolate that never sees this file's globalThis.fetch
+  // stub; the worker's real fetch then hits test/offline-guard.mjs, every
+  // league-season is counted as a blocked failure, and only the row count here
+  // told the story (the job itself still reports ran: true, no error). The
+  // threading claim already has its own pin: test/scheduler-blocking-jobs.test.js.
+  const result = await runIfStale('league_history', { force: true, offThread: false });
   assert.equal(result.ran, true, 'the job must actually run, not skip');
   assert.equal(result.error, undefined, `must not error: ${result.error}`);
 

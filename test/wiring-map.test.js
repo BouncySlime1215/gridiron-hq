@@ -160,6 +160,26 @@ test('keyReads sees a destructured parameter that has a default value', () => {
   assert.ok(!reads.has('bound'), 'the local binding name is not a key of the object');
 });
 
+test('keyReads sees a destructured parameter that is not the first parameter', () => {
+  // The other half of the same miss, found the same way: the destructuring
+  // pattern required `const`, `let`, `var` or `(` immediately before the
+  // brace, so `horizonWeights(week, { regularSeasonEnd = ... })` — a bag in
+  // the SECOND position — matched nothing.
+  // server/services/trade-horizon.js:80-82 is that signature, and :62 writes
+  // the key composedKeysNeverRead then reported as unread.
+  //
+  // Allowing ',' also counts the keys of an object ARGUMENT, `f(a, { k: 1 })`,
+  // as reads. That is not new and not a mistake: `(` already did it for a
+  // first-position argument, and this helper is deliberately generous in one
+  // direction. An over-counted read silences a finding; an under-counted one
+  // calls live code dead, and that is the expensive failure.
+  const reads = keyReads(
+    'export function horizonWeights(week, { playoffOdds = 0.5, regularSeasonEnd = END } = {}) { return week; }',
+    []);
+  assert.ok(reads.has('regularSeasonEnd'));
+  assert.ok(reads.has('playoffOdds'));
+});
+
 test('declarations sees a computed value that is never used again', () => {
   const decls = declarations('const playerOpportunity = a * 0.55 + b * 0.35;');
   assert.equal(decls.has('playerOpportunity'), true);

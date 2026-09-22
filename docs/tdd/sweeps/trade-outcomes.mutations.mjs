@@ -57,6 +57,13 @@ const TACTICS = ['test/trade-tactics.test.js'];
 
 const git = (...a) => execFileSync('git', a, { cwd: REPO, encoding: 'utf8' }).trim();
 
+// Pinned, because the verdict is parsed from the runner's text and the default
+// reporter differs by Node version: `tap` for a pipe on Node 22 (CI), `spec` on
+// Node 25. Overridable ONLY to prove the unreadable-count guard fires:
+//   SWEEP_REPORTER=spec node docs/tdd/sweeps/trade-outcomes.mutations.mjs
+// must turn every applied row into BAD_ROW rather than SURVIVED.
+const REPORTER = process.env.SWEEP_REPORTER || 'tap';
+
 /**
  * The rows. A single-layer row carries { file, find, replace }; a PAIRED row
  * carries edits: [...] and exists because neither of its halves can be caught
@@ -295,10 +302,20 @@ for (const m of M) {
   let nFail = null;
   if (!bad) {
     try {
-      out = execFileSync('node', ['--test', ...m.suites],
-        { cwd: REPO, encoding: 'utf8', stdio: 'pipe', timeout: 180000 });
+      out = execFileSync('node', ['--experimental-test-module-mocks', '--test',
+        `--test-reporter=${REPORTER}`, ...m.suites],
+      { cwd: REPO, encoding: 'utf8', stdio: 'pipe', timeout: 180000,
+        env: { ...process.env, SCHEDULER_DISABLED: '1' } });
     } catch (err) { out = String(err.stdout ?? '') + String(err.stderr ?? ''); }
-    nFail = Number((out.match(/^# fail (\d+)$/m) ?? [0, 0])[1]);
+    // The count is READ, never defaulted. This line used to fall back to 0 when
+    // the runner printed no `# fail N`, and Node 25's default reporter for a pipe
+    // is `spec`, which prints `ℹ fail 1` instead. So on Node 25 every row read
+    // fail=0 and scored SURVIVED even while its failing test lines were listed
+    // right next to the verdict. A count the harness could not read is a row it
+    // cannot score.
+    const counted = out.match(/^# fail (\d+)$/m);
+    if (counted) nFail = Number(counted[1]);
+    else bad = `the runner printed no "# fail N" line (reporter ${REPORTER}), so no count was read`;
   }
 
   for (const [p, before] of saved) {

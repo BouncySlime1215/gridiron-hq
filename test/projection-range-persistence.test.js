@@ -92,3 +92,15 @@ test('projectionRangeFitHistory lists saved fits, most recent first', () => {
   assert.ok(history.length >= 2);
   assert.ok(history[0].id > history[1].id, 'most recent (highest id) first');
 });
+
+test('activeProjectionRangeTable carries the coverage self-check as a parsed number and object, not raw JSON text', () => {
+  const table = realTable();
+  const id = saveProjectionRangeFit({
+    throughSeason: 2025, minHist: 1200, nRows: 1200, coverageOverall: 0.8021,
+    coverageByPosition: { WR: { n: 8116, coverage: 0.8053 } }, table
+  });
+  activateProjectionRangeFit(id);
+  const active = activeProjectionRangeTable();
+  assert.equal(active.coverage_overall, 0.8021);
+  assert.deepEqual(active.coverage_by_position, { WR: { n: 8116, coverage: 0.8053 } });
+});

@@ -11,23 +11,33 @@
  * while still understating the upside. The fix is conditional empirical
  * quantiles, read off history rather than derived from a normal.
  *
- * THIS FILE IS THE ALGORITHM ONLY. It does not read real production data,
- * does not run a walk-forward, and does not claim the spec's own calibration
- * numbers (80.74% coverage, 13.63 PPR mean width) apply to whatever is fed
- * through it -- those were measured against a research baseline, and section
- * 7 is explicit that the widths must be re-measured against the real
- * production model before being quoted to a user (neither model has an
- * opponent-defence feature; production has vegasLift, the research baseline
- * doesn't; which direction that cuts is not yet known). Feeding this fitter
- * production's own causally-generated {season, week, pos, yhat, y} rows and
- * re-measuring coverage is separate, larger work, not done here.
+ * The core algorithm (quantile/fitProjectionRangeTable/projectionRangeFor)
+ * does not itself read real production data or run a walk-forward -- it
+ * takes whatever rows it's given. Section 7's requirement (re-measure
+ * against real production before quoting a number to a user) was cleared
+ * separately: causalCoverageReport below replays the method exactly the way
+ * the spec's own reference script (intervals2.py) does, and
+ * docs/tdd/projection-range-coverage.tdd.md records a real run -- 22,040
+ * graded player-weeks 2021-2025 via weekly-backtest.js's replaySeasonWeekly,
+ * 80.21% coverage against an 80% target for WR/TE/RB, tighter than the
+ * spec's own research-baseline deviation.
  *
  * The caller is responsible for causality: `history` passed to
  * fitProjectionRangeTable must already be restricted to strictly earlier
  * season-weeks than whatever is being projected. This module has no notion
  * of season/week ordering -- it only bins and quantiles whatever rows it is
  * given.
+ *
+ * Persistence (saveProjectionRangeFit/activateProjectionRangeFit/
+ * activeProjectionRangeTable/projectionRangeFitHistory, migration 064):
+ * versioned and activatable, the same shape as shrinkage-fit.js's own
+ * shrinkage_fits/shrinkage_k, because a projection-range fit is a periodic
+ * batch artifact one job produces and buildProjections reads -- not many
+ * small independent measurements like nfl_metric_reliability, which upserts
+ * in place instead.
  */
+
+import { db, rows, row } from '../db/index.js';
 
 const NBIN = 8;
 const MIN_BIN_ROWS = 150;
@@ -187,4 +197,57 @@ export function causalCoverageReport(rows, { minHist = 2000 } = {}) {
   }
 
   return { n, coverage, meanWidth, byPosition, scored };
+}
+
+/* -------------------------------------------------------------- persistence */
+
+/**
+ * Persists one fitted table (migration 064) -- NOT active until
+ * activateProjectionRangeFit is called, same two-step shape as
+ * shrinkage-fit.js's saveFit/activateFit. table_json is
+ * fitProjectionRangeTable's own return shape verbatim; coverageOverall and
+ * coverageByPosition are causalCoverageReport's self-check, recorded
+ * alongside the fit as evidence, not asserted about it.
+ * @returns {number} the new row's id.
+ */
+export function saveProjectionRangeFit({ throughSeason, minHist, nRows, coverageOverall, coverageByPosition, table }) {
+  db.prepare(`INSERT INTO nfl_projection_range_fits
+      (fitted_at, through_season, min_hist, n_rows, coverage_overall, coverage_json, table_json, active)
+    VALUES (?,?,?,?,?,?,?,0)`)
+    .run(new Date().toISOString(), throughSeason, minHist, nRows, coverageOverall ?? null,
+      coverageByPosition ? JSON.stringify(coverageByPosition) : null, JSON.stringify(table));
+  return db.prepare('SELECT last_insert_rowid() AS id').get().id;
+}
+
+/** Makes `fitId` the one row activeProjectionRangeTable returns; deactivates every other row. */
+export function activateProjectionRangeFit(fitId) {
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE nfl_projection_range_fits SET active = 0').run();
+    db.prepare('UPDATE nfl_projection_range_fits SET active = 1 WHERE id = ?').run(fitId);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
+/**
+ * The currently-active fitted table, parsed back from JSON, or null if none
+ * has ever been activated. buildProjections's own read path.
+ */
+export function activeProjectionRangeTable() {
+  const fit = row('SELECT * FROM nfl_projection_range_fits WHERE active = 1 ORDER BY id DESC LIMIT 1');
+  if (!fit) return null;
+  return {
+    id: fit.id,
+    fitted_at: fit.fitted_at,
+    through_season: fit.through_season,
+    min_hist: fit.min_hist,
+    n_rows: fit.n_rows,
+    coverage_overall: fit.coverage_overall,
+    coverage_by_position: fit.coverage_json ? JSON.parse(fit.coverage_json) : null,
+    table: JSON.parse(fit.table_json)
+  };
+}
+
+export function projectionRangeFitHistory(limit = 20) {
+  return rows('SELECT * FROM nfl_projection_range_fits ORDER BY id DESC LIMIT ?', limit);
 }

@@ -89,9 +89,12 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
       error: `participation for ${season} returned ${res.status}`,
       // No hardcoded end season here: that is what made the previous version of
       // this note wrong for two years running. A 404 means nflverse has not
-      // published that season, which for the current season is normal.
+      // published that season, which is normal only while it is in progress;
+      // this writer does not know which season that is, so the note says both.
       note: res.status === 404
-        ? `nflverse has not published participation for ${season}; a season is published only after its post-season is complete.`
+        ? `nflverse has not published participation for ${season} (404). That is expected only while `
+          + 'the season is in progress, since a season is published after its post-season; for a completed '
+          + 'season it is a fault.'
         : undefined };
   }
   const text = await res.text();

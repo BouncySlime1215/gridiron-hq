@@ -40,6 +40,7 @@ const {
   classifyInjuryDirection, resolveInjuryClaim, resolveInjuryClaims,
   classifyRoleDirection, resolveRoleChangeClaim, resolveRoleChangeClaims,
   classifyReturnDirection, resolveReturnFromInjuryClaim, resolveReturnFromInjuryClaims,
+  classifySuspensionDirection, resolveSuspensionClaim, resolveSuspensionClaims,
   sourceTrustScore, orderByTrust
 } = await import('../server/services/beat-reporter-accuracy.js');
 
@@ -604,6 +605,167 @@ test('resolveReturnFromInjuryClaims writes one upserted row per return_from_inju
   // Re-running does not duplicate the row (upsert on event_id).
   resolveReturnFromInjuryClaims({ asOf: '2027-06-22T00:00:00Z' });
   const count = row(`SELECT COUNT(*) AS n FROM beat_reporter_claim_resolutions WHERE event_id=?`, returnEventId).n;
+  assert.equal(count, 1);
+});
+
+// ---- classifySuspensionDirection --------------------------------------------
+
+test('classifySuspensionDirection reads suspension language as suspended', () => {
+  assert.equal(classifySuspensionDirection('He has been suspended for the next four games.'), 'suspended');
+  assert.equal(classifySuspensionDirection('Remains suspended and will not play this week.'), 'suspended');
+});
+
+test('classifySuspensionDirection reads reinstatement language as reinstated', () => {
+  assert.equal(classifySuspensionDirection('He has been reinstated from his suspension.'), 'reinstated');
+  assert.equal(classifySuspensionDirection('Suspension has been lifted; back from suspension and expected to play.'), 'reinstated');
+});
+
+test('classifySuspensionDirection returns null when the text carries no suspension signal', () => {
+  assert.equal(classifySuspensionDirection('Practiced fully and is on track for Sunday.'), null);
+});
+
+// ---- resolveSuspensionClaim -------------------------------------------------
+//
+// Same date-collision discipline as the return_from_injury block above: fresh
+// weeks (31-38) and dates continuing forward from where that block left off.
+
+test('resolveSuspensionClaim: reinstated confirmed when the player actually played', () => {
+  const player = makePlayer('Reinstated Confirmed WR', 'WR');
+  makeGame(2026, 31, '2027-06-28');
+  setSnaps(player, 2026, 31, 33);
+  const eventId = makeEvent({
+    playerName: 'Reinstated Confirmed WR', claimText: 'He has been reinstated from his suspension and is expected to play.',
+    publishedAt: '2027-06-26T12:00:00Z', claimType: 'suspension',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveSuspensionClaim(ev, { asOf: '2027-06-29T00:00:00Z' });
+  assert.equal(res.predicted_direction, 'reinstated');
+  assert.equal(res.resolved_state, 'confirmed');
+});
+
+test('resolveSuspensionClaim: reinstated contradicted when the player still did not play', () => {
+  const player = makePlayer('Reinstated Contradicted RB', 'RB');
+  makeGame(2026, 32, '2027-07-05');
+  setSnaps(player, 2026, 32, 0);
+  const eventId = makeEvent({
+    playerName: 'Reinstated Contradicted RB', claimText: 'Suspension has been lifted; back from suspension and expected to play.',
+    publishedAt: '2027-07-03T12:00:00Z', claimType: 'suspension',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveSuspensionClaim(ev, { asOf: '2027-07-06T00:00:00Z' });
+  assert.equal(res.resolved_state, 'contradicted');
+});
+
+test('resolveSuspensionClaim: suspended confirmed when the player really did not play', () => {
+  const player = makePlayer('Suspended Confirmed WR', 'WR');
+  makeGame(2026, 33, '2027-07-12');
+  setSnaps(player, 2026, 33, 0);
+  const eventId = makeEvent({
+    playerName: 'Suspended Confirmed WR', claimText: 'Remains suspended and will not play this week.',
+    publishedAt: '2027-07-10T12:00:00Z', claimType: 'suspension',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveSuspensionClaim(ev, { asOf: '2027-07-13T00:00:00Z' });
+  assert.equal(res.predicted_direction, 'suspended');
+  assert.equal(res.resolved_state, 'confirmed');
+});
+
+test('resolveSuspensionClaim: suspended contradicted when the player actually played', () => {
+  const player = makePlayer('Suspended Contradicted RB', 'RB');
+  makeGame(2026, 34, '2027-07-19');
+  setSnaps(player, 2026, 34, 40);
+  const eventId = makeEvent({
+    playerName: 'Suspended Contradicted RB', claimText: 'He has been suspended for the next four games.',
+    publishedAt: '2027-07-17T12:00:00Z', claimType: 'suspension',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveSuspensionClaim(ev, { asOf: '2027-07-20T00:00:00Z' });
+  assert.equal(res.resolved_state, 'contradicted');
+});
+
+test('resolveSuspensionClaim: unresolved when no snap data exists yet for that week', () => {
+  const player = makePlayer('Suspension No Data WR', 'WR');
+  makeGame(2026, 35, '2027-07-26');
+  const eventId = makeEvent({
+    playerName: 'Suspension No Data WR', claimText: 'He has been reinstated from his suspension.',
+    publishedAt: '2027-07-24T12:00:00Z', claimType: 'suspension',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveSuspensionClaim(ev, { asOf: '2027-07-27T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /no snap data/i);
+});
+
+test('resolveSuspensionClaim: unresolved for a defensive position, same offense-snap guard reused', () => {
+  const player = makePlayer('Suspension Defensive CB', 'CB');
+  makeGame(2026, 36, '2027-08-02');
+  const eventId = makeEvent({
+    playerName: 'Suspension Defensive CB', claimText: 'He has been reinstated from his suspension.',
+    publishedAt: '2027-07-31T12:00:00Z', claimType: 'suspension',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveSuspensionClaim(ev, { asOf: '2027-08-03T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /position.*not covered/i);
+});
+
+test('resolveSuspensionClaim: unresolved when the game has not been played yet, same guard reused', () => {
+  const player = makePlayer('Suspension Future WR', 'WR');
+  makeGame(2026, 37, '2027-08-09');
+  const eventId = makeEvent({
+    playerName: 'Suspension Future WR', claimText: 'He has been reinstated from his suspension.',
+    publishedAt: '2027-08-07T12:00:00Z', claimType: 'suspension',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveSuspensionClaim(ev, { asOf: '2027-08-08T00:00:00Z' });
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /not.*played/i);
+});
+
+test('resolveSuspensionClaim: unresolved when no suspension direction classifies from the claim text', () => {
+  const player = makePlayer('Suspension No Direction WR', 'WR');
+  makeGame(2026, 38, '2027-08-16');
+  const eventId = makeEvent({
+    playerName: 'Suspension No Direction WR', claimText: 'Practiced fully and is on track for Sunday.',
+    publishedAt: '2027-08-14T12:00:00Z', claimType: 'suspension',
+  });
+  const ev = row(`SELECT * FROM nfl_news_events WHERE event_id=?`, eventId);
+  const res = resolveSuspensionClaim(ev, { asOf: '2027-08-17T00:00:00Z' });
+  assert.equal(res.predicted_direction, null);
+  assert.equal(res.resolved_state, 'unresolved');
+  assert.match(res.resolved_reason, /no suspension direction/i);
+});
+
+// ---- resolveSuspensionClaims (batch) ----------------------------------------
+
+test('resolveSuspensionClaims writes one upserted row per suspension event, and leaves other claim types alone', () => {
+  const injuryPlayer = makePlayer('Untouched Injury WR 3', 'WR');
+  makeGame(2026, 40, '2027-08-21');
+  setSnaps(injuryPlayer, 2026, 40, 0);
+  const injuryEventId = makeEvent({
+    playerName: 'Untouched Injury WR 3', claimText: 'Ruled out this week.',
+    publishedAt: '2027-08-19T12:00:00Z',
+  });
+
+  const suspensionPlayer = makePlayer('Batch Suspension RB', 'RB');
+  makeGame(2026, 39, '2027-08-23');
+  setSnaps(suspensionPlayer, 2026, 39, 30);
+  const suspensionEventId = makeEvent({
+    playerName: 'Batch Suspension RB', claimText: 'He has been reinstated from his suspension.',
+    publishedAt: '2027-08-21T12:00:00Z', claimType: 'suspension', handle: 'SuspensionReporter',
+  });
+
+  const result = resolveSuspensionClaims({ asOf: '2027-08-24T00:00:00Z' });
+  assert.ok(result.resolved >= 1);
+  const stored = row(`SELECT * FROM beat_reporter_claim_resolutions WHERE event_id=?`, suspensionEventId);
+  assert.equal(stored.resolved_state, 'confirmed');
+  assert.equal(stored.reporter_handle, 'SuspensionReporter');
+  assert.equal(row(`SELECT * FROM beat_reporter_claim_resolutions WHERE event_id=?`, injuryEventId), undefined,
+    'resolveSuspensionClaims must not touch injury_status events');
+
+  // Re-running does not duplicate the row (upsert on event_id).
+  resolveSuspensionClaims({ asOf: '2027-08-24T00:00:00Z' });
+  const count = row(`SELECT COUNT(*) AS n FROM beat_reporter_claim_resolutions WHERE event_id=?`, suspensionEventId).n;
   assert.equal(count, 1);
 });
 

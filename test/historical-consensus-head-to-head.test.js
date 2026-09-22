@@ -62,6 +62,14 @@ test('parseEcrCsv reads the benchmark export and refuses a file without its colu
   assert.throws(() => arm.parseEcrCsv('page_type,scrape_date,pos\nweekly-wr,2023-10-06,WR\n'), /missing column/);
 });
 
+test('splitCsvLine keeps quoted commas and escaped quotes; parseEcrCsv carries player only when present', () => {
+  assert.deepEqual(arm.splitCsvLine('a,"b, c","d ""e""",'), ['a', 'b, c', 'd "e"', '']);
+  const rows = arm.parseEcrCsv('page_type,scrape_date,id,player,pos,team,ecr\n'
+    + 'weekly-wr,2023-10-06,1,"Beckham, Odell",WR,MIA,3\n');
+  assert.deepEqual(rows, [{ page_type: 'weekly-wr', scrape_date: '2023-10-06', fp_id: '1', pos: 'WR', team: 'MIA', ecr: 3,
+    player: 'Beckham, Odell' }]);
+});
+
 // 2023 weeks 4-6 and 2025 weeks 2-3, as game_lines would give them (Thursday to Monday).
 // 2023 week 3 is deliberately absent: a week whose previous week is unknown maps nothing.
 const GAMES = [

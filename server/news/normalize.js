@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { zonedDateTime } from '../services/date-util.js';
 
 const TRACKING = /^(utm_[^=]+|fbclid|gclid)$/i;
 export function canonicalUrl(input) {
@@ -45,6 +46,42 @@ export function extractEntities(text, identity = { players: [], teams: [] }) {
   return { players: match(identity.players ?? []), teams: match(identity.teams ?? []) };
 }
 
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+// An RFC 822 date carrying an Eastern zone letter: "Tue, 22 Sep 2026 15:15:32 EST".
+const EASTERN_RFC822 = /^(?:[A-Za-z]{3},\s*)?(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s+E[SD]T$/i;
+const pad2 = value => String(value).padStart(2, '0');
+
+/**
+ * A feed timestamp as a UTC ISO string.
+ *
+ * ESPN's RSS feed labels US Eastern *daylight* wall time "EST". JavaScript
+ * reads "EST" as the fixed offset -05:00, so every stamp from March to
+ * November landed one hour late, and a story fetched within the hour was
+ * stored as published after we fetched it (164 of 196 RSS rows on the local
+ * copy, 2026-09-22; proof: the same response's <lastBuildDate> in GMT is 51
+ * minutes *before* its newest item read literally, 8 minutes after it read as
+ * Eastern daylight -- docs/tdd/2026-09-22-news-published-at-timezone.tdd.md).
+ *
+ * So an EST/EDT label is read as Eastern wall time through the shared
+ * zonedDateTime, which supplies the real offset for that date. The letter
+ * itself is ignored because the publisher's letter is the part that is wrong.
+ * In the repeated autumn hour this resolves to the earlier instant, which can
+ * be an hour early but never stamps the future. Every other spelling (GMT,
+ * numeric offsets, ISO, the other US zones) keeps the plain Date reading, and
+ * an unparseable or impossible date throws RangeError rather than storing a
+ * made-up time.
+ */
+function parsePublishedAt(value) {
+  const text = String(value ?? '').trim();
+  const eastern = EASTERN_RFC822.exec(text);
+  if (!eastern) return new Date(text).toISOString();
+  const month = MONTHS.indexOf(eastern[2].toLowerCase()) + 1;
+  const at = month ? zonedDateTime(`${eastern[3]}-${pad2(month)}-${pad2(eastern[1])}`,
+    `${eastern[4]}:${eastern[5]}:${eastern[6] ?? '00'}`, 'America/New_York') : null;
+  if (!at) throw new RangeError(`published_at is not a real Eastern time: ${text}`);
+  return at.toISOString();
+}
+
 export function normalizeNewsItem(raw, { identity, ingestedAt = new Date().toISOString(), classificationVersion = 'rules@1' } = {}) {
   if (!raw.source || !raw.source_url || !raw.headline || !raw.published_at) {
     throw new Error('news requires source, source_url, headline, and published_at');
@@ -54,8 +91,8 @@ export function normalizeNewsItem(raw, { identity, ingestedAt = new Date().toISO
   const entities = extractEntities(`${raw.headline} ${raw.summary ?? ''}`, identity);
   return {
     source: raw.source, source_url: raw.source_url, source_type: raw.source_type ?? 'publisher', author: raw.author ?? null,
-    published_at: new Date(raw.published_at).toISOString(), ingested_at: ingestedAt,
-    updated_at: new Date(raw.updated_at ?? raw.published_at).toISOString(), headline: raw.headline.trim(),
+    published_at: parsePublishedAt(raw.published_at), ingested_at: ingestedAt,
+    updated_at: parsePublishedAt(raw.updated_at ?? raw.published_at), headline: raw.headline.trim(),
     summary: raw.summary ?? null, canonical_url: url, entities,
     injury_entities: raw.injury_entities ?? [], transaction_type: raw.transaction_type ?? null,
     reliability: raw.reliability ?? { tier: 'unrated', score: null },

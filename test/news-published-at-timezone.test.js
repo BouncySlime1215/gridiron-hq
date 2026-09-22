@@ -26,8 +26,7 @@ await runMigrations();
 seedIfEmpty();
 
 const { ingestRssSource } = await import('../server/news/ingest.js');
-const normalize = await import('../server/news/normalize.js');
-const { normalizeNewsItem } = normalize;
+const { normalizeNewsItem } = await import('../server/news/normalize.js');
 const { default: newsRouter } = await import('../server/routes/news.js');
 const { hashSessionToken } = await import('../server/platform/auth.js');
 

@@ -141,14 +141,17 @@ test('game script needs BOTH targets fitted, where any row count would pass', ()
   assert.equal(evaluateServedTable(entryFor('gamescript_model'), ctx).current, true);
 });
 
-test('rosters need EVERY league recent, not merely one, which is why it is a MIN', () => {
-  db.prepare(`INSERT INTO roster_players (league_id, team_id, player_id, fetched_at)
-              VALUES ('L1', 'T1', 1, datetime('now'))`).run();
-  assert.equal(evaluateServedTable(entryFor('roster_players'), ctx).current, true,
-    'one league, refreshed now');
+test('rosters need EVERY team recent, not merely one, which is why it is a MIN', () => {
+  const [a, b] = db.prepare(`SELECT id FROM nfl_teams ORDER BY id LIMIT 2`).all().map(r => r.id);
+  assert.ok(a && b, 'premise: the schema seeds real teams to hang rosters off');
 
-  db.prepare(`INSERT INTO roster_players (league_id, team_id, player_id, fetched_at)
-              VALUES ('L2', 'T2', 1, datetime('now', '-9 days'))`).run();
+  db.prepare(`INSERT INTO roster_players (team_id, name, fetched_at)
+              VALUES (?, 'Fresh Guy', datetime('now'))`).run(a);
+  assert.equal(evaluateServedTable(entryFor('roster_players'), ctx).current, true,
+    'one team, refreshed now');
+
+  db.prepare(`INSERT INTO roster_players (team_id, name, fetched_at)
+              VALUES (?, 'Stale Guy', datetime('now', '-9 days'))`).run(b);
   assert.equal(evaluateServedTable(entryFor('roster_players'), ctx).current, false,
-    'a second league nine days stale makes the set not current, though one row is fresh');
+    'a second team nine days stale makes the set not current, though one row is fresh');
 });

@@ -1,0 +1,102 @@
+[
+ {
+  "name": "M1 a team that is not in the league is answered anyway",
+  "file": "server/routes/teams.js",
+  "tests": [
+   "test/teams-depth-chart-route.test.js"
+  ],
+  "aimed_at": "T1",
+  "old": "  if (!row('SELECT id FROM nfl_teams WHERE abbr = ?', abbr)) {\n    return res.status(404).json({ error: 'team not found' });\n  }\n",
+  "new": ""
+ },
+ {
+  "name": "M2 the route stops saying which week it answered for",
+  "file": "server/routes/teams.js",
+  "tests": [
+   "test/teams-depth-chart-route.test.js"
+  ],
+  "aimed_at": "T2",
+  "old": "currentSeason: now.season }), week });",
+  "new": "currentSeason: now.season }) });"
+ },
+ {
+  "name": "M3 the default week is week 1 instead of the schedule's",
+  "file": "server/routes/teams.js",
+  "tests": [
+   "test/teams-depth-chart-route.test.js"
+  ],
+  "aimed_at": "T3",
+  "old": "const week = Number(req.query.week) || now.week;",
+  "new": "const week = Number(req.query.week) || 1;"
+ },
+ {
+  "name": "M4 the query string is ignored",
+  "file": "server/routes/teams.js",
+  "tests": [
+   "test/teams-depth-chart-route.test.js"
+  ],
+  "aimed_at": "T4",
+  "old": "  const season = Number(req.query.season) || now.season;\n  const week = Number(req.query.week) || now.week;",
+  "new": "  const season = now.season;\n  const week = now.week;"
+ },
+ {
+  "name": "M5 the module is not told which season is current",
+  "file": "server/routes/teams.js",
+  "tests": [
+   "test/teams-depth-chart-route.test.js"
+  ],
+  "aimed_at": "T5",
+  "old": "currentSeason: now.season }), week });",
+  "new": "currentSeason: null }), week });"
+ },
+ {
+  "name": "M6 the requested season is passed off as the current one",
+  "file": "server/routes/teams.js",
+  "tests": [
+   "test/teams-depth-chart-route.test.js"
+  ],
+  "aimed_at": "T6",
+  "old": "currentSeason: now.season }), week });",
+  "new": "currentSeason: season }), week });"
+ },
+ {
+  "name": "M7 the route overwrites the module's stale flag",
+  "file": "server/routes/teams.js",
+  "tests": [
+   "test/teams-depth-chart-route.test.js"
+  ],
+  "aimed_at": "T7",
+  "old": "currentSeason: now.season }), week });",
+  "new": "currentSeason: now.season }), week, stale: false });"
+ },
+ {
+  "name": "M8 the route queries the depth table itself",
+  "file": "server/routes/teams.js",
+  "tests": [
+   "test/teams-depth-chart-route.test.js"
+  ],
+  "aimed_at": "T8",
+  "old": "  res.json({ ...teamDepthChart(abbr, { season, week, currentSeason: now.season }), week });",
+  "new": "  res.json({ positions: rows('SELECT pos_abb, pos_rank, player_name FROM off_depth_chart WHERE team = ? AND season = ?', abbr, season), week });"
+ },
+ {
+  "name": "C1 NO-OP control: an anchor that matches three sites",
+  "file": "server/routes/teams.js",
+  "tests": [
+   "test/teams-depth-chart-route.test.js"
+  ],
+  "aimed_at": "(designed NOT APPLIED)",
+  "old": "res.status(404).json({ error: 'team not found' })",
+  "new": "res.status(410).json({ error: 'team not found' })"
+ },
+ {
+  "name": "C2 SURVIVING control: the route's prose is reworded",
+  "file": "server/routes/teams.js",
+  "tests": [
+   "test/teams-depth-chart-route.test.js"
+  ],
+  "aimed_at": "(designed survivor)",
+  "old": " * and its capture time attached.",
+  "new": " * and the time it was captured attached."
+ }
+]

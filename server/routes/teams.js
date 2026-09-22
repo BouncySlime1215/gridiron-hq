@@ -3,6 +3,8 @@ import { rows, row, run } from '../db/index.js';
 import { unitGrades } from './nfldata.js';
 import { textMentionsFullName, newsSeverityFor } from '../services/player-availability.js';
 import { teamTendencies } from '../services/nfl-team-tendencies.js';
+import { teamDepthChart } from '../services/depth-chart.js';
+import { currentNflWeek } from '../services/weekly-learning.js';
 
 const EDITABLE = ['head_coach', 'oc_name', 'dc_name', 'off_scheme', 'off_scheme_detail',
   'def_scheme', 'def_scheme_detail', 'st_coordinator', 'ol_analysis', 'dl_analysis',
@@ -87,6 +89,32 @@ r.get('/:abbr', (req, res) => {
   }
 
   res.json({ ...team, players, depth, depth_multi: multi, grades: unitGrades(team.id) });
+});
+
+/**
+ * The depth chart, from whichever of three sources last spoke, with the source
+ * and its capture time attached. See `server/services/depth-chart.js` for why
+ * the obvious single query is the wrong one.
+ *
+ * Two things this route owes the module. First, `currentSeason`: the module
+ * fails closed without it and withholds Sleeper's live snapshot entirely, so
+ * omitting it costs the freshest source — but passing the *requested* season in
+ * its place would stamp today's snapshot onto every past year, which is worse
+ * than losing it. It gets the real current season and nothing else. Second, the
+ * week it resolved: snap shares are per week, so a caller who sent no week
+ * cannot read the numbers without being told which week they are.
+ */
+r.get('/:abbr/depth-chart', (req, res) => {
+  const abbr = req.params.abbr.toUpperCase();
+  // A team that does not exist and a team with no chart on file are different
+  // answers, and only this route can tell them apart.
+  if (!row('SELECT id FROM nfl_teams WHERE abbr = ?', abbr)) {
+    return res.status(404).json({ error: 'team not found' });
+  }
+  const now = currentNflWeek();
+  const season = Number(req.query.season) || now.season;
+  const week = Number(req.query.week) || now.week;
+  res.json({ ...teamDepthChart(abbr, { season, week, currentSeason: now.season }), week });
 });
 
 /**

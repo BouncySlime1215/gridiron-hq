@@ -145,3 +145,12 @@ test of the fix.
   not a correct one.
 - **Whether the 15 hand-run exports should be hand-run.** That is a product and
   scheduling call. `contingency.js:516` says the script has never run.
+
+## Addendum, 2026-09-22: namespace imports are no longer a blind spot (#116)
+
+The "Dynamic and computed reach" bullet above was true when written, and it stays unedited because merged evidence files are never rewritten. Since #116 (merged as d6d7bd5a), `importersOfSymbol` also counts a namespace import (`import * as ns`, `const ns = await import()`, `const ns = await import().catch()`), but only where the target property is actually read off `ns`. The liveness record is in `docs/tdd/symbol-reach-namespace.tdd.md`: 18/18 with the fix vs 15/18 without.
+
+Still invisible, so still check before deleting an `unused-in-code` row:
+- re-export chains (`export * from`, `export { x } from`);
+- computed property reads (`ns[name]`);
+- a namespace object passed to another function that reads the property there.

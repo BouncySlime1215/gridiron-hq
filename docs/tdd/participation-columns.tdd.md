@@ -277,3 +277,79 @@ recorded here because the query fix looks like a one-line change and is not.
 Separately, `nfl-model-watch.js:1-18` means the value change wants an A/B
 ablation before it reaches the model: "the old number was wrong" and "the new
 number predicts better" are different claims, and only the first is established.
+
+---
+
+## Correction: two figures above are from the wrong file, and one comparison was a category error
+
+The R&D thread checked the numbers in the amendment above rather than adopting
+them and found one wrong. It is wrong, and re-measuring turned up a second,
+larger problem of my own making.
+
+### The 298 belongs to a different column
+
+There are two `pass_rushers` in play and I quoted one under the other's name:
+
+```
+participation  number_of_pass_rushers : 23,754 zeros, 286 on a charted dropback
+ftn_charting   n_pass_rushers         : 23,754 zeros, 298 on a charted dropback
+```
+
+Same nominal meaning, two separate files, and they disagree on the value for 29
+of 45,905 rows. `nfl_play_formations.pass_rushers` is fed from participation, so
+**286 is the figure for everything in the "what the NULLIF fix does not
+achieve" section**, not 298. The 298 in the `nfl_play_charting` table further
+down is correct where it stands, because that table is FTN.
+
+Re-measured on participation's own column, 2024:
+
+```
+mean, every non-blank row       2.0798    n=45,905
+mean, dropbacks only (truth)    4.2548    n=22,408
+mean, NULLIF(x, 0)              4.3101    n=22,151
+
+NULLIF error against truth      +1.30%
+no fix at all                  -51.12%
+```
+
+The +1.3% claim survives; the row count behind it does not.
+
+### `defenders_in_box` — right conclusion, wrong numbers, wrong comparison
+
+The line above says box count "has no such residual: 9,475 zeros, only 253 on a
+dropback". Those are FTN's `n_defense_box` figures. Participation's own
+`defenders_in_box` on 2024 has **9,219 zeros, only 22 on a charted dropback**.
+
+And the comparison itself was a category error. Box count is charted on runs as
+well as dropbacks, so "the mean over dropbacks" is not what the feature means —
+it is a different, also-valid statistic. Measured against it, `NULLIF` looks
+4.38% high (6.0970 against 5.8410), and that number says nothing about the fix.
+The right target for box count is the mean over every *charted* snap, which is
+exactly what `NULLIF(defenders_in_box, 0)` computes. So `NULLIF` is not an
+approximation there, it is the answer, and the earlier framing of 5.8410 as
+"a true 5.8410" was wrong for that column.
+
+The two columns are genuinely different and it was sloppy to treat them alike:
+
+| column | what a zero means | right fix |
+|---|---|---|
+| `pass_rushers` | almost always "not a pass play"; 286 of 23,754 are real | dropback gate; `NULLIF` is +1.3% |
+| `defenders_in_box` | "not charted"; 22 of 9,219 are on a dropback | `NULLIF`, exactly |
+| `n_blitzers` (FTN) | usually "nobody blitzed", a real measurement | dropback gate only — `NULLIF` is 3.5x wrong |
+
+### Two further things from that exchange, recorded because they outlive it
+
+**A rate is not invariant to its weighting scheme, and neither of us had said
+which we used.** The gap between R&D's per-season pressure rates and mine is
+not the dropback gate — those two gates never differ by more than 0.0012 across
+2022-2025 and are interchangeable in practice. It is that theirs is a flat mean
+over team-weeks and mine is pooled over plays: 0.3093 against 0.3145 on 2024,
+five times the gate difference. Flat is the right choice for a per-team-week
+feature. It just has to be labelled, and neither of us labelled it.
+
+**The v2 incident has an open item nobody has closed.** Its note records that
+684 player and 32 team v2 rows were written into the production database and
+does not say they were removed. Stale rows at a version the code no longer
+builds are the same condition that made the first restart rebuild everything.
+Routed with the other live-database reads; noted here because this file is the
+nearest written record to v2.

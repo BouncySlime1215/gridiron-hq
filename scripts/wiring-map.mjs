@@ -560,7 +560,14 @@ function moduleEdges(code) {
       const [imported, local] = x.split(/\s+as\s+/).map(y => y.trim());
       return { imported: head(x), local: (local ?? imported ?? '').trim() };
     }).filter(x => ok(x.imported) && ok(x.local));
-    imports.push({ spec, names, aliases, dynamic, line: lineOf(code, idx) });
+    const line = lineOf(code, idx);
+    // DEFERRED vs LOAD. A static import, a bare import, a re-export and a
+    // module-scope `await import(...)` all run when the module is imported. A
+    // dynamic import inside a function body runs only if that function is
+    // called, so the edge exists but nothing traverses it on load. Depth is the
+    // test: at module scope there is no open brace or paren above the import.
+    const deferred = dynamic && depthAtLine(code, line) > 0;
+    imports.push({ spec, names, aliases, dynamic, deferred, line });
   };
 
   const RE_STATIC = /\bimport\s+([^;'"]*?)\s*from\s*['"]([^'"]+)['"]/g;
@@ -2192,13 +2199,22 @@ function build() {
 
   // Import graph, both directions.
   const importsOf = new Map(), importedBy = new Map();
+  // The same graph with the deferred edges removed: what is actually loaded when
+  // a module is imported. Script reach walks this one, because "running
+  // `npm run X` loads this module" is a load question -- see the BFS below.
+  const loadImportsOf = new Map();
   for (const f of files.values()) {
     const targets = new Set();
+    const loadTargets = new Set();
     for (const imp of f.imports) {
       const resolved = resolveSpec(f.path, imp.spec);
-      if (resolved && files.has(resolved)) { targets.add(resolved); imp.resolved = resolved; }
+      if (resolved && files.has(resolved)) {
+        targets.add(resolved); imp.resolved = resolved;
+        if (!imp.deferred) loadTargets.add(resolved);
+      }
     }
     importsOf.set(f.path, targets);
+    loadImportsOf.set(f.path, loadTargets);
     for (const t of targets) {
       if (!importedBy.has(t)) importedBy.set(t, new Set());
       importedBy.get(t).add(f.path);
@@ -2271,6 +2287,16 @@ function build() {
     // the honest read: what the app wires up itself at startup, and what those
     // things reach directly (a watchdog and the worker it spawns).
     const cap = s.kind === 'boot' ? 2 : MAX_HOPS;
+    // Reach is of kinds and is never summed (Auditor R17). A ROUTE or a JOB
+    // executes its own body, so a dynamic import written inside a handler or a
+    // job body is genuine reach for it -- betting-hub.js:598 really does run
+    // nfl-pick-watch.js when that endpoint is hit. A SCRIPT is different: it
+    // loads its import closure and then calls what it calls, and the map cannot
+    // know which functions run, so claiming everything a function body might
+    // import over-reports. Measured: scripts/diagnose-passing-components.mjs
+    // was credited with reaching model-governance.js through scheduler.js:1002,
+    // and running it seeds none of that module's 43 rows.
+    const edgesOf = s.kind === 'script' ? loadImportsOf : importsOf;
     const seen = new Map();
     let frontier = [s.file];
     let depth = 0;
@@ -2284,7 +2310,7 @@ function build() {
         const key = `${s.kind}:${s.name}`;
         const prior = reachNames.get(cur).get(key);
         if (prior == null || depth < prior) reachNames.get(cur).set(key, depth);
-        for (const t of importsOf.get(cur) ?? []) next.push(t);
+        for (const t of edgesOf.get(cur) ?? []) next.push(t);
       }
       frontier = next;
       depth++;
@@ -2347,7 +2373,7 @@ function build() {
   const fnReach = functionReach(files);
   const columns = tableColumns(files);
   return { files, importsOf, importedBy, surfaces, mounts, mountByFile, jobs, tables, reach,
-    reachNames, gated, fnReach, columns };
+    reachNames, loadImportsOf, gated, fnReach, columns };
 }
 
 // ---------------------------------------------------------------------------

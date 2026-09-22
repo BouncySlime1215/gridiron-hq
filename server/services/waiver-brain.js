@@ -172,7 +172,7 @@ export function freeAgents(lg, { limit = 400 } = {}) {
   const assets = assetUniverse(lg, formatKey);
   const teams = loadRosters(lg, assets);
   const owned = new Set(teams.flatMap(t => t.players.map(p => p.id)));
-  const { week } = tradeWeekContext();
+  const { week } = tradeWeekContext(lg);
 
   return [...assets.values()]
     .filter(p => !owned.has(p.id) && SCORED.has(p.position))
@@ -207,7 +207,7 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your roster could not be resolved from the league sync' };
 
-  const { season, week } = tradeWeekContext();
+  const { season, week } = tradeWeekContext(lg);
   const weight = playoffWeight(week);
 
   // Solve the lineup on the horizon that matters, not on season average.
@@ -369,7 +369,7 @@ export function sellHigh(leagueId, { myTeamId = null, limit = 5 } = {}) {
   const teams = loadRosters(lg, assets);
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your roster could not be resolved from the league sync' };
-  const { week } = tradeWeekContext();
+  const { week } = tradeWeekContext(lg);
 
   // Fit what this league pays for production, POSITION BY POSITION and on a log
   // scale, then look at who sits above their own curve.

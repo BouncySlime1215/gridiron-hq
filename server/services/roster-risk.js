@@ -86,7 +86,7 @@ export function byeOutlook(leagueId, { myTeamId = null } = {}) {
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
   if (!me) return { error: 'your roster could not be resolved from the league sync' };
 
-  const { week: now } = tradeWeekContext();
+  const { week: now } = tradeWeekContext(lg);
   const full = bestLineup(me.players, slots, RISK_KEY);
 
   const weeks = [];
@@ -155,7 +155,7 @@ export function byePatches(leagueId, { myTeamId = null, limit = 4, pool = 150 } 
   const teams = loadRosters(lg, assets);
   const slots = lineupSlots(lg);
   const me = teams.find(t => t.roster_id === String(myTeamId ?? lg.my_team_id)) ?? teams[0];
-  const { week: now } = tradeWeekContext();
+  const { week: now } = tradeWeekContext(lg);
 
   const available = freeAgents(lg, { limit: pool });
   const patches = [];

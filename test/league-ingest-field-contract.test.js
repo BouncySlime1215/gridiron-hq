@@ -81,6 +81,104 @@ test('an ESPN league\'s playoff bracket size is stored on the row at sync time',
   assert.equal(updated.playoff_teams, 4);
 });
 
+// Items 3/4/5 (ESPN half, corrected 2026-09-22): Fantasy plan found real
+// field paths against a captured payload (cwendt94/espn-api) after the
+// contract first shipped saying none were known. Waiver type is a string at
+// settings.acquisitionSettings.acquisitionType (e.g. "WAIVERS_TRADITIONAL").
+test('an ESPN league\'s waiver type is stored on the row', async () => {
+  const lg = insertLeague('espn', '9005');
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      status: { currentMatchupPeriod: 3 },
+      settings: {
+        name: 'Waiver Test League',
+        rosterSettings: { lineupSlotCounts: {} },
+        acquisitionSettings: { acquisitionType: 'WAIVERS_TRADITIONAL', isUsingAcquisitionBudget: false, acquisitionBudget: 100 },
+      },
+      teams: [{ id: 1, name: 'Team A', roster: { entries: [{ id: 1 }] } }],
+    }),
+  });
+
+  await syncEspnLeague(lg);
+
+  const updated = row('SELECT waiver_type FROM leagues WHERE id = ?', lg.id);
+  assert.equal(updated.waiver_type, 'WAIVERS_TRADITIONAL');
+});
+
+// FAAB budget lives at settings.acquisitionSettings.acquisitionBudget, but a
+// real captured payload had budget:100 present alongside
+// isUsingAcquisitionBudget:false — ESPN keeps a residual number there even
+// for leagues not using a budget at all. Reading it unconditionally would
+// fake a FAAB budget for a plain-waiver league, so it must be gated on
+// isUsingAcquisitionBudget === true.
+test('an ESPN league not using a waiver budget stores no FAAB figure, even though ESPN still sends one', async () => {
+  const lg = insertLeague('espn', '9006');
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      status: { currentMatchupPeriod: 3 },
+      settings: {
+        name: 'No Budget League',
+        rosterSettings: { lineupSlotCounts: {} },
+        acquisitionSettings: { acquisitionType: 'WAIVERS_TRADITIONAL', isUsingAcquisitionBudget: false, acquisitionBudget: 100 },
+      },
+      teams: [{ id: 1, name: 'Team A', roster: { entries: [{ id: 1 }] } }],
+    }),
+  });
+
+  await syncEspnLeague(lg);
+
+  const updated = row('SELECT faab_budget FROM leagues WHERE id = ?', lg.id);
+  assert.equal(updated.faab_budget, null, 'isUsingAcquisitionBudget is false, so acquisitionBudget must not be trusted');
+});
+
+test('an ESPN league actually using a waiver budget stores it', async () => {
+  const lg = insertLeague('espn', '9007');
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      status: { currentMatchupPeriod: 3 },
+      settings: {
+        name: 'FAAB League',
+        rosterSettings: { lineupSlotCounts: {} },
+        acquisitionSettings: { acquisitionType: 'WAIVERS_FAAB', isUsingAcquisitionBudget: true, acquisitionBudget: 200 },
+      },
+      teams: [{ id: 1, name: 'Team A', roster: { entries: [{ id: 1 }] } }],
+    }),
+  });
+
+  await syncEspnLeague(lg);
+
+  const updated = row('SELECT faab_budget FROM leagues WHERE id = ?', lg.id);
+  assert.equal(updated.faab_budget, 200);
+});
+
+// Trade deadline lives at settings.tradeSettings.deadlineDate as epoch ms;
+// ESPN uses 0 as its own "no deadline" convention, which must not be stored
+// as a literal (and misleadingly past) timestamp.
+test('an ESPN league\'s trade deadline is stored, and ESPN\'s 0-means-none convention becomes a real null', async () => {
+  const withDeadline = insertLeague('espn', '9008');
+  const noDeadline = insertLeague('espn', '9009');
+  const payloadFor = deadlineDate => ({
+    ok: true,
+    json: async () => ({
+      status: { currentMatchupPeriod: 3 },
+      settings: { name: 'L', rosterSettings: { lineupSlotCounts: {} }, tradeSettings: { deadlineDate } },
+      teams: [{ id: 1, name: 'Team A', roster: { entries: [{ id: 1 }] } }],
+    }),
+  });
+
+  globalThis.fetch = async () => payloadFor(1_732_000_000_000);
+  await syncEspnLeague(withDeadline);
+  globalThis.fetch = async () => payloadFor(0);
+  await syncEspnLeague(noDeadline);
+
+  assert.equal(row('SELECT trade_deadline FROM leagues WHERE id = ?', withDeadline.id).trade_deadline, 1_732_000_000_000);
+  assert.equal(row('SELECT trade_deadline FROM leagues WHERE id = ?', noDeadline.id).trade_deadline, null,
+    'ESPN\'s 0 (no deadline set) must not be stored as a literal epoch-0 timestamp');
+});
+
 // Items 3/4/5/6 (Sleeper half): league.settings carries waiver_type,
 // waiver_budget, trade_deadline, playoff_teams and playoff_week_start —
 // sleeper-history.js already reads playoff_teams/playoff_week_start off this

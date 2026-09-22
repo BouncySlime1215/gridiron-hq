@@ -381,6 +381,15 @@ export function unresolvedReceivers(tables, files) {
 // Receivers that are the app's own connection by convention. Anything else
 // named in front of .prepare/.exec/.run is a handle this resolver has not
 // identified, and is reported as itself rather than as the app.
+//
+// KNOWN FALSE POSITIVE, confirmed in the field 2026-09-22: a file that opens a
+// SECOND database into a local named `db` and ALSO imports the app's database
+// module resolves here to 'app', and every table it touches is reported as an
+// app table nothing writes. The Coach thread hit exactly this — a private chat
+// corpus in a local `db` produced ten false findings — and worked around it by
+// renaming the local to `chatDb`, which is the codebase bending to the tool.
+// `foreign.has(name)` above is meant to catch this and did not, so the defect
+// is in how foreign handles are collected, not here. Next unit for this thread.
 const DB_RECEIVERS = new Set(['db', 'database', 'conn', 'connection']);
 
 function handleFor(file, offset, foreign) {
@@ -3674,7 +3683,9 @@ export function acceptGuard({ accepted = [], orphans = [], found = [] }) {
  * Pure and exported, because a checker nobody has deliberately broken has not
  * been tested. Pinned in test/wiring-map-stale-accept-entries.test.js.
  */
-export function staleOrphanEntries({ entries = [], exists = () => true, silences = () => false }) {
+export function staleOrphanEntries({
+  entries = [], exists = () => true, silences = () => false, preRegistered = () => false,
+}) {
   const out = [];
   const seen = new Set();
   for (const raw of entries) {
@@ -3682,10 +3693,105 @@ export function staleOrphanEntries({ entries = [], exists = () => true, silences
     // `table:` and `column:` entries share these lists and are not module paths.
     if (!entry.includes('/') || seen.has(entry)) continue;
     seen.add(entry);
-    if (!exists(entry)) { out.push({ entry, why: 'names a file that is not in this tree' }); continue; }
-    if (!silences(entry)) out.push({ entry, why: 'the module is wired now — this entry silences nothing' });
+    if (!exists(entry)) {
+      // The two look identical from here — the file is not in the tree either
+      // way — so the only thing that separates them is whether somebody wrote
+      // down that it is coming. That is what `PRE-REGISTERED` in
+      // `_PERMANENT_ORPHAN_REASONS` is for, and reading it is the difference
+      // between a note and an instruction to undo a correct decision.
+      out.push(preRegistered(entry)
+        ? { entry, kind: 'pre-registered', why: 'names a file that is not in this tree yet — pre-registered with a reason and an owner, so leave it' }
+        : { entry, kind: 'missing', why: 'names a file that is not in this tree' });
+      continue;
+    }
+    if (!silences(entry)) {
+      out.push({ entry, kind: 'silences-nothing', why: 'the module is wired now — this entry silences nothing' });
+    }
   }
   return out;
+}
+
+/**
+ * The key an unresolved receiver is baselined under: the file and the handle,
+ * never the line.
+ *
+ * A line number moves on every edit above it, so a line-keyed baseline would
+ * fail builds for changes that touch nothing it cares about. That noise is how
+ * a ratchet gets deleted, and a deleted ratchet is worse than no ratchet,
+ * because the list it leaves behind still reads as a decision.
+ */
+export function receiverKey({ file, receiver }) {
+  return `${file} ${receiver}`;
+}
+
+/**
+ * The ratchet over `unresolvedReceivers`, pre-registered in #129.
+ *
+ * Naming an unrecognised receiver rather than assuming the app files its tables
+ * as `table-in-another-database`, which is `context`, and the gate prints
+ * grandfathered, refused, stale and blocking findings but never context. So the
+ * printed census IS the safeguard, and a census with nothing behind it drifts:
+ * 19 today, 25 next week, and nobody can say which six are new.
+ *
+ * Same shape as `accepted_missing_feeds`. The ones that were there when the
+ * check went on are baselined; the build fails on the NEXT one. Failing on all
+ * 19 on day one would teach people to rename their parameter `db` so the build
+ * passes, which is precisely the silence this rule exists to catch.
+ *
+ * A count per (file, receiver) pair rather than a bare pair name, so a second
+ * unidentified site in a file that already has one is still caught.
+ *
+ * A pair that SHRINKS is reported, never failed: somebody resolved a handle,
+ * and now the baseline line is the thing that is out of date.
+ *
+ * Pure and exported, because a checker nobody has deliberately broken has not
+ * been tested. Pinned in test/wiring-map-receiver-ratchet.test.js.
+ */
+/**
+ * Where the two checkers get their inputs from `annotations.json`.
+ *
+ * These exist because the `--check` block is a CLI branch no unit test runs, so
+ * a mutation to the key it reads, or to the marker it matches, survives the
+ * whole suite. Both mutations DID survive the sweep for this change. Lifting
+ * the two decisions out of the branch and into pure functions is the fix: the
+ * branch is left with a call, and what the call decides is pinned.
+ *
+ * `accepted_unresolved_receivers` is the baseline map; a missing key means the
+ * ratchet has nothing to stand on and every pair reads as new, which is a red
+ * build on day one and the thing the baseline exists to avoid.
+ *
+ * `PRE-REGISTERED` in `_PERMANENT_ORPHAN_REASONS` is how an accept-list entry
+ * says out loud that its file is coming on a branch. Without it the stale
+ * report tells a reader to delete a correct entry.
+ */
+export function receiverBaseline(ann = {}) {
+  return ann.accepted_unresolved_receivers ?? {};
+}
+
+export function preRegisteredEntries(ann = {}) {
+  const reasons = ann._PERMANENT_ORPHAN_REASONS ?? {};
+  return entry => /PRE-REGISTERED/.test(String(reasons[entry] ?? ''));
+}
+
+export function receiverRatchet({ found = [], baseline = {} }) {
+  const now = new Map();
+  for (const site of found) {
+    const key = receiverKey(site);
+    now.set(key, (now.get(key) ?? 0) + 1);
+  }
+  const blocking = [];
+  const loosened = [];
+  for (const key of [...now.keys()].sort()) {
+    const was = baseline[key] ?? 0;
+    const count = now.get(key);
+    if (count > was) blocking.push({ key, was, now: count });
+    else if (count < was) loosened.push({ key, was, now: count });
+  }
+  for (const key of Object.keys(baseline).sort()) {
+    if (!now.has(key)) loosened.push({ key, was: baseline[key], now: 0 });
+  }
+  loosened.sort((a, b) => a.key.localeCompare(b.key));
+  return { blocking, loosened };
 }
 
 const SEVERITY = {
@@ -4155,13 +4261,15 @@ const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested',
       entries: (ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []),
       exists: e => fs.existsSync(path.join(ROOT, e)),
       silences: e => orphanNamed.has(e),
+      preRegistered: preRegisteredEntries(ann),
     });
     if (stale.length) {
-      console.log(`\n${stale.length} accept-list entr(ies) have outlived their reason. `
-        + 'Each is either waiting on a branch, left over from a rename or deletion, or naming a '
-        + 'module that is wired now; an entry that outlives its reason silences nothing and still '
-        + 'reads as a decision:');
-      for (const s of stale) console.log(`  ${s.entry} — ${s.why}`);
+      const rotted = stale.filter(s => s.kind !== 'pre-registered');
+      console.log(`\n${stale.length} accept-list entr(ies) name a file this run cannot square with the `
+        + `tree (${rotted.length} to look at, ${stale.length - rotted.length} pre-registered and correct). `
+        + 'An entry that outlives its reason silences nothing and still reads as a decision — but one '
+        + 'written ahead of a branch is doing its job, so the two are labelled apart:');
+      for (const s of stale) console.log(`  [${s.kind}] ${s.entry} — ${s.why}`);
     }
 
     // The resolver's own ignorance, printed so that naming an unrecognised
@@ -4176,6 +4284,30 @@ const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested',
       for (const u of unresolved) {
         console.log(`  ${u.file}:${u.line} \`${u.receiver}\` — ${u.tables.join(', ')}`);
       }
+    }
+
+    // And the ratchet over that census. Reporting it was the whole safeguard,
+    // and a report with nothing behind it drifts. See receiverRatchet above.
+    const ratchet = receiverRatchet({ found: unresolved, baseline: receiverBaseline(ann) });
+    if (ratchet.loosened.length) {
+      console.log(`\n${ratchet.loosened.length} baselined receiver(s) now resolve better than the `
+        + 'baseline says. Nothing is wrong; the baseline line is what is out of date, and lowering it '
+        + 'is how the ratchet tightens:');
+      for (const l of ratchet.loosened) {
+        console.log(`  ${l.key} — baselined ${l.was}, now ${l.now}`);
+      }
+    }
+    if (ratchet.blocking.length) {
+      console.error(`\n${ratchet.blocking.length} NEW quer(ies) on a receiver this resolver cannot `
+        + 'identify. A handle it cannot name files its tables as belonging to another database, which '
+        + 'is context, and context is never printed as a finding — so a new one is a silence, not a '
+        + 'gap. Name the handle in this file\'s `foreign_handles`, or add the line below to '
+        + 'accepted_unresolved_receivers with a reason. Do NOT rename the variable to `db` to make '
+        + 'this pass; that is the silence itself:');
+      for (const b of ratchet.blocking) {
+        console.error(`  "${b.key}": ${b.now}   (baselined ${b.was})`);
+      }
+      process.exit(1);
     }
 
     const blocking = found.filter(f =>

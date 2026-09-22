@@ -530,18 +530,25 @@ export function runStartSitGate({
  * that table, which all filter on 'NFL'. An instrument fault is returned as an error
  * so sync_log records it, and is stored anyway so the page can say what happened.
  *
+ * The stored gates are the average check's G1-G4 plus the plan-rule gate PLAN (Auditor
+ * ruling A4), so model_gate_audits.verdict reads 'blocked' unless both the plan's rule and
+ * the floor pass.
+ *
  * The returned detail becomes sync_log.last_detail, which the Coach can read
- * (coach/catalog.js), so it carries the verdict and directions only: no rate, no size.
+ * (coach/catalog.js). Its `verdict` is the plan rule's and `average_verdict` the floor's
+ * (A5), and it carries verdicts and directions only: no rate, no size.
  */
 export function refreshStartSitGate({ run = runStartSitGate } = {}) {
   const result = run();
+  const planGate = { id: 'PLAN', label: 'plan rule (prereg addendum 2): the served projection beats ESPN\'s weekly projection',
+    value: result.plan_rule.verdict, passed: result.plan_rule.verdict === 'beats_dumb' };
   const audit = recordGateAudit({
     sport: 'FANTASY', market: GATE_ID, modelVersion: result.model_version,
-    gates: result.gates.map(g => ({ id: g.id, label: g.label, value: g.value, passed: g.passed })),
+    gates: [...result.average_check.gates.map(g => ({ id: g.id, label: g.label, value: g.value, passed: g.passed })), planGate],
     evidence: result,
   });
   const detail = {
-    verdict: result.verdict, audit_id: audit?.id ?? null,
+    verdict: result.verdict, average_verdict: result.average_check.verdict, audit_id: audit?.id ?? null,
     past_direction: result.past?.direction ?? null,
     forward_direction: result.forward?.direction ?? null,
     served_vs_average_direction: result.forward?.served?.vs_average?.direction ?? null,

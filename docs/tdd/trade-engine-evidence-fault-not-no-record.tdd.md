@@ -40,13 +40,18 @@ The third row is the bug: byte-identical to the second, with
 
 ## Commits
 
+Every sha below is on this branch as pushed, rebased onto `main` at `c90d2834`.
+
 | stage | commit | subject |
 |---|---|---|
-| RED (round 1) | `1c0b93f` | `RED: a failed career-evidence read is stated as "no NFL record"` |
-| GREEN (round 1) | `bcd6fb2` | `GREEN: a career layer that could not be read says so instead of "no NFL record"` |
-| docs (round 1) | `fd1f031` | `docs: evidence for the unreadable-career-layer fix` |
-| RED (round 2) | `6a669e9` | `RED: a partly unreadable package reports the readable half as the whole` |
-| GREEN (round 2) | `7f01d69` | `GREEN: the evidence line says how much of a package it could read` |
+| RED (round 1) | `77ccbbc` | `RED: a failed career-evidence read is stated as "no NFL record"` |
+| GREEN (round 1) | `6412283` | `GREEN: a career layer that could not be read says so instead of "no NFL record"` |
+| docs (round 1) | `48c8eaa` | `docs: evidence for the unreadable-career-layer fix` |
+| RED (round 2) | `cc97eb2` | `RED: a partly unreadable package reports the readable half as the whole` |
+| GREEN (round 2) | `8b522d1` | `GREEN: the evidence line says how much of a package it could read` |
+| docs (round 2) | `d01a003` | `docs: evidence for the unreadable-career-layer fix, rounds 1 and 2` |
+| RED (round 3) | `e7d2a84` | `RED: the trade card's Floor cell calls an unreadable package "no record"` |
+| GREEN (round 3) | `389c2ac` | `GREEN: the trade card says which records it could not read` |
 
 ### RED round 1 — the failing assertion, verbatim
 
@@ -89,7 +94,18 @@ cases so the fix could not buy the distinction by breaking them.
 - `packageRisk()` (`:975-981`) carries `unreadable` and a comment saying why it
   is load-bearing rather than cosmetic.
 
-**11 of 19 cases fail against the pre-fix implementation; 19/19 pass with it.**
+### RED round 3 — the failing assertion, verbatim
+
+```
+✖ R1: the Floor cell does not call an unreadable package "no record"
+  AssertionError [ERR_ASSERTION]: floorOf never looks at PackageRisk.unreadable,
+  so a failed career query still reads as a finding
+      at TestContext.<anonymous> (test/trade-risk-strip-unreadable.test.js:31:10)
+```
+
+**Server:** 11 of 19 cases fail against the pre-fix implementation; 19/19 pass
+with it. **Client:** 5 of 5 fail against the untouched client; 5/5 pass with
+the fix. 44/44 across the four affected test files together.
 
 ---
 
@@ -267,7 +283,8 @@ data field. Only the "and nobody is told" half changed.
    about whether a call threw.
 3. **How we know:** the three-row table above, measured through the public API
    before any code changed; then 11/19 failing against the pre-fix
-   implementation and 19/19 passing with it, plus the five existing test files
+   implementation and 19/19 passing with it, 5/5 on the client failing against
+   the untouched `RiskStrip.tsx` and passing with the fix, plus the five existing test files
    that touch these symbols (`trade-evidence`, `model-integrity`,
    `betting-fantasy-link`, `lineup-evidence`, `nfl-execution-edge`) green.
 4. **Pointed anywhere else?** Every outgoing player object carries the flag, so

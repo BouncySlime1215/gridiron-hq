@@ -137,3 +137,39 @@ test('Middle Linebacker survives the sweep', () => {
       + 'slot for a middle linebacker; removing it drops real NFL players out of the LB group');
   }
 });
+
+/*
+ * THE FIRST SWEEP MISSED THREE THINGS (SY-06, 2026-09-22). All three are leftovers
+ * from #128 above: dead code or a live path that should have been closed along with
+ * the rest of the removal, but wasn't because nothing exercised it in a way the
+ * original census would have caught.
+ */
+
+test('odds-api.js no longer exports MLB-only symbols', () => {
+  // #128 deleted routes/mlb.js and every MLB service, which were the only callers of
+  // mlbEvents/mlbEventOdds/MLB_MARKETS/MLB_SPORT in server/services/odds-api.js — a
+  // shared betting module the removal never touched. `git grep` confirms zero callers
+  // remain anywhere in server, scripts, client/src or test.
+  const src = read('server/services/odds-api.js');
+  for (const symbol of ['MLB_MARKETS', 'mlbEvents', 'mlbEventOdds', 'MLB_SPORT']) {
+    assert.ok(!new RegExp(`\\b${symbol}\\b`).test(src),
+      `odds-api.js still defines ${symbol}, a dead MLB-only export nothing calls`);
+  }
+});
+
+test('the MLB props board and its saved-ticket router are not mounted', () => {
+  // server/routes/props.js ("MLB prop research board") and props-tickets.js
+  // ("Saved MLB prop slips") were still mounted at /api/props and /api/props-tickets
+  // in server/index.js after #128, with zero references from client/src — no page
+  // ever fetched either path. The router files themselves stay (their own tests
+  // still import them directly); only the live mount comes out.
+  const index = read('server/index.js');
+  assert.ok(!/import\('\.\/routes\/props\.js'\)/.test(index),
+    'server/index.js still imports the MLB props router');
+  assert.ok(!/import\('\.\/routes\/props-tickets\.js'\)/.test(index),
+    'server/index.js still imports the MLB props-tickets router');
+  assert.ok(!/['"]\/api\/props['"]/.test(index),
+    'server/index.js still mounts /api/props, which no client page calls');
+  assert.ok(!/['"]\/api\/props-tickets['"]/.test(index),
+    'server/index.js still mounts /api/props-tickets, which no client page calls');
+});

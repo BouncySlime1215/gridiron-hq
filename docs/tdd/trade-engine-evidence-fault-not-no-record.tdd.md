@@ -52,6 +52,8 @@ Every sha below is on this branch as pushed, rebased onto `main` at `c90d2834`.
 | docs (round 2) | `d01a003` | `docs: evidence for the unreadable-career-layer fix, rounds 1 and 2` |
 | RED (round 3) | `e7d2a84` | `RED: the trade card's Floor cell calls an unreadable package "no record"` |
 | GREEN (round 3) | `389c2ac` | `GREEN: the trade card says which records it could not read` |
+| docs (round 3) | `5b8a345` | `docs: RED round 3 and the rebased shas` |
+| docs (gate) | *this head* | `docs: the guard result on the pushed head` — cited as the head rather than by sha, since a commit cannot carry its own hash |
 
 ### RED round 1 — the failing assertion, verbatim
 
@@ -273,6 +275,27 @@ failed layer never moves ppg, value, score or verdict, and never adds its own
 data field. Only the "and nobody is told" half changed.
 
 ---
+
+## The local gate on the pushed head
+
+`bash /mnt/project-files/verify2x-v4.sh 5b8a345` — source-isolated detached
+worktree, `node_modules` hard-linked, primary repo clean and its write-tree
+unchanged either side of the run.
+
+```
+HEAD: 5b8a345b07587a6c72b9f74e0bf941066b4b1131
+TREE: 4bc9a5c0a27ca7b542a15f86d880b6befdba22a6  (worktree tree identical)
+RUN 1 EXIT: 0
+# tests 3571  # pass 3530  # fail 0  # skipped 41
+RUN 1 worktree status: 0 paths
+```
+
+One command covers both gates: #129 folded `check:wiring` into `npm run check`,
+and this branch is rebased onto that fix at `c90d2834`.
+
+The head sits one commit above `5b8a345` and that commit adds **only this
+section** — one `.md` file, no code (`git diff --stat 5b8a345 HEAD` is a single
+documentation file). So the exit code above describes the head's code tree too.
 
 ## Five questions
 

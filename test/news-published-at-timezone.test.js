@@ -120,12 +120,15 @@ test('a feed stamp still ahead of the fetch clock is counted on the ingest resul
   const xml = espnFeed([
     { title: 'R-07 honest stamp', link: 'https://www.espn.com/nfl/story/_/id/990002/r07-honest', pubDate: 'Tue, 22 Sep 2026 19:30:00 GMT' },
     // 30 minutes after the fetch in an unambiguous zone: the feed itself is ahead.
-    { title: 'R-07 future stamp', link: 'https://www.espn.com/nfl/story/_/id/990003/r07-future', pubDate: 'Tue, 22 Sep 2026 20:10:50 GMT' }
+    { title: 'R-07 future stamp', link: 'https://www.espn.com/nfl/story/_/id/990003/r07-future', pubDate: 'Tue, 22 Sep 2026 20:10:50 GMT' },
+    // Either side of the 5-minute skew allowance (3m59.5s and 5m59.5s ahead).
+    { title: 'R-07 inside skew', link: 'https://www.espn.com/nfl/story/_/id/990005/r07-skew-in', pubDate: 'Tue, 22 Sep 2026 19:44:50 GMT' },
+    { title: 'R-07 past skew', link: 'https://www.espn.com/nfl/story/_/id/990006/r07-skew-out', pubDate: 'Tue, 22 Sep 2026 19:46:50 GMT' }
   ]);
   const result = await ingestRssSource({ name: 'ESPN', url: 'https://example.com/rss', sourceType: 'publisher' },
     { fetchImpl: async () => ({ ok: true, text: async () => xml }) });
-  assert.equal(result.inserted, 2);
-  assert.equal(result.future_stamped, 1);
+  assert.equal(result.inserted, 4);
+  assert.equal(result.future_stamped, 2);
   // The row keeps the feed's own value; the fetch clock beside it is the label.
   const stored = row(`SELECT published_at, ingested_at FROM news_items WHERE headline = ?`, 'R-07 future stamp');
   assert.equal(stored.published_at, '2026-09-22T20:10:50.000Z');

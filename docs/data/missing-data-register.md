@@ -66,10 +66,23 @@ before it was built.
 
 ## missing: the `pbp_participation` table itself
 
-Three services read a table named `pbp_participation`
-(`server/services/td-features.js:191`,
-`server/services/nfl-weekly-feature-store-v2.js:272`, and
-`server/services/nfl-formations.js:10` in its header) and **no migration or
-schema file creates it** — `grep -rln pbp_participation server/db/
-server/migrations/` returns nothing. Not a missing external feed but a missing
-local table, and an honest-inventory row.
+`grep -rln pbp_participation server/db/ server/migrations/` returns nothing:
+no migration or schema file creates this table. But the consequence differs by
+consumer, and an earlier version of this entry got that wrong.
+
+- `server/services/td-features.js:191` reads `pbp_participation` and
+  `play_by_play` as genuine phantoms, in a module nothing else calls. This is
+  the real gap.
+- `server/services/nfl-weekly-feature-store-v2.js:272` is **not** a phantom
+  read. Its tables live in satellite `.sqlite` files that this image does not
+  ship — the same class as the chat corpus — and the module degrades honestly
+  when they are absent rather than failing silently. That is a deployment gap,
+  not dead code. Corrected on the wiring audit's finding, 2026-09-22; the
+  original "inert path" framing here was mine and it was wrong.
+- `server/services/nfl-formations.js` only names it in its header comment; it
+  writes `nfl_play_formations`.
+
+Worth noting for whoever closes the gap: `nfl-formations.js` already downloads
+and parses the participation CSV but stores only play-level formation columns,
+never `offense_players`, so the existing ingester cannot produce the per-player
+counts `td-features.js` wants.

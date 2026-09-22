@@ -290,3 +290,56 @@ orphan-served paths. `draft-survival` is the clearest instance:
 `unclassified` and should be read as reachable-at-file-level, not
 reachable-at-handler-level. Tightening that needs a per-export call graph,
 which this pass does not build.
+
+---
+
+# Reconciliation against the freshness registry
+
+The scheduler thread's `servedTables()` — `server/services/source-registry.js:322`
+on their local-only branch, ten entries — was reconciled against the 82 tables
+the graded model rows read. Their ten, verbatim: `player_week_usage`,
+`nfl_player_week_features`, `nfl_injuries`, `nfl_depth`, `schedule_games`,
+`player_season_stats`, `league_roster_snapshots`, `roster_players`,
+`news_items`, `players`.
+
+All ten are declared in the tree at `654ff93`. Nine of the ten are in the 82.
+`league_roster_snapshots` is not, because no model in the candidate set reads
+it — that is a scope difference, not a gap: their registry covers the data
+feeds, this list covers what models read.
+
+**The gap runs the other way. 73 of the 82 tables the fantasy models read are
+not in the registry — it covers 9, or 11%.** A freshness dashboard built on
+those ten can be entirely green while 73 tables the models depend on are
+unmonitored.
+
+## Not one fitted-model store is covered
+
+Ten of the 82 are fit or fitted-artifact stores:
+`correlation_estimates`, `fantasy_coordinator_fits`, `gamescript_model`,
+`nfl_ensemble_fit_artifacts`, `nfl_online_neural_artifacts`,
+`nfl_orthogonal_specialist_artifacts`, `nfl_prop_calibration_fits`,
+`shrinkage_fits`, `shrinkage_k`, `weekly_ensemble_fits`.
+
+**Zero of them are in the registry.** So a dashboard on it cannot report that
+a model is unfitted, which is the single thing that most needs reporting: an
+unfitted model still answers, and its answer still renders. Two of the ten,
+`correlation_estimates` and `gamescript_model`, are already counted by
+`server/routes/model.js:596-599` under `/api/model/status`, so the numbers
+exist — they are just not on the freshness path.
+
+Recommendation for item 6, on the evidence above rather than on preference:
+the registry needs a second grain beside "feed freshness" — a fitted-at
+stamp per fit store, with the model that reads it named. A table that has
+rows but whose fit is from a prior season is a `decoration` risk that a row
+count alone reports as healthy.
+
+## A further note on `half_done`
+
+All 38 `half_done` rows were re-measured for importers across
+`server/`, `scripts/` and `test/`. **None has zero server importers**, so
+none of them collapses into `dead`; the 9 `dead` rows remain 9. That check
+was worth running because `final2.mjs` only set the `serverImporters` field
+on rows it touched, and an absent field printed with a `|| 'NONE'` default
+reads exactly like a measured zero. It was printed that way once, for
+`roster-risk`, `trend-exploits`, `manager-archetypes` and five others,
+before the field was measured for all 98.

@@ -60,7 +60,27 @@
    "server/services/contingency.js",
    "server/services/fantasy-coordinator.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/contingency.js, server/services/fantasy-coordinator.js"
+  "reachable": "yes — via a caller on a live surface: server/services/contingency.js, server/services/fantasy-coordinator.js",
+  "nonServerImporters": [
+   "scripts/analyze-qbr-fantasy-signal.mjs",
+   "scripts/availability-decision-calibration.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-role-recency.mjs",
+   "scripts/fit-ros-projection.mjs",
+   "scripts/fit-shrinkage-weekly.mjs",
+   "scripts/fit-shrinkage.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/fit-weekly-ensemble.mjs",
+   "scripts/fit-weekly.mjs",
+   "scripts/grade-feature-vector.mjs",
+   "scripts/promote-early-week-weights.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "scripts/test-new-heads.mjs",
+   "scripts/unified-margin-audit-significance.mjs",
+   "test/always-valid-significance.test.js",
+   "test/paired-bootstrap-clustering.test.js"
+  ]
  },
  {
   "id": "backtest",
@@ -107,7 +127,21 @@
   "liveImporters": [
    "server/routes/model.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/model.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js",
+  "nonServerImporters": [
+   "scripts/analyze-qbr-fantasy-signal.mjs",
+   "scripts/fit-level-uncertainty.mjs",
+   "scripts/fit-ros-projection.mjs",
+   "scripts/fit-shrinkage.mjs",
+   "scripts/fit-weekly-ensemble.mjs",
+   "scripts/freeze-baseline.mjs",
+   "scripts/grade-feature-vector.mjs",
+   "scripts/promote-early-week-weights.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "scripts/test-new-heads.mjs",
+   "test/model-integrity.test.js"
+  ]
  },
  {
   "id": "boom-bust",
@@ -150,7 +184,10 @@
   "liveImporters": [
    "server/services/fantasy-coordinator.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/fantasy-coordinator.js"
+  "reachable": "yes — via a caller on a live surface: server/services/fantasy-coordinator.js",
+  "nonServerImporters": [
+   "test/boom-bust.test.js"
+  ]
  },
  {
   "id": "bottom-up-team-total",
@@ -174,7 +211,13 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "scripts/_bottom-up-team-total-worker.mjs",
+   "scripts/_recheck-variance-only.mjs",
+   "test/bottom-up-team-total.test.js"
+  ]
  },
  {
   "id": "ceiling-lineup",
@@ -201,7 +244,13 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [
+   "test/decision-leftovers-home-away.test.js"
+  ]
  },
  {
   "id": "confidence-tier",
@@ -241,7 +290,10 @@
   "liveImporters": [
    "server/services/fantasy-coordinator.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/fantasy-coordinator.js"
+  "reachable": "yes — via a caller on a live surface: server/services/fantasy-coordinator.js",
+  "nonServerImporters": [
+   "test/confidence-tier.test.js"
+  ]
  },
  {
   "id": "conformal",
@@ -279,7 +331,10 @@
    "server/services/nfl-market.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-ensemble.js, server/services/nfl-market.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-ensemble.js, server/services/nfl-market.js",
+  "nonServerImporters": [
+   "test/conformal-calibration.test.js"
+  ]
  },
  {
   "id": "contingency",
@@ -328,7 +383,33 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/lineup-brain.js",
+   "server/services/news-fantasy-impact.js",
+   "server/services/player-week-engine.js",
+   "server/services/role-scenario-engine.js",
+   "server/services/season-sim.js",
+   "server/services/trade-engine.js",
+   "server/services/waiver-wire.js"
+  ],
+  "nonServerImporters": [
+   "scripts/availability-decision-calibration.mjs",
+   "scripts/fit-availability.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "test/asset-cache-stamps.test.js",
+   "test/asset-universe-fingerprint.test.js",
+   "test/availability-fit-loader.test.js",
+   "test/availability-honest-degradation.test.js",
+   "test/availability-role.test.js",
+   "test/decision-leftovers-home-away.test.js",
+   "test/designation-role-gate-v2.test.js",
+   "test/model-integrity.test.js",
+   "test/pinned-baselines.test.js",
+   "test/play-chance-live.test.js",
+   "test/ros-projection-failures.test.js"
+  ]
  },
  {
   "id": "correlation",
@@ -381,7 +462,11 @@
    "server/services/season-sim.js",
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/services/ceiling-lineup.js, server/services/draft-lookahead.js, server/services/season-sim.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/services/ceiling-lineup.js, server/services/draft-lookahead.js, server/services/season-sim.js",
+  "nonServerImporters": [
+   "test/decision-leftovers-home-away.test.js",
+   "test/draft-lookahead-variance.test.js"
+  ]
  },
  {
   "id": "counterparty-pricing",
@@ -447,7 +532,14 @@
    "server/routes/trades.js",
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/trades.js, server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/trades.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/manager-data-pipeline.test.js",
+   "test/trade-acceptance.test.js",
+   "test/trade-manager-read.test.js",
+   "test/trade-tactics.test.js",
+   "test/valuation-map.test.js"
+  ]
  },
  {
   "id": "decay-watch",
@@ -494,7 +586,10 @@
   "liveImporters": [
    "server/routes/betting-hub.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/betting-hub.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/betting-hub.js",
+  "nonServerImporters": [
+   "test/decay-watch.test.js"
+  ]
  },
  {
   "id": "draft-abstention-audit",
@@ -515,7 +610,11 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "test/draft-abstention-audit.test.js"
+  ]
  },
  {
   "id": "draft-assist",
@@ -571,7 +670,16 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/index.js",
+   "server/routes/drafts.js",
+   "server/routes/trades.js",
+   "server/services/draft-lookahead.js"
+  ],
+  "nonServerImporters": [
+   "test/draft-assist-bestball.test.js"
+  ]
  },
  {
   "id": "draft-lookahead",
@@ -602,7 +710,13 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/drafts.js"
+  ],
+  "nonServerImporters": [
+   "test/draft-lookahead-variance.test.js"
+  ]
  },
  {
   "id": "draft-survival",
@@ -637,7 +751,11 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/edge.js"
+  ],
+  "nonServerImporters": []
  },
  {
   "id": "dynasty-age-curve",
@@ -679,7 +797,10 @@
   "liveImporters": [
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/tradelab.js, server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/tradelab.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/dynasty-age-curve.test.js"
+  ]
  },
  {
   "id": "fantasy-coordinator",
@@ -724,7 +845,18 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/players.js",
+   "server/services/decay-watch.js",
+   "server/services/draft-assist.js",
+   "server/services/scheduler.js",
+   "server/services/trade-engine.js"
+  ],
+  "nonServerImporters": [
+   "test/fantasy-coordinator.test.js"
+  ]
  },
  {
   "id": "ffopportunity",
@@ -771,7 +903,10 @@
    "server/routes/model.js",
    "server/services/player-week-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/services/player-week-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/services/player-week-engine.js",
+  "nonServerImporters": [
+   "scripts/sync-ffopportunity.mjs"
+  ]
  },
  {
   "id": "football-context",
@@ -821,7 +956,8 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": []
  },
  {
   "id": "forecast-combination",
@@ -841,7 +977,14 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/joint-score-backtest.js",
+   "server/services/opportunity-model.js"
+  ],
+  "nonServerImporters": [
+   "test/forecast-combination.test.js"
+  ]
  },
  {
   "id": "forecast-comparison",
@@ -880,7 +1023,11 @@
    "server/services/nfl-ensemble.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/forecast-combination.js, server/services/joint-score-backtest.js, server/services/nfl-ensemble.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/forecast-combination.js, server/services/joint-score-backtest.js, server/services/nfl-ensemble.js",
+  "nonServerImporters": [
+   "test/diebold-mariano.test.js",
+   "test/giacomini-white.test.js"
+  ]
  },
  {
   "id": "gamescript",
@@ -939,7 +1086,42 @@
    "server/services/fantasy-coordinator.js",
    "server/services/season-sim.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/routes/nfl-market.js, server/services/ceiling-lineup.js, server/services/fantasy-coordinator.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/routes/nfl-market.js, server/services/ceiling-lineup.js, server/services/fantasy-coordinator.js",
+  "nonServerImporters": [
+   "test/beat-the-close-close-fallback.test.js",
+   "test/beat-the-close-weekly-read.test.js",
+   "test/beat-the-close-wind.test.js",
+   "test/beat-the-close.test.js",
+   "test/book-feeds-extra.test.js",
+   "test/book-feeds.test.js",
+   "test/decision-leftovers-home-away.test.js",
+   "test/empty-state.test.js",
+   "test/forward-ledger.test.js",
+   "test/gamescript-closing-line.test.js",
+   "test/line-move-study.test.js",
+   "test/lineup-surfaces-agree.test.js",
+   "test/model-integrity.test.js",
+   "test/nfl-external-ratings.test.js",
+   "test/nfl-gbm-weather-fallback.test.js",
+   "test/nfl-matchup-specialists.test.js",
+   "test/nfl-model-fixes.test.js",
+   "test/nfl-moneyline-domain.test.js",
+   "test/nfl-pick-watch.test.js",
+   "test/nfl-slice-diagnostic.test.js",
+   "test/nfl-total-calibration.test.js",
+   "test/nfl-weather-forecast.test.js",
+   "test/nfl-weather-history.test.js",
+   "test/nfl-weather-per-team-response.test.js",
+   "test/odds-archive.test.js",
+   "test/polymarket-lines.test.js",
+   "test/report-cache.test.js",
+   "test/sharp-lag.test.js",
+   "test/shopping-board-edge-vs-bias.test.js",
+   "test/shopping-board-staleness.test.js",
+   "test/signal-latency-book-lag.test.js",
+   "test/verified-events-cutoff.test.js",
+   "test/week1-readiness.test.js"
+  ]
  },
  {
   "id": "gridiron-model",
@@ -978,7 +1160,15 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/nfl-engine-registry.js",
+   "server/services/nfl-unified-engine.js"
+  ],
+  "nonServerImporters": [
+   "test/gridiron-model.test.js"
+  ]
  },
  {
   "id": "historical-adp",
@@ -1023,7 +1213,11 @@
   "liveImporters": [
    "server/routes/model.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/model.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js",
+  "nonServerImporters": [
+   "test/historical-adp-scrapes.test.js",
+   "test/historical-adp.test.js"
+  ]
  },
  {
   "id": "joint-score-backtest",
@@ -1046,7 +1240,11 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "test/nfl-joint-score.test.js"
+  ]
  },
  {
   "id": "league-brain",
@@ -1077,7 +1275,15 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [
+   "test/league-brain.test.js",
+   "test/lineup-evidence.test.js",
+   "test/trade-route-retirement.test.js"
+  ]
  },
  {
   "id": "lineup-brain",
@@ -1106,7 +1312,21 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/lineup-posture.js"
+  ],
+  "nonServerImporters": [
+   "scripts/eval-lineup-objectives.mjs",
+   "test/availability-fit-loader.test.js",
+   "test/availability-honest-degradation.test.js",
+   "test/decision-leftovers-lineup.test.js",
+   "test/lineup-evidence.test.js",
+   "test/lineup-floor-objective.test.js",
+   "test/lineup-surfaces-agree.test.js"
+  ]
  },
  {
   "id": "lineup-posture",
@@ -1131,7 +1351,16 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [
+   "scripts/fit-posture-calibration.mjs",
+   "test/decision-leftovers-lineup.test.js",
+   "test/lineup-surfaces-agree.test.js",
+   "test/posture-calibration.test.js"
+  ]
  },
  {
   "id": "llm-budget",
@@ -1177,7 +1406,12 @@
   "liveImporters": [
    "server/services/claude.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/claude.js"
+  "reachable": "yes — via a caller on a live surface: server/services/claude.js",
+  "nonServerImporters": [
+   "test/llm-budget-per-league.test.js",
+   "test/llm-plumbing.test.js",
+   "test/trade-proposals.test.js"
+  ]
  },
  {
   "id": "manager-archetypes",
@@ -1222,7 +1456,17 @@
    }
   ],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [
+   "test/manager-data-pipeline.test.js",
+   "test/manager-identity-seeding.test.js",
+   "test/manager-signals-api.test.js",
+   "test/trade-tactics.test.js",
+   "test/valuation-map.test.js"
+  ]
  },
  {
   "id": "matchups",
@@ -1280,7 +1524,21 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/nfldata.js",
+   "server/routes/trades.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/football-context.js",
+   "server/services/season-sim.js",
+   "server/services/trade-engine.js",
+   "server/services/trade-horizon.js"
+  ],
+  "nonServerImporters": [
+   "test/decision-leftovers-home-away.test.js",
+   "test/matchups-no-signal.test.js"
+  ]
  },
  {
   "id": "news-fantasy-impact",
@@ -1312,7 +1570,11 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/news.js"
+  ],
+  "nonServerImporters": []
  },
  {
   "id": "nfl-bitemporal",
@@ -1355,7 +1617,12 @@
    "server/services/nfl-advanced.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-advanced.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-advanced.js",
+  "nonServerImporters": [
+   "test/evidence-dataset.test.js",
+   "test/nfl-t60-packet.test.js",
+   "test/nfl-team-card-injury-cutoff.test.js"
+  ]
  },
  {
   "id": "nfl-candidate-findings",
@@ -1400,7 +1667,10 @@
    "server/services/nfl-model-growth.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-auto-picks.js, server/services/nfl-model-growth.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-auto-picks.js, server/services/nfl-model-growth.js",
+  "nonServerImporters": [
+   "test/nfl-candidate-findings.test.js"
+  ]
  },
  {
   "id": "nfl-drive-sim",
@@ -1446,7 +1716,14 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "scripts/calibrate-home-field-rate.mjs",
+   "scripts/opener-clv-measurement.mjs",
+   "test/model-integrity.test.js",
+   "test/nfl-drive-sim-clock-rules.test.js",
+   "test/nfl-drive-tape.test.js"
+  ]
  },
  {
   "id": "nfl-ensemble-rank",
@@ -1470,7 +1747,13 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/forecast-combination.js"
+  ],
+  "nonServerImporters": [
+   "test/nfl-ensemble-rank.test.js"
+  ]
  },
  {
   "id": "nfl-ensemble",
@@ -1531,7 +1814,30 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "scripts/_bottom-up-team-total-worker.mjs",
+   "scripts/measure-weather-split.mjs",
+   "scripts/opener-clv-measurement.mjs",
+   "test/ensemble-massey-ridge.test.js",
+   "test/ensemble-window-and-split.test.js",
+   "test/family-contribution-scoring.test.js",
+   "test/forecast-combination.test.js",
+   "test/model-integrity.test.js",
+   "test/nfl-ensemble-authority.test.js",
+   "test/nfl-ensemble-joint-residual.test.js",
+   "test/nfl-ensemble-joint-weighting.test.js",
+   "test/nfl-ensemble-market-correction-component.test.js",
+   "test/nfl-ensemble-opponent-adjustment.test.js",
+   "test/nfl-ensemble-point-conversion.test.js",
+   "test/nfl-market-identity-rich.test.js",
+   "test/nfl-market-identity.test.js",
+   "test/nfl-moneyline-domain.test.js",
+   "test/nfl-t60-packet.test.js",
+   "test/nfl-weather-per-team-response.test.js",
+   "test/spread-family-adapters.test.js",
+   "test/t60-packet-sourced-board.test.js"
+  ]
  },
  {
   "id": "nfl-espn-pbp",
@@ -1577,7 +1883,8 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": []
  },
  {
   "id": "nfl-expert-coordinator",
@@ -1621,7 +1928,12 @@
    "server/services/nfl-specialist-audit.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-expert-council.js, server/services/nfl-specialist-audit.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-expert-council.js, server/services/nfl-specialist-audit.js",
+  "nonServerImporters": [
+   "test/contextual-coordinator.test.js",
+   "test/coordinator-shrinkage.test.js",
+   "test/model-integrity.test.js"
+  ]
  },
  {
   "id": "nfl-expert-council",
@@ -1686,7 +1998,17 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/blind-audit-lookback.test.js",
+   "test/coordinator-shrinkage.test.js",
+   "test/evidence-provenance.test.js",
+   "test/model-integrity.test.js",
+   "test/nfl-expert-council-news-feed-cutoff.test.js",
+   "test/nfl-expert-council-shopping-receipt-cutoff.test.js",
+   "test/nfl-slice-diagnostic.test.js",
+   "test/price-shopper-archive.test.js"
+  ]
  },
  {
   "id": "nfl-external-ratings",
@@ -1734,7 +2056,10 @@
   "liveImporters": [
    "server/routes/nfl-market.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/nfl-external-ratings.test.js"
+  ]
  },
  {
   "id": "nfl-family-contribution",
@@ -1754,7 +2079,14 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "nonServerImporters": [
+   "test/family-contribution-scoring.test.js",
+   "test/nfl-family-contribution.test.js"
+  ]
  },
  {
   "id": "nfl-forecast-identity",
@@ -1794,7 +2126,10 @@
    "server/services/nfl-ensemble.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-auto-picks.js, server/services/nfl-coordination-audit.js, server/services/nfl-cover-calibration.js, server/services/nfl-ensemble.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-auto-picks.js, server/services/nfl-coordination-audit.js, server/services/nfl-cover-calibration.js, server/services/nfl-ensemble.js",
+  "nonServerImporters": [
+   "test/nfl-cover-identity.test.js"
+  ]
  },
  {
   "id": "nfl-gbm",
@@ -1841,7 +2176,11 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/nfl-gbm-weather-fallback.test.js",
+   "test/nfl-team-strength.test.js"
+  ]
  },
  {
   "id": "nfl-news-event-impact",
@@ -1866,7 +2205,12 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "scripts/run-news-event-impact.mjs",
+   "test/nfl-news-event-impact.test.js"
+  ]
  },
  {
   "id": "nfl-offseason-change",
@@ -1902,7 +2246,8 @@
   "liveImporters": [
    "server/services/draft-assist.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/nfl-betting.js, server/services/draft-assist.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/nfl-betting.js, server/services/draft-assist.js",
+  "nonServerImporters": []
  },
  {
   "id": "nfl-online-neural",
@@ -1955,7 +2300,11 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/model-integrity.test.js",
+   "test/week1-readiness.test.js"
+  ]
  },
  {
   "id": "nfl-orthogonal-specialists",
@@ -1999,7 +2348,12 @@
    "server/services/nfl-model-growth.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-expert-council.js, server/services/nfl-model-growth.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-expert-council.js, server/services/nfl-model-growth.js",
+  "nonServerImporters": [
+   "scripts/nfl-2022-2025-rebuild.mjs",
+   "test/nfl-orthogonal-specialists.test.js",
+   "test/nfl-weekly-state.test.js"
+  ]
  },
  {
   "id": "nfl-player-value",
@@ -2053,7 +2407,11 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "scripts/opener-clv-pass2.mjs",
+   "test/model-integrity.test.js"
+  ]
  },
  {
   "id": "nfl-policy",
@@ -2105,7 +2463,15 @@
   "liveImporters": [
    "server/routes/nfl-market.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/model-integrity.test.js",
+   "test/nfl-decision-identity-pipeline.test.js",
+   "test/nfl-execution-decision.test.js",
+   "test/nfl-moneyline-domain.test.js",
+   "test/nfl-policy-contract.test.js",
+   "test/nfl-replay-error-analysis.test.js"
+  ]
  },
  {
   "id": "nfl-preseason-blend",
@@ -2129,7 +2495,12 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "test/nfl-preseason-blend.test.js",
+   "test/preseason-blend-cutoff.test.js"
+  ]
  },
  {
   "id": "nfl-replay",
@@ -2196,7 +2567,17 @@
    "server/routes/nfl-betting.js",
    "server/routes/nfl-market.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/model-integrity.test.js",
+   "test/nfl-moneyline-domain.test.js",
+   "test/nfl-replay-error-analysis.test.js",
+   "test/nfl-replay-graph.test.js",
+   "test/nfl-replay-opener-disclosure.test.js",
+   "test/nfl-replay-qualitative-segments.test.js",
+   "test/nfl-rolling-leaders.test.js",
+   "test/paired-bootstrap-clustering.test.js"
+  ]
  },
  {
   "id": "nfl-rookies",
@@ -2246,7 +2627,8 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": []
  },
  {
   "id": "nfl-roster-strength",
@@ -2304,7 +2686,12 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "scripts/opener-clv-pass2.mjs",
+   "test/model-integrity.test.js",
+   "test/nfl-roster-strength-pff-normalization.test.js"
+  ]
  },
  {
   "id": "nfl-specialists",
@@ -2350,7 +2737,10 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/nfl-model-fixes.test.js"
+  ]
  },
  {
   "id": "nfl-team-strength",
@@ -2373,7 +2763,11 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "test/nfl-team-strength.test.js"
+  ]
  },
  {
   "id": "nfl-team-tendencies",
@@ -2400,7 +2794,11 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/teams.js"
+  ],
+  "nonServerImporters": []
  },
  {
   "id": "nfl-teamrankings-lookup",
@@ -2437,7 +2835,10 @@
    "server/services/nfl-ensemble.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-ensemble.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-ensemble.js",
+  "nonServerImporters": [
+   "test/nfl-teamrankings-lookup.test.js"
+  ]
  },
  {
   "id": "nfl-unified-engine",
@@ -2459,7 +2860,11 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "nonServerImporters": []
  },
  {
   "id": "nfl-weather-history",
@@ -2505,7 +2910,10 @@
   "liveImporters": [
    "server/routes/nfl-market.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": [
+   "test/nfl-weather-history.test.js"
+  ]
  },
  {
   "id": "nfl-weather",
@@ -2550,7 +2958,11 @@
    "server/services/scheduler.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/beat-the-close.js, server/services/line-move-study.js, server/services/nfl-weather-history.js, server/services/scheduler.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/beat-the-close.js, server/services/line-move-study.js, server/services/nfl-weather-history.js, server/services/scheduler.js",
+  "nonServerImporters": [
+   "test/nfl-gbm-weather-fallback.test.js",
+   "test/nfl-weather-forecast.test.js"
+  ]
  },
  {
   "id": "nflverse",
@@ -2597,7 +3009,30 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/nfl-betting.js",
+   "server/routes/props.js",
+   "server/services/boom-bust.js",
+   "server/services/ffopportunity.js",
+   "server/services/gamescript.js",
+   "server/services/nfl-engine-backfill.js",
+   "server/services/nfl-event-archive.js",
+   "server/services/nfl-model-growth.js",
+   "server/services/nfl-officials.js",
+   "server/services/nfl-qbr.js",
+   "server/services/nfl-rookie-ingest.js",
+   "server/services/offseason-data.js",
+   "server/services/scheduler.js"
+  ],
+  "nonServerImporters": [
+   "test/boom-bust.test.js",
+   "test/dynasty-age-curve.test.js",
+   "test/model-integrity.test.js",
+   "test/offseason-data.test.js",
+   "test/ros-projection.test.js"
+  ]
  },
  {
   "id": "offseason-model",
@@ -2651,7 +3086,10 @@
    "server/services/lineup-brain.js",
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js, server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/offseason-model.test.js"
+  ]
  },
  {
   "id": "opportunity-model",
@@ -2679,7 +3117,12 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "scripts/study-opportunity-volume.mjs",
+   "test/opportunity-model.test.js"
+  ]
  },
  {
   "id": "opportunity-redistribution",
@@ -2721,7 +3164,8 @@
   "liveImporters": [
    "server/services/player-week-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/player-week-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/services/player-week-engine.js",
+  "nonServerImporters": []
  },
  {
   "id": "pick-confidence",
@@ -2763,7 +3207,8 @@
   "liveImporters": [
    "server/routes/nfl-betting.js"
   ],
-  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach"
+  "reachable": "no — its only route-file caller serves a client file the App shell cannot reach",
+  "nonServerImporters": []
  },
  {
   "id": "picks",
@@ -2805,7 +3250,8 @@
   "liveImporters": [
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/tradelab.js, server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/tradelab.js, server/services/trade-engine.js",
+  "nonServerImporters": []
  },
  {
   "id": "player-career",
@@ -2852,7 +3298,10 @@
    "server/services/lineup-brain.js",
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js, server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/player-career.test.js"
+  ]
  },
  {
   "id": "player-case",
@@ -2884,7 +3333,8 @@
   "liveImporters": [
    "server/services/lineup-brain.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js"
+  "reachable": "yes — via a caller on a live surface: server/services/lineup-brain.js",
+  "nonServerImporters": []
  },
  {
   "id": "player-week-engine",
@@ -2925,7 +3375,33 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/betting-fantasy-link.js",
+   "server/services/bottom-up-team-total.js",
+   "server/services/fantasy-coordinator.js",
+   "server/services/news-fantasy-impact.js",
+   "server/services/nfl-blind-audit.js",
+   "server/services/nfl-context-heads.js",
+   "server/services/nfl-expert-council.js",
+   "server/services/nfl-model-growth.js",
+   "server/services/nfl-prop-head-validation.js",
+   "server/services/nfl-props.js",
+   "server/services/role-scenario-engine.js",
+   "server/services/role-scenario-lab.js",
+   "server/services/trade-engine.js",
+   "server/services/weekly-learning.js"
+  ],
+  "nonServerImporters": [
+   "scripts/_bottom-up-team-total-worker.mjs",
+   "scripts/_recheck-variance-only.mjs",
+   "test/model-integrity.test.js",
+   "test/player-week-distribution.test.js",
+   "test/player-week-engine-weights.test.js",
+   "test/prediction-log-served-model.test.js",
+   "test/props-team-volume-dispersion.test.js"
+  ]
  },
  {
   "id": "preseason-model",
@@ -2986,7 +3462,13 @@
    "server/services/lineup-brain.js",
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/draft-assist.js, server/services/draft-lookahead.js, server/services/lineup-brain.js, server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/services/draft-assist.js, server/services/draft-lookahead.js, server/services/lineup-brain.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/consensus-weights.test.js",
+   "test/draft-abstention-audit.test.js",
+   "test/preseason-band-calibration.test.js",
+   "test/preseason-model.test.js"
+  ]
  },
  {
   "id": "projections",
@@ -3026,7 +3508,38 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/draft-assist.js",
+   "server/services/player-week-engine.js",
+   "server/services/preseason-model.js",
+   "server/services/role-scenario-engine.js",
+   "server/services/ros-projection.js",
+   "server/services/season-sim.js",
+   "server/services/shrinkage-fit.js",
+   "server/services/trade-engine.js",
+   "server/services/week-postmortem.js",
+   "server/services/weekly-backtest.js"
+  ],
+  "nonServerImporters": [
+   "scripts/analyze-qbr-fantasy-signal.mjs",
+   "scripts/fit-level-uncertainty.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-ros-projection.mjs",
+   "scripts/fit-shrinkage.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/freeze-baseline.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/verify-qbr-integration.mjs",
+   "test/decision-leftovers-home-away.test.js",
+   "test/player-week-engine-weights.test.js",
+   "test/prediction-log-served-model.test.js",
+   "test/qbr-projection-signal.test.js",
+   "test/ros-projection-failures.test.js",
+   "test/weekly-level.test.js"
+  ]
  },
  {
   "id": "purged-walk-forward",
@@ -3047,7 +3560,11 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": [
+   "test/purged-walk-forward.test.js"
+  ]
  },
  {
   "id": "research-trials",
@@ -3071,7 +3588,17 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-research.js"
+  ],
+  "nonServerImporters": [
+   "scripts/backfill-historical-trial-registry.mjs",
+   "scripts/run-historical-leaderboard.mjs",
+   "scripts/run-purged-evaluation.mjs",
+   "test/nfl-operations-overfitting-gate.test.js",
+   "test/research-trials.test.js"
+  ]
  },
  {
   "id": "role-scenario-engine",
@@ -3094,7 +3621,13 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/role-scenario-lab.js"
+  ],
+  "nonServerImporters": [
+   "test/role-scenario-engine.test.js"
+  ]
  },
  {
   "id": "ros-projection",
@@ -3136,7 +3669,12 @@
   "liveImporters": [
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js",
+  "nonServerImporters": [
+   "scripts/fit-ros-projection.mjs",
+   "test/ros-projection-failures.test.js",
+   "test/ros-projection.test.js"
+  ]
  },
  {
   "id": "roster-risk",
@@ -3158,7 +3696,11 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": []
  },
  {
   "id": "scoring",
@@ -3194,7 +3736,38 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/services/backtest.js",
+   "server/services/betting-fantasy-link.js",
+   "server/services/boom-bust.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/correlation.js",
+   "server/services/fantasy-coordinator.js",
+   "server/services/manager-archetypes.js",
+   "server/services/news-fantasy-impact.js",
+   "server/services/player-career.js",
+   "server/services/player-week-engine.js",
+   "server/services/projections.js",
+   "server/services/ros-projection.js",
+   "server/services/season-sim.js",
+   "server/services/trade-engine.js",
+   "server/services/week-postmortem.js",
+   "server/services/weekly-backtest.js",
+   "server/services/weekly-learning.js"
+  ],
+  "nonServerImporters": [
+   "scripts/analyze-qbr-fantasy-signal.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "test/lineup-spread.test.js",
+   "test/model-integrity.test.js",
+   "test/ros-projection.test.js",
+   "test/scoring.test.js",
+   "test/trade-engine-correctness.test.js",
+   "test/weekly-level.test.js"
+  ]
  },
  {
   "id": "season-sim",
@@ -3232,7 +3805,17 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/trades.js",
+   "server/services/title-odds-trades.js",
+   "server/services/trade-engine.js"
+  ],
+  "nonServerImporters": [
+   "test/model-integrity.test.js",
+   "test/trade-engine-correctness.test.js"
+  ]
  },
  {
   "id": "shrinkage-fit",
@@ -3280,7 +3863,18 @@
   "liveImporters": [
    "server/services/projections.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/projections.js"
+  "reachable": "yes — via a caller on a live surface: server/services/projections.js",
+  "nonServerImporters": [
+   "scripts/fit-role-recency.mjs",
+   "scripts/fit-shrinkage-weekly.mjs",
+   "scripts/fit-shrinkage.mjs",
+   "scripts/fit-weekly-ensemble.mjs",
+   "scripts/grade-feature-vector.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "scripts/test-new-heads.mjs",
+   "test/mlb-nrfi-shrinkage.test.js"
+  ]
  },
  {
   "id": "stats-util",
@@ -3316,7 +3910,67 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/modeling/candidates.js",
+   "server/routes/model.js",
+   "server/services/backtest-significance.js",
+   "server/services/bottom-up-team-total.js",
+   "server/services/contingency.js",
+   "server/services/correlation.js",
+   "server/services/draft-abstention-audit.js",
+   "server/services/draft-lookahead.js",
+   "server/services/draft-survival.js",
+   "server/services/execution-slate-reasoning.js",
+   "server/services/gamescript.js",
+   "server/services/line-move-study.js",
+   "server/services/matchups.js",
+   "server/services/mlb-auto-picks.js",
+   "server/services/mlb-projections.js",
+   "server/services/mlb-shrinkage-fit.js",
+   "server/services/nfl-drive-sim.js",
+   "server/services/nfl-ensemble.js",
+   "server/services/nfl-espn-pbp.js",
+   "server/services/nfl-family-contribution.js",
+   "server/services/nfl-market.js",
+   "server/services/nfl-prop-calibration.js",
+   "server/services/nfl-prop-correlation.js",
+   "server/services/nfl-props.js",
+   "server/services/nfl-replay.js",
+   "server/services/nfl-sim-learn.js",
+   "server/services/player-head-validation.js",
+   "server/services/player-week-engine.js",
+   "server/services/projections.js",
+   "server/services/role-scenario-engine.js",
+   "server/services/season-sim.js",
+   "server/services/staking.js",
+   "server/services/trade-engine.js",
+   "server/services/trial-statistics.js",
+   "server/services/weekly-backtest.js"
+  ],
+  "nonServerImporters": [
+   "scripts/analyze-qbr-fantasy-signal.mjs",
+   "scripts/fit-level-uncertainty.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-shrinkage.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/freeze-baseline.mjs",
+   "scripts/opener-clv-summarize.mjs",
+   "test/always-valid-significance.test.js",
+   "test/audit-registry-always-valid.test.js",
+   "test/audit-registry-declared-sigma.test.js",
+   "test/decay-watch.test.js",
+   "test/giacomini-white.test.js",
+   "test/mlb-nrfi-shrinkage.test.js",
+   "test/model-integrity.test.js",
+   "test/nfl-replay-error-analysis.test.js",
+   "test/nfl-total-calibration.test.js",
+   "test/paired-bootstrap-clustering.test.js",
+   "test/props-team-volume-dispersion.test.js",
+   "test/trade-engine-correctness.test.js",
+   "test/trial-statistics.test.js",
+   "test/weekly-level.test.js"
+  ]
  },
  {
   "id": "talk-vs-model",
@@ -3357,7 +4011,10 @@
    "server/services/counterparty-pricing.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/counterparty-pricing.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/counterparty-pricing.js",
+  "nonServerImporters": [
+   "scripts/build-negotiation-profiles.mjs"
+  ]
  },
  {
   "id": "td-features",
@@ -3398,7 +4055,9 @@
    }
   ],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [],
+  "nonServerImporters": []
  },
  {
   "id": "td-regression",
@@ -3435,7 +4094,10 @@
    "server/routes/trades.js",
    "server/services/lineup-brain.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/trades.js, server/services/lineup-brain.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/trades.js, server/services/lineup-brain.js",
+  "nonServerImporters": [
+   "test/td-regression.test.js"
+  ]
  },
  {
   "id": "trade-acceptance",
@@ -3474,7 +4136,10 @@
   "liveImporters": [
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/trade-acceptance.test.js"
+  ]
  },
  {
   "id": "trade-engine",
@@ -3541,7 +4206,53 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js",
+   "server/routes/players.js",
+   "server/routes/trades.js",
+   "server/services/ceiling-lineup.js",
+   "server/services/draft-assist.js",
+   "server/services/league-brain.js",
+   "server/services/lineup-brain.js",
+   "server/services/lineup-posture.js",
+   "server/services/news-lag-trader.js",
+   "server/services/position-liquidity.js",
+   "server/services/roster-risk.js",
+   "server/services/scheduler.js",
+   "server/services/season-sim.js",
+   "server/services/td-regression.js",
+   "server/services/title-odds-trades.js",
+   "server/services/trend-exploits.js",
+   "server/services/waiver-brain.js",
+   "server/services/waiver-wire.js",
+   "server/services/week-postmortem.js"
+  ],
+  "nonServerImporters": [
+   "scripts/build-negotiation-profiles.mjs",
+   "test/asset-cache-stamps.test.js",
+   "test/asset-universe-fingerprint.test.js",
+   "test/availability-fit-loader.test.js",
+   "test/availability-honest-degradation.test.js",
+   "test/decision-inbox.test.js",
+   "test/decision-leftovers-home-away.test.js",
+   "test/decision-leftovers-lineup.test.js",
+   "test/decision-leftovers-waivers.test.js",
+   "test/fantasy-workflows.test.js",
+   "test/find-trades.test.js",
+   "test/league-brain.test.js",
+   "test/lineup-diff-urgency.test.js",
+   "test/lineup-floor-objective.test.js",
+   "test/lineup-spread.test.js",
+   "test/lineup-surfaces-agree.test.js",
+   "test/manager-data-pipeline.test.js",
+   "test/posture-calibration.test.js",
+   "test/ros-projection-failure-wiring.test.js",
+   "test/ros-projection-wiring.test.js",
+   "test/trade-engine-correctness.test.js",
+   "test/trade-evidence.test.js",
+   "test/trade-tactics.test.js"
+  ]
  },
  {
   "id": "trade-horizon",
@@ -3580,7 +4291,10 @@
   "liveImporters": [
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/trade-engine-correctness.test.js"
+  ]
  },
  {
   "id": "trade-tactics",
@@ -3630,7 +4344,13 @@
    }
   ],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/trade-engine.js"
+  ],
+  "nonServerImporters": [
+   "test/trade-tactics.test.js"
+  ]
  },
  {
   "id": "trend-exploits",
@@ -3653,7 +4373,11 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": []
  },
  {
   "id": "trial-statistics",
@@ -3673,7 +4397,15 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/services/nfl-research.js"
+  ],
+  "nonServerImporters": [
+   "scripts/run-historical-leaderboard.mjs",
+   "scripts/run-purged-evaluation.mjs",
+   "test/trial-statistics.test.js"
+  ]
  },
  {
   "id": "vegas-fantasy",
@@ -3712,7 +4444,11 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/model.js"
+  ],
+  "nonServerImporters": []
  },
  {
   "id": "waiver-brain",
@@ -3759,7 +4495,15 @@
    "server/services/lineup-brain.js",
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/trades.js, server/services/lineup-brain.js, server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/trades.js, server/services/lineup-brain.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "test/decision-inbox.test.js",
+   "test/decision-leftovers-lineup.test.js",
+   "test/lineup-floor-objective.test.js",
+   "test/posture-calibration.test.js",
+   "test/trade-route-retirement.test.js",
+   "test/waiver-brain.test.js"
+  ]
  },
  {
   "id": "waiver-wire",
@@ -3784,7 +4528,13 @@
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
-  "reachable": "yes — named directly by a handler a routed page requests"
+  "reachable": "yes — named directly by a handler a routed page requests",
+  "serverImporters": [
+   "server/routes/trades.js"
+  ],
+  "nonServerImporters": [
+   "test/decision-leftovers-waivers.test.js"
+  ]
  },
  {
   "id": "weekly-backtest",
@@ -3822,7 +4572,22 @@
    "server/services/player-head-validation.js"
   ],
   "liveImporters": [],
-  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-blind-audit.js, server/services/player-head-validation.js"
+  "reachable": "no — imported only by services that are themselves off every live surface: server/services/nfl-blind-audit.js, server/services/player-head-validation.js",
+  "nonServerImporters": [
+   "scripts/availability-decision-calibration.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-role-recency.mjs",
+   "scripts/fit-shrinkage-weekly.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/fit-weekly-ensemble.mjs",
+   "scripts/fit-weekly.mjs",
+   "scripts/grade-feature-vector.mjs",
+   "scripts/promote-early-week-weights.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "scripts/test-new-heads.mjs",
+   "scripts/verify-qbr-integration.mjs"
+  ]
  },
  {
   "id": "weekly-ensemble",
@@ -3866,7 +4631,22 @@
   "liveImporters": [
    "server/services/player-week-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/player-week-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/services/player-week-engine.js",
+  "nonServerImporters": [
+   "scripts/availability-decision-calibration.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-ros-projection.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/fit-weekly-ensemble.mjs",
+   "scripts/grade-feature-vector.mjs",
+   "scripts/promote-early-week-weights.mjs",
+   "scripts/promote-volume-shrinkage.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "scripts/test-new-heads.mjs",
+   "test/model-integrity.test.js",
+   "test/player-week-engine-weights.test.js",
+   "test/weekly-early-week-blend.test.js"
+  ]
  },
  {
   "id": "weekly-learning",
@@ -3922,7 +4702,13 @@
    "server/routes/model.js",
    "server/services/league-week.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/routes/nfl-betting.js, server/routes/nfl-market.js, server/services/league-week.js"
+  "reachable": "yes — via a caller on a live surface: server/routes/model.js, server/routes/nfl-betting.js, server/routes/nfl-market.js, server/services/league-week.js",
+  "nonServerImporters": [
+   "test/prediction-log-served-model.test.js",
+   "test/weekly-prediction-snapshot-mode-migration.test.js",
+   "test/weekly-retrain-coverage.test.js",
+   "test/weekly-retrain-early-carry.test.js"
+  ]
  },
  {
   "id": "weekly-walkforward",
@@ -3944,7 +4730,11 @@
   "commit": "654ff9339832f3727f99db263abedf3e1227a9b3",
   "testOnlyTables": [],
   "measuredOn": "654ff9339832f3727f99db263abedf3e1227a9b3",
-  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power"
+  "localDbNote": "server/data.sqlite in this container has only 000_legacy_schema applied (schema_migrations, 1 row) and 213 of its 215 tables hold zero rows, so LOCAL row counts carry no grading power",
+  "serverImporters": [
+   "server/routes/nfl-betting.js"
+  ],
+  "nonServerImporters": []
  },
  {
   "id": "weekly-weight-store",
@@ -3990,6 +4780,23 @@
    "server/services/player-week-engine.js",
    "server/services/trade-engine.js"
   ],
-  "reachable": "yes — via a caller on a live surface: server/services/player-week-engine.js, server/services/trade-engine.js"
+  "reachable": "yes — via a caller on a live surface: server/services/player-week-engine.js, server/services/trade-engine.js",
+  "nonServerImporters": [
+   "scripts/availability-decision-calibration.mjs",
+   "scripts/fit-posture-calibration.mjs",
+   "scripts/fit-ros-projection.mjs",
+   "scripts/fit-weekly-coverage.mjs",
+   "scripts/promote-early-week-weights.mjs",
+   "scripts/promote-weekly-ensemble.mjs",
+   "test/asset-universe-fingerprint.test.js",
+   "test/model-integrity.test.js",
+   "test/pinned-baselines.test.js",
+   "test/player-week-engine-weights.test.js",
+   "test/prediction-log-served-model.test.js",
+   "test/weekly-early-week-blend.test.js",
+   "test/weekly-promotion-rollback.test.js",
+   "test/weekly-retrain-coverage.test.js",
+   "test/weekly-retrain-early-carry.test.js"
+  ]
  }
 ]

@@ -87,12 +87,30 @@ run also records an error row rather than only logging one.
 
 ## TDD record
 
-- **`372890e` RED — 17 tests, 12 fail, 5 pass.** The five that pass are
+- **`372890e` RED — 15 tests, 12 fail, 3 pass.** The three that pass are
   regression guards and must hold before and after: a good run is still `ok`,
-  failing leagues are still `ERROR`, and no secret reaches the log line on any of
-  three paths. (Two of those secret tests were added during the sweep; see below.)
-- **`ea54eaf` GREEN — 17 tests, 17 pass.** The existing
+  failing leagues are still `ERROR`, and no secret reaches the log line.
+- **`ea54eaf` GREEN — 15 tests, 15 pass.** The existing
   `test/refresh-loop-steps.test.js` stays **19/19**, unchanged.
+- **`c79f445` — 17 tests, 17 pass**, after the sweep's real gap added two more
+  secret-path tests. That is the figure on this branch's head.
+
+**Correction, 2026-09-22 16:4xZ.** The two lines above previously read "17 tests,
+12 fail, 5 pass" for the RED commit and "17 tests, 17 pass" for GREEN. Both
+counted the FINAL file's 17 tests back onto commits where the file had 15, and
+"5 pass" was wrong on its own terms — 3 passed. The corrected numbers were
+measured, not recalculated: each commit was checked out into its own worktree and
+the file run against that tree.
+
+```
+372890e:  # tests 15  # pass 3   # fail 12
+ea54eaf:  # tests 15  # pass 15  # fail 0
+c79f445:  # tests 17  # pass 17  # fail 0
+```
+
+This is the failure mode the mutation-sweep hygiene rule exists for, one level
+up: a number that was derived rather than read. It was caught by the Evidence
+Auditor, not by this thread.
 
 ## Mutation sweep: 10 applied, 8 killed, 1 equivalent, 1 real gap
 

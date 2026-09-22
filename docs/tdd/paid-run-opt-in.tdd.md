@@ -16,10 +16,27 @@ own header says it "makes real, billed calls to the Anthropic API (Haiku 4.5,
 a bare invocation is a valid one, and `controls` reaches
 `duplicateArticleControl(extractNewsEventsFromItems, ...)`, which bills.
 
-**How do we know?** RED `aa964bf` — 6 tests, 0 passing, `scripts/paid-run-optin.mjs`
-does not exist. GREEN turns all six. **Nine mutations killed**, with a no-op
-control that correctly survived. One mutation survived a first pass and exposed
-a real defect in the change itself, not only in the test — see below.
+**How do we know?**
+
+| | commit |
+|---|---|
+| **RED** | #92 · *test: RED — nothing stops a mistyped command from billing the Anthropic API* · `aa964bf` |
+| **GREEN** | #92 · *fix: a script that spends money refuses to run without an explicit opt-in* · `85598b6` |
+
+RED is 6 tests, 0 passing. Its failing assertion, verbatim from the run at that
+commit:
+
+```
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/scripts/paid-run-optin.mjs' imported from …/test/paid-run-opt-in.test.js
+#   code: 'ERR_MODULE_NOT_FOUND',
+not ok 1 - test/paid-run-opt-in.test.js
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+```
+
+GREEN turns all six. **Nine mutations killed**, with a no-op control that
+correctly survived. One mutation survived a first pass and exposed a real defect
+in the change itself, not only in the test — see below.
 
 **Pointed anywhere else?** Three other paths reach a billed call. They are
 listed below and **none is changed here**, under one editor per file.

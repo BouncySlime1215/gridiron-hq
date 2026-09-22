@@ -1,0 +1,104 @@
+name: Deploy
+
+# Ships the chosen branch (main, normally) to gridiron-hq.fly.dev. It runs
+# only when someone presses "Run workflow" on the Actions tab: no push, no
+# timer, no other workflow can start it. Pressing the button is the go-ahead.
+#
+# The order is docs/runbooks/deploy-654ff93.md's, cut down to what a runner
+# can do and prove on its own (docs/runbooks/deploy-workflow.md):
+#   1. print the commit being deployed
+#   2. re-assert the brake, SCHEDULER_DISABLED=1, as an app secret BEFORE the
+#      deploy, so the new image boots with no background jobs whatever state
+#      the machine was in. Staged, so it lands in the deploy's own release
+#      rather than restarting the old image first.
+#   3. flyctl deploy --remote-only (Fly's builder; nothing is built here)
+#   4. AFTER the deploy, read /api/health and look for the scheduler's own
+#      "Scheduler disabled" boot line. No line, no green: the job fails and
+#      the brake is to be treated as off.
+# Releasing the brake (fly secrets unset SCHEDULER_DISABLED) is NOT here and
+# must never be added: it waits on the runbook's step-5 proofs and Nick.
+#
+# This repository is public, so this job's log is public. It prints the
+# commit, flyctl's own deploy output and fixed sentences, never app logs,
+# the secrets list, or the token. FLY_API_TOKEN reaches steps only via env.
+#
+# Third-party Actions are pinned to full commit hashes, as in ci.yml.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two presses never deploy over each other; the second waits.
+concurrency:
+  group: deploy-gridiron-hq
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy to gridiron-hq.fly.dev
+    runs-on: ubuntu-latest
+    # A remote build plus rollout has taken well under this; the post-deploy
+    # read below waits at most about 4 minutes more.
+    timeout-minutes: 30
+    steps:
+      - name: Print the commit being deployed
+        env:
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+        run: echo "Deploying ${SHA} (${SHA:0:7}) from ${REF}, started by ${ACTOR}."
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
+
+      - name: Re-assert the brake before deploying
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl secrets set SCHEDULER_DISABLED=1 --stage --app gridiron-hq
+          # Presence only: the list carries digests, and this log is public.
+          # Captured first, so a failed read is not mistaken for an absent name.
+          listing="$(flyctl secrets list --app gridiron-hq --json)"
+          if jq -e 'any(.[]; .name == "SCHEDULER_DISABLED")' >/dev/null <<<"$listing"; then
+            echo "SCHEDULER_DISABLED is an app secret."
+          else
+            echo "::error::SCHEDULER_DISABLED is not in the app's secrets after setting it. Not deploying."
+            exit 1
+          fi
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only --app gridiron-hq
+
+      - name: Confirm the app is up and the brake held
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if ! health="$(curl -sSf --retry 12 --retry-delay 10 --retry-all-errors --max-time 20 https://gridiron-hq.fly.dev/api/health)"; then
+            echo "::error::/api/health did not answer after the deploy."
+            exit 1
+          fi
+          echo "/api/health: ${health}"
+          # A process older than the deploy is the old image still answering.
+          uptime="$(jq -r '.uptime_s // empty' <<<"$health")"
+          if [[ ! "$uptime" =~ ^[0-9]+$ ]] || (( uptime > 900 )); then
+            echo "::error::/api/health answered with uptime_s='${uptime}', which is not a process started by this deploy."
+            exit 1
+          fi
+          # Only a yes/no leaves this loop; app logs are never printed here.
+          for i in $(seq 1 12); do
+            if ! logs="$(flyctl logs --no-tail --app gridiron-hq)"; then
+              echo "::warning::flyctl logs failed on attempt ${i}; retrying."
+            elif grep -qF 'Scheduler disabled via SCHEDULER_DISABLED=1' <<<"$logs"; then
+              echo "Brake confirmed: the new image logged 'Scheduler disabled via SCHEDULER_DISABLED=1'."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::Deployed, but the 'Scheduler disabled' boot line was not seen. Treat the brake as OFF: run 'fly secrets set SCHEDULER_DISABLED=1 --app gridiron-hq' and check 'fly logs' (docs/runbooks/deploy-654ff93.md, step 3)."
+          exit 1

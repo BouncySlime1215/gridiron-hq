@@ -1847,3 +1847,62 @@ test('the rule reproduces the runtime docs read that was found by hand', async (
   assert.match(plan.subject, /CLAUDE-NEXT-STEPS\.md$/);
   assert.match(plan.detail, /application data rather than documentation/);
 });
+
+/*
+ * A JOB'S LINE IS THE LINE ITS OWN KEY IS ON.
+ *
+ * Found while chasing a different bug: the inventory was rendering job paths
+ * as "null:1280", and the null turned out to be the smaller half of it. Every
+ * job in the map was cited at the PREVIOUS job's line — mlb_logs at the line
+ * holding `mlb_schedule:`, player_rosters at the line holding
+ * `mlb_tomorrow_picks:` — and the first job at `export const JOBS = {` itself.
+ * Of 62 job surfaces, the number cited at a line containing their own key
+ * was zero.
+ *
+ * The cause is that RE_JOB opens with `(^|[\n{,])`, so m.index is the offset
+ * of the delimiter — the comma that ENDS the previous entry — and not of the
+ * name. One character of slack, one entry of error, on every job citation the
+ * map has ever emitted.
+ *
+ * The second test is the one that matters. The scheduler thread cited
+ * scheduler.js:1196 for refreshPlayerRosters from their own reading, weeks
+ * before this map disagreed with them at 1195. They were right. A fix that
+ * cannot reproduce a number somebody already got by hand is not a fix, it is
+ * a second guess, so the real file is the fixture here on purpose.
+ */
+test('schedulerJobs cites each job at the line its own key is on', () => {
+  const src = [
+    'export const JOBS = {',                                        // 1
+    "  zz_fixture_first: { run: runFirst, tier: 'live' },",         // 2
+    "  zz_fixture_second: { run: runSecond, tier: 'heavy' },",      // 3
+    '  zz_fixture_third: {',                                        // 4
+    "    run: runThird, tier: 'growth',",                           // 5
+    "    label: 'ends with a brace and a comma' },",                // 6
+    '};',                                                           // 7
+  ].join('\n');
+
+  const jobs = schedulerJobs(src, 'server/services/scheduler.js');
+  assert.deepEqual(
+    jobs.map((j) => [j.name, j.line]),
+    [['zz_fixture_first', 2], ['zz_fixture_second', 3], ['zz_fixture_third', 4]],
+    'each job belongs on its own line, not on the line of the entry before it',
+  );
+});
+
+test('every job in the real scheduler is cited at a line holding that job key', async () => {
+  const file = 'server/services/scheduler.js';
+  const src = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
+  const lines = src.split('\n');
+  const jobs = schedulerJobs(src, file);
+
+  // Not a sample: every one of them, named when wrong, because a count alone
+  // would not say which citation to stop trusting.
+  const wrong = jobs
+    .filter((j) => !new RegExp(`\\b${j.name}\\s*:\\s*\\{`).test(lines[j.line - 1] ?? ''))
+    .map((j) => `${j.name} cited :${j.line} -> ${JSON.stringify((lines[j.line - 1] ?? '').trim().slice(0, 50))}`);
+  assert.deepEqual(wrong, [], `${wrong.length} of ${jobs.length} job citations point at the wrong line`);
+
+  // The specific number the scheduler thread read by hand, before this map
+  // existed to disagree with them.
+  assert.equal(jobs.find((j) => j.name === 'player_rosters')?.line, 1196);
+});

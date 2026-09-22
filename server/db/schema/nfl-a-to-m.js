@@ -15,7 +15,11 @@ export const sources = [
   'server/services/nfl-blind-audit.js',
   'server/services/nfl-candidate-analysis.js',
   'server/services/nfl-capture-dispatch.js',
-  'server/services/nfl-clv.js',
+  // nfl-clv.js was collapsed into clv-core.js by 47965a5 ("Stage 2: collapse duplicate
+  // engines — one CLV module"): its ledger moved, the DDL below did not. The path is
+  // gone from this list because it resolves to nothing and a provenance record that
+  // names a file nobody can open is not provenance. The line ranges it contributed stay
+  // under `nfl-clv` in nfl-a-to-m.manifest.json, which is where the detail belongs.
   'server/services/nfl-coaches.js',
   'server/services/nfl-cover-calibration.js',
   'server/services/nfl-engine-backfill.js',

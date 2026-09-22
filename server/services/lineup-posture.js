@@ -203,6 +203,49 @@ export function rosterAssets(payload, assets, rosterId) {
  * opponent, and — only when the matchup is lopsided enough to matter — the
  * swaps that trade expected points for the shape the matchup calls for.
  */
+/**
+ * Roster entries a league does not start. The same notion `trade-engine.js:2596`
+ * already encodes for ESPN slot ids ("a starter is ... minus BENCH(20)/IR(21)"),
+ * written here as tokens because both platforms' vocabularies reach this field:
+ * ESPN emits BENCH/IR (espn-draft.js:80), Sleeper's own spelling is BN, and
+ * dynasty leagues add TAXI.
+ */
+const NON_STARTING_SLOTS = new Set(['BENCH', 'BN', 'IR', 'TAXI']);
+
+/**
+ * The scope sentence printed beside the win probability.
+ *
+ * Its whole job is to describe the number next to it, which is why the parts are
+ * computed rather than asserted. The numerator is what `lineupSlots()` prices.
+ * The denominator must be the slots the league actually STARTS — not
+ * `roster_positions.length`, which counts bench and IR rows too. While ESPN sent
+ * starters only those were the same figure; once bench rows arrive they are not,
+ * and the old sentence attributed a bench-sized gap to K and DEF.
+ *
+ * The excluded slots are named from the data for the same reason. Hardcoding "K
+ * and DEF" tells an IDP league its DL/LB/DB starters are kickers, and tells a
+ * roster with no kicker that it has one. A slot is modelled exactly when
+ * `lineupSlots()` keeps it, so that function stays the single definition of what
+ * is priced and this reads the answer off it rather than restating the rule.
+ */
+export function winProbabilityScope(lg, slots) {
+  const rosterPositions = JSON.parse(lg.roster_positions ?? '[]');
+  const starting = rosterPositions.filter(slot => !NON_STARTING_SLOTS.has(slot));
+  // No roster slots on file is not the same as nothing being excluded, and the
+  // card must not claim the second when it only knows the first.
+  if (!starting.length) {
+    return `modelled skill slots only (${slots.length} slots); this league's roster slots are `
+      + 'not on file, so what else it starts is unknown';
+  }
+  const modelled = new Set(lineupSlots(lg));
+  const excluded = [...new Set(starting.filter(slot => !modelled.has(slot)))];
+  // Read out loud on the card, so it is joined the way a person would say it.
+  const named = excluded.length < 2 ? excluded.join('')
+    : `${excluded.slice(0, -1).join(', ')} and ${excluded.at(-1)}`;
+  return `modelled skill slots only (${slots.length} of ${starting.length} starting slots); `
+    + (excluded.length ? `${named} excluded` : 'nothing excluded');
+}
+
 export function lineupPosture(lg, { myTeamId, week } = {}) {
   if (!lg?.payload) return { error: 'league not synced' };
   const payload = JSON.parse(lg.payload);
@@ -357,8 +400,7 @@ export function lineupPosture(lg, { myTeamId, week } = {}) {
     // matchup as scored. SPREAD_SCALE was fitted on the same scope (QB, 2 RB, 2 WR,
     // TE, FLEX graded on their own actual totals), so it is calibrated for exactly
     // the probability printed here; K and DEF add real variance it does not see.
-    win_probability_scope: `modelled skill slots only (${slots.length} of ` +
-      `${JSON.parse(lg.roster_positions ?? '[]').length || slots.length} roster slots); K and DEF excluded`,
+    win_probability_scope: winProbabilityScope(lg, slots),
     note: stance === 'neutral'
       ? `Matchup is within ${MATERIAL_EDGE} points. Posture is worth under a third of a percentage point here — start the highest projections and leave it alone.`
       : edge < 0

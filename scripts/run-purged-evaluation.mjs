@@ -12,8 +12,8 @@
  */
 import path from 'node:path';
 import os from 'node:os';
-import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { resolveOutDir, assertEvidenceSources, writeEvidenceReport } from './lib/evidence-report.mjs';
 
 const scratchDb = process.env.GRIDIRON_DB_PATH || path.join(os.tmpdir(), `gridiron-trial-registry-${Date.now()}.sqlite`);
 console.error(`[1/4] Backfilling the real trial registry into ${scratchDb} ...`);
@@ -84,6 +84,14 @@ for (const t of all) {
     betLedgerTrials.push({ id: t.identity_hash, label: t.detail.candidate_id, ...o });
   }
 }
+/* Counted BEFORE the two constants below join the array. Everything after this
+ * line is a literal in this file, so this is the only number that says whether
+ * the registry read actually returned anything -- and it is the number the
+ * guard requires. Without it the two constants alone carry an empty run all the
+ * way to a written report and exit 0.
+ */
+const dbDerivedBetLedgerTrials = betLedgerTrials.length;
+
 // The two audit_registry win-rate hypotheses with a real, known sample size / bet split.
 betLedgerTrials.push({ id: 'audit_registry#1', label: 'simulator beats closing line ATS',
   bets: 84, wins: 36, losses: 48, units: 36 * (100 / 110) - 48, roi: null, assumed_pricing: '-110 (not persisted; this project\'s own standard convention)' });
@@ -95,6 +103,32 @@ const sharpeByTrial = betLedgerTrials.map(t => {
   const stats = rec ? sharpeStatsFromReturns(rec.returns) : null;
   return { ...t, sharpe: stats?.sharpe ?? null, n: stats?.n ?? null, skewness: stats?.skewness ?? null, kurtosis: stats?.kurtosis ?? null };
 }).filter(t => Number.isFinite(t.sharpe));
+
+/* Every real source this run read, with its row count, and which of them must
+ * be non-empty for the numbers below to mean anything. Asserted HERE, before
+ * the reduce two lines down: with an empty cross-section that reduce throws
+ * `Reduce of empty array with no initial value`, which names no cause, and
+ * with a cross-section made only of the two constants it throws nothing at all.
+ *
+ * `constant_bet_ledger_trials` is recorded and deliberately NOT required: it
+ * counts literals in this file, which are always present, so requiring it would
+ * assert nothing and would fire on a correct run. The same goes for
+ * `pbo_strategies_constant`, added at write time below because PBO_STRATEGIES
+ * is not declared until after this point.
+ */
+const SOURCES = {
+  trial_registry_rows_read: all.length,
+  scored_trials_read: scoredChrono.length,
+  standardized_effect_sequence_length: sequence.length,
+  db_derived_bet_ledger_trials: dbDerivedBetLedgerTrials,
+  constant_bet_ledger_trials: betLedgerTrials.length - dbDerivedBetLedgerTrials,
+  sharpe_cross_section_trials: sharpeByTrial.length,
+};
+const REQUIRED_SOURCES = [
+  'trial_registry_rows_read', 'scored_trials_read', 'standardized_effect_sequence_length',
+  'db_derived_bet_ledger_trials', 'sharpe_cross_section_trials',
+];
+assertEvidenceSources(SOURCES, REQUIRED_SOURCES, 'purged-evaluation-report.json');
 
 const sharpeValues = sharpeByTrial.map(t => t.sharpe);
 const sharpeMean = sharpeValues.reduce((s, v) => s + v, 0) / sharpeValues.length;
@@ -166,9 +200,19 @@ const report = {
   ],
 };
 
-const outDir = path.join(import.meta.dirname, '..', 'docs', 'evidence', '2026-09-13');
-fs.mkdirSync(outDir, { recursive: true });
-fs.writeFileSync(path.join(outDir, 'purged-evaluation-report.json'), JSON.stringify(report, null, 2));
-console.log(JSON.stringify(report, null, 2));
+const ROOT = path.join(import.meta.dirname, '..');
+const outDir = resolveOutDir(process.argv,
+  path.join(ROOT, 'docs', 'evidence', '2026-09-13'), ROOT);
+
+// Re-asserted on the write path, not only above, so the guard cannot be
+// bypassed by a later edit that computes the report some other way.
+const { file, report: written } = writeEvidenceReport({
+  outDir, filename: 'purged-evaluation-report.json',
+  report,
+  sources: { ...SOURCES, pbo_strategies_constant: PBO_STRATEGIES.length },
+  required: REQUIRED_SOURCES,
+});
+console.error(`Wrote ${file}`);
+console.log(JSON.stringify(written, null, 2));
 
 db.close();

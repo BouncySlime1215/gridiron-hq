@@ -1,0 +1,111 @@
+{
+  "_README": "Runtime findings other threads MEASURED that no static pass can produce: a throw, a 403, a banner that reports health it never checked. scripts/inventory.mjs merges these into inventory.json by id; it never edits inventory.json by hand. Each row carries its own evidence (never prose alone) and the thread that owns it. A row whose id matches a generated row REPLACES it, because the thread saw the truth the static pass could only guess at; a new id is appended. Do not add a row here that a static rule could have found — that belongs in the wiring map.",
+  "rows": [
+    {
+      "id": "route:model-setup-status",
+      "kind": "route",
+      "name": "GET /model/setup-status",
+      "path": "server/routes/model.js",
+      "status": "silently_broken",
+      "evidence": "client/src/components/DataSetupBanner.tsx reads /model/setup-status; the endpoint's health check is `last_status === 'never run'`, so a source that ran once and wrote zero current rows reads as fine. player_week_usage holds zero 2026 rows while the banner shows OK. Measured by the UI thread, 654ff93.",
+      "owner_thread": "ui",
+      "note": "the type specimen for silently_broken: returns success, reports health it never verified. Removed by wiring-map thread in the same slice the freshness panel replaces the banner (noted, not yet applied)."
+    },
+    {
+      "id": "job:player-rosters",
+      "kind": "job",
+      "name": "player_rosters",
+      "path": "server/services/scheduler.js:1196",
+      "status": "silently_broken",
+      "evidence": "refreshPlayerRosters throws \"Provided value cannot be bound to SQLite parameter 3.\" at scheduler.js:1196 on every run (a bind-type code fault, not an empty-DB artefact); observed 2026-09-22 against a migrated empty DB, 1 fetch made, 1 row written before the throw; statusFromDetail records the throw as error, so nextDueMinutes backs it off to re-run every 5 min instead of every 3h; visible in sync_log, invisible on every surface. Measured by the scheduler thread, 654ff93.",
+      "owner_thread": "scheduler",
+      "note": "registry label 'Player team assignments — the actual fix for stale roster spots'. Tier live, maxAgeMinutes 180. No fix in Phase 0."
+    },
+    {
+      "id": "job:espn-line-watch",
+      "kind": "job",
+      "name": "espn_line_watch",
+      "path": "server/services/scheduler.js",
+      "status": "unclassified",
+      "reason": "returns HTTP 403 without the ESPN cookie; no verdict is possible until the credential exists. Not wired. Measured by the scheduler thread, 654ff93.",
+      "owner_thread": "scheduler"
+    },
+    {
+      "id": "job:nfl-play-by-play",
+      "kind": "job",
+      "name": "nfl_play_by_play",
+      "path": "server/services/scheduler.js",
+      "status": "unclassified",
+      "reason": "returns HTTP 403 without the ESPN cookie; no verdict is possible until the credential exists. Not wired. Measured by the scheduler thread, 654ff93.",
+      "owner_thread": "scheduler"
+    },
+    {
+      "id": "job:espn-news",
+      "kind": "job",
+      "name": "espn_news",
+      "path": "server/services/scheduler.js",
+      "status": "unclassified",
+      "reason": "returns HTTP 403 without the ESPN cookie; no verdict is possible until the credential exists. Not wired. Measured by the scheduler thread, 654ff93.",
+      "owner_thread": "scheduler"
+    },
+    {
+      "id": "job:nfl-transactions",
+      "kind": "job",
+      "name": "nfl_transactions",
+      "path": "server/services/scheduler.js",
+      "status": "unclassified",
+      "reason": "returns HTTP 403 without the ESPN cookie; no verdict is possible until the credential exists. Not wired. Measured by the scheduler thread, 654ff93.",
+      "owner_thread": "scheduler"
+    },
+    {
+      "id": "table:league-transactions-raw",
+      "kind": "table",
+      "name": "league_transactions_raw",
+      "path": "scripts/collect-league-transactions.mjs:21",
+      "status": "referenced_but_never_created",
+      "evidence": "no migration and no server/db/schema file creates it; the only CREATE TABLE statements are a hand-run script (scripts/collect-league-transactions.mjs:21) and test fixtures (test/manager-data-pipeline.test.js:131 and peers), so it is absent in any database where neither ran — production included. Read by six services (manager-archetypes, trade-engine, counterparty-pricing, manager-signals, bluff-detector, trade-tactics); only manager-signals.js:167 guards with tableExists, so the other five read a table that may not exist and return results as if it did. Measured by the model-evidence audit thread, 654ff93.",
+      "owner_thread": "scheduler",
+      "note": "fix path is migration 066 on the scheduler thread's held branch (9c7cf68/8709ec6), not on main. Same shape (script/test-created, no migration): negotiation_profiles (scripts/build-negotiation-profiles.mjs:54, 3 prod readers) and league_season_teams (scripts/backfill-league-history.mjs:48, 5 prod readers)."
+    },
+    {
+      "id": "model:trade-tactics",
+      "kind": "model",
+      "name": "trade-tactics.js",
+      "path": "server/services/trade-tactics.js",
+      "status": "silently_broken",
+      "evidence": "bare try/catch at :230-235 against the missing league_transactions_raw table falls through to blank() at :251-257, returning a manager-history finding (n:0, fitted:false) with no signal that the underlying data does not exist. Graded by the model-evidence audit thread, 654ff93.",
+      "owner_thread": "trade-brain",
+      "note": "contrast counterparty-pricing.js:813-900, same bare catch but reports itself unavailable with a reason — see that row's note."
+    },
+    {
+      "id": "table:messages",
+      "kind": "table",
+      "name": "messages",
+      "path": "scripts/chat/extract_league_chat.py:120",
+      "status": "unclassified",
+      "reason": "present when pulled; created by an off-server Python script (scripts/chat/extract_league_chat.py:120) into a separate chat-corpus SQLite file (chatDbPath()), not by a migration and not in the app DB. Six production readers reach it through chatDbPath()/a chat handle, never db/index.js. The wiring map cannot see the creator (.py is out of scan scope), so its own scan correctly finds no CREATE in server/migrations and would misread it as phantom. freshness() treats its absence as a reported state, not a silent empty — so it is neither dead nor broken. Confirmed by the chat sync thread, 654ff93.",
+      "owner_thread": "chat-sync",
+      "note": "not referenced_but_never_created: that status is for app-DB tables no migration creates. messages is a foreign-DB table whose absence is reported, not silent."
+    },
+    {
+      "id": "model:counterparty-pricing",
+      "kind": "model",
+      "name": "counterparty-pricing.js",
+      "path": "server/services/counterparty-pricing.js",
+      "status": "",
+      "evidence": "handed to the model-evidence audit thread — status set by the audit, not here",
+      "owner_thread": "trade-brain",
+      "note": "near miss flagged by the model audit: the bare catch at :813-900 DOES report unavailable with a reason (unlike trade-tactics), but the reason text names the wrong cause — says 'no captured transactions' when the truth is league_transactions_raw is created nowhere. Row-level note, not a status change; status still owned by the audit."
+    },
+    {
+      "id": "pipeline:pick-reasoning",
+      "kind": "pipeline",
+      "name": "pick-reasoning.js",
+      "path": "server/services/pick-reasoning.js",
+      "status": "wired-betting-only",
+      "evidence": "Request reach is /api/nfl-betting alone. The one package.json script that reaches it, `audit:nfl` -> scripts/nfl-blind-audit.mjs, was RUN against a migrated copy of server/data.sqlite (the primary untouched) and its durable output measured by diffing sqlite_master and every table row count either side: 32 rows into model_feature_contracts (model-governance.js:68) and 11 into model_registry (:90), written at import time by the top-level seedContracts()/seedRegistry() at :88-89, both INSERT ... ON CONFLICT DO NOTHING seeds of constants declared in that same file. Nothing else changed. Every reader of either table traced: the only read sites are model-governance.js:100-101 and :107-108, inside featureContracts() and registry(); callers are nfl-research.js:268 (/api/nfl-market, betting), mlb-research.js:69 (/api/mlb, the mlb label) and nfl-pick-watch.js:54, whose only static importer in the tree is page-explain-tools.js:17, reached only from /api/betting at 2 hops -- every other importer is a dynamic import inside a betting route handler (betting-hub.js:598, :606, :614) or a job body (scheduler.js:1002). nfl-betting.js:665 calls a different featureContracts, exported by nfl-ensemble.js:2796, which reads neither table. No fantasy surface reads the output, so under the Auditor's script-classification rule the script does not disqualify. Measured by the wiring-map thread, 1998f50.",
+      "owner_thread": "wiring-map",
+      "note": "The generated grade is `wired`, from the default that any package.json script counts as non-betting reach. That default is what the durable-output rule replaces, and it cannot be computed statically -- what a script writes is a runtime fact -- so the traced grade lives here rather than in the classifier. The sibling row pipeline:nfl-passing-diagnostic is NOT overlaid: its script writes nothing on this container, but the run did no work (seasons: [], n: 0, 0.117s -- no prop-replay rows here), so its data path is untraced and untraced output defaults to wired."
+    }
+  ]
+}

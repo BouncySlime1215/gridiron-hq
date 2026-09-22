@@ -172,6 +172,35 @@ test('a job that spawns a script resolves to the script, not to a path helper', 
   assert.equal(j.runVia, 'spawned-script');
 });
 
+test('a job that hands work to a worker thread resolves to the module the worker loads', () => {
+  // manager_signals was the last job reporting "the work is done in the
+  // scheduler". It is not: refreshManagerSignalsOffThread starts
+  // ./report-worker.js and passes workerData { module: './manager-signals.js',
+  // fn: 'refreshManagerData' }. report-worker.js is a dispatcher — naming it,
+  // or naming the scheduler, tells a reader nothing about what runs.
+  //
+  // The spec is resolved relative to the WORKER, not to the scheduler, because
+  // that is where report-worker.js resolves it. Here both sit in the same
+  // directory, so the two readings agree and the test cannot tell them apart;
+  // it is written the correct way round on purpose rather than on the
+  // coincidence.
+  const jobs = build(`
+    export function refreshSignalsOffThread() {
+      return new Promise((resolve) => {
+        const worker = new Worker(new URL('./report-worker.js', import.meta.url), {
+          workerData: { module: './manager-signals.js', fn: 'refreshManagerData', args: [] },
+        });
+        worker.on('message', resolve);
+      });
+    }
+    export const JOBS = { manager_signals: { run: refreshSignalsOffThread, tier: 'heavy', label: 'signals' } };
+  `);
+  const j = job(jobs, 'manager_signals');
+  assert.equal(j.runModule, 'server/services/manager-signals.js');
+  assert.equal(j.runVia, 'worker-thread');
+  assert.deepEqual(j.runImports, ['server/services/manager-signals.js', 'server/services/report-worker.js']);
+});
+
 test('every job in the real scheduler resolves to something', async () => {
   const src = await readFile(new URL(`../${SCHED}`, import.meta.url), 'utf8');
   const jobs = build(src);
@@ -179,4 +208,9 @@ test('every job in the real scheduler resolves to something', async () => {
   assert.equal(unresolved.length, 0, `unresolved: ${unresolved.join(', ')}`);
   assert.ok(jobs.length >= 60, `expected the full registry, got ${jobs.length}`);
   assert.equal(job(jobs, 'espn_depth_chart').runModule, 'server/routes/nfldata.js');
+  assert.equal(job(jobs, 'manager_archetypes').runModule, 'scripts/build-manager-archetypes.mjs');
+  assert.equal(job(jobs, 'manager_signals').runModule, 'server/services/manager-signals.js');
+  // Nothing should still be answering "the work is done in the scheduler":
+  // every such job examined turned out to hand off somewhere.
+  assert.deepEqual(jobs.filter((j) => j.runVia === 'local-body').map((j) => j.name), []);
 });

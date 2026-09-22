@@ -28,6 +28,7 @@ process.env.SCHEDULER_DISABLED = '1';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertPaidRunOptIn } from './paid-run-optin.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -120,6 +121,18 @@ if (!AS_JSON) {
 // -------------------------------------------------------------------- 3. Jev
 let jevReport = null;
 if (WANT_JEV) {
+  // This makes a real, billed call to the AI gateway (evaluate() below)
+  // unless --dry-run is passed. AI_GATEWAY_API_KEY presence and JEV_MAX_USD
+  // are gates on the call itself, not an opt-in on running it at all — a
+  // real key already exported (routine in this project's own environment)
+  // and a reasonable estimate sail straight through with neither. --dry-run
+  // is this script's existing no-cost preview, so it stays exempt; every
+  // other --jev invocation needs GRIDIRON_ALLOW_PAID_RUN set. Checked first,
+  // before the eligibility query, the cost estimate, or anything else this
+  // block does — same discipline as the guard on run-news-event-impact.mjs
+  // and build-negotiation-profiles.mjs.
+  if (!DRY_RUN) assertPaidRunOptIn();
+
   const eligible = rows(`SELECT member_id, value AS seasons FROM manager_archetypes
                          WHERE league_id = 0 AND season = 0 AND metric = 'seasons_observed' AND version = ?`,
   MANAGER_ARCHETYPE_VERSION);

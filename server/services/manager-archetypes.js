@@ -507,11 +507,17 @@ function draftSeason(leagueId, season, allPicks, teamAbbr, currentSeason) {
  */
 function outcomeRows(luckPanel, membersByTeam) {
   const out = [];
+  out.unownedSlots = 0;
   for (const season of luckPanel ?? []) {
     const members = membersByTeam(season.league_id, season.season);
     for (const t of season.teams_detail ?? []) {
       const team = members.get(String(t.roster_id));
-      if (!team?.espn_member_id) continue;
+      // A real ESPN state, not a fault -- saveTeams() (league-history.js)
+      // writes espn_member_id null whenever ESPN's own `owners` array is
+      // empty for that team. There is nobody to attribute an outcome metric
+      // to, so the row is correctly excluded; the count is what keeps that
+      // exclusion from being indistinguishable from a row that went missing.
+      if (!team?.espn_member_id) { out.unownedSlots++; continue; }
       const games = (t.h2h_w ?? 0) + (t.h2h_l ?? 0);
       const m = {
         weeks_scored: { v: t.weeks, n: t.weeks },
@@ -687,6 +693,11 @@ export function buildManagerArchetypes({ luckPanel = null } = {}) {
     managers: new Set(tagged.map(r => r.member_id)).size,
     draft_manager_seasons: draftRows.length,
     outcome_manager_seasons: outRows.length,
+    // Rosters with a real league_season_teams row but no ESPN member
+    // attributed to them (an empty `owners` array on ESPN's side) -- not a
+    // fault, so not in outcome_manager_seasons, but counted rather than left
+    // to look like the same thing as "nothing to report".
+    outcome_unowned_slots: outRows.unownedSlots,
     rows_written: written.length,
     consensus_sources: Object.fromEntries([...new Set(leagueSeasons.map(l => l.season))]
       .map(s => [s, consensus(s)?.source ?? 'none'])),
@@ -1167,6 +1178,12 @@ function builtBlock(leagueId, season, ls, career, priced, stale, jev) {
  */
 export function archetypesFor(leagueId, season) {
   const out = new Map();
+  // roster_ids present in league_season_teams with no ESPN member attributed
+  // to them -- saveTeams() (league-history.js) writes espn_member_id null
+  // whenever ESPN's own `owners` array is empty for that team, a real state
+  // and not a fault. Counted here so a caller can tell that from a roster
+  // that silently failed to get a card.
+  out.unownedSlots = [];
   const { ls, career, priced, stale } = builtStamps(leagueId, season);
   const jevBy = new Map(rows(`SELECT member_id, COUNT(*) AS n, MAX(evaluated_at) AS as_of
                               FROM manager_archetype_jev GROUP BY member_id`)
@@ -1179,7 +1196,7 @@ export function archetypesFor(leagueId, season) {
   if (!leagueHistoryState().present) return out;
   for (const t of rows(`SELECT roster_id, espn_member_id, owner_name FROM league_season_teams
                         WHERE league_id = ? AND season = ?`, leagueId, season)) {
-    if (!t.espn_member_id) continue;
+    if (!t.espn_member_id) { out.unownedSlots.push(String(t.roster_id)); continue; }
     const profile = managerProfile(t.espn_member_id);
     out.set(String(t.roster_id), {
       owner: t.owner_name,

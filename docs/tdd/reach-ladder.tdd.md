@@ -71,7 +71,8 @@ Checked out `b0c1616d`, `git write-tree` = `500bab36774ca1264b5dbdc5f1e5d69445f1
 Every cell matches. Entry split on the same tree: **214 route / 14
 script-only**, matching R54.2 condition 4's frozen figures.
 
-So the reproducible **edge bracket is 172–228**, and `178` joins
+So the reproducible **edge bracket is 172 to at least 228** (the high end a
+floor, per R66 below), and `178` joins
 `116 / 53 / 67 / 183` as unreproducible.
 
 ## On the current tree, and what 321 is a count of
@@ -162,7 +163,8 @@ command.
 | M4 | parser swapped back for the substring matcher | killed (2 rules) |
 | M5 | `ENTRY_AXIS.isBracket` set true | killed |
 | M6 | toolchain gate disabled | killed |
-| — | control, restored | 15 pass / 0 fail |
+| M7 | the `\u2265` bound label reverted to a bare `169-225` | killed by rule 16 |
+| — | control, restored | 16 pass / 0 fail |
 
 ### M1b, and getting the same lesson wrong twice
 
@@ -197,6 +199,16 @@ miniature.
 - **Not a verdict on `178`.** It establishes that 178 is not reproducible over
   the 319 population and that 172 is. If CONTRACT.md disagrees, the document
   is what changes.
+- **The HIGH end is a lower bound, not a count (Independent Auditor R66).**
+  Quote it as **≥225** on main and **≥228** on `500bab36`, never as a bare
+  figure. The Auditor confirmed the cause at `scripts/reach-grade.mjs:99` and
+  counted **12 bare side-effect imports on `c90d2834`** — among them
+  `clv-core.js:47`, `nfl-player-value.js:11-12`, `prop-feeds.js:35`. A missed
+  edge can only ADD reach, so the true value is at or above what is printed.
+  **The low end (172/169) and the population (319/321) are unaffected**:
+  `classifyImportEdges` does see the bare form. The command now prints the
+  bound, and rule 16 pins it, so the label cannot silently revert to a bare
+  number.
 - **Not a graph this command builds.** Both graphs come from
   `scripts/reach-grade.mjs`, and they do not see the same edges. Found while
   building rule 15's fixture: `buildImporterGraph` matches `from '...'` and

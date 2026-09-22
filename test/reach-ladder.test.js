@@ -306,3 +306,33 @@ test('measure() itself excludes betting routes from route-reach, over a real rep
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+/**
+ * Independent Auditor R66. The high end of the bracket is a LOWER BOUND, not
+ * a count: buildImporterGraph matches `from '...'` and `import('...')` only,
+ * so a bare side-effect `import '...'` is invisible to it, and twelve such
+ * imports exist on c90d2834. A missed edge can only add reach, never remove
+ * it, so the true figure is at or above what the command prints.
+ *
+ * By this file's own standard a rule with no consumer that can detect its
+ * violation is decoration, so the bound is pinned rather than written in a
+ * comment: silently reverting the label would restate a bounded figure as a
+ * measured one, which is the whole defect this PR exists to remove.
+ */
+test('the printed high end is labelled a lower bound, not a count', async () => {
+  const { render } = await import('../scripts/reach-ladder.mjs');
+  const text = render({
+    tree: { head: 'x', writeTree: 'y', servicesTree: 's', modelingTree: 'm' },
+    toolchain: { node: 'v22', typescript: require('typescript').version },
+    population: 321,
+    edge: {
+      'request-only': { cells: [169, 65, 6, 18, 12, 51], sum: 321 },
+      'request+job': { cells: [225, 55, 3, 2, 10, 26], sum: 321 },
+    },
+    entry: { route: 211, scriptOnly: 14 },
+    schedulerInvokedScripts: null,
+  });
+  assert.match(text, /≥225/, 'the high end carries the bound marker');
+  assert.match(text, /lower bound/i, 'and says so in words for a reader who misses the symbol');
+  assert.doesNotMatch(text, /bracket: 169-225\b/, 'the bare unbounded form must not come back');
+});

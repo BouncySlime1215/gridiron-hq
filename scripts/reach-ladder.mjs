@@ -297,7 +297,7 @@ export function measure({ cwd = process.cwd() } = {}) {
   };
 }
 
-function render(result) {
+export function render(result) {
   const out = [];
   out.push(`commit    ${result.tree.head}  write-tree ${result.tree.writeTree}`);
   out.push(`measured  server/services ${result.tree.servicesTree}  server/modeling ${result.tree.modelingTree}`);
@@ -312,7 +312,15 @@ function render(result) {
   }
   const lo = result.edge['request-only'].cells[0];
   const hi = result.edge['request+job'].cells[0];
-  out.push('', `bracket: ${lo}-${hi} wired. Not a confidence interval -- two definitions.`);
+  // The high end is a LOWER BOUND, not a count (Independent Auditor R66).
+  // buildImporterGraph -- which produces the request+job graph -- matches
+  // `from '...'` and `import('...')` only, so a bare side-effect
+  // `import '...'` is invisible to it. Twelve such imports exist on
+  // c90d2834. Every edge it misses can only ADD reach, so the true high end
+  // is at or above what this prints. The low end and the population are
+  // unaffected: classifyImportEdges does see the bare form.
+  out.push('', `bracket: ${lo}-\u2265${hi} wired. Not a confidence interval -- two definitions,`);
+  out.push(`and the high end is a lower bound until the bare-import gap is fixed.`);
 
   out.push('', `## ${ENTRY_AXIS.name}`, ENTRY_AXIS.note, '');
   out.push(`route-reached ${result.entry.route} · script-only ${result.entry.scriptOnly}`

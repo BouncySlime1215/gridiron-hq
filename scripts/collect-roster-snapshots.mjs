@@ -27,6 +27,7 @@
  */
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { exitWhenFlushed } from './lib/flush-then-exit.mjs';
 
 process.env.SCHEDULER_DISABLED = '1';
 const { db, rows, run } = await import('../server/db/index.js');
@@ -313,4 +314,9 @@ export async function main(argv = process.argv.slice(2)) {
 const invokedDirectly = (() => {
   try { return import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1] ?? '')).href; } catch { return false; }
 })();
-if (invokedDirectly) process.exit(await main());
+// Flush before coming down: this script's stdout is CAPTURED by
+// scripts/refresh-live-data.mjs:114 through spawnSync, whose stdio is a pipe,
+// and process.exit() does not flush a pipe. The summary line above is the LAST
+// thing printed and so the first thing a truncated pipe loses -- and the parent
+// reads exactly that line to decide whether this run succeeded.
+if (invokedDirectly) exitWhenFlushed(await main());

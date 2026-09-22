@@ -186,19 +186,25 @@ function teamWeeks(log) {
 }
 
 /**
- * Raw-opportunity efficiency metrics (yards/catch-rate/td-rate per target,
- * carry, or attempt). Fit per position, in the same units projections.js
- * would use if it passed the raw opportunity count as `n` (see FIT_SPECS —
- * this is what replaces the old count/5, count/8, count/10 conversion).
+ * Recency-weighted-opportunity efficiency metrics (yards/catch-rate/td-rate
+ * per target, carry, or attempt). Fit per position, in the same units
+ * projections.js actually uses: `a.targets += w * (u.targets ?? 0)` under
+ * RECENCY is the real `n` passed to pickK() for ypt/catch_rate (likewise
+ * a.carries/a.attempts for ypc/ypa), so the fit's weight has to be
+ * `weightFn(season, week) * opp`, not the raw opportunity count alone —
+ * a raw count is what projections.js would use only if RECENCY's season
+ * decay didn't exist.
  */
-function efficiencyObservations(log, position, oppField, valueFn) {
+function efficiencyObservations(log, position, oppField, valueFn, weightFn) {
   const out = [];
   for (const u of log) {
     if (u.pos !== position) continue;
     const opp = u[oppField] ?? 0;
     if (!(opp > 0)) continue;
+    const w = weightFn(u.season, u.week) * opp;
+    if (!(w > 0)) continue;
     const value = valueFn(u, opp);
-    if (Number.isFinite(value)) out.push({ group: u.player_id, weight: opp, value });
+    if (Number.isFinite(value)) out.push({ group: u.player_id, weight: w, value });
   }
   return out;
 }
@@ -353,24 +359,24 @@ export function buildFitSpecs(through, { throughWeek = null, roleRecency = WEEKL
 
   for (const position of ['WR', 'RB', 'TE']) {
     specs.push({ metric: 'ypt', position, observations:
-      efficiencyObservations(log, position, 'targets', u => (u.receiving_yards ?? 0) / u.targets) });
+      efficiencyObservations(log, position, 'targets', u => (u.receiving_yards ?? 0) / u.targets, effW) });
     specs.push({ metric: 'catch_rate', position, observations:
-      efficiencyObservations(log, position, 'targets', u => (u.receptions ?? 0) / u.targets) });
+      efficiencyObservations(log, position, 'targets', u => (u.receptions ?? 0) / u.targets, effW) });
     specs.push({ metric: 'rec_td_rate', position, observations:
-      efficiencyObservations(log, position, 'targets', u => (u.receiving_tds ?? 0) / u.targets) });
+      efficiencyObservations(log, position, 'targets', u => (u.receiving_tds ?? 0) / u.targets, effW) });
   }
   for (const position of ['QB', 'RB', 'WR']) {
     specs.push({ metric: 'ypc', position, observations:
-      efficiencyObservations(log, position, 'carries', u => (u.rushing_yards ?? 0) / u.carries) });
+      efficiencyObservations(log, position, 'carries', u => (u.rushing_yards ?? 0) / u.carries, effW) });
     specs.push({ metric: 'rush_td_rate', position, observations:
-      efficiencyObservations(log, position, 'carries', u => (u.rushing_tds ?? 0) / u.carries) });
+      efficiencyObservations(log, position, 'carries', u => (u.rushing_tds ?? 0) / u.carries, effW) });
   }
   specs.push({ metric: 'ypa', position: 'QB', observations:
-    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_yards ?? 0) / u.attempts) });
+    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_yards ?? 0) / u.attempts, effW) });
   specs.push({ metric: 'pass_td_rate', position: 'QB', observations:
-    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_tds ?? 0) / u.attempts) });
+    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_tds ?? 0) / u.attempts, effW) });
   specs.push({ metric: 'int_rate', position: 'QB', observations:
-    efficiencyObservations(log, 'QB', 'attempts', u => (u.interceptions ?? 0) / u.attempts) });
+    efficiencyObservations(log, 'QB', 'attempts', u => (u.interceptions ?? 0) / u.attempts, effW) });
 
   specs.push({ metric: 'availability', position: 'ALL', observations: availabilityObservations(log, through) });
   specs.push({ metric: 'qb_attempt_share', position: 'QB', observations: qbAttemptShareObservations(log, through) });

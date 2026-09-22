@@ -3,13 +3,24 @@
  * (docs/wiring/league-ingest-field-contract.md, Fantasy plan, 2026-09-22).
  *
  * `waiver_type`, `faab_budget` and `trade_deadline` are stored RAW off
- * Sleeper's `league.settings` — this migration does not interpret them
- * (e.g. mapping waiver_type's 0/1/2 to a label), because that mapping is
+ * Sleeper's `league.settings` — this migration does not interpret Sleeper's
+ * `waiver_type` (e.g. mapping its 0/1/2 to a label), because that mapping is
  * documented community knowledge, not something verified against a real
- * payload here. ESPN has no confirmed field path for any of the three
+ * payload here.
+ *
+ * ESPN's equivalents were first believed to have no confirmed field path
  * (`settings.tradeSettings` is real — trade-tactics.js:375 already reads
- * `vetoVotesRequired` off it — but `deadlineDate` specifically is not),
- * so they stay NULL for ESPN leagues rather than guessing.
+ * `vetoVotesRequired` off it — but `deadlineDate` specifically had not been
+ * observed). Corrected 2026-09-22 against a real captured payload
+ * (cwendt94/espn-api): `waiver_type` is `settings.acquisitionSettings.
+ * acquisitionType` (a string); `faab_budget` is `settings.acquisitionSettings.
+ * acquisitionBudget`, gated on `isUsingAcquisitionBudget === true` (a real
+ * payload had `acquisitionBudget: 100` present alongside
+ * `isUsingAcquisitionBudget: false`, so reading it unconditionally fakes a
+ * FAAB budget for a plain-waiver league); `trade_deadline` is
+ * `settings.tradeSettings.deadlineDate` (epoch ms), where ESPN's own `0`
+ * means "no deadline set" and is stored as `NULL`, not a literal epoch-0
+ * timestamp. See `routes/leagues.js#syncEspnLeague` for where these are read.
  *
  * `playoff_teams`/`playoff_week_start` ARE confirmed on both platforms:
  * season-sim.js:198 and trade-horizon.js's leagueSchedule() already read

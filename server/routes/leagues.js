@@ -160,16 +160,33 @@ export async function syncEspnLeague(lg) {
   // every call by season-sim.js:198 and trade-horizon.js's leagueSchedule();
   // storing it at sync time (contract #6) gives both a column to read instead.
   const playoffTeams = data.settings?.scheduleSettings?.playoffTeamCount ?? null;
+  // acquisitionType/acquisitionBudget/deadlineDate confirmed against a real
+  // captured payload (cwendt94/espn-api), correcting the contract's original
+  // "no known ESPN path" for these three (docs/wiring/league-ingest-field-
+  // contract.md #3/#4/#5, updated 2026-09-22).
+  const acq = data.settings?.acquisitionSettings ?? {};
+  const waiverType = acq.acquisitionType ?? null;
+  // A real payload had acquisitionBudget:100 present alongside
+  // isUsingAcquisitionBudget:false — ESPN keeps a residual number there even
+  // for a league not using a budget, so reading it unconditionally would
+  // fake a FAAB budget for a plain-waiver league.
+  const faabBudget = acq.isUsingAcquisitionBudget === true ? (acq.acquisitionBudget ?? null) : null;
+  // ESPN's own "no deadline set" convention is 0, which must not be stored
+  // as a literal (and misleadingly past) epoch-ms timestamp.
+  const deadlineDate = data.settings?.tradeSettings?.deadlineDate;
+  const tradeDeadline = deadlineDate ? deadlineDate : null;
   // `season_used` and `fell_back` were returned and then thrown away by the
   // scheduled path (scheduler.js refreshLeagueRosters keeps only counts), so a
   // league running on last season's rosters looked freshly connected to every
   // reader except the one manual-sync message. Persist them.
   run(`UPDATE leagues SET name = ?, team_count = ?, payload = ?, roster_positions = ?,
        league_type = ?, current_week = ?, payload_season = ?, playoff_teams = ?,
+       waiver_type = ?, faab_budget = ?, trade_deadline = ?,
        fetched_at = datetime('now') WHERE id = ?`,
     data.settings?.name ?? `ESPN ${lg.league_id}`, data.teams?.length ?? null,
     JSON.stringify(data), rosterPositions.length ? JSON.stringify(rosterPositions) : null,
-    leagueTypeFromPayload('espn', data), currentWeek, usedSeason, playoffTeams, lg.id);
+    leagueTypeFromPayload('espn', data), currentWeek, usedSeason, playoffTeams,
+    waiverType, faabBudget, tradeDeadline, lg.id);
   return { teams: data.teams?.length ?? 0, roster_players: rosterCount(data), season_used: usedSeason, fell_back: fellBack };
 }
 

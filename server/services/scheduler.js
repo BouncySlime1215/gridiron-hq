@@ -39,7 +39,7 @@ import { db, rows, run, row } from '../db/index.js';
  */
 const DRAFT_WINDOW_BEFORE_MIN = 15;   // commissioners start late more often than early
 const DRAFT_WINDOW_AFTER_HOURS = 4;   // generous — a slow 16-round snake can run long
-function liveDraftActive() {
+export function liveDraftActive() {
   // draft_at is stored ISO8601 ("...T23:00:00.000Z"); datetime('now', ...) is
   // space-separated with no 'Z'. Comparing those two formats as raw strings
   // is a lexicographic trap — 'T' (0x54) sorts after a space (0x20), so an
@@ -730,6 +730,27 @@ async function refreshManagerArchetypes() {
       jev: 'not run — opt-in, needs AI_GATEWAY_API_KEY' }
     : { error: 'the archetype build printed no JSON summary',
       tail: stdout.trim().split('\n').at(-1)?.slice(0, 200) ?? null };
+}
+
+/**
+ * The historical facts the manager layer stands on: each league-season's final
+ * standings (`league_season_teams`) and weekly scores (`league_week_scores`).
+ *
+ * Registered here because those two tables had exactly one writer — a script
+ * run by hand — while manager-archetypes.js reads `league_season_teams` on the
+ * trades surface (:243, :819, :831). A table nobody fills reads downstream as a
+ * league with nothing measured about it, which is indistinguishable from a
+ * league we simply have no history for.
+ *
+ * The service holds off entirely while a draft is live; that is not politeness
+ * but the 2026-09-06/07 incident (see liveDraftActive above) — it reads the
+ * same espn_s2/SWID out of the same `leagues` rows Nick's browser is drafting
+ * with. A skip is recorded as 'skipped', so it is retried in five minutes
+ * rather than sitting out the whole cadence.
+ */
+async function refreshLeagueHistory() {
+  const { backfillLeagueHistory } = await import('./league-history.js');
+  return backfillLeagueHistory();
 }
 
 /**
@@ -1468,6 +1489,31 @@ export const JOBS = {
    * The off-server refresh loop runs it by name whatever its tier
    * (scripts/refresh-live-data.mjs FANTASY_LIVE_JOBS).
    */
+  /*
+   * The history under the archetypes, so it sits ahead of them here and ahead
+   * of them in refresh-live-data.mjs's FANTASY_LIVE_JOBS, which is the list
+   * that actually runs in order: manager_archetypes replays league-seasons out
+   * of the rows this writes. (The two are on different tiers, so the timer
+   * alone would not sequence them — only the loop does.)
+   *
+   * 'growth', not 'heavy': it makes a handful of paced ESPN requests and does
+   * no parsing worth speaking of, so there is nothing here the `heavy` tier's
+   * AUTO_HEAVY_SYNC gate should be deciding — and a history layer that only
+   * builds behind a flag is the "silently never runs" failure this file has
+   * already had to fix three times. Twelve hours rather than twenty-four so a
+   * run skipped for a live draft does not cost a whole day; a prior season
+   * already stored is not re-read at all (league-history.js's seasonsToFetch),
+   * which on a filled-in box makes the run one request per league.
+   *
+   * offThread: true regardless of tier — `resolveOffThread` only defaults a
+   * job off-thread when its tier is 'heavy', and this one is deliberately
+   * 'growth' (above). Without the flag it runs on the request thread with a
+   * five-minute budget, and node:sqlite is synchronous, so every one of its
+   * writes blocks every request for as long as the paced ESPN reads take.
+   */
+  league_history: { run: refreshLeagueHistory, maxAgeMinutes: 12 * 60, tier: 'growth', offThread: true,
+    timeoutMs: 300_000,
+    label: 'League history: final standings and weekly scores per league-season (ESPN, paced)' },
   manager_archetypes: { run: refreshManagerArchetypes, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 10 * 60_000,
     label: 'Manager archetypes: draft-revealed preference and all-play/luck outcomes (child process)' },
   /*

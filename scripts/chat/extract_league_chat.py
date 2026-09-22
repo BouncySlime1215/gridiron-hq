@@ -46,11 +46,48 @@ def default_paths():
 SRC, OUT = default_paths()
 
 
+ISO = '%Y-%m-%dT%H:%M:%SZ'
+
+
 def apple_ts(ns):
-    """chat.db dates are nanoseconds since 2001-01-01 UTC (older rows: seconds)."""
+    """chat.db dates are nanoseconds since 2001-01-01 UTC (older rows: seconds).
+
+    ISO 8601 UTC, not SQLite's 'YYYY-MM-DD HH:MM:SS'. Every other stamp the app
+    serves beside this one is new Date().toISOString(): the transactions
+    collector, the archetype build, the pull record. Two fields called as_of on
+    one manager card that cannot be compared is worse than one missing field,
+    and the two formats do not even sort against each other -- 'T' is 0x54 and
+    a space is 0x20, so any ISO row beats every legacy row whatever its date.
+    That is why normalise_stamps() below runs before the first insert of a run.
+    """
     if ns is None: return None
     v = ns / 1e9 if ns > 1e11 else ns
-    return (APPLE_EPOCH + timedelta(seconds=v)).strftime('%Y-%m-%d %H:%M:%S')
+    return (APPLE_EPOCH + timedelta(seconds=v)).strftime(ISO)
+
+
+def now_iso():
+    return datetime.now(timezone.utc).strftime(ISO)
+
+
+def normalise_stamps(out):
+    """Bring any pre-ISO stamps in this corpus up to ISO, once, before inserting.
+
+    The extractor is incremental: it resumes from MAX(msg_id) and never
+    re-reads a row it already has. So a corpus pulled before this change would
+    otherwise end up holding both formats, and MAX(ts_utc) would return the
+    newest ISO row rather than the newest row. Idempotent -- the guard means a
+    second run touches nothing -- and cheap, since it matches on the missing
+    'T' rather than scanning dates.
+    """
+    for table, col in (('messages', 'ts_utc'), ('extract_runs', 'ran_at'),
+                       ('manager_chat_profile', 'computed_at'),
+                       ('manager_player_sentiment', 'computed_at')):
+        try:
+            out.execute(
+                f"UPDATE {table} SET {col} = replace({col}, ' ', 'T') || 'Z' "
+                f"WHERE {col} IS NOT NULL AND {col} NOT LIKE '%T%' AND length({col}) = 19")
+        except sqlite3.OperationalError:
+            pass  # the table is not in this corpus yet; the rollup creates two of them
 
 
 def decode_attributed_body(blob):
@@ -108,6 +145,10 @@ def extract(full=False):
     handle_name = {h: n for h, (n, _) in parts.items()}
     # handle.ROWID -> handle id string (phone/email) -> name
     hid_to_handle = {r[0]: r[1] for r in src.execute("SELECT ROWID, id FROM handle")}
+    # Before the watermark is read, not after: MAX(msg_id) is unaffected, but
+    # every later reader of MAX(ts_utc) would be wrong for as long as the two
+    # formats coexisted.
+    normalise_stamps(out)
     since = 0 if full else (out.execute("SELECT COALESCE(MAX(msg_id),0) FROM messages").fetchone()[0] or 0)
     if full: out.execute("DELETE FROM messages")
     # A group row stored unnamed (its handle was not in participants yet) gets its name
@@ -143,7 +184,7 @@ def extract(full=False):
                      1 if (assoc or 0) >= 2000 else 0, 1 if thread else 0))
         new += 1; max_id = max(max_id, rowid)
     out.execute("INSERT INTO extract_runs (ran_at, mode, new_rows, max_msg_id, unknown_handle) VALUES (?,?,?,?,?)",
-                (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), 'full' if full else 'incremental', new, max_id, unknown))
+                (now_iso(), 'full' if full else 'incremental', new, max_id, unknown))
     out.commit(); src.close(); out.close()
     note = (f', {unknown} from a handle not in participants (stored unnamed until the handle is added)'
             if unknown else '')
@@ -235,7 +276,11 @@ def report_classifier_failures(before, after, errors, retryable=0, given_up=0):
 def league_hour(ts_utc):
     """Hour on the league's clock for a stored UTC stamp ('T' or space separated), or None."""
     try:
-        return datetime.fromisoformat(ts_utc).replace(tzinfo=timezone.utc).astimezone(LEAGUE_TZ).hour
+        # Both formats: a corpus mid-migration can hold either, and a 'Z' suffix
+        # is only accepted by fromisoformat from Python 3.11, while the Mac that
+        # runs this may be older.
+        return (datetime.fromisoformat(ts_utc.replace('T', ' ').rstrip('Z'))
+                .replace(tzinfo=timezone.utc).astimezone(LEAGUE_TZ).hour)
     except (TypeError, ValueError):
         return None
 
@@ -278,7 +323,7 @@ def rollup():
              ROUND(AVG((SELECT probability FROM sig WHERE sig.msg_id = b.msg_id AND question = 'own_roster.complaining')), 3) AS p_own_complaining,
              ROUND(AVG((SELECT probability FROM sig WHERE sig.msg_id = b.msg_id AND question = 'own_roster.untouchable')), 3) AS p_own_untouchable,
              MIN(b.ts_utc) AS first_msg, MAX(b.ts_utc) AS last_msg,
-             datetime('now') AS computed_at
+             strftime('%Y-%m-%dT%H:%M:%SZ', 'now') AS computed_at
       FROM base b GROUP BY b.name;
 
       DROP TABLE IF EXISTS manager_player_sentiment;
@@ -289,7 +334,7 @@ def rollup():
              ROUND(AVG(CASE WHEN s.probability >= 3 THEN 1.0 ELSE 0 END), 3) AS share_positive,
              ROUND(AVG(CASE WHEN s.probability <= 1 THEN 1.0 ELSE 0 END), 3) AS share_negative,
              MIN(m.ts_utc) AS first_mention, MAX(m.ts_utc) AS last_mention,
-             datetime('now') AS computed_at
+             strftime('%Y-%m-%dT%H:%M:%SZ', 'now') AS computed_at
       FROM jev_chat_signals s JOIN messages m ON m.msg_id = s.msg_id
       WHERE s.question = 'player_sentiment.mean' AND s.mentioned_player IS NOT NULL
       GROUP BY s.name, s.mentioned_player;

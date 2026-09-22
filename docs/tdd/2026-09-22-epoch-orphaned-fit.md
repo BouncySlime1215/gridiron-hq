@@ -113,9 +113,7 @@ never promoted anything.
 
 `source` stays `'frozen'`: `test/model-integrity.test.js:618` pins that contract
 for the cutoff case and it is a real one. The account goes in a new
-`frozen_reason`, which no existing consumer has to re-learn, and reaches a surface
-through `player-week-engine.js` as `weight_reason` -- a field that is not read
-anywhere is decoration, not honesty.
+`frozen_reason`, which no existing consumer has to re-learn.
 
 Three situations that all read as bare `frozen` before:
 
@@ -141,9 +139,41 @@ one test.
                          # tests 9  # pass 8  # fail 1
     mutation reverted -> # tests 9  # pass 9  # fail 0
 
-Neighbouring suites after the `player-week-engine.js` change --
-`player-week-engine-weights`, `model-integrity`, `weekly-early-week-blend`,
-`prediction-log-served-model`: **118 tests, 118 pass, 0 fail**.
+Neighbouring suites -- `player-week-engine-weights`, `model-integrity`,
+`weekly-early-week-blend`, `prediction-log-served-model`: **118 tests, 118 pass,
+0 fail**. Measured when this branch still carried the `player-week-engine.js`
+change removed below; it touches none of them now, so the figure is a floor
+rather than a claim about the current diff. The 2x `npm run check` on the final
+tree is the gate.
+
+## Third pass: the unread field came back out
+
+An earlier commit on this branch added four lines to
+`server/services/player-week-engine.js` -- three of comment and one field:
+
+    weight_reason: weightChampion.frozen_reason ?? weightChampion.orphaned_fit ?? null,
+
+**Nothing read it.** By grep on that tree, `weight_reason` appeared in exactly
+two places: that line, and this file. No test anywhere referenced it, and this
+branch's own test file never touched `player-week-engine.js` at all -- every
+test here is against `weekly-weight-store.js`.
+
+So it was an output key with no consumer and no test, which is the same
+decoration this unit exists to argue against. The sentence that justified it in
+an earlier draft of this file -- "a field that is not read anywhere is
+decoration, not honesty" -- was right about the principle and was being used to
+license the opposite of it. A store that can say why it is frozen is the
+finding; pre-placing a field on the off chance a surface later wants it is not.
+
+**It should be written when a consumer exists, by whoever owns that consumer,
+with a test that reads it.** `player-week-engine.js` belongs to another editor
+under this project's one-editor-per-file rule, which made the removal the
+cheaper answer as well as the better one: the allocation question disappears
+rather than needing an adjudication.
+
+Removed here. Zero test impact, established by grep before the edit rather than
+discovered by the suite after it. What remains is `weekly-weight-store.js`, its
+test, and this file.
 
 ## What this does NOT do
 

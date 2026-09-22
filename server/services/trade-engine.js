@@ -970,7 +970,16 @@ const describeProfile = r => {
   return `a ±${r.swing_pct ?? '?'}% swing over ${r.seasons} seasons`;
 };
 
-/** The floor/ceiling/consistency read for one package of players. */
+/**
+ * The floor/ceiling/consistency read for one package of players.
+ *
+ * `unreadable` counts the players whose career layer could not be read. It
+ * matters beyond the headline: the sums below are taken over `withRecord`
+ * (`seasons > 0`), which drops an unknown player silently, so without this
+ * count a two-player package with one unreadable record reports the readable
+ * player's seasons as if they were the whole package. Every line built from
+ * these sums states the shortfall instead (see packageNumbers).
+ */
 export function packageRisk(players) {
   const profiles = (players ?? []).map(playerRiskProfile);
   const withRecord = profiles.filter(x => x.seasons > 0);
@@ -998,8 +1007,14 @@ export function packageRisk(players) {
 function packageNumbers(r) {
   if (!r) return null;
   const bits = [];
-  if (r.seasons) bits.push(`${r.top24_seasons}/${r.seasons} top-24 seasons`);
-  else if (r.unreadable) bits.push('record could not be read');
+  // With an unreadable record in the package the season sums cover only part of
+  // it, so the line says how many players it could not read rather than
+  // presenting a partial count as the whole (packageRisk's `unreadable`).
+  if (r.seasons && r.unreadable) {
+    bits.push(`${r.top24_seasons}/${r.seasons} top-24 seasons for ${r.players.length - r.unreadable} of ${r.players.length}` +
+      `, ${r.unreadable} record${r.unreadable === 1 ? '' : 's'} could not be read`);
+  } else if (r.seasons) bits.push(`${r.top24_seasons}/${r.seasons} top-24 seasons`);
+  else if (r.unreadable) bits.push(`${r.unreadable} record${r.unreadable === 1 ? '' : 's'} could not be read`);
   else bits.push('0 seasons on record');
   if (r.swing_pct != null) bits.push(`±${r.swing_pct}% swing`);
   if (r.min_games != null) bits.push(`${r.min_games} g min`);

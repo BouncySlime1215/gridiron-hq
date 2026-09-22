@@ -203,7 +203,9 @@ export function conflicts(season, throughWeek, lookback = 3) {
 /** The stored picture without running a sweep. */
 export function trendHistory({ season = null, lookback = 3, limit = 100 } = {}) {
   const yr = season ?? row(`SELECT MAX(season) AS s FROM trend_findings`)?.s;
-  if (!yr) return { findings: [], note: 'No sweep has been run yet. POST /trends/scan to run one.' };
+  // POST /trends/scan was cut on 2026-09-20 — nothing had ever dialled it — so
+  // this note names the function instead of a route that now 404s.
+  if (!yr) return { findings: [], note: 'No sweep has been run yet. scanTrends() in this file runs one.' };
   const all = rows(
     `SELECT * FROM trend_findings WHERE season = ? AND lookback = ?
      ORDER BY status, ABS(effect_size) DESC LIMIT ?`, yr, lookback, limit);

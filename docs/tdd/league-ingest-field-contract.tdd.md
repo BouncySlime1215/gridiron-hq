@@ -35,12 +35,29 @@ the fix in that rather than the contract's own caution:
   (contract item 6).** Already read the same way by
   `server/services/sleeper-history.js:37,39,54`.
 
-What stayed unverified and was NOT guessed at: ESPN's waiver-type, FAAB and
-trade-deadline fields. `server/services/trade-tactics.js:375` confirms
-`payload.settings.tradeSettings` is a real object (it already reads
-`vetoVotesRequired` off it), but `deadlineDate` specifically has never been
-observed on a real payload here, and there is no known path at all for ESPN
-waiver type or FAAB. Those three columns stay NULL for ESPN.
+What stayed unverified at the time of the first commit (`042a9ad`) and was
+NOT guessed at: ESPN's waiver-type, FAAB and trade-deadline fields.
+`server/services/trade-tactics.js:375` confirms `payload.settings.
+tradeSettings` is a real object (it already reads `vetoVotesRequired` off
+it), but `deadlineDate` specifically had never been observed on a real
+payload, and there was no known path at all for ESPN waiver type or FAAB.
+Those three columns were left NULL for ESPN in `042a9ad`.
+
+**Corrected the same night (`5a13095`).** Fantasy plan found real field
+paths against a captured payload (cwendt94/espn-api) and the coordinator
+relayed them: `waiver_type` is `settings.acquisitionSettings.acquisitionType`
+(a string); `faab_budget` is `settings.acquisitionSettings.acquisitionBudget`,
+gated on `isUsingAcquisitionBudget === true` (a real payload had
+`acquisitionBudget: 100` present alongside `isUsingAcquisitionBudget: false`,
+so reading it unconditionally would fake a FAAB budget for a plain-waiver
+league); `trade_deadline` is `settings.tradeSettings.deadlineDate` (epoch
+ms), where ESPN's own `0` means "no deadline set" and is stored as `NULL`,
+not a literal epoch-0 timestamp. RED (`d2691f8`) → GREEN (`5a13095`), same
+TDD shape, own mutation sweep (5 injections, all caught; both controls
+correct). §3-§7 below describe the original (`042a9ad`) implementation and
+its own RED/GREEN/sweep/check; the ESPN waiver/FAAB/deadline correction is a
+second, later pass on top of it, not a rewrite of this file's earlier
+sections.
 
 ## 3. RED (`e916b2c`)
 
@@ -164,7 +181,7 @@ an unrelated change. File restored byte-identical after every case.
 ## 7. Base and verification
 
 Branch `claude/project-thread-n4052e-league-ingest-fields`, base `654ff93`
-(current main). RED `e916b2c`, GREEN `042a9ad` (this is the head).
+(current main). RED `e916b2c`, GREEN `042a9ad`.
 
 Full local check on `042a9ad`, source-isolated (own source tree,
 `node_modules` symlinked to the container's checkout, no install run).
@@ -180,6 +197,34 @@ Full local check on `042a9ad`, source-isolated (own source tree,
 - test: 2,990 tests, 2,949 passed, 0 failed, 41 skipped
 - build: clean
 - start:smoke: "Application startup smoke passed on isolated database (32 teams)"
+
+### 7b. Corrected ESPN waiver/FAAB/deadline pass — current head (`5a13095`)
+
+RED `d2691f8`, GREEN `5a13095` (this is the current head — see §2/§6b's
+correction). Same worktree, same isolation.
+
+`git write-tree` before and after this run both `8362dd346eaa03f8c0af697ca15b78b08e6ef2a2` — unchanged, run is not void.
+`node_modules` mtime unchanged from §7 above (no install ran between the
+two checks).
+
+`npm run check` — exit 0:
+
+- typecheck: clean
+- lint: clean, 883 JavaScript files
+- test: 2,994 tests, 2,953 passed, 0 failed, 41 skipped
+- build: clean
+- start:smoke: "Application startup smoke passed on isolated database (32 teams)"
+
+**Note on lineup-posture.js.** Two commits touching `server/services/
+lineup-posture.js` and a new test file were made and then reverted on this
+branch (`git reset --hard 5a13095`) after the coordinator confirmed the
+apparent authorization to fix it — and a related lineup-brain.js finding —
+had both been misrouted to this thread from UI's (a thread-id mix-up on the
+coordinator's end, not this thread's). Nothing from that work survives:
+the reset's resulting tree (`8362dd34...`) is confirmed identical to the
+tree this section's check already verified, so no re-run was needed. §5's
+observation about `lineup-posture.js:361`'s denominator remains flagged for
+UI, not fixed here.
 
 ## 8. Not done here (routed, not edited)
 

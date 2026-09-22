@@ -140,7 +140,12 @@ const has = (corpus, table) =>
  */
 export function personVariables(person, { corpus } = {}) {
   const name = String(person ?? '').trim();
-  const db = corpus ?? openCorpus();
+  // Named for the database it is, not `db`: this handle is the private chat
+  // corpus, never the app database. The wiring map resolves a receiver called
+  // `db` to the app database (scripts/wiring-map.mjs:384), so the old name made
+  // `messages`, `jev_chat_signals` and `manager_chat_profile` look like app
+  // tables nothing writes. Same reason `nflDb` is spelled out elsewhere.
+  const chatDb = corpus ?? openCorpus();
   const out = [];
 
   const add = (id, displayName, family, source, unit, value, n, measuredBy) => {
@@ -168,15 +173,15 @@ export function personVariables(person, { corpus } = {}) {
     });
   };
 
-  if (!db || !name || !has(db, 'messages')) {
+  if (!chatDb || !name || !has(chatDb, 'messages')) {
     // Same variable list, nothing measured. The caller sees the shape either
     // way and can say "not on this machine" rather than "no data about him".
     for (const spec of SPECS) add(spec.id, spec.name, spec.family, spec.source, spec.unit, null, 0, spec.measured_by);
-    if (!corpus) db?.close();
+    if (!corpus) chatDb?.close();
     return out;
   }
 
-  const mine = db.prepare(
+  const mine = chatDb.prepare(
     `SELECT msg_id, chat_kind, chat_name, ts_utc, text FROM messages
      WHERE name = ? AND text IS NOT NULL ORDER BY ts_utc`).all(name);
   const total = mine.length;
@@ -187,14 +192,14 @@ export function personVariables(person, { corpus } = {}) {
   const latencyToOthers = [];
   let openers = 0;
   let closers = 0;
-  const previous = db.prepare(
+  const previous = chatDb.prepare(
     `SELECT name, ts_utc FROM messages WHERE chat_name = ? AND ts_utc < ? AND name <> ?
      ORDER BY ts_utc DESC LIMIT 1`);
-  const previousAny = db.prepare(
+  const previousAny = chatDb.prepare(
     `SELECT ts_utc FROM messages WHERE chat_name = ? AND ts_utc < ? ORDER BY ts_utc DESC LIMIT 1`);
-  const nextAny = db.prepare(
+  const nextAny = chatDb.prepare(
     `SELECT ts_utc FROM messages WHERE chat_name = ? AND ts_utc > ? ORDER BY ts_utc LIMIT 1`);
-  const lastOwn = db.prepare(
+  const lastOwn = chatDb.prepare(
     `SELECT ts_utc FROM messages WHERE chat_name = ? AND name = ? AND ts_utc < ? ORDER BY ts_utc DESC LIMIT 1`);
 
   for (const message of mine) {
@@ -302,8 +307,8 @@ export function personVariables(person, { corpus } = {}) {
 
   /* ---- signals: read from what the extractor already labelled ---- */
   const signalShare = question => {
-    if (!has(db, 'jev_chat_signals')) return null;
-    const hit = db.prepare(
+    if (!has(chatDb, 'jev_chat_signals')) return null;
+    const hit = chatDb.prepare(
       `SELECT COUNT(DISTINCT s.msg_id) AS n FROM jev_chat_signals s JOIN messages m ON m.msg_id = s.msg_id
        WHERE m.name = ? AND s.question = ? AND s.probability >= 0.5`).get(name, question);
     return total ? (hit?.n ?? 0) / total : null;
@@ -316,8 +321,8 @@ export function personVariables(person, { corpus } = {}) {
     signalShare('topic.argmax:player_opinion'), total,
     'the share of his messages the classifier labelled as an opinion about a player');
 
-  const confidences = has(db, 'jev_chat_signals')
-    ? db.prepare(`SELECT s.probability AS p FROM jev_chat_signals s JOIN messages m ON m.msg_id = s.msg_id
+  const confidences = has(chatDb, 'jev_chat_signals')
+    ? chatDb.prepare(`SELECT s.probability AS p FROM jev_chat_signals s JOIN messages m ON m.msg_id = s.msg_id
                   WHERE m.name = ? AND s.question = 'confidence.mean'`).all(name).map(r => r.p)
       .filter(Number.isFinite)
     : [];
@@ -327,8 +332,8 @@ export function personVariables(person, { corpus } = {}) {
     + 'manager_chat_profile keeps only the mean, which is exactly what hides a reactive person');
 
   /* ---- the extractor's own aggregates, read and not recomputed ---- */
-  const profile = has(db, 'manager_chat_profile')
-    ? db.prepare(`SELECT * FROM manager_chat_profile WHERE name = ?`).get(name) : null;
+  const profile = has(chatDb, 'manager_chat_profile')
+    ? chatDb.prepare(`SELECT * FROM manager_chat_profile WHERE name = ?`).get(name) : null;
   const fromProfile = (id, displayName, family, unit, value, note) =>
     add(id, displayName, family, 'extractor', unit, value,
       profile ? (profile.msgs ?? 0) : 0,
@@ -374,7 +379,7 @@ export function personVariables(person, { corpus } = {}) {
   const rooms = new Set(mine.map(m => m.chat_name));
   const counterparts = new Set();
   for (const room of rooms) {
-    for (const other of db.prepare(
+    for (const other of chatDb.prepare(
       `SELECT DISTINCT name FROM messages WHERE chat_name = ? AND name <> ?`).all(room, name)) {
       counterparts.add(other.name);
     }
@@ -382,7 +387,7 @@ export function personVariables(person, { corpus } = {}) {
   add('mention_breadth', 'How many people he talks to', 'social', 'computed', 'people',
     counterparts.size, total, 'the number of distinct people in the threads he posts in');
 
-  if (!corpus) db.close();
+  if (!corpus) chatDb.close();
   return out;
 }
 

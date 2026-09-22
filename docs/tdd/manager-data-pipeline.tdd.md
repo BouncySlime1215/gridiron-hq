@@ -160,3 +160,100 @@ Scripts and gate: the `wa/verify-manager-data-pipeline/` scratch folder.
 | G7 | The tier applies once: receptiveness is identical with the tier set to fair or hard. The output ratio is within 0.0054 of 0.55 across 11 real deals. That spread is rounding (score to 3 decimals, value cost to 2). GATE.md pre-registered ±0.001, but the test and the results use ±0.002 without saying so. |
 | G8 | The build leaves the top 10 unchanged in all 5 leagues. In the full lists, only deals with league 3 roster 3 and league 4 Raj, Lars and Haiden move. With the old code on the built DB, every league's ranking would have moved through the perception term. |
 | Fixed | 46ce795 (RED) and fe1b81a (GREEN): a missing `manager_chat_profile` (the rollup's DROP/CREATE window, or a crashed rollup) used to fail all 5 leagues. It now fails league 4 alone, which keeps its rows. |
+
+## The cache fingerprint gave two different absences one word (2026-09-22)
+
+Hand-off item **T0.3** above put `counterpartyDataKey(lg.id)` into the
+`findTrades` fingerprint, which is what makes this defect matter rather than
+merely read badly. `trade-engine.js#findTradesKey` concatenates the key into the
+string a whole findTrades result is stored under, so two states that fingerprint
+alike are two states whose cached answers are interchangeable.
+
+### What it said, and what it meant
+
+Every part of the key was read inside a catch that answered `'absent'`:
+
+```js
+const part = (table, stamp) => {
+  try {
+    const r = rows(`SELECT COUNT(*) AS n, MAX(${stamp}) AS m FROM ${table} WHERE league_id = ?`, leagueId)[0];
+    return `${r?.n ?? 0}:${r?.m ?? ''}`;
+  } catch { return 'absent'; }
+};
+```
+
+`'absent'` is a true statement about one state and a false one about the other:
+
+| State | What is true | What the key said |
+|---|---|---|
+| the table is not there | a league that has never built signals; there is nothing to stamp | `absent` |
+| the table is there and the read throws | drifted schema, a renamed column, a half-applied migration — there IS data and we could not see it | `absent` |
+
+So an answer computed while `manager_signals` was unreadable was stored under
+the same key a league with no signals at all produces, and served to it
+afterwards. The second state is the dangerous one precisely because it is
+temporary: the table reads again later, the key goes back to `ms:N:stamp`, and
+the entry written during the outage stays behind under the absent key.
+
+The chat DB's `negotiation_profiles` had the identical shape, on the identical
+`catch { np = 'absent'; }`.
+
+### Why no test had found it
+
+No writer in this repository can produce the second state. A test routed through
+today's writer cannot reach a table whose shape has drifted, so the state that
+has no writer is the state that has no test — the same reason four CHECKs on
+`trade_outcomes` had none. Both tests here drive it through raw SQL instead.
+
+The two existing key tests (`'stable key when nothing changed'` and `'new data
+must change the key'`) both pass with the defect present and would pass with the
+whole catch deleted. They measure that the key MOVES, never that it says
+anything true when it cannot read.
+
+### RED -> GREEN
+
+| | commit | result |
+|---|---|---|
+| RED | `d3e0260` | 25 tests, 23 pass, **2 fail**, at `:440` and `:493` — the assertion naming the collision, not a neighbour |
+| GREEN | `73794cf` | 25 tests, **25 pass**, 0 fail |
+
+Both RED assertions are preceded by two that pass: dropping the table and
+breaking its shape each move the fingerprint away from the live one. Only
+telling those two apart fails, so the row is valid in every respect except the
+rule under test.
+
+### The fix
+
+Existence is asked of `sqlite_master` before the read, so `'absent'` is a
+positive finding about the schema rather than whatever is left once a catch has
+swallowed everything. A read that still throws is named `'unreadable'`.
+
+It is reported, not thrown. One drifted table must not take down every trade
+search. But it is reported **as a fault**, which is the whole point: nothing
+computed blind is reused as an answer computed from an empty table.
+
+Two fixes rather than one, because two connections — `hasTable` has to be asked
+of the chat handle for `negotiation_profiles`, not of the app's.
+
+No key changes for a healthy league or for a genuinely absent table, so no
+existing cache entry is invalidated. Established from the diff rather than
+measured: the success expressions and the final return template are untouched,
+and the new guard returns the same literal `'absent'` on the same condition the
+catch used to return it on.
+
+### The restore, and why the test asserts it
+
+`withTableReplaced` takes the DDL and the indexes out of `sqlite_master` rather
+than retyping them — a retyped copy drifts from the migration that owns the
+table, and the test then pins a shape the app does not have. Each test ends by
+asserting the fingerprint came back to what it was. Without that, a restore that
+rebuilt the table wrong would leave every later test in the file reading it, and
+they would fail somewhere else entirely.
+
+### What this is an instance of
+
+A served value carries the stamp of the process that measured it, and **an
+absence must say which absence it is**. This is the same defect as `read_state`
+on `vetoClimate`, which set the field on two paths of three: a consumer that
+asks "is this really empty?" gets an answer it cannot distinguish from "I could
+not look."

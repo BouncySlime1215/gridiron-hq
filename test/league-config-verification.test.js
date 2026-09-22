@@ -190,6 +190,13 @@ test('ESPN waiver type is unavailable, not guessed, when acquisitionSettings is 
   assert.equal(report.waiver_type.status, 'unavailable');
 });
 
+test('ESPN waiver type is unavailable, not guessed, when acquisitionSettings is present but has no acquisitionType field', () => {
+  const report = verifyLeagueConfig(espnLeague({
+    scoringItems: REAL_1PPR_ITEMS, isUsingAcquisitionBudget: true, acquisitionBudget: 150
+  }));
+  assert.equal(report.waiver_type.status, 'unavailable');
+});
+
 test('ESPN FAAB budget is confirmed when the league actually uses an acquisition budget', () => {
   const report = verifyLeagueConfig(espnLeague({
     scoringItems: REAL_1PPR_ITEMS, isUsingAcquisitionBudget: true, acquisitionBudget: 150
@@ -212,6 +219,13 @@ test('ESPN FAAB budget is confirmed-but-null when isUsingAcquisitionBudget is fa
 
 test('ESPN FAAB budget is unavailable when acquisitionSettings is entirely absent', () => {
   const report = verifyLeagueConfig(espnLeague({ scoringItems: REAL_1PPR_ITEMS }));
+  assert.equal(report.faab_budget.status, 'unavailable');
+});
+
+test('ESPN FAAB budget is unavailable, not guessed, when acquisitionSettings is present but has no isUsingAcquisitionBudget field', () => {
+  const report = verifyLeagueConfig(espnLeague({
+    scoringItems: REAL_1PPR_ITEMS, acquisitionType: 'WAIVERS_TRADITIONAL'
+  }));
   assert.equal(report.faab_budget.status, 'unavailable');
 });
 

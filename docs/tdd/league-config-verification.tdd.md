@@ -58,9 +58,15 @@ can't be added quietly), each with a `status`:
   ESPN's keeper heuristic.
 - **`defaulted`** — the app is using a bucketed or assumed value in place of the
   league's real setting.
-- **`unavailable`** — no path to the value exists at all (Sleeper scoring detail;
-  ESPN waiver/FAAB/deadline, which have no known field mapping on ESPN's undocumented
-  API).
+- **`unavailable`** — no path to the value exists at all: Sleeper scoring detail, or
+  a field missing from the payload for a check that otherwise has a real path (ESPN
+  waiver/FAAB/deadline now included — see the correction below).
+
+**Correction, 2026-09-22, same day as the original build:** the line above originally
+read *"ESPN waiver/FAAB/deadline, which have no known field mapping on ESPN's
+undocumented API"*. That was wrong, not just cautious — a research pass done under
+Nick's standing rule ("if we lack data, go find it online for free before building a
+workaround") found real, citable field paths for all three, documented below.
 
 Every check's field path, where one is claimed as `confirmed`, is a path already
 read by shipped code elsewhere in this repo:
@@ -74,6 +80,54 @@ read by shipped code elsewhere in this repo:
   `playoff_week_start` — the same fields `sleeper-history.js:33-38` already reads.
 - Keeper/dynasty: `format.js#leagueTypeFromPayload`, called directly rather than
   re-implemented.
+- ESPN waiver type: `settings.acquisitionSettings.acquisitionType` — not previously
+  read by any shipped code in this repo, so `confirmed` here rests on a different bar
+  than the paths above: two independent external sources agreeing on the same field
+  name (see "External research" below), the same bar `scoringFor`'s own `ESPN_STAT`
+  map was originally held to when it was first built.
+- ESPN FAAB budget: `settings.acquisitionSettings.isUsingAcquisitionBudget` (gate) +
+  `.acquisitionBudget` (value) — same bar as above. Gated because a real captured
+  payload shows ESPN populating `acquisitionBudget` with a default value even for a
+  league that does not use one; reading it unconditionally would misreport a
+  non-FAAB league's "budget" as real.
+- ESPN trade deadline: `settings.tradeSettings.deadlineDate` — same bar. `0` is
+  ESPN's own convention for "no deadline set" (its client library initializes this
+  field to `0` and only overwrites it when a real deadline exists), so `0` reads as
+  `confirmed`-with-`value: null`, not `unavailable`.
+
+## External research (2026-09-22, same day, a same-day correction)
+
+Per Nick's new standing rule ("if we lack data - lets go find it online for free /
+if we seriously cant find it then create workarounds ... make a note for everything
+we are missing"): the original build of this file reported ESPN waiver type, FAAB
+budget and trade deadline as `unavailable` with the stated reason "no known field
+mapping on ESPN's undocumented API." That reason was never actually checked — it was
+an assumption. A research pass the same day found it was false.
+
+Sources (both independently describe the same field names, which is why these are
+reported `confirmed` rather than `best_effort`):
+
+- **`cwendt94/espn-api`** (GitHub, an actively maintained open-source Python client
+  for ESPN's fantasy API). `espn_api/base_settings.py` reads
+  `settings.acquisitionSettings.acquisitionType`,
+  `.isUsingAcquisitionBudget`/`.acquisitionBudget`, and
+  `settings.tradeSettings.deadlineDate`, initializing `self.trade_deadline: int = 0`
+  before conditionally overwriting it — the source of the "0 means no deadline"
+  convention read into `verifyTradeDeadline`. `constant.py` in the same repo also
+  confirmed the ESPN lineup slot ids already in use elsewhere in this file (`20` =
+  bench, `21` = IR), previously only "commonly documented" here without a citation.
+- **`thomaswildetech.com`** — a real captured ESPN league payload published as a
+  worked example, used to confirm the acquisition-budget subtlety directly: a real
+  league's raw JSON shows `acquisitionType: "WAIVERS_TRADITIONAL"`,
+  `isUsingAcquisitionBudget: false`, AND `acquisitionBudget: 100` all present at
+  once — proof that `acquisitionBudget` alone cannot be trusted as "this league uses
+  FAAB," which is why `verifyEspnAcquisitionSettings` gates on
+  `isUsingAcquisitionBudget` rather than reading `acquisitionBudget` unconditionally.
+
+Not found, and not claimed: an exhaustive list of every possible `acquisitionType`
+enum value beyond `"WAIVERS_TRADITIONAL"` (the one value seen in a real captured
+payload). Reported as `confirmed` for whatever string ESPN actually returns — the
+field path is confirmed, not a closed set of expected values.
 
 `summarizeConfigReport(report)` is the pure aggregation — `confirmed_count`,
 `unconfirmed_settings`, and `loud_warning` (a plain-language string naming exactly
@@ -140,34 +194,69 @@ confirmed a fourth and fifth time on a different file:
   platform gate — not a coincidental path miss — is what's being tested.
 - **L10**: as documented directly in the code now, no real league can reach an
   all-confirmed report under today's checks (Sleeper scoring is always `defaulted`;
-  ESPN's waiver/FAAB/deadline are always `unavailable`), so no realistic fixture
-  could exercise the `loud_warning === null` branch. Closed by extracting
+  ESPN's waiver/FAAB/deadline were then always `unavailable`), so no realistic
+  fixture could exercise the `loud_warning === null` branch. Closed by extracting
   `summarizeConfigReport` as its own exported, independently-testable function and
   asserting it directly on a synthetic all-confirmed input.
+
+### Follow-up unit, same day: real ESPN waiver/FAAB/deadline field mappings
+
+After the external research above landed (`verifyEspnAcquisitionSettings`,
+rewiring `verifyWaiverType`/`verifyFaabBudget`/`verifyTradeDeadline`), L8's `old`
+text no longer matched the rewritten function, so it was updated to target the new
+platform gate, and six new rows were added for the new code path.
+
+| # | mutation | result | first sweep |
+|---|---|---|---|
+| L8 (updated) | ESPN waiver type routes through the Sleeper-shaped reader instead of `verifyEspnAcquisitionSettings` | 2 fail | 2 fail |
+| L12 | `verifyEspnAcquisitionSettings` stops checking for `acquisitionSettings` being absent | 14 fail | 14 fail |
+| L13 | ESPN waiver type reports `confirmed` even when `acquisitionType` is missing from a present `acquisitionSettings` | 1 fail | **survived, 0** |
+| L14 | ESPN FAAB budget stops checking for `isUsingAcquisitionBudget` being absent | 1 fail | **survived, 0** |
+| L15 | the `usesBudget` true/false branches are swapped (a non-FAAB league's stale default budget would be surfaced as real; a real FAAB league would get `null`) | 2 fail | 2 fail |
+| L16 | ESPN trade deadline stops checking for `tradeSettings` being absent | 1 fail | 1 fail |
+| L17 | ESPN trade deadline stops treating `0` as ESPN's no-deadline convention | 1 fail | 1 fail |
+
+**L13 and L14 survived at 0 fail, the same pattern as L8/L10 above** — both were
+missing a test for "the parent object (`acquisitionSettings`) is present, but this
+one specific sub-field on it is absent," a narrower case than "the whole object is
+absent" (already covered) or "the field is present with a real value" (also already
+covered). Closed with two new tests: an ESPN league whose `acquisitionSettings` has
+`isUsingAcquisitionBudget`/`acquisitionBudget` but no `acquisitionType` (asserts
+`waiver_type` is `unavailable`, not guessed), and one whose `acquisitionSettings` has
+`acquisitionType` but no `isUsingAcquisitionBudget` (asserts `faab_budget` is
+`unavailable`, not guessed). Re-swept clean: 0 survivors across all 18 rows.
 
 ## Numbers
 
 RED: 1 suite failed to import (module did not exist). GREEN, before closing the two
-survivors: 33 tests, 33 passed, 0 failed. After closing L8/L10: **36 tests, 36
-passed, 0 failed** in
+survivors: 33 tests, 33 passed, 0 failed. After closing L8/L10: 36 tests, 36
+passed, 0 failed in
 `league-config-verification.test.js`/`scoring.test.js`/`format-bestball.test.js`
 together.
 
-Full local check `npm run check` on `effk` at this commit: exit 0 — **3,001 tests,
-2,960 passed, 0 failed, 41 skipped**; typecheck, lint and build clean; `start:smoke`
-passed on an isolated database (32 teams). Baseline on this branch before this work
-(commit `2709263`'s own GREEN check) was 2,978/2,937/0/41 — a delta of **exactly
-+23/+23/0/0**, which matches this file's own test count precisely (the new test
-file contributes 36 of the 36 seen when run alongside the two pre-existing suites it
-shares a run with; 36 − 4 (`scoring.test.js`) − 9 (`format-bestball.test.js`) = 23),
-a stronger confirmation than a bare tree-hash would have given.
+Full local check `npm run check` on `effk` at commit `c02a47a`: exit 0 — 3,001
+tests, 2,960 passed, 0 failed, 41 skipped; typecheck, lint and build clean;
+`start:smoke` passed on an isolated database (32 teams). Baseline on this branch
+before that work (commit `2709263`'s own GREEN check) was 2,978/2,937/0/41 — a delta
+of exactly +23/+23/0/0, matching that file's own test count precisely.
 
-**`git write-tree` before/after was recorded but is not meaningful evidence here**,
-stated plainly rather than left implied: the edits (`scoring.js`, the new module)
-were never staged before the check ran, so the index — and therefore
-`git write-tree`'s output — was identical before and after regardless of what the
-check did. The test-count delta above is the real check on this run, not the tree
-hash.
+**Follow-up unit (ESPN waiver/FAAB/deadline), same day:** RED commit `ef897e3`
+(5 of 8 new tests failed as expected — 3 already passed because they only depended
+on the platform gate, which was untouched). GREEN: 43/43 in the three-file combined
+run. After closing L13/L14 with two more tests: **45/45, 0 failed** in the same
+three-file run.
+
+Full local check `npm run check` on `effk`, this commit (staged before the run,
+`git write-tree` = `e48790485e74e247e05c9dc2830b5d5a6398e4f3` immediately before
+`npm run check` started): exit 0 — **3,010 tests, 2,969 passed, 0 failed, 41
+skipped**; typecheck (`tsc --noEmit`), lint (884 JS files) and build clean;
+`start:smoke` passed on an isolated database (32 teams). Delta from the `c02a47a`
+baseline above: **exactly +9/+9/0/0** — 45 tests in the three-file run this unit
+touches, minus the 36 already counted in that baseline, = 9, with 0 change to fail
+or skip counts. This run's index was staged before `npm run check` started, so
+unlike the `c02a47a` run, the tree hash here is genuinely tied to the code that was
+checked — worth stating since the earlier run's tree-hash caveat was recorded
+explicitly rather than silently fixed.
 
 **Isolation, stated rather than implied:** source-isolated — one working tree,
 shared `node_modules`, no install during the run. Not cross-checked against another
@@ -188,10 +277,13 @@ such precisely because it is NOT cross-checked against a real payload in this
 container — the honest distinction Nick's item asks for is which of the two applies
 to a given setting.
 
-**How do we know?** Thirteen mutations, all caught after two rounds; every fixture
-built from field paths already read by shipped code, cited per check; the one
-external constraint (no real league payload reachable from this container) stated
-in the file's own header rather than worked around with an invented example.
+**How do we know?** Eighteen mutations total (13 from the original build, 6 more
+from the follow-up unit, one row updated in place), all caught after at most two
+rounds; every `confirmed` path either already read by shipped code elsewhere in this
+repo, or backed by two independent external sources found under Nick's "look it up
+before calling it missing" rule; the one external constraint (no real league payload
+reachable from this container) stated in the file's own header rather than worked
+around with an invented example.
 
 **Should this data be pointed anywhere else on the platform?** Yes, directly: the
 two wiring gaps found in `title-odds-trades.js:66` and `routes/trades.js:1132`,

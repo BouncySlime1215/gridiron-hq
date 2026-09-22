@@ -37,42 +37,72 @@ ever stored. `league-config-verification.js` already detects and reports the cou
 of dropped slots (`bench_ir: unavailable, dropped_slot_count: N`), but can't name
 them without knowing the real ids.
 
-**Ask:** the real ESPN bench slot id (commonly documented as `20`) and IR slot id
-(commonly documented as `21`) added to `ESPN_SLOT_NAME` as `'BN'` and `'IR'`. Not
-verified against a real ESPN payload in this container — worth a one-line check
-against any of the 5 leagues' actual `lineupSlotCounts` before shipping, since a
-wrong id silently mismaps rather than erroring.
+**Update, 2026-09-22:** the bench (`20`) and IR (`21`) slot ids are no longer just
+"commonly documented" — confirmed against `cwendt94/espn-api`'s `constant.py`
+(an actively maintained open-source ESPN Fantasy API client), which maps slot id
+`20` to `"BE"` (bench) and `21` to `"IR"`. Still **not** cross-checked against one of
+this project's own 5 real leagues' actual `lineupSlotCounts` — that one-line check
+is still worth doing before shipping, since a wrong id silently mismaps rather than
+erroring, but the id values themselves now rest on a citable external source rather
+than a guess.
+
+**Ask:** the real ESPN bench slot id (`20`) and IR slot id (`21`) added to
+`ESPN_SLOT_NAME` as `'BN'` and `'IR'`.
 
 ## 3. Waiver type
 
 **Gap:** not read from either platform. Sleeper: `league.settings.waiver_type`
 (Sleeper's documented enum, roughly 0=rolling/1=reverse-standings/2=FAAB — not
-verified here). ESPN: no known field path — ESPN's API is undocumented and nothing
-in this repo has ever read it; worth checking `settings.acquisitionSettings` in a
-real payload rather than guessing a sub-field.
+verified here).
+
+**Update, 2026-09-22:** ESPN DOES have a real field for this —
+`settings.acquisitionSettings.acquisitionType`, a string enum (`"WAIVERS_TRADITIONAL"`
+confirmed present in a real captured payload published at thomaswildetech.com).
+Confirmed against two independent external sources (`cwendt94/espn-api`'s
+`base_settings.py` reads the same path); `league-config-verification.js` now reports
+this `confirmed` for ESPN, not `unavailable`. Not the full enum — only
+`"WAIVERS_TRADITIONAL"` has been seen in a real example; other values (rolling
+waivers, no waivers) presumably exist under different strings, not enumerated here.
 
 **Ask:** a `waiver_type` column, populated from `league.settings.waiver_type` for
-Sleeper. For ESPN, only if a real payload confirms where the value actually lives —
-otherwise leave it `unavailable` rather than guess, consistent with how
-`league-config-verification.js` already treats it.
+Sleeper and `settings.acquisitionSettings.acquisitionType` for ESPN.
 
 ## 4. FAAB budget
 
-**Gap:** same shape as waiver type. Sleeper: `league.settings.waiver_budget`
-(documented, unverified here). ESPN: no known field path.
+**Gap:** not read from either platform. Sleeper: `league.settings.waiver_budget`
+(documented, unverified here).
 
-**Ask:** a `faab_budget` column from Sleeper's `waiver_budget`. Same ESPN caveat as
-above.
+**Update, 2026-09-22:** ESPN has real fields —
+`settings.acquisitionSettings.isUsingAcquisitionBudget` (boolean gate) and
+`.acquisitionBudget` (the value) — but with a subtlety worth carrying into the
+ingest, not just the verification layer: a real captured payload
+(thomaswildetech.com) shows `isUsingAcquisitionBudget: false` alongside
+`acquisitionBudget: 100` at the same time — ESPN populates a default budget value
+even for leagues that don't use one. **Any ingest of this field must gate on
+`isUsingAcquisitionBudget`, never read `acquisitionBudget` unconditionally**, or a
+non-FAAB league gets a fake $100 budget stored as if real.
+
+**Ask:** a `faab_budget` column from Sleeper's `waiver_budget`, and from ESPN's
+`acquisitionBudget` **only when `isUsingAcquisitionBudget` is `true`** (store `null`
+otherwise, matching how `league-config-verification.js#verifyFaabBudget` already
+treats it).
 
 ## 5. Trade deadline
 
-**Gap:** same shape again. Sleeper: `league.settings.trade_deadline` (a week
-number, documented, unverified here). ESPN: `settings.tradeSettings.deadlineDate` is
-the community-documented field in reverse-engineered ESPN clients, but nothing in
-this repo has confirmed it against a real payload.
+**Gap:** not read from either platform. Sleeper: `league.settings.trade_deadline` (a
+week number, documented, unverified here).
 
-**Ask:** a `trade_deadline` column from Sleeper's field. ESPN only after a real
-payload confirms the field path.
+**Update, 2026-09-22:** ESPN's `settings.tradeSettings.deadlineDate` is now
+confirmed, not just community-documented — `cwendt94/espn-api`'s
+`base_settings.py` reads exactly this field and initializes its own
+`trade_deadline` to `0` before conditionally overwriting it, which is where the
+"`0` means no deadline configured" convention comes from. `deadlineDate` is an
+epoch-ms timestamp when a real deadline is set, and `0` (or absent) means none is
+configured — an ingest should store `null` for the `0` case, not the literal `0`.
+
+**Ask:** a `trade_deadline` column from Sleeper's field, and from ESPN's
+`settings.tradeSettings.deadlineDate` (stored as `null` when the value is `0` or
+absent).
 
 ## 6. Playoff structure, stored rather than re-parsed ad hoc
 

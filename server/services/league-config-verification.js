@@ -7,16 +7,19 @@
  * ingest, changes no stored column, and calls no external API — it is a consumer of
  * what those three already produce, nothing more.
  *
- * ESPN's API is undocumented and several of Nick's eight settings have no known field
- * mapping on it at all (waiver type, FAAB, trade deadline) — those are reported
- * 'unavailable' rather than guessed. Sleeper's public, documented settings object DOES
- * carry waiver_type/waiver_budget/trade_deadline, so those are read when present — but
- * reported 'best_effort', never 'confirmed', because the field names come from
- * Sleeper's own API docs and have not been cross-checked against a real payload in this
- * container: `leagues` in server/data.sqlite has zero rows for any of the 5 real
- * leagues (checked directly, 2026-09-22). Every OTHER field path this file reads is
- * already used by shipped code elsewhere in this repo — cited per function below —
- * which is the bar for calling something 'confirmed'.
+ * ESPN's API is undocumented, but waiver type, FAAB and trade deadline all have real,
+ * externally-confirmed field mappings (settings.acquisitionSettings.acquisitionType /
+ * isUsingAcquisitionBudget / acquisitionBudget, settings.tradeSettings.deadlineDate) —
+ * verified 2026-09-22 against cwendt94/espn-api (an actively maintained open-source ESPN
+ * Fantasy API client) and a real captured payload published at thomaswildetech.com, per
+ * Nick's standing rule: look for missing data free online before reporting it missing.
+ * Reported 'confirmed' on that basis, the same bar `scoringFor`'s own ESPN_STAT map was
+ * held to. Sleeper's public, documented settings object carries waiver_type/waiver_budget
+ * /trade_deadline too, but those stay 'best_effort' — the field names come from Sleeper's
+ * own API docs and have not been cross-checked against a real payload in this container:
+ * `leagues` in server/data.sqlite has zero rows for any of the 5 real leagues (checked
+ * directly, 2026-09-22). Every OTHER field path this file reads is already used by
+ * shipped code elsewhere in this repo — cited per function below.
  */
 import { scoringConfirmationFor } from './scoring.js';
 import { leagueTypeFromPayload } from './format.js';
@@ -148,23 +151,71 @@ function sleeperBestEffortField(payload, pick) {
     : { status: 'unavailable', reason: 'no matching field in league.settings' };
 }
 
+/**
+ * ESPN's undocumented API DOES carry all three of these -- verified 2026-09-22 against
+ * cwendt94/espn-api (an actively maintained open-source ESPN Fantasy API client whose
+ * base_settings.py reads exactly these paths) and a real captured payload published at
+ * thomaswildetech.com. Confirmed, not best_effort, because both are independent external
+ * sources agreeing on the same field names -- the same bar `scoringFor`'s own field map
+ * was held to. Not cross-checked against one of the 5 real leagues' own payloads.
+ */
+function verifyEspnAcquisitionSettings(payload) {
+  const acq = payload.settings?.acquisitionSettings;
+  if (!acq) {
+    return {
+      waiver_type: { status: 'unavailable', reason: 'no settings.acquisitionSettings in the payload' },
+      faab_budget: { status: 'unavailable', reason: 'no settings.acquisitionSettings in the payload' }
+    };
+  }
+  const waiver_type = acq.acquisitionType != null
+    ? { status: 'confirmed', value: acq.acquisitionType,
+        reason: 'read from settings.acquisitionSettings.acquisitionType' }
+    : { status: 'unavailable', reason: 'acquisitionSettings present but has no acquisitionType field' };
+  // ESPN populates acquisitionBudget with a default value even for a league that does
+  // NOT use one (a real captured payload shows isUsingAcquisitionBudget: false alongside
+  // acquisitionBudget: 100) -- so the budget number is only meaningful when the league is
+  // actually using it, and reading it unconditionally would silently misreport a
+  // non-FAAB league's "budget" as real.
+  const usesBudget = acq.isUsingAcquisitionBudget;
+  const faab_budget = usesBudget == null
+    ? { status: 'unavailable', reason: 'acquisitionSettings present but has no isUsingAcquisitionBudget field' }
+    : usesBudget
+      ? { status: 'confirmed', value: acq.acquisitionBudget ?? null,
+          reason: 'isUsingAcquisitionBudget is true; read from settings.acquisitionSettings.acquisitionBudget' }
+      : { status: 'confirmed', value: null,
+          reason: 'isUsingAcquisitionBudget is false -- this league does not use an acquisition budget, so '
+            + 'acquisitionBudget (which ESPN still populates with a default) is not surfaced as a real value' };
+  return { waiver_type, faab_budget };
+}
+
 function verifyWaiverType(lg, payload) {
   if (lg?.platform !== 'sleeper') {
-    return { status: 'unavailable', reason: "no known field mapping for waiver type on ESPN's undocumented API" };
+    if (!payload) return { status: 'unavailable', reason: 'league has no synced payload yet' };
+    return verifyEspnAcquisitionSettings(payload).waiver_type;
   }
   return sleeperBestEffortField(payload, s => s.waiver_type);
 }
 
 function verifyFaabBudget(lg, payload) {
   if (lg?.platform !== 'sleeper') {
-    return { status: 'unavailable', reason: "no known field mapping for FAAB budget on ESPN's undocumented API" };
+    if (!payload) return { status: 'unavailable', reason: 'league has no synced payload yet' };
+    return verifyEspnAcquisitionSettings(payload).faab_budget;
   }
   return sleeperBestEffortField(payload, s => s.waiver_budget);
 }
 
 function verifyTradeDeadline(lg, payload) {
   if (lg?.platform !== 'sleeper') {
-    return { status: 'unavailable', reason: "no known field mapping for trade deadline on ESPN's undocumented API" };
+    if (!payload) return { status: 'unavailable', reason: 'league has no synced payload yet' };
+    // Verified path: cwendt94/espn-api's BaseSettings reads exactly this field, and
+    // treats 0 as "no deadline set" -- its own default when the key is absent.
+    const trade = payload.settings?.tradeSettings;
+    if (!trade) return { status: 'unavailable', reason: 'no settings.tradeSettings in the payload' };
+    const deadline = trade.deadlineDate;
+    return (deadline == null || deadline === 0)
+      ? { status: 'confirmed', value: null, reason: 'settings.tradeSettings.deadlineDate is 0 or absent, '
+          + "ESPN's own convention for no deadline configured" }
+      : { status: 'confirmed', value: deadline, reason: 'read from settings.tradeSettings.deadlineDate' };
   }
   return sleeperBestEffortField(payload, s => s.trade_deadline);
 }
@@ -195,12 +246,14 @@ export function summarizeConfigReport(report) {
  * structure, keeper/dynasty. Every key in CONFIG_VERIFICATION_KEYS is always present —
  * a setting this can't check is reported 'unavailable', never silently missing.
  *
- * NOTE ON loud_warning: as this file's checks stand today, no real league can reach an
- * all-confirmed report. Sleeper scoring is always 'defaulted' (scoringFor never reads
- * Sleeper per-stat detail); ESPN's waiver_type/faab_budget/trade_deadline are always
- * 'unavailable' (no known field mapping on ESPN's undocumented API). So loud_warning is
- * never null in practice yet -- which is itself the honest state of this ingest, not a
- * bug in this function.
+ * NOTE ON loud_warning: as this file's checks stand today, no real league on either
+ * platform can reach an all-confirmed report, for two DIFFERENT reasons that both still
+ * hold after waiver/FAAB/deadline gained real ESPN field mappings: Sleeper scoring is
+ * always 'defaulted' (scoringFor never reads Sleeper per-stat detail) and Sleeper's own
+ * waiver_type/faab_budget/trade_deadline top out at 'best_effort'; ESPN's keeper_dynasty
+ * caps at 'best_effort' (keeper) or 'defaulted' (redraft) because ESPN has no real
+ * dynasty flag at all, only the keeperCount heuristic. So loud_warning is still never
+ * null in practice, and that remains the honest state of this ingest, not a bug here.
  */
 export function verifyLeagueConfig(lg) {
   const payload = parsedPayload(lg);

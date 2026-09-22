@@ -58,8 +58,13 @@ test('G7a: every retired trade route answers 410 with a pointer to its replaceme
     assert.equal(status, 410, `${method} ${url} returned ${status}`);
     assert.ok(body?.error, `${method} ${url} has no error message`);
     assert.ok(body?.use, `${method} ${url} does not say what to use instead`);
-    assert.match(String(body.use), /\/api\/|trade-engine/,
-      `${method} ${url} pointer is not an API path or module: ${body.use}`);
+    // Every tombstone in the repo points at an /api/ path; nothing points at a
+    // module, so the `trade-engine` branch of the pattern this replaces was
+    // unreachable and the assertion was weaker than the contract it describes.
+    // A tombstone is earned by having somewhere LIVE to point, and a live place
+    // is a route.
+    assert.match(String(body.use), /^\/api\//,
+      `${method} ${url} pointer is not an API path: ${body.use}`);
   }
 });
 

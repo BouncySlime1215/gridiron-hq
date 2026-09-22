@@ -1,0 +1,117 @@
+[
+ {
+  "name": "K1 the recency argument is dropped again",
+  "file": "server/services/ceiling-lineup.js",
+  "tests": [
+   "test/ceiling-lineup-recency.test.js",
+   "test/ceiling-lineup-weekly-agreement.test.js"
+  ],
+  "aimed_at": "the whole fix — this is the defect itself, restored",
+  "kind": "mutation",
+  "old": "    through: season, throughWeek: week - 1, scoring, roleRecency: WEEKLY_ROLE_RECENCY",
+  "new": "    through: season, throughWeek: week - 1, scoring"
+ },
+ {
+  "name": "K2 a recency that looks weekly but is not the engine's",
+  "file": "server/services/ceiling-lineup.js",
+  "tests": [
+   "test/ceiling-lineup-recency.test.js",
+   "test/ceiling-lineup-weekly-agreement.test.js"
+  ],
+  "aimed_at": "agreement with the engine, not merely 'some recency was passed'",
+  "kind": "mutation",
+  "old": "    through: season, throughWeek: week - 1, scoring, roleRecency: WEEKLY_ROLE_RECENCY",
+  "new": "    through: season, throughWeek: week - 1, scoring,\n    roleRecency: { seasonDecay: 0.06, weekHalfLife: 5 }"
+ },
+ {
+  "name": "K3 only the season decay is matched, the half-life is not",
+  "file": "server/services/ceiling-lineup.js",
+  "tests": [
+   "test/ceiling-lineup-recency.test.js",
+   "test/ceiling-lineup-weekly-agreement.test.js"
+  ],
+  "aimed_at": "the recency is an object, not one number",
+  "kind": "mutation",
+  "old": "    through: season, throughWeek: week - 1, scoring, roleRecency: WEEKLY_ROLE_RECENCY",
+  "new": "    through: season, throughWeek: week - 1, scoring,\n    roleRecency: { seasonDecay: WEEKLY_ROLE_RECENCY.seasonDecay, weekHalfLife: 12 }"
+ },
+ {
+  "name": "K4 the cutoff becomes a season-boundary one",
+  "file": "server/services/ceiling-lineup.js",
+  "tests": [
+   "test/ceiling-lineup-recency.test.js",
+   "test/ceiling-lineup-weekly-agreement.test.js"
+  ],
+  "aimed_at": "the cutoff half, which was already right and must stay right",
+  "kind": "mutation",
+  "old": "    through: season, throughWeek: week - 1, scoring, roleRecency: WEEKLY_ROLE_RECENCY",
+  "new": "    through: season - 1, scoring, roleRecency: WEEKLY_ROLE_RECENCY"
+ },
+ {
+  "name": "K5 the cutoff stops tracking the week being projected",
+  "file": "server/services/ceiling-lineup.js",
+  "tests": [
+   "test/ceiling-lineup-recency.test.js"
+  ],
+  "aimed_at": "the cutoff travels with the week rather than being fixed",
+  "kind": "mutation",
+  "old": "    through: season, throughWeek: week - 1, scoring, roleRecency: WEEKLY_ROLE_RECENCY",
+  "new": "    through: season, throughWeek: 4, scoring, roleRecency: WEEKLY_ROLE_RECENCY"
+ },
+ {
+  "name": "K6 the cutoff reads the week being projected, not the week before it",
+  "file": "server/services/ceiling-lineup.js",
+  "tests": [
+   "test/ceiling-lineup-recency.test.js"
+  ],
+  "aimed_at": "walk-forward safety: a cutoff that includes the week being projected",
+  "kind": "mutation",
+  "old": "    through: season, throughWeek: week - 1, scoring, roleRecency: WEEKLY_ROLE_RECENCY",
+  "new": "    through: season, throughWeek: week, scoring, roleRecency: WEEKLY_ROLE_RECENCY"
+ },
+ {
+  "name": "K7 the comment goes back to explaining only the cutoff",
+  "file": "server/services/ceiling-lineup.js",
+  "tests": [
+   "test/ceiling-lineup-recency.test.js"
+  ],
+  "aimed_at": "the comment names both halves, since naming one is how the other stayed invisible",
+  "kind": "mutation",
+  "old": "  // Omitted, buildProjections falls back to RECENCY (seasonDecay 0.35) where\n  // the weekly engine passes WEEKLY_ROLE_RECENCY (0.05): a season-old game\n  // counted SEVEN TIMES more toward volume here than it did in Start/Sit, for\n  // the same player in the same week.",
+  "new": "  // Omitted, the volume memory would be a different one."
+ },
+ {
+  "name": "C1 control: a comment reworded, nothing behavioural",
+  "file": "server/services/ceiling-lineup.js",
+  "tests": [
+   "test/ceiling-lineup-recency.test.js",
+   "test/ceiling-lineup-weekly-agreement.test.js"
+  ],
+  "aimed_at": "nothing — this row is DESIGNED to survive",
+  "kind": "control-surviving",
+  "old": "  // The weekly engine's configuration, BOTH halves of it. Either one alone",
+  "new": "  // The weekly engine's configuration, both halves of it. Either one alone"
+ },
+ {
+  "name": "C2 control: an anchor that does not exist",
+  "file": "server/services/ceiling-lineup.js",
+  "tests": [
+   "test/ceiling-lineup-recency.test.js"
+  ],
+  "aimed_at": "nothing — this row is DESIGNED to be reported NOT APPLIED, on a count of 0",
+  "kind": "control-not-applied",
+  "old": "const CEILING_RECENCY_THAT_DOES_NOT_EXIST = null;",
+  "new": "const x = 1;"
+ },
+ {
+  "name": "C3 control: an anchor that matches more than once",
+  "file": "server/services/ceiling-lineup.js",
+  "tests": [
+   "test/ceiling-lineup-recency.test.js"
+  ],
+  "aimed_at": "nothing — this row is DESIGNED to be reported NOT APPLIED, on a count above 1",
+  "kind": "control-not-applied",
+  "old": "  const ",
+  "new": "  const  "
+ }
+]

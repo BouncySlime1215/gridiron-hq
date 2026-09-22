@@ -72,6 +72,21 @@ export function espnMarketByPlayerId() {
   return out;
 }
 
+/**
+ * How much of this table there is, how old it is, and WHICH SEASON it is for.
+ *
+ * The season is the field that matters and the one that used to be missing.
+ * `espn_id` is this table's PRIMARY KEY, so there is one global row per player
+ * and the upsert overwrites `season` along with everything else — the table
+ * therefore carries exactly one season at a time, and nothing about a row
+ * says which. A caller that checks only `n` and `fetched_at` cannot tell a
+ * current board from last year's, which is how last season's ADP could sit on
+ * a live surface reporting healthy. `newest_season` and `oldest_season` are
+ * returned separately so a table caught mid-migration between seasons is
+ * visible as the two differing rather than averaged into one plausible number.
+ */
 export function espnMarketFreshness() {
-  return row(`SELECT COUNT(*) AS n, MAX(fetched_at) AS fetched_at FROM espn_player_market`);
+  return row(`SELECT COUNT(*) AS n, MAX(fetched_at) AS fetched_at,
+                     MAX(season) AS newest_season, MIN(season) AS oldest_season
+              FROM espn_player_market`);
 }

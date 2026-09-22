@@ -161,7 +161,12 @@ const CAPABILITIES = [
   {
     id: 'fantasy.trends',
     question: 'What has changed about this team lately?',
-    module: 'weekly-trends + trend-exploits',
+    // `trend-exploits` was named here too, and is being retired whole on the branch that
+    // owns it. A module named in a registry entry is not an import: deleting the file
+    // breaks no build and fails no test, and this string would have gone on describing
+    // it. weekly-trends is the substantive half anyway — the Welch t-test below is its
+    // method; trend-exploits was the roster join layered on top.
+    module: 'weekly-trends',
     domain: 'fantasy',
     evidence: { kind: 'method',
       note: 'Welch t-test against the team\'s own baseline, Sidak-corrected across a pre-specified ' +
@@ -195,7 +200,7 @@ const CAPABILITIES = [
       note: 'Value over an EXPECTED replacement level (survival model, not a static cutoff), fit ' +
         'and graded against 2,182 matched ECR player-seasons 2021-2025. RB over WR at overall ' +
         '13-36 (t=3.4), a rookie-WR premium (t=3.4), and "gone by my next pick" beating a naive ' +
-        'baseline on out-of-fold log-loss (0.166/0.159 vs 0.182/0.177). docs/DRAFT_AUDIT_2021_2025.md.' },
+        'baseline on out-of-fold log-loss (0.166/0.159 vs 0.182/0.177). docs/evidence/historical/DRAFT_AUDIT_2021_2025.md.' },
     baseAuthority: 'advisory',
     note: 'The strongest evidence in the fantasy domain, and it does not depend on beating the ' +
       'market on point projection — it prices where the market\'s own rank order is mispriced ' +
@@ -204,7 +209,7 @@ const CAPABILITIES = [
       'season outcome, the latter through correlation.js\'s Gaussian copula with marginals from ' +
       'the preseason p20/p80 band (2026-09-07; before that it drew only draft order and its ' +
       'reported spread described who else got drafted, not how anyone performed). Roster spread ' +
-      'now matches the realized 13.7% measured on 2023-2025. docs/DRAFT_LOOKAHEAD_VARIANCE.md.',
+      'now matches the realized 13.7% measured on 2023-2025. docs/evidence/historical/DRAFT_LOOKAHEAD_VARIANCE.md.',
     refuses: 'Cannot be read as "this player will outscore that one" — it answers a roster-' +
       'construction question, not a point-projection one.'
   },
@@ -219,7 +224,7 @@ const CAPABILITIES = [
         'significant margin on any season (pooled Spearman 0.591 / MAE 58.0 for the curve vs 0.571 / ' +
         '59.4 for the GBM). The p20-p80 band shipped with 69% out-of-sample coverage against a 60% ' +
         'nominal target, fixed 2026-09-07 with a rank-local recalibration (pinball loss improved ' +
-        'significantly, pooled, clustered by season). docs/PRESEASON_MODEL.md, docs/PRESEASON_BAND_CALIBRATION.md.' },
+        'significantly, pooled, clustered by season). docs/reference/fantasy/PRESEASON_MODEL.md, docs/evidence/historical/PRESEASON_BAND_CALIBRATION.md.' },
     baseAuthority: 'advisory',
     note: 'What ships is the market curve itself, not a learned model of it — the point estimate IS ' +
       'the calibrated ADP-to-points translation. Learned heads survive only as the ordering behind ' +
@@ -336,7 +341,7 @@ const CAPABILITIES = [
         '(worse). Total: 1 of 3 significant and the sign reverses the next season, pooled interval ' +
         'straddles zero. In 5 of 6 season-market cells the champion itself loses to a zero-residual ' +
         'baseline, so this reproduces the standing zero-edge-vs-closing-lines finding rather than ' +
-        'fixing it. docs/BETTING_PLAYER_ENGINES.md.' },
+        'fixing it. docs/evidence/historical/BETTING_PLAYER_ENGINES.md.' },
     baseAuthority: 'retired',
     note: 'Kept in the registry, not deleted, specifically so this is not proposed and rebuilt next ' +
       'season without the numbers being read first. Both feature contracts recorded blocked via ' +
@@ -353,8 +358,8 @@ const CAPABILITIES = [
         'significant on anytime and 2+ TD. WEEKLY-GRAIN retry (within-season red-zone opportunity ' +
         'trend, opponent-share trend, goal-line trend, opponent red-zone defense as a guarded ' +
         'separate arm): also 0 of 3 both markets, and 3 of the significant ablation cells were ' +
-        'significantly WORSE for the challenger. docs/PROPS_PLAYER_ENGINES.md, ' +
-        'docs/PROPS_PLAYER_ENGINES_WEEKLY.md.' },
+        'significantly WORSE for the challenger. docs/evidence/historical/PROPS_PLAYER_ENGINES.md, ' +
+        'docs/evidence/historical/PROPS_PLAYER_ENGINES_WEEKLY.md.' },
     baseAuthority: 'retired',
     note: 'The season-grain retirement guessed the cause was grain -- a constant can\'t separate ' +
       'two games. The weekly retry checked that guess directly: the trend features are genuinely ' +
@@ -369,7 +374,7 @@ const CAPABILITIES = [
     id: 'fantasy.adp_source_disagreement',
     question: 'Does disagreement between ESPN/Sleeper/FFC ranks predict anything, the way book ' +
       'disagreement predicts a line-shopping edge?',
-    module: '(research script, not a service -- see docs/ADP_DISAGREEMENT.md)',
+    module: '(research script, not a service -- see docs/evidence/historical/ADP_DISAGREEMENT.md)',
     domain: 'fantasy',
     evidence: { kind: 'sealed_audit_negative',
       note: 'The literal cross-source question is unanswerable from retained data (ranks and ' +
@@ -392,7 +397,7 @@ const CAPABILITIES = [
         'band, thin expert agreement) was graded, kept-vs-declined, against realized value on the ' +
         '2021-2025 panel. 0 of 3 seasons significant at any gate strength; the separation\'s sign ' +
         'flips between seasons; the strictest gate picked the worst players most clearly in one ' +
-        'season (significant, wrong direction). docs/DRAFT_BOARD_ABSTENTION.md.' },
+        'season (significant, wrong direction). docs/evidence/historical/DRAFT_BOARD_ABSTENTION.md.' },
     baseAuthority: 'retired',
     note: 'Directly mirrors a betting-side result: its own confidence gate backfired the same way ' +
       '(top-3-confidence picks at 45.1%, below the all-games rate). Kept as a record so the idea ' +

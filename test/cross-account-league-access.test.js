@@ -73,13 +73,25 @@ test('each account lists only its own leagues', async () => {
 });
 
 test('a signed-in account cannot read another account\'s league through /api/trades', async () => {
-  // A representative spread across the file, including the routes that reach
-  // rosters, manager reads and the AI-spending ones.
-  for (const route of ['scout', 'brain/state', 'brain/waivers', 'brain/free-agents', 'rosters',
-    'lineup', 'posture', 'trends', 'ceiling-lineup', 'postmortem', 'brain/managers',
-    'find/sequences', 'proposals']) {
-    const response = await fetch(`${base}/trades/${nicksLeague}/${route}`, { headers: as('friend-token') });
-    assert.equal(response.status, 403, `GET /trades/:id/${route} must refuse a non-member`);
+  // DERIVED FROM THE ROUTER, not a hand-kept list. The list this replaced named
+  // five routes that were deleted on 2026-09-20, and the cut turned a security
+  // assertion into a 404 — the test went red for the right reason, but a list
+  // that rots is a list that will one day go GREEN for the wrong one, when a new
+  // league-scoped route is added and nobody remembers to add it here. Every GET
+  // this router declares under /:leagueId is probed instead.
+  const paths = tradesRouter.stack
+    .filter(l => l.route?.path?.startsWith('/:leagueId') && l.route.methods?.get)
+    .map(l => l.route.path);
+  assert.ok(paths.length >= 15, `expected the router to declare league-scoped GETs, found ${paths.length}`);
+
+  for (const p of paths) {
+    const url = p.replace('/:leagueId', '').replace(/:[A-Za-z]+/g, '1');
+    const response = await fetch(`${base}/trades/${nicksLeague}${url}`, { headers: as('friend-token') });
+    // 410 is the retired-route tombstone (`retired()` in trades.js). It answers
+    // before the membership check and that is not a leak: it carries a pointer
+    // and nothing about the league. Every other answer must be the refusal.
+    assert.ok(response.status === 403 || response.status === 410,
+      `GET /trades/:id${url} must refuse a non-member, got ${response.status}`);
   }
 });
 

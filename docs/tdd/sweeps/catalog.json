@@ -1,0 +1,250 @@
+[
+ {
+  "id": "M1",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  assertAllReadable(mentioned);",
+  "new": "  void mentioned;",
+  "desc": "drop the readable-table check on the tables the text mentions"
+ },
+ {
+  "id": "M2",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  assertNoRedactedOutput(columns);",
+  "new": "  void columns;",
+  "desc": "drop the redacted-output check"
+ },
+ {
+  "id": "M3",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  const db = new DatabaseSync(dbPath, { readOnly: true });",
+  "new": "  const db = new DatabaseSync(dbPath, { readOnly: false });",
+  "desc": "open the connection writable"
+ },
+ {
+  "id": "M4",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  const found = tokens(statement).filter(token => FORBIDDEN.includes(token));",
+  "new": "  const found = [];",
+  "desc": "drop the forbidden-keyword scan"
+ },
+ {
+  "id": "M5",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  if (trimmed.includes(';')) {",
+  "new": "  if (false) {",
+  "desc": "drop the one-statement check"
+ },
+ {
+  "id": "M6",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "      if (out.length >= maxRows) { truncated = true; break; }",
+  "new": "      void maxRows;",
+  "desc": "never truncate"
+ },
+ {
+  "id": "M7",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "    throw new CoachQueryFailed(explainAbsentTable(e.message));",
+  "new": "    throw new CoachQueryRefused(explainAbsentTable(e.message));",
+  "desc": "make a SQL error look like a refusal"
+ },
+ {
+  "id": "M8",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "    .replace(/'(?:[^']|'')*'/g, \"''\")",
+  "new": "",
+  "desc": "stop stripping string literals"
+ },
+ {
+  "id": "M9",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "export const COACH_TABLES = Object.freeze({\n  // --- who exists, and where ---",
+  "new": "export const COACH_TABLES = Object.freeze({\n  no_such_table: t('nothing', 'a table that is not in the schema', 'never', 'auto'),\n  // --- who exists, and where ---",
+  "desc": "catalogue a table that does not exist"
+ },
+ {
+  "id": "M10",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  return { table, ...meta, redact: [...meta.redact], columns: liveColumns(table),",
+  "new": "  return { table, ...meta, redact: [...meta.redact], columns: ['id'],",
+  "desc": "hand-copy columns instead of reading them live"
+ },
+ {
+  "id": "M11",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "export const COACH_TABLES = Object.freeze({",
+  "new": "export const COACH_TABLES = ({",
+  "desc": "stop freezing the allowlist"
+ },
+ {
+  "id": "M12",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "    ['espn_s2', 'swid', 'payload']),",
+  "new": "    []),",
+  "desc": "drop the withheld-column list from leagues"
+ },
+ {
+  "id": "M13",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  Object.freeze({ grain, means, freshness, collection, redact: Object.freeze(redact),",
+  "new": "  Object.freeze({ grain, means, freshness, collection: 'auto', redact: Object.freeze(redact),",
+  "desc": "mark every table as automatically refreshed"
+ },
+ {
+  "id": "M134",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "    if (entry) provenance[table] = { collection: entry.collection, freshness: entry.freshness, grain: entry.grain };",
+  "new": "    if (entry) provenance[table] = { grain: entry.grain };",
+  "desc": "a result says which tables it read but not how they are refreshed or collected"
+ },
+ {
+  "id": "M135",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  const tables = [...new Set([...mentioned, ...projected])].sort();",
+  "new": "  const tables = [...projected].sort();",
+  "desc": "only projected tables are recorded, so a table that is joined but not selected from disappears"
+ },
+ {
+  "id": "M136",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "edits": [
+   [
+    "  const statement = sql.trim().replace(/;\\s*$/, '');",
+    "  const statement = params.reduce((s, p) => s.replace('?', `'${p}'`), sql.trim().replace(/;\\s*$/, ''));"
+   ],
+   [
+    "    for (const row of prepared.iterate(...params)) {",
+    "    for (const row of prepared.iterate()) {"
+   ]
+  ],
+  "desc": "parameters are interpolated into the SQL instead of bound"
+ },
+ {
+  "id": "M137",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "edits": [
+   [
+    "  const first = tokens(statement)[0];\n  if (first !== 'select' && first !== 'with') {",
+    "  const first = tokens(statement)[0];\n  if (false) {"
+   ],
+   [
+    "  const found = tokens(statement).filter(token => FORBIDDEN.includes(token));\n  if (found.length) {",
+    "  const found = tokens(statement).filter(token => FORBIDDEN.includes(token));\n  if (false) {"
+   ]
+  ],
+  "desc": "the read-only connection is left to refuse writes, so a write comes back as a SQL error rather than as policy"
+ },
+ {
+  "id": "M138",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "      `Coach does not read ${forbidden.join(', ')}. Readable tables are listed in the catalog; ` +",
+  "new": "      'Coach does not read one of the tables in this query. Readable tables are listed in the catalog; ' +",
+  "desc": "the refusal no longer names the table it refused"
+ },
+ {
+  "id": "M139",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  if (typeof sql !== 'string' || !sql.trim()) {",
+  "new": "  if (false) {",
+  "desc": "a query that is not a string reaches the stripper and fails as a TypeError rather than a refusal"
+ },
+ {
+  "id": "M140",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "    for (const column of entry.redact) {\n      if (seen.has(column.toLowerCase())) {",
+  "new": "    for (const column of entry.redact) {\n      if (true) {",
+  "desc": "a table with any withheld column is refused whole, so its useful columns go with it"
+ },
+ {
+  "id": "M141",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  Object.freeze({ grain, means, freshness, collection, redact: Object.freeze(redact),",
+  "new": "  Object.freeze({ grain, means, freshness: '', collection, redact: Object.freeze(redact),",
+  "desc": "an entry no longer says how the table is refreshed"
+ },
+ {
+  "id": "M142",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  const meta = Object.hasOwn(COACH_TABLES, table) ? COACH_TABLES[table] : null;\n  if (!meta) return null;",
+  "new": "  const meta = COACH_TABLES[table]\n    ?? { grain: 'a row', means: 'not described', freshness: 'unknown', collection: 'auto', redact: [] };\n  if (!meta) return null;",
+  "desc": "an uncatalogued table gets a default entry instead of nothing"
+ },
+ {
+  "id": "M143",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  gamescript_model: t('one target, pass attempts or rush attempts',",
+  "new": "  gamescript_models: t('one target, pass attempts or rush attempts',",
+  "desc": "the modelled game script is catalogued under a name no table has"
+ },
+ {
+  "id": "M144",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  return Object.fromEntries(readableTables().map(name => [name, catalogEntry(name)]));",
+  "new": "  return new Map(readableTables().map(name => [name, catalogEntry(name)]));",
+  "desc": "the whole catalog is handed over as a Map, which serialises to an empty object"
+ },
+ {
+  "id": "M145",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  off_ngs_season: t(",
+  "new": "  off_ngs_season_2025: t(",
+  "desc": "a table the stat lexicon names is catalogued under a different name, so the stat cannot be fetched"
+ },
+ {
+  "id": "M146",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  '`server/services/coach/audit.js` creates it when the module is imported, so it exists on every '",
+  "new": "  '`server/services/coach/ask.js` creates it when the module is imported, so it exists on every '",
+  "desc": "a runtime creator names a file that exists but does not hold the CREATE TABLE"
+ },
+ {
+  "id": "M147",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": "  const notBuiltYet = absent.filter(name =>\n    /scripts\\//.test(COACH_TABLES[name]?.created_at_runtime_by ?? ''));",
+  "new": "  const notBuiltYet = absent.filter(name =>\n    /server\\//.test(COACH_TABLES[name]?.created_at_runtime_by ?? ''));",
+  "desc": "the wrong marker decides which absent tables a script is known to build"
+ },
+ {
+  "id": "NC-select",
+  "file": "server/services/coach/select.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": " * The one place Coach runs a query it wrote itself.",
+  "new": " * The single place Coach runs a query it wrote itself.",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ },
+ {
+  "id": "NC-catalog",
+  "file": "server/services/coach/catalog.js",
+  "tests": "test/coach-catalog.test.js test/coach-select.test.js",
+  "old": " * What Coach may read, and what each table means.",
+  "new": " * What Coach may read, and what every table means.",
+  "desc": "NO-OP CONTROL: reword the file's opening line, changing no behaviour"
+ }
+]

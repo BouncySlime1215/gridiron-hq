@@ -159,6 +159,11 @@ insertLeague(LEAGUE, leaguePayload());
 const barePayload = leaguePayload();
 barePayload.settings.tradeSettings.vetoVotesRequired = 5;
 insertLeague(BARE, barePayload);
+// A third league with NO roster marked as Nick's. selfRead returns early on that,
+// and no test had ever reached that branch — which is how a mutation moving the
+// collection date below the early return survived the first mutation pass.
+const UNCLAIMED = 33;
+insertLeague(UNCLAIMED, leaguePayload(), null);
 
 // Market values. The seed carries none, and a valuation map over a league where
 // every player is worth 0 would prove nothing — so the fixture prices them, on
@@ -289,12 +294,20 @@ run(`INSERT INTO league_member_identity (league_id, roster_id, espn_member_id, e
 LEAGUE, MEMBER[0], LEAGUE, MEMBER[1], LEAGUE, MEMBER[2]);
 
 // ------------------------------------------------------------- transactions
+// Collection stamps are PINNED and deliberately unequal. `last_seen_at` is the
+// collector's own upsert stamp, and nothing in the app read it until 2026-09-20;
+// a fixture where every row shares one second cannot tell the newest stamp from
+// the oldest, which is how a MIN-for-MAX mutation survives.
+const TX_FIRST_SEEN = '2026-09-17T09:00:00Z';
+const TX_SEEN_EARLY = '2026-09-17T22:00:00Z';
+const TX_COLLECTED_AT = '2026-09-18T06:30:00Z';   // the newest — the real "as of"
 function tx(leagueId, id, type, execution, teamId,
-  { related = null, items = [], at = '2026-09-10T00:00:00Z' } = {}) {
+  { related = null, items = [], at = '2026-09-10T00:00:00Z', seenAt = TX_SEEN_EARLY } = {}) {
   run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type,
          proposed_at, team_id, related_tx_id, items_json, first_seen_at, last_seen_at)
-       VALUES (?,?,?,?,NULL,?,?,?,?,?,datetime('now'),datetime('now'))`,
-  leagueId, SEASON, id, type, execution, at, teamId, related, JSON.stringify(items));
+       VALUES (?,?,?,?,NULL,?,?,?,?,?,?,?)`,
+  leagueId, SEASON, id, type, execution, at, teamId, related, JSON.stringify(items),
+  TX_FIRST_SEEN, seenAt);
 }
 const swap = (a, b, pa, pb) => [{ fromTeamId: a, toTeamId: b, playerId: pa, type: 'TRADE' },
   { fromTeamId: b, toTeamId: a, playerId: pb, type: 'TRADE' }];
@@ -327,7 +340,7 @@ tx(LEAGUE, 'wproc', 'WAIVER', 'PROCESS', 2, { at: '2026-09-10T11:00:00Z' });
 // A row AFTER the cutoff used in G5c, written the way the collector writes them
 // today (space-separated), which a string compare would sort BEFORE the cutoff.
 tx(LEAGUE, 'late', 'TRADE_PROPOSAL', 'EXECUTE', 1, { items: swap(1, 2, 500, 600), at: '2026-09-18 23:00:00' });
-tx(LEAGUE, 'late-d', 'TRADE_DECLINE', 'EXECUTE', 2, { related: 'late', at: '2026-09-19 23:00:00' });
+tx(LEAGUE, 'late-d', 'TRADE_DECLINE', 'EXECUTE', 2, { related: 'late', at: '2026-09-19 23:00:00', seenAt: TX_COLLECTED_AT });
 
 identity.matchIdentities(LEAGUE, { chatNames: CHAT_NAME });
 identity.matchIdentities(BARE, { chatNames: [] });
@@ -683,6 +696,83 @@ test('G5c: the cutoff is a parsed date — a space-separated later row must not 
   assert.equal(later.get('2').decisions_n, 5, 'and it must be read once the clock passes it');
 });
 
+// ================================================= G5d transaction freshness
+/**
+ * The same rule as the manager read (docs/tdd/transactions-as-of.tdd.md), on the
+ * two consumers that sit between it and a trade card.
+ *
+ * `league_transactions_raw` is written only by scripts/collect-league-transactions.mjs,
+ * spawned only from the off-server refresh loop. fly.toml declares no `processes`,
+ * so on the deployed app these rows are as old as the last time the collector was
+ * run by hand — and a trade card was pricing a counterparty on this history, and
+ * telling him when he last declined an offer, without ever saying the history
+ * stops there.
+ *
+ * One shape everywhere: the same `transactionsCollected` accessor, the same
+ * `transactions` block, so no two surfaces can disagree about the same date.
+ */
+test('G5d: the timing read states when the transactions under it were collected', () => {
+  const read = tactics.timingRead(LEAGUE, { season: SEASON, now: NOW });
+  const hayden = read.get('2');
+  assert.ok(hayden.transactions, 'the per-manager timing read carries the collection block');
+  assert.equal(hayden.transactions.as_of, TX_COLLECTED_AT,
+    'as_of is the NEWEST collection stamp, not the oldest');
+  assert.ok(hayden.transactions.rows > 0);
+  assert.match(hayden.transactions.collected_by, /collect-league-transactions\.mjs/);
+  // A manager with nothing on him still gets the date: "we have not looked since
+  // Thursday" and "he has done nothing" are different answers.
+  const quiet = read.get('6');
+  if (quiet) assert.equal(quiet.transactions.as_of, TX_COLLECTED_AT,
+    'a manager with no decisions still reports when the league was last collected');
+  // The cutoff does not move the collection date. `now` bounds what is READ;
+  // the stamp is when the rows arrived, and conflating them would make the date
+  // look like it tracked the clock.
+  const later = tactics.timingRead(LEAGUE, { season: SEASON, now: '2026-09-20T00:00:00Z' });
+  assert.equal(later.get('2').transactions.as_of, TX_COLLECTED_AT);
+});
+
+test('G5d2: the veto climate states it too, including when there is no veto history', () => {
+  const here = tactics.vetoClimate(LG, { season: SEASON });
+  assert.equal(here.transactions.as_of, TX_COLLECTED_AT);
+  assert.ok(here.transactions.rows > 0);
+  // The early return. A league with no transactions at all returns before any of
+  // the veto arithmetic, and that is exactly where the date was missing.
+  const bare = tactics.vetoClimate(LG_BARE, { season: SEASON });
+  assert.equal(bare.n, 0, 'LG_BARE is the league with no transaction history');
+  assert.ok(bare.transactions, 'the early return carries the block too');
+  assert.equal(bare.transactions.as_of, null, 'nothing collected is null, never a borrowed stamp');
+  assert.equal(bare.transactions.rows, 0);
+  assert.ok(typeof bare.transactions.reason === 'string' && bare.transactions.reason.length > 0);
+});
+
+test('G5d3: how-Nick-looks states it, and one accessor means no two surfaces can disagree', () => {
+  const self = pricing.selfRead(LEAGUE, { season: SEASON });
+  assert.ok(self.transactions, 'selfRead carries the collection block');
+  assert.equal(self.transactions.as_of, TX_COLLECTED_AT);
+  // The unification, asserted rather than asserted-about: all three reads of the
+  // same rows must agree to the character, because all three go through one
+  // accessor. Three hand-rolled MAX() queries is how they come to disagree.
+  const timing = tactics.timingRead(LEAGUE, { season: SEASON, now: NOW }).get('2');
+  const climate = tactics.vetoClimate(LG, { season: SEASON });
+  assert.deepEqual(self.transactions, timing.transactions);
+  assert.deepEqual(self.transactions, climate.transactions);
+  const bare = pricing.selfRead(BARE, { season: SEASON });
+  assert.equal(bare.transactions.as_of, null);
+});
+
+test('G5d4: a league with no roster marked as Nick\'s still reports the collection date', () => {
+  // The unavailable path. Without the date here, a league Nick has not claimed
+  // and a league nobody has ever collected look the same, and the reason only
+  // names the first of the two.
+  const self = pricing.selfRead(UNCLAIMED, { season: SEASON });
+  assert.equal(self.available, false);
+  assert.match(self.reason, /no roster marked as Nick/);
+  assert.ok(self.transactions, 'the early return carries the block');
+  assert.equal(self.transactions.rows, 0, 'this league has no transactions of its own');
+  assert.equal(self.transactions.as_of, null);
+  assert.ok(typeof self.transactions.reason === 'string' && self.transactions.reason.length > 0);
+});
+
 // ============================================================== G6 veto
 test('G6a: the veto threshold is each league\'s own ESPN setting, never a constant', () => {
   const here = tactics.vetoClimate(LG, { season: SEASON });
@@ -820,7 +910,14 @@ test('G8b: a league with no chat and no transactions still gets ideas, and says 
     'the chat tactics must be named as absent, not silently missing');
   for (const d of bare.deals) {
     const reason = d.tactics_absent.find(a => a.key === 'sell_the_crush').reason;
-    assert.match(reason, /chat|profile/i);
+    // The two absences are different facts: "he has talked, just not about
+    // these players" and "we have no read of him at all". Only the second is
+    // reachable from this fixture, so the assertion names it and rules the
+    // other one out, rather than matching either.
+    assert.match(reason, /no chat read or negotiation profile touching any player in this deal/,
+      `the reason must say nothing about him was read, got ${JSON.stringify(reason)}`);
+    assert.doesNotMatch(reason, /nothing he has said prices a player/,
+      'and it must not be the sentence for a manager whose chat WAS read');
   }
 });
 
@@ -841,4 +938,123 @@ test('G8d: the tactic registry is complete and every entry declares what it need
     assert.ok(spec.label && spec.needs && spec.why, `${k} must say what it is, needs and why`);
     assert.equal(spec.fitted, false, `${k} is a hand-set rule and must say so`);
   }
+});
+
+/* ------------------------------------------------------------------------
+ * G5b THE STORE'S ABSENCE IS A STATE, NOT A MANAGER WITH NO HISTORY.
+ *
+ * `league_transactions_raw` has no migration — it is created by hand in
+ * scripts/collect-league-transactions.mjs, which needs an ESPN cookie — so on a
+ * machine where that has never run, the table is not there. This file used to
+ * absorb that in two bare `catch { tx = []; }` blocks and fall through to
+ * `blank()`, which returns `decisions_n: 0` with a null reason: a claim that we
+ * looked at this person and he has never decided anything, manufactured out of a
+ * missing table.
+ *
+ * These two tests drop the table and read the surface, because the previous
+ * thirty-two all ran with it present and therefore could not have caught this.
+ * ---------------------------------------------------------------------- */
+
+test('G5b timingRead says the source table is absent rather than reporting an empty history', () => {
+  const saved = rows(`SELECT * FROM league_transactions_raw`);
+  db.exec(`DROP TABLE league_transactions_raw`);
+  try {
+    const t = tactics.timingRead(LG.id, { season: SEASON });
+    const any = [...t.values()][0];
+    assert.ok(any, 'every roster still gets a row, so a missing manager is not a missing key');
+    assert.equal(any.read_state, 'source_table_absent');
+    assert.equal(any.decisions_n, 0);
+    assert.match(any.decisions_reason, /never been created on this machine/,
+      'the count of zero must arrive WITH the reason it is zero');
+    assert.match(any.decisions_reason, /collect-league-transactions\.mjs/,
+      'and name what to run, since that is the fix');
+    assert.match(any.decisions_reason, /NOT a manager with no history/,
+      'and rule out the reading that would otherwise be the obvious one');
+    assert.match(any.active_hours_reason, /never been created on this machine/,
+      'both reason fields carry it, because a consumer may read either');
+  } finally {
+    db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
+      league_id INTEGER NOT NULL, season INTEGER NOT NULL, tx_id TEXT NOT NULL,
+      type TEXT, status TEXT, execution_type TEXT, proposed_at TEXT, processed_at TEXT,
+      team_id INTEGER, member_id TEXT, related_tx_id TEXT, scoring_period INTEGER,
+      bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
+      first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
+      PRIMARY KEY (league_id, season, tx_id))`);
+    for (const r of saved) {
+      run(`INSERT OR REPLACE INTO league_transactions_raw
+        (league_id, season, tx_id, type, status, execution_type, proposed_at, processed_at,
+         team_id, member_id, related_tx_id, scoring_period, bid_amount, is_pending,
+         items_json, raw_json, first_seen_at, last_seen_at)
+        VALUES (@league_id,@season,@tx_id,@type,@status,@execution_type,@proposed_at,@processed_at,
+         @team_id,@member_id,@related_tx_id,@scoring_period,@bid_amount,@is_pending,
+         @items_json,@raw_json,@first_seen_at,@last_seen_at)`, r);
+    }
+  }
+});
+
+test('G5b a programming error in the timing query is NOT absorbed as an empty history', () => {
+  // The other half of removing a bare catch, and the half a tableExists guard
+  // alone does not give you. The old `catch { tx = [] }` was wide enough to take
+  // a typo'd column and report it as a manager who has never traded. Injecting
+  // that exact fault must now reach the caller.
+  const saved = rows(`SELECT * FROM league_transactions_raw`);
+  db.exec(`ALTER TABLE league_transactions_raw RENAME COLUMN proposed_at TO proposed_at_renamed`);
+  try {
+    assert.throws(() => tactics.timingRead(LG.id, { season: SEASON }), /proposed_at|no such column/i,
+      'a fault in the query is a fault, and must not arrive as data');
+  } finally {
+    db.exec(`ALTER TABLE league_transactions_raw RENAME COLUMN proposed_at_renamed TO proposed_at`);
+    assert.equal(rows(`SELECT * FROM league_transactions_raw`).length, saved.length,
+      'the fixture is restored for every test after this one');
+  }
+});
+
+/**
+ * Run `fn` with league_transactions_raw gone, then put it back exactly as it was.
+ *
+ * The DDL comes out of sqlite_master rather than being typed again here, because a
+ * hand-copied CREATE that drifts from the real one restores a DIFFERENT table and
+ * every test after it is measuring something else.
+ */
+function withoutRawTable(fn) {
+  const saved = rows(`SELECT * FROM league_transactions_raw`);
+  const ddl = rows(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    'league_transactions_raw')[0]?.sql;
+  assert.ok(ddl, 'the fixture table must exist before a test can remove it');
+  db.exec(`DROP TABLE league_transactions_raw`);
+  try {
+    return fn();
+  } finally {
+    db.exec(ddl);
+    for (const r of saved) {
+      const cols = Object.keys(r);
+      run(`INSERT OR REPLACE INTO league_transactions_raw (${cols.join(', ')})
+           VALUES (${cols.map(c => `@${c}`).join(', ')})`, r);
+    }
+    assert.equal(rows(`SELECT * FROM league_transactions_raw`).length, saved.length,
+      'the fixture is restored for every test after this one');
+  }
+}
+
+test('G5b vetoClimate says the store is absent, not that this league never vetoes', () => {
+  // The same bug as timingRead's and in the same commit, and it had no test: `n: 0`
+  // with an empty `observed` reads exactly like a league where nobody has ever
+  // voted a deal down. Replacing this branch with the plain climate broke nothing
+  // before this test existed (sweep row M29).
+  const absent = withoutRawTable(() => tactics.vetoClimate(LG, { season: SEASON }));
+  assert.equal(absent.read_state, 'source_table_absent');
+  assert.equal(absent.n, 0, 'the zero is still there; what changes is that it now says why');
+  assert.deepEqual(absent.observed, []);
+  assert.match(absent.reason, /never been created on this machine/,
+    'the empty result must arrive with the reason it is empty');
+  assert.match(absent.reason, /collect-league-transactions\.mjs/, 'and name what to run');
+  assert.match(absent.reason, /NOT a manager with no history/,
+    'and rule out the reading a consumer would otherwise reach for');
+
+  // AND THE CONTRAST IS THE POINT. With the table there, the same call says so —
+  // on every path, including the one where rows exist. Two states that need
+  // different fixes must not arrive looking identical.
+  const present = tactics.vetoClimate(LG, { season: SEASON });
+  assert.equal(present.read_state, 'present');
+  assert.equal(present.reason, null);
 });

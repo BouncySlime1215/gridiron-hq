@@ -9,7 +9,6 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { __test: sim } = await import('../server/services/season-sim.js');
 const { db } = await import('../server/db/index.js');
-const { projectBatter, batterTotalBases, pitcherStrikeouts } = await import('../server/services/mlb-projections.js');
 const { challengerSignalWeek, fitEnsemble, clearEnsembleCache, ensembleLine,
   withEphemeralEnsembleArtifacts } = await import('../server/services/nfl-ensemble.js');
 const { nflDataConsistencyAudit } = await import('../server/services/nfl-data-consistency.js');
@@ -27,13 +26,9 @@ const { weeklyAvailability } = await import('../server/services/contingency.js')
 const { createExperiment } = await import('../server/services/nfl-experiments.js');
 const { applyNflPolicy, NFL_PRODUCTION_POLICY } = await import('../server/services/nfl-policy.js');
 const { uncertainty } = await import('../server/services/nfl-replay.js');
-const { starterFor } = await import('../server/services/mlb.js');
-const { createMlbExperiment } = await import('../server/services/mlb-experiments.js');
-const { validateEvidenceCutoff, captureEvidenceManifest, featureContracts, recordGateAudit, promoteEligibleAudit } = await import('../server/services/model-governance.js');
-const { buildMlbCalibration } = await import('../server/services/mlb-calibration.js');
+const { validateEvidenceCutoff, captureEvidenceManifest, featureContracts, recordGateAudit, promoteEligibleAudit, registry: governanceRegistry } = await import('../server/services/model-governance.js');
 const { nflMarketMovement } = await import('../server/services/market-movement.js');
 const { evidenceDaemonStatus } = await import('../server/services/evidence-daemon.js');
-const { allPicks } = await import('../server/services/mlb-auto-picks.js');
 const { startAiBlindReplay, normalizeReview, agentLearningMemory } = await import('../server/services/nfl-ai-replay.js');
 const { validationFirewall } = await import('../server/services/nfl-evidence.js');
 const { decomposePassingError } = await import('../server/services/nfl-passing-diagnostic.js');
@@ -779,53 +774,6 @@ test('ESPN standings before fromWeek are carried into simulations', () => {
   assert.deepEqual(r.get('2'), { w: 1, pf: 230 });
 });
 
-test('MLB population priors cannot see games after the projection date', () => {
-  const ins = db.prepare(`INSERT INTO mlb_batter_games
-    (game_pk, player_id, player_name, season, date, team_id, at_bats, hits, doubles, triples, home_runs, total_bases)
-    VALUES (?, ?, ?, 2026, ?, 1, ?, ?, 0, 0, ?, ?)`);
-  for (let i = 1; i <= 6; i++) ins.run(i, 10, 'Cutoff Hitter', `2026-04-0${i}`, 4, 1, 0, 1);
-  const before = projectBatter(10, 2026, '2026-05-01');
-
-  // Extreme future league environment. It must not alter an April projection.
-  for (let i = 1; i <= 20; i++) {
-    ins.run(100 + i, 99, 'Future Slugger', `2026-09-${String(i).padStart(2, '0')}`, 4, 4, 4, 16);
-  }
-  const after = projectBatter(10, 2026, '2026-05-01');
-  assert.deepEqual(after, before);
-});
-
-test('MLB probability distributions are deterministic and preserve projected means', () => {
-  const batter = { expected_ab: 4.1, tb_per_ab: 0.43, hit_per_ab: 0.26, hr_per_hit: 0.14, non_hr_bases: 1.32 };
-  const a = batterTotalBases(batter), b = batterTotalBases(batter);
-  assert.deepEqual(a, b);
-  assert.equal(a.mean_tb, +(4.1 * 0.43).toFixed(4));
-  assert.ok(a.probabilities['over_0.5'] > a.probabilities['over_1.5']);
-  const pitcher = pitcherStrikeouts({ expected_bf: 24, k_per_bf: 0.25 });
-  assert.equal(pitcher.mean_k, 6);
-  assert.ok(pitcher.probabilities['over_4.5'] > pitcher.probabilities['over_7.5']);
-});
-
-test('MLB historical starter lookup never substitutes the completed box score', () => {
-  db.prepare(`INSERT INTO mlb_pitcher_games
-    (game_pk,player_id,player_name,season,date,team_id,opponent_id,is_home,games_started,strikeouts,innings_pitched,batters_faced,earned_runs)
-    VALUES (9001,7001,'Outcome Era Starter',2025,'2025-06-01',77,88,1,1,12,7,25,0)`).run();
-  assert.equal(starterFor(77, '2025-06-01'), null,
-    'a completed-game starter is unavailable unless a pregame probable snapshot was preserved');
-  db.prepare(`INSERT INTO mlb_probable_starters
-    (game_pk,team_id,opponent_id,date,pitcher_id,pitcher_name,fetched_at)
-    VALUES (9001,77,88,'2025-06-01',7002,'Pregame Probable','2025-05-31T20:00:00Z')`).run();
-  assert.equal(starterFor(77, '2025-06-01').player_id, 7002);
-});
-
-test('MLB experiment registry rejects overlapping and non-chronological ranges', () => {
-  assert.throws(() => createMlbExperiment({
-    market: 'nrfi', name: 'invalid chronology', hypothesis: 'must fail',
-    discovery: { from: '2025-04-01', through: '2025-06-01' },
-    validation: { from: '2025-05-01', through: '2025-07-01' },
-    holdout: { from: '2025-08-01', through: '2025-09-01' }
-  }), /chronological and non-overlapping/);
-});
-
 test('NFL experiment splits reject overlap and non-chronological holdouts', () => {
   assert.throws(() => createExperiment({
     name: 'bad overlap', hypothesis: 'must fail',
@@ -1208,18 +1156,24 @@ test('evidence manifests are content-addressed and cannot duplicate silently', (
 });
 
 test('feature contracts make critical missing inputs abstain and gate audits stay blocked', () => {
-  const contracts = featureContracts('MLB');
-  assert.ok(contracts.some(x => x.feature_key === 'confirmed_lineup' && x.missing_behavior === 'abstain' && x.leakage_risk === 'critical'));
-  const audit = recordGateAudit({ sport: 'MLB', market: 'nrfi', modelVersion: 'test-v1',
+  const contracts = featureContracts('NFL');
+  assert.ok(contracts.some(x => x.feature_key === 'market_consensus' && x.missing_behavior === 'abstain' && x.leakage_risk === 'critical'));
+  const audit = recordGateAudit({ sport: 'NFL', market: 'spread', modelVersion: 'test-v2',
     gates: [{ id: 'prices', label: 'Real prices', passed: false, actual: 0, target: '>= 150' }], evidence: { priced: 0 } });
   assert.equal(audit.verdict, 'blocked');
 });
 
-test('MLB calibration refuses to fit without forward real-price evidence', () => {
-  const result = buildMlbCalibration('pitcher_strikeouts', '2026-08-05');
-  assert.equal(result.status, 'insufficient');
-  assert.equal(result.gate_passed, false);
-  assert.equal(result.sample_size, 0);
+// PR #128 removed MLB from the product. The three MLB models this seed used
+// to register (nrfi, pitcher_strikeouts, batter_total_bases) have no capture
+// path any more, so the seed must not present them as live: a fresh database
+// should come up with zero MLB feature contracts and zero MLB registry rows.
+// This does not touch any database already carrying those rows from an older
+// seed run — only the seed a new database gets.
+test('MLB governance models retired by #128 are not seeded as live', () => {
+  assert.deepEqual(featureContracts('MLB'), [],
+    'PR #128 removed MLB; the seed must not register live feature contracts for it');
+  assert.deepEqual(governanceRegistry('MLB'), [],
+    'PR #128 removed MLB; the seed must not register live champion/challenger rows for it');
 });
 
 test('champion registry cannot promote a blocked audit', () => {
@@ -1246,17 +1200,6 @@ test('evidence daemon status exposes feed gaps without faking price evidence', (
   const status = evidenceDaemonStatus();
   assert.equal(status.odds_feed, false);
   assert.ok(status.alerts.some(x => x.code === 'odds_feed_missing'));
-});
-
-test('missing MLB boxscore data stays pending until a final participant list confirms a void', () => {
-  db.prepare(`INSERT INTO mlb_games (game_pk,season,date,home_team,away_team,status)
-    VALUES (991001,2026,'2026-09-01','Home','Away','Final')`).run();
-  db.prepare(`INSERT INTO mlb_first_party_picks
-    (pick_date,rank,market,selection,player_id,game_pk,side,line,selected_at,tracking_mode)
-    VALUES ('2026-09-01',99,'batter_total_bases','Missing Boxscore Player',800001,991001,'Under',1.5,'2026-09-01T10:00:00Z','forward')`).run();
-  assert.equal(allPicks().find(x => x.rank === 99)?.status, 'Pending');
-  db.prepare(`INSERT INTO mlb_boxscore_sync (game_pk,fetched_at,status) VALUES (991001,'2026-09-02T00:00:00Z','hydrated')`).run();
-  assert.equal(allPicks().find(x => x.rank === 99)?.status, 'Void');
 });
 
 /* ------------------------------------------------------------------- CLV */

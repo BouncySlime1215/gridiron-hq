@@ -238,7 +238,13 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       await attempt('verified_event_archive', () => syncVerifiedEventArchive({
         seasons: [season - 1, season], includeWeeklyRosters: true
       }), detail.ingestion);
-      if (season <= 2023) await attempt('formation_participation', () => ingestFormations(season), detail.ingestion);
+      // No season gate. This read `season <= 2023` on the belief that nflverse
+      // stops publishing participation after 2023; it does not, and 2024 and
+      // 2025 were being dropped silently. nfl-formations.js:64 returns a
+      // recorded error with an explanatory note on a 404, which is what the
+      // current season legitimately returns, so attempting every season costs
+      // one honest line in the ingestion detail rather than a failure.
+      await attempt('formation_participation', () => ingestFormations(season), detail.ingestion);
       await attempt('ftn_charting', () => ingestCharting(season), detail.ingestion);
     }
 

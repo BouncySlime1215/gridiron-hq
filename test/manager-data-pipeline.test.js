@@ -800,6 +800,19 @@ test('trade engine: with signals built, a "hard" manager is discounted by 0.55 e
   assert.ok(partner, 'the fixture must produce at least one deal');
   run(`INSERT INTO manager_profiles (league_id, roster_id, tradeability) VALUES (301, ?, 'hard')`, String(partner));
   const hard = findTrades(lg, { myTeamId: '1', requireMutual: false, limit: 200 });
+  // findTrades is compute-cached, and its fingerprint reads manager_profiles'
+  // row COUNT and MAX(updated_at) (tradeIdeasFingerprint, trade-engine.js:1446).
+  // The INSERT above adds a row, so the count moves and this is a genuine second
+  // search. That was true before this assertion existed and was never stated:
+  // it was only implied by the ratio below landing on 0.55 rather than 1.0. A
+  // fixture that edited a tier in place instead would move neither part of the
+  // fingerprint, and the cache would hand back the first search's own objects.
+  // Said outright, so that failure names its cause here rather than arriving as
+  // an arithmetic surprise twelve lines down.
+  assert.notStrictEqual(hard, fair,
+    'the compute cache served the first search back instead of re-running it');
+  assert.notStrictEqual(hard.deals, fair.deals,
+    'the compute cache served the first search\'s deals back instead of re-running it');
   const hardByKey = new Map(hard.deals.map(d => [keyOf(d), d]));
   const pairs = fair.deals.filter(d => d.partner_id === partner && hardByKey.has(keyOf(d)));
   assert.ok(pairs.length > 0);

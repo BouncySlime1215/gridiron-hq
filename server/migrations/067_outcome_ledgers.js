@@ -64,6 +64,9 @@ export function up(db) {
       get_json             TEXT,
       proposed_at          TEXT,
       model_p_accept       REAL,
+      model_p_accept_low   REAL,
+      model_p_accept_high  REAL,
+      model_basis          TEXT,
       model_version        TEXT,
       status               TEXT NOT NULL
         CHECK (status IN ('proposed', 'accepted', 'declined', 'countered',
@@ -78,7 +81,28 @@ export function up(db) {
       CHECK (status <> 'not_proposed' OR not_proposed_reason IS NOT NULL),
       CHECK (source <> 'observed' OR espn_tx_id IS NOT NULL),
       CHECK (source <> 'app_proposed' OR model_p_accept IS NOT NULL),
-      CHECK (model_p_accept IS NULL OR (model_p_accept >= 0 AND model_p_accept <= 1))
+      CHECK (model_p_accept IS NULL OR (model_p_accept >= 0 AND model_p_accept <= 1)),
+
+      -- THE MODEL DOES NOT STATE A POINT, so the ledger must not record one as
+      -- if it did. trade-acceptance.js returns a BAND and says in its own served
+      -- sentence that it is "not a calibrated probability"; its fitted flag is
+      -- false on every path. model_p_accept is the midpoint, kept because a
+      -- calibration needs a point prediction to score — but it travels with the width the
+      -- evidence actually bought and with the basis that produced it, so nobody
+      -- reading this table later can mistake a declared starting point for a
+      -- measurement. A midpoint stored alone would be exactly the invented
+      -- precision this project keeps finding and removing.
+      CHECK ((model_p_accept_low IS NULL) = (model_p_accept_high IS NULL)),
+      CHECK (model_p_accept_low IS NULL
+             OR (model_p_accept_low >= 0 AND model_p_accept_high <= 1
+                 AND model_p_accept_low <= model_p_accept
+                 AND model_p_accept <= model_p_accept_high)),
+      CHECK (model_basis IS NULL
+             OR model_basis IN ('no_information', 'heuristic_unanchored', 'heuristic_anchored')),
+      -- A recorded prediction that does not say which kind of claim it was
+      -- cannot be graded later: an anchored band and a declared starting point
+      -- are not the same evidence and must never pool in one curve.
+      CHECK (model_p_accept IS NULL OR model_basis IS NOT NULL)
     );
 
     -- Idempotency for the observed writer. PARTIAL, because app_proposed and
@@ -111,6 +135,9 @@ export function up(db) {
       get_json             TEXT,
       proposed_at          TEXT,
       model_p_accept       REAL,
+      model_p_accept_low   REAL,
+      model_p_accept_high  REAL,
+      model_basis          TEXT,
       model_version        TEXT,
       status               TEXT NOT NULL
         CHECK (status IN ('proposed', 'accepted', 'declined', 'countered',

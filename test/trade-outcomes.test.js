@@ -211,7 +211,8 @@ test('G3 an app proposal writes one row carrying the model number given at that 
   const id = recordProposedOutcome({
     league_id: 7, season: 2025, proposer_team_id: '1', counterparty_team_id: '3',
     give: [{ player_id: 101 }], get: [{ player_id: 202 }],
-    model_p_accept: 0.7, model_version: 'trade-acceptance-v1',
+    acceptance: { band: { low: 0.58, mid: 0.7, high: 0.82 }, basis: 'heuristic_anchored' },
+    model_version: 'trade-acceptance-v1',
     proposed_at: '2025-10-07T12:00:00Z',
   });
   const row = outcomesFor(7, 2025).find(o => o.id === id);
@@ -222,6 +223,45 @@ test('G3 an app proposal writes one row carrying the model number given at that 
   assert.equal(row.model_version, 'trade-acceptance-v1',
     'and which model gave it, or two models\' predictions pool into one meaningless curve');
   assert.equal(row.espn_tx_id, null, 'nothing was sent to ESPN, so there is no ESPN id to claim');
+
+  // THE BAND TRAVELS WITH THE MIDPOINT. trade-acceptance.js returns a band and
+  // says in its own served sentence that it is "not a calibrated probability";
+  // `fitted` is false on every path it has. A midpoint recorded alone would put
+  // a precision in the ledger that the model never claimed, and a later reader
+  // would have no way to tell a wide declared starting point from a narrow
+  // anchored one.
+  assert.equal(row.model_p_accept_low, 0.58);
+  assert.equal(row.model_p_accept_high, 0.82);
+  assert.equal(row.model_basis, 'heuristic_anchored',
+    'which KIND of claim it was, because an anchored band and a declared starting point '
+    + 'must never pool into one calibration curve');
+});
+
+test('G3 a midpoint with no band is refused: the model states a band, never a point', () => {
+  assert.throws(() => recordProposedOutcome({
+    league_id: 7, season: 2025, proposer_team_id: '1', counterparty_team_id: '3',
+    give: [], get: [], model_p_accept: 0.7, model_basis: 'heuristic_anchored',
+    model_version: 'trade-acceptance-v1', proposed_at: '2025-10-07T12:00:00Z',
+  }), /model_p_accept_low/,
+  'recording a bare point would be the invented precision this project keeps removing');
+});
+
+test('G3 a prediction with no basis is refused', () => {
+  assert.throws(() => recordProposedOutcome({
+    league_id: 7, season: 2025, proposer_team_id: '1', counterparty_team_id: '3',
+    give: [], get: [],
+    acceptance: { band: { low: 0.58, mid: 0.7, high: 0.82 }, basis: null },
+    model_version: 'trade-acceptance-v1', proposed_at: '2025-10-07T12:00:00Z',
+  }), /model_basis/);
+});
+
+test('G3 the table itself refuses a midpoint outside its own band', () => {
+  assert.throws(() => run(`INSERT INTO trade_outcomes
+    (league_id, season, source, status, model_p_accept, model_p_accept_low,
+     model_p_accept_high, model_basis, created_at)
+    VALUES (7, 2025, 'app_proposed', 'proposed', 0.9, 0.1, 0.5, 'heuristic_anchored',
+            '2025-10-08T12:00:00Z')`),
+  /CHECK|constraint/i, 'a point outside the band it claims to summarise is not a summary of it');
 });
 
 test('G3 an app proposal without a model number is refused rather than written incomplete', () => {
@@ -236,7 +276,8 @@ test('G4 a candidate considered and not proposed is recorded with its reason', (
   const id = recordConsideredOnly({
     league_id: 7, season: 2025, proposer_team_id: '1', counterparty_team_id: '4',
     give: [{ player_id: 303 }], get: [{ player_id: 404 }],
-    model_p_accept: 0.12, model_version: 'trade-acceptance-v1',
+    acceptance: { band: { low: 0.04, mid: 0.12, high: 0.24 }, basis: 'heuristic_anchored' },
+    model_version: 'trade-acceptance-v1',
     not_proposed_reason: 'failed the edge test: perceived value delta below the bar',
     proposed_at: '2025-10-07T12:00:00Z',
   });
@@ -252,8 +293,9 @@ test('G4 a candidate considered and not proposed is recorded with its reason', (
 test('G4 a considered_only row without a reason is refused', () => {
   assert.throws(() => recordConsideredOnly({
     league_id: 7, season: 2025, proposer_team_id: '1', counterparty_team_id: '4',
-    give: [], get: [], model_p_accept: 0.12, model_version: 'v1',
-    proposed_at: '2025-10-07T12:00:00Z',
+    give: [], get: [],
+    acceptance: { band: { low: 0.04, mid: 0.12, high: 0.24 }, basis: 'heuristic_anchored' },
+    model_version: 'v1', proposed_at: '2025-10-07T12:00:00Z',
   }), /not_proposed_reason/);
 });
 
@@ -263,7 +305,8 @@ test('G5 a synthetic run writes only to the synthetic table', () => {
   const before = outcomesFor(7, 2025).length;
   recordSyntheticOutcome({
     league_id: 7, season: 2025, sim_run_id: 'sim-1', proposer_team_id: '1',
-    counterparty_team_id: '2', give: [], get: [], model_p_accept: 0.5,
+    counterparty_team_id: '2', give: [], get: [],
+    acceptance: { band: { low: 0.35, mid: 0.5, high: 0.65 }, basis: 'heuristic_unanchored' },
     model_version: 'v1', status: 'accepted', proposed_at: '2025-10-08T12:00:00Z',
   });
   assert.equal(outcomesFor(7, 2025).length, before,

@@ -76,6 +76,15 @@ test('a route file with a real page caller is still wired', () => {
   assert.equal(row.status, 'wired');
 });
 
+test('a page caller and a script caller in the same file still reads wired', () => {
+  // The mixed case, and the one an over-correction loses: flipping any file
+  // that has a script caller to half_done passed every other test here, and
+  // would have downgraded aggregates.js, which two pages really do call.
+  const row = statsRow([NO_CALLER[0], OUTBOUND]);
+  assert.equal(row.status, 'wired');
+  assert.match(row.evidence, /1 called by a page and 1 dialled only by a script/);
+});
+
 test('a route file where nothing at all calls any route stays half_done', () => {
   const row = statsRow([...NO_CALLER, { ...OUTBOUND, rule: 'route-no-caller', kind: 'orphan',
     detail: 'no page or extension calls it' }]);

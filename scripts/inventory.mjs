@@ -225,18 +225,33 @@ function buildRows(map, local) {
     const mod = modByPath.get(p);
     const routeCount = map.surfaces.filter((s) => s.kind === 'route' && s.file === p).length;
     const noCaller = findingsFor(p).filter((f) => f.rule === 'route-no-caller').length;
+    // A route no page calls but a script dials over HTTP is reported by
+    // route-called-from-outside-the-app INSTEAD of route-no-caller, never as
+    // well as it. Counting only the no-caller rule therefore left those routes
+    // in the remainder, and the remainder was being read as "has a caller" —
+    // absence of a finding taken for evidence of a consumer. A route a script
+    // syncs and a route a page renders are not the same kind of alive.
+    const scriptOnly = findingsFor(p).filter((f) => f.rule === 'route-called-from-outside-the-app').length;
+    const pageCalled = routeCount - noCaller - scriptOnly;
     let c;
     if (routeCount === 0) {
       c = { status: 'unclassified', reason: `${p} registers no route this map can see` };
     } else if (noCaller >= routeCount) {
       c = { status: 'half_done',
         evidence: `wiring-map: all ${routeCount} routes in ${p} have route-no-caller (registered, nothing calls them)` };
+    } else if (pageCalled <= 0) {
+      c = { status: 'half_done',
+        evidence: `wiring-map: ${p} registers ${routeCount} routes and no page calls any of them; `
+          + `${noCaller} have route-no-caller and ${scriptOnly} `
+          + `${scriptOnly === 1 ? 'is' : 'are'} route-called-from-outside-the-app `
+          + `(a script in this repository dials ${scriptOnly === 1 ? 'it' : 'them'} over HTTP)` };
     } else {
       c = { status: 'wired',
-        evidence: `wiring-map: ${p} registers ${routeCount} routes, ${routeCount - noCaller} with callers` };
+        evidence: `wiring-map: ${p} registers ${routeCount} routes, ${pageCalled} called by a page`
+          + (scriptOnly ? ` and ${scriptOnly} dialled only by a script` : '') };
     }
     push({ id: `route:${slug(name)}`, kind: 'route', name, path: p, owner_thread: null, ...c,
-      note: `${routeCount} routes; ${noCaller} with no caller` });
+      note: `${routeCount} routes; ${pageCalled > 0 ? pageCalled : 0} page-called, ${scriptOnly} script-only, ${noCaller} with no caller` });
   }
 
   // 3. jobs — the scheduler's job surfaces.

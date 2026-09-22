@@ -1812,8 +1812,27 @@ test('a query handed to a handle by method call is that handle, and the app is t
   // has never heard of.
   assert.equal(handleFor(f, at('SELECT league_id FROM zz_fixture_app_table`'), foreign).handle, 'app',
     'db.prepare() in a file that imports the app db is the app db');
-  assert.equal(handleFor(f, at('SELECT league_id FROM zz_fixture_app_table WHERE'), foreign).handle, 'app',
-    'an unrecognised receiver is not evidence of a second database');
+  // REVERSED, and the reversal is the point of this test's own preamble.
+  //
+  // This line used to assert 'app' for `pool.all(...)`, on the reasoning that an
+  // unrecognised receiver is not evidence of a second database. True, and the
+  // wrong conclusion: it is not evidence of the APP's database either, and the
+  // paragraph above already says what that costs — "a query on a second database
+  // silently filed as the app's ... a wrong attribution does not print, it
+  // merges." This assertion pinned the exact fallthrough that warning describes.
+  //
+  // It was not hypothetical. td-features.js is handed both handles by its caller,
+  // buildTdFeatures({ appDb, nflDb, seasons }), and reads the nflverse database as
+  // `nflDb.prepare(...)`. The file opens nothing itself, so it is not foreign-only,
+  // and 'app' here put play_by_play and pbp_participation into table-never-written
+  // and took main red for every thread.
+  //
+  // An unrecognised receiver is UNKNOWN. `db` stays the app by convention; anything
+  // else is reported as itself, and the foreign-only rule's every() decides from
+  // there. See docs/tdd/wiring-map-unknown-handle.tdd.md for the measurement that
+  // showed this moves exactly two tables repo-wide.
+  assert.equal(handleFor(f, at('SELECT league_id FROM zz_fixture_app_table WHERE'), foreign).handle, 'pool',
+    'an unrecognised receiver is reported as itself, not claimed as the app');
 
   // And where there IS no app handle, an unrecognised receiver cannot be the app.
   // This is foreignDefault(), reached through the method branch rather than the bare

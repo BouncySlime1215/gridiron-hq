@@ -316,5 +316,117 @@ class TestDecodeAttributedBody(unittest.TestCase):
         self.assertIsNone(elc.decode_attributed_body(None))
 
 
+class IsoStamps(unittest.TestCase):
+    """Every stamp this script writes is ISO 8601 UTC.
+
+    The manager card puts the chat corpus's as_of next to the transactions'
+    and the archetype build's, and both of those are new Date().toISOString().
+    SQLite's 'YYYY-MM-DD HH:MM:SS' does not compare or sort against ISO: 'T'
+    is 0x54 and a space is 0x20, so any ISO row wins over every legacy row
+    whatever its date.
+    """
+
+    ISO = '%Y-%m-%dT%H:%M:%SZ'
+
+    def test_message_timestamps_are_iso(self):
+        # 2026-09-19T14:03:22Z as nanoseconds since the Apple epoch.
+        from datetime import datetime, timezone
+        target = datetime(2026, 9, 19, 14, 3, 22, tzinfo=timezone.utc)
+        ns = int((target - elc.APPLE_EPOCH).total_seconds() * 1e9)
+        self.assertEqual(elc.apple_ts(ns), '2026-09-19T14:03:22Z')
+        self.assertIsNone(elc.apple_ts(None))
+
+    def test_run_stamp_is_iso(self):
+        from datetime import datetime
+        datetime.strptime(elc.now_iso(), self.ISO)  # raises if it is not
+
+    def test_league_hour_reads_both_formats(self):
+        # A corpus mid-migration holds either, and fromisoformat only accepts a
+        # 'Z' suffix from Python 3.11 while the Mac running this may be older.
+        self.assertEqual(elc.league_hour('2026-09-19T06:30:00Z'),
+                         elc.league_hour('2026-09-19 06:30:00'))
+
+    def _corpus(self, path, stamp):
+        db = sqlite3.connect(path)
+        db.execute('CREATE TABLE messages (msg_id INTEGER, ts_utc TEXT)')
+        db.execute('CREATE TABLE extract_runs (ran_at TEXT)')
+        db.execute('INSERT INTO messages VALUES (1, ?)', (stamp,))
+        db.execute('INSERT INTO extract_runs VALUES (?)', (stamp,))
+        db.commit()
+        return db
+
+    def test_normalise_brings_a_legacy_corpus_up_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = self._corpus(os.path.join(d, 'c.sqlite'), '2026-09-19 14:03:22')
+            elc.normalise_stamps(db)
+            self.assertEqual(db.execute('SELECT ts_utc FROM messages').fetchone()[0],
+                             '2026-09-19T14:03:22Z')
+            self.assertEqual(db.execute('SELECT ran_at FROM extract_runs').fetchone()[0],
+                             '2026-09-19T14:03:22Z')
+            # Twice must be the same as once, or a second pull corrupts the file.
+            elc.normalise_stamps(db)
+            self.assertEqual(db.execute('SELECT ts_utc FROM messages').fetchone()[0],
+                             '2026-09-19T14:03:22Z')
+            db.close()
+
+    def test_normalise_leaves_an_already_iso_corpus_alone(self):
+        with tempfile.TemporaryDirectory() as d:
+            db = self._corpus(os.path.join(d, 'c.sqlite'), '2026-09-19T14:03:22Z')
+            elc.normalise_stamps(db)
+            self.assertEqual(db.execute('SELECT ts_utc FROM messages').fetchone()[0],
+                             '2026-09-19T14:03:22Z')
+            db.close()
+
+    def test_the_extract_run_normalises_before_it_inserts(self):
+        # normalise_stamps() being correct is not the same as it being called.
+        # If the run skips it, a corpus pulled before this change ends up
+        # holding both formats and MAX(ts_utc) returns the newest ISO row
+        # rather than the newest row.
+        import extract_league_chat as m
+        with tempfile.TemporaryDirectory() as d:
+            out_path = os.path.join(d, 'league_chat.sqlite')
+            src_path = os.path.join(d, 'chat.db')
+            src = make_chat_db(src_path)
+            with mock.patch.multiple(m, SRC=src_path, OUT=out_path), mock.patch('builtins.print'):
+                with sqlite3.connect(out_path) as out:
+                    out.execute('CREATE TABLE participants (handle TEXT PRIMARY KEY, name TEXT, dm_chat_id INTEGER)')
+                    out.execute("INSERT INTO participants VALUES ('+15550000001', 'Alice', 2)")
+                    out.execute('CREATE TABLE messages (msg_id INTEGER, chat_kind TEXT, chat_name TEXT, '
+                                'handle TEXT, name TEXT, is_from_me INTEGER, ts_utc TEXT, text TEXT, '
+                                'is_tapback INTEGER, is_reply INTEGER)')
+                    # A legacy row from a pull made before this change.
+                    out.execute("INSERT INTO messages (msg_id, ts_utc) VALUES (1, '2026-09-19 14:03:22')")
+                add_msg(src, 10, 1, 1, 'new one')
+                m.extract()
+                with sqlite3.connect(out_path) as out:
+                    legacy = out.execute('SELECT ts_utc FROM messages WHERE msg_id = 1').fetchone()[0]
+            src.close()
+        self.assertEqual(legacy, '2026-09-19T14:03:22Z',
+                         'the run inserted new ISO rows beside an un-normalised legacy row')
+
+    def test_league_hour_works_where_fromisoformat_rejects_a_z_suffix(self):
+        # Python before 3.11 raises on a trailing 'Z', and the Mac that runs
+        # this script may be older than the box these tests run on.
+        from datetime import datetime as real_datetime
+
+        class Pre311(real_datetime):
+            @classmethod
+            def fromisoformat(cls, value):
+                if value.endswith('Z'):
+                    raise ValueError(f'Invalid isoformat string: {value!r}')
+                return real_datetime.fromisoformat(value)
+
+        with mock.patch.object(elc, 'datetime', Pre311):
+            self.assertEqual(elc.league_hour('2026-09-19T06:30:00Z'), elc.league_hour('2026-09-19 06:30:00'))
+
+    def test_normalise_survives_a_corpus_without_the_rollup_tables(self):
+        # manager_chat_profile and manager_player_sentiment only exist after a
+        # rollup has run; a first pull must not fail on their absence.
+        with tempfile.TemporaryDirectory() as d:
+            db = self._corpus(os.path.join(d, 'c.sqlite'), '2026-09-19 14:03:22')
+            elc.normalise_stamps(db)  # must not raise
+            db.close()
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

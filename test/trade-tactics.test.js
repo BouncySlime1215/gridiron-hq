@@ -36,6 +36,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { withTableReplaced } from './helpers/with-table-replaced.js';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-trade-tactics-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
@@ -758,6 +759,93 @@ test('G5d3: how-Nick-looks states it, and one accessor means no two surfaces can
   assert.deepEqual(self.transactions, climate.transactions);
   const bare = pricing.selfRead(BARE, { season: SEASON });
   assert.equal(bare.transactions.as_of, null);
+});
+
+/**
+ * THE THIRD STATE, which `transactionsCollected` did not have.
+ *
+ * `league_transactions_raw` is in NO migration. scripts/collect-league-transactions.mjs
+ * creates it with `CREATE TABLE IF NOT EXISTS` and nothing else does, so its shape
+ * is whatever that script said the last time it ran against a given database —
+ * and `IF NOT EXISTS` means a script that gains a column does NOT add it to a
+ * table that already exists. A database collected before `last_seen_at` was added
+ * keeps the old shape forever, and no migration will ever repair it.
+ *
+ * The accessor asked `tableExists` and then read. That is two states where there
+ * are three: not there, there and readable, and there and NOT readable. The third
+ * one threw ERR_SQLITE_ERROR out of the accessor, through whichever of the four
+ * call sites was underneath it, and killed the whole trade read — selfRead,
+ * timingRead, vetoClimate and GET /api/trades/:id/managers alike.
+ *
+ * That is the failure this repository has shipped twice already in the other
+ * direction: a catch that turns "I could not look" into "there is nothing here".
+ * This is its mirror — no catch at all, so a shape drift in one hand-run script
+ * takes down a page. Neither is "handled".
+ */
+test('G5d5: a transactions table that will not read does not take the trade reads down with it', () => {
+  const bent = 'CREATE TABLE league_transactions_raw (league_id INTEGER NOT NULL)';
+
+  withTableReplaced({ rows, run }, 'league_transactions_raw', bent, () => {
+    // The accessor itself, first, because the four call sites below all inherit
+    // whatever it does.
+    assert.doesNotThrow(() => signals.transactionsCollected(LEAGUE, SEASON),
+      'a drifted table shape is a fact to report, not an exception to raise');
+    // And each consumer, because "the accessor is fine now" is not the same
+    // claim as "the page comes back".
+    assert.doesNotThrow(() => tactics.timingRead(LEAGUE, { season: SEASON, now: NOW }));
+    assert.doesNotThrow(() => tactics.vetoClimate(LG, { season: SEASON }));
+    assert.doesNotThrow(() => pricing.selfRead(LEAGUE, { season: SEASON }));
+  });
+
+  // The restore, asserted rather than assumed: a rebuild that dropped a column
+  // would otherwise surface as a failure in some later test that never touched
+  // this table.
+  assert.equal(signals.transactionsCollected(LEAGUE, SEASON).as_of, TX_COLLECTED_AT,
+    'the table must come back exactly as it was');
+});
+
+/**
+ * And having not thrown, it must say WHICH of the three it is in. `as_of: null`
+ * with a sentence was enough while there were two states; with three it is the
+ * same conflation this whole unit exists to remove, one level down. The words
+ * are the ones selfRead already uses — 'absent', 'unreadable', 'read' — because
+ * two vocabularies for one distinction is how two surfaces come to disagree.
+ */
+test('G5d6: the collection block names which of the three states the read was in', () => {
+  const live = signals.transactionsCollected(LEAGUE, SEASON);
+  assert.equal(live.read_state, 'read');
+  assert.equal(live.as_of, TX_COLLECTED_AT);
+  assert.equal(live.reason, null, 'a read that worked has nothing to explain');
+
+  const absent = withTableReplaced({ rows, run }, 'league_transactions_raw', null,
+    () => signals.transactionsCollected(LEAGUE, SEASON));
+  const unreadable = withTableReplaced({ rows, run }, 'league_transactions_raw',
+    'CREATE TABLE league_transactions_raw (league_id INTEGER NOT NULL)',
+    () => signals.transactionsCollected(LEAGUE, SEASON));
+
+  assert.equal(absent.read_state, 'absent');
+  assert.equal(unreadable.read_state, 'unreadable');
+  assert.equal(absent.as_of, null);
+  assert.equal(unreadable.as_of, null,
+    'no borrowed stamp: a read that failed knows nothing about when the rows arrived');
+  assert.equal(unreadable.rows, 0);
+
+  // The sentences too, because the reason is what reaches a person, and
+  // "the collector has never run here" sends him somewhere he can act.
+  assert.notEqual(absent.reason, unreadable.reason,
+    'a table nobody has ever built and a table whose shape has drifted are two '
+    + 'different problems with two different fixes');
+  assert.match(unreadable.reason, /would not read|could not read/i);
+
+  // A league with nothing collected is still a READ. Empty is a finding.
+  const bare = signals.transactionsCollected(BARE, SEASON);
+  assert.equal(bare.read_state, 'read', 'nothing collected is something we looked at and saw');
+  assert.equal(bare.rows, 0);
+  assert.ok(typeof bare.reason === 'string' && bare.reason.length > 0);
+
+  // One accessor, one vocabulary: the consumers carry the same word out.
+  assert.equal(pricing.selfRead(LEAGUE, { season: SEASON }).transactions.read_state, 'read');
+  assert.equal(tactics.vetoClimate(LG, { season: SEASON }).transactions.read_state, 'read');
 });
 
 test('G5d4: a league with no roster marked as Nick\'s still reports the collection date', () => {

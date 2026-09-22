@@ -66,20 +66,41 @@ function behindSentence(t: TableFreshness): string {
 }
 
 export default function DataFreshnessBanner() {
-  const { data: report } = useApi<FreshnessReport>('/data-freshness');
+  const { data: report, error } = useApi<FreshnessReport>('/data-freshness');
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState(() => {
     try { return sessionStorage.getItem('data-freshness-dismissed') === '1'; } catch { return false; }
   });
 
-  if (!report || report.all_fresh || dismissed) return null;
-
-  const behind = report.tables.filter(t => t.status !== 'fresh');
   const close = () => {
     try { sessionStorage.setItem('data-freshness-dismissed', '1'); } catch { /* private mode */ }
     setDismissed(true);
   };
 
+  // The check itself failed — a 404 because the route is not mounted yet, a
+  // network error, a 500. Returning null here would put the user in front of a
+  // silent page, and a page with no warning on it reads as "everything is
+  // current". That is the exact lie the banner this one replaced used to tell,
+  // so the failure gets said out loud instead of swallowed.
+  if (error && !dismissed) {
+    return (
+      <div className="w-full border-b border-slate-300 bg-slate-100 text-slate-800">
+        <div className="flex w-full flex-wrap items-center gap-2 px-4 py-1.5 text-xs">
+          <span aria-hidden>●</span>
+          <span className="font-semibold">Data freshness could not be checked.</span>
+          <span className="text-slate-600">
+            No warning on this page does not mean your data is current — nothing was read.
+          </span>
+          <button onClick={close} aria-label="Dismiss for now"
+            className="ml-auto text-slate-400 hover:text-slate-700">✕</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!report || report.all_fresh || dismissed) return null;
+
+  const behind = report.tables.filter(t => t.status !== 'fresh');
   return (
     <div className="w-full border-b border-amber-200 bg-amber-50 text-amber-900">
       <div className="flex w-full flex-wrap items-center gap-2 px-4 py-1.5 text-xs">

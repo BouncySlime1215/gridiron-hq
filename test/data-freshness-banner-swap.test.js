@@ -54,7 +54,10 @@ test('a failed freshness check is not rendered as an all-clear', () => {
   const c = read('client/src/components/DataFreshnessBanner.tsx');
   assert.match(c, /\berror\b/, 'the banner never looks at the request error');
 
-  const errorGuard = c.indexOf('if (error)');
+  // Anchored on `if (error` rather than a full spelling: the guard may carry
+  // extra conditions (it does — it also honours a dismissal), and a test that
+  // pins punctuation fails on a correct change instead of on a wrong one.
+  const errorGuard = c.indexOf('if (error');
   const silentReturn = c.indexOf('if (!report');
   // Both indices are checked against -1 first. `indexOf` returning -1 and being
   // compared directly is how an assertion like this passes while testing nothing.

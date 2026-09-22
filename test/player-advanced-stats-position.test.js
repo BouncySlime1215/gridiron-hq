@@ -68,6 +68,11 @@ player(4, 'Kicker', 'K');
 // never reach the behaviour.
 player(5, 'Position Unknown', '');
 player(6, 'Receiving Back', 'RB');
+// A third quarterback with NO usage rows at all. Without him, every fixture
+// quarterback has rows, `noUsage` is false for all of them, and the order of
+// the applicability check against the no-rows check cannot be observed: a
+// sweep row that moved applicability behind it survived the whole suite.
+player(7, 'Unplayed Passer', 'QB');
 
 const usage = (id, week, over = {}) => {
   const r = { targets: 0, carries: 0, attempts: 0, receiving_tds: 0, rushing_tds: 0,
@@ -133,13 +138,25 @@ test('the reason names the position, and is a fact about the position', () => {
   }
 });
 
-test('the same position gets the same sentence, busy or idle', () => {
-  // Two quarterbacks, one with two weeks of work and one with none. If the
-  // sentence moves between them it is describing the workload, not the
+test('the same position gets the same sentence, busy, idle, or never played', () => {
+  // Three quarterbacks: two weeks of work, one empty week, and no rows at all.
+  // If the sentence moves between them it is describing the workload, not the
   // position, and it is the wrong sentence.
+  //
+  // Player 7 is the one that matters. Applicability has to be settled BEFORE
+  // the no-rows branch: a quarterback with no rows has no target share for the
+  // same reason as one with twelve weeks of them, so "no usage rows on file"
+  // is true of him and still the wrong answer. With only players 1 and 2 in
+  // this assertion, both have rows, and a sweep row that moved the
+  // applicability check below the no-rows check survived every test here.
   for (const key of POSITIONAL) {
     assert.equal(stat(1, key).unavailable_reason, stat(2, key).unavailable_reason,
       `${key} explains a busy quarterback differently from an idle one`);
+    assert.equal(stat(7, key).unavailable_reason, stat(1, key).unavailable_reason,
+      `${key} explains a quarterback who never played by his missing rows, and the `
+      + 'reason he has no target share has nothing to do with his rows');
+    assert.equal(stat(7, key).unavailable_kind, 'not_applicable',
+      `${key} for an unplayed quarterback is filed as a missing measurement`);
   }
 });
 
@@ -226,7 +243,7 @@ test('touchdown rate is untouched: a quarterback still gets one, per attempt', (
 });
 
 test('every stat still carries either a value or a reason, never both and never neither', () => {
-  for (const id of [1, 2, 3, 4, 5, 6]) {
+  for (const id of [1, 2, 3, 4, 5, 6, 7]) {
     for (const s of get(id).stats) {
       const hasValue = s.value != null;
       const hasReason = s.unavailable_reason != null;
@@ -254,9 +271,23 @@ const read = p => fs.readFileSync(p, 'utf8');
 
 test('the panel separates a stat that does not apply from one it could not measure', () => {
   const panel = read('client/src/components/AdvancedStatsPanel.tsx');
-  assert.match(panel, /not_applicable|notApplicable/,
-    'the panel has no notion of a stat that does not apply, so it renders the '
-    + 'positional absences in the same list as the missing measurements');
+  // Anchored on the two filter EXPRESSIONS, not on the words appearing
+  // somewhere in the file. The fourth time this suite has needed that lesson:
+  // a sweep row that replaced the positional list with a literal `[]` left
+  // `inapplicable.map(` and the string `not_applicable` both intact, and a row
+  // that grouped by running a regex over the sentence left every word in place
+  // too. What has to be pinned is which field each list is built from.
+  assert.match(panel,
+    /const inapplicable = report\.stats\.filter\(s => s\.unavailable_kind === 'not_applicable'\)/,
+    'the positional absences are not built from the kind the service reports, so '
+    + 'they are either pooled with the missing measurements or dropped entirely');
+  assert.match(panel,
+    /const absent = report\.stats\.filter\(s => s\.unavailable_kind === 'not_measured'\)/,
+    'the missing measurements are not built from the kind either');
+  // Grouping by prose is the failure the kind field exists to remove: a
+  // reworded sentence silently moves a row into the wrong list.
+  assert.doesNotMatch(panel, /test\(s\.unavailable_reason|unavailable_reason\s*\)\s*\.match|\.test\(String\(s\.unavailable_reason/,
+    'the panel decides which list a stat belongs in by reading its sentence');
   // Both halves must be rendered. A panel that computes the split and then maps
   // only one of them has hidden the other, which is worse than not splitting.
   assert.match(panel, /inapplicable\.map\(/,

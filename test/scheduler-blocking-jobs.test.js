@@ -35,13 +35,20 @@ test('the two always-on jobs that parse megabytes do not run on the request thre
   }
 });
 
+const insertWeek = db.prepare(`INSERT INTO nfl_ffopportunity_weekly
+  (season,week,player_gsis_id,player_name,team,position,expected_fantasy_points,
+   actual_fantasy_points,expected_pass_points,expected_receive_points,
+   expected_rush_points,expected_total_yards,expected_touchdowns,source_release,ingested_at)
+  VALUES (?,?,'00-0000001','Test Player','KC','WR',1,1,0,1,0,10,0,'test',datetime('now'))`);
+
+/** A season as ffverse leaves it once it has finished publishing: all 18 weeks. */
+function ingestFullSeason(season) {
+  for (let week = 1; week <= 18; week++) insertWeek.run(season, week);
+}
+
 test('a completed season already held is not pulled again', () => {
-  const insert = db.prepare(`INSERT INTO nfl_ffopportunity_weekly
-    (season,week,player_gsis_id,player_name,team,position,expected_fantasy_points,
-     actual_fantasy_points,expected_pass_points,expected_receive_points,
-     expected_rush_points,expected_total_yards,expected_touchdowns,source_release,ingested_at)
-    VALUES (?,1,'00-0000001','Test Player','KC','WR',1,1,0,1,0,10,0,'test',datetime('now'))`);
-  for (const season of [2023, 2024, 2025]) insert.run(season);
+  db.exec('DELETE FROM nfl_ffopportunity_weekly');
+  for (const season of [2023, 2024, 2025]) ingestFullSeason(season);
 
   assert.deepEqual(scheduler.ffOpportunitySeasons(2026), [2026],
     'a completed season ffverse never revises must not be re-parsed to arrive at the rows already stored');
@@ -55,12 +62,59 @@ test('a season we do not hold yet is still backfilled', () => {
 
 test('a partially held history backfills only the gap', () => {
   db.exec('DELETE FROM nfl_ffopportunity_weekly');
-  db.prepare(`INSERT INTO nfl_ffopportunity_weekly
+  ingestFullSeason(2024);
+  assert.deepEqual(scheduler.ffOpportunitySeasons(2026), [2023, 2025, 2026]);
+});
+
+test('a season whose ingestion died partway through is fetched again', () => {
+  // The bug this replaces: `held` asked SELECT DISTINCT season, so ONE row was
+  // a complete season forever. A run killed after week 3 — a timeout, an OOM
+  // kill, the machine wedging, all of which this scheduler exists because of —
+  // left fifteen weeks missing and nothing would ever fetch them. The job
+  // returns clean, the sync status reads ok, and the only symptom is
+  // projections that are quietly worse.
+  db.exec('DELETE FROM nfl_ffopportunity_weekly');
+  for (let week = 1; week <= 3; week++) insertWeek.run(2024, week);
+
+  assert.deepEqual(scheduler.ffOpportunitySeasons(2026), [2023, 2024, 2025, 2026],
+    'a season holding three weeks of eighteen is not held');
+});
+
+test('one week short of the floor is not held, and the floor itself is', () => {
+  // 17 rather than 18 because the regular season was 17 weeks through 2020,
+  // and a floor must not be a moving target that we re-fetch against forever.
+  db.exec('DELETE FROM nfl_ffopportunity_weekly');
+  for (let week = 1; week <= 16; week++) insertWeek.run(2024, week);
+  assert.ok(scheduler.ffOpportunitySeasons(2026).includes(2024),
+    '16 weeks is short of any complete NFL season');
+
+  insertWeek.run(2024, 17);
+  assert.ok(!scheduler.ffOpportunitySeasons(2026).includes(2024),
+    'a 17-week season is complete and must not be pulled again');
+});
+
+test('duplicate rows within a week do not make a season look complete', () => {
+  // COUNT(DISTINCT week), not COUNT(*): the upsert is keyed on
+  // (season, week, player_gsis_id), so a season with many players in week 1
+  // has plenty of rows and one week of data.
+  db.exec('DELETE FROM nfl_ffopportunity_weekly');
+  const insertPlayer = db.prepare(`INSERT INTO nfl_ffopportunity_weekly
     (season,week,player_gsis_id,player_name,team,position,expected_fantasy_points,
      actual_fantasy_points,expected_pass_points,expected_receive_points,
      expected_rush_points,expected_total_yards,expected_touchdowns,source_release,ingested_at)
-    VALUES (2024,1,'00-0000001','Test Player','KC','WR',1,1,0,1,0,10,0,'test',datetime('now'))`).run();
-  assert.deepEqual(scheduler.ffOpportunitySeasons(2026), [2023, 2025, 2026]);
+    VALUES (2024,1,?,'Test Player','KC','WR',1,1,0,1,0,10,0,'test',datetime('now'))`);
+  for (let player = 0; player < 40; player++) insertPlayer.run(`00-000${1000 + player}`);
+
+  assert.ok(scheduler.ffOpportunitySeasons(2026).includes(2024),
+    'forty rows in one week is one week of data');
+});
+
+test('the current season is always fetched, however much of it we hold', () => {
+  // It is the only season ffverse revises, so holding it is never a reason to
+  // skip it — including the case where it has already run its full schedule.
+  db.exec('DELETE FROM nfl_ffopportunity_weekly');
+  ingestFullSeason(2026);
+  assert.deepEqual(scheduler.ffOpportunitySeasons(2026), [2023, 2024, 2025, 2026]);
 });
 
 test('an off-thread job cannot be module-mocked from the main thread', () => {

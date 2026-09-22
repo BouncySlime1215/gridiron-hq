@@ -84,6 +84,15 @@ let armed = null;
 // would leave the process permanently unwatched for a reason nobody would
 // guess from either call site.
 let armedEarly = false;
+// Header: [heartbeat, armed, nameLen]. 12 bytes, then the name.
+const HEADER_CELLS = 3;
+const HEADER_BYTES = HEADER_CELLS * 4;
+// 64 bytes is comfortably past the longest job name in the registry
+// (`polymarket_line_watch`, 21). A longer one is truncated rather than
+// refused: a slightly clipped name in a kill line beats no kill line.
+const NAME_BYTES = 64;
+let nameBytes = null;
+const encoder = new TextEncoder();
 
 export function startLoopWatchdog({
   thresholdMs = Number(process.env.LOOP_WATCHDOG_THRESHOLD_MS) || 60_000
@@ -91,14 +100,22 @@ export function startLoopWatchdog({
   if (process.env.LOOP_WATCHDOG_DISABLED === '1') return { disabled: true };
   if (worker) return { already_running: true };
 
-  // Two Int32 cells (Int32Array rather than BigInt64Array so Atomics work on
+  // Three Int32 cells (Int32Array rather than BigInt64Array so Atomics work on
   // every platform Node supports): [0] is the heartbeat, milliseconds since
-  // this watchdog started, and [1] is the armed flag. Milliseconds fit in an
-  // int32 for 24 days, which is why the heartbeat is relative to startedAt
-  // rather than an absolute epoch.
-  const shared = new SharedArrayBuffer(8);
-  const cell = new Int32Array(shared);
+  // this watchdog started, [1] is the armed flag, and [2] is the byte length
+  // of the running job's name. Milliseconds fit in an int32 for 24 days, which
+  // is why the heartbeat is relative to startedAt rather than an absolute
+  // epoch. After the header comes NAME_BYTES of UTF-8 for that name.
+  //
+  // The name lives in SHARED memory, not in a variable, for the same reason
+  // the watchdog lives on its own thread: at the moment it matters the main
+  // thread is blocked and cannot answer a question. Whatever is going to be
+  // read out of the kill line has to have been written there BEFORE the block
+  // started.
+  const shared = new SharedArrayBuffer(HEADER_BYTES + NAME_BYTES);
+  const cell = new Int32Array(shared, 0, HEADER_CELLS);
   armed = cell;
+  nameBytes = new Uint8Array(shared, HEADER_BYTES, NAME_BYTES);
   if (armedEarly) { Atomics.store(cell, 1, 1); armedEarly = false; }
   const startedAt = Date.now();
   const stamp = () => Atomics.store(cell, 0, Date.now() - startedAt);
@@ -109,14 +126,15 @@ export function startLoopWatchdog({
   beat.unref?.();
 
   worker = new Worker(new URL('./loop-watchdog-worker.js', import.meta.url), {
-    workerData: { shared, thresholdMs, startedAt, heartbeatMs: HEARTBEAT_MS }
+    workerData: { shared, thresholdMs, startedAt, heartbeatMs: HEARTBEAT_MS,
+      headerBytes: HEADER_BYTES, headerCells: HEADER_CELLS, nameBytes: NAME_BYTES }
   });
   // Same: a watchdog that held the process open would keep a CLI or a test
   // runner from ever exiting.
   worker.unref();
   worker.once('error', error => console.error('[watchdog] stopped:', error?.message ?? error));
 
-  return { started: true, threshold_ms: thresholdMs, armed_by: 'first completed HTTP response' };
+  return { started: true, threshold_ms: thresholdMs, armed_by: 'the scheduler boot pass, or any completed response other than the liveness probe' };
 }
 
 /**
@@ -128,6 +146,41 @@ export function armLoopWatchdog() {
   if (!armed) { armedEarly = true; return; }
   if (Atomics.load(armed, 1) === 1) return;
   Atomics.store(armed, 1, 1);
+}
+
+/**
+ * Records which job is about to run, so that if it blocks the thread the kill
+ * line can name it.
+ *
+ * This is the difference between "the event loop stopped for 60s" and "the
+ * event loop stopped for 60s during nfl_model_growth". The first has cost this
+ * project days of guessing at which of two dozen jobs was responsible; the
+ * second ends the question in the log line itself.
+ *
+ * Call it BEFORE the work starts. A marker written after a synchronous job
+ * begins is never written at all, because the thread never comes back to run
+ * it. Cheap by construction: one encode and one store, off the request path.
+ */
+export function markJobRunning(name) {
+  if (!nameBytes || !armed) return;
+  const encoded = encoder.encode(String(name ?? ''));
+  const len = Math.min(encoded.length, NAME_BYTES);
+  nameBytes.set(encoded.subarray(0, len));
+  // Length stored LAST, deliberately: the worker reads the length first and
+  // treats 0 as "no job", so this order means it can never decode a name that
+  // is only half written. Stated honestly -- the suite does NOT prove this
+  // ordering. Reversing these two lines leaves all 8 watchdog tests passing,
+  // because the window is nanoseconds and a test cannot reliably land inside
+  // it. The order is kept because it is free and the race is real across two
+  // threads, not because anything checks it. Do not cite this comment as
+  // evidence that it is tested.
+  Atomics.store(armed, 2, len);
+}
+
+/** Clears the marker once the job has returned, however it returned. */
+export function clearJobRunning() {
+  if (!armed) return;
+  Atomics.store(armed, 2, 0);
 }
 
 /**
@@ -152,6 +205,7 @@ export function watchdogArmingMiddleware(req, res, next) {
 
 export function stopLoopWatchdog() {
   armed = null;
+  nameBytes = null;
   armedEarly = false;
   if (beat) { clearInterval(beat); beat = null; }
   if (worker) { worker.terminate().catch(() => {}); worker = null; }

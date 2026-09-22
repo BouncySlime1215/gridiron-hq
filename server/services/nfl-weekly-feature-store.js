@@ -146,7 +146,7 @@ function teamHistory(season, week, team, limit = 12) {
       AVG(CASE WHEN offense_formation='SHOTGUN' THEN 1.0 ELSE 0.0 END) shotgun_share,
       AVG(CASE WHEN offense_formation='EMPTY' THEN 1.0 ELSE 0.0 END) empty_share,
       AVG(CASE WHEN offense_formation='SINGLEBACK' THEN 1.0 ELSE 0.0 END) singleback_share,
-      AVG(defenders_in_box) defenders_in_box,AVG(pass_rushers) pass_rushers,COUNT(*) plays
+      AVG(NULLIF(defenders_in_box,0)) defenders_in_box,AVG(pass_rushers) pass_rushers,COUNT(*) plays
     FROM nfl_play_formations WHERE possession=? AND season>=? AND
       (season<? OR (season=? AND CAST(substr(game_id,6,2) AS INTEGER)<?))
     GROUP BY season,CAST(substr(game_id,6,2) AS INTEGER)
@@ -155,7 +155,7 @@ function teamHistory(season, week, team, limit = 12) {
   merge(optionalRows(`SELECT f.season,CAST(substr(f.game_id,6,2) AS INTEGER) week,
       AVG(c.motion) motion_share,AVG(c.play_action) play_action_share,AVG(c.screen) screen_share,
       AVG(c.rpo) rpo_share,AVG(c.out_of_pocket) out_of_pocket_share,
-      AVG(c.contested) contested_share,AVG(c.defense_box) charted_box,COUNT(*) charted_plays
+      AVG(c.contested) contested_share,AVG(NULLIF(c.defense_box,0)) charted_box,COUNT(*) charted_plays
     FROM nfl_play_formations f JOIN nfl_play_charting c
       ON c.game_id=f.game_id AND c.play_id=f.play_id
     WHERE f.possession=? AND f.season>=? AND (f.season<? OR

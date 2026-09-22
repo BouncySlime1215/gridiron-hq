@@ -40,13 +40,13 @@ interface GateResult {
 }
 
 const VERDICT: Record<string, { label: string; chip: string; say: string }> = {
-  beats_dumb: { label: 'Beats the dumb rule', chip: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
+  beats_dumb: { label: 'Beats "start the higher average"', chip: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
     say: 'Our projection picked the better player more often than "start the higher average", in past seasons and this one.' },
-  beats_dumb_unconfirmed_forward: { label: 'Beat it before, not yet this season', chip: 'bg-sky-50 text-sky-800 ring-sky-200',
+  beats_dumb_unconfirmed_forward: { label: 'Beat the average before, not yet this season', chip: 'bg-sky-50 text-sky-800 ring-sky-200',
     say: 'Our projection beat "start the higher average" in past seasons, but this season\'s weeks do not confirm it yet.' },
   not_distinguishable: { label: 'No proven edge', chip: 'bg-amber-50 text-amber-900 ring-amber-200',
     say: 'On these weeks our projection cannot be told apart from "start the higher average". Read its calls as no better than that rule.' },
-  loses_to_dumb: { label: 'Loses to the dumb rule', chip: 'bg-rose-50 text-rose-800 ring-rose-200',
+  loses_to_dumb: { label: 'Loses to "start the higher average"', chip: 'bg-rose-50 text-rose-800 ring-rose-200',
     say: 'Where they disagreed, "start the higher average" picked the better player more often than our projection did.' },
   no_disagreements: { label: 'Never disagreed', chip: 'bg-slate-100 text-slate-700 ring-slate-200',
     say: 'Our projection and "start the higher average" made the same call on every startable pair, so there is nothing to grade.' },

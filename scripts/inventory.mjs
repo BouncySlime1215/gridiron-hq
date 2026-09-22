@@ -86,42 +86,72 @@ const STATUSES = ['wired', 'wired-betting-only', 'half_done', 'dead', 'silently_
  * `jobs` and `pages` are enumerated sets, not a first hit -- so this reads that
  * set rather than walking the graph again.
  */
-const BETTING_PREFIXES = ['/api/nfl-market', '/api/nfl-betting', '/api/betting'];
-
 /*
- * Prefix, not equality. `server/routes/wong.js` is mounted at
- * `/api/betting/wong`, under the betting hub, and comparing names for equality
- * makes that sub-path look like a fourth, non-betting surface. The `/` boundary
- * is required so `/api/bettingsomething` does not join the family by accident.
- */
-const isBettingFamily = (name) =>
-  BETTING_PREFIXES.some((p) => name === p || name.startsWith(`${p}/`));
-
-/*
- * The app root is NOT an entry point for this question. `server/index.js` mounts
- * every route, the three betting ones included, so it reaches every reachable
- * module in the repository and separates nothing. The map files it under
- * `pages`, where it sits on 140+ modules; counting it as a non-betting entry
- * point graded 13 of the 19 real betting-only rows straight back to `wired`.
+ * THE BETTING SURFACES, AS AN EXPLICIT LIST, with the reason each one is on it.
  *
- * Excluded by name, deliberately. Everything else in that bucket is a real entry
- * point and does disqualify: `client:` (App.tsx, main.tsx), `extension:`, and the
- * 63 `migration:` surfaces. So does any job -- `nfl-weather-response.js` reaches
- * betting route families only and stays `wired` because three scheduled jobs run
- * it, which is reach that never touches a betting route.
+ * This replaced a three-prefix match (Auditor R17/R18). A mount prefix is
+ * EVIDENCE for adding a surface to this list; it is not the test. The prefix
+ * rule got `/api/betting/wong` right by accident -- wong.js happens to sit under
+ * the hub's prefix -- and got execution-slate.js wrong on the merits, because it
+ * is mounted at `/api/execution-slate`, which no betting prefix matches, so a
+ * module served only by it graded `wired`. Nothing about a URL says what product
+ * a route belongs to.
+ *
+ * The labels are three, not two. `routes/mlb.js` is neither: a module whose only
+ * request reach is `/api/mlb` is not betting-only BY DEFINITION, and it is not
+ * part of the fantasy product this inventory counts either.
  */
+const SURFACE_LABELS = new Map([
+  // The three the contract named from the start: the NFL market feed, the NFL
+  // betting engine and the betting hub the front end calls.
+  ['server/routes/nfl-market.js', 'betting'],
+  ['server/routes/nfl-betting.js', 'betting'],
+  ['server/routes/betting-hub.js', 'betting'],
+  // Mounted at /api/betting/wong, under the hub. Wong teaser scanning.
+  ['server/routes/wong.js', 'betting'],
+  // Mounted at /api/execution-slate, outside every betting prefix. Bet execution
+  // slates; the case that showed a prefix cannot be the test.
+  ['server/routes/execution-slate.js', 'betting'],
+  // Its own label. Not betting, and not the fantasy product either.
+  ['server/routes/mlb.js', 'mlb'],
+]);
+
+/**
+ * The label of each route FAMILY, derived from the files actually mounted under
+ * it -- never from the family's name.
+ *
+ * A family takes a label only when EVERY file mounted under it carries that same
+ * label. `/api/betting` holds both betting-hub.js and wong.js, so it is betting;
+ * if an unlisted route were ever mounted under it, the family would go unlabelled
+ * and every module it reaches would grade fantasy-`wired` again, which is the
+ * safe direction for a rule that removes rows from the product's total.
+ */
+function familyLabels(mounts = []) {
+  const byFamily = new Map();
+  for (const m of mounts) {
+    const family = '/api/' + String(m.prefix ?? '').split('/')[2];
+    if (!byFamily.has(family)) byFamily.set(family, new Set());
+    byFamily.get(family).add(SURFACE_LABELS.get(m.file) ?? null);
+  }
+  const out = new Map();
+  for (const [family, labels] of byFamily) {
+    const only = labels.size === 1 ? [...labels][0] : null;
+    if (only) out.set(family, only);
+  }
+  return out;
+}
+
 const APP_ROOT_SURFACE = 'boot:server/index.js';
 
 /*
- * The three betting route files themselves. For a MODULE the grade asks what
- * reaches it; for the ROUTE FILE that question is circular -- nfl-market.js is
- * reached through nfl-market.js -- so the route row takes the grade by being one
- * of the three. Only a route that would otherwise be `wired` moves: the grade is
+ * The betting route files themselves. For a MODULE the grade asks what reaches
+ * it; for the ROUTE FILE that question is circular -- nfl-market.js is reached
+ * through nfl-market.js -- so the route row takes the grade by being on the
+ * list. Only a route that would otherwise be `wired` moves: the grade is
  * a refinement of reach, and a betting route no page calls is still `half_done`.
  */
-const BETTING_ROUTE_FILES = new Set([
-  'server/routes/nfl-market.js', 'server/routes/nfl-betting.js', 'server/routes/betting-hub.js',
-]);
+const BETTING_ROUTE_FILES = new Set(
+  [...SURFACE_LABELS].filter(([, label]) => label === 'betting').map(([file]) => file));
 
 /*
  * A SCRIPT IN package.json IS AN ENTRY POINT, and the first version of this
@@ -139,13 +169,15 @@ const BETTING_ROUTE_FILES = new Set([
  * causes it to run, so it is not a way the product reaches anything. The test is
  * package.json membership, not the existence of a script.
  */
-function bettingOnly(wiring, packageScripts = new Set()) {
+function bettingOnly(wiring, packageScripts = new Set(), labels = new Map()) {
   const names = (a) => (a ?? []).map((x) => x.name);
   const families = names(wiring?.route_families);
   // The grade says what SERVES the row. A module no route reaches is not served
   // through a betting route; it is not served through a route at all.
   if (families.length === 0) return false;
-  if (families.some((f) => !isBettingFamily(f))) return false;
+  // `mlb` and unlabelled both fail this, for different reasons that land in the
+  // same place: neither is a betting surface.
+  if (families.some((f) => labels.get(f) !== 'betting')) return false;
   const otherEntry = [
     ...names(wiring?.jobs),
     ...names(wiring?.pages),
@@ -248,7 +280,7 @@ function tablesReadBy(modPath, tables) {
  * counts; everything else is unclassified-with-reason. Model rows never reach here —
  * they are emitted blank for the audit thread.
  */
-function classify({ modPath, wiring, findingsFor, tables, local, packageScripts }) {
+function classify({ modPath, wiring, findingsFor, tables, local, packageScripts, labels }) {
   const reaches = reachesLiveSurface(wiring);
   const has = (rule) => findingsFor.some((f) => f.rule === rule);
 
@@ -272,7 +304,7 @@ function classify({ modPath, wiring, findingsFor, tables, local, packageScripts 
   // Reaches a live surface. Now the data question.
   // Reachable only through a betting surface is its own grade, whatever the data
   // question says: it is out-of-scope reach, and it leaves the fantasy total.
-  const betting = bettingOnly(wiring, packageScripts);
+  const betting = bettingOnly(wiring, packageScripts, labels);
   const served = betting
     ? `every surface that reaches it is a betting route (${(wiring.route_families ?? []).map((f) => f.name).join(', ')})`
     : null;
@@ -308,6 +340,8 @@ function classify({ modPath, wiring, findingsFor, tables, local, packageScripts 
 
 function buildRows(map, local) {
   const pkgScripts = packageJsonScripts();
+  // The label of every mounted route family, read off this map's own mounts.
+  const labels = familyLabels(map.mounts ?? []);
   const modByPath = new Map(map.modules.map((m) => [m.path, m]));
   // A finding attaches to a path two ways, and both matter. Most rules put the path in
   // evidence[0]; the module-level deadness rules (module-imported-by-nothing,
@@ -338,7 +372,7 @@ function buildRows(map, local) {
       continue;
     }
     const c = classify({ modPath: p, wiring: mod?.wiring, findingsFor: findingsFor(p),
-      tables: map.tables, local, packageScripts: pkgScripts });
+      tables: map.tables, local, packageScripts: pkgScripts, labels });
     push({ id: `pipeline:${slug(name)}`, kind: 'pipeline', name, path: p, owner_thread: null, ...c });
   }
 
@@ -830,6 +864,7 @@ function check(rows) {
 }
 
 export { buildRows, classify, check, tally, applyAudit, blockers };
+export { SURFACE_LABELS, familyLabels, bettingOnly };
 
 /* ------------------------------------------------------------------ main */
 

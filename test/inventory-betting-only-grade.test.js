@@ -34,12 +34,30 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, check, tally } from '../scripts/inventory.mjs';
+import { classify, check, tally, familyLabels } from '../scripts/inventory.mjs';
+
+/*
+ * The surface list is EXPLICIT (Auditor R17/R18), so these cases supply the
+ * mounts the label is read off, exactly as the real map records them. A prefix
+ * is evidence for putting a file on the list; it is never the test, which is why
+ * `/api/execution-slate` is a betting surface and `/api/betting/somethingelse`
+ * would not be.
+ */
+const MOUNTS = [
+  { prefix: '/api/nfl-market', file: 'server/routes/nfl-market.js' },
+  { prefix: '/api/nfl-betting', file: 'server/routes/nfl-betting.js' },
+  { prefix: '/api/betting', file: 'server/routes/betting-hub.js' },
+  { prefix: '/api/betting/wong', file: 'server/routes/wong.js' },
+  { prefix: '/api/execution-slate', file: 'server/routes/execution-slate.js' },
+  { prefix: '/api/mlb', file: 'server/routes/mlb.js' },
+  { prefix: '/api/model', file: 'server/routes/model.js' },
+];
+const LABELS = familyLabels(MOUNTS);
 
 const at = (name, hops = 2) => ({ name, hops });
 const call = (wiring) => classify({
   modPath: 'server/services/x.js', wiring, findingsFor: [],
-  tables: [], local: { readable: true, counts: new Map() },
+  tables: [], local: { readable: true, counts: new Map() }, labels: LABELS,
 });
 
 test('reachable only through betting routes takes the betting-only grade', () => {
@@ -49,13 +67,15 @@ test('reachable only through betting routes takes the betting-only grade', () =>
   assert.match(c.evidence, /nfl-market/);
 });
 
-test('every betting family counts, and only those three', () => {
-  for (const fam of ['/api/nfl-market', '/api/nfl-betting', '/api/betting']) {
+test('every betting family counts, and only the labelled ones', () => {
+  for (const fam of ['/api/nfl-market', '/api/nfl-betting', '/api/betting', '/api/execution-slate']) {
     assert.equal(call({ route_families: [at(fam)], jobs: [], pages: [] }).status,
       'wired-betting-only', `${fam} is a betting surface`);
   }
   assert.equal(call({ route_families: [at('/api/model')], jobs: [], pages: [] }).status,
     'wired', '/api/model is the fantasy product');
+  assert.equal(call({ route_families: [at('/api/mlb')], jobs: [], pages: [] }).status,
+    'wired', '/api/mlb carries its own label: not betting, so not betting-only');
 });
 
 test('one non-betting path is enough to stay wired', () => {
@@ -191,23 +211,29 @@ test('a hand-run script does not disqualify', () => {
     wiring: { route_families: [at('/api/nfl-market')], jobs: [], pages: [],
       scripts: [at('scripts/some-one-off.mjs', 2)] },
     findingsFor: [], tables: [], local: { readable: true, counts: new Map() },
-    packageScripts: new Set(['scripts/build-role-scenario-lab.mjs']),
+    packageScripts: new Set(['scripts/build-role-scenario-lab.mjs']), labels: LABELS,
   });
   assert.equal(c.status, 'wired-betting-only',
     'nothing in the repository causes a hand-run script to run, and the '
     + 'contract says never to record that as wired');
 });
 
-test('a mount under a betting prefix is still betting', () => {
-  // server/routes/wong.js is mounted at /api/betting/wong.
-  const c = classify({
-    modPath: 'server/services/y.js',
-    wiring: { route_families: [at('/api/betting/wong')], jobs: [], pages: [], scripts: [] },
-    findingsFor: [], tables: [], local: { readable: true, counts: new Map() },
-  });
-  assert.equal(c.status, 'wired-betting-only',
-    'a sub-path of the betting hub is the betting hub; comparing prefixes for '
-    + 'equality invents a fourth surface');
+test('a prefix is evidence for the list, never the test', () => {
+  // `server/routes/wong.js` is mounted at `/api/betting/wong`, and the map folds
+  // that into the family `/api/betting` -- `/api/betting/wong` is not a family
+  // name the map ever emits, so an earlier version of this case pinned a shape
+  // that does not exist. What makes wong.js betting is the list, not the URL.
+  assert.equal(LABELS.get('/api/betting'), 'betting');
+  assert.equal(call({ route_families: [at('/api/betting')], jobs: [], pages: [], scripts: [] }).status,
+    'wired-betting-only');
+
+  // And the direction that matters: an UNLISTED route mounted under a betting
+  // prefix does not make its family betting. Under the old prefix rule it did.
+  const withStranger = familyLabels([
+    ...MOUNTS, { prefix: '/api/betting/stranger', file: 'server/routes/stranger.js' }]);
+  assert.equal(withStranger.get('/api/betting'), undefined,
+    'one unlisted route under the hub and the whole family goes unlabelled, so '
+    + 'every module it reaches counts inside the fantasy total again');
 });
 
 test('a near-miss prefix is not a betting surface', () => {

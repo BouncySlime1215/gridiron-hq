@@ -75,3 +75,94 @@ low, NULLIF is 3.41x high.
 
 This is why "add NULLIF to the contaminated averages" is not a safe blanket
 instruction, and why any fix has to be argued per column against the feed.
+
+---
+
+# Sweep, 2026-09-22: further instances of the same pattern
+
+Method: every `AVG(` in `server/` that is not already wrapped in `NULLIF`,
+triaged against what its feed actually writes. Two confirmed instances beyond
+the three already fixed, plus one checked and cleared.
+
+## 1. `who-plays.js:69` — CONFIRMED, live, user-facing
+
+```sql
+SELECT player, position, AVG(offense_pct) AS pct FROM nfl_snaps
+ WHERE season = ? AND week < ? AND UPPER(team) = ? GROUP BY player, position
+```
+
+Measured on the real `snap_counts_2024.csv` (26,615 rows):
+
+| | count |
+|---|---|
+| `offense_pct` blank | **0** |
+| `offense_pct` literal `0` | **16,063** |
+| `offense_pct` positive | 10,552 |
+| of those zeros, rows where `defense_pct > 0` — **a defender who played** | **11,027** |
+
+`AVG(offense_pct)` raw = 0.2356; over non-zero rows = 0.5942.
+
+So every defender's `snap_share` computes to **0.0000**, including a cornerback
+who played every defensive snap. The value feeds the comment directly above it —
+"Snap share, which decides whether an absence actually matters" — so a starting
+defender's absence is scored as not mattering.
+
+**This exact bug was already found, fixed and documented in this repository**,
+in `nfl-availability.js:188-194`:
+
+> This used to select `offense_pct` alone. `nfl_snaps` carries a fully populated
+> `defense_pct` too (25,271 of 25,271 rows in 2021, and the same in every season
+> since), so every defender -- about half of each roster -- matched nothing […]
+> A starting cornerback and a fourth safety were the same number.
+
+`who-plays.js` never got the same fix.
+
+**Correct treatment — a third one, and neither of the first two.** Not `NULLIF`,
+which would drop genuine bench zeros, and not a gate. It is the same expression
+`nfl-availability.js` already uses:
+
+```sql
+AVG(MAX(COALESCE(offense_pct, 0), COALESCE(defense_pct, 0)))
+```
+
+## 2. `offseason-data.js:1013` — CONFIRMED by shape, same defect, different table
+
+```sql
+SELECT p.gsis_id, AVG(s.offense_pct) pct FROM player_week_snaps s …
+```
+
+Same expression over `player_week_snaps` rather than `nfl_snaps`. Not measured
+against that table directly — flagged, not asserted.
+
+## 3. `nfl-weekly-feature-store-v2.js:623, 634` — CONFIRMED, byte-identical to v1
+
+The v2 study copy carries the same three contaminated aggregates as
+`nfl-weekly-feature-store.js:149, 158-160`, character for character:
+
+```sql
+AVG(defenders_in_box) defenders_in_box, AVG(pass_rushers) pass_rushers
+AVG(c.contested) contested_share, AVG(c.defense_box) charted_box
+```
+
+A fix applied to v1 alone leaves v2 wrong. v2 is study-only — its own header
+says nothing in the server imports it — so this is not a live bug, but it is
+what any future v2 gate would read, and the v2 study is what produced the
+version-bump outage.
+
+## 4. `nfl-availability.js:194` — CHECKED AND CLEAR
+
+`AVG(MAX(COALESCE(offense_pct, 0), COALESCE(defense_pct, 0)))` injects zeros
+deliberately so `MAX` can work across the two columns, and its comment explains
+why. A row with both columns NULL would average in as a real 0, but the same
+comment records `defense_pct` as fully populated. Correct as written. Recording
+the negative because "there is a COALESCE to zero here" looks like the pattern
+and is not.
+
+## Running tally of treatments — four distinct, still never blanket
+
+| treatment | where |
+|---|---|
+| `NULLIF(col, 0)` | `defenders_in_box`, `defense_box` |
+| gate on a sibling column | `n_blitzers` (on `n_pass_rushers > 0`), `pass_rushers` |
+| `MAX(COALESCE(a,0), COALESCE(b,0))` | `offense_pct` / `defense_pct` |
+| leave alone | `contested` and every other `bool()` column |

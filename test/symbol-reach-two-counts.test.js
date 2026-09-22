@@ -75,6 +75,38 @@ test('enclosingDeclaration attributes a body to the private function that owns i
   assert.equal(owner.exported, false);
 });
 
+test('enclosingDeclaration is containment, not "the last declaration starting above the use"', () => {
+  /*
+   * The discriminating case, and the first fixture did not discriminate: in
+   * PRIVATE_BELOW_EXPORT the nearest declaration starting above the use is also
+   * the one containing it, so "last start above" and containment agree and a
+   * mutant survived. A use at MODULE SCOPE separates them -- it is inside no
+   * declaration, and a walk that takes the last one starting above it credits
+   * the body of a function the use is not in.
+   */
+  const src = `
+function first() {
+  return 1;
+}
+
+register(BASIS);
+
+function second() {
+  return BASIS;
+}
+`;
+  const decls = declarationsOf(src, 'x.js');
+  const uses = internalUses(src, 'x.js', 'BASIS');
+  assert.equal(uses.length, 2);
+
+  const atModuleScope = uses[0];
+  assert.equal(
+    enclosingDeclaration(decls, atModuleScope.offset), null,
+    'a top-level call is inside no declaration; returning first() here is the attribution bug',
+  );
+  assert.equal(enclosingDeclaration(decls, uses[1].offset).name, 'second');
+});
+
 test('declarationsOf finds exported and non-exported declarations of every form', () => {
   const src = `
 export function a() {}
@@ -217,4 +249,58 @@ test('smoke: SEASON_ENDING_RE is internal-only on this repo, which is the row th
   assert.ok(row.counts.withDefiningFile > 0, 'it is used where it is defined');
   assert.equal(row.grade, 'internal-only');
   assert.ok(row.usedInside.length > 0, `expected an enclosing declaration, got ${JSON.stringify(row.usedInside)}`);
+});
+
+/*
+ * Found by running the finished tool against contingency.js: a symbol imported
+ * only by its own test was grading as though something reached it. CONTRACT.md
+ * says so in as many words under `decoration` -- "Tests do not count as
+ * consumers" -- and names the case: availability-basis.js has six exports, ten
+ * tests, and four exports with no production consumer at all. A high test count
+ * reads like wiring and is not.
+ */
+
+test('a symbol imported only by a test has no production consumer, and the test count is reported separately', () => {
+  const sources = {
+    'server/services/defining.js': 'export const ROLE_GATE = 1;',
+    'test/defining.test.js': "import { ROLE_GATE } from '../server/services/defining.js';",
+  };
+  const ctx = { files: Object.keys(sources), read: f => sources[f] };
+  const imps = importersOfSymbol(ctx, 'server/services/defining.js', 'ROLE_GATE');
+  assert.equal(imps.length, 1, 'the importer is still found; it is the grade it must not set');
+
+  const graded = gradeSymbol({
+    name: 'ROLE_GATE',
+    definingFile: 'server/services/defining.js',
+    importers: imps,
+    internal: [],
+    fileGrade: { grade: 'wired', entries: ['server/routes/model.js'] },
+    importerGrades: { 'test/defining.test.js': { grade: 'unreached', entries: [] } },
+  });
+  assert.equal(graded.grade, 'unused-in-code',
+    'ten tests and no production consumer is what CONTRACT.md calls decoration, not wiring');
+  assert.deepEqual(graded.testImporters, ['test/defining.test.js']);
+  assert.deepEqual(graded.importers, [], 'the production importer list stays empty');
+  assert.equal(graded.counts.withoutDefiningFile, 0,
+    'the import count is a production count; the test count is its own number');
+  assert.equal(graded.counts.tests, 1);
+});
+
+test('a test importer never upgrades a symbol that production reaches by one route only', () => {
+  const graded = gradeSymbol({
+    name: 'linkPlayer',
+    definingFile: 'server/services/shared.js',
+    importers: [
+      { file: 'server/services/betting-fantasy-link.js', line: 3 },
+      { file: 'test/shared.test.js', line: 4 },
+    ],
+    internal: [],
+    fileGrade: { grade: 'wired', entries: ['server/routes/model.js'] },
+    importerGrades: {
+      'server/services/betting-fantasy-link.js': { grade: 'wired-betting-only', entries: ['server/routes/nfl-betting.js'] },
+      'test/shared.test.js': { grade: 'unreached', entries: [] },
+    },
+  });
+  assert.equal(graded.grade, 'wired-betting-only');
+  assert.equal(graded.counts.tests, 1);
 });

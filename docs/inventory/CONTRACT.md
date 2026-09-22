@@ -21,6 +21,21 @@ So: **one row per exported symbol, route, job, table or branch** — the thing a
 consumer can reach — and the row names its reachable entry point. If two symbols
 in one file differ in category, that is two rows.
 
+`scripts/reach-grade.mjs` answers the file question and is the **ceiling** for
+this one: a symbol cannot be more reachable than the file it lives in.
+`scripts/symbol-reach.mjs` answers the symbol question, and it is the one a row
+is filed against:
+
+    node scripts/symbol-reach.mjs server/services/<file>.js [symbol ...]
+
+It reports **both counts of §3 every time**, names the declarations a symbol is
+used inside, and counts test importers separately from production ones. Worked
+case: `contingency.js` grades `wired` as a file, and of its 28 exports only
+**6 are `wired`** — 15 are reachable only through `scripts/fit-availability.mjs`,
+a hand-run script, 6 are `internal-only`, and 1 is `unused-in-code`. Grading
+those 28 rows by the file they live in would have called every one of them
+wired.
+
 ## 2. The five categories, each with the test that separates it from its neighbour
 
 A category is a claim about **reachability from a real consumer**, not about
@@ -42,6 +57,14 @@ remembers it and not otherwise. Record it as `reached from: hand-run script`,
 never as `wired`, and let the grader decide what it is. Found by filing the
 first rows against this contract: every consumed export of
 `server/services/opportunity-model.js` hangs off exactly one such script.
+
+**"Named nowhere in `server/`" means not *called* from `server/`.** A grep for
+the script's name hits comments and error strings too, and those are not
+reaches. `scripts/fit-availability.mjs` is the measured case: it has no
+`package.json` entry and no importer, and `contingency.js` names it five times
+— in a comment, in an assertion message, and in a `fix:` string telling a
+person to run it. It is hand-run, and the mention that reads most like wiring
+is `contingency.js:516`, which says the script **has never run**.
 
 ### `wired-betting-only`
 Reachable, and reachable **only** through a betting surface: a path whose sole

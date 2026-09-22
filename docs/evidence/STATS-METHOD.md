@@ -19,7 +19,7 @@ Written 2026-09-22 by unit S-00 (plan item 18, Goodhart guards), on
 
 **Why these rules.** Once a scorecard exists, work drifts toward whatever
 raises the score. Holding out a season only protects against that if the season
-stays unseen. The 2025 season has now been looked at 153 times in this repo's
+stays unseen. The 2025 season has now been looked at no fewer than 153 times in this repo's
 own evidence (`HOLDOUT-LEDGER.md`), and fit-1, the promoted weekly weights, was
 trained on 2023-2025 (`scripts/fit-weekly-coverage.mjs:62,66`). So a new 2025
 result is partly in-sample before it is run. These rules keep that visible and
@@ -471,6 +471,14 @@ section 3.
   `gridiron-five-questions-rule`).
 - Missing data: a free source first, then a labelled, held-out-validated
   estimate, and log the gap (memory `gridiron-missing-data-workaround-rule`).
+- The general evidence rules still apply to a statistical unit: one guard run
+  per tree, merged with current main (memory
+  `gridiron-verify-once-and-model-by-weight`); cite RED and GREEN as `#N` +
+  subject + sha with the failing assertion inline (memory
+  `gridiron-evidence-citation-rule`); mutation sweeps include call-site mutants,
+  a designed survivor and a not-applied control (memory
+  `gridiron-predicate-injection-test-rule`); and a licence check comes before
+  measuring any external data (memory `gridiron-licence-before-measurement-rule`).
 
 ---
 

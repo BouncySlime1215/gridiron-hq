@@ -76,6 +76,13 @@ export const MANUAL_SOURCES = {
     failureMode: 'throws; the current-season timer job (nfl_lines) is unaffected',
     maxAgeMinutes: 30 * 24 * 60
   },
+  nfl_route_splits: {
+    label: 'nflsavant route tree and coverage shells (third-party derived)',
+    cadence: 'weekly during the season, whenever the site recomputes',
+    cutoff: 'no published cutoff — undocumented, unversioned, and it can change under us',
+    failureMode: 'throws and records the failure; there is NO fallback source for route-level or shell-level splits, so anything reading them must degrade visibly rather than fall back to a total that looks like the same thing',
+    maxAgeMinutes: 7 * 24 * 60
+  },
   nfl_ngs: {
     label: 'Next Gen Stats (tracking-chip data)',
     cadence: 'weekly during the season',

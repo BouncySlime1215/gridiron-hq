@@ -7,6 +7,7 @@ interface AdvancedStat {
   unit: 'pct' | 'rate' | 'index' | 'yards' | null;
   basis: string | null;
   unavailable_reason: string | null;
+  unavailable_kind: 'not_applicable' | 'not_measured' | null;
 }
 interface AdvancedStatsReport {
   player_id: number;
@@ -29,6 +30,14 @@ interface AdvancedStatsReport {
  *
  * The same reason the freshness banner says when its own check failed instead
  * of rendering nothing.
+ *
+ * The absences are split in two, under headings that say different things,
+ * because they ARE different things. "We have no route data" is a gap somebody
+ * could close. "A quarterback has no target share" is not a gap at all, and
+ * pooling the two under one heading tells a reader the app is missing something
+ * it is not missing. The split is read off `unavailable_kind` rather than off
+ * the sentence: grouping by prose is how a reworded sentence moves a row into
+ * the wrong list.
  */
 function formatValue(s: AdvancedStat): string {
   if (s.value == null) return 'not measured';
@@ -57,7 +66,8 @@ export default function AdvancedStatsPanel({ playerId }: { playerId: number }) {
   if (!report) return null;
 
   const measured = report.stats.filter(s => s.value != null);
-  const absent = report.stats.filter(s => s.value == null);
+  const absent = report.stats.filter(s => s.unavailable_kind === 'not_measured');
+  const inapplicable = report.stats.filter(s => s.unavailable_kind === 'not_applicable');
 
   return (
     <div className="card p-4 mt-4">
@@ -91,6 +101,22 @@ export default function AdvancedStatsPanel({ playerId }: { playerId: number }) {
             Not measured here
           </div>
           {absent.map(s => (
+            <div key={s.key} className="py-1">
+              <span className="text-xs font-medium text-slate-600">{s.label}</span>
+              <span className="text-xs text-slate-500"> — {s.unavailable_reason}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {inapplicable.length > 0 && (
+        <div className="border-t border-slate-200/60 pt-2 mt-2">
+          <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-1">
+            {report.position
+              ? `Not statistics about a ${report.position}`
+              : 'Not statistics about this position'}
+          </div>
+          {inapplicable.map(s => (
             <div key={s.key} className="py-1">
               <span className="text-xs font-medium text-slate-600">{s.label}</span>
               <span className="text-xs text-slate-500"> — {s.unavailable_reason}</span>

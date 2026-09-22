@@ -47,6 +47,27 @@ import { db as defaultDb } from '../db/index.js';
  *
  * Every rate names its own denominator in `basis`, because "touchdown rate" on
  * its own is three different statistics depending on who is being described.
+ *
+ * ## Two absences that are not the same absence
+ *
+ * A stat can be missing because nobody measured it, or because it is not a
+ * statistic about this player's position. The block used to say the first when
+ * it meant the second: a quarterback's `target_share` is null in every row the
+ * ingest writes — `nflverse.js:218` carries the column and `numAt` turns
+ * nflverse's `NA` into SQL null — and the block reported "the usage rows do not
+ * carry this column", which is false. The rows carry it. A passer is not
+ * targeted.
+ *
+ * So `unavailable_kind` names which of the two it is, `not_applicable` or
+ * `not_measured`, and the page groups on that field rather than reading the
+ * sentence. Sorting absences by prose is how a reworded sentence moves a row
+ * into the wrong group without anybody noticing.
+ *
+ * Applicability is decided from the position and nothing else, and it is NOT
+ * decided at all when the position is unknown — a blank `players.position`
+ * (the column is NOT NULL, so unknown arrives blank) or no player row. Ruling
+ * "not applicable" without knowing what it would not apply to is the same guess
+ * in a third costume.
  */
 
 /**
@@ -67,13 +88,65 @@ export const UNAVAILABLE = {
   notPopulated: 'The usage rows on file for this season do not carry this column.'
 };
 
-/** A measured stat: a value and no reason. */
-const measured = (key, label, value, { unit = null, basis = null } = {}) =>
-  ({ key, label, value, unit, basis, unavailable_reason: null });
+/**
+ * The positions a pass can be thrown to. Target share, WOPR and anything built
+ * on routes describe these and nobody else.
+ *
+ * A set rather than a "not a quarterback" test: a kicker has no target share
+ * either, and writing the rule as an exception for one position means every
+ * other position silently falls on the wrong side of it.
+ */
+export const RECEIVING_POSITIONS = new Set(['RB', 'FB', 'HB', 'WR', 'TE']);
 
-/** An absent stat: a reason and no value. Still listed. */
-const absent = (key, label, reason, { unit = null, basis = null } = {}) =>
-  ({ key, label, value: null, unit, basis, unavailable_reason: reason });
+/**
+ * The sentence for a stat that does not describe this position.
+ *
+ * It names the position it is about, so it reads as an answer rather than a
+ * general disclaimer, and it says outright that this is not a gap in the data,
+ * because that is the whole distinction being drawn.
+ */
+export const notApplicableTo = (position, why) =>
+  `Not a statistic about a ${position}: ${why}. This is a fact about the position, `
+  + 'not a gap in the data.';
+
+/** Why each positional stat is not about a position that is not thrown to. */
+const NOT_THROWN_TO = {
+  target_share: 'target share counts the passes thrown at a player',
+  wopr: 'weighted opportunity is built out of targets and air yards',
+  yards_per_route_run: 'running pass routes is not part of the job',
+  route_participation: 'running pass routes is not part of the job'
+};
+
+/**
+ * Does this stat describe this position — yes, no, or we cannot say.
+ *
+ * `null` is the third answer and it is load-bearing: an unknown position gets
+ * no ruling, and the stat falls back to whatever the data says about it.
+ */
+function appliesToPosition(position) {
+  const p = String(position ?? '').trim().toUpperCase();
+  if (p === '') return null;
+  return RECEIVING_POSITIONS.has(p);
+}
+
+/** A measured stat: a value, no reason, and no kind of absence to report. */
+const measured = (key, label, value, { unit = null, basis = null } = {}) =>
+  ({ key, label, value, unit, basis, unavailable_reason: null, unavailable_kind: null });
+
+/**
+ * An absent stat: a reason, no value, and which kind of absence it is. Still
+ * listed. `kind` defaults to `not_measured` because that is the ordinary case;
+ * `not_applicable` is only ever set deliberately, from a known position.
+ */
+const absent = (key, label, reason,
+  { unit = null, basis = null, kind = 'not_measured' } = {}) =>
+  ({ key, label, value: null, unit, basis, unavailable_reason: reason,
+    unavailable_kind: kind });
+
+/** The absence of a stat that does not describe this position. */
+const inapplicable = (key, label, position, { unit = null } = {}) =>
+  absent(key, label, notApplicableTo(String(position).trim().toUpperCase(),
+    NOT_THROWN_TO[key]), { unit, kind: 'not_applicable' });
 
 /**
  * A rate, or the reason there isn't one. The denominator is checked before the
@@ -147,18 +220,36 @@ export function playerAdvancedStats(playerId, { season, database = defaultDb }) 
   const wopr = noUsage ? null : mean(weeks.map(w => w.wopr));
   const snapShare = mean(snaps.map(s => s.offense_pct));
 
-  // Three different absences, and they must not share a sentence: no rows at
-  // all, rows that exist but leave this column null, and a value. The middle
-  // one used to borrow the snap-count reason, which described a table this stat
-  // does not even read.
-  const share = (key, label, value, unit) => value != null
-    ? measured(key, label, value, { unit })
-    : absent(key, label, noUsage ? UNAVAILABLE.noUsage : UNAVAILABLE.notPopulated, { unit });
+  // Decided once, from the position alone. `null` means we do not know the
+  // position, and an unknown position rules on nothing.
+  const position = player?.position ?? null;
+  const applies = appliesToPosition(position);
+
+  // Four different absences now, and none of them may share a sentence: the
+  // stat does not describe this position; there are no rows at all; the rows
+  // exist and leave this column null; or there is a value. The third used to
+  // borrow the snap-count reason, which described a table this stat does not
+  // read, and the first used to borrow the third's, which described a file that
+  // is not at fault.
+  //
+  // Applicability is asked FIRST. A quarterback with no rows this season still
+  // has no target share for the same reason he would have none with twelve
+  // weeks of rows, so "no usage rows" would be true and beside the point.
+  const share = (key, label, value, unit) => {
+    if (applies === false) return inapplicable(key, label, position, { unit });
+    if (value != null) return measured(key, label, value, { unit });
+    return absent(key, label, noUsage ? UNAVAILABLE.noUsage : UNAVAILABLE.notPopulated, { unit });
+  };
+
+  /** A routes stat: not about this position, or absent from the platform. */
+  const routes = (key, label, unit) => applies === false
+    ? inapplicable(key, label, position, { unit })
+    : absent(key, label, UNAVAILABLE.routes, { unit });
 
   return {
     player_id: Number(playerId),
     name: player?.name ?? null,
-    position: player?.position ?? null,
+    position,
     season,
     // How much data is behind the numbers, stated rather than implied. Two weeks
     // and twelve weeks produce the same-looking rate and are not the same claim.
@@ -171,11 +262,16 @@ export function playerAdvancedStats(playerId, { season, database = defaultDb }) 
         : measured('snap_share', 'Snap share', snapShare, { unit: 'pct' }),
       noUsage
         ? absent('td_rate', 'Touchdown rate', UNAVAILABLE.noUsage, { unit: 'rate' })
-        : touchdownRate(player?.position, totals),
-      // The three that are absent by platform, not by player. Listed every time,
-      // for every player, with the same sentence — see UNAVAILABLE above.
-      absent('yards_per_route_run', 'Yards per route run', UNAVAILABLE.routes, { unit: 'yards' }),
-      absent('route_participation', 'Route participation', UNAVAILABLE.routes, { unit: 'pct' }),
+        : touchdownRate(position, totals),
+      // Absent by platform for anyone who runs routes, and not about the
+      // position for anyone who does not.
+      routes('yards_per_route_run', 'Yards per route run', 'yards'),
+      routes('route_participation', 'Route participation', 'pct'),
+      // Red-zone share is NOT gated on position. A quarterback takes red-zone
+      // carries, so the position does not rule this one out; what rules it out
+      // is that play-by-play carries no player column. Gating it here would be
+      // a true-sounding sentence for the wrong reason, and it would go on being
+      // wrong after the attribution problem was solved.
       absent('red_zone_share', 'Red-zone share', UNAVAILABLE.redZone, { unit: 'pct' })
     ]
   };

@@ -87,6 +87,29 @@ run also records an error row rather than only logging one.
 
 ## TDD record
 
+Cited in the format the fleet uses: PR, commit subject, sha.
+
+- **RED** — PR #123, `test: RED — a truncated child report must not be logged as ok`, `372890e1`
+- **GREEN** — PR #123, `fix: a child that never reported is not a child that succeeded`, `ea54eaf2`
+
+### The RED failure, as it printed
+
+Two of the twelve, carried inline so the claim can be read without checking the
+tree out. The second is the defect in one line — a run whose report never
+arrived, logged as `ok`:
+
+```
+not ok 1 - a summary line that is present is found and reported
+  error: 'LOOP.childOutcome is not a function'
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+
+not ok 12 - rosterSnapshots: a truncated report is ERROR, not ok
+  error: 'a truncated snapshot run logged: 17:29:31 roster_snapshots   ok league 3 period 2 written (0 ms)'
+  code: 'ERR_ASSERTION'
+```
+
+
 - **`372890e` RED — 15 tests, 12 fail, 3 pass.** The three that pass are
   regression guards and must hold before and after: a good run is still `ok`,
   failing leagues are still `ERROR`, and no secret reaches the log line.

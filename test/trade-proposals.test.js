@@ -23,6 +23,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 
 import {
   verifyProposals, cacheKeyFor, proposalsFor, proposalsPrompt, liveCaller,
@@ -147,7 +148,32 @@ test('G3 a changed slate, a different league, or a bumped prompt version all mis
   assert.notEqual(base, cacheKeyFor(4, [idea({ me: { ppg_delta: 9.9 } })]), 'changed numbers miss');
   assert.notEqual(base, cacheKeyFor(5, [idea()]), 'another league is another key');
   assert.notEqual(base, cacheKeyFor(4, [idea(), idea({ id: 'idea-2' })]), 'a longer slate misses');
-  assert.match(PROMPT_VERSION, /\S/, 'the prompt version is part of the key by construction');
+});
+
+test('G3 the prompt version is IN the key, so bumping how we ask invalidates every cached answer', () => {
+  // WHAT THIS REPLACES, because it is the same defect the assertion sweep is
+  // about and it was inside the test named for it. The line here was
+  // `assert.match(PROMPT_VERSION, /\S/)` carrying the message "the prompt version
+  // is part of the key by construction" — a claim it did not test. `/\S/` says a
+  // string is not blank, which is true of every non-empty string and says nothing
+  // whatever about the key. The test's own name promised that a bumped version
+  // misses, and nothing checked it.
+  //
+  // `PROMPT_VERSION` is a module constant and cannot be bumped from here, so the
+  // claim has to be tested as what it actually is: a fact about the material the
+  // key hashes.
+  const keyWith = v => crypto.createHash('sha256')
+    .update(JSON.stringify({ v, league: '4', prompt: proposalsPrompt([idea()]) }))
+    .digest('hex');
+  // FIRST that this IS the material. Without this line the one below is a test of
+  // the test — two independent wrong implementations agreeing. If `cacheKeyFor`
+  // ever hashes something else, or in another order, this goes red and names it.
+  assert.equal(cacheKeyFor(4, [idea()]), keyWith(PROMPT_VERSION),
+    'the key is sha256 over exactly { v, league, prompt }, in that order');
+  // THEN the consequence, which is a real one now that the material is pinned:
+  // change only the version and every cached answer misses.
+  assert.notEqual(cacheKeyFor(4, [idea()]), keyWith(`${PROMPT_VERSION}-bumped`),
+    'bumping the prompt version must invalidate the cache without anyone clearing a table');
 });
 
 /* --------------------------------- G2 bounded, and G4 honest degradation */
@@ -191,7 +217,16 @@ test('G4 a malformed model response is refused, never partially parsed', async (
   const call = async () => 'here are your proposals: [{"package": ';
   const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache: memCache() });
   assert.equal(r.proposals.length, 0);
-  assert.match(r.reason, /could not be read|malformed|parse/i);
+  // The alternation this replaces passed on a TRUNCATED answer too: the
+  // truncated sentence at trade-proposals.js:681 also contains "could not be
+  // read", so the test named for a malformed response never distinguished the
+  // two problems it exists to keep apart. `RESPONSE_PROBLEMS` makes them
+  // distinguishable in one word, so the code is asserted and the sentence with it.
+  assert.equal(r.problem, 'unreadable', `${r.reason}`);
+  assert.match(r.reason, /the model response could not be read as JSON/,
+    `the reason must be the unreadable one, got ${JSON.stringify(r.reason)}`);
+  assert.doesNotMatch(r.reason, /ran out of output room/,
+    'and never the truncated one, which is a different problem with a different fix');
   assert.equal(r.refused, true);
 });
 
@@ -200,7 +235,11 @@ test('G4 a response whose proposals all fail verification returns none, and says
   const r = await proposalsFor(4, { ideas: [idea()], universe, call, cache: memCache() });
   assert.equal(r.proposals.length, 0);
   assert.ok(r.rejected.length > 0, 'the rejects are reported, not swallowed');
-  assert.match(r.reason, /invent|verification|rejected/i);
+  assert.equal(r.problem, 'all_rejected', `${r.reason}`);
+  assert.match(r.reason, /every proposal failed verification and was rejected/,
+    `the reason must say the verifier did its job, got ${JSON.stringify(r.reason)}`);
+  assert.match(r.reason, new RegExp(`${r.rejected.length} in total`),
+    'and carry the count, so "one bad proposal" cannot read like "the model is broken"');
 });
 
 test('G4 a TRANSIENT refusal is not cached, so a later good run can still happen', async () => {
@@ -474,8 +513,12 @@ test('G7 a max_tokens answer cut off mid-array says it was cut off, not that it 
   assert.equal(r.proposals.length, 0, 'half a proposal is never trusted');
   assert.equal(r.refused, true);
   assert.equal(r.problem, 'truncated');
-  assert.match(r.reason, /cut off|ran out of (output )?room|output limit/i,
+  assert.match(r.reason, /ran out of output room part-way through/,
     `the reason has to name the real problem: ${r.reason}`);
+  assert.match(r.reason, /cut off mid-answer/,
+    'and say what that did to the answer, not only what the model ran out of');
+  assert.doesNotMatch(r.reason, /could not be read as JSON/,
+    'and it must not be the unreadable sentence, which is a broken model rather than a long one');
 });
 
 test('G7 a refusal with no text block says the model declined', async () => {
@@ -532,7 +575,17 @@ test('G7 a structurally broken response does not buy a second call for the same 
   assert.equal(second.problem, first.problem, 'and the second answer says the same honest thing');
   assert.equal(second.source, 'cache');
   assert.equal(second.refused, true);
-  assert.match(second.reason, /not a list|list of proposals/i, second.reason);
+  // One producer, one sentence, and both branches of the pattern this replaces
+  // matched it — so the assertion proved only that the sentence existed.
+  assert.equal(second.problem, 'not_a_list', second.reason);
+  // Two facts, asserted as two: the stored sentence the first call produced,
+  // and the clause the cached answer adds on top of it. The pattern this
+  // replaces had both of its branches inside the first clause alone, so it
+  // could not tell a cached answer from a fresh one.
+  assert.match(second.reason, /^the model response was not a list of proposals — /,
+    `the stored sentence has to survive the cache verbatim, got ${JSON.stringify(second.reason)}`);
+  assert.match(second.reason, /was not paid for again/,
+    'and the cached answer has to say it was not paid for twice');
   assert.ok(second.retry_after, 'with a stated moment it will be tried again');
 });
 

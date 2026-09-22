@@ -351,7 +351,13 @@ test('a source that was read but moved the band by nothing is reported, not sile
   assert.ok(named.includes('perception_delta'),
     'a delta that was read and rounded to nothing still has to appear somewhere');
   const why = flat.inert.find(i => i.source === 'perception_delta')?.reason ?? '';
-  assert.match(why, /0\.1|less than|below/i, 'and it says what it read and why it did not move');
+  // Two halves, asserted separately because they are two claims: what was read,
+  // and why a real reading still moved nothing. A single pattern matching either
+  // one passes on a sentence that carries only half the fact.
+  assert.match(why, /\+0\.1% on his own numbers/,
+    `the reading itself has to be in the sentence, got ${JSON.stringify(why)}`);
+  assert.match(why, /moves the band by less than 0\.001/,
+    'and the threshold that held it out, so "read and negligible" cannot read as "not read"');
 
   const tiny = acceptanceBand({
     counterparty: informed({ receptiveness: 1.02, accept_rate: 0.25, accept_rate_n: 14 }),

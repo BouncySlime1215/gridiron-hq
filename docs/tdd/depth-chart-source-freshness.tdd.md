@@ -341,22 +341,46 @@ shapes are accepted when only one is.
 One thing noticed while proving it, and **fixed rather than filed**: branch 1
 also matched `graded onweek W alone`, because the first `\s*` can match empty, so
 the pattern accepted the two words run together. Leaving a known-loose assertion
-in place after naming it is how a named thing becomes a permanent one. The first
-group is now `\s+`, which requires at least one separator.
+in place after naming it is how a named thing becomes a permanent one.
 
-Checked against the real source rather than assumed, since tightening an
-assertion can break the thing it asserts: `server/services/weekly-backtest.js:17`
-carries the string across a line break (`graded on\n * week W alone`), and the
-tightened pattern matches it, matches all four probes above, and rejects only the
-run-together form.
+The first fix was `\s*` → `\s+`, a narrower fragment. That is the wrong shape of
+fix and it was replaced. A fragment that admits too much is not repaired by
+making the fragment smaller — it is repaired by naming what is legal, because
+the whole value is the contract and any fragment of it is a guess about the rest.
+The sentence is legal in exactly two renderings, on one line or wrapped onto a
+JSDoc continuation, so the assertion now enumerates both and asks for an exact
+substring:
 
-| Probe | loose | tight |
-|---|---|---|
-| the real source at `weekly-backtest.js:17` | matches | matches |
-| `graded on week W alone` | matches | matches |
-| `graded on\n * week W alone` | matches | matches |
-| `graded on  week W alone` | matches | matches |
-| `graded onweek W alone` | matches | **no** |
+```js
+const GRADES_WEEK_W = ['graded on week W alone', 'graded on\n * week W alone'];
+assert.ok(GRADES_WEEK_W.some(claim => backtest.includes(claim)), …);
+```
+
+No whitespace class survives, so there is nothing left to guess wrong about. If
+the file is ever re-wrapped, the test says so and the new rendering is added
+deliberately, which is the behaviour wanted rather than a cost.
+
+Checked against the real source rather than assumed, since a stricter assertion
+can break the thing it asserts. `server/services/weekly-backtest.js:17` carries
+the string across a line break, which is the second enumerated form. Verdicts of
+the three versions on five probes:
+
+| Probe | original `\s*` | `\s+` | enumerated |
+|---|---|---|---|
+| the real source at `weekly-backtest.js:17` | matches | matches | matches |
+| `graded on week W alone` | matches | matches | matches |
+| `graded on\n * week W alone` | matches | matches | matches |
+| `graded on  week W alone` | matches | matches | **no** |
+| `graded onweek W alone` | matches | **no** | **no** |
+
+The two-space probe is the one the enumeration deliberately rejects and the
+regexes accepted. It is not a rendering this file has or should have: it is a
+third spelling of the same sentence that nobody wrote, and accepting spellings
+nobody wrote is how a permissive pattern ends up asserting nothing. Mutation
+probe of the enumeration against the live source, injecting the run-together
+string into `weekly-backtest.js` and restoring by hash
+(`a44d58ee46027e2275da45be60362a909ec64e933ecce0dfb26902f16c5e9f0e` before and
+after): **5 tests, 4 pass, 1 fail** — killed.
 
 ## 8. Full check
 

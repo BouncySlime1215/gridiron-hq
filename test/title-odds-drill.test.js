@@ -93,8 +93,17 @@ test('layer 4 does not claim the championship number was tested', () => {
   }
 
   // And the claim it credits is checkable: the harness exists and grades weeks.
+  //
+  // Enumerated rather than matched with a whitespace-tolerant pattern. The
+  // sentence is legal in exactly two renderings — on one line, or wrapped onto a
+  // JSDoc continuation — and naming both says what is allowed. A regex that
+  // spans the wrap instead has to guess at whitespace, and an earlier version of
+  // this line guessed wrong in the permissive direction: its first group could
+  // match empty, so `graded onweek W alone` satisfied it. The fix for a fragment
+  // that admits too much is the whole legal set, not a narrower fragment.
   const backtest = read('server/services/weekly-backtest.js');
-  assert.match(backtest, /graded on\s+\n?\s*\*?\s*week W alone/,
+  const GRADES_WEEK_W = ['graded on week W alone', 'graded on\n * week W alone'];
+  assert.ok(GRADES_WEEK_W.some(claim => backtest.includes(claim)),
     'the weekly backtest no longer grades the week it predicted');
 });
 

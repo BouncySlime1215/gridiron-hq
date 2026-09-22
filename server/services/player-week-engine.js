@@ -302,6 +302,10 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
       weights,
       weight_fit: weightChampion.id,
       weight_source: weightChampion.source,
+      // Why, when the answer is the frozen constants. `weight_source` alone reads
+      // identically whether nothing was ever promoted, everything promoted is past
+      // the leakage cutoff, or a promoted fit was left behind by an epoch roll.
+      weight_reason: weightChampion.frozen_reason ?? weightChampion.orphaned_fit ?? null,
       role_change: roleChanges.get(playerId) ?? null
     };
     const roleChange = roleChanges.get(playerId) ?? null;

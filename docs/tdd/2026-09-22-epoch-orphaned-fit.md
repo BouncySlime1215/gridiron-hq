@@ -99,8 +99,55 @@ Exactly one test caught it, and case 6 was added because the first five did not.
   answers confidently while serving nothing current. The registry fixed that for
   feeds; this fixes it for the weekly champion.
 
+## Second pass: why frozen, not just that it is frozen
+
+RED `8af544a`, GREEN this commit.
+
+A live read on 2026-09-22 (Nick, read-only) found production's active epoch is
+**1**, created 2026-09-19, holding **zero promoted `weekly_ensemble_fits` rows**.
+That is not the orphan case above -- it is a cold start, and the fix above
+deliberately does not fire on it (test 3). So the app has been serving the
+frozen 2023 constants on every request since, and `weight_source` read exactly as
+it would on a legitimate first boot. Nothing said the weekly learning loop had
+never promoted anything.
+
+`source` stays `'frozen'`: `test/model-integrity.test.js:618` pins that contract
+for the cutoff case and it is a real one. The account goes in a new
+`frozen_reason`, which no existing consumer has to re-learn, and reaches a surface
+through `player-week-engine.js` as `weight_reason` -- a field that is not read
+anywhere is decoration, not honesty.
+
+Three situations that all read as bare `frozen` before:
+
+| situation | reported as |
+|---|---|
+| nothing ever promoted in this epoch | `frozen_reason`: never promoted, names the epoch |
+| promoted, but all past the leakage cutoff | `frozen_reason`: names the fit's through-season/week |
+| promoted, left behind by an epoch roll | `source: 'frozen-orphaned-epoch'` + `orphaned_fit` |
+
+The first two are not cosmetic variants of each other. "Nothing has ever been
+promoted" means the learning loop has never completed a promotion and someone
+should look at the loop; "everything promoted is trained through this week or
+later" means the loop works and the leakage guard is doing its job. Collapsed into
+one string, those send a reader to opposite ends of the system.
+
+    # tests 9   # pass 9   # fail 0
+
+Second injection: collapsing both reasons to the same string is caught by exactly
+one test.
+
+    mutation applied  -> not ok 8 - a cutoff-only exclusion says so, and is not
+                                    confused with never having promoted
+                         # tests 9  # pass 8  # fail 1
+    mutation reverted -> # tests 9  # pass 9  # fail 0
+
+Neighbouring suites after the `player-week-engine.js` change --
+`player-week-engine-weights`, `model-integrity`, `weekly-early-week-blend`,
+`prediction-log-served-model`: **118 tests, 118 pass, 0 fail**.
+
 ## What this does NOT do
 
-It does not promote anything, and it does not tell you whether production has
-rolled an epoch. That is still one read of the live database. It makes the
-condition visible if and when it happens.
+It does not promote anything, it does not change a single projected number, and
+it does not tell you whether production has rolled an epoch. It makes the app say
+which of three things is true when it serves the 2023 constants -- which, on the
+live read above, it is doing on every request right now.

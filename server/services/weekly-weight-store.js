@@ -37,6 +37,7 @@ export function activeWeeklyWeightSet({ season, week } = {}) {
   if (!fit) {
     const orphan = orphanedPromotedFit(epochId, season, week);
     if (orphan) return orphanedFallback(orphan, epochId);
+    return { ...weightSetFrom(null, week), frozen_reason: whyFrozen(epochId, season, week) };
   }
   // `early` (weeks 2-4 buckets) is served only inside its stored week window, so a
   // week-1 or week-5+ caller gets exactly the per-position vectors it always got.
@@ -59,6 +60,32 @@ function orphanedPromotedFit(epochId, season, week) {
             AND (through_season < ? OR (through_season = ? AND through_week < ?))
             ORDER BY through_season DESC, through_week DESC, id DESC LIMIT 1`,
   epochId, season, season, week)[0];
+}
+
+/**
+ * Why the frozen constants are being served, for a surface to repeat verbatim.
+ *
+ * `source` stays 'frozen' for both cases below: model-integrity.js pins that
+ * contract for the cutoff case, and widening the vocabulary would make every
+ * consumer re-learn it to gain nothing. The account goes here instead.
+ *
+ * The distinction is not cosmetic. "Nothing has ever been promoted" means the
+ * weekly learning loop has never completed a promotion and someone should look at
+ * the loop; "everything promoted is trained through this week or later" means the
+ * loop works and the leakage guard is doing its job. Reported as one string, those
+ * two send whoever is debugging to opposite ends of the system.
+ */
+function whyFrozen(epochId, season, week) {
+  const promotedAtAll = rows(`SELECT id, through_season, through_week FROM weekly_ensemble_fits
+            WHERE promoted=1 AND epoch_id=?
+            ORDER BY through_season DESC, through_week DESC, id DESC LIMIT 1`, epochId)[0];
+  if (!promotedAtAll) {
+    return `a weekly ensemble fit has never been promoted in epoch ${epochId}; ` +
+      'serving the frozen 2023 constants. The weekly learning loop has not completed a promotion.';
+  }
+  return `every promoted fit in epoch ${epochId} is trained through ` +
+    `${promotedAtAll.through_season} week ${promotedAtAll.through_week} or later, which the ` +
+    `leakage cutoff excludes for ${season} week ${week}; serving the frozen 2023 constants.`;
 }
 
 // One line per (fit, active epoch), not per player-week: activeWeeklyWeightSet runs

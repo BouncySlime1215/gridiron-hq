@@ -209,6 +209,28 @@ miniature.
   `classifyImportEdges` does see the bare form. The command now prints the
   bound, and rule 16 pins it, so the label cannot silently revert to a bare
   number.
+
+  **Two further cells are unsettled, and that is the part worth reading
+  (R67.1).** A second measurement of the same gap, restoring the bare edges
+  and re-running the tally, reported **hand-run 11 / unreached 25** where this
+  command reports **10 / 26**. It was summarised as "restoring them changes no
+  cell". That summary is wrong on its own numbers: `wired` does not move, and
+  **two cells that nobody was looking at do.** So the honest scope of the
+  bound is not "the high end is a floor" but:
+
+  > `wired` is a floor, and `hand-run-script` and `unreached` are unsettled,
+  > until all twelve edges are restored and the tally re-run. Only
+  > `wired-betting-only`, `wired-mlb-only`, `wired-offproduct-only`, the low
+  > end and the population are settled.
+
+  **The 12-versus-9 disagreement is itself a measurement defect, not a
+  judgement call.** The two counts differ by exactly `clv-core.js:47`,
+  `prop-feeds.js:35` and `signal-latency.js:30` — the three bare imports with
+  a **trailing `// comment`**. A counter anchored at end-of-line misses those
+  three and reports 9. So the grader PR's RED takes
+  `import './x.js'; // note` as its contradiction test: a counter that returns
+  9 on the real tree and passes that fixture has not been shown to work, and
+  the fixture is the case that tells the two counters apart.
 - **Not a graph this command builds.** Both graphs come from
   `scripts/reach-grade.mjs`, and they do not see the same edges. Found while
   building rule 15's fixture: `buildImporterGraph` matches `from '...'` and

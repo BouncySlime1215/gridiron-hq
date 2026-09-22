@@ -6,7 +6,7 @@
  * command produced. `183 wired`, the `116 / 67` route-versus-script split and
  * the `53 / 14` line were worked out per row inside a session and written
  * down only as prose. Nothing regenerated them; nobody could check them; they
- * were cited across the project for a day (Evidence Auditor R51.3). The
+ * were cited across the project for a day (Independent Auditor R51.3). The
  * contract's own test is that a rule with no consumer able to detect its
  * violation is decoration, and by that test its own headline was decoration.
  *
@@ -227,6 +227,14 @@ export function ladderPopulation(files) {
   return files.filter(f => f.startsWith('server/services/') || f.startsWith('server/modeling/'));
 }
 
+function subtreeHash(cwd, dir) {
+  try {
+    return execSync(`git rev-parse HEAD:${dir}`, { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return null;
+  }
+}
+
 export function measure({ cwd = process.cwd() } = {}) {
   requireToolchain({ typescript: require('typescript').version });
 
@@ -274,6 +282,12 @@ export function measure({ cwd = process.cwd() } = {}) {
     tree: {
       head: execSync('git rev-parse HEAD', { cwd, encoding: 'utf8' }).trim(),
       writeTree: execSync('git write-tree', { cwd, encoding: 'utf8' }).trim(),
+      // The hashes a figure from this command should actually be quoted with.
+      // A commit sha and a `write-tree` both move when a DOCUMENT is edited, so
+      // an evidence file citing either invalidates its own citation on the next
+      // keystroke. These two move only when the measured code moves.
+      servicesTree: subtreeHash(cwd, 'server/services'),
+      modelingTree: subtreeHash(cwd, 'server/modeling'),
     },
     toolchain: { node: process.version, typescript: require('typescript').version },
     population: population.length,
@@ -285,7 +299,8 @@ export function measure({ cwd = process.cwd() } = {}) {
 
 function render(result) {
   const out = [];
-  out.push(`tree      ${result.tree.head}  write-tree ${result.tree.writeTree}`);
+  out.push(`commit    ${result.tree.head}  write-tree ${result.tree.writeTree}`);
+  out.push(`measured  server/services ${result.tree.servicesTree}  server/modeling ${result.tree.modelingTree}`);
   out.push(`toolchain node ${result.toolchain.node}  typescript ${result.toolchain.typescript}`);
   out.push(`population ${result.population} (server/services + server/modeling)`);
 

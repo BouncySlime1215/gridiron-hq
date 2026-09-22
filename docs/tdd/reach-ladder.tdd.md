@@ -14,7 +14,9 @@ Named by subject first because a rebase rewrites shas (R52.2).
 route-versus-script split and a `53 / 14` line. **No command produced any of
 them.** The partition behind them was worked out per row inside a session and
 written down only as prose, so nothing could regenerate them and nobody could
-check them (Evidence Auditor §R51.3). They were cited across this project for
+check them (Independent Auditor §R51.3 — that ruling is the Independent
+Auditor's, not the Evidence Auditor's; an earlier revision of this file
+misattributed it). They were cited across this project for
 a day, including by this thread, in PR bodies and in an evidence file.
 
 The contract's own test is that *a rule with no consumer that can detect its
@@ -143,13 +145,37 @@ command.
 
 | # | mutation | result |
 |---|---|---|
-| M1 | betting exclusion removed from the call site | **survived**, then killed by `routeEntryPredicate` rule |
+| M1 | betting exclusion removed from `entrySplit`'s argument | **survived**, then killed by the `routeEntryPredicate` rule |
+| **M1b** | **the call site itself: `routeEntryPredicate(mounted)` → `e => mounted.has(e)` at `reach-ladder.mjs:266`** | **SURVIVED 14/0 after M1 was called killed.** Killed only by rule 15, which runs `measure()` over a fixture repository. **Standing row: re-run this mutant on every change to `measure()`.** |
 | M2 | column-sum check disabled | killed |
 | M3 | unknown-grade check disabled | killed |
 | M4 | parser swapped back for the substring matcher | killed (2 rules) |
 | M5 | `ENTRY_AXIS.isBracket` set true | killed |
 | M6 | toolchain gate disabled | killed |
-| — | control, restored | 14 pass / 0 fail |
+| — | control, restored | 15 pass / 0 fail |
+
+### M1b, and getting the same lesson wrong twice
+
+M1 was recorded above as killed. **It was not.** Pinning
+`routeEntryPredicate` directly proves the predicate is correct; it proves
+nothing about whether `measure()` still *calls* it. Replacing the call site
+at `reach-ladder.mjs:266` with `e => mounted.has(e)` left all fourteen rules
+passing, and rule 14's own title — "the predicate the ladder actually
+passes" — claimed a coverage it did not have. The Independent Auditor found
+this (§R62) after this file had already been signed off once.
+
+That is the **same defect as M1, one level up**, written by someone who had
+just finished writing M1's lesson down. The lesson evidently does not
+transfer by being understood; it transfers by being executed. So rule 15
+injects nothing at all: it builds a real repository in a temp directory, runs
+the real `measure()` over it, and asserts the split.
+
+The fixture is built around the single case that discriminates — a service
+reached by a betting route **and** by a `package.json` script. It grades
+`wired` (the script is a non-betting entry), so it survives to the entry
+split, and there the correct predicate calls it script-only while the mutant
+calls it route-reached. That is the 227/1-against-214/14 disagreement in
+miniature.
 
 ## What this does not establish
 
@@ -161,6 +187,18 @@ command.
 - **Not a verdict on `178`.** It establishes that 178 is not reproducible over
   the 319 population and that 172 is. If CONTRACT.md disagrees, the document
   is what changes.
+- **Not a graph this command builds.** Both graphs come from
+  `scripts/reach-grade.mjs`, and they do not see the same edges. Found while
+  building rule 15's fixture: `buildImporterGraph` matches `from '...'` and
+  `import('...')` only, so a **bare side-effect `import '...'` is invisible to
+  it**, while `classifyImportEdges` does see one. A fixture written in the
+  bare form produced the impossible result of request+job reaching *fewer*
+  files than request-only. On the real tree the effect is bounded by however
+  many bare side-effect imports exist, and it can only **under**-count the
+  high end of the bracket — 225 is a floor in that respect, not a ceiling.
+  Not fixed here: it is a change to the merged grader, it would widen this
+  PR, and the figures in this document are the ones the committed grader
+  produces. Reported separately.
 - **Not the scheduler's full reach.** `schedulerInvokedScripts` sees literal
   paths, not ones assembled at runtime from variables.
 

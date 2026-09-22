@@ -231,3 +231,78 @@ test('the predicate the ladder actually passes excludes betting entries', () => 
   assert.equal(isRoute('server/routes/nfl-betting.js'), false, 'a betting route is not route-reach for this product');
   assert.equal(isRoute('scripts/build-x.mjs'), false, 'a package script is not a route');
 });
+
+/**
+ * The rule below exists because the rule above was NOT enough, and the
+ * Independent Auditor caught that (R62) after this file had already been
+ * signed off once.
+ *
+ * `routeEntryPredicate` is pinned directly by test 14. But pinning the
+ * predicate says nothing about whether `measure()` still CALLS it. Replacing
+ * the call site at reach-ladder.mjs with `e => mounted.has(e)` left all
+ * fourteen rules passing — the identical defect this file already documents,
+ * one level up, and I recorded M1 as "killed" when only its unit form was.
+ *
+ * So this rule runs the real `measure()` over a real fixture repository and
+ * asserts the SPLIT it produces. Nothing is injected. The fixture is built
+ * around the one case that discriminates: a service reached by a betting
+ * route AND by a package.json script. It grades `wired` (the script is a
+ * non-betting entry), so it reaches the split -- and there the correct
+ * predicate calls it script-only, while the mutant calls it route-reached.
+ * That is the same disagreement, in miniature, that showed up on the real
+ * tree as 227/1 against 214/14.
+ */
+test('measure() itself excludes betting routes from route-reach, over a real repository', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const { measure } = await import('../scripts/reach-ladder.mjs');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ladder-fixture-'));
+  const write = (rel, body) => {
+    fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel), body);
+  };
+
+  write('package.json', JSON.stringify({ scripts: { job: 'node scripts/job.mjs' } }));
+  write('server/index.js', [
+    "const { default: betting } = await import('./routes/nfl-betting.js');",
+    "const { default: trades } = await import('./routes/trades.js');",
+    "app.use('/api/betting', betting);",
+    "app.use('/api/trades', trades);",
+  ].join('\n'));
+  // Reaches the file that is ALSO reached by a script. This is the case the
+  // whole rule turns on.
+  // The `from` form deliberately: `buildImporterGraph` matches `from '...'`
+  // and `import('...')`, and does NOT see a bare side-effect `import '...'`.
+  // A fixture written in the bare form silently loses its job-graph edges.
+  write('server/routes/nfl-betting.js', "import { both } from '../services/both.js';\nexport default { both };\n");
+  write('server/routes/trades.js', "import { fantasy } from '../services/fantasy.js';\nexport default { fantasy };\n");
+  write('scripts/job.mjs', "import { both } from '../server/services/both.js';\nconsole.log(both);\n");
+  write('server/services/both.js', 'export const both = 1;\n');
+  write('server/services/fantasy.js', 'export const fantasy = 1;\n');
+
+  const git = args => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args],
+    { cwd: dir, encoding: 'utf8' });
+  git(['init', '-q']);
+  git(['add', '-A']);
+  git(['commit', '-qm', 'fixture']);
+
+  const out = measure({ cwd: dir });
+
+  // Both files are `wired`: fantasy.js through a fantasy route, both.js
+  // through the script (a non-betting entry), so neither is betting-only.
+  assert.equal(out.population, 2, 'population is the two service files');
+  assert.equal(out.edge['request+job'].cells[0], 2, 'both files grade wired');
+
+  // The claim under test. both.js is reached by a betting route and a script;
+  // no FANTASY route reaches it, so it is script-only.
+  assert.deepEqual(
+    { route: out.entry.route, scriptOnly: out.entry.scriptOnly },
+    { route: 1, scriptOnly: 1 },
+    'a file only a betting route and a script reach is script-only, not route-reached',
+  );
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});

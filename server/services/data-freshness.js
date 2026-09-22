@@ -17,19 +17,34 @@ import * as registry from './source-registry.js';
  *   - `empty` — the table holds nothing, or is not present in this database.
  *   - `stale` — it holds rows, but none satisfy its current-data rule.
  *   - `fresh` — at least one row satisfies the rule.
+ *   - `unknown` — the rule could not be asked. NOT a pass.
  *
  * `stale` and `empty` are deliberately different: 2021-2025 with no 2026 is a
  * pipeline that stopped, an empty table is one that never started, and a "data
  * healthy" light that collapses them tells you nothing about which to fix.
  *
+ * `unknown` exists for the same reason one layer down. This check used to fall
+ * back to `row_count > 0` whenever it could not read a rule, so a table it had
+ * never actually asked about reported `fresh` — "I could not ask" and "the
+ * answer is yes" came out as the same word. Any table with a row in it passed,
+ * and `stale` was unreachable. A check that cannot run says so.
+ *
  * ## The registry, and where its SQL comes from
  *
  * Each entry is developer-authored, from `source-registry.js`'s `servedTables()`
  * once the data thread exports it, and until then from `FALLBACK_REGISTRY`
- * below. An entry carries a plain sentence for the panel and a WHERE fragment
- * with `?` placeholders; the placeholder VALUES (season, week) are bound, never
- * interpolated. The table and column NAMES are the only identifiers that reach
- * the SQL text, they come only from this code registry, and they are validated
+ * below. An entry carries a plain sentence for the panel and a current-data rule
+ * in one of two shapes:
+ *
+ *   - `{ sql, params }` — a complete query returning one truthy/falsy column,
+ *     which is what `servedTables()` emits.
+ *   - `{ predicate, bind }` — a bare WHERE fragment run against this entry's
+ *     table, which is what `FALLBACK_REGISTRY` carries.
+ *
+ * Both are supported because both ship. The rule TEXT in either shape comes only
+ * from this code registry, never from a value; the placeholder VALUES (season,
+ * week) are bound by name, never interpolated. The table and column NAMES are
+ * the only identifiers this file splices into SQL, and they are validated
  * against an identifier pattern regardless — so an entry that ever carried
  * `x; DROP TABLE y` is rejected before it runs rather than trusted because "the
  * registry is ours". No string-built SQL from a value; no identifier that is
@@ -37,7 +52,7 @@ import * as registry from './source-registry.js';
  */
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const STATUSES = ['fresh', 'stale', 'empty'];
+const STATUSES = ['fresh', 'stale', 'empty', 'unknown'];
 
 function ident(name, role) {
   if (typeof name !== 'string' || !IDENTIFIER.test(name)) {
@@ -55,6 +70,49 @@ function bindValues(bind, { currentSeason, currentWeek }) {
   });
 }
 
+const nonEmpty = v => typeof v === 'string' && v.trim() !== '';
+
+/**
+ * Which of the two rule shapes this entry carries, or null for none.
+ *
+ * null is the load-bearing return: it is what a `{}`, a missing key, or an
+ * entry whose shape this file does not recognise comes back as, and the caller
+ * turns it into `unknown` rather than into a verdict.
+ */
+function ruleShape(rule) {
+  if (!rule || typeof rule !== 'object') return null;
+  if (nonEmpty(rule.sql)) return 'sql';
+  if (nonEmpty(rule.predicate)) return 'predicate';
+  return null;
+}
+
+/**
+ * Ask one rule whether the table holds current data. Returns a boolean, or
+ * throws — the caller reports a throw as `unknown` with the reason, so one
+ * malformed registry entry cannot take the whole panel down with it.
+ *
+ * The `sql` shape is read as "first column of the first row is truthy", which
+ * is what a `CASE WHEN EXISTS (...) THEN 1 ELSE 0 END` query yields. No row at
+ * all is false, not an error: a query that matched nothing is a stale table.
+ */
+function askRule({ shape, rule, table, context, database }) {
+  if (shape === 'sql') {
+    const params = Array.isArray(rule.params) ? rule.params : [];
+    const placeholders = (rule.sql.match(/\?/g) ?? []).length;
+    if (placeholders !== params.length) {
+      throw new Error(`rule has ${placeholders} placeholders but binds ${params.length} values`);
+    }
+    const row = database.prepare(rule.sql).get(...bindValues(params, context));
+    if (!row) return false;
+    const first = Object.values(row)[0];
+    return Boolean(first);
+  }
+  const bind = Array.isArray(rule.bind) ? rule.bind : [];
+  const n = database.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${rule.predicate}`)
+    .get(...bindValues(bind, context)).n;
+  return n > 0;
+}
+
 /**
  * One table's freshness. Pure over its inputs: takes the database and the
  * current season/week so a test can pin "today" without the wall clock.
@@ -62,11 +120,20 @@ function bindValues(bind, { currentSeason, currentWeek }) {
 export function tableFreshness(entry, { currentSeason, currentWeek, database = defaultDb }) {
   const table = ident(entry.table, 'table');
   const rule = entry.current_rule ?? {};
-  const bind = Array.isArray(rule.bind) ? rule.bind : [];
-  const predicate = String(rule.predicate ?? '');
-  const placeholders = (predicate.match(/\?/g) ?? []).length;
-  if (placeholders !== bind.length) {
-    throw new Error(`data-freshness: ${table} rule has ${placeholders} placeholders but binds ${bind.length} values`);
+  const shape = ruleShape(rule);
+
+  // Pre-flight, for the WHERE-fragment shape only: an arity mismatch here is a
+  // malformed literal in this file's own FALLBACK_REGISTRY, catchable without
+  // touching the database, and it throws so it cannot ship unnoticed. Anything
+  // that only fails once the rule RUNS is handled below instead, as a reported
+  // fault — a registry arriving from another module must not be able to throw
+  // the panel away.
+  if (shape === 'predicate') {
+    const bind = Array.isArray(rule.bind) ? rule.bind : [];
+    const placeholders = (rule.predicate.match(/\?/g) ?? []).length;
+    if (placeholders !== bind.length) {
+      throw new Error(`data-freshness: ${table} rule has ${placeholders} placeholders but binds ${bind.length} values`);
+    }
   }
 
   const base = {
@@ -86,7 +153,7 @@ export function tableFreshness(entry, { currentSeason, currentWeek, database = d
     earliest: null,
     latest: null,
     last_write: null,
-    current_rule: rule.description ?? null,
+    current_rule: rule.description ?? rule.text ?? null,
     status: 'empty',
     note: null
   };
@@ -117,11 +184,28 @@ export function tableFreshness(entry, { currentSeason, currentWeek, database = d
       `SELECT MAX(${ident(entry.updated_col, 'updated_col')}) AS w FROM ${table}`).get().w ?? null;
   }
 
-  const currentCount = predicate
-    ? database.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${predicate}`)
-        .get(...bindValues(bind, { currentSeason, currentWeek })).n
-    : base.row_count;
-  base.status = currentCount > 0 ? 'fresh' : 'stale';
+  // No rule, or one in a shape this file does not know, is a fault and not a
+  // verdict. The old code fell through to `row_count > 0` here, which reported
+  // `fresh` for a table it had never asked a question about.
+  if (shape === null) {
+    base.status = 'unknown';
+    base.note = 'no usable current-data rule for this table — freshness was not checked';
+    return base;
+  }
+
+  try {
+    base.status = askRule({
+      shape, rule, table,
+      context: { currentSeason, currentWeek },
+      database
+    }) ? 'fresh' : 'stale';
+  } catch (e) {
+    // Reported, never swallowed: the row keeps its counts and says in words that
+    // its rule could not be run. Silence here would read as "current" on the
+    // panel, which is the bug this module exists to end.
+    base.status = 'unknown';
+    base.note = `current-data rule could not be evaluated: ${e.message}`;
+  }
   return base;
 }
 

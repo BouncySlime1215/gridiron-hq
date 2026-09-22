@@ -9,7 +9,7 @@ interface TableFreshness {
   latest: number | string | null;
   last_write: string | null;
   current_rule: string | null;
-  status: 'fresh' | 'stale' | 'empty';
+  status: 'fresh' | 'stale' | 'empty' | 'unknown';
   note: string | null;
   grain?: 'feed' | 'fit';
   reader?: string | null;
@@ -38,7 +38,12 @@ interface FreshnessReport {
 const STATUS_STYLE: Record<TableFreshness['status'], { word: string; chip: string }> = {
   fresh: { word: 'Current', chip: 'bg-emerald-100 text-emerald-800' },
   stale: { word: 'Behind', chip: 'bg-amber-100 text-amber-900' },
-  empty: { word: 'Missing', chip: 'bg-rose-100 text-rose-800' }
+  empty: { word: 'Missing', chip: 'bg-rose-100 text-rose-800' },
+  // Not a fourth degree of behind. `unknown` means the check could not be run
+  // for this source, and it reads in slate rather than amber so it is not
+  // mistaken for a late feed: a late feed needs re-running, an unchecked one
+  // needs its registry entry repaired.
+  unknown: { word: 'Not checked', chip: 'bg-slate-200 text-slate-800' }
 };
 
 function span(t: TableFreshness): string {
@@ -56,6 +61,9 @@ function span(t: TableFreshness): string {
  * The reader names which model, so the sentence is specific.
  */
 function behindSentence(t: TableFreshness): string {
+  if (t.status === 'unknown') {
+    return t.note ?? 'This source could not be checked, so whether it is current is unknown.';
+  }
   if (t.grain === 'fit') {
     const who = t.reader ? `The ${t.reader} model` : 'A model';
     return t.status === 'empty'
@@ -100,18 +108,27 @@ export default function DataFreshnessBanner() {
 
   if (!report || report.all_fresh || dismissed) return null;
 
-  const behind = report.tables.filter(t => t.status !== 'fresh');
+  // Counted apart, because they are different problems: `behind` is data that
+  // did not arrive, `unchecked` is a question that was never asked. Folding the
+  // second into "not current" would state a fact nobody established.
+  const behind = report.tables.filter(t => t.status === 'stale' || t.status === 'empty');
+  const unchecked = report.tables.filter(t => t.status === 'unknown');
+  const flagged = [...behind, ...unchecked];
+  const headline = behind.length > 0
+    ? `${behind.length} data ${behind.length === 1 ? 'source is' : 'sources are'} not current for ${report.season} week ${report.week}`
+    : `${unchecked.length} data ${unchecked.length === 1 ? 'source' : 'sources'} could not be checked for ${report.season} week ${report.week}`;
+  const tail = behind.length > 0 && unchecked.length > 0
+    ? `, and ${unchecked.length} more could not be checked`
+    : '';
   return (
     <div className="w-full border-b border-amber-200 bg-amber-50 text-amber-900">
       <div className="flex w-full flex-wrap items-center gap-2 px-4 py-1.5 text-xs">
         <span aria-hidden>⚠</span>
-        <span className="font-semibold">
-          {behind.length} data {behind.length === 1 ? 'source is' : 'sources are'} not current for {report.season} week {report.week}
-        </span>
-        <span className="text-amber-700">({behind.map(t => t.label).join(', ')})</span>
+        <span className="font-semibold">{headline}{tail}</span>
+        <span className="text-amber-700">({flagged.map(t => t.label).join(', ')})</span>
         <button onClick={() => setOpen(v => !v)}
           className="ml-1 rounded-md border border-amber-300 bg-white px-2 py-0.5 font-bold text-amber-900 transition hover:bg-amber-100">
-          {open ? 'Hide detail' : 'What is behind'}
+          {open ? 'Hide detail' : behind.length > 0 ? 'What is behind' : 'What was not checked'}
         </button>
         <button onClick={close} aria-label="Dismiss for now" className="ml-auto text-amber-500 hover:text-amber-800">✕</button>
       </div>

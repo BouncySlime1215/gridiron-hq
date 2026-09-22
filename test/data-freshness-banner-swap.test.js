@@ -100,8 +100,20 @@ test('the banner renders the unknown verdict instead of crashing on it', () => {
 
 test('an unchecked source is not reported to the user as a stale one', () => {
   const c = read('client/src/components/DataFreshnessBanner.tsx');
-  assert.match(c, /status === 'unknown'/,
-    'the banner never separates a source it could not check from one that is behind');
   assert.match(c, /could not be checked|not checked|unchecked/i,
     'nothing in the banner says a source went unchecked');
+
+  // Anchored on the two filter expressions rather than on the word `unknown`
+  // appearing somewhere in the file. The first draft of this test asserted the
+  // word, and the sweep proved it worthless: folding the fourth status back
+  // into `t.status !== 'fresh'` left both `status === 'unknown'` (in the
+  // per-row sentence) and `Not checked` (in the status chip) standing, so the
+  // mutation survived while the headline lied. There is no DOM harness here,
+  // so the shape of the split is what can be pinned — and it is exactly the
+  // known-wrong shape that has to stay gone.
+  assert.doesNotMatch(c, /filter\(t => t\.status !== 'fresh'\)/,
+    'the banner folds every non-fresh source into one count again, so a source it '
+    + 'could not check is reported to the user as one that is behind');
+  assert.match(c, /filter\(t => t\.status === 'unknown'\)/,
+    'the banner has no separate count of the sources it could not check');
 });

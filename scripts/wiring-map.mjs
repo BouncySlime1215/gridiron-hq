@@ -2251,6 +2251,28 @@ function statementTables(text) {
 // Scope. Nick has ruled out betting FEATURES, not knowing what connects to
 // what, so the betting half is mapped and then tagged, rather than skipped. A
 // map with holes in it is worse than no map, because people trust it.
+//
+// MLB, AFTER THE REMOVAL. `mlb` and `mlb_` stay in the two patterns below, and
+// the reason is no longer the one the word "BETTING" implies. The MLB product
+// is gone from this commit's parent: routes/mlb.js, eight mlb-* services and
+// parlay-api.js are deleted. What survives, deliberately, is
+// server/db/schema/mlb-model-misc.js and the mlb_* tables it declares, because
+// Nick's instruction was to remove the product without dropping tables or
+// deleting data. Those tables now have no writer and no reader in this
+// repository, so without these two patterns every one of them would surface as
+// a fantasy-side missing feed — a page of findings about a product that no
+// longer exists.
+//
+// So they are excluded as an ABANDONED PRODUCT, not as betting. The
+// distinction is not pedantry: CONTRACT.md section 2c exists because folding
+// MLB into betting "would state a false fact the Phase A plan then reads"
+// (Auditor R18.1), and recording the same conflation one layer down, in the
+// checker the plan's numbers come from, would be that same false fact with a
+// command behind it. Naming a third category here would buy nothing today —
+// both patterns route to the same exclusion — and would cost a label the
+// inventory has no consumer for, so the comment carries it instead.
+//
+// RETIRES WHEN: the mlb_* tables are dropped, which needs Nick's own word.
 // ---------------------------------------------------------------------------
 
 const BETTING_FILE = /(betting|\bwong\b|odds|parlay|staking|teaser|polymarket|book-feeds|line-shop|line-move|opening-lines|beat-the-close|execution-|prop-|props|clv|pick-|picks|market-movement|nfl-market|edge\.js|mlb)/i;

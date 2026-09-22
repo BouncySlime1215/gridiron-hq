@@ -18,6 +18,39 @@ ask: "Score sources historically... whose reports actually predicted outcomes").
 the session's already-downloaded free nflverse 2025 CSVs (`snap_counts_2025.csv`,
 `games.csv`) via a scratch script, not committed to the repo.
 
+## 0. RED / GREEN citation (fleet rule, Auditor R52.2)
+
+Both shas below are reachable from PR #90's head.
+
+| stage | PR | commit subject | sha |
+|---|---|---|---|
+| RED | #90 | `test: RED — suspension, the fourth beat-reporter claim type` | `03da7fd6` |
+| GREEN | #90 | `feat: GREEN — suspension, the fourth beat-reporter claim type` | `9e1a931b` |
+| follow-up fix (§3) | #90 | `fix: two real vocabulary bugs in the suspension classifier, found by hand-check` | `e89f2e03` |
+
+**RED's failing assertion, verbatim**, reproduced by checking out `03da7fd6` in an isolated
+worktree and running the test file against it — 58 tests, 46 pass, **12 fail**, every one of
+them with:
+
+```
+not ok 39 - classifySuspensionDirection reads suspension language as suspended
+  location: 'test/beat-reporter-accuracy.test.js:613:1'
+  failureType: 'testCodeFailure'
+  error: 'classifySuspensionDirection is not a function'
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+```
+
+The same `TypeError: … is not a function` for `resolveSuspensionClaim` and
+`resolveSuspensionClaims` accounts for the other 11. At `9e1a931b` the same file runs
+58/58 pass, 0 fail.
+
+A second, **behavioural** RED sits inside this unit at the vocabulary fix (`e89f2e03`): the
+three real-wire sentences in §3's table produced wrong or absent directions against
+`9e1a931b`'s code — including one confidently wrong answer — and pass against `e89f2e03`.
+That one is not a missing-export failure; it is the resolver returning the wrong direction
+for real reporter language.
+
 ## 1. What this slice does
 
 Same shape as `return_from_injury`: no new ground-truth read. A suspended player logs no
@@ -131,12 +164,50 @@ node --test test/beat-reporter-accuracy.test.js
 `node --check` on both changed files — clean. `npm run lint` — clean (916 files, syntax
 check).
 
-**2x-verify, guard-v3 form** (isolated `git worktree` + independent `npm ci`; no `set -e`;
-`rc=0; npm run check || rc=$?`; no `| tee`; log outside the repo; `git status --porcelain`
-empty AND `git write-tree` identical before/after; `find . -path ./.git -prune -o
--newermt "@$t0" -type f -print` afterward), run on the local tree at commit `e89f2e03`:
+**Guard runs, guard-v3 form** (isolated `git worktree` + independent `npm ci`; no `set -e`;
+`rc=0; … || rc=$?`; no `| tee`; log outside the repo; `git status --porcelain` empty AND
+`git write-tree` identical before/after; `find . -path ./.git -prune -o -newermt "@$t0"
+-type f -print` afterward). Per the 17:14Z fleet rule the gate is
+`npm run check && npm run check:wiring` under one guard, so the pre-merge pass below (run
+before that rule landed) is `npm run check` only and the authoritative runs are on the
+merged tree:
 
 <!-- guard-pair-results -->
+
+## 4a. What merging main into this branch actually found
+
+`main` moved from `654ff933` to `f620a120` while this unit was in flight, and PR #90's
+branch went un-mergeable (GitHub reported `dirty` at 17:03Z). Merging `origin/main` in
+produced **one** conflict and, once resolved, **four** test failures — none of them in this
+unit's own files, all of them worth recording because each was a real staleness this branch
+was carrying:
+
+1. **`test/health-route-single.test.js` (the conflict).** Both sides had independently
+   de-pinned the same line-number assertion. `main`'s own commit (`eb19f475`) documents that
+   three branches fixed it the same way on the same night and that "taking any one of them
+   costs nothing", so this resolved to `main`'s version verbatim — the resolved file is
+   byte-identical to `origin/main`'s, which is the honest outcome when the two changes assert
+   the same thing.
+2. **`league_season_teams` and `league_week_scores` catalog entries** (2 failures,
+   `test/coach-catalog.test.js`). Migration 064 arrived with the merge (PR #47 merged), so
+   the declared schema now creates both tables and neither may claim a runtime creator. The
+   catalog's own comment had predicted this exact moment in writing ("stops being true the
+   day that branch merges... written out rather than folded into the line above precisely so
+   it is noticed then") — it worked as designed. **The test reported only the first of the
+   two**, because `assert` throws on the first mismatch and the loop never reached the
+   second; an audit script over every catalog entry against the declared DDL found both, and
+   both were fixed together. Fixing only what the failure message named would have left the
+   branch red on the next run for a second, identical reason.
+3. **Coach's sweep-spec guard** (2 failures, `test/coach-sweep-edits.test.js`). Six
+   `*.mutations.json` specs from other threads now live in `docs/tdd/sweeps/`, in their own
+   schema (`name`/`aimed_at`/`kind`, an array of suites, no no-op control). Coach's guard
+   was reading every `.json` in that directory and holding all of them to Coach's evidence
+   standard — so another thread's file shape failed this branch's gate. Narrowed to the nine
+   specs Coach owns. This is the reciprocal of CLAUDE.md's rule about a test that breaks on
+   unrelated edits: the fix belongs in the over-reaching guard, not in six files owned by
+   other threads.
+
+Both fixes are in `81bd8ea6` (`fix: two Coach guards that the main merge turned red`).
 
 ## 5. File ownership
 
@@ -156,7 +227,9 @@ enough to cover a fourth `claim_type` value with no code change there.
 - **`transaction` is the one remaining unattempted claim type.** It needs a roster/
   ownership-change ground-truth read (not played/did-not-play), which is a different, larger
   build than this unit's three siblings and was not attempted here.
-- **Push held.** As of this evidence commit, `main` is red on `check:wiring` (Wiring map's
-  own unit, three false positives unrelated to this file) per the coordinator's 17:11Z note
-  — this branch is held short of a push until that fix lands and CI is confirmed green on
-  top of it, not because of anything in this unit.
+- **Merge held, not the push.** `main` is separately red on `check:wiring` (Wiring map's own
+  unit, three false positives — `play_by_play`, `pbp_participation`, `refreshLeagueRosters`
+  — unrelated to anything here) per the coordinator's 17:11Z note, with the fix at
+  `ae84ac6d` not yet pushed at the time of writing. That is main's, not this branch's: the
+  four failures this branch did hit were its own (§4a) and are fixed. PR #90's **merge** is
+  held until main's gate fix lands and CI is green on top of it; the push is not.

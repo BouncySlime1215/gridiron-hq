@@ -428,3 +428,34 @@ failure message on the test above now says it outright.
 unless listed. It would have caught this without anyone reading a message, but
 it re-decides the thread for all twenty-nine currently-inline jobs at once,
 which is a change of its own with its own evidence, not a coordinating fix.
+
+## Before flagging a job `offThread: true`, check its tests for a `fetch` stub
+
+Found by Trade Brain on 2026-09-22, rebuilding on #89's true head, and recorded
+here because this file is where the next person decides to add the flag.
+
+`runJobOffThread` spawns a **real Worker, in a separate V8 isolate**. A test that
+stubs `globalThis.fetch` in the main isolate and then drives the job through
+`runIfStale` is stubbing a global the job never sees. The offline guard then
+blocks the real call and the job returns **`ran: true` with zero rows** — the
+shape of a pass, with no data and no error. So the flag can break a test that
+never mentions threading, in a way that reads as a data problem.
+
+It bit `test/league-history-schedule.test.js:90` the moment `league_history`
+gained the flag; the fix is `offThread: false` in the test's own `runIfStale`
+call, since a test that wants to exercise the job body wants it inline.
+
+**Latent here:** `test/league-roster-schedule.test.js:38` and `:60` are in the
+same shape, and pass today only because `league_rosters` (`scheduler.js:1263`)
+carries no flag. Flag that job and that file fails the same way. This is a
+concrete cost attached to one of the moves this list exists to encourage, so it
+belongs beside the list rather than in a commit message.
+
+**One correction to the collision note above.** Its control triple injected a
+synthetic `league_history` job onto this tree rather than merging #89's branch,
+so **every test #89 adds was invisible to it** — including the one that broke.
+The triple's conclusion is unaffected: the two accountability tests here do pass
+with the flag and fail without it, and the baseline is green. But "verified end
+to end" overstates what was run. Simulating another branch's change tests this
+reading of it, not that branch. When both branches are reachable, merge them in
+a scratch worktree and run the union of the suites.

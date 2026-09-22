@@ -142,7 +142,8 @@ test("the job's run resolves to the gate module (the wiring map's own resolver)"
 
 test('the route is mounted behind the same auth as every other fantasy route', () => {
   const index = read('server/index.js');
-  assert.match(index, /import gatesRouter from '\.\/routes\/gates\.js'/);
+  // After runMigrations, like every router (index.js: routes prepare statements at import time).
+  assert.match(index, /const \{ default: gatesRouter \} = await import\('\.\/routes\/gates\.js'\);/);
   assert.match(index, /app\.use\('\/api\/gates', \.\.\.legacyAuthenticated, gatesRouter\)/);
 });
 

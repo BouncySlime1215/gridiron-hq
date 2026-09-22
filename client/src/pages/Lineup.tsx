@@ -9,6 +9,7 @@ import WaiverWire, { WaiverTeaser, onATeam } from '../components/lineup/WaiverWi
 import type { WaiverBoard, OutList } from '../components/lineup/WaiverWire';
 import MatchupPosture from '../components/lineup/MatchupPosture';
 import type { Posture } from '../components/lineup/MatchupPosture';
+import StartSitGate from '../components/lineup/StartSitGate';
 
 /**
  * The week's lineup, with the closeness of each call made visible.
@@ -254,6 +255,10 @@ export default function Lineup() {
       )}
 
       {d?.note && <p className="text-xs leading-5 text-slate-500">{d.note}</p>}
+
+      {/* Whether starting by our projection beats "start the higher average" at all
+          (plan item C12). League-independent: one weekly replay, stored and read. */}
+      <StartSitGate />
 
       <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}
         onRetry={waivers.refetch} out={out} />

@@ -52,6 +52,7 @@ const { default: localAuthRouter } = await import('./routes/local-auth.js');
 const { default: googleAuthRouter } = await import('./routes/google-auth.js');
 const { default: draftCaptureRouter, serveCaptureScript } = await import('./routes/draft-capture.js');
 const { default: executionSlateRouter } = await import('./routes/execution-slate.js');
+const { default: gatesRouter } = await import('./routes/gates.js');
 const { startScheduler } = await import('./services/scheduler.js');
 const { legacyAuthenticated, legacyAdmin } = await import('./platform/legacy-access.js');
 const { default: coachRouter } = await import('./routes/coach.js');
@@ -138,6 +139,9 @@ app.use('/api/model', ...legacyAuthenticated, modelRouter);
 // contents, not a liveness check. The unauthenticated probe stays
 // platform/health.js's alone.
 app.use('/api/data-freshness', ...legacyAuthenticated, dataFreshnessRouter);
+// Beat-the-dumb-baseline gates (plan item C12). Read-only: each gate is computed by
+// its weekly scheduler job off the request thread and stored; a request reads it.
+app.use('/api/gates', ...legacyAuthenticated, gatesRouter);
 app.use('/api/props', ...legacyAuthenticated, propsRouter);
 app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
 app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);

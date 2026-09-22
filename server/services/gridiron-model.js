@@ -321,13 +321,20 @@ const CAPABILITIES = [
   {
     id: 'crossover.vegas_to_fantasy',
     question: 'What does the betting market imply for fantasy volume?',
-    module: 'gamescript -> waiver-brain.vegasLift',
+    module: 'gamescript -> waiver-brain.vegasLift (switched off: waiver-brain.js BETTING_LINE_LIFT)',
     domain: 'crossover',
-    evidence: { kind: 'fitted',
-      note: 'Game-script multipliers fitted out of sample and clamped to [0.75, 1.30].' },
-    baseAuthority: 'advisory',
-    note: 'Applied to a start/sit call at full weight because that decision IS one week, and to a ' +
-      'trade valuation at a quarter weight because a single line says little about fifteen weeks.'
+    evidence: { kind: 'sealed_audit_negative',
+      note: 'The game-script multipliers are fitted on the betting side and clamped to [0.75, 1.30], but ' +
+        'their use as a FANTASY multiplier had never been graded until S-02 (pre-registered, 2025 held ' +
+        'out): it made weekly projections less accurate (weeks 2-4 MAE +0.030 [+0.014, +0.047]; weeks ' +
+        '5-17 +0.009 [-0.001, +0.019], worse once missed games count) and failed its rule. ' +
+        'docs/evidence/2026-09-22/weekly-construction-grade.md.' },
+    baseAuthority: 'retired',
+    note: 'Switched off in every served number by S-03 (2026-09-22): Start/Sit, the League Hub card and ' +
+      'the waiver horizon all apply 1, through the one switch in vegasLift. When it did change a ' +
+      '2025 weeks 5-17 start/sit call it was right 53.7% of the time; a ranking-only version is an ' +
+      'untested idea that needs its own pre-registration, not a reason to keep this one.',
+    refuses: 'Cannot move a fantasy projection, a start/sit call or a waiver value.'
   },
   {
     id: 'crossover.fantasy_to_betting_spread_total',

@@ -60,23 +60,31 @@ const currentSeason = () => Number(process.env.NFL_SEASON) || new Date().getFull
  * refitFantasyCoordinator — it is grading the frozen fit, never refitting it.
  */
 async function coordinatorPostApprovalSequence() {
-  const fit = rows(`SELECT * FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1`)[0];
-  if (!fit) return { error: 'no fantasy coordinator fit has been approved yet' };
-  const parsed = JSON.parse(fit.fit_json);
-  if (!parsed?.ready) return { error: 'latest fantasy coordinator fit never reached ready:true' };
+  // The approved fit is the SERVED one: activeFantasyCoordinatorFit returns only the
+  // promoted row (S-03). The newest row is a daily refit candidate that serves nothing,
+  // and watching it would grade a fit no page shows.
+  const { activeFantasyCoordinatorFit, buildFantasyCoordinatorExamples, coordinateFantasy, fitTargetOf } =
+    await import('./fantasy-coordinator.js');
+  const parsed = activeFantasyCoordinatorFit();
+  if (!parsed?.ready) return { error: `no promoted fantasy coordinator fit is served (${parsed?.reason ?? 'none'})` };
+  const fit = parsed.fit_row;
   const fromSeason = Number(fit.through_season) + 1;
   const through = currentSeason();
   if (fromSeason > through) {
     return { error: `no season after the approved fit's through_season (${fit.through_season}) exists yet`,
       approvedAt: fit.created_at };
   }
-  const { buildFantasyCoordinatorExamples, coordinateFantasy } = await import('./fantasy-coordinator.js');
+  // The residual the fit was trained on (FIT_TARGETS): the examples carry the structural
+  // residual; an ensemble-residual fit is graded against the ensemble's residual instead.
+  const onEnsemble = fitTargetOf(parsed) === 'ensemble';
+  const residual = e => (!onEnsemble ? e.target
+    : Number.isFinite(e.experts?.ensemble_shift) ? e.target - e.experts.ensemble_shift : NaN);
   const examples = await buildFantasyCoordinatorExamples({ fromSeason, throughSeason: through });
   const sequence = examples
-    .filter(e => Number.isFinite(e.target))
+    .filter(e => Number.isFinite(residual(e)))
     .map(e => {
-      const baselineErr = Math.abs(e.target); // "predict zero correction" = plain structural projection
-      const modelErr = Math.abs(e.target - coordinateFantasy(parsed, e.experts, 0).correction);
+      const baselineErr = Math.abs(residual(e)); // "predict zero correction" = the fit's own base alone
+      const modelErr = Math.abs(residual(e) - coordinateFantasy(parsed, e.experts, 0).correction);
       return baselineErr - modelErr; // positive: coordinator still reduces error vs. the uncorrected baseline
     })
     .filter(Number.isFinite);

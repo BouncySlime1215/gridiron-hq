@@ -82,16 +82,17 @@
  * fantasy regimes meaningfully — this result only rules out spread/total.
  *
  * This clears Phase 3's gate. Phase 4 (below `activeFantasyCoordinatorFit`/
- * `weeklyExpertValues`): trade-engine.js's current-week projection now
- * applies the coordinator's correction when a real fit exists, falling back
- * to the plain structural+ensemble number (today's prior behavior)
- * otherwise — never a hard dependency, and never fabricated when unfitted.
- * The fit itself is refit periodically (scheduler.js, not per-request) and
- * persisted, the same pattern weekly-weight-store.js already uses for the
- * ensemble champion weights — a 30-40s walk-forward-style refit has no
- * business blocking a page load.
+ * `weeklyExpertValues`): the fit is refit periodically (scheduler.js, not
+ * per-request) and persisted as a CANDIDATE. Since S-03 (2026-09-22) only a
+ * PROMOTED row is served (`promoteFantasyCoordinatorFit`, gated on a committed
+ * grade), in the weeks its promotion covers, and it is added to the base its
+ * own target was trained on (`servedWeekConstruction`): the structural-residual
+ * fit on the structural head, S-02's winning arm S1. Until S-03 the latest row
+ * was served, whatever the engine had been when it was fitted, and it was added
+ * to the ENSEMBLE number, a combination nobody had graded (S-02 arm B). With no
+ * promoted fit the served number is the ensemble alone, and the surface says so.
  */
-import { rows, run } from '../db/index.js';
+import { db, rows, run } from '../db/index.js';
 import { buildPlayerWeekEngine, playerWeekProjection, playerWeekEventExpectation } from './player-week-engine.js';
 import { gameScriptFor } from './gamescript.js';
 import { scoreLine, PPR } from './scoring.js';
@@ -103,6 +104,38 @@ import { expertConfidenceTier, predictionConfidence } from './confidence-tier.js
 
 export const FANTASY_COORDINATOR_VERSION = 'fantasy-coordinator-v1-no-regimes';
 const EXPERT_IDS = ['ensemble_shift', 'game_script_delta', 'boom_bust_signal'];
+
+/**
+ * What a fit corrects, read from its own record (`safeguards.target`). A second-stage
+ * correction is only valid on the base it was trained to correct (Wolpert 1992, Neural
+ * Networks 5:241-259): a fit on `actual − structural_ppg` belongs on `structural_ppg`, a
+ * fit on the ensemble residual on `ppg`. servedWeekConstruction applies a fit to exactly
+ * this base, and a fit whose target is none of these to nothing, so the structural fit on
+ * the ensemble (S-02's arm B, served until S-03) cannot be built again.
+ */
+export const FIT_TARGETS = Object.freeze({
+  structural: Object.freeze({ label: 'structural-projection residual', base: 'structural_ppg',
+    basis: 'structural+coordinator', arm: 'S1' }),
+  ensemble: Object.freeze({ label: 'ensemble-projection residual', base: 'ppg',
+    basis: 'ensemble+coordinator', arm: 'S2' })
+});
+
+/** 'structural' | 'ensemble' from the fit's recorded target, or null when it names neither. */
+export function fitTargetOf(fit) {
+  const label = fit?.safeguards?.target;
+  return Object.keys(FIT_TARGETS).find(key => FIT_TARGETS[key].label === label) ?? null;
+}
+
+/**
+ * S-02 graded two windows and decided each one separately. Week 1 goes with weeks 2-4
+ * and week 18 with weeks 5-17: neither was graded (S-02 needs a prior played week and
+ * stops at 17), and the surface label says so.
+ */
+export const CONSTRUCTION_WINDOWS = Object.freeze(['2-4', '5-17']);
+export function constructionWindow(week) {
+  return Number(week) <= 4 ? '2-4' : '5-17';
+}
+const gradedWeek = week => Number(week) >= 2 && Number(week) <= 17;
 
 const MIN_ROWS = 200;
 const RIDGE = 36;
@@ -335,8 +368,15 @@ export async function buildFantasyCoordinatorExamples({ fromSeason = 2022, throu
 }
 
 /** Fit the coordinator on real examples. Returns `{ready: false}` below MIN_ROWS
- *  rather than fitting on too little data to mean anything. */
-export function fitFantasyCoordinator(examples) {
+ *  rather than fitting on too little data to mean anything.
+ *
+ *  `target` says what the examples' `target` field is a residual of, and is recorded on
+ *  the fit (`safeguards.target`) because the served base is read from it (FIT_TARGETS).
+ *  The default is buildFantasyCoordinatorExamples' own target, the structural residual; a
+ *  caller that moved the target to the ensemble residual must say so. */
+export function fitFantasyCoordinator(examples, { target = 'structural' } = {}) {
+  const spec = FIT_TARGETS[target];
+  if (!spec) throw new Error(`fitFantasyCoordinator: unknown target "${target}" (known: ${Object.keys(FIT_TARGETS).join(', ')})`);
   if (examples.length < MIN_ROWS) {
     return { version: FANTASY_COORDINATOR_VERSION, ready: false, rows: examples.length,
       reason: `warmup requires ${MIN_ROWS} rows` };
@@ -352,7 +392,7 @@ export function fitFantasyCoordinator(examples) {
   }
   return { version: FANTASY_COORDINATOR_VERSION, ready: true, ...fit, regimes,
     authority: 'historical_candidate_only',
-    safeguards: { target: 'structural-projection residual', loss: `Huber(${HUBER_DELTA})`, ridge: RIDGE,
+    safeguards: { target: spec.label, loss: `Huber(${HUBER_DELTA})`, ridge: RIDGE,
       walk_forward_shrinkage: { ridge: SHRINK_RIDGE, min_games: SHRINK_MIN_GAMES, rule: 'k = cov/var capped 0..1; zero without walk-forward gain' },
       families: { correlation: FAMILY_CORRELATION, min_overlap: FAMILY_MIN_OVERLAP, found: fit.families.map(f => f.members) },
       max_expert_weight: MAX_WEIGHT, max_total_expert_influence: MAX_TOTAL_INFLUENCE,
@@ -360,33 +400,127 @@ export function fitFantasyCoordinator(examples) {
 }
 
 /**
- * Persist a fit (fantasy_coordinator_fits), so trade-engine.js reads a
- * ready-made fit instead of ever running the 30-40s example-build + ridge
- * fit inline. Only a `ready: true` fit is worth storing — a warmup result
- * has nothing usable in it.
+ * Persist a fit (fantasy_coordinator_fits) as a CANDIDATE, so trade-engine.js
+ * reads a ready-made fit instead of ever running the 30-40s example-build +
+ * ridge fit inline. Only a `ready: true` fit is worth storing — a warmup
+ * result has nothing usable in it. A saved fit is not served until
+ * promoteFantasyCoordinatorFit promotes it (the `promoted` column defaults to 0,
+ * migration 072).
  */
 export function saveFantasyCoordinatorFit(fit, throughSeason) {
   if (!fit?.ready) return { inserted: false, reason: fit?.reason ?? 'not ready' };
-  run(`INSERT INTO fantasy_coordinator_fits (version, through_season, rows, fit_json)
+  const result = run(`INSERT INTO fantasy_coordinator_fits (version, through_season, rows, fit_json)
        VALUES (?,?,?,?)`, fit.version, throughSeason, fit.rows, JSON.stringify(fit));
-  return { inserted: true };
+  return { inserted: true, id: Number(result.lastInsertRowid), promoted: false };
 }
 
-/** The latest persisted fit, or `{ready: false}` when none exists yet (a
- *  fresh install before the first background refit has run) — read-only,
- *  no computation, safe to call from a request path. */
+/** Whether migration 072 has run on this database. A read before it has is inert, and says so. */
+function promotionColumnsPresent() {
+  const names = rows('PRAGMA table_info(fantasy_coordinator_fits)').map(c => c.name);
+  return names.includes('promoted') && names.includes('promotion_json');
+}
+const UNMIGRATED = 'fantasy_coordinator_fits has no promotion columns: migration 072 has not run on this database';
+
+/**
+ * The served fit: the one PROMOTED fantasy_coordinator_fits row, or `{ready: false}`
+ * with the reason (no fit at all, only unpromoted candidates, or an unmigrated database).
+ * Read-only, no computation, safe to call from a request path.
+ *
+ * It used to return the newest row, gated by nothing. The daily refit
+ * (scheduler.js#fantasy_coordinator_refit) writes a row every day, and on the local copy
+ * five rows all "through 2025" carried intercepts of −0.574, −0.423, +0.578, +0.578 and
+ * −0.555: whichever engine state the last refit ran on was served. Now a refit is a
+ * candidate until a committed grade promotes it (promoteFantasyCoordinatorFit).
+ *
+ * The returned fit carries `fit_row` (id, through_season, created_at) and `promotion`
+ * (windows, evidence, promoted_at), which servedWeekConstruction and the surface label read.
+ */
 export function activeFantasyCoordinatorFit() {
-  const latest = rows(`SELECT fit_json FROM fantasy_coordinator_fits ORDER BY id DESC LIMIT 1`)[0];
-  if (!latest) return { version: FANTASY_COORDINATOR_VERSION, ready: false, reason: 'no fit persisted yet' };
-  return JSON.parse(latest.fit_json);
+  if (!promotionColumnsPresent()) return { version: FANTASY_COORDINATOR_VERSION, ready: false, reason: UNMIGRATED };
+  const served = rows(`SELECT id, through_season, created_at, fit_json, promotion_json FROM fantasy_coordinator_fits
+                       WHERE promoted = 1 ORDER BY id DESC LIMIT 1`)[0];
+  if (!served) {
+    const candidates = rows('SELECT COUNT(*) AS n FROM fantasy_coordinator_fits')[0]?.n ?? 0;
+    return { version: FANTASY_COORDINATOR_VERSION, ready: false, candidates,
+      reason: candidates
+        ? `no promoted fit (${candidates} unpromoted candidate${candidates === 1 ? '' : 's'}; a fit is served only once promoted)`
+        : 'no fit persisted yet' };
+  }
+  return { ...JSON.parse(served.fit_json), authority: 'promoted',
+    fit_row: { id: served.id, through_season: served.through_season, created_at: served.created_at },
+    promotion: JSON.parse(served.promotion_json ?? 'null') };
+}
+
+/**
+ * Which fit is served, as a short key: `<id>:<window states>`, 'none' or 'unmigrated'.
+ * trade-engine.js keys its asset cache on it, because a promotion is an UPDATE that moves no
+ * row count and no timestamp the table fingerprint could see.
+ */
+export function servedCoordinatorFitKey() {
+  if (!promotionColumnsPresent()) return 'unmigrated';
+  const served = rows(`SELECT id, promotion_json FROM fantasy_coordinator_fits
+                       WHERE promoted = 1 ORDER BY id DESC LIMIT 1`)[0];
+  if (!served) return 'none';
+  const windows = JSON.parse(served.promotion_json ?? 'null')?.windows ?? {};
+  return `${served.id}:${CONSTRUCTION_WINDOWS.map(w => windows[w] ?? '-').join('/')}`;
+}
+
+/**
+ * Promote one stored fit so it is THE served fit, in the windows a committed grade cleared.
+ *
+ * Refuses (throws, nothing written) when the row does not exist, the fit is not ready, it
+ * came from a different fitter version, its target is not a base this code knows
+ * (FIT_TARGETS), `windows` does not say 'on' or 'off' for each of CONSTRUCTION_WINDOWS or
+ * turns nothing on, or `evidence` does not name the grade. Any previously promoted row is
+ * demoted in the same transaction (its promotion_json stays, as history), so exactly one row
+ * is served. scripts/promote-fantasy-coordinator-fit.mjs checks the evidence file itself and
+ * re-derives the fit from the data before calling this.
+ *
+ * @returns the served fit, read back through activeFantasyCoordinatorFit
+ */
+export function promoteFantasyCoordinatorFit(id, { windows, evidence } = {}) {
+  if (!promotionColumnsPresent()) throw new Error(UNMIGRATED);
+  const stored = rows('SELECT id, version, fit_json FROM fantasy_coordinator_fits WHERE id = ?', id)[0];
+  if (!stored) throw new Error(`no fantasy_coordinator_fits row ${id}`);
+  const fit = JSON.parse(stored.fit_json);
+  const failures = [];
+  if (fit?.ready !== true) failures.push('the fit is not ready');
+  if (stored.version !== FANTASY_COORDINATOR_VERSION) {
+    failures.push(`it was fitted by ${stored.version}, not the served fitter ${FANTASY_COORDINATOR_VERSION}`);
+  }
+  if (!fitTargetOf(fit)) failures.push(`its target (${fit?.safeguards?.target ?? 'none recorded'}) is not a base this code knows`);
+  const windowKeys = Object.keys(windows ?? {});
+  const windowsValid = windows && windowKeys.every(k => CONSTRUCTION_WINDOWS.includes(k))
+    && CONSTRUCTION_WINDOWS.every(w => windows[w] === 'on' || windows[w] === 'off');
+  if (!windowsValid) failures.push(`windows must say 'on' or 'off' for each of ${CONSTRUCTION_WINDOWS.join(', ')}`);
+  else if (!CONSTRUCTION_WINDOWS.some(w => windows[w] === 'on')) {
+    failures.push('the windows turn the coordinator on nowhere; leave the fit unpromoted instead');
+  }
+  if (typeof evidence !== 'string' || !evidence.trim()) failures.push('evidence must name the committed grade that clears this fit');
+  if (failures.length) throw new Error(`refusing to promote fantasy_coordinator_fits row ${id}: ${failures.join('; ')}`);
+
+  const promotion = { promoted_at: new Date().toISOString(),
+    windows: Object.fromEntries(CONSTRUCTION_WINDOWS.map(w => [w, windows[w]])), evidence: evidence.trim() };
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    run('UPDATE fantasy_coordinator_fits SET promoted = 0 WHERE promoted = 1 AND id <> ?', id);
+    run('UPDATE fantasy_coordinator_fits SET promoted = 1, promotion_json = ? WHERE id = ?', JSON.stringify(promotion), id);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+  const served = activeFantasyCoordinatorFit();
+  if (served.fit_row?.id !== id) throw new Error(`promoted fantasy_coordinator_fits row ${id}, but row ${served.fit_row?.id ?? 'none'} is served`);
+  return served;
 }
 
 /**
  * Refits on real historical data through the last fully-settled season and
- * persists the result — the one function scheduler.js should call
- * periodically. Building examples across 3-4 seasons takes real time
+ * persists the result as a candidate — the one function scheduler.js should
+ * call periodically. Building examples across 3-4 seasons takes real time
  * (~30-40s, verified live) and belongs in a background job, never inline
- * in a request.
+ * in a request. The candidate is not served until it is promoted.
  */
 export async function refitFantasyCoordinator({ fromSeason = 2022, throughSeason } = {}) {
   const through = throughSeason ?? new Date().getFullYear() - 1;
@@ -481,7 +615,7 @@ export function coordinateFantasy(fit, expertValues, structuralPpg, context = nu
     active_regimes: context ? activeLabels : undefined,
     contextual_adjustments: context ? regimeContributions : undefined,
     confidence: predictionConfidence(global.contributions),
-    note: 'A circumstance-aware candidate correction to the structural projection, not a validated replacement until Phase 3 clears it.'
+    note: 'A correction to the base this fit was trained on (FIT_TARGETS). Served only from a promoted fit, in its promoted weeks (servedWeekConstruction).'
   };
 }
 
@@ -553,30 +687,103 @@ export async function fantasyCoordinatorWalkForward({ fromSeason = 2022, through
 }
 
 /**
- * One player's current-week projection, structural + the coordinator's
- * correction — the same computation trade-engine.js#buildAssetUniverse
- * already applies for `current_week_ppg`, factored out here so any
- * league-agnostic consumer (a player detail page, the draft assistant) can
- * get the same real, validated number without needing a league/format
- * context, which buildAssetUniverse requires and this doesn't. Returns null
- * for a player with no weekly projection (no usage history to project
- * from) rather than a guess.
+ * THIS WEEK'S NUMBER BEFORE AVAILABILITY AND THE GAME FACTOR: the one construction
+ * every served weekly number is built from. trade-engine.js#buildAssetUniverse
+ * multiplies it by this game's factor and the chance to play for `current_week_ppg`;
+ * weeklyProjectionFor returns it as `corrected_ppg`. Two copies of this used to add a
+ * structural-residual fit to the ensemble number (S-02 arm B); there is now one.
+ *
+ * The coordinator's correction is added only when all of these hold, and otherwise the
+ * number is the ensemble alone (`ppg`, S-02 arm A) with `coordinator_off` saying why:
+ *   - `fit` is ready: activeFantasyCoordinatorFit returns only a promoted fit;
+ *   - `windows[constructionWindow(week)]` is 'on' (the promotion's own windows by
+ *     default; a study grading the construction passes them explicitly);
+ *   - the fit's recorded target names a base (FIT_TARGETS) and the player has that base;
+ *   - the player has coordinator inputs (weeklyExpertValues).
+ * The correction is added to the base the fit was trained on: the structural-residual fit
+ * to `structural_ppg`, which is S-02's winning arm S1 in both graded windows.
+ *
+ * @returns {{ ppg, basis, arm, window, base, coordinated, coordinator_off }} — `basis`
+ *   'structural+coordinator' | 'ensemble+coordinator' | 'ensemble'; `base` the fit target
+ *   used ('structural' | 'ensemble') or null when the coordinator is off.
+ */
+export function servedWeekConstruction(projection, { fit, season, week, scoring = PPR, windows = fit?.promotion?.windows } = {}) {
+  const ensemble = Number.isFinite(projection?.ppg) ? projection.ppg : null;
+  const window = constructionWindow(week);
+  const off = reason => ({ ppg: ensemble, basis: ensemble == null ? null : 'ensemble', arm: ensemble == null ? null : 'A',
+    window, base: null, coordinated: null, coordinator_off: reason });
+  if (ensemble == null) return off('no weekly projection');
+  if (!fit?.ready) return off(fit?.reason ?? 'no promoted coordinator fit');
+  if (windows?.[window] !== 'on') return off(`the promoted fit is not on for weeks ${window}`);
+  const target = fitTargetOf(fit);
+  if (!target) return off(`the fit's target (${fit?.safeguards?.target ?? 'none recorded'}) is not a base this code knows`);
+  const spec = FIT_TARGETS[target];
+  const base = projection[spec.base];
+  if (!Number.isFinite(base)) return off(`no ${spec.base} for this player`);
+  const expertValues = weeklyExpertValues(projection, season, week, scoring);
+  if (!expertValues) return off('no coordinator inputs for this player');
+  const coordinated = coordinateFantasy(fit, expertValues, base);
+  if (!coordinated.ready) return off(coordinated.reason ?? 'the coordinator did not run');
+  return { ppg: coordinated.corrected_ppg, basis: spec.basis, arm: spec.arm, window, base: target,
+    coordinated, coordinator_off: null };
+}
+
+/**
+ * What this week's number is built from, for the surface (trade-engine.js puts it on
+ * `context.week_basis`, which routes serve as `model_context`). `lift` is waiver-brain.js's
+ * BETTING_LINE_LIFT switch, passed in so the label reads the one switch rather than a copy.
+ */
+export function weekConstructionBasis({ fit, week, lift }) {
+  const window = constructionWindow(week);
+  const target = fit?.ready ? fitTargetOf(fit) : null;
+  const on = Boolean(target) && fit?.promotion?.windows?.[window] === 'on';
+  const coordinator = on
+    ? { on: true, window, fit_id: fit.fit_row?.id ?? null, through_season: fit.fit_row?.through_season ?? null,
+      base: target, target: fit.safeguards.target, windows: fit.promotion.windows,
+      promoted_at: fit.promotion.promoted_at ?? null, evidence: fit.promotion.evidence ?? null }
+    : { on: false, window,
+      reason: !fit?.ready ? (fit?.reason ?? 'no promoted coordinator fit')
+        : !target ? `the fit's target (${fit?.safeguards?.target ?? 'none recorded'}) is not a base this code knows`
+          : `the promoted fit is not on for weeks ${window}` };
+  const liftOn = lift?.on === true;
+  const head = !on ? 'our weekly projection, with no coordinator correction'
+    : target === 'structural' ? `our structural projection plus the coordinator's correction (fit #${coordinator.fit_id})`
+      : `our weekly projection plus the coordinator's correction (fit #${coordinator.fit_id})`;
+  const label = `This week's points: ${head}, times his chance to play. ` +
+    (liftOn ? 'Times the betting-line game-script boost.' : 'No betting-line boost.') +
+    (gradedWeek(week) ? '' : ` Week ${week} was not graded (the grade covered weeks 2-17), so it follows the weeks ${window} decision.`);
+  return {
+    window, graded_week: gradedWeek(week), coordinator,
+    betting_line_lift: { on: liftOn, reason: lift?.reason ?? null, evidence: lift?.evidence ?? null },
+    availability: 'times active_probability; availability_basis says which chance-to-play model priced it',
+    label
+  };
+}
+
+/**
+ * One player's current-week number before availability, league-agnostic: the same
+ * servedWeekConstruction trade-engine.js#buildAssetUniverse multiplies into
+ * `current_week_ppg`, for a consumer with no league/format context (a player detail
+ * page, the draft assistant). Returns null for a player with no weekly projection (no
+ * usage history to project from) rather than a guess.
  */
 export function weeklyProjectionFor(playerId, { season, week, scoring = PPR } = {}) {
   const engine = buildPlayerWeekEngine({ season, week, scoring });
   const projection = playerWeekProjection(engine, playerId);
   if (!projection?.params || projection.structural_ppg == null) return null;
-  const expertValues = weeklyExpertValues(projection, season, week, scoring);
-  const fit = activeFantasyCoordinatorFit();
-  const coordinated = expertValues ? coordinateFantasy(fit, expertValues, projection.ppg) : null;
+  const construction = servedWeekConstruction(projection, { fit: activeFantasyCoordinatorFit(), season, week, scoring });
+  const coordinated = construction.coordinated;
   return {
     season, week,
     structural_ppg: projection.structural_ppg,
     ensemble_ppg: projection.ppg,
-    corrected_ppg: coordinated?.ready ? coordinated.corrected_ppg : projection.ppg,
-    coordinator: coordinated?.ready
-      ? { correction: coordinated.correction, contributions: coordinated.contributions, confidence: coordinated.confidence }
+    corrected_ppg: construction.ppg,
+    week_basis: construction.basis,
+    coordinator: coordinated
+      ? { correction: coordinated.correction, contributions: coordinated.contributions, confidence: coordinated.confidence,
+        base: construction.base }
       : null,
+    coordinator_off: construction.coordinator_off,
     cutoff: projection.player_week_engine?.cutoff ?? null
   };
 }

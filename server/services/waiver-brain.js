@@ -158,12 +158,68 @@ export function horizonValue(player, week) {
  *
  * Multipliers are already clamped to [0.75, 1.3] by the game-script model, so a
  * missing or extreme line degrades to "no adjustment" rather than to nonsense.
+ *
+ * SWITCHED OFF (S-03, 2026-09-22). S-02 graded the lift as a fantasy multiplier for
+ * the first time, pre-registered, on the 2025 season held out: it made weekly numbers
+ * less accurate (weeks 2-4 ΔMAE +0.030 [+0.014, +0.047]; weeks 5-17 +0.009
+ * [−0.001, +0.019], worse once DNPs count), so it failed its rule
+ * (docs/evidence/2026-09-22/weekly-construction-grade.md). BETTING_LINE_LIFT below is the
+ * one switch. Start/Sit (lineup-brain.js#startSitWeekPoints), the League Hub card
+ * (trade-engine.js#lineupDiffWeekPoints) and the waiver horizon (horizonValueWithVegas)
+ * all read vegasLift, so all three now apply 1 without an edit of their own. The
+ * multiplier itself is gameScriptLift, kept for the studies that grade it; no served
+ * module calls it (test/served-weekly-construction.test.js pins that).
+ */
+export const BETTING_LINE_LIFT = Object.freeze({
+  on: false,
+  decided_by: 'S-02 pre-registered grade, 2025 held out (the lift arm failed in weeks 2-4 and 5-17); applied by S-03',
+  evidence: 'docs/evidence/2026-09-22/weekly-construction-grade.md',
+  reason: 'Graded as a fantasy multiplier, it made weekly projections less accurate: worse in weeks 2-4, ' +
+    'no gain in weeks 5-17 and worse there once missed games count.'
+});
+
+/**
+ * The served betting-line lift for one player this week: gameScriptLift when
+ * BETTING_LINE_LIFT is on, otherwise multiplier 1 with `applied: false` and
+ * `switched_off: true`. When the market has something notable to say, the reading still
+ * says it (Start/Sit shows it as "Betting market"), and says the number leaves it out.
  */
 export function vegasLift(player, season, week) {
+  const market = gameScriptLift(player, season, week);
+  if (BETTING_LINE_LIFT.on) return market;
+  return { multiplier: 1, line: market.line, applied: false, switched_off: true, reading: liftOffReading(player, market),
+    ...(market.error ? { error: market.error } : {}) };
+}
+
+/** The Start/Sit sentence for a notable line while the lift is off: the fact, and that the number leaves it out. */
+function liftOffReading(player, market) {
+  // Exactly when the lift used to speak: gameScriptLift writes a reading only for a
+  // multiplier of 1.06 or more, or 0.94 or less.
+  if (!market.applied || !market.line || market.reading == null) return null;
+  const { total, spread } = market.line;
+  const at = `${spread > 0 ? '+' : ''}${spread}`;
+  const leftOut = 'This week\'s number does not add a betting-line adjustment for it: in testing, that adjustment ' +
+    'made weekly projections less accurate.';
+  return market.multiplier > 1
+    ? `Vegas has ${player.team_abbr} in a ${total}-point game at ${at}. ${leftOut}`
+    : `Vegas expects a low-scoring game for ${player.team_abbr} (${total} total, ${at}). ${leftOut}`;
+}
+
+/**
+ * The betting-line game-script multiplier for one player this week: the code vegasLift
+ * applied before S-03, unchanged. Studies that grade the lift read it here
+ * (scripts/weekly-construction-walk-forward.mjs); served code reads vegasLift, which is
+ * the switch.
+ */
+export function gameScriptLift(player, season, week) {
   if (!player?.team_abbr) return { multiplier: 1, line: null, applied: false };
   let gs;
   try { gs = gameScriptFor(player.team_abbr, season, week); }
-  catch { return { multiplier: 1, line: null, applied: false }; }
+  catch (error) {
+    // No multiplier is a safe number to serve, but the failure is carried on the result
+    // rather than swallowed: `error` reaches every payload that includes the lift.
+    return { multiplier: 1, line: null, applied: false, error: `game-script model failed: ${error.message}` };
+  }
   if (!gs?.line) return { multiplier: 1, line: null, applied: false };
 
   // Which multiplier a position actually lives on. A quarterback's volume is
@@ -195,7 +251,8 @@ export function vegasLift(player, season, week) {
  * Horizon value with this week's market view folded into this week's share.
  *
  * `currentWeekShare` mirrors the split the asset model already uses, so the two
- * do not disagree about how much a single Sunday is worth.
+ * do not disagree about how much a single Sunday is worth. While BETTING_LINE_LIFT is
+ * off, vegasLift reports `applied: false` and this is the plain horizon value.
  */
 export function horizonValueWithVegas(player, season, week, { currentWeekShare = 0.25 } = {}) {
   const base = horizonValue(player, week);
@@ -271,8 +328,9 @@ export function waiverUpgrades(leagueId, { myTeamId = null, limit = 10, pool = 1
   // player's weeks 15-17 schedule strength; that multiplier failed validation and
   // is 1 — see horizonValue.)
   //
-  // The same annotation is where the betting model enters: the Vegas game-script
-  // multiplier scales this week's slice of each player's value. See vegasLift.
+  // The same annotation is where the betting model would enter: the Vegas game-script
+  // multiplier scales this week's slice of each player's value when BETTING_LINE_LIFT
+  // is on. It is off (S-03); see vegasLift.
   const annotate = p => {
     const hv = horizonValueWithVegas(p, season, week);
     return { ...p, horizon_ppg: hv.value, horizon_base: hv.base, vegas: hv.lift };

@@ -283,6 +283,19 @@ function teamMembers(leagueId, season) {
 }
 
 /**
+ * The same index WITH the state that produced it.
+ *
+ * `teamMembers()` above drops it, which is what let a whole unreadable identity
+ * layer arrive at a caller as an ordinary empty Map, indistinguishable from a
+ * league-season ESPN simply had no owners for. A caller that skips rows on a
+ * miss needs to know which of the two it is looking at.
+ */
+function teamMembersWithState(leagueId, season) {
+  const state = teamMembersState(leagueId, season);
+  return { byRoster: state.byRoster, present: state.present, reason: state.reason };
+}
+
+/**
  * WHAT CREATES `league_season_teams`, AND WHY IT CAN BE MISSING.
  *
  * Two routes, which is the whole problem. `server/migrations/064_league_history_tables.js:29`
@@ -552,15 +565,23 @@ function draftSeason(leagueId, season, allPicks, teamAbbr, currentSeason, storeP
 function outcomeRows(luckPanel, membersByTeam) {
   const out = [];
   out.unownedSlots = 0;
+  // Rosters skipped because the identity layer could not be read at all, which
+  // is NOT the unowned-slot case below however identical it looks from here:
+  // an empty Map arrives the same way whether ESPN gave a slot no owner or
+  // league_season_teams is absent. Counting both as unowned slots gave a
+  // whole-layer fault a confident, wrong explanation.
+  out.unreadableSlots = 0;
   for (const season of luckPanel ?? []) {
-    const members = membersByTeam(season.league_id, season.season);
+    const { byRoster: members, present } = membersByTeam(season.league_id, season.season);
     for (const t of season.teams_detail ?? []) {
+      if (!present) { out.unreadableSlots++; continue; }
       const team = members.get(String(t.roster_id));
       // A real ESPN state, not a fault -- saveTeams() (league-history.js)
       // writes espn_member_id null whenever ESPN's own `owners` array is
       // empty for that team. There is nobody to attribute an outcome metric
       // to, so the row is correctly excluded; the count is what keeps that
       // exclusion from being indistinguishable from a row that went missing.
+      // Reached only when the table was readable, so it means what it says.
       if (!team?.espn_member_id) { out.unownedSlots++; continue; }
       const games = (t.h2h_w ?? 0) + (t.h2h_l ?? 0);
       const m = {
@@ -667,6 +688,7 @@ export function leagueDraftPicksState() {
 export function buildManagerArchetypes({ luckPanel = null } = {}) {
   const draftState = leagueDraftPicksState();
   const storeState = featureStoreState();
+  const historyState = leagueHistoryState();
   let allPicks = [];
   let leagueSeasons = [];
   let currentSeason = null;
@@ -692,7 +714,7 @@ export function buildManagerArchetypes({ luckPanel = null } = {}) {
   const membersCache = new Map();
   const membersByTeam = (leagueId, season) => {
     const key = `${leagueId}|${season}`;
-    if (!membersCache.has(key)) membersCache.set(key, teamMembers(leagueId, season));
+    if (!membersCache.has(key)) membersCache.set(key, teamMembersWithState(leagueId, season));
     return membersCache.get(key);
   };
   const outRows = outcomeRows(luckPanel, membersByTeam);
@@ -739,6 +761,12 @@ export function buildManagerArchetypes({ luckPanel = null } = {}) {
     // when the store could not be read at all, and only this says which.
     feature_store_state: storeState.present ? 'present' : 'table_absent',
     feature_store_reason: storeState.reason,
+    // The identity layer, held to the same standard. Without this, an absent
+    // league_season_teams arrived at every reader as an ordinary empty index,
+    // and outcome_unowned_slots below reported the whole failure as a tally of
+    // slots ESPN gave no owner -- a wrong explanation rather than no explanation.
+    league_history_state: historyState.present ? 'present' : 'table_absent',
+    league_history_reason: historyState.reason,
     league_seasons: leagueSeasons.length,
     managers: new Set(tagged.map(r => r.member_id)).size,
     draft_manager_seasons: draftRows.length,
@@ -746,8 +774,13 @@ export function buildManagerArchetypes({ luckPanel = null } = {}) {
     // Rosters with a real league_season_teams row but no ESPN member
     // attributed to them (an empty `owners` array on ESPN's side) -- not a
     // fault, so not in outcome_manager_seasons, but counted rather than left
-    // to look like the same thing as "nothing to report".
+    // to look like the same thing as "nothing to report". Counted only when
+    // the table was readable, so the label is true of every row in it.
     outcome_unowned_slots: outRows.unownedSlots,
+    // Rosters skipped because the identity layer could not be read at all.
+    // Kept apart from the line above: one is ESPN's answer, the other is our
+    // inability to ask, and league_history_reason says which table.
+    outcome_unreadable_slots: outRows.unreadableSlots,
     rows_written: written.length,
     consensus_sources: Object.fromEntries([...new Set(leagueSeasons.map(l => l.season))]
       .map(s => [s, consensus(s)?.source ?? 'none'])),

@@ -182,6 +182,7 @@ with no code change there.
   a claim type that shares its ground truth with an already-proven read is lower-risk than
   inventing a new one, and PART 5's other two remaining types (`transaction`, `suspension`)
   do need their own reads, which is exactly why they were not attempted alongside this.
-- **Push held.** Code (RED `a95c072`, GREEN `cbb3278`) and this evidence file exist only on
-  the local tree as of this commit; nothing here has been pushed to `origin`, per the
-  coordinator's 11:17Z note that pushing waits for Nick to restore it.
+- **Push no longer held.** The 11:17Z hold applied while push authority was suspended; Nick
+  restored it generally at 07:13Z (confirmed again in the 15:42Z resume order), so this
+  lands as a normal push once the guard-pair above is recorded, not as an exception to that
+  note.

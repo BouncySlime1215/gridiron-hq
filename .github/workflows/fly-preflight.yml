@@ -23,6 +23,17 @@ jobs:
     steps:
       - name: Set up flyctl
         uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # 1.6
+      - name: Wake the app (machines auto-stop when idle; ssh needs a started one)
+        run: |
+          set -u
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -m 45 -w '%{http_code}' https://gridiron-hq.fly.dev/api/health || echo 000)
+            echo "wake attempt $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::The app did not answer /api/health after 6 attempts; not reading the volume."
+          exit 1
       - name: Volume headroom vs database size
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

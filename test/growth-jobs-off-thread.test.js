@@ -99,17 +99,23 @@ test('the two lists stay separate, and every excuse is a sentence', () => {
 
 test('the count is going down, not up', () => {
   // A ratchet, in the shape that caught the allow-list growing in
-  // boot-path-off-thread.test.js. Twenty-nine is what is left across all three
-  // accountable tiers: 16 live, 6 metered, 7 growth. Every one is either in
-  // ON_REQUEST_THREAD (25) or MAIN_THREAD_ONLY (4), and 25 + 4 = 29 is the
+  // boot-path-off-thread.test.js. Twenty-six is what is left across all three
+  // accountable tiers: 13 live, 6 metered, 7 growth. Every one is either in
+  // ON_REQUEST_THREAD (22) or MAIN_THREAD_ONLY (4), and 22 + 4 = 26 is the
   // arithmetic that makes the test above more than a formality.
+  //
+  // Was 29 (16 live, ON_REQUEST_THREAD 25) until mlb_schedule, mlb_probables
+  // and mlb_boxscores moved off-thread on 2026-09-22. They were excused as a
+  // sport nothing here reads, which said why nobody needed the rows and never
+  // said the job was free; it blocked every request for its full duration
+  // either way. See test/mlb-jobs-off-thread.test.js.
   //
   // Moving another job off-thread lowers this number and this line is edited
   // down; adding a new job that blocks the request thread raises it, and that
   // should cost an argument rather than a quiet commit.
   const onThread = ACCOUNTABLE.filter(([, j]) => !resolveOffThread(j)).length;
-  assert.ok(onThread <= 29,
-    `${onThread} jobs now run on the request thread, up from 29. `
+  assert.ok(onThread <= 26,
+    `${onThread} jobs now run on the request thread, up from 26. `
     + 'If that is deliberate, lower this bound in the same commit and say why');
   assert.equal(ON_REQUEST_THREAD.size + MAIN_THREAD_ONLY.size, onThread,
     'every job that blocks the request thread should be in exactly one of the two '

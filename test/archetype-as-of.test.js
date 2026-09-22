@@ -31,7 +31,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
-const { archetypesFor, archetypesBuilt, MANAGER_ARCHETYPE_VERSION } =
+const { archetypesFor, archetypeEvidenceBuilt, MANAGER_ARCHETYPE_VERSION } =
   await import('../server/services/manager-archetypes.js');
 
 test.after(() => {
@@ -182,7 +182,7 @@ test('a manager with no Jev answers reports none, not the other manager\'s date'
 });
 
 test('a full league-season is clean: no gap reported when both halves are there', () => {
-  const built = archetypesBuilt(31, 2026);
+  const built = archetypeEvidenceBuilt(31, 2026);
   assert.equal(built.rows, 3);
   assert.equal(built.career_rows, 2);
   assert.equal(built.reason, null,
@@ -195,7 +195,7 @@ test('a full league-season is clean: no gap reported when both halves are there'
 // same query. The copy is gone; these are the assertions that would have
 // noticed either way.
 test('the direct read answers with the same stamps the card does', () => {
-  const built = archetypesBuilt(31, 2026, ALDA);
+  const built = archetypeEvidenceBuilt(31, 2026, ALDA);
   assert.equal(built.as_of, '2026-09-18T04:10:00.000Z',
     'the newest build stamp for this league-season, not the oldest');
   assert.equal(built.career_as_of, '2026-09-11T04:10:00.000Z');
@@ -207,7 +207,7 @@ test('the direct read answers with the same stamps the card does', () => {
 });
 
 test('called without a member, the block leaves the Jev fields off rather than guessing', () => {
-  const built = archetypesBuilt(31, 2026);
+  const built = archetypeEvidenceBuilt(31, 2026);
   assert.equal('jev_as_of' in built, false,
     'a null jev_as_of would read as "no answers stored" when none was asked for');
   assert.equal('jev_answers' in built, false);
@@ -223,7 +223,7 @@ test('called without a member, the block leaves the Jev fields off rather than g
  */
 
 test('the priced stamp is the draft and outcome rows only, not every source', () => {
-  const built = archetypesBuilt(33, 2026);
+  const built = archetypeEvidenceBuilt(33, 2026);
   assert.equal(built.priced_as_of, '2026-09-17T04:10:00.000Z',
     'the newest draft-or-outcome row, ignoring the newer career row');
   assert.equal(built.priced_rows, 2);
@@ -234,7 +234,7 @@ test('the priced stamp is the draft and outcome rows only, not every source', ()
 test('on an ordinary league-season the two readings agree', () => {
   // League 31 has only draft-source rows, which is the normal case, so the
   // shared accessor and the consumer it replaces must not disagree there.
-  const built = archetypesBuilt(31, 2026);
+  const built = archetypeEvidenceBuilt(31, 2026);
   assert.equal(built.priced_as_of, built.as_of,
     'a divergence on an ordinary fixture would mean the switch changes behaviour where it should not');
   assert.equal(built.priced_rows, built.rows);
@@ -245,7 +245,7 @@ test('the priced stamp does not depend on a consumer\'s metric allowlist', () =>
   // its asOf inside the row loop, AFTER a `continue` that drops any metric not
   // in ARCHETYPE_METRICS, so editing that map moves the date it reports.
   // career_influence is source='draft' and unmapped; the shared read counts it.
-  const built = archetypesBuilt(33, 2026);
+  const built = archetypeEvidenceBuilt(33, 2026);
   assert.equal(built.priced_rows, 2,
     'both draft rows count, whether or not a downstream map names the metric');
   assert.notEqual(built.priced_as_of, '2026-09-14T04:10:00.000Z',
@@ -253,7 +253,7 @@ test('the priced stamp does not depend on a consumer\'s metric allowlist', () =>
 });
 
 test('a league-season with no priced rows says so rather than borrowing the unrestricted stamp', () => {
-  const built = archetypesBuilt(32, 2026);
+  const built = archetypeEvidenceBuilt(32, 2026);
   assert.equal(built.priced_as_of, null);
   assert.equal(built.priced_rows, 0);
   assert.match(built.reason ?? '', /never covered|no archetype row/);
@@ -262,19 +262,19 @@ test('a league-season with no priced rows says so rather than borrowing the unre
 test('the card carries the priced stamp too, so one payload answers both questions', () => {
   const card = archetypesFor(33, 2026).get('1');
   assert.equal(card.built.priced_as_of, '2026-09-17T04:10:00.000Z');
-  assert.deepEqual({ ...card.built }, { ...archetypesBuilt(33, 2026, BRYN) },
+  assert.deepEqual({ ...card.built }, { ...archetypeEvidenceBuilt(33, 2026, BRYN) },
     'the card and the direct read are one shape, priced fields included');
 });
 
 test('the outcome source counts toward the priced stamp, not only the draft source', () => {
-  const built = archetypesBuilt(34, 2026);
+  const built = archetypeEvidenceBuilt(34, 2026);
   assert.equal(built.priced_as_of, '2026-09-13T04:10:00.000Z',
     'the newest priced row here is an outcome row, and outcomes are priced');
   assert.equal(built.priced_rows, 2);
 });
 
 test('a league-season with rows but none priceable says that, and borrows no date', () => {
-  const built = archetypesBuilt(35, 2026);
+  const built = archetypeEvidenceBuilt(35, 2026);
   assert.equal(built.rows, 1, 'fixture sanity: the key has a row');
   assert.equal(built.priced_rows, 0);
   assert.equal(built.priced_as_of, null,
@@ -290,7 +290,7 @@ test('a league-season with rows but none priceable says that, and borrows no dat
  */
 
 test('a league-season holding only older-version rows is not reported as never built', () => {
-  const built = archetypesBuilt(36, 2026);
+  const built = archetypeEvidenceBuilt(36, 2026);
   assert.equal(built.rows, 0, 'the current version genuinely has no rows here');
   assert.equal(built.as_of, null, 'and no current-version date may be invented for it');
   assert.equal(built.stale_version_rows, 1,
@@ -304,14 +304,14 @@ test('a league-season holding only older-version rows is not reported as never b
 });
 
 test('a genuinely unbuilt league-season still says never covered, and counts no stale rows', () => {
-  const built = archetypesBuilt(32, 2026);
+  const built = archetypeEvidenceBuilt(32, 2026);
   assert.equal(built.stale_version_rows, 0);
   assert.match(built.reason ?? '', /never covered it/,
     'the two states must not have swapped sentences');
 });
 
 test('a current league-season reports no stale rows and no reason', () => {
-  const built = archetypesBuilt(31, 2026);
+  const built = archetypeEvidenceBuilt(31, 2026);
   assert.equal(built.stale_version_rows, 0);
   assert.equal(built.reason, null);
 });
@@ -319,5 +319,5 @@ test('a current league-season reports no stale rows and no reason', () => {
 test('the card carries the stale count too', () => {
   const card = archetypesFor(36, 2026).get('1');
   assert.equal(card.built.stale_version_rows, 1);
-  assert.deepEqual({ ...card.built }, { ...archetypesBuilt(36, 2026, ALDA) });
+  assert.deepEqual({ ...card.built }, { ...archetypeEvidenceBuilt(36, 2026, ALDA) });
 });

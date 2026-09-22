@@ -69,7 +69,7 @@ to one or the other:
 |---|---|---|---|---|
 | `buildManagerArchetypes` | `:617` | 13/8 | Path A: `scripts/build-manager-archetypes.mjs:60` → npm script `build:manager-archetypes` AND `scheduler.js:719-721`'s `execFile` spawn of that same script, job `manager_archetypes` | `git grep -n "\bbuildManagerArchetypes\b" 42478b1 -- server scripts` → `scripts/build-manager-archetypes.mjs:42,60`; `server/services/scheduler.js` does not name it directly (spawns the script as a subprocess, not a JS import) — traced via `scheduler.js:719-721`'s `execFile(process.execPath, [script, '--json'], ...)` where `script = 'scripts/build-manager-archetypes.mjs'`. |
 | `archetypesFor` | `:1168` | 21/19 | Path B: `routes/trades.js:501-502` → mounted `/api/trades` | `git grep -n "\barchetypesFor\b" 42478b1 -- server client scripts` → `routes/trades.js:501,502` outside the defining file. |
-| `archetypesBuilt` | `:1074` | 20/18 | **not found reached from any route, job, or script** — every non-test, non-defining-file hit is inside `docs/tdd/*.md` prose | `git grep -n "\barchetypesBuilt\b" 42478b1 -- server client scripts` → zero hits (checked: the file has no `.md` under those paths, so this is empty). All 20 raw hits are in `test/archetype-as-of.test.js`, `test/league-history-absent.test.js`, `test/league-draft-picks-absent.test.js`, and `docs/tdd/archetype-as-of.tdd.md` (excluded from the grep paths, so not even counted above). **No production caller found — and the reason is now known, see note below, not left open.** |
+| `archetypeEvidenceBuilt` | `:1074` | 20/18 | **not found reached from any route, job, or script** — every non-test, non-defining-file hit is inside `docs/tdd/*.md` prose | `git grep -n "\barchetypesBuilt\b" 42478b1 -- server client scripts` → zero hits (checked: the file has no `.md` under those paths, so this is empty). All 20 raw hits are in `test/archetype-as-of.test.js`, `test/league-history-absent.test.js`, `test/league-draft-picks-absent.test.js`, and `docs/tdd/archetype-as-of.tdd.md` (excluded from the grep paths, so not even counted above). **No production caller found — and the reason is now known, see note below, not left open.** |
 | `managerProfile` | `:912` | 60/55 | **corrected mid-pass — see note below.** `archetypesFor()` (`:1183`) and `jevStateFor()` (`:1211`) both call it directly, and `archetypesFor` is Path B (`routes/trades.js:501`, mounted `/api/trades`) | First pass excluded the defining file and reported "no caller" — exactly the §3 trap the contract names, caught here by re-reading the excluded half. `grep -n "managerProfile(" server/services/manager-archetypes.js` → real call sites at `:1183` and `:1211`, both inside functions already confirmed wired. Corrected: **has a wired path**, transitively through `archetypesFor`. |
 | `consensusFor` | `:158` | 3/3, all test | **corrected mid-pass, same trap.** Called at `:178` inside the private `consensus()` cache wrapper, which `draftSeason()` uses throughout, and `draftSeason()` runs inside `buildManagerArchetypes()` (Path A) | First pass reported "none in production" from the defining-file-excluded count alone. `grep -n "consensusFor(" server/services/manager-archetypes.js` → `:178`, `if (!consensusCache.has(season)) consensusCache.set(season, consensusFor(season));` inside `const consensus = season => {...}` (`:177`), which `draftSeason()` calls by that shorter name. Corrected: **has a wired path**, transitively through `buildManagerArchetypes`. |
 | `leagueHistoryState` | `:277` | 13/5 | internal: called by `managerProfile()` (`:935`), `teamMembersState()` (`:295`), `archetypesFor()` (`:1179`, guard), `builtBlock` (Part 8b, `:1120`) — all within this file | `git grep -n "\bleagueHistoryState\b" 42478b1 -- server client scripts` → zero outside defining file in production. Reached in production transitively: `archetypesFor()` calls it directly at `:1179` and is itself wired (`routes/trades.js:501`), so this has a confirmed wired path — same correction as `managerProfile`/`consensusFor` below. |
@@ -167,13 +167,13 @@ itself evidence about how easy this trap is to fall into even watching for it.
 
 ## Rows this pass could genuinely not close
 
-None outstanding as evidence — see the `archetypesBuilt` correction directly
+None outstanding as evidence — see the `archetypeEvidenceBuilt` correction directly
 below, which closes the one row previously left open here.
 
 ## A second self-caught error: I graded my own row, and the first grade was wrong
 
-`archetypesBuilt` (`manager-archetypes.js:1074`) has **confirmed no caller at
-all**, including inside the defining file — `grep -n "archetypesBuilt("
+`archetypeEvidenceBuilt` (`manager-archetypes.js:1074`) has **confirmed no caller at
+all**, including inside the defining file — `grep -n "archetypeEvidenceBuilt("
 server/services/manager-archetypes.js` matches only its own `export
 function` line. In an earlier pass I read this as `half-done` ("the producer
 exists, the consumer does not") and said so, including in a message to the
@@ -188,11 +188,11 @@ in two separate ways:
    `builtBlock()`, once per manager inside its loop, and stores the result
    as `.built` on every entry it returns (`built: builtBlock(leagueId,
    season, ls, career, priced, stale, jevBy.get(...))`, around `:1189`).
-   `archetypesBuilt(leagueId, season, memberId)` is `return
+   `archetypeEvidenceBuilt(leagueId, season, memberId)` is `return
    builtBlock(...)` for one member — same function, same output shape.
    `routes/trades.js:521` already puts that whole entry, `.built` included,
    on the API response as `archetype: archetypes.get(id) ?? null`. So the
-   as-of stamps `archetypesBuilt` would serve are **already reaching the
+   as-of stamps `archetypeEvidenceBuilt` would serve are **already reaching the
    client today**, per manager, through the batch path. There is no missing
    hop to name — which is `half-done`'s own test, and this row fails it.
 
@@ -205,9 +205,9 @@ offered as a reading, not entered as this row's grade.
 **Checked again after a naming-collision claim, ref `origin/claude/project-thread-3xqh5l-accessor-hold`
 (fetched, not merged):** a report surfaced that this symbol is "already wired"
 on that branch. Verified directly rather than taken on trust — `git grep -n
-"archetypesBuilt" origin/claude/project-thread-3xqh5l-accessor-hold -- server
+"archetypeEvidenceBuilt" origin/claude/project-thread-3xqh5l-accessor-hold -- server
 client scripts` shows the wiring is a **different function of the same name**:
-`server/services/manager-signals.js:610` defines its own `archetypesBuilt(leagueId,
+`server/services/manager-signals.js:610` defines its own `archetypeEvidenceBuilt(leagueId,
 season)`, independently of this file, and that is what `routes/trades.js:29,491`
 and `counterparty-pricing.js:21,246` import and call on that branch. There is
 no import of `manager-archetypes.js` anywhere on that branch. This row's

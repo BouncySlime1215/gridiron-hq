@@ -991,7 +991,7 @@ export const PRICED_SOURCES = Object.freeze(['draft', 'outcome']);
  *
  * So the build stays on the run sheet. What was wrong was not the absence of a
  * scheduler, it was that no served surface said how old the result was — fixed
- * by `archetypesBuilt` above, which is the honest version of a timer: the card
+ * by `archetypeEvidenceBuilt` above, which is the honest version of a timer: the card
  * tells you when to run it.
  */
 export const WHY_UNSCHEDULED =
@@ -1071,7 +1071,7 @@ export const RUN_SHEET_ONLY_REASON = Object.freeze({
  *   answered league-wide, which would hand a manager a date for answers that
  *   are not his.
  */
-export function archetypesBuilt(leagueId, season, memberId = null) {
+export function archetypeEvidenceBuilt(leagueId, season, memberId = null) {
   const { ls, career, priced, stale } = builtStamps(leagueId, season);
   const jev = memberId == null ? null
     : rows(`SELECT COUNT(*) AS n, MAX(evaluated_at) AS as_of FROM manager_archetype_jev

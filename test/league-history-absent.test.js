@@ -141,7 +141,7 @@ test('the absent state is not cached, because a migration can create the table m
  */
 test('a league-season that was never collected says so, and does not read as a zero', () => {
   dropHistoryTable();
-  const built = arch.archetypesBuilt(1, 2025);
+  const built = arch.archetypeEvidenceBuilt(1, 2025);
   assert.match(built.reason ?? '', /league_season_teams/,
     'the not-collected state reaches the caller through the reason field, the same one a '
     + 'never-built archetype uses — a caller seeing rows: 0 with no reason cannot tell the two apart');
@@ -151,14 +151,14 @@ test('a league-season that was never collected says so, and does not read as a z
 
 test('collected and genuinely empty is a different sentence from never collected', () => {
   restoreHistoryTable();
-  const collected = arch.archetypesBuilt(1, 2025);
+  const collected = arch.archetypeEvidenceBuilt(1, 2025);
   const absentClause = /league_season_teams/;
   assert.ok(!absentClause.test(collected.reason ?? ''),
     'with the table there, a league-season with no rows is an ordinary empty and must not '
     + 'borrow the not-collected sentence; otherwise the two states share one answer again '
     + 'and the whole distinction is decorative');
   dropHistoryTable();
-  assert.match(arch.archetypesBuilt(1, 2025).reason ?? '', absentClause,
+  assert.match(arch.archetypeEvidenceBuilt(1, 2025).reason ?? '', absentClause,
     'and the same call on the same key says the other thing when the table is gone');
   restoreHistoryTable();
 });

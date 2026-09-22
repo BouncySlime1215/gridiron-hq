@@ -106,7 +106,7 @@ not ok 5 - the Jev answers carry their own evaluation date, not the archetype bu
 not ok 6 - a manager with no Jev answers reports none, not the other manager's date
   error: "Cannot read properties of undefined (reading 'jev_answers')"
 not ok 7 - a full league-season is clean: no gap reported when both halves are there
-  error: 'archetypesBuilt is not a function'
+  error: 'archetypeEvidenceBuilt is not a function'
 ```
 
 ## Mutation run, pasted verbatim
@@ -141,7 +141,7 @@ NO-OP, so a pattern that silently failed to match cannot be read as a pass.
 ## What the mutation run found that the tests did not
 
 **A1 survived the first pass**, and it is the one that mattered. Injecting `MIN`
-for `MAX` changed nothing any test could see, because `archetypesBuilt` and
+for `MAX` changed nothing any test could see, because `archetypeEvidenceBuilt` and
 `archetypesFor` each held their **own copy** of the same two queries: a string
 replace hit the first, every stamp assertion ran through the second, and the
 answer stayed right. Two things were wrong, and both are fixed:
@@ -149,7 +149,7 @@ answer stayed right. Two things were wrong, and both are fixed:
 1. The duplication itself. `builtStamps()` is now the one place those two reads
    are written — the same rule `builtBlock()` already applied to the shape, one
    level up. A10 is the regression test for the dedupe.
-2. **`archetypesBuilt`'s own `as_of` was asserted by nothing.** Every check went
+2. **`archetypeEvidenceBuilt`'s own `as_of` was asserted by nothing.** Every check went
    through the card. Two tests were added: one asserting the direct read's three
    stamps and `deepEqual` against the card's block, and one asserting that
    calling it without a member leaves the Jev fields **off** rather than
@@ -225,8 +225,8 @@ RED `c8fba79`, then GREEN. Same branch, on top of the Part 1 GREEN `6ceb5c7`.
 
 ## One correction to this brief too
 
-The work came as "Trade Brain's `archetypesBuilt` in `counterparty-pricing.js`
-duplicates yours". There is no `archetypesBuilt` in that file. Searching the
+The work came as "Trade Brain's `archetypeEvidenceBuilt` in `counterparty-pricing.js`
+duplicates yours". There is no `archetypeEvidenceBuilt` in that file. Searching the
 identifier across **every** remote branch returns exactly one file —
 `server/services/manager-archetypes.js` on this branch — so the duplication as
 described did not exist.
@@ -263,7 +263,7 @@ obvious from the call site:
 
 ## The decision, and where it deliberately does not match
 
-`archetypesBuilt` now also returns `priced_as_of` / `priced_rows`: the same
+`archetypeEvidenceBuilt` now also returns `priced_as_of` / `priced_rows`: the same
 league-season, restricted to `PRICED_SOURCES = ['draft', 'outcome']` and **no
 metric allowlist**. `manager-signals.js` can switch to it without a second
 query over the same table.
@@ -350,7 +350,7 @@ estimated. The one judgement is which sources count as priceable, and that is
 declared in `PRICED_SOURCES` with its reasoning, not buried in a query.
 
 **How do we know?** `archetypeIndex`'s defect is the four lines quoted above,
-at `manager-signals.js:271-283`. The claim that no other `archetypesBuilt`
+at `manager-signals.js:271-283`. The claim that no other `archetypeEvidenceBuilt`
 exists is a search of every remote branch. Five tests failed before, sixteen
 pass after, fifteen mutations all caught.
 
@@ -1389,7 +1389,7 @@ on the run sheet, so the state is served through **`reason`** — the field this
 block already uses for not-built data — rather than through a new field
 invented ahead of that contract.
 
-Two more tests, red then green: `archetypesBuilt()` with the table dropped
+Two more tests, red then green: `archetypeEvidenceBuilt()` with the table dropped
 names it in `reason`; with the table restored, a league-season with no rows
 must **not** borrow that sentence, or the two states share one answer again and
 the distinction is decorative.

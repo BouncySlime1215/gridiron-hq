@@ -17,9 +17,18 @@ re-aimed, which is the honest part of this file (see f4e).
 comment calling acceptance "~1 because nobody has to agree to a waiver claim" —
 and passed it to the Decision Inbox as that item's `confidence`.
 
-The trade publisher writes `headline.p_right` into that same column
-(`trade-engine.js:2874`, built at `:2833`): a fitted estimate of how often that
-model is right, scored against outcomes.
+The trade publisher writes `headline.p_right` into that same column: a fitted
+estimate of how often that model is right, scored against outcomes. Both sites
+are in `server/services/trade-engine.js`, quoted here so the citation survives
+the file moving (read at `654ff93`, where they are at `:2874` and `:2833`):
+
+```js
+          expectedValue: gain, confidence: headline.p_right, urgency: headline.urgency,
+```
+
+```js
+        p_right: +p.toFixed(3),
+```
 
 **They are not the same kind of number.** `p_right` answers "is this
 recommendation correct". `0.9` answers "will somebody else claim him first". A
@@ -61,7 +70,13 @@ option on the table, and it is wrong: the trade publisher's use of the column is
 legitimate and fitted. Test 7 exists to hold that line.
 
 **Verified before changing it, rather than assumed.** `/api/decision-inbox` is
-mounted (`server/index.js:129`), but **no client page fetches it** — no reference
+mounted in `server/index.js` — at `654ff93` the mount line reads
+
+```js
+app.use('/api/decision-inbox', ...legacyAuthenticated, decisionInboxRouter);
+```
+
+— but **no client page fetches it** — no reference
 to the route or to an inbox item's fields exists anywhere in `client/src` — and
 no test asserts on the column. So nothing regresses by the absence. That absence
 is itself a wiring finding, and it is routed to the wiring map thread rather than
@@ -150,8 +165,10 @@ it stores unchanged.
   the `0.75` publish threshold, the `2` / `1.2` urgency cuts, the 72-hour expiry
   (already flagged in its own comment), and the `gain <= 0.05` cutoff.
 - **How we know.** Direct reads, not inference: the two writers of the shared
-  column are `waiver-brain.js` and `trade-engine.js:2874`, and `p_right` is built
-  at `:2833`. The claim that dropping the value regresses nothing was checked
+  column are `waiver-brain.js` and the `confidence: headline.p_right` line of
+  `trade-engine.js`, whose `p_right` is built by the `p_right: +p.toFixed(3)`
+  line of the same file (both quoted in full under **The defect**, read at
+  `654ff93`). The claim that dropping the value regresses nothing was checked
   against `client/src` and `test/` rather than assumed. **What is still
   untested:** whether a waiver recommendation is any good. That is answerable — a
   walk-forward over past claims, scoring the recommended add against what the

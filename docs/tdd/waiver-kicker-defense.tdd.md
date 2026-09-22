@@ -11,10 +11,12 @@ kicker and a defense, and the waiver board could recommend neither.
    `'DEF'`. No defense was ever a free agent as far as this module was concerned.
 2. **Even in the pool, neither could ever rank.** `waiverUpgrades` ranks a
    candidate by the gain it produces through `bestLineup`, and `bestLineup`
-   (`trade-engine.js:615`/`:636`) filters both the player pool and the slot list
-   to `SCORED = new Set(SKILL)` = QB/RB/WR/TE, deliberately, because kickers and
-   defenses are near-random week to week. A kicker therefore scores exactly zero
-   gain and sorts last, always.
+   (the `players.filter(p => SCORED.has(p.position))` and
+   `slots.filter(s => SCORED.has(s))` calls in `server/services/trade-engine.js`,
+   at `:615` and `:636` as of `654ff93`) filters both the player pool and the
+   slot list to `SCORED = new Set(SKILL)` = QB/RB/WR/TE, deliberately, because
+   kickers and defenses are near-random week to week. A kicker therefore scores
+   exactly zero gain and sorts last, always.
 
 Fixing (1) alone would have changed nothing visible — which is the point of test 5
 below. The two together are why the honest fix is not "make them rank": the solver
@@ -98,7 +100,7 @@ because `bestLineup` does not score him and his gain is zero. **The filter is wh
 lets the page say why; the solver is what makes it true.** Adding the second half:
 
 ```js
-- const SCORED = new Set(SKILL);                       // trade-engine.js:125
+- const SCORED = new Set(SKILL);                       // trade-engine.js, the SCORED declaration
 + const SCORED = new Set([...SKILL, 'K', 'DEF']);
 ```
 ```

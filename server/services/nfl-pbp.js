@@ -62,7 +62,7 @@ const teamAcc = () => ({
   sacks: 0, qb_hits: 0, scrambles: 0, ints: 0, fumbles: 0,
   penalties: 0, first_downs: 0,
   third_att: 0, third_conv: 0, third_dist: 0,
-  fourth_att: 0, fourth_conv: 0,
+  fourth_att: 0, fourth_conv: 0, fourth_situations: 0,
   rz_plays: 0, rz_td: 0, gtg_plays: 0, gtg_td: 0,
   early_plays: 0, early_pass: 0, early_epa: 0,
   neutral_plays: 0, neutral_pass: 0,
@@ -212,6 +212,18 @@ async function syncPbpSeasonImpl(season, { onProgress } = {}) {
       }
       return;
     }
+    // A fourth-down decision, counted before the pass/run filter below drops
+    // punts and field goals. Without this the go-for-it rate has no
+    // denominator: off_fourth_down_rate can only ever be conversions over
+    // attempts, which is a different number that four consumers were reading
+    // as aggression. A fourth-down penalty is not a decision — the down
+    // replays — and no_play has already returned above.
+    if (num(rec, 'down') === 4 && ['pass', 'run', 'punt', 'field_goal'].includes(playType)) {
+      const s4 = teamSlot(week, posteam, defteam, posteam === homeTeam ? 1 : 0);
+      const d4 = teamSlot(week, defteam, posteam, defteam === homeTeam ? 1 : 0);
+      s4.off.fourth_situations++; d4.def.fourth_situations++;
+    }
+
     if (!['pass', 'run'].includes(playType)) return;
 
     plays++;
@@ -463,7 +475,15 @@ function sideFeatures(a, p) {
     [`${p}_third_down_rate`]: r3(div(a.third_conv, a.third_att)),
     [`${p}_third_down_distance`]: r3(div(a.third_dist, a.third_att)),
     [`${p}_third_down_attempts`]: a.third_att,
+    // Conversions over go-for-it attempts. Named before the go rate existed;
+    // left alone so no stored row changes meaning. nfl-features.js:60 labels
+    // it correctly as a conversion rate.
     [`${p}_fourth_down_rate`]: r3(div(a.fourth_conv, a.fourth_att)),
+    // How often this team went for it, over every fourth down it faced.
+    // This is the aggression number.
+    [`${p}_fourth_down_go_rate`]: r3(div(a.fourth_att, a.fourth_situations)),
+    [`${p}_fourth_down_attempts`]: a.fourth_att,
+    [`${p}_fourth_down_situations`]: a.fourth_situations,
     [`${p}_red_zone_plays`]: a.rz_plays,
     [`${p}_red_zone_td_rate`]: r3(div(a.rz_td, a.rz_plays)),
     [`${p}_goal_to_go_td_rate`]: r3(div(a.gtg_td, a.gtg_plays)),

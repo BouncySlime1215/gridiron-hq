@@ -6,7 +6,10 @@
 **Table:** `news_items.published_at`. **Writer:** `ingestRssSource`
 (`server/news/ingest.js:53`) → `normalizeNewsItem` (`server/news/normalize.js:48`, the parse
 is `:57`) → `upsertNormalizedNewsItem` (`server/news/store.js:27`; INSERT `:41`, UPDATE
-`:68`). Cites are on d6d7bd5a unless marked.
+`:68`). Cites are on d6d7bd5a unless marked. This is one of two writers that put a
+`published_at` on ESPN stories; the other, `insertArticles` (`server/routes/espn.js:174`,
+INSERT `:197`), can store the same story as a second row with an earlier time. That
+disagreement is measured in section 6.1 and left as a named follow-up.
 
 All database figures are from a **local copy, not production**: `sqlite3
 ~/gridiron-local/data.sqlite ".backup '<worktree>/.local-db/data.sqlite'"`, taken
@@ -177,8 +180,12 @@ No schema change, no migration, no new column. Targeted runs at d3d1f8b1 (each w
 | `test/nfl-expert-council-news-feed-cutoff.test.js` | 3 | 3 | 0 |
 | `test/nfl-player-state-roster-events-cutoff.test.js` | 3 | 3 | 0 |
 
-The last five were run on 6a3fbfde; d3d1f8b1 changed only the new test file.
+The last three were run on 6a3fbfde; d3d1f8b1 changed only the new test file.
 `npm run check` was not run here (Gate phase runs it once, per the unit's CPU rule).
+
+Re-run after the skeptic review, on ac2e389c source (the follow-up commit changes only this
+file), same command: `news-published-at-timezone` 6/6, `news-ingest` 20/20,
+`modeling-news` 7/7, all exit 0.
 
 **The real feed through the fixed parse** (29 items from the 20:16:56Z fetch, all labelled
 `EST`; scratch script, d3d1f8b1):
@@ -211,11 +218,118 @@ git grep -n -i -E "fresh|latency|lag|age_?minutes|datetime\('now'" -- <those fil
 | As-of cutoff | `services/nfl-expert-council.js:248` | `published_at<=? AND ingested_at<=?` | corrected; the `ingested_at` gate already kept it look-ahead safe |
 
 Every consumer reads the stored `news_items.published_at` (or its copy in
-`nfl_news_signals`); none parses the feed's raw `<pubDate>` itself. So there is one
-producer, and fixing it at the writer corrects every consumer for new rows with no
-consumer edit. `nfl_news_events` is **empty** on the copy (0 rows), so its
-`observed_before_published` check (`nfl-news-events.js:412`) had nothing to see; that is
-table-empty, not zero.
+`nfl_news_signals`); none parses the feed's raw `<pubDate>` itself. So fixing the RSS parse
+at the writer corrects every consumer for new RSS rows with no consumer edit.
+`nfl_news_events` is **empty** on the copy (0 rows), so its `observed_before_published`
+check (`nfl-news-events.js:412`) had nothing to see; that is table-empty, not zero.
+
+An earlier version of this section said "there is one producer". **That was wrong.** The
+column has two producers of an ESPN story's publish time, and they disagree on the same
+story (6.1).
+
+### 6.1 Two producers disagree on the same story (found in skeptic review)
+
+Writers of the column (`git grep -n "INSERT INTO news_items\|UPDATE news_items" -- server`
+at ac2e389c, migrations excluded):
+
+| Producer | Function, file:line | What it stores as `published_at` | How it skips a story it already has |
+|---|---|---|---|
+| RSS (`source='ESPN'`, `source_type='publisher'`) | `ingestRssSource` `ingest.js:78,89` (HEAD) → `normalizeNewsItem` `normalize.js:94` (HEAD) → `upsertNormalizedNewsItem` `store.js:41/:68` | the feed's `<pubDate>`, which ESPN moves forward on every edit (defect 8.2); the UPDATE path rewrites it each time | `duplicate_group_id` = digest of the canonical URL (`normalize.js:103`, HEAD) |
+| ESPN JSON API (`source='ESPN'`, `source_type` null) | `insertArticles` `espn.js:174`, INSERT `:197` | the API's `published` field (`:196`), written once | skips if **any** row has the same headline (`espn.js:179`); stores no URL |
+| Transactions and Twitter | `nfl-transactions.js:62-63`, `twitter-ingest.js:203,213`, through the same `normalizeNewsItem` → store path as RSS | ESPN API ISO date / tweet `createdAt` | URL digest |
+| Backfill | `backfillNewsEntities` `espn.js:214` | only fills a null, with `date` 12:00Z | n/a |
+| Manual and AI rows | `routes/news.js:129,168` | nothing (null; readers fall back to `date`) | n/a |
+
+The RSS and JSON API producers cover the same ESPN stories and use keys that cannot see each
+other. When the API row comes first, the RSS row has a URL the API row lacks, so RSS inserts
+a second row. When the RSS row comes first, the API writer skips on the headline.
+
+**Both values on the same input.** Local copy, joining RSS rows to API rows on headline:
+
+```
+sqlite3 .local-db/data.sqlite "SELECT api.id, rss.id, api.published_at, rss.published_at,
+  round((julianday(rss.published_at)-julianday(api.published_at))*1440,1)
+  FROM news_items rss JOIN news_items api ON api.headline=rss.headline
+   AND api.source='ESPN' AND api.source_type IS NULL
+  WHERE rss.source='ESPN' AND rss.source_type='publisher'"
+```
+
+Control first: a self-join of all 1,474 rows on headline finds 8 same-headline pairs, so
+the join finds rows when they exist. 7 of the 8 are RSS/API pairs. The 8th is two RSS rows
+with different URLs (9073, 9118).
+
+"Fixed" is the stored RSS value run through the fixed parse at HEAD. The raw label was not
+stored, so it is rebuilt from the literal −05:00 reading. A scratch script rebuilds
+`'… EST'`, checks that `new Date(label)` gives back the stored value exactly, and then calls
+`normalizeNewsItem`. All 7 rebuilt exactly.
+
+| API id | RSS id | Story (start of headline) | API `published_at` | RSS stored | RSS fixed | RSS − API, stored | RSS − API, fixed | first stored |
+|---|---|---|---|---|---|---|---|---|
+| 2798 | 2826 | Record $595 million bet… | 09-17 22:12:59Z | 09-18 00:29:49Z | 09-17 23:29:49Z | 136.8 min | 76.8 min | API |
+| 6440 | 6509 | Eagles' new perspective for '26… | 09-19 10:00:11Z | 12:34:54Z | 11:34:54Z | 154.7 | 94.7 | API |
+| 11641 | 11651 | Rams' McVay unsure about Nacua's status… | 09-22 16:06:46Z | 19:57:22Z | 18:57:22Z | 230.6 | 170.6 | API |
+| 4055 | 4296 | Titans remain patient with Cam Ward… | 09-18 10:00:21Z | 13:53:21Z | 12:53:21Z | 233.0 | 173.0 | API |
+| 4623 | 4627 | Mired in historic interception drought… | 09-18 15:54:57Z | 21:21:48Z | 20:21:48Z | 326.9 | 266.9 | API |
+| 10389 | 10242 | Sources: Colts' Pierce out weeks… | 09-22 02:00:04Z | 19:57:22Z | 18:57:22Z | 1077.3 | 1017.3 | RSS |
+| 8942 | 8957 | Hurts taunts Titans after Eagles win… | 09-20 23:10:07Z | 09-21 19:25:14Z | 09-21 18:25:14Z | 1215.1 | 1155.1 | API |
+
+In all 7 pairs the RSS time is later, by 76.8 to 1155.1 minutes even after the fix. "First
+stored" compares `created_at`. In 6 of 7 pairs the API row was stored first. That is the
+path where the RSS key cannot see the API row. In pair 10389/10242 the RSS row was stored
+first (00:55:19 vs 02:10:53) but the headline check still let the API row in. My **guess**
+is that the RSS headline was different at 02:10 and a later edit (the row's `ingested_at`
+moved to 19:40:50) renamed it. The history is not stored, so this cannot be checked.
+
+**Live check (feed the app already polls, one GET at 2026-09-22T20:48:03Z).** One pair is
+still in the feed. The McVay/Nacua item now reads `Tue, 22 Sep 2026 16:07:30 EST`. The fixed
+parse makes that 20:07:30Z, which is 240.7 minutes after the API's 16:06:46Z. ESPN has
+edited it again since our last fetch, so its RSS time keeps moving later.
+
+**Which one is right.** The API value is the story's first publication. For 936 of 936 API
+rows it is at or before the row's `created_at`:
+
+```
+SELECT COUNT(*), SUM(julianday(published_at) > julianday(created_at)) FROM news_items
+ WHERE source='ESPN' AND source_type IS NULL   -- 936 | 0
+```
+
+The RSS value is the last edit. After the fix, 153 of 196 RSS rows have `published_at` later
+than their own first-stored `created_at`, by up to 5,859.4 minutes. That can only happen
+if the stamp moves after the story first appears:
+
+```
+SELECT COUNT(*), SUM(julianday(published_at)-1.0/24 > julianday(created_at)),
+  round(MAX((julianday(published_at)-1.0/24-julianday(created_at))*1440),1)
+  FROM news_items WHERE source='ESPN' AND source_type='publisher'   -- 196 | 153 | 5859.4
+```
+
+This unit keeps the RSS value from being **in the future**: after the one-hour correction,
+0 of 161 post-09-15 RSS rows are ahead of their own fetch clock (section 2). The unit does not make it a first-publication
+time, and does not make the two producers agree.
+
+**Reaches the News page.** A scratch script ran the real `GET /api/news/desk?limit=120`
+handler at HEAD against a scratch copy of the local copy. `Date.now` was pinned to the copy
+time, 2026-09-22T20:16:16Z. As a non-empty control, the desk returned 120 stories. In 1 of
+the 7 pairs both rows were on the desk:
+
+| Leg | "Sources: Colts' Pierce out weeks…" API row 10389 | Same story, RSS row 10242 |
+|---|---|---|
+| A. stored stamps | `age_minutes` 1096 | `age_minutes` 19 |
+| B. RSS row given its fixed stamp (scratch copy only) | 1096 | 79 |
+
+So the News page lists one story twice, as 18 hours old and as 19 minutes old. With the fix
+it is 18 hours and 79 minutes. The other 6 pairs are older than that clock's top 120. At
+their own time they would have shown up the same way (this is inferred, not run). The desk
+query (`routes/news.js:60-62`) and its ranking (`:64-86`) do not dedupe by headline.
+
+**Not unified in this unit. Follow-up F-R07-1:** make one producer own an ESPN story's
+publish time. Either (a) have the RSS path (`store.js:27`) match an existing
+`source='ESPN'` row by headline and keep the API's first-publication stamp, keeping the
+RSS `<pubDate>` only as a revision time, or (b) retire `insertArticles`' separate insert in
+favour of the shared `normalizeNewsItem` → store path. Either one needs a decision about
+which time the desk should age from. The first-publication time is the right one for
+"how fresh is this story"; that is a **guess** about the product intent, not a
+measurement. It also touches `routes/espn.js`, which this unit does not own.
 
 ## 7. Mutation sweep
 
@@ -268,7 +382,14 @@ Full sweep on d3d1f8b1, baseline 33 pass / 0 fail:
    up to 29 rows lose their first-seen time once.
 2. **ESPN's RSS `<pubDate>` is a last-modified time, not first publication.** Row 8752 was
    created 2026-09-20 and carries `published_at` 2026-09-22T20:15:32Z (a "Fantasy buzz"
-   page ESPN keeps editing). Freshness ranks re-edited old stories as new. Not changed here.
+   page ESPN keeps editing). After the fix, 153 of 196 RSS rows still carry a stamp later
+   than their own first-stored `created_at` (6.1). Freshness ranks re-edited old stories as
+   new. Not changed here.
+2a. **Two producers write a publish time for the same ESPN story and disagree** (6.1):
+   the JSON API writer `insertArticles` (`espn.js:174`, INSERT `:197`) and the RSS writer.
+   The copy has 7 same-story pairs, with RSS later by 76.8 to 1155.1 min after the fix. The
+   News page lists one of them twice at the copy's clock (ages 1096 and 79 min). Their
+   dedupe keys (headline vs URL digest) cannot see each other. Follow-up F-R07-1.
 3. **`fresh_24h` compares text, not time.** `routes/news.js:89` and
    `nfl-diagnostic.js:21` compare ISO text (`…T…Z`) with `datetime('now','-24 hours')`
    (space-separated), so any story on the cutoff's calendar date counts as fresh: **268**
@@ -313,4 +434,9 @@ feeds a start/sit, waiver or trade call except through the news desk's ordering.
    trader through them).
 5. **How it unifies:** one parse in `normalizeNewsItem`, shared by the RSS, Twitter and
    transactions writers, built on the same `zonedDateTime` that converts nflverse
-   kickoffs. No second copy of the publish time was added.
+   kickoffs. No second copy of the publish time was added. **It does not unify
+   everything.** A second producer already exists: the ESPN JSON API writer
+   `insertArticles` (`espn.js:174`). It stores the same stories as separate rows with the
+   first-publication time, while RSS stores the last-edit time. On the copy, 7 stories
+   have both rows, with RSS later by 76.8 to 1155.1 min even after this fix. The News page
+   showed one of them twice (6.1). Not unified here; follow-up F-R07-1.

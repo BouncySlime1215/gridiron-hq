@@ -67,11 +67,26 @@ person to run it. It is hand-run, and the mention that reads most like wiring
 is `contingency.js:516`, which says the script **has never run**.
 
 ### `wired-betting-only`
-Reachable, and reachable **only** through a betting surface: a path whose sole
-entry point is `server/routes/nfl-market.js`, `server/routes/nfl-betting.js` or
-`server/routes/betting-hub.js`. Betting is out of scope for this product, so a
-row here is genuinely served and served somewhere the product is not meant to
-be using.
+Reachable, and reachable **only** through a betting surface. Betting is out of
+scope for this product, so a row here is genuinely served and served somewhere
+the product is not meant to be using.
+
+**The betting surfaces are this list, and the list is the test:**
+
+| route file | mounted at | why |
+|---|---|---|
+| `nfl-market.js` | `/api/nfl-market` | the NFL market board |
+| `nfl-betting.js` | `/api/nfl-betting` | "NFL betting API" |
+| `betting-hub.js` | `/api/betting` | "the betting home page's data" |
+| `wong.js` | `/api/betting/wong` | "the Wong teaser desk… a ledger of what was taken" |
+| `execution-slate.js` | `/api/execution-slate` | the shopping board, teaser execution and the staking gate |
+
+**A mount path is evidence for adding to the list, never the test.** Both
+directions are live here: `wong.js` sits under `/api/betting` and
+`execution-slate.js` sits outside it, and both are betting. A prefix rule
+catches the first and misses the second, so it is not the rule. Adding a surface
+means adding a row above with its reason, quoted from the file's own header, and
+re-running the sweep.
 
 **Test:** trace every path to an entry point, not the first one. The grade
 applies only when *all* of them terminate in a betting route. One non-betting
@@ -106,8 +121,23 @@ quoted anywhere. Run:
     node scripts/reach-grade.mjs server/services/<file>.js
 
 **First sweep, 2026-09-22.** Across the 319 tracked files in `server/services/`
-and `server/modeling/`: **237 `wired`, 51 `wired-betting-only`, 10
-`hand-run-script`, 21 `unreached`.** So roughly one file in six that a
+and `server/modeling/`: **233 `wired`, 55 `wired-betting-only`, 10
+`hand-run-script`, 21 `unreached`.**
+
+That is the five-surface list. On the three-surface list it was 237 / 51 / 10 /
+21; adding `wong.js` and `execution-slate.js` moved four files —
+`execution-slate-reasoning.js`, `nfl-teaser-execution.js`, `nfl-teasers.js` and
+`staking.js` — out of the fantasy `wired` total, which is what they were doing
+wrong there.
+
+**A known under-count, named rather than folded in.** `/api/props` and
+`/api/props-tickets` are an MLB prop research board and its saved slips, and
+`/api/mlb` is MLB. They are not betting surfaces as this grade defines them, and
+they are not the fantasy product either, so a row reachable only through them is
+also overstating the `wired` total. Counting those three as well would give
+228 / 60 / 10 / 21 — five more files. **That is a separate grade and it has not
+been made**; this note exists so the 233 is read as an upper bound on fantasy
+reach rather than as a settled figure. So roughly one file in six that a
 first-path trace would have called `wired` is reachable only through a betting
 surface. That is the overstatement this grade was added to prevent, measured
 rather than asserted.

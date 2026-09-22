@@ -27,11 +27,26 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** The three surfaces CONTRACT.md names. Betting is out of scope for this product. */
+/**
+ * The betting surfaces CONTRACT.md names. Betting is out of scope for this
+ * product, so a row reachable only through one of these is served somewhere the
+ * product is not meant to be using.
+ *
+ * THE LIST IS THE TEST, and a mount path is evidence for adding to it, never
+ * the test itself. Both directions are live in this repo: `routes/wong.js` is
+ * mounted at `/api/betting/wong`, under the prefix, and `routes/execution-slate.js`
+ * is mounted at `/api/execution-slate`, outside it — and both are betting. A
+ * prefix rule catches the first and misses the second.
+ *
+ * Each entry says why, from the file's own header, so the list can be audited
+ * rather than trusted.
+ */
 export const BETTING_ENTRY_POINTS = Object.freeze([
   'server/routes/nfl-market.js',
-  'server/routes/nfl-betting.js',
-  'server/routes/betting-hub.js',
+  'server/routes/nfl-betting.js',      // "NFL betting API"
+  'server/routes/betting-hub.js',      // "the betting home page's data"
+  'server/routes/wong.js',             // "the Wong teaser desk... a ledger of what was taken"
+  'server/routes/execution-slate.js',  // the shopping board, teaser execution and the staking gate
 ]);
 
 export function isBettingEntryPoint(file) {

@@ -204,13 +204,21 @@ test('smoke: the graph builder still parses this repository, and player-week-eng
     'a module with both a betting and a non-betting entry point is wired (CONTRACT.md section 2)');
 });
 
-test('the betting entry points are exactly the three surfaces the contract names', () => {
+test('the betting entry points are an explicit list, and a mount prefix is not the test', () => {
   assert.deepEqual([...BETTING_ENTRY_POINTS].sort(), [
     'server/routes/betting-hub.js',
+    'server/routes/execution-slate.js',
     'server/routes/nfl-betting.js',
     'server/routes/nfl-market.js',
+    'server/routes/wong.js',
   ]);
   assert.equal(isBettingEntryPoint('server/routes/model.js'), false);
+
+  // Both directions are live in this repo, which is why the list is the test.
+  // wong.js is mounted UNDER /api/betting; execution-slate.js is mounted
+  // outside it. A prefix rule catches the first and misses the second.
+  assert.equal(isBettingEntryPoint('server/routes/wong.js'), true);
+  assert.equal(isBettingEntryPoint('server/routes/execution-slate.js'), true);
 });
 
 test('buildImporterGraph reverses the arrows: it maps a module to the files importing it', () => {

@@ -192,10 +192,20 @@ through scaling. The container has no numpy, pandas or sklearn.
 
 **The baseline is a research baseline, not the production model.** It knows
 prior targets, receptions, receiving yards, prior PPR, snap share, games and
-position. It does not include the repo's own opponent adjustment
-(`nfl-features.js:228` `opp_adj_def_epa`). A better point model would *narrow*
-these bands; the method in §2 is unaffected, but **§3's widths must be
-re-measured against the real model before they are quoted to a user.**
+position.
+
+*Corrected 2026-09-22 after tracing the wiring* — an earlier draft of this
+section said the production model has "strictly more information" because it
+has `opp_adj_def_epa`. **It does not.** That feature reaches the betting surface
+only; no fantasy service references it
+(`docs/evidence/2026-09-22/opp-adj-def-epa-wiring-audit.md`). The real
+difference is that the fantasy model has `vegasLift`, a betting-line
+game-script multiplier (`lineup-brain.js:275`), which this baseline lacks, while
+neither model has an opponent-defence-quality feature. Which is stronger is
+therefore an open question, not a safe assumption. The method in §2 is
+unaffected either way, but **§3's widths must be re-measured against the real
+production model before they are quoted to a user** — that matters more now, not
+less, because the direction of the difference is no longer known.
 
 **Signal share, reconciled.** Two independent measurements of how much weekly
 scoring is stable player skill looked contradictory and are not:

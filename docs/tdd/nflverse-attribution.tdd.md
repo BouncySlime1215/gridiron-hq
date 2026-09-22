@@ -11,11 +11,11 @@ That descriptor is returned only on the betting route
 returns both CC BY descriptors as `sources`. That is the fantasy-side report the
 app's data banner already reads (`client/src/components/DataFreshnessBanner.tsx:100`).
 
-Commits, all on #133, base `main` `f620a12`:
+Commits, all on #133, base `main` `c90d283` (rebased from `f620a12`; the rebase changed shas only):
 
-- **RED:** #133 `0c47e60` "test: RED - nflverse data carries no CC BY 4.0 source descriptor"
-- **GREEN:** #133 `471d3f0` "feat: GREEN - nflverse data carries its CC BY 4.0 descriptor on the freshness report"
-- **Test fix:** #133 `2505240` "test: the release-URL check needs a path boundary, not a bare prefix"
+- **RED:** #133 `74c4449` "test: RED - nflverse data carries no CC BY 4.0 source descriptor"
+- **GREEN:** #133 `901c2fd` "feat: GREEN - nflverse data carries its CC BY 4.0 descriptor on the freshness report"
+- **Test fix:** #133 `1ff383c` "test: the release-URL check needs a path boundary, not a bare prefix"
 - **Evidence:** this file and the sweep runner, in the commit after them.
 
 ## Pre-registration (sent to the coordinator before RED)
@@ -60,7 +60,7 @@ way to meet it. The descriptor carries each piece:
 
 `test/nflverse-attribution.test.js`, 4 tests.
 
-**RED #133 `0c47e60`:** 4 of 4 fail. This is the output of
+**RED #133 `74c4449`:** 4 of 4 fail. This is the output of
 `node --experimental-test-module-mocks --test test/nflverse-attribution.test.js`,
 run under the suite's offline guard on that commit:
 
@@ -79,7 +79,7 @@ not ok 4 - the data-freshness report carries both CC BY sources, verbatim
   error: 'the report has a sources array'
 ```
 
-**GREEN #133 `471d3f0`:** 4 of 4 pass. So do the 45 tests already in
+**GREEN #133 `901c2fd`:** 4 of 4 pass. So do the 45 tests already in
 `test/data-freshness*.test.js`, `test/ffopportunity*.test.js` and
 `test/nflverse*.test.js`: 49 of 49 together.
 
@@ -98,7 +98,7 @@ worktree at HEAD and never writes the working tree.
 
 **The first sweep was 9 of 10.** M9 survived because test 3 used a bare
 `startsWith`, so `…/download-mirror` passed as being under `…/download`. That
-was a real gap in the test. #133 `2505240` requires an exact match or a following
+was a real gap in the test. #133 `1ff383c` requires an exact match or a following
 `/`, and M9 is now killed. The test was fixed, not the implementation, and the fix
 is its own commit so it can be seen.
 
@@ -131,7 +131,7 @@ nine sit under the descriptor's `release_url`.
 - **Stats or made up?** There are no statistics here. It is a presence check
   against a fetched licence file, with its sha256 and byte count recorded, plus
   a grep over `server/` whose count is stated.
-- **How do we know?** RED #133 `0c47e60` fails 4 of 4. GREEN #133 `471d3f0`
+- **How do we know?** RED #133 `74c4449` fails 4 of 4. GREEN #133 `901c2fd`
   passes 4 of 4. The sweep kills 10 of 10, including the gap its first run found.
   The full gate figures (`npm run check && npm run check:wiring` under one guard)
   are in the PR body, measured on the exact pushed head, which includes this file.

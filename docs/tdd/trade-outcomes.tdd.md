@@ -29,11 +29,11 @@ Phase 0 item 4. Branch `claude/project-thread-3xqh5l-outcome-ledger`, cut from
   the model states them — a band with a basis, `fitted: false` — and §3 is about
   the one place the brief would have had me record a precision the model
   refuses to claim.
-- **How do we know?** RED before GREEN — `b3311057` "test: RED — the trade
-  outcome ledger, before it exists", then `11810191` "feat: GREEN — the trade
+- **How do we know?** RED before GREEN — `92f31b7d` "test: RED — the trade
+  outcome ledger, before it exists", then `e363b35c` "feat: GREEN — the trade
   outcome ledger, 17 of 17" — plus the contract asserted against the table's own
   CHECK constraints rather than against the writer. Both re-measured on this
-  branch's rebase onto `6e722719`; §7 carries what RED actually printed. The absence path is tested first,
+  branch's rebase onto `ea69d9f3`; §7 carries what RED actually printed. The absence path is tested first,
   because it is the only path this machine can actually take today.
 - **Should this data point anywhere else?** Yes, and deliberately not yet.
   Nothing reads the ledger: no page, no route, no model. It is a recorder, and a
@@ -180,15 +180,15 @@ All in `test/trade-outcomes.test.js` unless named otherwise.
   them yet. ESPN's vocabulary as collected has no counter row, so a writer for it
   would be a writer against a shape nobody has seen.
 
-## 7. The second pass: 33 mutations, and the eight tests that were not there
+## 7. The second pass: 34 mutations, and the eight tests that were not there
 
 RED before GREEN proves the tests were written first. It does not prove that any
 one of them discriminates, and this unit's RED is weaker than it looks. Measured
-again at `b3311057` on this branch's current head, rather than quoted from when it was
+again at `92f31b7d` on this branch's current head, rather than quoted from when it was
 written:
 
 ```
-$ node --test test/trade-outcomes.test.js       # at RED b3311057
+$ node --test test/trade-outcomes.test.js       # at RED 92f31b7d
 not ok 1 - test/trade-outcomes.test.js
   error: 'test failed'
   code:  'ERR_TEST_FAILURE'
@@ -197,7 +197,7 @@ Error [ERR_MODULE_NOT_FOUND]: Cannot find module
   '.../test/trade-outcomes.test.js'
 # tests 1 | pass 0 | fail 1
 
-$ node --test test/trade-outcomes.test.js       # at GREEN 11810191
+$ node --test test/trade-outcomes.test.js       # at GREEN e363b35c
 # tests 17 | pass 17 | fail 0
 ```
 
@@ -244,6 +244,39 @@ worse than no field. Fixed at the populated return.
 
 **Second run: 33 rows, 32 killed, 0 survivors, control clean.**
 
+**Third run: 34 rows, 32 killed, 0 survivors, both controls behaving.** The
+extra row is a second control, and it exists because the first one only covers
+half of what can go wrong with a harness:
+
+```
+rows 34 | killed 32 | survived 0 | bad 0 | control SURVIVED | not-applied control BAD_ROW
+```
+
+`CONTROL` is an edit that changes nothing; it must come back SURVIVED, or the
+harness is lying about every other row. `NOTAPPLIED` is the opposite case: a
+`find` string that cannot occur in the file, which the harness must report as
+BAD_ROW and refuse to score. Until this pass, nothing in the spec was ever
+designed to trip that detector, so the detector itself had never been observed
+to fire — and a harness that silently scores mutations it never made makes every
+verdict in the run worthless, survivors and kills alike.
+
+So it was shown firing. `NOTAPPLIED`'s `find` was made matchable with a
+parsing-valid no-op replace (`const RAW_TABLE = ` for itself), which makes the
+row apply cleanly and the detector wrong to fire:
+
+```
+MUTANT EXIT 1
+NOTAPPLIED SURVIVED  fail=0 @ -
+NOTAPPLIED was expected to come back BAD_ROW and came back SURVIVED.
+The not-applied detector did not fire, so no verdict in this run can be trusted.
+```
+
+The first attempt at that liveness check proved nothing and is recorded here
+rather than dropped: it made `find` matchable but left the replacement as
+`unreachable`, which breaks parsing, so the row came back BAD_ROW for the wrong
+reason — the same trap the M1 mutation hit earlier. A no-op replacement is what
+makes the run a test of the detector rather than of the parser.
+
 Two corrections this pass forces on what is written above. §5's claim that the
 contract is asserted against the table's own CHECKs was true for three of seven;
 it is true for all of them now. And the gate table's "how it is shown" column
@@ -265,9 +298,12 @@ the sweep is the only part of this file that measures the difference.
 - **`npm ci` has not been run in this container.** A fresh clone fails the
   offline-guard tests with `ERR_MODULE_NOT_FOUND` until it is, which looks
   exactly like a regression and is not one.
-- **CI is not run.** Actions minutes are spent until 2026-10-01 and the only
-  workflow is disabled deliberately. Red or missing checks are that, not this
-  branch's content.
+- **CI runs and reports on this pull request.** An earlier version of this line
+  said Actions minutes were spent until 2026-10-01 and the only workflow was
+  disabled deliberately. That was written before 2026-09-22 14:52Z and is false:
+  Actions was re-enabled, the repository is public so runs are free, and
+  workflow `357164314` is active. The local run is one half of the gate, not the
+  whole of it.
 - One caveat on the usual shortcut: `docs/` is invisible to every stage of the
   check **except** `docs/CLAUDE-NEXT-STEPS.md`, which
   `test/nfl-execution-integrity.test.js:258` reads byte for byte. This file is

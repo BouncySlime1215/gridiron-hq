@@ -173,3 +173,120 @@ about the tree.
 table is `COUNT(*)` and `MAX()` of whatever season, week or timestamp column
 it has, so "current rows" can be judged rather than just "rows". Until that
 arrives, 59 rows stay `unclassified` and nothing is graded `decoration`.
+
+---
+
+# Second pass: the reachability half, and what it moved
+
+The first pass graded `dead`, `half_done` and `silently_broken` from the
+tree and held `wired` against `decoration` for a live row count. This pass
+settled the two open groups — the 18 rows that name no table, and the rows
+reachable only transitively — and in doing so found that the live surface is
+smaller than the router suggests.
+
+Final counts over the same 98 rows: **9 `dead`, 38 `half_done`,
+1 `silently_broken`, 50 `unclassified`** pending a live row count.
+
+## The rule the two open groups needed
+
+A model that names no table in SQL is only as real as the chain that feeds
+it, so it is graded on its callers, not its own reads. A model reachable only
+by transitive import has no consumer: transitive import is not a call. Under
+that rule, of the 18 table-less rows, the ones whose importers all sit off
+every live surface are `half_done`, and the ones with a caller on a live
+surface stay `unclassified` with the rows in question being their caller's.
+
+## Seven client files `App.tsx` cannot reach
+
+Walking the import closure of `client/src/App.tsx` reaches 68 of the 76 files
+under `client/src`. Excluding `main.tsx`, which renders `App`, seven are
+unreachable:
+
+`components/StaleBanner.tsx`, `components/StatTable.tsx`,
+`features/model-lab/ModelRegistryPanel.tsx`, `pages/Edge.tsx`,
+`pages/Model.tsx`, `pages/Projections.tsx`, `pages/Rankings.tsx`.
+
+`StaleBanner.tsx` is worth naming twice: a staleness banner that nothing
+renders, in a build whose rendered banner reports health from a connection
+check. That belongs with Phase 0 item 6.
+
+17 `/api` paths are requested by nothing but those files, six of them under
+`/api/model` — `accuracy`, `availability`, `correlations`, `gamescript`,
+`handcuffs`, `status` — all from `pages/Model.tsx`, and
+`/api/model/registry/candidates` from `ModelRegistryPanel.tsx`.
+
+## Twelve mounted route files no reachable client file requests
+
+`accolades`, `aggregates`, `decision-inbox`, `execution-slate`, `mlb`,
+`nfl-betting`, `nfl-market`, `props-tickets`, `props`, `stats`, `tradelab`,
+`wong` — all 31 route files are mounted in `server/index.js`; 19 have a
+caller somewhere in the surface `App.tsx` reaches.
+
+`server/routes/tradelab.js` is the one to look at first: `/trade-lab` is in
+the nav and renders, but it requests `/api/trades/*` and `/api/model/*`, and
+nothing requests `/api/tradelab`.
+
+That correction moved 16 model rows to `half_done`, every one of them
+reachable only through `routes/nfl-betting.js` or `routes/nfl-market.js`:
+`football-context`, `nfl-drive-sim`, `nfl-ensemble`, `nfl-espn-pbp`,
+`nfl-expert-council`, `nfl-external-ratings`, `nfl-gbm`, `nfl-online-neural`,
+`nfl-player-value`, `nfl-policy`, `nfl-replay`, `nfl-rookies`,
+`nfl-roster-strength`, `nfl-specialists`, `nfl-weather-history`,
+`pick-confidence`. They carry fantasy-sounding names, which is why the
+filename scope filter passed them through; they are betting-facing, and the
+grade is a wiring fact about them rather than a fantasy finding.
+
+## `/api/model/availability` at this commit, and a cite that moved
+
+The cite carried in from `791b131` was `server/services/availability-basis.js`.
+**That file does not exist at `654ff93`.** The functions live in
+`server/services/contingency.js`, imported at `server/routes/model.js:18`.
+
+`server/routes/model.js:580-593` — one path, two sources, chosen by whether
+a query parameter is present:
+
+- with `?week`, `weeklyAvailability(season, week)` at
+  `contingency.js:885-890`, reading `players`, `nfl_teams` and
+  `nfl_injuries WHERE season=? AND week=?`;
+- without it, `availability()` at `contingency.js:40-45`, whose default is
+  `through = SEASON - 1`, reading `player_week_usage JOIN players` and
+  `player_metrics WHERE source='injury_flag'` — a durability prior over
+  prior seasons, not the current week.
+
+Nothing in the bare response says which one answered. The one client caller,
+`client/src/pages/Model.tsx:397`, always passes `?week=`, so the fitted
+branch is the only one any client takes — and that page is one of the seven
+`App.tsx` cannot reach, so at this commit no live surface calls either.
+
+## Three more instrument faults, all caught before reporting
+
+8. Building the live path set from routed pages alone missed the App shell's
+   own components — `EspnConnectGate`, `DataSetupBanner`, `QuickJump`,
+   `RefreshAll`, `DevHub`, `PageExplainAssistant` all render outside
+   `<Routes>`, on every page. That version called `server/routes/dev.js` and
+   `server/routes/betting-hub.js` unreached when those components request
+   them, and would have moved 17 rows instead of the correct 16.
+9. A grep for `pages/MyTeam` found no importer and would have called
+   `MyTeam.tsx`, `Drafts.tsx` and `Leagues.tsx` orphaned. They are imported
+   relatively — `client/src/pages/LeagueHub.tsx:3-4` and
+   `client/src/pages/DraftHub.tsx:3` — which is consistent with the
+   `/my-team` and `/drafts` redirects. The closure walk had them right and
+   the grep was the weaker instrument, again.
+10. `final4.mjs` mutated `model-rows.json` in place, and the rule it applied
+    then changed. The 16 moves were therefore re-derived by rebuilding the
+    whole chain from `rows654.json`, not by re-running the last step over an
+    already-mutated file. A recorded count over a mutated artifact is not a
+    measurement of anything.
+
+## Known granularity limit
+
+Reachability is decided per handler where a model is named directly by one,
+and per importer otherwise. An importer that is a live route file counts as
+live even when the specific handler that calls the model is one of the
+orphan-served paths. `draft-survival` is the clearest instance:
+`server/routes/edge.js` is live through `/api/edge/scout/:id`, which
+`/league` requests, while `/api/edge/simulate` — the path that reaches
+`draft-survival` — is requested only by `pages/Edge.tsx`. Its row is
+`unclassified` and should be read as reachable-at-file-level, not
+reachable-at-handler-level. Tightening that needs a per-export call graph,
+which this pass does not build.

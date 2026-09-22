@@ -162,7 +162,7 @@ test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true })
  * The model-audit thread's reconciliation found that a feed-only registry has
  * the banner's own bug one layer up — a model can read a stale or wrong-season
  * fit and still answer, and the store still reads "fresh" because rows exist.
- * So an entry carries an optional grain ('feed' or 'fit') and the model that
+ * So an entry carries an optional grain (one of source-registry.js's four) and the model that
  * reads it, and — this is the part that must not regress — a fit store's verdict
  * is still COVERAGE, not a timestamp: fresh means a fit exists FOR THE CURRENT
  * season, never merely that a fit ran recently. A recent fitted_at over
@@ -186,11 +186,23 @@ test('grain and reader are carried through so a fit store is distinguishable fro
   assert.equal(f.reader, 'nfl-ensemble');
 });
 
-test('an entry with no grain defaults to feed and reader null — feeds are unchanged', () => {
+/**
+ * This test used to assert the default was `'feed'`, and that assertion was
+ * wrong rather than merely superseded. `source-registry.js` — the producer, and
+ * so the source of truth for this field — emits `'week' | 'season' | 'static' |
+ * 'fit'`, with no `'feed'` in it. Defaulting an entry that states no grain to a
+ * member of a vocabulary it does not belong to put a claim on the panel that
+ * nobody had made: it told the reader this table is a feed, on no evidence.
+ *
+ * `null` is the honest value, and the banner renders it as a sentence that names
+ * no cadence. See test/data-freshness-grain.test.js for the vocabulary itself.
+ */
+test('an entry with no grain gets null rather than a guessed default', () => {
   clear();
   pwu(SEASON, WEEK);
   const f = one();
-  assert.equal(f.grain, 'feed');
+  assert.notEqual(f.grain, 'feed', 'the retired default is back');
+  assert.equal(f.grain, null);
   assert.equal(f.reader, null);
 });
 

@@ -11,7 +11,7 @@ interface TableFreshness {
   current_rule: string | null;
   status: 'fresh' | 'stale' | 'empty' | 'unknown';
   note: string | null;
-  grain?: 'feed' | 'fit';
+  grain?: 'week' | 'season' | 'static' | 'fit' | null;
   reader?: string | null;
 }
 interface FreshnessReport {
@@ -56,21 +56,44 @@ function span(t: TableFreshness): string {
 }
 
 /**
- * A fit store that is behind is not the same failure as a feed that is behind: a
- * feed is late, a fit means the model that reads it is answering on a fallback.
- * The reader names which model, so the sentence is specific.
+ * The four grains are four different failures and must not read alike.
+ *
+ * A fit store that is behind is not a late feed: the reader names the model
+ * that is answering on a fallback right now. A season-grained table that is
+ * behind has nothing for the season being played, which a "not updated for the
+ * current week" sentence would misdescribe — it is a year out, not a week. A
+ * static table has no weekly cadence at all, so the only honest thing to say is
+ * that its refresh stopped.
+ *
+ * `null` grain is the fifth case: nobody classified this table. The sentence
+ * says only what the status supports and names no cadence, because inventing
+ * one is the same move as the 'feed' default this replaced.
  */
 function behindSentence(t: TableFreshness): string {
   if (t.status === 'unknown') {
     return t.note ?? 'This source could not be checked, so whether it is current is unknown.';
   }
+  const empty = t.status === 'empty';
   if (t.grain === 'fit') {
     const who = t.reader ? `The ${t.reader} model` : 'A model';
-    return t.status === 'empty'
+    return empty
       ? `${who} has no fit on file and is answering on a fallback.`
       : `${who} is answering on a fit from an earlier season, not this one.`;
   }
-  return t.status === 'empty' ? 'This feed has no rows on file yet.' : 'This feed has not been updated for the current week.';
+  if (t.grain === 'week') {
+    return empty ? 'This feed has no rows on file yet.'
+      : 'This feed has not been updated for the current week.';
+  }
+  if (t.grain === 'season') {
+    return empty ? 'This table has no rows on file yet.'
+      : 'This table holds nothing for the season being played.';
+  }
+  if (t.grain === 'static') {
+    return empty ? 'This table has never been populated.'
+      : 'This table has stopped being refreshed.';
+  }
+  return empty ? 'This table has no rows on file yet.'
+    : 'This table does not hold current data.';
 }
 
 export default function DataFreshnessBanner() {

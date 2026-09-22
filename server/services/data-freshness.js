@@ -54,6 +54,23 @@ import * as registry from './source-registry.js';
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const STATUSES = ['fresh', 'stale', 'empty', 'unknown'];
 
+/**
+ * The grain vocabulary, taken from `source-registry.js` rather than invented
+ * here. Verified on `claude/project-thread-o3wt2p-freshness-evaluator` @
+ * e3a8676, `evaluateServedTable` line 623.
+ *
+ * It is not decoration. Grain decides what the sentence under a behind row
+ * says, and these are four different failures: a weekly feed missed a week, a
+ * season-grained table has nothing for the season being played, a static table
+ * stopped being refreshed at all, and a fit store means a named model is
+ * answering on a fallback right now.
+ *
+ * An entry that states no grain gets `null`, which is the fifth case and the
+ * one worth being careful about. This file used to default it to 'feed' — a
+ * positive claim on the panel about a table nobody had classified.
+ */
+const GRAINS = ['week', 'season', 'static', 'fit'];
+
 function ident(name, role) {
   if (typeof name !== 'string' || !IDENTIFIER.test(name)) {
     throw new Error(`data-freshness: ${role} "${name}" is not a bare SQL identifier`);
@@ -95,7 +112,19 @@ function ruleShape(rule) {
  * is what a `CASE WHEN EXISTS (...) THEN 1 ELSE 0 END` query yields. No row at
  * all is false, not an error: a query that matched nothing is a stale table.
  */
-function askRule({ shape, rule, table, context, database }) {
+function askRule({ shape, rule, table, entry, context, database }) {
+  // One contract, one implementation: when the registry exports its own
+  // evaluator, that is the definition of the rule and this file defers to it.
+  // Feature-detected rather than imported outright, exactly as `servedTables()`
+  // is, because the evaluator lands on a different branch than this file and a
+  // hard import would make this module unloadable until that one merges. It
+  // throws on any rule it cannot run, which is the same contract as below; the
+  // caller turns that into `unknown` with the reason.
+  if (shape === 'sql' && typeof registry.evaluateServedTable === 'function') {
+    return registry.evaluateServedTable(entry, {
+      season: context.currentSeason, week: context.currentWeek, database
+    }).current;
+  }
   if (shape === 'sql') {
     const params = Array.isArray(rule.params) ? rule.params : [];
     const placeholders = (rule.sql.match(/\?/g) ?? []).length;
@@ -147,7 +176,7 @@ export function tableFreshness(entry, { currentSeason, currentWeek, database = d
     // fresh. The VERDICT for a fit store is still coverage, never a timestamp —
     // fresh means a fit exists for the current season, and the fitted_at only
     // populates last_write for display.
-    grain: entry.grain ?? 'feed',
+    grain: entry.grain ?? null,
     reader: entry.reader ?? null,
     row_count: 0,
     earliest: null,
@@ -195,7 +224,7 @@ export function tableFreshness(entry, { currentSeason, currentWeek, database = d
 
   try {
     base.status = askRule({
-      shape, rule, table,
+      shape, rule, table, entry,
       context: { currentSeason, currentWeek },
       database
     }) ? 'fresh' : 'stale';
@@ -223,6 +252,7 @@ export const FALLBACK_REGISTRY = [
   {
     table: 'player_week_usage',
     label: 'Weekly player usage',
+    grain: 'week',
     season_col: 'season',
     week_col: 'week',
     updated_col: null,
@@ -245,4 +275,4 @@ export function servedTablesRegistry() {
   return Array.isArray(supplied) && supplied.length > 0 ? supplied : FALLBACK_REGISTRY;
 }
 
-export { STATUSES };
+export { STATUSES, GRAINS };

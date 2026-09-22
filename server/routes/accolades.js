@@ -7,7 +7,7 @@ const r = Router();
 const WIKI_API = 'https://en.wikipedia.org/w/api.php';
 
 /** Pull the infobox "highlights" block and count accolades. */
-function parseHighlights(wikitext) {
+export function parseHighlights(wikitext) {
   const block = wikitext.match(/highlights\s*=([\s\S]{0,4000}?)(?:\n\s*\|\s*[a-zA-Z_]+\s*=|\n\}\})/i);
   const text = block ? block[1] : '';
   const num = re => {

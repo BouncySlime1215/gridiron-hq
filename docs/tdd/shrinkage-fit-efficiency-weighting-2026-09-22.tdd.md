@@ -15,11 +15,14 @@ per Plan 07 §2.2's binding wording: **the fix removes most of the harm
 (98.0% in 2024, 63.4% in 2023) and the 2023 residual is still significant —
 never "harmless", never "~90%".**
 
-`activeKVector()` returning `null` (no efficiency k, or any k, live in this
-container's shared `server/data.sqlite`) is now a real, dated live read, not
-an unbacked claim — see "Live read" below, added after the Evidence
-Auditor's `audit-pr106-effw-gate-2026-09-22.md` flagged the earlier version
-of this document for citing "a live read below" that didn't exist.
+`activeKVector()` returning `null` is now backed by a real, dated read-only
+query — not "a live read" (that word means the Fly app's production
+database in this project, and production's `shrinkage_fits` has never been
+read), but a check against this session's own **local dev sqlite**
+(`server/data.sqlite`) — see "Local dev database read" below, added after
+the Evidence Auditor's `audit-pr106-effw-gate-2026-09-22.md` flagged the
+earlier version of this document for citing "a live read below" that didn't
+exist.
 
 ## The defect (Auditor-verified, relayed by the coordinator)
 
@@ -117,22 +120,26 @@ effw-repro.mjs`. Full 18-fit output for both seasons, plus the RED-test-4
 volume pin, is preserved in this session's scratchpad
 (`rig/effw-repro-output.log`).
 
-## Live read: `activeKVector()` returns null
+## Local dev database read: `activeKVector()` returns null
 
-Read-only query against this container's shared `server/data.sqlite`
-(2026-09-22, this session, `DatabaseSync(..., { readOnly: true })`):
+Read-only query on the **local dev sqlite** (`server/data.sqlite`, this
+session, `DatabaseSync(..., { readOnly: true })`) — not production:
 `shrinkage_fits` has exactly **1 row**, `active = 0`. That row is the Unit-1
 volume-side CRPS-gate run (`fitted_at 2026-09-22T08:03:30Z`,
 `through_season 2024`, `test_season 2025`, 4,532 player-weeks) — not an
 efficiency fit, and its own `note` field claims "activated" while the
 `active` column reads 0, the exact bug this session separately fixed in
 `fit-shrinkage-weekly.mjs`'s note-text ternary. `activeKVector()` therefore
-returns `null` in this container today, confirmed directly rather than
-inferred from `projections.js:198-201`'s comment. This is this container's
-shared dev database, not necessarily the Fly deployment's (deploy has not
-happened this session — brake `SCHEDULER_DISABLED=1`); the deployment's own
-`shrinkage_fits` state is still the unread morning-list item Plan 07 §2.4
-names.
+returns `null` against this local dev database today, confirmed directly
+rather than inferred from `projections.js:198-201`'s comment.
+
+**Production's `shrinkage_fits` has never been read.** The Fly deployment's
+own database is a separate file this session has no route to; the 08:04Z
+live read that morning covered `weekly_ensemble_fits` only, not
+`shrinkage_fits`. Deploy has not happened this session (brake
+`SCHEDULER_DISABLED=1`), so production's `shrinkage_fits` state is still the
+unread morning-list item Plan 07 §2.4 names — this local-dev read does not
+answer it.
 
 ## The numbers this actually moves
 
@@ -247,8 +254,9 @@ seasons' MAE-delta significance verdicts exactly.
 
 **Should this data be pointed anywhere else on the platform?** No. The
 efficiency `k` values are reported here and in the reproduction above for
-the record, not applied — `activeKVector()` returns `null` (live read
-above), and RED test 3 now pins that `fitAllK` cannot change that as a side
+the record, not applied — `activeKVector()` returns `null` against the
+local dev database (read above; production unread), and RED test 3 now
+pins that `fitAllK` cannot change that as a side
 effect. Package #22 (Plan 07 §2.2) already settled that even a correctly
 fitted efficiency k does not beat the hardcoded constants from three
 independent directions; this unit adds a fourth (in-file reproduction) and

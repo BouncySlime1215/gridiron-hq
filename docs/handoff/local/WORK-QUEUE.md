@@ -563,10 +563,24 @@ Foundation close first, then Phase A, then structure fixes S-xx, then UI (Phase 
 
 | ID | Priority | Goal | Files | Acceptance |
 |---|---|---|---|---|
-| SY-01 | soon | One accept/decline rule for every reader: export the answer-matching rule from trade-outcomes.js; manager-signals txSignals uses it and stops double-counting proposer-side TRADE_ACCEPT rows (L4 roster 10 credited with 2 accepts it never made: served 45% of 11) | trade-outcomes.js, manager-signals.js:183-236 (selfRead/timingRead call the helper; catches left to #100) | fixture with an unmatched answer and a proposer-side accept gives the same n everywhere; local 6-manager table printed; NICK DECISION: do answers to proposals the collector never saw count? |
+| SY-01 | soon | One accept/decline rule for every reader: export the answer-matching rule from trade-outcomes.js; manager-signals txSignals uses it and stops double-counting proposer-side TRADE_ACCEPT rows (L4 roster 10 credited with 2 accepts it never made: served 45% of 11) | trade-outcomes.js, manager-signals.js:183-236 (selfRead/timingRead call the helper; catches left to #100) | fixture with an unmatched answer and a proposer-side accept gives the same n everywhere; local 6-manager table printed; NICK DECIDED (2026-09-22 6:32 PM ET, "no"): answers to proposals the collector never saw do NOT count; only answers linked to a known offer; rate withheld under 5 offers |
 | SY-02 | soon | Rams stored as both LA and LAR in the team-week table (33 teams/season) that Start/Sit coaching traits read | nfl-pbp.js writer (canonicalTeamCode), reconcile at nfl-advanced.js:463 | RED: an 'LA' pbp row lands as LAR; 32 teams per season after re-ingest on a copy |
 | SY-03 | later | Link an app-suggested trade to the ESPN offer Nick actually sent (the ledger can't score a prediction today) and label predictions with the acceptance model's version | trade-outcomes.js, trade-acceptance.js | fixture: suggested then sent then declined yields one scored row with model_p_accept |
 | SY-04 | later | Fix formation features before any re-freeze: empty/singleback shares read 0 after 2022; shotgun share divides by special-teams rows (17 pts off PBP) | nfl-formations.js (~160), feature builder | features match PBP-derived shares within 1 pt on 2023-2025; BLOCKS INT-150-2 |
 | SY-05 | later | Study copy of the feature store (v2) lacks #150's look-ahead fix (0 affected rows today) | nfl-weekly-feature-store-v2.js:624-639 | note in v2 or port the bound; no served change |
 | SY-06 | later | Finish MLB removal leftovers: 4 dead MLB exports in odds-api.js, decision inbox still accepts 'MLB', MLB prop routes mounted with no page | odds-api.js, decision-inbox, routes | grep shows no live MLB path; tests updated |
 | SY-07 | soon | Queue and deploy facts #94 changed: C-04/C-08/C17/N9 rows describe the pre-#94 world; deploy checklist must list 067 | WORK-QUEUE.md, docs/runbooks | rows updated (docs) |
+
+### 10b. Cloud vs local for section 11 (SY units), classified 2026-09-22 6:35 PM ET
+
+| ID | Class | Reason | Overlaps |
+|---|---|---|---|
+| SY-01 | CLOUD + local check | code + fixture tests (trade-outcomes.js, manager-signals.js); the 6-manager table on the local copy is printed at intake, locally | B-10, B-11, BL-20, F-07 (#100 touches counterparty-pricing selfRead): land after F-07 |
+| SY-02 | CLOUD + local check | writer fix in nfl-pbp.js with a fixture; the re-ingest (32 teams per season) is verified on the local copy at intake | A-14 (football-context.js reads the team-week table) |
+| SY-03 | CLOUD | fixture-tested ledger linking in trade-outcomes.js / trade-acceptance.js | SY-01 (same file): land after it |
+| SY-04 | CLOUD-DATA | needs nflverse participation CSVs (free download) to check shares against play-by-play | INT-150-2 (blocked by this), A-17, A-18 |
+| SY-05 | CLOUD | note or port in nfl-weekly-feature-store-v2.js; no served change | none |
+| SY-06 | CLOUD | dead-export removal + decision-inbox validation + route unmount, fixture tests | INT-128-1 (model governance, cloud pilot running): disjoint files |
+| SY-07 | LOCAL | edits the queue and runbook on the handoff branch (the coordinator does it) | none |
+
+Suggested cloud batch for these: SY-02 + SY-05 + SY-06 (disjoint). SY-01 then SY-03 after F-07 lands. SY-04 in a data-capable cloud batch.

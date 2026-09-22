@@ -2,21 +2,9 @@
 
 2026-09-22. `server/services/projections.js` (additive: `rangeBand`, and its
 call inside `buildProjections`'s per-player emit), `test/projection-range-
-wiring.test.js` (new). Off `main` `654ff93`, on branch `effk`.
-
-Also fixes a real bug this unit's own tests exposed: five existing test
-files built isolated temp databases for `buildProjections` (directly or
-transitively) without ever calling `runMigrations()`, so `migration 064`'s
-`nfl_projection_range_fits` table didn't exist in them —
-`activeProjectionRangeTable()`'s `no such table` error either crashed the
-suite outright (`fantasy-coordinator.test.js`) or, worse, got silently
-swallowed somewhere upstream and produced quietly wrong results
-(`ros-projection.test.js`'s `rosPriorMap` returned an empty prior for a
-player who plainly had one; `model-integrity.test.js`'s "player-head
-validation remains sealed unless explicitly opened" test failed because the
-swallowed error broke that invariant). Fixed in all five by adding
-`runMigrations()` right after the DB import, the same pattern several other
-test files already used correctly.
+wiring.test.js` (new). Off `main` `654ff93`, on branch `effk`. Also fixes a
+real bug this unit's own tests exposed — see "The runMigrations() gap"
+below.
 
 ## Where this sits
 
@@ -58,6 +46,53 @@ through to the served object rather than re-deciding it.
 - `activeProjectionRangeTable()` is read once per `buildProjections` call,
   not once per player — consistent with how the function already reads
   `activeKVectorFor` once per call rather than per player.
+
+## The runMigrations() gap this unit's tests exposed
+
+Five existing test files built isolated temp databases for
+`buildProjections` (directly or transitively) without ever calling
+`runMigrations()`: `ros-projection.test.js`, `model-integrity.test.js`,
+`draft-abstention-audit.test.js`, `preseason-model.test.js`,
+`fantasy-coordinator.test.js`. `migration 064`'s `nfl_projection_range_fits`
+table therefore didn't exist in any of them, and this unit's new
+`activeProjectionRangeTable()` read (unconditional, once per
+`buildProjections` call) threw `no such table` against every one.
+
+That threw error did not fail loudly everywhere. In `fantasy-coordinator
+.test.js` it crashed the suite outright — the one honest failure mode. In
+the other four it propagated up through a call chain (`buildProjections` ->
+`ros-projection.js`/`preseason-model.js`/`weekly-backtest.js` ->
+whatever caller invoked them) until something upstream caught it and
+returned an empty or default result instead of surfacing the error. That is
+CLAUDE.md's own named failure class, verbatim: "Errors are handled or they
+throw. No bare `catch {}` that swallows a fault... If a layer goes inert,
+the surface must say so." Concretely: `ros-projection.test.js`'s
+`rosPriorMap` returned no prior at all for a player who plainly had 2025
+history (`priors.get(id)` was `undefined`), and `model-integrity.test.js`'s
+"player-head validation remains sealed unless explicitly opened" test
+failed because the swallowed error broke that sealed-by-default invariant.
+Neither test's own assertions mentioned migrations, tables, or SQL —
+each just failed on an unrelated-looking assertion, which is exactly how
+a swallowed fault at a lower layer is supposed to look from three call
+frames up: quietly wrong, not loudly broken.
+
+Fixed in all five by adding, right after the DB import and before any
+other side-effect import:
+
+```js
+const { runMigrations } = await import('../server/db/migrate.js');
+await runMigrations();
+```
+
+the same pattern several other test files (`qbr-projection-signal.test.js`,
+`projection-range-wiring.test.js` itself, and others) already used
+correctly. Verified each file individually and the group together, and
+confirmed against the previously-pushed `ca56e04` (before this unit's
+`activeProjectionRangeTable()` call existed in `buildProjections`) that the
+pre-existing failures in `model-integrity.test.js` unrelated to this gap
+(3 of them — a missing-API-key test, an ensemble-weights test, and an
+evidence-daemon test) are untouched by either this fix or this unit's
+wiring, and were already failing on the pushed baseline.
 
 ## Mutations
 

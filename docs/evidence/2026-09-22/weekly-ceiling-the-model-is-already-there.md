@@ -46,7 +46,20 @@ went unremarked.
 
 Identical rows: **24,801** out-of-sample player-weeks across **2,804**
 player-seasons with at least three scored weeks, mean **8.84** scored weeks per
-player-season. **Sample total variance `SST/n` = 60.3836**; the sum of the
+player-season. **These 24,801 are 522 rows fewer than the 25,323 saved
+predictions**, and the gap reconciles exactly: 178 player-seasons with one
+scored week (178 rows) and 172 with two (344 rows) are dropped by the
+three-week minimum. The minimum is not cosmetic — the leave-one-out centre is
+undefined at `m = 1` and is a single other week at `m = 2`, where the
+within-player component cannot be estimated. **The filter is not neutral and
+the document should not pretend it is:** the model's MAE on the 522 dropped
+rows is 3.2946, against 4.8062 on the kept rows and 4.7750 across all 25,323,
+because a one- or two-week season is usually a low-usage or injured player
+whose weeks are easy. **Every figure in this document — model, oracle, σ²w,
+floor, headroom — is computed on the same 24,801 rows.** No quantity here
+subtracts one population from another.
+
+**Sample total variance `SST/n` = 60.3836**; the sum of the
 fitted components `σ²b + σ²w` = **60.3945**. The two differ in the hundredths
 because one is a raw sample moment and the other uses the mean-square
 denominators. Both appear below; each is labelled where it is used.
@@ -117,10 +130,14 @@ unstated assumption is not a claim. Audit unit 12 was right to gate it.
 | the model | 4.8062 | — |
 
 **The floor lies between 4.2122 and 4.7167, so the MAE headroom lies between
-+0.0895 and +0.5940.** The pessimistic end of that bracket is the first
-version's own +0.0895. **It is positive, so the MAE headroom claim cannot
-collapse** — the worst case is that it shrinks back to what v1 published, not
-that it reverses.
++0.0895 and +0.5940.** **It is positive at both ends, so the MAE headroom claim
+cannot collapse** — the worst case is that it shrinks back to what v1
+published, not that it reverses.
+
+**That pessimistic end is not a second method agreeing with v1. It IS v1**,
+identically: `model − LOO oracle` = 4.8062 − 4.7167, the same subtraction of the
+same two numbers. It must never be presented as corroboration of v1; it is v1
+re-labelled as one end of a bracket.
 
 **The Gaussian branch is refuted by these rows, not argued away.** A Gaussian
 error would show MAD/RMSE = 0.7979. Measured here:
@@ -145,29 +162,45 @@ is not corroboration.
 **A point estimate inside the bracket, and how it was calibrated.** Rescaling
 each deviation to the floor's variance is exact algebra and preserves shape:
 `var(y − own mean) = σ²w(1 − 1/m)`, so scaling by `√(m/(m−1))` lands on σ²w.
-That gives **4.4558**. It still overstates, because a deviation from a fitted
+That gives **4.4558 — and the step carries an assumption of its own, which must
+be stated wherever this number or 4.3804 appears: it assumes MAD rescales in
+proportion to SD.** That is the same *class* of assumption just withdrawn from
+the RMSE-ratio derivation, at much smaller magnitude but not zero. It still
+overstates, because a deviation from a fitted
 centre is the error mixed with a mean-of-others term, and that mixture is closer
 to Gaussian than the error itself — which raises MAD/σ. Simulating seasons with
 the measured shape and the real week counts sizes that inflation and iterates it
 to a fixed point (×1.0265, ×1.0180, ×1.0172):
 
 ```
-MAE floor    = 4.4558 / 1.0172 = 4.3804
+MAE floor    = 4.4558 / 1.0172 = 4.3804   (MAD-scales-as-SD assumption applies)
 MAE headroom = 4.8062 − 4.3804 = +0.4258   95% CI [+0.3948, +0.4538]
                (cluster bootstrap by player, 1,000 iterations)
 ```
 
-**So the headroom is +0.4258, not +0.3141.** The withdrawn figure was too small,
-and it sat inside the bracket the whole time. The published-vs-corrected
-direction of §3 is unchanged; only the denominator moves.
+**+0.4258 is an estimate inside the bracket [+0.0895, +0.5940]; the bracket is
+what may be cited, and the two travel together in the same sentence, always.**
+The confidence interval is not the uncertainty here: it is 0.059 wide against
+the bracket's 0.5045, **8.6 times narrower**, because it measures sampling noise
+in one estimator and not the choice of estimator. Quoting the CI alone would
+misrepresent how well this is pinned down by a factor of nearly nine.
+
+The withdrawn +0.3141 was too small rather than too large, and sat inside the
+bracket throughout.
 
 **And the true floor is lower still, for a reason worth stating.** The MAE-optimal
 constant for a player is his *median* week, not his mean, and weekly scoring is
 right-skewed. Centred on the season median the in-sample figure is **3.9979**
 against 4.2122 on the mean — both biased low in the same way, but the 0.2143 gap
 is real and runs in one direction. A true-level predictor aiming at the mean is
-not the best a true-level predictor can do, so **+0.4258 is a floor on the
-headroom, not a ceiling on it.**
+not the best a true-level predictor can do, so **+0.4258 — inside the bracket
+[+0.0895, +0.5940] — is a floor on the headroom, not a ceiling on it.**
+
+**This is the sixth instance of one recurring defect across this project's
+evidence work, and the general form is worth carrying:** any MAE-optimal
+quantity is a **median**-type statistic, so deriving one from a mean or from a
+variance decomposition is a category error. The RMSE-ratio scaling and the
+mean-centred floor are both that same mistake, in different clothes.
 
 Correspondingly the within-player share is **61.5%** (`σ²w/(σ²b + σ²w)` =
 37.1200/60.3945, the component sum; the oracle-inversion method gives 59.9%), not the 54.5% the
@@ -182,13 +215,25 @@ amount of knowing *who* he is can reach.
 
 ## 3. The four features: the arithmetic changes, the verdicts do not
 
+**What the denominator means, before any share is read.** The floor is the best
+**player-constant** predictor — one number per player-season. The four features
+below are *weekly*: they live inside σ²w, the part a per-player constant cannot
+reach at all. So "0.73% of the headroom" means **"closed 0.73% of the gap
+between the model and a perfect per-player constant"**. It is a normaliser for
+comparing four small effects on one scale, **not** a share of what is
+achievable, and it must not be read as one.
+
+**4.8062 is this harness's model MAE on these 24,801 rows and is never
+comparable with the R&D rig's 4.757** — different harness, different population.
+
 **Both columns are on the MAE scale**, not the R² scale §2 uses — a feature's
 gain was measured in MAE, so its share has to be taken against MAE headroom. The
-denominators are the first version's **+0.0895 MAE** and the measured
-**+0.4258 MAE** of §2.2. The intermediate +0.3141, derived by scaling and now
+denominators are the first version's **+0.0895 MAE** (which is also the
+bracket's pessimistic end, being the same subtraction) and the estimated
+**+0.4258 MAE** of §2.2, itself inside the bracket [+0.0895, +0.5940]. The intermediate +0.3141, derived by scaling and now
 withdrawn, is shown for continuity because it was quoted elsewhere.
 
-| feature | measured gain (MAE) | share of v1's 0.0895 | share of the withdrawn 0.3141 | **share of the measured 0.4258** |
+| feature | measured gain (MAE) | share of v1's 0.0895 | share of the withdrawn 0.3141 | **share of the estimated 0.4258** |
 |---|---|---|---|---|
 | depth-chart rank | +0.0031 | 3.46% | 0.99% | **0.73%** |
 | practice participation | +0.0007 | 0.78% | 0.22% | **0.16%** |
@@ -243,8 +288,9 @@ should be abandoned.
 1. **Week-specific features are still the better bet, but "drop the
    player-descriptive remainder" is SUSPENDED.** It rested on a headroom figure
    that was too small by a factor of eighteen. Re-derive the ordering against
-   the corrected headroom — **+0.0668 R², and +0.4258 MAE measured
-   separately** — before dropping anything. OL-vs-DL first is unaffected
+   the corrected headroom — **+0.0668 R², and on MAE a bracket of
+   [+0.0895, +0.5940] with +0.4258 estimated inside it** — before dropping
+   anything. OL-vs-DL first is unaffected
    — it was first on its own merits.
 
 2. **Ship the uncertainty, not just the projection. Unchanged, and
@@ -319,11 +365,18 @@ and a headroom figure nobody had checked is exactly that.**
   Gaussian shape giving −0.055. §2.2 replaces it with a direct measurement —
   an assumption-free bracket of [+0.0895, +0.5940] whose pessimistic end is
   still positive, a measured MAD/RMSE of ~0.74 on three predictors that rules
-  the Gaussian branch out, and a calibrated point estimate of **+0.4258 MAE**
-  [+0.3948, +0.4538]. §3's shares are restated against it; the four verdicts
-  are untouched, as they rest on each feature's own interval and not on any
-  denominator. Also labelled 60.3836 (sample total variance) against 60.3945
-  (component sum).
+  the Gaussian branch out, and an estimate of **+0.4258 MAE** inside it.
+  Accepted on review with five binding labels, all applied: +0.0895 is v1
+  itself and never corroboration of it; the `√(m/(m−1))` step carries its own
+  MAD-scales-as-SD assumption and says so wherever 4.4558 or 4.3804 appears;
+  the CI travels with the bracket because it is 8.6× narrower and measures
+  something else; §3's denominator is a normaliser against a per-player
+  constant, not a share of what is achievable; and 4.8062 is never set beside
+  the R&D rig's 4.757. The 25,323-vs-24,801 gap is reconciled in §2 (178
+  one-week and 172 two-week player-seasons, 522 rows), with the filter's own
+  non-neutrality stated. The four verdicts are untouched, as they rest on each
+  feature's own interval and not on any denominator. Also labelled 60.3836
+  (sample total variance) against 60.3945 (component sum).
 
 **Anything downstream of v1's number needs re-deriving**, in particular any
 argument that leaned on "there is no room left in player-level features".

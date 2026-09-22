@@ -15,6 +15,9 @@
  *  - pricing: the "hard" tier is applied once (by the trade engine), perception
  *    is neutral when nothing is known about a player, negotiation profiles load
  *    through one validated reader, the dead untouchablesFor is gone.
+ *  - the cache fingerprint says WHICH absence it found: a table that is not
+ *    there and a table that will not read are different states and must not
+ *    share a findTrades cache entry.
  *  - bluff: credibility is cached against the chat data and invalidated by it.
  *  - script: one run over every league, idempotent, with a sync_log row.
  *
@@ -29,6 +32,7 @@ import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { withTableReplaced } from './helpers/with-table-replaced.js';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-manager-data-'));
@@ -489,34 +493,6 @@ test('signals: a re-run with no new data writes nothing, and new data rewrites t
 });
 
 /**
- * Put `name` back exactly as it was, whatever the body does to it. The DDL and
- * the indexes come out of `sqlite_master` rather than being retyped here: a
- * retyped copy drifts from the migration that owns the table and the test then
- * pins a shape the app does not have.
- */
-function withTableReplaced(name, newDdl, fn) {
-  const ddl = rows(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, name)[0]?.sql;
-  assert.ok(ddl, `this test needs the real ${name} DDL to put back`);
-  const idx = rows(`SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ?
-                    AND sql IS NOT NULL`, name).map(r => r.sql);
-  const saved = rows(`SELECT * FROM ${name}`);
-  run(`DROP TABLE ${name}`);
-  try {
-    if (newDdl) run(newDdl);
-    return fn();
-  } finally {
-    run(`DROP TABLE IF EXISTS ${name}`);
-    run(ddl);
-    for (const sql of idx) run(sql);
-    for (const r of saved) {
-      const cols = Object.keys(r);
-      run(`INSERT INTO ${name} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-        ...cols.map(c => r[c]));
-    }
-  }
-}
-
-/**
  * `counterpartyDataKey` is a cache fingerprint: `trade-engine.js#findTradesKey`
  * concatenates it into the key a whole findTrades result is stored under. So a
  * fingerprint that gives two different states the same word does not merely
@@ -538,11 +514,11 @@ test('signals: the key says WHICH absence — a table that is gone is not a tabl
   const live = pricing.counterpartyDataKey(12);
   assert.ok(/\bms:\d+:/.test(live), 'the fixtures must have built signals for league 12, or this pins nothing');
 
-  const gone = withTableReplaced('manager_signals', null,
+  const gone = withTableReplaced({ rows, run }, 'manager_signals', null,
     () => pricing.counterpartyDataKey(12));
 
   // Present, and unreadable by this query: the columns it stamps are not there.
-  const unreadable = withTableReplaced('manager_signals',
+  const unreadable = withTableReplaced({ rows, run }, 'manager_signals',
     'CREATE TABLE manager_signals (league_id INTEGER NOT NULL, roster_id TEXT NOT NULL)',
     () => pricing.counterpartyDataKey(12));
 

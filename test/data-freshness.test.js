@@ -43,10 +43,12 @@ const { dataFreshness, tableFreshness, FALLBACK_REGISTRY, servedTablesRegistry }
 
 const SEASON = 2026, WEEK = 3;
 
-db.exec(`
-  CREATE TABLE player_week_usage (player_id INTEGER, season INTEGER, week INTEGER);
-  CREATE TABLE has_updated (id INTEGER, season INTEGER, week INTEGER, updated_at TEXT);
-`);
+// player_week_usage is created by the legacy schema when the db opens; only
+// has_updated is ours to make. Inserts name columns so the real table's extra
+// columns do not matter.
+db.exec(`CREATE TABLE IF NOT EXISTS has_updated (id INTEGER, season INTEGER, week INTEGER, updated_at TEXT);`);
+db.prepare(`INSERT INTO players (id, name, position) VALUES (1, 'Test Player', 'WR')`).run();
+const pwu = (season, week) => db.prepare(`INSERT INTO player_week_usage (player_id, season, week) VALUES (1, ?, ?)`).run(season, week);
 
 const clear = () => { for (const t of ['player_week_usage', 'has_updated']) db.prepare(`DELETE FROM ${t}`).run(); };
 
@@ -64,7 +66,7 @@ const one = over => tableFreshness(entry(over), ctx());
 
 test('a table with rows for past seasons only is stale, never fresh — the specimen the banner got wrong', () => {
   clear();
-  for (const s of [2023, 2024, 2025]) db.prepare(`INSERT INTO player_week_usage VALUES (1, ?, 1)`).run(s);
+  for (const s of [2023, 2024, 2025]) pwu(s, 1);
   const f = one();
   assert.equal(f.status, 'stale', 'a connection with no current rows was reported fresh');
   assert.notEqual(f.status, 'fresh');
@@ -73,13 +75,13 @@ test('a table with rows for past seasons only is stale, never fresh — the spec
 
 test('a current-season row up to the current week is fresh', () => {
   clear();
-  db.prepare(`INSERT INTO player_week_usage VALUES (1, ?, ?)`).run(SEASON, WEEK);
+  pwu(SEASON, WEEK);
   assert.equal(one().status, 'fresh');
 });
 
 test('a current-season row from a FUTURE week does not count as current', () => {
   clear();
-  db.prepare(`INSERT INTO player_week_usage VALUES (1, ?, ?)`).run(SEASON, WEEK + 5);
+  pwu(SEASON, WEEK + 5);
   assert.equal(one().status, 'stale', 'a week that has not been played yet was treated as current data');
 });
 
@@ -97,7 +99,7 @@ test('a table not present in this database is empty with a note, not a thrown er
 
 test('row_count, earliest and latest reflect the data', () => {
   clear();
-  for (const s of [2023, 2024, 2025]) db.prepare(`INSERT INTO player_week_usage VALUES (1, ?, 1)`).run(s);
+  for (const s of [2023, 2024, 2025]) pwu(s, 1);
   const f = one();
   assert.equal(f.row_count, 3);
   assert.equal(String(f.earliest), '2023');
@@ -130,10 +132,10 @@ test('a predicate whose placeholder count does not match its bind list is reject
 
 test('the acceptance criterion on the fallback registry: player_week_usage is not fresh on 2021-2025-only data', () => {
   clear();
-  for (const s of [2021, 2022, 2023, 2024, 2025]) db.prepare(`INSERT INTO player_week_usage VALUES (1, ?, 1)`).run(s);
-  const pwu = FALLBACK_REGISTRY.find(e => e.table === 'player_week_usage');
-  assert.ok(pwu, 'the fallback registry has no player_week_usage entry');
-  assert.notEqual(tableFreshness(pwu, ctx()).status, 'fresh',
+  for (const s of [2021, 2022, 2023, 2024, 2025]) pwu(s, 1);
+  const entry = FALLBACK_REGISTRY.find(e => e.table === 'player_week_usage');
+  assert.ok(entry, 'the fallback registry has no player_week_usage entry');
+  assert.notEqual(tableFreshness(entry, ctx()).status, 'fresh',
     'the fallback registry reports fresh on data with no current season');
 });
 

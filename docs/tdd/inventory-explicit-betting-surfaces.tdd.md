@@ -85,6 +85,21 @@ the broken `/api/betting/wong` case is rewritten as the rule it was groping for 
 a prefix is evidence, never the test, and one unlisted route under the hub
 unlabels the whole family.
 
+## Where the family rule and a file-level rule differ
+
+Opportunity's grader labels route FILES, so the family hazard above cannot arise
+there; they added a test that goes red when a route mounted under a betting
+prefix is absent from the list, proved by commenting `wong.js` out. Measured on
+this map's mounts: every route file has exactly one mount path, and `/api/betting`
+has exactly two mounts, `betting-hub.js` and `wong.js`, both listed.
+
+The residual hazard is the mirror image, named in their `CONTRACT.md` §2c: a
+single route file serving both betting and fantasy endpoints would be labelled
+wholly betting. None exists today. **The family rule fails safe on exactly that
+case** — a family whose mounted files do not agree takes no label, so the module
+stays inside the fantasy total. Two rules with opposite unsafe directions, which
+is why the set diff between them is worth keeping.
+
 ## The five questions
 
 - **Well built?** The list is data with a reason per entry, the labels are derived

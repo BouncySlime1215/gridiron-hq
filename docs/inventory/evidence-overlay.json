@@ -96,6 +96,16 @@
       "evidence": "handed to the model-evidence audit thread — status set by the audit, not here",
       "owner_thread": "trade-brain",
       "note": "near miss flagged by the model audit: the bare catch at :813-900 DOES report unavailable with a reason (unlike trade-tactics), but the reason text names the wrong cause — says 'no captured transactions' when the truth is league_transactions_raw is created nowhere. Row-level note, not a status change; status still owned by the audit."
+    },
+    {
+      "id": "pipeline:pick-reasoning",
+      "kind": "pipeline",
+      "name": "pick-reasoning.js",
+      "path": "server/services/pick-reasoning.js",
+      "status": "wired-betting-only",
+      "evidence": "Request reach is /api/nfl-betting alone. The one package.json script that reaches it, `audit:nfl` -> scripts/nfl-blind-audit.mjs, was RUN against a migrated copy of server/data.sqlite (the primary untouched) and its durable output measured by diffing sqlite_master and every table row count either side: 32 rows into model_feature_contracts (model-governance.js:68) and 11 into model_registry (:90), written at import time by the top-level seedContracts()/seedRegistry() at :88-89, both INSERT ... ON CONFLICT DO NOTHING seeds of constants declared in that same file. Nothing else changed. Every reader of either table traced: the only read sites are model-governance.js:100-101 and :107-108, inside featureContracts() and registry(); callers are nfl-research.js:268 (/api/nfl-market, betting), mlb-research.js:69 (/api/mlb, the mlb label) and nfl-pick-watch.js:54, whose only static importer in the tree is page-explain-tools.js:17, reached only from /api/betting at 2 hops -- every other importer is a dynamic import inside a betting route handler (betting-hub.js:598, :606, :614) or a job body (scheduler.js:1002). nfl-betting.js:665 calls a different featureContracts, exported by nfl-ensemble.js:2796, which reads neither table. No fantasy surface reads the output, so under the Auditor's script-classification rule the script does not disqualify. Measured by the wiring-map thread, 1998f50.",
+      "owner_thread": "wiring-map",
+      "note": "The generated grade is `wired`, from the default that any package.json script counts as non-betting reach. That default is what the durable-output rule replaces, and it cannot be computed statically -- what a script writes is a runtime fact -- so the traced grade lives here rather than in the classifier. The sibling row pipeline:nfl-passing-diagnostic is NOT overlaid: its script writes nothing on this container, but the run did no work (seasons: [], n: 0, 0.117s -- no prop-replay rows here), so its data path is untraced and untraced output defaults to wired."
     }
   ]
 }

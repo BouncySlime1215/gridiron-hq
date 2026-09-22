@@ -2,7 +2,19 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-22 22:02Z.
+Last rebuilt: 2026-09-22 22:31Z.
+
+## #152: The disk check wakes the live app before it looks
+
+- Merged: 6:30 PM ET, Sep 22 as `d3dca8b6` (unit INT-149-1)
+- Intake: done: (filled by the integration intake agent) CI only (coordinator intake, 6:31 PM ET). Upstream: same /api/health endpoint deploy.yml checks. Downstream: fly-preflight.yml now wakes the app before ssh (up to 6 tries). Reach: run before every migrating deploy. Links: SY review notes the 2 GiB threshold is copied from server/db/index.js:144, not read, so the two could drift apart; not queued (low value while they're equal)…
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #151: Symbol-reach docs: namespace imports are no longer a blind spot
+
+- Merged: 6:19 PM ET, Sep 22 as `ec336a2b` (unit INT-116-1)
+- Intake: done: (filled by the integration intake agent) Docs only (coordinator intake, 6:31 PM ET). Upstream: n/a. Downstream: the evidence file symbol-reach.tdd.md now carries an addendum matching 116; the original paragraph is kept. Reach: read by whoever triages unused-in-code rows (kill list, D25). Links: none. Plan: closes INT-116-1. Follow-ups: none.
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #150: Formations: stop calling this season's unpublished data a failure; add one-command backfill for finished seasons
 

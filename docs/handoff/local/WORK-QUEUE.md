@@ -347,3 +347,226 @@ Time-bound: S-02 then S-03 before week 5 (2026-10-08); S-15 before week 11; week
 | BL-50 | Resolve rule-extracted availability claims vs next-game snaps, weekly | ~4 h | — |
 | BL-51 | Permutation guard in the person-profile grader | ~1-2 h | before N6 |
 | R-09 | (refresh loop) | The refresh loop's first tick races its own startup migration: at 21:14:23Z six jobs threw "sync_log has no column named consecutive_failures" while migrations 062-070 finished at 21:14:29Z (backup data.sqlite.pre-migration-2026-09-22T21-14-23-987Z.bak) | scripts/refresh-live-data.mjs, server/db/index.js | RED: first tick on a DB missing a migration waits for migrations before running jobs; no job throws on a column added by a pending migration |
+
+## 10. Cloud vs local split (for parallel cloud builds)
+
+Skipped (already merged/done/in flight, per WORKLOG.jsonl + coordinator note): **F-01, F-05, F-09, F-10, F-15, R-02, INT-116-1, INT-149-1**. Everything below is every remaining row in §3 and §5-8, one row per unit ID.
+
+CLOUD = fresh clone + fixtures + free nflverse downloads only, nothing on this Mac. CLOUD-DATA = a statistical/lift-proof unit that only needs nflverse data (downloadable in the cloud), so it's cloud-buildable but slower. LOCAL = acceptance test or build needs the local `data.sqlite` copy, Nick's 5 real ESPN league payloads, real league/Sleeper transactions or chat corpus, or production timing.
+
+
+### Foundation close
+
+| ID | Class | Reason | Overlaps |
+|---|---|---|---|
+| F-02 | LOCAL | stall re-measure needs timing on a real-row local DB copy | — |
+| F-03 | CLOUD | watchdog naming fix, RED/GREEN on fixture job | — |
+| F-04 | CLOUD | scheduler merge-conflict resolution, fixture tests only | services/scheduler.js w/ A-23,B-17 |
+| F-06 | LOCAL | derives outcomes from local copy's 1,466 real transactions | — |
+| F-07 | CLOUD | rebase/land PR stack; CI+guard, no data dependency | counterparty-pricing.js w/ B-10,B-11,D-11; routes/trades.js w/ A-07,B-01,B-10; trade-tactics.js w/ B-14 |
+| F-08 | CLOUD | credit-line banner, tested via freshness API fixture | — |
+| F-11 | CLOUD | inline bare-import fixture on the public repo tree | — |
+| F-12 | CLOUD | mutant-killing test against repo's own committed tree | — |
+| F-13 | CLOUD | wiring-map fixture DB (second sqlite handle), no real data | — |
+| F-14 | CLOUD | doc correction from command output on public tree | — |
+| F-16 | CLOUD | runbook doc compiled from known merges/migrations | — |
+
+### Phase A
+
+| ID | Class | Reason | Overlaps |
+|---|---|---|---|
+| A-01 | LOCAL | needs the 5 real ESPN league payloads (leagues.payload) | routes/leagues.js w/ A-05 |
+| A-02 | LOCAL | run on 5 local leagues, printed as counts | services/league-config-verification.js w/ A-04 |
+| A-03 | LOCAL | 0 unmapped stat ids checked on the 5 local payloads | — |
+| A-04 | LOCAL | recomputed points vs ESPN's on local rostered player-weeks | services/league-config-verification.js w/ A-02 |
+| A-05 | LOCAL | 5 local leagues' format keys checked against settings | routes/leagues.js w/ A-01 |
+| A-06 | CLOUD | RED via fixture missing mSettings, no real league needed | services/league-history.js w/ D-03 |
+| A-07 | CLOUD | RED via non-PPR league fixture | routes/trades.js w/ B-01,B-10,F-07; services/title-odds-trades.js w/ B-01 |
+| A-08 | CLOUD | land PR #74, merge/guard/v2 body only | trade-engine.js w/ B-13,B-15,C-08,C-18 |
+| A-09 | CLOUD | snapshot test of existing keys + known figure | — |
+| A-10 | CLOUD | config marker fix, fixture RED on blind-audit call | — |
+| A-11 | CLOUD-DATA | ensemble refit vs held-out 2025, nflverse player-week stats | — |
+| A-12 | CLOUD-DATA | target-share x practice-participation study, nflverse data | — |
+| A-13 | CLOUD-DATA | officials/schedules ingest, public nflverse-data release | services/nflverse.js w/ D-10 |
+| A-14 | LOCAL | go-rate non-null check explicitly run on the local copy | — |
+| A-15 | CLOUD-DATA | lift-proof study, nflverse pbp + opp-adj-def-epa | — |
+| A-16 | CLOUD-DATA | pace/play-volume lift proof, nflverse pbp | — |
+| A-17 | CLOUD-DATA | FTN charting persistence, public via nflverse release | — |
+| A-18 | CLOUD-DATA | charting matchup arm, same public charting data as A-17 | services/matchups.js w/ C-16 |
+| A-19 | CLOUD-DATA | ESPN QBR re-run, public via nflverse | projections.js w/ A-20,C-14 |
+| A-20 | CLOUD-DATA | yards-per split fit vs served prior, nflverse stats | projections.js w/ A-19,C-14 |
+| A-21 | CLOUD-DATA | verdict ledger compiling A-15..A-20 + public depth-chart re-run | — |
+| A-22 | CLOUD | fixture RED: traded-player claim vs claim-time team | services/beat-reporter-accuracy.js w/ A-24,A-26 |
+| A-23 | CLOUD | scheduler job registration/wiring | services/scheduler.js w/ B-17,F-04 |
+| A-24 | LOCAL | backfills from already-ingested local news_items corpus | services/beat-reporter-accuracy.js w/ A-22,A-26 |
+| A-25 | CLOUD | ranking fixture RED (real trust scores come from A-24, local) | — |
+| A-26 | CLOUD | fixture RED for transaction-claim resolver | services/beat-reporter-accuracy.js w/ A-22,A-24 |
+
+### Phase B
+
+| ID | Class | Reason | Overlaps |
+|---|---|---|---|
+| B-01 | CLOUD | RED via week-6/5-0-team fixture league | TradeCard.tsx w/ B-03; routes/trades.js w/ A-07,B-10,F-07; services/title-odds-trades.js w/ A-07 |
+| B-02 | LOCAL | Brier of playoff odds measured on real league history | — |
+| B-03 | CLOUD | paired-seed delta UI/code (needs B-02's local sim engine) | TradeCard.tsx w/ B-01; waiver-wire.js w/ B-04,B-05,B-06,B-09,C-18 |
+| B-04 | CLOUD-DATA | K/DST MAE vs baseline, nflverse weekly stats | waiver-wire.js w/ B-03,B-05,B-06,B-09,C-18 |
+| B-05 | LOCAL | claim-priority ranking from real league churn/local transactions | waiver-wire.js w/ B-03,B-04,B-06,B-09,C-18 |
+| B-06 | CLOUD-DATA | EV from measured backup production (nflverse usage) + replay | waiver-wire.js w/ B-03,B-04,B-05,B-09,C-18 |
+| B-07 | CLOUD | land PR #67, merge/guard/v2 body only | — |
+| B-08 | LOCAL | season sims vs sharp policy run on real league history | — |
+| B-09 | CLOUD-DATA | denial value from opponent projections, nflverse-derived | waiver-wire.js w/ B-03,B-04,B-05,B-06,C-18 |
+| B-10 | LOCAL | real n / source count from Nick's manager profiles | counterparty-pricing.js w/ B-11,D-11,F-07; routes/trades.js w/ A-07,B-01,F-07; trade-acceptance.js w/ B-11 |
+| B-11 | LOCAL | fit on local transactions; needs real outcomes | counterparty-pricing.js w/ B-10,D-11,F-07; trade-acceptance.js w/ B-10 |
+| B-12 | LOCAL | fresh run of manager reads needs real league chat/signal data | manager-archetypes.js w/ D-03,D-09; manager-signals.js w/ D-11 |
+| B-13 | CLOUD | land PR stack (#57->#64,#60), merge/guard/v2 only | trade-engine.js w/ A-08,B-15,C-08,C-18 |
+| B-14 | LOCAL | timingRead needs real trade-timing history (n shown) | trade-tactics.js w/ F-07 |
+| B-15 | CLOUD-DATA | buy-low mean-reversion study on nflverse player performance | trade-engine.js w/ A-08,B-13,C-08,C-18 |
+| B-16 | CLOUD | 3-roster fixture unit tests | — |
+| B-17 | CLOUD | scheduler calendar wiring, mocked job list | services/scheduler.js w/ A-23,F-04 |
+| B-18 | CLOUD | web push/pivot logic, fixture player status | lineup-brain.js w/ C-10,C-18 |
+
+### Phase C
+
+| ID | Class | Reason | Overlaps |
+|---|---|---|---|
+| C-01 | CLOUD-DATA | as-of replay vs dumb rule, nflverse weekly stats | — |
+| C-02 | LOCAL | 'our claims' = real waiver-claim history | — |
+| C-03 | LOCAL | replays local trade_proposal_cache (real proposals) | — |
+| C-04 | CLOUD | fixture RED on projection-cutoff bug (live tracking is a caveat) | — |
+| C-05 | LOCAL | expected vs actual wins for Nick's actual league standings | — |
+| C-06 | LOCAL | needs local news_items event corpus for matched controls | — |
+| C-07 | LOCAL | measures live/local pipeline ingest-to-notify latency | — |
+| C-08 | LOCAL | persists real considered-vs-proposed trade rows | trade-engine.js w/ A-08,B-13,B-15,C-18 |
+| C-09 | CLOUD | fixture RED: ceiling target moves with the pool | — |
+| C-10 | LOCAL | live decision-win-rate needs real tracked usage | lineup-brain.js w/ B-18,C-18 |
+| C-11 | CLOUD | PR close/keep decision + guard/v2 | — |
+| C-12 | CLOUD | UI: land design-system PR, token tests | index.css w/ D-12 |
+| C-13 | CLOUD | UI: basis chip + glossary, fixture tests | — |
+| C-14 | CLOUD-DATA | calibration walk-forward on held-out weekly stats | projections.js w/ A-19,A-20 |
+| C-15 | CLOUD | UI: stat block renders served range | — |
+| C-16 | CLOUD | UI: deep-dive drawer, basis chips | services/matchups.js w/ A-18 |
+| C-17 | CLOUD | Coach panel UI wiring to existing API | — |
+| C-18 | CLOUD | contract/fixture test: every rec has a traceable why | lineup-brain.js w/ B-18,C-10; trade-engine.js w/ A-08,B-13,B-15,C-08; waiver-wire.js w/ B-03,B-04,B-05,B-06,B-09 |
+| C-19 | CLOUD | fantasy page-explain tool swap, mocked tools | — |
+| C-20 | CLOUD | land PRs + label seed data (docs/code) | — |
+
+### Phase D
+
+| ID | Class | Reason | Overlaps |
+|---|---|---|---|
+| D-01 | CLOUD | land #96->#104, guard/v2 | — |
+| D-02 | CLOUD | land scheduler PRs, guard/v2 each | — |
+| D-03 | CLOUD | land manager-archetypes/league-history PRs + evidence doc | manager-archetypes.js w/ B-12,D-09; services/league-history.js w/ A-06 |
+| D-04 | CLOUD | fixture RED: optional-source retry note | nfl-model-growth.js w/ D-06 |
+| D-05 | CLOUD | fixture RED: failing weekly-fit re-read demoted | — |
+| D-06 | CLOUD | static call-reach trace via wiring-map tooling | nfl-model-growth.js w/ D-04 |
+| D-07 | CLOUD | fixture RED: failing source alerts within one cycle | — |
+| D-08 | CLOUD | land PR batch (#50,#66,#45,#15,#39), guard/v2 each | — |
+| D-09 | LOCAL | chat-sync data-quality findings on Nick's real leagues | manager-archetypes.js w/ B-12,D-03 |
+| D-10 | CLOUD-DATA | reconcile two nflverse-derived snap-count ingests | services/nflverse.js w/ A-13 |
+| D-11 | LOCAL | leave-one-league-out needs Nick's multiple real leagues | counterparty-pricing.js w/ B-10,B-11,F-07; manager-signals.js w/ B-12 |
+| D-12 | CLOUD | phone-first UI audit/fixes with fixture data | index.css w/ C-12 |
+| D-13 | CLOUD | competitive teardown doc from public pricing pages | — |
+| D-14 | CLOUD | kill-list doc from code inspection | — |
+
+### Structure fixes (S-xx)
+
+| ID | Class | Reason | Overlaps |
+|---|---|---|---|
+| S-01 | LOCAL | 0 mismatches required across the 5 local leagues | — |
+| S-02 | LOCAL | Nick: week-5-deadline weekly-construction grade is LOCAL | — |
+| S-03 | LOCAL | Nick: applies S-02's LOCAL result; served W5 numbers | — |
+| S-04 | LOCAL | checked 'on the copy'; k re-pick needs real availability rows | — |
+| S-05 | LOCAL | '38 local no-history rostered players'; paired odds per local league | — |
+| S-06 | CLOUD | fixture RED: OUT/non-PPR player filtering | — |
+| S-07 | CLOUD | per-league-calendar fixture test (byes counted) | — |
+| S-08 | CLOUD-DATA | refit on production week_points vs held-out 2025 (as-served stats) | — |
+| S-09 | CLOUD | contract/fixture test on retired signals | — |
+| S-10 | LOCAL | 'after one league sync on the copy... 5 leagues' | — |
+| S-11 | CLOUD | 3-roster fixture test (needs S-10's local store for full use) | — |
+| S-12 | CLOUD | fixture RED: served != ensemble for a lifted player | — |
+| S-13 | CLOUD | fixture RED: promoted volume-k changes response | — |
+| S-14 | LOCAL | 'local count of rostered players... per league' | — |
+| S-15 | CLOUD-DATA | ROS-validity study on 2024/2025 nflverse outcomes | — |
+| S-16 | CLOUD-DATA | posture refit vs lifted week_points, nflverse-derived | — |
+| S-17 | CLOUD | non-PPR fixture: floor/ceiling move with scoring | — |
+| S-18 | CLOUD | empty-table named-state fixture test | — |
+
+### Sleeper-data
+
+| ID | Class | Reason | Overlaps |
+|---|---|---|---|
+| MS-03 | LOCAL | Sleeper draft-pick pull + ~75 resolved local proposals | — |
+| MS-04 | LOCAL | operates on Sleeper roster-weeks corpus (local, not public) | — |
+| MS-05 | LOCAL | Sleeper add/claim-volume corpus (local) | — |
+| H-01 | LOCAL | revives 6 Sleeper-corpus hold branches | — |
+
+### Integration follow-ups
+
+| ID | Class | Reason | Overlaps |
+|---|---|---|---|
+| INT-128-1 | CLOUD | grep-based MLB seed-row cleanup + test, public repo only | — |
+| R-08 | LOCAL | times real GETs against a real-row local DB copy | — |
+| INT-94-1 | LOCAL | full e2e run needs a .backup local copy (skips cleanly w/o it) | docs/tdd/2026-09-22-trade-outcomes-landing.tdd.md w/ BL-20 |
+| INT-150-1 | LOCAL | loads 2022-2024 into the local copy, prints row counts | docs/tdd/2026-09-22-formations-404-skip.tdd.md w/ INT-150-2 |
+| INT-150-2 | LOCAL | re-freezes vectors built from INT-150-1's local load | docs/tdd/2026-09-22-formations-404-skip.tdd.md w/ INT-150-1 |
+
+### Blocker-lab
+
+| ID | Class | Reason | Overlaps |
+|---|---|---|---|
+| BL-01 | CLOUD | job-budget + close-killed-run logic, mockable long-running job | — |
+| BL-02 | CLOUD-DATA | adds nflverse weekly-usage/snap sources to refresh loop | — |
+| BL-03 | CLOUD | freshness-rule fixture: last completed week present | — |
+| BL-05 | CLOUD | played-no-stat=0 fixture fix | — |
+| BL-20 | LOCAL | settles real observed outcomes from local transactions | docs/tdd/2026-09-22-trade-outcomes-landing.tdd.md w/ INT-94-1 |
+| BL-40 | CLOUD | display-only trait wired from precomputed go-rate value | — |
+| BL-50 | LOCAL | resolves claims from local news_items corpus vs snaps | — |
+| BL-51 | CLOUD | permutation-guard code, testable with synthetic fixtures pre-N6 | — |
+| R-09 | CLOUD | migration-race fix, testable on a fresh temp DB | — |
+### Suggested cloud batch order (3 disjoint units per batch, most valuable first)
+
+Foundation close first, then Phase A, then structure fixes S-xx, then UI (Phase C UI steps + D-12), then the rest. Each batch's 3 units touch no common file, so 3 cloud agents can run them at once. S-02/S-03 and all other LOCAL units are not in this list — they run on the Mac. Batches are sequential; only within-batch file overlap was checked.
+
+| Batch | Units |
+|---|---|
+| 1 | F-03, F-04, F-07 |
+| 2 | F-08, F-11, F-12 |
+| 3 | F-13, F-14, F-16 |
+| 4 | A-06, A-07, A-08 |
+| 5 | A-09, A-10, A-11 |
+| 6 | A-12, A-13, A-15 |
+| 7 | A-16, A-17, A-18 |
+| 8 | A-19, A-21, A-22 |
+| 9 | A-20, A-23, A-25 |
+| 10 | A-26, S-06, S-07 |
+| 11 | S-08, S-09, S-11 |
+| 12 | S-12, S-13, S-15 |
+| 13 | S-16, S-17, S-18 |
+| 14 | C-12, C-13, C-15 |
+| 15 | C-16, C-17, C-18 |
+| 16 | C-19, C-20, D-12 |
+| 17 | B-01, B-04, B-07 |
+| 18 | B-03, B-13, B-16 |
+| 19 | B-06, B-15, B-17 |
+| 20 | B-09, B-18, C-01 |
+| 21 | C-04, C-09, C-11 |
+| 22 | C-14, D-01, D-02 |
+| 23 | D-03, D-04, D-05 |
+| 24 | D-06, D-07, D-08 |
+| 25 | D-10, D-13, D-14 |
+| 26 | BL-01, BL-02, BL-03 |
+| 27 | BL-05, BL-40, BL-51 |
+| 28 | R-09, INT-128-1 |
+
+## 11. Synergy review units (2026-09-22 ~6:30 PM ET, across #118 #146 #128 #116 #149 #94 #150; verified; full JSON ~/gridiron-local/synergy-2026-09-22.json)
+
+| ID | Priority | Goal | Files | Acceptance |
+|---|---|---|---|---|
+| SY-01 | soon | One accept/decline rule for every reader: export the answer-matching rule from trade-outcomes.js; manager-signals txSignals uses it and stops double-counting proposer-side TRADE_ACCEPT rows (L4 roster 10 credited with 2 accepts it never made: served 45% of 11) | trade-outcomes.js, manager-signals.js:183-236 (selfRead/timingRead call the helper; catches left to #100) | fixture with an unmatched answer and a proposer-side accept gives the same n everywhere; local 6-manager table printed; NICK DECISION: do answers to proposals the collector never saw count? |
+| SY-02 | soon | Rams stored as both LA and LAR in the team-week table (33 teams/season) that Start/Sit coaching traits read | nfl-pbp.js writer (canonicalTeamCode), reconcile at nfl-advanced.js:463 | RED: an 'LA' pbp row lands as LAR; 32 teams per season after re-ingest on a copy |
+| SY-03 | later | Link an app-suggested trade to the ESPN offer Nick actually sent (the ledger can't score a prediction today) and label predictions with the acceptance model's version | trade-outcomes.js, trade-acceptance.js | fixture: suggested then sent then declined yields one scored row with model_p_accept |
+| SY-04 | later | Fix formation features before any re-freeze: empty/singleback shares read 0 after 2022; shotgun share divides by special-teams rows (17 pts off PBP) | nfl-formations.js (~160), feature builder | features match PBP-derived shares within 1 pt on 2023-2025; BLOCKS INT-150-2 |
+| SY-05 | later | Study copy of the feature store (v2) lacks #150's look-ahead fix (0 affected rows today) | nfl-weekly-feature-store-v2.js:624-639 | note in v2 or port the bound; no served change |
+| SY-06 | later | Finish MLB removal leftovers: 4 dead MLB exports in odds-api.js, decision inbox still accepts 'MLB', MLB prop routes mounted with no page | odds-api.js, decision-inbox, routes | grep shows no live MLB path; tests updated |
+| SY-07 | soon | Queue and deploy facts #94 changed: C-04/C-08/C17/N9 rows describe the pre-#94 world; deploy checklist must list 067 | WORK-QUEUE.md, docs/runbooks | rows updated (docs) |

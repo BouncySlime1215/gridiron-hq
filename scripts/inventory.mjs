@@ -240,12 +240,28 @@ function buildRows(map, local) {
   }
 
   // 3. jobs — the scheduler's job surfaces.
+  //
+  // A job has TWO locations and they are not interchangeable. `line` is where
+  // the job is REGISTERED, which is always in scheduler.js; `file` is the
+  // module that IMPLEMENTS it, which the map resolves for 8 of 62 and leaves
+  // null for the rest, deliberately, rather than attribute an unresolved job
+  // to scheduler.js and make it appear to reach everything the scheduler
+  // imports.
+  //
+  // Pairing the two produced citations like
+  // `server/betting/nfl/strategy/t60-runner.js:1293` for a file 533 lines
+  // long, and the literal string "null:1280" for the unresolved majority. The
+  // registration site is the one location that is always real, so it is the
+  // path; the module is named separately, in words, when it is known.
+  const SCHED = 'server/services/scheduler.js';
   for (const s of map.surfaces.filter((x) => x.kind === 'job')) {
-    const p = s.file;
+    const at = `${SCHED}:${s.line}`;
+    const impl = s.file ? `implemented by ${s.file}` : 'implementing module unresolved by the map';
     const c = { status: 'unclassified',
-      reason: `job ${s.name} at ${p}:${s.line} runs on tier ${s.tier}; whether it writes real rows needs a run, not static analysis` };
-    push({ id: `job:${slug(s.name)}`, kind: 'job', name: s.name, path: `${p}:${s.line}`,
-      owner_thread: 'scheduler', ...c, note: `tier ${s.tier}` });
+      reason: `job ${s.name} is registered at ${at} on tier ${s.tier} (${impl}); whether it writes real rows needs a run, not static analysis` };
+    push({ id: `job:${slug(s.name)}`, kind: 'job', name: s.name, path: at,
+      owner_thread: 'scheduler', ...c,
+      note: `tier ${s.tier}; ${impl}` });
   }
 
   // 4. client pages.

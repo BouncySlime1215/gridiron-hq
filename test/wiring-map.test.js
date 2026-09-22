@@ -1905,4 +1905,14 @@ test('every job in the real scheduler is cited at a line holding that job key', 
   // The specific number the scheduler thread read by hand, before this map
   // existed to disagree with them.
   assert.equal(jobs.find((j) => j.name === 'player_rosters')?.line, 1196);
+
+  // The census, counted a different way than schedulerJobs counts it, because
+  // a defect injection that dropped the FIRST job left every surviving
+  // citation correct and every assertion above it green. A line-anchored count
+  // over the JOBS block shares no code with the scanner's offset arithmetic,
+  // so the two agreeing means something.
+  const open = lines.findIndex((l) => l.startsWith('export const JOBS'));
+  const close = lines.findIndex((l, i) => i > open && l === '};');
+  const keyed = lines.slice(open, close).filter((l) => /^ {2}[a-z]\w*:\s*\{/.test(l)).length;
+  assert.equal(jobs.length, keyed, 'one job surface per top-level key in JOBS, no more and no fewer');
 });

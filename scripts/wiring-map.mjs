@@ -673,7 +673,12 @@ function schedulerJobs(code, file) {
     jobs.push({
       name: m[2], tier, label, runFn: fn,
       runModule: dyn ? resolveSpec(file, dyn) : null,
-      line: lineOf(code, open + m.index),
+      // m.index is the offset of the LEADING DELIMITER, which is the comma
+      // ending the previous entry (or the brace opening JOBS, for the first
+      // job). Seeking to the name inside the match is what makes the citation
+      // land on the job's own line; without it every job in the map is cited
+      // one entry back, and some land on a `*/` where a comment closes.
+      line: lineOf(code, open + m.index + m[0].lastIndexOf(m[2])),
     });
   }
   return jobs;

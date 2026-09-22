@@ -213,3 +213,67 @@ Not done in this unit: `ingestCharting` and `chartingSummary` are the same file
 and would be in scope, but this is a second measurement made after the change
 was built and tested, and folding it in now would mean shipping an untested
 widening on top of a tested one.
+
+---
+
+## Two things found after the fact that change how this should be read
+
+### 1. Man/zone is not new ground — it already failed a gate
+
+`nfl-weekly-feature-store-v2.js:1-17` is a study-only copy, and its header
+carries a recorded verdict, verbatim:
+
+> The study's verdict was that no v2 family ships (man/zone, deviations and
+> O-line took zero weight; the 871-feature ridge gain did not survive a
+> bootstrap), so production stays on v1
+
+So `defense_man_zone_type` has been tested inside a model and took zero weight.
+The claim above that "nothing in this repo had an equivalent for coverage shell
+or pressure" is true at the *storage* layer and is not the whole truth, and it
+should not be read as untested upside.
+
+Storing them is still right: the columns were already being parsed and
+discarded, they cost nothing, and coverage *shell* is finer-grained than the
+man/zone binary the study tested. But anyone proposing to feed them to a model
+starts from a recorded negative, not from zero.
+
+The same header is also why v2 is quarantined, and it is worth knowing before
+anyone proposes wiring it: v2 landed by editing the production module in place,
+the growth job found no rows at the new version on restart, and rebuilt every
+2026 player vector synchronously on the main thread — the app stopped answering
+requests for 4+ minutes and wrote 684 player and 32 team rows into the
+production database before it was stopped.
+
+### 2. The served means cannot be fixed by fixing the query alone
+
+`nfl-weekly-feature-store.js:149` and `:160` carry the same contamination and
+are the *served* feature store. Fixing those three aggregates is granted work,
+but the fix is not confined to the query, because vectors are **frozen**:
+
+- `freezeTeamFeatureVector` (`:193-195`) returns the already-stored row when one
+  exists at `WEEKLY_FEATURE_STORE_VERSION`, currently
+  `'nfl-weekly-feature-store-v1'`.
+- `freezeWeeklyFeatureState` (`:372`) is called once per growth cycle from
+  `nfl-model-growth.js:242` for the upcoming week.
+
+That leaves two paths and neither is safe on its own:
+
+**Leave the version alone.** Vectors frozen before the fix keep the wrong value
+(`formation_pass_rushers` ≈ 2.08); vectors frozen after carry ≈ 4.31. Same
+version string, same feature name, a step change partway through the history a
+model fits on. That is worse than being uniformly wrong, because uniformly
+wrong is at least a consistent scale.
+
+**Bump the version.** The next freeze finds nothing at the new version and
+rebuilds that week's teams and every latest player — which is the exact
+mechanism behind the v2 incident above, differing only in scale.
+
+The safe shape is to ship the query fix together with a deliberate refreeze of
+the affected history through `backfillTeamFeatureVectors` /
+`scripts/backfill-feature-store.mjs`, rather than letting the growth cycle
+discover it. That is a decision above this thread and is routed up; it is
+recorded here because the query fix looks like a one-line change and is not.
+
+Separately, `nfl-model-watch.js:1-18` means the value change wants an A/B
+ablation before it reaches the model: "the old number was wrong" and "the new
+number predicts better" are different claims, and only the first is established.

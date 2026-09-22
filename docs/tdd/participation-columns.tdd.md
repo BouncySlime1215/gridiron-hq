@@ -153,3 +153,63 @@ of any other column read straight out of a wide upstream file.
 **How does it unify?** Coverage shell and pressure are the first of their kind
 stored here, and they join on `(game_id, play_id)` to everything already in
 `nfl_play_formations`, so nothing parallel is introduced.
+
+---
+
+## Amendment: what the `NULLIF` fix does and does not achieve
+
+`NULLIF(pass_rushers, 0)` is a large improvement and not an exact one, and the
+difference is measurable. Joining FTN charting to participation on
+`(nflverse_game_id, nflverse_play_id)` — 45,905 of 48,031 FTN rows match, 95.6%
+— and using participation's coverage marker as ground truth for "this was a
+dropback":
+
+```
+number_of_pass_rushers
+  zeros                          23,754 of 45,905
+  of those, on a real dropback        298
+  mean, every non-blank row        2.0798
+  mean, dropbacks only             4.2526      2.04x
+```
+
+So 298 of the zeros are genuine — a charted dropback with zero rushers —
+and `NULLIF` throws them away along with the 23,456 that are not measurements
+at all. That puts the reported mean about 1.3% high on the dropback set,
+against 51% low before the change.
+
+The exact fix is to gate on the dropback columns this commit adds, rather than
+on the sentinel. It is deliberately not done here: on a database ingested
+before migration 070 and not yet re-ingested those columns are all NULL, so the
+gate would report nothing at all where `NULLIF` still reports something close.
+That is a trade worth making explicitly rather than by accident, and it belongs
+with whoever moves the served consumer at
+`nfl-weekly-feature-store.js:149`.
+
+`defenders_in_box` has no such residual: 9,475 zeros, only 253 on a dropback,
+and box count is charted on plenty of non-dropback snaps too — so its zeros are
+"not charted" rather than "not a pass play", and the sentinel is the right
+discriminator for it.
+
+## The same defect, one table over — routed, not fixed here
+
+`nfl_play_charting`'s three numeric columns carry it as well, measured the same
+way on the same join:
+
+| column | zeros | of those, on a dropback | mean, all rows | mean, dropbacks | ratio |
+|---|---:|---:|---:|---:|---:|
+| `n_pass_rushers` | 23,754 | 298 | 2.0798 | 4.2526 | 2.04x |
+| `n_blitzers` | 39,413 | **15,930** | 0.1852 | 0.3786 | 2.04x |
+| `n_defense_box` | 9,475 | 253 | 4.8394 | 5.7813 | 1.19x |
+
+**`n_blitzers` is the trap in that table and it is the opposite of the others.**
+15,930 of its zeros are on real dropbacks, because rushing four and blitzing
+nobody is a measurement, not an absence. A `NULLIF(n_blitzers, 0)` — the fix
+that works for box count and roughly works for rushers — would discard 40% of
+the valid dropbacks and roughly double the blitz rate. Whoever picks this up
+has to gate on the dropback flag for blitzers specifically. Flagged here
+because the easy fix is the wrong one and it looks identical to the right one.
+
+Not done in this unit: `ingestCharting` and `chartingSummary` are the same file
+and would be in scope, but this is a second measurement made after the change
+was built and tested, and folding it in now would mean shipping an untested
+widening on top of a tested one.

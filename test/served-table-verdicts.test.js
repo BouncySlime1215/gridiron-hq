@@ -41,6 +41,10 @@ process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 process.env.SCHEDULER_DISABLED = '1';
 
 const { db } = await import('../server/db/index.js');
+// The full migrated schema, not the legacy one. Six of the seventeen served
+// tables are created by numbered migrations (league_roster_snapshots is 058),
+// and a harness that skips them measures a database production never has.
+await (await import('../server/db/migrate.js')).runMigrations();
 const { servedTables, evaluateServedTable, servedTableVerdicts } =
   await import('../server/services/source-registry.js');
 
@@ -108,6 +112,29 @@ test('a rule binding a value the evaluator cannot supply throws, naming it', () 
   assert.throws(() => evaluateServedTable(broken, ctx), /quarter/);
 });
 
+test('a rule that returns no row at all is a fault, not a quiet "not current"', () => {
+  // Added because a mutation survived: turning this guard into `current: false`
+  // passed all nine tests. None of the seventeen shipped rules can return zero
+  // rows — every one is an aggregate — so the guard is there for the next rule
+  // written, which is exactly the kind of guard that gets simplified away by
+  // someone who checks the suite first. "No answer" and "not current" are
+  // different things and only one of them should reach a user as a verdict.
+  const entry = entryFor('players');
+  const noRow = { ...entry, current_rule: { text: 'returns nothing',
+    sql: 'SELECT 1 AS current FROM players WHERE 1 = 0', params: [] } };
+  assert.throws(() => evaluateServedTable(noRow, ctx), /returned no row/i);
+});
+
+test('a rule returning something other than 0 or 1 is a fault', () => {
+  const entry = entryFor('players');
+  const counting = { ...entry, current_rule: { text: 'returns a count',
+    sql: 'SELECT COUNT(*) AS current FROM player_week_usage', params: [] } };
+  db.prepare(`DELETE FROM player_week_usage`).run();
+  for (const w of [1, 2, 3]) usage(2024, w);
+  assert.throws(() => evaluateServedTable(counting, ctx), /returned 3/,
+    'a rule that answers with a count is the mistake the contract exists to forbid');
+});
+
 /* --------------------- 4. a rule that throws is REPORTED, never dropped */
 
 test('one broken rule is reported as unknown with its reason, and the rest still answer', () => {
@@ -142,8 +169,13 @@ test('game script needs BOTH targets fitted, where any row count would pass', ()
 });
 
 test('rosters need EVERY team recent, not merely one, which is why it is a MIN', () => {
-  const [a, b] = db.prepare(`SELECT id FROM nfl_teams ORDER BY id LIMIT 2`).all().map(r => r.id);
-  assert.ok(a && b, 'premise: the schema seeds real teams to hang rosters off');
+  // roster_players.team_id references nfl_teams, and a migrated-but-unseeded
+  // database has no teams, so the two this needs are made here.
+  const team = db.prepare(`INSERT INTO nfl_teams (id, abbr, name, conference, division)
+                           VALUES (?, ?, ?, 'AFC', 'East')`);
+  team.run(901, 'AAA', 'Team A');
+  team.run(902, 'BBB', 'Team B');
+  const [a, b] = [901, 902];
 
   db.prepare(`INSERT INTO roster_players (team_id, name, fetched_at)
               VALUES (?, 'Fresh Guy', datetime('now'))`).run(a);

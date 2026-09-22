@@ -1,6 +1,18 @@
 # symbol-reach.mjs — the namespace-import hole
 
-**Commit measured on:** `b885db2b` (RED) → this commit (GREEN).
+**Commit measured on:** the commit titled *"test: RED — a namespace import is a
+reach, and symbol-reach cannot see one"* (RED) → the commit titled
+*"feat: GREEN — resolve namespace imports, so a scheduler job counts as a
+consumer"* (GREEN). On this branch as pushed those are `9383c873` and
+`28b801b8`.
+
+Named by subject first and sha second on purpose. This pair has been
+rebased twice — once when #99 merged and once when main moved again — and
+each rebase rewrote both shas. An earlier revision of this file cited
+`b885db2b`, which is not reachable from this branch at all: a reader
+following it would have found nothing. A sha is worthless without its
+tree, and a subject line survives a rebase.
+
 **Reproduce:** `node --experimental-test-module-mocks --test test/symbol-reach-two-counts.test.js`
 
 ## What was wrong

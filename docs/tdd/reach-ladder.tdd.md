@@ -43,8 +43,8 @@ including one asserting `ENTRY_AXIS.order > EDGE_AXIS.order`.
 
 A third notion is kept separate again: **package.json scripts the scheduler
 spawns as child processes** (`server/services/scheduler.js:737-742`, with its
-docblock at `:728`, on services subtree `2c900fff` — main at `f620a120` and
-`c90d2834` and this branch alike). An earlier draft cited `:714-721`, and
+docblock at `:728`; those lines hold on every services subtree this branch
+has been measured on, `2c900fff` and `a8800fde` alike). An earlier draft cited `:714-721`, and
 that cite was not invented: it is correct at `b0c1616d`, the falsification
 tree, where those lines do hold the `execFile` call. It was simply carried
 forward to a tree it no longer fits. **A line number is only a fact about the
@@ -89,7 +89,8 @@ document. None is under `server/services/` or `server/modeling/`, so none can
 enter the population. Checked rather than argued — the population subtree
 hashes are byte-identical across main and this branch:
 
-    git rev-parse f620a120:server/services  -> 2c900fff...   (same on HEAD)
+    git rev-parse c90d2834:server/services  -> 2c900fff...   (same on HEAD then)
+    git rev-parse 9f0b5b66:server/services  -> a8800fde...   (same on HEAD now)
     git rev-parse f620a120:server/modeling  -> 6bbd8e6a...   (same on HEAD)
 
 Counting the same extensions over those two directories gives **321 at
@@ -109,7 +110,16 @@ move unless the measured code does.
 |---|---|---|---|---|
 | `b0c1616d` | — (319 files) | 172/65/6/18/11/47 | 228/55/3/2/10/21 | 214 / 14 |
 | `f620a120` main | `2c900fff` (321 files) | 169/65/6/18/12/51 | 225/55/3/2/10/26 | 211 / 14 |
-| `c90d2834` main, and this branch | `2c900fff` (321 files) | 169/65/6/18/12/51 | 225/55/3/2/10/26 | 211 / 14 |
+| `c90d2834` main | `2c900fff` (321 files) | 169/65/6/18/12/51 | 225/55/3/2/10/26 | 211 / 14 |
+| `9f0b5b66` main, and this branch | **`a8800fde`** (321 files) | 169/65/6/18/12/51 | 225/55/3/2/10/26 | 211 / 14 |
+
+The third row is the one that earns the method. Main moved again while this
+branch was open (#124 landed, changing `server/services/league-history.js`),
+so unlike the first two rows the measured subtree **did** change — and the
+figures did not. That is the useful kind of stability: a hash that moves when
+the code moves, beside numbers that only move when the reach does. Every
+figure in this document is the `9f0b5b66` row; the earlier rows are kept so a
+reader can see what changed and what did not.
 
 So the reproducible edge bracket on current main is **169 counting only
 module-scope imports** and **225 counting module-scope and in-function imports

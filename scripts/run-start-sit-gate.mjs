@@ -9,7 +9,8 @@
  * the result the way the weekly start_sit_gate job does (model_gate_audits via
  * recordGateAudit); without it nothing is written.
  *
- * Pre-registration: docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md.
+ * Pre-registration: docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md, and its
+ * addendum 2 for the plan-rule verdict the last line prints first.
  */
 const { dbPath } = await import('../server/db/index.js');
 const { WEEKLY_ROLE_RECENCY } = await import('../server/services/weekly-ensemble.js');
@@ -31,5 +32,7 @@ console.log(`k control (all graded seasons): ${JSON.stringify(result.configurati
 console.log(`champions: ${JSON.stringify(result.configuration.champions)}`);
 console.log(`controls: ${JSON.stringify(result.controls)}`);
 console.log(JSON.stringify({ ...result, configuration: undefined, controls: undefined }, null, 1));
-console.log(`verdict: ${result.verdict}  (run took ${seconds}s, ${iterations} bootstrap draws)`);
+// The verdict is the plan's rule (served vs ESPN, prereg addendum 2); the average check is the floor.
+console.log(`verdict (plan rule, served vs ESPN): ${result.verdict}${result.plan_rule.reason ? ` (${result.plan_rule.reason})` : ''}; `
+  + `average check: ${result.average_check.verdict}  (run took ${seconds}s, ${iterations} bootstrap draws)`);
 if (store) console.log(`stored: ${JSON.stringify(G.refreshStartSitGate({ run: () => result }))}`);

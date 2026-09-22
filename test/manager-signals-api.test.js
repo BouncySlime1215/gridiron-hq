@@ -39,6 +39,11 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-manager-api-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const CHAT_PATH = path.join(temp, 'chat.sqlite');
 process.env.GRIDIRON_CHAT_DB_PATH = CHAT_PATH;
+const CHAT_ROLLED_UP_AT = '2026-09-18T03:45:00Z';   // the newest rollup stamp in the fixture
+// The newest MESSAGE in the fixture corpus, which is a different fact from the
+// rollup stamp above: one is how old the data is, the other is when it was last
+// aggregated. They are deliberately unequal so no test can pass on either alone.
+const CHAT_NEWEST_MSG = '2026-09-17T23:40:00Z';
 process.env.SCHEDULER_DISABLED = '1';
 
 // ---------------------------------------------------------------- chat fixture
@@ -79,13 +84,20 @@ function buildChatFixture(file) {
       corpus_hash TEXT, model TEXT, built_at TEXT NOT NULL);
   `);
   const prof = chat.prepare(`INSERT INTO manager_chat_profile VALUES
-    (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`);
+    (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
   const people = [
     ['ME', 900, 600, 50, 0.2, 0.30, 0.2, 0.3, 2.5, 0.3, 0.5, 0.1, 0.30, 0.05, 0.05, 0.02],
     ['Hayden Brook', 400, 300, 20, 0.1, 0.25, 0.3, 0.2, 2.2, 0.4, 0.4, 0.1, 0.34, 0.08, 0.10, 0.05],
     ['Carl Delta', 350, 250, 15, 0.3, 0.20, 0.1, 0.4, 2.1, 0.2, 0.6, 0.1, 0.20, 0.04, 0.04, 0.02],
   ];
-  for (const p of people) prof.run(...p, '2026-01-01', '2026-09-17');
+  // The rollup's own stamps, pinned and unequal: the newest is the one the page
+  // must report. The corpus is Mac-only and its rollup runs off-server, so this
+  // date is the only thing that says how current the chat half of a manager read is.
+  const rollupAt = ['2026-09-17T20:00:00Z', '2026-09-17T20:00:00Z', CHAT_ROLLED_UP_AT];
+  // `last_msg` per person, also unequal: the corpus's age is the newest message
+  // anyone sent, not the newest message the last person in the table sent.
+  const lastMsg = ['2026-09-15T08:00:00Z', CHAT_NEWEST_MSG, '2026-09-16T19:00:00Z'];
+  people.forEach((p, i) => prof.run(...p, '2026-01-01', lastMsg[i], rollupAt[i]));
   chat.prepare(`INSERT INTO manager_player_sentiment VALUES (?,?,?,?,?,?,?,?,datetime('now'))`)
     .run('Hayden Brook', 'Player A', 6, 3.4, 0.9, 0.0, '2026-08-01', '2026-09-17');
   const np = chat.prepare(`INSERT INTO negotiation_profiles VALUES (?,?,?,?,?,?)`);
@@ -116,7 +128,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS league_transactions_raw (
   bid_amount REAL, is_pending INTEGER, items_json TEXT, raw_json TEXT,
   first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
   PRIMARY KEY (league_id, season, tx_id))`);
-// Same DDL scripts/backfill-league-history.mjs creates; it is the roster ->
+// Same DDL migration 064_league_history_tables creates; it is the roster ->
 // ESPN member map the archetype store is keyed by.
 db.exec(`CREATE TABLE IF NOT EXISTS league_season_teams (
   league_id INTEGER NOT NULL, season INTEGER NOT NULL, roster_id TEXT NOT NULL,
@@ -243,11 +255,24 @@ for (const id of [21, 22, 23, 24]) {
 // Transactions in ESPN's real shape (manager-signals.js documents the
 // de-duplication): roster 2 answers six offers, roster 4 answers two. Five
 // decided offers is the bar for tx_accept_rate, so 2 clears it and 4 does not.
-function tx(id, type, execution, status, teamId, related = null, items = []) {
+//
+// The collection stamps are PINNED, not `datetime('now')`, and they are not all
+// the same: nothing in the app had ever read `first_seen_at` or `last_seen_at`
+// before, so a fixture where every row shares one second cannot tell the newest
+// stamp from the oldest, or from a count.
+const TX_FIRST_SEEN = '2026-09-17T09:00:00Z';   // the oldest — how far the window reaches
+const TX_FIRST_SEEN_LATE = '2026-09-18T04:15:00Z'; // a row first sighted later, so MIN != MAX
+const TX_SEEN_EARLY = '2026-09-17T22:00:00Z';
+const TX_COLLECTED_AT = '2026-09-18T04:15:00Z';   // the newest — the real "as of"
+const TX_ROWS = 18;
+let txWritten = 0;
+function tx(id, type, execution, status, teamId, related = null, items = [],
+  seenAt = TX_SEEN_EARLY, firstSeen = TX_FIRST_SEEN) {
   run(`INSERT INTO league_transactions_raw (league_id, season, tx_id, type, status, execution_type, proposed_at,
          team_id, related_tx_id, items_json, first_seen_at, last_seen_at)
-       VALUES (21, 2026, ?, ?, ?, ?, '2026-09-10T00:00:00Z', ?, ?, ?, datetime('now'), datetime('now'))`,
-  id, type, status, execution, teamId, related, JSON.stringify(items));
+       VALUES (21, 2026, ?, ?, ?, ?, '2026-09-10T00:00:00Z', ?, ?, ?, ?, ?)`,
+  id, type, status, execution, teamId, related, JSON.stringify(items), firstSeen, seenAt);
+  txWritten++;
 }
 const swap = (a, b) => [{ fromTeamId: a, toTeamId: b }, { fromTeamId: b, toTeamId: a }];
 for (let i = 1; i <= 6; i++) {
@@ -258,7 +283,8 @@ for (let i = 1; i <= 6; i++) {
 tx('g1', 'TRADE_PROPOSAL', 'EXECUTE', 'PENDING', 3, null, swap(3, 4));
 tx('g1-ans', 'TRADE_ACCEPT', 'EXECUTE', 'EXECUTED', 4, 'g1');
 tx('g2', 'TRADE_PROPOSAL', 'EXECUTE', 'PENDING', 3, null, swap(3, 4));
-tx('g2-ans', 'TRADE_DECLINE', 'EXECUTE', 'EXECUTED', 4, 'g2');
+tx('g2-ans', 'TRADE_DECLINE', 'EXECUTE', 'EXECUTED', 4, 'g2', [], TX_COLLECTED_AT, TX_FIRST_SEEN_LATE);
+assert.equal(txWritten, TX_ROWS, 'the transaction fixture is the count the payload has to report');
 
 // One archetype row per source, this league-season: `draft` is declared
 // non-priceable (no draft metric survived the repeatability test) and `outcome`
@@ -363,6 +389,55 @@ test('read: the hand-set tier is reported as set or unset, never defaulted to "f
   assert.equal(managerOf(body, 2).tradeability_set, null, 'unset must not read as a judgement');
 });
 
+test('read: the acceptance read says which source priced the manager, and its sample', async () => {
+  // Nick's question, 2026-09-20: "is this based on stats, is this just made up,
+  // how do we know this." The layer already knows the answer for every manager
+  // and throws it away: `tier = tiers.get(id) ?? 'fair'` makes an elicited
+  // "fair" and an assumed one the same value, and the blend weight
+  // min(1, n / 15) is computed at counterparty-pricing.js:181 and discarded.
+  // With live manager_profiles at 0 rows, every league is the assumed case while
+  // looking like the stated one.
+  const { body } = await call('GET', '/api/trades/21/managers/signals');
+
+  // Roster 2: no tier set, six decided offers, so the observed rate is present
+  // but weighted 6/15 and the tier under it is an assumption.
+  const two = managerOf(body, 2).receptiveness;
+  assert.equal(two.tier_source, 'default', 'nobody has judged him, and the payload must say so');
+  assert.equal(two.tier_is_assumption, true);
+  assert.equal(two.accept_rate_n, 6);
+  // Pins the DENOMINATOR, which is the thing that could drift silently: 6 / 15.
+  assert.equal(two.accept_rate_weight, 0.4);
+  assert.equal(two.priced_by, 'blended', 'part his rate, part the assumed tier');
+
+  // Roster 4: tier stated by hand, two decided offers, so the rate is withheld
+  // (manager-signals.js:208) and nothing but the stated tier priced him.
+  const four = managerOf(body, 4).receptiveness;
+  assert.equal(four.tier_source, 'elicited');
+  assert.equal(four.tier_is_assumption, false);
+  assert.equal(four.tier, 'hard');
+  assert.equal(four.accept_rate, null, 'two decisions is below the five-decision bar');
+  assert.equal(four.accept_rate_weight, 0);
+  assert.equal(four.priced_by, 'elicited', 'his tier is the only thing that priced him');
+
+  // A manager with neither: the state every live league is in today.
+  const three = managerOf(body, 3).receptiveness;
+  assert.equal(three.tier_source, 'default');
+  assert.equal(three.accept_rate, null);
+  assert.equal(three.priced_by, 'default',
+    'no rate and no stated tier is its own answer, not the same as a stated fair');
+
+  // `observed` needs fifteen decided offers. No fixture reaches it and neither
+  // does any of Nick's five leagues, so the reachable states are pinned above
+  // and the threshold is pinned by the 0.4 assertion rather than faked here.
+  for (const m of body.managers) {
+    if (!m.receptiveness) continue;
+    assert.ok(['observed', 'blended', 'elicited', 'default'].includes(m.receptiveness.priced_by),
+      `priced_by must be one of the four, got ${JSON.stringify(m.receptiveness.priced_by)}`);
+    assert.equal(m.receptiveness.tier_is_assumption, m.receptiveness.tier_source === 'default',
+      'the boolean and the string must never disagree');
+  }
+});
+
 test('read: a metric withheld for sample size never appears as if it had been measured', async () => {
   const { body } = await call('GET', '/api/trades/21/managers/signals');
   const six = managerOf(body, 2);       // six decided offers — over the bar
@@ -378,6 +453,194 @@ test('read: a metric withheld for sample size never appears as if it had been me
   assert.ok(!JSON.stringify(body).includes('"tx_accept_rate"')
     || body.managers.every(m => (metricOf(m, 'tx_accept_rate')?.n ?? 5) >= 5),
   'no served accept rate rests on fewer than five decided offers');
+});
+
+test('read: the payload says when the transactions under it were last collected, and how many', async () => {
+  const { body } = await call('GET', '/api/trades/21/managers/signals');
+  // `computed_at` is when the SIGNALS were built. It is not when the rows they
+  // were built from were collected, and until now the payload carried only the
+  // first. The distinction is not hypothetical: `scripts/collect-league-transactions.mjs`
+  // catches per-league failures and continues, so a league whose ESPN cookies
+  // expired keeps its old rows while the build downstream of it recomputes
+  // happily — `computed_at` moves, the evidence underneath does not.
+  assert.ok(body.transactions, 'the payload carries a transactions block');
+  assert.equal(body.transactions.as_of, TX_COLLECTED_AT,
+    'as_of is the NEWEST collection stamp in the table, not the oldest and not the signal build time');
+  assert.notEqual(body.transactions.as_of, body.computed_at,
+    'the collection stamp and the build stamp are different facts and must not be the same field');
+  assert.equal(body.transactions.rows, TX_ROWS, 'the row count is this league-season, counted');
+  assert.equal(body.transactions.first_seen, TX_FIRST_SEEN,
+    'first_seen is how far back the forward capture reaches — a window, not a history');
+  assert.notEqual(TX_FIRST_SEEN, TX_FIRST_SEEN_LATE,
+    'the fixture has rows first sighted on two different days, or this assertion proves nothing');
+  // Whoever reads this has to be able to act on it, which means knowing what to
+  // run. The only writer of the table is named.
+  assert.match(body.transactions.collected_by, /collect-league-transactions\.mjs/);
+  assert.equal(body.transactions.reason, null, 'a league with rows has nothing to explain');
+});
+
+test('read: a league with no collected transactions says so rather than serving a stamp it does not have', async () => {
+  const { body } = await call('GET', '/api/trades/22/managers/signals');
+  assert.ok(body.available, 'league 22 has signals — the absence under test is transactions, not the layer');
+  assert.ok(body.transactions, 'the block is served even when there is nothing in it');
+  assert.equal(body.transactions.as_of, null, 'no rows collected is null, never a fabricated or borrowed stamp');
+  assert.equal(body.transactions.rows, 0);
+  assert.equal(body.transactions.first_seen, null);
+  assert.ok(typeof body.transactions.reason === 'string' && body.transactions.reason.length > 0,
+    'an empty block explains itself the way the rest of this payload does');
+});
+
+test('read: a league whose signals were never built still reports its transaction collection', async () => {
+  // The block answers a question about the TABLE, not about the signal build, so
+  // it survives a league that has no signals at all. Hanging it off
+  // `available` would hide the age of the evidence in exactly the league where
+  // a reader is most likely to be wondering where the data went.
+  const { body } = await call('GET', '/api/trades/23/managers/signals');
+  assert.equal(body.available, false, 'league 23 is the never-built league');
+  assert.ok(body.transactions, 'the transactions block does not depend on the signal build');
+  assert.equal(body.transactions.rows, 0);
+  assert.equal(body.transactions.as_of, null);
+  // Same rule for the chat half, and for the same reason: a league with no build
+  // is exactly where someone is asking where the data went, so that is the worst
+  // possible place to drop the two blocks that answer it.
+  assert.ok(body.chat, 'the chat block does not depend on the signal build either');
+  assert.equal(body.chat.computed_at, CHAT_ROLLED_UP_AT,
+    'the corpus is a property of the machine, not of this league having been built');
+});
+
+test('read: a database with no transactions table at all says the collector has never run here', async () => {
+  // The deployed app's database was created by the server, and the server never
+  // creates this table — only the off-server collector does. So "the table is
+  // not here" is a real state, not a hypothetical, and it must not read as a
+  // clean empty. Renamed rather than dropped, and restored in `finally`.
+  db.exec('ALTER TABLE league_transactions_raw RENAME TO league_transactions_raw__hidden');
+  try {
+    const { body } = await call('GET', '/api/trades/21/managers/signals');
+    assert.equal(body.transactions.as_of, null);
+    assert.equal(body.transactions.rows, 0);
+    assert.match(body.transactions.reason, /never run here/,
+      'an absent table is never reported as a clean empty collection');
+  } finally {
+    db.exec('ALTER TABLE league_transactions_raw__hidden RENAME TO league_transactions_raw');
+  }
+  const { body } = await call('GET', '/api/trades/21/managers/signals');
+  assert.equal(body.transactions.rows, TX_ROWS, 'the fixture is restored for every test after this one');
+});
+
+test('read: the chat half says whether the corpus is here at all, and when it was last rolled up', async () => {
+  // The corpus is a private SQLite file on Nick's Mac. It is NOT in the deployed
+  // image, and its rollup is step 3 of the same OFF-SERVER refresh loop that
+  // collects transactions. So on the live app every chat-sourced number is as old
+  // as the last time that loop was run by hand — and a league with no corpus and a
+  // league whose corpus says nothing about a manager produced the same empty.
+  const { body } = await call('GET', '/api/trades/22/managers/signals');
+  assert.ok(body.chat, 'the payload carries a chat block');
+  // THE AGE OF THE DATA AND THE AGE OF THE AGGREGATE ARE TWO FACTS. `as_of` is
+  // the newest message in the corpus — how current the chat half of a manager
+  // read actually is. `computed_at` is when the rollup last ran over it. A
+  // rollup run every fifteen minutes over a corpus nobody has added to since
+  // Tuesday is fresh by one measure and stale by the one that matters.
+  assert.equal(body.chat.as_of, CHAT_NEWEST_MSG,
+    'as_of is the newest MESSAGE in the corpus, across every person in it');
+  assert.equal(body.chat.computed_at, CHAT_ROLLED_UP_AT,
+    'computed_at is the NEWEST rollup stamp, not the oldest');
+  assert.notEqual(body.chat.as_of, body.chat.computed_at,
+    'and the two are not the same number wearing two names');
+  assert.ok(body.chat.rows > 0, 'the number of manager profiles the rollup wrote');
+  // One producer, one constant, and both branches of the pattern this replaces
+  // sat inside it — so the assertion could not tell "names the script" from
+  // "names the step within it", which are the two halves that make it findable.
+  assert.equal(body.chat.collected_by,
+    'the league_chat step of scripts/refresh-live-data.mjs (off-server)',
+    'it names what actually rolls the corpus up, the step and the script and where it runs');
+  assert.equal(body.chat.reason, null, 'a corpus that is present has nothing to explain');
+  assert.equal(body.chat.path, process.env.GRIDIRON_CHAT_DB_PATH,
+    'a corpus that IS here still says which file it is — the same field, present or absent');
+  assert.equal(body.chat.path_source, 'GRIDIRON_CHAT_DB_PATH',
+    'and where that path came from, so a default and a configured path never read alike');
+  assert.ok(!('first_seen' in body.chat),
+    'first_seen is gone: the rollup stamps the whole table with one datetime(\'now\'), '
+    + 'so MIN and MAX of computed_at are equal by construction and the field said nothing');
+});
+
+test('read: a database with no chat corpus says so instead of serving an empty chat half', async () => {
+  // The deployed app IS this case, every time. `openChatDb` returns null when the
+  // file is absent, and every chat read downstream then produced nothing at all.
+  // "There is no corpus on this machine" and "he never talks" must not look alike.
+  const saved = process.env.GRIDIRON_CHAT_DB_PATH;
+  process.env.GRIDIRON_CHAT_DB_PATH = path.join(os.tmpdir(), 'gridiron-no-corpus-here.sqlite');
+  try {
+    const { body } = await call('GET', '/api/trades/22/managers/signals');
+    assert.ok(body.chat, 'the block is served even with no corpus');
+    assert.equal(body.chat.as_of, null, 'no corpus is null, never a borrowed or invented stamp');
+    assert.equal(body.chat.rows, 0);
+    // Only the "no chat corpus" branch is reachable: the sentence says the
+    // corpus CANNOT BE PRODUCED on this machine, which is a different claim
+    // from a table not being on this database, and the pattern this replaces
+    // would have passed on either.
+    assert.match(body.chat.reason, /there is no chat corpus at /,
+      `the absence must name itself, got ${JSON.stringify(body.chat.reason)}`);
+    assert.match(body.chat.reason, /it cannot be produced on this machine/,
+      'and say it is unproducible here rather than merely missing here');
+    // THE PATH IT LOOKED AT. Without it, a mistyped GRIDIRON_CHAT_DB_PATH and a
+    // genuinely absent corpus are the same sentence, and the first is a typo
+    // while the second is a machine.
+    assert.equal(body.chat.path, process.env.GRIDIRON_CHAT_DB_PATH,
+      'the absence names the file it looked for');
+    assert.equal(body.chat.path_source, 'GRIDIRON_CHAT_DB_PATH',
+      'and says whether that path was configured or is the in-repo default');
+    // BOTH HALVES. "Not in the deployed image" alone points at the wrong fix:
+    // the corpus cannot be produced here, and it can be uploaded here.
+    assert.ok(body.chat.reason.includes(process.env.GRIDIRON_CHAT_DB_PATH),
+      'the sentence itself names the path, not only the field beside it');
+    assert.match(body.chat.reason, /extracted from Apple Messages on Nick's Mac/,
+      'it says WHERE the corpus comes from, which is why it cannot be produced here');
+    assert.match(body.chat.reason, /POST \/api\/league-chat\/upload/,
+      'and names the route that puts one here, not just the word "uploaded"');
+  } finally { process.env.GRIDIRON_CHAT_DB_PATH = saved; }
+  const { body } = await call('GET', '/api/trades/22/managers/signals');
+  assert.equal(body.chat.computed_at, CHAT_ROLLED_UP_AT, 'the fixture is restored for every test after this one');
+});
+
+test('read: the chat source does not advertise a refresh the server never runs, either', async () => {
+  // Same defect as SIGNAL_SOURCES.tx carried, in the same registry, reaching the
+  // client the same way — interpolated into the `why` on every chat signal row.
+  // The chat rollup is step 3 of scripts/refresh-live-data.mjs, which is off-server
+  // by its own header, and the corpus file is never in the deployed image at all.
+  assert.doesNotMatch(SIGNAL_SOURCES.chat.refreshed, /^every refresh tick$/,
+    'the deployed app runs no tick that rolls up a corpus it does not have');
+  // A registry constant, so the whole string is the contract. Both branches of
+  // the pattern this replaces were inside it, so neither pinned that the
+  // sentence names the STEP, the SCRIPT, that it is off-server, and where to
+  // read the date — which together are the whole reason the string was fixed.
+  assert.equal(SIGNAL_SOURCES.chat.refreshed,
+    'only when the league_chat step of scripts/refresh-live-data.mjs is run (off-server; see chat.as_of)',
+    'the source names what actually refreshes it, where that runs, and where its date lives');
+  const { body } = await call('GET', '/api/trades/22/managers/signals');
+  const why = metricOf(managerOf(body, 2), 'chat_msgs').why;
+  assert.doesNotMatch(why, /refreshed every refresh tick$/, 'the per-signal why carries the corrected claim');
+});
+
+test('read: the transactions source does not advertise a refresh the server never runs', async () => {
+  // The only writer of league_transactions_raw is scripts/collect-league-transactions.mjs,
+  // spawned only by scripts/refresh-live-data.mjs — an OFF-SERVER loop, run by
+  // hand. fly.toml declares no `processes`, so nothing on the deployed app has
+  // ever written a row. SIGNAL_SOURCES.tx said "every refresh tick", and that
+  // string is not decoration: signalRowsFor interpolates it into the `why` served
+  // on every single tx signal row, so the claim reached the client per metric.
+  assert.doesNotMatch(SIGNAL_SOURCES.tx.refreshed, /every refresh tick/,
+    'the deployed app runs no refresh tick that touches this table');
+  // The sibling of the chat entry above, and it had the same defect one shape
+  // along: a registry CONSTANT asserted by a fragment. The whole string is the
+  // contract, and the fragment pinned only the script — not that it runs
+  // off-server, and not where a reader finds the date, which are the other two
+  // facts the sentence exists to carry.
+  assert.equal(SIGNAL_SOURCES.tx.refreshed,
+    'only when scripts/collect-league-transactions.mjs is run (off-server; see transactions.as_of)',
+    'the source names what actually writes it, where that runs, and where its date lives');
+  const { body } = await call('GET', '/api/trades/21/managers/signals');
+  const why = metricOf(managerOf(body, 2), 'tx_decisions_made').why;
+  assert.doesNotMatch(why, /every refresh tick/, 'the per-signal why carries the corrected claim too');
 });
 
 test('read: chat is attributed only to a trusted identity, and the untrusted match is a warning', async () => {
@@ -525,4 +788,107 @@ test('scheduler: the refresh loop can run the archetype build by name', async ()
     'the archetype build was in no allowlist at all, so draft/outcome never appeared');
   for (const name of loop.FANTASY_LIVE_JOBS) assert.ok(JOBS[name], `${name} is a registered scheduler job`);
   assert.ok(loop.FANTASY_LIVE_JOBS.indexOf('manager_archetypes') > -1);
+});
+
+// ============================ the model read, and a read that failed ========
+//
+// Two fixes to one page, both the same defect in different clothing: a fact
+// about a store arriving without the date it was measured, and a fault arriving
+// as an empty result.
+
+const JEV_AT = '2026-09-19T05:00:00.000Z';
+
+test('read: the manager page serves the DATED model read, not the store\'s raw probabilities', async () => {
+  // `archetypesFor` already carried `jev` — the stored probabilities, with no
+  // evaluation date and no statement of what is under them — onto this payload,
+  // where nothing rendered it. The dated, basis-honest block belongs here, and
+  // serving both would put two shapes of one answer on one payload.
+  const hadIdentity = rows(
+    `SELECT 1 FROM league_member_identity WHERE league_id = 21 AND roster_id = '2'`).length > 0;
+  run(`INSERT OR REPLACE INTO league_member_identity
+         (league_id, roster_id, espn_member_id, espn_name, team_name, match_method, confidence)
+       VALUES (21, '2', ?, 'Aiden Stone', 'Team 2', 'confirmed by Nick', 'confirmed')`, AIDEN);
+  const insJev = (q, o, p, basis) => run(`INSERT OR REPLACE INTO manager_archetype_jev
+      (member_id, question, outcome, probability, basis, n_seasons, n_picks, model, state_chars, evaluated_at)
+      VALUES (?, ?, ?, ?, ?, 3, 45, 'test-model-v1', 4000, ?)`, AIDEN, q, o, p, basis, JEV_AT);
+  for (const [o, p] of Object.entries(
+    { rb_heavy: 0.6, wr_heavy: 0.1, qb_early: 0.1, te_early: 0.1, balanced: 0.1 })) {
+    insJev('position_bias', o, p, 'draft');
+  }
+  for (const [o, p] of Object.entries({ counters: 0.34, binary: 0.33, never: 0.33 })) {
+    insJev('trade_style', o, p, 'inference_only');
+  }
+  try {
+    const { body } = await call('GET', '/api/trades/21/managers/signals');
+    const two = managerOf(body, 2);
+    assert.ok(two.model_read, 'the dated model read reaches the manager');
+    assert.equal(two.model_read.as_of, JEV_AT, 'carrying the stamp of the pass that made it');
+    assert.equal(two.model_read.priced, false, 'and saying outright that it moves no price');
+    const style = two.model_read.answers.find(a => a.question === 'trade_style');
+    assert.ok(style, 'the answers are served, not just the date');
+    assert.equal(style.measured, false, 'an inference_only answer says it is not a measurement');
+    assert.equal(style.informative, false, '0.34/0.33/0.33 is an even spread, not a 34% chance');
+
+    assert.ok(two.archetype, 'the archetype block is still served');
+    assert.ok(!('jev' in two.archetype),
+      'and the store\'s raw, undated copy is not served beside the dated one');
+    assert.deepEqual(emptyObjects(body), [], 'and nothing new arrived as an empty object');
+  } finally {
+    run('DELETE FROM manager_archetype_jev');
+    if (!hadIdentity) run(`DELETE FROM league_member_identity WHERE league_id = 21 AND roster_id = '2'`);
+  }
+});
+
+test('read: an archetype read that FAILED is reported, not served as a store that is empty', async () => {
+  // `archetypesFor` joins `league_season_teams`, whose only CREATE TABLE is in
+  // `scripts/backfill-league-history.mjs` — so on a database where that backfill
+  // has never run it throws rather than returning nothing. The bare `catch {}`
+  // that used to sit here turned "the read broke" into "the build has not run",
+  // which are different facts with different fixes, and CLAUDE.md is explicit
+  // that a layer going inert has to say so.
+  db.exec('ALTER TABLE league_season_teams RENAME TO league_season_teams_hidden');
+  try {
+    const { body } = await call('GET', '/api/trades/21/managers/signals');
+    assert.equal(body.available, true, 'the stored signals underneath are still measured and still served');
+    assert.ok(body.archetypes, 'the archetype store gets a block of its own, like transactions and chat');
+    assert.match(String(body.archetypes.read_failed ?? ''), /no such table/i,
+      'and the failure is named rather than swallowed');
+    assert.equal(body.archetypes.read_state, 'table_absent',
+      'in the same word the archetype module itself serves for this state');
+    assert.equal(managerOf(body, 2).archetype, null,
+      'no archetype survives the failure, which is the honest half of it');
+  } finally {
+    db.exec('ALTER TABLE league_season_teams_hidden RENAME TO league_season_teams');
+  }
+});
+
+test('read: a healthy archetype read says the store is fine', async () => {
+  // The regression pin for the test above: the new block must not report a
+  // failure whenever it is merely empty, or the sentence means nothing.
+  const { body } = await call('GET', '/api/trades/21/managers/signals');
+  assert.ok(body.archetypes, 'the block is always served');
+  assert.equal(body.archetypes.read_failed, null, 'no failure when there was none');
+  assert.equal(body.archetypes.read_state, 'present', 'and the state word says so');
+  assert.ok(body.archetypes.as_of, 'and it carries the build stamp, like the other two stores');
+});
+
+test('read: a programming error in the archetype read is NOT absorbed', async () => {
+  // The other half of the same rule, and the one a reporting catch still gets
+  // wrong. A missing table is an ABSENCE: this database has never had the
+  // history backfill run, the page's own job does not depend on it, and serving
+  // the signals with "table_absent" beside them is right. A `no such column` is
+  // a FAULT — the query and the schema disagree, which is a bug — and a catch
+  // wide enough to absorb it turns every future mistake in the archetype code
+  // into a quietly empty panel. CLAUDE.md names that shape as having shipped
+  // two real bugs in this project, where a silent catch deleted a whole data
+  // layer and the page kept printing numbers as if nothing had happened.
+  db.exec('ALTER TABLE league_season_teams RENAME COLUMN espn_member_id TO espn_member_id_moved');
+  try {
+    const { status, body } = await call('GET', '/api/trades/21/managers/signals');
+    assert.equal(status, 500, 'the fault reaches the error handler instead of becoming an empty map');
+    assert.ok(body == null || body.archetypes == null,
+      'and no payload is served that would let a reader think the archetypes are merely empty');
+  } finally {
+    db.exec('ALTER TABLE league_season_teams RENAME COLUMN espn_member_id_moved TO espn_member_id');
+  }
 });

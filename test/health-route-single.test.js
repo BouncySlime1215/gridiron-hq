@@ -57,10 +57,13 @@ test('exactly one route in server/ is registered at a health path', () => {
   }
   // Compared on file and path, NOT on the line number. What this test is for
   // is a second registration arriving in a clean merge; which line the one
-  // registration sits on says nothing about that, and pinning it turned every
-  // insertion higher up index.js — a router mount, an import — into a failure
-  // of the health check. The line is still reported, because it is what a
-  // reader needs when this does fail.
+  // registration sits on says nothing about that, and pinning it made this
+  // test fail for reasons that have nothing to do with what it guards. Both
+  // branches hit that independently and from different directions — main from
+  // an unrelated comment edit above the route, this branch from inserting a
+  // router mount and an import higher up index.js — which is the argument for
+  // the assertion being on file and path alone. The line is still reported,
+  // because it is what a reader needs when this does fail.
   assert.deepEqual(
     found.map((f) => f.where),
     ['server/index.js → /api/health'],

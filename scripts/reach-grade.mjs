@@ -171,6 +171,40 @@ export function classifyImportEdges({ files, read }) {
  * So a route counts only when its bound identifier also appears in an
  * `app.use(...)` call.
  */
+export function mountPaths(indexSource) {
+  const bound = new Map();
+  for (const m of indexSource.matchAll(
+    /(?:const|let|var)\s*\{[^}]*\bdefault\s*:\s*(\w+)[^}]*\}\s*=\s*await\s+import\(\s*['"]\.\/(routes\/[^'"]+)['"]/g,
+  )) {
+    bound.set(m[1], `server/${m[2]}`);
+  }
+  const mounts = [];
+  for (const m of indexSource.matchAll(/\bapp\.use\(\s*['"]([^'"]+)['"]([^;]*?)\)\s*;/gs)) {
+    for (const [ident, file] of bound) {
+      if (new RegExp(`\\b${ident}\\b`).test(m[2])) mounts.push({ path: m[1], file });
+    }
+  }
+  return mounts;
+}
+
+/**
+ * Every route file mounted under a labelled surface's path prefix.
+ *
+ * The grader labels route FILES, not route families, so it has no family to
+ * un-label and the hazard the Wiring map thread guards against cannot arise
+ * here. The mirror hazard can: a new router mounted under `/api/betting` that
+ * nobody adds to the list defaults to `fantasy`, which is the safe direction
+ * for the total but silent. This makes it loud —
+ * test('every route mounted under a betting prefix is on the betting list')
+ * fails until somebody decides.
+ */
+export function routesUnderPrefixOf(indexSource, file) {
+  const mounts = mountPaths(indexSource);
+  const own = mounts.filter(m => m.file === file).map(m => m.path);
+  return mounts.filter(m => m.file !== file
+    && own.some(p => m.path === p || m.path.startsWith(`${p}/`)));
+}
+
 export function mountedRoutes(indexSource) {
   const bound = new Map();
   for (const m of indexSource.matchAll(

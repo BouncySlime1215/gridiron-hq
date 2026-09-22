@@ -183,6 +183,23 @@ off-product ones are mixed. Folding an MLB-only module into
 `wired-betting-only` would state a false fact the Phase A plan then reads;
 leaving it in `wired` hides it.
 
+**Route files, not route families.** The label is per mounted route file, so
+there is no family to un-label and the "one unlisted sub-route unlabels the
+whole hub" case cannot arise here. The mirror case can: a new router mounted
+under `/api/betting` that nobody adds to the list defaults to `fantasy` — safe
+for the total, and silent. `test('every route mounted under a betting surface
+prefix is itself on the betting list')` makes it loud: it walks
+`server/index.js`'s mounts and fails until somebody decides the new route's
+label. Today `/api/betting` has exactly two mounts, `betting-hub.js` and
+`wong.js`, both listed, and every route file in this app has exactly one mount
+path.
+
+**The residual hazard is the unit, and it is the unsafe direction.** A single
+route file serving both betting and fantasy endpoints would be labelled wholly
+betting, removing real fantasy reach. No such file exists today — every route
+file has one mount path — but if one is ever added, the label has to move to the
+endpoint and this section is where that starts.
+
 ## 2b. Request reach and job reach are two reaches, never summed (Auditor §R17.4)
 
 **REQUEST REACH** — a handler can call in. **JOB REACH** — the module executes

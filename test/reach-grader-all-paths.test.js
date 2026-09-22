@@ -25,6 +25,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   BETTING_ENTRY_POINTS,
   buildImporterGraph,
@@ -34,8 +35,10 @@ import {
   gradeReach,
   isBettingEntryPoint,
   mountedRoutes,
+  mountPaths,
   reachableEntries,
   repoGraph,
+  routesUnderPrefixOf,
   surfaceLabel,
 } from '../scripts/reach-grade.mjs';
 
@@ -444,4 +447,47 @@ test('the MLB surface list is explicit, and fantasy is the default for an unlist
   assert.equal(surfaceLabel('server/routes/nfl-betting.js'), 'betting');
   assert.equal(surfaceLabel('server/routes/trades.js'), 'fantasy',
     'a route nobody has classified counts as product, so a new surface cannot silently leave the total');
+});
+
+test('every route mounted under a betting surface prefix is itself on the betting list', () => {
+  /*
+   * The family-level case, as a test rather than a rule. Wiring map labels a
+   * route FAMILY only when every file under it carries the label, so one
+   * unlisted sub-route un-labels the family and its modules count back into the
+   * fantasy total. This grader labels route FILES, so there is no family to
+   * un-label — but a new router mounted under `/api/betting` and never added to
+   * the list would default to `fantasy`: safe for the total, and silent. This
+   * makes it loud.
+   */
+  const { importers, isEntry } = repoGraph();
+  void importers; void isEntry;
+  const index = fs.readFileSync('server/index.js', 'utf8');
+
+  const missed = [];
+  for (const surface of BETTING_ENTRY_POINTS) {
+    for (const under of routesUnderPrefixOf(index, surface)) {
+      if (surfaceLabel(under.file) !== 'betting') missed.push(`${under.path} -> ${under.file}`);
+    }
+  }
+  assert.deepEqual(missed, [],
+    'a router mounted under a betting hub that is not on the betting list: decide its label, '
+    + 'do not let it default to fantasy silently');
+});
+
+test('mountPaths pairs each mounted router with the path it is mounted at', () => {
+  const index = `
+    const { default: hubRouter } = await import('./routes/betting-hub.js');
+    const { default: wongRouter } = await import('./routes/wong.js');
+    app.use('/api/betting', ...auth, hubRouter);
+    app.use('/api/betting/wong', ...auth, wongRouter);
+  `;
+  assert.deepEqual(mountPaths(index).sort((a, b) => a.path.localeCompare(b.path)), [
+    { path: '/api/betting', file: 'server/routes/betting-hub.js' },
+    { path: '/api/betting/wong', file: 'server/routes/wong.js' },
+  ]);
+  assert.deepEqual(
+    routesUnderPrefixOf(index, 'server/routes/betting-hub.js'),
+    [{ path: '/api/betting/wong', file: 'server/routes/wong.js' }],
+    'wong sits under the hub; the hub does not sit under itself',
+  );
 });

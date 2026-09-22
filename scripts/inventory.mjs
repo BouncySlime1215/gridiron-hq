@@ -264,13 +264,30 @@ function buildRows(map, local) {
   }
 
   // 5. tables — every table the map knows, with its LOCAL count.
+  //
+  // `created_by` is the creation bucket (migration | import | first_write | script |
+  // test_only | definition), and it is populated for every table. A table created only
+  // outside migrations — by a hand-run script or a test fixture — and read by product
+  // code is a phantom: it is absent in any database where that script or fixture never
+  // ran, production included, and its unguarded readers return results as if it were
+  // there. That takes precedence over reachability: a table nothing creates in prod is
+  // never "wired", however live the surface that reads it.
+  const PHANTOM_BUCKETS = new Set(['script', 'test_only']);
   for (const t of map.tables) {
+    const prodReaders = (t.read_by || []).filter((e) => !e.startsWith('test/'));
     const reaches = reachesLiveSurface(t.wiring);
     const localN = local.readable ? (local.counts.get(t.table) ?? null) : null;
     let c;
-    if (!reaches) {
+    if (PHANTOM_BUCKETS.has(t.created_by) && prodReaders.length > 0) {
+      const where = t.created_by === 'test_only' ? 'a test fixture' : 'a hand-run script';
+      c = { status: 'referenced_but_never_created',
+        evidence: `wiring-map: no migration creates ${t.table}; its only CREATE TABLE is ${where} `
+          + `(${t.created_at_site}), so it is absent in any database where that never ran. Read by `
+          + `${prodReaders.length} product site${prodReaders.length === 1 ? '' : 's'} `
+          + `(e.g. ${prodReaders.slice(0, 3).join(', ')}), which read it as if it existed.` };
+    } else if (!reaches) {
       c = { status: 'half_done',
-        evidence: `wiring-map: table ${t.table} (created via ${t.created_via}) is read by no live surface` };
+        evidence: `wiring-map: table ${t.table} (created by ${t.created_by}) is read by no live surface` };
     } else if (localN === null) {
       c = { status: 'unclassified', reason: `table ${t.table} is read by a live surface; no local DB row count available` };
     } else if (localN > 0) {
@@ -280,7 +297,7 @@ function buildRows(map, local) {
         reason: `table ${t.table} feeds a live surface but is LOCAL 0 rows; current rows unverifiable here (freshness registry pending)` };
     }
     push({ id: `table:${slug(t.table)}`, kind: 'table', name: t.table, path: t.created_at_site || t.created_in || '(unknown)',
-      owner_thread: null, ...c, note: `created_via ${t.created_via}${localN !== null ? `; LOCAL ${localN} rows` : ''}` });
+      owner_thread: null, ...c, note: `created by ${t.created_by}${localN !== null ? `; LOCAL ${localN} rows` : ''}` });
   }
 
   // 6. scripts — run by hand, so "wired" never applies; a script is dead if nothing

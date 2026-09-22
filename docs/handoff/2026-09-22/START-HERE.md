@@ -60,6 +60,16 @@ Continuing threads and next unit (memory/gridiron-threads-directory.md):
 - Feature audit: #67 then #74, then addendum and stop.
 - Model evidence audit: #121 merged, nothing in flight. Both auditors quiet until Nick says.
 
+## The handoff button
+
+Local pickup: `git pull`, run `claude` in the repo, first prompt "Read docs/handoff/2026-09-22/START-HERE.md then docs/handoff/CURRENT.md and continue from CURRENT.md; work one unit at a time; before stopping, rewrite CURRENT.md with where to pick up and push it."
+
+Local finish: tell Claude "write the handoff". It rewrites CURRENT.md, commits "docs: handoff <date>", pushes to main or opens a docs-only PR.
+
+Cloud pickup: Nick posts "pick up" in the project chat; the coordinator reads CURRENT.md from main and starts one fresh thread from it.
+
+Cloud finish: the coordinator rewrites CURRENT.md the same way before going idle.
+
 ## g. First three actions
 
 1. Read memory/MEMORY.md; open nothing else until a task needs it.

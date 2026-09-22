@@ -772,10 +772,16 @@ r.get('/:leagueId/proposals', async (req, res, next) => {
     // measurement: a measurement must never be able to fail the thing it measures.
     // NOT a bare catch — the reason is attached to the response, so a ledger that
     // has gone inert says so on the surface instead of going quiet.
+    //
+    // The proposer is the team the engine priced the slate for, as it reports it
+    // (`found.me.roster_id`), NOT `req.query.team_id`. The app's own call sends no
+    // team_id, and the engine then falls back to the league's own team (or to its
+    // first roster when the id is not found), so the query string is null or wrong
+    // on exactly the rows that matter.
     let ledger = null;
     try {
       ledger = recordProposalSlate(lg.id, lg.season ?? null, {
-        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: req.query.team_id ?? null,
+        ideas, result, modelVersion: PROMPT_VERSION, proposerTeamId: found?.me?.roster_id ?? null,
       });
     } catch (e) {
       ledger = { state: 'write_failed', reason: String(e?.message ?? e) };

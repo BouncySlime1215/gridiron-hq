@@ -107,6 +107,210 @@ Every RSS row in daylight time is an hour late, not only the 164 that are visibl
 future: a story fetched more than an hour after it was published is stored an hour late
 but still in the past, so it passes any "not in the future" check.
 
-## 4. Consumers that compute freshness or latency (acceptance item 4)
+## 4. RED
 
-<!-- filled after GREEN -->
+`test/news-published-at-timezone.test.js` (new file; `test/news-ingest.test.js` is not
+edited). Commit **167d9a6e** `test: ESPN RSS 'EST' stamps are Eastern daylight time,
+stored an hour late (RED, R-07)`. On d6d7bd5a source, 5 of 6 fail:
+
+```
+not ok 1 - an ESPN "EST" stamp in September is Eastern daylight time (the three census rows)
+  expected: '2026-09-22T19:15:32.000Z'
+  actual: '2026-09-22T20:15:32.000Z'
+ok 2 - spellings that were already right stay right (passes before and after by design)
+not ok 3 - Eastern edge cases: the repeated autumn hour resolves to the earlier instant, never a later one
+  expected: '2026-11-01T05:30:00.000Z'
+  actual: '2026-11-01T06:30:00.000Z'
+not ok 4 - the RSS writer stores the true instant, never later than its own fetch clock
+  expected: '2026-09-22T19:15:32.000Z'
+  actual: '2026-09-22T20:15:32.000Z'
+not ok 5 - a feed stamp still ahead of the fetch clock is counted on the ingest result, not hidden
+  expected: 2
+not ok 6 - consumer: the news desk ages the story from the corrected time (25 min, not a clamped 0)
+  expected: 25
+  actual: 0
+# tests 6  # pass 1  # fail 5
+```
+
+That listing is the **re-run** of the final test file (as of d3d1f8b1) against the
+d6d7bd5a copies of `normalize.js` and `ingest.js`, in a detached worktree
+(`git checkout d6d7bd5a -- server/news/normalize.js server/news/ingest.js`), so it proves
+the tests as shipped are live, not only the first draft. Case 2 passes in both states on
+purpose: it guards the spellings that were already right (winter `EST`, honest `EDT`,
+`-0400`, `GMT`, ISO, `PST`, garbage refused) against the fix over-reaching.
+
+Case 6 is the consumer: `GET /api/news/desk` with time frozen at the real fetch clock
+(19:40:50.483Z). Before the fix the desk reports the story as 0 minutes old because
+`routes/news.js:71` floors a negative age at 0, which is how the defect stayed hidden.
+
+## 5. GREEN
+
+Commit **6a3fbfde** `fix: read ESPN RSS 'EST' stamps as Eastern wall time and count
+future stamps (GREEN, R-07)`, then **d3d1f8b1** `test: pin both sides of the 5-minute
+future-stamp allowance (R-07)` after the first sweep found a surviving mutant (section 7).
+
+- `server/news/normalize.js` `parsePublishedAt` (module-private): an RFC 822 date whose
+  zone letter is `EST` or `EDT` is read as America/New_York wall time through
+  `zonedDateTime` (`server/services/date-util.js:17`), which supplies that date's real
+  offset. Every other spelling keeps `new Date(text).toISOString()`, the old behaviour. An
+  impossible date (`31 Sep`) throws `RangeError`, which `ingestRssSource` already catches
+  per item into its `failed` list (`ingest.js:83-86`). Both `published_at` and the
+  defaulted `updated_at` use it.
+- `server/news/ingest.js` `ingestRssSource`: counts `future_stamped`, items whose parsed
+  stamp is still more than 5 minutes after this fetch's clock. The row keeps the feed's
+  value; `published_at > ingested_at` on the row is the per-row label. `ingestAllSources`
+  reports `future_stamped: null` (not checked) for a source it could not read.
+  Reader: the ingest result is returned by `POST /api/news/ingest` (`routes/news.js:34-43`)
+  and served again as the desk's `refresh.last_result` (`routes/news.js:100`), and it is
+  the `rss_news` job's return (`scheduler.js:769-778`).
+
+No schema change, no migration, no new column. Targeted runs at d3d1f8b1 (each with
+`SCHEDULER_DISABLED=1 GRIDIRON_DB_PATH=$(mktemp -d)/t.sqlite node
+--experimental-test-module-mocks --test --test-reporter=tap <file>`):
+
+| File | tests | pass | fail |
+|---|---|---|---|
+| `test/news-published-at-timezone.test.js` | 6 | 6 | 0 |
+| `test/news-ingest.test.js` | 20 | 20 | 0 |
+| `test/modeling-news.test.js` | 7 | 7 | 0 |
+| `test/nfl-news-signal.test.js` | 10 | 10 | 0 |
+| `test/nfl-expert-council-news-feed-cutoff.test.js` | 3 | 3 | 0 |
+| `test/nfl-player-state-roster-events-cutoff.test.js` | 3 | 3 | 0 |
+
+The last five were run on 6a3fbfde; d3d1f8b1 changed only the new test file.
+`npm run check` was not run here (Gate phase runs it once, per the unit's CPU rule).
+
+**The real feed through the fixed parse** (29 items from the 20:16:56Z fetch, all labelled
+`EST`; scratch script, d3d1f8b1):
+
+| | items after the fetch clock | items after the feed's own `lastBuildDate` | newest vs fetch |
+|---|---|---|---|
+| old literal parse | 11 | 11 | +50.6 min |
+| fixed parse | **0** | **0** | −9.4 min |
+
+## 6. Consumers that compute freshness or latency (acceptance item 4)
+
+Grep (d3d1f8b1), with a control that must hit the known consumer first:
+
+```
+git grep -n "mean_ingest_lag_minutes" -- server          # control: routes/news.js:93
+for f in $(git grep -l "news_items" -- server | grep -v -E "^server/(db/schema|migrations)/"); do
+  grep -q published_at $f && echo $f; done
+git grep -n -i -E "fresh|latency|lag|age_?minutes|datetime\('now'" -- <those files> | grep -i published
+```
+
+| Consumer | Where | Reads | After this change |
+|---|---|---|---|
+| Desk ranking: age, "published in the last 24h" | `routes/news.js:70-73,82` | `published_at` | corrected for new rows; RED case 6 proves it (25 min, was a clamped 0) |
+| Desk stats: `fresh_24h`, `latest_published`, `mean_ingest_lag_minutes` | `routes/news.js:88-93` | `published_at`, `ingested_at` | reads the corrected field; no code change |
+| Diagnostic: `fresh_24h`, `avg_lag_minutes_7d` | `services/nfl-diagnostic.js:20-24` | `published_at`, `ingested_at`, floored with `MAX(0, …)` | reads the corrected field; the floor is what hid negative lags |
+| Season-ending window | `services/player-availability.js:149` | `COALESCE(published_at, date)` | corrected |
+| Team page recent news (45 days) | `routes/teams.js:38` | `COALESCE(published_at, date)` | corrected |
+| Typed signals copy the stamp | `services/nfl-news-signal.js:251,264,465` → `nfl_news_signals.published_at` | `item.published_at` | new signals corrected; **34 of 216** existing RSS-derived signals on the copy carry a stamp later than their story's fetch clock |
+| News-lag trader | `services/news-lag-trader.js:70,121` | `nfl_news_signals*.published_at` | inherits through the signals |
+| As-of cutoff | `services/nfl-expert-council.js:248` | `published_at<=? AND ingested_at<=?` | corrected; the `ingested_at` gate already kept it look-ahead safe |
+
+Every consumer reads the stored `news_items.published_at` (or its copy in
+`nfl_news_signals`); none parses the feed's raw `<pubDate>` itself. So there is one
+producer, and fixing it at the writer corrects every consumer for new rows with no
+consumer edit. `nfl_news_events` is **empty** on the copy (0 rows), so its
+`observed_before_published` check (`nfl-news-events.js:412`) had nothing to see; that is
+table-empty, not zero.
+
+## 7. Mutation sweep
+
+Harness: a Mac copy of `$H/mutate-run-v1.sh` written fresh as `mutate-run-mac-v2.sh` in
+the session scratchpad (the shared v1 was not edited). Each mutant's anchor must match
+exactly once or it reports NOT-APPLIED. Tests:
+`news-published-at-timezone`, `news-ingest`, `modeling-news`.
+
+First sweep on 6a3fbfde (guard test had one item 30 minutes ahead):
+
+| id | mutant | expected | result |
+|---|---|---|---|
+| M9 | tolerance 5 → 10 min | SURVIVED | SURVIVED (6/6 pass) → test was too loose; fixed in d3d1f8b1 |
+| C1 | comment-only edit | SURVIVED | SURVIVED |
+| C2 | absent anchor | NOT-APPLIED | NOT-APPLIED (0 matches) |
+
+Full sweep on d3d1f8b1, baseline 33 pass / 0 fail:
+
+| id | where | mutant | result (pass/fail) |
+|---|---|---|---|
+| M1 | `normalize.js` call site | `published_at` back to `new Date(raw.published_at)` (the pre-fix line) | KILLED 29/4 |
+| M2 | `normalize.js` call site | `updated_at` bypasses the parser | KILLED 32/1 |
+| M3 | unit | `America/New_York` → `America/Chicago` | KILLED 28/5 |
+| M4 | unit | regex stops matching `EST` (only `EDT`) | KILLED 29/4 |
+| M5 | unit | impossible date falls back to Date rollover | KILLED 32/1 |
+| M6 | unit | seconds dropped from the wall time | KILLED 28/5 |
+| M7 | unit | day and month swapped | KILLED 27/6 |
+| M8 | `ingest.js:67` writer call site | pre-parses `pubDate` before normalize sees it | KILLED 31/2 |
+| M9 | guard | tolerance 5 → 10 min | KILLED 32/1 |
+| M10 | guard | tolerance 5 → 3 min | KILLED 32/1 |
+| M11 | guard | sign flipped (counts stale stamps) | KILLED 31/2 |
+| M12 | guard | count computed, 0 reported | KILLED 32/1 |
+| M13 | guard | reads `updated_at` instead of `published_at` | SURVIVED 33/0, **equivalent**: RSS never sends `updated_at`, so normalize defaults it to `published_at` |
+| C1 | designed surviving control | comment-only edit | SURVIVED 33/0 |
+| C2 | designed not-applied control | absent anchor | NOT-APPLIED (0 matches) |
+
+12 of 12 non-equivalent mutants killed; both controls behave as designed.
+
+## 8. Known defects and what this does not cover
+
+1. **Historical rows are not rewritten.** All 196 RSS rows on the copy fall in daylight
+   time and keep their one-hour-late stamp (164 visibly after their fetch). Correcting them
+   is an UPDATE of stored values, which is a data change that needs Nick's word. The
+   correction would be `published_at − 60 minutes` for `source='ESPN' AND
+   source_type='publisher'` rows stamped in daylight time; for rows no longer in the feed
+   that is an inference (strong: 0 of 161 post-09-15 rows stay ahead after it), because the
+   raw label was never stored. Rows still in the feed (29 at a time) are corrected by the
+   first post-deploy ingest through the existing update path, which also moves their
+   `ingested_at` to that fetch (`store.js:63-66` treats a changed stamp as a revision), so
+   up to 29 rows lose their first-seen time once.
+2. **ESPN's RSS `<pubDate>` is a last-modified time, not first publication.** Row 8752 was
+   created 2026-09-20 and carries `published_at` 2026-09-22T20:15:32Z (a "Fantasy buzz"
+   page ESPN keeps editing). Freshness ranks re-edited old stories as new. Not changed here.
+3. **`fresh_24h` compares text, not time.** `routes/news.js:89` and
+   `nfl-diagnostic.js:21` compare ISO text (`…T…Z`) with `datetime('now','-24 hours')`
+   (space-separated), so any story on the cutoff's calendar date counts as fresh: **268**
+   as served vs **146** by `julianday` on the copy at 2026-09-22T20:21:58Z. Same class as
+   the R2 note in `nfl-news-signal.js:290-300`. Follow-up.
+4. **The floors that hid this are still there** (`routes/news.js:71` `Math.max(0, …)`,
+   `nfl-diagnostic.js:24` `MAX(0, …)`). `future_stamped` now reports the cause at ingest.
+5. **`mean_ingest_lag_minutes` is not a latency.** 3,248.9 minutes on the copy, dominated
+   by the 342 ESPN transactions rows stamped at a date-only 07:00Z. Follow-up.
+6. **Two Eastern converters exist**: `date-util.js:17` `zonedDateTime` (reused here) and
+   `book-feeds-extra.js:84` `easternToIso`. Not unified here; named follow-up.
+7. Other US zone letters (`CST`, `MST`, `PST` and daylight forms) keep JavaScript's fixed
+   reading: not measured, and no current source sends them.
+8. The repeated autumn hour (01:00-01:59 on the fall-back night) resolves to the daylight
+   instant: at most an hour early, never in the future.
+9. **What would make it wrong:** ESPN starting to send a true −05:00 `EST` in summer. The
+   stamps would then be an hour early, and `future_stamped` cannot see early stamps. The
+   check is the one in section 2: stamps should sit a few minutes before `ingested_at`.
+
+## 9. Statistical discipline and holdout looks
+
+Not a statistical unit: no model number, no projection, no pre-registration needed. No
+look at the 2025 held-out season or the 2026 forward weeks (`docs/evidence/HOLDOUT-LEDGER.md`
+is absent on `origin/main`: `git ls-tree origin/main docs/evidence/HOLDOUT-LEDGER.md`
+prints nothing). Minimum detectable effect and decision win rate do not apply: nothing here
+feeds a start/sit, waiver or trade call except through the news desk's ordering.
+
+## 10. Nick's five questions
+
+1. **Well built?** One parse line replaced by a small function that reuses the app's
+   existing time-zone helper; no schema change. Tests cover the parser, the writer, the
+   new counter and the news desk that reads it; 12 of 12 real mutants killed.
+2. **Stats or made up?** No statistics. The one-hour correction comes from the feed's own
+   GMT build time and the fetch clock on 161 rows. The 5-minute allowance is a hand-set
+   number (clock skew; ESPN's clock was 1 second off ours).
+3. **How we know:** measured, not backtested. Local copy: 164 RSS rows stamped after we
+   fetched them, all under 60 minutes ahead, 0 of 161 still ahead after a one-hour
+   correction. Live feed: 11 of 29 items after the fetch clock with the old parse, 0 with
+   the new one.
+4. **Pointed anywhere else?** Yes: every reader of `news_items.published_at` in section 6
+   (news desk, diagnostics, availability window, team page, typed signals and the lag
+   trader through them).
+5. **How it unifies:** one parse in `normalizeNewsItem`, shared by the RSS, Twitter and
+   transactions writers, built on the same `zonedDateTime` that converts nflverse
+   kickoffs. No second copy of the publish time was added.

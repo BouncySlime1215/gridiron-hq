@@ -141,3 +141,14 @@ test('a run with no finalized week is still waiting, even with a failed step', (
   const { status } = cycleOutcome({ finalizedWeek: 0, requiredLag: [], detail: failed('depth_charts') });
   assert.equal(status, 'waiting');
 });
+
+test('the note counts the failures it is describing', () => {
+  // The note is prose a person reads in the run record, so "1 downloads
+  // failed" is the kind of thing that makes the rest of it less believed.
+  const one = cycleOutcome({ finalizedWeek: 3, requiredLag: [], detail: failed('depth_charts') }).note;
+  assert.match(one, /a download failed: depth_charts\./);
+  assert.doesNotMatch(one, /\b1 downloads\b/);
+  const two = cycleOutcome({ finalizedWeek: 3, requiredLag: [], detail: { ingestion: {
+    depth_charts: { error: 'a' }, ftn_charting: { error: 'b' } } } }).note;
+  assert.match(two, /2 downloads failed: depth_charts, ftn_charting\./);
+});

@@ -174,6 +174,17 @@ export function cycleOutcome({ finalizedWeek, requiredLag = [], detail = {} }) {
     return { status: 'source_lag',
       note: 'A finalized week exists but at least one required nflverse release is not published yet; the scheduler will retry without fabricating rows.' };
   }
+  const failedSteps = Object.entries(detail.ingestion ?? {})
+    .filter(([, step]) => step?.error).map(([name]) => name);
+  if (failedSteps.length) {
+    const many = failedSteps.length > 1;
+    return { status: 'ingest_error',
+      note: `A finalized week was available and every required release had published, but `
+        + `${many ? `${failedSteps.length} downloads` : 'a download'} failed: ${failedSteps.join(', ')}. `
+        + `The rest of the cycle ran against rows ${many ? 'those feeds' : 'that feed'} did not update, `
+        + `so anything derived from ${many ? 'them' : 'it'} is as stale as the last successful run. `
+        + `The scheduler retries ${many ? 'them' : 'it'} on the next cycle.` };
+  }
   if (detail.fit?.error) {
     return { status: 'fit_error',
       note: 'The current week was ingested but the cutoff fit failed; the failed run is retained and will be retried.' };

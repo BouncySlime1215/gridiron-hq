@@ -3,12 +3,14 @@
 **Commit measured on:** the commit titled *"test: RED — a namespace import is a
 reach, and symbol-reach cannot see one"* (RED) → the commit titled
 *"feat: GREEN — resolve namespace imports, so a scheduler job counts as a
-consumer"* (GREEN). On this branch as pushed those are `9383c873` and
-`28b801b8`.
+consumer"* (GREEN). On this branch as pushed those are #116 `af13e262`
+(RED) and #116 `9a41cb61` (GREEN).
 
-Named by subject first and sha second on purpose. This pair has been
-rebased twice — once when #99 merged and once when main moved again — and
-each rebase rewrote both shas. An earlier revision of this file cited
+Named by subject first and sha second on purpose. This pair has now been
+rebased three times — when #99 merged, when main moved again, and when the
+wiring-gate fix #129 landed — and every rebase rewrote both shas. The two
+above are refreshed in the same push that rewrote them, per R52.2; the
+previous pair `9383c873` / `28b801b8` is dead and should not be followed. An earlier revision of this file cited
 `b885db2b`, which is not reachable from this branch at all: a reader
 following it would have found nothing. A sha is worthless without its
 tree, and a subject line survives a rebase.
@@ -122,8 +124,40 @@ always counted there. Verified directly: both namespace callers of
 `nfl-capture-dispatch.js` were already present in the file graph's deferred
 edges before this fix.
 
-So `183 wired`, the `116 / 67` split and the `53 / 14` line are unchanged by
-this commit. The defect was strictly symbol-level.
+So no file-level figure is changed by this commit. The defect was strictly
+symbol-level.
+
+**The ladder figures this sentence used to name are withdrawn from it.** It
+read "`183 wired`, the `116 / 67` split and the `53 / 14` line are
+unchanged". Those four numbers come out of no committed command: the
+route-versus-script partition behind them was done per row in a session and
+never written as a script, so nothing can regenerate them (Evidence Auditor,
+R51.3). Citing them here would have lent this file's evidence to figures that
+have none.
+
+The negative claim above does not depend on them and is not retracted. It
+rests on `classifyImportEdges` reading the module specifier and never the
+binding form, which is a property of the code directly above, not of any
+count. Whatever the file-level numbers turn out to be, this commit does not
+move them.
+
+What IS reproducible by command, for anyone who needs a file-level figure:
+the committed grader over `server/services/` + `server/modeling/` gives
+**225 wired of 321** and **228 of 319** on the falsification tree
+`500bab36`, with betting-only 55, mlb-only 3, off-product 2 and hand-run 10
+identical across both.
+
+Two corrections to how that 321 figure was cited here. It named commit tree
+`2e32352c`, which moves every time this document is edited — so cite the
+**population subtree** instead: `server/services` `2c900fff` and
+`server/modeling` `6bbd8e6a`, which move only when the measured code does,
+and which are byte-identical on main and on this branch. And **225 is one
+end of a bracket, not a figure**: it counts module-scope and in-function
+imports together, where counting only module-scope imports gives **169** of
+the same 321. Neither may be quoted alone.
+
+The partition now does exist as a script — `scripts/reach-ladder.mjs`, in
+#135 — so a figure quoted from this thread should come from running it.
 
 ## Still not covered
 

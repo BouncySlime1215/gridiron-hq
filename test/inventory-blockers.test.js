@@ -74,6 +74,20 @@ test('the model rows and the contested rows are somebody else, and are separated
   assert.equal(of(out, 'the UI thread'), 1);
 });
 
+test('a contested row that also reads LOCAL 0 tables is contested, not a row count', () => {
+  // The one place the bucket ORDER is load-bearing, measured rather than
+  // assumed: 11 of the 13 contested rows also carry the LOCAL-0 wording,
+  // because the contested reason quotes this map's own reading verbatim.
+  // Testing the row count first would move all 11 and make the disagreement
+  // with the other thread disappear into the largest bucket.
+  const out = blockers([row({
+    reason: 'CONTESTED, not yet adjudicated. This map: unclassified — x.js reaches a live '
+      + 'surface and reads game_lines, all LOCAL 0 rows',
+  })]);
+  assert.equal(of(out, 'adjudication between two threads'), 1);
+  assert.equal(of(out, 'a production row count'), 0);
+});
+
 test('every unresolved row lands in exactly one bucket', () => {
   const rows = [
     row({ reason: 'all LOCAL 0 rows' }),

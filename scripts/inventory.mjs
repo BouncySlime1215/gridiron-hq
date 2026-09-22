@@ -496,6 +496,66 @@ function applyOverlay(rows, overlay) {
 
 /* --------------------------------------------------------------- render */
 
+/**
+ * What each unresolved row is waiting for, and who can supply it.
+ *
+ * 597 rows is not a score and not a backlog. The rows are six questions, and
+ * only one of them is answered by more analysis of this tree. The largest
+ * block by far waits on a single fact this container cannot obtain — a row
+ * count from the production database — because `server/data.sqlite` here is a
+ * migrated dev shell and a LOCAL count of 0 means "cannot be confirmed here",
+ * never "empty in the app".
+ *
+ * ORDER MATTERS, in one place, measured rather than assumed. 11 of the 13
+ * CONTESTED rows also carry the LOCAL-0 wording, because a contested reason
+ * quotes this map's own reading verbatim — so testing the row count first
+ * moves all 11 and the disagreement with the other thread disappears into the
+ * largest bucket. The job and satellite buckets do NOT overlap the LOCAL-0
+ * wording on the current tree (0 rows each), so their position is defensive
+ * rather than load-bearing, and this comment says which is which because a
+ * blanket "order matters" teaches nobody where to be careful.
+ *
+ * The catch-all is returned even at zero. A bucket that disappears when empty
+ * is a bucket nobody checks, and a new reason string would then leave the
+ * breakdown quietly short.
+ */
+const BLOCKERS = [
+  ['adjudication between two threads',
+    (r, t) => /^CONTESTED/.test(t)],
+  ['the model-evidence audit thread',
+    (r, t) => r.kind === 'model' || /handed to the model-evidence audit/.test(t)],
+  ['a deployment question: whether the image ships the file',
+    (r, t) => /separate database|satellite|created nowhere in this tree/.test(t)],
+  ['a file that exists only on the owner\'s Mac',
+    (r, t) => /off-server Python script/.test(t)],
+  ['a run: static analysis cannot say whether a job writes rows',
+    (r) => r.kind === 'job'],
+  ['the UI thread',
+    (r) => r.kind === 'page'],
+  ['a production row count',
+    (r, t) => /LOCAL 0 rows|not in the LOCAL database/.test(t)],
+];
+const UNSORTED = 'unsorted: no bucket claims these yet';
+
+function blockers(rows) {
+  const counts = new Map(BLOCKERS.map(([who]) => [who, { who, count: 0, kinds: new Set() }]));
+  counts.set(UNSORTED, { who: UNSORTED, count: 0, kinds: new Set() });
+
+  for (const r of rows) {
+    const resolved = r.status && r.status !== 'unclassified';
+    if (resolved) continue;
+    const text = String(r.reason ?? r.evidence ?? '');
+    const hit = BLOCKERS.find(([, test]) => test(r, text));
+    const bucket = counts.get(hit ? hit[0] : UNSORTED);
+    bucket.count += 1;
+    bucket.kinds.add(r.kind);
+  }
+
+  const out = [...counts.values()].map((b) => ({ ...b, kinds: [...b.kinds].sort() }));
+  const tail = out.find((b) => b.who === UNSORTED);
+  return [...out.filter((b) => b !== tail && b.count > 0).sort((a, b) => b.count - a.count), tail];
+}
+
 function tally(rows) {
   const t = {};
   for (const r of rows) {
@@ -545,6 +605,28 @@ function renderMd(rows, meta) {
     if (t[k]) L.push(`| ${k} | ${t[k]} | ${meanings[k]} |`);
   }
   L.push('');
+  L.push('## What this inventory cannot answer, and who can');
+  L.push('');
+  const bl = blockers(rows);
+  const unresolved = bl.reduce((n, b) => n + b.count, 0);
+  L.push(`${unresolved} of ${rows.length} rows are unresolved. That is not one pile and not a`);
+  L.push('score. It is a set of questions, and only one of them is answered by more analysis');
+  L.push('of this tree. Each row below is counted exactly once, and the buckets sum to the');
+  L.push('total — including the catch-all, which is printed even at zero so a reason string');
+  L.push('nobody has bucketed shows up as a number instead of quietly going missing.');
+  L.push('');
+  L.push('| rows | waiting on | which kinds |');
+  L.push('|---|---|---|');
+  for (const b of bl) L.push(`| ${b.count} | ${b.who} | ${b.kinds.join(', ') || '—'} |`);
+  L.push('');
+  const live = bl.find((b) => b.who === 'a production row count')?.count ?? 0;
+  if (live) {
+    L.push(`**${live} of them turn on one fact.** Not a judgement, not a design question: a row`);
+    L.push('count from the production database. This container reads a migrated dev shell, so a');
+    L.push('LOCAL count of 0 means "cannot be confirmed here". Nothing in this repository moves');
+    L.push('those rows, and effort spent trying to classify them from source is wasted.');
+    L.push('');
+  }
   L.push('### How this count was arrived at, including the two wrong answers');
   L.push('');
   L.push('The phantom-table figure moved twice before it settled, and both moves are recorded');
@@ -622,7 +704,7 @@ function check(rows) {
   return problems;
 }
 
-export { buildRows, classify, check, tally, applyAudit };
+export { buildRows, classify, check, tally, applyAudit, blockers };
 
 /* ------------------------------------------------------------------ main */
 

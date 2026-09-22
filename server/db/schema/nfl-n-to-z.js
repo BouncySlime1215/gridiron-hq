@@ -8,7 +8,10 @@
  */
 
 export const sources = [
-  'server/services/nfl-neural-replay.js',
+  // nfl-neural-replay.js was merged into nfl-replay.js by 47965a5, as a second engine
+  // in the file already listed below. Same reasoning as nfl-clv.js in the a-to-m
+  // fragment: the ranges stay under `nfl-neural-replay` in the manifest, and the dead
+  // path goes rather than pointing at a file that is not there.
   'server/services/nfl-news-signal.js',
   'server/services/nfl-officials.js',
   'server/services/nfl-online-neural.js',

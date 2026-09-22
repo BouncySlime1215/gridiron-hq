@@ -39,15 +39,28 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { assertPaidRunOptIn } from './paid-run-optin.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CHAT_DB = path.join(ROOT, 'data/derived/league_chat.sqlite');
+// Same variable server/services/manager-signals.js:85 already reads for this
+// identical path, not a new convention.
+const CHAT_DB = process.env.GRIDIRON_CHAT_DB_PATH || path.join(ROOT, 'data/derived/league_chat.sqlite');
 const DRY = process.argv.includes('--dry-run');
 const onlyIdx = process.argv.indexOf('--manager');
 const ONLY = onlyIdx > -1 ? process.argv[onlyIdx + 1] : null;
 /** Enough conversation to read a style; beyond this it is repetition we pay for. */
 const MAX_MESSAGES = 160;
 const CONTEXT_BEFORE = 2;
+
+// This makes real, billed calls to the Anthropic API (callClaude at :244/:402
+// below) unless --dry-run is passed. --dry-run is the one flag that exists
+// specifically to avoid spending, so it stays usable without the opt-in;
+// every other invocation needs GRIDIRON_ALLOW_PAID_RUN set. Checked before
+// the chat database opens (next line) — same ordering discipline as
+// scripts/run-news-event-impact.mjs's guard, and for the same reason: a
+// refusal that runs after the database opens has already done the thing it
+// claims to prevent.
+if (!DRY) assertPaidRunOptIn();
 
 const chat = new DatabaseSync(CHAT_DB);
 chat.exec('PRAGMA busy_timeout=60000');

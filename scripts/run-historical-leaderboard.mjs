@@ -39,9 +39,9 @@
  */
 import path from 'node:path';
 import os from 'node:os';
-import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
+import { resolveOutDir, assertEvidenceSources, writeEvidenceReport } from './lib/evidence-report.mjs';
 
 const REAL_DB_PATH = process.env.GRIDIRON_REAL_DB_PATH
   || new URL('../server/data.sqlite', import.meta.url).pathname;
@@ -111,8 +111,12 @@ for (const t of all) {
 // win-rate-vs-median-book deltas with no raw bet count, void rows) is
 // correctly excluded: a Sharpe ratio needs a reconstructable per-bet
 // series, and these two shapes are the only real ones that provide one.
+const groupCBetLedgerTrials = betLedgerTrials.length;
+let auditRegistryRowsRead = 0;
 readReal(rdb => {
-  for (const r of rdb.prepare(`SELECT id, name, detail_json FROM audit_registry ORDER BY id`).all()) {
+  const rows = rdb.prepare(`SELECT id, name, detail_json FROM audit_registry ORDER BY id`).all();
+  auditRegistryRowsRead = rows.length;
+  for (const r of rows) {
     if (!r.detail_json) continue;
     let d; try { d = JSON.parse(r.detail_json); } catch { continue; }
     let bets = d.bets, wins = d.wins, losses = d.losses;
@@ -135,6 +139,35 @@ const sharpeByTrial = betLedgerTrials.map(t => {
   const stats = rec ? sharpeStatsFromReturns(rec.returns) : null;
   return { ...t, sharpe: stats?.sharpe ?? null, n: stats?.n ?? null, skewness: stats?.skewness ?? null, kurtosis: stats?.kurtosis ?? null };
 }).filter(t => Number.isFinite(t.sharpe));
+
+/* Every real source this run read, with its row count, and which of them must
+ * be non-empty. Asserted HERE, before the reduce below: with an empty
+ * cross-section that reduce throws `Reduce of empty array with no initial
+ * value` -- an unnamed TypeError, two lines after sharpeMean has already gone
+ * NaN -- and it is silent in the case this script exists for, where
+ * audit_registry returns zero rows while Group C returns some. That run
+ * produces a finished leaderboard that has quietly collapsed back into stage
+ * 2's hand-picked subset, and says so nowhere.
+ *
+ * `audit_registry_bet_ledger_rows` is required as well as the raw row count:
+ * reading 40 rows and recognising none of them as a ledger is the same failure
+ * as reading none, and it is what a schema or shape change would look like.
+ */
+const SOURCES = {
+  trial_registry_rows_read: all.length,
+  scored_trials_read: scoredChrono.length,
+  standardized_effect_sequence_length: sequence.length,
+  group_c_bet_ledger_trials: groupCBetLedgerTrials,
+  audit_registry_rows_read: auditRegistryRowsRead,
+  audit_registry_bet_ledger_rows: betLedgerTrials.length - groupCBetLedgerTrials,
+  sharpe_cross_section_trials: sharpeByTrial.length,
+};
+const REQUIRED_SOURCES = [
+  'trial_registry_rows_read', 'scored_trials_read', 'standardized_effect_sequence_length',
+  'group_c_bet_ledger_trials', 'audit_registry_rows_read', 'audit_registry_bet_ledger_rows',
+  'sharpe_cross_section_trials',
+];
+assertEvidenceSources(SOURCES, REQUIRED_SOURCES, 'historical-leaderboard-report.json');
 
 const sharpeValues = sharpeByTrial.map(t => t.sharpe);
 const sharpeMean = sharpeValues.reduce((s, v) => s + v, 0) / sharpeValues.length;
@@ -286,9 +319,31 @@ const report = {
   archive_book_depth: archiveDepth,
 };
 
-const outDir = path.join(import.meta.dirname, '..', 'docs', 'evidence', '2026-09-13');
-fs.mkdirSync(outDir, { recursive: true });
-fs.writeFileSync(path.join(outDir, 'historical-leaderboard-report.json'), JSON.stringify(report, null, 2));
-console.log(JSON.stringify(report, null, 2));
+const ROOT = path.join(import.meta.dirname, '..');
+const outDir = resolveOutDir(process.argv,
+  path.join(ROOT, 'docs', 'evidence', '2026-09-13'), ROOT);
+
+/* The four census reads below are RECORDED, not required. Each already prints
+ * its own zero on the face of the report -- `real_fit_artifacts: 0`,
+ * `real_rows: 0`, an empty book list -- so an empty one is visible without a
+ * guard, and requiring them would stop a leaderboard whose bet-ledger half is
+ * entirely real from being written because one census table happened to be
+ * empty. The rule the guard follows is: require a source whose emptiness would
+ * otherwise be invisible; record one whose zero already shows.
+ */
+const { file, report: written } = writeEvidenceReport({
+  outDir, filename: 'historical-leaderboard-report.json', report,
+  sources: {
+    ...SOURCES,
+    pbo_strategies_constant: PBO_STRATEGIES.length,
+    ensemble_fit_artifacts_read: marketIdentity.real_fit_artifacts,
+    pick_decisions_read: productionBoard.real_rows,
+    quote_tape_books_read: bookDeclaration.full_tape_book_universe.length,
+    line_snapshot_groups_read: archiveDepth.overall.total_groups,
+  },
+  required: REQUIRED_SOURCES,
+});
+console.error(`Wrote ${file}`);
+console.log(JSON.stringify(written, null, 2));
 
 db.close();

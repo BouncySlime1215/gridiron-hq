@@ -118,3 +118,21 @@ test('a promoted fit in the active epoch is unaffected', () => {
   assert.equal(set.source, 'adaptive');
   assert.equal(set.orphaned_fit, undefined);
 });
+
+/**
+ * The orphan probe keeps the leakage cutoff and drops only the epoch clause. Drop
+ * the cutoff as well and a fit in another epoch that was trained through a LATER
+ * week gets reported as an orphan -- but that fit could never have served this week
+ * under any epoch, so calling it orphaned blames the epoch roll for the cutoff's
+ * work. Without this case the suite survives that mutation, which would mean the
+ * suite, not the code, was wrong.
+ */
+test('a fit in another epoch trained past the cutoff is not an orphan either', () => {
+  reset();
+  promote(1, perPosition(LIVE), [2026, 9]);   // trained through 2026 wk 9
+  rollEpoch();                                 // now in a later epoch, predicting wk 2
+  const set = S.activeWeeklyWeightSet({ season: 2026, week: 2 });
+  assert.equal(set.source, 'frozen',
+    'the cutoff excluded it under every epoch; the roll changed nothing for this week');
+  assert.equal(set.orphaned_fit, undefined);
+});

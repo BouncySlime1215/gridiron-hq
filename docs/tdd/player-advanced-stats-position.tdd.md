@@ -130,6 +130,46 @@ this file touches `docs/` only and no code, so the figures above still describe
 the code being reviewed. CI is enabled on this repository and will report on the
 pull request; the run above is the local half of the gate, not the whole of it.
 
+### Re-run after merging current main, under the two-part gate
+
+#86 merged as a squash, so `main` gained its own copy of this branch's two files
+with no shared history and the merge came back as an add/add conflict on both.
+Resolved to this branch's versions, checked rather than asserted: `git diff
+origin/main 85caa0d` is empty for both files, so main's copy is byte-identical
+to the #86 head this branch was cut from, and this branch's copy is that content
+plus the work here.
+
+Gate re-run on the merged tree, `npm run check && npm run check:wiring` under one
+guard:
+
+```
+npm run check          exit 0
+tests     3547
+pass      3506
+fail         0
+skipped     41
+duration 485.6 s
+smoke     startup passed on an isolated database (32 teams)
+
+npm run check:wiring   exit 1  — main's, see below
+```
+
+```
+git status --porcelain   empty before AND empty after
+git write-tree           da78522d56f4 before, da78522d56f4 after
+HEAD^{tree}              da78522d56f4 — the same tree
+node_modules mtime       1789853354 before, 1789853354 after
+files written            nothing outside client/dist/
+```
+
+`check:wiring` is red on `main` itself, not on this branch. Verified on a
+detached worktree at `origin/main` `f620a120` with nothing of this branch in it:
+exit 1, same three blocking findings (`table-never-written pbp_participation`,
+`table-never-written play_by_play`, `producer-with-no-caller
+refreshLeagueRosters()`) and the same stale accept-list entry for
+`server/services/cascade-grade.js`. None of them touches anything in this diff.
+The Wiring map thread's fix for that gate is in flight.
+
 ## Mutation sweep
 
 `python3 docs/tdd/sweeps/mutation-runner.py

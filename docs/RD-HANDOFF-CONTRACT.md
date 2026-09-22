@@ -26,6 +26,12 @@ coordinator, not a build. This is a gate on *the package*, not on the idea.
 2. **The data, already pulled** — a real file or table on disk with row counts
    and its season/week coverage, plus where it came from and that it is free.
    A URL alone is not data. Coverage gaps are stated, not implied.
+   **And: what we already download that carries this, and why the new source
+   beats it.** Added 2026-09-22 after `nfl_route_splits` was built against a
+   third-party site and then found to be a strict subset of an nflverse feed
+   this repo already fetches — 106 receivers against 500, and the sparse-data
+   weakness written into its evidence file turned out to be an artifact of the
+   worse source. Nobody asked that question, so nobody answered it.
 3. **The technique, named** — the method and the parameters it needs, with the
    reason this method and not the simpler one.
 4. **Where it lands** — the concrete surface that consumes it (route, page,

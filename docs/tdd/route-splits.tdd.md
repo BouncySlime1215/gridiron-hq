@@ -169,6 +169,68 @@ So unit 4 is **blocked on a database copy**, which is already an open item on
 the project's missing-data log rather than a new gap. Until it runs, the claim
 that route splits improve projections is a **guess**, and §6 says so.
 
+## 4d. VERDICT — do not sync this source. nflverse already has it, better.
+
+Measured after the fact, prompted by R&D's package #6. The comparison is on
+2022, both sources, same receivers. Script committed at
+`docs/evidence/route-source-overlap.mjs`.
+
+**Route type.** nflverse `pbp_participation` carries a `route` column for the
+targeted receiver, joinable to play-by-play on game id and play id.
+
+| | nflsavant | nflverse participation |
+|---|---:|---:|
+| receivers with labelled routes | 106 | **500** |
+| of nflsavant's receivers, present in nflverse | — | **106 of 106 (100%)** |
+| receivers nflverse has that nflsavant does not | — | **394** |
+| labelled target-routes | 10,222 | **18,176** |
+| join rate on plays with a named receiver | — | 18,176 / 18,285 = **99.4%** |
+
+nflsavant is a strict subset. Every receiver it covers is in nflverse, and
+nflverse covers 394 more with 78% more labelled routes.
+
+**Coverage shell — and this kills the one weakness I documented as inherent.**
+§5 records sparse shells as a known limit of the data: COVER_4 on 20 of 100
+receivers, COVER_0 on 6, COVER_6 on 2, needing a coverage gate before anything
+consumes them. That sparsity is **an artifact of nflsavant's aggregation, not
+of the football.** On the same 18,176 route plays, participation carries a
+coverage shell on **18,156 of them (99.9%)**:
+
+| shell | plays |
+|---|---:|
+| COVER_3 | 5,822 |
+| COVER_1 | 4,108 |
+| COVER_4 | 2,933 |
+| COVER_2 | 2,588 |
+| COVER_6 | 1,568 |
+| COVER_0 | 759 |
+| 2_MAN | 313 |
+| PREVENT | 65 |
+
+Plus `defense_man_zone_type` on the same 18,156 (12,976 zone / 5,180 man),
+`was_pressure` on 18,176 of 18,176, and `time_to_throw` on 18,176 of 18,176.
+A shell nflsavant never reports (PREVENT) is there, and the three it reports
+for a handful of receivers are in the thousands of plays.
+
+**Taxonomy.** nflverse uses 12 route values against nflsavant's 13 families,
+and nflsavant's are mostly merges of nflverse's (HITCH/CURL, SHALLOW
+CROSS/DRAG, TEXAS/ANGLE). The one distinction nflsavant makes that nflverse
+does not is QUICK OUT versus DEEP OUT against a single OUT — and participation
+carries `ngs_air_yards` per play, so out depth is derivable rather than lost.
+
+**So: `nfl_route_splits` is correct code pointed at the worse feed.** It is not
+deleted — the migration, loader, registration and feature-store wiring all work
+and cost nothing while unused — but **nothing should call `syncRouteSplits`**,
+and the 2022-2025 backfill was stopped at 30 of 76 pulls once this was clear
+rather than spending another 20 minutes of a small site's bandwidth on data we
+had just decided not to use. If the route dimension is wanted, it should come
+from participation, which is free, versioned, reproducible, already downloaded
+by `nfl-formations.js`, and five times the sample.
+
+This is what the intake gate in `docs/RD-HANDOFF-CONTRACT.md` asks item 2 for —
+"the data, plus where it came from and that it is free" — and what the gate did
+not ask, and now should: **is there a source we already have that carries it?**
+
 ## 5. Known limits, carried forward not papered over
 
 - **This is targets by route, not routes run.** No denominator. A receiver who

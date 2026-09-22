@@ -296,14 +296,22 @@ and its write-tree unchanged either side. RUN 2 killed per verify-once.
 |---|---|
 | `git status --porcelain` before | empty |
 | `npm ci` | **not re-run**, and the reason is checkable: `package-lock.json` last changed on `017a38c` (2026-09-19), and this branch's diff against `main` touches neither `package.json` nor `package-lock.json` |
-| `npm run check` | **exit 0** — `# tests 3571  # pass 3530  # fail 0  # skipped 41` |
+| `npm run check` | **exit 0** — `# tests 3614  # pass 3573  # fail 0  # skipped 41` |
 | worktree status after | 0 paths |
 | write-tree after | equal to before; nothing outside `client/dist` changed |
 
 `npm run check` now contains the wiring check (#129 folded it in), so one
-command covers both gates. The figure above was measured on the pre-rebase head
-`5b8a345`; this branch has since been rebased onto `main` at `6e72271` and
-re-run, and the head's own figure is recorded in the PR body.
+command covers both gates.
+
+The figure above was measured on `4807e2e`, this branch rebased onto `main` at
+`6e72271`. Two commits sit above it on the pushed head — the post-rebase sha
+table and this paragraph — and both touch this file only. `git diff --stat
+4807e2e <head>` lists no path outside `docs/tdd/`, so the exit code describes
+the head's code tree exactly; it is not being carried across a code change.
+
+The earlier figure, `3571/3530/0/41` on the pre-rebase head `5b8a345`, is
+superseded and no longer cited: `5b8a345` is orphaned, and a count measured on
+an unreachable tree is not checkable.
 
 ### 2. TDD record with a liveness proof
 

@@ -49,6 +49,7 @@
  * docs/tdd/2026-09-22-formations-404-skip.tdd.md.
  */
 import { db, rows, row, run } from '../db/index.js';
+import { canonicalTeamCode } from './team-codes.js';
 
 const BASE = 'https://github.com/nflverse/nflverse-data/releases/download';
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -136,7 +137,10 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
       // coverage and no time_to_throw and 74% of them are pressured, because
       // they are the sacks and scrambles.
       const dropback = manZone != null || shell != null;
-      stmt.run(gameId, playId, season, p[idx.possession_team] ?? null, formation,
+      // The feed writes LA for the Rams; teamHistory binds possession to the
+      // game_lines code (LAR), so a raw code leaves that team with no history.
+      const possession = (p[idx.possession_team] ?? '').trim();
+      stmt.run(gameId, playId, season, possession ? canonicalTeamCode(possession) : null, formation,
         (p[idx.offense_personnel] ?? '').trim() || null,
         (p[idx.defense_personnel] ?? '').trim() || null,
         num(p[idx.defenders_in_box]), num(p[idx.number_of_pass_rushers]),

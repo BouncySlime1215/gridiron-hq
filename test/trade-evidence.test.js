@@ -170,6 +170,7 @@ test('the offseason multiplier is never applied: the valuation is identical with
   _setEvidenceSources({ careerLine: () => null, preseasonProjection: () => null, offseasonAdjustment: () => null });
   reSearch();
   const without = findTrades(lg, { myTeamId: '1', maxPerSide: 1, requireMutual: false, limit: 20 });
+  assert.notEqual(withEv, without, 'the second search returned the cached first one');
   const key = d => `${d.partner_id}:${d.i_give.map(p => p.id)}>${d.i_get.map(p => p.id)}`;
   const strip = d => ({ key: key(d), ppg: d.me.ppg_delta, value: d.me.value_delta, score: d.score, verdict: d.me.verdict });
   assert.deepEqual(withEv.deals.map(strip), without.deals.map(strip), 'ppg, value, score and verdict never move with evidence');

@@ -87,7 +87,11 @@ test('playerRiskProfile marks the unreadable case as unknown, not unproven', () 
   const profile = playerRiskProfile(playerWithEvidence(6, 'Real Veteran'));
 
   assert.equal(profile.profile, 'unknown');
-  // The numbers stay null rather than reading as measured zeros.
+  // These stay 0, not null — the fix deliberately does not change the numeric
+  // shape, because every consumer of `seasons`/`top24` expects a number and a
+  // null would propagate as NaN through packageRisk's sums. `profile` is what
+  // carries the distinction, and `packageRisk.unreadable` is what stops these
+  // zeros being read as a measurement of the package.
   assert.equal(profile.seasons, 0);
   assert.equal(profile.top24, 0);
 });

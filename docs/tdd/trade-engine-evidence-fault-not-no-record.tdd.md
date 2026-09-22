@@ -93,7 +93,15 @@ cases so the fix could not buy the distinction by breaking them.
 
 ---
 
-## The three user-visible surfaces, and where each is pinned
+## The four user-visible surfaces, and where each is pinned
+
+**This section said "three" and ended "Nothing is left uncovered." That was
+wrong, and the audit caught it.** Three of the four are in `trade-engine.js`;
+the fourth is on the trade card itself, in `RiskStrip.tsx`, and it makes the
+same claim one layer higher up. The sentence is corrected below rather than
+quietly deleted, because "I checked and found nothing" is itself a claim this
+unit is about making honestly.
+
 
 `playerEvidence` feeds `slim()` (`:1213`), so every outgoing player object
 carries the flag; three places turn it into a sentence a user reads.
@@ -118,9 +126,44 @@ carries the flag; three places turn it into a sentence a user reads.
    shortfall, not the readable half as the whole"*, half the league's careers
    throwing so both sides of a deal are mixed).
 
-Nothing is left uncovered. The `preseason` and `offseason` layers record their
-faults too, but no surface currently turns either into a claim, so nothing
-downstream of them changed and there is nothing to pin.
+4. **`RiskStrip`'s Floor cell**, `client/src/components/trade/RiskStrip.tsx:5-6`,
+   reached from `deal.me.risk` (`sideRisk`, `trade-engine.js:1125`) through
+   `TradeCard.tsx`. It renders `PackageRisk` directly and read `seasons === 0`
+   as a fact, exactly as `playerRiskProfile` did:
+
+   ```tsx
+   const floorOf = (r: PackageRisk) => r.players.length === 0 ? '—'
+     : r.seasons ? `${r.top24_seasons}/${r.seasons} top-24` : 'no record';
+   ```
+
+   Three faults, not one. A side whose careers all threw reads **"no record"**.
+   A mixed package prints the readable man's seasons as the package's, because
+   `seasons` is summed over `withRecord`. And `floorBetter` (`:31-32`) divides
+   those two partial sums against each other and colours the cell green or red
+   off the result. A fourth, found while fixing it: with career *and* preseason
+   both failing, `seasons` is 0 and `p80` is null on both sides, so `anyRecord`
+   is false and the **entire strip returns null** — the failure rendered as
+   nothing at all, which is the same silent-default shape one more time.
+
+   Now: `'not readable'` for a wholly unread package, `3/15 top-24 (1/2)` for a
+   mixed one, no colour on the Floor comparison unless both sides were fully
+   read, a `title` that says so, and `anyRecord` counting an unreadable side so
+   the strip still renders. `client/src/components/trade/types.ts` carries
+   `unreadable: number` on `PackageRisk` and `'unknown'` in the profile union.
+
+   Pinned by `test/trade-risk-strip-unreadable.test.js`, five source-read cases
+   in the idiom this repo already uses for `RiskStrip` and `ManagerRead`
+   (`test/trade-manager-read.test.js:42`); 5/5 fail against the untouched
+   client. The first draft of R2 matched `players.length` anywhere inside
+   `floorOf`, which the pre-fix one-liner satisfies through its empty-package
+   guard — a trivially green assertion, caught by re-running RED against the
+   untouched client after the regex was relaxed. Same lesson as the
+   cache-liveness check below: an assertion the defect itself can satisfy is
+   not an assertion.
+
+The `preseason` and `offseason` layers record their faults too, but no surface
+turns either into a claim, so nothing downstream of them changed and there is
+nothing to pin.
 
 ---
 
@@ -166,6 +209,11 @@ faulted result too. So a **transient** throw is sticky: that player reads
 `buildAssetUniverse()` clears it on a data change (`:272`),
 `_setEvidenceSources()` clears it (`:837`), and it self-clears past 5000
 entries (`:916`).
+
+The same is true one level up, and for the same reason: `findTrades()`'s own
+result cache stores the assembled deals, faulted evidence and all, and turns
+over on that same data-change trigger — so a transient fault is sticky on the
+trade card too, not only inside `playerEvidence`.
 
 The cache is kept because `evaluate()` runs thousands of times inside
 `findTrades()` and an always-throwing source would otherwise be re-invoked on

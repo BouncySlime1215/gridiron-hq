@@ -79,15 +79,33 @@ for (const season of [2023, 2024]) {
 }
 
 let affected = 0, sumDelta = 0, sumRel = 0, over005 = 0, largest = { d: 0, who: '' };
+let sumUn = 0;                       // for the RATIO OF MEANS, which is not the mean of ratios
 const players = [...acc.values()].filter(a => a.unW > 0 && a.gW > 0);
+const hits = [];                     // per-player rows, for the n-dependence question
 for (const [who, a] of acc) {
   if (!(a.unW > 0 && a.gW > 0) || a.dropped === 0) continue;
   const un = a.un / a.unW, g = a.g / a.gW;
   const d = g - un;
-  affected++; sumDelta += d; sumRel += un > 0 ? d / un : 0;
+  affected++; sumDelta += d; sumUn += un; sumRel += un > 0 ? d / un : 0;
   if (d >= 0.005) over005++;
   if (d > largest.d) largest = { d, who: `${who} (${a.dropped} of ${a.rows} rows)` };
+  // n as the site uses it: :522 passes a.tgtShareW into pickK, i.e. the
+  // RECENCY-WEIGHTED row count, not the raw one. Both are reported.
+  hits.push({ who, d, un, n: a.rows, wn: a.unW, dropped: a.dropped });
 }
+
+// ---- the Auditor's question: shrinkage is n / (n + k), and the observation's n
+// counts the zero rows while the prior's does not. A mean over all affected
+// players would hide an n-dependence. Does the understatement rise with n?
+const pearson = (xs, ys) => {
+  const n = xs.length, mx = xs.reduce((s, v) => s + v, 0) / n, my = ys.reduce((s, v) => s + v, 0) / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) { const a = xs[i] - mx, b = ys[i] - my; sxy += a * b; sxx += a * a; syy += b * b; }
+  return sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : NaN;
+};
+const rank = vs => { const idx = vs.map((v, i) => [v, i]).sort((a, b) => a[0] - b[0]); const r = new Array(vs.length);
+  for (let i = 0; i < idx.length;) { let j = i; while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++;
+    const avg = (i + j) / 2 + 1; for (let k = i; k <= j; k++) r[idx[k][1]] = avg; i = j + 1; } return r; };
 console.log(`through ${THROUGH}, seasons 2023-2024, rowWeight = ${DECAY} ** (through - season)`);
 console.log(`rows entering the :492 gate      ${rowsSeen}`);
 console.log(`  matched to a snap row          ${matched} (${(100 * matched / rowsSeen).toFixed(1)}%)`);
@@ -95,6 +113,25 @@ console.log(`  of those, offense_snaps == 0   ${zeroSnapRows}`);
 console.log(`players with a usable mean       ${players.length}`);
 console.log(`  affected (>= 1 zero-snap row)  ${affected} (${(100 * affected / players.length).toFixed(1)}%)`);
 console.log(`mean understatement of tgtShareObs on an affected player  ${(sumDelta / affected).toFixed(4)} share`);
-console.log(`  as a fraction of the value the site computes            ${(100 * sumRel / affected).toFixed(1)}%`);
+console.log(`  MEAN OF PER-PLAYER RATIOS (each player's own base)      ${(100 * sumRel / affected).toFixed(1)}%`);
+console.log(`  RATIO OF MEANS (total understatement / total base)      ${(100 * sumDelta / sumUn).toFixed(1)}%`);
+console.log(`  mean contaminated base across affected players          ${(sumUn / affected).toFixed(4)} share`);
 console.log(`affected players moving >= 0.005 of share                 ${over005}`);
 console.log(`largest single move                                       +${largest.d.toFixed(4)}  ${largest.who}`);
+
+// ---- n-dependence
+const ns = hits.map(h => h.n), ds = hits.map(h => h.d), wns = hits.map(h => h.wn);
+console.log('--- does the understatement rise with n? (shrinkage is n/(n+k))');
+console.log(`Pearson  r(n, understatement)   ${pearson(ns, ds).toFixed(3)}`);
+console.log(`Spearman r(n, understatement)   ${pearson(rank(ns), rank(ds)).toFixed(3)}`);
+console.log(`Pearson  r(weighted n, same)    ${pearson(wns, ds).toFixed(3)}   <- n as :522 passes it to pickK`);
+console.log(`Spearman r(weighted n, same)    ${pearson(rank(wns), rank(ds)).toFixed(3)}`);
+const buckets = [[1, 4], [5, 9], [10, 19], [20, 99]];
+console.log('  n rows        players   mean understatement   mean base   ratio');
+for (const [lo, hi] of buckets) {
+  const b = hits.filter(h => h.n >= lo && h.n <= hi);
+  if (!b.length) continue;
+  const md = b.reduce((s, h) => s + h.d, 0) / b.length;
+  const mb = b.reduce((s, h) => s + h.un, 0) / b.length;
+  console.log(`  ${String(lo + '-' + hi).padEnd(8)} ${String(b.length).padStart(10)}   ${md.toFixed(4).padStart(17)}   ${mb.toFixed(4).padStart(9)}   ${(100 * md / mb).toFixed(1).padStart(5)}%`);
+}

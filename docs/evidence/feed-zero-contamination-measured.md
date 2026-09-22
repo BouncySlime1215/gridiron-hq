@@ -415,5 +415,61 @@ support **disagrees with its own prior and k**, and what that disagreement is
 worth. Which way to resolve it is a unit, with an owner, acceptance criteria
 and a held-out split.
 
-`projections.js` is Fantasy plan's file under the one-editor rule. Nothing here
-was edited.
+**Owner: Model evidence audit**, to which `projections.js` moved at 16:11Z
+(Fantasy plan keeps `weekly-ensemble.js`). Note that
+`gridiron-file-allocation` in team memory still reads it to Fantasy plan and is
+stale on this point. Nothing here was edited either way.
+
+### §9 addendum (Auditor R39) — what the 34.1% is a percentage of, and the n question
+
+Two challenges, both answered by re-running the script rather than by argument.
+
+**1. What the 34.1% is a percentage of.** It is the **mean across affected
+players of (that player's understatement ÷ that player's own contaminated
+mean)** — a mean of ratios, not a ratio of means. Inverting it as
+`0.0059 / 0.341 = 0.0173` does not recover a base, because the two are different
+statistics. Both are now reported:
+
+| statistic | value |
+|---|---|
+| mean of per-player ratios | 34.1% |
+| **ratio of means** (total understatement ÷ total base) | **21.5%** |
+| mean contaminated base across affected players | **0.0276 share** |
+
+0.0276 is not a starter's target share, and that is the finding underneath the
+challenge: **the affected players are disproportionately fringe players**, which
+is exactly who misses snaps. The ratio-of-means figure, 21.5%, is the one to
+quote when a single number is wanted.
+
+**2. Does the understatement rise with n?** The Auditor's reasoning is right and
+the answer came back the other way. Shrinkage is `n / (n + k)`, the observation's
+`n` counts the zero rows and the prior's does not, so an n-dependence would be
+hidden by a mean over 113 players. Measured:
+
+| | Pearson | Spearman |
+|---|---:|---:|
+| raw row count vs understatement | **−0.220** | −0.097 |
+| **weighted n** (`a.tgtShareW`, which is what `:522` passes to `pickK`) | **−0.269** | −0.129 |
+
+| n rows | players | mean understatement | mean base | ratio |
+|---|---:|---:|---:|---:|
+| 1-4 | 14 | 0.0141 | 0.0190 | **74.1%** |
+| 5-9 | 23 | 0.0053 | 0.0177 | 29.8% |
+| 10-19 | 45 | 0.0048 | 0.0273 | 17.5% |
+| 20-99 | 31 | 0.0044 | 0.0391 | **11.3%** |
+
+**It falls with n, monotonically, on both measures.** So the mean over 113
+players is not hiding an effect that grows with evidence; it is hiding one
+**concentrated in low-n players**.
+
+That cuts two ways and both belong in the record. It **reduces** the served
+impact further, because low `n` means `n / (n + k)` is small and those are
+precisely the players shrunk hardest toward the prior. And it **sharpens the
+three-support mismatch** rather than dissolving it: the players most affected by
+the contaminated observation are the same players whose projection is dominated
+by the prior — and that prior is fit on rows the observation does not use. The
+disagreement between `:492`, `:395` and `shrinkage-fit.js:330` matters most
+exactly where it is hardest to see.
+
+The Auditor's pre-registered default of exclude-zeros is consistent with all of
+the above; this section does not argue for it, having no standing to.

@@ -56,11 +56,19 @@ const DEALS = [
 ];
 const UNIVERSE = ['Alpha Give', 'Alpha Get', 'Beta Give', 'Beta Get', 'Gamma Give', 'Gamma Get', 'Other Player'];
 
+// The engine reports the team it priced the slate for as `me.roster_id`
+// (trade-engine.js:1817). It picks that team as `myTeamId ?? lg.my_team_id`, and
+// falls back to its first roster when neither is found (:1518). The stub keeps
+// the first rule. A test that needs the engine to price for a team other than the
+// one asked for sets `engineTeam`, which stands in for that fallback.
+let engineTeam = null;
 const realEngine = await import('../server/services/trade-engine.js');
 mock.module('../server/services/trade-engine.js', {
   namedExports: {
     ...realEngine,
-    findTrades: () => ({ deals: DEALS.map(d => ({ ...d })), league_player_names: UNIVERSE }),
+    findTrades: (lg, { myTeamId } = {}) => ({
+      mode: 'league', me: { roster_id: engineTeam ?? String(myTeamId ?? lg.my_team_id), owner: 'Owner Me' },
+      deals: DEALS.map(d => ({ ...d })), league_player_names: UNIVERSE }),
   },
 });
 
@@ -94,14 +102,18 @@ run(`INSERT OR IGNORE INTO users(id, subject, display_name) VALUES (8801, 'outco
 run(`INSERT OR REPLACE INTO auth_sessions(user_id, token_hash, expires_at)
      VALUES (8801, ?, datetime('now','+1 day'))`, hashSessionToken('outcome-token'));
 
-function insertLeague(id, season) {
+function insertLeague(id, season, myTeamId = '1') {
   run(`INSERT INTO leagues(id, platform, league_id, season, name, payload, team_count, my_team_id)
-       VALUES (?, 'espn', ?, ?, ?, ?, 4, '1')`,
-  id, `espn-outcome-${id}`, season, `L${id}`, JSON.stringify({ teams: [], members: [] }));
+       VALUES (?, 'espn', ?, ?, ?, ?, 5, ?)`,
+  id, `espn-outcome-${id}`, season, `L${id}`, JSON.stringify({ teams: [], members: [] }), myTeamId);
   run(`INSERT OR IGNORE INTO league_memberships(league_id, user_id, role) VALUES (?, 8801, 'member')`, id);
 }
 insertLeague(41, 2026);
 insertLeague(42, null);
+// Own team '5', so a row stamped from the league's own team cannot be mistaken
+// for one stamped from `?team_id=1`, which the tests above send.
+insertLeague(43, 2026, '5');
+insertLeague(44, 2026, '5');
 
 const app = express();
 app.use(express.json());
@@ -143,7 +155,7 @@ test('route: a fresh proposals run writes what it sent and what it did not, with
   assert.equal(a.source, 'app_proposed');
   assert.equal(a.status, 'proposed');
   assert.equal(a.season, 2026, 'the league\'s own season');
-  assert.equal(a.proposer_team_id, '1', 'the team the caller asked for');
+  assert.equal(a.proposer_team_id, '1', 'the team the engine priced for, here the one the caller asked for');
   assert.equal(a.counterparty_team_id, '2', 'the engine\'s partner_id');
   assert.equal(a.model_version, PROMPT_VERSION, 'the prompt version that produced the decision');
   assert.equal(a.model_p_accept, band.band.mid);
@@ -181,4 +193,41 @@ test('route: a ledger write that fails does not fail the proposals, and says why
   assert.equal(res.body.outcome_ledger?.state, 'write_failed');
   assert.match(res.body.outcome_ledger.reason, /season is required/);
   assert.equal(ledgerRows(42).length, 0);
+});
+
+test('route: the client\'s call names no team, and every row still carries the team the slate was priced for', async () => {
+  // THE SHAPE THE APP ACTUALLY SENDS. ProposalSlate.tsx calls
+  // `/trades/${leagueId}/proposals` with no team_id; the engine then prices for
+  // the league's own team. A proposer read from the query string is null on
+  // every row the live page writes, and a stamp missing at decision time
+  // cannot be put back later.
+  const own = rows(`SELECT my_team_id FROM leagues WHERE id = 43`)[0].my_team_id;
+  assert.equal(own, '5', 'precondition: the league\'s own team differs from the team_id the other tests send');
+  const res = await get('/api/trades/43/proposals');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.source, 'model', 'precondition: a fresh decision, not a cache hit');
+  assert.equal(res.body.outcome_ledger?.state, 'recorded');
+  const written = ledgerRows(43);
+  assert.equal(written.length, 3, 'precondition: one row per idea in the slate');
+  assert.deepEqual([...new Set(written.map(r => r.proposer_team_id))], [own],
+    'every row, sent or not, carries the league\'s own team, which is the team the engine priced for');
+});
+
+test('route: when the engine prices for a team other than the one asked for, the rows carry the engine\'s team', async () => {
+  // A team_id the engine cannot find sends it to its first roster
+  // (trade-engine.js:1518). The deals are then that team's deals, so the rows
+  // must say so. Neither the query's team ('99') nor the league's own ('5') is it.
+  engineTeam = '1';
+  try {
+    const res = await get('/api/trades/44/proposals?team_id=99');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.source, 'model', 'precondition: a fresh decision, not a cache hit');
+    assert.equal(res.body.outcome_ledger?.state, 'recorded');
+    const written = ledgerRows(44);
+    assert.equal(written.length, 3, 'precondition: one row per idea in the slate');
+    assert.deepEqual([...new Set(written.map(r => r.proposer_team_id))], ['1'],
+      'the proposer is the team whose deals these are, not the query string and not the league default');
+  } finally {
+    engineTeam = null;
+  }
 });

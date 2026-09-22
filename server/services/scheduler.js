@@ -1176,10 +1176,10 @@ async function refreshSleeperPlayers() {
 }
 
 /**
- * The standing start/sit gate (plan item C12): our weekly projection against the dumb
- * rule "start the higher season-to-date average", replayed week by week over 2024-2025
- * and every played week of the current season, stored in model_gate_audits and read by
- * GET /api/gates/start-sit (the Lineup page's gate panel). A few replays of
+ * The standing start/sit gate (plan item C12): the projection the app served against ESPN's
+ * weekly projection (the plan's rule, the verdict), with "start the higher season-to-date
+ * average" replayed over 2024-2025 and this season as a floor check; stored in
+ * model_gate_audits and read by GET /api/gates/start-sit (the Lineup page's gate panel). A few replays of
  * buildProjections, so it runs in a worker. Weekly for now; the NFL-week ops calendar
  * (B-17, not built yet) will give it a day.
  */
@@ -1569,7 +1569,7 @@ export const JOBS = {
   // ~23 (docs/tdd/2026-09-22-start-sit-baseline-gate.tdd.md); the budget is ~11x that.
   start_sit_gate: { run: refreshStartSitGate, maxAgeMinutes: 7 * 24 * 60, tier: 'growth', offThread: true,
     timeoutMs: 10 * 60_000,
-    label: 'Start/sit gate: our projection vs "start the higher season average" (plan item C12)' }
+    label: 'Start/sit gate: our projection vs ESPN\'s projection (the plan\'s rule), with "start the higher season average" as a floor check (plan item C12)' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */

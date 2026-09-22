@@ -91,10 +91,12 @@ export const FORWARD_REPLAY_TEXT = 'This season, today\'s model settings replaye
   + 'projection the app served at the time.';
 export const SERVED_TEXT = 'What the app actually served: the projection it saved before each week\'s first kickoff, '
   + 'graded on the same players and the same scores as the replay.';
-export const ESPN_BASELINE_TEXT = 'The literal dumb rule: start the player ESPN projects higher that week (ESPN\'s own '
+/** The plan's rule (Auditor ruling A6): what the top-level verdict is graded against. */
+export const ESPN_BASELINE_TEXT = 'The plan\'s dumb rule: start the player ESPN projects higher that week (ESPN\'s own '
   + 'weekly projection, one value per player and week, from the synced leagues\' settled lineups).';
-export const BASELINE_TEXT = 'The dumb rule: start the player with the higher season-to-date PPR average '
-  + '(his average in games played this season before the week). No model.';
+/** The pre-registered floor, average_check (A6): the weaker check, never the verdict. */
+export const BASELINE_TEXT = 'The weaker check, set before the numbers: start the player with the higher season-to-date '
+  + 'PPR average (his average in games played this season before the week). No model.';
 export const UNIVERSE_TEXT = 'Every pair of same-position players (QB, RB, WR, TE) in the same week, both active '
   + 'the week before, not on a bye, and both projected at least 8.0 PPR by both rules. Graded only where the two '
   + 'rules disagree, on what the two picks actually scored (0 if he did not play).';

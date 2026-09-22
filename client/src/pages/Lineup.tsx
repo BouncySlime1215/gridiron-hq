@@ -256,8 +256,9 @@ export default function Lineup() {
 
       {d?.note && <p className="text-xs leading-5 text-slate-500">{d.note}</p>}
 
-      {/* Whether starting by our projection beats "start the higher average" at all
-          (plan item C12). League-independent: one weekly replay, stored and read. */}
+      {/* Whether starting by our projection beats ESPN's projection, the plan's rule, with
+          "start the higher average" as a weaker floor check (plan item C12). League-independent:
+          one weekly gate run, stored and read. */}
       <StartSitGate />
 
       <WaiverWire key={leagueId} data={waivers.data} loading={waivers.loading} error={waivers.error}

@@ -148,9 +148,10 @@ function Body({ data, loading, error, onRetry }: {
           )}
           {differs.map(w => (
             <p key={w.week} className="text-xs leading-5 text-slate-500">
-              The week {w.week} projection was served before today's model settings existed
-              ({[w.served_before_k_fit ? 'the fitted volume numbers' : null, !w.same_weights ? 'different blend weights' : null]
-                .filter(Boolean).join(', ')}), so what the app served and today's replay are not the same projection.
+              The week {w.week} projection was served on older settings
+              ({[w.served_before_k_fit ? 'before the fitted volume numbers existed' : null,
+                !w.same_weights ? 'different blend weights' : null].filter(Boolean).join('; ')}), so what the app
+              served and today's replay are not the same projection.
             </p>
           ))}
           <p className="text-xs leading-5 text-slate-500">Few weeks so far: this season shows direction, not proof.</p>

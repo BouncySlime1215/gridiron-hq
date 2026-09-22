@@ -489,7 +489,12 @@ export function vetoClimate(lg, { season = null, priceOfPlayer = null } = {}) {
     climate.reference_n = 1;
   }
   else if (climate.observed.length) climate.reference = climate.observed[0];
-  return climate;
+  // read_state on EVERY path, not two of three. The absent and empty paths set it
+  // and this one did not, so a consumer checking `read_state === 'present'` got
+  // undefined on the one path where the data is actually there — a field that is
+  // missing only when everything is fine is worse than no field at all. Found by
+  // writing the absence test below, not by the sweep.
+  return { ...climate, read_state: 'present', reason: null };
 }
 
 /** Where one package sits against what this league has already voted against. */

@@ -252,7 +252,15 @@ test('G3 a prediction with no basis is refused', () => {
     give: [], get: [],
     acceptance: { band: { low: 0.58, mid: 0.7, high: 0.82 }, basis: null },
     model_version: 'trade-acceptance-v1', proposed_at: '2025-10-07T12:00:00Z',
-  }), /model_basis/);
+  }),
+  // PINNED TO THIS LAYER'S OWN WORDS, and it has to be. The table holds the same
+  // rule as a CHECK, and SQLite's failure message quotes the constraint — which
+  // contains `model_basis` too. So /model_basis/ passed whether the service refused
+  // the row or the database did, and removing the service's guard alone broke
+  // nothing (sweep row M19). Two guards with one assertion that accepts either is
+  // one guard with no test.
+  e => /^trade-outcomes: model_basis is required/.test(e.message),
+  'the service must refuse it in its own words, before the row reaches the table');
 });
 
 test('G3 the table itself refuses a midpoint outside its own band', () => {
@@ -268,7 +276,12 @@ test('G3 an app proposal without a model number is refused rather than written i
   assert.throws(() => recordProposedOutcome({
     league_id: 7, season: 2025, proposer_team_id: '1', counterparty_team_id: '3',
     give: [], get: [], model_version: 'trade-acceptance-v1', proposed_at: '2025-10-07T12:00:00Z',
-  }), /model_p_accept/,
+  }),
+  // Pinned for the same reason as the basis test above: the table's
+  // `CHECK (source <> 'app_proposed' OR model_p_accept IS NOT NULL)` also fires
+  // here and its message also contains the column name, so the old pattern could
+  // not tell which layer did the work (sweep row M31).
+  e => /^trade-outcomes: model_p_accept is required and was not given$/.test(e.message),
   'a proposed row with no prediction is a row that can never be scored, so it is not a row');
 });
 
@@ -341,9 +354,18 @@ test('G5 the two tables are never joined by the reader', () => {
 
 /* --------------------------------------------- the contract, stated in SQL */
 
+// THE ROW HAS TO BE VALID IN EVERY OTHER RESPECT or this test does not test what
+// it says. The first version of it left espn_tx_id out, so the row was refused by
+// `CHECK (source <> 'observed' OR espn_tx_id IS NOT NULL)` and the test passed with
+// the status CHECK stripped from the table entirely — found by the mutation sweep in
+// docs/tdd/sweeps/, row M7. A /CHECK|constraint/ regex cannot tell one constraint
+// from another, so the discrimination has to come from the row, not the pattern.
 test('an outcome status outside the declared set is refused by the table itself', () => {
-  assert.throws(() => run(`INSERT INTO trade_outcomes (league_id, season, source, status, created_at)
-    VALUES (7, 2025, 'observed', 'maybe', '2025-10-08T12:00:00Z')`), /CHECK|constraint/i);
+  assert.throws(() => run(`INSERT INTO trade_outcomes
+    (league_id, season, source, status, espn_tx_id, created_at)
+    VALUES (7, 2025, 'observed', 'maybe', 'status-vocab-1', '2025-10-08T12:00:00Z')`),
+  /CHECK|constraint/i,
+  'the status vocabulary is closed, and this row breaks no other rule in the table');
 });
 
 test('an outcome source outside the declared set is refused by the table itself', () => {
@@ -355,6 +377,75 @@ test('a not_proposed row without a reason is refused by the table itself', () =>
   assert.throws(() => run(`INSERT INTO trade_outcomes (league_id, season, source, status, created_at)
     VALUES (7, 2025, 'considered_only', 'not_proposed', '2025-10-08T12:00:00Z')`),
   /CHECK|constraint/i, 'the reason is what makes a non-event a datum');
+});
+
+/*
+ * THE FOUR CHECKS BELOW HAD NO TEST AT ALL, and the evidence file claimed the
+ * contract was asserted against the table's own constraints. The mutation sweep
+ * (docs/tdd/sweeps/, rows M1, M3, M4, M6) removed each one and all 25 tests stayed
+ * green: two because nothing exercised them, two because the service refuses the
+ * same row first and every assertion accepted either refusal.
+ *
+ * Each row below is valid in every respect EXCEPT the one rule it breaks, so the
+ * constraint that fires is the constraint under test. They go through `run` rather
+ * than a writer on purpose: a CHECK exists for the writer that has not been written
+ * yet, and a test that goes through today's writer cannot see it.
+ */
+test('the table refuses a considered_only row that is not not_proposed', () => {
+  assert.throws(() => run(`INSERT INTO trade_outcomes
+    (league_id, season, source, status, not_proposed_reason, created_at)
+    VALUES (77, 2025, 'considered_only', 'proposed', 'a reason', '2025-10-08T12:00:00Z')`),
+  /CHECK|constraint/i,
+  'a considered_only row IS the non-event; one marked proposed would be counted as a '
+  + 'sent offer by every read that filters on status');
+});
+
+test('the table refuses an observed row with no ESPN id to trace it to', () => {
+  assert.throws(() => run(`INSERT INTO trade_outcomes
+    (league_id, season, source, status, created_at)
+    VALUES (77, 2025, 'observed', 'proposed', '2025-10-08T12:00:00Z')`),
+  /CHECK|constraint/i,
+  'an observed row that cannot be traced back to the raw row is a claim about ESPN '
+  + 'with nothing behind it, and it can never be re-derived or corrected');
+});
+
+test('the table refuses an app_proposed row with no prediction, independently of the writer', () => {
+  assert.throws(() => run(`INSERT INTO trade_outcomes
+    (league_id, season, source, status, created_at)
+    VALUES (77, 2025, 'app_proposed', 'proposed', '2025-10-08T12:00:00Z')`),
+  /CHECK|constraint/i,
+  'a prediction not recorded when it was made cannot be recovered: re-running the '
+  + 'model later scores a different model against an older decision');
+});
+
+test('the table refuses a recorded midpoint that does not say which kind of claim it was', () => {
+  assert.throws(() => run(`INSERT INTO trade_outcomes
+    (league_id, season, source, status, model_p_accept, model_p_accept_low,
+     model_p_accept_high, created_at)
+    VALUES (77, 2025, 'app_proposed', 'proposed', 0.5, 0.4, 0.6, '2025-10-08T12:00:00Z')`),
+  /CHECK|constraint/i,
+  'an anchored band and a declared starting point are different evidence, and a row '
+  + 'that does not say which it is cannot be kept out of the wrong curve later');
+});
+
+test('the unique index, not the writer, is what stops one ESPN trade becoming two rows', () => {
+  // settleObservedOutcomes checks for an existing row before it inserts, so with that
+  // SELECT in place the index never fires and downgrading it to a plain index broke
+  // no test (sweep row M9). The index is the guard that holds when a second writer
+  // exists, and it is the reason idempotency is a property of the table rather than
+  // a habit of one function.
+  const ins = tx => run(`INSERT INTO trade_outcomes
+    (league_id, season, source, status, espn_tx_id, created_at)
+    VALUES (?, 2025, 'observed', 'proposed', ?, '2025-10-08T12:00:00Z')`, ...tx);
+  ins([78, 'dup-1']);
+  assert.throws(() => ins([78, 'dup-1']), /UNIQUE|constraint/i,
+    'the same ESPN transaction in the same league-season is one outcome, not two');
+  // And the same id in a DIFFERENT league is a different deal. league_transactions_raw
+  // keys on (league_id, season, tx_id), so an id is not unique on its own, and a
+  // single-column key would have merged two leagues' deals while looking like
+  // successful de-duplication.
+  ins([79, 'dup-1']);
+  assert.equal(outcomesFor(79, 2025).filter(o => o.espn_tx_id === 'dup-1').length, 1);
 });
 
 /* ----------------- the slate recorder: what was sent AND what was not */
@@ -449,4 +540,21 @@ test('slate: an idea with no acceptance band is skipped, never written unscoreab
   assert.equal(r.proposed, 0);
   assert.equal(r.skipped, 1,
     'the table requires the prediction on an app_proposed row, so an unscoreable one is not a row');
+});
+
+test('slate: an idea whose counterparty cannot be read stores null, never a guessed team', () => {
+  // G7 on the app side. counterpartyOf reads four possible shapes off the engine's
+  // idea; when none of them is there the answer is "we do not know", and a made-up
+  // roster id would attach a real person to a deal they were never offered. Making
+  // it return a team id instead of null broke no test before this one (sweep row M23).
+  const r = slateRecorder(12, 2025, {
+    ideas: [idea('idea-nocp', { counterparty: null })],
+    result: { source: 'model', proposals: [{ idea_id: 'idea-nocp' }], rejected: [] },
+    modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
+  });
+  assert.equal(r.proposed, 1, 'the deal is still a real decision the model made');
+  const stored = outcomesFor(12, 2025).find(o => o.idea_id === 'idea-nocp');
+  assert.equal(stored.counterparty_team_id, null,
+    'an unknown counterparty is stored as unknown; a guess here prices a person on a '
+    + 'negotiation that never involved them');
 });

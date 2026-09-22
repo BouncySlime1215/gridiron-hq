@@ -2383,9 +2383,21 @@ function surfacesOf(reachNames, file, hops = MAX_HOPS) {
 function surfaceFamilies(reachNames, filesList, hops = MAX_HOPS) {
   const best = (map, key, d) => { if (map.get(key) == null || d < map.get(key)) map.set(key, d); };
   const routes = new Map(), jobs = new Map(), scripts = new Map(), pages = new Map();
+  // A script's reach is an ENTRY-POINT question, not a proximity one. Everything
+  // in a script's import closure is executed when the script runs, however many
+  // hops down it sits, and `package.json` naming the script is exactly what
+  // CONTRACT.md's `wired` test asks about. `hops` is the monolith heuristic --
+  // "a real dependency, or two modules sharing a library" -- and it is the wrong
+  // question here. Applying it to scripts truncated the answer at CLOSE_HOPS:
+  // server/services/nfl-features.js sits 4 hops from `npm run audit:nfl` and
+  // recorded no script reach at all. Measured 2026-09-22 on 659 non-test
+  // modules: 16 gain a script reach, saturating at 5 hops, so this is not the
+  // everything-reaches-everything case the cap exists for. Still bounded by
+  // MAX_HOPS, and never below whatever the caller asked for.
+  const limit = (name) => (name.startsWith('script:') ? Math.max(hops, MAX_HOPS) : hops);
   for (const f of filesList) {
     for (const [name, d] of reachNames.get(f) ?? []) {
-      if (d > hops) continue;
+      if (d > limit(name)) continue;
       if (name.startsWith('route:')) best(routes, '/api/' + (name.split(' ')[1] ?? '').split('/')[2], d);
       else if (name.startsWith('job:')) best(jobs, name.slice(4), d);
       else if (name.startsWith('script:')) best(scripts, name.replace(/^script:npm\/node /, ''), d);
@@ -2398,11 +2410,17 @@ function surfaceFamilies(reachNames, filesList, hops = MAX_HOPS) {
   return { route_families: fmt(routes), jobs: fmt(jobs), scripts: fmt(scripts), pages: fmt(pages) };
 }
 
-/** Only what is genuinely wired in: surfaces within CLOSE_HOPS import hops. */
+/**
+ * Only what is genuinely wired in: surfaces within CLOSE_HOPS import hops.
+ *
+ * `scripts` is deliberately not cut here, for the reason in `surfaceFamilies`:
+ * a script runs its whole import closure, so "how far down" answers nothing.
+ * Cutting it twice was how the nfl-features.js case survived the first fix.
+ */
 function close(wiring) {
   const pick = (a) => a.filter(x => x.hops <= CLOSE_HOPS);
   return { route_families: pick(wiring.route_families), jobs: pick(wiring.jobs),
-    scripts: pick(wiring.scripts), pages: pick(wiring.pages) };
+    scripts: wiring.scripts, pages: pick(wiring.pages) };
 }
 
 function annotations(file) {

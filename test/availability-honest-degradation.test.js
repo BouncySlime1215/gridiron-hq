@@ -169,13 +169,55 @@ const callWith = (availability_basis, active_probability) => {
   return call;
 };
 
+/**
+ * The five assertions below replaced two pipe alternations, and each one carries the
+ * mutation that motivated it, re-run AFTER the split. A replacement a neighbouring
+ * clause can satisfy is not a split, so "it looks tighter" is not the test -- the row
+ * is. Run with --experimental-test-module-mocks; without it this file does not load at
+ * all and reports one failure that is not a test result.
+ *
+ * | assertion                          | mutation                                        | old | new |
+ * |---|---|---|---|
+ * | effect names the pooled rate       | `pooled injury-report rate` -> `pooled rate`    |  0  |  1  |
+ * | effect carries the placeholder read| `known-low placeholder` -> `rough placeholder`  |  0  |  1  |
+ * | effect is not the constants branch | the ternary always takes the constants side     |  1  |  1  |
+ * | the caveat rides with the number   | caveat -> `not running from the fitted layer`   |  0  |  1  |
+ * | the caveat names the inert layer   | `is not running (docs/...)` -> `is idle (...)`  |  0  |  1  |
+ *
+ * `old` is the failure count against the two alternations, `new` against the split.
+ * Four rows are 0 -> 1: the mutation slid past the alternation and is caught now.
+ *
+ * THE THIRD ROW IS 1 -> 1, AND AN EARLIER VERSION OF THIS TABLE SAID 0 -> 1. That was
+ * asserted rather than measured, and it was wrong: the constants sentence contains
+ * neither `pooled` nor `injury report`, so the old alternation did catch the ternary
+ * swap. The split preserves that coverage, it does not add it. The row is kept because
+ * a `doesNotMatch` guard is worth having explicitly, not because the alternation was
+ * blind to it. It is also not isolated -- the swap fails the first two assertions too
+ * -- and is recorded that way rather than dressed up with a contrived edit only it
+ * would catch.
+ *
+ * Hashes, so a row that failed to apply cannot read as a row the tests caught.
+ * `contingency.js` base `28bffcd49d70`, `lineup-brain.js` base `7002b98fc00c`, both
+ * restored and re-verified. Rows in order: `2f4c4bc310f0`, `252ef4a1b26c`,
+ * `c97785591dff`, `8fe828b8e578` (lineup-brain), `f6649190a2cc`.
+ */
 test('an inert role layer is reported on the lineup call with its reason, like counterparty-pricing', () => {
   const note = callWith(POOLED, 0.574).availability_note;
   assert.ok(note, 'the pooled basis is a degradation and must be named');
   assert.equal(note.basis, 'pooled');
   assert.match(note.inert, /role/i, 'names the layer that is not running');
   assert.match(note.reason, /nfl_availability_role_rates/, 'names why, down to the table');
-  assert.match(note.effect, /pooled|injury report/i, 'says what the shown percentages actually are');
+  // One assertion per claim, not an alternation. `effect` has exactly two possible
+  // values, chosen by a ternary on the basis, and this fixture is the pooled one --
+  // so an alternation here does not express a closed set, it accepts three wordings
+  // of the one string the fixture can produce. The `injury report` branch never
+  // matched anything at all: the producer writes `injury-report`, hyphenated.
+  assert.match(note.effect, /pooled injury-report rate/,
+    'names the layer that is actually pricing the numbers');
+  assert.match(note.effect, /known-low placeholder/,
+    'and says how to read it, which is the half a reader acts on');
+  assert.doesNotMatch(note.effect, /hand-set constant/,
+    'this is the pooled branch of the ternary, not the constants one');
   assert.match(note.fix, /fit-availability/, 'says what makes it live again');
 });
 
@@ -189,8 +231,14 @@ test('a chance-to-play warning never reads as a fitted number while the layer is
   const degraded = callWith(POOLED, 0.574).warnings.find(w => w.player === 'Jayden Placeholder');
   assert.ok(degraded, 'a 57% chance to play is still flagged');
   assert.match(degraded.issue, /57% likely to suit up and see the ball/, 'the number is still shown');
-  assert.match(degraded.issue, /not the fitted|not running|pooled/i,
-    'and is never shown bare: the reason travels with it');
+  // Same again: the fixture pins the basis, so exactly one sentence is produced and
+  // the three branches were three wordings of it. Two matched and one (`pooled`)
+  // never did, so a reworded caveat could slide through on whichever branch still
+  // happened to hit.
+  assert.match(degraded.issue, /but that is not the fitted number:/,
+    'the caveat is attached to the number, not left to the reader to infer');
+  assert.match(degraded.issue, /the role layer is not running/,
+    'and names the layer that is inert, not just that something is wrong');
   assert.equal(degraded.availability_basis, 'pooled');
 
   const fitted = callWith(ROLE, 0.574).warnings.find(w => w.player === 'Jayden Placeholder');

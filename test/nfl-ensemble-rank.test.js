@@ -269,6 +269,14 @@ test('the full report runs on the ensemble\'s own walk-forward stream and recove
   assert.equal(report.market_shrinkage.market_residual.available, true);
 });
 
+test('rankReports: an empty answer before anything is ever saved is not a swallowed fault', () => {
+  // nfl_ensemble_rank_reports is created only by saveRankReport, on its first
+  // call — this file's DB has not called it yet at this point, so the table
+  // genuinely does not exist. [] is the correct answer here, not a masked error.
+  assert.deepEqual(rank.rankReports(), []);
+  assert.deepEqual(rank.rankReports({ label: 'unit' }), []);
+});
+
 test('a report can be stored and read back without losing its numbers', () => {
   const report = { version: rank.ENSEMBLE_RANK_VERSION, cutoff: { season: 2024, week: 1 }, headline: { measured: true, participation_ratio: 2.5 } };
   rank.saveRankReport(report, { label: 'unit' });
@@ -279,4 +287,14 @@ test('a report can be stored and read back without losing its numbers', () => {
   rank.saveRankReport({ ...report, headline: { measured: true, participation_ratio: 3.5 } }, { label: 'unit' });
   assert.equal(rank.rankReports({ label: 'unit' }).length, 1);
   assert.equal(rank.rankReports({ label: 'unit' })[0].report.headline.participation_ratio, 3.5);
+});
+
+test('rankReports: a real fault throws once the table exists, rather than reading as empty', () => {
+  // The table exists by now (the previous test called saveRankReport). A row
+  // with unparsable report_json is a genuine data fault, not an absent table,
+  // and must not come back silently as [] — that was the actual bug: a bare
+  // catch could not tell "never run" from "something is broken" apart.
+  run(`INSERT INTO nfl_ensemble_rank_reports (label,version,cutoff,created_at,report_json)
+       VALUES (?,?,?,datetime('now'),?)`, 'corrupt-fixture', 'v1', 'live', '{not valid json');
+  assert.throws(() => rank.rankReports({ label: 'corrupt-fixture' }), SyntaxError);
 });

@@ -31,6 +31,7 @@
 import { rows } from '../db/index.js';
 import { playerWeeks } from './nfl-pbp.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
+import { valueAsKnown } from './nfl-bitemporal.js';
 
 const CURRENT_SNAPSHOT_SEASON = 2026;
 const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
@@ -382,4 +383,192 @@ export function validateInjuryAdjustment({ fitSeasons = [2023, 2024], testSeason
     unadjusted_mae: mae(errBase), adjusted_mae: mae(errAdj), bootstrap: test,
     improves: test.significant === true && test.mean_diff < 0
   };
+}
+
+/**
+ * Plan 01 / package #19 (Auditor units 11, 12, G5/G6) — a graded, normalised
+ * availability multiplier from the report_status the player actually carried,
+ * replacing `role-scenario-engine.js`'s pooled `limitedRoleMultiplier`
+ * (`limited`+`questionable` averaged into one scalar, clamped) with the
+ * repository's own per-status measurement.
+ *
+ * The instrument is the repo's own "played" definition -- a real usage row
+ * with positive opportunity that week, the same test weekly-backtest.js's
+ * `decision_including_dnp` uses (`t.weeks.has(week)`) -- never a
+ * share-prediction proxy.
+ *
+ * WHY THE DENOMINATOR IS `nfl_injuries`, NOT `player_week_usage`: an Out or
+ * Doubtful player mostly has NO row in `player_week_usage` at all (the same
+ * source `nflverse.js:227` and the rig both draw from carries no row for a
+ * player who did not play), so counting bucket population from usage rows
+ * alone would silently exclude almost the entire Out/Doubtful population and
+ * read as a false ~1.0 -- the exact failure G5/G6 found when `add-absences.mjs`
+ * was reverted. `nfl_injuries` is a real weekly designation roster
+ * independent of whether the player then produced a usage row, so it is the
+ * only correct `n` here; this sidesteps the HARD LIMIT in PLAN-01 §2.4 that
+ * blocks a rig-based grade until absence rows exist -- that limit is about
+ * `player_week_usage`-only denominators, and this fit never uses one.
+ *
+ * The baseline ("no report") population is players with a usage row in any
+ * of the prior 3 weeks that season (an established role) and no injury
+ * report the following week -- the same "recently active" gate
+ * `measureInjuryEffect` uses for its own clean group.
+ *
+ * Pre-registered BEFORE this function was run against real data (Plan 01
+ * §2.6.B, G2): a bucket's ratio is estimated only if its `n >= minN`;
+ * otherwise it is POOLED BACK to the unreported case (ratio exactly 1.0),
+ * never left as a separate, under-powered estimate. This is declared once,
+ * here, and applies uniformly to whatever buckets a given season range
+ * produces -- it does not hardcode which named buckets survive.
+ */
+export function fitGradedAvailability(seasons, { minN = 30 } = {}) {
+  const seasonList = seasons.filter(s => s !== CURRENT_SNAPSHOT_SEASON); // 2026 is in progress, not a full season
+  const placeholders = seasonList.map(() => '?').join(',');
+
+  // Auditor §R19.6: fitting from `nfl_injuries` (the FINAL, upserted-in-place
+  // designation) while serving reads an AS-OF status through
+  // `nfl_feature_revisions` conditions the two on different populations. A
+  // player who was Questionable early in the week and deteriorated to Out by
+  // the final report is fit as Out (never played, drags Out's rate down and
+  // Questionable's up) but would be READ as Questionable by an early
+  // decision -- optimistic bias on exactly the bucket a decision leans on.
+  // `earliest` is each entity's FIRST recorded injury_report revision -- the
+  // earliest a decision could have known a status -- so fit and serve share
+  // one conditioning set. `entity` is `player:<gsisId>:<season>:<week>`;
+  // gsis_id is pulled out by position rather than re-parsed with a second
+  // query per row.
+  const earliest = `
+    WITH ranked AS (
+      SELECT entity, entity_season AS season, entity_week AS week,
+        json_extract(value_json, '$.report_status') AS status,
+        ROW_NUMBER() OVER (PARTITION BY entity ORDER BY observed_at ASC, published_at ASC) AS rn
+      FROM nfl_feature_revisions
+      WHERE feature = 'injury_report' AND entity_season IN (${placeholders})
+    )
+    SELECT substr(entity, 8, instr(substr(entity, 8), ':') - 1) AS gsis_id, season, week, status
+    FROM ranked WHERE rn = 1
+  `;
+
+  const baseline = rows(`
+    WITH active AS (
+      SELECT DISTINCT player_id, season, week FROM player_week_usage
+      WHERE (COALESCE(targets,0)+COALESCE(carries,0)+COALESCE(attempts,0)) > 0 AND season IN (${placeholders})
+    ),
+    candidates AS (SELECT player_id, season, week+1 AS next_week FROM active),
+    earliest_status AS (${earliest})
+    SELECT
+      COUNT(DISTINCT c.player_id || '|' || c.season || '|' || c.next_week) n,
+      SUM(CASE WHEN pwu.player_id IS NOT NULL
+        AND (COALESCE(pwu.targets,0)+COALESCE(pwu.carries,0)+COALESCE(pwu.attempts,0)) > 0
+        THEN 1 ELSE 0 END) played
+    FROM candidates c
+    JOIN players p ON p.id = c.player_id
+    LEFT JOIN earliest_status es ON es.gsis_id = p.gsis_id AND es.season = c.season AND es.week = c.next_week
+    LEFT JOIN player_week_usage pwu ON pwu.player_id = c.player_id AND pwu.season = c.season AND pwu.week = c.next_week
+    WHERE es.status IS NULL AND c.next_week <= 22
+  `, ...seasonList, ...seasonList)[0];
+  const baselineRate = baseline.n > 0 ? baseline.played / baseline.n : null;
+
+  const bucketRows = rows(`
+    WITH earliest_status AS (${earliest})
+    SELECT es.status status, COUNT(*) n,
+      SUM(CASE WHEN pwu.player_id IS NOT NULL
+        AND (COALESCE(pwu.targets,0)+COALESCE(pwu.carries,0)+COALESCE(pwu.attempts,0)) > 0
+        THEN 1 ELSE 0 END) played
+    FROM earliest_status es
+    JOIN players p ON p.gsis_id = es.gsis_id
+    LEFT JOIN player_week_usage pwu ON pwu.player_id = p.id AND pwu.season = es.season AND pwu.week = es.week
+    WHERE es.status IS NOT NULL
+    GROUP BY es.status
+  `, ...seasonList);
+
+  const buckets = {};
+  const retained = {};
+  for (const b of bucketRows) {
+    const rate = b.n > 0 ? b.played / b.n : null;
+    const ratio = rate != null && baselineRate ? rate / baselineRate : null;
+    buckets[b.status] = { n: b.n, played: b.played, rate: r3(rate), ratio: r3(ratio), retained: b.n >= minN };
+    if (b.n >= minN && ratio != null) retained[b.status] = r3(ratio);
+  }
+
+  return {
+    seasons: seasonList, min_n: minN,
+    baseline: { n: baseline.n, played: baseline.played, rate: r3(baselineRate) },
+    buckets,
+    // The consumption vector: only buckets clearing minN get their own
+    // ratio; everything else (a sub-floor bucket, or no designation at all)
+    // resolves to exactly 1.0 in gradedAvailabilityMultiplier below.
+    ratios: retained,
+    note: '79% still unclaimed, most of it not in a Wednesday report.'
+  };
+}
+
+/**
+ * Plan 01's kill switch (Auditor §R40). FALSE, and nothing in this repository
+ * sets it true: `gradedAvailabilityMultiplier` returns the neutral 1 for every
+ * input while it is off, so the multiplier ships without changing a single
+ * served number. It stays off until the §R19.6-conditioned fit (population
+ * taken from each entity's earliest `nfl_feature_revisions` row rather than
+ * `nfl_injuries`' final value) has been independently regraded -- the refit
+ * came out numerically identical on this container's data, which is a property
+ * of that data, not evidence the conditioning question is settled.
+ *
+ * Why a flag rather than leaving it unreachable: with no call site at all, the
+ * first caller to wire it up switches live behaviour with nothing in the diff
+ * that says so. With the flag, wiring and enabling are separate one-line
+ * changes, and the second one is the reviewable event.
+ *
+ * It is the DEFAULT, not a hard block: `gradedAvailabilityMultiplier(...,
+ * { enabled: true })` runs the real logic, which is how this unit's own tests
+ * grade it. A caller that opts in has said so in its own diff, which is the
+ * property the flag exists to create.
+ *
+ * WHERE DEFAULT-ON IS ALLOWED TO HAPPEN (Auditor §R51.1 condition 3): at the
+ * coupled grade's named call site, and nowhere else. That is the site where
+ * §R19.6's as-of refit binds -- the refit whose numbers came back identical on
+ * this container's single-snapshot revision store, which is why the grade is
+ * still owed. Turning the flag on anywhere before then would be adopting an
+ * ungraded multiplier. Production code therefore never passes the override at
+ * all; it inherits this constant, and a source scan in
+ * `test/nfl-player-context-graded-availability.test.js` fails the build if any
+ * caller under `server/` or `scripts/` passes a 6th argument. Wiring the
+ * multiplier in is allowed by that scan; switching it on is not.
+ */
+export const GRADED_AVAILABILITY_ENABLED = false;
+
+/**
+ * The as-of-safe consumer: `fitted` is `fitGradedAvailability(...).ratios`.
+ *
+ * `decisionAt` is mandatory and is read through `valueAsKnown` against
+ * `nfl_feature_revisions` (feature `injury_report`), never `nfl_injuries`
+ * directly -- `nfl_injuries` UPSERTs in place and holds only the FINAL
+ * designation, so reading it for a Sunday-lock projection is a look-ahead
+ * leak (PLAN-01 §2.2): the read would see a Friday downgrade a Wednesday
+ * decision never had.
+ *
+ * INVARIANT (Plan 01 §2.6.G1): a player with no report as of `decisionAt`
+ * gets a multiplier of EXACTLY 1.0 -- not a value close to 1.0, not the raw
+ * (unnormalised) play rate. The earlier, un-normalised form of this idea
+ * overstated the effect by 4x for exactly this reason: it returned the raw
+ * play probability (well under 1.0, since even a healthy player misses a
+ * fraction of weeks for bye/rest/blowouts) instead of a ratio against that
+ * same baseline. Every branch below that is not a retained, on-report
+ * bucket returns the literal number `1`.
+ */
+export function gradedAvailabilityMultiplier(
+  gsisId, season, week, decisionAt, fitted, { enabled = GRADED_AVAILABILITY_ENABLED } = {}
+) {
+  if (!enabled) {
+    return { multiplier: 1, bucket: null, known: false, reason: 'graded_availability_disabled' };
+  }
+  if (!gsisId || !decisionAt) return { multiplier: 1, bucket: null, known: false };
+  const entity = `player:${gsisId}:${season}:${week}`;
+  const known = valueAsKnown(entity, 'injury_report', decisionAt);
+  if (!known.known) return { multiplier: 1, bucket: null, known: false, reason: known.reason };
+  const status = known.value?.report_status ?? null;
+  if (status == null || !(status in fitted)) {
+    return { multiplier: 1, bucket: status, known: true, as_of: decisionAt, retained: false };
+  }
+  return { multiplier: fitted[status], bucket: status, known: true, as_of: decisionAt, retained: true,
+    published_at: known.published_at, observed_at: known.observed_at };
 }

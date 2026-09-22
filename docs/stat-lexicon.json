@@ -1,0 +1,384 @@
+{
+  "_generated_by": "scripts/emit-stat-lexicon.mjs from server/services/coach/stat-names.js",
+  "_do_not_edit": "Edit stat-names.js and re-run the script. Edits here are overwritten.",
+  "concept_count": 38,
+  "field_count": 44,
+  "concepts": {
+    "targets": {
+      "name": "Targets",
+      "unit": "passes",
+      "better": "higher",
+      "plain": "How many times the quarterback threw the ball in this player's direction, whether or not he caught it.",
+      "why": "Catches depend on luck and coverage; being thrown at does not. It is the single most stable sign that a coach trusts a receiver.",
+      "source": "nflverse"
+    },
+    "receptions": {
+      "name": "Catches",
+      "unit": "catches",
+      "better": "higher",
+      "plain": "How many of those passes he actually caught.",
+      "why": "In a PPR league each catch is a point on its own, before any yards.",
+      "source": "nflverse"
+    },
+    "carries": {
+      "name": "Carries",
+      "unit": "runs",
+      "better": "higher",
+      "plain": "How many times he was handed the ball to run with.",
+      "why": "Carries near the goal line are where most rushing touchdowns come from, so volume here drives scoring.",
+      "source": "nflverse"
+    },
+    "pass_attempts": {
+      "name": "Pass attempts",
+      "unit": "passes",
+      "better": "higher",
+      "plain": "How many passes the quarterback threw.",
+      "why": "A quarterback who throws 40 times has roughly twice the chance to score as one who throws 20, whatever else is true.",
+      "source": "nflverse"
+    },
+    "target_share": {
+      "name": "Target share",
+      "unit": "share of 1",
+      "better": "higher",
+      "plain": "Of every pass his team threw, the fraction thrown at him. 0.28 means 28 of every 100.",
+      "why": "It separates a player who is genuinely first in line from one who happened to get eight targets in a game where his team threw fifty.",
+      "source": "nflverse"
+    },
+    "air_yards_share": {
+      "name": "Air-yards share",
+      "unit": "share of 1",
+      "better": "higher",
+      "plain": "Of all the yards his team's passes travelled in the air, the fraction that travelled toward him — counting the throw whether or not he caught it.",
+      "why": "This is the share of the DOWNFIELD work. A player with a high target share but a low air-yards share is being used on short passes, which caps how big his games can get.",
+      "source": "nflverse"
+    },
+    "wopr": {
+      "name": "WOPR",
+      "unit": "index",
+      "better": "higher",
+      "plain": "Weighted Opportunity Rating: target share and air-yards share combined into one number, weighted 1.5 to 0.7 in favour of targets.",
+      "why": "One number for \"how central is he to this passing game\", which is the question behind most start/sit and trade decisions.",
+      "source": "nflverse"
+    },
+    "snap_share": {
+      "name": "Snap share",
+      "unit": "share of 1",
+      "better": "higher",
+      "plain": "Of his team's offensive plays, the fraction he was on the field for.",
+      "why": "It is the first thing to move when a role changes — a player coming off the field on third down is being phased out before the box score shows it.",
+      "source": "nflverse"
+    },
+    "first_downs": {
+      "name": "First downs",
+      "unit": "first downs",
+      "better": "higher",
+      "plain": "How many of his plays moved the chains.",
+      "why": "Moving the chains keeps his offence on the field, which is how a player gets more chances in the same game.",
+      "source": "nflverse"
+    },
+    "catch_rate": {
+      "name": "Catch rate",
+      "unit": "percent",
+      "better": "higher",
+      "plain": "Of the passes thrown at him, the percentage he caught.",
+      "why": "Read it against how far downfield he plays: 60% on deep throws is excellent and 60% on screens is a problem.",
+      "source": "nflverse"
+    },
+    "adot": {
+      "name": "aDOT",
+      "unit": "yards",
+      "better": "neither",
+      "plain": "Average depth of target: how far past the line of scrimmage the ball was thrown, averaged over every pass aimed at him — caught or not.",
+      "why": "It is the shape of a player, not his quality. A low number means safe and steady; a high one means fewer catches and bigger ones.",
+      "source": "Pro Football Reference"
+    },
+    "racr": {
+      "name": "RACR",
+      "unit": "ratio",
+      "better": "higher",
+      "plain": "Receiver Air Conversion Ratio: the receiving yards he produced for each yard the ball travelled in the air toward him.",
+      "why": "Above 1 means he is adding yards after the catch beyond what the throw gave him. It is how a short-target player can still be valuable.",
+      "source": "nflverse"
+    },
+    "pacr": {
+      "name": "PACR",
+      "unit": "ratio",
+      "better": "higher",
+      "plain": "Passer Air Conversion Ratio: the passing yards a quarterback produced for each yard his throws travelled in the air.",
+      "why": "It separates a quarterback whose receivers turn throws into yards from one whose deep balls fall incomplete.",
+      "source": "nflverse"
+    },
+    "cpoe": {
+      "name": "CPOE",
+      "unit": "percentage points",
+      "better": "higher",
+      "plain": "Completion Percentage Over Expected: how much more often a quarterback completed a pass than a typical quarterback would have, given the same throws.",
+      "why": "It adjusts for difficulty, so a checkdown artist and a deep thrower can be compared on the same scale.",
+      "source": "nflverse"
+    },
+    "yac_over_expected": {
+      "name": "YAC over expected",
+      "unit": "yards",
+      "better": "higher",
+      "plain": "Yards after the catch above what a typical receiver would have gained from the same catch in the same situation.",
+      "why": "This is the part of a receiver's production that is him rather than his offence.",
+      "source": "Next Gen Stats"
+    },
+    "separation": {
+      "name": "Separation",
+      "unit": "yards",
+      "better": "higher",
+      "plain": "How far the nearest defender was when the ball arrived, averaged over his targets.",
+      "why": "A receiver who cannot get open is one coverage change away from losing his role, however good his box score looks.",
+      "source": "Next Gen Stats"
+    },
+    "cushion": {
+      "name": "Cushion",
+      "unit": "yards",
+      "better": "neither",
+      "plain": "How far off him the defender lined up before the snap, averaged over his targets.",
+      "why": "A big cushion means defences fear him deep and are conceding the short throw; a small one means the opposite.",
+      "source": "Next Gen Stats"
+    },
+    "rush_yards_over_expected": {
+      "name": "Rush yards over expected per carry",
+      "unit": "yards",
+      "better": "higher",
+      "plain": "Yards gained per carry above what a typical back would have gained with the same blocking and the same defenders in the box.",
+      "why": "It separates the runner from the offensive line, which is the whole question when a back changes teams.",
+      "source": "Next Gen Stats"
+    },
+    "rush_efficiency": {
+      "name": "Rush efficiency",
+      "unit": "index",
+      "better": "lower",
+      "plain": "How much total distance he travelled, side to side included, for each yard gained downfield.",
+      "why": "A high number means a lot of dancing. It is context for a bad yards-per-carry, not a verdict on its own.",
+      "source": "Next Gen Stats"
+    },
+    "broken_tackles": {
+      "name": "Broken tackles",
+      "unit": "tackles",
+      "better": "higher",
+      "plain": "How many tackles he made defenders miss.",
+      "why": "The clearest sign that a player creates yards his blocking did not give him.",
+      "source": "Pro Football Reference"
+    },
+    "drop_rate": {
+      "name": "Drop rate",
+      "unit": "percent",
+      "better": "lower",
+      "plain": "The percentage of catchable passes he dropped.",
+      "why": "Drops are not very repeatable year to year, so a high rate is usually a reason to buy rather than to sell.",
+      "source": "Pro Football Reference"
+    },
+    "yac_per_reception": {
+      "name": "Yards after catch per catch",
+      "unit": "yards",
+      "better": "higher",
+      "plain": "Of his yards, how many came after he caught the ball, per catch.",
+      "why": "It is the half of a receiver's yardage the quarterback did not give him.",
+      "source": "Pro Football Reference"
+    },
+    "ybc_per_reception": {
+      "name": "Yards before catch per catch",
+      "unit": "yards",
+      "better": "neither",
+      "plain": "Of his yards, how many the ball had already travelled when he caught it, per catch.",
+      "why": "The companion to the one above: together they say whether a player is a deep threat or a yards-after-catch player.",
+      "source": "Pro Football Reference"
+    },
+    "time_to_throw": {
+      "name": "Time to throw",
+      "unit": "seconds",
+      "better": "neither",
+      "plain": "How long the quarterback held the ball before releasing it, averaged over his throws.",
+      "why": "A quick release protects a bad offensive line and shortens throws; a long one means deep shots and sacks.",
+      "source": "Next Gen Stats"
+    },
+    "aggressiveness": {
+      "name": "Aggressiveness",
+      "unit": "percent",
+      "better": "neither",
+      "plain": "The percentage of his throws made into tight coverage, with a defender within a yard of the receiver when the ball arrives.",
+      "why": "An aggressive quarterback makes his receivers more valuable and his own completion rate worse.",
+      "source": "Next Gen Stats"
+    },
+    "pressure_rate": {
+      "name": "Pressure rate",
+      "unit": "percent",
+      "better": "lower",
+      "plain": "The percentage of his dropbacks on which he was hurried, hit or sacked.",
+      "why": "Pressure is the best single predictor of a bad passing day, and it is mostly about the line rather than the quarterback.",
+      "source": "Pro Football Reference"
+    },
+    "on_target_rate": {
+      "name": "On-target rate",
+      "unit": "percent",
+      "better": "higher",
+      "plain": "The percentage of his throws that were catchable, ignoring drops and throwaways.",
+      "why": "It is completion percentage with the receivers' hands taken out of it.",
+      "source": "Pro Football Reference"
+    },
+    "pocket_time": {
+      "name": "Pocket time",
+      "unit": "seconds",
+      "better": "neither",
+      "plain": "How long he had before the pocket broke down, averaged over his dropbacks.",
+      "why": "Read alongside time to throw: a quarterback holding the ball longer than his pocket lasts is about to be sacked a lot.",
+      "source": "Pro Football Reference"
+    },
+    "qbr": {
+      "name": "QBR",
+      "unit": "index 0-100",
+      "better": "higher",
+      "plain": "ESPN's Total Quarterback Rating: every play a quarterback was involved in, weighted by how much it mattered to winning.",
+      "why": "The one quarterback number that accounts for running, sacks and situation rather than passing alone.",
+      "source": "ESPN"
+    },
+    "fantasy_points": {
+      "name": "Fantasy points",
+      "unit": "points",
+      "better": "higher",
+      "plain": "What he actually scored under this league's scoring.",
+      "why": "The outcome. Everything else on this list exists to predict it.",
+      "source": "this app"
+    },
+    "expected_fantasy_points": {
+      "name": "Expected points",
+      "unit": "points",
+      "better": "higher",
+      "plain": "What a typical player would have scored from exactly the same opportunities — the same targets at the same depths, the same carries from the same places on the field.",
+      "why": "The gap between this and what he actually scored is the clearest sell-high or buy-low signal there is: opportunity repeats, finishing does not.",
+      "source": "ffopportunity"
+    },
+    "epa": {
+      "name": "EPA",
+      "unit": "points",
+      "better": "higher",
+      "plain": "Expected Points Added: how much his plays improved his team's chance of scoring, compared with an average play in the same situation.",
+      "why": "It values a 4-yard gain on third-and-3 above a 9-yard gain on third-and-12, which is what actually happened.",
+      "source": "nflverse"
+    },
+    "interceptions": {
+      "name": "Interceptions",
+      "unit": "throws",
+      "better": "lower",
+      "plain": "Passes he threw that the defence caught.",
+      "why": "Directly negative in every scoring system, and they end drives that would otherwise have scored.",
+      "source": "nflverse"
+    },
+    "fumbles_lost": {
+      "name": "Fumbles lost",
+      "unit": "fumbles",
+      "better": "lower",
+      "plain": "Times he lost the ball and the other team recovered it.",
+      "why": "Negative points, and a back who fumbles twice tends to lose goal-line work.",
+      "source": "nflverse"
+    },
+    "depth_chart_position": {
+      "name": "Position",
+      "unit": "label",
+      "better": "neither",
+      "plain": "The position group a player is listed in — quarterback, running back, wide receiver, tight end and so on.",
+      "why": "It decides which slot he can fill in a lineup and who he is actually competing with for the ball. A player listed at one position and used like another is the thing worth noticing, which is why this is stored separately from how he is used.",
+      "source": "this app"
+    },
+    "depth_chart_rank": {
+      "name": "Depth-chart rank",
+      "unit": "place",
+      "better": "lower",
+      "plain": "Where he is listed among his own team's players at that position: 1 is the starter, 2 is behind him, and so on.",
+      "why": "It is the cheapest available signal for whether a player will see the field at all, and it moves before the box score does — a back going from 2 to 1 is next week's volume, visible this week. It is a listing rather than a measurement, so it can be stale or wrong, and snap share is what settles an argument between them.",
+      "source": "this app"
+    },
+    "chance_to_play": {
+      "name": "Chance to play",
+      "unit": "probability 0-1",
+      "better": "higher",
+      "plain": "How likely this player is to be on the field this week, worked out from the official injury report, beat-reporter signals and his recent snap counts together.",
+      "why": "The first question before any lineup decision, and the one the box score cannot answer. Never show it without its basis (below): the same 0.82 can be a measurement or a constant.",
+      "source": "this app"
+    },
+    "availability_basis": {
+      "name": "Chance-to-play basis",
+      "unit": "label",
+      "better": "neither",
+      "plain": "Where a chance-to-play number came from. \"fitted\" means it was measured from this player's own situation; \"durability_prior\" means it was measured from players like him; \"default_durability\" means nobody measured anything and a single constant was used.",
+      "why": "A default_durability number is not a measurement and a claim resting on one has to say so. Kickers and defences always land there, because the availability model covers quarterbacks, running backs, receivers and tight ends only.",
+      "source": "this app"
+    }
+  },
+  "fields": {
+    "player_week_usage.targets": "targets",
+    "player_week_usage.receptions": "receptions",
+    "player_week_usage.carries": "carries",
+    "player_week_usage.attempts": "pass_attempts",
+    "player_week_usage.target_share": "target_share",
+    "player_week_usage.air_yards_share": "air_yards_share",
+    "player_week_usage.wopr": "wopr",
+    "player_week_usage.racr": "racr",
+    "player_week_usage.pacr": "pacr",
+    "player_week_usage.cpoe": "cpoe",
+    "player_week_usage.first_downs": "first_downs",
+    "player_week_usage.passing_epa": "epa",
+    "player_week_usage.rushing_epa": "epa",
+    "player_week_usage.receiving_epa": "epa",
+    "player_week_usage.interceptions": "interceptions",
+    "player_week_usage.fumbles_lost": "fumbles_lost",
+    "player_week_snaps.offense_pct": "snap_share",
+    "nfl_snaps.offense_pct": "snap_share",
+    "player_gamelog.fantasy_points": "fantasy_points",
+    "nfl_ffopportunity_weekly.expected_fantasy_points": "expected_fantasy_points",
+    "nfl_ffopportunity_weekly.actual_fantasy_points": "fantasy_points",
+    "off_ngs_season.air_yards_share": "air_yards_share",
+    "off_ngs_season.catch_percentage": "catch_rate",
+    "off_ngs_season.avg_separation": "separation",
+    "off_ngs_season.avg_cushion": "cushion",
+    "off_ngs_season.avg_yac_above_expectation": "yac_over_expected",
+    "off_ngs_season.rush_yards_over_expected_per_att": "rush_yards_over_expected",
+    "off_ngs_season.rush_efficiency": "rush_efficiency",
+    "off_ngs_season.avg_time_to_throw": "time_to_throw",
+    "off_ngs_season.aggressiveness": "aggressiveness",
+    "off_ngs_season.completion_pct_above_expectation": "cpoe",
+    "off_pfr_adv_season.adot": "adot",
+    "off_pfr_adv_season.yac_per_rec": "yac_per_reception",
+    "off_pfr_adv_season.ybc_per_rec": "ybc_per_reception",
+    "off_pfr_adv_season.broken_tackles": "broken_tackles",
+    "off_pfr_adv_season.drop_pct": "drop_rate",
+    "off_pfr_adv_season.pressure_pct": "pressure_rate",
+    "off_pfr_adv_season.on_target_pct": "on_target_rate",
+    "off_pfr_adv_season.pocket_time": "pocket_time",
+    "off_qbr_season.qbr_total": "qbr",
+    "players.position": "depth_chart_position",
+    "players.depth_rank": "depth_chart_rank",
+    "off_depth_chart.pos_abb": "depth_chart_position",
+    "off_depth_chart.pos_rank": "depth_chart_rank"
+  },
+  "not_stored": [
+    {
+      "name": "Yards per route run",
+      "plain": "Receiving yards divided by the number of pass routes the player actually ran, rather than by games or by targets.",
+      "why": "It is the best single efficiency number for a receiver, because it counts the plays he was available to be thrown to rather than the plays he was thrown to.",
+      "needs": "A routes-run count per player per week. Nothing in this database has one — not player_week_usage, not nfl_snaps, not the off_* season tables — and it is not derivable from snap counts, because a snap is not a route. It would need a charting feed (PFF, Fantasy Points Data or similar), which is a paid source."
+    },
+    {
+      "name": "Touchdown rate",
+      "plain": "The share of a player's touches or targets that ended in a touchdown.",
+      "why": "Touchdown rate swings wildly year to year, so a player far above or below his own history is usually about to move back toward it — which is exactly when to buy or sell him.",
+      "needs": "The pieces exist (touchdowns and touches are both in player_week_usage) but nothing computes or stores the rate, and doing it properly needs red-zone and goal-line touches split out, which this database does not carry. Coach can compute a crude version per player through the ledger; it should not be shown as a stored stat until the red-zone split exists."
+    },
+    {
+      "name": "Route participation",
+      "plain": "The share of his team's pass plays on which the player ran a route, rather than blocked or stayed in.",
+      "why": "It is the cleanest early sign that a tight end or a running back has been given a real receiving role.",
+      "needs": "The same routes-run feed as above."
+    },
+    {
+      "name": "Red-zone share",
+      "plain": "The share of his team's plays inside the opponent's 20-yard line that went to him.",
+      "why": "Touchdowns come from a small number of plays, and this is the only opportunity measure that counts the plays that score.",
+      "needs": "Play-by-play filtered by field position per player. nfl_play_by_play holds the plays, but nothing aggregates them per player per week, so this is buildable here — it is missing rather than impossible."
+    }
+  ]
+}

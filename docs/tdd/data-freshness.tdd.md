@@ -184,3 +184,65 @@ four for the second grain.)
 - **How does it unify?** One registry, one verdict vocabulary (fresh/stale/empty),
   one endpoint, feeding both the panel and (next) the Coach — replacing a banner
   that read a different signal and got it wrong.
+
+---
+
+## Addendum — the banner's own failure, RED `03073cd` / GREEN `9a4cb0f`
+
+**The hole.** The banner swap (`fe6ba16`) landed the replacement and deleted
+`DataSetupBanner.tsx` in one commit, as required. But the new component read
+only `data` from `useApi`, and its early return was:
+
+```tsx
+if (!report || report.all_fresh || dismissed) return null;
+```
+
+That collapses two opposite situations into one blank screen: **every source is
+current**, and **the freshness check never ran**. On the second, the user sees
+no warning and reads it as the first.
+
+This is the fake-healthy banner's own sin, committed by silence instead of by a
+green tick — and it is live rather than hypothetical. `/api/data-freshness` is
+**not mounted**: the two lines that mount it were backed out of
+`server/index.js` in `ecf4604` because that file belongs to the scheduler
+thread. So in the running app the request 404s and the old code rendered
+nothing at all.
+
+**The fix.** The component now reads `{ data, error }` and branches on `error`
+*before* the all-clear return, rendering: "Data freshness could not be checked.
+No warning on this page does not mean your data is current — nothing was read."
+Silence is now reserved for the one case that earns it.
+
+**Two defects found while writing it, both mine:**
+
+1. The dismissal helper `close` was declared with `const` *below* the new branch
+   that calls it — a temporal-dead-zone `ReferenceError` the instant an error
+   occurred, so the failure path would have crashed rather than warned. Now
+   declared above both branches.
+2. The RED assertion anchored on the literal string `'if (error)'`, while the
+   guard also honours a dismissal (`if (error && !dismissed)`). It pinned
+   punctuation, not the property, and would have failed on a correct change.
+   Re-anchored on `'if (error'` and verified against the pre-fix file, where
+   `indexOf` returns **-1** — so it remained a genuine RED.
+
+Both `indexOf` results are checked against -1 before being compared. Comparing
+a -1 directly is how an ordering assertion passes while testing nothing, which
+already happened once on this branch.
+
+**Still open, and not this thread's to close:** the route mount. Until the
+scheduler thread adds the two lines to `server/index.js`, the banner's own
+failure notice is what users will see — which is the correct behaviour for the
+state the app is actually in, and is the point.
+
+## The five questions (addendum)
+
+- **Well built?** The one case that renders nothing is now the one case that
+  means nothing is wrong.
+- **Stats or made up?** Neither — this is a state machine, and the claim is that
+  it now has three states (current, behind, unknown) where it had two.
+- **How do we know?** Six tests, the two new ones verified RED against the
+  pre-fix file by index rather than by assertion, and the ordering assertions
+  guarded against -1.
+- **Pointed anywhere else?** `App.tsx:118` renders it on every page.
+- **How does it unify?** Same rule as the rest of this file: a layer that goes
+  inert has to say so. An unmounted route is a layer that has gone inert.

@@ -280,6 +280,24 @@ function fitRows(examples) {
 }
 
 /**
+ * Every field the coverage report can carry. Exported and asserted in the tests, so a drop that
+ * is counted but not listed here -- a drop nobody can ask about -- cannot be added quietly.
+ */
+export const COORDINATOR_COVERAGE_KEYS = Object.freeze([
+  'ok', 'seasons_considered', 'weeks_considered', 'weeks_no_actuals', 'weeks_engine_failed',
+  'examples', 'examples_with_boom_bust', 'boom_bust_share', 'seasons_without_boom_bust',
+  'boom_bust_errors', 'engine_errors'
+]);
+
+const freshCoverage = () => ({
+  ok: false, seasons_considered: 0, weeks_considered: 0, weeks_no_actuals: 0,
+  weeks_engine_failed: 0, examples: 0, examples_with_boom_bust: 0, boom_bust_share: 0,
+  seasons_without_boom_bust: [], boom_bust_errors: [], engine_errors: []
+});
+
+let coverage = freshCoverage();
+
+/**
  * Real historical training examples: every player-week from `fromSeason`
  * through `throughSeason` with a structural projection AND a real settled
  * outcome. `boom_bust_signal` is computed once per (season) via
@@ -287,22 +305,63 @@ function fitRows(examples) {
  * — and repeated across that season's weeks, since it's a season-level
  * signal, not a weekly one.
  */
-export async function buildFantasyCoordinatorExamples({ fromSeason = 2022, throughSeason = 2025, scoring = PPR } = {}) {
+export async function buildFantasyCoordinatorExamples({
+  fromSeason = 2022, throughSeason = 2025, scoring = PPR,
+  // Injected only so a test can make them THROW. Both dependencies fail softly in practice --
+  // measured: on a database with no history `predictRankGap` returns a falsy value rather than
+  // throwing, and `buildPlayerWeekEngine` does not throw even with `nfl_player_week_features`
+  // renamed away. So the two catch blocks below could not be reached from any fixture, and a
+  // counter nothing can reach is a counter nobody has tested. Same seam, and the same reason, as
+  // `gbmFit` in offseason-model.js.
+  rankGap = predictRankGap, buildEngine = buildPlayerWeekEngine
+} = {}) {
   const examples = [];
   const boomBustBySeasonPlayer = new Map(); // season -> Map(player_key -> predicted_rank_gap)
+  // Re-derived per build, never accumulated: a stale verdict beside a fresh build is the same
+  // bug in a new place. See `fantasyCoordinatorExampleCoverage`.
+  coverage = freshCoverage();
+  const cov = coverage;
 
   for (let season = fromSeason; season <= throughSeason; season++) {
+    cov.seasons_considered += 1;
     if (!boomBustBySeasonPlayer.has(season)) {
-      boomBustBySeasonPlayer.set(season, await predictRankGap(season, { earliestSeason: 2021 }).catch(() => null));
+      // A whole season's boom_bust_signal, and it used to vanish on `.catch(() => null)`.
+      // Every example from a failed season then carries null for one of THREE expert signals
+      // while the fit still reports ready, because the other rows satisfy MIN_ROWS -- and a
+      // signal null for a large share of its rows shrinks toward zero whether or not it
+      // carries information. Which is exactly what this file records as a finding about
+      // boom_bust_signal. So the failure is named now, with the season attached.
+      let gap = null;
+      try {
+        gap = await rankGap(season, { earliestSeason: 2021 });
+      } catch (err) {
+        gap = null;
+        cov.boom_bust_errors.push({ season, error: err?.message ?? String(err) });
+      }
+      if (!gap) cov.seasons_without_boom_bust.push(season);
+      boomBustBySeasonPlayer.set(season, gap);
     }
     const boomBust = boomBustBySeasonPlayer.get(season);
 
     for (let week = 1; week <= 18; week++) {
+      cov.weeks_considered += 1;
       const actuals = rows(`SELECT u.*, p.name FROM player_week_usage u JOIN players p ON p.id = u.player_id
                             WHERE u.season = ? AND u.week = ?`, season, week);
-      if (!actuals.length) continue;
+      // A legitimate skip, and still counted: "the season is only 14 weeks old" and "eleven
+      // weeks failed to load" are different facts that produced the same row count.
+      if (!actuals.length) { cov.weeks_no_actuals += 1; continue; }
       let engine;
-      try { engine = buildPlayerWeekEngine({ season, week }); } catch { continue; }
+      try {
+        engine = buildEngine({ season, week });
+      } catch (err) {
+        // This week leaves the training set entirely. Counted, with a sample, because a fit on
+        // sixty per cent of the weeks returns the same shape as a fit on all of them.
+        cov.weeks_engine_failed += 1;
+        if (cov.engine_errors.length < 10) {
+          cov.engine_errors.push({ season, week, error: err?.message ?? String(err) });
+        }
+        continue;
+      }
 
       for (const actualRow of actuals) {
         const projection = playerWeekProjection(engine, actualRow.player_id);
@@ -331,7 +390,33 @@ export async function buildFantasyCoordinatorExamples({ fromSeason = 2022, throu
       }
     }
   }
+  cov.examples = examples.length;
+  cov.examples_with_boom_bust = examples.filter(e => e.experts?.boom_bust_signal != null).length;
+  cov.boom_bust_share = examples.length
+    ? +(cov.examples_with_boom_bust / examples.length).toFixed(4) : 0;
+  // A build that produced nothing is not ok, and neither is one that silently lost weeks.
+  cov.ok = examples.length > 0 && cov.weeks_engine_failed === 0
+    && cov.seasons_without_boom_bust.length === 0;
   return examples;
+}
+
+/**
+ * What the last `buildFantasyCoordinatorExamples` call was actually able to use.
+ *
+ * The fit already reports `rows`, which makes a shrunken training set PARTLY visible -- but a
+ * short history and a history that failed to load are indistinguishable in that one number, and
+ * a signal that is null for whole seasons is invisible in it entirely. These are the figures that
+ * tell those apart.
+ *
+ * `boom_bust_share` is the one to read first. A coefficient fitted on a signal present in a
+ * fraction of its rows is not evidence that the signal is uninformative, and this file records
+ * precisely such a conclusion about `boom_bust_signal` at `weeklyExpertValues`. This number is
+ * what decides whether that conclusion is a measurement or an artifact. It does not settle it;
+ * it makes it answerable.
+ */
+export function fantasyCoordinatorExampleCoverage() {
+  return { ...coverage, seasons_without_boom_bust: [...coverage.seasons_without_boom_bust],
+    boom_bust_errors: [...coverage.boom_bust_errors], engine_errors: [...coverage.engine_errors] };
 }
 
 /** Fit the coordinator on real examples. Returns `{ready: false}` below MIN_ROWS
@@ -391,7 +476,12 @@ export function activeFantasyCoordinatorFit() {
 export async function refitFantasyCoordinator({ fromSeason = 2022, throughSeason } = {}) {
   const through = throughSeason ?? new Date().getFullYear() - 1;
   const examples = await buildFantasyCoordinatorExamples({ fromSeason, throughSeason: through });
-  const fit = fitFantasyCoordinator(examples);
+  // The coverage travels WITH the fit rather than beside it. A stored fit whose row count is all
+  // it knows about its own training set cannot later be asked whether a signal was absent when
+  // its coefficient was learned -- which is the question this file's boom_bust_signal finding
+  // turns on.
+  const coverage = fantasyCoordinatorExampleCoverage();
+  const fit = { ...fitFantasyCoordinator(examples), training_coverage: coverage };
   return { ...saveFantasyCoordinatorFit(fit, through), fit };
 }
 

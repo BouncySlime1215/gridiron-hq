@@ -39,12 +39,13 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-coord-cov-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 
-const { db } = await import('../server/db/index.js');
+const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 
 const { buildFantasyCoordinatorExamples, fantasyCoordinatorExampleCoverage,
-  COORDINATOR_COVERAGE_KEYS } = await import('../server/services/fantasy-coordinator.js');
+  COORDINATOR_COVERAGE_KEYS, refitFantasyCoordinator }
+  = await import('../server/services/fantasy-coordinator.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -102,4 +103,60 @@ test('coverage is re-derived per build, not accumulated across builds', async ()
   assert.equal(twoSeasons, 36);
   assert.equal(oneSeason, 18,
     'a stale verdict beside a fresh build is the same bug in a new place');
+});
+
+/* --------------------------------------------- the two faults that need a thrower
+
+ * MEASURED, not assumed: neither dependency throws on a database with no history.
+ * `predictRankGap` returns a falsy value, and `buildPlayerWeekEngine` does not throw even with
+ * `nfl_player_week_features` renamed away. So the two catch blocks cannot be reached from any
+ * fixture built out of data alone, and a counter nothing can reach is a counter nobody has
+ * tested -- which is precisely how the first sweep of this file left three rows surviving.
+ * Hence the injection seam, used here only to make them throw.
+ */
+
+test('a boom-bust signal that THROWS is recorded with its reason, not just counted absent', async () => {
+  await buildFantasyCoordinatorExamples({
+    fromSeason: 2022, throughSeason: 2022,
+    rankGap: async () => { throw new Error('rank gap model unavailable'); }
+  });
+  const cov = fantasyCoordinatorExampleCoverage();
+  assert.equal(cov.boom_bust_errors.length, 1,
+    'a throw is a different fact from a signal that came back empty, and it is the one that '
+    + 'means something is broken rather than merely missing');
+  assert.equal(cov.boom_bust_errors[0].season, 2022);
+  assert.match(cov.boom_bust_errors[0].error, /rank gap model unavailable/,
+    'the reason must survive, or the report says only that something went wrong');
+  assert.deepEqual(cov.seasons_without_boom_bust, [2022]);
+});
+
+test('a week whose engine throws is counted and sampled', async () => {
+  // A week must first HAVE settled usage, or the engine is never reached.
+  run(`INSERT INTO players (id, name, position) VALUES (?,?,?)`, 9101, 'Coverage Tester', 'WR');
+  run(`INSERT INTO player_week_usage (player_id, season, week, team, opponent) VALUES (?,?,?,?,?)`,
+    9101, 2022, 1, 'AAA', 'BBB');
+  await buildFantasyCoordinatorExamples({
+    fromSeason: 2022, throughSeason: 2022,
+    buildEngine: () => { throw new Error('engine refused to build'); }
+  });
+  const cov = fantasyCoordinatorExampleCoverage();
+  assert.equal(cov.weeks_engine_failed, 1,
+    'a fit on sixty per cent of the weeks returns the same shape as a fit on all of them');
+  assert.equal(cov.weeks_no_actuals, 17, 'and the legitimate skips stay separately counted');
+  assert.equal(cov.engine_errors.length, 1);
+  assert.equal(cov.engine_errors[0].week, 1);
+  assert.match(cov.engine_errors[0].error, /engine refused to build/);
+  assert.equal(cov.ok, false);
+});
+
+test('the stored fit carries the coverage it was fitted under', async () => {
+  // The durable half. A stored fit whose row count is all it knows about its own training set
+  // cannot later be asked whether a signal was absent when its coefficient was learned, which is
+  // the question this file's boom_bust_signal finding turns on.
+  const out = await refitFantasyCoordinator({ fromSeason: 2022, throughSeason: 2022 });
+  assert.ok(out.fit, 'a refit returns its fit');
+  assert.ok(out.fit.training_coverage,
+    'the coverage must travel WITH the fit, not beside it where it is lost on save');
+  assert.equal(typeof out.fit.training_coverage.weeks_considered, 'number');
+  assert.equal(typeof out.fit.training_coverage.boom_bust_share, 'number');
 });

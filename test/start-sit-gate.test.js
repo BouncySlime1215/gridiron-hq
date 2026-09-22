@@ -371,6 +371,8 @@ test('G4 reads the forward rows: a forward season against our projection leaves 
   assert.equal(result.forward.n, 28);
   assert.equal(result.forward.win_rate, 0);
   assert.equal(result.forward.points_per_decision, -6);
+  assert.equal(result.past.direction, 'ours_ahead');
+  assert.equal(result.forward.direction, 'dumb_ahead', 'the forward direction is read from the forward grade');
   assert.equal(result.gates[3].id, 'G4');
   assert.equal(result.gates[3].value, -6);
   assert.equal(result.gates[3].passed, false);

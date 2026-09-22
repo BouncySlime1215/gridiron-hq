@@ -18,6 +18,12 @@
  * own TypeScript, rendered with react-dom/server) in those states, and hold the
  * credit's list to the `sources` the freshness route serves, so the two cannot
  * drift apart.
+ *
+ * react-dom/server runs no effects and has no `window`, and stripped text says
+ * nothing about CSS, so three things it cannot see are pinned another way: the
+ * credit is stateless (called outside a render, swept across browser states,
+ * and read from source, closures included), no element of it is hidden, and
+ * App mounts it as a plain sibling of <main> (read with the TypeScript AST).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -242,16 +248,18 @@ test('the credit takes no props, calls no hooks and reads no browser state, so n
   const consoleError = console.error;
   console.error = (...args) => { errors.push(args.map(String).join(' ')); };
   let bannerThrew = null;
+  let creditThrew = null;
   let creditElement;
   try {
     try { banner.default(); } catch (error) { bannerThrew = error; }
-    creditElement = banner.DataCredit();
+    try { creditElement = banner.DataCredit(); } catch (error) { creditThrew = error; }
   } finally {
     console.error = consoleError;
   }
   // React's development build logs "Invalid hook call" and then throws reading
   // the null dispatcher; the production build only throws. Either is a throw.
   assert.ok(bannerThrew, `control: calling a hook-using component outside a render did not throw (logged ${JSON.stringify(errors)})`);
+  assert.equal(creditThrew, null, `DataCredit calls a hook: called outside a render it threw ${creditThrew}`);
   assert.ok(React.isValidElement(creditElement), 'DataCredit() outside a render did not return an element');
   assert.equal(banner.DataCredit.length, 0, 'DataCredit declares parameters; it should take no props');
 
@@ -425,7 +433,7 @@ test('App renders the credit once, on every page of the app chrome: a plain sibl
   assert.ok(ts.isJsxSelfClosingElement(credit) && credit.attributes.properties.length === 0,
     `the credit is mounted as "${credit.getText(sf)}"; it takes no props or children`);
   const describe = n => `${ts.SyntaxKind[n.kind]} "${n.getText(sf).replace(/\s+/g, ' ').slice(0, 80)}"`;
-  assert.equal(credit.parent, main.parent,
+  assert.ok(credit.parent === main.parent,
     `the credit is not a direct sibling of <main>, so something other than the page layout decides whether it shows; its parent is ${describe(credit.parent)}`);
   const siblings = main.parent.children;
   assert.ok(siblings.indexOf(credit) > siblings.indexOf(main), 'the credit is not placed after the page content');
@@ -445,6 +453,8 @@ test('App renders the credit once, on every page of the app chrome: a plain sibl
   // That return is App's last top-level statement: the one every page inside
   // the chrome goes through. The early return before it is sign-in, which
   // renders outside the chrome and fetches only /api/auth endpoints.
-  assert.equal(node.parent, app.body, 'the return that mounts the credit is nested inside a branch of App');
-  assert.equal(app.body.statements.at(-1), node, 'the return that mounts the credit is not App\'s last statement');
+  // (Identity is compared with assert.ok: assert.equal on two TypeScript nodes
+  // prints a diff of the whole circular syntax tree.)
+  assert.ok(node.parent === app.body, 'the return that mounts the credit is nested inside a branch of App');
+  assert.ok(app.body.statements.at(-1) === node, 'the return that mounts the credit is not App\'s last statement');
 });

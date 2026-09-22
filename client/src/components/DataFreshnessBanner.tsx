@@ -234,7 +234,10 @@ const creditLink = 'underline decoration-slate-300 underline-offset-2 hover:text
 /**
  * One quiet line under every page. It takes no props and reads no state, so
  * nothing the freshness banner does (all current, dismissed, request failed)
- * can hide it.
+ * can hide it. test/data-credit-line.test.js holds it to that: no hooks, no
+ * browser globals, and nothing from outside its body except DATA_CREDITS and
+ * creditLink, both plain data. A new dependency means updating that test on
+ * purpose, not working around it.
  */
 export function DataCredit() {
   return (

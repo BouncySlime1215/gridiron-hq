@@ -93,7 +93,7 @@ try {
     else {
       fs.writeFileSync(target, after);
       const r = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--test', '--test-reporter=tap', 'test/data-credit-line.test.js'], {
-        cwd: wt, encoding: 'utf8',
+        cwd: wt, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
         env: { ...process.env, SCHEDULER_DISABLED: '1', NODE_OPTIONS: '--import ./test/offline-guard.mjs' }
       });
       fs.writeFileSync(target, before);

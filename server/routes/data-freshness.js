@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { dataFreshness, servedTablesRegistry } from '../services/data-freshness.js';
 import { currentNflWeek } from '../services/weekly-learning.js';
+import { NFLVERSE_SOURCE } from '../services/nflverse.js';
+import { FFOPPORTUNITY_SOURCE } from '../services/ffopportunity.js';
 
 const r = Router();
 
@@ -19,6 +21,9 @@ const r = Router();
  * because it answers with row counts and dates — app data, not a liveness
  * ping. The unauthenticated liveness endpoint stays in `platform/health.js` and
  * still says as little as possible.
+ *
+ * `sources` names the CC BY 4.0 feeds these tables come from, with the licence
+ * link each one requires, so the attribution travels with the report.
  */
 r.get('/', (req, res) => {
   const now = currentNflWeek();
@@ -31,7 +36,8 @@ r.get('/', (req, res) => {
     season: now.season,
     week: now.week,
     all_fresh: tables.every(t => t.status === 'fresh'),
-    tables
+    tables,
+    sources: [NFLVERSE_SOURCE, FFOPPORTUNITY_SOURCE]
   });
 });
 

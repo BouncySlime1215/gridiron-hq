@@ -308,7 +308,9 @@ export function allSources() {
  *                      the call site spreads: row(sql, ...params.map(pick)).
  *                      Passing the array unspread throws "Unknown named
  *                      parameter '0'" -- found by the test, not in the banner.
- *   grain       'week' | 'season' | 'static'  how often it should move
+ *   grain       'week' | 'season' | 'static' | 'fit'  how often it should move
+ *   fitted_col  'fit' grain only: the stamp to show beside the verdict
+ *   reader      'fit' grain only: the service whose answer degrades without it
  *
  * The season and week to bind come from `NFL_SEASON` and `currentNflWeek`
  * (weekly-learning.js) — the same pair the rest of the app serves from, so the
@@ -321,6 +323,24 @@ export function allSources() {
  * the tables read on the served fantasy read path, taken from the query counts
  * in server/routes/. Betting-side tables are out of scope by Nick's ruling and
  * are not listed. Adding an entry is the mechanism for widening it.
+ *
+ * THE 'fit' GRAIN, added after the model-evidence audit reconciled its 82
+ * model-read tables against the ten feeds here. A feed-only registry misses the
+ * same failure one layer up: an unfitted or never-promoted model still answers,
+ * and still reads fresh, because the feeds under it are fine.
+ *
+ * And for a fit store the test is neither a timestamp nor a row count. Two of
+ * these tables default to NOT live -- `shrinkage_fits.active` DEFAULT 0 and
+ * `weekly_ensemble_fits.promoted` DEFAULT 0 -- so a table full of fits with none
+ * active is a model running on its hardcoded fallback behind a recent stamp and
+ * a healthy count. `weekly_ensemble_fits` even stores its rejections, with
+ * `rejection_reason`, so counting rows counts rejected candidates as coverage.
+ *
+ * GET /api/model/status has exactly that bug today: `correlations_fitted` and
+ * `gamescript_fitted` (server/routes/model.js:598-599 at 654ff93) are bare
+ * `SELECT COUNT(*)`, with no predicate on `fitted_at` and no check that
+ * gamescript has both of its two targets. The rules below are strictly stronger
+ * than a count, and the suite proves it by inserting rows a count would pass.
  */
 export function servedTables() {
   return [
@@ -444,6 +464,105 @@ export function servedTables() {
           + 'means the whole app is empty, not that one feed is late.',
         sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current FROM players',
         params: [],
+      },
+    },
+
+    // ---- the 'fit' grain: is the MODEL fitted, not is the feed fresh ----
+
+    {
+      table: 'shrinkage_fits',
+      season_col: 'through_season', week_col: null, updated_col: 'fitted_at',
+      grain: 'fit', fitted_col: 'fitted_at', reader: 'shrinkage-fit.js',
+      current_rule: {
+        text: 'Shrinkage is fitted when one fit is marked ACTIVE. Rows alone '
+          + 'prove nothing: active defaults to 0, so a table of fits with none '
+          + 'activated is the hardcoded fallback answering instead, and a count '
+          + 'would read green. No season rule here on purpose -- a fit through '
+          + 'the last completed season is the correct state mid-season.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM shrinkage_fits WHERE active = 1',
+        params: [],
+      },
+    },
+    {
+      table: 'weekly_ensemble_fits',
+      season_col: 'through_season', week_col: 'through_week', updated_col: 'created_at',
+      grain: 'fit', fitted_col: 'created_at', reader: 'weekly-learning.js',
+      current_rule: {
+        text: 'The weekly ensemble is fitted when a PROMOTED fit for this '
+          + 'season reaches the week being served. promoted defaults to 0, and '
+          + 'this table also stores its rejections with a rejection_reason, so a '
+          + 'row count counts rejected candidates as if they were the model.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM weekly_ensemble_fits WHERE promoted = 1 AND through_season = ? '
+          + 'AND through_week >= ?',
+        params: ['season', 'week'],
+      },
+    },
+    {
+      table: 'correlation_estimates',
+      season_col: null, week_col: null, updated_col: 'fitted_at',
+      grain: 'fit', fitted_col: 'fitted_at', reader: 'correlation.js',
+      current_rule: {
+        text: 'Correlations are fitted when estimates exist AND carry a fitted '
+          + 'stamp. fitted_at is nullable, so a row written without one is an '
+          + 'estimate nobody can date.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM correlation_estimates WHERE fitted_at IS NOT NULL',
+        params: [],
+      },
+    },
+    {
+      table: 'gamescript_model',
+      season_col: null, week_col: null, updated_col: 'fitted_at',
+      grain: 'fit', fitted_col: 'fitted_at', reader: 'gamescript.js',
+      current_rule: {
+        text: 'Game script is fitted when BOTH of its targets are -- pass_att '
+          + 'and rush_att. target is the primary key, so one fitted target and '
+          + 'one missing is a half-fitted model that any count of rows passes.',
+        sql: 'SELECT CASE WHEN COUNT(DISTINCT target) >= 2 THEN 1 ELSE 0 END AS current '
+          + 'FROM gamescript_model WHERE fitted_at IS NOT NULL',
+        params: [],
+      },
+    },
+    {
+      table: 'fantasy_coordinator_fits',
+      season_col: 'through_season', week_col: null, updated_col: 'created_at',
+      grain: 'fit', fitted_col: 'created_at', reader: 'fantasy-coordinator.js',
+      current_rule: {
+        text: 'The coordinator is fitted when a fit exists that was built on '
+          + 'actual rows. The row count it was fitted from is stored, so a fit '
+          + 'over zero rows can be told from a real one.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM fantasy_coordinator_fits WHERE "rows" > 0',
+        params: [],
+      },
+    },
+    {
+      table: 'nfl_ensemble_fit_artifacts',
+      season_col: null, week_col: null, updated_col: 'created_at',
+      grain: 'fit', fitted_col: 'created_at', reader: 'nfl-ensemble.js',
+      current_rule: {
+        text: 'The NFL ensemble is fitted when at least one artifact exists. '
+          + 'Stated as the weak test it is: this table carries no season, week '
+          + 'or promotion flag, so presence is the only honest question it can '
+          + 'answer, and the stamp beside it is what a reader should judge.',
+        sql: 'SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END AS current '
+          + 'FROM nfl_ensemble_fit_artifacts',
+        params: [],
+      },
+    },
+    {
+      table: 'nfl_sim_calibration_artifacts',
+      season_col: 'season', week_col: 'week', updated_col: 'created_at',
+      grain: 'fit', fitted_col: 'created_at', reader: 'nfl-sim-calibration.js',
+      current_rule: {
+        text: 'The simulator is calibrated when an artifact for this season '
+          + 'reaches the week being served. An older week\'s calibration is a '
+          + 'real answer to a different question.',
+        sql: 'SELECT CASE WHEN MAX(week) >= ? THEN 1 ELSE 0 END AS current '
+          + 'FROM nfl_sim_calibration_artifacts WHERE season = ?',
+        params: ['week', 'season'],
       },
     },
   ];

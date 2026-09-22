@@ -19,7 +19,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 process.env.SCHEDULER_DISABLED = '1';
 
-const { db, row } = await import('../server/db/index.js');
+const { db, row, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const { servedTables } = await import('../server/services/source-registry.js');
@@ -38,7 +38,7 @@ test('the registry is not empty and every table name is distinct', () => {
 test('every entry carries the full contract shape', () => {
   for (const e of entries) {
     assert.equal(typeof e.table, 'string', 'table must be a string');
-    assert.ok(['week', 'season', 'static'].includes(e.grain), `${e.table}: bad grain ${e.grain}`);
+    assert.ok(['week', 'season', 'static', 'fit'].includes(e.grain), `${e.table}: bad grain ${e.grain}`);
     assert.ok(e.current_rule, `${e.table}: no current_rule`);
     assert.equal(typeof e.current_rule.text, 'string', `${e.table}: rule text missing`);
     assert.ok(e.current_rule.text.length > 20, `${e.table}: rule text is not a sentence`);
@@ -95,5 +95,65 @@ test('on an empty database every table reads NOT current -- the fake-banner regr
       result.current, 0,
       `${e.table}: says current on an empty database. That is the "data healthy" bug rebuilt.`,
     );
+  }
+});
+
+test("every 'fit' entry names the stamp to show and the service that degrades", () => {
+  // A fit verdict without these two is unactionable: the reader cannot say WHEN
+  // it was fitted, or WHOSE answer is running on a fallback.
+  for (const e of entries.filter((x) => x.grain === 'fit')) {
+    assert.equal(typeof e.fitted_col, 'string', `${e.table}: fit grain needs fitted_col`);
+    assert.equal(typeof e.reader, 'string', `${e.table}: fit grain needs reader`);
+    assert.ok(e.reader.endsWith('.js'), `${e.table}: reader should name a file, got ${e.reader}`);
+  }
+});
+
+test('a fit rule is STRICTLY STRONGER than the row count /api/model/status uses', () => {
+  // This is the whole point of the fit grain, and it is the bug that is live
+  // today: server/routes/model.js:598-599 reports correlations_fitted and
+  // gamescript_fitted as bare SELECT COUNT(*). So insert, for each shape, a row
+  // that a count would pass and the real rule must reject.
+  //
+  // If any of these ever starts returning 1, the registry has been quietly
+  // downgraded to a row count and the banner is lying again.
+  const bind = { season: 2026, week: 2 };
+  const ruleFor = (table) => entries.find((e) => e.table === table).current_rule;
+  const verdict = (table) => {
+    const r = ruleFor(table);
+    return row(r.sql, ...r.params.map((k) => bind[k])).current;
+  };
+
+  // A fit that exists but was never activated. active DEFAULT 0.
+  run("INSERT INTO shrinkage_fits (fitted_at, through_season) VALUES (datetime('now'), 2025)");
+  assert.ok(row('SELECT COUNT(*) AS n FROM shrinkage_fits').n > 0, 'fixture did not insert');
+  assert.equal(verdict('shrinkage_fits'), 0,
+    'an inactive shrinkage fit reads as fitted -- the rule has become a row count');
+
+  // A candidate that was REJECTED. promoted DEFAULT 0, rejection_reason set.
+  run(`INSERT INTO weekly_ensemble_fits
+         (data_hash, through_season, through_week, weights_json, sample_size,
+          validation_size, rejection_reason)
+       VALUES ('hash-rejected', 2026, 2, '{}', 100, 20, 'worse than champion')`);
+  assert.equal(verdict('weekly_ensemble_fits'), 0,
+    'a rejected ensemble candidate reads as the promoted model');
+
+  // An estimate with no fitted stamp. fitted_at is nullable.
+  run("INSERT INTO correlation_estimates (key, correlation, pairs) VALUES ('QB|WR|team', 0.3, 50)");
+  assert.equal(verdict('correlation_estimates'), 0,
+    'an undated correlation estimate reads as fitted');
+
+  // HALF a model: one of the two targets, correctly stamped.
+  run("INSERT INTO gamescript_model (target, b0, fitted_at) VALUES ('pass_att', 1.0, datetime('now'))");
+  assert.equal(verdict('gamescript_model'), 0,
+    'one fitted target out of two reads as a fitted game-script model');
+
+  // Now promote / complete each one, and the same rules must flip to 1 --
+  // otherwise the test above would pass on a rule that can never say yes.
+  run('UPDATE shrinkage_fits SET active = 1');
+  run("UPDATE weekly_ensemble_fits SET promoted = 1, rejection_reason = NULL");
+  run("UPDATE correlation_estimates SET fitted_at = datetime('now')");
+  run("INSERT INTO gamescript_model (target, b0, fitted_at) VALUES ('rush_att', 2.0, datetime('now'))");
+  for (const t of ['shrinkage_fits', 'weekly_ensemble_fits', 'correlation_estimates', 'gamescript_model']) {
+    assert.equal(verdict(t), 1, `${t}: rule cannot say yes even when the fit is real`);
   }
 });

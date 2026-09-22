@@ -29,9 +29,11 @@ Phase 0 item 4. Branch `claude/project-thread-3xqh5l-outcome-ledger`, cut from
   the model states them — a band with a basis, `fitted: false` — and §3 is about
   the one place the brief would have had me record a precision the model
   refuses to claim.
-- **How do we know?** Twenty-five tests, RED before GREEN (`cb43b20` then
-  `017fcfa`), plus the contract asserted against the table's own CHECK
-  constraints rather than against the writer. The absence path is tested first,
+- **How do we know?** RED before GREEN — `1f55bbbb` "test: RED — the trade
+  outcome ledger, before it exists", then `1b943853` "feat: GREEN — the trade
+  outcome ledger, 17 of 17" — plus the contract asserted against the table's own
+  CHECK constraints rather than against the writer. Both re-measured on this
+  branch's rebase onto `c90d2834`; §7 carries what RED actually printed. The absence path is tested first,
   because it is the only path this machine can actually take today.
 - **Should this data point anywhere else?** Yes, and deliberately not yet.
   Nothing reads the ledger: no page, no route, no model. It is a recorder, and a
@@ -181,10 +183,31 @@ All in `test/trade-outcomes.test.js` unless named otherwise.
 ## 7. The second pass: 33 mutations, and the eight tests that were not there
 
 RED before GREEN proves the tests were written first. It does not prove that any
-one of them discriminates, and this unit's RED is weaker than it looks: all
-fifteen tests in `cb43b20` failed on the SAME cause, `ERR_MODULE_NOT_FOUND` for a
-module that did not exist yet. Fifteen tests asserting nothing at all would have
-produced exactly that RED.
+one of them discriminates, and this unit's RED is weaker than it looks. Measured
+again at `1f55bbbb` on the rebased tree, rather than quoted from when it was
+written:
+
+```
+$ node --test test/trade-outcomes.test.js       # at RED 1f55bbbb
+not ok 1 - test/trade-outcomes.test.js
+  error: 'test failed'
+  code:  'ERR_TEST_FAILURE'
+Error [ERR_MODULE_NOT_FOUND]: Cannot find module
+  '.../server/services/trade-outcomes.js' imported from
+  '.../test/trade-outcomes.test.js'
+# tests 1 | pass 0 | fail 1
+
+$ node --test test/trade-outcomes.test.js       # at GREEN 1b943853
+# tests 17 | pass 17 | fail 0
+```
+
+The module does not exist at RED, so the file never loads and node reports one
+file-level failure rather than a count of the tests inside it. (An earlier
+version of this section said "all fifteen tests failed on the same cause"; the
+cause was right, the shape was not — nothing inside the file ran at all.) A file
+full of tests asserting nothing would have produced exactly the same RED, which
+is why the sweep below exists and why that RED is not offered as evidence on its
+own.
 
 So the second pass is a mutation sweep, committed and re-runnable:
 

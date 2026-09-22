@@ -39,7 +39,7 @@ import { db, rows, run, row } from '../db/index.js';
  */
 const DRAFT_WINDOW_BEFORE_MIN = 15;   // commissioners start late more often than early
 const DRAFT_WINDOW_AFTER_HOURS = 4;   // generous — a slow 16-round snake can run long
-function liveDraftActive() {
+export function liveDraftActive() {
   // draft_at is stored ISO8601 ("...T23:00:00.000Z"); datetime('now', ...) is
   // space-separated with no 'Z'. Comparing those two formats as raw strings
   // is a lexicographic trap — 'T' (0x54) sorts after a space (0x20), so an
@@ -92,6 +92,88 @@ function record(job, status, detail) {
            THEN sync_log.consecutive_failures + 1 ELSE 0 END`,
     job, nowIso(), status, typeof detail === 'string' ? detail : JSON.stringify(detail),
     status === 'error' ? 1 : 0);
+}
+
+/**
+ * Marks a job as started, so "never finished" stops being indistinguishable
+ * from "never started".
+ *
+ * THE BUG THIS FIXES: `record()` runs only after `job.run()` returns. A job
+ * that takes the process down with it — an OOM kill, or the #29 event-loop
+ * watchdog firing on a synchronous ingest — therefore records NOTHING. Its
+ * `sync_log` row is left exactly as the previous attempt left it, so on the
+ * next boot the scheduler reads the same row it read last time, reaches the
+ * same conclusion, and starts the same job. It dies at the same point. That
+ * is a restart loop with no counter anywhere in it, and it was measured on
+ * the live app on 2026-09-19: `nfl_model_growth` with `last_run_at` frozen at
+ * 21:17:44Z and `consecutive_failures: 1` across seven consecutive lives.
+ *
+ * Deliberately narrow: this touches `last_status` and `last_detail` and
+ * NOTHING else. In particular it does not stamp `last_run_at`, because every
+ * freshness view in the app reads that column to decide how much to trust the
+ * data — source-registry.js's `confidence()`, the diagnostic, the model
+ * routes. Stamping it here would make a job that has produced nothing yet
+ * read as freshly synced for as long as it runs, which is the exact shape of
+ * failure this project keeps finding: healthy-looking and not working.
+ *
+ * The start time goes in the detail instead, where `reapAbandonedRuns` below
+ * can use it to date the attempt honestly rather than guessing.
+ */
+function recordStart(job) {
+  run(`INSERT INTO sync_log (job, last_run_at, last_status, last_detail, runs, consecutive_failures)
+       VALUES (?, NULL, 'running', ?, 0, 0)
+       ON CONFLICT(job) DO UPDATE SET
+         last_status='running', last_detail=excluded.last_detail`,
+    job, JSON.stringify({ running: true, started_at: nowIso() }));
+}
+
+/**
+ * Converts every 'running' row left behind by a dead process into a recorded
+ * failure, once, at startup.
+ *
+ * A 'running' row can only survive a process boundary one way: the process
+ * died between `recordStart` and `record`. Nothing else writes that status,
+ * and an in-flight job inside a live process is held by the `running` Map in
+ * `runIfStale`, not by this row. So finding one at startup is proof that the
+ * previous life of this process started that job and never came back — and
+ * the job that kills the process is the one you most need a backoff on.
+ *
+ * Recording it as 'error' is not a convenience: it is what happened. It also
+ * puts the existing machinery to work rather than inventing a second one —
+ * `nextDueMinutes` already backs an erroring job off exponentially (5, 10,
+ * 20, 40 minutes, capped at its own cadence) and `confidence()` already
+ * floors a failed source at 0.1. So the second boot after a kill does not
+ * re-run the job, and the cycle has a counter in it at last.
+ *
+ * `last_run_at` IS stamped here, with the start time the marker carried,
+ * because by now the attempt is over: it happened, at that time, and it
+ * failed. That is the same thing `record()` means by the column, and the
+ * staleness gate in `runIfStale` compares against it — without it the backoff
+ * would be computed against an hours-old timestamp and would never bite.
+ */
+export function reapAbandonedRuns() {
+  const abandoned = rows("SELECT job, last_detail FROM sync_log WHERE last_status = 'running'");
+  for (const r of abandoned) {
+    let startedAt = null;
+    try { startedAt = JSON.parse(r.last_detail)?.started_at ?? null; } catch { startedAt = null; }
+    run(`UPDATE sync_log SET
+           last_run_at = ?, last_status = 'error', last_detail = ?,
+           consecutive_failures = consecutive_failures + 1
+         WHERE job = ?`,
+      startedAt ?? nowIso(),
+      JSON.stringify({
+        error: 'abandoned',
+        abandoned: true,
+        started_at: startedAt,
+        reason: 'the process died before this job reported back; see recordStart in scheduler.js'
+      }),
+      r.job);
+  }
+  if (abandoned.length) {
+    console.warn(`[scheduler] ${abandoned.length} job(s) did not report back before the last restart, ` +
+      `now recorded as failed and backed off: ${abandoned.map(r => r.job).join(', ')}`);
+  }
+  return { reaped: abandoned.map(r => r.job) };
 }
 
 /**
@@ -648,6 +730,27 @@ async function refreshManagerArchetypes() {
       jev: 'not run — opt-in, needs AI_GATEWAY_API_KEY' }
     : { error: 'the archetype build printed no JSON summary',
       tail: stdout.trim().split('\n').at(-1)?.slice(0, 200) ?? null };
+}
+
+/**
+ * The historical facts the manager layer stands on: each league-season's final
+ * standings (`league_season_teams`) and weekly scores (`league_week_scores`).
+ *
+ * Registered here because those two tables had exactly one writer — a script
+ * run by hand — while manager-archetypes.js reads `league_season_teams` on the
+ * trades surface (:243, :819, :831). A table nobody fills reads downstream as a
+ * league with nothing measured about it, which is indistinguishable from a
+ * league we simply have no history for.
+ *
+ * The service holds off entirely while a draft is live; that is not politeness
+ * but the 2026-09-06/07 incident (see liveDraftActive above) — it reads the
+ * same espn_s2/SWID out of the same `leagues` rows Nick's browser is drafting
+ * with. A skip is recorded as 'skipped', so it is retried in five minutes
+ * rather than sitting out the whole cadence.
+ */
+async function refreshLeagueHistory() {
+  const { backfillLeagueHistory } = await import('./league-history.js');
+  return backfillLeagueHistory();
 }
 
 /**
@@ -1318,7 +1421,23 @@ export const JOBS = {
   // Enabled by default, unlike broad heavy research sweeps. Most checks are a
   // few SQLite reads; downloads and fitting only start when a newly finalized
   // week is ahead of the feature warehouse.
-  nfl_model_growth: { run: refreshNflModelGrowth, maxAgeMinutes: 6 * 60, tier: 'growth',
+  // offThread, and this flag is the one that matters on a stable box.
+  //
+  // The boot path passes an override, so the boot+90s timer is already covered
+  // without it. The BACKGROUND TIER is not: it calls `runIfStale(j)` with no
+  // override every 5 minutes, so `resolveOffThread` falls back to
+  // `job.offThread ?? job.tier === 'heavy'` — false for a growth job. Without
+  // the flag this job would go back onto the request thread the first time its
+  // 6-hour cadence came due on a machine that stayed up, which is precisely
+  // the state the rest of this work exists to reach.
+  //
+  // Measured on the live app 2026-09-19: this job blocked the loop past the
+  // 60s watchdog fuse on seven consecutive boots. `syncSnaps` writes a whole
+  // prior season in one BEGIN/COMMIT with no yield (nfl-advanced.js:199-200)
+  // and `syncVerifiedEventArchive` inserts per row with no BEGIN at all
+  // (nfl-event-archive.js:150). Safe in a worker: nfl-model-growth.js holds no
+  // module-level mutable state, so a fresh module graph loses nothing.
+  nfl_model_growth: { run: refreshNflModelGrowth, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
     label: 'NFL finalized-week ingest, shadow settlement, and next-week fit' },
   // Checked every 6h like model_growth, but genuinely decoupled from it — this
   // is what actually runs during the offseason, when model_growth's own
@@ -1370,6 +1489,31 @@ export const JOBS = {
    * The off-server refresh loop runs it by name whatever its tier
    * (scripts/refresh-live-data.mjs FANTASY_LIVE_JOBS).
    */
+  /*
+   * The history under the archetypes, so it sits ahead of them here and ahead
+   * of them in refresh-live-data.mjs's FANTASY_LIVE_JOBS, which is the list
+   * that actually runs in order: manager_archetypes replays league-seasons out
+   * of the rows this writes. (The two are on different tiers, so the timer
+   * alone would not sequence them — only the loop does.)
+   *
+   * 'growth', not 'heavy': it makes a handful of paced ESPN requests and does
+   * no parsing worth speaking of, so there is nothing here the `heavy` tier's
+   * AUTO_HEAVY_SYNC gate should be deciding — and a history layer that only
+   * builds behind a flag is the "silently never runs" failure this file has
+   * already had to fix three times. Twelve hours rather than twenty-four so a
+   * run skipped for a live draft does not cost a whole day; a prior season
+   * already stored is not re-read at all (league-history.js's seasonsToFetch),
+   * which on a filled-in box makes the run one request per league.
+   *
+   * offThread: true regardless of tier — `resolveOffThread` only defaults a
+   * job off-thread when its tier is 'heavy', and this one is deliberately
+   * 'growth' (above). Without the flag it runs on the request thread with a
+   * five-minute budget, and node:sqlite is synchronous, so every one of its
+   * writes blocks every request for as long as the paced ESPN reads take.
+   */
+  league_history: { run: refreshLeagueHistory, maxAgeMinutes: 12 * 60, tier: 'growth', offThread: true,
+    timeoutMs: 300_000,
+    label: 'League history: final standings and weekly scores per league-season (ESPN, paced)' },
   manager_archetypes: { run: refreshManagerArchetypes, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 10 * 60_000,
     label: 'Manager archetypes: draft-revealed preference and all-play/luck outcomes (child process)' },
   /*
@@ -1436,6 +1580,92 @@ export const JOBS = {
 /** Runs one job if it is older than its threshold. `force` ignores the age. */
 /** The budget a job gets before the tier abandons it. Overridable per job. */
 const DEFAULT_JOB_TIMEOUT_MS = 120_000;
+
+/*
+ * THE BUDGET IS TWICE THE FUSE, AND THE FUSE IS THE ONE THAT FIRES.
+ *
+ * DEFAULT_JOB_TIMEOUT_MS above is 120 seconds. The event-loop watchdog
+ * (server/platform/loop-watchdog.js) kills the process after 60 seconds of a
+ * blocked loop. So a job running on the main thread is permitted a budget
+ * twice the tolerance at which the host replaces the machine: any main-thread
+ * job that uses half its allowance is fatal by design, whichever job it is.
+ *
+ * And the budget does not protect against the case that matters. withJobTimeout
+ * is a Promise.race, so it can only abandon a promise -- it cannot interrupt
+ * synchronous work, and its own timer is queued behind the very block it is
+ * meant to bound. node:sqlite's DatabaseSync is fully synchronous, so against
+ * the jobs that actually wedge this app the 120 seconds is a number that does
+ * nothing.
+ *
+ * Raising the watchdog threshold to cover the budget is the tempting move and
+ * it is the wrong one: it converts a machine that restarts into a machine that
+ * stays wedged, which is the bug #29 was built to end. Lowering the budget
+ * would be worse than useless, because it would read as a guard while
+ * protecting nothing.
+ *
+ * So the resolution is that boot-path work does not run on the main thread at
+ * all, and the exceptions are named here rather than left to be discovered.
+ */
+
+/**
+ * Boot-path jobs that must NOT be moved into a worker, with the reason.
+ *
+ * A worker gets a fresh module graph, so it can only lose cached state, never
+ * corrupt it -- losing a memo means redoing a query. The exception is state
+ * used as PERSISTENCE rather than as a memo, and book-feeds.js holds two:
+ *
+ *   `_providerBackoff` (book-feeds.js:388, book-feeds-extra.js:230) is
+ *   exponential backoff held only in memory. Empty in every worker means a
+ *   failing provider is retried at full rate instead of backing off.
+ *
+ *   `_directBookLastSeen` (book-feeds.js:122) records which books a direct
+ *   feed has reported recently, and mergeQuotes (:426) uses it to drop the
+ *   aggregator's copy of a book that already has one. Its own comment says
+ *   this is deliberately shared ACROSS capture calls on different cadences,
+ *   "so the fast/slow/extra jobs cannot double-write the same book as if it
+ *   were two independent sources". Three separate workers each start with an
+ *   empty map, so that is exactly what would happen.
+ *
+ * Persisting both would let these three move too, and that is the follow-up.
+ * It is not folded in here because it is a change to betting-side capture
+ * logic rather than to scheduling, and because a fix that quietly changed
+ * which quotes get written would be the worse outcome of the two.
+ */
+export const MAIN_THREAD_ONLY = new Map([
+  ['nfl_book_feeds_fast', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs'],
+  ['nfl_book_feeds_slow', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs'],
+  ['nfl_book_feeds_extra', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs']
+]);
+
+/**
+ * Whether one run of `name` goes into a worker.
+ *
+ * Exported so the invariant can be asserted rather than assumed: a boot job
+ * that is neither off-thread nor named in MAIN_THREAD_ONLY is a job that can
+ * block the request thread past the watchdog threshold, and the test suite
+ * fails on it the moment it is added.
+ */
+export function resolveOffThread(job, override) {
+  if (override != null) return override;
+  return job.offThread ?? job.tier === 'heavy';
+}
+
+/** Does this boot-path job run in a worker? The allow-list is the only escape. */
+export function bootOffThread(name) { return !MAIN_THREAD_ONLY.has(name); }
+
+/**
+ * The catch-up pass fired shortly after boot, in order.
+ *
+ * Module-level and exported so the test suite reads the SHIPPED list rather
+ * than a copy of it. A job added here that is neither off-thread nor named in
+ * MAIN_THREAD_ONLY is a job that can block the request thread for longer than
+ * the watchdog tolerates, and that is what the suite now refuses.
+ */
+export const BOOT_JOBS = ['rss_news', 'espn_news', 'nfl_news_signals',
+  'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'nfl_forward_settle',
+  'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
+  'nfl_book_feeds_fast', 'nfl_book_feeds_slow', 'nfl_book_feeds_extra', 'nfl_prop_feeds', 'nfl_prop_clv_free',
+  'polymarket_line_watch', 'beat_the_close', 'nfl_pick_watch', 'nfl_t60_runner'];
 
 // Threshold for the "a job ran long" warning below. Not a timeout — jobs still
 // get their full budget (DEFAULT_JOB_TIMEOUT_MS) — just a number worth seeing.
@@ -1555,7 +1785,7 @@ function runJobOffThread(name, timeoutMs) {
  */
 const running = new Map();
 
-export async function runIfStale(name, { force = false } = {}) {
+export async function runIfStale(name, { force = false, offThread } = {}) {
   const job = JOBS[name];
   if (!job) return { job: name, error: 'unknown job' };
   // Before the staleness gate, and before `force` can bypass it: "already
@@ -1568,14 +1798,18 @@ export async function runIfStale(name, { force = false } = {}) {
     return { job: name, skipped: true, age_minutes: Math.round(age),
       max_age_minutes: job.maxAgeMinutes, due_after_minutes: dueAfter };
   }
-  const run = runJobNow(name, job);
+  const run = runJobNow(name, job, offThread);
   running.set(name, run);
   try { return await run; } finally { running.delete(name); }
 }
 
 /** The run itself, once the gates above have decided it should happen. */
-async function runJobNow(name, job) {
+async function runJobNow(name, job, offThreadOverride) {
   const startedAt = Date.now();
+  // Before anything can go wrong, leave a mark saying this started. If the run
+  // takes the process down, this is the only trace it ever existed — see
+  // recordStart and reapAbandonedRuns above.
+  recordStart(name);
   try {
     // EVERY JOB IS TIME-BOUND, AND THIS IS NOT DEFENSIVE PROGRAMMING.
     //
@@ -1602,7 +1836,7 @@ async function runJobNow(name, job) {
     // heavy job added later cannot quietly reintroduce the outage by
     // forgetting the flag. An individual job can still opt out with
     // `offThread: false` if it genuinely needs main-thread state.
-    const offThread = job.offThread ?? job.tier === 'heavy';
+    const offThread = resolveOffThread(job, offThreadOverride);
     const detail = offThread
       ? await runJobOffThread(name, timeoutMs)
       : await withJobTimeout(job.run(), name, timeoutMs);
@@ -1714,9 +1948,16 @@ const jobsInTier = tier => Object.entries(JOBS).filter(([, j]) => j.tier === tie
  * responsiveness, not a schedule.
  */
 export function startScheduler({
-  intervalMinutes = 30, liveIntervalSeconds = 90, bootDelayMs = 20000
+  intervalMinutes = 30, liveIntervalSeconds = 90, bootDelayMs = 20000, onBootComplete = null
 } = {}) {
   if (timer) return { already_running: true };
+
+  // FIRST, before the brake and before anything is scheduled: settle the
+  // previous life's unfinished business. A job that killed the process last
+  // time must be backed off before this boot can decide to start it again,
+  // and the log should be honest even when the brake is on and nothing will
+  // run at all.
+  reapAbandonedRuns();
 
   // SCHEDULER_DISABLED: a hand-operated brake, not a feature. Added 2026-09-07
   // hours before the Matta-Kodsi draft, after the betting-side live tier's
@@ -1731,27 +1972,47 @@ export function startScheduler({
   // the app being maximally responsive.
   if (process.env.SCHEDULER_DISABLED === '1') {
     console.log('Scheduler disabled via SCHEDULER_DISABLED=1 — no background jobs will run.');
+    // There is no boot pass to wait for, so whatever is waiting on one should
+    // not wait forever. With no jobs running there is nothing to block the
+    // thread, which is exactly when the watchdog should already be watching.
+    try { onBootComplete?.(); } catch { /* the brake must not break the boot */ }
     return { disabled: true };
   }
 
   // Keep launch interactive. MLB player-log ingestion processes thousands of
   // responses and tomorrow-pick generation runs large simulations; doing either
   // on the main thread twenty seconds after boot made every API request hang.
-  const bootJobs = ['rss_news', 'espn_news', 'nfl_news_signals',
-    'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'nfl_forward_settle',
-    'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
-    'nfl_book_feeds_fast', 'nfl_book_feeds_slow', 'nfl_book_feeds_extra', 'nfl_prop_feeds', 'nfl_prop_clv_free',
-    'polymarket_line_watch', 'beat_the_close', 'nfl_pick_watch', 'nfl_t60_runner'];
+  const bootJobs = BOOT_JOBS;
   setTimeout(() => {
-    (async () => { for (const j of bootJobs) await runIfStale(j); })().catch(() => {});
+    // `onBootComplete` fires when this pass ends, however it ends. It is what
+    // arms the event-loop watchdog (server/index.js), which deliberately does
+    // NOT arm on the host's liveness probe -- see server/platform/loop-watchdog.js.
+    // In a `finally` rather than on success, because a pass where every job
+    // timed out has still finished blocking the thread, which is the only thing
+    // the watchdog cares about.
+    // Each job goes into a worker unless it is named in MAIN_THREAD_ONLY. The
+    // pass is still sequential -- one worker at a time, not twenty at once --
+    // so the cost is one module graph and one SQLite connection per job on a
+    // pass that already takes minutes, and the request thread stays free
+    // throughout it.
+    (async () => { for (const j of bootJobs) await runIfStale(j, { offThread: bootOffThread(j) }); })()
+      .catch(() => {})
+      .finally(() => { try { onBootComplete?.(); } catch { /* never fail the boot pass */ } });
   }, bootDelayMs);
   // A local app may not stay open for the first 30-minute slow tick. Give the
   // growth check its own delayed boot pass: it is cheap when no week is new and
   // waits until the UI has been interactive for a while before any ingest.
-  setTimeout(() => { runIfStale('nfl_model_growth').catch(() => {}); }, Math.max(90000, bootDelayMs + 60000));
+  // Off-thread, and this one is not hypothetical. `nfl_model_growth` is growth
+  // tier with no `offThread` flag, so it ran on the request thread a flat 90
+  // seconds after every boot -- and `nextDueMinutes` gives a job whose last
+  // status is an error a five-minute retry window rather than its six-hour
+  // cadence, so "every boot" is literal rather than "every six hours".
+  setTimeout(() => { runIfStale('nfl_model_growth', { offThread: true }).catch(() => {}); },
+    Math.max(90000, bootDelayMs + 60000));
   // Worker-thread reports: start after the interactive boot work so the first
   // dashboard reads are served from the store within a few minutes of launch.
-  setTimeout(() => { runIfStale('nfl_reports').catch(() => {}); }, Math.max(150000, bootDelayMs + 120000));
+  setTimeout(() => { runIfStale('nfl_reports', { offThread: true }).catch(() => {}); },
+    Math.max(150000, bootDelayMs + 120000));
 
   const live = jobsInTier('live');
   const metered = jobsInTier('metered');

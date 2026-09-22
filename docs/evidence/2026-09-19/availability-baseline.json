@@ -1,13 +1,13 @@
 {
   "base": "https://gridiron-hq.fly.dev",
-  "captured_at": "2026-09-19T20:31:56.379Z",
+  "captured_at": "2026-09-19T20:46:52.499Z",
   "leagues": [
     {
       "league_id": 1,
-      "captured_at": "2026-09-19T20:31:56.379Z",
+      "captured_at": "2026-09-19T20:46:52.499Z",
       "rosters": {
         "status": 200,
-        "ms": 40664,
+        "ms": 178296,
         "attempts": 1
       },
       "my_team_id": "1",
@@ -21,12 +21,13 @@
       },
       "target_id": 142,
       "target_name": "Jahmyr Gibbs",
-      "injured_target_id": 16,
-      "injured_target_name": "Bijan Robinson",
+      "injured_target_id": 256,
+      "injured_target_name": "Puka Nacua",
+      "injured_target_roster_flag": 1,
       "offer": {
         "status": 200,
-        "ms": 12015,
-        "attempts": 1
+        "ms": 192146,
+        "attempts": 2
       },
       "handle": {
         "availability_basis_flat": {
@@ -50,8 +51,8 @@
         "playoff_odds": 0.62,
         "playoff_odds_source": "season simulation, 1000 runs from week 2",
         "playoff_odds_interval": [
-          0.5895,
-          0.6496
+          0.5905,
+          0.6506
         ],
         "horizon_now": 0.567,
         "horizon_playoff": 0.433,
@@ -65,6 +66,7 @@
           "value": 10700,
           "adj_ppg": 14.77,
           "ppg": 15.41,
+          "current_week_ppg": 12.85,
           "ros_ppg": 15.41,
           "floor": 0,
           "ceiling": 23.3
@@ -91,11 +93,11 @@
           "chat_msgs": 0,
           "perception_delta": null
         },
-        "response_digest": "362cdb60753762cb"
+        "response_digest": "3d06911e1cc50bc2"
       },
       "injured_offer": {
         "status": 200,
-        "ms": 12182,
+        "ms": 16051,
         "attempts": 1
       },
       "injured_handle": {
@@ -120,38 +122,39 @@
         "playoff_odds": 0.62,
         "playoff_odds_source": "season simulation, 1000 runs from week 2",
         "playoff_odds_interval": [
-          0.5895,
-          0.6496
+          0.5905,
+          0.6506
         ],
         "horizon_now": 0.567,
         "horizon_playoff": 0.433,
         "target": {
-          "id": 16,
-          "name": "Bijan Robinson",
-          "position": "RB",
-          "injury_status": null,
-          "practice_status": null,
-          "active_probability": 0.833,
-          "value": 10239,
-          "adj_ppg": 14.37,
-          "ppg": 14.88,
-          "ros_ppg": 14.88,
+          "id": 256,
+          "name": "Puka Nacua",
+          "position": "WR",
+          "injury_status": "Questionable (ESPN)",
+          "practice_status": "Did Not Participate In Practice",
+          "active_probability": 0.324,
+          "value": 8603,
+          "adj_ppg": 10.3,
+          "ppg": 12.34,
+          "current_week_ppg": 4.18,
+          "ros_ppg": 12.34,
           "floor": 0,
-          "ceiling": 22.7
+          "ceiling": 13.8
         },
-        "their_cost": 7.03,
-        "upside_ppg": 3.56,
-        "upside_ppg_horizon": 3.162,
+        "their_cost": 1.88,
+        "upside_ppg": 2.48,
+        "upside_ppg_horizon": 3.142,
         "offers": 2,
         "error": null,
         "open_with": {
-          "i_give": "Javonte Williams + Caleb Williams + Jaylen Waddle",
-          "give_value": 10493,
-          "ratio": 1.02,
-          "my_ppg_delta": 3.56,
-          "their_ppg_delta": -4.65,
-          "horizon_value": 3.162,
-          "efficiency": 0.03,
+          "i_give": "Javonte Williams + Jaylen Waddle + Marvin Harrison Jr.",
+          "give_value": 8673,
+          "ratio": 1.01,
+          "my_ppg_delta": 2.48,
+          "their_ppg_delta": -1.88,
+          "horizon_value": 3.142,
+          "efficiency": 0.036,
           "acceptance": null,
           "counterparty_data": false,
           "receptiveness": 1,
@@ -161,11 +164,11 @@
           "chat_msgs": 0,
           "perception_delta": null
         },
-        "response_digest": "abbb033714f305ad"
+        "response_digest": "b51aed9ea80ccb23"
       },
       "lineup": {
         "status": 200,
-        "ms": 6183,
+        "ms": 5800,
         "attempts": 1
       },
       "lineup_handle": {
@@ -198,10 +201,10 @@
     },
     {
       "league_id": 2,
-      "captured_at": "2026-09-19T20:33:07.463Z",
+      "captured_at": "2026-09-19T20:57:29.835Z",
       "rosters": {
         "status": 200,
-        "ms": 1988,
+        "ms": 2632,
         "attempts": 1
       },
       "my_team_id": "4",
@@ -215,11 +218,12 @@
       },
       "target_id": 142,
       "target_name": "Jahmyr Gibbs",
-      "injured_target_id": 88,
-      "injured_target_name": "Ja'Marr Chase",
+      "injured_target_id": 256,
+      "injured_target_name": "Puka Nacua",
+      "injured_target_roster_flag": 1,
       "offer": {
         "status": 200,
-        "ms": 20164,
+        "ms": 21238,
         "attempts": 1
       },
       "handle": {
@@ -241,14 +245,14 @@
         },
         "season": 2026,
         "week": 2,
-        "playoff_odds": 0.63,
+        "playoff_odds": 0.64,
         "playoff_odds_source": "season simulation, 1000 runs from week 2",
         "playoff_odds_interval": [
-          0.6027,
-          0.6623
+          0.6057,
+          0.6652
         ],
-        "horizon_now": 0.632,
-        "horizon_playoff": 0.368,
+        "horizon_now": 0.629,
+        "horizon_playoff": 0.371,
         "target": {
           "id": 142,
           "name": "Jahmyr Gibbs",
@@ -259,13 +263,14 @@
           "value": 10787,
           "adj_ppg": 14.77,
           "ppg": 15.41,
+          "current_week_ppg": 12.85,
           "ros_ppg": 15.41,
           "floor": 0,
           "ceiling": 23.3
         },
-        "their_cost": 7.79,
+        "their_cost": 7.87,
         "upside_ppg": 3.87,
-        "upside_ppg_horizon": 3.948,
+        "upside_ppg_horizon": 3.949,
         "offers": 3,
         "error": null,
         "open_with": {
@@ -274,7 +279,7 @@
           "ratio": 1,
           "my_ppg_delta": 3.69,
           "their_ppg_delta": -3.77,
-          "horizon_value": 3.645,
+          "horizon_value": 3.644,
           "efficiency": 0.034,
           "acceptance": null,
           "counterparty_data": false,
@@ -285,11 +290,11 @@
           "chat_msgs": 0,
           "perception_delta": null
         },
-        "response_digest": "98d4ed3d4ea7a407"
+        "response_digest": "c77d57417fe0bbae"
       },
       "injured_offer": {
         "status": 200,
-        "ms": 14183,
+        "ms": 14059,
         "attempts": 1
       },
       "injured_handle": {
@@ -311,41 +316,42 @@
         },
         "season": 2026,
         "week": 2,
-        "playoff_odds": 0.63,
+        "playoff_odds": 0.64,
         "playoff_odds_source": "season simulation, 1000 runs from week 2",
         "playoff_odds_interval": [
-          0.6027,
-          0.6623
+          0.6057,
+          0.6652
         ],
-        "horizon_now": 0.632,
-        "horizon_playoff": 0.368,
+        "horizon_now": 0.629,
+        "horizon_playoff": 0.371,
         "target": {
-          "id": 88,
-          "name": "Ja'Marr Chase",
+          "id": 256,
+          "name": "Puka Nacua",
           "position": "WR",
-          "injury_status": null,
-          "practice_status": null,
-          "active_probability": 0.823,
-          "value": 9065,
-          "adj_ppg": 11.15,
-          "ppg": 11.55,
-          "ros_ppg": 11.55,
+          "injury_status": "Questionable (ESPN)",
+          "practice_status": "Did Not Participate In Practice",
+          "active_probability": 0.324,
+          "value": 8693,
+          "adj_ppg": 10.3,
+          "ppg": 12.34,
+          "current_week_ppg": 4.18,
+          "ros_ppg": 12.34,
           "floor": 0,
-          "ceiling": 18.3
+          "ceiling": 13.8
         },
-        "their_cost": 3.4,
-        "upside_ppg": 3.25,
-        "upside_ppg_horizon": 2.977,
-        "offers": 4,
+        "their_cost": 0.4,
+        "upside_ppg": 2.4,
+        "upside_ppg_horizon": 2.72,
+        "offers": 5,
         "error": null,
         "open_with": {
-          "i_give": "Emeka Egbuka + Jadarian Price + Stefon Diggs",
-          "give_value": 6871,
-          "ratio": 0.76,
-          "my_ppg_delta": 1.22,
-          "their_ppg_delta": 0.24,
-          "horizon_value": 1.305,
-          "efficiency": 0.019,
+          "i_give": "Jadarian Price + Jaylen Waddle + Deebo Samuel Sr.",
+          "give_value": 6192,
+          "ratio": 0.71,
+          "my_ppg_delta": 1,
+          "their_ppg_delta": 0.38,
+          "horizon_value": 1.446,
+          "efficiency": 0.023,
           "acceptance": null,
           "counterparty_data": false,
           "receptiveness": 1,
@@ -355,11 +361,11 @@
           "chat_msgs": 0,
           "perception_delta": null
         },
-        "response_digest": "f2a7841cba7fd4f9"
+        "response_digest": "d5814671671aa580"
       },
       "lineup": {
         "status": 200,
-        "ms": 6759,
+        "ms": 7816,
         "attempts": 1
       },
       "lineup_handle": {
@@ -386,10 +392,10 @@
     },
     {
       "league_id": 3,
-      "captured_at": "2026-09-19T20:33:50.585Z",
+      "captured_at": "2026-09-19T20:58:15.606Z",
       "rosters": {
         "status": 200,
-        "ms": 2072,
+        "ms": 2768,
         "attempts": 1
       },
       "my_team_id": "5",
@@ -403,12 +409,13 @@
       },
       "target_id": 142,
       "target_name": "Jahmyr Gibbs",
-      "injured_target_id": 16,
-      "injured_target_name": "Bijan Robinson",
+      "injured_target_id": 256,
+      "injured_target_name": "Puka Nacua",
+      "injured_target_roster_flag": 1,
       "offer": {
         "status": 200,
-        "ms": 21619,
-        "attempts": 1
+        "ms": 59358,
+        "attempts": 3
       },
       "handle": {
         "availability_basis_flat": {
@@ -432,8 +439,8 @@
         "playoff_odds": 0.26,
         "playoff_odds_source": "season simulation, 1000 runs from week 2",
         "playoff_odds_interval": [
-          0.2328,
-          0.287
+          0.2376,
+          0.2922
         ],
         "horizon_now": 0.806,
         "horizon_playoff": 0.194,
@@ -447,6 +454,7 @@
           "value": 10787,
           "adj_ppg": 14.77,
           "ppg": 15.41,
+          "current_week_ppg": 12.85,
           "ros_ppg": 15.41,
           "floor": 0,
           "ceiling": 23.3
@@ -473,11 +481,11 @@
           "chat_msgs": 0,
           "perception_delta": null
         },
-        "response_digest": "60977fc82949c9e5"
+        "response_digest": "7c0bb1dd37f0ab99"
       },
       "injured_offer": {
         "status": 200,
-        "ms": 13521,
+        "ms": 14188,
         "attempts": 1
       },
       "injured_handle": {
@@ -502,38 +510,39 @@
         "playoff_odds": 0.26,
         "playoff_odds_source": "season simulation, 1000 runs from week 2",
         "playoff_odds_interval": [
-          0.2328,
-          0.287
+          0.2376,
+          0.2922
         ],
         "horizon_now": 0.806,
         "horizon_playoff": 0.194,
         "target": {
-          "id": 16,
-          "name": "Bijan Robinson",
-          "position": "RB",
-          "injury_status": null,
-          "practice_status": null,
-          "active_probability": 0.833,
-          "value": 10322,
-          "adj_ppg": 14.37,
-          "ppg": 14.88,
-          "ros_ppg": 14.88,
+          "id": 256,
+          "name": "Puka Nacua",
+          "position": "WR",
+          "injury_status": "Questionable (ESPN)",
+          "practice_status": "Did Not Participate In Practice",
+          "active_probability": 0.324,
+          "value": 8693,
+          "adj_ppg": 10.3,
+          "ppg": 12.34,
+          "current_week_ppg": 4.18,
+          "ros_ppg": 12.34,
           "floor": 0,
-          "ceiling": 22.7
+          "ceiling": 13.8
         },
-        "their_cost": 7.87,
-        "upside_ppg": 4.43,
-        "upside_ppg_horizon": 4.291,
-        "offers": 3,
+        "their_cost": 3.05,
+        "upside_ppg": 3.14,
+        "upside_ppg_horizon": 3.255,
+        "offers": 1,
         "error": null,
         "open_with": {
-          "i_give": "Chase Brown + Ladd McConkey + Dontayvion Wicks",
-          "give_value": 10474,
+          "i_give": "Bucky Irving + Ladd McConkey + Deebo Samuel Sr.",
+          "give_value": 8794,
           "ratio": 1.01,
-          "my_ppg_delta": 3.37,
-          "their_ppg_delta": -3.28,
-          "horizon_value": 3.288,
-          "efficiency": 0.031,
+          "my_ppg_delta": -0.55,
+          "their_ppg_delta": -0.21,
+          "horizon_value": 0.007,
+          "efficiency": 0,
           "acceptance": null,
           "counterparty_data": false,
           "receptiveness": 1,
@@ -543,11 +552,11 @@
           "chat_msgs": 0,
           "perception_delta": null
         },
-        "response_digest": "0ea4db8b40651bfb"
+        "response_digest": "c984bbc292283eaa"
       },
       "lineup": {
         "status": 200,
-        "ms": 7551,
+        "ms": 8073,
         "attempts": 1
       },
       "lineup_handle": {
@@ -586,10 +595,10 @@
     },
     {
       "league_id": 4,
-      "captured_at": "2026-09-19T20:34:35.375Z",
+      "captured_at": "2026-09-19T21:07:55.022Z",
       "rosters": {
         "status": 200,
-        "ms": 10133,
+        "ms": 16392,
         "attempts": 1
       },
       "my_team_id": "8",
@@ -603,11 +612,12 @@
       },
       "target_id": 142,
       "target_name": "Jahmyr Gibbs",
-      "injured_target_id": 16,
-      "injured_target_name": "Bijan Robinson",
+      "injured_target_id": 256,
+      "injured_target_name": "Puka Nacua",
+      "injured_target_roster_flag": 1,
       "offer": {
         "status": 200,
-        "ms": 11911,
+        "ms": 147616,
         "attempts": 1
       },
       "handle": {
@@ -629,14 +639,14 @@
         },
         "season": 2026,
         "week": 2,
-        "playoff_odds": 0.24,
+        "playoff_odds": 0.25,
         "playoff_odds_source": "season simulation, 1000 runs from week 2",
         "playoff_odds_interval": [
-          0.2146,
-          0.2674
+          0.2203,
+          0.2736
         ],
-        "horizon_now": 0.758,
-        "horizon_playoff": 0.242,
+        "horizon_now": 0.75,
+        "horizon_playoff": 0.25,
         "target": {
           "id": 142,
           "name": "Jahmyr Gibbs",
@@ -647,13 +657,14 @@
           "value": 10700,
           "adj_ppg": 14.77,
           "ppg": 15.41,
+          "current_week_ppg": 12.85,
           "ros_ppg": 15.41,
           "floor": 0,
           "ceiling": 23.3
         },
         "their_cost": 6.49,
         "upside_ppg": 3.87,
-        "upside_ppg_horizon": 3.94,
+        "upside_ppg_horizon": 3.943,
         "offers": 4,
         "error": null,
         "open_with": {
@@ -662,7 +673,7 @@
           "ratio": 1,
           "my_ppg_delta": 3.87,
           "their_ppg_delta": -6.49,
-          "horizon_value": 3.549,
+          "horizon_value": 3.539,
           "efficiency": 0.033,
           "acceptance": null,
           "counterparty_data": false,
@@ -673,11 +684,11 @@
           "chat_msgs": 0,
           "perception_delta": null
         },
-        "response_digest": "d40107b16731b145"
+        "response_digest": "43ba29adf30759b4"
       },
       "injured_offer": {
         "status": 200,
-        "ms": 43335,
+        "ms": 21669,
         "attempts": 1
       },
       "injured_handle": {
@@ -699,41 +710,42 @@
         },
         "season": 2026,
         "week": 2,
-        "playoff_odds": 0.24,
+        "playoff_odds": 0.25,
         "playoff_odds_source": "season simulation, 1000 runs from week 2",
         "playoff_odds_interval": [
-          0.2146,
-          0.2674
+          0.2203,
+          0.2736
         ],
-        "horizon_now": 0.758,
-        "horizon_playoff": 0.242,
+        "horizon_now": 0.75,
+        "horizon_playoff": 0.25,
         "target": {
-          "id": 16,
-          "name": "Bijan Robinson",
-          "position": "RB",
-          "injury_status": null,
-          "practice_status": null,
-          "active_probability": 0.833,
-          "value": 10239,
-          "adj_ppg": 14.37,
-          "ppg": 14.88,
-          "ros_ppg": 14.88,
+          "id": 256,
+          "name": "Puka Nacua",
+          "position": "WR",
+          "injury_status": "Questionable (ESPN)",
+          "practice_status": "Did Not Participate In Practice",
+          "active_probability": 0.324,
+          "value": 8603,
+          "adj_ppg": 10.3,
+          "ppg": 12.34,
+          "current_week_ppg": 4.18,
+          "ros_ppg": 12.34,
           "floor": 0,
-          "ceiling": 22.7
+          "ceiling": 13.8
         },
-        "their_cost": 4.87,
-        "upside_ppg": 3.47,
-        "upside_ppg_horizon": 3.517,
+        "their_cost": 0.69,
+        "upside_ppg": 2.57,
+        "upside_ppg_horizon": 2.75,
         "offers": 4,
         "error": null,
         "open_with": {
-          "i_give": "Nico Collins + Bucky Irving + Matthew Golden",
-          "give_value": 10226,
-          "ratio": 1,
-          "my_ppg_delta": 3.47,
-          "their_ppg_delta": -4.43,
-          "horizon_value": 3.457,
-          "efficiency": 0.034,
+          "i_give": "Jadarian Price + Tyler Warren + Matthew Golden",
+          "give_value": 6031,
+          "ratio": 0.7,
+          "my_ppg_delta": 1.61,
+          "their_ppg_delta": 0.01,
+          "horizon_value": 1.865,
+          "efficiency": 0.031,
           "acceptance": null,
           "counterparty_data": false,
           "receptiveness": 1,
@@ -743,11 +755,11 @@
           "chat_msgs": 0,
           "perception_delta": null
         },
-        "response_digest": "95b671a1bf96e55e"
+        "response_digest": "76573aacb1bebb6c"
       },
       "lineup": {
         "status": 200,
-        "ms": 6863,
+        "ms": 6991,
         "attempts": 1
       },
       "lineup_handle": {
@@ -780,10 +792,10 @@
     },
     {
       "league_id": 5,
-      "captured_at": "2026-09-19T20:35:47.667Z",
+      "captured_at": "2026-09-19T21:11:07.719Z",
       "rosters": {
         "status": 200,
-        "ms": 1926,
+        "ms": 15961,
         "attempts": 1
       },
       "my_team_id": "4",
@@ -797,11 +809,12 @@
       },
       "target_id": 142,
       "target_name": "Jahmyr Gibbs",
-      "injured_target_id": 16,
-      "injured_target_name": "Bijan Robinson",
+      "injured_target_id": 256,
+      "injured_target_name": "Puka Nacua",
+      "injured_target_roster_flag": 1,
       "offer": {
         "status": 200,
-        "ms": 24664,
+        "ms": 194528,
         "attempts": 1
       },
       "handle": {
@@ -826,8 +839,8 @@
         "playoff_odds": 0.9,
         "playoff_odds_source": "season simulation, 1000 runs from week 2",
         "playoff_odds_interval": [
-          0.8755,
-          0.9134
+          0.8777,
+          0.9153
         ],
         "horizon_now": 0.546,
         "horizon_playoff": 0.454,
@@ -841,6 +854,7 @@
           "value": 10787,
           "adj_ppg": 14.77,
           "ppg": 15.41,
+          "current_week_ppg": 12.85,
           "ros_ppg": 15.41,
           "floor": 0,
           "ceiling": 23.3
@@ -867,11 +881,11 @@
           "chat_msgs": 0,
           "perception_delta": null
         },
-        "response_digest": "a85a51e05e329a86"
+        "response_digest": "8ccc29f49deb8c20"
       },
       "injured_offer": {
         "status": 200,
-        "ms": 22700,
+        "ms": 13180,
         "attempts": 1
       },
       "injured_handle": {
@@ -896,38 +910,39 @@
         "playoff_odds": 0.9,
         "playoff_odds_source": "season simulation, 1000 runs from week 2",
         "playoff_odds_interval": [
-          0.8755,
-          0.9134
+          0.8777,
+          0.9153
         ],
         "horizon_now": 0.546,
         "horizon_playoff": 0.454,
         "target": {
-          "id": 16,
-          "name": "Bijan Robinson",
-          "position": "RB",
-          "injury_status": null,
-          "practice_status": null,
-          "active_probability": 0.833,
-          "value": 10322,
-          "adj_ppg": 14.37,
-          "ppg": 14.88,
-          "ros_ppg": 14.88,
+          "id": 256,
+          "name": "Puka Nacua",
+          "position": "WR",
+          "injury_status": "Questionable (ESPN)",
+          "practice_status": "Did Not Participate In Practice",
+          "active_probability": 0.324,
+          "value": 8693,
+          "adj_ppg": 10.3,
+          "ppg": 12.34,
+          "current_week_ppg": 4.18,
+          "ros_ppg": 12.34,
           "floor": 0,
-          "ceiling": 22.7
+          "ceiling": 13.8
         },
-        "their_cost": 5.56,
-        "upside_ppg": 5.08,
-        "upside_ppg_horizon": 5.061,
-        "offers": 2,
+        "their_cost": 2.94,
+        "upside_ppg": 1.3,
+        "upside_ppg_horizon": 2.087,
+        "offers": 1,
         "error": null,
         "open_with": {
-          "i_give": "Jonathan Taylor + Courtland Sutton",
-          "give_value": 9588,
-          "ratio": 0.93,
-          "my_ppg_delta": 0.73,
-          "their_ppg_delta": 0.22,
-          "horizon_value": 0.564,
-          "efficiency": 0.006,
+          "i_give": "Chris Olave + Tony Pollard + KC Concepcion",
+          "give_value": 6858,
+          "ratio": 0.79,
+          "my_ppg_delta": -0.26,
+          "their_ppg_delta": 0.54,
+          "horizon_value": 0.512,
+          "efficiency": 0.007,
           "acceptance": null,
           "counterparty_data": false,
           "receptiveness": 1,
@@ -937,11 +952,11 @@
           "chat_msgs": 0,
           "perception_delta": null
         },
-        "response_digest": "71f4a78dc8df8bed"
+        "response_digest": "825a047f4b02bfe3"
       },
       "lineup": {
         "status": 200,
-        "ms": 7569,
+        "ms": 5589,
         "attempts": 1
       },
       "lineup_handle": {
@@ -960,6 +975,5 @@
         "coin_flips": 3
       }
     }
-  ],
-  "note": "Baseline taken from the live app before scripts/fit-availability.mjs ran and before any of the 2026-09-19 pull requests deployed. Re-read with --compare to produce the after-difference; it re-reads the same target players by id. Every league reads basis constants, stamp absent|absent."
+  ]
 }

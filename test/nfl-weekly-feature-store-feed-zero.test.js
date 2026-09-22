@@ -40,6 +40,11 @@ test.after(() => {
 });
 
 const GAME = '2025_01_KC_SF';
+// Participation for a season is published only after its post-season, so a
+// team history sees it from the next season on (teamHistory; see
+// team-history-participation-as-of.test.js). The 2025 week-1 plays below are
+// therefore read from a 2026 week-1 history, not a 2025 week-2 one.
+const TARGET = [2026, 1, 'KC'];
 // Real box counts: 6, 7, 8. Sentinel "uncounted" plays: two literal zeros.
 const BOXES = [6, 7, 8, 0, 0];
 // Real charted defense_box counts: 5, 9. One sentinel zero.
@@ -59,7 +64,7 @@ for (let i = 0; i < CHARTED_BOX.length; i++) {
 }
 
 test('defenders_in_box history excludes literal-zero sentinel plays from the average', () => {
-  const history = featureTest.teamHistory(2025, 2, 'KC');
+  const history = featureTest.teamHistory(...TARGET);
   const week1 = history.find(item => item.season === 2025 && item.week === 1);
   assert.ok(week1, 'week 1 formation history must be present');
   // Sentinel-contaminated average would be (6+7+8+0+0)/5 = 4.2.
@@ -68,7 +73,7 @@ test('defenders_in_box history excludes literal-zero sentinel plays from the ave
 });
 
 test('charted defense_box history excludes literal-zero sentinel plays from the average', () => {
-  const history = featureTest.teamHistory(2025, 2, 'KC');
+  const history = featureTest.teamHistory(...TARGET);
   const week1 = history.find(item => item.season === 2025 && item.week === 1);
   assert.ok(week1, 'week 1 charting history must be present');
   // Sentinel-contaminated average would be (5+9+0)/3 = 4.667.
@@ -77,7 +82,7 @@ test('charted defense_box history excludes literal-zero sentinel plays from the 
 });
 
 test('contested stays a real rate over every charted play, sentinel guard untouched', () => {
-  const history = featureTest.teamHistory(2025, 2, 'KC');
+  const history = featureTest.teamHistory(...TARGET);
   const week1 = history.find(item => item.season === 2025 && item.week === 1);
   // contested_share must still be measured over all 3 charted plays: 1/3.
   assert.equal(week1.values.charting_contested_share, 1 / 3);

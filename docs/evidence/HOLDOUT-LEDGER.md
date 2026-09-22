@@ -268,6 +268,15 @@ class:
 | L152 | 2026-09-22 | #92 | fantasy | FL | Four red-zone tiers beat three for expected touchdowns | TD MAE, 5,229 player-weeks | improvement real, -0.68% MAE; TD bias slightly worse | -0.001859 | -0.002678 | -0.000125 | 95 |  | - | yes | `docs/tdd/redzone-tiers.tdd.md:95` |  |
 | L153 | 2026-09-22 | #106 | fantasy | FL | Unit-1 volume-shrinkage fit beats hardcoded k (CRPS gate) | CRPS, 4,532 player-weeks | result not reported in docs/; local DB row note says activated, active column 0 |  |  |  |  |  |  | unclear (row note vs active=0) | `docs/tdd/shrinkage-fit-efficiency-weighting-2026-09-22.tdd.md:143` | origin out of scope (local shrinkage_fits row; Auditor verdict in handoff memory gridiron-audit-unit-1-verdict) |
 
+## 2026 forward looks
+
+`STATS-METHOD.md` rule 5 gates a ship on the 2026 weeks already played, and
+every such check is a look at 2026. Record it here with the same columns and an
+`F` id (F001, F002, ...), so 2026 is not spent silently the way 2025 was.
+The BH command reads only `L` rows.
+
+None yet.
+
 ## File classification: every file the census returns
 
 | file | class | rows | why |

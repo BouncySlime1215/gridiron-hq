@@ -89,8 +89,8 @@ run also records an error row rather than only logging one.
 
 Cited in the format the fleet uses: PR, commit subject, sha.
 
-- **RED** — PR #123, `test: RED — a truncated child report must not be logged as ok`, `372890e1`
-- **GREEN** — PR #123, `fix: a child that never reported is not a child that succeeded`, `ea54eaf2`
+- **RED** — PR #126, `test: RED — a truncated child report must not be logged as ok`, `372890e1`
+- **GREEN** — PR #126, `fix: a child that never reported is not a child that succeeded`, `ea54eaf2`
 
 ### The RED failure, as it printed
 

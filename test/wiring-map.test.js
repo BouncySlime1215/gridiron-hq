@@ -180,6 +180,31 @@ test('keyReads sees a destructured parameter that is not the first parameter', (
   assert.ok(reads.has('playoffOdds'));
 });
 
+test('bodyRange skips a destructured parameter list', () => {
+  // bodyRange took the first `{` after the function name as the body. For
+  // `export function f({ a = 1 } = {}) { … }` that brace is the PARAMETER
+  // object, which closes immediately, so the range covered the signature and
+  // nothing else.
+  //
+  // Found 2026-09-22 on server/services/scheduler.js:
+  // refreshManagerSignalsOffThread({ leagueIds = null, timeoutMs = 120_000 })
+  // constructs the Worker that does the work, and the job resolver saw an
+  // empty body and reported that the scheduler does it itself. Every other
+  // caller of bodyRange had the same blind spot on every options-bag
+  // function in the repository.
+  const src = [
+    'export function withBag({ leagueIds = null, timeoutMs = 120 } = {}) {',
+    '  const marker = 1;',
+    '  return marker + leagueIds;',
+    '}',
+  ].join('\n');
+  const range = bodyRange(src, 'withBag');
+  assert.ok(range, 'a range is found');
+  const body = src.slice(range.start, range.end);
+  assert.match(body, /const marker = 1;/, 'the range covers the real body');
+  assert.doesNotMatch(body, /timeoutMs = 120/, 'the range does not stop at the parameter object');
+});
+
 test('declarations sees a computed value that is never used again', () => {
   const decls = declarations('const playerOpportunity = a * 0.55 + b * 0.35;');
   assert.equal(decls.has('playerOpportunity'), true);

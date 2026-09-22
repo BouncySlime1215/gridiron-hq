@@ -120,6 +120,40 @@ test('a re-ingest backfills rows stored before the columns existed', () => {
   assert.equal(play(85).time_to_throw, 2.55);
 });
 
+/*
+ * The gate at nfl-model-growth.js:200 read `if (season <= 2023)`, on the belief
+ * that nflverse stops publishing participation after 2023. It does not — 2024
+ * and 2025 both serve, and only the current season 404s, which is what commit
+ * 1d8f6aa corrected in this module's own doc comment. These two prove the gate
+ * has nothing left to protect: a post-2023 season ingests, and an unpublished
+ * one returns an honest note instead of throwing, so attempting it costs a
+ * recorded 404 rather than a failure.
+ */
+test('a season after 2023 ingests — the gate had nothing to protect', () => {
+  assert.equal(play(85).season, 2024);
+  assert.equal(rows('SELECT COUNT(*) n FROM nfl_play_formations WHERE season=2024')[0].n, 4);
+});
+
+test('an unpublished season returns the honest note rather than throwing', async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 404, text: async () => '' });
+  try {
+    const out = await ingestFormations(2026);
+    assert.match(out.error, /participation for 2026 returned 404/);
+    assert.match(out.note, /has not published participation for 2026/);
+  } finally { globalThis.fetch = saved; }
+});
+
+test('a server error carries no reassuring note — only a 404 means "not published"', async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 500, text: async () => '' });
+  try {
+    const out = await ingestFormations(2025);
+    assert.match(out.error, /returned 500/);
+    assert.equal(out.note, undefined);
+  } finally { globalThis.fetch = saved; }
+});
+
 test('the mean box count excludes the zeros its own distribution query already excludes', () => {
   // formationDistribution filters defenders_in_box > 0 for its histogram but
   // not for AVG(). I_FORM's only play has box 0, so a mean of 0 is the tell.

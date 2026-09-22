@@ -1,17 +1,20 @@
 /**
- * Beat reporter source map — historical accuracy, injury_status slice.
+ * Beat reporter source map — historical accuracy for injury_status and
+ * role_change.
  *
  * Nick's ask (PART 5): "Score sources historically: whose reports actually
  * predicted outcomes vs. who cried wolf." `source-validation.js` already
  * answers a different question — is this handle who it claims to be — and
  * this does not repeat that check. This answers: when this handle said a
- * player would or wouldn't play, did the player actually play?
+ * player would or wouldn't play (injury_status) or take on more/less of the
+ * offense (role_change), did that actually happen?
  *
- * injury_status is the one claim_type with a clean, already-collected ground
- * truth (player_week_snaps), which is why it is the first slice built. The
- * other four types (role_change, transaction, return_from_injury, suspension)
- * each need their own ground-truth read and are deliberately not attempted
- * here — "prove a small slice before building on it" (Composer protocol).
+ * Both slices share player_week_snaps as ground truth — injury_status reads
+ * whether the player logged any offensive snaps at all, role_change reads the
+ * swing in offense_pct against the player's own prior week. The other three
+ * types (transaction, return_from_injury, suspension) each need their own
+ * ground-truth read and are deliberately not attempted here — "prove a small
+ * slice before building on it" (Composer protocol).
  *
  * Direction is read by keyword, not by a second model call. The extractor
  * (nfl-news-events.js) is already the one hallucination surface in this
@@ -23,6 +26,7 @@
  */
 import { rows, row, run } from '../db/index.js';
 import { normalizePlayerName } from './player-identity.js';
+import { ROLE_RULES } from './nfl-news-signal.js';
 
 /** Below this many resolved claims, a handle's rate is pooled toward the
  * claim-type baseline rather than reported on its own — one confirmed claim
@@ -69,9 +73,49 @@ function resolvePlayerId(playerName, teamId) {
 
 /** player_week_snaps.offense_snaps only measures offensive plays (confirmed against
  * real nflverse data) — a defensive player who played a full game still reads as
- * absent/zero there, which would misread as "did not play". Injury-status resolution
- * is scoped to the positions that table actually speaks for. */
+ * absent/zero there, which would misread as "did not play". Injury-status and
+ * role_change resolution are both scoped to the positions that table actually
+ * speaks for. */
 const OFFENSE_SNAP_POSITIONS = new Set(['QB', 'RB', 'FB', 'WR', 'TE']);
+
+/**
+ * Steps every claim_type resolver needs before it can even ask what happened:
+ * find the team, the first game on or after the claim date, and the player —
+ * none of which depends on what is actually being claimed. Never throws;
+ * returns `{ ok: false, ... }` with the same unresolved shape every resolver
+ * returns, or `{ ok: true, game, playerId, position }` to continue with.
+ */
+function locateGameAndPlayer(event, asOf) {
+  const team = row(`SELECT id FROM nfl_teams WHERE abbr = ?`, event.team);
+  if (!team) {
+    return { ok: false, season: null, week: null,
+      resolved_reason: `team abbreviation '${event.team}' is not recognized` };
+  }
+
+  const claimDate = String(event.published_at ?? '').slice(0, 10);
+  const game = row(
+    `SELECT season, week, date FROM schedule_games WHERE team_id = ? AND date >= ? ORDER BY date ASC LIMIT 1`,
+    team.id, claimDate);
+  if (!game) {
+    return { ok: false, season: null, week: null,
+      resolved_reason: 'no scheduled game on or after the claim date' };
+  }
+  if (game.date > String(asOf).slice(0, 10)) {
+    return { ok: false, season: game.season, week: game.week,
+      resolved_reason: `game has not been played yet (scheduled ${game.date})` };
+  }
+
+  const { id: playerId, position, reason: playerReason } = resolvePlayerId(event.player_name, team.id);
+  if (!playerId) {
+    return { ok: false, season: game.season, week: game.week, resolved_reason: playerReason };
+  }
+  if (!OFFENSE_SNAP_POSITIONS.has(position)) {
+    return { ok: false, season: game.season, week: game.week,
+      resolved_reason: `position '${position}' is not covered by offense-snap ground truth` };
+  }
+
+  return { ok: true, team, game, playerId, position };
+}
 
 /**
  * Resolve one injury_status event against schedule + snap data.
@@ -97,34 +141,12 @@ export function resolveInjuryClaim(event, { asOf = new Date().toISOString() } = 
       resolved_reason: 'claim text does not commit to a direction (questionable/day-to-day)' };
   }
 
-  const team = row(`SELECT id FROM nfl_teams WHERE abbr = ?`, event.team);
-  if (!team) {
+  const located = locateGameAndPlayer(event, asOf);
+  if (!located.ok) {
     return { ...base, predicted_direction: direction, resolved_state: 'unresolved',
-      resolved_reason: `team abbreviation '${event.team}' is not recognized` };
+      season: located.season, week: located.week, resolved_reason: located.resolved_reason };
   }
-
-  const claimDate = String(event.published_at ?? '').slice(0, 10);
-  const game = row(
-    `SELECT season, week, date FROM schedule_games WHERE team_id = ? AND date >= ? ORDER BY date ASC LIMIT 1`,
-    team.id, claimDate);
-  if (!game) {
-    return { ...base, predicted_direction: direction, resolved_state: 'unresolved',
-      resolved_reason: 'no scheduled game on or after the claim date' };
-  }
-  if (game.date > String(asOf).slice(0, 10)) {
-    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
-      week: game.week, resolved_reason: `game has not been played yet (scheduled ${game.date})` };
-  }
-
-  const { id: playerId, position, reason: playerReason } = resolvePlayerId(event.player_name, team.id);
-  if (!playerId) {
-    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
-      week: game.week, resolved_reason: playerReason };
-  }
-  if (!OFFENSE_SNAP_POSITIONS.has(position)) {
-    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
-      week: game.week, resolved_reason: `position '${position}' is not covered by offense-snap ground truth` };
-  }
+  const { team, game, playerId } = located;
 
   const snaps = row(`SELECT offense_snaps FROM player_week_snaps WHERE player_id = ? AND season = ? AND week = ?`,
     playerId, game.season, game.week);
@@ -157,19 +179,15 @@ export function resolveInjuryClaim(event, { asOf = new Date().toISOString() } = 
     resolved_reason };
 }
 
-/**
- * Resolve every injury_status event and upsert the verdict.
- *
- * Idempotent and safe to re-run: an already-confirmed/contradicted row is
- * overwritten with the same verdict (a no-op in practice, since the game
- * that decided it does not change), and an 'unresolved' row is naturally
- * upgraded once player_week_snaps has that week's data.
- */
-export function resolveInjuryClaims({ limit = 500, asOf } = {}) {
-  const events = rows(`SELECT * FROM nfl_news_events WHERE claim_type = 'injury_status' ORDER BY event_id LIMIT ?`, limit);
+/** Shared by every claim_type's batch resolver: run `resolverFn` over `events`
+ * and upsert each verdict. Idempotent and safe to re-run: an already-decided
+ * row is overwritten with the same verdict (a no-op, since the game that
+ * decided it does not change), and an 'unresolved' row is naturally upgraded
+ * once its ground-truth table has that week's data. */
+function resolveAndStore(events, resolverFn, asOf) {
   let resolved = 0;
   for (const event of events) {
-    const r = resolveInjuryClaim(event, asOf ? { asOf } : {});
+    const r = resolverFn(event, asOf ? { asOf } : {});
     run(`INSERT INTO beat_reporter_claim_resolutions
          (event_id, reporter_handle, claim_type, predicted_direction, resolved_state, resolved_reason, resolved_at, season, week)
          VALUES (?,?,?,?,?,?,?,?,?)
@@ -182,6 +200,100 @@ export function resolveInjuryClaims({ limit = 500, asOf } = {}) {
     resolved++;
   }
   return { resolved, total: events.length };
+}
+
+/** Resolve every injury_status event and upsert the verdict. */
+export function resolveInjuryClaims({ limit = 500, asOf } = {}) {
+  const events = rows(`SELECT * FROM nfl_news_events WHERE claim_type = 'injury_status' ORDER BY event_id LIMIT ?`, limit);
+  return resolveAndStore(events, resolveInjuryClaim, asOf);
+}
+
+/** How large an offense_pct swing (0-1 scale, i.e. percentage points of snap
+ * share) counts as a real role move rather than ordinary week-to-week noise.
+ * Below this, the honest answer is 'no significant move either way' — forcing
+ * a confirm/contradict out of a flat week would be exactly the kind of
+ * overclaimed precision this whole feature exists to avoid. */
+const ROLE_CHANGE_THRESHOLD = 0.10;
+
+/**
+ * Read the direction a role_change claim's text commits to, deterministically.
+ *
+ * Reuses ROLE_RULES (nfl-news-signal.js) rather than a second copy of the
+ * vocabulary — the same discipline nfl-news-events.js's own polarityOf()
+ * follows for its contradiction detector. A starter-confirmed or
+ * expanded-role claim reads as role_up; benched or reduced-role reads as
+ * role_down.
+ */
+export function classifyRoleDirection(text) {
+  const t = String(text ?? '');
+  for (const rule of ROLE_RULES) {
+    if (rule.re.test(t)) return rule.delta > 0 ? 'role_up' : 'role_down';
+  }
+  return null;
+}
+
+/**
+ * Resolve one role_change event against schedule + snap-share data.
+ *
+ * Ground truth is the player's own offense_pct: the most recent week with
+ * data BEFORE the claim's game week, compared to the claim's own game week.
+ * A swing at or past ROLE_CHANGE_THRESHOLD in the predicted direction is
+ * confirmed, one that far in the opposite direction is contradicted, and
+ * anything in between is unresolved rather than forced either way. Same
+ * never-throws, always-a-printed-reason discipline as resolveInjuryClaim.
+ */
+export function resolveRoleChangeClaim(event, { asOf = new Date().toISOString() } = {}) {
+  const base = { event_id: event.event_id, reporter_handle: event.reporter_handle ?? null,
+    claim_type: event.claim_type, resolved_at: new Date().toISOString(), season: null, week: null };
+
+  const direction = classifyRoleDirection(event.evidence_span || event.claim_text);
+  if (direction === null) {
+    return { ...base, predicted_direction: null, resolved_state: 'unresolved',
+      resolved_reason: 'no role direction classified from the claim text' };
+  }
+
+  const located = locateGameAndPlayer(event, asOf);
+  if (!located.ok) {
+    return { ...base, predicted_direction: direction, resolved_state: 'unresolved',
+      season: located.season, week: located.week, resolved_reason: located.resolved_reason };
+  }
+  const { game, playerId } = located;
+
+  const before = row(`SELECT week, offense_pct FROM player_week_snaps
+                       WHERE player_id = ? AND season = ? AND week < ? ORDER BY week DESC LIMIT 1`,
+    playerId, game.season, game.week);
+  if (!before) {
+    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
+      week: game.week,
+      resolved_reason: `no prior-week snap data this season to compare against (claim landed at or before week ${game.week})` };
+  }
+
+  const after = row(`SELECT offense_pct FROM player_week_snaps WHERE player_id = ? AND season = ? AND week = ?`,
+    playerId, game.season, game.week);
+  if (!after) {
+    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
+      week: game.week, resolved_reason: `no snap-share row for week ${game.week} yet` };
+  }
+
+  const delta = after.offense_pct - before.offense_pct;
+  const moved = `offense snap share moved from ${r2(before.offense_pct)} (week ${before.week}) ` +
+    `to ${r2(after.offense_pct)} (week ${game.week})`;
+
+  if (Math.abs(delta) < ROLE_CHANGE_THRESHOLD) {
+    return { ...base, predicted_direction: direction, resolved_state: 'unresolved', season: game.season,
+      week: game.week, resolved_reason: `${moved}, not a big enough move (${r2(delta)}) to grade either way` };
+  }
+
+  const actual = delta > 0 ? 'role_up' : 'role_down';
+  const resolved_state = direction === actual ? 'confirmed' : 'contradicted';
+  return { ...base, predicted_direction: direction, resolved_state, season: game.season, week: game.week,
+    resolved_reason: `${moved} (${r2(delta)})` };
+}
+
+/** Resolve every role_change event and upsert the verdict. */
+export function resolveRoleChangeClaims({ limit = 500, asOf } = {}) {
+  const events = rows(`SELECT * FROM nfl_news_events WHERE claim_type = 'role_change' ORDER BY event_id LIMIT ?`, limit);
+  return resolveAndStore(events, resolveRoleChangeClaim, asOf);
 }
 
 /**

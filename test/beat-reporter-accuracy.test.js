@@ -434,7 +434,7 @@ test('resolveRoleChangeClaims writes one upserted row per role_change event, and
   const stored = row(`SELECT * FROM beat_reporter_claim_resolutions WHERE event_id=?`, roleEventId);
   assert.equal(stored.resolved_state, 'confirmed');
   assert.equal(stored.reporter_handle, 'RoleReporter');
-  assert.equal(row(`SELECT * FROM beat_reporter_claim_resolutions WHERE event_id=?`, injuryEventId), null,
+  assert.equal(row(`SELECT * FROM beat_reporter_claim_resolutions WHERE event_id=?`, injuryEventId), undefined,
     'resolveRoleChangeClaims must not touch injury_status events');
 
   // Re-running does not duplicate the row (upsert on event_id).

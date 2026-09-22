@@ -146,3 +146,77 @@ test('the committed inventory carries the regraded modules and a separate count'
     'the 72 rows previously counted as wired must all still be accounted for; '
     + 'this grade moves rows between buckets, it never drops one');
 });
+
+/*
+ * TWO DEFECTS IN THE FIRST VERSION OF THIS RULE, both found by Opportunity
+ * measuring the set rather than accepting the total. 52 of the sets agreed;
+ * the 15 rows only I called betting-only were mostly mine being wrong.
+ *
+ *   1. A SCRIPT IN package.json IS AN ENTRY POINT. CONTRACT.md's `wired` test
+ *      names "a route, a scheduled job, a script in package.json, or the
+ *      client". The first version ignored the map's `scripts` bucket entirely,
+ *      because `reachesLiveSurface()` ignores it -- correctly, since a script is
+ *      not a live SURFACE. But the betting-only question is not "what surface
+ *      serves this", it is "is every way in a betting route", and
+ *      `npm run build:role-scenario-lab` is a way in. 12 rows measured wrong.
+ *
+ *   2. A BETTING PREFIX IS A PREFIX. `server/routes/wong.js` is mounted at
+ *      `/api/betting/wong`, under the betting hub. Comparing family names for
+ *      equality against the three prefixes makes a sub-path of a betting
+ *      surface look like a fourth thing.
+ *
+ * A HAND-RUN SCRIPT STILL DOES NOT DISQUALIFY, and that is the same contract
+ * speaking: "Record it as `reached from: hand-run script`, never as `wired`."
+ * Nothing in the repository causes it to run. So the test is package.json
+ * membership, not the existence of a script.
+ */
+
+test('a script named in package.json is a non-betting way in', () => {
+  const c = classify({
+    modPath: 'server/services/role-scenario-engine.js',
+    wiring: { route_families: [at('/api/nfl-market')], jobs: [], pages: [],
+      scripts: [at('scripts/build-role-scenario-lab.mjs', 2)] },
+    findingsFor: [], tables: [], local: { readable: true, counts: new Map() },
+    packageScripts: new Set(['scripts/build-role-scenario-lab.mjs']),
+  });
+  assert.equal(c.status, 'wired',
+    'npm run build:role-scenario-lab reaches it without a betting route. '
+    + 'CONTRACT.md\'s own worked example says this file takes the betting-only '
+    + 'grade, and the example is wrong on its own rule.');
+});
+
+test('a hand-run script does not disqualify', () => {
+  const c = classify({
+    modPath: 'server/services/x.js',
+    wiring: { route_families: [at('/api/nfl-market')], jobs: [], pages: [],
+      scripts: [at('scripts/some-one-off.mjs', 2)] },
+    findingsFor: [], tables: [], local: { readable: true, counts: new Map() },
+    packageScripts: new Set(['scripts/build-role-scenario-lab.mjs']),
+  });
+  assert.equal(c.status, 'wired-betting-only',
+    'nothing in the repository causes a hand-run script to run, and the '
+    + 'contract says never to record that as wired');
+});
+
+test('a mount under a betting prefix is still betting', () => {
+  // server/routes/wong.js is mounted at /api/betting/wong.
+  const c = classify({
+    modPath: 'server/services/y.js',
+    wiring: { route_families: [at('/api/betting/wong')], jobs: [], pages: [], scripts: [] },
+    findingsFor: [], tables: [], local: { readable: true, counts: new Map() },
+  });
+  assert.equal(c.status, 'wired-betting-only',
+    'a sub-path of the betting hub is the betting hub; comparing prefixes for '
+    + 'equality invents a fourth surface');
+});
+
+test('a near-miss prefix is not a betting surface', () => {
+  const c = classify({
+    modPath: 'server/services/z.js',
+    wiring: { route_families: [at('/api/bettingsomething')], jobs: [], pages: [], scripts: [] },
+    findingsFor: [], tables: [], local: { readable: true, counts: new Map() },
+  });
+  assert.equal(c.status, 'wired',
+    'prefix matching must respect the path boundary, or /api/bettingsomething '
+    + 'silently joins the betting family');
+});

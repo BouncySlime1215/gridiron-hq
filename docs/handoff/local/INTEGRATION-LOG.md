@@ -2,7 +2,19 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-22 23:08Z.
+Last rebuilt: 2026-09-22 23:26Z.
+
+## #154: Docs: 2025 holdout ledger and one statistics contract for every unit (S-00)
+
+- Merged: 7:26 PM ET, Sep 22 as `dd7cec20` (unit S-00)
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #155: Study: grade the weekly fantasy construction against 2025, before availability (S-02)
+
+- Merged: 7:16 PM ET, Sep 22 as `51b64512` (unit S-02)
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #153: Model governance stops seeding PR #128's deleted MLB models as live
 

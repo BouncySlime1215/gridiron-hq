@@ -60,6 +60,24 @@ const run = spawnSync(process.execPath, [SCRIPT, '--check', '--out', outDir],
 const written = fs.readdirSync(outDir).filter(f => f !== 'annotations.json').sort();
 fs.rmSync(outDir, { recursive: true, force: true });
 
+// The mirror image, and the reason it is in this file rather than assumed.
+// Tightening the write condition can be "fixed" by never writing at all, and
+// NOTHING ELSE IN THE SUITE WOULD NOTICE: every other test reads the COMMITTED
+// docs/wiring artifacts, so they stay green whether or not the generator can
+// still produce them. Measured, not guessed — the seven test files touching
+// docs/wiring all read it, none regenerates it. So the generate path gets its
+// own spawn, which is the second and last in this file.
+const genDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiring-generate-'));
+fs.copyFileSync(
+  path.join(REPO, 'docs', 'wiring', 'annotations.json'),
+  path.join(genDir, 'annotations.json'));
+
+const gen = spawnSync(process.execPath, [SCRIPT, '--out', genDir],
+  { encoding: 'utf8', cwd: REPO });
+
+const generated = fs.readdirSync(genDir).filter(f => f !== 'annotations.json').sort();
+fs.rmSync(genDir, { recursive: true, force: true });
+
 test('--check does not write the artifacts it is validating', () => {
   assert.deepEqual(written, [],
     `--check wrote ${written.join(', ')} into its --out directory. A gate that `
@@ -76,4 +94,15 @@ test('--check still reaches a verdict rather than doing nothing', () => {
   assert.match(`${run.stdout}${run.stderr}`, /STILL OPEN \(grandfathered/,
     'the gate prints its grandfathered entries on every run so the list cannot '
     + 'go quiet; absent output means the check block did not execute.');
+});
+
+test('the generate path still writes all three artifacts', () => {
+  assert.equal(gen.status, 0,
+    `plain generation should exit 0, got ${gen.status}. `
+    + `stderr: ${String(gen.stderr).slice(0, 400)}`);
+  assert.deepEqual(generated, ['MISSING-FEEDS.md', 'WIRING-MAP.md', 'wiring-map.json'],
+    'narrowing the write condition must not stop `npm run map:wiring` writing. '
+    + 'No other test in the suite regenerates these — they all read the '
+    + 'committed copies — so this assertion is the only thing standing between '
+    + 'a tightened condition and a generator that silently produces nothing.');
 });

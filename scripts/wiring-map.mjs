@@ -3899,7 +3899,14 @@ if (INVOKED_DIRECTLY) {
     if (!flag('check')) process.exit(0);
   }
 
-  if (!flag('findings')) {
+  // `--findings` prints to stdout and `--check` is a gate; neither regenerates
+  // the artifacts. Writing from the gate left the tree dirty in CI, moved
+  // `generated_at` on every run so the output was never byte-stable, and was
+  // exactly the unstaged mid-run edit a `git write-tree` guard cannot see,
+  // because that hashes the index. Regenerating is `npm run map:wiring`, which
+  // passes neither flag. The verdict below reads `found`, built in memory
+  // above, so not writing changes no outcome.
+  if (!flag('findings') && !flag('check')) {
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(path.join(outDir, 'wiring-map.json'), JSON.stringify(toJson(model, found, ann)));
     fs.writeFileSync(path.join(outDir, 'WIRING-MAP.md'), toMarkdown(model, found, ann) + '\n');

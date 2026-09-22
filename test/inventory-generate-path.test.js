@@ -28,6 +28,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { check } from '../scripts/inventory.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(REPO, 'scripts', 'inventory.mjs');
@@ -74,8 +75,15 @@ test('the generated inventory is a real inventory, not an empty shell', () => {
   // Every row carries a legal status and evidence-or-reason. That is what
   // `--check` enforces; asserting it on the WRITTEN artifact means the file is
   // checked, not just the in-memory rows the gate happened to look at.
-  const LEGAL = new Set(['wired', 'half_done', 'dead', 'silently_broken',
-    'referenced_but_never_created', 'unclassified']);
+  //
+  // Asserted by running the generator's OWN gate over the written rows, rather
+  // than against a list of statuses spelled out here. An earlier version did
+  // spell them out, and adding `wired-betting-only` broke it — a test failing
+  // because the vocabulary grew, not because the artifact was wrong. A copy of
+  // a vocabulary is a copy that goes stale; there is one list, in the
+  // generator, and this asks it.
+  assert.deepEqual(check(json.rows), [],
+    'the written artifact does not pass the generator\'s own --check gate');
   for (const r of json.rows) {
     // A BLANK status is legal on a model row and only there. Model rows are
     // emitted ungraded on purpose so the model-evidence audit thread grades
@@ -89,8 +97,6 @@ test('the generated inventory is a real inventory, not an empty shell', () => {
         + 'reserved for model rows, which are left for the audit thread to grade.');
       continue;
     }
-    assert.ok(LEGAL.has(r.status),
-      `illegal status "${r.status}" on row ${r.id} in the written artifact`);
   }
   for (const r of json.rows) {
     assert.ok(r.evidence || r.reason,

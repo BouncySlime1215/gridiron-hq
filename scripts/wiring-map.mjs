@@ -688,7 +688,115 @@ function routeHandlers(code) {
  *   name: { run: someImportedFunction, tier: 'live', ... }
  *   name: { run: () => import('./x.js').then(m => m.fn()), ... }
  */
-function schedulerJobs(code, file) {
+/**
+ * Which module a job's `run:` actually runs.
+ *
+ * Three routes, most specific first. The order is the rule: an import written
+ * inside the job entry is the job's own statement of what it runs, an
+ * imported run function is a direct edge, and a run function defined here is
+ * one level of indirection that has to be followed rather than given up on.
+ *
+ * `local-body` — a run function this file defines that imports nothing — is a
+ * real answer, not a failure: the work is done in the scheduler. Only a name
+ * that matches nothing at all returns null, and the row then says so in those
+ * words instead of claiming the module is unresolved.
+ */
+const RE_JOB_DYN = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
+const RE_JOB_SCRIPT = /['"`]((?:\.\/)?scripts\/[\w./-]+\.m?js)['"`]/g;
+const dynSpecs = (t) => [...t.matchAll(RE_JOB_DYN)].map(m => m[1]);
+
+function jobImplementation(code, structural, file, chunk, runFn, imports) {
+  const specs = dynSpecs;
+
+  const inline = specs(chunk).map(x => resolveSpec(file, x)).filter(Boolean);
+  if (inline.length) return { module: inline[0], via: 'inline-import', imports: inline };
+
+  if (!runFn) return { module: null, via: null, imports: [] };
+
+  for (const imp of imports) {
+    if (imp.dynamic) continue;
+    if ((imp.aliases ?? []).some(a => a.local === runFn)) {
+      const resolved = resolveSpec(file, imp.spec);
+      if (resolved) return { module: resolved, via: 'static-import', imports: [resolved] };
+    }
+  }
+
+  return followLocal(code, structural, file, runFn);
+}
+
+/**
+ * Follow a run function to the place the work actually leaves this file.
+ *
+ * Each hop asks the same three questions of one function body — does it spawn
+ * a script, hand cargo to a worker, or import a module — and only when all
+ * three come back empty does it look for a local call to follow. Exactly one
+ * unvisited local callee is followed; two or more stop the walk, because
+ * choosing between them would be a guess about which one is the work, and a
+ * guess is what this whole rule exists to avoid.
+ *
+ * `local-body` is the honest terminal: the work is done here. It is reported
+ * with the scheduler as the module, not as "unresolved".
+ */
+function followLocal(code, structural, file, runFn, seen = new Set(), hops = []) {
+  if (!runFn || seen.has(runFn) || hops.length > 4) {
+    return { module: file, via: 'local-body', imports: [], hops };
+  }
+  seen.add(runFn);
+  hops = [...hops, runFn];
+
+  // The STRUCTURAL view for the range, the intact view for what is inside it.
+  // scan() preserves offsets, so a range found on the blanked view slices the
+  // other one correctly. Counting braces on the intact view is what made
+  // refreshManagerArchetypes unresolvable: `stdout.indexOf('{')` opens a depth
+  // that never closes and the range runs off the end of the file.
+  const range = bodyRange(structural, runFn);
+  if (!range) return { module: null, via: null, imports: [], hops };
+  const body = code.slice(range.start, range.end);
+  const structuralBody = structural.slice(range.start, range.end);
+
+  // A child process is a stronger statement of what a job runs than anything
+  // it imports: manager_archetypes imports node:child_process, node:util,
+  // node:path and ../platform/paths.js, and none of those is the work. The
+  // script is. Checked before the import route for that reason, and only when
+  // the body actually spawns something, so a path mentioned in a message is
+  // not mistaken for an implementation.
+  if (/\b(?:execFile|execFileSync|spawn|spawnSync|fork|exec)\b/.test(structuralBody)) {
+    const scripts = [...body.matchAll(RE_JOB_SCRIPT)]
+      .map(m => m[1].replace(/^\.\//, ''))
+      .filter(x => { try { return fs.statSync(path.join(ROOT, x)).isFile(); } catch { return false; } });
+    if (scripts.length) return { module: scripts[0], via: 'spawned-script', imports: scripts, hops };
+  }
+
+  // A worker thread is the third way work leaves this file. `new Worker(new
+  // URL('./report-worker.js', …), { workerData: { module: './x.js', fn } })`
+  // names a DISPATCHER and its cargo; the cargo is the answer. The cargo spec
+  // is resolved relative to the worker, because that is where the worker
+  // resolves it — in this repository both sit in server/services, so the two
+  // readings agree, and the coincidence is not what this rests on.
+  const workerUrl = body.match(/new\s+Worker\s*\(\s*new\s+URL\s*\(\s*['"]([^'"]+)['"]/);
+  if (workerUrl) {
+    const worker = resolveSpec(file, workerUrl[1]);
+    const cargo = body.match(/\bmodule:\s*['"]([^'"]+)['"]/);
+    const loaded = cargo && worker ? resolveSpec(worker, cargo[1]) : null;
+    if (loaded) return { module: loaded, via: 'worker-thread', imports: [loaded, worker], hops };
+    if (worker) return { module: worker, via: 'worker-thread', imports: [worker], hops };
+  }
+
+  const inner = dynSpecs(body).map(x => resolveSpec(file, x)).filter(Boolean);
+  if (inner.length) return { module: inner[0], via: 'local-function', imports: inner, hops };
+
+  const callees = [...new Set([...structuralBody.matchAll(/\b([A-Za-z_$][\w$]*)\s*\(/g)]
+    .map(m => m[1])
+    .filter(name => !seen.has(name) && bodyRange(structural, name)))];
+  if (callees.length === 1) return followLocal(code, structural, file, callees[0], seen, hops);
+
+  return { module: file, via: 'local-body', imports: [], hops };
+}
+
+function schedulerJobs(code, file, imports = []) {
+  // Strings blanked, offsets intact — the view every structural question here
+  // has to be asked of. See jobImplementation.
+  const structural = scan(code).code;
   const start = code.indexOf('export const JOBS');
   if (start === -1) return [];
   const open = code.indexOf('{', start);
@@ -706,12 +814,12 @@ function schedulerJobs(code, file) {
     const chunk = body.slice(from, from + 900);
     const tier = chunk.match(/tier:\s*['"](\w+)['"]/)?.[1] ?? 'heavy';
     const label = chunk.match(/label:\s*['"]([^'"]*)['"]/)?.[1] ?? '';
-    const dyn = chunk.match(/import\s*\(\s*['"]([^'"]+)['"]\s*\)/)?.[1] ?? null;
     const fn = chunk.match(/\brun:\s*([A-Za-z_$][\w$]*)\b/)?.[1]
       ?? chunk.match(/\bm\.([A-Za-z_$][\w$]*)/)?.[1] ?? null;
+    const impl = jobImplementation(code, structural, file, chunk, fn, imports);
     jobs.push({
       name: m[2], tier, label, runFn: fn,
-      runModule: dyn ? resolveSpec(file, dyn) : null,
+      runModule: impl.module, runVia: impl.via, runImports: impl.imports, runHops: impl.hops ?? [],
       // m.index is the offset of the LEADING DELIMITER, which is the comma
       // ending the previous entry (or the brace opening JOBS, for the first
       // job). Seeking to the name inside the match is what makes the citation
@@ -1581,7 +1689,17 @@ function bodyRange(code, name) {
   const re = new RegExp(`\\bfunction\\s+${name}\\s*\\(`, 'g');
   const m = re.exec(code);
   if (!m) return null;
-  const open = code.indexOf('{', m.index);
+  // Walk the PARAMETER LIST to its closing paren first. The first `{` after
+  // the name belongs to the body only when no parameter is destructured;
+  // `f({ a = 1 } = {})` puts two braces in the signature, and taking the first
+  // of them gave a "body" that was the options bag and closed at once. Every
+  // options-bag function in this repository read as empty until this walked.
+  let after = code.indexOf('(', m.index);
+  for (let parens = 0; after < code.length; after++) {
+    if (code[after] === '(') parens++;
+    else if (code[after] === ')') { parens--; if (parens === 0) { after++; break; } }
+  }
+  const open = code.indexOf('{', after);
   if (open === -1) return null;
   let depth = 0;
   for (let i = open; i < code.length; i++) {
@@ -3655,7 +3773,7 @@ function toMarkdown(model, found, ann) {
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
 export { sameNameCollisions, docsRuntimeReads, routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, docsCitations, creationSite, depthAtLine, ddlDefinitionName, resolveDefinition, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
-export { tablesReadButNeverCreated, withoutSqlComments };
+export { tablesReadButNeverCreated, withoutSqlComments, jobImplementation };
 // Only the rule itself is exported. `returnedLiteralKeys` and
 // `inResponsePosition` stay module-private on purpose: exporting a helper only
 // so a test can reach it adds an export-imported-by-nothing finding to this

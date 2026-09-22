@@ -19,7 +19,7 @@ const {
   acceptGuard, NEVER_BASELINE, GRANDFATHERED,
   foreignOnlyFile, valueUsageCounts,
   scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
-  clientCalls, payloadKeys, keyReads, declarations,
+  clientCalls, payloadKeys, keyReads, declarations, bodyRange,
   foreignHandles, handleFor, gatedRegions, blindCaches,
   functionUnits, functionReach, tableColumns, statementTables, columnEvidence,
   imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts,
@@ -203,6 +203,22 @@ test('bodyRange skips a destructured parameter list', () => {
   const body = src.slice(range.start, range.end);
   assert.match(body, /const marker = 1;/, 'the range covers the real body');
   assert.doesNotMatch(body, /timeoutMs = 120/, 'the range does not stop at the parameter object');
+});
+
+test('bodyRange walks the whole parameter list, not to the first close paren', () => {
+  // Added because a mutation survived: stopping at the FIRST ')' instead of
+  // the one that balances passes the test above, since that signature holds no
+  // nested parens. A default that calls something does, and then the next '{'
+  // is the destructured parameter rather than the body.
+  const src = [
+    'function withCall(a = fn(), { b } = {}) {',
+    '  const marker = 3;',
+    '  return marker + a + b;',
+    '}',
+  ].join('\n');
+  const body = ((r) => src.slice(r.start, r.end))(bodyRange(src, 'withCall'));
+  assert.match(body, /const marker = 3;/);
+  assert.doesNotMatch(body, /\bb \} = \{\}/, 'the range does not stop inside the signature');
 });
 
 test('declarations sees a computed value that is never used again', () => {

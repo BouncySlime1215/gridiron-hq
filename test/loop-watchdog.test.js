@@ -19,9 +19,10 @@ import path from 'node:path';
 
 const SUBJECT = path.join(process.cwd(), 'test/fixtures/watchdog-subject.mjs');
 
-function runSubject(thresholdMs, blockMs, env = {}, mode = 'served') {
+function runSubject(thresholdMs, blockMs, env = {}, mode = 'served', jobName = null) {
   return new Promise(resolve => {
-    const child = spawn(process.execPath, [SUBJECT, String(thresholdMs), String(blockMs), mode],
+    const child = spawn(process.execPath,
+      [SUBJECT, String(thresholdMs), String(blockMs), mode, ...(jobName ? [jobName] : [])],
       { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', c => { stdout += c; });
@@ -97,4 +98,37 @@ test('a process that has never served a response is never killed, however long i
   assert.equal(signal, null, 'killing a process that has never served anything turns a slow boot into a restart loop');
   assert.equal(code, 0);
   assert.match(stdout, /survived/);
+});
+
+/* --------------------------------------------- the kill line names the job */
+
+/*
+ * Why this matters enough to spawn a real process for it: this project spent
+ * days arguing from timing about which of two dozen live-tier jobs was blocking
+ * the loop, because the kill line said only that the loop had stopped. The
+ * marker is written into shared memory before each job so the watching thread
+ * can read it while the main thread is wedged and unable to answer anything.
+ *
+ * Asserted against a real SIGKILL rather than by calling the worker's
+ * formatter, because the thing that has failed here before was not the
+ * wording -- it was the line never reaching the logs at all.
+ */
+test('the kill line names the job that was running', async () => {
+  const { signal, stderr } = await runSubject(1000, 4000, {}, 'served', 'nfl_model_growth');
+  assert.equal(signal, 'SIGKILL', `expected a kill, got stderr: ${stderr}`);
+  assert.match(stderr, /event loop has not turned/);
+  assert.match(stderr, /The job running when it stopped was 'nfl_model_growth'/,
+    `the kill line must name the marked job; got: ${stderr}`);
+});
+
+test('the kill line says so plainly when no job was marked', async () => {
+  // The honest alternative to naming a job is saying that none was marked --
+  // not silence, and not the previous job's name. A stall with no job running
+  // is a different and equally real finding: it means something outside the
+  // scheduler blocked the thread.
+  const { signal, stderr } = await runSubject(1000, 4000);
+  assert.equal(signal, 'SIGKILL', `expected a kill, got stderr: ${stderr}`);
+  assert.match(stderr, /No job was marked as running/,
+    `expected the no-job wording; got: ${stderr}`);
+  assert.doesNotMatch(stderr, /The job running when it stopped was/);
 });

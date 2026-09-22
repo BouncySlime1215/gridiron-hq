@@ -18,6 +18,7 @@
  * skipped entirely when the data is already fresh.
  */
 import { Worker } from 'node:worker_threads';
+import { markJobRunning, clearJobRunning } from '../platform/loop-watchdog.js';
 import { db, rows, run, row } from '../db/index.js';
 
 /**
@@ -1764,6 +1765,11 @@ async function runJobNow(name, job, offThreadOverride) {
   // takes the process down, this is the only trace it ever existed — see
   // recordStart and reapAbandonedRuns above.
   recordStart(name);
+  // Tell the watchdog what is about to run, so that if this is the job that
+  // blocks the thread the kill line names it instead of leaving 24 suspects.
+  // Before the work, never after: a marker set after synchronous work begins
+  // is never set at all.
+  markJobRunning(name);
   try {
     // EVERY JOB IS TIME-BOUND, AND THIS IS NOT DEFENSIVE PROGRAMMING.
     //
@@ -1829,6 +1835,11 @@ async function runJobNow(name, job, offThreadOverride) {
     // able to cause a larger one.
     try { record(name, 'error', e.message); } catch { /* the pass continues */ }
     return { job: name, ran: true, error: e.message, duration_ms: Date.now() - startedAt };
+  } finally {
+    // In a `finally`, because a job that threw is exactly as finished as one
+    // that returned. Leaving the marker set would make the NEXT stall blame
+    // this job, which is worse than naming nothing.
+    clearJobRunning();
   }
 }
 

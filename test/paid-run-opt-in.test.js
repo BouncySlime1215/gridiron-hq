@@ -61,6 +61,29 @@ test('the verdict never carries the value it read', () => {
   assert.equal(JSON.stringify(verdict).includes('do-not-echo-me'), false);
 });
 
+test('the refusal comes before the database is opened', () => {
+  // A first pass asserted only "exit 1 with one line", which a guard placed
+  // after the database modules load also satisfies — and a first attempt at
+  // this test pointed GRIDIRON_DB_PATH at a directory that does not exist,
+  // which discriminates nothing: `server/db/index.js:19` calls
+  // `mkdirSync(..., { recursive: true })`, so a missing directory is created
+  // rather than refused. The path below has a FILE as its parent, so that
+  // mkdir fails with ENOTDIR whoever is running. If the guard goes first the
+  // one-line reason is printed and no database module is ever loaded; if it
+  // goes late, the process dies in the import with a stack trace.
+  const env = { ...process.env, GRIDIRON_DB_PATH: path.join(ROOT, 'package.json/db.sqlite') };
+  delete env[PAID_RUN_OPT_IN];
+
+  const child = spawnSync(process.execPath, [SUBJECT, 'impact'], {
+    cwd: ROOT, env, encoding: 'utf8', timeout: 30_000
+  });
+
+  assert.equal(child.status, 1, `expected exit 1, got ${child.status}\n${child.stderr}`);
+  assert.match(child.stderr, new RegExp(PAID_RUN_OPT_IN));
+  assert.equal(child.stderr.trim().split('\n').length, 1, child.stderr);
+  assert.equal(child.stdout, '');
+});
+
 test('the script refuses to run without the opt-in, before it reaches the database', () => {
   const env = { ...process.env };
   delete env[PAID_RUN_OPT_IN];

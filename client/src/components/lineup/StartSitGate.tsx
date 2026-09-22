@@ -9,15 +9,15 @@ import { PageLoading, PageError } from '../PageState';
  * measured on a replay do not carry over to a live lineup, so the panel says which way
  * each result points and never by how much. The route still serves the full evidence
  * for the Auditor; this component reads only the verdict, each window's `direction`,
- * the failing weeks' season and week, and the sentences of basis. Every failing week is
- * listed, never trimmed.
+ * the failing weeks' season and week, and the sentences of basis. Every failing week of
+ * every graded window and arm is listed, never trimmed, under the rule it lost to.
  */
 
 interface WeekRow { season: number; week: number }
 
 type Direction = 'ours_ahead' | 'dumb_ahead' | 'even' | 'no_disagreements' | 'not_available';
 
-interface Arm { status?: string; reason?: string; direction?: Direction; baseline?: string }
+interface Arm { status?: string; reason?: string; direction?: Direction; baseline?: string; failing_weeks?: WeekRow[] }
 
 interface ServedWeek {
   week: number; captured_at: string | null; replay_champion: string | null;
@@ -83,6 +83,37 @@ function pastSentence(verdict: string | undefined, past: GateWindow): string {
   return 'too close to call.';
 }
 
+/** One failing-weeks group: the weeks a window or arm lost, and the rule it lost them to. */
+interface LostGroup { arm: 'past' | 'replay' | 'served_vs_average' | 'served_vs_espn'; label: string; weeks: WeekRow[] }
+
+const graded = (a?: Arm | GateWindow) => !!a?.direction && a.direction !== 'not_available';
+
+/**
+ * Every graded window and arm, with the weeks it lost (points per disagreement below 0).
+ * The past window always; this season's replay and served arms only once graded. The
+ * served-vs-ESPN arm is the literal "start the highest projection": its losses are shown
+ * beside the verdict's rule, not folded into it (prereg addendum 1 §3-4).
+ */
+function lostGroups(past: GateWindow, fwd: GateWindow): LostGroup[] {
+  const groups: LostGroup[] = [
+    { arm: 'past', label: 'Past seasons, against "start the higher average"', weeks: past.failing_weeks ?? [] },
+  ];
+  if (fwd.status) return groups;
+  if (graded(fwd)) {
+    groups.push({ arm: 'replay', label: 'This season, today\'s model replayed, against the average', weeks: fwd.failing_weeks ?? [] });
+  }
+  const served = fwd.served;
+  if (served?.vs_average && graded(served.vs_average)) {
+    groups.push({ arm: 'served_vs_average', label: 'This season as the app served it, against the average',
+      weeks: served.vs_average.failing_weeks ?? [] });
+  }
+  if (served?.vs_espn && graded(served.vs_espn)) {
+    groups.push({ arm: 'served_vs_espn', label: 'This season as the app served it, against ESPN\'s projection',
+      weeks: served.vs_espn.failing_weeks ?? [] });
+  }
+  return groups;
+}
+
 const weeksLabel = (w?: [number, number]) => (w ? (w[0] === w[1] ? `week ${w[0]}` : `weeks ${w[0]}-${w[1]}`) : '');
 
 export default function StartSitGate() {
@@ -113,7 +144,7 @@ function Body({ data, loading, error, onRetry }: {
   const past = data.past ?? {};
   const fwd = data.forward ?? {};
   const served = fwd.served;
-  const failing = past.failing_weeks ?? [];
+  const lost = lostGroups(past, fwd);
   const passed = data.verdict === 'beats_dumb';
   // Forward weeks the app served on different settings from today's replay, and why.
   const differs = (served?.weeks ?? []).filter(w => w.served_before_k_fit || !w.same_weights);
@@ -168,18 +199,25 @@ function Body({ data, loading, error, onRetry }: {
         <div className="text-[10px] font-black uppercase tracking-wide text-slate-500">
           Weeks our projection lost
         </div>
-        {failing.length === 0 ? (
-          <p className="mt-1 text-xs text-slate-500">None: our pick outscored the dumb rule's pick in every graded week.</p>
-        ) : (
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {failing.map(w => (
-              <span key={`${w.season}-${w.week}`} data-failing-week={`${w.season}-${w.week}`}
-                className="whitespace-nowrap rounded-md bg-rose-50 px-2 py-0.5 font-mono text-[11px] tabular-nums text-rose-800 ring-1 ring-rose-200">
-                {w.season} W{w.week}
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="mt-1.5 space-y-2">
+          {lost.map(g => (
+            <div key={g.arm} data-failing-group={g.arm}>
+              <div className="text-xs text-slate-600">{g.label}</div>
+              {g.weeks.length === 0 ? (
+                <p className="mt-0.5 text-xs text-slate-500">None: our pick did not lose a graded week.</p>
+              ) : (
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {g.weeks.map(w => (
+                    <span key={`${w.season}-${w.week}`} data-failing-week={`${w.season}-${w.week}`}
+                      className="whitespace-nowrap rounded-md bg-rose-50 px-2 py-0.5 font-mono text-[11px] tabular-nums text-rose-800 ring-1 ring-rose-200">
+                      {w.season} W{w.week}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
 
       <details className="mt-3 border-t border-slate-100 pt-2 text-[11px] leading-4 text-slate-500">

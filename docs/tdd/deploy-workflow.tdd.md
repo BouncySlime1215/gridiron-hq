@@ -10,17 +10,44 @@ someone remembered to.
 unless the new image proves the brake held. `.dockerignore` keeps local data and
 databases out of the build context and out of the image.
 
-Commits: RED `b61fb37`, GREEN `3794636`, this file after them. Base: `main`
-`bf359c6`.
+Commits, all on #127, base `main` `f620a12`:
+
+- **RED:** #127 `7de8da4` "test: RED - deploy workflow and build-context guards"
+- **GREEN:** #127 `79d45f3` "feat: GREEN - a Deploy button that re-asserts the brake first and proves it held"
+- Evidence: this file, in the commits after them.
+
+(Before the rebase onto `f620a12` these were `b61fb37` and `3794636` on `bf359c6`.
+The rebase changed the shas and nothing else in these three commits.)
 
 ## RED → GREEN
 
 `test/deploy-workflow.test.js`, 8 tests.
 
-- **RED `b61fb37`:** 7 fail, 1 pass. The six workflow tests fail on the missing
-  file and the context test fails on `data`. The keep-list test passes against
-  the old `.dockerignore`, and is meant to: it guards against over-excluding.
-- **GREEN `3794636`:** 8 of 8.
+**RED #127 `7de8da4`:** 7 fail, 1 pass. This is the output of
+`node --test test/deploy-workflow.test.js`, run on that commit:
+
+```
+not ok 1 - deploy runs only when someone presses the button, never on push or on a timer
+  error: '.github/workflows/deploy.yml exists'
+not ok 2 - one job, with a timeout
+  error: '.github/workflows/deploy.yml exists'
+not ok 3 - the first step names the commit being deployed
+  error: '.github/workflows/deploy.yml exists'
+not ok 4 - brake re-asserted before the deploy, confirmation read after, and never released here
+  error: '.github/workflows/deploy.yml exists'
+not ok 5 - the deploy is remote-only, against the right app, through flyctl-actions
+  error: '.github/workflows/deploy.yml exists'
+not ok 6 - the Fly token only ever reaches a step through env, never a script
+  error: '.github/workflows/deploy.yml exists'
+not ok 7 - the build context leaves out what the image never runs
+  error: 'data is excluded from the build context'
+ok 8 - the build context keeps everything the Dockerfile copies or builds from
+```
+
+The keep-list test (8) passes against the old `.dockerignore`, and is meant to.
+It guards against excluding too much.
+
+**GREEN #127 `79d45f3`:** 8 of 8.
 
 Two test changes landed in GREEN, both named here rather than folded in:
 
@@ -188,7 +215,7 @@ the `/data` volume (`GRIDIRON_DB_PATH=/data/data.sqlite`).
   142 MB → 95 MB image come from real builds on one tree, with the cache pruned.
   The smoke results come from a real boot. The sweep is 22 of 22 and re-runs
   from the committed runner.
-- **How do we know?** RED `b61fb37` fails 7 of 8. GREEN `3794636` passes 8 of 8. The
+- **How do we know?** RED #127 `7de8da4` fails 7 of 8. GREEN #127 `79d45f3` passes 8 of 8. The
   mutation runner, the bench Dockerfile's two-line diff, and the negative control
   are all above. The full gate figures (`npm run check && npm run check:wiring`
   under one guard) are in the PR body. They were measured on the exact pushed

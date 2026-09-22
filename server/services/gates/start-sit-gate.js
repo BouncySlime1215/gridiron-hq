@@ -7,12 +7,15 @@
  * is the PROJECTION: does starting by ours beat starting by the dumbest projection a
  * manager has, his season-to-date average?
  *
- *   our policy   start the higher weekly projection as production would have served
- *                it that week: the configuration-B structural head (roleRecency
+ *   our policy   start the higher weekly projection from production's CURRENT model
+ *                settings, replayed week by week with only what was known before each
+ *                week: the configuration-B structural head (roleRecency
  *                WEEKLY_ROLE_RECENCY passed explicitly, kOverride omitted so the fitted
  *                volume k resolves cutoff-safe) blended by the as-of weekly ensemble
  *                champion (weekly-weight-store.js#activeWeeklyWeightSet({season, week}),
- *                the resolution player-week-engine.js uses live);
+ *                the resolution player-week-engine.js uses live). This is today's
+ *                configuration, not necessarily the number served at the time: 2026
+ *                week 2 was captured before the fitted k and its weights existed;
  *   dumb rule    start the higher season-to-date PPR average.
  *
  * Graded on same-week, same-position pairs both rules call startable (>= 8.0 PPR),
@@ -21,14 +24,29 @@
  * decision population is its `_decision_rows` (players active the week before). The
  * grading is baseline-gate.js, shared with the waiver and trade gates to come.
  *
+ * Two descriptive arms on the forward weeks (prereg addendum 1), never part of the
+ * verdict. Both keep the replay rows' population and actual scores and swap only the
+ * projections:
+ *   served vs average  the projection the app actually served, from
+ *                      weekly_prediction_snapshots (weekly-learning.js#captureWeeklyPredictions);
+ *   served vs ESPN     the literal "start the highest projection": ESPN's weekly
+ *                      projection, from league_roster_snapshots, settled rows
+ *                      (scripts/collect-roster-snapshots.mjs#writePeriod).
+ *
+ * Standing rule 3: replay magnitudes and lineup rates never reach Nick. Every window
+ * carries a `direction`; the Lineup panel and the job's sync_log detail use only that.
+ * The magnitudes stay in the stored evidence for the Auditor.
+ *
  * Pre-registration (windows, ship rule, controls, sign convention):
- * docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md.
+ * docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md, and its addendum 1.
  *
  * WHAT THIS DOES NOT GRADE. The replay predictor is production's weekly projection in
  * production's configuration, not the full live week_points chain: the coordinator
  * correction, the chance to play and the betting-line lift are not in the replay
  * (weekly-backtest.js reads four tables; the live engine reads 23). Scoring is PPR,
  * not each league's scoringItems. The pairs are a league-wide pool, not a roster.
+ * The served snapshot is the ensemble projection, not the lineup's week_points either
+ * (storing the served week_points is WORK-QUEUE S-12).
  */
 import { rows, row } from '../../db/index.js';
 import { replaySeasonWeekly } from '../weekly-backtest.js';
@@ -39,8 +57,9 @@ import { recordGateAudit } from '../model-governance.js';
 import { gradeDecisions, baselineGateVerdict, SIGN_CONVENTION } from './baseline-gate.js';
 
 export const GATE_ID = 'start_sit';
-export const GATE_VERSION = 'start-sit-gate-v1';
+export const GATE_VERSION = 'start-sit-gate-v2';
 export const PREREG = 'docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md';
+export const PREREG_ADDENDUM = 'docs/evidence/2026-09-22/start-sit-baseline-gate-prereg-addendum-1.md';
 /** The startable line DECISION_CURVE (lineup-brain.js) is stated on: both projections >= 8.0 PPR. */
 export const STARTABLE_PPR = 8;
 /**
@@ -53,8 +72,15 @@ export const PAST_SEASONS = Object.freeze([2024, 2025]);
 export const PAST_WEEKS = Object.freeze([5, 18]);
 const SKILL = new Set(['QB', 'RB', 'WR', 'TE']);
 
-export const POLICY_TEXT = 'Start the higher weekly projection, as production would have served it that week '
-  + '(structural head with weekly role recency and the fitted volume k, blended by that week\'s ensemble weights).';
+export const POLICY_TEXT = 'Start the higher weekly projection from the app\'s current model settings, replayed week by '
+  + 'week with only what was known before each week (weekly role recency, the fitted volume numbers and the blend '
+  + 'weights, each chosen by data cutoff).';
+export const FORWARD_REPLAY_TEXT = 'This season, today\'s model settings replayed on this season\'s weeks: not the '
+  + 'projection the app served at the time.';
+export const SERVED_TEXT = 'What the app actually served: the projection it saved before each week\'s first kickoff, '
+  + 'graded on the same players and the same scores as the replay.';
+export const ESPN_BASELINE_TEXT = 'The literal dumb rule: start the player ESPN projects higher that week (ESPN\'s own '
+  + 'weekly projection, one value per player and week, from the synced leagues\' settled lineups).';
 export const BASELINE_TEXT = 'The dumb rule: start the player with the higher season-to-date PPR average '
   + '(his average in games played this season before the week). No model.';
 export const UNIVERSE_TEXT = 'Every pair of same-position players (QB, RB, WR, TE) in the same week, both active '
@@ -64,6 +90,20 @@ export const REPLAY_CAVEAT = 'Graded on the weekly replay of production\'s proje
   + 'the chance to play, the betting-line adjustment and the coordinator correction, which the replay does not.';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
+
+/**
+ * Which way a graded window points, and nothing about how far (standing rule 3).
+ * The sign of points per disagreement (our pick minus the dumb pick).
+ */
+export function directionOf(grade) {
+  if (!grade || grade.status) return 'not_available';
+  if (!(grade.n > 0)) return 'no_disagreements';
+  const points = grade.points_per_decision;
+  if (!Number.isFinite(points)) return 'not_available';
+  return points > 0 ? 'ours_ahead' : points < 0 ? 'dumb_ahead' : 'even';
+}
+
+const notAvailable = reason => ({ status: 'not_available', reason, direction: 'not_available' });
 
 /**
  * Pairs, disagreements and each rule's pair accuracy.
@@ -223,6 +263,101 @@ function gradeWindow(windowRows, opts) {
   };
 }
 
+/** Swap one field of each row for another producer's value, keyed by week and player; rows without one drop out. */
+export function substitute(windowRows, values, field) {
+  const kept = [];
+  let missing = 0;
+  for (const r of windowRows) {
+    const v = values.get(`${r.week}|${r.player_id}`);
+    if (!Number.isFinite(v)) { missing++; continue; }
+    kept.push({ ...r, [field]: v });
+  }
+  return { rows: kept, missing };
+}
+
+/**
+ * The projection the app served before each week: weekly_prediction_snapshots, written
+ * pregame by weekly-learning.js#captureWeeklyPredictions (first write wins, refused once
+ * the slate starts).
+ */
+export function servedSnapshots(season, [startWeek, endWeek]) {
+  return rows(`SELECT week, player_id, prediction, weight_fit, as_of FROM weekly_prediction_snapshots
+    WHERE season = ? AND week BETWEEN ? AND ?`, season, startWeek, endWeek);
+}
+
+/**
+ * ESPN's weekly projection per (week, player): league_roster_snapshots.projected_points,
+ * settled rows only (source 'final', written by scripts/collect-roster-snapshots.mjs#writePeriod
+ * from each finished period's boxscore). One value per player-week: when the leagues
+ * hold different values, that player-week is dropped and counted, never averaged.
+ */
+export function espnProjections(season, [startWeek, endWeek]) {
+  const got = rows(`SELECT scoring_period_id AS week, player_id, COUNT(DISTINCT projected_points) AS n_values,
+      MIN(projected_points) AS projection
+    FROM league_roster_snapshots
+    WHERE season = ? AND scoring_period_id BETWEEN ? AND ? AND source = 'final'
+      AND player_id IS NOT NULL AND projected_points IS NOT NULL
+    GROUP BY scoring_period_id, player_id`, season, startWeek, endWeek);
+  const values = new Map();
+  let conflicting = 0;
+  for (const g of got) {
+    if (g.n_values === 1) values.set(`${g.week}|${g.player_id}`, g.projection);
+    else conflicting++;
+  }
+  return { values, conflicting };
+}
+
+/**
+ * The forward weeks as the app served them (prereg addendum 1, arms A and B). Both arms
+ * keep the replay rows (who, which week, the season average, what he scored) and swap
+ * only the projections. Descriptive: neither is read by the verdict.
+ */
+export function servedArms(season, weeks, replayRows, { champions = {}, iterations = 2000, seed = 1 } = {}) {
+  const label = `${season} ${weeks[0] === weeks[1] ? `week ${weeks[0]}` : `weeks ${weeks[0]}-${weeks[1]}`}`;
+  const snaps = servedSnapshots(season, weeks);
+  const fit = activeFitMeta();
+  const kFittedAt = fit ? row('SELECT fitted_at FROM shrinkage_fits WHERE id = ?', fit.id)?.fitted_at ?? null : null;
+  const perWeek = new Map();
+  for (const s of snaps) {
+    if (!perWeek.has(s.week)) perWeek.set(s.week, { asOf: s.as_of, fits: new Set() });
+    const w = perWeek.get(s.week);
+    if (s.as_of < w.asOf) w.asOf = s.as_of;
+    if (s.weight_fit != null) w.fits.add(s.weight_fit);
+  }
+  const weekMeta = [...perWeek].sort(([a], [b]) => a - b).map(([week, w]) => {
+    const champion = champions[week] ?? null;
+    return {
+      week, captured_at: w.asOf, weight_fit: [...w.fits].sort(), replay_champion: champion,
+      same_weights: champion != null && w.fits.size === 1 && w.fits.has(champion),
+      k_fit_id: fit?.id ?? null, k_fitted_at: kFittedAt,
+      served_before_k_fit: kFittedAt == null ? null : Date.parse(w.asOf) < Date.parse(kFittedAt),
+    };
+  });
+  const grade = (gradedRows, extra) => {
+    const g = { ...gradeWindow(gradedRows, { iterations, seed }), rows: gradedRows.length, ...extra };
+    return { ...g, direction: directionOf(g) };
+  };
+
+  const noSnapshot = `no pregame snapshot in weekly_prediction_snapshots for ${label}`;
+  const served = new Map(snaps.map(s => [`${s.week}|${s.player_id}`, s.prediction]));
+  const a = substitute(replayRows, served, 'policy');
+  const vsAverage = snaps.length ? grade(a.rows, { excluded: { no_snapshot: a.missing } }) : notAvailable(noSnapshot);
+
+  const espn = espnProjections(season, weeks);
+  let vsEspn;
+  if (!snaps.length) vsEspn = notAvailable(noSnapshot);
+  else if (!espn.values.size) {
+    vsEspn = notAvailable(`no settled ESPN projection in league_roster_snapshots for ${label}`
+      + (espn.conflicting ? '; some player-weeks were dropped because the leagues hold different values' : ''));
+  } else {
+    const b = substitute(a.rows, espn.values, 'baseline');
+    vsEspn = grade(b.rows, { excluded: { no_snapshot: a.missing, no_espn: b.missing,
+      espn_conflicting_player_weeks: espn.conflicting } });
+  }
+  return { label: SERVED_TEXT, weeks: weekMeta, vs_average: vsAverage,
+    vs_espn: vsEspn.status ? vsEspn : { baseline: ESPN_BASELINE_TEXT, ...vsEspn } };
+}
+
 /**
  * The known-nonzero control first (prereg §7): an oracle that starts whoever actually
  * scored more must win every disagreement it has, and a policy identical to the dumb
@@ -268,28 +403,33 @@ export function runStartSitGate({
     const summary = gradeWindow(w.rows, { iterations, seed });
     delete summary.per_week;
     delete summary.failing_weeks;
-    perSeason[season] = { ...summary, decision_rows: w.decision_rows, bye_rows_removed: w.bye_rows_removed,
-      team_unknown: w.team_unknown };
+    perSeason[season] = { ...summary, direction: directionOf(summary), decision_rows: w.decision_rows,
+      bye_rows_removed: w.bye_rows_removed, team_unknown: w.team_unknown };
   }
-  const past = { seasons: [...pastSeasons], weeks: [...pastWeeks], ...gradeWindow(pastRows, { iterations, seed }),
+  const pastGrade = gradeWindow(pastRows, { iterations, seed });
+  const past = { seasons: [...pastSeasons], weeks: [...pastWeeks], ...pastGrade, direction: directionOf(pastGrade),
     per_season: perSeason };
 
   let forward;
   if (forwardSpec.status) {
-    forward = forwardSpec;
+    forward = { ...forwardSpec, direction: 'not_available' };
   } else {
     const w = replayWindow(forwardSpec.season, forwardSpec.weeks);
     champions[forwardSpec.season] = w.champions;
-    forward = { season: forwardSpec.season, weeks: forwardSpec.weeks, ...gradeWindow(w.rows, { iterations, seed }),
-      decision_rows: w.decision_rows, bye_rows_removed: w.bye_rows_removed, team_unknown: w.team_unknown };
+    const replayGrade = gradeWindow(w.rows, { iterations, seed });
+    forward = { season: forwardSpec.season, weeks: forwardSpec.weeks, label: FORWARD_REPLAY_TEXT, ...replayGrade,
+      direction: directionOf(replayGrade),
+      decision_rows: w.decision_rows, bye_rows_removed: w.bye_rows_removed, team_unknown: w.team_unknown,
+      served: servedArms(forwardSpec.season, forwardSpec.weeks, w.rows, { champions: w.champions, iterations, seed }) };
   }
 
   const controls = instrumentControls(pastRows);
+  // G4 reads the replay's forward grade only; the served arms are descriptive (addendum 1).
   const ruled = baselineGateVerdict({ past, forward: forward.status ? null : forward });
   const fit = activeFitMeta();
   const championIds = [...new Set(Object.values(champions).flatMap(c => Object.values(c)))];
   return {
-    gate: GATE_ID, version: GATE_VERSION, prereg: PREREG,
+    gate: GATE_ID, version: GATE_VERSION, prereg: PREREG, prereg_addendum: PREREG_ADDENDUM,
     policy: POLICY_TEXT, baseline: BASELINE_TEXT, universe: UNIVERSE_TEXT, scoring: 'PPR',
     sign_convention: SIGN_CONVENTION, replay_caveat: REPLAY_CAVEAT,
     configuration: {
@@ -308,6 +448,9 @@ export function runStartSitGate({
  * (table model_gate_audits). sport = 'FANTASY' keeps it out of every betting reader of
  * that table, which all filter on 'NFL'. An instrument fault is returned as an error
  * so sync_log records it, and is stored anyway so the page can say what happened.
+ *
+ * The returned detail becomes sync_log.last_detail, which the Coach can read
+ * (coach/catalog.js), so it carries the verdict and directions only: no rate, no size.
  */
 export function refreshStartSitGate({ run = runStartSitGate } = {}) {
   const result = run();
@@ -318,9 +461,10 @@ export function refreshStartSitGate({ run = runStartSitGate } = {}) {
   });
   const detail = {
     verdict: result.verdict, audit_id: audit?.id ?? null,
-    past_n: result.past?.n ?? null, past_win_rate: result.past?.win_rate ?? null,
-    past_points_per_decision: result.past?.points_per_decision ?? null,
-    forward_n: result.forward?.n ?? null,
+    past_direction: result.past?.direction ?? null,
+    forward_direction: result.forward?.direction ?? null,
+    served_vs_average_direction: result.forward?.served?.vs_average?.direction ?? null,
+    served_vs_espn_direction: result.forward?.served?.vs_espn?.direction ?? null,
   };
   if (result.verdict === 'instrument_fault') {
     detail.error = 'instrument fault: the oracle control found no edge on these rows, so no verdict was drawn';

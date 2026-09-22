@@ -366,6 +366,32 @@ function buildRows(map, local) {
       owner_thread: null, ...c, note: `created by ${t.created_by}${localN !== null ? `; LOCAL ${localN} rows` : ''}` });
   }
 
+
+
+  // 5b. tables that exist in no database — rows the table loop above CANNOT
+  // produce, because map.tables is built from CREATE statements and these names
+  // have none. Until the map grew table-read-but-never-created they had no row
+  // at all: not wired, not dead, not unclassified, absent. That was the worst
+  // case of this file's own category and the one it could not see.
+  for (const f of map.findings.filter((x) => x.rule === 'table-read-but-never-created')) {
+    const sites = (f.evidence || []).join(', ');
+    const satellite = f.kind === 'context';
+    push({ id: `table:${slug(f.subject)}`, kind: 'table', name: f.subject,
+      path: (f.evidence || [])[0] || '(unknown)', owner_thread: null,
+      ...(satellite
+        ? { status: 'unclassified',
+            reason: `${f.subject} is read at ${sites} and created nowhere in this tree, but every `
+              + `reader opens a satellite database of its own, so its schema is not this repository's `
+              + `to create — the same reasoning table-in-another-database applies to the chat corpus. `
+              + `Whether the satellite file reaches production is a deployment question, and `
+              + `data-file-not-in-the-image is the finding that answers it` }
+        : { status: 'referenced_but_never_created',
+            evidence: `wiring-map: ${f.subject} is read at ${sites} and has no CREATE TABLE anywhere `
+              + `in this tree — no migration, no schema file, no script, no test fixture — and no `
+              + `CREATE VIEW either. The read cannot succeed in any database, so the path holding it `
+              + `is inert.` }),
+      note: satellite ? 'satellite-database table, not an app-DB phantom' : 'created nowhere in this tree' });
+  }
   // 6. scripts — run by hand, so "wired" never applies; a script is dead if nothing
   //    but tests import it, else it exists as tooling (half_done is the closest of the
   //    five: code that exists and is not wired to a live consumer, by design).

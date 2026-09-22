@@ -185,6 +185,13 @@ const RE_UPDATE = /\bUPDATE\s+(?:OR\s+(?:REPLACE|IGNORE|ABORT|FAIL|ROLLBACK)\s+)
 const RE_DELETE = /\bDELETE\s+FROM\s+["'`[]?([A-Za-z_][\w]*)/gi;
 const RE_ALTER = /\bALTER\s+TABLE\s+["'`[]?([A-Za-z_][\w]*)/gi;
 const RE_DROP = /\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?["'`[]?([A-Za-z_][\w]*)/gi;
+// A VIEW is created, just not as a table, and a CTE is named inside the
+// statement that uses it. Neither is a table — and neither is MISSING, which is
+// what matters for table-read-but-never-created below. nfl_news_signals_current
+// is a view read by a live route; reporting it as a phantom would be a map
+// crying wolf on working code.
+const RE_VIEW = /\bCREATE\s+(?:TEMP\s+|TEMPORARY\s+)?VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?["'`[]?([A-Za-z_][\w]*)/gi;
+const RE_CTE = /(?:\bWITH\s+(?:RECURSIVE\s+)?|,\s*)["'`[]?([A-Za-z_][\w]*)["'`\]]?\s+AS\s*\(/gi;
 const RE_FROM = /\bFROM\s+["'`[]?([A-Za-z_][\w]*)/gi;
 const RE_JOIN = /\bJOIN\s+["'`[]?([A-Za-z_][\w]*)/gi;
 
@@ -214,32 +221,64 @@ function collect(re, text, sink, line) {
 }
 
 /** Does this string look like SQL at all? Cheap gate, keeps prose out. */
+/**
+ * A comment is not a query.
+ *
+ * SQL here is written in template literals with `--` and block comments inside
+ * it, explaining the schema in English. The FROM/JOIN/UPDATE patterns then match
+ * the prose: this repository's `-- ...` lines produced table reads named `the`,
+ * `a`, `successes`, `THIS`, `would`, `afterward` and single letters. Blanked to
+ * spaces rather than removed, so every line and column offset still points where
+ * it did — the citations are the whole product.
+ */
+const RE_STRUCTURAL = /\b(?:WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|(?:INNER|LEFT|RIGHT|CROSS|OUTER)\s+JOIN|UNION\s+ALL|ON\s+CONFLICT)\b/i;
+
+function withoutSqlComments(t) {
+  return t
+    .replace(/--[^\n]*/g, (m) => ' '.repeat(m.length))
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+}
+
 function looksSql(t) {
   return /\b(SELECT|INSERT|UPDATE|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE|REPLACE\s+INTO)\b/i.test(t);
 }
 
 function sqlEdges(strings, attribute = () => ({ handle: 'app', where: null })) {
-  const creates = [], writes = [], reads = [];
-  for (const { text, line, at } of strings) {
-    if (!looksSql(text)) continue;
+  const creates = [], writes = [], reads = [], views = [], ctes = [];
+  for (const { text: raw, line, at } of strings) {
+    if (!looksSql(raw)) continue;
+    const text = withoutSqlComments(raw);
     const { handle, where } = attribute(at);
     const tag = (arr, from) => { for (let i = from; i < arr.length; i++) { arr[i].handle = handle; arr[i].opened_on = where; arr[i].at = at; } };
-    const c0 = creates.length, w0 = writes.length, r0 = reads.length;
+    const c0 = creates.length, w0 = writes.length, r0 = reads.length, v0 = views.length, t0 = ctes.length;
+    collect(RE_VIEW, text, views, line);
+    collect(RE_CTE, text, ctes, line);
     collect(RE_CREATE, text, creates, line);
     collect(RE_ALTER, text, creates, line);
     collect(RE_INSERT, text, writes, line);
     collect(RE_REPLACE, text, writes, line);
     collect(RE_UPDATE, text, writes, line);
     collect(RE_DELETE, text, writes, line);
+    const d0 = writes.length;
     collect(RE_DROP, text, writes, line);
+    for (let i = d0; i < writes.length; i++) writes[i].dropped = true;
     // Reads: FROM/JOIN, minus the DELETE FROM occurrences already counted as
     // writes. An INSERT ... SELECT ... FROM x is correctly both.
     const readable = text.replace(/\bDELETE\s+FROM\b/gi, 'DELETE      ');
     collect(RE_FROM, readable, reads, line);
     collect(RE_JOIN, readable, reads, line);
-    tag(creates, c0); tag(writes, w0); tag(reads, r0);
+    // Is this string a QUERY, or English that happens to use SQL words? An LLM
+    // prompt beginning "Select a 2026 redraft verdict for X" satisfies
+    // looksSql(), and "FROM a JavaScript array" in a comment in this very file
+    // was being reported as a table named `a`. A real statement carries a
+    // structural clause; a sentence does not. Recorded per read rather than
+    // filtered here, so the existing edges are unchanged and only the rules
+    // that want the distinction pay for it.
+    const structural = RE_STRUCTURAL.test(text);
+    for (let i = r0; i < reads.length; i++) reads[i].structural = structural;
+    tag(creates, c0); tag(writes, w0); tag(reads, r0); tag(views, v0); tag(ctes, t0);
   }
-  return { creates, writes, reads };
+  return { creates, writes, reads, views, ctes };
 }
 
 
@@ -1706,6 +1745,84 @@ function columnDefaults(files) {
 }
 
 /** Which tables a single SQL statement names, and how. */
+/**
+ * Tables product code reads that nothing in this tree creates.
+ *
+ * The map's other table rules all start from the CREATE statements, so they can
+ * only describe tables that exist somewhere. This one describes the absence: a
+ * name read by product code with no CREATE TABLE anywhere — not a migration,
+ * not a schema file, not a script, not a test fixture. Such a read cannot
+ * succeed in any database, so the path holding it is inert, and until now it
+ * was the one failure this map could not see at all.
+ *
+ * THE FILTER IS THE RULE. A bare sweep returns 44 non-test names here and
+ * almost none are findings. Each exclusion below is a category, not a name:
+ *
+ *   views        a VIEW is created, just not as a table. nfl_news_signals_current
+ *                is read by server/routes/news.js on a live route.
+ *   CTEs         `WITH ranked AS (...) SELECT ... FROM ranked` reads a name that
+ *                the statement itself defines.
+ *   dropped      a DROP TABLE target is gone on purpose. Reporting it as missing
+ *                would ask someone to restore what a migration deliberately removed.
+ *   builtins     sqlite_master, sqlite_sequence and the table-valued functions
+ *                (json_each, json_tree, pragma_*, generate_series) are the engine's.
+ *   foreign      a read on another database's handle. Those files are filled by a
+ *                crawler or an upload, and "no CREATE in this repo" is expected —
+ *                the same reasoning as table-in-another-database.
+ *   test-only    a name no product file ever reads is a fixture's business.
+ *   prose        an English string that merely uses SQL words. An LLM prompt
+ *                starting "Select a 2026 redraft verdict" satisfies looksSql(),
+ *                and a sentence in this scanner about `INSERT ... SELECT *` read
+ *                "FROM a JavaScript array" and produced a table called `a`. The
+ *                test is on the STATEMENT — a query carries WHERE, GROUP BY,
+ *                ORDER BY, HAVING, LIMIT, a qualified JOIN or ON CONFLICT — and
+ *                deliberately NOT on a list of English words. Six real tables
+ *                here (leagues, players, drafts, users, messages, reports) have
+ *                no underscore, so the cheap "must be snake_case" filter would
+ *                have blinded the rule to every table named their way.
+ *
+ * Prose is handled upstream instead: sqlEdges now blanks SQL comments, because
+ * `-- one row per capture` is not a query and `the`, `a`, `successes` and `THIS`
+ * are not tables.
+ */
+const SQL_BUILTIN = new Set(['sqlite_master', 'sqlite_temp_master', 'sqlite_sequence', 'sqlite_stat1',
+  'json_each', 'json_tree', 'generate_series', 'dual']);
+const isBuiltin = (t) => SQL_BUILTIN.has(t.toLowerCase()) || /^pragma_/i.test(t);
+
+function tablesReadButNeverCreated(files, satelliteFiles = new Set()) {
+  const created = new Set(), views = new Set(), dropped = new Set(), ctes = new Set();
+  for (const f of files) {
+    for (const c of f.sql.creates ?? []) created.add(c.table);
+    for (const v of f.sql.views ?? []) views.add(v.table);
+    for (const t of f.sql.ctes ?? []) ctes.add(t.table);
+    for (const w of f.sql.writes ?? []) if (w.dropped) dropped.add(w.table);
+  }
+  const found = new Map();
+  for (const f of files) {
+    if (f.tree === 'test' || isTestPath(f.path)) continue;
+    for (const r of f.sql.reads ?? []) {
+      const t = r.table;
+      if (created.has(t) || views.has(t) || ctes.has(t) || dropped.has(t) || isBuiltin(t)) continue;
+      if ((r.handle ?? 'app') !== 'app') continue;
+      if (r.structural === false) continue;
+      if (!found.has(t)) found.set(t, { table: t, scope: scopeOfTable(t), sites: [], satelliteSites: 0 });
+      const e = found.get(t);
+      e.sites.push(`${f.path}:${r.line}`);
+      if (satelliteFiles.has(f.path)) e.satelliteSites++;
+    }
+  }
+  // A file that opens a satellite database gets the benefit of the doubt it has
+  // earned. handleFor() attributes `h.prepare(sql)` to the handle it was opened
+  // on, but not `satelliteRows(name, sql)` or a handle arrived as a function
+  // parameter, so some of these reads may belong to that other database rather
+  // than to the app's — in which case "no CREATE in this tree" is expected, the
+  // same reasoning table-in-another-database already applies to the chat corpus.
+  // The rule says which it cannot tell apart instead of asserting the stronger
+  // claim; data-file-not-in-the-image is the finding that covers those files.
+  for (const e of found.values()) e.satellite = e.satelliteSites === e.sites.length;
+  return [...found.values()].sort((a, b) => a.table.localeCompare(b.table));
+}
+
 function statementTables(text) {
   const reads = new Set(), writes = new Set();
   let m;
@@ -2050,6 +2167,31 @@ function findings(model, ann) {
         detail: `written by ${writerFiles.length} file(s), read by nothing`,
         evidence: writers.slice(0, 6).map(w => `${w.file}:${w.line}`) });
     }
+  }
+
+  // ---- tables that do not exist -------------------------------------------
+  // Every rule above starts from a CREATE and can only describe a table that
+  // exists somewhere. This one describes the absence, which is the harder half:
+  // the read cannot succeed in any database, so the path holding it is inert.
+  // A file that opens a database of its own is a satellite reader: its reads may
+  // belong to that file rather than to the app's. Taken from the handles the scan
+  // already found, not from another rule's output, so this does not depend on
+  // which rule ran first.
+  const satelliteFiles = new Set([...files.values()]
+    .filter(f => (f.foreign_handles ?? []).length > 0 || /\bsatelliteRows\s*\(/.test(f.text))
+    .map(f => f.path));
+  for (const t of tablesReadButNeverCreated([...files.values()], satelliteFiles)) {
+    add({ kind: t.satellite ? 'context' : 'orphan', rule: 'table-read-but-never-created',
+      scope: t.scope, subject: t.table,
+      detail: t.satellite
+        ? `read by ${t.sites.length} site(s), all in files that open a satellite database this `
+          + `image does not ship. Created nowhere in this tree, which for a satellite table is `
+          + `expected rather than wrong — see data-file-not-in-the-image for those files. Reported `
+          + `so the name is not invisible, NOT as a claim that a migration is missing`
+        : `read by ${t.sites.length} product site(s) and created nowhere in this tree — no `
+          + `migration, no schema file, no script, no fixture. The read cannot succeed in any `
+          + `database, so the path holding it is inert`,
+      weight: t.satellite ? 0 : 40, evidence: t.sites.slice(0, 6) });
   }
 
   // ---- modules ---------------------------------------------------------
@@ -3345,6 +3487,7 @@ function toMarkdown(model, found, ann) {
 
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
 export { sameNameCollisions, docsRuntimeReads, routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, docsCitations, creationSite, depthAtLine, ddlDefinitionName, resolveDefinition, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
+export { tablesReadButNeverCreated, withoutSqlComments };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

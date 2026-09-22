@@ -31,7 +31,7 @@ import { readFile } from 'node:fs/promises';
 const { scan, sqlEdges, tablesReadButNeverCreated } = await import('../scripts/wiring-map.mjs');
 
 const file = (path, tree, sql) => ({ path, tree, sql });
-const read = (table, line = 1, handle = 'app') => ({ table, line, handle });
+const read = (table, line = 1, handle = 'app') => ({ table, line, handle, structural: true });
 const names = (rows) => rows.map((r) => r.table).sort();
 
 test('a table read by product code and created nowhere is reported', () => {
@@ -95,6 +95,34 @@ test('SQL comments inside the query are not read as tables', async () => {
   // and `THIS` as table reads. A comment is not a query.
   const prose = reads.map((r) => r.table).filter((t) => ['the', 'a', 'successes', 'THIS', 'this'].includes(t));
   assert.deepEqual(prose, []);
+});
+
+test('an English string with SQL words in it is not a query', async () => {
+  // Three residual false positives were all prose in template literals that
+  // looksSql() accepted: an LLM prompt in server/routes/players.js, a claim
+  // string in scripts/model-lab, and a sentence in this very scanner
+  // explaining `INSERT ... SELECT *` — which read "FROM a JavaScript array"
+  // and reported a table called `a`. The filter is on the STATEMENT, not on a
+  // list of English words: a real query carries a structural clause.
+  const entries = [];
+  for (const q of ['server/routes/players.js', 'scripts/model-lab/audit_corpus.mts', 'scripts/wiring-map.mjs']) {
+    const src = await readFile(new URL(`../${q}`, import.meta.url), 'utf8');
+    entries.push(file(q, q.startsWith('scripts/') ? 'script' : 'server', sqlEdges(scan(src).strings)));
+  }
+  const got = names(tablesReadButNeverCreated(entries));
+  assert.deepEqual(got.filter((t) => ['a', 'this', 'the'].includes(t)), [], `prose reported as tables: ${got.join(', ')}`);
+});
+
+test('a one-word table name is still visible, because six real ones have no underscore', () => {
+  // leagues, players, drafts, users, messages and reports are real tables here.
+  // Filtering candidates by "must contain an underscore" would have been the
+  // cheap way to kill the prose above, and it would have blinded the rule to
+  // every table named the way those six are.
+  const out = tablesReadButNeverCreated([
+    file('server/services/zz.js', 'server', { creates: [], views: [], ctes: [], writes: [],
+      reads: [{ table: 'widgets', line: 7, handle: 'app', structural: true }] }),
+  ]);
+  assert.deepEqual(names(out), ['widgets']);
 });
 
 test('the two tables the audit found by hand are reported from the real files', async () => {

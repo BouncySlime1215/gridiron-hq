@@ -29,7 +29,16 @@ const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const scheduler = await import('../server/services/scheduler.js');
 
-test.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+test.after(async () => {
+  // A worker's result promise resolves on its 'message' event, but the OS-level
+  // teardown of its own sqlite connection (opened at GRIDIRON_DB_PATH, under
+  // `temp`) can still be in flight a few ms after that — measured on a loaded
+  // CI runner (2026-09-22) as an ENOTEMPTY race in the recursive rmSync below.
+  // A short yield covers the ordinary case; maxRetries covers the tail Node
+  // already knows how to retry (it retries ENOTEMPTY/EBUSY/EPERM on its own).
+  await new Promise(resolve => setTimeout(resolve, 100));
+  fs.rmSync(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+});
 
 const BURN_MS = 1200;
 const FIXTURE = pathToFileURL(path.join(process.cwd(), 'test/fixtures/cpu-burn.mjs')).href;

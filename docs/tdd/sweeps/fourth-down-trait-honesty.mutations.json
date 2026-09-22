@@ -1,0 +1,101 @@
+[
+ {
+  "name": "M1 the aggression label comes back",
+  "file": "server/services/football-context.js",
+  "tests": [
+   "test/fourth-down-trait-honesty.test.js"
+  ],
+  "aimed_at": "T2 top team, T4 the sentence",
+  "kind": "mutation",
+  "old": "    { key: 'off_fourth_down_rate', label: 'converts fourth downs into first downs',",
+  "new": "    { key: 'off_fourth_down_rate', label: 'goes for it on fourth down',"
+ },
+ {
+  "name": "M2 the timidity inverse comes back",
+  "file": "server/services/football-context.js",
+  "tests": [
+   "test/fourth-down-trait-honesty.test.js"
+  ],
+  "aimed_at": "T3 bottom team, T4 the sentence",
+  "kind": "mutation",
+  "old": "      inverse: 'ends its fourth downs without a first down', unit: 'pct' },",
+  "new": "      inverse: 'punts and kicks', unit: 'pct' },"
+ },
+ {
+  "name": "M3 the trait is deleted rather than relabelled",
+  "file": "server/services/football-context.js",
+  "tests": [
+   "test/fourth-down-trait-honesty.test.js"
+  ],
+  "aimed_at": "T1 fixture guard, T5 still says something true, T6 the value",
+  "kind": "mutation",
+  "old": "    { key: 'off_fourth_down_rate', label: 'converts fourth downs into first downs',\n      inverse: 'ends its fourth downs without a first down', unit: 'pct' },",
+  "new": "    { key: 'off_nonexistent_field', label: 'converts fourth downs into first downs',\n      inverse: 'ends its fourth downs without a first down', unit: 'pct' },"
+ },
+ {
+  "name": "M4 the label and inverse stop being distinguishable",
+  "file": "server/services/football-context.js",
+  "tests": [
+   "test/fourth-down-trait-honesty.test.js"
+  ],
+  "aimed_at": "T5 top and bottom must not read alike",
+  "kind": "mutation",
+  "old": "      inverse: 'ends its fourth downs without a first down', unit: 'pct' },",
+  "new": "      inverse: 'converts fourth downs into first downs', unit: 'pct' },"
+ },
+ {
+  "name": "M5 the percentile stops inverting the direction",
+  "file": "server/services/football-context.js",
+  "tests": [
+   "test/fourth-down-trait-honesty.test.js"
+  ],
+  "aimed_at": "T5 percentile ordering",
+  "kind": "mutation",
+  "old": "      trait: pct >= 0.75 ? t.label : t.inverse,",
+  "new": "      trait: pct >= 0.75 ? t.inverse : t.label,"
+ },
+ {
+  "name": "M6 the trait stops carrying the value it came from",
+  "file": "server/services/football-context.js",
+  "tests": [
+   "test/fourth-down-trait-honesty.test.js"
+  ],
+  "aimed_at": "T6 the value",
+  "kind": "mutation",
+  "old": "        metric: t.key, value: r3(v), percentile: r3(pct),",
+  "new": "        metric: t.key, value: null, percentile: r3(pct),"
+ },
+ {
+  "name": "M7 the percentile gate lets every tendency through",
+  "file": "server/services/football-context.js",
+  "tests": [
+   "test/fourth-down-trait-honesty.test.js"
+  ],
+  "aimed_at": "T1 fixture guard \u2014 a neighbour trait would make T4 vacuous",
+  "kind": "mutation",
+  "old": "    if (pct >= 0.75 || pct <= 0.25) {",
+  "new": "    if (true) {"
+ },
+ {
+  "name": "C1 NO-OP: a multi-site anchor must be refused, not mutated",
+  "file": "server/services/football-context.js",
+  "tests": [
+   "test/fourth-down-trait-honesty.test.js"
+  ],
+  "aimed_at": "the runner itself \u2014 designed NOT APPLIED",
+  "kind": "no-op control",
+  "old": "unit: 'pct' }",
+  "new": "unit: 'PCT' }"
+ },
+ {
+  "name": "C2 NO-OP: a comment-only edit changes no behaviour and must survive",
+  "file": "server/services/football-context.js",
+  "tests": [
+   "test/fourth-down-trait-honesty.test.js"
+  ],
+  "aimed_at": "the suite itself \u2014 designed SURVIVING",
+  "kind": "no-op control",
+  "old": "    // THE SWAP POINT: when nfl-pbp.js publishes",
+  "new": "    // THE SWAP POINT. When nfl-pbp.js publishes"
+ }
+]

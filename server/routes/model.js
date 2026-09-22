@@ -1,29 +1,42 @@
 /**
  * Prediction engine API.
  *
- * Exposes the projection model, its accuracy, the simulator and the supporting
- * estimates. Results that take real work — projections, correlation fits, season
- * simulations — are memoised per process, because the inputs only change on an
- * explicit sync.
+ * Exposes the projection model, the simulator, the model registry and the sync that
+ * feeds them. Results that take real work — projections, season simulations — are
+ * memoised per process, because the inputs only change on an explicit sync.
+ *
+ * EIGHTEEN ROUTES WERE DELETED FROM THIS FILE on 2026-09-20, taking it from 33 to 15,
+ * and thirty imports went with them. Sixteen were the read endpoints of
+ * `client/src/pages/Model.tsx` — a page that no file imports and no <Route> declares,
+ * so nothing in the app could reach it or them. `/accuracy`, `/correlations`,
+ * `/gamescript`, `/handcuffs`, `/availability` and `/status` were its callers; the
+ * rest (`/state`, `/map`, `/ask/:capability`, `/heads`, `/consensus`, `/game-script`,
+ * `/game-script/:team`, `/game-script-fit`, `/cascade/:playerId`,
+ * `/projections/:playerId`, and both `/weekly-learning` routes) had no caller in any
+ * tree. Every service behind them is untouched and still runs: the weekly learning
+ * cycle from scheduler.js:499, the game-script fit from its own job, the model heads
+ * from nfl-unified-engine.js. What was deleted is the HTTP surface, not a capability.
+ *
+ * `/api/model/availability` in particular was the bare route that answered from a
+ * different source than `?week=N` did, which is where the one-normalised-name-per-stat
+ * rule came from. It is gone rather than fixed: nothing called it.
+ *
+ * DO NOT re-add a route here to give Model.tsx something to call. The page was
+ * removed from the navigation deliberately and the eight-tab nav is the decision.
  */
 import { Router } from 'express';
 import { db, row, rows, run } from '../db/index.js';
-import { scoringFor, PPR } from '../services/scoring.js';
-import { buildProjections, seasonDistribution } from '../services/projections.js';
-import { buildPlayerWeekEngine, playerWeekDistribution, clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
-import { compare, actuals, gradePoint, gradeDistribution, baselines, weeklyDecisionBacktest } from '../services/backtest.js';
+import { scoringFor } from '../services/scoring.js';
+import { buildProjections } from '../services/projections.js';
+import { clearPlayerWeekEngineCache } from '../services/player-week-engine.js';
 import { simulateSeason, tradeImpact } from '../services/season-sim.js';
-import { fitCorrelations, correlationTable, clearCorrelationCache } from '../services/correlation.js';
-import { fitGameScript, gameScriptFor, syncHistoricalLines, syncCurrentLines, linesFor, clearGameScriptCache } from '../services/gamescript.js';
-import { availability, weeklyAvailability, cascades, handcuffValue } from '../services/contingency.js';
-import { syncAll as syncNflverse, usageSeasons, usageFor } from '../services/nflverse.js';
+import { fitCorrelations, clearCorrelationCache } from '../services/correlation.js';
+import { fitGameScript, syncHistoricalLines, syncCurrentLines, clearGameScriptCache } from '../services/gamescript.js';
+import { syncAll as syncNflverse } from '../services/nflverse.js';
 import { syncAllAdvanced } from '../services/nfl-advanced.js';
 import { syncPbpSeason } from '../services/nfl-pbp.js';
 import { nflDataConsistencyAudit } from '../services/nfl-data-consistency.js';
 import { clearMatchupCache } from '../services/matchups.js';
-import { modelMap, ask, consensus, projectionHeads, stateOfTheModel } from '../services/gridiron-model.js';
-import { resolvePlayer, assetUniverse, loadRosters } from '../services/trade-engine.js';
-import { deriveFormat } from '../services/format.js';
 import { withRandomSeed } from '../services/stats-util.js';
 import { requireLeagueId } from '../modeling/league-context.js';
 import { requireAuthenticated, assertLeagueMember } from '../platform/auth.js';
@@ -33,7 +46,6 @@ import { ModelRegistry } from '../modeling/registry.js';
 import { SqliteModelStore, recordModelAudit, registrySnapshot } from '../modeling/sqlite-store.js';
 import { requireModelPermission } from '../modeling/authz.js';
 import { runWalkForward, openFinalHoldout } from '../modeling/walk-forward.js';
-import { weeklyLearningStatus, runWeeklyLearningCycle } from '../services/weekly-learning.js';
 import { syncHistoricalAdp } from '../services/historical-adp.js';
 import { refitFantasyCoordinator } from '../services/fantasy-coordinator.js';
 import { syncCoaches } from '../services/nfl-coaches.js';
@@ -113,13 +125,22 @@ export function clearModelCache() { cache.clear(); clearPlayerWeekEngineCache();
 
 /* ------------------------------------------------ persisted model registry */
 
-r.get('/weekly-learning/status', requireModelPermission('model:train'), (_req, res, next) => {
-  try { res.json(weeklyLearningStatus()); } catch (error) { next(error); }
-});
-
-r.post('/weekly-learning/run', requireModelPermission('model:execute'), (_req, res, next) => {
-  try { res.json(runWeeklyLearningCycle()); } catch (error) { next(error); }
-});
+/*
+ * THE EIGHT WRITE ROUTES BELOW HAVE NO CALLER, AND THEY STAY.
+ *
+ * `route-no-caller` is right about them: the only client file that ever dialled this
+ * family is `client/src/features/model-lab/ModelRegistryPanel.tsx`, which nothing
+ * imports. But the orphan is the PANEL, not the API. These eight are the whole HTTP
+ * surface of the model registry — register a dataset, declare a feature set, open an
+ * experiment, record a backtest, open a final holdout, promote, roll back — and
+ * promotion is a step in a release that is scheduled to run. Deleting a governed
+ * promote/rollback pair because its admin page lost its <Route> would remove a
+ * capability to tidy a report.
+ *
+ * The fix is to route the panel, which is a client change and not this file's. Until
+ * then the rows stay visible rather than going into annotations.json: they are true,
+ * and a reader should see them and this paragraph together.
+ */
 
 r.get('/registry', requireModelPermission('model:train'), (_req, res, next) => {
   try { res.json(registrySnapshot()); } catch (e) { next(e); }
@@ -393,6 +414,14 @@ const respondError = (res, next, e) => (e.status ? res.status(e.status).json({ e
 
 /* ------------------------------------------------------------ projections */
 
+/*
+ * NO CLIENT CALLS THIS, AND IT STAYS. Its caller is a human following
+ * `docs/RUNBOOK-promote-volume-shrinkage.md:233`, which says to read
+ * `GET /api/model/projections` for the current week before and after the promotion and
+ * compare. The deletion rule for this sweep was "delete unless a repo script calls
+ * it"; a runbook step is a caller with a person at the keyboard, and the runbook is
+ * scheduled to be run. Retire this route when that comparison moves into a script.
+ */
 r.get('/projections', requireAuthenticated, (req, res, next) => {
   try {
     const leagueId = requireLeagueId(req);
@@ -414,106 +443,7 @@ r.get('/projections', requireAuthenticated, (req, res, next) => {
   } catch (e) { respondError(res, next, e); }
 });
 
-/** Full distribution for one player — the percentiles behind a start/sit call. */
-r.get('/projections/:playerId', requireAuthenticated, (req, res, next) => {
-  try {
-    const leagueId = requireLeagueId(req);
-    const lg = row('SELECT * FROM leagues WHERE id = ?', leagueId);
-    if (!lg) return res.status(404).json({ error: 'no league found for the active league id' });
-    assertLeagueMember(req.auth.userId, leagueId);
-    const scoring = scoringFor(lg);
-    const through = SEASON - 1;
-    const proj = memo(`proj:${through}:${JSON.stringify(scoring)}`, () => buildProjections({ through, scoring }));
-
-    let p = proj.get(Number(req.params.playerId));
-    // Fall through the duplicate-row problem the same way the trade engine does.
-    if (!p && lg?.payload) {
-      const { formatKey } = deriveFormat(lg);
-      const assets = assetUniverse(lg, formatKey);
-      const resolved = resolvePlayer(req.params.playerId, assets, loadRosters(lg, assets));
-      if (resolved) p = proj.get(resolved.id);
-    }
-    if (!p) return res.status(404).json({ error: 'no projection for this player — he has no usage history' });
-
-    // The season-long distribution stays neutral (mult=1) on purpose — it averages
-    // across a whole slate of different opponents, so no single week's Vegas line
-    // belongs in it. The *weekly* number is a specific start/sit call for a specific
-    // upcoming opponent, which is exactly what game script is for.
-    const week = Number(req.query.week) || 1;
-    const weeklyMap = memo(`player-week:${SEASON}:${week}:${JSON.stringify(scoring)}`,
-      () => buildPlayerWeekEngine({ season: SEASON, week, scoring }));
-    const weeklyProjection = weeklyMap.get(p.player_id) ?? p;
-    const gs = weeklyProjection.team ? gameScriptFor(weeklyProjection.team, SEASON, week) : null;
-    const mult = gs?.line ? { pass: gs.pass_mult, rush: gs.rush_mult } : 1;
-    const weeklyAvail = weeklyAvailability(SEASON, week).get(p.player_id) ?? null;
-
-    const seed = req.query.seed ?? null;
-    res.json(withRandomSeed(seed, () => ({
-      ...p,
-      week,
-      seed: seed == null ? null : Number(seed),
-      game_script: gs,
-      weekly_projection: weeklyProjection,
-      weekly: playerWeekDistribution(weeklyProjection, {
-        runs: 4000, scoring, mult,
-        activeProbability: weeklyAvail?.active_probability ?? 1
-      }),
-      weekly_availability: weeklyAvail,
-      season: (() => { const s = seasonDistribution(p, { runs: 800, scoring }); delete s.samples; return s; })(),
-      availability: availability().get(p.player_id) ?? null,
-      usage_history: usageFor(p.player_id).slice(0, 20)
-    })));
-  } catch (e) { respondError(res, next, e); }
-});
-
 /* -------------------------------------------------------------- accuracy */
-
-/**
- * How good the model actually is, against the baselines it has to beat.
- * Backtests are run on held-out seasons, with the model rebuilt using only data
- * available before the season it is predicting.
- */
-r.get('/accuracy', (req, res, next) => {
-  try {
-    const season = Number(req.query.season) || SEASON - 1;
-    const out = memo(`acc:${season}`, () => {
-      const truth = actuals(season);
-      if (!truth.size) return { error: `no weekly usage data for ${season} — sync nflverse first` };
-      const proj = buildProjections({ through: season - 1 });
-      if (!proj.size) return { error: `no usage data before ${season} to build a projection from` };
-
-      // Grade every source on the same player set, or the comparison is meaningless.
-      const prior = actuals(season - 1);
-      const ids = [...proj.keys()].filter(id => truth.get(id)?.games >= 4 && prior.has(id));
-      const t = new Map(ids.map(id => [id, truth.get(id)]));
-      const mk = f => new Map(ids.map(id => [id, f(id)]));
-      const sources = {
-        'Gridiron model': mk(id => proj.get(id).points),
-        'Last season points': mk(id => prior.get(id).points),
-        'Last season ppg x 17': mk(id => prior.get(id).ppg * 17),
-        'Blend (60/40)': mk(id => 0.6 * proj.get(id).points + 0.4 * prior.get(id).points)
-      };
-      const table = Object.entries(sources)
-        .map(([source, preds]) => ({ source, ...gradePoint(preds, t) }))
-        .filter(x => !x.error)
-        .sort((a, b) => (b.spearman ?? -1) - (a.spearman ?? -1));
-
-      // Distributional accuracy for the model only — the baselines are point estimates.
-      const samples = new Map();
-      for (const id of ids.slice(0, 150)) {
-        const s = seasonDistribution(proj.get(id), { runs: 300 });
-        samples.set(id, s.samples);
-      }
-      return {
-        season, players_graded: ids.length, table,
-        distribution: gradeDistribution(samples, t),
-        weekly_decisions: weeklyDecisionBacktest(proj, truth),
-        note: 'Every source is graded on the same players. The model is rebuilt using only seasons before the one it predicts.'
-      };
-    });
-    res.json(out);
-  } catch (e) { next(e); }
-});
 
 /* ------------------------------------------------------------- simulator */
 
@@ -550,58 +480,6 @@ r.post('/:leagueId/trade-impact', requireAuthenticated, (req, res, next) => {
 });
 
 /* --------------------------------------------------- supporting estimates */
-
-r.get('/correlations', (req, res) => res.json(correlationTable()));
-
-r.get('/gamescript', (req, res, next) => {
-  try {
-    const season = Number(req.query.season) || SEASON;
-    const week = req.query.week ? Number(req.query.week) : null;
-    const model = rows('SELECT * FROM gamescript_model');
-    const lines = linesFor(season, week).map(l => ({
-      ...l, ...gameScriptFor(l.team, l.season, l.week)
-    }));
-    res.json({ season, week, model, lines });
-  } catch (e) { next(e); }
-});
-
-r.get('/handcuffs', (req, res, next) => {
-  try { res.json(memo('handcuffs', () => handcuffValue()).slice(0, Number(req.query.limit) || 60)); }
-  catch (e) { next(e); }
-});
-
-r.get('/cascade/:playerId', (req, res, next) => {
-  try {
-    const c = memo('cascades', () => cascades());
-    res.json(c.get(Number(req.params.playerId)) ?? { error: 'no measured cascade for this player' });
-  } catch (e) { next(e); }
-});
-
-r.get('/availability', (req, res, next) => {
-  try {
-    if (req.query.week) {
-      const season = Number(req.query.season) || SEASON;
-      const week = Number(req.query.week);
-      const a = weeklyAvailability(season, week);
-      return res.json({ season, week, players: [...a.values()]
-        .sort((x, y) => x.active_probability - y.active_probability).slice(0, 200) });
-    }
-    const a = memo('avail', () => availability());
-    const names = new Map(rows('SELECT id, name, position FROM players').map(p => [p.id, p]));
-    res.json([...a.values()].map(x => ({ ...x, name: names.get(x.player_id)?.name }))
-      .filter(x => x.name).sort((a, b) => a.available - b.available).slice(0, 120));
-  } catch (e) { next(e); }
-});
-
-r.get('/status', (req, res) => {
-  res.json({
-    usage_seasons: usageSeasons(),
-    correlations_fitted: row('SELECT COUNT(*) AS n FROM correlation_estimates')?.n ?? 0,
-    gamescript_fitted: row('SELECT COUNT(*) AS n FROM gamescript_model')?.n ?? 0,
-    lines: rows('SELECT season, COUNT(*) AS n FROM game_lines GROUP BY season ORDER BY season DESC'),
-    players_with_gsis: row('SELECT COUNT(*) AS n FROM players WHERE gsis_id IS NOT NULL')?.n ?? 0
-  });
-});
 
 /* ------------------------------------------------------------------ sync */
 
@@ -654,8 +532,15 @@ r.post('/sync', requireModelPermission('model:train'), async (req, res, next) =>
  * Whether this install still needs its one-time historical backfill — the
  * question a fresh `git clone` cannot answer for itself, since none of this
  * data ships in the repo (it lives only in each install's own SQLite file).
- * Read-only and unauthenticated on purpose, like GET /status above: it is a
- * status light, not a place that does or reveals anything sensitive.
+ *
+ * It carries no per-route gate, and the comment here used to call it "unauthenticated
+ * on purpose". It is not, and never was on this branch: `server/index.js` mounts this
+ * whole router behind `...legacyAuthenticated`, so an anonymous caller gets a 401 at
+ * the mount and never reaches the handler. The sentence described an intention that
+ * the wiring had already overruled, and it pointed at `GET /status above` as its
+ * precedent — a route that no longer exists. Both halves were wrong; this is what is
+ * actually true. If it should ever be reachable without a session, that is a change to
+ * the mount, not a comment.
  */
 r.get('/setup-status', (req, res) => {
   const BOOTSTRAP_SOURCES = ['nflverse_weekly_usage', 'nflverse_pbp', 'nfl_ngs', 'nfl_pfr_adv',
@@ -670,94 +555,7 @@ r.get('/setup-status', (req, res) => {
 
 /* ------------------------------------------------- Vegas game script */
 
-/**
- * What the market implies about every offence this week, applied to fantasy.
- *
- * The market cannot be beaten on sides — 22 models and ~2,600 graded bets say
- * so — but that is a statement about efficiency, not about ignorance. Its
- * implied team total is the best public estimate of how many points an offence
- * will score, which is most of what fantasy scoring measures.
- */
-r.get('/game-script', async (req, res, next) => {
-  try {
-    const { slateGameScript } = await import('../services/vegas-fantasy.js');
-    const season = Number(req.query.season) || Number(process.env.NFL_SEASON) || 2026;
-    const week = Number(req.query.week) || 1;
-    res.json(slateGameScript({ season, week }));
-  } catch (e) { next(e); }
-});
-
-/** One team's multipliers, with the market's reasoning in plain English. */
-r.get('/game-script/:team', async (req, res, next) => {
-  try {
-    const { gameScriptFor } = await import('../services/vegas-fantasy.js');
-    const season = Number(req.query.season) || Number(process.env.NFL_SEASON) || 2026;
-    const week = Number(req.query.week) || 1;
-    res.json(gameScriptFor(season, week, req.params.team));
-  } catch (e) { next(e); }
-});
-
-/** The fit itself, and whether it beats a no-knowledge baseline out of sample. */
-r.get('/game-script-fit', async (req, res, next) => {
-  try {
-    const m = await import('../services/vegas-fantasy.js');
-    res.json({ fit: m.fitGameScript({}),
-      validation: m.validateGameScript({ testSeason: Number(req.query.test_season) || 2025 }) });
-  } catch (e) { next(e); }
-});
-
 
 /* ------------------------------------------------- the consolidated model */
-
-/**
- * What every component is allowed to influence, and on what evidence.
- *
- * Authority is derived from the sealed audit registry at call time rather than
- * asserted, so this cannot claim a component passed when the record says it
- * failed.
- */
-r.get('/state', (_req, res, next) => {
-  try { res.json(stateOfTheModel()); } catch (e) { next(e); }
-});
-
-/** The full capability map, optionally for one domain. */
-r.get('/map', (req, res, next) => {
-  try {
-    const domain = ['fantasy', 'betting', 'crossover'].includes(req.query.domain)
-      ? req.query.domain : null;
-    res.json(modelMap({ domain }));
-  } catch (e) { next(e); }
-});
-
-/**
- * Route a question, and refuse it when nothing has earned the right to answer.
- *
- * `purpose=size` is the one that matters: it demands an authoritative component
- * and refuses otherwise, which for every forecasting question here is the
- * correct answer.
- */
-r.get('/ask/:capability', (req, res, next) => {
-  try {
-    const purpose = ['inform', 'rank', 'size'].includes(req.query.purpose)
-      ? req.query.purpose : 'inform';
-    const out = ask(req.params.capability, { purpose });
-    if (out.error) return res.status(404).json(out);
-    res.status(out.permitted ? 200 : 403).json(out);
-  } catch (e) { next(e); }
-});
-
-/** The measured out-of-sample errors behind the fantasy projection. */
-r.get('/heads', (_req, res, next) => {
-  try { res.json(projectionHeads()); } catch (e) { next(e); }
-});
-
-/** Combine estimates of one quantity by measured precision. */
-r.post('/consensus', (req, res, next) => {
-  try {
-    const est = Array.isArray(req.body?.estimates) ? req.body.estimates : [];
-    if (est.length > 20) return res.status(400).json({ error: 'at most 20 estimates' });
-    res.json(consensus(est));
-  } catch (e) { next(e); }
-});
 
 export default r;

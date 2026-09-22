@@ -1,0 +1,167 @@
+[
+ {
+  "name": "M1 the lookup interpolates up to the next anchor instead of flooring",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T1 no interpolation",
+  "kind": "mutation",
+  "old": "    if (point.margin > margin) break;",
+  "new": "    if (point.margin > margin) { rate = point.win_rate; break; }"
+ },
+ {
+  "name": "M2 a margin past the last anchor is extrapolated",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T2 no extrapolation",
+  "kind": "mutation",
+  "old": "  return rate;\n}",
+  "new": "  return rate != null && margin > 12.71 ? 0.95 : rate;\n}"
+ },
+ {
+  "name": "M3 a margin below the smallest anchor gets an invented rate",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T3 null below the curve",
+  "kind": "mutation",
+  "old": "  let rate = null;",
+  "new": "  let rate = 0.5;"
+ },
+ {
+  "name": "M4 an anchor dips, so the reported rate falls as the margin grows",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T4 monotone, T5 curve rising",
+  "kind": "mutation",
+  "old": "    { margin: 6.0, win_rate: 0.772, n: 97013 },",
+  "new": "    { margin: 6.0, win_rate: 0.600, n: 97013 },"
+ },
+ {
+  "name": "M5 an anchor is out of order, so the lookup walks a jumbled curve",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T5 curve ordered",
+  "kind": "mutation",
+  "old": "    { margin: 9.57, win_rate: 0.85, n: null },",
+  "new": "    { margin: 3.57, win_rate: 0.85, n: null },"
+ },
+ {
+  "name": "M6 the clear threshold is typed in at 4.0 again instead of derived",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T6 threshold on an anchor, T7 4.0 is not clear, T10 a 5.0 margin",
+  "kind": "mutation",
+  "old": "  DECISION_CURVE.points.find(p => p.win_rate >= CLEAR_WIN_RATE).margin;",
+  "new": "  4.0;"
+ },
+ {
+  "name": "M7 the tie band carries a rate it did not measure",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T8 coin-flip band",
+  "kind": "mutation",
+  "old": "export const TIE_BAND_WIN_RATE = 0.529;",
+  "new": "export const TIE_BAND_WIN_RATE = 0.600;"
+ },
+ {
+  "name": "M8 the tie threshold moves off the point the evidence endorsed",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T8 coin-flip threshold",
+  "kind": "mutation",
+  "old": "export const TIE_THRESHOLD = 1.5;",
+  "new": "export const TIE_THRESHOLD = 2.5;"
+ },
+ {
+  "name": "M9 the curve stops naming the universe it is valid for",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T9 provenance",
+  "kind": "mutation",
+  "old": "  universe: 'same-week pairs with both projections at least 8.0 PPR (startable), '",
+  "new": "  universe: 'pairs of players, '"
+ },
+ {
+  "name": "M10 the curve stops saying which projection it was measured on",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T9 provenance",
+  "kind": "mutation",
+  "old": "  measured_on: 'a research-baseline projection (startable MAE 6.085), not production\\'s own '\n    + 'out-of-sample week_points; re-derive on production before trusting a boundary',",
+  "new": "  measured_on: 'a projection',"
+ },
+ {
+  "name": "M11 the call stops carrying the rate its margin measured",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T10 the rate on a call",
+  "kind": "mutation",
+  "old": "      confidence_win_rate: winRate,",
+  "new": "      confidence_win_rate: null,"
+ },
+ {
+  "name": "M12 the sentence claims comfort again",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T11 no comfort at any margin",
+  "kind": "mutation",
+  "old": "          : `${margin} points ahead of ${alt.name}.` +",
+  "new": "          : `${margin} points ahead of ${alt.name}, comfortably.` +"
+ },
+ {
+  "name": "M13 the payload stops naming the curve the rates came from",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "T12 provenance on the wire",
+  "kind": "mutation",
+  "old": "    confidence_curve: DECISION_CURVE,",
+  "new": "    confidence_curve: null,"
+ },
+ {
+  "name": "C1 NO-OP: a multi-site anchor must be refused, not mutated",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "the runner itself \u2014 designed NOT APPLIED",
+  "kind": "no-op control",
+  "old": "DECISION_CURVE.points",
+  "new": "DECISION_CURVE.POINTS"
+ },
+ {
+  "name": "C2 NO-OP: a comment-only edit changes no behaviour and must survive",
+  "file": "server/services/lineup-brain.js",
+  "tests": [
+   "test/start-sit-decision-curve.test.js"
+  ],
+  "aimed_at": "the suite itself \u2014 designed SURVIVING",
+  "kind": "no-op control",
+  "old": " * A measured rate as a percentage for reading out loud.",
+  "new": " * A measured rate as a percentage, for reading out loud."
+ }
+]

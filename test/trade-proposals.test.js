@@ -23,6 +23,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 
 import {
   verifyProposals, cacheKeyFor, proposalsFor, proposalsPrompt, liveCaller,
@@ -147,7 +148,32 @@ test('G3 a changed slate, a different league, or a bumped prompt version all mis
   assert.notEqual(base, cacheKeyFor(4, [idea({ me: { ppg_delta: 9.9 } })]), 'changed numbers miss');
   assert.notEqual(base, cacheKeyFor(5, [idea()]), 'another league is another key');
   assert.notEqual(base, cacheKeyFor(4, [idea(), idea({ id: 'idea-2' })]), 'a longer slate misses');
-  assert.match(PROMPT_VERSION, /\S/, 'the prompt version is part of the key by construction');
+});
+
+test('G3 the prompt version is IN the key, so bumping how we ask invalidates every cached answer', () => {
+  // WHAT THIS REPLACES, because it is the same defect the assertion sweep is
+  // about and it was inside the test named for it. The line here was
+  // `assert.match(PROMPT_VERSION, /\S/)` carrying the message "the prompt version
+  // is part of the key by construction" — a claim it did not test. `/\S/` says a
+  // string is not blank, which is true of every non-empty string and says nothing
+  // whatever about the key. The test's own name promised that a bumped version
+  // misses, and nothing checked it.
+  //
+  // `PROMPT_VERSION` is a module constant and cannot be bumped from here, so the
+  // claim has to be tested as what it actually is: a fact about the material the
+  // key hashes.
+  const keyWith = v => crypto.createHash('sha256')
+    .update(JSON.stringify({ v, league: '4', prompt: proposalsPrompt([idea()]) }))
+    .digest('hex');
+  // FIRST that this IS the material. Without this line the one below is a test of
+  // the test — two independent wrong implementations agreeing. If `cacheKeyFor`
+  // ever hashes something else, or in another order, this goes red and names it.
+  assert.equal(cacheKeyFor(4, [idea()]), keyWith(PROMPT_VERSION),
+    'the key is sha256 over exactly { v, league, prompt }, in that order');
+  // THEN the consequence, which is a real one now that the material is pinned:
+  // change only the version and every cached answer misses.
+  assert.notEqual(cacheKeyFor(4, [idea()]), keyWith(`${PROMPT_VERSION}-bumped`),
+    'bumping the prompt version must invalidate the cache without anyone clearing a table');
 });
 
 /* --------------------------------- G2 bounded, and G4 honest degradation */

@@ -137,7 +137,23 @@ they are not the fantasy product either, so a row reachable only through them is
 also overstating the `wired` total. Counting those three as well would give
 228 / 60 / 10 / 21 — five more files. **That is a separate grade and it has not
 been made**; this note exists so the 233 is read as an upper bound on fantasy
-reach rather than as a settled figure. So roughly one file in six that a
+reach rather than as a settled figure.
+
+**A second under-count, and a larger one: a `package.json` script has no route,
+so this grade cannot classify it.** A script is a non-betting entry point by
+default, because the betting test is a list of route files and a script is not
+one. **14 of the 233 `wired` files reach no entry point except a
+`package.json` script, and 13 of those 14 also have a betting path** — so for
+those 13 the grade turns entirely on the script counting as non-betting reach.
+The scripts in question are `nfl-blind-audit.mjs` ("the content-addressed
+week-at-a-time NFL audit"), `build-evidence-dataset.mjs` ("one evidence dataset
+from the quote tape"), `audit-passing-specialists.mjs`,
+`diagnose-passing-components.mjs`, `run-news-event-impact.mjs` and
+`build-role-scenario-lab.mjs`. By their own headers they are betting-model
+tooling, but that has not been established file by file and no grade has been
+changed on it. If all 13 were classified betting the sweep would read
+**220 / 68 / 10 / 21**. Until a rule for classifying script entry points exists,
+`wired` is an upper bound and this is the largest single reason. So roughly one file in six that a
 first-path trace would have called `wired` is reachable only through a betting
 surface. That is the overstatement this grade was added to prevent, measured
 rather than asserted.

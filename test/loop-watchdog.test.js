@@ -130,5 +130,35 @@ test('the kill line says so plainly when no job was marked', async () => {
   assert.equal(signal, 'SIGKILL', `expected a kill, got stderr: ${stderr}`);
   assert.match(stderr, /No job was marked as running/,
     `expected the no-job wording; got: ${stderr}`);
+  // And it says what that means, so the reader goes to the request path
+  // rather than the scheduler.
+  assert.match(stderr, /outside the scheduler/,
+    `the no-job line must point away from the scheduler; got: ${stderr}`);
   assert.doesNotMatch(stderr, /The job running when it stopped was/);
+});
+
+/*
+ * 2026-09-22: the live tier and the background tier run on separate timers,
+ * so jobs overlap. With a single marker slot, the job that finished first
+ * cleared the name of the job still running, and the kill line then said "no
+ * job" while a job held the thread -- sending the reader to the request path,
+ * which is the wrong suspect.
+ */
+test('a job that finishes does not erase the name of one still running', async () => {
+  const { signal, stderr } = await runSubject(1000, 4000, {}, 'served',
+    '+nfl_decision_ledger,+player_rosters,-player_rosters');
+  assert.equal(signal, 'SIGKILL', `expected a kill, got stderr: ${stderr}`);
+  assert.match(stderr, /The job running when it stopped was 'nfl_decision_ledger'/,
+    `the still-running job must be named; got: ${stderr}`);
+  assert.doesNotMatch(stderr, /player_rosters/, 'a finished job must not be named');
+});
+
+test('the kill line names every job running at once, not only the last one marked', async () => {
+  const { signal, stderr } = await runSubject(1000, 4000, {}, 'served',
+    '+nfl_decision_ledger,+player_rosters');
+  assert.equal(signal, 'SIGKILL', `expected a kill, got stderr: ${stderr}`);
+  assert.match(stderr, /The jobs running when it stopped were /,
+    `expected the plural wording; got: ${stderr}`);
+  assert.match(stderr, /'nfl_decision_ledger'/, `got: ${stderr}`);
+  assert.match(stderr, /'player_rosters'/, `got: ${stderr}`);
 });

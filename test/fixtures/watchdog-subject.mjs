@@ -3,7 +3,7 @@
  * the event loop for longer than its threshold. A live watchdog kills this
  * process; a broken one lets it print "survived" and exit 0.
  */
-import { startLoopWatchdog, armLoopWatchdog, markJobRunning } from '../../server/platform/loop-watchdog.js';
+import { startLoopWatchdog, armLoopWatchdog, markJobRunning, clearJobRunning } from '../../server/platform/loop-watchdog.js';
 
 const thresholdMs = Number(process.argv[2]);
 const blockMs = Number(process.argv[3]);
@@ -21,13 +21,18 @@ if (armEarly) armLoopWatchdog();
 startLoopWatchdog({ thresholdMs });
 if (served && !armEarly) armLoopWatchdog();
 
-// argv[5], when present, is a job name to mark as running before blocking --
-// the case where the watchdog should name the culprit in its kill line.
-const jobName = process.argv[5];
+// argv[5], when present, is a comma-separated list of marker steps applied in
+// order before blocking: `name` or `+name` marks a job running, `-name` clears
+// it. The live and background tiers run on separate timers, so jobs overlap
+// and finish out of order; this replays that sequence.
+const steps = (process.argv[5] ?? '').split(',').filter(Boolean);
 
 // Let the heartbeat and the worker start before blocking anything.
 setTimeout(() => {
-  if (jobName) markJobRunning(jobName);
+  for (const step of steps) {
+    if (step.startsWith('-')) clearJobRunning(step.slice(1));
+    else markJobRunning(step.replace(/^\+/, ''));
+  }
   const until = Date.now() + blockMs;
   let n = 0;
   while (Date.now() < until) n += Math.sqrt(n + 1);

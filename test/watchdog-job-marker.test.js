@@ -32,12 +32,24 @@ test('the marker is cleared in a finally, not only on the happy path', () => {
   const body = scheduler.slice(scheduler.indexOf('async function runJobNow'));
   const fin = body.indexOf('} finally {');
   assert.ok(fin !== -1, 'runJobNow must have a finally block');
-  const clear = body.indexOf('clearJobRunning()');
-  assert.ok(clear !== -1, 'runJobNow must clear the marker');
+  // By name: tiers overlap, and a clear that wiped every marker let the job
+  // that finished first erase the name of the one still holding the thread.
+  const clear = body.indexOf('clearJobRunning(name)');
+  assert.ok(clear !== -1, 'runJobNow must clear its own marker, by name');
   assert.ok(clear > fin,
     'clearJobRunning must be inside the finally: a job that threw is as '
     + 'finished as one that returned, and a stale marker makes the NEXT '
     + 'stall blame the wrong job');
+});
+
+test('an off-thread job is not marked, because it cannot block this thread', () => {
+  // A worker-thread job running while a request path wedges the loop would
+  // otherwise be named in the kill line as the culprit -- the wrong suspect,
+  // and the same misdirection the marker exists to end.
+  const body = scheduler.slice(scheduler.indexOf('async function runJobNow'));
+  assert.match(body.slice(0, body.indexOf('try {')),
+    /const offThread = resolveOffThread\(job, offThreadOverride\);\s*if \(!offThread\) markJobRunning\(name\);/,
+    'runJobNow must decide offThread first and mark only an inline job');
 });
 
 test('both marker functions are imported from the watchdog', () => {

@@ -1058,3 +1058,65 @@ test('G5b vetoClimate says the store is absent, not that this league never vetoe
   assert.equal(present.read_state, 'present');
   assert.equal(present.reason, null);
 });
+
+/**
+ * G9 A READ THAT CRASHED IS NOT A LEAGUE WITH NO HISTORY.
+ *
+ * `attachTactics` in trade-engine.js wrapped all three of its reads in bare
+ * catches — `timing = new Map()`, `climate = null`, `self = null` — six
+ * consecutive lines, one defect each. Every one of them turns a thrown read
+ * into a confident sentence about Nick or his league that nobody measured:
+ *
+ *   self    -> "you have never made this manager an offer, and the league has
+ *               nothing on you here"
+ *   timing  -> "nothing captured about when this manager answers, so there is
+ *               no reason to wait"   (an instruction to send, from a crash)
+ *   climate -> "this league has never voted against a package"
+ *
+ * The reads themselves already say which absence they hit. The catches threw
+ * that vocabulary away and substituted the one state the data cannot
+ * distinguish it from. `readFault` is that vocabulary for the remaining case —
+ * the read did not complete — so the fault reaches the surface as a fault.
+ */
+test('G9a: an unreadable send-window does not tell Nick there is no reason to wait', () => {
+  const win = tactics.sendWindow(tactics.readFault('timing'), { now: '2026-09-22T12:00:00Z' });
+  assert.doesNotMatch(win.why, /no reason to wait/,
+    'a timing read that crashed must not arrive as permission to send now');
+  assert.doesNotMatch(win.why, /nothing captured/,
+    '"nothing captured" is a claim about the league, not about a read that failed');
+  assert.match(win.why, /could not be read/, 'it must say the read did not complete');
+});
+
+test('G9b: an unreadable veto climate does not claim the league has never vetoed', () => {
+  const risk = tactics.vetoRiskFor(tactics.readFault('climate'), { theirValuePct: 20 });
+  assert.doesNotMatch(risk.why, /never voted against a package/,
+    'a veto read that crashed must not become a finding about this league');
+  assert.match(risk.why, /could not be read/, 'it must say the read did not complete');
+  assert.equal(risk.level, 'unknown');
+});
+
+test('G9c: an unreadable self-read does not claim Nick has never made an offer', () => {
+  const out = tactics.tacticsForDeal({
+    give: [{ name: 'A', value: 100 }], get: [{ name: 'B', value: 100 }],
+    manager: null, partnerId: '7', partnerName: 'Sam',
+    valuationOf: () => null, self: tactics.readFault('self'), timing: null,
+  });
+  const note = out.tactics_absent.find(a => a.key === 'how_nick_looks');
+  assert.ok(note, 'how_nick_looks must be reported as absent, with a reason');
+  const why = note.reason ?? '';
+  assert.doesNotMatch(why, /never made this manager an offer/,
+    'a self read that crashed must not become a claim about what Nick has done');
+  assert.match(why, /could not be read/, 'it must say the read did not complete');
+});
+
+test('G9d: readFault says which read failed, and each sentence is true of only that read', () => {
+  const kinds = ['timing', 'climate', 'self'];
+  const reasons = kinds.map(k => tactics.readFault(k).reason);
+  assert.equal(new Set(reasons).size, kinds.length, 'three reads, three distinct sentences');
+  for (const [i, k] of kinds.entries()) {
+    assert.ok(reasons[i].length > 0 && /could not be read/.test(reasons[i]),
+      `${k} must name itself as a read that did not complete`);
+  }
+  assert.equal(tactics.readFault('self').available, false,
+    'available:false is what how_nick_looks branches on, so the fault must set it');
+});

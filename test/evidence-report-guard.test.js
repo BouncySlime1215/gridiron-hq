@@ -114,9 +114,18 @@ test('the error names every empty source, not just the first one found', () => {
   assert.deepEqual(err.emptySources,
     ['trial_registry_rows_read', 'db_derived_bet_ledger_trials', 'audit_registry_rows_read'],
     'reporting one empty source at a time turns one broken run into three');
+  // `emptySources` above is the assertion that a fine source is not blamed:
+  // it is the machine-readable cause list and it is compared exactly. The
+  // message only has to be readable, so all three causes must appear in it.
+  //
+  // Two weaker versions of this were tried and dropped. `doesNotMatch` on the
+  // whole message would forbid `sequence_length: 5` from appearing at all --
+  // banning the dump that is precisely what tells a reader the problem is not
+  // there. Slicing the message on `--` to check only the cause clause was the
+  // fixed-shape parse this thread has spent the night removing from other
+  // people's code: it splits at the first `--` and keeps everything after it,
+  // so it re-reads the whole tail and proves nothing.
   for (const k of err.emptySources) assert.match(err.message, new RegExp(k));
-  assert.doesNotMatch(err.message, /sequence_length/,
-    'a source that was fine must not be named as a cause');
 });
 
 test('a required source that is absent entirely counts as empty', () => {

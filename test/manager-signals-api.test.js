@@ -840,19 +840,33 @@ test('read: the manager page serves the DATED model read, not the store\'s raw p
 });
 
 test('read: an archetype read that FAILED is reported, not served as a store that is empty', async () => {
-  // `archetypesFor` joins `league_season_teams`, whose only CREATE TABLE is in
+  // `archetypesFor` reads `league_season_teams`, whose only CREATE TABLE is in
   // `scripts/backfill-league-history.mjs` — so on a database where that backfill
-  // has never run it throws rather than returning nothing. The bare `catch {}`
-  // that used to sit here turned "the read broke" into "the build has not run",
-  // which are different facts with different fixes, and CLAUDE.md is explicit
-  // that a layer going inert has to say so.
+  // has never run there is nothing to read. The bare `catch {}` that used to sit
+  // here turned "the read broke" into "the build has not run", which are
+  // different facts with different fixes, and CLAUDE.md is explicit that a layer
+  // going inert has to say so.
+  //
+  // WHAT THE SENTENCE IS NOW, and why this assertion moved. This test used to
+  // match SQLite's own `no such table`, because the only way the route learned
+  // of the absence was by being thrown at. `manager-archetypes.js` then grew
+  // `leagueHistoryState()` and stopped throwing — correctly; a caller should be
+  // able to ASK — and the two changes cancelled: the route's catch never fired,
+  // `read_failed` came back empty, and this test caught it. So the route now
+  // asks, and the sentence it reports is the module's own reason rather than a
+  // database driver's. What is asserted is unchanged in substance: the absence
+  // is NAMED, in one vocabulary, and no archetype is served under it.
   db.exec('ALTER TABLE league_season_teams RENAME TO league_season_teams_hidden');
   try {
     const { body } = await call('GET', '/api/trades/21/managers/signals');
     assert.equal(body.available, true, 'the stored signals underneath are still measured and still served');
     assert.ok(body.archetypes, 'the archetype store gets a block of its own, like transactions and chat');
-    assert.match(String(body.archetypes.read_failed ?? ''), /no such table/i,
-      'and the failure is named rather than swallowed');
+    assert.ok(String(body.archetypes.read_failed ?? '').length > 0,
+      'an empty sentence is the exact regression this test exists to catch');
+    assert.match(String(body.archetypes.read_failed ?? ''), /not on this database/i,
+      'and the failure is named rather than swallowed, in the module\'s own words');
+    assert.match(String(body.archetypes.read_failed ?? ''), /league_season_teams/,
+      'naming the table, because that is the half he can act on');
     assert.equal(body.archetypes.read_state, 'table_absent',
       'in the same word the archetype module itself serves for this state');
     assert.equal(managerOf(body, 2).archetype, null,

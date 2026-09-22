@@ -18,6 +18,31 @@ in `contingency.js`, and the CLAUDE.md rule it produced: "errors are handled or 
 **LLM spend:** $0.
 **Environment:** cloud box, isolated temp SQLite per test file.
 
+## The five questions
+
+- **Well built?** Yes. Same treatment `manager-signals.js:167` already uses (`tableExists`
+  checked before the read, an explicit absent-state instead of a bare catch), applied to two
+  more reads of the identical shape. `nflRebuildProgress` went from zero tests to three; the
+  new tests were shown RED against the original code (git-stashed the fix, ran the suite, put
+  the fix back — §3) before being called done.
+- **Stats or made up?** Neither slice introduces a number. This is error-handling shape, not
+  a measurement — there is nothing here that could be "made up" in the sense of an
+  unvalidated statistic; the only claim is behavioral (a real fault throws, an absent table
+  says so), and that claim is pinned by tests, not asserted in prose.
+- **How do we know?** RED (`c904928`) fails exactly the four new assertions against the
+  pre-fix code (confirmed by `git stash` + rerun, not just written and trusted); GREEN
+  (`66ca2b4`) passes 21/21 across both test files; 2x-verify in two isolated worktrees with
+  independent `npm ci`, `git status --porcelain` + `git write-tree` identical before and
+  after each run, exit 0, nothing touched outside `client/dist/` (§3).
+- **Pointed anywhere else?** No. Both fixes are scoped to the two reads Trade Brain's scan
+  named; no other file, route, or page was touched, and no other bare-catch-of-this-shape
+  instance was searched for or fixed here (named as a limit in §7, not silently expanded
+  past what was asked).
+- **How does it unify?** It is the same fix already proven at `manager-signals.js:167` and
+  `:272`, applied a second and third time rather than reinvented — the codebase already
+  carries this exact `tableExists` one-liner independently in six files (§2), so this keeps
+  the established local-helper convention instead of introducing a new shared module for it.
+
 ## 1. What was actually wrong
 
 Both functions wrapped a table read in `try { ... } catch { /* table doesn't exist yet */ }`

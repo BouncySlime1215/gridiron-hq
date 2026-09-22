@@ -567,6 +567,47 @@ function careerRows(seasonRows) {
 }
 
 /**
+ * WHO CREATES `league_draft_picks`, AND WHY IT CAN BE MISSING.
+ *
+ * Nobody, in this repository — checked, not assumed. Both
+ * `server/migrations/064_league_history_tables.js` and
+ * `scripts/backfill-league-history.mjs` carry a comment claiming it "is owned
+ * by scripts/collect-league-transactions.mjs's sibling collector". That file
+ * exists and runs, but it creates `league_transactions_raw` — a different
+ * table — and grepping every migration and every script here for
+ * `CREATE TABLE ... league_draft_picks` finds nothing. Whatever wrote the
+ * 1,738 live rows those comments cite is not part of this codebase, so a
+ * guard here cannot lean on "the sibling will create it" being true.
+ *
+ * Same failure shape as `league_season_teams` (see `leagueHistoryState()`
+ * above): a raw `no such table` thrown out of `buildManagerArchetypes()` is
+ * worse than an empty result, because the nearest try/catch — scheduler.js's
+ * job runner, or a shell around the CLI script — turns it into an opaque
+ * failure that says nothing about which table or that the failure is
+ * routine on a fresh box.
+ */
+export const LEAGUE_DRAFT_PICKS_TABLE = 'league_draft_picks';
+
+export const LEAGUE_DRAFT_PICKS_SOURCE =
+  'no migration or script in this repo creates it; the comments in '
+  + '064_league_history_tables.js and backfill-league-history.mjs naming '
+  + 'scripts/collect-league-transactions.mjs\'s sibling collector as the owner are wrong — '
+  + 'that file creates only league_transactions_raw';
+
+/** Is the table there, right now. Deliberately not cached — see leagueHistoryState(). */
+export function leagueDraftPicksState() {
+  const [hit] = rows(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    LEAGUE_DRAFT_PICKS_TABLE);
+  if (hit) return Object.freeze({ present: true, reason: null, source: LEAGUE_DRAFT_PICKS_SOURCE });
+  return Object.freeze({
+    present: false,
+    reason: `${LEAGUE_DRAFT_PICKS_TABLE} is not on this database, so draft-revealed preference `
+      + 'cannot be measured at all. This is "we cannot look", not a claim that nobody drafted.',
+    source: LEAGUE_DRAFT_PICKS_SOURCE,
+  });
+}
+
+/**
  * Build every archetype metric and persist it.
  *
  * @param luckPanel parsed output of `node scripts/luck-panel.mjs --json`. The
@@ -574,22 +615,28 @@ function careerRows(seasonRows) {
  *   reported rather than filled in.
  */
 export function buildManagerArchetypes({ luckPanel = null } = {}) {
-  const allPicks = rows(`SELECT d.league_id, d.season, d.pick_id, d.overall_pick, d.round, d.team_id,
+  const draftState = leagueDraftPicksState();
+  let allPicks = [];
+  let leagueSeasons = [];
+  let currentSeason = null;
+  const draftRows = [];
+  if (draftState.present) {
+    allPicks = rows(`SELECT d.league_id, d.season, d.pick_id, d.overall_pick, d.round, d.team_id,
                                 d.member_id, d.player_id, d.auto_draft_type_id, d.is_auto,
                                 p.id AS app_player_id, p.name, p.position, p.gsis_id, p.team_id AS nfl_team_id
                          FROM league_draft_picks d JOIN players p ON p.espn_id = d.player_id`);
-  const teamAbbr = new Map();
-  const abbrById = new Map(rows(`SELECT id, abbr FROM nfl_teams`).map(t => [t.id, t.abbr]));
-  for (const p of allPicks) teamAbbr.set(p.player_id, abbrById.get(p.nfl_team_id) ?? null);
+    const teamAbbr = new Map();
+    const abbrById = new Map(rows(`SELECT id, abbr FROM nfl_teams`).map(t => [t.id, t.abbr]));
+    for (const p of allPicks) teamAbbr.set(p.player_id, abbrById.get(p.nfl_team_id) ?? null);
 
-  const leagueSeasons = rows(`SELECT DISTINCT league_id, season FROM league_draft_picks ORDER BY league_id, season`);
-  // The newest season on file. players.team_id is a CURRENT roster, so it is
-  // only an honest answer for this season; nflTeamOf refuses it for older ones.
-  const currentSeason = Math.max(...leagueSeasons.map(l => l.season));
-  const draftRows = [];
-  for (const { league_id, season } of leagueSeasons) {
-    const got = draftSeason(league_id, season, allPicks, teamAbbr, currentSeason);
-    if (got) draftRows.push(...got);
+    leagueSeasons = rows(`SELECT DISTINCT league_id, season FROM league_draft_picks ORDER BY league_id, season`);
+    // The newest season on file. players.team_id is a CURRENT roster, so it is
+    // only an honest answer for this season; nflTeamOf refuses it for older ones.
+    currentSeason = Math.max(...leagueSeasons.map(l => l.season));
+    for (const { league_id, season } of leagueSeasons) {
+      const got = draftSeason(league_id, season, allPicks, teamAbbr, currentSeason);
+      if (got) draftRows.push(...got);
+    }
   }
   const membersCache = new Map();
   const membersByTeam = (leagueId, season) => {
@@ -630,6 +677,12 @@ export function buildManagerArchetypes({ luckPanel = null } = {}) {
 
   return {
     version: MANAGER_ARCHETYPE_VERSION,
+    // Two nulls kept apart, same as managerProfile()'s identity_state: absent
+    // means the draft side of this build could not run at all, not that no
+    // league-season had picks. Outcome metrics (all-play, luck, from luckPanel)
+    // are unaffected — they never read league_draft_picks.
+    draft_data_state: draftState.present ? 'present' : 'table_absent',
+    draft_data_reason: draftState.reason,
     league_seasons: leagueSeasons.length,
     managers: new Set(tagged.map(r => r.member_id)).size,
     draft_manager_seasons: draftRows.length,

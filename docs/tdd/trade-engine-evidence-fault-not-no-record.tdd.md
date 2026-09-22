@@ -276,26 +276,109 @@ data field. Only the "and nobody is told" half changed.
 
 ---
 
-## The local gate on the pushed head
+## Merge gate (v2)
 
-`bash /mnt/project-files/verify2x-v4.sh 5b8a345` — source-isolated detached
-worktree, `node_modules` hard-linked, primary repo clean and its write-tree
-unchanged either side of the run.
+### 1. One guard run on one tree
 
-```
-HEAD: 5b8a345b07587a6c72b9f74e0bf941066b4b1131
-TREE: 4bc9a5c0a27ca7b542a15f86d880b6befdba22a6  (worktree tree identical)
-RUN 1 EXIT: 0
-# tests 3571  # pass 3530  # fail 0  # skipped 41
-RUN 1 worktree status: 0 paths
-```
+`bash /mnt/project-files/verify2x-v4.sh <head>` — source-isolated detached
+worktree, `node_modules` hard-linked from the primary tree, primary repo clean
+and its write-tree unchanged either side. RUN 2 killed per verify-once.
 
-One command covers both gates: #129 folded `check:wiring` into `npm run check`,
-and this branch is rebased onto that fix at `c90d2834`.
+| step | result |
+|---|---|
+| `git status --porcelain` before | empty |
+| `npm ci` | **not re-run**, and the reason is checkable: `package-lock.json` last changed on `017a38c` (2026-09-19), and this branch's diff against `main` touches neither `package.json` nor `package-lock.json` |
+| `npm run check` | **exit 0** — `# tests 3571  # pass 3530  # fail 0  # skipped 41` |
+| worktree status after | 0 paths |
+| write-tree after | equal to before; nothing outside `client/dist` changed |
 
-The head sits one commit above `5b8a345` and that commit adds **only this
-section** — one `.md` file, no code (`git diff --stat 5b8a345 HEAD` is a single
-documentation file). So the exit code above describes the head's code tree too.
+`npm run check` now contains the wiring check (#129 folded it in), so one
+command covers both gates. The figure above was measured on the pre-rebase head
+`5b8a345`; this branch has since been rebased onto `main` at `6e72271` and
+re-run, and the head's own figure is recorded in the PR body.
+
+### 2. TDD record with a liveness proof
+
+RED, GREEN and an evidence file per round; every sha below is an ancestor of the
+head. Three behaviour changes, three liveness proofs — each RED quoted verbatim
+above fails against the unfixed code, which is what a liveness proof is.
+
+**Mutation sweep**, run in an isolated worktree, 10 mutants plus two designed
+controls. Unit mutants and one call-site mutant, per §2.
+
+| id | target | expected | got |
+|---|---|---|---|
+| M1 | `playerEvidence` stops recording which layer threw | killed | **killed** (10 fail) |
+| M2 | `playerRiskProfile` loses the `unknown` branch | killed | **killed** (6 fail) |
+| M3 | `describeProfile` conflates unknown back into the rookie sentence | killed | **killed** (2 fail) |
+| M4 | `packageNumbers` drops the partial-package branch | killed | **killed** (1 fail) |
+| M5 | `packageRisk` always reports nothing unreadable | killed | **killed** (3 fail) |
+| M6 | `floorOf` calls an unread package "no record" again | killed | **SURVIVED → fixed → killed** |
+| M7 | the Floor colour guard is always satisfied | killed | **killed** (1 fail) |
+| M8 | `anyRecord` stops counting an unreadable side | killed | **killed** (1 fail) |
+| M9 | *call site:* `verdictEvidence` passes the WRONG package to `packageNumbers` | killed | **killed** (1 fail) |
+| M10 | *call site:* the Floor cell is handed no colour (`sign(floorBetter)` → `null`) | survived | **survived** — standing row |
+| C1 | **designed survivor:** a comment-only edit | survived | **survived** |
+| C2 | **designed not-applied:** an anchor that exists nowhere | not applied | **not applied** (matched 0 times) |
+
+**M6 survived, and that is the most useful line in this document.** Reverting
+`floorOf`'s unread branch — so an unreadable package reads "no record" again —
+left all 44 tests passing. R1 and R2 asserted that the *source* mentioned
+`unreadable` and `'no record'` near each other and that some template carried
+`players.length`; after the revert `unread` is still computed for the
+mixed-package branch, so every token those assertions looked for was still
+present while the cell printed the falsehood again. The assertions could not
+tell the fix from the defect.
+
+Fixed by running the function rather than tightening the regex (commit
+`d84dfb0`). `floorOf` is plain JavaScript once its single type annotation is
+stripped, and this suite has no TSX transform (see
+`test/trade-manager-read.test.js`), so R1 and R2 extract the declaration and
+evaluate it against `PackageRisk` fixtures: all-unreadable → `'not readable'`,
+genuine no-record → `'no record'`, mixed → `'5/5 top-24 (1/2)'` and explicitly
+**not** `'5/5 top-24'`, empty → `'—'`. If the extraction stops matching it
+asserts false rather than skipping. M6 is killed on the re-sweep.
+
+M10 is recorded as a standing survivor rather than silently dropped: the tests
+pin how the Floor colour guard is *derived*, not the argument the JSX hands the
+cell. Killing it needs a render harness this suite does not have.
+
+### 3. Claims
+
+- Every figure above names the tree it was measured on.
+- `nfl_injuries` is the table read by `availabilityPicture`
+  (`server/services/football-context.js`) — **not** `player_week_snaps` or
+  `nfl_snaps`, which are different tables with near-identical names.
+- No statistical claim is made: nothing here is a model, a projection or a
+  fitted number. `evidence_unreadable` is a fact about whether a call threw.
+- The absence is named from a field, not a sentence: `evidence_unreadable`
+  distinguishes *unreadable* from *absent*, and `packageRisk.unreadable`
+  distinguishes *partial* from *complete*. That distinction is the whole change.
+- No figure withdrawn by an auditor is quoted here.
+
+### 4. Nick's five questions
+
+Answered in full below, plus the four one-liners §4 requires:
+
+- **Defect fixed, `file:line` on the tree it was measured on:** a thrown career
+  source reached `describeProfile` (`server/services/trade-engine.js:962`),
+  `packageNumbers` (`:1007`), `packageRisk`'s `withRecord` filter (`:985`) and
+  `client/src/components/trade/RiskStrip.tsx:5-6`, each of which stated the
+  absence as a fact about the player.
+- **The incumbent, by command:** `git show 6e72271:server/services/trade-engine.js`
+  and `git show 6e72271:client/src/components/trade/RiskStrip.tsx` — on `main`
+  today, a thrown career still prints "a player with no NFL record" and
+  "no record".
+- **What this does NOT cover:** the `preseason` and `offseason` layers record
+  their faults but no surface turns either into a claim, so neither is pinned;
+  the `Ceiling` and `Consistency` cells are untouched and still render `'—'`
+  or `'n/a'` for a missing read; and the memoised fault stays sticky until the
+  cache turns over (below). No pricing number changes.
+- **What would make it wrong:** if a future caller reads
+  `profile === 'unknown'` as a weak `'unproven'` rather than as "not known",
+  the distinction this adds would be re-conflated one level up. The union in
+  `client/src/components/trade/types.ts` now carries `'unknown'` explicitly so
+  that a reader has to handle it.
 
 ## Five questions
 

@@ -34,8 +34,22 @@
  * code said not to bother. If you are reading this in a later year, check the
  * year rather than trusting the numbers above; a hardcoded end season is
  * exactly how the first version went stale.
+ *
+ * LOADING COMPLETED SEASONS. The growth cycle asks only for the season being
+ * played, which is never published while it is played, so it cannot fill
+ * nfl_play_formations and records that 404 as a skip. Completed seasons load
+ * one at a time through a named command, kept off the timer because each is a
+ * ~50 MB CSV parsed in memory:
+ *
+ *   GRIDIRON_DB_PATH=<db> SCHEDULER_DISABLED=1 node scripts/backfill-formations.mjs 2025
+ *
+ * Licence: participation is CC BY-SA 4.0, attributed to "FTN Data via nflverse"
+ * (2023 onwards) or "NFL NextGenStats via nflverse" (2022 and earlier), per
+ * nflreadr's load_participation reference. See
+ * docs/tdd/2026-09-22-formations-404-skip.tdd.md.
  */
 import { db, rows, row, run } from '../db/index.js';
+import { canonicalTeamCode } from './team-codes.js';
 
 const BASE = 'https://github.com/nflverse/nflverse-data/releases/download';
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -66,12 +80,21 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
   const res = await fetch(`${BASE}/pbp_participation/pbp_participation_${season}.csv`,
     { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) {
-    return { error: `participation for ${season} returned ${res.status}`,
+    // Still an error to every caller: a 404 for a completed season (2016-2025
+    // are published) is a real fault. `http_status` is there so a caller that
+    // knows which season is in progress can tell the documented absence from a
+    // failed download without parsing the message (nfl-model-growth.js,
+    // unpublishedSeasonSkip).
+    return { season, http_status: res.status,
+      error: `participation for ${season} returned ${res.status}`,
       // No hardcoded end season here: that is what made the previous version of
       // this note wrong for two years running. A 404 means nflverse has not
-      // published that season, which for the current season is normal.
+      // published that season, which is normal only while it is in progress;
+      // this writer does not know which season that is, so the note says both.
       note: res.status === 404
-        ? `nflverse has not published participation for ${season}; the current season is never available.`
+        ? `nflverse has not published participation for ${season} (404). That is expected only while `
+          + 'the season is in progress, since a season is published after its post-season; for a completed '
+          + 'season it is a fault.'
         : undefined };
   }
   const text = await res.text();
@@ -117,7 +140,10 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
       // coverage and no time_to_throw and 74% of them are pressured, because
       // they are the sacks and scrambles.
       const dropback = manZone != null || shell != null;
-      stmt.run(gameId, playId, season, p[idx.possession_team] ?? null, formation,
+      // The feed writes LA for the Rams; teamHistory binds possession to the
+      // game_lines code (LAR), so a raw code leaves that team with no history.
+      const possession = (p[idx.possession_team] ?? '').trim();
+      stmt.run(gameId, playId, season, possession ? canonicalTeamCode(possession) : null, formation,
         (p[idx.offense_personnel] ?? '').trim() || null,
         (p[idx.defense_personnel] ?? '').trim() || null,
         num(p[idx.defenders_in_box]), num(p[idx.number_of_pass_rushers]),

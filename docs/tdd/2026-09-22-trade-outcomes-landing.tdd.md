@@ -32,7 +32,9 @@ route write) and fixes only what does not hold on the merged tree.
 in `up()`. `down()` drops only what `up()` created and runs only when someone
 calls `rollbackMigration('067_outcome_ledgers')` by hand.
 
-**Nick's word on migration 067: NOT on record. Merge waits (WORK-QUEUE N9).**
+**Nick's word on migration 067: ON RECORD.** In the local Claude Code session on 2026-09-22 at 5:10 PM ET (21:10Z), the coordinator asked Nick verbatim: "OK to add the trade-outcomes table (migration 067)? It's a new table and deletes nothing. It's needed to land the trade ledger." Nick replied: "1 yes, 2 on, 3 yes, 4 yes, 5 later", where "4 yes" answers this question. In the same reply ("3 yes") he made the Mac collector the system of record for trade outcomes. N9 for #94 is closed.
+
+History, kept for the record (written before his answer):
 Merge gate v2 §5 needs Nick's own word for a migration. What exists:
 
 - Nick's GO, message `cmsg_01YAsw8AnFv4ioRMQw8dfPmT8hKXRheXe6eCXwGuAPPEAb`,

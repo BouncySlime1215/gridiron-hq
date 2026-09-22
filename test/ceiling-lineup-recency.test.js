@@ -227,7 +227,20 @@ test('the comment above the call no longer describes only half the configuration
   const call = src.indexOf('buildProjections({');
   assert.ok(call > 0, 'the projection call moved; this assertion no longer reads its comment');
   const preamble = src.slice(Math.max(0, call - 1600), call);
-  assert.match(preamble, /recency|WEEKLY_ROLE_RECENCY/i,
-    'the comment above the projection call still explains only the cutoff, and a reader '
-    + 'who trusts it will not know the volume memory is configured here too');
+  // Anchored on the EXPLANATION, not on the word appearing. A sweep row that
+  // deleted one line of the recency paragraph left the word "recency" in the
+  // window four more times and this assertion noticed nothing. What a reader
+  // needs is the two values that differ and the name of the one being passed;
+  // a comment that merely says "recency" somewhere tells them nothing.
+  assert.match(preamble, /WEEKLY_ROLE_RECENCY/,
+    'the comment does not name the configuration this call passes');
+  assert.match(preamble, /0\.35/,
+    'the comment does not say what the fallback would be, so a reader cannot tell '
+    + 'whether passing this argument changes anything');
+  assert.match(preamble, /0\.05/,
+    'the comment does not say what is being passed instead of the fallback');
+  assert.match(preamble, /shrinkage-fit|fitted volume k|activeKVectorFor/i,
+    'the comment omits the second consequence — that omitting the recency also cost '
+    + 'this caller the fitted volume k — which is the half nobody would guess from '
+    + 'the argument list');
 });

@@ -36,6 +36,7 @@ import { gameScriptFor } from './gamescript.js';
 import { deriveFormat } from './format.js';
 import { assetUniverse, loadRosters, lineupSlots } from './trade-engine.js';
 import { irOnRoster } from './lineup-brain.js';
+import { WEEKLY_ROLE_RECENCY } from './weekly-ensemble.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const POOL = 600;          // outcomes sampled per player, then indexed by the copula
@@ -52,14 +53,42 @@ const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
  * uses, so a ceiling here is comparable to a title probability there.
  */
 function outcomePools(players, season, week, scoring) {
-  // Mid-season cutoff, not a season-boundary one: `through: season - 1` alone
-  // ignores every game already played THIS season — a hot streak, a role
-  // change, an injury — and always builds off last season's snapshot no
-  // matter how far into the current season `week` actually is. `throughWeek:
-  // week - 1` mirrors the same walk-forward-safe cutoff player-week-engine.js
-  // already uses for weekly projections, so a ceiling/floor lineup here is
-  // built from the same current information the rest of the app has.
-  const proj = buildProjections({ through: season, throughWeek: week - 1, scoring });
+  // The weekly engine's configuration, BOTH halves of it. Either one alone
+  // describes a different player.
+  //
+  // The cutoff: mid-season, not a season-boundary one. `through: season - 1`
+  // alone ignores every game already played THIS season — a hot streak, a role
+  // change, an injury — and always builds off last season's snapshot no matter
+  // how far into the current season `week` actually is. `throughWeek: week - 1`
+  // mirrors the walk-forward-safe cutoff player-week-engine.js:271-274 uses.
+  //
+  // The recency: `roleRecency` was missing here for as long as the cutoff has
+  // been right, and the comment that used to sit here explained the cutoff at
+  // length while saying nothing about it — so a reader who checked the comment
+  // instead of the argument list concluded the configuration was complete.
+  // Omitted, buildProjections falls back to RECENCY (seasonDecay 0.35) where
+  // the weekly engine passes WEEKLY_ROLE_RECENCY (0.05): a season-old game
+  // counted SEVEN TIMES more toward volume here than it did in Start/Sit, for
+  // the same player in the same week.
+  //
+  // It also cost this caller the fitted volume k. shrinkage-fit.js
+  // #activeKVectorFor withholds the fitted volume entries from any recency they
+  // were not estimated under — correctly, since a k is only meaningful in its
+  // own evidence units — so this module silently fell back to hand-picked
+  // constants that shrinkage-fit.js itself calls "not claimed to be right, only
+  // untested with the fitted k". It is listed there among the season-long
+  // callers and does not belong in that list: it passes a mid-season
+  // throughWeek, exactly like the weekly engine. It was being classified by an
+  // argument it forgot to pass rather than by the cutoff it actually uses. That
+  // list is in another module and is a separate one-line correction.
+  //
+  // Passed explicitly rather than through a shared helper because there is no
+  // such helper yet; when a server-side `production()` lands in projections.js
+  // this call should migrate to it, so the two engines cannot drift apart again
+  // by omission.
+  const proj = buildProjections({
+    through: season, throughWeek: week - 1, scoring, roleRecency: WEEKLY_ROLE_RECENCY
+  });
   const { schedule } = matchupModel();
   const entries = [];
   for (const p of players) {

@@ -26,7 +26,7 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
-const { buildFitSpecs } = await import('../server/services/shrinkage-fit.js');
+const { buildFitSpecs, fitAllK, activeKVector } = await import('../server/services/shrinkage-fit.js');
 const { RECENCY } = await import('../server/services/projections.js');
 const { WEEKLY_ROLE_RECENCY } = await import('../server/services/weekly-ensemble.js');
 
@@ -125,4 +125,18 @@ test('the volume side (target_share) still weights by WEEKLY_ROLE_RECENCY.season
     `expected the volume spec's prior-season ratio to stay at WEEKLY_ROLE_RECENCY.seasonDecay ` +
     `(${WEEKLY_ROLE_RECENCY.seasonDecay}), got ${seasonRatio} -- this is RECENCY.seasonDecay (${RECENCY.seasonDecay}) ` +
     `if effW has leaked into a volume call site`);
+});
+
+// Plan 07 §2.3 RED test 3: "weekly MAE and Spearman unchanged... ships as an
+// ASSERTION IN THE SUITE (unchanged by construction), not a measured claim."
+// fitAllK/buildFitSpecs are pure computation -- only saveFit()+activateFit()
+// (neither called by this fix, or by fitAllK at all) can flip a fit active.
+// This is the structural guarantee behind "no efficiency fit reaches
+// production today"; it is independent of whatever shrinkage_fits actually
+// holds in a given deployment.
+test('fitAllK has no activation side effect: activeKVector() stays null after it runs', () => {
+  assert.equal(activeKVector(), null, 'a fresh DB must start with no active fit');
+  fitAllK(2024);
+  assert.equal(activeKVector(), null,
+    'fitAllK must never write to shrinkage_fits -- only saveFit()+activateFit() may, and this fix calls neither');
 });

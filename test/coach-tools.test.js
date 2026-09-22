@@ -199,6 +199,35 @@ test('toRows: a long array inside a nested object is capped and says so', () => 
   assert.equal(rows[0]['out.10.player'], undefined);
 });
 
+test('source_trust wraps sourceTrustScore, the pooled-shrinkage math sql_select cannot do', () => {
+  const ledger = newLedger();
+  for (let i = 1; i <= 6; i++) {
+    run(`INSERT INTO nfl_news_events (event_id, source_kind, source_ref, content_hash, claim_type, claim_text,
+         evidence_span, reporter_handle, published_at, first_seen_time, extractor_version)
+         VALUES (?, 'news_item', ?, ?, 'injury_status', 'x', 'x', 'RealReporter', '2025-09-04T00:00:00Z',
+         '2025-09-04T00:00:00Z', 'test')`, `ev${i}`, `ev${i}`, `ev${i}`);
+    run(`INSERT INTO beat_reporter_claim_resolutions (event_id, reporter_handle, claim_type, resolved_state,
+         resolved_reason, resolved_at) VALUES (?, 'RealReporter', 'injury_status', ?, 'test', '2025-09-05T00:00:00Z')`,
+      `ev${i}`, i <= 5 ? 'confirmed' : 'contradicted');
+  }
+  const { entry } = runCoachTool('source_trust', { handle: 'RealReporter' }, { ledger });
+  assert.equal(entry.rows[0].state, 'measured');
+  assert.equal(entry.rows[0].sample_size, 6);
+  assert.ok(entry.tables.includes('beat_reporter_claim_resolutions'));
+});
+
+test('source_trust reports "none" honestly for a handle with zero resolved claims, never a score', () => {
+  const ledger = newLedger();
+  const { entry } = runCoachTool('source_trust', { handle: 'NobodyEver' }, { ledger });
+  assert.equal(entry.rows[0].state, 'none');
+  assert.equal(entry.rows[0].score, null);
+});
+
+test('source_trust refuses a blank handle rather than scoring an empty string', () => {
+  const ledger = newLedger();
+  assert.throws(() => runCoachTool('source_trust', { handle: '  ' }, { ledger }), CoachToolError);
+});
+
 /*
  * Added after mutation M27 could not be made to change a result: nothing
  * asserted that a service tool which throws leaves the ledger untouched. A

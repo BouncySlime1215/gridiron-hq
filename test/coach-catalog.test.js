@@ -254,6 +254,19 @@ test('the audit of Coach’s own answers is readable, but the answers themselves
   assert.ok(entry.columns.includes('numbers_checked'), 'the audit columns are still described');
 });
 
+test('the beat-reporter accuracy tables are readable and say honestly they are hand-run', () => {
+  const readable = new Set(readableTables());
+  assert.ok(readable.has('nfl_news_events'), 'nfl_news_events is not readable');
+  assert.ok(readable.has('beat_reporter_claim_resolutions'), 'beat_reporter_claim_resolutions is not readable');
+  // Both are populated by manual/on-demand runs only — nfl-prospective-collection.js
+  // says so in its own RESTART_LIMITATION constant, and nothing calls
+  // resolveInjuryClaims outside a test or a person running it by hand. Claiming
+  // 'auto' here would be exactly the silent-freshness bug this catalog exists to
+  // catch (see the header's "Finding 7").
+  assert.equal(catalogEntry('nfl_news_events').collection, 'by_hand');
+  assert.equal(catalogEntry('beat_reporter_claim_resolutions').collection, 'by_hand');
+});
+
 test('an absent table is sorted by whether anything is known to build it', () => {
   // catalogCoverage() can only ever be called against whatever this database
   // holds, so the bucketing is tested with a list of its own. players is

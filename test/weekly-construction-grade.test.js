@@ -249,3 +249,19 @@ test('assertContextCutoff: every fit that grades season S must end before S', ()
   assert.throws(() => lib.assertContextCutoff({ fitSThrough: 2024, fitEThrough: 2025 }, 2025), /cutoff/);
   assert.throws(() => lib.assertContextCutoff({ fitSThrough: 2024 }, 2025), /cutoff/);
 });
+
+test('gradingContext maps each graded season to its registered fits, and the cutoff travels with the fit', () => {
+  const pair = (through, tag) => ({ fitS: { tag: `${tag}S` }, fitE: { tag: `${tag}E` }, through });
+  const fits = { split: pair(2023, 'split'), heldOut: pair(2024, 'held'), forward: pair(2025, 'fwd'),
+    served: { fitS: { tag: 'served' }, through: 2025 } };
+  const c24 = lib.gradingContext(2024, fits, 1);
+  assert.deepEqual([c24.fitS.tag, c24.fitE.tag, c24.fitSThrough, c24.fitEThrough], ['splitS', 'splitE', 2023, 2023]);
+  const c25 = lib.gradingContext(2025, fits, 0.5);
+  assert.deepEqual([c25.fitS.tag, c25.fitE.tag, c25.fitSThrough, c25.lambda], ['heldS', 'heldE', 2024, 0.5]);
+  const c26 = lib.gradingContext(2026, fits, 1);
+  assert.deepEqual([c26.fitS.tag, c26.fitE.tag, c26.fitSThrough, c26.fitEThrough], ['served', 'fwdE', 2025, 2025]);
+  // A caller that hands the <=2025 fits to the 2025 grade is stopped by the fits' own cutoff.
+  assert.throws(() => lib.gradingContext(2025, { ...fits, heldOut: fits.forward }, 1), /cutoff/);
+  assert.throws(() => lib.gradingContext(2023, fits, 1), /cutoff/);
+  assert.throws(() => lib.gradingContext(2025, { split: fits.split }, 1), /cutoff/);
+});

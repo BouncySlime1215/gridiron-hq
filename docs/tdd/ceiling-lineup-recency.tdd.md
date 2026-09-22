@@ -1,6 +1,8 @@
 # The ceiling lineup and the weekly engine priced the same player-week differently
 
-RED `6247820` · GREEN `81d0fa8` · branch
+RED **`6247820`** *test: RED — the ceiling lineup and the weekly engine price
+the same player-week differently* · GREEN **`81d0fa8`** *fix: GREEN — the
+ceiling lineup builds its projections the way the weekly engine does* · branch
 `claude/project-thread-xiezr0-ceiling-recency`, cut from `a1e661f`, 2026-09-22.
 Independent Auditor R42 (the finding), R44 and R45 (the conditions this work was
 built to).
@@ -30,8 +32,21 @@ So the My Team ceiling tab and the Start/Sit projection for the same player in
 the same week were reading two different players: one whose role is mostly last
 season's, one whose role is mostly this month's.
 
-Measured on the rig rather than argued. The fixture's first quarterback,
-2026 week 5:
+Measured on the rig rather than argued. The RED commit's own failing assertion,
+verbatim:
+
+```
+not ok 2 - the ceiling lineup consumes the weekly engine's structural projection, player for player
+  error: |-
+    HOM QB 1 is priced differently by the ceiling lineup than by the weekly engine
+    for 2026 week 5 - the same player, the same week, two answers
+    + actual - expected
+      {
+    +   attempts: 29.12561755485894,
+    +   carries: 0.22058934169278996,
+    -   attempts: 23.973011479985647,
+    -   carries: 0.3694160444221863,
+```
 
 | | ceiling lineup | weekly engine |
 |---|---|---|
@@ -174,11 +189,78 @@ the fifth time: **an assertion on a word is not an assertion on the claim.**
   bar together. Real, separate, not blocking, and the right next unit here.
 - **The migration to a shared `production()` helper**, when one lands.
 
+One thing that DID ride along, because it is the same file and the same defect
+shape found twice in one day: the `@param target` docstring at
+`ceiling-lineup.js:141-142` was stale. It said the default target is "a stretch
+above the team's own median". It is not, and never was in this code:
+`effectiveTarget = target ?? r2(naiveScore.ceiling)` (`:211`) with `ceiling =
+r2(q(0.90))` (`:132`), so the bar is the 90th percentile of the highest-mean
+lineup, scored on the same draws. The corrected docstring also names the
+self-referential property Auditor R45(1) raised — the target is built from the
+same projections as the candidate pool, so a configuration change moves the pool
+and the bar together and a `hit_probability` is only comparable within one
+configuration. Naming it is not fixing it; that is the next unit here.
+
+## What this fix does NOT make true
+
+Worth saying plainly, because the short version of this change invites a
+stronger claim than it earns. After the fix the two surfaces **share the same
+structural input**. They still publish **different central estimates** for the
+same player-week, and that is by design: the ceiling lineup samples outcome
+distributions around the structural projection, while the weekly surface shows
+the ensemble's point estimate, which blends four more heads on top of that same
+structural input. The prediction head is a different axis from the evidence the
+head is fed.
+
+So: *same structural input*, not *the two surfaces now agree*. Whether the
+ceiling lineup should centre on the ensemble instead is a real product question
+and a separate one; it is not what this branch decides.
+
 ## The check
 
-`npm run check` — typecheck, lint, the whole suite, build and `start:smoke` —
-figures and the guard either side of the run are recorded in the commit that
-adds them, which touches `docs/` only.
+The local gate is `npm run check && npm run check:wiring` under one guard, on
+this branch merged with `origin/main` at `f620a120`.
+
+```
+npm run check          exit 0
+tests     3542
+pass      3501
+fail         0
+skipped     41
+duration 479.1 s
+smoke     startup passed on an isolated database (32 teams)
+
+npm run check:wiring   exit 1  — see below, this is main's
+```
+
+```
+git status --porcelain   empty before AND empty after
+git write-tree           89bcad28c351 before, 89bcad28c351 after
+HEAD^{tree}              89bcad28c351 — the same tree, so the figures describe
+                         the commit and not a working copy of it
+node_modules mtime       1789853354 before, 1789853354 after
+files written            nothing outside client/dist/, gitignored build output
+                         that porcelain cannot see, which is why the find exists
+```
+
+### `check:wiring` is red on `main`, not on this branch
+
+Established rather than assumed. On a detached worktree at `origin/main`
+`f620a120` with nothing of this branch in it, `npm run check:wiring` exits 1
+with the identical findings:
+
+```
+3 blocking finding(s)
+  table-never-written pbp_participation
+  table-never-written play_by_play
+  producer-with-no-caller refreshLeagueRosters()
+1 accept-list entry that has outlived its reason
+  server/services/cascade-grade.js — names a file that is not in this tree
+```
+
+None of them touches anything in this diff, which is one service file, two test
+files and this document. The Wiring map thread's fix for the gate is in flight;
+CI on this PR will be red on that step until it merges.
 
 ## The five questions
 

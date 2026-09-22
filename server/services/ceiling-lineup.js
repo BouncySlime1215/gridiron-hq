@@ -167,8 +167,20 @@ function scoreLineup(entries, draws, target) {
  * @param objective 'ceiling' maximises P(score >= target) — the tournament and
  *   underdog objective. 'mean' reproduces the classic highest-average lineup,
  *   kept so the two can be compared side by side, which is the whole point.
- * @param target the score to beat. Defaults to a stretch above the team's own
- *   median, because "what do I need to beat a good week" is the real question.
+ * @param target the score to beat. The default is NOT "a stretch above the
+ *   team's own median", which this line claimed for as long as it existed: it
+ *   is `naiveScore.ceiling` (:211), and `ceiling` is `q(0.90)` (:132) — the
+ *   90th percentile of the highest-mean lineup, scored on the same draws every
+ *   candidate lineup is scored on. So the bar is "a good week from the lineup
+ *   you would have started anyway", which is a harder and more useful question
+ *   than beating a median.
+ *
+ *   Worth naming rather than leaving implicit: that target is built from the
+ *   SAME projections as the candidate pool, so a change to how those
+ *   projections are configured moves the pool and the bar together, and a
+ *   `hit_probability` is only comparable against another run under the same
+ *   configuration. Passing an explicit `target` is what makes it comparable
+ *   across runs.
  */
 export function ceilingLineup(leagueId, {
   teamId = null, week = 1, season = SEASON, objective = 'ceiling',

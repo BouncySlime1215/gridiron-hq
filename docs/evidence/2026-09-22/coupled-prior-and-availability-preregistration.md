@@ -65,6 +65,13 @@ calibrated against a different `n` scale than the one it is divided into. **The
 contamination is n-dependent, not a uniform 0.0059**, and a multiplier laid on
 top of it would be pricing availability twice at an unknown, player-varying rate.
 
+**Which runs this actually describes, since section 2b corrects that:** the `k`
+half of the mismatch is a statement about the **fitted** `target_share` k, so it
+bites in **configuration B**, which is what this grade runs in (section 2c). It
+did **not** bite the previous unit's runs, because those forced `K.share = 6`
+and never reached the fitted value. The `n`-as-availability-weighting half is
+unaffected either way: `n` is `a.tgtShareW` whatever `k` is.
+
 ### The confirming check, run before the grade and reported either way
 
 Correlate each player's **understatement** (his zero-included mean share minus
@@ -93,14 +100,54 @@ sentence as the number:
 | conditional MAE, legacy vs fitted | 1.9005 / 1.7961, +0.1044 | **post**, both arms |
 | `decision_including_dnp` MAE | 2.0352 / 2.0488, −0.0136 | **post**, both arms |
 | mean signed errors | −0.9764 / −0.3165, −0.4003 / +0.2486 | **post**, both arms |
-| `k` for `target_share` | as fitted in `shrinkage-fit.js` | **pre** — fitted on the zero-excluded support and never refitted |
+| `k` for `target_share` **actually in the path** | the hand-picked `K.share = 6` | **neither** — the fitted k was never reached, see the correction below |
+| the fitted `k` for `target_share`, for reference | `shrinkage-fit.js:329-330` | **pre** — fitted on the zero-excluded support, under `WEEKLY_ROLE_RECENCY`, never refitted |
 
-The last row is the one that bites: **`k` is a pre-change quantity in use on a
-post-change estimator**, which is the same fact section 2 states as the support
-mismatch, seen from the estimator side. Every arm in section 4 is run on the
-post-change code so that no comparison inside this unit crosses the boundary;
-the only pre-change quantity anywhere in it is `k`, and that is declared here
-rather than discovered later.
+**CORRECTION, found while answering the configuration question in section 2c
+and reported rather than quietly fixed: the `k` row above was wrong in the first
+draft of this document.** It said the fitted `k` was a pre-change quantity in
+use on a post-change estimator. It was not in the path at all. The previous
+unit's harness called `buildProjections({ …, kOverride: null, … })`, and
+`kOverride: null` means, per that function's own JSDoc, *"force the hardcoded
+constants regardless of an active fit"*. So every figure the previous unit
+produced ran on the hand-picked **`K.share = 6`**, never on the fitted
+`target_share` k. The table states that now.
+
+The substance of section 2's support mismatch is unchanged — it is about which
+weeks the observation, the prior and the *fitted* `k` count — but the claim that
+the mismatch was live in those runs was wrong, because the fitted `k` was not
+being used. **This is exactly what the wiring control in section 2c is for, and
+it earned its place before it was ever run.**
+
+## 2c. Configuration B, declared, and the control that proves it
+
+**Blocking requirement.** `target_share` is a **volume** metric
+(`shrinkage-fit.js:475`), and `activeKVectorFor` withholds every volume entry
+under any recency that is not weekly (`:516-521`), leaving the caller with the
+hand-picked constant. The fitted `target_share` k was itself estimated under
+`WEEKLY_ROLE_RECENCY` (`:315`, `:322`, observations at `:329-330`). So a grade
+that does not run weekly is not grading the fitted k at all — it is grading
+`K.share = 6` while citing a number that never arrives.
+
+**This unit runs in configuration B, declared here:**
+
+- `roleRecency: WEEKLY_ROLE_RECENCY`, passed **explicitly** at every
+  `buildProjections` call in every arm. Not inherited, not defaulted.
+- **`kOverride` omitted**, so `activeKVectorFor` supplies the fitted volume
+  vector. The previous unit passed `kOverride: null` and therefore forced the
+  hardcoded constants; this one must not, or the declaration above is empty.
+
+### Wiring control on the k, run before the arms and reported either way
+
+**Assert that the `target_share` / `ALL` k actually used in the projection path
+equals the declared fitted k**, read back from the same vector the path
+resolves, and that it is **identical across all three arms**. If it comes back
+as `K.share = 6`, the run is not in configuration B and **no result from it may
+be reported**: the grade stops and the harness is fixed first.
+
+This control is not ceremony. It is the check that caught the error corrected in
+section 2b above, where a whole unit's figures were produced on a constant while
+the document described a fitted value.
 
 ## 3. The pre-registered default arm, and the alternative it must be able to reject
 
@@ -142,15 +189,55 @@ Arm (c) exists so this grade can **reject** the pre-registered default rather
 than only confirm it. If (c) beats (b) on the primary metric, section 3's
 reasoning was wrong and this document will say so in those words.
 
-### Primary metric
+### Primary metric — and a units error corrected before it could decide anything
 
-**`decision_including_dnp` MAE of projected targets per game**
-(`weekly-backtest.js:170` — in the population if the player had a usage row the
-week before; a week he did not play scores as a real `0`).
+**The correction first, because the first draft of this document had it wrong.**
+It named `decision_including_dnp` as the primary and gave the smallest effect
+worth calling in **targets per game**. Those are different quantities. The
+repository's `decision_including_dnp` (`weekly-backtest.js:239`) is a
+**fantasy-points** MAE: its rows are `Math.abs(modelPred - a0)` where both sides
+are points under the league's scoring (`:169`). A power calculation in targets
+cannot govern a metric in points.
 
-**The conditional metric is reported beside it and cannot decide this unit.** It
-is the metric that produced a win on the previous unit which the
-availability-inclusive metric then refused, and the whole point of the coupled
+**What the 0.0220 standard error was measured on, stated exactly**: the
+availability-inclusive **targets-per-game** metric computed by this thread's own
+`gate1-share-prior.mjs`, which borrows the *population rule* from
+`weekly-backtest.js:170` (in if he played the week before; a missed week scores a
+real `0`) and applies it to projected targets. **It was never measured on the
+repository's points field.** The two share a population rule and nothing else.
+
+**This unit takes option (ii), and the reason is the same one that got a figure
+withdrawn from this series once already.** Option (i) — restate the MDE in
+points through a points-per-target figure — would scale an answer through a
+conversion that is itself an estimate, varies by position, and runs through
+catch rate, yards per target and touchdown rate, none of which this change
+touches. The weekly-ceiling MAE headroom was withdrawn from this series for
+exactly that shape: *a figure that flips on an unstated conversion is not a
+figure*. The previous unit's own write-up also says in terms that its result
+**does not transfer to the points metric and no conversion is offered**, and
+inventing one now, to rescue a power calculation, would contradict that in
+order to make the arithmetic work.
+
+So:
+
+- **PRIMARY, and it decides the unit: MAE of projected targets per game on the
+  availability-inclusive population** (the `weekly-backtest.js:170` rule, a
+  missed week scoring a real `0`). Targets, the quantity this change acts on,
+  and the quantity the 0.0220 SE and the 0.05 MDE are both in. Units agree.
+- **CO-PRIMARY, declared now so it cannot be promoted or dropped afterwards:
+  the repository's own `decision_including_dnp`, in fantasy points**
+  (`weekly-backtest.js:239`), with **no conversion offered between the two**.
+  Its standard error has never been measured for this comparison, so **its power
+  is unknown and is declared unknown here**; it is reported with its realised SE,
+  and **a null in it may not be read as evidence of no effect.**
+- **If the two disagree in SIGN, the unit is held and nothing ships** until that
+  is explained. A points metric that moves against a targets metric is a fact
+  about the efficiency chain between them, and it is not something either arm of
+  this grade may quietly absorb.
+
+**The conditional (played-only) metric is reported beside both and cannot decide
+this unit.** It is the metric that produced a win on the previous unit which the
+availability-inclusive one then refused, and the whole point of the coupled
 design is that availability is the thing being modelled. A result that is
 positive on the conditional metric and null on the primary is a **null**.
 
@@ -172,7 +259,9 @@ Paired bootstrap **clustered by player** (`backtest-significance.js#pairedBootst
 The criterion the previous unit missed. Nothing in this subsection may be
 rewritten after a number exists.
 
-- **Smallest effect worth calling: 0.05 targets per game.** Not invented for
+- **Smallest effect worth calling: 0.05 targets per game, on the primary
+  metric, which is in targets per game.** Units checked against the metric
+  rather than assumed — see the correction above. Not invented for
   this document — it is the project's own established scale for this quantity,
   the same `−0.05` the previous pre-registration fixed as the bound below which
   a measurement cannot rule out a real harm. Half the conditional effect already
@@ -180,8 +269,9 @@ rewritten after a number exists.
 - **Detection rule.** At 80% power on a 90% interval an effect must be at least
   **1.78 × SE**, so 0.05 requires **SE ≤ 0.0281**.
 - **Is that reachable?** Planned from the previous unit's measured SE, which is
-  what a prior study is for: **SE 0.0220 at 294 clustered players** on the
-  availability-inclusive metric. SE scales about as `1/√(clusters)`, so
+  what a prior study is for: **SE 0.0220 at 294 clustered players**, measured on
+  the availability-inclusive **targets-per-game** metric described above — the
+  same quantity the MDE is in, not the repository's points field. SE scales about as `1/√(clusters)`, so
   SE ≤ 0.0281 needs roughly **≥ 180 players**. The available population is ~294.
   **The design is adequately powered for a 0.05 effect, with margin.**
 - **The caveat, stated now rather than discovered later.** Arms (a) and (b)
@@ -218,8 +308,13 @@ Any control moving voids the primary until it is explained.
    the better estimand, availability does not belong in the multiplier at this
    site, and this document records that its own reasoning was rejected.
 
-In branches 2 and 3, no result is promoted from the conditional metric or from
-any subgroup to rescue the primary.
+**Before any branch is read, the two gates from section 4 apply in order:** the
+configuration-B wiring control must show the fitted `k` in the path, or there is
+no result to read; and if the primary and the points co-primary disagree in
+sign, the unit is held whatever the branches would otherwise say.
+
+In branches 2 and 3, no result is promoted from the conditional metric, from the
+points co-primary, or from any subgroup to rescue the primary.
 
 ## 5. Limits fixed now
 
@@ -227,6 +322,10 @@ any subgroup to rescue the primary.
   production's tables; equivalence to the serving predictor is unestablished.
 - The multiplier has **no call site**, so arm (b) specifies one. That is this
   unit's own construction and any result is about the site it chose.
+  **The call site binds the build:** the implementing PR wires the multiplier at
+  exactly the site named here, or this grade is void and re-runs. A result
+  measured at one site is not evidence about a different one, and "close enough
+  to where it was graded" is not a thing this document permits.
 - `K.share = 6` against the fitter's ~0.4 stays untouched and open.
 
 ## The five questions

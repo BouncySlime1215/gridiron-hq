@@ -500,7 +500,16 @@ function check(rows) {
   return problems;
 }
 
+export { buildRows, classify, check, tally };
+
 /* ------------------------------------------------------------------ main */
+
+// Importing this file to test buildRows must not read the map, open the local
+// database, or write docs/. Everything below runs only when the script is the
+// process entry point.
+const isMain = process.argv[1]
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (!isMain) { /* imported for its exports; main does not run */ } else {
 
 const map = loadMap();
 const overlay = loadOverlay();
@@ -535,3 +544,5 @@ writeFileSync(OUT_JSON, JSON.stringify(doc, null, 2) + '\n');
 writeFileSync(OUT_MD, renderMd(rows, meta));
 console.log(`wrote ${path.relative(ROOT, OUT_JSON)} and ${path.relative(ROOT, OUT_MD)}: ${rows.length} rows`);
 console.log('counts:', JSON.stringify(tally(rows)));
+
+}

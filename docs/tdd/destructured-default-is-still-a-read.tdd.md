@@ -56,7 +56,9 @@ the first.
 Nothing else moved. `field-attached-never-read`, the only other rule built on
 `keyReads`, is unchanged at its previous count; the whole measured effect is
 that `composed-key-never-read` went from 24 findings to 22, removing exactly
-the two false positives above.
+the two false positives above. Measured on `--out` runs, which apply no
+annotations; see the note in `docs/tdd/composed-key-never-read.tdd.md` on why
+a scratch run and the committed artifact are not comparable.
 
 ## Defect injection
 

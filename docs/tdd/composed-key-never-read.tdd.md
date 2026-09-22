@@ -82,14 +82,28 @@ SQL column it derives from is `div_game`.
 
 ## Effect on the map
 
-2366 findings to 2392: the 22 above, plus two exports and one
-`export-only-tested` from the new code itself, plus one
-`docs-citation-points-at-nothing` for this file before it existed. Every other
-rule's count is identical, measured by regenerating the map at `4937719` with
-the working tree stashed and diffing rule by rule. `returnedLiteralKeys` and
-`inResponsePosition` are deliberately **not** exported: exporting a helper only
-so a test can reach it adds a finding to this map's own output, and a checker
-that dirties its own results to be testable is not worth two tests.
+2366 findings to 2389, measured by regenerating the map at `4937719` with the
+working tree stashed and diffing rule by rule: the 22 above, plus one
+`export-only-tested` for `composedKeysNeverRead`, which only a test imports.
+Every other rule's count is identical.
+
+`returnedLiteralKeys` and `inResponsePosition` are deliberately **not**
+exported. Exporting a helper only so a test can reach it adds a finding to this
+map's own output, and a checker that dirties its own results to be testable is
+not worth two tests. An intermediate run, before that decision, did carry two
+extra `export-imported-by-nothing` rows and one
+`docs-citation-points-at-nothing` for this file before it existed.
+
+**A `--out` run is not comparable to the committed artifact, and that cost an
+hour.** `annotations(path.join(outDir, 'annotations.json'))` reads the
+accept-list from the OUT directory, so a run written to a scratch path applies
+no annotations at all. Comparing a scratch run against `docs/wiring/` looked
+exactly like nondeterminism: `espn_settings` appeared and vanished as
+`table-never-written` between two runs on an identical tree. It is accepted in
+`docs/wiring/annotations.json` and was never unstable. Both comparisons agree
+once each is made against its own kind — unannotated 2366 → 2389, annotated
+2365 → 2388, +23 either way. Five consecutive runs on the same tree gave the
+same total.
 
 ## Defect injection
 
@@ -125,9 +139,10 @@ ever proves the fixture was written to pass.
 
 **Stats or made up?** Measured. 22 findings from a 987-file tree; 24 before the
 `keyReads` fix, with the two removed named in
-`docs/tdd/destructured-default-is-still-a-read.tdd.md`; 2366 to 2392 total
+`docs/tdd/destructured-default-is-still-a-read.tdd.md`; 2366 to 2389 total
 findings with every other rule's count unchanged, diffed rule by rule against a
-regenerated baseline rather than against the stale committed artifact.
+regenerated baseline rather than against the stale committed artifact, and
+annotated against annotated rather than across the two.
 
 **How do we know?** `node --test test/composed-key-never-read.test.js` — 0/10
 at RED `84cad21`, 11/0 at GREEN. Six injections killed with the killing test

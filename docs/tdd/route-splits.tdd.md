@@ -118,6 +118,57 @@ Re-derived from the delivered files rather than quoted from the handoff:
 passed on an isolated database (32 teams). The test step is 5m19s against CI's
 `timeout-minutes: 20`.
 
+## 4b. Unit 2 — the feature-store wiring
+
+RED `3f820f1` (`test/route-splits-feature-store.test.js`, failing
+with "no earlier player observations" because `playerHistory` did not read the
+table), GREEN `ce71cc8`, 3/3.
+
+One additive loop in `playerHistory` beside the existing `nfl_ngs` one, prefixed
+`route_`. Existing loops untouched. All 65 fields then get the thirteen
+transforms with no further code.
+
+Two things the obvious version gets wrong, both now tested and both
+mutation-checked:
+
+| Decision | What goes wrong without it |
+|---|---|
+| `week > 0` in the WHERE clause | every player gains a phantom week-0 observation and a whole season's totals fold into the rolling weekly means. `nfl_ngs`'s sync drops week 0 for the same reason (`nfl-advanced.js:111`) |
+| `optionalRows`, not `rows` | this table arrives by migration rather than with the schema, so a database that has not migrated has no table and `rows()` throws where the other feeds do not |
+
+The feature-dictionary provenance label moved from `player+ngs+pfr+pff` to
+`player+ngs+pfr+pff+routes`, so newly registered features name what they are
+built from. `INSERT OR IGNORE` keys on `feature_id`, so existing rows are
+unaffected.
+
+Mutations, each failing exactly one test: `week>0` dropped, `optionalRows`
+swapped for `rows`, `route_` prefix collided with `ngs_`.
+
+## 4c. Unit 4 — the ablation gate cannot run in this container
+
+The gate R&D specified, and the right one, is an A/B ablation scored through
+`backtest.js`'s CRPS and PIT calibration, fit 2022-2024 and tested on 2025 —
+because `nfl-model-watch.js:1-18` records two features that passed isolated
+out-of-sample validation and still degraded the shipped pipeline.
+
+**The source side is fine.** Probed directly rather than assumed:
+`route-spotlight` returns 200 for 2021 (106 receivers), 2022 (106), 2023 (108),
+2024 (100) and 2025 (92), and the weekly endpoint returns real rows for
+2022 wk5, 2023 wk12, 2024 wk1 and 2025 wk5. The full fit/test window is
+available, free, from this container.
+
+**The outcome side is not.** This container has no populated database — no
+sqlite file over 1 MB anywhere under `/home/user`, and `data/` holds only an
+empty `line-history/`. The ablation needs `nfl_player_week_features` and
+realized weekly outcomes across 2022-2025; both come from the live 445 MB
+database or a full multi-season nflverse ingest. Backfilling nflsavant alone
+(~106 receivers x ~18 weeks x 4 seasons, roughly 7,600 polite requests, 25-40
+minutes) would supply the route side and still leave nothing to score against.
+
+So unit 4 is **blocked on a database copy**, which is already an open item on
+the project's missing-data log rather than a new gap. Until it runs, the claim
+that route splits improve projections is a **guess**, and §6 says so.
+
 ## 5. Known limits, carried forward not papered over
 
 - **This is targets by route, not routes run.** No denominator. A receiver who

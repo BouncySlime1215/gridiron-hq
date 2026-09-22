@@ -172,7 +172,7 @@ run is not declared clean.
 (`nfl-player-context.js:537` on `771bf644`), and a committed source scan in
 `test/nfl-player-context-graded-availability.test.js` **fails the build if any
 caller under `server/` or `scripts/` passes the options argument**. So the
-implementing PR wires the call at `:625` with **five arguments and no options
+implementing PR wires the call at `:605` with **five arguments and no options
 object**: it inherits the constant, returns a flat `1`, and changes no served
 number. Wiring is allowed; switching on is not.
 
@@ -182,7 +182,7 @@ a wrapper that forwards to the real implementation with `{ enabled: true }`.
 The real logic is graded; only the flag is bypassed, and it is bypassed where
 the scan permits. **Two controls on that substitution, both reported:**
 
-- In arms **(a)** and **(c)** the wrapper is **absent** and the multiplier must
+- In arms **(a0)**, **(a)** and **(c)** the wrapper is **absent** and the multiplier must
   be exactly `1` for **every** player-week. Any deviation voids the run.
 - In arm **(b)** at least one player-week must come back `retained: true` with a
   multiplier `!= 1`. If every value is `1`, the wrapper did not take effect and
@@ -343,9 +343,15 @@ whatever the control returns.
 
 **Assert that the `target_share` / `ALL` k actually used in the projection path
 equals the declared fitted k**, read back from the same vector the path
-resolves, and that it is **identical across all three arms**. If it comes back
-as `K.share = 6`, the run is not in configuration B and **no result from it may
-be reported**: the grade stops and the harness is fixed first.
+resolves, and that it is **identical across arms (a), (b) and (c)**. If it comes
+back as `K.share = 6` in any of those three, the run is not in configuration B
+and **no result from it may be reported**: the grade stops and the harness is
+fixed first.
+
+**Arm (a0) is the exception and is asserted the other way round: it must resolve
+`K.share = 6`**, because it is the as-shipped arm and `K.share = 6` is what
+production resolves (§4). An (a0) that comes back on the fitted k is not the
+served model, and the shipping comparison built on it is void.
 
 This control is not ceremony. It is the check that caught the error corrected in
 section 2b above, where a whole unit's figures were produced on a constant while
@@ -373,9 +379,10 @@ Three reasons, stated before any result:
 
 **ALTERNATIVE, stated so the grade can reject the default rather than confirm
 it:** keep the zero-included prior shipped on 2026-09-22 and apply **no**
-multiplier — the arm whose conditional win and availability-inclusive null are
-already measured. If it beats the default arm on the primary metric below, the
-default is wrong and this document says so.
+multiplier. **It is re-measured here from scratch and its previous figures do
+not transfer**, because those ran on `K.share = 6` and this arm runs the fitted
+`k` (§2b, and the arms table in §4). If it beats the default arm on the primary
+metric below, the default is wrong and this document says so.
 
 ## 4. The grade
 
@@ -383,9 +390,48 @@ default is wrong and this document says so.
 
 | arm | prior | **observation support** | `k` | multiplier | role |
 |---|---|---|---|---|---|
-| **(a)** | legacy `0.06`, zeros irrelevant | **zeros INCLUDED**, as shipped | fitted (config B) | none | **incumbent** — what ships today |
+| **(a0)** | legacy `0.06`, zeros irrelevant | **zeros INCLUDED**, as shipped | **`K.share = 6`** | none | **AS SHIPPED — the model production actually serves** |
+| **(a)** | legacy `0.06`, zeros irrelevant | **zeros INCLUDED**, as shipped | fitted (config B) | none | **config-B control** — the legacy prior under the fitted k. **Not the served model.** |
 | **(b)** | per-position, **zeros excluded** | **zeros EXCLUDED** — moved with the prior | fitted (config B) | applied | **the default hypothesis** |
 | **(c)** | per-position, **zeros included** | **zeros INCLUDED**, as shipped | fitted (config B) | none | **the alternative** |
+
+### Why there are four arms and not three (Auditor R64(2)(b))
+
+**The first version of this table called arm (a) "the incumbent — what ships
+today". That was wrong, and §2b is the reason.** Production resolves
+`activeKVector()` against an empty `shrinkage_fits`/`shrinkage_k`
+(`projections.js:206-209` on `origin/main` @ `c90d2834`), so **the served model
+runs `K.share = 6`, not the fitted k.** An arm running the legacy prior *under
+the fitted k* is a control for isolating the prior; it is not what anybody is
+using.
+
+Calling it the incumbent would have made every comparison in this grade carry a
+**k change it never declared**, and a win for (b) could then have been the
+fitted k rather than the prior or the multiplier.
+
+So:
+
+- **`(b)` vs `(a0)` is the SHIPPING comparison.** It answers the only question a
+  deploy turns on: *does the proposed model beat the one we serve?* It moves
+  three things at once — prior, observation support and multiplier — **plus the
+  k**, and that is stated rather than hidden.
+- **`(b)` vs `(a)` is the MECHANISM comparison.** Same k on both sides, so it
+  isolates the prior and the multiplier from the k change. It is the one that
+  says *why*.
+- **`(a)` vs `(a0)` prices the k change on its own**, with nothing else moving.
+  It is reported whatever it shows, and it is the number that says how much of
+  any `(b)` vs `(a0)` result is the k rather than this unit's hypothesis.
+
+**All three are reported. The decision rule in §4 runs on `(b)` vs `(a0)`**,
+because that is the comparison a shipping decision is entitled to rest on;
+`(b)` vs `(a)` explains it and `(a)` vs `(a0)` bounds the confound.
+
+**Where the fitted vector comes from for this run is declared in §2c** and
+reported with the result: the route taken, the fit's `id` and `through_season`,
+and the resolved `target_share`/`ALL` value. **Arm (a0) is the one arm that must
+resolve `K.share = 6`**, and the wiring control asserts that too — an (a0) that
+comes back on the fitted k is not the as-shipped arm and voids the shipping
+comparison.
 
 **The observation-support column is not bookkeeping, and it is the answer to
 R57.3(3).** The observation is `a.tgtShare / a.tgtShareW`
@@ -403,9 +449,10 @@ observation shrunk toward a zero-*excluding* prior under a zero-*excluding* `k`
 availability a second time. That arm is **not run**, and it is not run because
 it would grade the defect rather than the fix.
 
-**Arms (a) and (c) keep the zero-including observation deliberately**, because
-they are the incumbent and the shipped alternative and must run as they actually
-are. Their mismatch is the incumbent's, and measuring it is the point.
+**Arms (a0), (a) and (c) keep the zero-including observation deliberately**,
+because they are the served model, its config-B control and the shipped
+alternative, and all three must run as they actually are. Their mismatch is the
+incumbent's, and measuring it is the point.
 
 **One consequence of configuration B, stated so nobody carries a stale number
 in:** arm (c) is *not* "already measured". The previous unit's figures for the
@@ -540,10 +587,16 @@ Any control moving voids the primary until it is explained.
 
 ### The decision rule, fixed in advance
 
-1. **(b) beats (a), interval excluding zero, and (b) is no worse than (c)** →
+**The branches read `(b)` vs `(a0)`, the shipping comparison.** `(b)` vs `(a)`
+and `(a)` vs `(a0)` are reported alongside and explain the result; they do not
+decide it.
+
+1. **(b) beats (a0), interval excluding zero, and (b) is no worse than (c)** →
    the coupled change ships: per-position prior on the conditional support, with
-   the multiplier, wired at the site this unit specifies.
-2. **(b) does not beat (a)** → neither ships. The incumbent stays, and the
+   the multiplier, wired at the site this unit specifies — **subject to the
+   serving-path condition in §5**, because `(b)` runs on the fitted `k` and
+   production does not.
+2. **(b) does not beat (a0)** → neither ships. The served model stays, and the
    finding is written up as a negative. **The correctness argument that `0.06`
    is not the mean of any position is explicitly NOT sufficient to override
    this** — that argument already lost once, on the previous unit, and it does
@@ -552,10 +605,16 @@ Any control moving voids the primary until it is explained.
    the better estimand, availability does not belong in the multiplier at this
    site, and this document records that its own reasoning was rejected.
 
-**Before any branch is read, the two gates from section 4 apply in order:** the
-configuration-B wiring control must show the fitted `k` in the path, or there is
-no result to read; and if the primary and the points co-primary disagree in
-sign, the unit is held whatever the branches would otherwise say.
+**A fourth thing is read and reported but decides nothing: `(a)` vs `(a0)`.** If
+that gap is large relative to `(b)` vs `(a0)`, then most of what branch 1 would
+ship is **the fitted `k`, not this unit's hypothesis**, and the write-up says so
+in those words rather than claiming the prior and the multiplier for it.
+
+**Before any branch is read, the gates apply in order:** the configuration-B
+wiring control must show the fitted `k` in the path for arms (a), (b) and (c)
+**and `K.share = 6` for arm (a0)**, or there is no result to read; and if the
+primary and the points co-primary disagree in sign, the unit is held whatever
+the branches would otherwise say.
 
 In branches 2 and 3, no result is promoted from the conditional metric, from the
 points co-primary, or from any subgroup to rescue the primary.
@@ -577,6 +636,19 @@ points co-primary, or from any subgroup to rescue the primary.
 - **`carries` and quarterback attempts are not multiplied**, so a passing grade
   licenses that one expression and nothing wider (§1b). Extending the multiplier to carries,
   attempts or points is a separate unit.
+- **A pass licenses arm (b) only where the fitted `k` is active in the serving
+  path** (Auditor R64(2)(b)). Arms (a), (b) and (c) run on the fitted `k`;
+  **production resolves `K.share = 6`, because `shrinkage_fits` and
+  `shrinkage_k` are empty** (`projections.js:206-209` on `origin/main` @
+  `c90d2834`). So a win for `(b)` is a win *under a `k` production does not
+  currently use.* **Shipping (b) into a serving path still on `K.share = 6` is
+  not licensed by this grade** — it would deploy a prior and a multiplier that
+  were only ever measured against a different shrink weight. Two ways to
+  discharge it, and the implementing PR must say which: **persist the fit** so
+  the serving path resolves the same vector the grade ran on, or **re-run arms
+  (a0) and (b) with `K.share = 6` on both sides** and ship on that pair instead.
+  Neither is done here, and neither may be assumed done by a reader of the
+  result.
 - **`decisionAt` is pre-kickoff by construction, and its as-of protection may go
   unverified on this rig** if the revision store holds one snapshot per entity.
   §1b states the rule, the conservative fallback, and the control that is allowed

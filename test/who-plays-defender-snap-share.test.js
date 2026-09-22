@@ -55,7 +55,8 @@ const SEASON = 2024, WEEK = 5, TEAM = 'CHI';
 
 /** Every player here is ruled OUT, so each one reaches the report. */
 for (const [name, pos] of [['Real Corner', 'CB'], ['Star Wideout', 'WR'],
-  ['Deep Reserve', 'WR'], ['Unmeasured Rookie', 'CB']]) {
+  ['Deep Reserve', 'WR'], ['Unmeasured Rookie', 'CB'], ['Unlogged Veteran', 'CB'],
+  ['Half Logged', 'CB']]) {
   run(`INSERT INTO nfl_injuries (season, week, team, full_name, position, report_status,
        practice_status, injury) VALUES (?,?,?,?,?,?,?,?)`,
   SEASON, WEEK, TEAM, name, pos, 'Out', 'Did Not Participate', 'Knee');
@@ -75,6 +76,19 @@ for (let w = 1; w < WEEK; w++) {
   // Dressed and genuinely did not play. Both zeros are real measurements.
   snap(w, 'Deep Reserve', 'WR', 0, 0);
   // 'Unmeasured Rookie' deliberately gets NO snap row at all.
+  // 'Unlogged Veteran' DOES get rows, but both percentage columns are NULL.
+  // This is the case that separates "never measured" from "played 0%" inside
+  // the query rather than outside it, and the one a missing snap row cannot
+  // reach: with no row the player is absent from the lookup entirely, so the
+  // consumer's null-handling is never exercised. Mutation testing found this
+  // gap — two mutations survived the first pass because of it.
+  snap(w, 'Unlogged Veteran', 'CB', null, null);
+  // Exactly one column populated. The 2024 feed never produces this shape
+  // (0 blanks in either column across 26,615 rows), but nfl_snaps is a table,
+  // not the file, and a partial ingest or another writer can leave one side
+  // NULL. It pins the CASE as AND rather than OR: one missing column is still
+  // a measured player.
+  snap(w, 'Half Logged', 'CB', null, 0.8);
 }
 
 const flagged = () => {
@@ -109,4 +123,19 @@ test('a player with no snap row stays unmeasured, not a hard zero', () => {
   // "Never measured" and "played 0%" are different facts. Collapsing them is
   // the same absent-as-zero error the fix exists to remove, one layer up.
   assert.equal(flagged().get('Unmeasured Rookie').snap_share, null);
+});
+
+test('one missing column is still a measured player', () => {
+  // AND, not OR. Under OR this player would come back unmeasured even though
+  // his defensive share is right there. Unreachable from the current feed, but
+  // the table can hold the shape and the semantics should not depend on that.
+  assert.equal(flagged().get('Half Logged').snap_share, 0.8);
+});
+
+test('a player whose rows carry no percentages is unmeasured too', () => {
+  // He HAS rows, so he reaches the lookup and the null actually travels
+  // through both the aggregate and the consumer. Dropping the CASE, or
+  // restoring a `?? 0` at the consumer, turns him into a hard 0.0000 —
+  // "dressed and played none" — which is a claim the data never made.
+  assert.equal(flagged().get('Unlogged Veteran').snap_share, null);
 });

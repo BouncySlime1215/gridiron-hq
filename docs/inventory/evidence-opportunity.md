@@ -72,17 +72,33 @@ distinction existed before these rows were written, not after.
 
 | export | line | prod importers | test | reached from | category |
 |---|---|---|---|---|---|
-| `AVAILABILITY_FIT_BASIS` | :84 | **1** — `contingency.js:22` | 0 | route, via `routes/model.js` | |
-| `DEFAULT_DURABILITY_PRIOR` | :101 | **1** — `contingency.js:22` | 0 | route, via `routes/model.js` | |
+| `AVAILABILITY_FIT_BASIS` | :84 | **1** — `contingency.js:22` | 0 | six mounted routes — see the trace below | |
+| `DEFAULT_DURABILITY_PRIOR` | :101 | **1** — `contingency.js:22` | 0 | six mounted routes — see the trace below | |
 | `AVAILABILITY_BASIS` | :40 | **0** | 1 (dynamic) | none; used internally at `:134` by `isAvailabilityBasis` | |
 | `SERVABLE_AVAILABILITY_BASIS` | :76 | **0** | 1 (dynamic) | none; no internal use — definition line only | |
 | `DEFAULT_ACTIVE_PROBABILITY` | :130 | **0** | 1 (dynamic) | none; second occurrence at `:116` is a docstring | |
 | `isAvailabilityBasis` | :133 | **0** | 1 (dynamic) | none | |
 
+**Traced through `contingency.js` to the routes.** Both imported exports are
+reached from code that serves:
+
+- `DEFAULT_DURABILITY_PRIOR` — used at `contingency.js:923`, inside
+  `weeklyAvailability`, which reaches the six mounted routes in the
+  `contingency.js` section below.
+- `AVAILABILITY_FIT_BASIS` — used at `:578`, inside the **non-exported**
+  `fittedAvailability()`, which `weeklyAvailability` calls at `:911` and the
+  exported `availabilityBasis()` calls at `:598`. Same routes.
+
+A first attempt attributed both uses to `availabilityFitStamp` because the
+script that mapped lines to their enclosing function tracked `export function`
+and ignored plain `function` declarations, so a private function's body was
+credited to the exported one above it. Corrected by reading `:548`-`:600`.
+
 **Claim, one sentence.** Four of this module's six exports have no production
-importer, and the one whose entire purpose is to stop a consumer arm being
-served on a row — `SERVABLE_AVAILABILITY_BASIS` — is asked by no serving path,
-so the defect it names can still ship.
+importer — and the one whose entire purpose is to stop a consumer arm being
+served on a row, `SERVABLE_AVAILABILITY_BASIS`, is asked by no serving path, so
+the defect it names can still ship. The other two are reached by serving code,
+so this claim is about those four and not about the module.
 
 **Incumbent behaviour to beat.** Before this module, three modules each decided
 what had priced a row by matching prose prefixes of a display sentence, in three
@@ -167,6 +183,13 @@ the table above rests on the `app.use` lines rather than on that test.
 this product. So its reach is real — the route is mounted and serves — but it is
 reach through a surface the product is not supposed to be using. Reachable and
 wanted are different questions, and this row answers only the first.
+
+`CONTRACT.md` now carries **`wired-betting-only`** for exactly this case,
+counted separately and never in the fantasy `wired` total.
+`player-week-engine.js` has a betting path too
+(`<- betting-fantasy-link.js <- routes/nfl-betting.js`) but reaches
+`routes/model.js` directly as well, so it is not in that grade — which is why
+the grade's test is *all* paths, not the first one found.
 
 **B. Reached only from hand-run scripts (14).** `AVAILABILITY_RATES_DDL` `:122`,
 `AVAILABILITY_ROLE_RATES_DDL` `:134`, `normReportStatus` `:148`,

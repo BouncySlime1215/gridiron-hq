@@ -43,6 +43,33 @@ never as `wired`, and let the grader decide what it is. Found by filing the
 first rows against this contract: every consumed export of
 `server/services/opportunity-model.js` hangs off exactly one such script.
 
+### `wired-betting-only`
+Reachable, and reachable **only** through a betting surface: a path whose sole
+entry point is `server/routes/nfl-market.js`, `server/routes/nfl-betting.js` or
+`server/routes/betting-hub.js`. Betting is out of scope for this product, so a
+row here is genuinely served and served somewhere the product is not meant to
+be using.
+
+**Test:** trace every path to an entry point, not the first one. The grade
+applies only when *all* of them terminate in a betting route. One non-betting
+path is enough to make the row `wired`.
+
+**Counted separately, and never in the fantasy `wired` total.** That is the
+whole point of the grade: a `wired` count that silently includes betting-only
+reach overstates how much of the fantasy product is actually connected, and the
+overstatement grows with exactly the rows a reader is least likely to check.
+
+Worked example, both halves: `role-scenario-engine.js` reaches an entry point
+only as `<- role-scenario-lab.js <- nfl-research-lab.js <- routes/nfl-market.js`,
+so it takes this grade. `player-week-engine.js` also has a betting path
+(`<- betting-fantasy-link.js <- routes/nfl-betting.js`) but reaches
+`routes/model.js` directly as well, so it stays `wired`.
+
+**The sweep this implies.** Any row already graded `wired` whose paths were
+traced only far enough to find the first entry point has not been tested against
+this grade. Re-trace those to *all* entry points before the `wired` total is
+quoted anywhere.
+
 ### `half-done`
 The code is correct and reachable in principle, and the last hop was never
 built. The producer exists, the consumer does not, or the writer exists and

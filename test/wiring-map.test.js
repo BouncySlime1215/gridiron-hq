@@ -139,6 +139,27 @@ test('keyReads counts an access and a destructure, never an assignment', () => {
   assert.ok(!reads.has('external_benchmarks'), 'assigning a field is not reading it');
 });
 
+test('keyReads sees a destructured parameter that has a default value', () => {
+  // Found 2026-09-22 by composedKeysNeverRead, which reported `regularSeasonEnd`
+  // (server/services/trade-horizon.js:62) and `calibrationPassed`
+  // (server/routes/nfl-betting.js:983) as read by nothing. Both are read, as
+  // destructured PARAMETERS with defaults:
+  //   export function safeStakeFor({ winProb, calibrationPassed = false, ... })
+  // The destructuring branch split each part on ':' and then required the
+  // remainder to be a bare identifier, so `calibrationPassed = false` matched
+  // nothing and the read was lost. A default value is the ordinary way this
+  // repository writes an options bag, so the miss was not rare: it made every
+  // optional field of every options object look unread.
+  const reads = keyReads([
+    'export function f({ winProb, calibrationPassed = false, weeks = WEEKS }) { return winProb; }',
+    'const { alias: bound = 3 } = opts;',
+  ].join('\n'), []);
+  assert.ok(reads.has('calibrationPassed'), 'a default value does not stop it being a read');
+  assert.ok(reads.has('weeks'));
+  assert.ok(reads.has('alias'), 'the SOURCE key is the read, not the local binding');
+  assert.ok(!reads.has('bound'), 'the local binding name is not a key of the object');
+});
+
 test('declarations sees a computed value that is never used again', () => {
   const decls = declarations('const playerOpportunity = a * 0.55 + b * 0.35;');
   assert.equal(decls.has('playerOpportunity'), true);

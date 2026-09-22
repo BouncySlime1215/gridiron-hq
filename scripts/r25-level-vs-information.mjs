@@ -50,11 +50,13 @@ const bias = extractArms(biasRun._predictions);
 console.log(`  2023 graded player-weeks: ${bias.playerIds.length}`);
 
 const report = { bias_season: 2023, bias_n: bias.playerIds.length, seasons: {} };
+const seasonRuns = {};
 
 for (const season of [2024, 2021, 2022]) {
   console.log(`Running test season ${season} (distributions off) ...`);
   const run = replaySeasonWeekly(season, { predictionHead: controlHead, distributions: false });
   const arms = extractArms(run._predictions);
+  seasonRuns[season] = arms;
   const n = arms.playerIds.length;
 
   const shippedOut = decomposeArm({
@@ -91,6 +93,29 @@ for (const season of [2024, 2021, 2022]) {
   console.log(`    control raw MAE=${controlOut.rawMae.toFixed(4)} signedErr=${controlOut.rawMeanSignedError.toFixed(4)} m0=${controlOut.m0?.toFixed(4)} headroom=${controlOut.headroom?.toFixed(4)}`);
   console.log(`    raw bootstrap: mean_diff=${rawBoot.mean_diff?.toFixed(4)} ci90=[${rawBoot.ci90?.map(x => x.toFixed(4)).join(', ')}] significant=${rawBoot.significant}`);
   console.log(`    debiased bootstrap: mean_diff=${debiasedBoot.mean_diff?.toFixed(4)} ci90=[${debiasedBoot.ci90?.map(x => x.toFixed(4)).join(', ')}] significant=${debiasedBoot.significant}`);
+}
+
+// Auditor R46 item 2: the 2022 reversal must not depend on the shared 2023
+// anchor. Re-debias 2022 against an adjacent season (2021) and against
+// itself (in-sample, an upper bound on what centring can buy control).
+console.log('\n=== R46: 2022 anchor sweep ===');
+const test2022 = seasonRuns[2022];
+for (const [label, anchorSeason] of [['2023 (main run)', 2023], ['2021 (adjacent)', 2021], ['2022 (in-sample upper bound)', 2022]]) {
+  const anchor = anchorSeason === 2023 ? bias : seasonRuns[anchorSeason];
+  const armOut = arm => decomposeArm({
+    biasPredictions: anchor[arm].pred, biasActuals: anchor[arm].act,
+    testPredictions: test2022[arm].pred, testActuals: test2022[arm].act
+  });
+  const s = armOut('shipped'), c = armOut('control');
+  const debiasedDelta = s.debiasedMae - c.debiasedMae;
+  const boot = pairedBootstrapDiff(
+    test2022.shipped.pred.map((p, i) => Math.abs(test2022.shipped.act[i] - (p + s.medianBias))),
+    test2022.control.pred.map((p, i) => Math.abs(test2022.control.act[i] - (p + c.medianBias))),
+    { groups: test2022.playerIds }
+  );
+  report.anchor_sweep_2022 ??= {};
+  report.anchor_sweep_2022[anchorSeason] = { shipped: s, control: c, debiased_delta: debiasedDelta, bootstrap: boot };
+  console.log(`  anchored on ${label}: shipped debiasedMae=${s.debiasedMae.toFixed(4)} control debiasedMae=${c.debiasedMae.toFixed(4)} debiased_delta=${debiasedDelta.toFixed(4)} mean_diff=${boot.mean_diff?.toFixed(4)} ci90=[${boot.ci90?.map(x => x.toFixed(4)).join(', ')}] significant=${boot.significant}`);
 }
 
 console.log('\nR37 rider: this grades the replay predictor, whose equivalence to production\'s is unestablished.');

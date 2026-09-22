@@ -149,6 +149,109 @@
         "iterations": 2000
       }
     }
+  },
+  "anchor_sweep_2022": {
+    "2021": {
+      "shipped": {
+        "n": 4359,
+        "rawMae": 4.4448137865183925,
+        "rawMeanSignedError": 0.12577057846661188,
+        "medianBias": -1.105,
+        "debiasedMae": 4.293382430662614,
+        "m0": 0.8918312910295537,
+        "scaledMae": 4.380408580958476,
+        "headroom": 0.06440520555991647
+      },
+      "control": {
+        "n": 4359,
+        "rawMae": 4.4433092087897315,
+        "rawMeanSignedError": 0.0662659576868794,
+        "medianBias": -0.6980000000000001,
+        "debiasedMae": 4.350088380824658,
+        "m0": 0.8631431282749517,
+        "scaledMae": 4.338114704136809,
+        "headroom": 0.10519450465292213
+      },
+      "debiased_delta": -0.05670595016204416,
+      "bootstrap": {
+        "mean_diff": 0.0564,
+        "ci90": [
+          0.0311,
+          0.0819
+        ],
+        "p_b_better": 0,
+        "significant": true,
+        "n": 4359,
+        "iterations": 2000
+      }
+    },
+    "2022": {
+      "shipped": {
+        "n": 4359,
+        "rawMae": 4.4448137865183925,
+        "rawMeanSignedError": 0.12577057846661188,
+        "medianBias": -1.245,
+        "debiasedMae": 4.291455897345312,
+        "m0": 0.8754034371901193,
+        "scaledMae": 4.37922781629662,
+        "headroom": 0.0655859702217727
+      },
+      "control": {
+        "n": 4359,
+        "rawMae": 4.4433092087897315,
+        "rawMeanSignedError": 0.0662659576868794,
+        "medianBias": -0.8482857142857121,
+        "debiasedMae": 4.347013688704808,
+        "m0": 0.8510966052413687,
+        "scaledMae": 4.337498604178266,
+        "headroom": 0.10581060461146574
+      },
+      "debiased_delta": -0.055557791359496456,
+      "bootstrap": {
+        "mean_diff": 0.0553,
+        "ci90": [
+          0.0303,
+          0.0809
+        ],
+        "p_b_better": 0,
+        "significant": true,
+        "n": 4359,
+        "iterations": 2000
+      }
+    },
+    "2023": {
+      "shipped": {
+        "n": 4359,
+        "rawMae": 4.4448137865183925,
+        "rawMeanSignedError": 0.12577057846661188,
+        "medianBias": -1.1280000000000001,
+        "debiasedMae": 4.292798825860292,
+        "m0": 0.9125636672325974,
+        "scaledMae": 4.384305723064029,
+        "headroom": 0.060508063454363104
+      },
+      "control": {
+        "n": 4359,
+        "rawMae": 4.4433092087897315,
+        "rawMeanSignedError": 0.0662659576868794,
+        "medianBias": -0.7000000000000001,
+        "debiasedMae": 4.350009463641816,
+        "m0": 0.8854636385996556,
+        "scaledMae": 4.343199865371505,
+        "headroom": 0.10010934341822608
+      },
+      "debiased_delta": -0.05721063778152402,
+      "bootstrap": {
+        "mean_diff": 0.0569,
+        "ci90": [
+          0.0316,
+          0.0826
+        ],
+        "p_b_better": 0,
+        "significant": true,
+        "n": 4359,
+        "iterations": 2000
+      }
+    }
   }
 }
-(Use `node --trace-warnings ...` to show where the warning was created)

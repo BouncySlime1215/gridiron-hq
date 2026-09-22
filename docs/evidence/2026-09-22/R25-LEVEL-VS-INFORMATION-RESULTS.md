@@ -47,7 +47,9 @@ pre-rewrite line numbers for `weekly-ensemble.js`)
   prediction-weighted ratio). Control: medianBias -0.700, m0 0.8855.
 - **2024** (n=4,419 — the figure being decomposed, in-sample for
   control): shipped raw MAE 4.4855 (signed error +0.5201), control raw
-  MAE 4.4127 (signed error +0.4561). raw_delta 0.0728. Debiased: shipped
+  MAE 4.4127 (signed error +0.4561). Every signed error in this section is
+  `actual − predicted` (positive = prediction ran low) — see the SIGN
+  CONVENTION block below before comparing any of them to a record figure. raw_delta 0.0728. Debiased: shipped
   4.3944, control 4.3670, debiased_delta 0.0274. level_share 0.0454,
   information_share 0.0274. Raw bootstrap: mean_diff -0.0724, CI90
   `[-0.1016, -0.0424]`, **significant**. Debiased bootstrap: mean_diff
@@ -66,15 +68,48 @@ pre-rewrite line numbers for `weekly-ensemble.js`)
   Debiased bootstrap: mean_diff +0.0569, CI90 `[0.0316, 0.0826]`,
   **significant** — shipped beats control, the opposite direction from
   2024/2021. Headroom: shipped 0.0605, control 0.1001.
-- Production figures being decomposed (-0.4898 / -0.5136 mean signed
-  error, pooled): not independently reproduced by this run's per-season
-  signed errors, which are pooled differently (this run's 2024 alone:
-  shipped +0.5201, control +0.4561 — opposite sign from the pooled
-  figures, and the pooling window/seasons behind the cited -0.4898/-0.5136
-  were not respecified in the R36/R37 relay). Flagging rather than forcing
-  agreement: the pooled production figures may cover a different season
-  set or weighting than this unit's per-season replay. Worth a follow-up
-  if the Auditor wants the pooled figure reproduced exactly.
+### SIGN CONVENTION (Auditor §R46 item 1 — blocking, resolved)
+
+**This unit reports mean signed error as `actual − predicted`. Positive
+means the prediction ran LOW (actual came in higher).** That is the
+opposite convention from the record's cited figures, which use
+`predicted − actual`: `weekly-ensemble.js:85-88` says the blend "sits
+BELOW the conditional mean" and its signed error is "negative in every
+season", so a negative number there also means the prediction ran low.
+The two conventions describe the same direction with opposite signs;
+neither is wrong, and they were never in disagreement.
+
+Magnitudes agree once aligned. Negating this run's 2024 values into the
+record's convention:
+
+| arm | this run (2024, aligned to `predicted − actual`) | record (pooled) | difference |
+| --- | --- | --- | --- |
+| shipped | −0.5201 | −0.5136 | 0.0065 |
+| control | −0.4561 | −0.4898 | 0.0337 |
+
+Both land within a few hundredths of the pooled figures. The residual gap
+is a single-season-vs-pooled comparison, not a conflict; the pooled figure
+was not required to be reproduced exactly (§R46).
+
+### 2022 REVERSAL, THREE ANCHORS (Auditor §R46 item 2 — established)
+
+The 2022 reversal is not an artefact of the shared 2023 anchor. 2022's
+debiasing re-run against three different bias sources, all on the same
+2022 test rows (n=4,359):
+
+| bias anchor | shipped debiasedMae | control debiasedMae | debiased_delta | bootstrap mean_diff | CI90 | significant |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2023 (main run) | 4.2928 | 4.3500 | −0.0572 | +0.0569 | [0.0316, 0.0826] | yes |
+| 2021 (adjacent season) | 4.2934 | 4.3501 | −0.0567 | +0.0564 | [0.0311, 0.0819] | yes |
+| 2022 (itself, in-sample upper bound) | 4.2915 | 4.3470 | −0.0556 | +0.0553 | [0.0303, 0.0809] | yes |
+
+All three agree within 0.002 and are significant in the same direction:
+once both arms are centred, **shipped beats control on 2022**, whichever
+season the centring is anchored on — including the in-sample anchor,
+which is the most favourable case available to control and still does not
+close it. Reproduce with `node scripts/r25-level-vs-information.mjs` — the
+sweep runs as part of it (`=== R46: 2022 anchor sweep ===`) and lands in
+`r25-level-vs-information-output.json` under `anchor_sweep_2022`.
 
 ## (d) Incumbent to beat
 

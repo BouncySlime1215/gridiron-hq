@@ -43,6 +43,8 @@ const lib = await import('../scripts/weekly-construction-grade-lib.mjs');
 const coordinator = await import('../server/services/fantasy-coordinator.js');
 const waiverBrain = await import('../server/services/waiver-brain.js');
 const { startSitWeekPoints } = await import('../server/services/lineup-brain.js');
+const { pairedBootstrapDiff } = await import('../server/services/backtest-significance.js');
+const { predictionWeightedMedianRatio } = await import('../server/services/level-information-decomposition.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -264,4 +266,270 @@ test('gradingContext maps each graded season to its registered fits, and the cut
   assert.throws(() => lib.gradingContext(2025, { ...fits, heldOut: fits.forward }, 1), /cutoff/);
   assert.throws(() => lib.gradingContext(2023, fits, 1), /cutoff/);
   assert.throws(() => lib.gradingContext(2025, { split: fits.split }, 1), /cutoff/);
+});
+
+// ---------------------------------------------------------------------------------------
+// Amendment 1 (docs/evidence/2026-09-22/weekly-construction-grade-preregistration-amendment-1.md):
+// the metric producers behind every verdict, the arguments handed to the served functions,
+// the runner's window bookkeeping, and the report-only diagnostics.
+
+const POSITIONS = ['QB', 'RB', 'WR', 'TE'];
+/**
+ * 16 players x 4 weeks. Each player carries a persistent miss, so errors are correlated
+ * within a player (the reason the CI is clustered). X misses by half as much as A. A few
+ * rows are DNPs (decision, actual 0) and a few are played-only, so the played and decision
+ * sets differ.
+ */
+function clusteredRows({ weeks = [5, 6, 7, 8] } = {}) {
+  const r = lcg(11);
+  const rows = [];
+  for (let pid = 1; pid <= 16; pid++) {
+    const miss = (r() - 0.5) * 8;
+    const position = POSITIONS[pid % 4];
+    for (const week of weeks) {
+      const truth = 6 + r() * 12;
+      const dnp = (pid + week) % 9 === 0;
+      const playedOnly = (pid + week) % 7 === 0;
+      const A = truth + miss + (r() - 0.5);
+      const X = truth + 0.5 * miss + (r() - 0.5) * 0.5;
+      rows.push({ player_id: pid, week, position, played: !dnp, decision: !playedOnly,
+        actual: dnp ? 0 : truth, preds: { A, X } });
+    }
+  }
+  return rows;
+}
+const absErr = (rows, arm) => rows.map(row => Math.abs(row.preds[arm] - row.actual));
+
+test('compareArms: dMAE is arm minus reference, negative when the arm is better', () => {
+  const rows = clusteredRows();
+  const played = rows.filter(r => r.played);
+  const out = lib.compareArms(rows, 'X', 'A');
+  assert.equal(out.arm, 'X');
+  assert.equal(out.reference, 'A');
+  const mae = arm => absErr(played, arm).reduce((s, x) => s + x, 0) / played.length;
+  assert.ok(mae('X') < mae('A'), 'fixture: X has the lower error');
+  assert.ok(out.d_mae.mean_diff < 0, `dMAE ${out.d_mae.mean_diff} must be negative for the better arm`);
+  assert.ok(Math.abs(out.d_mae.mean_diff - (mae('X') - mae('A'))) < 0.05, 'bootstrap mean near the observed difference');
+  assert.ok(out.d_mae.ci90[1] < 0);
+  assert.ok(lib.compareArms(rows, 'A', 'X').d_mae.mean_diff > 0, 'the reverse comparison is positive');
+});
+
+test('compareArms: both intervals are player-clustered (prereg section 6), on their own row sets', () => {
+  const rows = clusteredRows();
+  const played = rows.filter(r => r.played), decision = rows.filter(r => r.decision);
+  const opts = { iterations: 2000, seed: 1 };
+  const clustered = pairedBootstrapDiff(absErr(played, 'A'), absErr(played, 'X'), { ...opts, groups: played.map(r => r.player_id) });
+  const flat = pairedBootstrapDiff(absErr(played, 'A'), absErr(played, 'X'), opts);
+  assert.notDeepEqual(flat.ci90, clustered.ci90, 'fixture: clustering must change the interval');
+  const out = lib.compareArms(rows, 'X', 'A');
+  assert.deepEqual([out.d_mae.mean_diff, out.d_mae.ci90], [clustered.mean_diff, clustered.ci90]);
+  const dnp = pairedBootstrapDiff(absErr(decision, 'A'), absErr(decision, 'X'), { ...opts, groups: decision.map(r => r.player_id) });
+  assert.deepEqual([out.d_dnp.mean_diff, out.d_dnp.ci90], [dnp.mean_diff, dnp.ci90]);
+});
+
+test('constructArms hands the served expert and lift functions the graded season, week and scoring', () => {
+  const calls = { experts: [], lift: [] };
+  const SCORING = Object.freeze({ tag: 'league scoring' });
+  const deps = {
+    ...lib.SERVED,
+    weeklyExpertValues: (p, season, week, scoring) => { calls.experts.push([p, season, week, scoring]); return EXPERTS; },
+    vegasLift: (asset, season, week) => {
+      calls.lift.push([asset.team_abbr, asset.position, season, week]);
+      return lib.SERVED.vegasLift(asset, season, week);
+    }
+  };
+  const p = proj('RB', 'HI');
+  lib.constructArms(p, { ...CTX, season: 2025, week: 6, scoring: SCORING }, deps);
+  assert.equal(calls.experts.length, 1);
+  assert.equal(calls.experts[0][0], p);
+  assert.deepEqual(calls.experts[0].slice(1), [2025, 6, SCORING]);
+  assert.deepEqual(calls.lift, [['HI', 'RB', 2025, 6]]);
+});
+
+test('armSummary: MAE and signed error on played rows, DNP-included MAE on decision rows', () => {
+  const rows = [
+    { played: true, decision: true, actual: 10, preds: { A: 12 } },   // +2
+    { played: true, decision: false, actual: 5, preds: { A: 4 } },    // -1, played only
+    { played: false, decision: true, actual: 0, preds: { A: 6 } },    // DNP, +6
+    { played: true, decision: true, actual: 8, preds: { A: 9 } }      // +1
+  ];
+  const s = lib.armSummary(rows, 'A');
+  assert.equal(s.n_played, 3);
+  assert.equal(s.n_decision, 3);
+  assert.ok(Math.abs(s.mae - 4 / 3) < 1e-12);
+  assert.ok(Math.abs(s.signed_error - 2 / 3) < 1e-12);
+  assert.ok(Math.abs(s.dnp_mae - 3) < 1e-12, `dnp_mae ${s.dnp_mae} is (2 + 6 + 1) / 3`);
+});
+
+test('m0For is the prediction-weighted median ratio over PLAYED rows only (prereg section 8)', () => {
+  const rows = [
+    { played: true, decision: true, actual: 8, preds: { A: 10 } },
+    { played: true, decision: true, actual: 8, preds: { A: 10 } },
+    { played: false, decision: true, actual: 0, preds: { A: 30 } }   // a DNP: would drag m0 to 0
+  ];
+  assert.equal(lib.m0For(rows, 'A'), 0.8);
+  assert.equal(predictionWeightedMedianRatio([10, 10, 30], [8, 8, 0]), 0, 'control: the DNP row changes the answer');
+});
+
+test('headroom is MAE(X) - MAE(X x m0) on played rows', () => {
+  const rows = [
+    { played: true, actual: 9, preds: { A: 10 } },
+    { played: true, actual: 18, preds: { A: 20 } },
+    { played: false, actual: 0, preds: { A: 50 } }
+  ];
+  const h = lib.headroom(rows, 'A', 0.9);
+  assert.ok(Math.abs(h.raw_mae - 1.5) < 1e-12);
+  assert.ok(Math.abs(h.scaled_mae) < 1e-12);
+  assert.ok(Math.abs(h.headroom - 1.5) < 1e-12);
+});
+
+test('pairAccuracy keeps only pairs where every model projects both players at 4 or more', () => {
+  const rows = [
+    { player_id: 1, week: 5, position: 'WR', actual: 10, preds: { A: 12, X: 11 } },
+    { player_id: 2, week: 5, position: 'WR', actual: 5, preds: { A: 10, X: 13 } },
+    { player_id: 3, week: 5, position: 'WR', actual: 8, preds: { A: 3.5, X: 9 } }
+  ];
+  assert.deepEqual(lib.pairAccuracy(rows, ['A', 'X']), { pairs: 1, accuracy: { A: 1, X: 0 } });
+});
+
+/**
+ * Rows carrying every arm. A overshoots every outcome by 2 (plus a small player-level
+ * wobble), B, D, S1 and S2 remove the overshoot, C adds 1 to it, S3 = A. Rankings are
+ * identical across arms, so only the level differs.
+ */
+function allArmRows() {
+  const r = lcg(23);
+  const rows = [];
+  for (let pid = 1; pid <= 16; pid++) {
+    const wobble = (r() - 0.5) * 0.5;
+    const position = POSITIONS[pid % 4];
+    for (const week of [5, 6, 7, 8]) {
+      const truth = 6 + r() * 12;
+      const dnp = (pid + week) % 9 === 0;
+      const playedOnly = (pid + week) % 7 === 0;
+      const A = truth + 2 + wobble;
+      rows.push({ player_id: pid, week, position, played: !dnp, decision: !playedOnly, actual: dnp ? 0 : truth,
+        preds: { A, B: A - 2, C: A + 1, D: A - 2, S1: A - 2, S2: A - 2, S3: A } });
+    }
+  }
+  return rows;
+}
+
+test('gradeWindow grades every candidate as arm-vs-A, and the verdicts follow', () => {
+  const rows = allArmRows();
+  const g = lib.gradeWindow(rows, { m0: null, light: true });
+  for (const x of lib.CANDIDATES) {
+    assert.equal(g.vs_A[x].arm, x);
+    assert.equal(g.vs_A[x].reference, 'A');
+  }
+  assert.ok(g.vs_A.B.d_mae.mean_diff < 0);
+  assert.equal(g.verdicts.B.pass, true);
+  assert.ok(g.vs_A.C.d_mae.mean_diff > 0);
+  assert.equal(g.verdicts.C.pass, false);
+  assert.equal(g.verdicts.S3.pass, false, 'S3 = A cannot beat A');
+  assert.deepEqual(Object.keys(g).sort(), ['arms', 'verdicts', 'vs_A']);
+  assert.ok(Math.abs(g.arms.B.mae - lib.armSummary(rows, 'B').mae) < 1e-12);
+});
+
+test('gradeWindow (full): marginals, pair metrics, positions and m0 headroom', () => {
+  const rows = allArmRows();
+  const m0 = Object.fromEntries(lib.ARMS.map(a => [a, 0.9]));
+  const g = lib.gradeWindow(rows, { m0 });
+  assert.deepEqual([g.marginal.lift_given_coordinator.arm, g.marginal.lift_given_coordinator.reference], ['D', 'B']);
+  assert.deepEqual([g.marginal.coordinator_given_lift.arm, g.marginal.coordinator_given_lift.reference], ['D', 'C']);
+  assert.deepEqual(Object.keys(g.by_position), POSITIONS);
+  assert.deepEqual(g.pair_accuracy, lib.pairAccuracy(rows.filter(r => r.decision), lib.ARMS));
+  assert.equal(g.decision_win_rate_vs_A.C.disagreements, 0, 'C = A + 1 never reorders a pair');
+  assert.equal(g.m0_headroom.A.m0_from_2024, 0.9);
+  assert.equal(lib.gradeWindow(rows, { m0: null }).m0_headroom, undefined);
+});
+
+test('lambdaForWeek reads each window its own lambda and refuses a week outside both', () => {
+  const lambda = { '2-4': 1, '5-17': 0 };
+  assert.equal(lib.lambdaForWeek(lambda, 3), 1);
+  assert.equal(lib.lambdaForWeek(lambda, 6), 0);
+  assert.throws(() => lib.lambdaForWeek(lambda, 1), /lambda/);
+  assert.throws(() => lib.lambdaForWeek({ '2-4': 1 }, 6), /lambda/);
+});
+
+test('gradeWeekRows: the season\'s registered fits and the week\'s window lambda reach every arm', () => {
+  const pair = through => ({ fitS: FIT, fitE: FIT, through });
+  const fits = { split: pair(2023), heldOut: pair(2024), forward: pair(2025), served: { fitS: FIT, through: 2025 } };
+  const truth = new Map([[1, { weeks: new Map([[1, 10], [2, 11], [3, 12], [5, 9], [6, 14]]) }]]);
+  const engine = new Map([[1, proj('QB', 'HI')]]);
+  const lambdaByWindow = { '2-4': 1, '5-17': 0.5 };
+  const at = week => lib.gradeWeekRows({ season: 2025, week, engine, truth, fits, lambdaByWindow, scoring: undefined }, stubExperts);
+  const w3 = at(3), w6 = at(6);
+  assert.deepEqual([w3.ctx.lambda, w3.ctx.fitSThrough, w3.ctx.fitEThrough], [1, 2024, 2024]);
+  assert.equal(w6.ctx.lambda, 0.5);
+  assert.equal(w3.rows.length, 1);
+  assert.equal(w3.rows[0].player_id, 1);
+  assert.equal(w3.rows[0].arms.S3, w3.rows[0].arms.C);
+  assert.ok(Math.abs(w6.rows[0].arms.S3 - 14.4 * Math.sqrt(1.2)) < 1e-9);
+  assert.throws(() => lib.gradeWeekRows({ season: 2025, week: 6, engine, truth, fits: { ...fits, heldOut: fits.forward }, lambdaByWindow }, stubExperts), /cutoff/);
+});
+
+test('assertS3UsedLambda stops when a graded row\'s S3 was not built with its window\'s lambda', () => {
+  const row = (week, S3) => ({ week, lift: 1.25, lift_applied: true, preds: { A: 10, S3 } });
+  const lambda = { '2-4': 1, '5-17': 0 };
+  assert.equal(lib.assertS3UsedLambda([row(3, 12.5), row(6, 10), { week: 6, lift: 1, lift_applied: false, preds: { A: 7, S3: 7 } }], lambda), 3);
+  assert.throws(() => lib.assertS3UsedLambda([row(6, 12.5)], lambda), /lambda/);
+  assert.throws(() => lib.assertS3UsedLambda([row(3, 10)], lambda), /lambda/);
+});
+
+test('consumerDecomposition: the page number is B x game factor x chance to play x lift (trade-engine.js:359)', () => {
+  const arms = { B: 12.345, D: 12.345 * 1.2 };
+  const asset = { team_abbr: 'HI', position: 'QB', active_probability: 0.749, matchup: { mult: 1 },
+    fantasy_coordinator: { corrected_ppg: 12.345 }, current_week_ppg: +(12.345 * 1 * 0.749).toFixed(2) };
+  const page = startSitWeekPoints(asset, 2025, 6).week_points;
+  const d = lib.consumerDecomposition(asset, arms, page, 'HI');
+  assert.deepEqual([d.b_parity, d.current_week_identity, d.bye, d.team_differs], [true, true, false, false]);
+  assert.deepEqual([d.p, d.mult, d.arm_D, d.page], [0.749, 1, lib.round2(arms.D), page]);
+  assert.ok(Math.abs(d.page_over_D - page / arms.D) < 1e-12);
+  assert.ok(d.page_over_D < 0.76 && d.page_over_D > 0.74, 'the page carries p, the arm does not');
+  const bye = lib.consumerDecomposition({ ...asset, matchup: null, current_week_ppg: 0 }, arms, 0, 'HI');
+  assert.deepEqual([bye.current_week_identity, bye.bye, bye.page_over_D], [true, true, 0]);
+  assert.equal(lib.consumerDecomposition({ ...asset, current_week_ppg: 12.35 }, arms, page, 'HI').current_week_identity, false);
+  assert.equal(lib.consumerDecomposition(asset, { ...arms, B: 12.3 }, page, 'HI').b_parity, false);
+  assert.equal(lib.consumerDecomposition(asset, arms, page, 'LO').team_differs, true);
+});
+
+test('meanSignedError is prediction minus actual, with a player-clustered interval', () => {
+  const rows = allArmRows().filter(r => r.played);
+  const out = lib.meanSignedError(rows, 'C');
+  const errs = rows.map(r => r.preds.C - r.actual);
+  const boot = pairedBootstrapDiff(errs.map(() => 0), errs, { iterations: 2000, seed: 1, groups: rows.map(r => r.player_id) });
+  assert.equal(out.n, rows.length);
+  assert.ok(Math.abs(out.mean - errs.reduce((s, x) => s + x, 0) / errs.length) < 1e-12);
+  assert.ok(out.mean > 2, 'C overshoots by more than 2: positive = reads high');
+  assert.deepEqual(out.ci90, boot.ci90);
+});
+
+test('starterProxy keeps each week\'s top N per position by the reference arm', () => {
+  const row = (id, week, position, A) => ({ player_id: id, week, position, played: true, decision: true, actual: 1, preds: { A } });
+  const rows = [row(1, 5, 'QB', 20), row(2, 5, 'QB', 15), row(3, 5, 'QB', 10), row(4, 6, 'QB', 9), row(5, 6, 'QB', 30), row(6, 5, 'K', 40)];
+  const picked = lib.starterProxy(rows, 'A', { QB: 2 });
+  assert.deepEqual(picked.map(r => r.player_id).sort(), [1, 2, 4, 5]);
+});
+
+test('levelBands splits played rows by A and reads the starter proxy on played and decision rows', () => {
+  const rows = allArmRows();
+  const bands = lib.levelBands(rows, ['A', 'B'], { quota: { QB: 2, RB: 2, WR: 2, TE: 2 } });
+  assert.deepEqual(Object.keys(bands), ['played_all', 'played_A_ge_10', 'played_A_lt_10', 'starters_played', 'starters_decision']);
+  const played = rows.filter(r => r.played);
+  assert.equal(bands.played_all.n, played.length);
+  assert.equal(bands.played_A_ge_10.n + bands.played_A_lt_10.n, played.length);
+  const starters = lib.starterProxy(rows, 'A', { QB: 2, RB: 2, WR: 2, TE: 2 });
+  assert.equal(bands.starters_played.n, starters.filter(r => r.played).length);
+  assert.equal(bands.starters_decision.n, starters.filter(r => r.decision).length);
+  assert.ok(Math.abs(bands.played_all.arms.B.mean - lib.armSummary(rows, 'B').signed_error) < 1e-12);
+});
+
+test('reproductionMismatches compares dumped rows against a committed arm table to 4 dp', () => {
+  const rows = allArmRows();
+  const table = Object.fromEntries(['A', 'B'].map(a => [a, lib.armSummary(rows, a)]));
+  assert.deepEqual(lib.reproductionMismatches(rows, table, ['A', 'B']), []);
+  const off = { ...table, B: { ...table.B, mae: table.B.mae + 0.0002 } };
+  assert.deepEqual(lib.reproductionMismatches(rows, off, ['A', 'B']).map(m => [m.arm, m.field]), [['B', 'mae']]);
+  assert.equal(lib.reproductionMismatches(rows, { A: table.A }, ['A', 'B']).length, 1, 'a missing arm is a mismatch');
 });

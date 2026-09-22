@@ -101,7 +101,7 @@ const playerAcc = () => ({
   pass_rz_att: 0,
   // rushing
   carries: 0, rush_yds: 0, rush_td: 0, rush_epa: 0, rush_succ: 0, expl_rush: 0,
-  rush_rz: 0, rush_gtg: 0,
+  rush_rz: 0, rush_i10: 0, rush_gtg: 0,
   // receiving
   targets: 0, rec: 0, rec_yds: 0, rec_td: 0, rec_air: 0, rec_yac: 0, rec_epa: 0,
   rec_succ: 0, expl_rec: 0, deep_tgt: 0, rec_rz_tgt: 0,
@@ -369,6 +369,11 @@ async function syncPbpSeasonImpl(season, { onProgress } = {}) {
       if (rushYds >= 10) { p.expl_rush++; p.expl_plays++; }
       if (num(rec, 'rush_touchdown') === 1) p.rush_td++;
       if (yl100 != null && yl100 <= 20) p.rush_rz++;
+      // Beside rush_rz, not instead of it: the tiers below are nested supersets
+      // and td-regression.js subtracts each from the one above. Inside the 10
+      // and non-goal-to-go scores 16.4% against 4.5% from the 11 to the 20, two
+      // bands the single red-zone counter pooled at a blended 6.6%.
+      if (yl100 != null && yl100 <= 10) p.rush_i10++;
       if (num(rec, 'goal_to_go') === 1) p.rush_gtg++;
       p.touches++;
       if (rushYds <= 0) p.stuffs++;
@@ -605,7 +610,7 @@ function writePlayerWeeks(season, players, teams) {
         rush_success_rate: r3(div(p.rush_succ, p.carries)),
         explosive_rush_rate: r3(div(p.expl_rush, p.carries)),
         rush_td_rate: r3(div(p.rush_td, p.carries)),
-        red_zone_carries: p.rush_rz, goal_line_carries: p.rush_gtg,
+        red_zone_carries: p.rush_rz, inside_10_carries: p.rush_i10, goal_line_carries: p.rush_gtg,
         carry_share: r3(div(p.carries, tt.carries)),
         // receiving
         targets: p.targets, receptions: p.rec, catch_rate: r3(div(p.rec, p.targets)),

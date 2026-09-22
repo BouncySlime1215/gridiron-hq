@@ -70,6 +70,20 @@ test('a database without goal-to-go targets behaves exactly as it did before', (
   assert.equal(out.targets, 6);
 });
 
+/**
+ * Goal-to-go is not strictly a subset of inside-the-10: a penalty can leave
+ * first-and-goal outside the 10. So a blob can hold goal_line carries with a
+ * genuine zero inside the 10, and subtracting the named parent alone would let
+ * those carries leak down into the 11-to-20 tier.
+ */
+test('goal-line carries outside the 10 do not leak into the tier below', () => {
+  const out = exclusive({
+    goal_line_carries: 3, inside_10_carries: 0, red_zone_carries: 10, carries: 20
+  }, RUSH_CLASSES);
+  assert.equal(out.inside_10_carries, 0);
+  assert.equal(out.red_zone_carries, 7, 'the 3 goal-to-go carries are still excluded');
+});
+
 test('an inconsistent blob never yields a negative tier', () => {
   const out = exclusive({ goal_line_carries: 9, inside_10_carries: 2, red_zone_carries: 4, carries: 3 },
     RUSH_CLASSES);

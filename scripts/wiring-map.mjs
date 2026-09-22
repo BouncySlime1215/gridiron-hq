@@ -1336,11 +1336,17 @@ function keyReads(code, strings) {
   }
   const RE_BRACKET = /\[\s*['"]([A-Za-z_$][\w$]*)['"]\s*\]/g;
   while ((m = RE_BRACKET.exec(code))) reads.add(m[1]);
-  // Destructuring: `const { a, b: c } = x`
-  const RE_DESTRUCT = /(?:const|let|var|\()\s*\{([^{}]*)\}\s*(?:=|\))/g;
+  // Destructuring: `const { a, b: c } = x`, and the options-bag form
+  // `function f({ a, b = 1, c: d = 2 })`. The SOURCE key is the read — `a` in
+  // `a: b`, not the local binding `b` — and a default value is not part of the
+  // key. Splitting on ':' alone left `b = 1` as the candidate name, which
+  // matched no identifier and silently dropped the read. A ',' before the
+  // brace is allowed too, for a bag that is not the first parameter; see
+  // docs/tdd/destructured-default-is-still-a-read.tdd.md.
+  const RE_DESTRUCT = /(?:const|let|var|[(,])\s*\{([^{}]*)\}\s*(?:=|\))/g;
   while ((m = RE_DESTRUCT.exec(code))) {
     for (const part of m[1].split(',')) {
-      const name = part.trim().split(':')[0].trim();
+      const name = part.trim().split(':')[0].split('=')[0].trim();
       if (/^[A-Za-z_$][\w$]*$/.test(name)) reads.add(name);
     }
   }
@@ -1350,6 +1356,154 @@ function keyReads(code, strings) {
     for (const w of text.match(/[A-Za-z_$][\w$]{3,}/g) ?? []) reads.add(w);
   }
   return reads;
+}
+
+/**
+ * Keys computed into a composed record that nothing in the tree reads.
+ *
+ * `payloadKeys` above stops at the attachment form on purpose: a key written
+ * inline in a returned object literal is exempt there, because an API response
+ * may carry a field this repository never reads back — the reader is a person
+ * looking at JSON. That exemption is right for a response and wrong for a
+ * COMPONENT. A function whose result is spread into another object
+ * (`...gameContext(season, week, team)`) is not read by a person; it is
+ * assembled to be read by name, and a name nothing reads is work done on every
+ * call for nobody.
+ *
+ * Eligibility, in order:
+ *   1. the function's call appears in a spread position somewhere outside the
+ *      test trees — that is what separates a component from a response;
+ *   2. it is a `function name(...)` declaration, so `bodyRange` can find it.
+ *      An arrow assigned to a const is out of reach and therefore out of
+ *      scope, not silently missed;
+ *   3. the key is written `name:` at the TOP level of a returned literal —
+ *      not nested, and not shorthand, since a shorthand property's value is a
+ *      variable whose own usage rules already apply.
+ *
+ * The read test is `keyReads`, which is deliberately generous: a member
+ * access, a bracket index, a destructured binding, OR the bare name inside any
+ * string. That last one is the whole reason this rule can be trusted.
+ * `opp_adj_def_epa` is written at nfl-features.js:445 and never written as a
+ * property anywhere else; its only reader is `FEATURE_KEYS.filter(k => f[k] !=
+ * null)` at nfl-ai-replay.js:112, where the name lives in a string array and
+ * the access is dynamic. Reading strings as readers is what keeps this rule
+ * from reporting that live key as dead — the failure this project has made
+ * three times in one day at other granularities.
+ *
+ * Test trees neither contribute findings nor count as readers: a key whose
+ * only consumer is its own test is exactly the case worth reporting.
+ */
+function composedKeysNeverRead(files) {
+  const product = files.filter((f) => !isTestPath(f.path));
+
+  const spreadCalled = new Set();
+  const RE_SPREAD_CALL = /\.\.\.\s*([A-Za-z_$][\w$]*)\s*\(/g;
+  for (const f of product) {
+    let m;
+    RE_SPREAD_CALL.lastIndex = 0;
+    while ((m = RE_SPREAD_CALL.exec(f.code))) {
+      if (!inResponsePosition(f.code, m.index)) spreadCalled.add(m[1]);
+    }
+  }
+
+  const reads = new Set();
+  for (const f of product) for (const k of keyReads(f.code, f.strings ?? [])) reads.add(k);
+
+  const out = new Map();   // `file\0fn\0key` -> row
+  for (const f of product) {
+    for (const name of spreadCalled) {
+      const range = bodyRange(f.code, name);
+      if (!range) continue;
+      for (const { key, offset } of returnedLiteralKeys(f.code, range)) {
+        if (key.length < 4 || KEY_STOP.has(key) || reads.has(key)) continue;
+        const site = `${f.path}:${lineOf(f.code, offset)}`;
+        const id = `${f.path}\u0000${name}\u0000${key}`;
+        if (!out.has(id)) out.set(id, { key, file: f.path, fn: name, site, sites: [site] });
+        else out.get(id).sites.push(site);
+      }
+    }
+  }
+  return [...out.values()];
+}
+
+/**
+ * Is this offset inside the argument list of a response call?
+ *
+ * `res.json({ seasons, ...evaluateSizing(bets) })` spreads a component into a
+ * RESPONSE, and payloadKeys' exemption still applies there: the reader is a
+ * person looking at JSON, and an unread field in it is not dead work in the
+ * sense this rule reports. Only a spread into an object the program itself
+ * consumes is a component.
+ *
+ * Found by walking backwards to the first unmatched `(` and reading the callee
+ * before it, rather than by matching `res.json` near the spread — near is not
+ * enclosing, and a response call two lines above an ordinary literal would
+ * silence a real finding.
+ */
+function inResponsePosition(code, offset) {
+  // Only parens are counted. Braces and brackets cannot change which `(`
+  // encloses an offset, and counting them added a branch that could never run.
+  let depth = 0;
+  for (let i = offset - 1; i >= 0; i--) {
+    const c = code[i];
+    if (c === ')') depth++;
+    else if (c === '(') {
+      if (depth > 0) { depth--; continue; }
+      const callee = code.slice(Math.max(0, i - 40), i).match(/[A-Za-z_$][\w$.]*$/);
+      return !!callee && /(^|\.)(json|send|render|jsonp)$/.test(callee[0]);
+    }
+  }
+  return false;
+}
+
+/**
+ * The top-level `name:` keys of every object literal returned directly by a
+ * function body, with the offset of each.
+ *
+ * Brace-, bracket- and paren-counted rather than regex-matched, because a
+ * returned literal routinely holds a nested object, an array of objects and a
+ * call with its own object argument, and every one of those carries `name:`
+ * pairs that belong to something else. Only depth exactly 1 with no open
+ * bracket or paren is this literal's own key.
+ *
+ * A `return` not immediately followed by `{` is skipped: `return x ? { a } :
+ * { b }` is a conditional whose branches are not the function's record shape.
+ */
+function returnedLiteralKeys(code, range) {
+  const out = [];
+  const body = code.slice(range.start, range.end);
+  let idx = 0;
+  for (;;) {
+    const r = body.indexOf('return', idx);
+    if (r === -1) break;
+    idx = r + 6;
+    if (/[\w$]/.test(body[r - 1] ?? ' ')) continue;       // `noreturn`, not `return`
+    const lead = body.slice(r + 6).match(/^\s*\{/);
+    if (!lead) continue;
+    const open = r + 6 + lead[0].length - 1;
+    let depth = 0, end = -1;
+    for (let i = open; i < body.length; i++) {
+      if (body[i] === '{') depth++;
+      else if (body[i] === '}') { depth--; if (depth === 0) { end = i; break; } }
+    }
+    if (end === -1) break;
+    let d = 0, brackets = 0, parens = 0;
+    for (let i = open; i < end; i++) {
+      const c = body[i];
+      if (c === '{') d++;
+      else if (c === '}') d--;
+      else if (c === '[') brackets++;
+      else if (c === ']') brackets--;
+      else if (c === '(') parens++;
+      else if (c === ')') parens--;
+      if (d !== 1 || brackets !== 0 || parens !== 0) continue;
+      if (/[\w$.'"`]/.test(body[i - 1] ?? ' ')) continue;  // mid-identifier, or `a.b:`
+      const m = body.slice(i).match(/^([A-Za-z_$][\w$]*)\s*:/);
+      if (m) out.push({ key: m[1], offset: range.start + i });
+    }
+    idx = end;
+  }
+  return out;
 }
 
 /** `const playerOpportunity = ...` declared and never named again, anywhere. */
@@ -2192,6 +2346,20 @@ function findings(model, ann) {
           + `migration, no schema file, no script, no fixture. The read cannot succeed in any `
           + `database, so the path holding it is inert`,
       weight: t.satellite ? 0 : 40, evidence: t.sites.slice(0, 6) });
+  }
+
+  // A key computed into a composed record that nothing reads. Weight 6 —
+  // between field-attached-never-read and value-computed-never-used, because
+  // it is the same waste as both and is narrower than either: the read test
+  // counts a name inside any string, so a finding here survived the most
+  // generous reading available.
+  for (const k of composedKeysNeverRead([...files.values()])) {
+    add({ kind: 'orphan', rule: 'composed-key-never-read', scope: scopeOfFile(k.file),
+      subject: k.key,
+      detail: `computed in ${k.fn}() and spread into another object, so it is machine input `
+        + `rather than a response field — and no member access, bracket index, destructured `
+        + `binding or string anywhere in the product tree names it`,
+      weight: 6, evidence: k.sites.slice(0, 6) });
   }
 
   // ---- modules ---------------------------------------------------------
@@ -3200,7 +3368,7 @@ const SEVERITY = {
   'served-but-not-rendered': 1.9,
   'data-file-not-in-the-image': 3.5, 'module-only-tested': 4, 'module-imported-by-nothing': 5, 'page-never-routed': 3,
   'module-reaches-no-surface': 5, 'field-attached-never-read': 6, 'value-computed-never-used': 7,
-  'table-never-read': 8, 'export-only-tested': 9, 'export-imported-by-nothing': 10, 'route-no-caller': 11,
+  'composed-key-never-read': 6.5, 'table-never-read': 8, 'export-only-tested': 9, 'export-imported-by-nothing': 10, 'route-no-caller': 11,
 };
 
 
@@ -3488,6 +3656,12 @@ function toMarkdown(model, found, ann) {
 export { NEVER_BASELINE, GRANDFATHERED, foreignOnlyFile, valueUsageCounts, interpolations };
 export { sameNameCollisions, docsRuntimeReads, routeAnswersCall, routePattern, isTestPath, deadModuleNames, deadTombstoneTargets, docsCitations, creationSite, depthAtLine, ddlDefinitionName, resolveDefinition, columnDefaults, columnEvidence, imageDirs, runtimeFilePaths, routeWorkload, routeLiteralAbsent, bulkInScope, outboundUrlPaths, unreachablePages, entryPointScripts };
 export { tablesReadButNeverCreated, withoutSqlComments };
+// Only the rule itself is exported. `returnedLiteralKeys` and
+// `inResponsePosition` stay module-private on purpose: exporting a helper only
+// so a test can reach it adds an export-imported-by-nothing finding to this
+// map's own output, and a checker that dirties its own results to be testable
+// is not worth the two tests. They are exercised through the rule.
+export { composedKeysNeverRead };
 export { scan, sqlEdges, moduleEdges, routeHandlers, routeMounts, schedulerJobs,
   clientCalls, payloadKeys, keyReads, declarations, build, findings, blastRadius,
   toJson, toMarkdown, missingFeedTable, annotations, surfaceFamilies, close, CLOSE_HOPS, MAX_HOPS,

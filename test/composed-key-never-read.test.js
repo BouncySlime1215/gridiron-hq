@@ -25,10 +25,19 @@
  * that guard, and it runs against the real files rather than a fixture,
  * because a fixture would only prove that the fixture was written to pass.
  *
- * The reproduction targets, both found by hand first (grep, 2026-09-22):
- * `division_game` (server/services/nfl-spread-context.js:244, also :218 and
- * :355) and `flat_units`/`tiered_units` (server/services/staking.js:429-430).
- * Each is written more than once and read nowhere in the tree.
+ * The reproduction target, found by hand first (grep, 2026-09-22):
+ * `division_game` and `home_implied_points`
+ * (server/services/nfl-spread-context.js:216-218, again at :242-244 and :355),
+ * written three times and read nowhere in the tree.
+ *
+ * `flat_units`/`tiered_units` (server/services/staking.js:429-430) were the
+ * OTHER hand-found pair, and they are the reason the response filter exists.
+ * They read as dead by the same grep, but their function is spread into
+ * `res.json({ ..., ...evaluateSizing(bets) })` at
+ * server/routes/nfl-betting.js:1050 — a response, where payloadKeys' exemption
+ * holds and a field nobody reads back is allowed. Reporting them would have
+ * been the rule overreaching on its first run, so the last-but-one test below
+ * pins them as NOT reported.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -148,27 +157,39 @@ test('a test tree neither contributes findings nor counts as a reader', () => {
   assert.deepEqual(keys(out), ['zz_test_only_read']);
 });
 
-test('the rule reproduces two findings made by hand on the real tree', async () => {
-  const paths = [
+const realFiles = (...paths) => Promise.all(paths.map(async (p) =>
+  file(p, 'server', await readFile(new URL(`../${p}`, import.meta.url), 'utf8'))));
+
+test('the rule reproduces a finding made by hand on the real tree', async () => {
+  // nfl-features.js has to be in the set: it holds the `...gameContext(...)`
+  // spread at :475, and without a spread site the function is not a component
+  // and its keys are not this rule's business. That dependence is the rule,
+  // not a limitation to work around.
+  const out = composedKeysNeverRead(await realFiles(
     'server/services/nfl-spread-context.js',
-    'server/services/staking.js',
-  ];
-  const files = await Promise.all(paths.map(async (p) =>
-    file(p, 'server', await readFile(new URL(`../${p}`, import.meta.url), 'utf8'))));
-  const out = composedKeysNeverRead(files);
-  for (const k of ['division_game', 'home_implied_points', 'flat_units', 'tiered_units']) {
+    'server/services/nfl-features.js',
+  ));
+  for (const k of ['division_game', 'home_implied_points']) {
     assert.ok(keys(out).includes(k), `${k} should be reported`);
   }
 });
 
+test('a component spread into a response keeps payloadKeys exemption', async () => {
+  const out = composedKeysNeverRead(await realFiles(
+    'server/services/staking.js',
+    'server/routes/nfl-betting.js',
+  ));
+  for (const k of ['flat_units', 'tiered_units']) {
+    assert.ok(!keys(out).includes(k),
+      `${k} is spread into res.json at routes/nfl-betting.js:1050`);
+  }
+});
+
 test('opp_adj_def_epa is NOT reported: a name list is a reader', async () => {
-  const paths = [
+  const out = composedKeysNeverRead(await realFiles(
     'server/services/nfl-features.js',
     'server/services/nfl-ai-replay.js',
-  ];
-  const files = await Promise.all(paths.map(async (p) =>
-    file(p, 'server', await readFile(new URL(`../${p}`, import.meta.url), 'utf8'))));
-  const out = composedKeysNeverRead(files);
+  ));
   assert.ok(!keys(out).includes('opp_adj_def_epa'),
     'opp_adj_def_epa is read at nfl-ai-replay.js:112 through FEATURE_KEYS');
 });

@@ -330,6 +330,58 @@ async function refreshEspnRosters() {
 }
 
 /**
+ * ESPN's own ADP, rank and ownership for the player pool — the market the
+ * people in an ESPN draft room are actually looking at while they pick.
+ *
+ * `syncEspnMarket` had NO caller anywhere: not a route, not a script, not this
+ * file. It is the only writer of `espn_player_market`, and four surfaces read
+ * that table directly — `routes/aggregates.js:226` on the fantasy board,
+ * `preseason-model.js:336`, `manager-archetypes.js:166` and
+ * `consensus-weights.js:526`. Each has been serving whatever the last person
+ * to call the function by hand left behind. Same class as every other finding
+ * here: not a bug in the code that reads, a schedule that was never written
+ * for the code that writes.
+ *
+ * ONE league, and only when it is the current season. The table's key is
+ * `espn_id INTEGER PRIMARY KEY` (core-and-fantasy.js:595) — one global row per
+ * player, and the upsert overwrites the `season` column with it. Two things
+ * follow.
+ *
+ * A loop over every league would leave whichever ran last in the table.
+ *
+ * And a run against a league from a past season is worse than no run at all.
+ * `preseason-model.js:336` and `manager-archetypes.js:166` both filter
+ * `WHERE m.season = ?`, so a stale write makes them go blank — recoverable.
+ * `routes/aggregates.js:226` does not: it joins on `espn_id` with no season
+ * filter and reads `adp`, `ppr_rank` and `injury_status`, none of which is
+ * scoring-dependent. So last year's ADP and last year's injury status land on
+ * the live consensus board with nothing marking them stale. That is why the
+ * season check below is a skip rather than a best effort.
+ *
+ * `limit: 1000` because the default is 400 (espn-market.js:18) and we hold
+ * ~800 ESPN ids, so the tail of the pool was definitionally unfetched.
+ */
+async function refreshEspnMarket() {
+  const season = Number(process.env.NFL_SEASON) || new Date().getFullYear();
+  // Newest season first; within it, prefer a league carrying both cookies,
+  // because espn-market.js:31 only attaches them when both are present and a
+  // private league without them throws on the fetch.
+  const league = row(`SELECT id, name, season FROM leagues
+    WHERE platform = 'espn'
+    ORDER BY season DESC, (espn_s2 IS NOT NULL AND swid IS NOT NULL) DESC, id ASC
+    LIMIT 1`);
+  if (!league) return { skipped: true, reason: 'no ESPN league is connected' };
+  if (Number(league.season) !== season) {
+    return { skipped: true,
+      reason: `newest ESPN league is season ${league.season}, not ${season}; a stale write would `
+        + 'put last season\'s ADP on the consensus board unmarked' };
+  }
+  const { syncEspnMarket } = await import('./espn-market.js');
+  const result = await syncEspnMarket(league.id, { limit: 1000 });
+  return { ...result, league: league.name, season: league.season };
+}
+
+/**
  * Each connected league's OWN roster payload (who owns which player on THAT
  * fantasy team — a trade, a waiver claim, a drop) — a completely different
  * thing from refreshEspnRosters above (which real NFL team a player is on).
@@ -1239,6 +1291,12 @@ export const JOBS = {
     label: 'Sleeper player universe (sleeper_id, overall rank, injury flag)' },
   espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth',
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
+  // Off-thread because `kona_player_info` is the single largest ESPN payload
+  // the app fetches (17.6 MB measured on 2026-09-19, before the 400-player
+  // filter), and parsing it on the request thread is the freeze this
+  // scheduler's whole redesign exists to stop.
+  espn_market: { run: refreshEspnMarket, maxAgeMinutes: 12 * 60, tier: 'growth', offThread: true,
+    label: "ESPN's own ADP, rank and ownership for the player pool" },
   league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live',
     label: "Each connected league's own roster (trades, waivers, drops) — was manual-only" },
   // Free (ESPN scoreboard). Hourly, so the last stored line before kickoff is a

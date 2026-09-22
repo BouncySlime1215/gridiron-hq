@@ -127,4 +127,13 @@ test('Middle Linebacker survives the sweep', () => {
     + 'Linebacker, a football position, and has nothing to do with baseball');
   assert.match(view, /p\(\['LILB', 'MLB'\]\)/,
     'the inside-linebacker fallback no longer reads MLB');
+
+  // And a second file carries it five more times: the depth-chart slot maps.
+  const nfldata = read('server/routes/nfldata.js');
+  for (const fragment of ["LB: ['LB', 'ILB', 'MLB']", "MLB: 'LB'",
+    "LB: ['MLB', 'WLB', 'SLB', 'LILB', 'RILB', 'LOLB', 'ROLB']"]) {
+    assert.ok(nfldata.includes(fragment),
+      `server/routes/nfldata.js no longer contains ${fragment}. That MLB is the depth-chart `
+      + 'slot for a middle linebacker; removing it drops real NFL players out of the LB group');
+  }
 });

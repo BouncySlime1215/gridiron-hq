@@ -2,7 +2,19 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-22 23:26Z.
+Last rebuilt: 2026-09-22 23:46Z.
+
+## #156: Hand-fed tables (roster snapshots, trending, correlations) name their own absence (S-18)
+
+- Merged: 7:46 PM ET, Sep 22 as `443f33b7` (unit S-18)
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
+
+## #157: Add an always-visible data credit line; fix ffopportunity's licence (F-08)
+
+- Merged: 7:36 PM ET, Sep 22 as `7a9d75f6` (unit F-08)
+- Intake: done: (filled by the integration intake agent) pending
+- Follow-ups: none needed, or folded into existing units (see the card)
 
 ## #154: Docs: 2025 holdout ledger and one statistics contract for every unit (S-00)
 

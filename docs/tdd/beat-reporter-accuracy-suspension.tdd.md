@@ -172,7 +172,35 @@ check).
 before that rule landed) is `npm run check` only and the authoritative runs are on the
 merged tree:
 
-<!-- guard-pair-results -->
+| pass | tree | worktree | gate | exit | tree before/after | status before/after | tests | touched outside `client/dist/` |
+|---|---|---|---|---|---|---|---|---|
+| 1 | `f413929f` (pre-merge) | `/tmp/claude-0/suspension-verify-1` | `npm run check` | 0 | `c86c7aaf` / `c86c7aaf` (unchanged) | empty/empty | 3221 total, 3180 pass, 0 fail, 41 skipped | none |
+| 2 | `5c04069d` (merged + §4a fixes) | `/tmp/claude-0/suspension-gate` | `npm run check && npm run check:wiring` | 1 | `c4627d02` / `c4627d02` (unchanged) | empty/empty | 3768 total, 3727 pass, **0 fail**, 41 skipped | none |
+
+Pass 2's exit 1 is **not a test failure** — every test in both suites passes, and `npm run
+check` (typecheck, lint, suite, build, `start:smoke`) is green end to end. The non-zero exit
+comes from `npm run check:wiring`, which reports 19 blocking findings on this tree. None of
+them is this unit's:
+
+- **3 are `main`'s own known red** (`play_by_play`, `pbp_participation`,
+  `refreshLeagueRosters()`), named as such by the coordinator at 17:11Z with a fix in flight —
+  they arrived here with the merge.
+- **~10 belong to other threads** (`jev_chat_signals`, `manager_chat_profile`, `messages` and
+  their columns), plus one stale accept-list entry (`server/services/cascade-grade.js`) naming
+  a file no longer in the tree.
+- **6 are Coach's**, and all 6 pre-date this unit: `client/src/components/coach/coach.types.ts`
+  (imported by nothing — it is the wire contract handed to the UI thread, whose panel is the
+  importer), and `people/context.js`, `people/grading.js`, `people/lexicons.js`,
+  `people/variables.js`, `stat-names.js` (reachable from the two run-sheet scripts but from no
+  route, job or page). PR #82's body already documents both states in writing: "No UI... the
+  panel is the UI thread's" and the grading harness "has [not] run against a real chain".
+
+**Not one of the 19 names a file this unit touched.** The suspension slice adds no wiring
+finding: `beat-reporter-accuracy.js` reaches a surface through Coach's tools and catalog and
+`routes/coach.js`, and does not appear in the report. Whether Coach's 6 are grandfathered,
+annotated, or wired is a cross-thread decision (the importer for the types file is another
+thread's, and the gate's accept-list is the Wiring map thread's), raised with the coordinator
+rather than decided here.
 
 ## 4a. What merging main into this branch actually found
 

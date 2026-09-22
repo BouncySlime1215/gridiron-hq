@@ -12,6 +12,8 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-fantasy-coordinator
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { db } = await import('../server/db/index.js');
+const { runMigrations } = await import('../server/db/migrate.js');
+await runMigrations(); // weeklyProjectionFor -> buildProjections reads nfl_projection_range_fits (migration 064)
 const {
   fitFantasyCoordinator, coordinateFantasy, saveFantasyCoordinatorFit, activeFantasyCoordinatorFit,
   weeklyProjectionFor, __test

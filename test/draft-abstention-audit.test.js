@@ -12,6 +12,8 @@ process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 process.env.GRIDIRON_DB_INTEGRITY_CHECK = 'off';
 
 const { db } = await import('../server/db/index.js');
+const { runMigrations } = await import('../server/db/migrate.js');
+await runMigrations(); // preseason-model.js's inHouseProjections -> buildProjections reads nfl_projection_range_fits (migration 064)
 const { resetPreseasonCache } = await import('../server/services/preseason-model.js');
 const {
   seasonSlotTruth, gradePick, buildAbstentionPanel, fitGate, gateFlags, applyGate,

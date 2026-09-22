@@ -51,7 +51,7 @@
  * weekly ensemble promotion afterwards — the promoted ensemble weights were fit
  * against the current, over-shrunk structural head.
  */
-import { db, rows } from '../db/index.js';
+import { db, rows, row } from '../db/index.js';
 import { RECENCY } from './projections.js';
 import { WEEKLY_ROLE_RECENCY } from './weekly-ensemble.js';
 
@@ -160,7 +160,15 @@ export function fitK(observations) {
   // No detectable between-player variance: the data can't rule out "everyone
   // is the same," so the safest reading is "trust the prior completely."
   const k = sigma2Between > 1e-9 ? sigma2Within / sigma2Between : Infinity;
-  return { k, sigma2_within: sigma2Within, sigma2_between: sigma2Between, n_groups: I, n_obs: totalN };
+  // ICC -- what fraction of the week-to-week variance is the player, not
+  // noise. Same two variance components fitK already computed; this reads
+  // them the other way around from k, in [0, 1] rather than in weeks/targets/
+  // etc. Data & techniques R&D, RELIABILITY-SPEC.md 2026-09-22: this is NOT
+  // invariant to the observations' weighting scheme (sigma2_within scales
+  // with weight, sigma2_between does not) -- a caller comparing icc across
+  // fits MUST hold the weighting scheme fixed, or the comparison is invalid.
+  const icc = sigma2Between > 1e-9 ? sigma2Between / (sigma2Between + sigma2Within) : 0;
+  return { k, icc, sigma2_within: sigma2Within, sigma2_between: sigma2Between, n_groups: I, n_obs: totalN };
 }
 
 /* --------------------------------------------------------- dataset builders */
@@ -186,19 +194,25 @@ function teamWeeks(log) {
 }
 
 /**
- * Raw-opportunity efficiency metrics (yards/catch-rate/td-rate per target,
- * carry, or attempt). Fit per position, in the same units projections.js
- * would use if it passed the raw opportunity count as `n` (see FIT_SPECS —
- * this is what replaces the old count/5, count/8, count/10 conversion).
+ * Recency-weighted-opportunity efficiency metrics (yards/catch-rate/td-rate
+ * per target, carry, or attempt). Fit per position, in the same units
+ * projections.js actually uses: `a.targets += w * (u.targets ?? 0)` under
+ * RECENCY is the real `n` passed to pickK() for ypt/catch_rate (likewise
+ * a.carries/a.attempts for ypc/ypa), so the fit's weight has to be
+ * `weightFn(season, week) * opp`, not the raw opportunity count alone —
+ * a raw count is what projections.js would use only if RECENCY's season
+ * decay didn't exist.
  */
-function efficiencyObservations(log, position, oppField, valueFn) {
+function efficiencyObservations(log, position, oppField, valueFn, weightFn) {
   const out = [];
   for (const u of log) {
     if (u.pos !== position) continue;
     const opp = u[oppField] ?? 0;
     if (!(opp > 0)) continue;
+    const w = weightFn(u.season, u.week) * opp;
+    if (!(w > 0)) continue;
     const value = valueFn(u, opp);
-    if (Number.isFinite(value)) out.push({ group: u.player_id, weight: opp, value });
+    if (Number.isFinite(value)) out.push({ group: u.player_id, weight: w, value });
   }
   return out;
 }
@@ -353,24 +367,24 @@ export function buildFitSpecs(through, { throughWeek = null, roleRecency = WEEKL
 
   for (const position of ['WR', 'RB', 'TE']) {
     specs.push({ metric: 'ypt', position, observations:
-      efficiencyObservations(log, position, 'targets', u => (u.receiving_yards ?? 0) / u.targets) });
+      efficiencyObservations(log, position, 'targets', u => (u.receiving_yards ?? 0) / u.targets, effW) });
     specs.push({ metric: 'catch_rate', position, observations:
-      efficiencyObservations(log, position, 'targets', u => (u.receptions ?? 0) / u.targets) });
+      efficiencyObservations(log, position, 'targets', u => (u.receptions ?? 0) / u.targets, effW) });
     specs.push({ metric: 'rec_td_rate', position, observations:
-      efficiencyObservations(log, position, 'targets', u => (u.receiving_tds ?? 0) / u.targets) });
+      efficiencyObservations(log, position, 'targets', u => (u.receiving_tds ?? 0) / u.targets, effW) });
   }
   for (const position of ['QB', 'RB', 'WR']) {
     specs.push({ metric: 'ypc', position, observations:
-      efficiencyObservations(log, position, 'carries', u => (u.rushing_yards ?? 0) / u.carries) });
+      efficiencyObservations(log, position, 'carries', u => (u.rushing_yards ?? 0) / u.carries, effW) });
     specs.push({ metric: 'rush_td_rate', position, observations:
-      efficiencyObservations(log, position, 'carries', u => (u.rushing_tds ?? 0) / u.carries) });
+      efficiencyObservations(log, position, 'carries', u => (u.rushing_tds ?? 0) / u.carries, effW) });
   }
   specs.push({ metric: 'ypa', position: 'QB', observations:
-    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_yards ?? 0) / u.attempts) });
+    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_yards ?? 0) / u.attempts, effW) });
   specs.push({ metric: 'pass_td_rate', position: 'QB', observations:
-    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_tds ?? 0) / u.attempts) });
+    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_tds ?? 0) / u.attempts, effW) });
   specs.push({ metric: 'int_rate', position: 'QB', observations:
-    efficiencyObservations(log, 'QB', 'attempts', u => (u.interceptions ?? 0) / u.attempts) });
+    efficiencyObservations(log, 'QB', 'attempts', u => (u.interceptions ?? 0) / u.attempts, effW) });
 
   specs.push({ metric: 'availability', position: 'ALL', observations: availabilityObservations(log, through) });
   specs.push({ metric: 'qb_attempt_share', position: 'QB', observations: qbAttemptShareObservations(log, through) });
@@ -458,6 +472,48 @@ export function activeKVector() {
 
 export function fitHistory(limit = 20) {
   return rows('SELECT * FROM shrinkage_fits ORDER BY id DESC LIMIT ?', limit);
+}
+
+/* ------------------------------------------------ metric reliability (ICC) */
+
+/**
+ * Persists one metric's fitted reliability -- icc, k and the variance
+ * components fitK produced them from -- replacing any prior fit for the same
+ * (population, metric, weightingScheme). Unlike saveFit/shrinkage_fits above,
+ * this is a CURRENT measurement table, not a version history: a re-fit
+ * upserts in place (migration 063's UNIQUE constraint), because reliability
+ * reporting wants "what do we believe right now", not an audit trail of every
+ * past belief.
+ *
+ * weightingScheme is required and is never inferred from `fit` -- see
+ * migration 063's header for why a caller cannot skip it.
+ */
+export function saveMetricReliability({ population, metric, weightingScheme, fit, nPlayers, seasons }) {
+  if (!population || !metric || !weightingScheme) {
+    throw new Error('saveMetricReliability requires population, metric and weightingScheme');
+  }
+  if (!fit || !Number.isFinite(fit.icc) || !(Number.isFinite(fit.k) || fit.k === Infinity)) {
+    throw new Error('saveMetricReliability requires a fitK() result with a finite icc and a finite-or-Infinity k');
+  }
+  db.prepare(`INSERT INTO nfl_metric_reliability
+      (population, metric, weighting_scheme, icc, k, sigma2_within, sigma2_between, n_players, n_obs, seasons, fitted_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(population, metric, weighting_scheme) DO UPDATE SET
+      icc=excluded.icc, k=excluded.k, sigma2_within=excluded.sigma2_within, sigma2_between=excluded.sigma2_between,
+      n_players=excluded.n_players, n_obs=excluded.n_obs, seasons=excluded.seasons, fitted_at=excluded.fitted_at`)
+    .run(population, metric, weightingScheme, fit.icc, fit.k, fit.sigma2_within ?? null, fit.sigma2_between ?? null,
+      nPlayers ?? null, fit.n_obs ?? null, seasons ?? null, new Date().toISOString());
+}
+
+/** One metric's currently-stored reliability, or null if it has never been fitted. */
+export function loadMetricReliability(population, metric, weightingScheme) {
+  return row(`SELECT * FROM nfl_metric_reliability
+    WHERE population = ? AND metric = ? AND weighting_scheme = ?`, population, metric, weightingScheme) ?? null;
+}
+
+/** Every stored reliability row, most recently fitted first -- for a dashboard or audit. */
+export function allMetricReliability() {
+  return rows('SELECT * FROM nfl_metric_reliability ORDER BY fitted_at DESC');
 }
 
 /* ------------------------------------------------------- volume-only vector */

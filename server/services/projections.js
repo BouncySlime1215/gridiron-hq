@@ -30,6 +30,7 @@ import {
 } from './stats-util.js';
 import { activeKVectorFor } from './shrinkage-fit.js';
 import { qbrTrailingForPlayer } from './nfl-qbr.js';
+import { activeProjectionRangeTable, projectionRangeFor } from './projection-range.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const GAMES = 17;
@@ -94,6 +95,11 @@ const GAMES = 17;
 const K = {
   share: 6,          // target/carry share — stable, trust it early (weighted games)
   team_volume: 10,   // team pass/rush rate — stable (weighted games)
+  // "raw" here means unweighted BY THIS k, not unweighted period: the
+  // opportunity/target counts pickK receives (a.targets/a.carries/a.attempts)
+  // already carry seasonWeight's cross-season decay (0.35/0.1225/0.042875 for
+  // one/two/three seasons back, RECENCY.seasonDecay) before this k shrinks
+  // them further.
   yards_per: 34,     // yards per opportunity — regress hard (raw opportunities)
   catch_rate: 26,    // raw targets
   td_rate: 70,       // the most regression-prone number in fantasy (raw opportunities)
@@ -442,6 +448,32 @@ function positionalPriors(log) {
  *   is how the backtest compares the two on identical inputs.
  * @returns Map<player_id, projection>
  */
+/**
+ * docs/spec/projection-range.md section 5's serving contract: range_lo/
+ * range_hi bound `ppg` (the per-game point estimate weekly-backtest.js's
+ * causal replay validated the band against -- see docs/tdd/projection-
+ * range-coverage.tdd.md -- never `points`/`points_horizon`, a different
+ * basis). Absent beats invented: no active fit, or a position/bin the fit
+ * never saw 20+ rows for, yields every field null rather than a fabricated
+ * band. `range_coverage` prefers the fit's own position-specific measured
+ * coverage over its overall figure, since a WR-labelled band should be read
+ * against WR calibration, not the population average.
+ */
+function rangeBand(rangeFit, position, ppg) {
+  const band = rangeFit ? projectionRangeFor(rangeFit.table, position, ppg) : null;
+  if (!band) {
+    return { range_lo: null, range_hi: null, range_n: null, range_basis: null, range_coverage: null, range_fitted_at: null };
+  }
+  return {
+    range_lo: +band.lo.toFixed(2),
+    range_hi: +band.hi.toFixed(2),
+    range_n: band.n,
+    range_basis: 'ppg',
+    range_coverage: rangeFit.coverage_by_position?.[position]?.coverage ?? rangeFit.coverage_overall ?? null,
+    range_fitted_at: rangeFit.fitted_at
+  };
+}
+
 export function buildProjections({
   through = SEASON - 1, throughWeek = null, scoring = PPR, kOverride, recency,
   roleRecency, qbrSignal = QBR_SIGNAL
@@ -459,6 +491,11 @@ export function buildProjections({
   // weeks of `through`; a season-boundary cutoff predicts `through + 1`.
   const predictingSeason = throughWeek != null ? through : through + 1;
   const k = kOverride === undefined ? activeKVectorFor(rr, { predictingSeason }) : kOverride;
+  // The active projection-range fit (docs/spec/projection-range.md section 5),
+  // read once per call rather than per player. null when no fit has ever been
+  // activated -- every player then gets the range_* fields as null, per
+  // projectionRangeFor's own absent-beats-invented rule, not a fabricated band.
+  const rangeFit = activeProjectionRangeTable();
   const log = history(through, throughWeek);
   if (!log.length) return new Map();
   const { teams: teamVol, league: leagueVol } = teamVolume(log, through, k, throughWeek, rr);
@@ -748,7 +785,8 @@ export function buildProjections({
       // If one ever needs to, emit a remaining-games total under a new name rather
       // than redefining this one out from under the draft-time callers.
       points: +(meanPpg * expectedGames).toFixed(1),
-      points_horizon: 'full_season_17g'
+      points_horizon: 'full_season_17g',
+      ...rangeBand(rangeFit, a.pos, meanPpg)
     });
   }
   return out;

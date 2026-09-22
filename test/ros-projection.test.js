@@ -19,6 +19,8 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-ros-projection-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
 const { db, run, row } = await import('../server/db/index.js');
+const { runMigrations } = await import('../server/db/migrate.js');
+await runMigrations(); // buildProjections (via rosPriorMap) now reads nfl_projection_range_fits (migration 064)
 // Side-effect import: player_week_usage is created at import time by nflverse.js.
 await import('../server/services/nflverse.js');
 const { PPR, HALF_PPR, STANDARD } = await import('../server/services/scoring.js');

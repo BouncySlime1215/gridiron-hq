@@ -76,6 +76,41 @@ export function scoringFor(lg) {
 }
 
 /**
+ * Whether `scoringFor(lg)`'s answer is CONFIRMED against the league's own published
+ * per-stat point values, or is a bucketed default. Mirrors scoringFor's own
+ * matched-count logic exactly, without changing scoringFor's behavior, exports or
+ * callers — this is read-only reporting alongside it, not a second scoring path.
+ *
+ * Built for league-config-verification.js, which needs to know WHY a league got the
+ * scoring it got, not just what the scoring is.
+ */
+export function scoringConfirmationFor(lg) {
+  if (!lg?.payload) {
+    return { status: 'unavailable', matched: 0, reason: 'league has no synced payload yet' };
+  }
+  if (lg.platform !== 'espn') {
+    return { status: 'defaulted', matched: 0,
+      reason: `scoringFor only reads per-stat detail for ESPN; ${lg.platform} leagues always get the `
+        + 'ppr-bucketed default regardless of their real scoring settings' };
+  }
+  let items;
+  try {
+    items = JSON.parse(lg.payload)?.settings?.scoringSettings?.scoringItems;
+  } catch {
+    return { status: 'unavailable', matched: 0, reason: 'league payload is not valid JSON' };
+  }
+  if (!Array.isArray(items) || !items.length) {
+    return { status: 'defaulted', matched: 0, reason: 'no scoringSettings.scoringItems in the payload' };
+  }
+  const matched = items.filter(it => ESPN_STAT[it.statId] && typeof it.points === 'number').length;
+  return matched >= 4
+    ? { status: 'confirmed', matched, reason: `${matched} of ${items.length} scoring items matched a known stat id` }
+    : { status: 'defaulted', matched,
+        reason: `only ${matched} of ${items.length} scoring items matched a known stat id (need 4+), so `
+          + 'scoringFor used the ppr-bucketed default instead' };
+}
+
+/**
  * Fantasy points for one weekly line from `player_week_usage`.
  * Null-safe: a receiver's row has no passing columns and vice versa.
  */

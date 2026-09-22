@@ -2,7 +2,27 @@
 
 Unit C-01 (plan item C12). Branch `claude/local-c-01-startsit-baseline-gate` off
 `origin/main d6d7bd5a`. Pre-registration: `docs/evidence/2026-09-22/start-sit-baseline-gate-prereg.md`,
-committed at `a2ea8714` before any number was run.
+committed at `a2ea8714` before any number was run. **Addendum 1**
+(`start-sit-baseline-gate-prereg-addendum-1.md`, `f55d2eb6`, 17:18:46 -0400) was committed
+before its arms were computed by this unit; §0 of it states what a skeptic had already seen.
+
+**Every number in this file is for the Independent Auditor, not for Nick** (standing rule 3,
+R44.1, R45, R61). The Lineup panel shows direction only; see §10.
+
+## 0. Revision 2: the skeptic review of `b39b54c8`, and what changed
+
+| # | blocker (lens) | disposition | where |
+|---|---|---|---|
+| 1 | the dumb rule is "season average", not the named "start highest projection" (claims) | **arm added, ruling still needed.** The literal rule (ESPN's weekly projection) is graded on the forward weeks against what the app served. On 2026 week 2 it points **against us** (§4a). The verdict still gates on the season average, as registered; whether the literal arm replaces it is the Auditor's call | `f55d2eb6` addendum §3, `b51468ee` |
+| 2 | prereg not filed with the Auditor before any number ran (claims) | **cannot be undone; ruling needed.** Stated in addendum §5 with the four rulings asked for | addendum §5, §9 below |
+| 3 | replay magnitudes and lineup rates on the panel (claims, wiring) | **fixed:** the panel renders direction only; the job's `sync_log` detail (Coach-readable) carries verdict and directions only; a rendered-panel test fails if any digit other than a season, week or timestamp appears. The route still serves the magnitudes for the Auditor | `f6eba878`, `b51468ee`, `test/start-sit-gate-panel.test.js` |
+| 4 | writer not reached where the app runs (wiring) | **fixed, needs a file grant:** `start_sit_gate` added to `scripts/refresh-live-data.mjs` `FANTASY_LIVE_JOBS`, after `nfl_model_growth` and `nfl_weekly_learning`; pinned by `test/refresh-loop-steps.test.js` G7. Both files are outside the unit row; drop `ad66dae7` (and G7) if the grant is refused | `ad66dae7`, `05ceb070` |
+| 5 | LM1, LM3 survived (liveness) | **fixed:** hand-counted past and forward values on the fixture (`n` 90, points -0.5333, win rate 0.4722; forward 28, -0.25, 0.4821) and an all-correct fixture that must read `beats_dumb` | `05ceb070` |
+| 6 | LM2 survived (liveness) | **fixed:** `test/start-sit-gate-job.test.js` calls `JOBS.start_sit_gate.run()` and requires one FANTASY/start_sit row | `05ceb070` |
+| 7 | LM4 survived (liveness) | **fixed:** a forward season that reverses the actuals must read `beats_dumb_unconfirmed_forward`, G4 value -6, not passed | `05ceb070` |
+| 8 | LM6 survived (liveness) | **fixed:** the panel is compiled with the repo's TypeScript and rendered with React; one chip per failing week, samples of 7 and 12 included | `05ceb070` |
+| 9 | LM5, LM7 survived (liveness; not listed as blocking) | **fixed:** the unknown-team bye rule and both MAEs are pinned | `ffd84d02` |
+| 10 | the forward window is labelled "as production served it", but week 2 was served on other settings; `weekly_prediction_snapshots` unused (structure) | **fixed:** the replay is relabelled "today's settings, replayed"; what was served is graded beside it (arm A) with the capture time, weights and fit time per week, and the page says why they differ; the producer table below now names the snapshot table | `f55d2eb6`, `b51468ee`, §1, §4a |
 
 ## 1. Audit: what already exists, and extend-or-build
 
@@ -20,6 +40,9 @@ Written before the first test. Every line is on `d6d7bd5a`.
 | `server/services/model-governance.js:154` `recordGateAudit` → `model_gate_audits` | immutable, hash-deduplicated gate-result store, verdict computed from `gates[].passed` | **reuse as the store, no migration.** Rows carry `sport = 'FANTASY'`, so the betting readers (`nfl-research.js:269` `gateAudits('NFL')`, `nfl-evidence.js:109` count of `sport='NFL'`, `routes/nfl-market.js:217` promote with `'NFL'`) never see them |
 | `server/services/scheduler.js` `JOBS` | no gate job exists | **build:** `start_sit_gate`, growth tier, `offThread: true`, weekly cadence. B-17 (ops calendar, not built) will map it to a day |
 | `client/src/pages/Lineup.tsx` | no gate panel | **build:** one panel on the existing page; nav stays 8 tabs |
+| `weekly_prediction_snapshots`, writer `server/services/weekly-learning.js:49` `captureWeeklyPredictions` (INSERT `:63`) | the projection the app actually served each week, pregame, first write wins (added in revision 2; missed in the first audit) | **reuse as arm A's policy** (addendum 1 §2). A second producer of "our week-2 projection": see §4a |
+| `league_roster_snapshots.projected_points`, writer `scripts/collect-roster-snapshots.mjs:109` `writePeriod` (value built `:92`) | ESPN's own weekly projection for every rostered player, per league, settled periods from the boxscore; the refresh loop runs it every tick | **reuse as arm B's dumb rule** (the literal "start the highest projection"), settled rows only, one value per player-week |
+| `espn_player_market_weekly` | ESPN market capture with `week_proj`, 2026 week 2 only | **not used by the gate:** no writer in the repo (`git grep -n espn_player_market_weekly d6d7bd5a` finds one doc line). Used only in a descriptive stress check (§4a) |
 
 Grep for other producers of the same concept (start/sit decision rate, pair
 accuracy, "highest projection") on `d6d7bd5a`:
@@ -63,6 +86,41 @@ two-factor resampler, the verdict, the job, the route and the panel.
   the gate, its route, its job or `model_gate_audits`; `no missing-feed findings`. The full
   `npm run check` is the Gate phase's single run and was not run here.
 
+### Revision 2 (after the skeptic review)
+
+Same command, six files (the three above plus `test/start-sit-gate-job.test.js`,
+`test/start-sit-gate-panel.test.js`, `test/refresh-loop-steps.test.js`). TAP files in the
+session scratchpad `c01-fix/`.
+
+- **RED** `05ceb070` "test: RED for the gate fixes: forward arms, direction-only panel, loop wiring;
+  pin values, G4 and the job write". baseline-gate 15/0, start-sit-gate **19 pass / 7 fail**,
+  surface **10 / 2**, job **1 / 0**, panel **3 / 3**, refresh-loop **19 / 1**. The failing
+  assertions that name the gap:
+
+  > `the gate job must be on the live loop` (refresh-loop G7) ·
+  > `past_n = 120 would put a number in sync_log` (surface) ·
+  > `beats_dumb: a number other than a season or week reached the panel: … Our pick scored more 55.0% of the time (90% range 52.6% to 57.3%), and +1.37 points per disagreement …` (panel, rendering the old component) ·
+  > `Cannot read properties of undefined (reading 'vs_average')` (start-sit-gate, the served arm)
+
+  The tests that kill LM1, LM3, LM4 and LM2 **pass on the old code by design** (they pin what the
+  old code already did right): the job test, the G4-reversal test, and the value assertions,
+  which run before the new `direction` assertion in the same test. Their liveness is shown by the
+  sweep (§6, sweep 4), not by RED.
+- One test fixture was corrected before GREEN: the job test's actuals were below the 8.0 line, so
+  the oracle control had no pairs and the gate said `instrument_fault` (the test was wrong, not
+  the code); actuals moved to `8 + 2 × id`.
+- **GREEN** `ad66dae7` (tree `1beaa175`), after `b51468ee` (service), `f6eba878` (panel), `ad66dae7`
+  (loop): **15/0, 26/0, 12/0, 1/0, 6/0, 20/0**. `ffd84d02` (test only, LM5 and LM7): 26/0.
+  **Final code head `95952b44`** (tree `daf89b12`, after `29ec1909` test-only and two panel wording
+  commits): **15/0, 26/0, 12/0, 1/0, 6/0, 20/0**. The two other tests that read `FANTASY_LIVE_JOBS`
+  pass on `d5eddaa3`: `league-history-schedule` 7/0, `manager-signals-api` 27/0.
+- **Wiring:** `node scripts/wiring-map.mjs --check` on `d5eddaa3`: **exit 0**, `no missing-feed
+  findings`; no finding names the gate, its route, its job, `model_gate_audits`,
+  `weekly_prediction_snapshots`, `league_roster_snapshots` or the refresh loop (grep of the output).
+- **Panel typecheck, single file** (not the Gate phase's full run):
+  `tsc --noEmit <tsconfig options> client/src/components/lineup/StartSitGate.tsx` exit 0; the same
+  command on a copy with a planted `boolean`→`number` error exits 2 (known-nonzero control).
+
 ## 3. What it does
 
 | piece | file | what |
@@ -71,8 +129,9 @@ two-factor resampler, the verdict, the job, the route and the panel.
 | start/sit gate | `server/services/gates/start-sit-gate.js` | k control → `replaySeasonWeekly` in configuration B with the as-of champion head → byes removed → startable same-position pairs → disagreements → grade → oracle and identity controls → verdict. `refreshStartSitGate` stores; `latestStartSitGate` reads |
 | store | `model_gate_audits`, writer `model-governance.js:154 recordGateAudit` | `sport = 'FANTASY'`, `market = 'start_sit'`, `evidence_json` = the whole result. **No migration**: the table exists (legacy schema, `server/db/schema/mlb-model-misc.js:195`) |
 | route | `server/routes/gates.js`, mounted `server/index.js` `app.use('/api/gates', ...legacyAuthenticated, gatesRouter)` | `GET /api/gates/start-sit` reads one row; `status: 'not_run'` before any run, `'unreadable'` if the stored JSON is corrupt |
-| job | `server/services/scheduler.js` `JOBS.start_sit_gate` | growth tier, `offThread: true`, `maxAgeMinutes` 7 days, `timeoutMs` 10 min. **Weekly now; B-17 (ops calendar, not built) will give it a day.** An instrument fault returns `error`, so `sync_log` records it |
-| page | `client/src/components/lineup/StartSitGate.tsx`, rendered in `Lineup.tsx` | verdict chip in plain words, the headline numbers with their 90% ranges, the forward line, the MDE when it did not pass, every failing week as a chip, and "What was compared" (both rules, the universe, scoring, sign convention, the replay limit, when it was measured). Nav unchanged (8 tabs) |
+| job | `server/services/scheduler.js` `JOBS.start_sit_gate` | growth tier, `offThread: true`, `maxAgeMinutes` 7 days, `timeoutMs` 10 min. **Weekly now; B-17 (ops calendar, not built) will give it a day.** An instrument fault returns `error`, so `sync_log` records it. **Run by `scripts/refresh-live-data.mjs` (revision 2)**, the only runner of scheduler jobs while the server has `SCHEDULER_DISABLED=1`. Its `sync_log` detail carries the verdict and directions only |
+| page | `client/src/components/lineup/StartSitGate.tsx`, rendered in `Lineup.tsx` | **direction only (revision 2):** the verdict chip in plain words; the past window in words from the verdict; this season replayed, and as served against the average and against ESPN, each as which pick scored more; why the served week differs from the replay; every failing week as a season-week chip with no size; "What was compared" (both rules, the literal rule, the universe, scoring, why no numbers, the replay limit, when it was measured). Nav unchanged (8 tabs) |
+| served arms | `start-sit-gate.js` `servedArms`, `servedSnapshots`, `espnProjections`, `substitute` | forward weeks only, descriptive (addendum 1): the replay rows with the policy swapped for the served snapshot (arm A), and then the baseline swapped for ESPN's settled projection (arm B). Each window carries `direction` |
 | manual run | `scripts/run-start-sit-gate.mjs` | prints configuration, then controls, then the result; `--store` writes like the job |
 
 ## 4. The numbers (local copy, not production)
@@ -154,6 +213,70 @@ replicates, 1,000 draws each: mean win rate 0.4988 (0.457-0.528); false passes G
   weeks 5-18, byes out, DNP as 0. Different projection, seasons and population, so not the same input.
   **Not unified here: C-10 replaces the static curve with a tracked rate and should read this gate.**
 
+## 4a. Revision 2 run: what the app served, and the literal rule (local copy, not production)
+
+**For the Auditor, not for Nick.** Data basis: a fresh backup,
+`sqlite3 ~/gridiron-local/data.sqlite ".backup '<worktree>/.local-db/data-b.sqlite'"` at
+2026-09-22 17:16 -0400, sha256 `b9086412006153571a2bb3e3acfb41aba136bd9688cecd33e708c1a59fb32bed`,
+**local copy, not production** (the §4 copy is older and has no ESPN roster rows). Code `ffd84d02`
+(tree `f2fe3095`, worktree clean). Command as §4 with the new path. **47.1 s wall, 356 MB peak
+RSS** (`/usr/bin/time -l`), load average 8.75. Output: scratchpad `c01-fix/gate-run-2.out`.
+
+Printed before any metric: roleRecency `{"seasonDecay":0.05,"weekHalfLife":5}`, kOverride omitted,
+k control 2024 **0.2747**, 2025 **0.2086**, 2026 **0.1733**; champions `frozen-2023` for every
+graded week of 2024-2025, `fit-2` for 2026 week 2. Oracle **n 10,131, win rate 1.0, +6.90**;
+identity **n 0**; controls passed.
+
+**Past window: identical to §4** (6,633 of 52,297; 0.5497; +1.3703; player CI [+0.7958, +1.9428];
+week CI [+0.9566, +1.7702]; win-rate CI [0.5256, 0.5733]; the same five failing weeks). G1-G4 pass.
+**Verdict `beats_dumb`, unchanged.**
+
+| 2026 week 2 | rows | pairs | disagreements | our pick won | points per disagreement | player-clustered 90% CI | MDE80 | direction |
+|---|---|---|---|---|---|---|---|---|
+| replay, today's settings (G4) | 360 | 1,923 | 571 | 58.1% | +2.79 | [+0.31, +5.51] | 3.93 | ours ahead |
+| **A.** served vs the average | 360 (0 without a snapshot) | 1,233 | 63 | 55.6% | +3.49 | [−2.13, +9.26] | 8.57 | ours ahead, CI straddles 0 |
+| **B.** served vs ESPN (the literal rule) | 153 (207 with no settled ESPN value; 0 conflicting) | 784 | 286 | **37.8%** | **−3.42** | **[−6.52, −0.36]** | 4.73 | **ESPN ahead** |
+
+Pair accuracy: replay 0.636 vs average 0.587; A 0.580 vs 0.573; **B ours 0.564 vs ESPN 0.653**.
+MAE on B's 153 rows: ours 6.47, ESPN 5.72. The forward replay reads 571 disagreements here against
+570 in §4: the fresh copy's week-2 rows moved after 16:10.
+
+**Reading.** The registered verdict holds. **On the literal rule the one forward week points
+against us:** where what the app served and ESPN's projection disagreed, ESPN's pick scored more,
+and the player-clustered interval excludes 0. One week, 153 rostered players, direction only, and
+not part of the verdict by pre-registration. **C12's literal bar is therefore not shown met; on
+week 2 it points the other way.** The Auditor should rule on this before merge.
+
+**Stress, descriptive, NOT pre-registered** (scratchpad `c01-fix/espn-stress.mjs`, same copy and code):
+
+| variant | rows | disagreements | our pick won | points | player CI |
+|---|---|---|---|---|---|
+| B reproduced | 153 | 286 | 37.8% | −3.42 | [−6.52, −0.36] |
+| served vs ESPN's **Thursday** capture (`espn_player_market_weekly`, 22:08Z, 3 h after our snapshot), same 153 rows | 153 | 308 | 41.7% | −2.35 | [−5.93, +1.31] |
+| served vs ESPN's Thursday capture, every row it covers | 342 | 381 | 41.9% | −2.28 | [−5.51, +0.86] |
+| **today's settings replayed** vs ESPN settled | 153 | 508 | 42.8% | −1.99 | [−4.65, +0.63] |
+
+ESPN's settled value differs from its Thursday value for **127 of 153** player-weeks (mean abs 0.73
+points): the settled value carries later news, which favours ESPN (addendum §3 limit 1). Every
+variant points ESPN's way; only the pre-registered one excludes 0.
+
+### One number, two producers: "our 2026 week-2 projection"
+
+Scratchpad `c01-fix/two-producers.mjs`, same copy and code.
+
+- **Both values on the same input:** the gate's replay (today's settings) against the served
+  snapshot, same 360 rows: mean abs gap **2.17** points, **71.7%** of rows differ by more than 1;
+  **327 of 1,242** startable pairs (both ≥ 8.0 by both, no ties) are ordered the other way.
+- **Cause, reproduced:** replaying week 2 with the settings in force at capture (`kOverride: null`,
+  so the hardcoded `K.share = 6`; `frozen-2023` weights) matches the snapshot to **0.017** points
+  mean abs. Capture `as_of` 2026-09-17T18:56Z; volume fit 1 `fitted_at` 2026-09-18T02:52Z;
+  ensemble `fit-1` created 2026-09-17 21:59, `fit-2` 2026-09-18 06:45 (`weekly_ensemble_fits.created_at`).
+- **How it unifies:** not forced into one number. Both are served and shown, labelled, with the
+  reason per week (`forward.served.weeks[]`). Week 3's snapshot was captured on current settings
+  (`weight_fit` `fit-2`, `as_of` 2026-09-22T20:48Z, 1,196 rows), so from week 3 the two producers
+  should agree unless the model changes, and the gate will show it if they do not. The served
+  number is the ensemble projection, not the lineup's `week_points`; storing that is WORK-QUEUE S-12.
+
 ## 5. Holdout looks
 
 No `docs/evidence/HOLDOUT-LEDGER.md` on `origin/main d6d7bd5a`, so recorded here.
@@ -161,6 +284,7 @@ No `docs/evidence/HOLDOUT-LEDGER.md` on `origin/main d6d7bd5a`, so recorded here
 | unit | date | hypothesis | metric | 2025 result |
 |---|---|---|---|---|
 | C-01 | 2026-09-22 | H1: our as-of weekly projection's start/sit pick outscores the season-average pick where they disagree | points per disagreement (player-clustered 90% CI), decision win rate | 2,999 disagreements, 57.2% won, +1.95 [+1.16, +2.75] (local copy, `42310804`) |
+| C-01 | 2026-09-22 | H1, re-run in revision 2 (policy unchanged; new copy `b9086412`) | same | identical: 2,999, 0.5715, +1.9482 [+1.1575, +2.7485] (local copy, `ffd84d02`). Arms A and B read 2026 only |
 
 The standing job re-reads 2025 weekly; with the policy unchanged that is the same deterministic
 number, not a new look. A policy change is a new look owned by the unit that makes it.
@@ -233,6 +357,49 @@ which proves a kill elsewhere came from behaviour and not from a broken suite. C
 and C3's matches eight times; both are refused rather than landing on the wrong line, which proves a
 NOT-APPLIED row is never read as a kill. Every applied row restored to its before-hash.
 
+### Revision 2 sweeps (after the skeptic review)
+
+Runner: `c01-fix/mutate-v3.py`, a versioned copy of the liveness skeptic's `mutate.py` (not edited
+in place), same rules: each mutant must match its anchor exactly once or is refused, runs in a
+detached worktree of the swept sha, and every file is restored to its before-hash. Tests: the six
+files (80 tests). Spec `c01-fix/mutants-v3.json`: the skeptic's LM1-LM7 verbatim, N1-N13 for the
+new code (call sites marked), controls C1-C3 and one known-kill control K1.
+
+- **Sweep 4** on `ffd84d02`: 20 of 21 applied mutants killed; **N13 survived** (the forward
+  replay's direction taken from the past grade: every fixture had past and forward pointing the same
+  way). Fixed in the tests (`29ec1909`), not the code.
+- **Sweep 5** on `d5eddaa3` (whole spec): **21 of 21 killed**, C1 survived and C2, C3 were refused,
+  as designed; worktree clean afterwards.
+- **Sweep 6** on `95952b44` (the chip wording changed the panel): LM6, N10, N11 **killed**; C1
+  survived, C2 refused.
+
+| # | kind | mutation | hash before → after (restored) | pass/fail | sweep 5 | killed by (first test) |
+|---|---|---|---|---|---|---|
+| LM1 | unit (skeptic) | replay rows: rules swapped | `5ba49a020cd7`→`e404f3f97ef5` (`5ba49a020cd7`) | 75/5 | **KILLED** | the default fixture grades to the hand-counted values |
+| LM2 | call-site (skeptic) | job wrapper binds the reader | `dd9c456e86df`→`8db4cb48e0e2` (`dd9c456e86df`) | 79/1 | **KILLED** | JOBS.start_sit_gate.run() stores one FANTASY / start_sit row |
+| LM3 | unit (skeptic) | the average fed in as our policy | `5ba49a020cd7`→`09849a62f3d3` | 75/5 | **KILLED** | the default fixture grades to the hand-counted values |
+| LM4 | call-site (skeptic) | G4 fed the past grade | `5ba49a020cd7`→`beff0d22eb0d` | 79/1 | **KILLED** | G4 reads the forward rows |
+| LM5 | unit (skeptic) | unknown-team rows dropped as byes | `5ba49a020cd7`→`8f434875eb25` | 79/1 | **KILLED** | a player whose team does not play in week W is a bye |
+| LM6 | call-site (skeptic, consumer) | panel filters out small-sample failing weeks | `b833f009162a`→`4d7c2993f2d3` (`b833f009162a`) | 79/1 | **KILLED** (sweep 6 too) | every failing week is on the panel |
+| LM7 | unit (skeptic) | our MAE reported as the average's | `5ba49a020cd7`→`2a9ddc98a215` | 79/1 | **KILLED** | the default fixture grades to the hand-counted values |
+| N1 | call-site | served snapshot replaces the average, not ours | `5ba49a020cd7`→`b3934f6bcabf` | 77/3 | **KILLED** | what the app served is graded against the average |
+| N2 | unit | ESPN arm reads live rows | `5ba49a020cd7`→`6cd1ec8bed91` | 78/2 | **KILLED** | the literal rule … final rows only |
+| N3 | unit | ESPN arm keeps conflicting player-weeks | `5ba49a020cd7`→`42f25a170eae` | 79/1 | **KILLED** | the literal rule … one value per player-week |
+| N4 | call-site | ESPN replaces our projection | `5ba49a020cd7`→`3310d4a1546a` | 78/2 | **KILLED** | the literal rule |
+| N5 | call-site | ESPN arm graded on the replay projection | `5ba49a020cd7`→`f227c38176f7` | 78/2 | **KILLED** | the literal rule |
+| N6 | unit | direction sign flipped | `5ba49a020cd7`→`3b35ba4e0bf6` | 73/7 | **KILLED** | direction is the sign of points per decision |
+| N7 | unit | sync_log detail leaks the past win rate | `5ba49a020cd7`→`376d5bea200d` | 79/1 | **KILLED** | the job detail … never a rate or a size |
+| N8 | unit | served-before-fit comparison inverted | `5ba49a020cd7`→`4192583a299f` | 79/1 | **KILLED** | what the app served is graded against the average |
+| N9 | call-site | served arms get no replay champions | `5ba49a020cd7`→`af0525ec0060` | 79/1 | **KILLED** | what the app served is graded against the average |
+| N10 | call-site (consumer) | panel prints the replay's win rate | `b833f009162a`→`1ed9129753cf` | 79/1 | **KILLED** (sweep 6 too) | direction only: the only digits … |
+| N11 | unit (consumer) | panel words a losing direction as ours | `b833f009162a`→`2fb8526e1c7a` | 79/1 | **KILLED** (sweep 6 too) | the forward lines give the direction of each arm |
+| N12 | call-site (wiring) | gate job taken off the refresh loop | `86b2fd2fcba2`→`8c3505734b57` | 79/1 | **KILLED** | G7: the start/sit gate job is on the loop |
+| N13 | call-site | forward direction from the past grade | `5ba49a020cd7`→`db5e1a634666` | 79/1 | **KILLED** (survived sweep 4) | G4 reads the forward rows |
+| K1 | known-kill control | sign convention flipped (builder M2) | `38a38bb58db1`→`93f49202f65d` | 70/10 | **KILLED** | a disagreement our pick wins is 1 with positive points |
+| C1 | designed survivor | comment-only edit | `5ba49a020cd7`→`d3b6c8265358` | 80/0 | **SURVIVED** | — (as designed) |
+| C2 | designed not-applied | anchor absent (0 matches) | unchanged | — | **NOT-APPLIED** | — |
+| C3 | designed not-applied | anchor ambiguous (70 matches) | unchanged | — | **NOT-APPLIED** | — |
+
 ## 7. Known defects and limits
 
 1. **It grades the replay predictor, not the full live number.** Production's `week_points`
@@ -269,9 +436,21 @@ NOT-APPLIED row is never read as a kill. Every applied row restored to its befor
 12. **Shared files edited:** `server/services/scheduler.js` (one JOBS entry plus its run function),
     `server/index.js` (one import, one mount), `client/src/pages/Lineup.tsx` (one import, one
     element). F-04 and B-17 also edit `scheduler.js`, so expect a merge there.
-13. **The dumb rule is a judgement, pre-registered:** "season-to-date average", because ESPN's own
-    weekly projection exists for 2026 week 2 only (614 rows, one league, local copy). The gate
-    interface takes any baseline; ESPN's projection can be graded once weeks accumulate.
+13. **The dumb rule is a judgement, pre-registered:** "season-to-date average". Revision 2 adds the
+    literal rule, ESPN's weekly projection, as descriptive arm B on the forward weeks
+    (`league_roster_snapshots`, which the refresh loop keeps writing). On 2026 week 2 it points
+    against us (§4a). Whether it becomes the gating rule is the Auditor's ruling.
+14. **Arm B's ESPN value is the settled one**, read from the boxscore after the period: it carries
+    news after our Thursday capture (127 of 153 values moved). This favours ESPN. The pregame ESPN
+    capture table (`espn_player_market_weekly`) has no writer, so a standing gate cannot use it.
+15. **Arm B covers rostered players only** (the five synced leagues): 153 of the 360 forward rows.
+16. **The route still serves every magnitude** (`GET /api/gates/start-sit` returns the stored
+    evidence) so the Auditor can read it; only the panel and the `sync_log` detail are held to
+    direction only. If rule 3 is read to cover the route too, the fix is a `display` projection in
+    `latestStartSitGate`.
+17. **Files outside the unit row:** `scripts/refresh-live-data.mjs` (one allowlist entry, `ad66dae7`)
+    and `test/refresh-loop-steps.test.js` (G7, `05ceb070`). They need a file grant (standing rule 9);
+    both commits drop cleanly if it is refused, and then the panel ships answering "not measured yet".
 
 ## 8. Nick's five questions
 
@@ -280,16 +459,20 @@ NOT-APPLIED row is never read as a kill. Every applied row restored to its befor
    are called unedited. New code is the pair builder, a two-factor resampler for the one shape the
    existing bootstrap cannot express, a pure verdict function, a job, a read-only route and a panel.
    Every run checks itself first: the k control stops at `K.share = 6`, an oracle must win every
-   disagreement it has, an identity policy must have none. 45 tests; 39 of 39 mutants killed on the
-   final code, including six call-site mutants (§6).
+   disagreement it has, an identity policy must have none. 60 unit tests plus one loop test; 39 of
+   39 mutants killed on the first code, and in revision 2 all 21 applied mutants killed on the final
+   code, including the skeptics' seven and ten call-site mutants (§6).
 2. **Stats or made up?** Stats: 6,633 real disagreements from the week-by-week replay of 2024-2025
    and 570 from 2026 week 2, on a local copy (not production). Two choices are judgements, both
    pre-registered and labelled: the ≥ 8.0 startable line (borrowed from `DECISION_CURVE`, not
    fitted) and the season average as the dumb rule.
-3. **How we know:** backtest on 2024 + 2025 weeks 5-18 (held out for the frozen-2023 weights) and
-   the 2026 forward week: our pick won **55.0%** of disagreements, **+1.37** points each, player-
-   clustered 90% CI **[+0.80, +1.94]**, week-clustered **[+0.96, +1.77]**; 2026 week 2 **+2.84**.
-   Verdict `beats_dumb`. Stress tests and a null calibration in §4.
+3. **How we know (direction only, standing rule 3; the sizes are in §4 and §4a for the Auditor):**
+   a week-by-week replay of 2024 and 2025 weeks 5-18 (held out for the frozen-2023 weights)
+   passed all three pre-registered past tests, and 2026 week 2 replayed on today's settings points
+   the same way: verdict `beats_dumb`. What the app actually served in week 2 also points our way
+   against the season average, but not clearly. **Against ESPN's own projection, the literal
+   "start the highest projection", week 2 points the other way: ESPN's pick scored more.** One week;
+   the stress checks in §4a all point the same way. Stress tests and a null calibration in §4.
 4. **Pointed anywhere else?** Yes. C-02 (waivers vs "add the highest projected free agent") and
    C-03 (trades vs "offer fair value") pass their own disagreements into `baseline-gate.js`.
    C-10 should replace `DECISION_CURVE` (`lineup-brain.js:268`) with this gate's tracked rate.
@@ -313,6 +496,35 @@ NOT-APPLIED row is never read as a kill. Every applied row restored to its befor
 - **What would make it wrong:** the replay predictor diverging from the live one (unestablished
   either way); byes mis-detected; a dependence the two-factor and week bootstraps both miss.
 - **Migrations:** none. **Tables written:** `model_gate_audits` only, by `recordGateAudit`
-  (`model-governance.js:154`), called from `start-sit-gate.js refreshStartSitGate`. **Secrets:**
-  none read or written. **Licence:** no new external data; the replay reads existing
-  `player_week_usage` (nflverse, CC BY; attribution is F-08).
+  (`model-governance.js:154`), called from `start-sit-gate.js refreshStartSitGate`. **Tables read
+  (revision 2):** `weekly_prediction_snapshots` (writer `weekly-learning.js:49`),
+  `league_roster_snapshots` (writer `collect-roster-snapshots.mjs:109`, `projected_points` and
+  `player_id` only), `shrinkage_fits.fitted_at`. **Secrets:** none read or written
+  (`leagues` is not read). **Licence:** no new external data; the replay reads existing
+  `player_week_usage` (nflverse, CC BY; attribution is F-08); ESPN's projections come from the
+  leagues' own synced lineups, already stored by the app.
+- **Rulings needed before merge (Independent Auditor):** (a) a prereg committed before the run but
+  not filed with the Auditor (rule 2); (b) the two-factor player interval; (c) the season average as
+  the gating dumb rule, now with the literal ESPN arm pointing against us on week 2; (d) the unit
+  row's "decision win rate and points shown on the Lineup page" against rule 3 (this unit assumes
+  rule 3 wins and shows direction only). **Coordinator:** the file grant in §7.17.
+
+## 10. What Nick sees (direction only)
+
+The real panel (`StartSitGate.tsx` at `95952b44`), compiled with the repo's TypeScript and rendered
+with React, fed the revision-2 run's result exactly as `latestStartSitGate` would serve it
+(scratchpad `c01-fix/render-real.mjs gate-run-2.out`). Its visible text, above "What was compared":
+
+> Does our projection beat the dumb rule?
+> **Beats "start the higher average".** Our projection picked the better player more often than "start the higher average", in past seasons and this one.
+> Past seasons (2024 and 2025, weeks 5-18): where the two disagreed, our pick scored more, and it held up under the test set before the run.
+> This season (2026, week 2), today's model replayed: our pick scored more.
+> What the app actually served that week: against the average, our pick scored more; against ESPN's projection (the literal "start the highest projection"), ESPN's pick scored more.
+> The week 2 projection was served on older settings (before the fitted volume numbers existed; different blend weights), so what the app served and today's replay are not the same projection.
+> Few weeks so far: this season shows direction, not proof.
+> Weeks our projection lost: 2024 W10 · 2024 W11 · 2024 W14 · 2025 W13 · 2025 W14
+
+No rate, size, interval, minimum detectable effect or pair accuracy appears. "What was compared"
+names both rules, the literal rule, the universe (its 8.0 line is a threshold, not a result),
+scoring, why there are no numbers, the replay limit and when it was measured.
+

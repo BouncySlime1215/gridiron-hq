@@ -241,8 +241,15 @@ export function formationDistribution({ season = null, team = null } = {}) {
 
 /** What the hand-charting says about how plays are actually run. */
 export function chartingSummary({ season = null } = {}) {
-  const clause = season ? `WHERE season = ${Number(season)}` : '';
-  const total = row(`SELECT COUNT(*) AS n FROM nfl_play_charting ${clause}`)?.n ?? 0;
+  // Bound, not interpolated. Number() alone kept this uninjectable but turned a
+  // non-numeric season into the bare token NaN, which SQLite parses as a column
+  // name and rejects at prepare time — a bad parameter became a 500 instead of
+  // the empty answer below. Bound, a NaN simply matches no row and falls through
+  // to that answer, so no separate validity check is needed here.
+  const n = season == null ? null : Number(season);
+  const clause = n == null ? '' : 'WHERE season = ?';
+  const args = n == null ? [] : [n];
+  const total = row(`SELECT COUNT(*) AS n FROM nfl_play_charting ${clause}`, ...args)?.n ?? 0;
   if (!total) return { error: 'no charting data stored', hint: 'POST /nfl-betting/formations/ingest' };
 
   const rates = row(`
@@ -253,8 +260,13 @@ export function chartingSummary({ season = null } = {}) {
            AVG(CAST(no_huddle AS REAL)) AS no_huddle,
            AVG(CAST(trick AS REAL)) AS trick,
            AVG(CAST(out_of_pocket AS REAL)) AS out_of_pocket,
-           AVG(CAST(defense_box AS REAL)) AS mean_box
-    FROM nfl_play_charting ${clause}`) ?? {};
+           -- NULLIF on the box count ONLY. The feed writes 0 where the box was
+           -- never counted, exactly as it does for formationDistribution above.
+           -- The flags above must keep their zeros: a zero there means the play
+           -- was not play action, which is a measurement, and excluding those
+           -- would make every rate 1.0 by construction.
+           AVG(CAST(NULLIF(defense_box, 0) AS REAL)) AS mean_box
+    FROM nfl_play_charting ${clause}`, ...args) ?? {};
 
   return {
     season: season ?? 'all stored', plays: total,

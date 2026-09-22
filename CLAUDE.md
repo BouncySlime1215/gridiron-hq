@@ -58,9 +58,11 @@ takes `defaultExport`. The wrong key was accepted in silence, the mocked
 module's default became an empty object, and the SDK reported its own
 `TypeError` as a connection failure. It was never the key.
 
-**The live task list is not in this branch.** `TASKS.md` exists only on
-`cursor/betting-model-audit-fixes-1c85` (PR #6), not on `main`. Read it there
-before assuming a failure is new — a fresh clone of `main` does not have it.
+**The live task list is on `main`.** `TASKS.md` was added to `main` by
+`d9b4a90d` on 2026-09-19 and is tracked there — a fresh clone of `main` has
+it. It also exists on `cursor/betting-model-audit-fixes-1c85` (PR #6); as of
+`654ff93` the two copies are byte-identical, not one behind the other. Don't
+assume the two have diverged without diffing them.
 
 **Run `npm ci` before trusting any suite number.** A fresh clone has no
 `node_modules`, and the offline-guard tests fail with `ERR_MODULE_NOT_FOUND`

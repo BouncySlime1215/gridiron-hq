@@ -42,8 +42,18 @@ const mutations = [
   ['M22 client source excluded', di, (s) => s + '\nclient/src\n'],
 ];
 
+// Controls. The surviving control is a real code edit that no promise covers,
+// so the suite must pass it: if it is killed, the tests pin something they
+// should not. The not-applied control targets text that is not in the file,
+// so the runner must report it INVALID rather than count it as killed.
+const controls = [
+  ['C1 step renamed (must survive)', wf, (s) => s.replace('      - name: Checkout\n', '      - name: Check out the repository\n'), 'survived'],
+  ['C2 pattern absent (must be INVALID)', wf, (s) => s.replace('run: flyctl deploy --local-only', 'run: flyctl deploy'), 'invalid'],
+];
+
 let survivors = 0;
-for (const [name, file, mutate] of mutations) {
+let controlFailures = 0;
+for (const [name, file, mutate, expected] of [...mutations, ...controls]) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'deploy-mut-'));
   for (const f of files) {
     fs.mkdirSync(path.join(dir, path.dirname(f)), { recursive: true });
@@ -53,13 +63,25 @@ for (const [name, file, mutate] of mutations) {
   const before = fs.readFileSync(target, 'utf8');
   const after = mutate(before);
   const code = (s) => s.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
-  if (code(after) === code(before)) { console.log(`INVALID  ${name} (changed nothing, or only comments)`); survivors++; continue; }
-  fs.writeFileSync(target, after);
-  const r = spawnSync(process.execPath, ['--test', path.join(dir, 'test/deploy-workflow.test.js')], { encoding: 'utf8' });
-  const failed = (r.stdout.match(/^not ok \d+ - (.*)$/gm) || []).map((l) => l.replace(/^not ok \d+ - /, ''));
-  if (r.status === 0) { survivors++; console.log(`SURVIVED ${name}`); }
-  else console.log(`killed   ${name}  <- ${failed.join(' | ')}`);
+  let outcome;
+  let failed = [];
+  if (code(after) === code(before)) outcome = 'invalid';
+  else {
+    fs.writeFileSync(target, after);
+    const r = spawnSync(process.execPath, ['--test', path.join(dir, 'test/deploy-workflow.test.js')], { encoding: 'utf8' });
+    failed = (r.stdout.match(/^not ok \d+ - (.*)$/gm) || []).map((l) => l.replace(/^not ok \d+ - /, ''));
+    outcome = r.status === 0 ? 'survived' : 'killed';
+  }
   fs.rmSync(dir, { recursive: true, force: true });
+  const label = { invalid: 'INVALID ', survived: 'SURVIVED', killed: 'killed  ' }[outcome];
+  if (expected) {
+    const ok = outcome === expected;
+    if (!ok) controlFailures++;
+    console.log(`${ok ? 'control ' : 'CONTROL FAILED'} ${name}: ${outcome}${failed.length ? `  <- ${failed.join(' | ')}` : ''}`);
+  } else {
+    if (outcome !== 'killed') survivors++;
+    console.log(`${label} ${name}${outcome === 'invalid' ? ' (changed nothing, or only comments)' : ''}${failed.length ? `  <- ${failed.join(' | ')}` : ''}`);
+  }
 }
-console.log(`\n${mutations.length} applied, ${mutations.length - survivors} killed, ${survivors} survived or invalid`);
-process.exit(survivors ? 1 : 0);
+console.log(`\n${mutations.length} applied, ${mutations.length - survivors} killed, ${survivors} survived or invalid; ${controls.length - controlFailures} of ${controls.length} controls as designed`);
+process.exit(survivors || controlFailures ? 1 : 0);

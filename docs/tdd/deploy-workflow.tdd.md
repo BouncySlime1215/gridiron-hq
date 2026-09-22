@@ -74,6 +74,13 @@ and never writes the working tree.
 | M16–M19 | `data`, `test`, `**/*.sqlite*` removed; `**/node_modules` narrowed back | context leaves out |
 | M20–M22 | `data` unanchored to `**/data` (would take `server/data/`); `server` excluded; `client/src` excluded | context keeps |
 
+Two controls run with the sweep, and the runner exits 1 if either does not behave as designed:
+
+- **C1 (a designed survivor).** Renaming the `Checkout` step is a real code edit that no promise covers. The suite passes it, which shows the tests do not pin incidental text.
+- **C2 (a designed not-applied control).** A replace whose pattern is not in the file is reported `INVALID`. It is not counted as killed.
+
+Current result: 22 of 22 killed, and 2 of 2 controls behaved as designed.
+
 **The first run was 20 of 22.** M9 is the test gap above. M8 was an invalid
 mutation: it rewrote the first `flyctl deploy --remote-only` in the file, which
 is in the header comment, not the command. The runner now rejects any mutation

@@ -14,10 +14,14 @@ import { PPR, scoreLine } from './scoring.js';
 import { redistribute } from './opportunity-redistribution.js';
 import { weeklyAvailability } from './contingency.js';
 import {
+  AVAILABILITY_BASIS, DEFAULT_ACTIVE_PROBABILITY, isAvailabilityBasis
+} from './availability-basis.js';
+import {
   WEEKLY_ROLE_RECENCY,
   weeklyEnsembleContext, weeklyEnsemblePrediction, weeklyEnsembleMode, weeklyEnsembleWeightsFor
 } from './weekly-ensemble.js';
 import { activeWeeklyWeightSet } from './weekly-weight-store.js';
+import { activeFitMeta } from './shrinkage-fit.js';
 import { roleChangepoints } from './role-changepoint.js';
 import { opportunityContextMultiplier } from './nfl-player-context.js';
 import {
@@ -63,6 +67,146 @@ function remember(cache, key, value, limit) {
   cache.set(key, value);
   while (cache.size > limit) cache.delete(cache.keys().next().value);
   return value;
+}
+
+/* ------------------------------------------------- what an availability number rests on */
+
+/**
+ * What one player's active probability rests on, for a surface that prints the number.
+ *
+ * The vocabulary is `availability-basis.js`'s and is not redefined here. `contingency.js` now
+ * states `availability_basis` on every row it builds, so this reads the field. Two arms are
+ * the consumer's to produce because no row can carry them:
+ *
+ *   - `unfitted_position` -- there is NO row for this player. `weeklyAvailability` covers QB,
+ *     RB, WR and TE, so a kicker or a defence is outside the fit entirely. It is deliberately
+ *     not `default_durability`, which means a row exists and carries a substituted prior.
+ *   - `unrecognised` -- a row arrived without the field, reachable only from a payload built
+ *     before the field existed. It is named rather than guessed at, because the prose match
+ *     below is the only thing left that could silently misclassify.
+ *
+ * NEVER FIND A DEFAULTED PRIOR BY COMPARING THE NUMBER. The row's prior is served at three
+ * decimals, so a veteran whose measured prior really is 0.920 is byte-identical to the
+ * substituted constant. `durability_prior_measured` is the discriminator; Opportunity has
+ * pinned that by test on their side and it is pinned again here.
+ */
+const FITTED_SOURCE = /^fitted availability/i;
+
+/**
+ * THE NUMBER FOR A PLAYER THE MODEL DOES NOT COVER.
+ *
+ * This used to borrow `DEFAULT_DURABILITY_PRIOR`, with a note saying the borrow was wrong in
+ * kind and the right name belonged beside the prior. It does now, so this reads it instead.
+ *
+ * The distinction the borrow was papering over is real and availability-basis.js states it:
+ * `DEFAULT_DURABILITY_PRIOR` is an INPUT, substituted as the prior before contingency.js runs
+ * the published report-status curve over it, so a `default_durability` row's served
+ * probability is nowhere near 0.92 for a Questionable player. `DEFAULT_ACTIVE_PROBABILITY` is
+ * the OUTPUT: the probability served for a player who has no row and never went through the
+ * curve. Two quantities, same digits, two exports with two docstrings, pinned as independent
+ * literals by a test on the producer's side -- so revising the prior cannot silently move a
+ * served probability here.
+ *
+ * What is still open is the VALUE, not the name: whether a kicker should be priced at 0.92, at
+ * 1, or refused a number at all is a real question that moves the odds, and it is on the list
+ * for Nick. Reading the producer's constant changes no served number today; it means there is
+ * one place to change when that question is answered instead of six.
+ */
+const UNCOVERED_ACTIVE_PROBABILITY = DEFAULT_ACTIVE_PROBABILITY;
+
+export function activeProbabilityFor(availability, playerId) {
+  const row = availability?.get?.(playerId) ?? null;
+  if (!row) {
+    return {
+      active_probability: UNCOVERED_ACTIVE_PROBABILITY,
+      availability_basis: 'unfitted_position',
+      availability_source: 'no availability row for this player: the fit covers QB, RB, WR and TE'
+    };
+  }
+
+  const served = row.availability_basis;
+  const source = typeof row.source === 'string' ? row.source : '';
+  let basis;
+  if (isAvailabilityBasis(served)) {
+    // The producer said so. Nothing here second-guesses it, which is the whole point of the
+    // field: the prose match below was the classifier, and a reworded sentence would have
+    // reclassified every fitted number as a prior with nothing failing.
+    basis = served;
+  } else if (FITTED_SOURCE.test(source)) {
+    // Only reachable from a row built before the field existed. It cannot tell role from
+    // pooled -- that distinction lives in the field -- so it reports the coarser truth.
+    basis = 'pooled';
+  } else if (row.durability_prior_measured === false) {
+    basis = 'default_durability';
+  } else if (row.durability_prior_measured === true) {
+    basis = 'durability_prior';
+  } else {
+    basis = 'unrecognised';
+  }
+
+  // A ROW THAT CARRIES NO NUMBER DOES NOT GET TO KEEP ITS LABEL. The arm is `unvouched`, not
+  // `unrecognised`: the producer's vocabulary separates them because `unrecognised` is version
+  // skew that decays to zero once every producer is on the current shape, while this is a live
+  // fault in a current payload, and a consumer counting either has to be able to count them
+  // apart. This file served `unrecognised` here until the producer named the second arm. `weeklyAvailability` always
+  // sets `active_probability`, so this is unreachable from the live producer and defensive
+  // against a hand-built map -- but if it is ever reached, serving the substituted constant
+  // under the row's own declared basis would print "this came from the pooled fit" over a
+  // number that came from a constant. That is the exact defect this accessor exists to
+  // remove, arriving from the other side, and it is the same shape as the memo key serving a
+  // correct fit id over numbers from the previous fit. The number is still served, because a
+  // throw here would take down the odds; what is withheld is the claim about where it came
+  // from.
+  const missing = row.active_probability == null || !Number.isFinite(row.active_probability);
+  if (missing) {
+    return {
+      active_probability: UNCOVERED_ACTIVE_PROBABILITY,
+      availability_basis: 'unvouched',
+      availability_source: `this player's availability row carries no active probability, so `
+        + `the default was substituted and its stated basis (${served ?? 'none'}) is not `
+        + `vouched for`
+    };
+  }
+
+  return {
+    active_probability: row.active_probability,
+    availability_basis: basis,
+    availability_source: source || 'the producer served no source'
+  };
+}
+
+/**
+ * The shrinkage constants this build will use, as a memo key.
+ *
+ * WHAT THIS REPLACED, AND WHY IT WAS NOT A SMALL BUG. The slot used to read
+ * `kOverride ?? 'active'`. The literal stood in for "whatever the active fit is", so
+ * promoting a fit left the key unchanged and the engine built from the PREVIOUS fit was
+ * served for the life of the process -- nothing calls `clearPlayerWeekEngineCache` on
+ * promotion. It is undetectable from the output: both fits give plausible projections, and
+ * `projectionFitMeta` puts a fit id on the payload, so a promotion could leave the label
+ * naming the new fit while the numbers came from the old one. The label is what a reader
+ * checks, so the wrong pairing is worse than no label.
+ *
+ * AND `??` TREATED TWO DIFFERENT CALLS AS ONE. `kOverride: null` means "no fit, use the
+ * hand-set constants" and `kOverride: undefined` means "use whatever is active"; `??` mapped
+ * both to `'active'`, so a caller explicitly bypassing the fit was served the fitted engine.
+ * The three cases below are the same three `projectionFitMeta` already distinguishes, under
+ * the same names, so the basis a payload reports and the basis the memo keys on cannot drift.
+ *
+ * The key already carried `weightFit: weightChampion.id` for this exact reason on the weekly
+ * weight set. This is the shrinkage fit catching up.
+ */
+function memoKBasis(kOverride) {
+  if (kOverride === undefined) {
+    // `null` when no fit has ever been activated, which is the live state today and must key
+    // distinctly from every real fit -- otherwise the first promotion ever made is invisible.
+    return { fit: activeFitMeta()?.id ?? null };
+  }
+  if (kOverride === null) return 'hand_set_forced';
+  // The vector ITSELF, not a label for it: two callers supplying different vectors are two
+  // different builds. Collapsing them to one string would have been a new collision of the
+  // same kind this function exists to remove, and there is a test for it.
+  return { supplied: kOverride };
 }
 
 export function clearPlayerWeekEngineCache() {
@@ -264,7 +408,7 @@ export function buildPlayerWeekEngine({ season, week, scoring = PPR, kOverride, 
     throw new Error('player-week engine requires an integer season and week');
   }
   const weightChampion = activeWeeklyWeightSet({ season, week });
-  const cacheKey = JSON.stringify({ season, week, scoring, kOverride: kOverride ?? 'active',
+  const cacheKey = JSON.stringify({ season, week, scoring, kBasis: memoKBasis(kOverride),
     version: PLAYER_WEEK_ENGINE_VERSION, weightFit: weightChampion.id, redistributeVolume });
   if (useCache && engineCache.has(cacheKey)) return engineCache.get(cacheKey);
 

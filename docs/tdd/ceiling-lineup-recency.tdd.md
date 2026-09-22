@@ -235,13 +235,20 @@ npm run check:wiring   exit 1  — see below, this is main's
 
 ```
 git status --porcelain   empty before AND empty after
-git write-tree           89bcad28c351 before, 89bcad28c351 after
-HEAD^{tree}              89bcad28c351 — the same tree, so the figures describe
+git write-tree           8949b3df05cb before, 8949b3df05cb after
+HEAD^{tree}              8949b3df05cb — the same tree, so the figures describe
                          the commit and not a working copy of it
 node_modules mtime       1789853354 before, 1789853354 after
 files written            nothing outside client/dist/, gitignored build output
                          that porcelain cannot see, which is why the find exists
+window                   17:40:17Z to 17:49:32Z
 ```
+
+`8949b3df05cb` is the tree at `8c04565`, the commit carrying the last code
+change on this branch. The only commit above it adds this paragraph to this
+file, so the code under review is exactly the code these figures were measured
+on. An earlier run of the same gate, before the docstring correction, gave the
+identical suite figures on tree `89bcad28c351`.
 
 ### `check:wiring` is red on `main`, not on this branch
 

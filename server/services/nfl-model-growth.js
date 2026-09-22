@@ -153,16 +153,25 @@ async function attempt(name, fn, detail) {
 }
 
 /**
- * The season this cycle runs is the one being played, and nflverse publishes
- * participation for a season only after its post-season is complete
- * (nflreadr's load_participation reference). So a 404 for it is the documented
- * absence, not a failed download, and is recorded as a skip with no `error`
- * key. Anything else passes through untouched: another status, a throw (which
- * has no `http_status`), or a success. Exported so the rule the call site
- * applies is the rule the tests pin.
+ * nflverse publishes participation for a season only after its post-season is
+ * complete (nflreadr's load_participation reference). So a 404 for the season
+ * in progress, or a later one, is the documented absence, not a failed
+ * download, and is recorded as a skip with no `error` key.
+ *
+ * The season in progress is an argument, not an assumption: the scheduled
+ * cycle runs availableSeason(), but POST /profitability/model-growth/run passes
+ * whatever season its body names, and a 404 for a completed season (published,
+ * see nfl-formations.js) is a real fault that must stay loud. With no finite
+ * season in progress the rule does not skip.
+ *
+ * Anything else passes through untouched: another status (a 403 or 429 is
+ * GitHub refusing the request, not a publication schedule), a throw (which has
+ * no `http_status`), or a success. Exported so the rule the call site applies
+ * is the rule the tests pin.
  */
-export function unpublishedSeasonSkip(step, season) {
+export function unpublishedSeasonSkip(step, season, inProgressSeason) {
   if (!step?.error || step.http_status !== 404) return step;
+  if (!Number.isFinite(inProgressSeason) || !(season >= inProgressSeason)) return step;
   return { season, skipped: true, absence: 'not_published', http_status: 404,
     note: `nflverse has not published participation for ${season}; a season is published only after `
       + 'its post-season is complete. Completed seasons load through scripts/backfill-formations.mjs.' };
@@ -262,14 +271,18 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
       }), detail.ingestion);
       // No season gate. This read `season <= 2023` on the belief that nflverse
       // stops publishing participation after 2023; it does not, and 2024 and
-      // 2025 were being dropped silently. The season asked for here is the one
-      // being played, which nflverse publishes only after its post-season, so
-      // its 404 is recorded as a skip (unpublishedSeasonSkip), not a failed
-      // download; any other status or a throw is still a failure. This call
-      // therefore never fills nfl_play_formations in season: completed seasons
-      // load through scripts/backfill-formations.mjs.
+      // 2025 were being dropped silently. On the timer the season asked for is
+      // the one being played, which nflverse publishes only after its
+      // post-season, so its 404 is recorded as a skip (unpublishedSeasonSkip),
+      // not a failed download. The rule is handed the season in progress
+      // (availableSeason) rather than trusting `season`, because the manual
+      // route passes its own: a completed season's 404, any other status, or a
+      // throw is still a failure. This call therefore never fills
+      // nfl_play_formations in season: completed seasons load through
+      // scripts/backfill-formations.mjs.
       await attempt('formation_participation',
-        async () => unpublishedSeasonSkip(await ingestFormations(season), season), detail.ingestion);
+        async () => unpublishedSeasonSkip(await ingestFormations(season), season, availableSeason()),
+        detail.ingestion);
       await attempt('ftn_charting', () => ingestCharting(season), detail.ingestion);
     }
 

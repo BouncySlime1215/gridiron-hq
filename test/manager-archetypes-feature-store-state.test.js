@@ -11,6 +11,14 @@
  * table, a dropped column or a locked database threw straight out and was
  * flattened into the same `null`.
  *
+ * Measured, one rename at a time, rather than assumed from the read list: an
+ * absent `nfl_player_week_features` or `nfl_ngs` throws `no such table`, while
+ * an absent `nfl_pfr_adv` returns `{ error: 'no earlier player observations' }`
+ * — it is read only once base history is in hand, so with none it never runs.
+ * `featureStoreState()` still names all three, because the question it answers
+ * is whether the store can be read, not which absence happens to throw; but no
+ * test here may use `nfl_pfr_adv` to exercise a fault path.
+ *
  * Every player then scored `null`, `storeCvs.length` was 0, and the published
  * manager metric `risk_store_yard_cv` (:393) was simply absent from the build —
  * indistinguishable from "fewer than four skill players had a computable CV".
@@ -28,7 +36,7 @@ process.env.SCHEDULER_DISABLED = '1';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-feature-store-state-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'test.sqlite');
 
-const { db } = await import('../server/db/index.js');
+const { db, run } = await import('../server/db/index.js');
 const { runMigrations } = await import('../server/db/migrate.js');
 await runMigrations();
 const { featureStoreState, buildManagerArchetypes } =
@@ -72,4 +80,59 @@ test('a healthy build names the store state too, rather than leaving it to be in
   const out = buildManagerArchetypes({ luckPanel: [] });
   assert.equal(out.feature_store_state, 'present');
   assert.equal(out.feature_store_reason, null);
+});
+
+/**
+ * The `storePresent` argument is load-bearing, and nothing above reaches it.
+ *
+ * A mutation sweep on this PR hardcoded `draftSeason(..., true)` at the call
+ * site and every test above still passed: `league_draft_picks` is created by no
+ * migration in this repository (leagueDraftPicksState()'s own SOURCE string
+ * says so), so the draft half of the build never ran and the argument was never
+ * evaluated. The surviving mutant is what this test kills.
+ *
+ * It matters more than a coverage gap. Removing the `catch { cv = null; }` is
+ * only safe BECAUSE the caller stops asking when the store is unreadable — the
+ * two halves of this PR are one change. With the gate bypassed and a store
+ * table absent, `storeYardageCv()` reads straight through to
+ * `playerHistory()` (nfl-weekly-feature-store.js:215) and the exception leaves
+ * `buildManagerArchetypes()` entirely: the whole archetype build dies over an
+ * optional metric. So the assertion below is that the build still COMPLETES.
+ */
+test('an absent store stops the draft side asking, instead of throwing out of the build', () => {
+  // The real table, created here because nothing in the repo creates it.
+  db.exec(`CREATE TABLE league_draft_picks (
+             league_id INTEGER, season INTEGER, pick_id TEXT, overall_pick INTEGER,
+             round INTEGER, team_id TEXT, member_id TEXT, player_id INTEGER,
+             auto_draft_type_id INTEGER, is_auto INTEGER)`);
+  run(`INSERT INTO nfl_teams (id, abbr, name, conference, division)
+       VALUES (1, 'KC', 'Kansas City', 'AFC', 'West')`);
+  run(`INSERT INTO players (name, position, team_id, espn_id, gsis_id)
+       VALUES ('Skill Player', 'RB', 1, 4242, '00-0042424')`);
+  run(`INSERT INTO league_draft_picks
+         (league_id, season, pick_id, overall_pick, round, team_id, member_id, player_id, is_auto)
+       VALUES (9, 2026, 'p1', 1, 1, '1', 'MEM-D', 4242, 0)`);
+
+  // Deliberately nfl_player_week_features and not nfl_pfr_adv: measured, only
+  // two of the three store tables throw when absent. nfl_pfr_adv is read after
+  // the base history is in hand, so with no observations the read short-circuits
+  // and returns `{ error: 'no earlier player observations' }` instead. A test
+  // renaming that one away passes whether or not the gate is honoured, and
+  // proves nothing.
+  db.exec('ALTER TABLE nfl_player_week_features RENAME TO nfl_player_week_features_hidden');
+  try {
+    const out = buildManagerArchetypes({ luckPanel: [] });
+
+    // Asserted first: reaching this line at all is the point. If the call site
+    // stops honouring storePresent, the line above throws instead.
+    assert.equal(out.feature_store_state, 'table_absent',
+      'the build completed and named the store as unreadable');
+    assert.equal(out.draft_data_state, 'present',
+      'and the draft side genuinely ran — otherwise this test proves nothing');
+    assert.ok(out.draft_manager_seasons >= 1,
+      'at least one drafted manager-season was built with the store unreadable');
+  } finally {
+    db.exec('ALTER TABLE nfl_player_week_features_hidden RENAME TO nfl_player_week_features');
+    db.exec('DROP TABLE league_draft_picks');
+  }
 });

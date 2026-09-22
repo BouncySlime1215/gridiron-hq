@@ -34,6 +34,15 @@ client.
 land on an entry point. One level is not enough — a live function called only by
 an orphaned route is not wired.
 
+**`hand-run-script` is a reach, and it is not this one.** A script with no
+importer, absent from `package.json` `scripts`, and named nowhere in `server/`
+runs only when a person types `node scripts/…`. Nothing in the repository causes
+it to happen, so a row reached only that way is live on the days someone
+remembers it and not otherwise. Record it as `reached from: hand-run script`,
+never as `wired`, and let the grader decide what it is. Found by filing the
+first rows against this contract: every consumed export of
+`server/services/opportunity-model.js` hangs off exactly one such script.
+
 ### `half-done`
 The code is correct and reachable in principle, and the last hop was never
 built. The producer exists, the consumer does not, or the writer exists and

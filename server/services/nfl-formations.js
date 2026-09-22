@@ -28,6 +28,12 @@
  * returns HTTP 404 while snap_counts and stats_player_week are already current
  * through 2026 week 2. So this is excellent history and still not a live feed —
  * it cannot tell you what happened last Sunday.
+ *
+ * The cost of the old error was two full seasons: 2024 and 2025 both exist,
+ * this ingester already handled them, and nobody called it for them because the
+ * code said not to bother. If you are reading this in a later year, check the
+ * year rather than trusting the numbers above; a hardcoded end season is
+ * exactly how the first version went stale.
  */
 import { db, rows, row, run } from '../db/index.js';
 
@@ -61,10 +67,11 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
     { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) {
     return { error: `participation for ${season} returned ${res.status}`,
-      note: season > 2023
-        // Measured 2026-09-22: published range is 2016-2025. Inside that range a
-        // failure is a fetch error worth retrying; beyond it the file does not exist yet.
-        ? 'Participation is published for 2016-2025. Beyond that the season is not published yet; inside it, a failure is a fetch error, not source absence.'
+      // No hardcoded end season here: that is what made the previous version of
+      // this note wrong for two years running. A 404 means nflverse has not
+      // published that season, which for the current season is normal.
+      note: res.status === 404
+        ? `nflverse has not published participation for ${season}; the current season is never available.`
         : undefined };
   }
   const text = await res.text();

@@ -547,10 +547,13 @@ test('summarizeConsumerParity: counts, page / arm D, p for players with no injur
     team_differs: false, no_report: true, p_is_durability_prior: true, ...extra });
   const checked = [
     c('QB', 20, 0.75), c('QB', 10, 0.5, { no_report: false, p_is_durability_prior: false }), c('QB', 5, 1, { team_differs: true }),
-    { ...c('WR', 12, 0.8), bye: true, page: 0, page_over_D: 0, mult: 0 }
+    { ...c('WR', 12, 0.8), bye: true, page: 0, page_over_D: 0, mult: 0 },
+    { ...c('WR', 9, 0.8), bye: true, page: 0, page_over_D: 0, mult: 0, no_team: true, team_differs: true }
   ];
   const s = lib.summarizeConsumerParity(checked, { QB: 2 });
-  assert.deepEqual([s.n_checked, s.byes, s.team_differs, s.b_parity_holds, s.current_week_identity_holds], [4, 1, 1, 4, 4]);
+  assert.deepEqual([s.n_checked, s.b_parity_holds, s.current_week_identity_holds], [5, 5, 5]);
+  assert.deepEqual(s.no_game_this_week, { total: 2, no_team: 1, bye_with_team: 1 });
+  assert.equal(s.team_differs_among_playing, 1, 'a player with no team is not counted as a team change');
   assert.equal(s.page_differs_from_arm_D, 2, 'the p = 1 player reads the same; the other two do not');
   assert.equal(s.active_probability.no_injury_status_n, 2);
   assert.equal(s.active_probability.no_injury_status_share_at_durability_prior, 1);

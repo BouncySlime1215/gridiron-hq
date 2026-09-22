@@ -1,0 +1,189 @@
+[
+ {
+  "name": "P1 applicability is never asked, so a QB is blamed on the data file",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T1 a QB is not told the file is missing a column that is not about him",
+  "kind": "mutation",
+  "old": "  const applies = appliesToPosition(position);",
+  "new": "  const applies = null;"
+ },
+ {
+  "name": "P2 every position is receiving-eligible, so nothing is ever inapplicable",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T1, T6 the receiving-eligible set",
+  "kind": "mutation",
+  "old": "  return RECEIVING_POSITIONS.has(p);",
+  "new": "  return true;"
+ },
+ {
+  "name": "P3 no position is receiving-eligible, so a back loses his target share",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T6 a receiving back is measured, not gated away",
+  "kind": "mutation",
+  "old": "export const RECEIVING_POSITIONS = new Set(['RB', 'FB', 'HB', 'WR', 'TE']);",
+  "new": "export const RECEIVING_POSITIONS = new Set([]);"
+ },
+ {
+  "name": "P4 a blank position is ruled inapplicable rather than left undecided",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T7 a blank position claims nothing",
+  "kind": "mutation",
+  "old": "  if (p === '') return null;",
+  "new": "  if (p === '') return false;"
+ },
+ {
+  "name": "P5 the sentence names a position it was not given",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T4 a kicker is not handed the quarterback's sentence, T12 the builder",
+  "kind": "mutation",
+  "old": "  `Not a statistic about a ${position}: ${why}. This is a fact about the position, `",
+  "new": "  `Not a statistic about a QB: ${why}. This is a fact about the position, `"
+ },
+ {
+  "name": "P6 the sentence stops saying it is not a gap in the data",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T2 a fact about the position",
+  "kind": "mutation",
+  "old": "  + 'not a gap in the data.';",
+  "new": "  + 'and the usage rows on file for this season do not carry it.';"
+ },
+ {
+  "name": "P7 the positional absence is labelled as an ordinary missing measurement",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T14 the service marks which kind of absence each one is",
+  "kind": "mutation",
+  "old": "    NOT_THROWN_TO[key]), { unit, kind: 'not_applicable' });",
+  "new": "    NOT_THROWN_TO[key]), { unit, kind: 'not_measured' });"
+ },
+ {
+  "name": "P8 every absence is labelled positional, so the kind means nothing",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T14 a receiver's missing column is not a positional absence",
+  "kind": "mutation",
+  "old": "  { unit = null, basis = null, kind = 'not_measured' } = {}) =>",
+  "new": "  { unit = null, basis = null, kind = 'not_applicable' } = {}) =>"
+ },
+ {
+  "name": "P9 a measured stat is stamped with a kind of absence",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T14 a measured stat carries no absence label",
+  "kind": "mutation",
+  "old": "  ({ key, label, value, unit, basis, unavailable_reason: null, unavailable_kind: null });",
+  "new": "  ({ key, label, value, unit, basis, unavailable_reason: null, unavailable_kind: 'not_measured' });"
+ },
+ {
+  "name": "P10 the routes stats go back to the paid-source sentence for everyone",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T1 the routes half of the positional gate",
+  "kind": "mutation",
+  "old": "  const routes = (key, label, unit) => applies === false\n    ? inapplicable(key, label, position, { unit })\n    : absent(key, label, UNAVAILABLE.routes, { unit });",
+  "new": "  const routes = (key, label, unit) => absent(key, label, UNAVAILABLE.routes, { unit });"
+ },
+ {
+  "name": "P11 red-zone share is gated on position too",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T9 red-zone share stays a platform absence for every position",
+  "kind": "mutation",
+  "old": "      absent('red_zone_share', 'Red-zone share', UNAVAILABLE.redZone, { unit: 'pct' })",
+  "new": "      applies === false\n        ? inapplicable('red_zone_share', 'Red-zone share', position, { unit: 'pct' })\n        : absent('red_zone_share', 'Red-zone share', UNAVAILABLE.redZone, { unit: 'pct' })"
+ },
+ {
+  "name": "P12 applicability is asked after the data, so an idle QB is blamed on his rows",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T3 the same position gets the same sentence, busy or idle",
+  "kind": "mutation",
+  "old": "    if (applies === false) return inapplicable(key, label, position, { unit });\n    if (value != null) return measured(key, label, value, { unit });\n    return absent(key, label, noUsage ? UNAVAILABLE.noUsage : UNAVAILABLE.notPopulated, { unit });",
+  "new": "    if (value != null) return measured(key, label, value, { unit });\n    if (noUsage) return absent(key, label, UNAVAILABLE.noUsage, { unit });\n    if (applies === false) return inapplicable(key, label, position, { unit });\n    return absent(key, label, UNAVAILABLE.notPopulated, { unit });"
+ },
+ {
+  "name": "P13 the panel pools both absences under one heading",
+  "file": "client/src/components/AdvancedStatsPanel.tsx",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T13 the panel separates the two kinds of absence",
+  "kind": "mutation",
+  "old": "  const inapplicable = report.stats.filter(s => s.unavailable_kind === 'not_applicable');",
+  "new": "  const inapplicable: AdvancedStat[] = [];"
+ },
+ {
+  "name": "P14 the panel groups by reading the sentence instead of the label",
+  "file": "client/src/components/AdvancedStatsPanel.tsx",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "T13, T14 grouping by prose is the failure the kind field removes",
+  "kind": "mutation",
+  "old": "  const absent = report.stats.filter(s => s.unavailable_kind === 'not_measured');",
+  "new": "  const absent = report.stats.filter(s => s.value == null\n    && !/Not a statistic about/.test(s.unavailable_reason ?? ''));"
+ },
+ {
+  "name": "C1 control: a comment reworded, nothing behavioural",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "nothing — this row is DESIGNED to survive",
+  "kind": "control-surviving",
+  "old": " * The positions a pass can be thrown to. Target share, WOPR and anything built",
+  "new": " * The positions a pass may be thrown to. Target share, WOPR and anything built"
+ },
+ {
+  "name": "C2 control: an anchor that does not exist",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "nothing — this row is DESIGNED to be reported NOT APPLIED",
+  "kind": "control-not-applied",
+  "old": "const RECEIVING_POSITIONS_THAT_DO_NOT_EXIST = new Set();",
+  "new": "const x = 1;"
+ },
+ {
+  "name": "C3 control: an anchor that matches more than once",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats-position.test.js"
+  ],
+  "aimed_at": "nothing — this row is DESIGNED to be reported NOT APPLIED, on count",
+  "kind": "control-not-applied",
+  "old": ", { unit });",
+  "new": ", { unit: null });"
+ }
+]

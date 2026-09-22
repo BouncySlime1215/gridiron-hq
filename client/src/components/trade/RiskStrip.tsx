@@ -2,8 +2,25 @@ import type { PackageRisk, SideRisk } from './types';
 
 const n0 = (v: number | null | undefined) => (v == null ? '—' : Math.round(v).toLocaleString('en-US'));
 
-const floorOf = (r: PackageRisk) => r.players.length === 0 ? '—'
-  : r.seasons ? `${r.top24_seasons}/${r.seasons} top-24` : 'no record';
+/**
+ * Floor, and what the number is actually taken over.
+ *
+ * `seasons` is summed over the players whose career layer could be READ
+ * (packageRisk's `withRecord`), so it is not the package's own count whenever
+ * `unreadable` is non-zero. Two readings used to collapse into one here: a
+ * package with no record, and a package whose record could not be fetched.
+ * The second is not a finding about the players, and saying "no record" about
+ * a five-year starter because a query threw is the defect this unit exists to
+ * remove — one layer above where it was removed from trade-engine.js.
+ */
+const floorOf = (r: PackageRisk) => {
+  if (r.players.length === 0) return '—';
+  const unread = r.unreadable ?? 0;
+  if (!r.seasons) return unread ? 'not readable' : 'no record';
+  return unread
+    ? `${r.top24_seasons}/${r.seasons} top-24 (${r.players.length - unread}/${r.players.length})`
+    : `${r.top24_seasons}/${r.seasons} top-24`;
+};
 const ceilingOf = (r: PackageRisk) => r.p80 != null ? `${n0(r.p80)} pts` : '—';
 const swingOf = (r: PackageRisk) => r.swing_pct != null ? `±${r.swing_pct}%` : r.players.length ? 'n/a' : '—';
 
@@ -14,7 +31,11 @@ const swingOf = (r: PackageRisk) => r.swing_pct != null ? `±${r.swing_pct}%` : 
  */
 export default function RiskStrip({ risk, compact = false }: { risk?: SideRisk | null; compact?: boolean }) {
   if (!risk?.out || !risk?.in) return null;
-  const anyRecord = risk.out.seasons > 0 || risk.in.seasons > 0 || risk.out.p80 != null || risk.in.p80 != null;
+  // A side whose career AND preseason layers both failed has seasons 0 and p80
+  // null, which used to make the whole strip disappear — the failure rendered as
+  // nothing at all. It counts as something to say, so the Floor cell can say it.
+  const anyRecord = risk.out.seasons > 0 || risk.in.seasons > 0 || risk.out.p80 != null || risk.in.p80 != null
+    || (risk.out.unreadable ?? 0) > 0 || (risk.in.unreadable ?? 0) > 0;
   if (!anyRecord) return null;
 
   const cell = (label: string, out: string, inn: string, title: string, better?: boolean | null) => (
@@ -28,7 +49,12 @@ export default function RiskStrip({ risk, compact = false }: { risk?: SideRisk |
     </div>
   );
 
-  const floorBetter = risk.out.seasons && risk.in.seasons
+  // Both rates are taken over the readable players only, so with anything
+  // unreadable on either side this compares two different-sized samples and
+  // colours the cell off the result. No colour is the honest answer there:
+  // null leaves the cell neutral, exactly as an absent p80 already does.
+  const floorFullyRead = !(risk.out.unreadable ?? 0) && !(risk.in.unreadable ?? 0);
+  const floorBetter = risk.out.seasons && risk.in.seasons && floorFullyRead
     ? (risk.in.top24_seasons / risk.in.seasons) - (risk.out.top24_seasons / risk.out.seasons) : null;
   const swingBetter = risk.out.swing_pct != null && risk.in.swing_pct != null ? risk.out.swing_pct - risk.in.swing_pct : null;
   const ceilBetter = risk.out.p80 != null && risk.in.p80 != null ? risk.in.p80 - risk.out.p80 : null;
@@ -37,7 +63,13 @@ export default function RiskStrip({ risk, compact = false }: { risk?: SideRisk |
   return (
     <div className={compact ? 'mt-1.5' : 'mt-2 pt-2 border-t border-[var(--edge)]'}>
       <dl className="grid grid-cols-3 gap-x-2">
-        {cell('Floor', floorOf(risk.out), floorOf(risk.in), 'Seasons finishing top-24 at the position, out of seasons on record (sends → receives)', sign(floorBetter))}
+        {cell('Floor', floorOf(risk.out), floorOf(risk.in),
+          floorFullyRead
+            ? 'Seasons finishing top-24 at the position, out of seasons on record (sends → receives)'
+            : 'Seasons finishing top-24 at the position, out of seasons on record (sends → receives). '
+              + 'A career record on this deal could not be read, so the count covers only part of the '
+              + 'package and the comparison is left uncoloured.',
+          sign(floorBetter))}
         {cell('Ceiling', ceilingOf(risk.out), ceilingOf(risk.in), 'This season, p80 of our preseason model (sends → receives)', sign(ceilBetter))}
         {cell('Consistency', swingOf(risk.out), swingOf(risk.in), 'Year-to-year swing in season points (lower is steadier; sends → receives)', sign(swingBetter))}
       </dl>

@@ -38,7 +38,10 @@ export interface PlayerRisk {
   seasons: number; top24: number; top12: number;
   min_games: number | null; swing_pct: number | null; band_pct: number | null;
   points: number | null; p20: number | null; p80: number | null;
-  profile: 'proven floor' | 'steady' | 'spike' | 'volatile' | 'unproven';
+  // 'unknown' is not a weak 'unproven': it means the career layer could not be
+  // read at all, so nothing about this player's record can be claimed either way
+  // (trade-engine.js playerRiskProfile, via playerEvidence's evidence_unreadable).
+  profile: 'proven floor' | 'steady' | 'spike' | 'volatile' | 'unproven' | 'unknown';
 }
 
 export interface PackageRisk {
@@ -48,6 +51,10 @@ export interface PackageRisk {
   points: number | null; p20: number | null; p80: number | null;
   headline_profile: PlayerRisk['profile'] | null;
   headline_read: string | null;
+  /** How many of `players` had an unreadable career layer. The sums above are
+   *  taken over the rest, so a non-zero count means they cover only part of
+   *  the package — see RiskStrip's Floor cell. */
+  unreadable: number;
 }
 
 export interface SideRisk { out: PackageRisk; in: PackageRisk; read: string | null }

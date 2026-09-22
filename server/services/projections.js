@@ -272,10 +272,30 @@ export const LEVEL_UNCERTAINTY = { a: 0, b: 1.15, lo: 0.30, hi: 0.70, downMult: 
  * weeks 5-17, 20% of the QB reads come from fewer than three qualifying starts
  * and 59 from exactly one, and k = 0.073 was (per the fit above) estimated on
  * stable 8-start trailing reads, so a single noisy game gets an eight-game
- * coefficient. Second, the whole signal is currently worth roughly nothing:
- * 2025 weekly MAE is 4.749 with it on and 4.751 with it off. It is not doing
- * harm, and it is not the place to spend effort. Re-syncing 2021-2024 QBR and
- * re-running scripts/analyze-qbr-fantasy-signal.mjs is what would settle both.
+ * coefficient. Second — STRUCK 2026-09-22, see below — the whole signal is
+ * currently worth roughly nothing: 2025 weekly MAE is 4.749 with it on and
+ * 4.751 with it off. It is not doing harm, and it is not the place to spend
+ * effort. Re-syncing 2021-2024 QBR and re-running
+ * scripts/analyze-qbr-fantasy-signal.mjs is what would settle both.
+ *
+ * STRUCK 2026-09-22: the "worth roughly nothing" verdict in the sentence above
+ * is WITHDRAWN. 4.749 against 4.751 is a season-long MAE difference, and the
+ * thing being judged is a weekly signal — a season-long aggregate can average
+ * a real weekly effect away against itself, so that pair cannot support the
+ * dismissal it was used for. The numbers are left in place because they were
+ * measured and are not in dispute; what is withdrawn is the conclusion drawn
+ * from them.
+ *
+ * Nothing replaces it. This is not a reversal and must not be read as one:
+ * there is no claim here that the signal IS worth something. It is now
+ * UNJUDGED, and a re-run is a new pre-registered gate with its own paragraph,
+ * not an edit of this one.
+ *
+ * The 2026-09-17 provenance warning above stands, untouched and independent.
+ * The two say different things: the warning says the fit's own numbers cannot
+ * be reproduced against the database this code runs on; this strike says the
+ * dismissal measured the wrong quantity. Neither rescues the other, and the
+ * minimum-evidence gap in "First" above is unaffected by both.
  */
 export const QBR_SIGNAL = { enabled: true, k: 0.073, center: 53.26, window: 8 };
 

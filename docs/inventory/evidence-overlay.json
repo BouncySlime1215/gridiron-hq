@@ -61,11 +61,11 @@
       "id": "table:league-transactions-raw",
       "kind": "table",
       "name": "league_transactions_raw",
-      "path": "test/manager-data-pipeline.test.js:131",
-      "status": "silently_broken",
-      "evidence": "created by no migration and no server/db/schema file — its only CREATE TABLE is in test fixtures (test/manager-data-pipeline.test.js:131 and peers). Read by six services (manager-archetypes, trade-engine, counterparty-pricing, manager-signals, bluff-detector, trade-tactics); only manager-signals.js:167 guards with tableExists, so the other five read a table that does not exist outside the test run and return results as if it did. Measured by the model-evidence audit thread, 654ff93.",
+      "path": "scripts/collect-league-transactions.mjs:21",
+      "status": "referenced_but_never_created",
+      "evidence": "no migration and no server/db/schema file creates it; the only CREATE TABLE statements are a hand-run script (scripts/collect-league-transactions.mjs:21) and test fixtures (test/manager-data-pipeline.test.js:131 and peers), so it is absent in any database where neither ran — production included. Read by six services (manager-archetypes, trade-engine, counterparty-pricing, manager-signals, bluff-detector, trade-tactics); only manager-signals.js:167 guards with tableExists, so the other five read a table that may not exist and return results as if it did. Measured by the model-evidence audit thread, 654ff93.",
       "owner_thread": "scheduler",
-      "note": "fix path is migration 066 on the scheduler thread's held branch (9c7cf68/8709ec6), not on main. Same shape: negotiation_profiles, league_season_teams, league_draft_picks, play_by_play, pbp_participation are also SQL-named but created by no migration or schema file."
+      "note": "fix path is migration 066 on the scheduler thread's held branch (9c7cf68/8709ec6), not on main. Same shape (script/test-created, no migration): negotiation_profiles (scripts/build-negotiation-profiles.mjs:54, 3 prod readers) and league_season_teams (scripts/backfill-league-history.mjs:48, 5 prod readers)."
     },
     {
       "id": "model:trade-tactics",

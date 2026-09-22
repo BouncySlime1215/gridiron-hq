@@ -55,6 +55,16 @@ const OUT_JSON = path.join(ROOT, 'docs/inventory/inventory.json');
 const OUT_MD = path.join(ROOT, 'docs/inventory/INVENTORY.md');
 
 const STATUSES = ['wired', 'half_done', 'dead', 'silently_broken', 'decoration'];
+// A table can carry one status the five do not cover. A "phantom" table is named in SQL
+// and read by product code, but no migration and no schema file creates it — its only
+// CREATE TABLE statements live in a hand-run script or a test fixture, so it is absent
+// in any database where neither ran, production included. That is not silently_broken:
+// silently_broken is a reachable code path that returns success while reading nothing,
+// and a table is neither a code path nor a returner. It is not dead (it is read from all
+// over) and not half_done (the reader is finished; the CREATE is what is missing). It is
+// its own shape, and forcing it into one of the five would mislabel it, so it gets its
+// own name — used only for kind=table, enforced below.
+const TABLE_ONLY_STATUSES = ['referenced_but_never_created'];
 const KINDS = ['model', 'pipeline', 'job', 'route', 'page', 'table', 'script'];
 
 const short = (sha) => (sha || '').slice(0, 7);
@@ -355,12 +365,22 @@ function renderMd(rows, meta) {
     silently_broken: 'reachable, returns success, reads or writes nothing real',
     decoration: 'renders a number no current row backs',
     '(model, ungraded)': 'a model, blank status, handed to the model-evidence audit thread',
+    referenced_but_never_created: 'a table read by product code that no migration or schema file creates (table-only)',
     unclassified: 'could not be defended statically; each row carries a reason',
   };
   const t = tally(rows);
-  for (const k of ['wired', 'half_done', 'silently_broken', 'decoration', 'dead', '(model, ungraded)', 'unclassified']) {
+  for (const k of ['wired', 'half_done', 'silently_broken', 'decoration', 'referenced_but_never_created', 'dead', '(model, ungraded)', 'unclassified']) {
     if (t[k]) L.push(`| ${k} | ${t[k]} | ${meanings[k]} |`);
   }
+  L.push('');
+  L.push('`referenced_but_never_created` is a table-only status, not one of the five component');
+  L.push('statuses. A phantom table — named in SQL, read across the app, created only by a');
+  L.push('hand-run script or a test fixture and by no migration — is absent in any database');
+  L.push('where that script never ran, production included. It is not `silently_broken` (that is');
+  L.push('a code path returning success while reading nothing; a table is not a code path), not');
+  L.push('`dead` (it is read from everywhere), and not `half_done` (the reader is finished; the');
+  L.push('CREATE is what is missing). Forcing it into one of the five would mislabel it, so it');
+  L.push('carries its own name.');
   L.push('');
   L.push('## By kind');
   L.push('');
@@ -371,7 +391,7 @@ function renderMd(rows, meta) {
   for (const k of KINDS) if (byKind[k]) L.push(`| ${k} | ${byKind[k]} |`);
   L.push('');
   // The rows that are not clean: what a reader actually wants.
-  for (const status of ['silently_broken', 'decoration', 'dead']) {
+  for (const status of ['silently_broken', 'decoration', 'referenced_but_never_created', 'dead']) {
     const group = rows.filter((r) => r.status === status);
     if (!group.length) continue;
     L.push(`## ${status} — ${group.length}`);
@@ -397,8 +417,9 @@ function check(rows) {
     if (!KINDS.includes(r.kind)) problems.push(`${r.id}: illegal kind ${JSON.stringify(r.kind)}`);
     const legal = r.status === '' ? r.kind === 'model'
       : r.status === 'unclassified' ? true
-      : STATUSES.includes(r.status);
-    if (!legal) problems.push(`${r.id}: illegal status ${JSON.stringify(r.status)}`);
+      : STATUSES.includes(r.status)
+      || (r.kind === 'table' && TABLE_ONLY_STATUSES.includes(r.status));
+    if (!legal) problems.push(`${r.id}: illegal status ${JSON.stringify(r.status)} for kind ${r.kind}`);
     if (r.status === 'unclassified' && !r.reason) problems.push(`${r.id}: unclassified with no reason`);
     else if (r.status && r.status !== 'unclassified' && !r.evidence) problems.push(`${r.id}: status ${r.status} with no evidence`);
     // A blank model status is allowed to carry evidence that says it awaits grading.

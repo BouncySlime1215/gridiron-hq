@@ -92,9 +92,22 @@ test('resolveOffThread prefers the override and otherwise keeps the old rule', (
 });
 
 test('the allow-list is only an escape for jobs that need it', () => {
-  // If book-feeds ever persists _providerBackoff and _directBookLastSeen, this
-  // is the test that should be updated as the entries come out, rather than
-  // the allow-list quietly growing.
+  // A ratchet: the allow-list must not grow without someone editing this line.
+  // It fired on the fourth entry below and that is the whole point of it.
+  //
+  // The entries are there for two different reasons, and the difference
+  // matters when one comes off. The three book-feeds jobs share module state
+  // used as persistence (_providerBackoff, _directBookLastSeen); persist those
+  // and all three can move, and this line should shrink as they do.
+  //
+  // trade_asset_universe_warm is not that. Its whole product IS the in-process
+  // cache (compute-cache.js's `store`, a module-level Map), so off-thread it
+  // would do the work, warm a worker that then exits, and report success. That
+  // one comes off only if the asset universe is persisted the way
+  // report-cache.js persists reports to nfl_cached_reports -- not by anyone
+  // deciding the risk looks acceptable. See
+  // docs/tdd/main-thread-only-holds.tdd.md.
   assert.deepEqual([...MAIN_THREAD_ONLY.keys()],
-    ['nfl_book_feeds_fast', 'nfl_book_feeds_slow', 'nfl_book_feeds_extra']);
+    ['nfl_book_feeds_fast', 'nfl_book_feeds_slow', 'nfl_book_feeds_extra',
+      'trade_asset_universe_warm']);
 });

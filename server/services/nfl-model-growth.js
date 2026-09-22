@@ -153,6 +153,47 @@ async function attempt(name, fn, detail) {
 }
 
 /**
+ * The cycle's verdict on itself, as a pure function of what it found.
+ *
+ * Extracted from the cycle body so it can be exercised directly. It used to be
+ * an inline ternary over three inputs, which meant the only way to test what a
+ * run REPORTS was to drive the whole cycle — and driving the whole cycle needs
+ * a warehouse in which everything succeeds except the one thing under test.
+ *
+ * The order is the order of causes. A week that is not final explains
+ * everything after it; a required release that has not published explains a
+ * missing fit; a download that failed explains a fit built on stale rows. The
+ * last thing checked is the fit itself.
+ */
+export function cycleOutcome({ finalizedWeek, requiredLag = [], detail = {} }) {
+  if (finalizedWeek === 0) {
+    return { status: 'waiting',
+      note: 'No regular-season game is final yet. The cycle settled anything due, skipped every download, and will check again automatically.' };
+  }
+  if (requiredLag.length) {
+    return { status: 'source_lag',
+      note: 'A finalized week exists but at least one required nflverse release is not published yet; the scheduler will retry without fabricating rows.' };
+  }
+  const failedSteps = Object.entries(detail.ingestion ?? {})
+    .filter(([, step]) => step?.error).map(([name]) => name);
+  if (failedSteps.length) {
+    const many = failedSteps.length > 1;
+    return { status: 'ingest_error',
+      note: `A finalized week was available and every required release had published, but `
+        + `${many ? `${failedSteps.length} downloads` : 'a download'} failed: ${failedSteps.join(', ')}. `
+        + `The rest of the cycle ran against rows ${many ? 'those feeds' : 'that feed'} did not update, `
+        + `so anything derived from ${many ? 'them' : 'it'} is as stale as the last successful run. `
+        + `The scheduler retries ${many ? 'them' : 'it'} on the next cycle.` };
+  }
+  if (detail.fit?.error) {
+    return { status: 'fit_error',
+      note: 'The current week was ingested but the cutoff fit failed; the failed run is retained and will be retried.' };
+  }
+  return { status: 'ok',
+    note: 'Outcomes became immutable labels, current-season features were ingested, and the next-week fit was recorded without auto-promotion.' };
+}
+
+/**
  * Settle labels on every check; download/refit only after a new finalized week.
  * Individual feeds fail independently so one late nflverse release does not
  * discard everything another source successfully published.
@@ -283,19 +324,10 @@ export async function runNflModelGrowthCycle({ season = availableSeason(), force
 
     const after = warehouseSnapshot(season);
     const requiredLag = after.sources.filter(source => source.required && !source.current);
-    const status = after.finalized_week === 0 ? 'waiting'
-      : requiredLag.length ? 'source_lag'
-        : detail.fit?.error ? 'fit_error' : 'ok';
+    const { status, note } = cycleOutcome({ finalizedWeek: after.finalized_week, requiredLag, detail });
     const finishedAt = new Date().toISOString();
     const result = { status, started_at: startedAt, finished_at: finishedAt,
-      before, after, ...detail,
-      note: status === 'waiting'
-        ? 'No regular-season game is final yet. The cycle settled anything due, skipped every download, and will check again automatically.'
-        : status === 'source_lag'
-          ? 'A finalized week exists but at least one required nflverse release is not published yet; the scheduler will retry without fabricating rows.'
-          : status === 'fit_error'
-            ? 'The current week was ingested but the cutoff fit failed; the failed run is retained and will be retried.'
-            : 'Outcomes became immutable labels, current-season features were ingested, and the next-week fit was recorded without auto-promotion.' };
+      before, after, ...detail, note };
     run(`UPDATE nfl_model_growth_runs SET finished_at=?,status=?,after_hash=?,detail_json=? WHERE id=?`,
     finishedAt, status, hash(after), JSON.stringify(result), inserted.lastInsertRowid);
     return result;

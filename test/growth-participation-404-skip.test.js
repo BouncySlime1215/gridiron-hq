@@ -18,7 +18,12 @@
  * stale. The absence is documented and expected; it must be recorded as one.
  *
  * What must NOT change: any other status, or a thrown fetch, is still a failed
- * download. A 503 is not a publication schedule.
+ * download. A 503 is not a publication schedule, and neither is a 403 or a 429
+ * (GitHub forbidding or rate-limiting the request) or a 410. And a 404 is only
+ * the documented absence for the season in progress: a completed season is
+ * published, so its 404 is a real fault even when the manual route
+ * (POST /profitability/model-growth/run, which passes its own season) is what
+ * asked for it.
  *
  * The cycle is driven end to end with fetch stubbed, the same way
  * growth-participation-season-gate.test.js does it, so the step under test is
@@ -34,7 +39,12 @@ import fs from 'node:fs';
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'gridiron-growth-404-'));
 process.env.GRIDIRON_DB_PATH = path.join(temp, 'fixture.sqlite');
 process.env.SCHEDULER_DISABLED = '1';
+// The season in progress is read the way the cycle reads it (availableSeason:
+// NFL_SEASON, else the newest game_lines season). Cleared so the fixture's
+// game_lines decide it, whatever the shell exports.
+delete process.env.NFL_SEASON;
 const SEASON = 2026;
+const COMPLETED = 2024;
 const { db, run, rows } = await import('../server/db/index.js');
 await (await import('../server/db/migrate.js')).runMigrations();
 
@@ -43,9 +53,13 @@ after(() => { globalThis.fetch = realFetch; db.close(); fs.rmSync(temp, { recurs
 
 // finalized_week > 0 needs a week whose every home game has both scores;
 // without it the cycle skips every download and the call site never runs.
-for (const [team, opp] of [['BUF', 'MIA'], ['KC', 'DEN']]) {
-  run(`INSERT INTO game_lines (season, week, team, opponent, home, team_score, opp_score)
-       VALUES (?,?,?,?,?,?,?)`, SEASON, 1, team, opp, 1, 24, 17);
+// COMPLETED gets a final week too, so the manual-route run below reaches the
+// download branch; SEASON stays the newest season, so it is the one in progress.
+for (const season of [COMPLETED, SEASON]) {
+  for (const [team, opp] of [['BUF', 'MIA'], ['KC', 'DEN']]) {
+    run(`INSERT INTO game_lines (season, week, team, opponent, home, team_score, opp_score)
+         VALUES (?,?,?,?,?,?,?)`, season, 1, team, opp, 1, 24, 17);
+  }
 }
 
 // Participation answers with whatever the phase sets; every other feed 503s so
@@ -73,6 +87,16 @@ participation = { status: 503 };
 const unavailable = await runNflModelGrowthCycle({ season: SEASON, force: true });
 participation = { throws: 'fetch failed' };
 const thrown = await runNflModelGrowthCycle({ season: SEASON, force: true });
+// Client errors that are not "not published": forbidden, rate-limited, gone.
+const clientErrors = {};
+for (const status of [403, 429, 410]) {
+  participation = { status };
+  clientErrors[status] = await runNflModelGrowthCycle({ season: SEASON, force: true });
+}
+// The manual route's shape: a completed season asked for explicitly, 404ing.
+participation = { status: 404 };
+const completed = await runNflModelGrowthCycle({ season: COMPLETED, force: true });
+const completedUrls = participationUrls.splice(0).filter(url => url.endsWith(`_${COMPLETED}.csv`));
 
 const verdictFor = step => cycleOutcome({ finalizedWeek: 2, requiredLag: [],
   detail: { ingestion: { formation_participation: step } } });
@@ -122,6 +146,36 @@ test('any other participation status is still a failed download', () => {
   assert.deepEqual(unavailable.skipped_steps ?? [], []);
 });
 
+test('a 403, a 429 or a 410 for the season in progress is still a failed download', () => {
+  // Only 404 is the publication schedule. Widening the rule to every 4xx would
+  // turn GitHub forbidding or rate-limiting the request into "not published
+  // yet" and a run that ends ok (skeptic mutant U1).
+  for (const [status, result] of Object.entries(clientErrors)) {
+    const step = result.ingestion.formation_participation;
+    assert.ok(step?.error, `${status} is not a publication schedule; step was ${JSON.stringify(step)}`);
+    assert.equal(step.http_status, Number(status));
+    assert.notEqual(step.skipped, true, `${status} is not recorded as a skip`);
+    assert.equal(verdictFor(step).status, 'ingest_error', `${status} makes the run ingest_error`);
+    assert.deepEqual(result.skipped_steps ?? [], [], `${status} is not in skipped_steps`);
+  }
+});
+
+test('a 404 for a completed season is a failed download, not a skip', () => {
+  // nfl-formations.js says it: 2016-2025 are published, so a 404 for one of
+  // them is a real fault. The route passes its own season into the cycle, so
+  // "the cycle's season is the one being played" is not something the rule may
+  // assume; it has to check.
+  assert.deepEqual(completedUrls.map(url => url.split('/').pop()), [`pbp_participation_${COMPLETED}.csv`],
+    'the run asked for the completed season');
+  const step = completed.ingestion.formation_participation;
+  assert.ok(step?.error, `a completed season's 404 is a fault; step was ${JSON.stringify(step)}`);
+  assert.equal(step.http_status, 404);
+  assert.notEqual(step.skipped, true);
+  assert.equal(step.absence, undefined, 'not labelled not_published');
+  assert.equal(verdictFor(step).status, 'ingest_error');
+  assert.deepEqual(completed.skipped_steps ?? [], []);
+});
+
 test('a thrown participation fetch is still a failed download', () => {
   const step = thrown.ingestion.formation_participation;
   assert.match(step?.error ?? '', /fetch failed/);
@@ -149,15 +203,26 @@ test('the production skip rule, pinned directly', () => {
   // cycleOutcome a hand-made skip could not see it deleted.
   const { unpublishedSeasonSkip } = growth;
   assert.equal(typeof unpublishedSeasonSkip, 'function', 'nfl-model-growth.js exports the rule it applies');
+  // Arguments: the step, the season it asked for, the season in progress.
   const notFound = { season: SEASON, http_status: 404, error: `participation for ${SEASON} returned 404` };
-  const skip = unpublishedSeasonSkip(notFound, SEASON);
+  const skip = unpublishedSeasonSkip(notFound, SEASON, SEASON);
   assert.equal(skip.error, undefined);
   assert.equal(skip.skipped, true);
   assert.equal(skip.absence, 'not_published');
-  const unavailableStep = { season: SEASON, http_status: 503, error: 'participation returned 503' };
-  assert.equal(unpublishedSeasonSkip(unavailableStep, SEASON), unavailableStep, 'a 503 passes through untouched');
+  const future = { season: SEASON + 1, http_status: 404, error: `participation for ${SEASON + 1} returned 404` };
+  assert.equal(unpublishedSeasonSkip(future, SEASON + 1, SEASON).skipped, true,
+    'a season after the one in progress is not published either');
+  for (const status of [503, 403, 429, 410]) {
+    const other = { season: SEASON, http_status: status, error: `participation returned ${status}` };
+    assert.equal(unpublishedSeasonSkip(other, SEASON, SEASON), other, `a ${status} passes through untouched`);
+  }
+  const completedStep = { season: COMPLETED, http_status: 404, error: `participation for ${COMPLETED} returned 404` };
+  assert.equal(unpublishedSeasonSkip(completedStep, COMPLETED, SEASON), completedStep,
+    'a completed season\'s 404 passes through as the failure it is');
+  assert.equal(unpublishedSeasonSkip(notFound, SEASON, undefined), notFound,
+    'no known season in progress means no skip: the rule fails loud, not quiet');
   const stored = { season: SEASON, plays_stored: 45184 };
-  assert.equal(unpublishedSeasonSkip(stored, SEASON), stored, 'a success passes through untouched');
+  assert.equal(unpublishedSeasonSkip(stored, SEASON, SEASON), stored, 'a success passes through untouched');
   const threw = { error: 'fetch failed' };
-  assert.equal(unpublishedSeasonSkip(threw, SEASON), threw, 'no status field means no skip');
+  assert.equal(unpublishedSeasonSkip(threw, SEASON, SEASON), threw, 'no status field means no skip');
 });

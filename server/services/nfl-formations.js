@@ -20,10 +20,14 @@
  * down, against this box" — which is the difference between a drawing and a
  * diagram, and is also a real modelling input the ensemble has never had.
  *
- * A LIMIT WORTH KNOWING: participation ends after 2023. The NFL restricted the
- * underlying tracking feed, so nflverse could not continue it. That makes this
- * excellent history and not a live feed, which is fine for learning formation
- * distributions and useless for knowing what happened on Sunday.
+ * A LIMIT WORTH KNOWING, corrected 2026-09-22 by downloading every season:
+ * participation is published for 2016-2025, not "through 2023" as this comment
+ * previously claimed. 2024 has 45,919 rows over 285 games and 2025 has 45,184
+ * over 285 games, both weeks 1-22, with offense_players 100% populated. The
+ * real limit is the near edge, not the far one: pbp_participation_2026.csv
+ * returns HTTP 404 while snap_counts and stats_player_week are already current
+ * through 2026 week 2. So this is excellent history and still not a live feed —
+ * it cannot tell you what happened last Sunday.
  */
 import { db, rows, row, run } from '../db/index.js';
 
@@ -58,7 +62,9 @@ export async function ingestFormations(season, { timeoutMs = 900000 } = {}) {
   if (!res.ok) {
     return { error: `participation for ${season} returned ${res.status}`,
       note: season > 2023
-        ? 'Participation ends after 2023 — the NFL restricted the tracking feed behind it.'
+        // Measured 2026-09-22: published range is 2016-2025. Inside that range a
+        // failure is a fetch error worth retrying; beyond it the file does not exist yet.
+        ? 'Participation is published for 2016-2025. Beyond that the season is not published yet; inside it, a failure is a fetch error, not source absence.'
         : undefined };
   }
   const text = await res.text();
@@ -236,7 +242,9 @@ export function formationStatus() {
   return {
     formations: { plays: f.n ?? 0, seasons: fs.map(x => ({ season: x.season, plays: x.n })) },
     charting: { plays: c.n ?? 0, seasons: cs.map(x => ({ season: x.season, plays: x.n })) },
-    limits: 'Participation ends after 2023 — the NFL restricted the tracking feed behind it. Excellent ' +
-      'history for learning formation distributions, not a live feed.'
+    limits: 'Participation is published for 2016-2025 (verified 2026-09-22 by download: 2024 = 45,919 ' +
+      'plays over 285 games, 2025 = 45,184 over 285). The current season is not published — ' +
+      'pbp_participation_2026.csv returns 404 — so this is history for learning formation ' +
+      'distributions and not a live feed.'
   };
 }

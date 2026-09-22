@@ -1905,11 +1905,20 @@ async function runJobNow(name, job, offThreadOverride) {
   // takes the process down, this is the only trace it ever existed — see
   // recordStart and reapAbandonedRuns above.
   recordStart(name);
-  // Tell the watchdog what is about to run, so that if this is the job that
-  // blocks the thread the kill line names it instead of leaving 24 suspects.
-  // Before the work, never after: a marker set after synchronous work begins
-  // is never set at all.
-  markJobRunning(name);
+  // A job declared `offThread` runs in a worker; everything else keeps the
+  // original inline path exactly as it was. See runJobOffThread above.
+  // The heavy tier goes off-thread by default rather than job-by-job, so a
+  // heavy job added later cannot quietly reintroduce the outage by
+  // forgetting the flag. An individual job can still opt out with
+  // `offThread: false` if it genuinely needs main-thread state.
+  //
+  // Then tell the watchdog what is about to run, so that if this is the job
+  // that blocks the thread the kill line names it instead of leaving 24
+  // suspects. Before the work, never after: a marker set after synchronous work
+  // begins is never set at all. Inline jobs only: a worker-thread job cannot
+  // block this thread, and naming it would point a stall at the wrong suspect.
+  const offThread = resolveOffThread(job, offThreadOverride);
+  if (!offThread) markJobRunning(name);
   try {
     // EVERY JOB IS TIME-BOUND, AND THIS IS NOT DEFENSIVE PROGRAMMING.
     //
@@ -1930,13 +1939,6 @@ async function runJobNow(name, job, offThreadOverride) {
     // capture for the life of the process. A timeout converts that into a
     // recorded error and lets the loop reach the jobs behind it.
     const timeoutMs = job.timeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
-    // A job declared `offThread` runs in a worker; everything else keeps the
-    // original inline path exactly as it was. See runJobOffThread above.
-    // The heavy tier goes off-thread by default rather than job-by-job, so a
-    // heavy job added later cannot quietly reintroduce the outage by
-    // forgetting the flag. An individual job can still opt out with
-    // `offThread: false` if it genuinely needs main-thread state.
-    const offThread = resolveOffThread(job, offThreadOverride);
     const detail = offThread
       ? await runJobOffThread(name, timeoutMs)
       : await withJobTimeout(job.run(), name, timeoutMs);
@@ -1978,8 +1980,9 @@ async function runJobNow(name, job, offThreadOverride) {
   } finally {
     // In a `finally`, because a job that threw is exactly as finished as one
     // that returned. Leaving the marker set would make the NEXT stall blame
-    // this job, which is worse than naming nothing.
-    clearJobRunning();
+    // this job, which is worse than naming nothing. By name, because tiers
+    // overlap: clearing every marker erased the job still holding the thread.
+    clearJobRunning(name);
   }
 }
 

@@ -522,6 +522,17 @@ export function fitGradedAvailability(seasons, { minN = 30 } = {}) {
  * { enabled: true })` runs the real logic, which is how this unit's own tests
  * grade it. A caller that opts in has said so in its own diff, which is the
  * property the flag exists to create.
+ *
+ * WHERE DEFAULT-ON IS ALLOWED TO HAPPEN (Auditor §R51.1 condition 3): at the
+ * coupled grade's named call site, and nowhere else. That is the site where
+ * §R19.6's as-of refit binds -- the refit whose numbers came back identical on
+ * this container's single-snapshot revision store, which is why the grade is
+ * still owed. Turning the flag on anywhere before then would be adopting an
+ * ungraded multiplier. Production code therefore never passes the override at
+ * all; it inherits this constant, and a source scan in
+ * `test/nfl-player-context-graded-availability.test.js` fails the build if any
+ * caller under `server/` or `scripts/` passes a 6th argument. Wiring the
+ * multiplier in is allowed by that scan; switching it on is not.
  */
 export const GRADED_AVAILABILITY_ENABLED = false;
 

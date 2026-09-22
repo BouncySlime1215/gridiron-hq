@@ -135,6 +135,9 @@ test('G1 invariant: an unreported player-week gets a multiplier of EXACTLY 1, ne
   const id = insertPlayer('No Report Player', 'WR', 'gsis-noreport-1');
   // No injury report recorded at all for this player-week.
   const decisionAt = '2024-09-25T12:00:00Z';
+  // Opts in (§R40/§R51.1): the G1 invariant is a claim about what the multiplier
+  // returns when it RUNS on an unreported week. Without the opt-in this would be
+  // the kill switch returning 1, which would prove nothing about G1.
   const result = gradedAvailabilityMultiplier('gsis-noreport-1', 2024, 3, decisionAt, fit.ratios, ENABLED);
   assert.equal(result.multiplier, 1, 'unreported must be exactly 1, not close to 1');
   assert.equal(result.known, false);
@@ -147,6 +150,8 @@ test('a bucket collapsed by the minN floor (Doubtful) also resolves to exactly 1
     publishedAt: '2024-09-26T18:00:00Z', observedAt: '2024-09-26T18:05:00Z',
     provenance: 'captured', sourceId: 'nflverse_injuries', entitySeason: 2024, entityWeek: 4
   });
+  // Opts in (§R40/§R51.1): the claim is that the minN floor's collapse survives
+  // the CONSUMER, so the consumer has to actually reach its bucket lookup.
   const result = gradedAvailabilityMultiplier('gsis-collapsed-1', 2024, 4, '2024-09-27T12:00:00Z', fit.ratios, ENABLED);
   assert.equal(result.multiplier, 1,
     'Doubtful is not in fit.ratios (collapsed for n<minN), so the consumer must fall back to exactly 1, ' +
@@ -160,6 +165,10 @@ test('a retained bucket (Questionable) applies its fitted ratio through the cons
     publishedAt: '2024-10-03T18:00:00Z', observedAt: '2024-10-03T18:05:00Z',
     provenance: 'captured', sourceId: 'nflverse_injuries', entitySeason: 2024, entityWeek: 5
   });
+  // Opts in (§R40/§R51.1): this is the one test that grades a NON-neutral return
+  // value, so it is the test the kill switch would silently hollow out -- with the
+  // flag off it would assert 1 and still pass. §R51.1 names this among the three
+  // evidence tests that later earn default-on.
   const result = gradedAvailabilityMultiplier('gsis-live-q-1', 2024, 5, '2024-10-04T12:00:00Z', fit.ratios, ENABLED);
   assert.equal(result.bucket, 'Questionable');
   assert.equal(result.retained, true);
@@ -185,6 +194,9 @@ test('LOOK-AHEAD GUARD: a decision at Wednesday sees Wednesday\'s designation, n
     provenance: 'captured', sourceId: 'nflverse_injuries', entitySeason: 2024, entityWeek: 6
   });
 
+  // Opts in twice below (§R40/§R51.1): the look-ahead guard is a claim about the
+  // as-of READ, which only happens on the far side of the flag check. §R51.1 names
+  // this among the three evidence tests that later earn default-on.
   const wednesday = gradedAvailabilityMultiplier('gsis-lookahead-1', 2024, 6, '2024-10-09T20:00:00Z', fit.ratios, ENABLED);
   assert.equal(wednesday.bucket, null, 'Wednesday must see the pre-downgrade state (no report_status yet)');
   assert.equal(wednesday.multiplier, 1);
@@ -195,6 +207,10 @@ test('LOOK-AHEAD GUARD: a decision at Wednesday sees Wednesday\'s designation, n
 });
 
 test('empty-source no-op: a player with zero injury-feature revisions of any kind is unaffected', () => {
+  // Opts in (§R40/§R51.1): the claim is that the REVISION read reports
+  // `feature_never_recorded`, a reason string only the enabled path produces --
+  // with the flag off the reason would be `graded_availability_disabled`. §R51.1
+  // names this among the three evidence tests that later earn default-on.
   const result = gradedAvailabilityMultiplier('gsis-never-reported', 2024, 7, '2024-10-16T12:00:00Z', fit.ratios, ENABLED);
   assert.equal(result.multiplier, 1);
   assert.equal(result.known, false);
@@ -282,4 +298,158 @@ test('Auditor §R40: the flag is a hard kill switch, not a formality -- it overr
   assert.equal(result.multiplier, 1);
   assert.equal(result.known, false);
   assert.equal(result.reason, 'graded_availability_disabled');
+});
+
+// ---------------------------------------------------------------------------
+// Auditor §R51.1 condition 1. The rule "production code never passes the
+// override" is worth nothing as a convention: the failure mode it guards
+// against is a caller forwarding `options` through, which reads as plumbing in
+// a diff. So this is a source scan. It permits a future caller to WIRE the
+// multiplier in (that is what the coupled grade's call site is for) and fails
+// only if such a caller passes a 6th argument at all -- production code
+// inherits GRADED_AVAILABILITY_ENABLED or it does not run.
+// ---------------------------------------------------------------------------
+
+const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+
+// Comments are stripped before scanning, because the flag's own docstring
+// spells out `gradedAvailabilityMultiplier(..., { enabled: true })` as prose.
+// A scan that read comments would report the documentation as a violation.
+function stripComments(src) {
+  let out = '';
+  let quote = null;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i], d = src[i + 1];
+    if (quote) {
+      out += c;
+      if (c === '\\') { out += d ?? ''; i++; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; out += c; continue; }
+    if (c === '/' && d === '/') { while (i < src.length && src[i] !== '\n') i++; out += '\n'; continue; }
+    if (c === '/' && d === '*') {
+      i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++;
+      i++; out += ' '; continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
+// Each occurrence of `name(`, with its balanced argument text and whether the
+// occurrence is the declaration rather than a call.
+function callSitesOf(src, name) {
+  const sites = [];
+  const re = new RegExp(`\\b${name}\\s*\\(`, 'g');
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const open = src.indexOf('(', m.index);
+    let depth = 0, end = open;
+    for (; end < src.length; end++) {
+      if (src[end] === '(') depth++;
+      else if (src[end] === ')') { depth--; if (depth === 0) break; }
+    }
+    sites.push({
+      args: src.slice(open + 1, end),
+      declaration: /\bfunction\s+$/.test(src.slice(Math.max(0, m.index - 40), m.index))
+    });
+  }
+  return sites;
+}
+
+function splitTopLevelArgs(argText) {
+  const parts = [];
+  let depth = 0, cur = '', quote = null;
+  for (let i = 0; i < argText.length; i++) {
+    const c = argText[i];
+    if (quote) {
+      cur += c;
+      if (c === '\\') { cur += argText[++i] ?? ''; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { quote = c; cur += c; continue; }
+    if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) depth--;
+    if (c === ',' && depth === 0) { parts.push(cur.trim()); cur = ''; continue; }
+    cur += c;
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+}
+
+function sourceFilesUnder(...dirs) {
+  const out = [];
+  const walk = dir => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(js|mjs|cjs)$/.test(entry.name)) out.push(full);
+    }
+  };
+  for (const d of dirs) walk(path.join(repoRoot, d));
+  return out;
+}
+
+test('Auditor §R51.1: no caller under server/ or scripts/ passes the enabled override', () => {
+  const files = sourceFilesUnder('server', 'scripts');
+  assert.ok(files.length > 50,
+    `sanity: the scan must be walking the real repository, found only ${files.length} files under server/+scripts/`);
+  assert.ok(files.includes(path.join(repoRoot, 'server/services/nfl-player-context.js')),
+    'sanity: the scan must include the file that declares the multiplier');
+
+  const offenders = [];
+  let declarations = 0;
+  for (const file of files) {
+    const raw = fs.readFileSync(file, 'utf8');
+    if (!raw.includes('gradedAvailabilityMultiplier')) continue;
+    for (const site of callSitesOf(stripComments(raw), 'gradedAvailabilityMultiplier')) {
+      if (site.declaration) { declarations++; continue; }
+      const args = splitTopLevelArgs(site.args);
+      if (args.length > 5 || /\benabled\b/.test(site.args)) {
+        offenders.push(`${path.relative(repoRoot, file)}: ${args.length} args -- ${site.args.replace(/\s+/g, ' ').slice(0, 140)}`);
+      }
+    }
+  }
+  assert.equal(declarations, 1,
+    `expected exactly one declaration under server/+scripts/, saw ${declarations} ` +
+    `(a 0 here means the comment stripper broke, not that the repository changed)`);
+  assert.deepEqual(offenders, [],
+    'a caller under server/ or scripts/ passes a 6th argument to gradedAvailabilityMultiplier. Production code ' +
+    'inherits GRADED_AVAILABILITY_ENABLED; it never overrides it. Forwarding the override out of caller options ' +
+    'is precisely how an ungraded multiplier gets switched on in a diff that reads as wiring (Auditor §R51.1). ' +
+    'Turning it on belongs at the coupled grade\'s named call site, where §R19.6\'s as-of refit binds');
+});
+
+test('Auditor §R51.1: every opt-in under test/ is the literal { enabled: true }, never a computed value', () => {
+  const files = sourceFilesUnder('test');
+  const bad = [];
+  let optIns = 0;
+  for (const file of files) {
+    const raw = fs.readFileSync(file, 'utf8');
+    if (!raw.includes('gradedAvailabilityMultiplier')) continue;
+    const code = stripComments(raw);
+    // A named constant is allowed only because it is bound, in this same file's
+    // source, to the literal -- so reading the call site is enough to know what
+    // was passed, without running anything.
+    const boundToLiteral = /\bconst\s+ENABLED\s*=\s*\{\s*enabled\s*:\s*true\s*\}/.test(code);
+    for (const site of callSitesOf(code, 'gradedAvailabilityMultiplier')) {
+      if (site.declaration) continue;
+      const args = splitTopLevelArgs(site.args);
+      if (args.length <= 5) continue;
+      optIns++;
+      const sixth = args[5].replace(/\s+/g, '');
+      if (sixth === '{enabled:true}') continue;
+      if (sixth === 'ENABLED' && boundToLiteral) continue;
+      bad.push(`${path.relative(repoRoot, file)}: ${args[5]}`);
+    }
+  }
+  assert.ok(optIns >= 5,
+    `sanity: this unit's evidence tests opt in explicitly at every call site, expected at least 5, saw ${optIns}`);
+  assert.deepEqual(bad, [],
+    'an opt-in that is not the literal { enabled: true } (or ENABLED, bound to that literal in the same file) can ' +
+    'carry a value decided at run time, which is a forwarded override in a test\'s clothes');
 });

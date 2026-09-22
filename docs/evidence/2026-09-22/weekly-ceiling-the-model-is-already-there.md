@@ -88,7 +88,15 @@ independent ways:
 
 The two unbiased estimates agree to within 0.016 and they bracket the answer.
 **The figure to cite is the ANOVA one: the model sits at 82.7% of the ceiling
-for player-level information, with +0.0668 R² still on the table.** The first
+for player-level information, with +0.0668 R² still on the table — and the
+ceiling is `for player-seasons with at least three scored weeks`, which is part
+of the claim and not a footnote.** σ²w, σ²b and therefore the ceiling are all
+estimated on the restricted sample, and the restriction is selective on
+predictability (§2: the dropped rows are easier). It excludes only **2.06% of
+rows but 11.1% of player-seasons** — 350 of 3,154 — and those thin-sample
+player-seasons are exactly the cases where weekly features would plausibly
+matter most, since there is almost no player history to lean on. **The ceiling
+does not speak for them.** The first
 version claimed +0.0037.
 
 ### 2.1 The reconciliation that settled it
@@ -228,17 +236,24 @@ comparable with the R&D rig's 4.757** — different harness, different populatio
 
 **Both columns are on the MAE scale**, not the R² scale §2 uses — a feature's
 gain was measured in MAE, so its share has to be taken against MAE headroom. The
-denominators are the first version's **+0.0895 MAE** (which is also the
-bracket's pessimistic end, being the same subtraction) and the estimated
-**+0.4258 MAE** of §2.2, itself inside the bracket [+0.0895, +0.5940]. The intermediate +0.3141, derived by scaling and now
-withdrawn, is shown for continuity because it was quoted elsewhere.
+denominator is the MAE headroom of §2.2: the bracket **[+0.0895, +0.5940]**
+with **+0.4258** estimated inside it. The intermediate +0.3141, derived by
+scaling and now withdrawn, is not used here at all.
 
-| feature | measured gain (MAE) | share of v1's 0.0895 | share of the withdrawn 0.3141 | **share of the estimated 0.4258** |
-|---|---|---|---|---|
-| depth-chart rank | +0.0031 | 3.46% | 0.99% | **0.73%** |
-| practice participation | +0.0007 | 0.78% | 0.22% | **0.16%** |
-| route share | +0.0008 | 0.89% | 0.25% | **0.19%** |
-| red-zone touches inside 10 | +0.0004 | 0.45% | 0.13% | **0.09%** |
+**The absolute gain is the measurement. The share is a derived normaliser, and
+it inherits the bracket** — a share of 0.4258 is only as pinned as 0.4258 is, so
+each one is given as a range across the bracket's ends with the estimate inside.
+
+| feature | **measured gain (MAE)** | share of the gap to a per-player constant |
+|---|---|---|
+| depth-chart rank | **+0.0031** | 0.73% est., **0.52%–3.46%** across the bracket |
+| practice participation | **+0.0007** | 0.16% est., **0.12%–0.78%** |
+| route share | **+0.0008** | 0.19% est., **0.13%–0.89%** |
+| red-zone touches inside 10 | **+0.0004** | 0.09% est., **0.07%–0.45%** |
+
+The range's wide end is the share against v1's +0.0895, which is the bracket's
+pessimistic end and the same subtraction v1 made. **Quote the gain; the share is
+context for it, not a second measurement of it.**
 
 **All four still failed, and they failed on their own evidence** — none cleared
 its own confidence interval, and that is a fact about each feature's measurement
@@ -377,6 +392,12 @@ and a headroom figure nobody had checked is exactly that.**
   non-neutrality stated. The four verdicts are untouched, as they rest on each
   feature's own interval and not on any denominator. Also labelled 60.3836
   (sample total variance) against 60.3945 (component sum).
+- **v4, 2026-09-22.** Both gated conditions discharged and §3 cleared to quote,
+  with two labels applied here: each share is given as a range across the
+  bracket behind the absolute gain, which is the measurement; and the ceiling
+  is scoped to player-seasons with at least three scored weeks, a restriction
+  that is selective on predictability and excludes 11.1% of player-seasons
+  while excluding only 2.06% of rows. Verdicts unchanged at every step.
 
 **Anything downstream of v1's number needs re-deriving**, in particular any
 argument that leaned on "there is no room left in player-level features".

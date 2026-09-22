@@ -27,6 +27,7 @@ import { gameScriptFor } from './gamescript.js';
 import { loadRosters, assetUniverse, lineupSlots } from './trade-engine.js';
 import { random, withRandomSeed } from './stats-util.js';
 import { weeklyAvailability } from './contingency.js';
+import { periodPlayed } from './espn-weekly-scores.js';
 
 const SEASON = Number(process.env.NFL_SEASON) || 2026;
 const SCORED = new Set(['QB', 'RB', 'WR', 'TE']);
@@ -116,7 +117,24 @@ function lineupPoints(roster, slots, drawn, expected) {
   return total;
 }
 
-/** Real record and points already earned before the simulated window. */
+/**
+ * Real record and points already earned before the simulated window.
+ *
+ * WHAT IT MEANS FOR A WEEK TO COUNT, AND WHY IT IS NOT THIS FUNCTION'S OWN RULE. `fromWeek` is
+ * caller-supplied -- a `from_week` query parameter on `/simulate`, and `target.week` from the
+ * trade engine -- and nothing bounds it to the weeks a league has actually played. This used to
+ * admit any period before `fromWeek` whose two sides carried finite numbers, and an unplayed
+ * ESPN period comes back `0-0`: two finite numbers, so a tie, so half a win to each team.
+ *
+ * Measured on a four-team fixture with two weeks played and the window opened at week 14: every
+ * team gained 5.5 wins it had not earned. Points-for stayed honest, so the record and the points
+ * disagreed and four teams read as a four-way tie -- while the result says
+ * `standings_carried_in: true`, which tells a reader these are the league's real standings.
+ *
+ * So the rule is `periodPlayed` in espn-weekly-scores.js, shared with the parser that reads the
+ * same schedule for weekly scores. Two readers of one quantity with two rules is how a league
+ * ends up with two records.
+ */
 function initialRecords(lg, teams, fromWeek) {
   const out = new Map(teams.map(t => [t.roster_id, { w: 0, pf: 0 }]));
   if (fromWeek <= 1) return out;
@@ -130,6 +148,8 @@ function initialRecords(lg, teams, fromWeek) {
         if (m.matchup_id == null) continue;
         const a = groups.get(m.matchup_id) ?? [];
         a.push(m); groups.set(m.matchup_id, a);
+        // An unplayed week contributes 0 here, so the sum is already right and is left alone;
+        // it is the WIN above that was being invented. The two disagreeing is the signature.
         const r = out.get(String(m.roster_id));
         if (r) r.pf += Number(m.points) || 0;
       }
@@ -137,7 +157,10 @@ function initialRecords(lg, teams, fromWeek) {
         if (pair.length !== 2) continue;
         const a = out.get(String(pair[0].roster_id)), b = out.get(String(pair[1].roster_id));
         if (!a || !b) continue;
-        const ap = Number(pair[0].points) || 0, bp = Number(pair[1].points) || 0;
+        const ap = Number(pair[0].points), bp = Number(pair[1].points);
+        // Sleeper carries no `winner`, so the zero test is the whole test here: an unplayed
+        // week is two zeroes, and awarding it as a tie is the same fabricated half-win.
+        if (!periodPlayed({ homePoints: ap, awayPoints: bp }).played) continue;
         if (ap > bp) a.w++; else if (bp > ap) b.w++; else { a.w += 0.5; b.w += 0.5; }
       }
     }
@@ -152,7 +175,7 @@ function initialRecords(lg, teams, fromWeek) {
     if (!h || !a) continue;
     const hp = Number(m.home?.totalPoints ?? m.home?.cumulativeScore?.score);
     const ap = Number(m.away?.totalPoints ?? m.away?.cumulativeScore?.score);
-    if (!Number.isFinite(hp) || !Number.isFinite(ap)) continue;
+    if (!periodPlayed({ winner: m?.winner, homePoints: hp, awayPoints: ap }).played) continue;
     h.pf += hp; a.pf += ap;
     if (hp > ap) h.w++; else if (ap > hp) a.w++; else { h.w += 0.5; a.w += 0.5; }
   }
@@ -375,8 +398,17 @@ export function tradeImpact(lg, {
     [them.roster_id, [...them.players.filter(p => !get.has(p.id)).map(p => p.id), ...give]]
   ]);
 
-  // One projection build shared by both runs — rebuilding would introduce noise that
-  // has nothing to do with the trade.
+  // One projection build shared by both runs. The reason is NOT that rebuilding would introduce
+  // noise: `buildProjections` is deterministic, measured rather than assumed in
+  // test/projection-build-determinism.test.js -- two builds on identical arguments are
+  // byte-identical, and a build advances the shared generator by nothing, so the draws after one
+  // are the draws without one under the same seed. A mutation that rebuilt between the runs was
+  // inert for exactly that reason, and an inert mutation on a line whose comment claims an effect
+  // is a claim about the comment.
+  //
+  // The reasons that hold: the build is the expensive part of this call and doing it twice buys
+  // nothing, and sharing one object keeps the two runs paired even if some future change to the
+  // projection path does introduce a draw. Both survive the measurement; the noise claim did not.
   const projections = buildProjections({ through: SEASON - 1, scoring });
   // Common random numbers make this a paired experiment: the same simulated
   // football worlds are used before and after, so Monte Carlo noise cannot

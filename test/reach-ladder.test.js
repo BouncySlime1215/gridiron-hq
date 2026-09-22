@@ -51,7 +51,9 @@ const {
   entrySplit,
   schedulerInvokedScripts,
   requireToolchain,
+  routeEntryPredicate,
 } = await import('../scripts/reach-ladder.mjs');
+const { isBettingEntryPoint } = await import('../scripts/reach-grade.mjs');
 
 /**
  * The Auditor's R54.1 run on b0c1616d, whose `git write-tree` is
@@ -159,4 +161,73 @@ test('requireToolchain fails loudly on the wrong typescript, naming both version
 
 test('this repo is on the pinned typescript, so a ladder measured here is comparable', () => {
   assert.equal(require('typescript').version, '5.9.3');
+});
+
+/**
+ * The three rules below were added AFTER the first GREEN, when running the
+ * script against b0c1616d disagreed with the Auditor's frozen entry split:
+ * 227 route / 1 script-only against its 214 / 14. The disagreement was the
+ * test working. Recorded in this order rather than tidied into the original
+ * block, because a rule written after the failure it describes is a different
+ * kind of evidence from one written before, and the file should not pretend
+ * otherwise.
+ */
+
+test('route-reached excludes betting entries, and ONLY betting entries', () => {
+  const perFile = new Map([
+    ['only-betting.js', ['server/routes/nfl-betting.js']],
+    ['betting-and-fantasy.js', ['server/routes/nfl-betting.js', 'server/routes/trades.js']],
+    ['only-fantasy.js', ['server/routes/trades.js']],
+  ]);
+  const mounted = new Set(['server/routes/nfl-betting.js', 'server/routes/trades.js']);
+  const bettingExcluded = entrySplit({
+    perFile,
+    isRouteEntry: e => mounted.has(e) && !isBettingEntryPoint(e),
+  });
+  // A file only a betting route reaches is NOT route-reached for this product.
+  assert.equal(bettingExcluded.route, 2);
+  assert.equal(bettingExcluded.scriptOnly, 1);
+
+  // The counter-case that makes this rule load-bearing: counting ANY mounted
+  // route gives a different answer, and it is the answer the first version of
+  // this script produced.
+  const anyRoute = entrySplit({ perFile, isRouteEntry: e => mounted.has(e) });
+  assert.equal(anyRoute.route, 3);
+  assert.notDeepEqual(anyRoute, bettingExcluded,
+    'if these agreed, the betting exclusion would be untested');
+});
+
+test('schedulerInvokedScripts parses, so a path in a comment or prose cannot count', () => {
+  const scripts = new Set(['scripts/real.mjs', 'scripts/mentioned.mjs']);
+  const source = [
+    '// This job used to run scripts/mentioned.mjs before it was inlined.',
+    '/** See scripts/mentioned.mjs for the three-stage order. */',
+    "const script = path.join(PROJECT_ROOT, 'scripts/real.mjs');",
+  ].join('\n');
+  const invoked = schedulerInvokedScripts({ schedulerSource: source, scripts });
+  assert.deepEqual([...invoked], ['scripts/real.mjs'],
+    'a path named only in a comment is not an invocation');
+});
+
+test('schedulerInvokedScripts does not match on a basename appearing anywhere', () => {
+  // The first version matched each script's basename as a substring of the
+  // scheduler source. That reported server/index.js as scheduler-invoked, off
+  // the substring "index.js" -- a heuristic wearing a command's clothes, which
+  // is the exact defect this file exists to remove.
+  const scripts = new Set(['server/index.js']);
+  const source = "const p = path.join(root, 'server/routes/index.js');";
+  assert.equal(schedulerInvokedScripts({ schedulerSource: source, scripts }), null);
+});
+
+test('the predicate the ladder actually passes excludes betting entries', () => {
+  // This rule exists because a mutation survived without it. Deleting the
+  // betting exclusion from measure()'s call site broke NO test: the entrySplit
+  // rule above injects its own predicate, so it pins the unit and says nothing
+  // about the wiring. That is precisely how the first run of this script
+  // reported 227 route / 1 script-only against the frozen 214 / 14.
+  const mounted = new Set(['server/routes/nfl-betting.js', 'server/routes/trades.js']);
+  const isRoute = routeEntryPredicate(mounted);
+  assert.equal(isRoute('server/routes/trades.js'), true);
+  assert.equal(isRoute('server/routes/nfl-betting.js'), false, 'a betting route is not route-reach for this product');
+  assert.equal(isRoute('scripts/build-x.mjs'), false, 'a package script is not a route');
 });

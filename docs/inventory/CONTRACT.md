@@ -196,8 +196,8 @@ Auditor**; do not read this table as having revised it.
 | `wired-betting-only` | 65 | 55 |
 | `wired-mlb-only` | 6 | 3 |
 | `wired-offproduct-only` | 18 | 2 |
-| `hand-run-script` | 13 | 11 |
-| `unreached` | 50 | 25 |
+| `hand-run-script` | 12 | 10 |
+| `unreached` | 51 | 26 |
 | **column sum** | **321** | **321** |
 
 Each column is one command, from the repository root. `REACH_MODE=request`
@@ -208,8 +208,10 @@ gives the left column and `REACH_MODE=request+job` the right:
     import * as R from "./scripts/reach-grade.mjs";
     const MODE = process.env.REACH_MODE;
     const files = execSync("git ls-files", { encoding: "utf8", maxBuffer: 1 << 28 }).split("\n")
-      .map(s => s.trim()).filter(f => /\.(mjs|js|jsx)$/.test(f) && !f.startsWith("test/")
-        && !f.startsWith("client/dist/") && !/\.test\.(mjs|js)$/.test(f));
+      .map(s => s.trim())
+      // SOURCE_EXT and NOT_A_CONSUMER, copied from scripts/reach-grade.mjs:78 and :81.
+      // Neither is exported. Do not narrow them: see the note under the table.
+      .filter(f => /\.(js|mjs|ts|tsx)$/.test(f) && !f.startsWith("client/dist/"));
     const read = f => { try { return fs.readFileSync(f, "utf8"); } catch { return null; } };
     const raw = MODE === "request" ? R.classifyImportEdges({ files, read }).request
                                    : R.buildImporterGraph({ files, read });
@@ -227,6 +229,32 @@ gives the left column and `REACH_MODE=request+job` the right:
     for (const [g, c] of [...tally].sort()) console.log(" ", g.padEnd(22), c);
     console.log("  COLUMN SUM".padEnd(25), n);
     '
+
+**The file universe is the grader's, and narrowing it moves a cell.** The first
+version of this command filtered the file list by hand and excluded `test/**`
+and `*.test.js`, which is not what the grader does: `NOT_A_CONSUMER`
+(`scripts/reach-grade.mjs:81`) excludes `client/dist/` and nothing else, and
+`SOURCE_EXT` (`:78`) admits `.ts` and `.tsx`. That took the universe from 1,054
+files to 593 and moved exactly one subject, **`server/services/sleeper-history.js`**,
+from `unreached` to `hand-run-script` in both columns — so `hand-run-script` and
+`unreached` printed 13/50 and 11/25 here where the grader's own constants give
+**12/51 and 10/26**. The four cells are corrected above, and the command now
+copies both constants with a comment saying not to narrow them.
+
+The mechanism, because it is worth knowing rather than patching around:
+`sleeper-history.js` has no entry point under either universe. Its only visited
+script is `scripts/collect-sleeper-history.mjs`, and `isHandRun` asks whether
+that script has importers in the **raw** graph. With tests present it has one,
+`test/sleeper-crawl.test.js`, so it is not hand-run and the subject grades
+`unreached`; with tests excluded it has none, so it grades `hand-run-script`.
+**Whether a test importer should suppress `hand-run-script` is a real question
+and it is not settled here** — this file records what the grader does, not what
+it ought to do. The Opportunity thread's reach ladder reached 12/51 and 10/26
+independently on `fee2c700`, which is what surfaced the difference.
+
+Nothing else moved: `wired` is 169 and 225 either way, the other three grades
+are unchanged, both columns still sum to 321, and the 106/63 route-script split
+is untouched because the file that moved is not `wired`.
 
 **The CLI cannot produce the left column, which is why only the right one ever
 came out of a command.** `repoGraph` builds its graph with `buildImporterGraph`
@@ -270,8 +298,24 @@ renamed:
 | surface | label |
 |---|---|
 | `nfl-market.js`, `nfl-betting.js`, `betting-hub.js`, `wong.js`, `execution-slate.js` | `betting` |
-| `mlb.js` | `mlb` |
+| `mlb.js` | `mlb` — **deleted; see below** |
 | every other mounted route | `fantasy` — **the default** |
+
+**`mlb.js` no longer exists.** The MLB product was removed on 2026-09-22 on
+Nick's word ("get rid of MLB btw", 17:24Z): `server/routes/mlb.js`, eight
+`mlb-*` services and `parlay-api.js` are deleted. `/api/mlb` is not mounted, so
+**no module can grade `wired-mlb-only` on a tree that carries the removal**, and
+the `wired-mlb-only` cells in the table above — 6 and 3 — are historical to
+`c90d2834`, which predates it. The label stays in this list rather than being
+deleted because the grades it produced are quoted here and have to remain
+readable.
+
+The tables did not go with it. `server/db/schema/mlb-model-misc.js` and its
+`mlb_*` tables survive deliberately, because the instruction was to remove the
+product without dropping tables or deleting data, so they are still excluded
+from the fantasy inventory by `scripts/wiring-map.mjs` — as an abandoned
+product now, not as betting. That comment is at the `BETTING_FILE` declaration
+and carries its own retirement condition.
 
 Fantasy is the default so that a route nobody has classified counts as product
 and a new surface cannot silently leave the total. The grades that follow:

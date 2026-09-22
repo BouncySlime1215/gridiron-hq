@@ -186,19 +186,25 @@ function teamWeeks(log) {
 }
 
 /**
- * Raw-opportunity efficiency metrics (yards/catch-rate/td-rate per target,
- * carry, or attempt). Fit per position, in the same units projections.js
- * would use if it passed the raw opportunity count as `n` (see FIT_SPECS —
- * this is what replaces the old count/5, count/8, count/10 conversion).
+ * Recency-weighted-opportunity efficiency metrics (yards/catch-rate/td-rate
+ * per target, carry, or attempt). Fit per position, in the same units
+ * projections.js actually uses: `a.targets += w * (u.targets ?? 0)` under
+ * RECENCY is the real `n` passed to pickK() for ypt/catch_rate (likewise
+ * a.carries/a.attempts for ypc/ypa), so the fit's weight has to be
+ * `weightFn(season, week) * opp`, not the raw opportunity count alone —
+ * a raw count is what projections.js would use only if RECENCY's season
+ * decay didn't exist.
  */
-function efficiencyObservations(log, position, oppField, valueFn) {
+function efficiencyObservations(log, position, oppField, valueFn, weightFn) {
   const out = [];
   for (const u of log) {
     if (u.pos !== position) continue;
     const opp = u[oppField] ?? 0;
     if (!(opp > 0)) continue;
+    const w = weightFn(u.season, u.week) * opp;
+    if (!(w > 0)) continue;
     const value = valueFn(u, opp);
-    if (Number.isFinite(value)) out.push({ group: u.player_id, weight: opp, value });
+    if (Number.isFinite(value)) out.push({ group: u.player_id, weight: w, value });
   }
   return out;
 }
@@ -353,24 +359,24 @@ export function buildFitSpecs(through, { throughWeek = null, roleRecency = WEEKL
 
   for (const position of ['WR', 'RB', 'TE']) {
     specs.push({ metric: 'ypt', position, observations:
-      efficiencyObservations(log, position, 'targets', u => (u.receiving_yards ?? 0) / u.targets) });
+      efficiencyObservations(log, position, 'targets', u => (u.receiving_yards ?? 0) / u.targets, effW) });
     specs.push({ metric: 'catch_rate', position, observations:
-      efficiencyObservations(log, position, 'targets', u => (u.receptions ?? 0) / u.targets) });
+      efficiencyObservations(log, position, 'targets', u => (u.receptions ?? 0) / u.targets, effW) });
     specs.push({ metric: 'rec_td_rate', position, observations:
-      efficiencyObservations(log, position, 'targets', u => (u.receiving_tds ?? 0) / u.targets) });
+      efficiencyObservations(log, position, 'targets', u => (u.receiving_tds ?? 0) / u.targets, effW) });
   }
   for (const position of ['QB', 'RB', 'WR']) {
     specs.push({ metric: 'ypc', position, observations:
-      efficiencyObservations(log, position, 'carries', u => (u.rushing_yards ?? 0) / u.carries) });
+      efficiencyObservations(log, position, 'carries', u => (u.rushing_yards ?? 0) / u.carries, effW) });
     specs.push({ metric: 'rush_td_rate', position, observations:
-      efficiencyObservations(log, position, 'carries', u => (u.rushing_tds ?? 0) / u.carries) });
+      efficiencyObservations(log, position, 'carries', u => (u.rushing_tds ?? 0) / u.carries, effW) });
   }
   specs.push({ metric: 'ypa', position: 'QB', observations:
-    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_yards ?? 0) / u.attempts) });
+    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_yards ?? 0) / u.attempts, effW) });
   specs.push({ metric: 'pass_td_rate', position: 'QB', observations:
-    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_tds ?? 0) / u.attempts) });
+    efficiencyObservations(log, 'QB', 'attempts', u => (u.passing_tds ?? 0) / u.attempts, effW) });
   specs.push({ metric: 'int_rate', position: 'QB', observations:
-    efficiencyObservations(log, 'QB', 'attempts', u => (u.interceptions ?? 0) / u.attempts) });
+    efficiencyObservations(log, 'QB', 'attempts', u => (u.interceptions ?? 0) / u.attempts, effW) });
 
   specs.push({ metric: 'availability', position: 'ALL', observations: availabilityObservations(log, through) });
   specs.push({ metric: 'qb_attempt_share', position: 'QB', observations: qbAttemptShareObservations(log, through) });
@@ -511,6 +517,20 @@ export function isWeeklyRoleRecency(rr) {
  * moved to the apply side. So under any other recency the volume entries are
  * withheld and those callers keep the hand-picked constants they were validated
  * with. They are not claimed to be right, only untested with the fitted k.
+ *
+ * ceiling-lineup is NO LONGER a season-long caller. It is still named in the
+ * list above only because this comment is describing the shape of the problem,
+ * not the current roster: after the UI thread's #132 it passes a mid-season
+ * throughWeek like the weekly engine does, so treating it as season-long is
+ * wrong (Auditor §R64, and the UI thread names the same line). Read the list
+ * above as the four remaining ones.
+ *
+ * Those four — preseason-model, season-sim, draft-assist, week-postmortem —
+ * have not been checked individually, and being season-long is an assumption
+ * about each rather than a measured fact. ceiling-lineup was on the list for
+ * the same reason and turned out to be wrong. Recorded as a finding, not built:
+ * each one needs its own answer to "what does it actually pass, and is the
+ * weighting it accumulates evidence under the one its k was fitted in".
  */
 export function activeKVectorFor(rr, { predictingSeason } = {}) {
   const v = cutoffSafeKVector(predictingSeason);

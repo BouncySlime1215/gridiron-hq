@@ -131,7 +131,7 @@ r.get('/execution/board', (req, res, next) => {
       middles: market === 'spreads' ? findMiddles({ limit: 12 }) : [],
       // The largest cost a bettor actually controls, and the only lever on this
       // board that works without any forecast being correct.
-      hold: bookHold({ sport: 'nfl' })
+      hold: bookHold()
     });
   } catch (e) { next(e); }
 });
@@ -362,29 +362,18 @@ r.get('/status', (req, res, next) => {
 });
 
 /**
- * The vig, per book, in any sport we hold two-sided quotes for.
+ * The vig, per book.
  *
- * Nothing in the hold calculation knows what sport it is looking at — a hold is
- * a property of two prices. Pointing it at MLB shows that player props cost
- * roughly double what NFL sides do, which is the single most important fact
- * about whether a prop edge is worth chasing.
+ * Nothing in the hold calculation knows what sport it is looking at -- a hold
+ * is a property of two prices. This served an MLB comparison alongside the NFL
+ * one until 2026-09-22, showing that player props cost roughly double what NFL
+ * sides do. MLB was removed from the product, mlb_market_quotes has no writer
+ * any more, and a comparison against a table that can only be empty is worse
+ * than no comparison: it would have reported `null` and read as "no premium".
  */
 r.get('/hold', (req, res, next) => {
   try {
-    const sport = req.query.sport === 'mlb' ? 'mlb' : 'nfl';
-    const nfl = bookHold({ sport: 'nfl' });
-    const mlb = bookHold({ sport: 'mlb' });
-    res.json({
-      requested: sport,
-      hold: sport === 'mlb' ? mlb : nfl,
-      comparison: (nfl.books?.length && mlb.books?.length) ? {
-        nfl_cheapest: nfl.books[0], mlb_cheapest: mlb.books[0],
-        prop_premium: +(mlb.books[0].hold - nfl.books[0].hold).toFixed(4),
-        note: 'MLB rows are player props and NFL rows are sides. Props carry the higher margin ' +
-          'in every book measured, so a prop edge has to be materially larger than a sides edge ' +
-          'to clear the same bar.'
-      } : null
-    });
+    res.json({ requested: 'nfl', hold: bookHold() });
   } catch (e) { next(e); }
 });
 

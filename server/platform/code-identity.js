@@ -29,7 +29,7 @@
  *
  * It also hashes only what a decision actually imports, walked transitively
  * from a declared root. Editing a documentation file, a fantasy draft screen
- * or an unrelated MLB service therefore does not change the spread model's
+ * or any unrelated service therefore does not change the spread model's
  * identity, which is the specific failure C08 describes: "unrelated docs
  * edits do not change predicate identity."
  */

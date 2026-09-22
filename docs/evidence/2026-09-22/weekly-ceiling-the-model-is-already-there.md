@@ -46,7 +46,10 @@ went unremarked.
 
 Identical rows: **24,801** out-of-sample player-weeks across **2,804**
 player-seasons with at least three scored weeks, mean **8.84** scored weeks per
-player-season. Total variance 60.3836.
+player-season. **Sample total variance `SST/n` = 60.3836**; the sum of the
+fitted components `σ²b + σ²w` = **60.3945**. The two differ in the hundredths
+because one is a raw sample moment and the other uses the mean-square
+denominators. Both appear below; each is labelled where it is used.
 
 | predictor | R² | MAE | RMSE | what it is |
 |---|---|---|---|---|
@@ -95,26 +98,79 @@ the number the 0.4548 decomposes into.
 On the error scale: the true-level RMSE floor is `√σ²w = 6.0926` against the
 model's 6.4146, so **+0.3220 RMSE** of headroom.
 
-MAE has no exact variance decomposition, so the MAE floor is scaled from the
-RMSE floor through the leave-one-out oracle's own ratio of the two. **Both
-inputs come from the ANOVA ceiling, 0.3854 — the figure this document tells
-readers to cite — not from the 0.4012 one**, and the derivation is:
+### 2.2 The MAE floor, measured instead of assumed
+
+**The first derivation of the MAE headroom is withdrawn.** It scaled the RMSE
+floor by the leave-one-out oracle's MAD-to-RMSE ratio, which holds only if the
+error distribution keeps its shape all the way down to the floor. That is an
+assumption, not a measurement, and it is worth 0.37 of the answer: under a
+Gaussian shape the same algebra gives a floor of 4.8612 and headroom of
+**−0.055**, i.e. the model already past the floor. A claim that flips sign on an
+unstated assumption is not a claim. Audit unit 12 was right to gate it.
+
+**Measured directly, with no shape assumption at all**, on the same 24,801 rows:
+
+| centre used for the player's level | mean &#124;y − centre&#124; | bias |
+|---|---|---|
+| his own season mean (fitted on the row it scores) | **4.2122** | biased **low** |
+| his leave-one-out season mean (unbiased centre, noisy) | **4.7167** | biased **high** |
+| the model | 4.8062 | — |
+
+**The floor lies between 4.2122 and 4.7167, so the MAE headroom lies between
++0.0895 and +0.5940.** The pessimistic end of that bracket is the first
+version's own +0.0895. **It is positive, so the MAE headroom claim cannot
+collapse** — the worst case is that it shrinks back to what v1 published, not
+that it reverses.
+
+**The Gaussian branch is refuted by these rows, not argued away.** A Gaussian
+error would show MAD/RMSE = 0.7979. Measured here:
+
+| residuals of | MAD/RMSE |
+|---|---|
+| the model | 0.74926 |
+| the in-sample season mean | 0.73411 |
+| the leave-one-out season mean | 0.73731 |
+
+Three different predictors, all near 0.74, none near 0.798. Weekly fantasy
+scoring is floored at roughly zero and has a long right tail, so its
+within-player error is leptokurtic relative to a Gaussian and always will be.
+The −0.055 scenario requires a shape the data does not have.
+
+**One honest correction to the bracket itself:** its two ends are not
+independent measurements. `y − LOO mean = (y − own mean) × m/(m−1)` exactly, so
+the two rows above are one quantity seen through two lenses. The bracket is
+still a valid bracket — the biases genuinely run in opposite directions — but it
+is not corroboration.
+
+**A point estimate inside the bracket, and how it was calibrated.** Rescaling
+each deviation to the floor's variance is exact algebra and preserves shape:
+`var(y − own mean) = σ²w(1 − 1/m)`, so scaling by `√(m/(m−1))` lands on σ²w.
+That gives **4.4558**. It still overstates, because a deviation from a fitted
+centre is the error mixed with a mean-of-others term, and that mixture is closer
+to Gaussian than the error itself — which raises MAD/σ. Simulating seasons with
+the measured shape and the real week counts sizes that inflation and iterates it
+to a fixed point (×1.0265, ×1.0180, ×1.0172):
 
 ```
-MAE floor  = oracle MAE × (RMSE floor / oracle RMSE)
-           = 4.7167 × (6.0926 / 6.3973)          # 6.0926 = √σ²w = √37.1200
-           = 4.4921
-MAE headroom = 4.8062 − 4.4921 = 0.3141
+MAE floor    = 4.4558 / 1.0172 = 4.3804
+MAE headroom = 4.8062 − 4.3804 = +0.4258   95% CI [+0.3948, +0.4538]
+               (cluster bootstrap by player, 1,000 iterations)
 ```
 
-So **+0.3141 MAE** of headroom against the **+0.0895** the first version
-quoted — about three and a half times larger. (Had the 0.4012 ceiling been used
-instead, the floor would be 4.4335 and the headroom 0.3727, which would make
-every share in §3 about a fifth smaller. It was not used; §3's shares are
-against 0.3141 and are correct as printed.)
+**So the headroom is +0.4258, not +0.3141.** The withdrawn figure was too small,
+and it sat inside the bracket the whole time. The published-vs-corrected
+direction of §3 is unchanged; only the denominator moves.
+
+**And the true floor is lower still, for a reason worth stating.** The MAE-optimal
+constant for a player is his *median* week, not his mean, and weekly scoring is
+right-skewed. Centred on the season median the in-sample figure is **3.9979**
+against 4.2122 on the mean — both biased low in the same way, but the 0.2143 gap
+is real and runs in one direction. A true-level predictor aiming at the mean is
+not the best a true-level predictor can do, so **+0.4258 is a floor on the
+headroom, not a ceiling on it.**
 
 Correspondingly the within-player share is **61.5%** (`σ²w/(σ²b + σ²w)` =
-37.1200/60.3944; the oracle-inversion method gives 59.9%), not the 54.5% the
+37.1200/60.3945, the component sum; the oracle-inversion method gives 59.9%), not the 54.5% the
 first version published, which was the complement of the same biased number.
 
 **Read that as the opposite of a demotion.** The headline correction says the
@@ -128,15 +184,16 @@ amount of knowing *who* he is can reach.
 
 **Both columns are on the MAE scale**, not the R² scale §2 uses — a feature's
 gain was measured in MAE, so its share has to be taken against MAE headroom. The
-denominators are the first version's **+0.0895 MAE** and the corrected
-**+0.3141 MAE** derived in §2.1.
+denominators are the first version's **+0.0895 MAE** and the measured
+**+0.4258 MAE** of §2.2. The intermediate +0.3141, derived by scaling and now
+withdrawn, is shown for continuity because it was quoted elsewhere.
 
-| feature | measured gain (MAE) | share of the **published** 0.0895 MAE headroom | share of the **corrected** 0.3141 MAE headroom |
-|---|---|---|---|
-| depth-chart rank | +0.0031 | 3.5% | 1.0% |
-| practice participation | +0.0007 | 0.8% | 0.2% |
-| route share | +0.0008 | 0.9% | 0.3% |
-| red-zone touches inside 10 | +0.0004 | 0.4% | 0.1% |
+| feature | measured gain (MAE) | share of v1's 0.0895 | share of the withdrawn 0.3141 | **share of the measured 0.4258** |
+|---|---|---|---|---|
+| depth-chart rank | +0.0031 | 3.46% | 0.99% | **0.73%** |
+| practice participation | +0.0007 | 0.78% | 0.22% | **0.16%** |
+| route share | +0.0008 | 0.89% | 0.25% | **0.19%** |
+| red-zone touches inside 10 | +0.0004 | 0.45% | 0.13% | **0.09%** |
 
 **All four still failed, and they failed on their own evidence** — none cleared
 its own confidence interval, and that is a fact about each feature's measurement
@@ -186,8 +243,8 @@ should be abandoned.
 1. **Week-specific features are still the better bet, but "drop the
    player-descriptive remainder" is SUSPENDED.** It rested on a headroom figure
    that was too small by a factor of eighteen. Re-derive the ordering against
-   the corrected headroom — **+0.0668 R², equivalently +0.3141 MAE** — before
-   dropping anything. OL-vs-DL first is unaffected
+   the corrected headroom — **+0.0668 R², and +0.4258 MAE measured
+   separately** — before dropping anything. OL-vs-DL first is unaffected
    — it was first on its own merits.
 
 2. **Ship the uncertainty, not just the projection. Unchanged, and
@@ -231,7 +288,9 @@ and a headroom figure nobody had checked is exactly that.**
   homoscedastic, and in fantasy scoring it grows with a player's level. That is
   the most likely source of the 0.3854-vs-0.4012 gap, and it is why the ceiling
   is quoted as a range rather than a point.
-- Reproduction: `ceiling2.py` and `ceiling3.py`, scratchpad, pure Python 3,
+- Reproduction: `ceiling2.py`, `ceiling3.py` and — for §2.2's measured MAE
+  floor — `ceiling_mae.py`, `ceiling_mae2.py` and `ceiling_mae3.py`, scratchpad,
+  pure Python 3,
   reading the 25,323 saved walk-forward predictions. Both reproduce every figure
   in the first version exactly — model 0.3186/4.8062, oracle 0.3223/4.7167, raw
   between share 0.4548, n = 24,801 — which is how the rows were confirmed
@@ -242,7 +301,7 @@ and a headroom figure nobody had checked is exactly that.**
 - **v1, 2026-09-22.** Published "the model captures 98.9% of the oracle's R²;
   headroom +0.0037 R² and +0.0895 MAE", and recommended dropping the
   player-descriptive feature class on the strength of it.
-- **v2, 2026-09-22, this version.** Headline withdrawn. Adjudicated the same
+- **v2, 2026-09-22.** Headline withdrawn. Adjudicated the same
   day: the audit accepted this derivation over a competing one that kept the
   raw 0.4548 as denominator, on the strength of the §2.1 reconciliation, and
   recorded that its own check had passed because two errors cancelled. The oracle was a noisy
@@ -253,6 +312,18 @@ and a headroom figure nobody had checked is exactly that.**
   declines stand on their
   own evidence; the recommendation to drop the category is suspended; the
   recommendation to ship a range is unchanged and strengthened.
+
+- **v3, 2026-09-22, this version.** Audit unit 12 confirmed the R² and RMSE
+  work and gated the MAE headroom, correctly: +0.3141 was scaled from the RMSE
+  floor on an unstated shape assumption worth 0.37 of the answer, with a
+  Gaussian shape giving −0.055. §2.2 replaces it with a direct measurement —
+  an assumption-free bracket of [+0.0895, +0.5940] whose pessimistic end is
+  still positive, a measured MAD/RMSE of ~0.74 on three predictors that rules
+  the Gaussian branch out, and a calibrated point estimate of **+0.4258 MAE**
+  [+0.3948, +0.4538]. §3's shares are restated against it; the four verdicts
+  are untouched, as they rest on each feature's own interval and not on any
+  denominator. Also labelled 60.3836 (sample total variance) against 60.3945
+  (component sum).
 
 **Anything downstream of v1's number needs re-deriving**, in particular any
 argument that leaned on "there is no room left in player-level features".

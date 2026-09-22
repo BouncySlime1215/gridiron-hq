@@ -298,3 +298,19 @@ test('G6: player_week_usage/xFP ingestion is on the loop, or a week-1-stuck-fore
   assert.ok(ran.includes('nfl_model_growth'));
   assert.ok(ran.includes('ffopportunity'));
 });
+
+test('G7: the start/sit gate job is on the loop, after the jobs that settle the week it grades', async () => {
+  // With SCHEDULER_DISABLED=1 this loop is the only runner of scheduler jobs, so a job
+  // missing from the allowlist never runs: GET /api/gates/start-sit would answer
+  // not_run forever (C-01 wiring review). The gate reads player_week_usage (ingested by
+  // nfl_model_growth) and the pregame snapshots nfl_weekly_learning settles.
+  assert.ok(LOOP.FANTASY_LIVE_JOBS.includes('start_sit_gate'), 'the gate job must be on the live loop');
+  const { JOBS } = await import('../server/services/scheduler.js');
+  assert.equal(JOBS.start_sit_gate.offThread, true, 'it runs in a worker, not on the loop process thread');
+  const ran = [];
+  await LOOP.tick({ jobs: LOOP.FANTASY_LIVE_JOBS, runJob: async name => { ran.push(name); return { skipped: true }; },
+    spawn: fakeSpawn({ 'extract_league_chat.py': { stdout: STATUS({ failed_outstanding: 0 }) } }).spawn,
+    log: quiet, record: quiet, inputsKey: () => 'k' });
+  assert.ok(ran.indexOf('start_sit_gate') > ran.indexOf('nfl_model_growth'), 'after the finalized-week ingest');
+  assert.ok(ran.indexOf('start_sit_gate') > ran.indexOf('nfl_weekly_learning'), 'after the snapshot settlement');
+});

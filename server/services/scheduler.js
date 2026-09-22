@@ -1175,6 +1175,19 @@ async function refreshSleeperPlayers() {
   return result;
 }
 
+/**
+ * The standing start/sit gate (plan item C12): our weekly projection against the dumb
+ * rule "start the higher season-to-date average", replayed week by week over 2024-2025
+ * and every played week of the current season, stored in model_gate_audits and read by
+ * GET /api/gates/start-sit (the Lineup page's gate panel). A few replays of
+ * buildProjections, so it runs in a worker. Weekly for now; the NFL-week ops calendar
+ * (B-17, not built yet) will give it a day.
+ */
+async function refreshStartSitGate() {
+  const { refreshStartSitGate: run } = await import('./gates/start-sit-gate.js');
+  return run();
+}
+
 export const JOBS = {
   player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live', offThread: true,
     label: 'Player team assignments — the actual fix for stale roster spots' },
@@ -1550,7 +1563,13 @@ export const JOBS = {
   // offThread: each completed season's CSV is ~5.4 MB, and this pulled four of
   // them every three days — see refreshFfOpportunity for why it no longer does.
   ffopportunity: { run: refreshFfOpportunity, maxAgeMinutes: 3 * 24 * 60, tier: 'growth', offThread: true,
-    label: 'ffopportunity weekly expected-fantasy-points benchmark' }
+    label: 'ffopportunity weekly expected-fantasy-points benchmark' },
+  // Weekly (B-17 maps it to a day of the NFL week). Worker thread: three season
+  // replays. Measured 52.7 s wall, 330 MB peak, on a local copy under load average
+  // ~23 (docs/tdd/2026-09-22-start-sit-baseline-gate.tdd.md); the budget is ~11x that.
+  start_sit_gate: { run: refreshStartSitGate, maxAgeMinutes: 7 * 24 * 60, tier: 'growth', offThread: true,
+    timeoutMs: 10 * 60_000,
+    label: 'Start/sit gate: our projection vs "start the higher season average" (plan item C12)' }
 };
 
 /** Runs one job if it is older than its threshold. `force` ignores the age. */

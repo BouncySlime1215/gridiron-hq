@@ -361,10 +361,26 @@ test('a namespace import is not a reach for a symbol it never touches', () => {
     'binding the module is not using every export: `untouched` is still unimported');
 });
 
+test('a settled-promise chain still binds the module: await import().catch()', () => {
+  const sources = {
+    'server/services/defining.js': 'export function coverageGateVerdict() {}',
+    'server/services/caller.js':
+      "const V = await import('./defining.js').catch(error => ({ __importError: error }));\n"
+      + 'export const go = () => V.coverageGateVerdict();',
+  };
+  const found = importersOfSymbol(
+    { files: Object.keys(sources), read: f => sources[f] },
+    'server/services/defining.js',
+    'coverageGateVerdict',
+  );
+  assert.deepEqual(found.map(f => f.file), ['server/services/caller.js'],
+    'the module still lands in V; .catch only changes what happens when it does not');
+});
+
 test('smoke: dispatchTriggeredCapture has two non-test importers on this repo, not zero', () => {
   const report = repoSymbolReport('server/services/nfl-capture-dispatch.js', ['dispatchTriggeredCapture']);
   const row = report.symbols[0];
-  assert.deepEqual(row.importers.map(i => i.file).sort(),
+  assert.deepEqual([...row.importers].sort(),
     ['server/services/nfl-espn-line-watch.js', 'server/services/polymarket-lines.js'],
     'both call it as dispatch.dispatchTriggeredCapture() through a namespace import');
   assert.notEqual(row.grade, 'unused-in-code',

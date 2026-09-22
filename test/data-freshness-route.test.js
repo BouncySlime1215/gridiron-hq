@@ -70,3 +70,15 @@ test('an overall flag summarises whether anything served is not fresh', async ()
   const body = await (await get('/api/data-freshness')).json();
   assert.equal(body.all_fresh, false, 'a report with a stale table claimed everything was fresh');
 });
+
+test('the route uses the schedule\'s current week, not a fixed one: a row at that week reads fresh', async () => {
+  db.prepare(`DELETE FROM player_week_usage`).run();
+  // A 2026 row at week 3, the week the schedule is on. It is current only if the
+  // route passed week 3 to the service; a route hardwired to week 1 would call
+  // this future data and report stale.
+  db.prepare(`INSERT INTO player_week_usage (player_id, season, week) VALUES (1, 2026, 3)`).run();
+  const body = await (await get('/api/data-freshness')).json();
+  const pwu = body.tables.find(t => t.table === 'player_week_usage');
+  assert.equal(pwu.status, 'fresh', 'a current-week row was not recognised as current — the route sent the wrong week');
+  assert.equal(body.all_fresh, true);
+});

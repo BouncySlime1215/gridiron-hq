@@ -1,0 +1,19 @@
+Local run, main bd56319b, DB = copy of Nick's local app DB (~820 MB, real rows), scheduler ON with AUTO_HEAVY_SYNC=1, paid keys blanked.
+Server started ~19:41:30Z; killed by platform/loop-watchdog at ~19:47:30Z (exit 137) after 6 min. Log lines, verbatim:
+[scheduler] 'rss_news' took 6.2s in a worker thread — requests were served normally throughout
+[scheduler] 'nfl_book_feeds_extra' took 2.2s — every request was blocked for that long while it ran
+[scheduler] 'nfl_book_feeds_fast' took 2.1s — every request was blocked for that long while it ran
+[scheduler] 'nfl_book_feeds_slow' took 0.9s — every request was blocked for that long while it ran
+[scheduler] 'polymarket' took 13.4s — every request was blocked for that long while it ran
+[scheduler] live tier pass took 62.7s total (21 jobs)
+[scheduler] 'nfl_prop_feeds' took 16.8s in a worker thread — requests were served normally throughout
+[scheduler] 'beat_the_close' took 11.3s in a worker thread — requests were served normally throughout
+[scheduler] 'nfl_qbr_weather' took 3.9s — every request was blocked for that long while it ran
+[scheduler] 'nfl_learned_shadow' took 40.8s — every request was blocked for that long while it ran
+[watchdog] the event loop has not turned for 62s (threshold 60s). The process is serving nothing, so it is being killed ...
+sync_log also shows: nfl_reports, nfl_model_growth, evidence_daemon each "exceeded its 120s budget in a worker thread and the thread was terminated".
+Heavy tier (nfl_weekly_learning, manager_archetypes, league_history) never started before the kill.
+Implication: with real rows, on-request-thread betting jobs (polymarket, book feeds, nfl_learned_shadow) block the fantasy app for tens of seconds and a >60s block kills it. The next job after nfl_learned_shadow (not logged; it never finished) blocked >= 62s.
+Culprit (from the restarted server's log at 20:47Z): '[scheduler] 1 job(s) did not report back before the last restart, now recorded as failed and backed off: nfl_decision_ledger'. So nfl_decision_ledger is the job that blocked >= 62s after nfl_learned_shadow (40.8s).
+
+SECOND KILL, scheduler OFF (2026-09-22 20:49:11Z = 4:49 PM ET): server started ~20:47:55Z with SCHEDULER_DISABLED=1; the preview tab loaded the app; the watchdog logged "the event loop has not turned for 66s (threshold 60s)" and killed it (exit 137); the supervisor restarted it. No scheduler job ran in-process, so a request path (or a lock wait: PRAGMA busy_timeout = 15000 at server/db/index.js:25, while the separate refresh process ran heavy jobs) blocked the loop. The app's first page load calls, among others, GET /api/model/{league}/simulate?runs=1500 for several leagues plus trades/*/lineup (objective mean/ceiling/floor), scout, post-draft-plan and waivers (seen in the browser network log at 19:08Z).

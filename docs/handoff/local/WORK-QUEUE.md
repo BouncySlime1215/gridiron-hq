@@ -328,3 +328,17 @@ Time-bound: S-02 then S-03 before week 5 (2026-10-08); S-15 before week 11; week
 |---|---|---|---|---|
 | INT-116-1 | #116 | Fix the stale "namespace import" blind-spot claim for `importersOfSymbol` now that #116 resolves `import * as ns` / dynamic namespace imports | `docs/tdd/symbol-reach.tdd.md` (137-141) | "What this does NOT settle" lists only re-export chain and computed property as blind spots for `importersOfSymbol`; does not touch `docs/tdd/wiring-map-namespace-imports.tdd.md` (different tool, unaffected by #116) |
 | INT-128-1 | #128 | Remove or explicitly annotate the 13 stale `'MLB'` seed rows in `model-governance.js` for markets (`nrfi`, `pitcher_strikeouts`, `batter_total_bases`) whose model code #128 deleted | `server/services/model-governance.js` (CONTRACTS 24-33, registry seed 86-88), `test/model-integrity.test.js:1159` | `grep -c "'MLB'" server/services/model-governance.js` returns 0, or every remaining line carries a dated "kept for audit trail, models removed 2026-09-22" comment; `test/model-integrity.test.js`'s `featureContracts('MLB')` assertion updated to match whichever choice is made |
+| R-08 | (local evidence) | Opening the app can freeze the server: with the scheduler OFF a request path blocked the event loop 66s and the watchdog killed it (evidence file local-scheduler-stall-2026-09-22.txt) | time every GET the first page load makes against a real-row DB copy (with and without a concurrent refresh writer); move heavy compute (season sim 1,500 runs, lineup objectives) off the request thread or cache it; busy_timeout interaction measured | RED: a test that fails when any first-load endpoint blocks > 2s on the fixture; every first-load endpoint p95 stated before/after |
+
+## 8. Blocker-lab units (from BLOCKER-LAB.md, 2026-09-22 ~5:00 PM ET)
+
+| ID | Goal | Size | Deps |
+|---|---|---|---|
+| BL-01 | `nfl_model_growth` budget 45 min (worker) + close killed runs; review `nfl_reports` | ~1 h | — |
+| BL-02 | `nflverse_weekly_usage` + `nflverse_snap_counts` on the refresh loop list | ~45 min | — |
+| BL-03 | Usage freshness rule "last completed week present", on #104's live rule (+ optional BL-03b fallback on main) | ~1 h | #96 → #104 |
+| BL-05 | Settle played-no-stat as 0; DNP pending with a reason | ~1 h | — |
+| BL-20 | Settle expired / countered / league review from the rows #94 reads | ~2-3 h | F-05 (#94) |
+| BL-40 | Coach 4th-down GOE as a display-only "why" trait | ~4-6 h | A-14 |
+| BL-50 | Resolve rule-extracted availability claims vs next-game snaps, weekly | ~4 h | — |
+| BL-51 | Permutation guard in the person-profile grader | ~1-2 h | before N6 |

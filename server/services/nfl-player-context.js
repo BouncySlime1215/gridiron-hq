@@ -31,6 +31,7 @@
 import { rows } from '../db/index.js';
 import { playerWeeks } from './nfl-pbp.js';
 import { pairedBootstrapDiff } from './backtest-significance.js';
+import { valueAsKnown } from './nfl-bitemporal.js';
 
 const CURRENT_SNAPSHOT_SEASON = 2026;
 const mean = a => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null);
@@ -382,4 +383,128 @@ export function validateInjuryAdjustment({ fitSeasons = [2023, 2024], testSeason
     unadjusted_mae: mae(errBase), adjusted_mae: mae(errAdj), bootstrap: test,
     improves: test.significant === true && test.mean_diff < 0
   };
+}
+
+/**
+ * Plan 01 / package #19 (Auditor units 11, 12, G5/G6) — a graded, normalised
+ * availability multiplier from the report_status the player actually carried,
+ * replacing `role-scenario-engine.js`'s pooled `limitedRoleMultiplier`
+ * (`limited`+`questionable` averaged into one scalar, clamped) with the
+ * repository's own per-status measurement.
+ *
+ * The instrument is the repo's own "played" definition -- a real usage row
+ * with positive opportunity that week, the same test weekly-backtest.js's
+ * `decision_including_dnp` uses (`t.weeks.has(week)`) -- never a
+ * share-prediction proxy.
+ *
+ * WHY THE DENOMINATOR IS `nfl_injuries`, NOT `player_week_usage`: an Out or
+ * Doubtful player mostly has NO row in `player_week_usage` at all (the same
+ * source `nflverse.js:227` and the rig both draw from carries no row for a
+ * player who did not play), so counting bucket population from usage rows
+ * alone would silently exclude almost the entire Out/Doubtful population and
+ * read as a false ~1.0 -- the exact failure G5/G6 found when `add-absences.mjs`
+ * was reverted. `nfl_injuries` is a real weekly designation roster
+ * independent of whether the player then produced a usage row, so it is the
+ * only correct `n` here; this sidesteps the HARD LIMIT in PLAN-01 §2.4 that
+ * blocks a rig-based grade until absence rows exist -- that limit is about
+ * `player_week_usage`-only denominators, and this fit never uses one.
+ *
+ * The baseline ("no report") population is players with a usage row in any
+ * of the prior 3 weeks that season (an established role) and no injury
+ * report the following week -- the same "recently active" gate
+ * `measureInjuryEffect` uses for its own clean group.
+ *
+ * Pre-registered BEFORE this function was run against real data (Plan 01
+ * §2.6.B, G2): a bucket's ratio is estimated only if its `n >= minN`;
+ * otherwise it is POOLED BACK to the unreported case (ratio exactly 1.0),
+ * never left as a separate, under-powered estimate. This is declared once,
+ * here, and applies uniformly to whatever buckets a given season range
+ * produces -- it does not hardcode which named buckets survive.
+ */
+export function fitGradedAvailability(seasons, { minN = 30 } = {}) {
+  const seasonList = seasons.filter(s => s !== CURRENT_SNAPSHOT_SEASON); // 2026 is in progress, not a full season
+  const placeholders = seasonList.map(() => '?').join(',');
+
+  const baseline = rows(`
+    WITH active AS (
+      SELECT DISTINCT player_id, season, week FROM player_week_usage
+      WHERE (COALESCE(targets,0)+COALESCE(carries,0)+COALESCE(attempts,0)) > 0 AND season IN (${placeholders})
+    ),
+    candidates AS (SELECT player_id, season, week+1 AS next_week FROM active)
+    SELECT
+      COUNT(DISTINCT c.player_id || '|' || c.season || '|' || c.next_week) n,
+      SUM(CASE WHEN pwu.player_id IS NOT NULL
+        AND (COALESCE(pwu.targets,0)+COALESCE(pwu.carries,0)+COALESCE(pwu.attempts,0)) > 0
+        THEN 1 ELSE 0 END) played
+    FROM candidates c
+    JOIN players p ON p.id = c.player_id
+    LEFT JOIN nfl_injuries ni ON ni.gsis_id = p.gsis_id AND ni.season = c.season AND ni.week = c.next_week
+    LEFT JOIN player_week_usage pwu ON pwu.player_id = c.player_id AND pwu.season = c.season AND pwu.week = c.next_week
+    WHERE ni.report_status IS NULL AND c.next_week <= 22
+  `, ...seasonList)[0];
+  const baselineRate = baseline.n > 0 ? baseline.played / baseline.n : null;
+
+  const bucketRows = rows(`
+    SELECT ni.report_status status, COUNT(*) n,
+      SUM(CASE WHEN pwu.player_id IS NOT NULL
+        AND (COALESCE(pwu.targets,0)+COALESCE(pwu.carries,0)+COALESCE(pwu.attempts,0)) > 0
+        THEN 1 ELSE 0 END) played
+    FROM nfl_injuries ni
+    JOIN players p ON p.gsis_id = ni.gsis_id
+    LEFT JOIN player_week_usage pwu ON pwu.player_id = p.id AND pwu.season = ni.season AND pwu.week = ni.week
+    WHERE ni.report_status IS NOT NULL AND ni.season IN (${placeholders})
+    GROUP BY ni.report_status
+  `, ...seasonList);
+
+  const buckets = {};
+  const retained = {};
+  for (const b of bucketRows) {
+    const rate = b.n > 0 ? b.played / b.n : null;
+    const ratio = rate != null && baselineRate ? rate / baselineRate : null;
+    buckets[b.status] = { n: b.n, played: b.played, rate: r3(rate), ratio: r3(ratio), retained: b.n >= minN };
+    if (b.n >= minN && ratio != null) retained[b.status] = r3(ratio);
+  }
+
+  return {
+    seasons: seasonList, min_n: minN,
+    baseline: { n: baseline.n, played: baseline.played, rate: r3(baselineRate) },
+    buckets,
+    // The consumption vector: only buckets clearing minN get their own
+    // ratio; everything else (a sub-floor bucket, or no designation at all)
+    // resolves to exactly 1.0 in gradedAvailabilityMultiplier below.
+    ratios: retained,
+    note: '79% still unclaimed, most of it not in a Wednesday report.'
+  };
+}
+
+/**
+ * The as-of-safe consumer: `fitted` is `fitGradedAvailability(...).ratios`.
+ *
+ * `decisionAt` is mandatory and is read through `valueAsKnown` against
+ * `nfl_feature_revisions` (feature `injury_report`), never `nfl_injuries`
+ * directly -- `nfl_injuries` UPSERTs in place and holds only the FINAL
+ * designation, so reading it for a Sunday-lock projection is a look-ahead
+ * leak (PLAN-01 §2.2): the read would see a Friday downgrade a Wednesday
+ * decision never had.
+ *
+ * INVARIANT (Plan 01 §2.6.G1): a player with no report as of `decisionAt`
+ * gets a multiplier of EXACTLY 1.0 -- not a value close to 1.0, not the raw
+ * (unnormalised) play rate. The earlier, un-normalised form of this idea
+ * overstated the effect by 4x for exactly this reason: it returned the raw
+ * play probability (well under 1.0, since even a healthy player misses a
+ * fraction of weeks for bye/rest/blowouts) instead of a ratio against that
+ * same baseline. Every branch below that is not a retained, on-report
+ * bucket returns the literal number `1`.
+ */
+export function gradedAvailabilityMultiplier(gsisId, season, week, decisionAt, fitted) {
+  if (!gsisId || !decisionAt) return { multiplier: 1, bucket: null, known: false };
+  const entity = `player:${gsisId}:${season}:${week}`;
+  const known = valueAsKnown(entity, 'injury_report', decisionAt);
+  if (!known.known) return { multiplier: 1, bucket: null, known: false, reason: known.reason };
+  const status = known.value?.report_status ?? null;
+  if (status == null || !(status in fitted)) {
+    return { multiplier: 1, bucket: status, known: true, as_of: decisionAt, retained: false };
+  }
+  return { multiplier: fitted[status], bucket: status, known: true, as_of: decisionAt, retained: true,
+    published_at: known.published_at, observed_at: known.observed_at };
 }

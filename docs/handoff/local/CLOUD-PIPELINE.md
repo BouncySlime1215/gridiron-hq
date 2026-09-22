@@ -2,7 +2,7 @@
 
 Nick (2026-09-22 ~6:40 PM ET): "we need to validate cloud work and make sure synergies and those verify checks happen. Cloud sessions should be quick, not massive context readers, and get the same level of verify as we have here."
 
-## 1. Cloud: lean builder (Sonnet, Agent isolation "remote")
+## 1. Cloud: lean builder (Opus 5.5 at medium effort per Nick 7:10 PM ET; Claude Code cloud routines via RemoteTrigger. The Agent tool's isolation "remote" ran locally, so it is not used)
 
 The coordinator hands each session a complete spec: the unit id, the exact files (file:line), the acceptance test, the RED expectation, and the constraints. The session:
 - reads ONLY the listed files, their tests, and what they import directly (no repo-wide exploring, no handoff reading);

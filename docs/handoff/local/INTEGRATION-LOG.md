@@ -2,7 +2,13 @@
 
 One entry per merged PR: what it touched, the intake verdict (upstream, downstream, reach, links, plan, follow-ups), and where each follow-up landed.
 Rebuilt by `~/gridiron-local/bin/render-integration-log.py` from `integration/PR-*.md` and WORK-QUEUE section 7. Procedure: INTEGRATION-PROCEDURE.md.
-Last rebuilt: 2026-09-22 22:31Z.
+Last rebuilt: 2026-09-22 23:08Z.
+
+## #153: Model governance stops seeding PR #128's deleted MLB models as live
+
+- Merged: 7:07 PM ET, Sep 22 as `34aa3d0e` (unit INT-128-1)
+- Intake: done: (filled by the integration intake agent) Coordinator intake (7:15 PM ET, from the verify-pr skeptics). Upstream: model-governance.js seeds; no second producer. Downstream: no reader of MLB governance rows (skeptic grep); existing DBs keep their 13 MLB rows by the no-delete rule, invisible to every page. Reach: none needed. Links: none. Plan: closes INT-128-1. Follow-ups: INT-153-1, stale seed-count comments in test/w…
+- Follow-up **INT-153-1** (queued): Stale seed-count comments after #153: test/wiring-map-deferred-edges.test.js:11-12 says 32/11 rows and ~59 says 43; now 22/8 and 30
 
 ## #152: The disk check wakes the live app before it looks
 

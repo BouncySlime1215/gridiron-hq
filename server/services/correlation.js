@@ -23,6 +23,7 @@
  * each player's outcomes stays exactly as the projection model produced it.
  */
 import { db, rows } from '../db/index.js';
+import { servedTableState } from './data-freshness.js';
 import { PPR, scoreLine } from './scoring.js';
 import { cholesky, correlatedNormals, normalCdf, mean } from './stats-util.js';
 
@@ -123,6 +124,25 @@ function table() {
 
 /** Fallbacks used when an archetype was never fitted, so the matrix is always complete. */
 const DEFAULTS = { team: 0.05, opp: 0.02 };
+
+/**
+ * What the correlated draws are built from, for a surface that shows a spread, a
+ * ceiling or an odd to carry beside it. The state comes from the one entry for
+ * `correlation_estimates` (data-freshness.js servedTableEntry): a coverage rule, "fitted
+ * rows exist", not an age. `fitCorrelations` is the store's only writer and only
+ * `POST /api/model/sync` calls it, so on an install where nobody ran the sync the store
+ * is empty and every archetype is DEFAULTS. `fallback` is that pair of defaults when the
+ * store holds nothing, and null otherwise — an archetype below MIN_PAIRS still falls
+ * back alone, which the row count does not show.
+ */
+export function correlationBasis() {
+  const s = servedTableState('correlation_estimates');
+  return {
+    ...s,
+    writer: 'correlation.js#fitCorrelations, called only by POST /api/model/sync',
+    fallback: s.rows === 0 ? { ...DEFAULTS } : null
+  };
+}
 
 /**
  * Correlation between two players in one week.

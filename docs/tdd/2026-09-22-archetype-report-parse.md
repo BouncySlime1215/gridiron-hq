@@ -148,11 +148,40 @@ shape and bound assertions; nine injections, all killed; and the truncation clif
 measured at four payload sizes rather than asserted. The measurement is
 reproducible from the probe described above.
 
-**Is it pointed anywhere else?** Two places. The flush bug belongs to
-`scripts/build-manager-archetypes.mjs` and is recorded, not fixed. And the shape
-generalises: any job in `scheduler.js` that parses a child's stdout has the same
-three states, and none of them distinguishes them today — that is a sweep worth
-doing, not a change to smuggle into this diff.
+**Is it pointed anywhere else?** Yes, and it was enumerated rather than
+guessed — the first version of this section claimed "any job in `scheduler.js`
+that parses a child's stdout", and a grep says there is exactly one, this one.
+What does generalise is the flush cliff, and that reaches further than this job:
+
+**Five scripts end with `process.exit(0)` and print a report through
+`console.log(JSON.stringify(...))`**, so each is exposed to the same truncation
+whenever its stdout is captured rather than inherited:
+
+    scripts/build-manager-archetypes.mjs
+    scripts/luck-panel.mjs
+    scripts/promote-weekly-ensemble.mjs
+    scripts/availability-decision-calibration.mjs
+    scripts/import-alt-spreads.mjs
+
+Two are worth naming individually. **`luck-panel.mjs` is captured** by
+`build-manager-archetypes.mjs:50` through `execFileSync`, whose default stdio
+pipes, so the cliff applies to the inner child too — and when it hits, the outer
+build reports "outcome metrics will be missing" and carries on, which is honest
+about the symptom and silent about the cause. That one does at least keep the
+parse error in its message (`build-manager-archetypes.mjs:56`), which is more
+than the scheduler used to do. **`promote-weekly-ensemble.mjs` is the weekly
+ensemble promotion script**, and a truncated report there would make a
+successful promotion read as a failure — which matters because whether that
+script has ever run against production is an open question elsewhere in this
+project rather than a settled one.
+
+None of these five is fixed here. Each is a one-line change in a file this unit
+does not own, and a five-file diff attached to a scheduler fix is how a small
+change stops being reviewable. The two other `JSON.parse` of a child's stdout in
+the repo — `server/betting/nfl/forecast/python-artifact.js:51` and
+`server/betting/nfl/strategy/learned-shadow-runner.js:46` — are betting-side and
+out of scope by Nick's ruling; they are listed so the enumeration is complete,
+not as work.
 
 **How does it unify?** It is the same rule as the freshness work earlier tonight:
 a layer that fails must say **what** failed, not merely that something did. There

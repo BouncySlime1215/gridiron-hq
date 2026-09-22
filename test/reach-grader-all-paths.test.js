@@ -28,6 +28,7 @@ import assert from 'node:assert/strict';
 import {
   BETTING_ENTRY_POINTS,
   buildImporterGraph,
+  dropRouteBootEdges,
   gradeReach,
   isBettingEntryPoint,
   mountedRoutes,
@@ -228,4 +229,60 @@ test('buildImporterGraph reverses the arrows: it maps a module to the files impo
     ['server/routes/ghost.js', 'server/routes/model.js'],
     'static and dynamic imports both count; build output under client/dist does not',
   );
+});
+
+/*
+ * The two rules below were not written from the contract. They were written
+ * after the first run of the finished grader against this repository returned
+ * two answers that were wrong in the safe-looking direction, which is the only
+ * direction that survives review.
+ */
+
+test('server/index.js importing an unmounted route is not a reach', () => {
+  const raw = {
+    'server/routes/ghost.js': new Set(['server/index.js']),
+    'server/routes/model.js': new Set(['server/index.js']),
+    'server/services/subject.js': new Set(['server/routes/ghost.js']),
+  };
+  const importers = dropRouteBootEdges(raw);
+  const mounted = new Set(['server/routes/model.js']);
+  const isEntry = f => mounted.has(f) || f === 'server/index.js';
+
+  const graded = gradeReach(reachableEntries(importers, 'server/services/subject.js', { isEntry }));
+  assert.equal(
+    graded.grade, 'unreached',
+    'an orphaned route is loaded at boot and its handlers never run; counting the boot '
+    + 'import as a reach grades every orphan wired through server/index.js',
+  );
+  assert.ok(!graded.entries.includes('server/index.js'));
+});
+
+test('a module reached only by a hand-run script is graded hand-run-script, never unreached', () => {
+  const fixture = {
+    'server/services/subject.js': ['scripts/study-something.mjs'],
+    'scripts/study-something.mjs': [],
+  };
+  const isHandRunScript = f => f.startsWith('scripts/');
+  const reach = reachableEntries(fixture, 'server/services/subject.js', { isEntry: ENTRY });
+
+  assert.equal(gradeReach(reach).grade, 'unreached',
+    'with no hand-run predicate the walk finds no entry point, which is the flattening being fixed');
+  const graded = gradeReach(reach, { isHandRunScript });
+  assert.equal(graded.grade, 'hand-run-script');
+  assert.deepEqual(graded.handRun, ['scripts/study-something.mjs']);
+  assert.match(graded.reason, /types the command/,
+    'CONTRACT.md: record it as reached from a hand-run script, never as wired');
+});
+
+test('a hand-run script does not upgrade or downgrade a module that also has a real entry point', () => {
+  const fixture = {
+    'server/services/subject.js': ['scripts/study-something.mjs', 'server/routes/model.js'],
+    'scripts/study-something.mjs': [],
+  };
+  const graded = gradeReach(
+    reachableEntries(fixture, 'server/services/subject.js', { isEntry: ENTRY }),
+    { isHandRunScript: f => f.startsWith('scripts/') },
+  );
+  assert.equal(graded.grade, 'wired');
+  assert.deepEqual(graded.handRun, []);
 });

@@ -59,16 +59,41 @@ whole point of the grade: a `wired` count that silently includes betting-only
 reach overstates how much of the fantasy product is actually connected, and the
 overstatement grows with exactly the rows a reader is least likely to check.
 
-Worked example, both halves: `role-scenario-engine.js` reaches an entry point
-only as `<- role-scenario-lab.js <- nfl-research-lab.js <- routes/nfl-market.js`,
-so it takes this grade. `player-week-engine.js` also has a betting path
+Worked example, both halves: `betting-fantasy-link.js` reaches an entry point
+only as `<- routes/nfl-betting.js`, so it takes this grade.
+`player-week-engine.js` also has a betting path
 (`<- betting-fantasy-link.js <- routes/nfl-betting.js`) but reaches
 `routes/model.js` directly as well, so it stays `wired`.
+
+**The first half of that example used to name `role-scenario-engine.js`, and it
+was wrong.** It reaches `scripts/build-role-scenario-lab.mjs`, which
+`package.json` runs as `build:role-scenario-lab` — a script in `package.json`
+is an entry point by this section's own `wired` test. The row was written from
+a trace that found the betting route and stopped, which is the exact mistake
+this grade exists to catch, caught here by the grader rather than by a reader.
+`scripts/reach-grade.mjs` is that grader and
+`test/reach-grader-all-paths.test.js` pins it; a rule with no consumer that can
+detect its violation is decoration, by this contract's own test.
 
 **The sweep this implies.** Any row already graded `wired` whose paths were
 traced only far enough to find the first entry point has not been tested against
 this grade. Re-trace those to *all* entry points before the `wired` total is
-quoted anywhere.
+quoted anywhere. Run:
+
+    node scripts/reach-grade.mjs server/services/<file>.js
+
+**First sweep, 2026-09-22.** Across the 319 tracked files in `server/services/`
+and `server/modeling/`: **237 `wired`, 51 `wired-betting-only`, 10
+`hand-run-script`, 21 `unreached`.** So roughly one file in six that a
+first-path trace would have called `wired` is reachable only through a betting
+surface. That is the overstatement this grade was added to prevent, measured
+rather than asserted.
+
+**Read those four numbers as an upper bound on `wired`, not as inventory rows.**
+The grader grades a *file's* reach; §1's unit is a symbol. `routes/tradelab.js`
+grades `wired` as a file and §1 already says why that answers nothing about its
+orphaned routes. A file graded `unreached` is settled — nothing inside it is
+reachable. A file graded `wired` means only that *something* in it is.
 
 ### `half-done`
 The code is correct and reachable in principle, and the last hop was never

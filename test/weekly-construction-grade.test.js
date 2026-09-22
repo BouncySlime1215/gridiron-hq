@@ -45,6 +45,7 @@ const waiverBrain = await import('../server/services/waiver-brain.js');
 const { startSitWeekPoints } = await import('../server/services/lineup-brain.js');
 const { pairedBootstrapDiff } = await import('../server/services/backtest-significance.js');
 const { predictionWeightedMedianRatio } = await import('../server/services/level-information-decomposition.js');
+const { spearman } = await import('../server/services/backtest.js');
 
 test.after(() => { db.close(); fs.rmSync(temp, { recursive: true, force: true }); });
 
@@ -327,9 +328,50 @@ test('compareArms: both intervals are player-clustered (prereg section 6), on th
   assert.deepEqual([out.d_dnp.mean_diff, out.d_dnp.ci90], [dnp.mean_diff, dnp.ci90]);
 });
 
-test('constructArms hands the served expert and lift functions the graded season, week and scoring', () => {
+/**
+ * X has the lower error but ranks players worse: A reads 3 high with little noise, X has no
+ * level miss and wide noise. Some rows are DNPs and some played-only, as in clusteredRows.
+ */
+function levelVsRankRows() {
+  const r = lcg(5);
+  const rows = [];
+  for (let pid = 1; pid <= 24; pid++) {
+    for (let week = 5; week <= 10; week++) {
+      const truth = 5 + r() * 20;
+      const A = truth + 3 + (r() - 0.5) * 2;
+      const X = truth + (r() - 0.5) * 9;
+      const dnp = (pid + week) % 9 === 0;
+      const playedOnly = (pid + week) % 7 === 0;
+      rows.push({ player_id: pid, week, position: 'WR', played: !dnp, decision: !playedOnly,
+        actual: dnp ? 0 : truth, preds: { A, X } });
+    }
+  }
+  return rows;
+}
+
+test('compareArms: dSpearman is arm minus reference, negative when the arm ranks worse; MDE % is of the reference MAE', () => {
+  const rows = levelVsRankRows();
+  const played = rows.filter(r => r.played), decision = rows.filter(r => r.decision);
+  const rho = arm => spearman(played.map(r => ({ pred: r.preds[arm], act: r.actual })));
+  const mae = (list, arm) => absErr(list, arm).reduce((s, x) => s + x, 0) / list.length;
+  assert.ok(mae(played, 'X') < mae(played, 'A'), 'fixture: X has the lower error');
+  assert.ok(rho('X') < rho('A'), 'fixture: X ranks worse');
+  const out = lib.compareArms(rows, 'X', 'A');
+  assert.equal(out.d_spearman, +(rho('X') - rho('A')).toFixed(4));
+  assert.ok(out.d_spearman < lib.SPEARMAN_TOLERANCE, `dSpearman ${out.d_spearman} must be negative for the worse-ranking arm`);
+  assert.ok(lib.compareArms(rows, 'A', 'X').d_spearman > 0, 'the reverse comparison is positive');
+  const verdict = lib.shipVerdict(out);
+  assert.equal(verdict.pass, false, 'a lower MAE does not ship an arm that ranks worse');
+  assert.equal(verdict.reasons.length, 1);
+  assert.match(verdict.reasons[0], /Spearman/);
+  // The MDE percentage is of the REFERENCE arm's MAE, each on its own row set.
+  assert.equal(out.d_mae.mde80_pct_of_baseline_mae, +(100 * lib.mde80(out.d_mae.ci90) / mae(played, 'A')).toFixed(2));
+  assert.equal(out.d_dnp.mde80_pct_of_baseline_mae, +(100 * lib.mde80(out.d_dnp.ci90) / mae(decision, 'A')).toFixed(2));
+});
+
+/** Served deps that record the arguments the expert and lift functions receive. */
+function recordingDeps() {
   const calls = { experts: [], lift: [] };
-  const SCORING = Object.freeze({ tag: 'league scoring' });
   const deps = {
     ...lib.SERVED,
     weeklyExpertValues: (p, season, week, scoring) => { calls.experts.push([p, season, week, scoring]); return EXPERTS; },
@@ -338,6 +380,12 @@ test('constructArms hands the served expert and lift functions the graded season
       return lib.SERVED.vegasLift(asset, season, week);
     }
   };
+  return { calls, deps };
+}
+
+test('constructArms hands the served expert and lift functions the graded season, week and scoring', () => {
+  const { calls, deps } = recordingDeps();
+  const SCORING = Object.freeze({ tag: 'league scoring' });
   const p = proj('RB', 'HI');
   lib.constructArms(p, { ...CTX, season: 2025, week: 6, scoring: SCORING }, deps);
   assert.equal(calls.experts.length, 1);
@@ -359,6 +407,17 @@ test('armSummary: MAE and signed error on played rows, DNP-included MAE on decis
   assert.ok(Math.abs(s.mae - 4 / 3) < 1e-12);
   assert.ok(Math.abs(s.signed_error - 2 / 3) < 1e-12);
   assert.ok(Math.abs(s.dnp_mae - 3) < 1e-12, `dnp_mae ${s.dnp_mae} is (2 + 6 + 1) / 3`);
+});
+
+test('armSummary counts played rows and decision rows apart', () => {
+  const rows = [
+    { played: true, decision: true, actual: 10, preds: { A: 12 } },
+    { played: true, decision: false, actual: 5, preds: { A: 4 } },
+    { played: true, decision: false, actual: 7, preds: { A: 7 } },
+    { played: false, decision: true, actual: 0, preds: { A: 6 } }
+  ];
+  const s = lib.armSummary(rows, 'A');
+  assert.deepEqual([s.n_played, s.n_decision], [3, 2]);
 });
 
 test('m0For is the prediction-weighted median ratio over PLAYED rows only (prereg section 8)', () => {
@@ -444,6 +503,56 @@ test('gradeWindow (full): marginals, pair metrics, positions and m0 headroom', (
   assert.equal(lib.gradeWindow(rows, { m0: null }).m0_headroom, undefined);
 });
 
+/**
+ * Rows where the candidates REORDER players against A, so a start/sit call can differ.
+ * A ranks with wide noise, B with narrow noise (better calls), the rest mixed. Every
+ * projection stays above the pair threshold of 4 except S3 for player 16, so the common
+ * pair set (every arm >= 4) is smaller than any two-arm pair set without S3.
+ */
+function reorderRows() {
+  const r = lcg(31);
+  const rows = [];
+  for (let pid = 1; pid <= 16; pid++) {
+    const position = POSITIONS[pid % 4];
+    const tilt = (r() - 0.5) * 4;
+    for (const week of [5, 6, 7, 8]) {
+      const truth = 9 + r() * 12;
+      const dnp = (pid + week) % 9 === 0;
+      const playedOnly = (pid + week) % 7 === 0;
+      const A = truth + 2 + (r() - 0.5) * 6;
+      const B = truth + (r() - 0.5);
+      rows.push({ player_id: pid, week, position, played: !dnp, decision: !playedOnly, actual: dnp ? 0 : truth,
+        preds: { A, B, C: A + tilt, D: B * 1.05, S1: truth + (r() - 0.5) * 3, S2: B - 0.5, S3: pid === 16 ? 3.5 : A - tilt } });
+    }
+  }
+  return rows;
+}
+
+test('gradeWindow (full): each candidate\'s decision win rate, position split and headroom are its own, against A', () => {
+  const rows = reorderRows();
+  const m0 = { A: 0.9, B: 0.95, C: 0.85, D: 1.02, S1: 0.97, S2: 0.93, S3: 0.88 };
+  const g = lib.gradeWindow(rows, { m0 });
+  const decisionRows = rows.filter(r => r.decision);
+  for (const x of lib.CANDIDATES) {
+    const expected = lib.decisionWinRate(decisionRows, x, 'A', { models: [...lib.ARMS] });
+    assert.ok(expected.disagreements > 0, `fixture: ${x} reorders at least one pair against A`);
+    assert.deepEqual(g.decision_win_rate_vs_A[x], expected, `${x}: decision win rate is ${x}'s calls against A's`);
+  }
+  const b = g.decision_win_rate_vs_A.B;
+  assert.ok(lib.decisionWinRate(decisionRows, 'B', 'A').pairs > b.pairs, 'fixture: the common pair set drops the pairs S3 projects under 4');
+  assert.ok(b.win_rate > 0.5, `fixture: B's narrower noise wins its disagreements (${b.win_rate})`);
+  assert.notDeepEqual(b, lib.decisionWinRate(decisionRows, 'A', 'B', { models: [...lib.ARMS] }), 'the reverse call reads differently');
+  for (const pos of POSITIONS) {
+    const rp = rows.filter(r => r.position === pos);
+    for (const a of ['B', 'C', 'D']) {
+      assert.deepEqual(g.by_position[pos][a], lib.compareArms(rp, a, 'A').d_mae, `${pos} ${a}: arm minus A`);
+    }
+  }
+  for (const a of lib.ARMS) {
+    assert.deepEqual(g.m0_headroom[a], { m0_from_2024: m0[a], ...lib.headroom(rows, a, m0[a]) }, `${a}: headroom at its own m0`);
+  }
+});
+
 test('lambdaForWeek reads each window its own lambda and refuses a week outside both', () => {
   const lambda = { '2-4': 1, '5-17': 0 };
   assert.equal(lib.lambdaForWeek(lambda, 3), 1);
@@ -467,6 +576,24 @@ test('gradeWeekRows: the season\'s registered fits and the week\'s window lambda
   assert.equal(w3.rows[0].arms.S3, w3.rows[0].arms.C);
   assert.ok(Math.abs(w6.rows[0].arms.S3 - 14.4 * Math.sqrt(1.2)) < 1e-9);
   assert.throws(() => lib.gradeWeekRows({ season: 2025, week: 6, engine, truth, fits: { ...fits, heldOut: fits.forward }, lambdaByWindow }, stubExperts), /cutoff/);
+});
+
+test('gradeWeekRows hands the served expert and lift functions the graded season, week and scoring', () => {
+  const { calls, deps } = recordingDeps();
+  const SCORING = Object.freeze({ tag: 'league scoring' });
+  const pair = through => ({ fitS: FIT, fitE: FIT, through });
+  const fits = { split: pair(2023), heldOut: pair(2024), forward: pair(2025), served: { fitS: FIT, through: 2025 } };
+  const truth = new Map([[1, { weeks: new Map([[1, 10], [2, 11], [3, 12], [5, 9], [6, 14]]) }]]);
+  const p = proj('RB', 'HI');
+  const engine = new Map([[1, p]]);
+  const lambdaByWindow = { '2-4': 1, '5-17': 0.5 };
+  for (const [season, week] of [[2025, 3], [2025, 6], [2024, 6]]) {
+    const { rows } = lib.gradeWeekRows({ season, week, engine, truth, fits, lambdaByWindow, scoring: SCORING }, deps);
+    assert.equal(rows.length, 1, `fixture: one graded row in ${season} week ${week}`);
+  }
+  assert.ok(calls.experts.every(c => c[0] === p), 'the engine projection itself');
+  assert.deepEqual(calls.experts.map(c => c.slice(1)), [[2025, 3, SCORING], [2025, 6, SCORING], [2024, 6, SCORING]]);
+  assert.deepEqual(calls.lift, [['HI', 'RB', 2025, 3], ['HI', 'RB', 2025, 6], ['HI', 'RB', 2024, 6]]);
 });
 
 test('assertS3UsedLambda stops when a graded row\'s S3 was not built with its window\'s lambda', () => {

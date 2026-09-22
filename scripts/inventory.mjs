@@ -272,17 +272,34 @@ function buildRows(map, local) {
   // ran, production included, and its unguarded readers return results as if it were
   // there. That takes precedence over reachability: a table nothing creates in prod is
   // never "wired", however live the surface that reads it.
+  // A foreign-DB table lives in a database other than the app's (the chat DB, the
+  // sleeper-history DB, a jev crawl DB). The map's table-in-another-database rule is the
+  // authority for which those are. Two things follow. Its LOCAL app-DB row count is
+  // meaningless — it is not in the app DB — so a count read here says nothing about it.
+  // And "no migration creates it" is expected, not a defect: those databases are not
+  // migration-managed; their own sync or crawl creates their schema. So a foreign table
+  // is neither wired-by-app-rows nor a phantom; it is classified on its own terms.
+  const foreign = new Set(map.findings.filter((f) => f.rule === 'table-in-another-database').map((f) => f.subject));
   const PHANTOM_BUCKETS = new Set(['script', 'test_only']);
   for (const t of map.tables) {
     const prodReaders = (t.read_by || []).filter((e) => !e.startsWith('test/'));
     const reaches = reachesLiveSurface(t.wiring);
     const localN = local.readable ? (local.counts.get(t.table) ?? null) : null;
     let c;
-    if (PHANTOM_BUCKETS.has(t.created_by) && prodReaders.length > 0) {
+    if (foreign.has(t.table)) {
+      const outside = PHANTOM_BUCKETS.has(t.created_by)
+        ? `; in tracked code its only CREATE TABLE is ${t.created_by === 'test_only' ? 'a test fixture' : 'a hand-run script'} `
+          + `(${t.created_at_site}), so how its schema is created in production is not in this repo`
+        : '';
+      c = { status: 'unclassified',
+        reason: `${t.table} lives in a separate database (table-in-another-database), not the app DB, so `
+          + `app-DB reachability and LOCAL app-DB row counts do not apply and its presence is not verifiable here`
+          + outside };
+    } else if (PHANTOM_BUCKETS.has(t.created_by) && prodReaders.length > 0) {
       const where = t.created_by === 'test_only' ? 'a test fixture' : 'a hand-run script';
       c = { status: 'referenced_but_never_created',
-        evidence: `wiring-map: no migration creates ${t.table}; its only CREATE TABLE is ${where} `
-          + `(${t.created_at_site}), so it is absent in any database where that never ran. Read by `
+        evidence: `wiring-map: no migration creates app-DB table ${t.table}; its only CREATE TABLE is ${where} `
+          + `(${t.created_at_site}), so it is absent in any app database where that never ran, production included. Read by `
           + `${prodReaders.length} product site${prodReaders.length === 1 ? '' : 's'} `
           + `(e.g. ${prodReaders.slice(0, 3).join(', ')}), which read it as if it existed.` };
     } else if (!reaches) {

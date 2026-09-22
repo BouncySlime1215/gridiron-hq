@@ -78,6 +78,16 @@
       "note": "contrast counterparty-pricing.js:813-900, same bare catch but reports itself unavailable with a reason — see that row's note."
     },
     {
+      "id": "table:messages",
+      "kind": "table",
+      "name": "messages",
+      "path": "scripts/chat/extract_league_chat.py:120",
+      "status": "unclassified",
+      "reason": "present when pulled; created by an off-server Python script (scripts/chat/extract_league_chat.py:120) into a separate chat-corpus SQLite file (chatDbPath()), not by a migration and not in the app DB. Six production readers reach it through chatDbPath()/a chat handle, never db/index.js. The wiring map cannot see the creator (.py is out of scan scope), so its own scan correctly finds no CREATE in server/migrations and would misread it as phantom. freshness() treats its absence as a reported state, not a silent empty — so it is neither dead nor broken. Confirmed by the chat sync thread, 654ff93.",
+      "owner_thread": "chat-sync",
+      "note": "not referenced_but_never_created: that status is for app-DB tables no migration creates. messages is a foreign-DB table whose absence is reported, not silent."
+    },
+    {
       "id": "model:counterparty-pricing",
       "kind": "model",
       "name": "counterparty-pricing.js",

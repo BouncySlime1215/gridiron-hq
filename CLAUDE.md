@@ -100,10 +100,13 @@ talking to Nick first.
   on `main` — its one and only run, 2026-09-13, was cancelled at the
   20-minute mark. PR #7 brought the runtime to ~7-9 minutes, demonstrated on
   PR branches; main has not been pushed since, so there is still no
-  completed run on main. A coverage floor and a new E2E tier would spend the
-  headroom #7 measured. Revisit once there is margin to spare on main itself,
-  and raise the timeout deliberately rather than rediscovering it at twenty
-  minutes.
+  completed run on main. The workflow (id `357164314`) is also currently
+  `disabled_manually` — 351 runs total, none since 2026-09-20T01:03Z — so no
+  open PR gets a CI signal right now and `npm run check`, run locally, is the
+  whole gate. A coverage floor and a new E2E tier would spend the headroom
+  #7 measured. Revisit once there is margin to spare on main itself and CI is
+  re-enabled, and raise the timeout deliberately rather than rediscovering it
+  at twenty minutes.
 - **"NEVER mutate, always spread."** Written for a React/TypeScript codebase.
   This is Node, Express and SQLite, and the rule would flag ordinary correct
   code on nearly every file.

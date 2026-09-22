@@ -9,6 +9,7 @@ import OffseasonPanel from '../components/OffseasonPanel';
 import TeamSchedule from '../components/TeamSchedule';
 import SidePanel from '../components/SidePanel';
 import { EmptyState, PageError, PageLoading } from '../components/PageState';
+import DepthChartPanel from '../components/DepthChartPanel';
 
 type Phase = 'offense' | 'defense' | 'special_teams' | 'schedule' | 'offseason';
 
@@ -156,6 +157,11 @@ export default function TeamDetail() {
           onUnitClick={u => setUnit(u === unit ? null : u)}
           selectedUnit={unit}
         />
+
+        {/* The diagram above is drawn from the ESPN roster's own depth_slot ordering.
+            This panel is the three-source chart, which says which listing it came from
+            and when — the diagram cannot, because it has only ever had one source. */}
+        <DepthChartPanel abbr={team.abbr} />
 
         <div className="flex items-center gap-4 mt-2 mb-1 text-[11px] text-slate-500 flex-wrap">
           <span className="flex items-center gap-1.5">

@@ -254,6 +254,22 @@ Paired bootstrap **clustered by player** (`backtest-significance.js#pairedBootst
 2,000 iterations, seed `20260922`, 90% interval, house argument order
 (`(arm, baseline)`, so positive favours the arm).
 
+**How the numbers are quoted, fixed here so it cannot drift afterwards.**
+`pairedBootstrapDiff` returns `mean_diff` (`:114`), which is **the mean of the
+resampled differences**; it does **not** return the observed full-sample
+difference at all. So:
+
+- **Every point estimate this unit reports is the OBSERVED difference**,
+  computed directly from the two arms' MAEs on the full sample.
+- **`mean_diff` is reported only as the bootstrap mean, labelled as such**, and
+  never substituted for the observed value — including when the two agree to
+  four decimals, which is how the same slip got past the previous unit's
+  write-up and had to be corrected after the fact.
+- The interval is the bootstrap's and is quoted as the bootstrap's.
+
+If `observed_diff` is added to that function, this unit reads it from there
+rather than recomputing, and says so.
+
 ### POWER, DECLARED HERE, BEFORE THE FIRST RUN
 
 The criterion the previous unit missed. Nothing in this subsection may be

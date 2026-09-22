@@ -138,3 +138,17 @@ for (const script of [
       `${script} still calls process.exit directly, which does not flush a pipe`);
   });
 }
+
+/*
+ * The sweep found this: replacing `exitWhenFlushed(await main())` with
+ * `await main(); exitWhenFlushed(0)` SURVIVED. Every test above checks that the
+ * output arrives; none checked that this script still reports how the run went.
+ * Silently exiting 0 on a failed snapshot run is the same class of defect this
+ * whole pair of units is about — a caller told it succeeded when it did not —
+ * and refresh-live-data.mjs:114 branches on exactly that status.
+ */
+test('collect-roster-snapshots passes main()\'s result to the exit, not a literal', () => {
+  const src = readFileSync(path.join(REPO, 'scripts/collect-roster-snapshots.mjs'), 'utf8');
+  assert.match(src, /exitWhenFlushed\(await main\(\)\)/,
+    'the exit code no longer comes from main(): a failed run would report success');
+});

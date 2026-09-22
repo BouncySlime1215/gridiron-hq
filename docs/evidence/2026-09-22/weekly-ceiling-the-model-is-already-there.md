@@ -9,14 +9,11 @@
 > Revision history at the end. Do not quote the old figure; it has been cited
 > elsewhere and those citations need correcting.
 >
-> **The exact replacement figure is UNDER ADJUDICATION.** Two auditable
-> derivations are on the table and they differ in the denominator, not in the
-> conclusion: this document's (ceiling 0.3854-0.4012, model at **79-83%**) and
-> the audit's (ceiling 0.4548, model at **70.1%**). §2 sets out why the 0.4548
-> is the R² of an overfit predictor and should not be the denominator. **Until
-> that is ruled on, quote the range "between 70% and 80%" and note that the
-> headroom is large either way** — +0.067 to +0.136 R², against the +0.0037
-> v1 claimed. Nothing downstream turns on which end is right.
+> **Adjudicated 2026-09-22 and settled: cite ceiling 0.3854, model at 82.7%,
+> headroom +0.0668 R².** A competing derivation used the raw 0.4548 as the
+> denominator and put the model at 70.1%; the audit accepted this document's
+> derivation after the bias term reconciled to four decimals (§2.1), and noted
+> that its own check had passed only because two errors cancelled.
 
 Measured 2026-09-22, after four features from Nick's deep predictive set were
 tested and all four declined. This document asks how much room those features
@@ -71,9 +68,26 @@ independent ways:
 | *(raw `SSB/SST`, biased up — for reference only)* | *0.4548* | *70.1%* | *+0.1362 R²* |
 
 The two unbiased estimates agree to within 0.016 and they bracket the answer.
-**The honest headline is that the model sits at roughly 80% of the ceiling for
-player-level information, with about +0.07 R² still on the table.** The first
+**The figure to cite is the ANOVA one: the model sits at 82.7% of the ceiling
+for player-level information, with +0.0668 R² still on the table.** The first
 version claimed +0.0037.
+
+### 2.1 The reconciliation that settled it
+
+The raw share is not merely "biased up" as a matter of principle — **its exact
+value is predicted by the variance components**, which is what closed the
+question:
+
+```
+E[SSB/SST] = (G-1)(σ²w + n₀·σ²b) / (N · var_total)
+           = 2803 × (37.1200 + 8.8445 × 23.2744) / (24801 × 60.3836)
+           = 0.454766
+```
+
+against the **0.4548** actually measured. The raw share is therefore fully
+accounted for as the unbiased ceiling *plus the known inflation term*, to four
+decimal places. There is nothing left in it for the ceiling to be, and 0.3854 is
+the number the 0.4548 decomposes into.
 
 On the error scale: the true-level RMSE floor is `√σ²w = 6.0926` against the
 model's 6.4146, so **+0.3220 RMSE** of headroom. MAE has no exact variance
@@ -199,7 +213,10 @@ and a headroom figure nobody had checked is exactly that.**
 - **v1, 2026-09-22.** Published "the model captures 98.9% of the oracle's R²;
   headroom +0.0037 R² and +0.0895 MAE", and recommended dropping the
   player-descriptive feature class on the strength of it.
-- **v2, 2026-09-22, this version.** Headline withdrawn. The oracle was a noisy
+- **v2, 2026-09-22, this version.** Headline withdrawn. Adjudicated the same
+  day: the audit accepted this derivation over a competing one that kept the
+  raw 0.4548 as denominator, on the strength of the §2.1 reconciliation, and
+  recorded that its own check had passed because two errors cancelled. The oracle was a noisy
   estimate of a ceiling rather than a ceiling, and the 0.4548 offered as the
   variance ceiling was the R² of an overfit in-sample predictor. Corrected
   headroom ~+0.067 R², model at ~80%. The four feature declines stand on their
@@ -218,10 +235,12 @@ argument that leaned on "there is no room left in player-level features".
 - **Stats or made up?** Stats. 24,801 out-of-sample predictions, variance
   components measured two ways that agree to 0.016, every v1 figure reproduced
   before anything was changed.
-- **How do we know?** Because the correction is checkable three ways: the
-  overfit predictor's R² equals the raw between share exactly, the two unbiased
-  estimators bracket each other, and inverting the oracle with the biased figure
-  returns 5.11 weeks where the data has 8.84.
+- **How do we know?** Because the correction is checkable four ways: the overfit
+  predictor's R² equals the raw between share exactly, the two unbiased
+  estimators bracket each other, inverting the oracle with the biased figure
+  returns 5.11 weeks where the data has 8.84, and the bias term predicts the
+  raw share to four decimals (§2.1). The last of those is what the audit
+  accepted.
 - **Pointed anywhere else on the platform?** Recommendation 2 is, and stands —
   an interval on every projection surface, spec'd at
   `docs/spec/projection-range.md`. Recommendation 1 is suspended pending

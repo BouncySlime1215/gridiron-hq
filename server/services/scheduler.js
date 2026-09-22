@@ -1565,10 +1565,10 @@ export const JOBS = {
   ffopportunity: { run: refreshFfOpportunity, maxAgeMinutes: 3 * 24 * 60, tier: 'growth', offThread: true,
     label: 'ffopportunity weekly expected-fantasy-points benchmark' },
   // Weekly (B-17 maps it to a day of the NFL week). Worker thread: three season
-  // replays; timeoutMs sized from the measured run in
-  // docs/tdd/2026-09-22-start-sit-baseline-gate.tdd.md.
+  // replays. Measured 52.7 s wall, 330 MB peak, on a local copy under load average
+  // ~23 (docs/tdd/2026-09-22-start-sit-baseline-gate.tdd.md); the budget is ~11x that.
   start_sit_gate: { run: refreshStartSitGate, maxAgeMinutes: 7 * 24 * 60, tier: 'growth', offThread: true,
-    timeoutMs: 30 * 60_000,
+    timeoutMs: 10 * 60_000,
     label: 'Start/sit gate: our projection vs "start the higher season average" (plan item C12)' }
 };
 

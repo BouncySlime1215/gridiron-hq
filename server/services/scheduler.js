@@ -3,8 +3,10 @@
  *
  * Until now nothing in this project refreshed on its own — every sync happened
  * because someone ran a script. That is fine for a backfill and useless for a
- * board meant to show tonight's games, which is how the MLB page ended up
- * sixteen days stale without failing.
+ * board meant to show tonight's games, which is how a page in this app once
+ * ended up sixteen days stale without ever failing. (That page was the MLB
+ * board; MLB was removed from the product on 2026-09-22. The failure mode it
+ * demonstrated is why this file exists, so the history stays.)
  *
  * Two mechanisms, deliberately different:
  *
@@ -14,8 +16,8 @@
  *    first timer tick.
  *
  * The second matters more for a local app that is not always running. Both are
- * cheap: the MLB schedule is one request for a whole season, and refreshes are
- * skipped entirely when the data is already fresh.
+ * cheap, because a refresh is skipped entirely when the data is already
+ * fresh.
  */
 import { Worker } from 'node:worker_threads';
 import { db, rows, run, row } from '../db/index.js';
@@ -268,39 +270,6 @@ export function minutesSince(job) {
 /* -------------------------------------------------------------------- jobs */
 
 /**
- * The MLB schedule for the current season, which now includes games that have
- * not been played yet. One request, so this is cheap enough to run often.
- */
-async function refreshMlbSchedule() {
-  const { syncSeasonSchedule } = await import('./mlb.js');
-  const season = new Date().getFullYear();
-  return syncSeasonSchedule(season);
-}
-
-/**
- * Player game logs — roughly 1,500 requests, so this runs far less often and
- * only matters once games have finished.
- */
-async function refreshMlbLogs() {
-  const { syncPitcherGameLogs, syncBatterGameLogs } = await import('./mlb.js');
-  const season = new Date().getFullYear();
-  const p = await syncPitcherGameLogs(season);
-  const b = await syncBatterGameLogs(season);
-  return { pitchers: p.games, batters: b.games };
-}
-
-/**
- * Settle the last completed slate cheaply. This is deliberately separate from
- * season-wide player-log ingestion: fifteen boxscore requests beat thousands
- * of player requests and make a missing result stay Pending, never falsely Void.
- */
-async function refreshMlbBoxscores() {
-  const { syncFinalBoxscores } = await import('./mlb.js');
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  return syncFinalBoxscores(yesterday);
-}
-
-/**
  * Player roster/team assignments. This was the actual cause of players
  * showing up on the wrong team — not a sync bug, a MISSING sync: this
  * function was correct and already existed, but only ran when someone
@@ -340,7 +309,29 @@ async function refreshEspnRosters() {
  * payload underneath it just never refreshed itself). Same missing-schedule
  * class of bug as every other "silently stopped updating" fix this session.
  */
-async function refreshLeagueRosters() {
+/**
+ * Exported, and the export is the point.
+ *
+ * test/league-roster-schedule.test.js stubs `globalThis.fetch` on the main
+ * thread and asserts real rows: that a renamed league's payload refreshes, and
+ * that one league's 500 does not stop the next league syncing. Driven through
+ * `runIfStale`, those assertions hold only while this job runs INLINE -- a
+ * worker has its own globals and its own connection, so the stub never reaches
+ * it and both tests go red the moment the job moves off the request thread.
+ *
+ * That made a genuinely useful pair of tests into a reason not to fix
+ * anything, which is backwards. Exporting the body lets them call it directly,
+ * so they assert the behaviour rather than the thread it happens on, and a
+ * separate assertion keeps the thing the first test was really named for --
+ * that this is wired to the scheduler at all, which is the regression it was
+ * written for (a real trade never reached Trade Lab because nothing re-fetched
+ * leagues.payload).
+ *
+ * Same move as #45's ffOpportunitySeasons, and for the same reason: an
+ * off-thread job cannot be reached from the main thread's test process, so
+ * test the work directly and test the wiring separately.
+ */
+export async function refreshLeagueRosters() {
   const skipEspn = liveDraftActive();
   const { syncEspnLeague, syncSleeperLeague } = await import('../routes/leagues.js');
   const leagues = rows('SELECT * FROM leagues');
@@ -386,8 +377,8 @@ async function refreshNflLines() {
 }
 
 /**
- * Settle forward picks shortly after each game goes final, the same "settle
- * the last completed slate cheaply" pattern as refreshMlbBoxscores above.
+ * Settle forward picks shortly after each game goes final: settle the last
+ * completed slate cheaply rather than re-ingesting a season to find it.
  * Until now settleForwardPicks() was manual-only (a POST route), which meant
  * a real CLV-grading window between a game going final and someone thinking
  * to click the button — during which forward-ledger's read of
@@ -398,30 +389,6 @@ async function refreshNflLines() {
 async function refreshForwardSettlement() {
   const { settleForwardPicks } = await import('./forward-ledger.js');
   return settleForwardPicks();
-}
-
-/**
- * Confirmed starting pitchers for the next few days. This is what makes the
- * strikeout picks mean anything — without it, the board ranked a team's whole
- * rotation by talent and picked the ace regardless of whether he was actually
- * pitching that day, which is why those picks could never settle.
- */
-async function refreshMlbProbables() {
-  const { syncProbableStarters } = await import('./mlb.js');
-  return syncProbableStarters(5);
-}
-
-/**
- * Locks in tomorrow's five picks as soon as there is enough to work with,
- * rather than waiting for someone to open the page after midnight. Cheap to
- * run often — ensurePicksFor is idempotent, so an already-locked slate just
- * returns immediately.
- */
-async function prepareTomorrowPicks() {
-  const { ensurePicksFor } = await import('./mlb-auto-picks.js');
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  const picks = ensurePicksFor(tomorrow);
-  return { date: tomorrow, picks: picks.length };
 }
 
 /**
@@ -569,7 +536,7 @@ async function refreshReports() {
 
 /**
  * Multi-horizon, pre-event evidence captures. This stays light: it only runs
- * windows that are due and groups requests by NFL week / MLB slate date.
+ * windows that are due and groups requests by NFL week.
  */
 async function runEvidenceDaemon() {
   const { runEvidenceDaemon: capture } = await import('./evidence-daemon.js');
@@ -1209,12 +1176,7 @@ async function refreshSleeperPlayers() {
 }
 
 export const JOBS = {
-  mlb_schedule: { run: refreshMlbSchedule, maxAgeMinutes: 60, tier: 'live', label: 'MLB schedule and results' },
-  mlb_logs: { run: refreshMlbLogs, maxAgeMinutes: 6 * 60, tier: 'heavy', label: 'MLB player game logs' },
-  mlb_boxscores: { run: refreshMlbBoxscores, maxAgeMinutes: 30, tier: 'live', label: 'MLB final boxscore settlement' },
-  mlb_probables: { run: refreshMlbProbables, maxAgeMinutes: 90, tier: 'live', label: 'MLB probable starters' },
-  mlb_tomorrow_picks: { run: prepareTomorrowPicks, maxAgeMinutes: 90, tier: 'heavy', label: "Tomorrow's MLB picks" },
-  player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live',
+  player_rosters: { run: refreshPlayerRosters, maxAgeMinutes: 3 * 60, tier: 'live', offThread: true,
     label: 'Player team assignments — the actual fix for stale roster spots' },
   /*
    * THE FANTASY INGESTION CHAIN.
@@ -1249,18 +1211,32 @@ export const JOBS = {
   nflverse_snap_counts: {
     run: refreshNflverseSnapCounts, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
     label: 'nflverse snap counts for the current season' },
+  // The four daily-or-slower fantasy ingests below, and nfl_coaches and
+  // nfl_offseason_depth_injury further down, all run off-thread. Each one
+  // fetches a feed, parses it, and writes rows; the parse is the part that
+  // blocks, and every one of them persists to SQLite rather than to memory,
+  // which is what makes a worker equivalent to running inline. Audited
+  // against the criterion in docs/tdd/growth-jobs-off-thread.tdd.md rather
+  // than assumed from the tier.
+  //
+  // Worth being clear about the cost: each run spawns a worker that imports
+  // this file's whole module graph, which is real and is why this was not
+  // applied to every growth job. At a 12-hour cadence it is nothing against
+  // the seconds of request-thread time it buys back. The 20-minute
+  // trade_asset_universe_warm is the opposite trade and cannot move at all --
+  // see MAIN_THREAD_ONLY.
   espn_depth_chart: {
-    run: refreshEspnDepthChart, maxAgeMinutes: 12 * 60, tier: 'growth',
+    run: refreshEspnDepthChart, maxAgeMinutes: 12 * 60, tier: 'growth', offThread: true,
     label: 'ESPN slot-level depth charts (32 teams)' },
   espn_season_stats: {
-    run: refreshEspnSeasonStats, maxAgeMinutes: 24 * 60, tier: 'growth',
+    run: refreshEspnSeasonStats, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'ESPN season projections and prior-year actuals' },
   sleeper_players: {
-    run: refreshSleeperPlayers, maxAgeMinutes: 24 * 60, tier: 'growth',
+    run: refreshSleeperPlayers, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'Sleeper player universe (sleeper_id, overall rank, injury flag)' },
-  espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth',
+  espn_rosters: { run: refreshEspnRosters, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'ESPN per-team roster feed (cuts, signings, practice-squad moves)' },
-  league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live',
+  league_rosters: { run: refreshLeagueRosters, maxAgeMinutes: 60, tier: 'live', offThread: true,
     label: "Each connected league's own roster (trades, waivers, drops) — was manual-only" },
   // Free (ESPN scoreboard). Hourly, so the last stored line before kickoff is a
   // usable closing reference for settlement and so finals land within the hour.
@@ -1442,7 +1418,7 @@ export const JOBS = {
   // Checked every 6h like model_growth, but genuinely decoupled from it — this
   // is what actually runs during the offseason, when model_growth's own
   // "newly finalized week" gate is never true for months at a time.
-  nfl_offseason_depth_injury: { run: refreshNflOffseasonDepthInjury, maxAgeMinutes: 6 * 60, tier: 'growth',
+  nfl_offseason_depth_injury: { run: refreshNflOffseasonDepthInjury, maxAgeMinutes: 6 * 60, tier: 'growth', offThread: true,
     label: 'Depth chart / injury refresh on a calendar-aware cadence, independent of game finalization' },
   nfl_decision_ledger: { run: refreshNflDecisionLedger, maxAgeMinutes: 3 * 60, tier: 'growth',
     label: 'NFL current-week decision ledger, pregame snapshots, and expert council freeze (zero units)' },
@@ -1530,11 +1506,11 @@ export const JOBS = {
     label: 'NFL prop market capture (CLV evidence)' },
   nfl_prop_clv_free: { run: refreshFreePropClv, maxAgeMinutes: 60, tier: 'live',
     label: 'Free prop quotes matched to the model and devigged into CLV evidence' },
-  rss_news: { run: refreshRssNews, maxAgeMinutes: 15, tier: 'live',
+  rss_news: { run: refreshRssNews, maxAgeMinutes: 15, tier: 'live', offThread: true,
     label: 'Publisher RSS news, normalized and typed' },
-  espn_news: { run: refreshEspnNews, maxAgeMinutes: 30, tier: 'live',
+  espn_news: { run: refreshEspnNews, maxAgeMinutes: 30, tier: 'live', offThread: true,
     label: 'ESPN league and rotating team news feeds (free)' },
-  nfl_news_signals: { run: refreshNflNewsSignals, maxAgeMinutes: 60, tier: 'live',
+  nfl_news_signals: { run: refreshNflNewsSignals, maxAgeMinutes: 60, tier: 'live', offThread: true,
     label: 'Typed NFL news, injury and role signals' },
   /*
    * The evaluation loop. Proposes and reports; cannot promote. Daily is the
@@ -1559,9 +1535,9 @@ export const JOBS = {
     label: 'Post-approval decay watch: do shipped findings still hold on fresh data? (report only)' },
   twitter_insiders: { run: refreshTwitterInsiders, maxAgeMinutes: 4 * 60, tier: 'metered',
     label: 'NFL insider tweets — typed injury/role claims (budget-capped, ~$0.003/handle)' },
-  nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60, tier: 'live',
+  nfl_injuries: { run: refreshNflInjuries, maxAgeMinutes: 6 * 60, tier: 'live', offThread: true,
     label: 'Official practice reports (nflverse injuries release)' },
-  nfl_transactions: { run: refreshNflTransactions, maxAgeMinutes: 30, tier: 'live',
+  nfl_transactions: { run: refreshNflTransactions, maxAgeMinutes: 30, tier: 'live', offThread: true,
     label: 'Transaction wire — signings, releases, IR moves (ESPN public API)' },
   nfl_rookie_public: { run: refreshNflRookiePublic, maxAgeMinutes: 7 * 24 * 60, tier: 'heavy',
     label: 'NFL draft and combine rookie evidence (nflverse, key-free)' },
@@ -1569,7 +1545,7 @@ export const JOBS = {
     label: "Incoming rookie class's final college season usage share + PPA (CFBD, key-gated)" },
   team_analyses: { run: refreshTeamAnalyses, maxAgeMinutes: 4 * 60, tier: 'heavy',
     label: "X's & O's writeups — self-limited to teams with news newer than their analysis" },
-  nfl_coaches: { run: refreshCoaches, maxAgeMinutes: 24 * 60, tier: 'growth',
+  nfl_coaches: { run: refreshCoaches, maxAgeMinutes: 24 * 60, tier: 'growth', offThread: true,
     label: 'Per-team-season head-coach history (nflverse/nfldata games.csv)' },
   // offThread: each completed season's CSV is ~5.4 MB, and this pulled four of
   // them every three days — see refreshFfOpportunity for why it no longer does.
@@ -1608,7 +1584,17 @@ const DEFAULT_JOB_TIMEOUT_MS = 120_000;
  */
 
 /**
- * Boot-path jobs that must NOT be moved into a worker, with the reason.
+ * Jobs that must NOT be moved into a worker, with the reason.
+ *
+ * It said "boot-path jobs" and it was consulted only by `bootOffThread`. The
+ * three entries below all happen to be `live`-tier with no `offThread` flag,
+ * so nothing ever reached them by another route and the list looked like it
+ * held. It held by coincidence. Flag one of them `offThread: true`, or move
+ * one to the heavy tier, and the timer path would have sent it to a worker
+ * with the allow-list sitting right there saying it must not go -- the same
+ * shape #63 fixed for the background tier, where a fix held only until the
+ * next tick. `resolveOffThread` now consults this map on EVERY path, so the
+ * list is the answer rather than a note about one of the paths.
  *
  * A worker gets a fresh module graph, so it can only lose cached state, never
  * corrupt it -- losing a memo means redoing a query. The exception is state
@@ -1631,10 +1617,103 @@ const DEFAULT_JOB_TIMEOUT_MS = 120_000;
  * logic rather than to scheduling, and because a fix that quietly changed
  * which quotes get written would be the worse outcome of the two.
  */
+/**
+ * Jobs deliberately left on the request thread, with the reason each one is
+ * still there.
+ *
+ * Not a second allow-list. MAIN_THREAD_ONLY names jobs that MUST NOT go into a
+ * worker; this names jobs that simply have not, and the difference is the
+ * whole point of keeping them apart. An entry here is an admission, and it is
+ * meant to be read as one.
+ *
+ * It exists because "N jobs on the request thread" was a number nobody could
+ * act on. Which ones, and why each one, is actionable; a count is not. The
+ * test suite now refuses ANY job -- live, growth or metered -- that is neither
+ * off-thread, nor named in MAIN_THREAD_ONLY, nor listed here, so a job added
+ * later cannot quietly join the list without someone writing down why.
+ *
+ * The live tier is the reason this covers every tier rather than just the
+ * background one. #59 took the boot pass off the request thread by passing
+ * `bootOffThread(j)` as an override; the live timer calls `runIfStale(j)` with
+ * no override at all, so FOURTEEN jobs went into a worker once at boot and
+ * came straight back onto the request thread ninety seconds later, and every
+ * ninety seconds after that. That is precisely the defect #63 found on the
+ * background tier for `nfl_model_growth`, and fixing that one instance made
+ * the other fourteen harder to see rather than easier. A worker costs a module
+ * graph per RUN, not per tick -- `runIfStale` only runs a job that is actually
+ * stale -- so for a job on a 15-minute cadence or longer the trade is not
+ * close.
+ */
+export const ON_REQUEST_THREAD = new Map([
+  // Betting side. Nick's ruling puts the betting model out of scope, and
+  // scheduling is the only thing about these that may change, so they are
+  // recorded rather than moved. Two have a real blocker on top of that:
+  // sportsgameodds.js:36 `_lastCallAt` and odds-api.js:63 `_lastHold` are
+  // module-level and would reset in every worker. The odds-api credit RESERVE
+  // is database-backed (odds_usage), so only the `last_hold` diagnostic in
+  // reserveStatus() would go blank -- but that diagnostic is what a person
+  // reads to find out why a capture wrote nothing.
+  ['nfl_line_snapshots', 'betting side, out of scope; odds-api.js holds _lastHold in module scope'],
+  ['nfl_sgo_snapshot', 'betting side, out of scope; sportsgameodds.js paces itself with _lastCallAt in module scope'],
+  ['nfl_prop_feeds', 'betting side, out of scope'],
+  ['beat_the_close', 'betting side, out of scope'],
+  ['nfl_prop_capture', 'betting side, out of scope'],
+  ['twitter_insiders', 'betting side, out of scope'],
+  ['nfl_external_ratings', 'betting side, out of scope'],
+  ['nfl_qbr_weather', 'betting side, out of scope'],
+  ['nfl_learned_shadow', 'betting side, out of scope'],
+  ['nfl_decision_ledger', 'betting side, out of scope'],
+  ['decay_watch', 'model-evidence side, out of scope for this thread'],
+  // LIVE TIER. These run inline every 90 seconds' worth of staleness check,
+  // and each is the app answering nothing for as long as it takes. They are
+  // here rather than off-thread because the betting model is out of scope for
+  // this thread. The three MLB feeds were also on this list, excused as "a
+  // different sport this app's fantasy half never reads"; MLB was removed from
+  // the product on 2026-09-22 and they went with it.
+  //
+  // The four on a 3-minute cadence are also where a worker per run stops being
+  // free, and that is worth measuring before moving them rather than assuming
+  // either way.
+  ['polymarket_line_watch', 'betting side, out of scope; 3-minute cadence, worker cost unmeasured'],
+  ['nfl_play_by_play', 'betting side, out of scope; 3-minute cadence, worker cost unmeasured'],
+  ['prediction_markets', 'betting side, out of scope; 3-minute cadence, worker cost unmeasured'],
+  ['polymarket', 'betting side, out of scope; 3-minute cadence, worker cost unmeasured'],
+  ['nfl_pick_watch', 'betting side, out of scope'],
+  ['nfl_t60_runner', 'betting side, out of scope'],
+  ['espn_line_watch', 'betting side, out of scope'],
+  ['nfl_forward_settle', 'betting side, out of scope'],
+  ['nfl_lines', 'betting side, out of scope'],
+  ['nfl_prop_clv_free', 'betting side, out of scope'],
+
+  // Not out of scope -- already solved a different way. refreshManagerSignals
+  // calls refreshManagerSignalsOffThread (:647), which runs the heavy build in
+  // report-worker.js itself. Flagging the job as well would wrap a worker in a
+  // worker. The thin part that stays inline only shapes the result.
+  ['manager_signals', 'computes in its own worker already via refreshManagerSignalsOffThread'],
+]);
+
 export const MAIN_THREAD_ONLY = new Map([
   ['nfl_book_feeds_fast', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs'],
   ['nfl_book_feeds_slow', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs'],
-  ['nfl_book_feeds_extra', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs']
+  ['nfl_book_feeds_extra', 'shares _directBookLastSeen and _providerBackoff with the other two book-feeds jobs'],
+  // The only job in the registry whose PRODUCT is in-process memory.
+  //
+  // refreshTradeAssetUniverse calls assetUniverse() for every league someone
+  // has a membership in, purely so the answer is already in
+  // compute-cache.js's `store` (:24, `const store = new Map()`) when the next
+  // person opens Trade Lab. Nothing is written to SQLite. In a worker it would
+  // do all five or six seconds of work per league, fill that worker's own
+  // Map, post `{ leagues_warmed: 5 }`, and exit -- the job reporting success,
+  // sync_log reading ok, and not one request served any faster. Exactly the
+  // healthy-looking-and-not-working shape this scheduler keeps turning up.
+  //
+  // This is a structural limit, not a flag to get right: a cache that lives in
+  // one process cannot be warmed from another. See
+  // docs/tdd/main-thread-only-holds.tdd.md for what it would take to lift it --
+  // persisting the asset universe the way report-cache.js persists reports to
+  // nfl_cached_reports, which is what lets nfl_reports run off-thread today.
+  ['trade_asset_universe_warm',
+    'warms compute-cache.js\'s in-process store; a worker would warm its own and exit']
 ]);
 
 /**
@@ -1646,8 +1725,23 @@ export const MAIN_THREAD_ONLY = new Map([
  * fails on it the moment it is added.
  */
 export function resolveOffThread(job, override) {
+  // The allow-list outranks both the flag and the override, because it names a
+  // correctness constraint and they express a preference. Matched by identity
+  // against JOBS rather than by a name parameter, so every existing caller --
+  // the tier timer, which passes no override, and the boot pass, which does --
+  // is covered without a signature change and without a caller being able to
+  // forget to pass the name. The suite separately refuses a job that is both
+  // allow-listed and flagged `offThread`, so this branch is a backstop for a
+  // contradiction rather than a way to write one.
+  if (mainThreadOnlyReason(job)) return false;
   if (override != null) return override;
   return job.offThread ?? job.tier === 'heavy';
+}
+
+/** The allow-list's reason for this job object, or null. Identity, not name. */
+export function mainThreadOnlyReason(job) {
+  for (const [name, reason] of MAIN_THREAD_ONLY) if (JOBS[name] === job) return reason;
+  return null;
 }
 
 /** Does this boot-path job run in a worker? The allow-list is the only escape. */
@@ -1662,7 +1756,7 @@ export function bootOffThread(name) { return !MAIN_THREAD_ONLY.has(name); }
  * the watchdog tolerates, and that is what the suite now refuses.
  */
 export const BOOT_JOBS = ['rss_news', 'espn_news', 'nfl_news_signals',
-  'mlb_schedule', 'mlb_probables', 'mlb_boxscores', 'nfl_lines', 'nfl_forward_settle',
+  'nfl_lines', 'nfl_forward_settle',
   'evidence_daemon', 'espn_line_watch', 'nfl_play_by_play',
   'nfl_book_feeds_fast', 'nfl_book_feeds_slow', 'nfl_book_feeds_extra', 'nfl_prop_feeds', 'nfl_prop_clv_free',
   'polymarket_line_watch', 'beat_the_close', 'nfl_pick_watch', 'nfl_t60_runner'];
@@ -1763,7 +1857,7 @@ function runJobOffThread(name, timeoutMs) {
  *   2. the live timer, every 90 seconds
  *   3. the background timer, every `intervalMinutes`
  *   4. `refreshInBackground`, on page loads that need current data
- *   5. `POST /api/mlb/sync/now?job=X` and `/api/nfl-betting/sync`, by hand
+ *   5. `POST /api/nfl-betting/sync`, by hand
  *
  * Nothing coordinated them. The staleness gate cannot, because `record()` runs
  * only AFTER `job.run()` returns: while a job is in flight its last recorded
@@ -1893,13 +1987,13 @@ let inFlight = null;
  *
  * Deliberately fire-and-forget: the request returns immediately with whatever
  * is stored, and the refresh lands in the background for the next load. Blocking
- * a page render on a network sync would make the app feel broken every time the
- * MLB API is slow.
+ * a page render on a network sync would make the app feel broken every time an
+ * upstream feed is slow.
  *
  * Concurrent calls share one in-flight refresh so a page with four components
  * does not trigger four syncs.
  */
-export function refreshInBackground(jobs = ['mlb_schedule']) {
+export function refreshInBackground(jobs = ['nfl_lines']) {
   if (inFlight) return inFlight;
   inFlight = (async () => {
     try { for (const j of jobs) await runIfStale(j); }
@@ -1965,7 +2059,7 @@ export function startScheduler({
   // no worker thread; a slow query blocks the whole HTTP server, not just the
   // caller) was found to be the actual cause of the app going periodically
   // unresponsive for several seconds at a time. None of the fantasy pages
-  // depend on live NFL/MLB odds staying fresh, so the safe move for a night
+  // depend on live odds staying fresh, so the safe move for a night
   // that has to work is to stop paying that cost rather than chase which of
   // a dozen 3-to-5-minute jobs is the one currently holding the lock. Unset
   // (or remove from .env) to resume normal syncing once nothing depends on
@@ -1979,9 +2073,11 @@ export function startScheduler({
     return { disabled: true };
   }
 
-  // Keep launch interactive. MLB player-log ingestion processes thousands of
-  // responses and tomorrow-pick generation runs large simulations; doing either
-  // on the main thread twenty seconds after boot made every API request hang.
+  // Keep launch interactive. A boot job that parses a large feed or runs a
+  // simulation on the main thread twenty seconds after boot makes every API
+  // request hang -- which is what MLB player-log ingestion and tomorrow-pick
+  // generation did before MLB was removed, and what BOOT_JOBS still has to be
+  // read against for anything added to it.
   const bootJobs = BOOT_JOBS;
   setTimeout(() => {
     // `onBootComplete` fires when this pass ends, however it ends. It is what

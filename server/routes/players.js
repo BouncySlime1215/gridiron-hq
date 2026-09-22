@@ -6,6 +6,7 @@ import { statsFor, fetchGameLog } from './stats.js';
 import { callClaude, parseJson, getApiKey } from '../services/claude.js';
 import { weeklyProjectionFor } from '../services/fantasy-coordinator.js';
 import { tradeWeekContext } from '../services/trade-engine.js';
+import { playerAdvancedStats } from '../services/player-advanced-stats.js';
 
 const r = Router();
 
@@ -94,6 +95,24 @@ r.get('/:id', (req, res) => {
     weekly_projection: (() => { try { return weeklyProjectionFor(player.id, tradeWeekContext()); } catch { return null; } })(),
     verdict: verdict ?? null
   });
+});
+
+/**
+ * The advanced-stats block: what is measured, and what cannot be measured here
+ * with the reason for each.
+ *
+ * Its own endpoint rather than a field on `/:id` so the panel can fail on its
+ * own and say so, instead of taking the player page down or — worse — rendering
+ * nothing and reading as "there is nothing to show". A 404 here is a player
+ * that does not exist; an empty block would be a claim nobody made.
+ */
+r.get('/:id/advanced-stats', (req, res, next) => {
+  try {
+    const player = row('SELECT id FROM players WHERE id = ?', req.params.id);
+    if (!player) return res.status(404).json({ error: 'player not found' });
+    const season = Number(req.query.season) || tradeWeekContext().season;
+    res.json(playerAdvancedStats(player.id, { season }));
+  } catch (e) { next(e); }
 });
 
 /** Game-by-game log — proxied live from ESPN. */

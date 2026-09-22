@@ -21,7 +21,7 @@
  * from a name would be reciting received opinion and calling it analysis.
  *
  * What IS measurable is what a staff actually does: pass rate over expected,
- * seconds per drive, no-huddle rate, fourth-down aggression. Those are the
+ * seconds per drive, no-huddle rate, fourth-down conversion. Those are the
  * coaching decisions, observed rather than attributed, and they are exactly what
  * a bettor means by "this coach will throw here". So the coaching section is
  * derived from play-calling and the name is a label on it, not a source.
@@ -139,6 +139,16 @@ export function availabilityPicture(team, season, week, { lookback = 4 } = {}) {
 
   const totalLost = r3(flagged.reduce((s, f) => s + (f.expected_usage_lost ?? 0), 0));
 
+  // Zero flagged players is ambiguous on its own: it means "genuinely healthy"
+  // only if the injury feed has actually been loaded for this team this season.
+  // An empty nfl_injuries table (never synced, or a rig with no injury feed at
+  // all) produces the exact same zero rows as a healthy roster, and without this
+  // check the reading below can't tell them apart — it would call a data outage
+  // "close to healthy on offence" instead of saying it doesn't know.
+  const injuryDataAvailable = (row(
+    `SELECT COUNT(*) c FROM nfl_injuries WHERE team = ? AND season = ?`,
+    team, season)?.c ?? 0) > 0;
+
   return {
     team, season, week,
     injury_report: flagged.slice(0, 8),
@@ -146,14 +156,19 @@ export function availabilityPicture(team, season, week, { lookback = 4 } = {}) {
     // Surfaced rather than assumed. A resolution rate that quietly falls is the
     // shape this bug had, and it raised no error either time.
     id_resolution_rate: gsisOf.rate,
+    // State, not a guess: false means no injury rows exist for this team this
+    // season, so the reading below is a data gap, not a health claim.
+    injury_data_available: injuryDataAvailable,
     // Said in words because a share is abstract and "a fifth of their offence"
     // is not.
-    reading: totalLost >= 0.20
-      ? `About ${Math.round(totalLost * 100)}% of ${team}'s recent touches belong to players who may not play.`
-      : totalLost >= 0.08
-        ? `${team} is carrying a modest injury burden — roughly ${Math.round(totalLost * 100)}% of ` +
-          'recent touches are in doubt.'
-        : `${team} is close to healthy on offence.`,
+    reading: !injuryDataAvailable
+      ? `No injury data on file for ${team} in ${season} — this is a data gap, not a health reading.`
+      : totalLost >= 0.20
+        ? `About ${Math.round(totalLost * 100)}% of ${team}'s recent touches belong to players who may not play.`
+        : totalLost >= 0.08
+          ? `${team} is carrying a modest injury burden — roughly ${Math.round(totalLost * 100)}% of ` +
+            'recent touches are in doubt.'
+          : `${team} is close to healthy on offence.`,
     caveat: 'Play probabilities come from published report-status base rates adjusted by Friday ' +
       'practice, not fitted here — this database has injury designations but no reliable record of ' +
       'who actually dressed, and fitting on that would give a worse number better provenance.'
@@ -192,8 +207,26 @@ export function coachingProfile(team, season, week) {
       inverse: 'runs more than the situation calls for', unit: 'pct' },
     { key: 'off_seconds_per_drive', label: 'plays slowly', inverse: 'plays fast', unit: 'sec', flip: true },
     { key: 'off_no_huddle_rate', label: 'uses no-huddle', inverse: 'huddles up', unit: 'pct' },
-    { key: 'off_fourth_down_rate', label: 'goes for it on fourth down',
-      inverse: 'punts and kicks', unit: 'pct' },
+    // NOT a go-for-it rate, whatever the field name suggests, so this must not be
+    // labelled as aggression. nfl-pbp.js:247 counts EVERY fourth-down play into
+    // `fourth_att` — punts and field goals included — while `fourth_conv` only
+    // rises on a first down, which only a go-for-it attempt produces. :461 then
+    // divides one by the other, so the number is the share of all fourth downs
+    // that ended in a first down: roughly go-for-it rate times conversion rate.
+    // On the 2024 regular season that is 0.1199, against a real go-for-it rate of
+    // 0.1866 — the old label overclaimed by a factor of 1.6, in a sentence about
+    // a coach that Nick reads on the page.
+    //
+    // THE SWAP POINT: when nfl-pbp.js publishes `off_fourth_down_go_rate` (a rate
+    // whose denominator keeps punts and field goals) this becomes that key, and
+    // the aggression wording is then true. It does not exist yet — checked across
+    // every remote branch — so it is not referenced here, because reading a field
+    // that is not published would silently drop the trait instead of saying so.
+    // `off_fourth_down_situations` should arrive with it, and should then gate
+    // this trait on a minimum sample: a one-week figure runs on 1-3 snaps and is
+    // 0.000 or 1.000 often enough that a season mean is noisier than it looks.
+    { key: 'off_fourth_down_rate', label: 'converts fourth downs into first downs',
+      inverse: 'ends its fourth downs without a first down', unit: 'pct' },
     { key: 'off_deep_attempt_rate', label: 'throws deep', inverse: 'keeps it short', unit: 'pct' }
   ];
 

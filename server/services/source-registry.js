@@ -2,8 +2,9 @@
  * Build Order 0.5 — one registry of every ingestion source, not three.
  *
  * Before this, staleness lived in three disconnected places: scheduler.js's
- * JOBS (8 entries, mostly MLB/betting, the only ones with an actual timer and
- * a staleness budget), dev.js's `/status` (five raw MAX(fetched_at) probes,
+ * JOBS (8 entries at the time, mostly MLB and betting, the only ones with an
+ * actual timer and a staleness budget; MLB was removed from the product on
+ * 2026-09-22), dev.js's `/status` (five raw MAX(fetched_at) probes,
  * no budget, no cadence, no failure semantics), and everything else — nflverse,
  * PBP, NGS/PFR/snaps/depth/injuries, ESPN rosters/news/stats, Sleeper, FFC,
  * FantasyCalc, OverTheCap, Wikipedia's Top 100 — which had no tracking at all.

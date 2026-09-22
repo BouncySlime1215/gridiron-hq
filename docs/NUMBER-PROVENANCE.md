@@ -1,5 +1,51 @@
 # Number provenance and routing audit — 2026-09-18
 
+> **Line numbers in this file are stale as of 2026-09-20; its classifications
+> mostly are not.** It was written against a tree before `791b131` and re-checked
+> on 2026-09-20 (`docs/evidence/2026-09-20/MODEL-AUDIT-2026-09-20.md`). What
+> moved:
+>
+> - **Every `file:line` below has drifted.** Re-resolve by symbol, never by line.
+>   The counterparty row still cites `counterparty-pricing.js:49, :120`; those
+>   constants now live at `:28`, `:30`, `:98`, `:101-105`, `:112`, `:172-187`.
+> - **It predates the valuation map and the archetype study**, and contains zero
+>   occurrences of *valuation*, *priceable*, *archetype* or *repeatability*. Its
+>   "There is no acceptance probability anywhere in live code" is **no longer
+>   true**: `trade-acceptance.js#acceptanceBand` ships and renders at
+>   `ManagerRead.tsx:300`. Nothing here is fitted, which the module says itself.
+> - **Item (c)-9 is closed.** Real playoff odds now reach the trade horizon
+>   (`trade-engine.js:1317-1319` passes `fromWeek: target.week`).
+> - **Item (c)-14 is closed on both halves.** Verified by symbol, not taken on
+>   report: `counterpartyDataKey` is defined at `counterparty-pricing.js:917`
+>   (not `:207`) and is called at `trade-engine.js:1447`; `negotiationProfilesFor`
+>   is at `:1042` with two callers, `counterparty-pricing.js:147` and `:858`.
+>   Marked closed inline at item 14 as well.
+> - **The counterparty half now has a document of its own**, and it supersedes
+>   this file's single table row for that area:
+>   `docs/evidence/2026-09-20/trade-brain-signal-provenance.md`, written by the
+>   thread that owns those files. It is **on `claude/project-thread-3xqh5l-trade-brain-provenance`,
+>   not on `main`**, so a fresh clone will not have it. Two of its claims were
+>   re-verified here by symbol: all eight valuation sources carry `fitted: false`
+>   in the data rather than in a comment, and the one source tested against
+>   history — draft behaviour, twelve league-seasons — **failed and is disabled in
+>   code**, `priceable: false` at `manager-signals.js:72-75` with the reason in
+>   the declaration, joined onto every served row by `signalOf`
+>   (`routes/trades.js:445-453`) and written into the row's own `why` string as
+>   "context only, never priced". Its further claim that the counterparty layer
+>   adds nothing detectable over the plain value number is **theirs and is not
+>   re-checked here.** Read that document before re-deriving anything about
+>   counterparty pricing.
+> - **Re-verified at `791b131` and still holding:** (c)-1 (the season sim's
+>   through-2025 basis, `fromWeek` defaulting to 1, rookies dropped, the pinned
+>   15-17 bracket), (c)-2 (the coordinator on the wrong base — now measured), (c)-6
+>   (three definitions of the current week), (c)-7 (three needs/surplus cuts), and
+>   the trade half of (c)-10 (`ros_ppg` carries no availability term,
+>   `trade-engine.js:365-367`). The other items in (c) were **not** re-checked
+>   here; treat them as 2026-09-18 findings until someone re-resolves them.
+>
+> The 2026-09-20 audit adds the measurement this file could not make: the
+> opportunity number graded against the player's own season-to-date average.
+
 Read-only audit of every future-facing number Nick sees: where it is computed, every constant on its path classified FV (fitted + validated on a held-out season) / F (fitted, not validated) / B (borrowed) / H (hand-set) / D (definitional), and every place the same number is computed differently. Rule it serves: section 00 part A2 (rule 3) of FANTASY-ENGINE-MASTER-PLAN.md. Every item below is mapped to a step in section 00 part E3.
 
 I've finished the audit. The short answer is that most of what you see for the future isn't fully historical yet. Only a couple of numbers are fitted and checked on past seasons end to end. Several validated models sit behind hand-set wrappers, and the title odds run on a different set of projections from every other page.
@@ -129,7 +175,7 @@ Classes: **FV** = fitted and checked on a held-out season · **F** = fitted, not
 11. **Fits on stale or different bases.** The spread scale was fit before the lift and before the new chance to play (lineup-posture.js:221-223). The swap sigma was fit on the unadjusted ensemble for weeks 5–17.
 12. **Wrong horizons are shown and sent to Claude.** "Over the season" = × 17 (trade-engine.js:1007; TradeCard.tsx:108). The Target-a-player total = × (18 − week) (trade-engine.js:330; TradeLab.tsx:870). Both go into the sense-check prompt (trades.js:720, :741).
 13. **`offerFor` / `offerForMany`** skip the counterparty read and the horizon weighting that `findTrades` uses (trade-engine.js:1551-1788).
-14. **The `findTrades` cache ignores chat and counterparty inputs** (trade-engine.js:1213-1220). The fix already exists as `counterpartyDataKey` (counterparty-pricing.js:207), but nothing calls it. `negotiationProfilesFor` also has no caller.
+14. ~~**The `findTrades` cache ignores chat and counterparty inputs** (trade-engine.js:1213-1220). The fix already exists as `counterpartyDataKey` (counterparty-pricing.js:207), but nothing calls it. `negotiationProfilesFor` also has no caller.~~ **[Closed on both halves, verified at `791b131` on 2026-09-20.]** `counterpartyDataKey` now lives at `counterparty-pricing.js:917` and is called at `trade-engine.js:1447`; `negotiationProfilesFor` is at `:1042` with two callers, `:147` and `:858`.
 15. **Retired schedule and DvP signals still surface:** as a Start/Sit reason (player-case.js:102), as SOS on the Target panel (TradeLab.tsx:874), and in the LLM prompts (players.js:137, 182; edge.js:304-321).
 16. **Two doors into the same weights.** The ensemble table can now be written by the in-season auto-promotion (weekly-learning.js:220-323, on the loop since `cf6ae18`) as well as the promote scripts. The coordinator refits daily with no gate. A second win-now/playoff split (waiver-brain.js:59) lives in orphaned code.
 17. **The News page projection** uses the engine number without the coordinator or the lift (news-fantasy-impact.js:86-97), so its "baseline" differs from Start/Sit for the same player and week.

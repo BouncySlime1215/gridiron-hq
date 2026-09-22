@@ -28,6 +28,20 @@
  * therefore be wrong for both: it would understate the touchdown swing and
  * overstate the yardage one. They are fitted separately here.
  */
+/**
+ * NAMES: every export here is prefixed `market…` on purpose, since 2026-09-20.
+ *
+ * This module used to export `fitGameScript`, `gameScriptFor` and
+ * `clearGameScriptCache` — the same three names `server/services/gamescript.js`
+ * exports — and `gameScriptFor` took `(season, week, team, opts)` here against
+ * `(team, season, week)` there. The first two arguments are swapped. `routes/model.js`
+ * imported from both files at once, so autocompleting the name in that file picked a
+ * module at random and the wrong pick returns a plausible answer for the wrong team,
+ * with no error. The wiring map's `same-name-two-modules` rule was written off this
+ * pair and found it again independently.
+ *
+ * `gamescript.js` keeps the unprefixed names: it is the one with live callers.
+ */
 import { rows, row } from '../db/index.js';
 
 const r4 = v => (v == null || !Number.isFinite(v) ? null : +v.toFixed(4));
@@ -55,7 +69,7 @@ let _fitCache = null;
  * Cutoff-safe by construction when `throughSeason` is set: the caller decides
  * what history is allowed, and nothing here reaches past it.
  */
-export function fitGameScript({ fromSeason = 2022, throughSeason = null } = {}) {
+export function fitMarketGameScript({ fromSeason = 2022, throughSeason = null } = {}) {
   const key = `${fromSeason}|${throughSeason ?? 'all'}`;
   if (_fitCache?.key === key) return _fitCache.value;
 
@@ -111,7 +125,7 @@ export function fitGameScript({ fromSeason = 2022, throughSeason = null } = {}) 
   _fitCache = { key, value };
   return value;
 }
-export function clearGameScriptCache() { _fitCache = null; }
+export function clearMarketGameScriptCache() { _fitCache = null; }
 
 /**
  * Multipliers for one team in one week, from the market's own numbers.
@@ -121,8 +135,8 @@ export function clearGameScriptCache() { _fitCache = null; }
  * thin, so a team implied for 35 should not receive an extrapolated multiplier
  * nobody has evidence for.
  */
-export function gameScriptFor(season, week, team, { fitOpts = {} } = {}) {
-  const f = fitGameScript(fitOpts);
+export function marketGameScriptFor(season, week, team, { fitOpts = {} } = {}) {
+  const f = fitMarketGameScript(fitOpts);
   if (f.error) return { error: f.error };
 
   const line = row(
@@ -205,7 +219,7 @@ export function slateGameScript({ season, week } = {}) {
     return { error: `no lines stored for ${season} week ${week}`,
       hint: 'Lines are metered; the archive may not cover this week yet.' };
   }
-  const out = teams.map(t => gameScriptFor(season, week, t)).filter(x => x.available);
+  const out = teams.map(t => marketGameScriptFor(season, week, t)).filter(x => x.available);
   return {
     season, week, teams: out.length,
     league_mean_implied: out[0]?.league_mean_implied ?? null,
@@ -233,7 +247,7 @@ export function slateGameScript({ season, week } = {}) {
  * on seasons before the one being tested.
  */
 export function validateGameScript({ testSeason = 2025, fromSeason = 2022 } = {}) {
-  const f = fitGameScript({ fromSeason, throughSeason: testSeason - 1 });
+  const f = fitMarketGameScript({ fromSeason, throughSeason: testSeason - 1 });
   if (f.error) return { error: f.error };
 
   const data = rows(`

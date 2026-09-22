@@ -40,14 +40,14 @@ const { default: propsRouter } = await import('../server/routes/props.js');
 const { default: propsTicketsRouter } = await import('../server/routes/props-tickets.js');
 const { default: decisionInboxRouter } = await import('../server/routes/decision-inbox.js');
 const { default: wongRouter } = await import('../server/routes/wong.js');
-// The six families that were still mounted with no authentication at all
-// (server/index.js) after the thirteen above were closed: model, mlb,
-// nfl-market, nfl-betting, betting-hub and execution-slate. Individual
+// The families that were still mounted with no authentication at all
+// (server/index.js) after the thirteen above were closed: model, nfl-market,
+// nfl-betting, betting-hub and execution-slate -- and mlb, until MLB was
+// removed from the product on 2026-09-22 and its router with it. Individual
 // mutations inside them carried requireModelPermission; every read beside
 // those answered anyone who asked, which is invisible on a Mac bound to
 // loopback and wide open at a public URL.
 const { default: modelRouter } = await import('../server/routes/model.js');
-const { default: mlbRouter } = await import('../server/routes/mlb.js');
 const { default: nflMarketRouter } = await import('../server/routes/nfl-market.js');
 const { default: nflBettingRouter } = await import('../server/routes/nfl-betting.js');
 const { default: bettingHubRouter } = await import('../server/routes/betting-hub.js');
@@ -75,7 +75,6 @@ app.use('/api/props-tickets', ...legacyAuthenticated, propsTicketsRouter);
 app.use('/api/decision-inbox', ...legacyAuthenticated, decisionInboxRouter);
 app.use('/api/betting/wong', ...legacyAuthenticated, wongRouter);
 app.use('/api/model', ...legacyAuthenticated, modelRouter);
-app.use('/api/mlb', ...legacyAuthenticated, mlbRouter);
 app.use('/api/nfl-market', ...legacyAuthenticated, nflMarketRouter);
 app.use('/api/nfl-betting', ...legacyAuthenticated, nflBettingRouter);
 app.use('/api/betting', ...legacyAuthenticated, bettingHubRouter);
@@ -118,9 +117,9 @@ test('the 13 previously-ungated route families now reject anonymous callers', as
   }
 });
 
-test('the six remaining ungated route families now reject anonymous callers', async () => {
+test('the remaining ungated route families now reject anonymous callers', async () => {
   for (const path of ['/api/model/status', '/api/model/state', '/api/model/accuracy',
-    '/api/mlb/status', '/api/nfl-market/evidence/status', '/api/nfl-betting/live',
+    '/api/nfl-market/evidence/status', '/api/nfl-betting/live',
     '/api/betting/summary', '/api/betting/execution/board', '/api/betting/audits',
     '/api/execution-slate/opportunities']) {
     assert.equal((await request(path)).status, 401, path);

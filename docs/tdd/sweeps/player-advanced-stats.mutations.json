@@ -1,0 +1,145 @@
+[
+ {
+  "name": "A1 a zero denominator becomes a rate of zero",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T7 zero denominator, T1 value-xor-reason",
+  "kind": "mutation",
+  "old": "  if (!denominator) return absent(key, label, emptyReason, { unit: 'rate', basis });",
+  "new": "  if (!denominator) return measured(key, label, 0, { unit: 'rate', basis });"
+ },
+ {
+  "name": "A2 snap share is offered as route participation",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T4 not under another name",
+  "kind": "mutation",
+  "old": "      absent('route_participation', 'Route participation', UNAVAILABLE.routes, { unit: 'pct' }),",
+  "new": "      measured('route_participation', 'Snap share as route participation', snapShare ?? 0, { unit: 'pct' }),"
+ },
+ {
+  "name": "A3 the unmeasurable stats are dropped from the block",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T2 listed with a reason",
+  "kind": "mutation",
+  "old": "      absent('yards_per_route_run', 'Yards per route run', UNAVAILABLE.routes, { unit: 'yards' }),",
+  "new": ""
+ },
+ {
+  "name": "A4 the routes reason becomes a claim about the player",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T3 a fact about the platform",
+  "kind": "mutation",
+  "old": "  routes: 'No routes-run data exists on this platform. Route counts are not in the '\n    + 'weekly files this page is built from, and the sources that publish them are paid.',",
+  "new": "  routes: 'This player has no routes on file for the season being played.',"
+ },
+ {
+  "name": "A5 a passer's rate uses targets like everyone else's",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T6 the passer denominator",
+  "kind": "mutation",
+  "old": "  const passer = String(position ?? '').toUpperCase() === 'QB';",
+  "new": "  const passer = false;"
+ },
+ {
+  "name": "A6 the denominator stops being named",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T5 basis named, T6 passer basis",
+  "kind": "mutation",
+  "old": "      basis: 'touchdowns per target or carry',",
+  "new": "      basis: null,"
+ },
+ {
+  "name": "A7 a player with no rows is explained by the wrong absence",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T8 the right absence for no usage rows",
+  "kind": "mutation",
+  "old": "  const share = (key, label, value, unit) => value != null\n    ? measured(key, label, value, { unit })\n    : absent(key, label, noUsage ? UNAVAILABLE.noUsage : UNAVAILABLE.notPopulated, { unit });",
+  "new": "  const share = (key, label, value, unit) => value != null\n    ? measured(key, label, value, { unit })\n    : absent(key, label, UNAVAILABLE.notPopulated, { unit });"
+ },
+ {
+  "name": "A8 weeks_measured is invented rather than counted",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T9 weeks_measured",
+  "kind": "mutation",
+  "old": "    weeks_measured: weeks.length,",
+  "new": "    weeks_measured: 1,"
+ },
+ {
+  "name": "A9 the panel renders only the stats that have numbers",
+  "file": "client/src/components/AdvancedStatsPanel.tsx",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T11 absences survive to the page",
+  "kind": "mutation",
+  "old": "          {absent.map(s => (",
+  "new": "          {[].map((s: AdvancedStat) => ("
+ },
+ {
+  "name": "A10 a failed load renders as a player with nothing to show",
+  "file": "client/src/components/AdvancedStatsPanel.tsx",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T12 failed load is not an empty block",
+  "kind": "mutation",
+  "old": "  if (error) {",
+  "new": "  if (false) {"
+ },
+ {
+  "name": "A11 the panel is unmounted from the player page",
+  "file": "client/src/pages/PlayerDetail.tsx",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "T10 mounted and asking the right endpoint",
+  "kind": "mutation",
+  "old": "      <AdvancedStatsPanel playerId={p.id} />",
+  "new": ""
+ },
+ {
+  "name": "C1 control: a comment reworded, nothing behavioural",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "nothing — must SURVIVE",
+  "kind": "control-surviving",
+  "old": "/** The mean of the non-null values, or null when nothing was measured. */",
+  "new": "/** Mean of the values that are present; null when none are. */"
+ },
+ {
+  "name": "C2 control: an anchor that does not exist",
+  "file": "server/services/player-advanced-stats.js",
+  "tests": [
+   "test/player-advanced-stats.test.js"
+  ],
+  "aimed_at": "nothing — must report NOT APPLIED",
+  "kind": "control-not-applied",
+  "old": "const NOT_A_REAL_ANCHOR = 1;",
+  "new": "const NOT_A_REAL_ANCHOR = 2;"
+ }
+]

@@ -518,11 +518,19 @@ export function isWeeklyRoleRecency(rr) {
  * withheld and those callers keep the hand-picked constants they were validated
  * with. They are not claimed to be right, only untested with the fitted k.
  *
- * ceiling-lineup is on that list correctly TODAY (ceiling-lineup.js:62 passes
- * no roleRecency) but is being moved off it: Auditor §R44.2 couples this line
- * to a ceiling-lineup fix putting it on WEEKLY_ROLE_RECENCY, since it feeds the
- * weekly engine, not a season-long view. That half is pending; when it lands,
- * drop ceiling-lineup from the list above.
+ * ceiling-lineup is NO LONGER a season-long caller. It is still named in the
+ * list above only because this comment is describing the shape of the problem,
+ * not the current roster: after the UI thread's #132 it passes a mid-season
+ * throughWeek like the weekly engine does, so treating it as season-long is
+ * wrong (Auditor §R64, and the UI thread names the same line). Read the list
+ * above as the four remaining ones.
+ *
+ * Those four — preseason-model, season-sim, draft-assist, week-postmortem —
+ * have not been checked individually, and being season-long is an assumption
+ * about each rather than a measured fact. ceiling-lineup was on the list for
+ * the same reason and turned out to be wrong. Recorded as a finding, not built:
+ * each one needs its own answer to "what does it actually pass, and is the
+ * weighting it accumulates evidence under the one its k was fitted in".
  */
 export function activeKVectorFor(rr, { predictingSeason } = {}) {
   const v = cutoffSafeKVector(predictingSeason);

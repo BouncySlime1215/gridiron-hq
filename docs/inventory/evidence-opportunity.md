@@ -5,8 +5,21 @@ evidence and never the category. Every row below has a `category:` column left
 empty for the grader. If a category appears here later, it was not put there by
 this thread.
 
-Measured at **`08be6e1`** (pushed; `claude/project-thread-w45mur-wiring-names-hold`).
-Same file at another commit carries different and equally correct numbers.
+Measured at **`08be6e1`**, on branch
+`claude/project-thread-w45mur-wiring-names-hold` (PR #85), which is where the
+three graded files live. Same file at another commit carries different and
+equally correct numbers.
+
+**Where the subject files are, which is not this branch.** This file sits on the
+inventory branch, whose diff against `main` is these two documents and nothing
+else. `server/services/availability-basis.js` **does not exist on `main`** — it
+is new work on #85's branch — and `contingency.js` and `opportunity-model.js`
+are at their #85 state there, not their `main` state. So checking out this
+branch and looking for the cited lines will not find them. Every row is
+reproducible at `08be6e1` on the branch named above, and nowhere else. This was
+separated deliberately so #85's diff matches its own description; the cost is
+that the evidence and its subject now live on two branches, and a reader who is
+not told that will conclude the rows are fabricated.
 
 ## Method, so every row can be re-run
 

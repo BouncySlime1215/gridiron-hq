@@ -364,6 +364,30 @@
    "to": "    refreshed: 'scripts/collect-league-transactions.mjs',"
   },
   {
+   "id": "M31",
+   "what": "the cache key stops hashing the prompt version",
+   "shape": "positive",
+   "file": "server/services/trade-proposals.js",
+   "suites": [
+    "test/trade-proposals.test.js"
+   ],
+   "expect": "red",
+   "from": "    v: PROMPT_VERSION,",
+   "to": "    league_only: true,"
+  },
+  {
+   "id": "M32",
+   "what": "the cache key hashes the version under a different name, so a bump no longer reaches it the same way",
+   "shape": "positive",
+   "file": "server/services/trade-proposals.js",
+   "suites": [
+    "test/trade-proposals.test.js"
+   ],
+   "expect": "red",
+   "from": "  const material = JSON.stringify({\n    v: PROMPT_VERSION,\n    league: String(leagueId),\n    prompt: proposalsPrompt(ideas ?? []),\n  });",
+   "to": "  const material = JSON.stringify({\n    league: String(leagueId),\n    prompt: proposalsPrompt(ideas ?? []),\n    v: PROMPT_VERSION,\n  });"
+  },
+  {
    "id": "CONTROL",
    "what": "a pattern that is not in the file",
    "file": "server/services/counterparty-pricing.js",

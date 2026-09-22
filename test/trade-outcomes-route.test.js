@@ -113,7 +113,11 @@ test.after(() => { server.close(); db.close(); fs.rmSync(temp, { recursive: true
 const get = async url => {
   const res = await fetch(`http://127.0.0.1:${port}${url}`,
     { headers: { authorization: 'Bearer outcome-token' } });
-  return { status: res.status, body: await res.json().catch(() => null) };
+  // Parsed only when the server says it is JSON. An error page is HTML, and a
+  // catch that turned it into null would read as "no body" rather than "not JSON".
+  const text = await res.text();
+  const isJson = (res.headers.get('content-type') ?? '').includes('application/json');
+  return { status: res.status, body: isJson ? JSON.parse(text) : null, text };
 };
 const ledgerRows = leagueId => rows(
   `SELECT idea_id, source, status, proposer_team_id, counterparty_team_id, give_json, get_json,

@@ -1,5 +1,13 @@
 # The three ungraded efficiency constants: what a sweep says, and why it is not yet a verdict
 
+> **CORRECTED 2026-09-22 after audit. Read
+> `efficiency-shrinkage-constants-corrections.md` first.** §4 has been rewritten
+> in place — it had the denominator inverted. §2's winning `k` values were
+> selected and reported on the same rows, so their margins need discounting.
+> §5's `ypt` gain does not replicate out of sample; its `catch_rate` gain does;
+> its `rec_td_rate` null is confirmed and stronger. §3 stands as written. §6's
+> "untested" list is superseded by part 2.
+
 `projections.js:94-125` carries five shrinkage constants. One — `int_rate: 1600`
 — was swept and graded. Three never were:
 
@@ -100,33 +108,74 @@ all. Against the shipped constants:
 At a raw denominator, two of the three shipped constants are shrinking so little
 that the player's own efficiency number is *actively worse than ignoring him*.
 
-## 4. Why that is not yet a verdict — the denominator is not raw
+## 4. Why that is not yet a verdict — it does not measure the shipped estimator
 
-`projections.js:495` is `a.targets += w * (u.targets ?? 0)`. **The `n` handed to
-`shrink()` is a decay-weighted target count, not a raw one** — season-level decay
-plus (optionally) within-season decay, `WEEKLY_ROLE_RECENCY`.
+**Rewritten 2026-09-22 after audit. The first version of this section had the
+denominator backwards and its correction pointing the wrong way. Do not quote
+any earlier copy of it.** Full record:
+`efficiency-shrinkage-constants-corrections.md` §5.
 
-That changes everything about how a literal reads. `shrink` weights the prior by
-`k/(n+k)`, so a **smaller** `n` at the same `k` means **more** shrinkage. The
-shipped code therefore already shrinks harder than this replication does at the
-same nominal `k`, and the correction runs in exactly the direction that would
-close the gap above.
+What the shipped code actually does, read off the file rather than assumed:
 
-Concretely: if the effective denominator is around a third of the raw target
-count, the shipped `catch_rate: 26` behaves like `k ≈ 78` against raw targets —
-which is most of the way to this sweep's optimum of 104. **The sign of the error
-depends entirely on a ratio this container cannot measure**, because measuring it
-needs the populated `player_week_usage` the database here does not have.
+- `RECENCY = { seasonDecay: 0.35, weekHalfLife: null }` (`projections.js:162`).
+- `rowWeight` (`:176-180`) returns the **season weight alone** when
+  `weekHalfLife` is null, which it is.
+- `seasonWeight` (`:169-173`) is `0.35^(through − s)`, so a row from the cutoff
+  season has `back = 0` and enters at **exactly 1.0**.
 
-So the honest statement is narrow and worth having anyway: *the shipped literals
-cannot be judged at face value, the face-value reading says they under-shrink by
-3-4×, and the one test that would settle it is the grader already sitting in
-`scripts/`.* Nobody should edit a constant on the strength of this document.
+So there is **no within-season decay**, and the in-season denominator is a raw
+opportunity count, exactly as `:97-99` says. The file explains why at `:155-161`:
+every within-season decay tried made things worse, and a trailing three-week
+average loses to season-to-date, 4.753 against 4.509.
 
-## 5. The one result that does transfer
+What the comments omit is that **prior seasons are added on top**, at 0.35,
+0.1225 and 0.042875. Season decay only ever *adds* evidence; it discounts older
+seasons relative to the current one and never pushes the current one below 1.0.
+Therefore:
 
-Whether the player's own history helps **at all** is a `k = ∞` comparison, and
-`k = ∞` ignores `n` entirely — so the denominator question cannot touch it.
+> **The shipped `n` is greater than or equal to the raw single-season count this
+> sweep uses — always — with equality only for a player who has no prior season
+> in the log.**
+
+That is the opposite of what the first version of this section argued, and it
+removes the "the shipped code already shrinks harder, so the gap closes" reading
+entirely.
+
+**But the real point is larger than the direction of the ratio, and it is why
+none of this is a verdict.** The two estimators differ in `observed` as well as
+in `n`. `:563` is `a.recYds / a.targets` and `:565` is `a.receptions / a.targets`
+— both numerator and denominator are multi-season season-weighted sums. The
+shipped rate is a **pooled multi-season** rate; this sweep's is a
+**single-season-to-date** rate. A larger `n` is *correct* when `observed` rests
+on more data; that is what `n` means, and the shipped estimator is internally
+coherent on its own terms.
+
+**So `k` does not transport between them in either direction, and neither does
+any ratio correction.** Specifically, refuse this step, however tempting:
+*"shipped k behaves like k/ρ, so `catch_rate` 26 at ρ = 2 acts like 13 against
+an optimum of 104, so the under-shrink is twice as bad as reported."* It is
+wrong. It corrects `n` while leaving `observed` uncorrected, and the two moved
+together.
+
+The honest statement, narrower than the first version's and better supported:
+*this sweep grades a raw single-season shrinkage estimator. The shipped code is
+a different estimator. The sweep's optima say nothing about the shipped
+literals in either direction, and the one test that would is the grader already
+sitting in `scripts/`.* Nobody should edit a constant on the strength of this
+document — which was the first version's conclusion, and survives its own
+correction.
+
+## 5. Does the player's own season-to-date rate help at all?
+
+**Heading corrected 2026-09-22.** This section originally claimed the result
+"transfers" to the shipped code because `k = ∞` ignores `n`. Half of that is
+right: the prior-only arm does ignore `n`. But the arm it is compared against
+does not, and more to the point the shipped estimator's `observed` is pooled
+across seasons while this one is season-to-date (§4). **This is a result about
+a single-season shrinkage estimator, which is a real question, not about the
+shipped one.** The figures below are also selected-and-reported on the same
+rows; see the corrections document §2 for the out-of-sample re-test, which
+keeps `catch_rate`, drops `ypt`, and strengthens the `rec_td_rate` null.
 
 | metric | prior-only MSE | best-k MSE | gain | 95% CI | |
 |---|---|---|---|---|---|
@@ -154,24 +203,34 @@ specifically, not a general case for throwing away player history.
 `effk.py`, scratchpad, pure Python 3, ~26 s. Reads
 `stats_player_week_2018..2025.csv`. No numpy/pandas/sklearn in this container.
 
-Limits, stated rather than discovered later: receiving-side only, so `ypc`,
-`ypa`, `rush_td_rate` and `pass_td_rate` are untested; `observed` is the raw
-season-to-date rate where the shipped code uses a decay-weighted one; and the
+Limits, stated rather than discovered later. **The first of these is
+superseded**: `ypc`, `ypa`, `rush_td_rate` and `pass_td_rate` were untested when
+this was written and were tested in
+`efficiency-shrinkage-constants-rushing-passing.md` shortly afterwards, so any
+figure for those four belongs to part 2, not here. The rest stand: `observed` is
+the raw season-to-date rate where the shipped code uses a rate pooled across
+seasons under `seasonDecay` (§4); and the
 positional prior here is rebuilt from weeks 1..w of the same season, which is
 the natural reading of `positionalPriors` but was not verified against a
 populated database.
 
 ## The five questions
 
-- **Well built?** The sweep is sound and the caveat that undercuts its headline
-  is in section 4 rather than a footnote. No server file is changed.
+- **Well built?** The sweep is sound; the document around it was not. §4 argued
+  the denominator backwards, and §2 and §5 reported selected `k` values without
+  saying they were selected. Both are corrected in place and in the corrections
+  document. Putting the caveat in §4 rather than a footnote was right — it was
+  just the wrong caveat. No server file is changed.
 - **Stats or made up?** Stats. 11,298 scored rows for two metrics and 4,647 for
   the third, over eight seasons and ten cutoffs each, paired bootstrap clustered
   by player, both no-model bookends inside the grid.
-- **How do we know?** The one claim that survives the denominator problem
-  (section 5) is isolated and stated separately from the ones that do not.
+- **How do we know?** For what survives: a season split that separates choosing
+  `k` from judging it, reported in both directions (corrections §2). The earlier
+  answer here — that §5 survives the denominator problem — was too strong, and
+  §5 now says so itself.
 - **Pointed anywhere else on the platform?** `projections.js:94-125`, owned
   elsewhere. This is evidence for a decision, not the decision.
-- **How does it unify?** It confirms a comment the codebase already wrote about
-  itself, and it names the single missing capability — a populated database —
-  that blocks three separate open questions in this thread.
+- **How does it unify?** It names the single missing capability — a populated
+  database — that blocks three separate open questions in this thread, and after
+  correction it agrees with the 2026-09-20 sweep that already had one: one
+  constant is serving three metrics that disagree about it.

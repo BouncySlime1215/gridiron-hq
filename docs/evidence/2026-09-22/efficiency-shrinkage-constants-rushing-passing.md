@@ -1,18 +1,42 @@
 # Efficiency constants, part 2: rushing and passing — and a narrowing of part 1
 
+> **CORRECTED 2026-09-22 after audit. Read
+> `efficiency-shrinkage-constants-corrections.md` first.** §1's headline is
+> **withdrawn**: `rush_td_rate` and `pass_td_rate` were selected and reported on
+> the same rows, and out of sample `rush_td_rate` is null in both directions
+> while `pass_td_rate` replicates in one only. §4's denominator argument is
+> inverted — see part 1 §4 as rewritten. This document **supersedes part 1 §6's
+> line listing `ypc`, `ypa`, `rush_td_rate` and `pass_td_rate` as untested**:
+> all four are tested here.
+
 `efficiency-shrinkage-constants.md` graded the three receiving-side metrics and
 ended with one claim that survived its own caveat: **a receiver's own touchdown
 rate carries no detectable information about his future touchdown rate.**
 
 This extends the identical design to the four metrics the same two constants
-also drive. Two things come out of it. The face-value under-shrinkage is now
-**seven metrics for seven**, which is a much harder pattern to dismiss. And the
-touchdown finding **does not generalise**, which is worth saying loudly before
-someone repeats it as "touchdown rate is noise".
+also drive. Two things came out of it, and **both have since been corrected**.
+
+The face-value under-shrinkage is **seven metrics for seven** — which stands as
+a property of this replication, and turns out to say nothing about the shipped
+literals in either direction (§4, rewritten).
+
+And the touchdown finding was reported here as **not generalising** — that claim
+is **withdrawn**. It rested on two figures selected and reported on the same
+rows; out of sample `rush_td_rate` is null in both directions and
+`pass_td_rate` replicates in one only. §1 is kept below as the record of what
+was published, with the retraction stated in it.
 
 ---
 
-## 1. Do not generalise the touchdown result
+## 1. Do not generalise the touchdown result — WITHDRAWN
+
+> **Withdrawn 2026-09-22.** Both non-null figures in the table below were
+> selected and reported on the same rows. Out of sample, `rush_td_rate` is null
+> in both directions and `pass_td_rate` replicates in one only, so the section's
+> conclusion does not follow from its evidence. The honest reading is the
+> reverse: **no touchdown rate of the three carries player-specific information
+> that survives honest out-of-sample selection in both directions.** Kept here
+> as the record of what was published. Corrections document §3.
 
 | metric | player's own history vs his position alone | 95% CI | |
 |---|---|---|---|
@@ -90,51 +114,82 @@ player. Positive means the candidate beats the shipped literal.
 | `pass_td_rate` | `td_rate` | 70 | 280 | 4.0× | indistinguishable |
 
 Every optimum is at least 4× the literal, every one of those intervals excludes
-zero, and in no metric does the shipped constant beat the positional average.
-`yards_per` is the worst-placed of the three: it governs three metrics with
-optima at 136, 300 and 300, so a single constant of 34 is not merely low, it is
-being asked to serve three metrics that do not want the same value.
+zero, and in no metric does the literal beat the positional average **inside
+this replication**. Read the last column that way and no other way: per §4 the
+literal meets a different `observed` and a different `n` in production, so
+"prior-only beats shipped" here is not "the shipped constant is worse than
+ignoring the player".
 
-## 4. The caveat from part 1 is unchanged and still decisive
+The winners in the `optimum` column were also chosen by lowest MSE on the same
+rows their intervals came from. Their **locations** replicate out of sample —
+five of seven metrics pick the identical `k` on either half of the seasons —
+but their **margins** are optimistic. Corrections document §2.
 
-`projections.js:495` is `a.targets += w * (u.targets ?? 0)`. **The denominator
-handed to `shrink()` is decay-weighted, not raw.** A smaller `n` at the same `k`
-means more shrinkage, so the shipped code already shrinks harder than this
-replication does at the same nominal `k`, in exactly the direction that would
-close these gaps.
+One observation survives all of that, because it needs only the ordering:
+`yards_per` governs three metrics whose optima here sit at 136, 300 and 300. A
+single constant is being asked to serve three metrics that do not agree about
+it. **A prior thread reached the same conclusion through the real code path on
+2026-09-20** — *"not '34 is wrong' — it is that one constant is doing three
+jobs"* — which is the version to cite, because it ran the shipped estimator.
 
-Seven-for-seven consistency makes the pattern harder to dismiss as noise, but it
-does **not** resolve the denominator question — if anything it is what a uniform
-scaling factor between raw and effective `n` would look like. A constant ratio
-of about 4 between raw and decay-weighted opportunity would explain the whole
-table at a stroke.
+## 4. The caveat from part 1, rewritten: this does not measure what ships
 
-**That is the test to run next, and it is cheap:** on a populated database,
-compare `a.targets` as `buildProjections` computes it against the raw target
-count for the same players and cutoffs. One number settles whether there is
-anything here at all. It cannot be run in this container —
-`server/data.sqlite` is schema-only, zero rows in every table.
+**Rewritten 2026-09-22 after audit. The first version of this section repeated
+part 1 §4's inverted denominator argument and proposed a one-number test that
+cannot settle anything. Do not quote any earlier copy.** Full record: the
+corrections document, §5.
 
-Until then: **no constant should be edited on the strength of either document.**
+There is **no within-season decay** — `RECENCY.weekHalfLife` is `null`
+(`projections.js:162`) and `rowWeight` returns the season weight alone
+(`:176-180`), which for the cutoff season is `0.35^0 = 1.0`. The in-season
+denominator is raw. Prior seasons are then **added** at 0.35 / 0.1225 /
+0.042875, so the shipped `n` is **≥** the raw single-season count used here,
+never smaller.
+
+The first version had that backwards, and the proposed fix — a single
+raw-to-weighted ratio — would not have worked even with the sign corrected. The
+shipped `observed` is pooled over the same seasons under the same weights
+(`:563`, `:565`), so it is a different quantity from this sweep's
+season-to-date rate. **The two estimators differ in `observed` as well as in
+`n`, and no ratio transports between them.**
+
+So the seven-for-seven pattern is a real property of a raw single-season
+shrinkage estimator, and it says nothing about the shipped literals in either
+direction. **The only test that can settle them is the grader against a
+populated database, running the real `buildProjections`** — which a prior thread
+already ran on 2026-09-20, finding that nothing on a nine-point grid beats any
+of the three literals on 2024-2025. See the corrections document §6.
+
+Unchanged and reinforced: **no constant should be edited on the strength of
+either document.**
 
 ## 5. Reproduction
 
 `effk2.py`, scratchpad, pure Python 3, ~14 s, reads
-`stats_player_week_2018..2025.csv`. Part 1 is `effk.py`. Neither grades the code
-path; both grade the constants, for the reason in §4.
+`stats_player_week_2018..2025.csv`. Part 1 is `effk.py`. **Neither grades the
+shipped estimator**, which differs from both in `observed` as well as in `n` —
+see part 1 §4 as rewritten, and the corrections document §5-§6. Part 1 §6 listed
+these four metrics as untested; this document is where they were tested, and it
+supersedes that line.
 
 ## The five questions
 
-- **Well built?** It extends part 1 without re-litigating it, and it narrows
-  part 1's own headline rather than leaving the stronger version standing.
+- **Well built?** Not well enough. It extended part 1 without re-litigating it,
+  and inherited two defects in doing so: it reported selected `k` values as
+  though they were estimated ones, and it repeated part 1's denominator argument
+  without re-reading `rowWeight`. Both are corrected above and in the
+  corrections document; the sections they touch are marked, not deleted.
 - **Stats or made up?** Stats. 5,548 / 2,819 / 3,824 / 2,819 scored rows across
   eight seasons and ten cutoffs each, paired bootstrap clustered by player, both
   no-model bookends inside every grid.
-- **How do we know?** The player-vs-position comparison is a `k = ∞` test, so it
-  is immune to the denominator problem that blocks everything else here — which
-  is precisely why it is the only thing either document claims.
+- **How do we know?** For what survives: by a season split that separates
+  choosing `k` from judging it, reported in both directions. The earlier answer
+  here — that a `k = ∞` test is immune to the denominator problem — was too
+  strong: the arm it is compared against still uses `n`, and the shipped
+  `observed` differs regardless.
 - **Pointed anywhere else on the platform?** `projections.js:94-125`, owned
   elsewhere. Evidence for a decision, not the decision.
 - **How does it unify?** It turns a three-metric hint into a seven-metric
-  pattern, and reduces the open question to a single measurement that one
-  populated database would answer.
+  pattern about one research estimator, and — once corrected — points at the
+  populated-database grader as the only thing that can speak for the shipped
+  one.

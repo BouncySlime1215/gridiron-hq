@@ -288,7 +288,7 @@ export function freezePlayerFeatureVector(season, week, playerId, options = {}) 
   if (existing) return { existing: true, ...existing, vector: parse(existing.vector_json) };
   const built = buildPlayerFeatureVector(season, week, playerId, options);
   if (built.error) return built;
-  register('player', 'player+ngs+pfr+pff', built.vector);
+  register('player', 'player+ngs+pfr+pff+routes', built.vector);
   run(`INSERT INTO nfl_player_feature_vectors
     (season,week,player_id,player_name,position,team,version,cutoff,evidence_hash,feature_count,
      coverage,vector_json,missing_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,

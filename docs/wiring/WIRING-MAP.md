@@ -36,7 +36,7 @@ Betting rows are mapped and tagged `betting`. They are out of scope for work, in
 ## Findings
 
 **10 missing feed** — a surface depends on something nothing produces.
-**2038 orphan** — something produced that reaches no surface.
+**2037 orphan** — something produced that reaches no surface.
 432 context rows, listed because they are worth knowing and are usually fine.
 
 The missing-feed list in full, because it is short and it is the one that matters:
@@ -205,11 +205,11 @@ The missing-feed list in full, because it is short and it is the one that matter
 - **from_week** `[parameter-never-passed]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
   - server/routes/model.js:458
 - **min_projected** `[parameter-never-passed]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
-  - server/routes/trades.js:648
+  - server/routes/trades.js:674
 - **sims** `[parameter-never-passed]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
   - server/routes/drafts.js:962
 - **chat_corpus** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
-  - server/routes/trades.js:559, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
+  - server/routes/trades.js:585, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
 - **cooldown_ms** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/news.js:95, route:DELETE /api/news/:id (0 hops), route:GET /api/news (0 hops)
 - **draft_complete** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
@@ -225,17 +225,17 @@ The missing-feed list in full, because it is short and it is the one that matter
 - **last_result** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/news.js:95, route:DELETE /api/news/:id (0 hops), route:GET /api/news (0 hops)
 - **player_views** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
-  - server/routes/trades.js:559, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
+  - server/routes/trades.js:585, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
 - **rosters_with_chat** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
-  - server/routes/trades.js:559, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
+  - server/routes/trades.js:585, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
 - **rosters_with_signals** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
-  - server/routes/trades.js:559, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
+  - server/routes/trades.js:585, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
 - **teams_with_stale_names** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/analysis.js:200, route:GET /api/analysis/validate (0 hops), route:POST /api/analysis/refresh (0 hops)
 - **total_flags** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/analysis.js:200, route:GET /api/analysis/validate (0 hops), route:POST /api/analysis/refresh (0 hops)
 - **valuation_map** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
-  - server/routes/trades.js:941, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
+  - server/routes/trades.js:967, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
 - **weekly_projection** `[served-but-not-rendered]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/players.js:76, route:GET /api/players (0 hops), route:GET /api/players/:id (0 hops)
 - ...and 112 more in betting code, tagged and out of scope for work.
@@ -264,7 +264,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 | `composed-key-never-read` | orphan | 17 | 37 | 28 |
 | `value-computed-never-used` | orphan | 0 | 4 | 19 |
 | `table-never-read` | orphan | 0 | 4 | 13 |
-| `export-only-tested` | orphan | 133 | 188 | 401 |
+| `export-only-tested` | orphan | 132 | 188 | 401 |
 | `export-imported-by-nothing` | orphan | 90 | 170 | 450 |
 | `route-no-caller` | orphan | 13 | 319 | 37 |
 | `table-read-but-never-created` | orphan | 2 | 0 | 4 |
@@ -508,7 +508,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 - **min_points** `[betting]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
   - server/routes/nfl-betting.js:566
 - **min_projected** `[fantasy]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
-  - server/routes/trades.js:648
+  - server/routes/trades.js:674
 - **min_volume** `[betting]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
   - server/routes/betting-hub.js:788
 - **n** `[betting]` — read here with a default, and no page, script or extension in the repository ever puts it in a query string — so the default is not a fallback, it is the only value this endpoint has ever been given
@@ -559,7 +559,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 - **capture_triggers** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/betting-hub.js:396, route:GET /api/betting/abstentions (0 hops), route:GET /api/betting/audits (0 hops)
 - **chat_corpus** `[fantasy]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
-  - server/routes/trades.js:559, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
+  - server/routes/trades.js:585, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
 - **cooldown_ms** `[shared]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/news.js:95, route:DELETE /api/news/:id (0 hops), route:GET /api/news (0 hops)
 - **decision_audit** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
@@ -623,7 +623,7 @@ The missing-feed list in full, because it is short and it is the one that matter
 - **play_model** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/nfl-betting.js:1530, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
 - **player_views** `[fantasy]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
-  - server/routes/trades.js:559, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
+  - server/routes/trades.js:585, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
 - **price_note** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/betting-hub.js:419, route:GET /api/betting/abstentions (0 hops), route:GET /api/betting/audits (0 hops)
 - **profile_fell_back** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
@@ -643,9 +643,9 @@ The missing-feed list in full, because it is short and it is the one that matter
 - **requested_date** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/mlb.js:136, route:GET /api/mlb/auto-picks (0 hops), route:GET /api/mlb/board (0 hops)
 - **rosters_with_chat** `[fantasy]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
-  - server/routes/trades.js:559, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
+  - server/routes/trades.js:585, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
 - **rosters_with_signals** `[fantasy]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
-  - server/routes/trades.js:559, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
+  - server/routes/trades.js:585, route:GET /api/trades/:leagueId/brain/managers (0 hops), route:GET /api/trades/:leagueId/brain/plan (0 hops)
 - **safe_endpoint** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
   - server/routes/nfl-betting.js:955, route:GET /api/nfl-betting/ai-replay/:id (0 hops), route:GET /api/nfl-betting/ai-replay/:id/logs (0 hops)
 - **scope_note** `[betting]` — sent on a payload a page does fetch, and no file under client/src or the extension mentions this name anywhere — so it is computed on every request and nothing shows it
@@ -1388,9 +1388,9 @@ All 60 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **schema_preflight** `[shared]` — written by 1 file(s), read by nothing
   - server/db/preflight.js:268
 
-### `export-only-tested` — ORPHAN (722)
+### `export-only-tested` — ORPHAN (721)
 
-534 of 722 are in scope (not betting), listed in full, heaviest first.
+533 of 721 are in scope (not betting), listed in full, heaviest first.
 
 - **scripts/collect-roster-snapshots.mjs#collectRosterSnapshots** `[fantasy]` — exported, imported only by a test
   - scripts/collect-roster-snapshots.mjs:216
@@ -1632,9 +1632,9 @@ All 60 grouped by file, heaviest first. Full list in `wiring-map.json`.
   - server/platform/paths.js:81
 - **server/platform/paths.js#SERVER_ROOT** `[shared]` — exported, imported only by a test
   - server/platform/paths.js:35
-- _… 414 more in wiring-map.json_
+- _… 413 more in wiring-map.json_
 
-All 722 grouped by file, heaviest first. Full list in `wiring-map.json`.
+All 721 grouped by file, heaviest first. Full list in `wiring-map.json`.
 
 | file | count |
 | --- | --: |
@@ -1646,10 +1646,10 @@ All 722 grouped by file, heaviest first. Full list in `wiring-map.json`.
 | `server/services/consensus-weights.js` | 13 |
 | `server/services/trade-engine.js` | 12 |
 | `server/services/alt-spread-import.js` | 11 |
-| `server/services/manager-archetypes.js` | 11 |
 | `server/services/nfl-replay.js` | 11 |
 | `server/services/ros-projection.js` | 11 |
 | `server/betting/nfl/strategy/t60-runner.js` | 10 |
+| `server/services/manager-archetypes.js` | 10 |
 | `server/services/preseason-model.js` | 10 |
 | `server/services/lineup-brain.js` | 9 |
 | `server/services/offseason-data.js` | 9 |
@@ -1951,7 +1951,7 @@ All 710 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **POST /api/model/registry/features** `[shared]` `w66` — no page or extension calls it, and it is not cheap: the handler calls 4 imported function(s) and names 1 table(s) — requireModelPermission, configurationHash, run, recordModelAudit
   - server/routes/model.js:181
 - **POST /api/trades/managers/rebuild** `[fantasy]` `w60` — no page or extension calls it, and it is not cheap: the handler calls 1 imported function(s) — refreshManagerData
-  - server/routes/trades.js:523
+  - server/routes/trades.js:549
 - **POST /api/model/registry/experiments** `[shared]` `w56` — no page or extension calls it, and it is not cheap: the handler calls 3 imported function(s) and names 1 table(s) — requireModelPermission, run, recordModelAudit
   - server/routes/model.js:200
 - **GET /api/accolades/:abbr** `[shared]` `w45` — no page or extension calls it, and it is not cheap: the handler calls 2 imported function(s) and names 3 table(s) — row, rows
@@ -2023,7 +2023,7 @@ All 710 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **GET /api/trades/:leagueId/brain/sell-high** `[fantasy]` — no page or extension calls it
   - server/routes/trades.js:191
 - **GET /api/trades/splits/:playerId** `[fantasy]` — no page or extension calls it
-  - server/routes/trades.js:967
+  - server/routes/trades.js:993
 - **POST /api/accolades/sync** `[shared]` — no page or extension calls it
   - server/routes/accolades.js:173
 - **POST /api/accolades/top100/sync** `[shared]` — no page or extension calls it
@@ -2114,11 +2114,11 @@ All 369 grouped by file, heaviest first. Full list in `wiring-map.json`.
 - **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
   - test/consensus-weights.test.js:131
 - **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
-  - test/wiring-map.test.js:1680
+  - test/wiring-map.test.js:1685
 - **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
-  - test/wiring-map.test.js:1746
+  - test/wiring-map.test.js:1751
 - **docs/CONSENSUS_WEIGHTS.md** `[shared]` — the document exists at docs/evidence/historical/CONSENSUS_WEIGHTS.md — the citation was not updated when docs moved
-  - test/wiring-map.test.js:1747
+  - test/wiring-map.test.js:1752
 - **docs/DRAFT_ADVICE_VERIFY_LOOP.md** `[fantasy]` — the document exists at docs/reference/fantasy/DRAFT_ADVICE_VERIFY_LOOP.md — the citation was not updated when docs moved
   - server/routes/drafts.js:981
 - **docs/DRAFT_ADVICE_VERIFY_LOOP.md** `[fantasy]` — the document exists at docs/reference/fantasy/DRAFT_ADVICE_VERIFY_LOOP.md — the citation was not updated when docs moved

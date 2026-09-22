@@ -96,21 +96,59 @@ async function loadBannerFile() {
 
 const banner = await loadBannerFile();
 
-function render(component, { data = null, error = null, dismissed = false }) {
+/**
+ * Renders `component` with the freshness route answering `data`/`error`, the
+ * banner dismissed or not, and, with `browser`, the globals a browser has
+ * (`window`, `document`, `localStorage`) all saying "dismissed", so a component
+ * that checks `typeof window` takes its browser branch here too.
+ */
+function render(component, { data = null, error = null, dismissed = false, browser = false }) {
   assert.equal(typeof component, 'function', 'the component under test is not exported');
   const calls = [];
   globalThis.__dataCreditApi = p => { calls.push(p); return { data, error, loading: false }; };
-  const saved = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
-  Object.defineProperty(globalThis, 'sessionStorage', {
-    configurable: true,
-    value: { getItem: k => (dismissed && k === 'data-freshness-dismissed' ? '1' : null), setItem() {} }
-  });
+  const store = { getItem: k => (dismissed && k === 'data-freshness-dismissed' ? '1' : null), setItem() {}, removeItem() {} };
+  const globals = { sessionStorage: store };
+  if (browser) {
+    Object.assign(globals, {
+      localStorage: store,
+      window: { sessionStorage: store, localStorage: store, location: { pathname: '/settings' }, matchMedia: () => ({ matches: true }) },
+      document: { cookie: dismissed ? 'data-freshness-dismissed=1' : '', hidden: false, visibilityState: 'visible' }
+    });
+  }
+  const saved = Object.fromEntries(Object.keys(globals).map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
+  for (const [k, value] of Object.entries(globals)) Object.defineProperty(globalThis, k, { configurable: true, value });
   try {
     return { html: renderToStaticMarkup(React.createElement(component)), calls };
   } finally {
-    if (saved) Object.defineProperty(globalThis, 'sessionStorage', saved);
-    else delete globalThis.sessionStorage;
+    for (const [k, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(globalThis, k, descriptor);
+      else delete globalThis[k];
+    }
   }
+}
+
+/**
+ * Tailwind classes that hide an element or shrink it to nothing. A variant
+ * prefix (`max-sm:hidden`, `!hidden`) still hides on some screen, so it counts.
+ */
+const HIDING_CLASSES = new Set(['hidden', 'sr-only', 'invisible', 'collapse', 'opacity-0', 'text-transparent',
+  'h-0', 'max-h-0', 'w-0', 'max-w-0', 'size-0', 'scale-0', 'text-[0px]', 'text-[0]']);
+const HIDING_STYLE = /display\s*:\s*['"]?none|visibility\s*:\s*['"]?hidden|opacity\s*:\s*['"]?0(?![.\d])|font-size\s*:\s*['"]?0(?![.\d])/i;
+const hidingTokens = classText => classText.split(/\s+/).filter(Boolean)
+  .filter(token => HIDING_CLASSES.has(token.replace(/^!/, '').split(':').pop().replace(/^!/, '')));
+
+/** Everything in rendered markup that would keep an element off the screen or out of the accessibility tree. */
+function hidingMarksInHtml(html) {
+  const marks = [];
+  for (const [, tag, attrs] of html.matchAll(/<([a-zA-Z][\w-]*)([^>]*)>/g)) {
+    if (/\shidden(?=[\s=>/]|$)/.test(attrs)) marks.push(`<${tag} hidden>`);
+    if (/\sinert(?=[\s=>/]|$)/.test(attrs)) marks.push(`<${tag} inert>`);
+    if (/\saria-hidden="true"/.test(attrs)) marks.push(`<${tag} aria-hidden>`);
+    const style = attrs.match(/\sstyle="([^"]*)"/)?.[1];
+    if (style && HIDING_STYLE.test(style)) marks.push(`<${tag} style="${style}">`);
+    for (const token of hidingTokens(attrs.match(/\sclass="([^"]*)"/)?.[1] ?? '')) marks.push(`<${tag} class ${token}>`);
+  }
+  return marks;
 }
 
 const text = html => html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&');
@@ -174,6 +212,121 @@ test('each credit links its source and its licence, and says the data was change
   assert.equal((html.match(/<footer\b/g) ?? []).length, 1, 'the credit is not one footer line');
 });
 
+test('the credit is visible: no element of it is hidden by a class, an attribute or an inline style', () => {
+  // Known-nonzero control: the checker finds each kind of hiding it claims to.
+  assert.deepEqual(
+    hidingMarksInHtml('<footer class="border-t hidden"><span class="max-sm:hidden">a</span><a hidden href="x" aria-hidden="true" style="display: none">b</a><i class="sr-only" inert>c</i></footer>'),
+    ['<footer class hidden>', '<span class max-sm:hidden>', '<a hidden>', '<a aria-hidden>', '<a style="display: none">', '<i inert>', '<i class sr-only>'],
+    'control: the hiding checker misses a hidden element');
+  assert.deepEqual(hidingMarksInHtml('<footer class="border-t text-slate-500"><a href="x" rel="license">b</a></footer>'), [],
+    'control: the hiding checker flags an element that is not hidden');
+
+  for (const [state, opts] of [
+    ['all_fresh=true and dismissed=true', { data: report(true), dismissed: true }],
+    ['a failed freshness check, in a browser', { data: null, error: 'HTTP 404', dismissed: true, browser: true }]
+  ]) {
+    const { html } = render(banner.DataCredit, opts);
+    assert.match(html, /^<footer\b/, `with ${state}, the credit does not render its footer`);
+    assert.deepEqual(hidingMarksInHtml(html), [], `with ${state}, part of the credit is hidden`);
+  }
+});
+
+test('the credit takes no props, calls no hooks and reads no browser state, so nothing after mount can hide it', () => {
+  // react-dom/server runs no effects and has no `window`, so a credit that hid
+  // itself in a useEffect, or only in a browser, would pass every render above.
+  // Three pins close that: a plain call, a browser-state sweep, and the source.
+
+  // 1. Called as a plain function, outside any React render, a component that
+  //    calls a hook throws. Control: the banner itself (useState) does.
+  const errors = [];
+  const consoleError = console.error;
+  console.error = (...args) => { errors.push(args.map(String).join(' ')); };
+  let bannerThrew = null;
+  let creditElement;
+  try {
+    try { banner.default(); } catch (error) { bannerThrew = error; }
+    creditElement = banner.DataCredit();
+  } finally {
+    console.error = consoleError;
+  }
+  // React's development build logs "Invalid hook call" and then throws reading
+  // the null dispatcher; the production build only throws. Either is a throw.
+  assert.ok(bannerThrew, `control: calling a hook-using component outside a render did not throw (logged ${JSON.stringify(errors)})`);
+  assert.ok(React.isValidElement(creditElement), 'DataCredit() outside a render did not return an element');
+  assert.equal(banner.DataCredit.length, 0, 'DataCredit declares parameters; it should take no props');
+
+  // 2. Every browser state the banner reacts to renders the same credit, and the
+  //    credit never asks the freshness route.
+  const states = [
+    ['no report, no browser', { data: null }],
+    ['all fresh, dismissed', { data: report(true), dismissed: true }],
+    ['behind, not dismissed, in a browser', { data: report(false), browser: true }],
+    ['all fresh, dismissed, in a browser', { data: report(true), dismissed: true, browser: true }],
+    ['failed check, dismissed, in a browser', { data: null, error: 'HTTP 404', dismissed: true, browser: true }]
+  ];
+  const baseline = render(banner.DataCredit, states[0][1]).html;
+  assertCredits(baseline, states[0][0]);
+  for (const [state, opts] of states) {
+    const { html, calls } = render(banner.DataCredit, opts);
+    assert.equal(html, baseline, `with ${state}, the credit renders differently`);
+    assert.deepEqual(calls, [], `with ${state}, the credit asked the freshness route`);
+  }
+
+  // 3. The source uses no hook and names no browser global. Control: the same
+  //    pattern finds useState and sessionStorage in the banner.
+  const stateful = /\buse[A-Z]\w*\s*\(|\b(?:sessionStorage|localStorage|window|document|globalThis|navigator|location|matchMedia)\b/g;
+  assert.deepEqual([...new Set(banner.default.toString().match(stateful))].sort(), ['sessionStorage', 'useApi(', 'useState('],
+    'control: the pattern does not find the hooks and storage the banner uses');
+  assert.deepEqual(banner.DataCredit.toString().match(stateful), null, 'DataCredit reads a hook or a browser global');
+
+  // 4. Nor through anything it closes over: from outside its own body DataCredit
+  //    may use only DATA_CREDITS and creditLink, and both must be literal data,
+  //    so a value read from the browser when the module loads cannot reach it.
+  //    Control: the same walk finds the banner's hooks and sessionStorage.
+  const sf = ts.createSourceFile('DataFreshnessBanner.tsx', read('client/src/components/DataFreshnessBanner.tsx'),
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const fn = name => sf.statements.find(s => ts.isFunctionDeclaration(s) && s.name?.text === name);
+  const constant = name => sf.statements.filter(ts.isVariableStatement).flatMap(s => s.declarationList.declarations)
+    .find(d => d.name.getText(sf) === name);
+  const bannerFn = sf.statements.find(s => ts.isFunctionDeclaration(s) && s.name?.text === 'DataFreshnessBanner');
+  assert.ok(bannerFn && fn('DataCredit'), 'DataFreshnessBanner.tsx no longer declares DataFreshnessBanner and DataCredit; this check needs rewriting');
+  assert.ok(['useApi', 'useState', 'sessionStorage'].every(n => freeIdentifiers(bannerFn, sf).includes(n)),
+    `control: the free-identifier walk misses the banner's hooks; it found ${JSON.stringify(freeIdentifiers(bannerFn, sf))}`);
+  assert.deepEqual(freeIdentifiers(fn('DataCredit'), sf), ['DATA_CREDITS', 'creditLink'],
+    'DataCredit uses something from outside its body other than DATA_CREDITS and creditLink');
+  for (const name of ['DATA_CREDITS', 'creditLink']) {
+    const decl = constant(name);
+    assert.ok(decl?.initializer && ts.isVariableDeclarationList(decl.parent) && (decl.parent.flags & ts.NodeFlags.Const),
+      `${name} is not a module-level const`);
+    assert.deepEqual(freeIdentifiers(decl.initializer, sf), [], `${name} is computed from something rather than written out as data`);
+  }
+});
+
+/**
+ * The names a node's code reads from outside itself, found from the source
+ * alone: every identifier that is not a property name, a JSX attribute name, an
+ * intrinsic tag (footer, a, span), a type, or a name declared inside the node.
+ */
+function freeIdentifiers(node, sf) {
+  const used = new Set();
+  const declared = new Set();
+  const isIntrinsicTag = n => (ts.isJsxOpeningElement(n.parent) || ts.isJsxClosingElement(n.parent) || ts.isJsxSelfClosingElement(n.parent))
+    && n.parent.tagName === n && /^[a-z]/.test(n.text);
+  (function walk(n) {
+    if (ts.isTypeNode(n) || ts.isTypeParameterDeclaration(n)) return;
+    if (ts.isIdentifier(n)) {
+      const p = n.parent;
+      const isDeclaration = (ts.isParameter(p) || ts.isVariableDeclaration(p) || ts.isBindingElement(p) || ts.isFunctionDeclaration(p)) && p.name === n;
+      if (isDeclaration) declared.add(n.text);
+      else if (!((ts.isPropertyAccessExpression(p) && p.name === n) || (ts.isPropertyAssignment(p) && p.name === n)
+        || (ts.isJsxAttribute(p) && p.name === n) || isIntrinsicTag(n))) used.add(n.text);
+    }
+    ts.forEachChild(n, walk);
+  })(ts.isFunctionDeclaration(node) ? node.body : node);
+  if (ts.isFunctionDeclaration(node)) node.parameters.forEach(p => declared.add(p.name.getText(sf)));
+  return [...used].filter(name => !declared.has(name)).sort();
+}
+
 test('the credit line and GET /api/data-freshness name the same sources under the same licences', async () => {
   const body = await (await fetch(`${base}/api/data-freshness`)).json();
   assert.ok(Array.isArray(body.sources), 'the report has a sources array');
@@ -215,12 +368,83 @@ test('ffopportunity data is CC BY-SA 4.0, as its README Terms of Use says, not C
   assert.equal(FFOPPORTUNITY_SOURCE.license_url, BY_SA);
 });
 
-test('App renders the credit once, on every page, outside any condition', () => {
+/** Hiding marks on a JSX opening tag in App.tsx: the same classes and attributes as the rendered check, read from source. */
+function hidingMarksInJsx(opening, sf) {
+  const marks = [];
+  for (const attr of opening.attributes.properties) {
+    if (ts.isJsxSpreadAttribute(attr)) { marks.push(`{${attr.getText(sf)}}`); continue; }
+    const name = attr.name.getText(sf);
+    const value = attr.initializer ? attr.initializer.getText(sf) : '';
+    if (name === 'hidden' || name === 'inert') marks.push(name);
+    if (name === 'aria-hidden' && !['"false"', '{false}', '{"false"}', "{'false'}"].includes(value.replace(/\s/g, ''))) marks.push(`aria-hidden=${value}`);
+    if (name === 'style' && HIDING_STYLE.test(value)) marks.push(`style=${value}`);
+    if (name === 'className') {
+      // Every literal piece of the class, whether a plain string or inside a template or ternary.
+      const pieces = [];
+      (function collect(n) {
+        if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) pieces.push(n.text);
+        else if (ts.isTemplateExpression(n)) { pieces.push(n.head.text); n.templateSpans.forEach(s => { collect(s.expression); pieces.push(s.literal.text); }); }
+        else ts.forEachChild(n, collect);
+      })(attr.initializer);
+      for (const token of hidingTokens(pieces.join(' '))) marks.push(`className ${token}`);
+    }
+  }
+  return marks;
+}
+
+test('App renders the credit once, on every page of the app chrome: a plain sibling of <main>, with no condition or hidden element above it', () => {
   const appSource = read('client/src/App.tsx');
   assert.match(appSource, /import \{ DataCredit \} from '\.\/components\/DataFreshnessBanner';/, 'App does not import DataCredit');
-  const uses = [...appSource.matchAll(/<DataCredit\b[^>]*\/>/g)];
-  assert.equal(uses.length, 1, `App renders the credit ${uses.length} times; it should be one line`);
-  const before = appSource.slice(0, uses[0].index);
-  assert.ok(before.lastIndexOf('</main>') > before.lastIndexOf('<main'), 'the credit is not placed after the page content');
-  assert.doesNotMatch(before, /(&&|\?|:|\()\s*$/, 'the credit sits behind a condition, so some state can hide it');
+  const sf = ts.createSourceFile('App.tsx', appSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const tag = n => n.tagName.getText(sf);
+  let app = null;
+  const credits = [];
+  const mains = [];
+  const openings = [];
+  (function walk(n) {
+    if (ts.isFunctionDeclaration(n) && n.name?.text === 'App') app = n;
+    if (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) {
+      openings.push(n);
+      if (tag(n) === 'DataCredit') credits.push(n);
+      if (tag(n) === 'main' && ts.isJsxOpeningElement(n)) mains.push(n.parent);
+    }
+    ts.forEachChild(n, walk);
+  })(sf);
+  assert.ok(app?.body, 'App.tsx declares no function App');
+  assert.equal(credits.length, 1, `App mounts the credit ${credits.length} times; it should be one line`);
+  assert.equal(mains.length, 1, `App has ${mains.length} <main> elements; this check needs rewriting`);
+
+  // Known-nonzero control: the JSX checker finds real hiding in this file (the
+  // header's `hidden sm:inline` label and the drawer's aria-hidden overlay).
+  const hiddenInApp = openings.flatMap(o => hidingMarksInJsx(o, sf));
+  assert.ok(hiddenInApp.includes('className hidden') && hiddenInApp.includes('aria-hidden="true"'),
+    `control: the JSX checker finds no hidden element in App.tsx; it found ${JSON.stringify(hiddenInApp)}`);
+
+  const [credit] = credits;
+  const [main] = mains;
+  assert.ok(ts.isJsxSelfClosingElement(credit) && credit.attributes.properties.length === 0,
+    `the credit is mounted as "${credit.getText(sf)}"; it takes no props or children`);
+  const describe = n => `${ts.SyntaxKind[n.kind]} "${n.getText(sf).replace(/\s+/g, ' ').slice(0, 80)}"`;
+  assert.equal(credit.parent, main.parent,
+    `the credit is not a direct sibling of <main>, so something other than the page layout decides whether it shows; its parent is ${describe(credit.parent)}`);
+  const siblings = main.parent.children;
+  assert.ok(siblings.indexOf(credit) > siblings.indexOf(main), 'the credit is not placed after the page content');
+
+  // From the credit up to App's return, only plain elements and fragments: no
+  // `&&`, ternary, callback or call, and nothing hidden.
+  let node = credit.parent;
+  while (!ts.isReturnStatement(node)) {
+    assert.ok(ts.isJsxElement(node) || ts.isJsxFragment(node) || ts.isParenthesizedExpression(node),
+      `the credit sits inside ${describe(node)}, so some state can hide it`);
+    if (ts.isJsxElement(node)) {
+      const marks = hidingMarksInJsx(node.openingElement, sf);
+      assert.deepEqual(marks, [], `<${tag(node.openingElement)}> above the credit hides it (${marks.join(', ')})`);
+    }
+    node = node.parent;
+  }
+  // That return is App's last top-level statement: the one every page inside
+  // the chrome goes through. The early return before it is sign-in, which
+  // renders outside the chrome and fetches only /api/auth endpoints.
+  assert.equal(node.parent, app.body, 'the return that mounts the credit is nested inside a branch of App');
+  assert.equal(app.body.statements.at(-1), node, 'the return that mounts the credit is not App\'s last statement');
 });

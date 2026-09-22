@@ -40,15 +40,39 @@ const mutations = [
   ['M13 App no longer renders the credit', appFile, (s) => s.replace('        <DataCredit />\n', '')],
   ['M14 App renders the credit behind a condition', appFile, (s) => s.replace('        <DataCredit />\n', '        {!inBetting && <DataCredit />}\n')],
   ['M15 App renders the credit above the page, beside the banner', appFile, (s) => s.replace('        <DataCredit />\n', '').replace('        <DataFreshnessBanner />\n', '        <DataFreshnessBanner />\n        <DataCredit />\n')],
+  // Added after skeptic review of 687b9c39. The unit mutants hide the credit in
+  // ways react-dom/server never sees (effects, `window`) or with CSS; the
+  // call-site mutants put a wrapper between the condition and the credit. All
+  // five survived the 687b9c39 tests. (Skeptic S3, a one-line condition, is M14.)
+  ['M16 credit hides after mount once the banner is dismissed (useEffect; skeptic U1)', banner, (s) => s
+    .replace("import { useState } from 'react';", "import { useEffect, useState } from 'react';")
+    .replace('export function DataCredit() {\n  return (',
+      "export function DataCredit() {\n  const [hide, setHide] = useState(false);\n  useEffect(() => {\n    try { setHide(sessionStorage.getItem('data-freshness-dismissed') === '1'); } catch (e) { console.warn(e); }\n  }, []);\n  if (hide) return null;\n  return (")],
+  ['M17 footer rendered but CSS-hidden (skeptic U2)', banner, (s) => s.replace('<footer className="border-t', '<footer className="hidden border-t')],
+  ['M18 credit hides in a browser once dismissed, read through window (skeptic U3)', banner, (s) => s.replace('export function DataCredit() {\n  return (',
+    "export function DataCredit() {\n  if (typeof window !== 'undefined' && window.sessionStorage.getItem('data-freshness-dismissed') === '1') return null;\n  return (")],
+  ['M19 each credit entry hidden on a phone', banner, (s) => s.replace("<span key={`${c.repo}#${c.dataset ?? ''}`}>", "<span key={`${c.repo}#${c.dataset ?? ''}`} className=\"max-sm:hidden\">")],
+  ['M20 App: credit behind a condition, wrapped in a div (skeptic S1)', appFile, (s) => s.replace('        <DataCredit />\n', '        {location.pathname !== \'/settings\' && <div className="mt-auto">\n          <DataCredit />\n        </div>}\n')],
+  ['M21 App: credit inside a hidden wrapper (skeptic S2)', appFile, (s) => s.replace('        <DataCredit />\n', '        <div hidden><DataCredit /></div>\n')],
+  // Two more of the same family, built to get past the 'no hook, no browser
+  // global in DataCredit' pin: the browser read happens at module load, outside
+  // DataCredit's body, where neither react-dom/server nor toString() sees it.
+  ['M22 credit hides on a reload after dismissing, read once at module load', banner, (s) => s.replace('export function DataCredit() {\n  return (',
+    "const DISMISSED_AT_LOAD = typeof window !== 'undefined' && window.sessionStorage.getItem('data-freshness-dismissed') === '1';\n\nexport function DataCredit() {\n  if (DISMISSED_AT_LOAD) return null;\n  return (")],
+  ['M23 credit list computed empty in a browser once dismissed', banner, (s) => s.replace('export const DATA_CREDITS: readonly DataCreditEntry[] = [\n',
+    "export const DATA_CREDITS: readonly DataCreditEntry[] = typeof window !== 'undefined' && window.sessionStorage.getItem('data-freshness-dismissed') === '1' ? [] : [\n")],
 ];
 
-// Controls. The surviving control changes the footer's text colour, a real code
+// Controls. The first surviving control changes the footer's text colour, a real code
 // edit the tests deliberately do not pin: if it is killed, the tests over-pin
 // styling. The not-applied control targets text that is not in the file, so the
 // runner must report it INVALID rather than count it as killed.
 const controls = [
   ['C1 footer text colour changed (must survive)', banner, (s) => s.replace('leading-relaxed text-slate-500', 'leading-relaxed text-slate-400'), 'survived'],
   ['C2 pattern absent (must be INVALID)', ftn, (s) => s.replace("data_license: 'ODbL'", "data_license: 'CC0'"), 'invalid'],
+  // A layout edit next to the credit that hides nothing: if it is killed, the
+  // call-site check over-pins App's markup rather than the credit's placement.
+  ['C3 App main padding changed (must survive)', appFile, (s) => s.replace('<main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-8">', '<main className="min-w-0 flex-1 p-5 sm:p-6 lg:p-8">'), 'survived'],
 ];
 
 const code = (s) => s.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');

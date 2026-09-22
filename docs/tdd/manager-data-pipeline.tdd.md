@@ -214,13 +214,37 @@ anything true when it cannot read.
 
 | | commit | result |
 |---|---|---|
-| RED | `d3e0260` | 25 tests, 23 pass, **2 fail**, at `:440` and `:493` — the assertion naming the collision, not a neighbour |
+| RED | `d3e0260` | 24 tests, 23 pass, **1 fail**, at `:440` — the assertion naming the collision, not a neighbour |
 | GREEN | `73794cf` | 25 tests, **25 pass**, 0 fail |
 
-Both RED assertions are preceded by two that pass: dropping the table and
+**This table said 25 tests, 23 pass, 2 fail at `:440` and `:493` until
+2026-09-22, and that was wrong in a way worth recording rather than quietly
+editing.** The figure itself was never invented — re-run today, GREEN's test
+file against RED's source gives exactly 25 tests, 23 pass, 2 fail, and `:493`
+is the chat-half assertion at its GREEN line number. But that pair is a
+combination no commit represents. It was labelled `d3e0260`, and `d3e0260`
+holds 24 tests and one failure. Found by the chat-sync thread sampling this
+branch; the command it disagreed with is the one that settles it, and it did.
+
+This is the same error the whole branch exists to stop, turned on its own
+evidence: a figure measured on one tree and reported under another tree's name.
+The rule that catches it is the one already written here — a figure carries the
+identity of the tree it was measured on — and it had not been applied to this
+file's own RED row.
+
+**The substantive half, which the numbers were hiding.** The chat-half test
+(`'the chat half of the key says WHICH absence as well'`) does not exist at
+`d3e0260`. It arrived with GREEN, so that half of the fix never had a committed
+RED. That is a real gap in the TDD record and history cannot be rewritten to
+close it. What can be established is whether it *would* have been red, so that
+was measured rather than asserted: GREEN's test file run against `d3e0260`'s
+source fails that test. The behaviour was genuinely absent at RED; only the
+commit boundary is wrong, not the claim that the test discriminates.
+
+The one RED assertion is preceded by two that pass: dropping the table and
 breaking its shape each move the fingerprint away from the live one. Only
 telling those two apart fails, so the row is valid in every respect except the
-rule under test.
+rule under test. The same holds for the chat half under the re-run above.
 
 ### The fix
 
@@ -257,3 +281,39 @@ absence must say which absence it is**. This is the same defect as `read_state`
 on `vetoClimate`, which set the field on two paths of three: a consumer that
 asks "is this really empty?" gets an answer it cannot distinguish from "I could
 not look."
+
+### The five questions
+
+**Is it well built?** The fix is four lines of guard and one `sqlite_master`
+query, and it is well built in the narrow sense that it converts a guess read
+out of an error into a positive finding about the schema. The weakest part is
+that `hasTable` is asked twice per key on two different connections and its
+answer is not memoised; that is a handful of `sqlite_master` lookups per
+fingerprint and it was left alone deliberately, because caching the existence of
+a table inside a function whose job is to notice the table changing is how this
+class of bug starts.
+
+**Are these statistics or are they made up?** Neither — no model moves and no
+served number changes. The cache fingerprint is a string, not an estimate. The
+one measured claim in this file is the RED/GREEN table above, and it is now
+corrected to what the commits actually produce rather than to what a neighbouring
+tree produced.
+
+**How do we know?** RED `d3e0260`, 24 tests with the one failure at `:440`;
+GREEN `73794cf`, 25 of 25. Both re-run on 2026-09-22 in a detached worktree at
+those exact commits rather than quoted from when they were written, which is how
+the mislabelled row was caught. The chat half's missing RED is established by
+running GREEN's test file against RED's source, stated above as the measurement
+it is.
+
+**Is it pointed anywhere else?** Yes, and that is the risk this fix was worth
+taking for: `trade-engine.js#findTradesKey` concatenates this fingerprint into
+the key a whole `findTrades` result is stored under. Two states that fingerprint
+alike are two states whose cached answers are interchangeable, so an unreadable
+table was serving a league the answer computed for a league that had genuinely
+never built anything. Nothing else consumes the key directly.
+
+**How does it unify?** It is the branch's one rule applied to a cache key
+instead of to a page: an absence must say which absence it is. The fingerprint
+was the last place on the trade path where two different absences still shared a
+word.

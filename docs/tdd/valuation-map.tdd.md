@@ -313,3 +313,36 @@ has gone inert must say so, and `[]` does not say so.
 consumes this function. That file belongs to the Feature audit thread. The
 contract it was waiting on now exists on this side: the enum above, with
 `reason` carrying a sentence that is true of the state it names.
+
+### The five questions
+
+**Is it well built?** The read is, now. `tx_read_state` is declared in the
+initial object literal rather than assigned on the paths that happen to reach
+it, so the early return carries it too, and each `reason` sentence is true of
+exactly one state. The weakest part is that the vocabulary is a bare string
+union held by convention rather than by a constraint — there is no CHECK behind
+it as there is behind `trade_outcomes` — so a fifth state added carelessly would
+not be caught by anything but the tests.
+
+**Are these statistics or are they made up?** Neither. This changes no
+projection, no price and no ranking; it changes what the surface says when it
+has not read anything. The only number involved is the count of captured
+transactions, and the defect was precisely that a zero produced by *not looking*
+was presented as a zero produced by looking.
+
+**How do we know?** RED and GREEN are named in the table above, with the RED
+assertion written to fail on the false sentence rather than on the state field,
+so the failure output prints the claim being made about Nick's league rather
+than an enum mismatch. That ordering is deliberate and is the reason the test is
+worth having.
+
+**Is it pointed anywhere else?** One place, named and not touched:
+`trade-engine.js:1843` holds `catch { self = null; }`, the same family, and it
+consumes this function. It belongs to another thread. The contract it was
+waiting on now exists on this side — the enum, with a reason sentence true of
+the state it names — so the fix there is no longer blocked on this one.
+
+**How does it unify?** Same rule as the rest of the branch, on the read that
+speaks most directly to Nick: the page told him a fact about his league that was
+really a fact about this machine. "Nobody has collected this" and "you have
+none" are different sentences, and only one of them was true.

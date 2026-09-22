@@ -212,18 +212,42 @@ anything true when it cannot read.
 
 ### RED -> GREEN
 
-| | commit | result |
-|---|---|---|
-| RED | `d3e0260` | 24 tests, 23 pass, **1 fail**, at `:440` — the assertion naming the collision, not a neighbour |
-| GREEN | `73794cf` | 25 tests, **25 pass**, 0 fail |
+| | commit (#100) | subject | result |
+|---|---|---|---|
+| RED | `0ce791ff` | test: RED — the cache fingerprint gives two different absences one word | 28 tests, 27 pass, **1 fail** |
+| GREEN | `d42282ff` | fix: the cache fingerprint names which absence it is | 29 tests, **29 pass**, 0 fail |
+
+The failing assertion at RED, in full rather than by line number, because a line
+number moves with the tree and this sentence does not:
+
+```
+not ok 14 - signals: the key says WHICH absence — a table that is gone is not a table that will not read
+  location: 'test/manager-data-pipeline.test.js:537:1'
+  error:    'these are two different states, and one word for both means the cache
+             entry built while the table was unreadable is served as the entry for
+             a league that never built one'
+  expected: 'ms:absent|id:4:2000-01-01 00:00:00|mp:0:|chat:none'
+  actual:   'ms:absent|id:4:2000-01-01 00:00:00|mp:0:|chat:none'
+  operator: 'notStrictEqual'
+```
+
+**Both rows were re-measured on 2026-09-22 after this branch was rebased onto
+main `f620a120`, and both counts moved** — RED read 24 / 23 / 1 and GREEN 25 / 25
+before the rebase, against shas (`d3e0260`, `73794cf`) that the rebase has since
+rewritten and that are no longer reachable from this branch. Nothing in this
+diff changed. Main's own additions to `test/manager-data-pipeline.test.js`
+arrived with the rebase and are counted now. A sha rewritten by a rebase takes
+its figures with it, which is the same rule this section already states below,
+applied to itself a second time.
 
 **This table said 25 tests, 23 pass, 2 fail at `:440` and `:493` until
 2026-09-22, and that was wrong in a way worth recording rather than quietly
 editing.** The figure itself was never invented — re-run today, GREEN's test
 file against RED's source gives exactly 25 tests, 23 pass, 2 fail, and `:493`
 is the chat-half assertion at its GREEN line number. But that pair is a
-combination no commit represents. It was labelled `d3e0260`, and `d3e0260`
-holds 24 tests and one failure. Found by the chat-sync thread sampling this
+combination no commit represents. It was labelled `d3e0260` — now `0ce791ff` after the
+rebase — and that commit holds one failure, among 24 tests before the rebase and
+28 after it. Found by the chat-sync thread sampling this
 branch; the command it disagreed with is the one that settles it, and it did.
 
 This is the same error the whole branch exists to stop, turned on its own
@@ -234,10 +258,10 @@ file's own RED row.
 
 **The substantive half, which the numbers were hiding.** The chat-half test
 (`'the chat half of the key says WHICH absence as well'`) does not exist at
-`d3e0260`. It arrived with GREEN, so that half of the fix never had a committed
+`0ce791ff`. It arrived with GREEN, so that half of the fix never had a committed
 RED. That is a real gap in the TDD record and history cannot be rewritten to
 close it. What can be established is whether it *would* have been red, so that
-was measured rather than asserted: GREEN's test file run against `d3e0260`'s
+was measured rather than asserted: GREEN's test file run against `0ce791ff`'s
 source fails that test. The behaviour was genuinely absent at RED; only the
 commit boundary is wrong, not the claim that the test discriminates.
 
@@ -299,10 +323,11 @@ one measured claim in this file is the RED/GREEN table above, and it is now
 corrected to what the commits actually produce rather than to what a neighbouring
 tree produced.
 
-**How do we know?** RED `d3e0260`, 24 tests with the one failure at `:440`;
-GREEN `73794cf`, 25 of 25. Both re-run on 2026-09-22 in a detached worktree at
-those exact commits rather than quoted from when they were written, which is how
-the mislabelled row was caught. The chat half's missing RED is established by
+**How do we know?** RED `0ce791ff`, 28 tests with one failure — the assertion is
+quoted in full above; GREEN `d42282ff`, 29 of 29. Both re-run on 2026-09-22 in a
+detached worktree at those exact commits, and re-run again after the rebase onto
+`f620a120` rather than carried across it, which is how both the mislabelled row
+and the rebase's shift in the counts were caught. The chat half's missing RED is established by
 running GREEN's test file against RED's source, stated above as the measurement
 it is.
 

@@ -262,19 +262,50 @@ notice. This is the half that would have survived a review.
 
 ### RED -> GREEN
 
-| | commit | result |
-|---|---|---|
-| RED | `6043bfa` | 29 tests, 27 pass, **2 fail** |
-| GREEN | `5f0da99` | valuation-map + trade-tactics + manager-data-pipeline, **86 pass**, 0 fail |
+| | commit (#100) | subject | result on the rebased tree |
+|---|---|---|---|
+| RED | `7ec04548` | test: RED — selfRead tells Nick his league has no transaction history | 49 tests, 47 pass, **2 fail** |
+| — | `bdb97355` | fix: selfRead says which of three things happened to the transaction read | 114 tests, 112 pass, **2 fail** — still red, see below |
+| GREEN | `f7977515` | fix: GREEN — the transactions accessor says "would not read", instead of throwing | 116 tests, **116 pass**, 0 fail |
 
-The RED assertions are ordered so the failure prints the sentence itself rather
-than only a missing field:
+**The GREEN moved, and that is the finding, not a bookkeeping fix.** Before this
+branch was rebased onto main `f620a120` this pair was `6043bfa` → `5f0da99`
+(now `7ec04548` → `bdb97355`), 29 / 27 / 2 then 86 pass, and it closed at the
+second commit. Re-measured after the rebase, `bdb97355` does not close it. The
+rebase brought in main's `transactionsCollected`, which reads `last_seen_at`
+with no guard, so G5e2 now throws out of the accessor before `selfRead`'s own
+answer is ever reached:
 
 ```
-not ok 25 - G5e2: "no captured transactions" is a claim about the league
-  actual: 'nothing the league can see: no captured transactions for this league and no chat corpus'
-  operator: doesNotMatch
+not ok 29 - G5e2: "no captured transactions" is a claim about the league, not about a read that failed
+  location: 'test/valuation-map.test.js:784:1'
+  error:    'no such column: last_seen_at'
+  code:     'ERR_SQLITE_ERROR'
+  stack:    rows (server/db/index.js:241)
+            transactionsCollected (server/services/manager-signals.js:585)
+            selfRead (server/services/counterparty-pricing.js:1049)
+
+not ok 30 - G5e3: an offer history that could not be read is not an empty offer history
+  location: 'test/valuation-map.test.js:821:1'
+  error:    Expected values to be strictly equal:
+            + actual - expected
+            + undefined
+            - 'read'
+  operator: 'strictEqual'
 ```
+
+So the defect had two layers and only one of them was visible from the old base.
+`bdb97355` fixes `selfRead`; the accessor underneath it is fixed two commits
+later by `92e77d9f` (RED) and `f7977515` (GREEN), which were written for exactly
+that throw. On this base the pair is `7ec04548` → `f7977515`, and `bdb97355` is
+an intermediate that is red on its own. Nothing was reordered to make the record
+look tidier: the commits stand as written and the table says which one actually
+closes it.
+
+The RED assertion for G5e3 still prints the sentence itself rather than only a
+missing field, which is what it was ordered for. G5e2 no longer gets that far —
+its failure is now the throw above, which is a stronger RED than the one it was
+written with, and the reason is stated rather than smoothed over.
 
 ### What G5e was measuring
 

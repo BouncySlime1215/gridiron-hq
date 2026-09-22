@@ -227,6 +227,21 @@ function playerHistory(season, week, playerId, playerName, limit = 12) {
     const row = byStamp.get(key) ?? { season: item.season, week: item.week, values: {} };
     Object.assign(row.values, numericObject(parse(item.stats), `ngs_${item.kind}_`)); byStamp.set(key, row);
   }
+  // Route-tree and coverage-shell splits (nfl_route_splits, migration 069).
+  // optionalRows because the table arrives by migration rather than with the
+  // schema, so a database that has not migrated has no table. Week 0 is the
+  // season aggregate, not a week: including it would invent a week-0
+  // observation for every player and fold a whole season's totals into the
+  // rolling weekly means, which is why nfl_ngs's own sync drops week 0
+  // (nfl-advanced.js:111).
+  for (const item of optionalRows(`SELECT season,week,kind,stats FROM nfl_route_splits
+    WHERE player_id=? AND week>0 AND season>=? AND (season<? OR (season=? AND week<?))
+    ORDER BY season DESC,week DESC`,
+  playerId, TRUSTED_HISTORY_START, season, season, week)) {
+    const key = `${item.season}|${item.week}`;
+    const row = byStamp.get(key) ?? { season: item.season, week: item.week, values: {} };
+    Object.assign(row.values, numericObject(parse(item.stats), 'route_')); byStamp.set(key, row);
+  }
   if (playerName) for (const item of rows(`SELECT season,week,kind,stats FROM nfl_pfr_adv
     WHERE player_name=? AND season>=? AND (season<? OR (season=? AND week<?)) ORDER BY season DESC,week DESC`,
   playerName, TRUSTED_HISTORY_START, season, season, week)) {
@@ -288,7 +303,7 @@ export function freezePlayerFeatureVector(season, week, playerId, options = {}) 
   if (existing) return { existing: true, ...existing, vector: parse(existing.vector_json) };
   const built = buildPlayerFeatureVector(season, week, playerId, options);
   if (built.error) return built;
-  register('player', 'player+ngs+pfr+pff', built.vector);
+  register('player', 'player+ngs+pfr+pff+routes', built.vector);
   run(`INSERT INTO nfl_player_feature_vectors
     (season,week,player_id,player_name,position,team,version,cutoff,evidence_hash,feature_count,
      coverage,vector_json,missing_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,

@@ -338,7 +338,24 @@ function buildRows(map, local) {
       c = { status: 'half_done',
         evidence: `wiring-map: table ${t.table} (created by ${t.created_by}) is read by no live surface` };
     } else if (localN === null) {
-      c = { status: 'unclassified', reason: `table ${t.table} is read by a live surface; no local DB row count available` };
+      // Absent from this container's migrated shell, and WHY matters. A
+      // migration-created table missing here means the shell is behind the
+      // migration list; it says nothing about production, where the migration
+      // has run. A table created at module import has no migration at all — it
+      // comes into existence as a side effect of importing the module that owns
+      // it, so it is absent in any database where that import has not happened,
+      // and that is a fact about the code rather than about this container.
+      // Not a phantom either way: the creator is production code, not a test
+      // fixture or a hand-run script, which is what PHANTOM_BUCKETS covers above.
+      const why = t.created_by === 'migration'
+        ? `created by a migration (${t.created_at_site || 'site unrecorded'}) that this container's `
+          + `dev shell has not applied, so the count is unreadable HERE and that is `
+          + `not evidence that it is absent in production`
+        : `no migration creates it: it is created at ${t.created_by} by `
+          + `${t.created_at_site || 'an unrecorded site'}, so it exists only in a database where `
+          + `that code has run, and its absence here is a property of the code rather than of this container`;
+      c = { status: 'unclassified',
+        reason: `table ${t.table} is read by a live surface but is not in the LOCAL database; ${why}` };
     } else if (localN > 0) {
       c = { status: 'wired', evidence: `wiring-map + LOCAL: table ${t.table} feeds a live surface, LOCAL rows ${localN}` };
     } else {

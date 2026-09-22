@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertPortAvailable } from './platform/port-guard.js';
-import { startLoopWatchdog, watchdogArmingMiddleware } from './platform/loop-watchdog.js';
+import { startLoopWatchdog, watchdogArmingMiddleware, armLoopWatchdog } from './platform/loop-watchdog.js';
 import { healthHandler } from './platform/health.js';
 
 const PORT = Number(process.env.API_PORT) || 5177;
@@ -72,7 +72,15 @@ seedIfEmpty();
 // The evidence daemon has a T-15m horizon. Other jobs retain their own stale
 // thresholds, so a five-minute scheduler tick does not make heavy ingestion run
 // more often; it simply lets due capture windows fire on time.
-startScheduler({ intervalMinutes: 5 });
+// `onBootComplete` arms the event-loop watchdog. It is the second half of a
+// fix whose first half is that the host's liveness probe no longer arms it:
+// fly.toml polls /api/health every 15 seconds, so that probe was arming the
+// watchdog in the middle of this boot pass and a pass that blocked the thread
+// past the threshold became SIGKILL, restart, same pass, forever. Arming from
+// here instead means the watchdog starts watching when the boot work is
+// actually over, with no request needed -- so an app nobody has visited yet is
+// still protected. See server/platform/loop-watchdog.js.
+startScheduler({ intervalMinutes: 5, onBootComplete: armLoopWatchdog });
 // Server-owned draft pick clock: survives reconnects and server restarts,
 // since it's driven by drafts.turn_deadline in SQLite rather than any client's
 // setTimeout. Without this, a draft only advanced past the clock while a

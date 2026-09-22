@@ -8,6 +8,15 @@
 > claimed**, and the model sits at **about 80% of the ceiling, not 98.9%**.
 > Revision history at the end. Do not quote the old figure; it has been cited
 > elsewhere and those citations need correcting.
+>
+> **The exact replacement figure is UNDER ADJUDICATION.** Two auditable
+> derivations are on the table and they differ in the denominator, not in the
+> conclusion: this document's (ceiling 0.3854-0.4012, model at **79-83%**) and
+> the audit's (ceiling 0.4548, model at **70.1%**). §2 sets out why the 0.4548
+> is the R² of an overfit predictor and should not be the denominator. **Until
+> that is ruled on, quote the range "between 70% and 80%" and note that the
+> headroom is large either way** — +0.067 to +0.136 R², against the +0.0037
+> v1 claimed. Nothing downstream turns on which end is right.
 
 Measured 2026-09-22, after four features from Nick's deep predictive set were
 tested and all four declined. This document asks how much room those features

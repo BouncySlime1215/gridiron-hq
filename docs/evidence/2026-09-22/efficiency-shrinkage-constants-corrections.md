@@ -136,6 +136,22 @@ the optimum.** Five of seven metrics pick the identical `k` on either half
 literal — is not an artefact of choosing on the test set. What is an artefact
 is the **size of the margin** quoted at the winner.
 
+**That split is the textbook signature of the bias, and it is worth naming
+because it tells you which numbers to distrust in any study of this shape.** An
+argmin is a comparatively robust statistic: it only needs the surface to have
+its low point in the right place. The *value at* the argmin is not, because it
+is the minimum of a noisy surface, and the minimum of noise is biased low. So a
+grid search reports a trustworthy location and an untrustworthy margin, every
+time, and reporting them with equal confidence — which is what parts 1 and 2 did
+— is the error.
+
+**It also makes `catch_rate` a considerably stronger result than it looked as
+one row in a table of seven.** It did not merely survive; it survived the test
+that killed the other six, in both directions, with both intervals clear of
+zero. A receiver's own catch rate over a half-season carries real information
+about his catch rate over the rest of it, and that is now the best-supported
+single claim in either document.
+
 ## 3. What part 2 has to withdraw
 
 Part 2 §1 published this, under the heading *"Do not generalise the touchdown

@@ -1837,9 +1837,28 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
   let timing = new Map();
   let climate = null;
   let self = null;
-  try { timing = timingRead(lg.id, { season: weekNow.season }); } catch { timing = new Map(); }
+  let timingFailure = null;
+  let climateFailure = null;
+  // vetoClimate's and timingRead's own "nobody has voted/proposed here" case
+  // is a RETURN, not a throw (vetoClimate's early return on an absent table
+  // is right there in its own source). Anything that reaches this catch is a
+  // real fault — a renamed column, a bad payload — and a bare catch used to
+  // convert it into the same shape as a genuinely empty league, so a DB fault
+  // and "nobody has voted here" read identically downstream. Named, logged,
+  // and carried onto tactics_absent below instead: a measurement must never
+  // fail the trade computation it feeds, but it must not fail silently either.
+  try { timing = timingRead(lg.id, { season: weekNow.season }); }
+  catch (error) {
+    timingFailure = `veto timing unavailable (${error.message})`;
+    console.error(`[trade-engine] league ${lg.id}: ${timingFailure}`);
+    timing = new Map();
+  }
   try { climate = vetoClimate(lg, { season: weekNow.season, priceOfPlayer: valueOfEspn }); }
-  catch { climate = null; }
+  catch (error) {
+    climateFailure = `veto climate unavailable (${error.message})`;
+    console.error(`[trade-engine] league ${lg.id}: ${climateFailure}`);
+    climate = null;
+  }
   try { self = selfRead(lg.id, { season: weekNow.season }); } catch { self = null; }
   const ownerNames = teams.map(t => t.owner).filter(Boolean);
   // Median points-per-1,000-of-price BY POSITION, over every rostered player in
@@ -1887,6 +1906,8 @@ function attachTactics(lg, shown, { deals, counterparties, weekNow, assets, team
       theirValuePct: d.their_value_pct, variants, postLoss, positionRate,
       otherManagerNames: ownerNames.filter(n => n !== d.partner),
     });
+    if (climateFailure) out.tactics_absent.push({ key: 'veto_climate', reason: climateFailure });
+    if (timingFailure) out.tactics_absent.push({ key: 'veto_timing', reason: timingFailure });
     d.tactics = out.tactics;
     d.tactics_absent = out.tactics_absent;
     // A stable identity for this idea, so a consumer can cite one and be checked

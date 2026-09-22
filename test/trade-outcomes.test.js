@@ -190,6 +190,22 @@ test('G7 a proposal with no readable parties is skipped with its reason, not wri
   assert.equal(outcomesFor(7, 2025).find(o => o.espn_tx_id === 'tx-noparties'), undefined);
 });
 
+test('G7 a proposal whose items cannot be parsed says so, not that it has no counterparty', () => {
+  // The parse used to sit in a catch that defaulted to [], so a corrupt
+  // items_json was reported as "names no counterparty in its items": a sentence
+  // about the deal, produced by a read that failed. Which absence it is matters,
+  // because one is fixed in the collector and the other is not a deal at all.
+  rawRow({ tx_id: 'tx-badjson', type: 'TRADE_PROPOSAL', team_id: 1,
+    proposed_at: '2025-10-05T13:00:00Z', items_json: '[{"fromTeamId": 1,' });
+  const r = settleObservedOutcomes(7, 2025);
+  const skip = r.skips.find(s => s.tx_id === 'tx-badjson');
+  assert.ok(skip, 'the unreadable proposal is skipped with a reason');
+  assert.match(skip.reason, /items_json is not valid JSON/);
+  assert.doesNotMatch(skip.reason, /no counterparty/,
+    'a read that failed must not be reported as a deal with one side');
+  assert.equal(outcomesFor(7, 2025).find(o => o.espn_tx_id === 'tx-badjson'), undefined);
+});
+
 test('G1 a proposal in another league or season is not settled into this one', () => {
   rawRow({ league_id: 8, tx_id: 'tx-otherleague', type: 'TRADE_PROPOSAL', team_id: 1,
     proposed_at: '2025-10-06T12:00:00Z' });
@@ -449,21 +465,37 @@ test('the unique index, not the writer, is what stops one ESPN trade becoming tw
 });
 
 /* ----------------- the slate recorder: what was sent AND what was not */
-
+// THE SHAPES BELOW ARE THE PRODUCERS' OWN, not shapes this file finds convenient.
+// An idea is what `findTrades` returns in `deals` (trade-engine.js:1688-1692 and
+// :1930): `id` is the engine's ideaKey, the other side is `partner_id`, and the
+// package is `i_give` / `i_get`. `counterparty` is the engine's read of the
+// manager (receptiveness, perception) and carries NO roster id. A proposal is
+// what `verifyProposals` passes (trade-proposals.js REQUIRED_PROPOSAL_FIELDS):
+// it cites `idea_ids`, an ARRAY, because one proposal may merge two ideas, and a
+// rejection is `{ proposal, violations }`.
+//
+// The first version of this section fed the recorder `{ idea_id }`,
+// `{ idea_id, reason }`, `give` / `get` and `counterparty.roster_id` — shapes no
+// producer in this repository emits. Every slate test passed, and on the real
+// route every sent idea would have been recorded as `considered_only` "not
+// selected", with an empty package and no counterparty.
 const idea = (id, o = {}) => ({
-  id, counterparty: { roster_id: '9' },
-  give: [{ player_id: 1 }], get: [{ player_id: 2 }],
+  id, partner_id: 9,
+  i_give: [{ id: 1, name: 'Give One', value: 10 }], i_get: [{ id: 2, name: 'Get Two', value: 12 }],
+  counterparty: { receptiveness: 1, perception_delta: null, counterparty_data: false },
   acceptance: { band: { low: 0.4, mid: 0.55, high: 0.7 }, basis: 'heuristic_anchored' },
   ...o,
 });
+const sent = (...ids) => ({ idea_ids: ids });
+const discarded = (ids, violations) => ({ proposal: { idea_ids: ids }, violations });
 
 test('slate: a run records what it sent AND what it considered and did not send', () => {
   const r = slateRecorder(11, 2025, {
     ideas: [idea('idea-a'), idea('idea-b'), idea('idea-c')],
     result: {
       source: 'model',
-      proposals: [{ idea_id: 'idea-a' }],
-      rejected: [{ idea_id: 'idea-b', reason: 'cited a player who is not in this league' }],
+      proposals: [sent('idea-a')],
+      rejected: [discarded(['idea-b'], ['names Other Player, who is in none of the ideas it cites'])],
     },
     modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
   });
@@ -475,11 +507,15 @@ test('slate: a run records what it sent AND what it considered and did not send'
   assert.equal(byIdea['idea-a'].source, 'app_proposed');
   assert.equal(byIdea['idea-a'].model_p_accept, 0.55);
   assert.equal(byIdea['idea-a'].model_basis, 'heuristic_anchored');
-  assert.equal(byIdea['idea-a'].counterparty_team_id, '9');
+  assert.equal(byIdea['idea-a'].counterparty_team_id, '9', 'the other side is the engine\'s partner_id');
+  assert.deepEqual(JSON.parse(byIdea['idea-a'].give_json).map(p => p.name), ['Give One'],
+    'the package is the engine\'s i_give, not an empty list');
+  assert.deepEqual(JSON.parse(byIdea['idea-a'].get_json).map(p => p.name), ['Get Two']);
 
   // The verifier's own words where it gave them.
   assert.equal(byIdea['idea-b'].source, 'considered_only');
-  assert.match(byIdea['idea-b'].not_proposed_reason, /not in this league/);
+  assert.match(byIdea['idea-b'].not_proposed_reason, /verifier/);
+  assert.match(byIdea['idea-b'].not_proposed_reason, /names Other Player, who is in none of the ideas it cites/);
   // And an honest sentence where it did not, rather than a reason invented for it.
   assert.match(byIdea['idea-c'].not_proposed_reason, /did not select it/);
   assert.match(byIdea['idea-c'].not_proposed_reason, /gave no reason of its own/);
@@ -487,11 +523,23 @@ test('slate: a run records what it sent AND what it considered and did not send'
   assert.equal(byIdea['idea-c'].model_p_accept, 0.55);
 });
 
+test('slate: one proposal that merges two ideas marks BOTH as sent', () => {
+  const r = slateRecorder(13, 2025, {
+    ideas: [idea('idea-m1'), idea('idea-m2'), idea('idea-m3')],
+    result: { source: 'model', proposals: [sent('idea-m1', 'idea-m2')], rejected: [] },
+    modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
+  });
+  assert.equal(r.proposed, 2, 'idea_ids is a list; reading only its first entry drops a sent idea');
+  assert.equal(r.considered, 1);
+  const bySource = outcomesFor(13, 2025).map(o => `${o.idea_id}:${o.source}`).sort();
+  assert.deepEqual(bySource, ['idea-m1:app_proposed', 'idea-m2:app_proposed', 'idea-m3:considered_only']);
+});
+
 test('slate: a cache hit records NOTHING, because no decision was made on that request', () => {
   const before = outcomesFor(11, 2025).length;
   const r = slateRecorder(11, 2025, {
     ideas: [idea('idea-d')],
-    result: { source: 'cache', proposals: [{ idea_id: 'idea-d' }], rejected: [] },
+    result: { source: 'cache', proposals: [sent('idea-d')], rejected: [] },
     modelVersion: 'trade-proposals-v1',
   });
   assert.equal(r.state, 'no_decision_made');
@@ -508,7 +556,7 @@ test('slate: a second fresh run over the same slate adds nothing', () => {
   const before = outcomesFor(11, 2025).length;
   const r = slateRecorder(11, 2025, {
     ideas: [idea('idea-a'), idea('idea-b'), idea('idea-c')],
-    result: { source: 'model', proposals: [{ idea_id: 'idea-a' }], rejected: [] },
+    result: { source: 'model', proposals: [sent('idea-a')], rejected: [] },
     modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
   });
   assert.equal(r.proposed, 0);
@@ -523,7 +571,7 @@ test('slate: the same idea may be proposed in one slate and dropped in another',
   // about the same package, which is exactly what a calibration wants to see.
   const r = slateRecorder(11, 2025, {
     ideas: [idea('idea-b')],
-    result: { source: 'model', proposals: [{ idea_id: 'idea-b' }], rejected: [] },
+    result: { source: 'model', proposals: [sent('idea-b')], rejected: [] },
     modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
   });
   assert.equal(r.proposed, 1, 'idea-b was considered_only before; as app_proposed it is a new fact');
@@ -534,7 +582,7 @@ test('slate: the same idea may be proposed in one slate and dropped in another',
 test('slate: an idea with no acceptance band is skipped, never written unscoreable', () => {
   const r = slateRecorder(11, 2025, {
     ideas: [idea('idea-noband', { acceptance: null })],
-    result: { source: 'model', proposals: [{ idea_id: 'idea-noband' }], rejected: [] },
+    result: { source: 'model', proposals: [sent('idea-noband')], rejected: [] },
     modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
   });
   assert.equal(r.proposed, 0);
@@ -543,13 +591,12 @@ test('slate: an idea with no acceptance band is skipped, never written unscoreab
 });
 
 test('slate: an idea whose counterparty cannot be read stores null, never a guessed team', () => {
-  // G7 on the app side. counterpartyOf reads four possible shapes off the engine's
-  // idea; when none of them is there the answer is "we do not know", and a made-up
-  // roster id would attach a real person to a deal they were never offered. Making
-  // it return a team id instead of null broke no test before this one (sweep row M23).
+  // G7 on the app side. When the engine's partner_id is missing the answer is
+  // "we do not know", and a made-up roster id would attach a real person to a
+  // deal they were never offered (sweep row M23).
   const r = slateRecorder(12, 2025, {
-    ideas: [idea('idea-nocp', { counterparty: null })],
-    result: { source: 'model', proposals: [{ idea_id: 'idea-nocp' }], rejected: [] },
+    ideas: [idea('idea-nocp', { partner_id: null })],
+    result: { source: 'model', proposals: [sent('idea-nocp')], rejected: [] },
     modelVersion: 'trade-proposals-v1', proposerTeamId: '1',
   });
   assert.equal(r.proposed, 1, 'the deal is still a real decision the model made');
@@ -557,4 +604,109 @@ test('slate: an idea whose counterparty cannot be read stores null, never a gues
   assert.equal(stored.counterparty_team_id, null,
     'an unknown counterparty is stored as unknown; a guess here prices a person on a '
     + 'negotiation that never involved them');
+});
+
+/* ------- the recorder against the REAL proposals pass, not a hand-typed result */
+
+// Built by the producers themselves: the band by trade-acceptance's own
+// acceptanceBand, the result by trade-proposals' own proposalsFor and its
+// verifier. Only the model's text is a fixture, because the model is the one
+// part that costs money. A shape drift in either producer fails here.
+const { acceptanceBand } = await import('../server/services/trade-acceptance.js');
+const { proposalsFor } = await import('../server/services/trade-proposals.js');
+
+const engineIdea = (id, partnerId, give, get) => ({
+  id, partner: `Owner ${partnerId}`, partner_id: partnerId,
+  i_give: [{ id: 100 + partnerId, name: give, value: 10 }],
+  i_get: [{ id: 200 + partnerId, name: get, value: 12 }],
+  me: { ppg_delta: 1.5 }, their_value_pct: 3, tactics: [],
+  counterparty: { receptiveness: 1, perception_delta: null, perception_shift: null,
+    perception_reasons: [], chat_msgs: 0, accept_rate: null, counterparty_data: false },
+  acceptance: acceptanceBand({
+    counterparty: { receptiveness: 1, perception_delta: null, counterparty_data: false },
+    edge: { passes: true } }),
+});
+const REAL_IDEAS = [
+  engineIdea('Alpha Give>Alpha Get', 2, 'Alpha Give', 'Alpha Get'),
+  engineIdea('Beta Give>Beta Get', 3, 'Beta Give', 'Beta Get'),
+  engineIdea('Gamma Give>Gamma Get', 4, 'Gamma Give', 'Gamma Get'),
+];
+const UNIVERSE = ['Alpha Give', 'Alpha Get', 'Beta Give', 'Beta Get', 'Gamma Give', 'Gamma Get', 'Other Player'];
+const proposalText = (ideaIds, give, get) => ({
+  idea_ids: ideaIds, package: { i_give: give, i_get: get },
+  why_they_say_yes: 'he is thin at the position', opener: 'hey, open to a swap?',
+  ask: 'the package as listed', fair: 'the package as listed', floor: 'the package as listed',
+  timing: { send: 'now', reason: 'before the waiver run' }, risk: 'an injury changes it',
+  data_used: 'the lineup gain',
+});
+
+test('slate: the real proposals pass is read as it is actually shaped', async () => {
+  const reply = JSON.stringify([
+    proposalText(['Alpha Give>Alpha Get'], ['Alpha Give'], ['Alpha Get']),
+    // Cites Beta and names a player in none of the ideas it cites: the verifier discards it.
+    proposalText(['Beta Give>Beta Get'], ['Beta Give'], ['Other Player']),
+  ]);
+  const result = await proposalsFor(21, { ideas: REAL_IDEAS, universe: UNIVERSE, call: async () => reply });
+  assert.equal(result.source, 'model', 'precondition: the model path ran');
+  assert.equal(result.proposals.length, 1, 'precondition: one proposal passed the verifier');
+  assert.equal(result.rejected.length, 1, 'precondition: one was discarded');
+
+  const r = slateRecorder(21, 2026, {
+    ideas: REAL_IDEAS, result, modelVersion: 'trade-proposals-v1', proposerTeamId: '1' });
+  assert.equal(r.state, 'recorded');
+  assert.equal(r.proposed, 1, 'the one proposal the verifier passed is app_proposed');
+  assert.equal(r.considered, 2);
+
+  const byIdea = Object.fromEntries(outcomesFor(21, 2026).map(o => [o.idea_id, o]));
+  const a = byIdea['Alpha Give>Alpha Get'];
+  assert.equal(a.source, 'app_proposed');
+  assert.equal(a.counterparty_team_id, '2');
+  assert.equal(a.model_p_accept, REAL_IDEAS[0].acceptance.band.mid);
+  assert.equal(a.model_basis, REAL_IDEAS[0].acceptance.basis);
+  assert.deepEqual(JSON.parse(a.give_json).map(p => p.name), ['Alpha Give']);
+
+  const b = byIdea['Beta Give>Beta Get'];
+  assert.equal(b.source, 'considered_only');
+  assert.match(b.not_proposed_reason, /names Other Player, who is in none of the ideas it cites/,
+    'the verifier\'s own violation, carried into the ledger');
+
+  assert.match(byIdea['Gamma Give>Gamma Get'].not_proposed_reason, /did not select it/);
+});
+
+test('slate: a run that made no selection records nothing and says which failure it was', async () => {
+  // A refused call (no key, budget gone) or an unreadable answer is not the model
+  // passing over every idea. Writing the slate as "not selected" would put a
+  // decision in the ledger that nobody made, weighted by how often the budget ran out.
+  const failed = await proposalsFor(22, { ideas: REAL_IDEAS, universe: UNIVERSE,
+    call: async () => { throw new Error('daily budget for this league is spent'); } });
+  assert.equal(failed.problem, 'call_failed', 'precondition: the refusal path ran');
+  const r1 = slateRecorder(22, 2026, {
+    ideas: REAL_IDEAS, result: failed, modelVersion: 'trade-proposals-v1', proposerTeamId: '1' });
+  assert.equal(r1.state, 'no_decision_made');
+  assert.match(r1.reason, /call_failed/);
+  assert.equal(outcomesFor(22, 2026).length, 0);
+
+  const unreadable = await proposalsFor(23, { ideas: REAL_IDEAS, universe: UNIVERSE,
+    call: async () => 'not json at all' });
+  assert.equal(unreadable.problem, 'unreadable', 'precondition: the unreadable path ran');
+  const r2 = slateRecorder(23, 2026, {
+    ideas: REAL_IDEAS, result: unreadable, modelVersion: 'trade-proposals-v1', proposerTeamId: '1' });
+  assert.equal(r2.state, 'no_decision_made');
+  assert.match(r2.reason, /unreadable/);
+  assert.equal(outcomesFor(23, 2026).length, 0);
+});
+
+test('slate: an all-rejected run still records what the verifier discarded, with its words', async () => {
+  // Every proposal failed verification, so nothing was sent — but the model DID
+  // choose, and the verifier said why each choice died. That is a decision.
+  const reply = JSON.stringify([proposalText(['Beta Give>Beta Get'], ['Beta Give'], ['Other Player'])]);
+  const allRejected = await proposalsFor(24, { ideas: REAL_IDEAS, universe: UNIVERSE, call: async () => reply });
+  assert.equal(allRejected.problem, 'all_rejected', 'precondition: the all-rejected path ran');
+  const r = slateRecorder(24, 2026, {
+    ideas: REAL_IDEAS, result: allRejected, modelVersion: 'trade-proposals-v1', proposerTeamId: '1' });
+  assert.equal(r.state, 'recorded');
+  assert.equal(r.proposed, 0);
+  assert.equal(r.considered, 3);
+  const b = outcomesFor(24, 2026).find(o => o.idea_id === 'Beta Give>Beta Get');
+  assert.match(b.not_proposed_reason, /names Other Player/);
 });

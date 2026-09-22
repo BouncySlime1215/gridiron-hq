@@ -90,7 +90,8 @@ const graded = (a?: Arm | GateWindow) => !!a?.direction && a.direction !== 'not_
 
 /**
  * Every graded window and arm, with the weeks it lost (points per disagreement below 0).
- * The past window always; this season's replay and served arms only once graded. The
+ * The past window always; this season's replay and served arms only once graded (a season
+ * not measured yet arrives as direction 'not_available', so it gets no group). The
  * served-vs-ESPN arm is the literal "start the highest projection": its losses are shown
  * beside the verdict's rule, not folded into it (prereg addendum 1 §3-4).
  */
@@ -98,7 +99,6 @@ function lostGroups(past: GateWindow, fwd: GateWindow): LostGroup[] {
   const groups: LostGroup[] = [
     { arm: 'past', label: 'Past seasons, against "start the higher average"', weeks: past.failing_weeks ?? [] },
   ];
-  if (fwd.status) return groups;
   if (graded(fwd)) {
     groups.push({ arm: 'replay', label: 'This season, today\'s model replayed, against the average', weeks: fwd.failing_weeks ?? [] });
   }

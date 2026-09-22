@@ -28,6 +28,10 @@
  * THE FIVE STATUSES, enforced by classify() and by --check:
  *   wired          reachable from a live surface AND reads a table with current rows
  *                  (LOCAL rows > 0), or is a live surface that needs no table.
+ *   wired-betting-only  the same, except every surface that reaches it is one of the
+ *                  three betting routes. Betting is out of scope, so this is real
+ *                  reach into something the product is not meant to be using, and it
+ *                  is counted apart from the fantasy `wired` total. See CONTRACT.md.
  *   half_done      code exists, but it reaches no live surface (or reaches one with
  *                  no data behind it that we can confirm) while still being imported
  *                  by non-test code — it is on its way somewhere and not there yet.
@@ -68,7 +72,59 @@ const OUT_DIR = (() => {
 const OUT_JSON = path.join(OUT_DIR, 'inventory.json');
 const OUT_MD = path.join(OUT_DIR, 'INVENTORY.md');
 
-const STATUSES = ['wired', 'half_done', 'dead', 'silently_broken', 'decoration'];
+const STATUSES = ['wired', 'wired-betting-only', 'half_done', 'dead', 'silently_broken', 'decoration'];
+
+/*
+ * `wired-betting-only`, per docs/inventory/CONTRACT.md. Reachable, and reachable
+ * ONLY through a betting surface. Betting is out of scope for this product, so
+ * such a row is genuinely served and served somewhere the product is not meant
+ * to be using, and counting it inside the fantasy `wired` total overstates how
+ * much of the product is connected.
+ *
+ * The test is ALL paths, never the first one found. The wiring map already
+ * records the complete set of surfaces that reach a module -- `route_families`,
+ * `jobs` and `pages` are enumerated sets, not a first hit -- so this reads that
+ * set rather than walking the graph again.
+ */
+const BETTING_FAMILIES = new Set(['/api/nfl-market', '/api/nfl-betting', '/api/betting']);
+
+/*
+ * The app root is NOT an entry point for this question. `server/index.js` mounts
+ * every route, the three betting ones included, so it reaches every reachable
+ * module in the repository and separates nothing. The map files it under
+ * `pages`, where it sits on 140+ modules; counting it as a non-betting entry
+ * point graded 13 of the 19 real betting-only rows straight back to `wired`.
+ *
+ * Excluded by name, deliberately. Everything else in that bucket is a real entry
+ * point and does disqualify: `client:` (App.tsx, main.tsx), `extension:`, and the
+ * 63 `migration:` surfaces. So does any job -- `nfl-weather-response.js` reaches
+ * betting route families only and stays `wired` because three scheduled jobs run
+ * it, which is reach that never touches a betting route.
+ */
+const APP_ROOT_SURFACE = 'boot:server/index.js';
+
+/*
+ * The three betting route files themselves. For a MODULE the grade asks what
+ * reaches it; for the ROUTE FILE that question is circular -- nfl-market.js is
+ * reached through nfl-market.js -- so the route row takes the grade by being one
+ * of the three. Only a route that would otherwise be `wired` moves: the grade is
+ * a refinement of reach, and a betting route no page calls is still `half_done`.
+ */
+const BETTING_ROUTE_FILES = new Set([
+  'server/routes/nfl-market.js', 'server/routes/nfl-betting.js', 'server/routes/betting-hub.js',
+]);
+
+function bettingOnly(wiring) {
+  const names = (a) => (a ?? []).map((x) => x.name);
+  const families = names(wiring?.route_families);
+  // The grade says what SERVES the row. A module no route reaches is not served
+  // through a betting route; it is not served through a route at all.
+  if (families.length === 0) return false;
+  if (families.some((f) => !BETTING_FAMILIES.has(f))) return false;
+  const otherEntry = [...names(wiring?.jobs), ...names(wiring?.pages)]
+    .filter((n) => n !== APP_ROOT_SURFACE);
+  return otherEntry.length === 0;
+}
 // A table can carry one status the five do not cover. A "phantom" table is named in SQL
 // and read by product code, but no migration and no schema file creates it — its only
 // CREATE TABLE statements live in a hand-run script or a test fixture, so it is absent
@@ -177,11 +233,22 @@ function classify({ modPath, wiring, findingsFor, tables, local }) {
   }
 
   // Reaches a live surface. Now the data question.
+  // Reachable only through a betting surface is its own grade, whatever the data
+  // question says: it is out-of-scope reach, and it leaves the fantasy total.
+  const betting = bettingOnly(wiring);
+  const served = betting
+    ? `every surface that reaches it is a betting route (${(wiring.route_families ?? []).map((f) => f.name).join(', ')})`
+    : null;
+  const WIRED = betting ? 'wired-betting-only' : 'wired';
+
   const read = tablesReadBy(modPath, tables);
   if (read.length === 0) {
     // A reachable module that reads no table is wired if it needs no data (a formatter,
     // a validator, a pure transform). We can defend "wired, no table dependency".
-    return { status: 'wired', evidence: `wiring-map: ${modPath} reaches a live surface and depends on no table` };
+    return { status: WIRED,
+      evidence: betting
+        ? `wiring-map: ${modPath} depends on no table, and ${served}`
+        : `wiring-map: ${modPath} reaches a live surface and depends on no table` };
   }
   if (!local.readable) {
     return { status: 'unclassified',
@@ -190,7 +257,10 @@ function classify({ modPath, wiring, findingsFor, tables, local }) {
   const backed = read.filter((t) => (local.counts.get(t) || 0) > 0);
   if (backed.length > 0) {
     const cells = backed.map((t) => `${t}=${local.counts.get(t)}`).join(', ');
-    return { status: 'wired', evidence: `wiring-map + LOCAL rows: ${modPath} reaches a live surface and reads ${cells} (LOCAL)` };
+    return { status: WIRED,
+      evidence: betting
+        ? `wiring-map + LOCAL rows: ${modPath} reads ${cells} (LOCAL), and ${served}`
+        : `wiring-map + LOCAL rows: ${modPath} reaches a live surface and reads ${cells} (LOCAL)` };
   }
   // Reachable, reads tables, all LOCAL-empty. Cannot prove wired (no current rows) and
   // cannot prove broken (production may have rows). This is the honest gap.
@@ -260,9 +330,11 @@ function buildRows(map, local) {
           + `${scriptOnly === 1 ? 'is' : 'are'} route-called-from-outside-the-app `
           + `(a script in this repository dials ${scriptOnly === 1 ? 'it' : 'them'} over HTTP)` };
     } else {
-      c = { status: 'wired',
+      const betting = BETTING_ROUTE_FILES.has(p);
+      c = { status: betting ? 'wired-betting-only' : 'wired',
         evidence: `wiring-map: ${p} registers ${routeCount} routes, ${pageCalled} called by a page`
-          + (scriptOnly ? ` and ${scriptOnly} dialled only by a script` : '') };
+          + (scriptOnly ? ` and ${scriptOnly} dialled only by a script` : '')
+          + (betting ? ' — a betting surface, out of scope, counted apart from the fantasy wired total' : '') };
     }
     push({ id: `route:${slug(name)}`, kind: 'route', name, path: p, owner_thread: null, ...c,
       note: `${routeCount} routes; ${pageCalled > 0 ? pageCalled : 0} page-called, ${scriptOnly} script-only, ${noCaller} with no caller` });
@@ -605,6 +677,7 @@ function renderMd(rows, meta) {
   L.push('|---|---|---|');
   const meanings = {
     wired: 'reachable from a live surface and reads a table with current rows (LOCAL)',
+    'wired-betting-only': 'reachable, and reachable only through nfl-market, nfl-betting or betting-hub — out of scope, counted apart from the fantasy wired total',
     half_done: 'code exists, reaches no live surface (or none with confirmable data)',
     dead: 'unreachable and imported by nothing but tests',
     silently_broken: 'reachable, returns success, reads or writes nothing real',
@@ -614,7 +687,7 @@ function renderMd(rows, meta) {
     unclassified: 'could not be defended statically; each row carries a reason',
   };
   const t = tally(rows);
-  for (const k of ['wired', 'half_done', 'silently_broken', 'decoration', 'referenced_but_never_created', 'dead', '(model, ungraded)', 'unclassified']) {
+  for (const k of ['wired', 'wired-betting-only', 'half_done', 'silently_broken', 'decoration', 'referenced_but_never_created', 'dead', '(model, ungraded)', 'unclassified']) {
     if (t[k]) L.push(`| ${k} | ${t[k]} | ${meanings[k]} |`);
   }
   L.push('');

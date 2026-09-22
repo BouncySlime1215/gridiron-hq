@@ -109,3 +109,40 @@ test('the grade is legal, and is not inside the fantasy wired total', () => {
     + 'not be counted inside the number a reader takes for the fantasy product');
   assert.equal(t['wired-betting-only'], 2);
 });
+
+/*
+ * Route FILES take the grade differently from modules. Asking what reaches
+ * `nfl-market.js` is circular -- it is reached through `nfl-market.js` -- so the
+ * route row qualifies by being one of the three, not by a reach test. Only a
+ * route that would otherwise be `wired` moves: a betting route no page calls is
+ * still `half_done`, because the grade refines reach and does not manufacture it.
+ *
+ * Asserted against the committed artifact rather than a synthetic wiring object,
+ * because the route branch reads the map's own route/finding counts and a
+ * hand-built stand-in for those would be asserting my own fixture. This is the
+ * row a reader actually gets.
+ */
+import fs from 'node:fs';
+
+const INVENTORY = JSON.parse(fs.readFileSync('docs/inventory/inventory.json', 'utf8'));
+const row = (id) => INVENTORY.rows.find((r) => r.id === id);
+
+test('the committed inventory grades the betting routes out of the fantasy total', () => {
+  assert.equal(row('route:betting-hub').status, 'wired-betting-only',
+    'betting-hub.js has a page caller, so it was counted as fantasy product');
+  for (const id of ['route:nfl-market', 'route:nfl-betting']) {
+    assert.equal(row(id).status, 'half_done',
+      `${id} reaches no page; the grade refines reach and must not manufacture it`);
+  }
+});
+
+test('the committed inventory carries the regraded modules and a separate count', () => {
+  assert.equal(row('pipeline:trial-statistics').status, 'wired-betting-only');
+  assert.equal(row('pipeline:nfl-weather-response').status, 'wired',
+    'betting route families only, but three scheduled jobs run it');
+  const t = tally(INVENTORY.rows);
+  assert.ok(t['wired-betting-only'] > 0, 'the grade must appear in the artifact');
+  assert.equal(t.wired + t['wired-betting-only'], 72,
+    'the 72 rows previously counted as wired must all still be accounted for; '
+    + 'this grade moves rows between buckets, it never drops one');
+});

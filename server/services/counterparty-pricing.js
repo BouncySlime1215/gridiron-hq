@@ -1044,16 +1044,33 @@ export function selfRead(leagueId, { season = null } = {}) {
     // collection. Served on the unavailable path too — a `null` here with no date
     // reads as "he has never offered anybody anything".
     transactions: null,
+    // On EVERY path, including the early return below, because a field that is
+    // only there when the read happened is a field a consumer cannot rely on.
+    // 'not_attempted' is the honest word for a league with no roster of Nick's:
+    // we never looked, which is not the same as looking and finding nothing.
+    tx_read_state: 'not_attempted',
   };
   const yr = season ?? lg.season ?? null;
   out.transactions = Object.freeze(transactionsCollected(leagueId, yr));
   if (me == null) return { ...out, reason: 'this league has no roster marked as Nick\'s' };
 
   let tx = [];
-  try {
-    tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json
-               FROM league_transactions_raw WHERE league_id = ? AND season = ?`, leagueId, yr);
-  } catch { tx = []; }
+  // `league_transactions_raw` is in no migration: scripts/collect-league-transactions.mjs
+  // creates it and nothing else does. On a database where that hand-run capture
+  // has never run the table is simply not there, which is why this read has to
+  // say which of three things happened rather than handing back [] for all of
+  // them. An empty list is indistinguishable from a real one by the time it
+  // reaches the counting below, so the state travels out with the answer.
+  if (!hasTable('league_transactions_raw')) out.tx_read_state = 'absent';
+  else {
+    try {
+      tx = rows(`SELECT tx_id, type, execution_type, team_id, related_tx_id, proposed_at, items_json
+                 FROM league_transactions_raw WHERE league_id = ? AND season = ?`, leagueId, yr);
+      out.tx_read_state = 'read';
+    } catch {
+      out.tx_read_state = 'unreadable';
+    }
+  }
 
   const partiesOf = t => {
     let items = [];
@@ -1136,7 +1153,17 @@ export function selfRead(leagueId, { season = null } = {}) {
   if (profiles.self) out.sources.push('profile');
   out.available = out.sources.length > 0;
   if (!out.available) {
-    out.reason = 'nothing the league can see: no captured transactions for this league and no chat corpus';
+    // Each sentence is true of exactly one state, and each points at a
+    // different thing to go and fix. The old one said "no captured
+    // transactions for this league" on all three, which is a claim about the
+    // league — false, and misdirecting, whenever the read is what failed.
+    out.reason = out.tx_read_state === 'absent'
+      ? 'nothing the league can see: the transaction capture has never run against this '
+        + 'database, so there is nothing to read, and there is no chat corpus'
+      : out.tx_read_state === 'unreadable'
+        ? 'nothing the league can see: the transactions table would not read, so whether he '
+          + 'has sent anything is unknown rather than none, and there is no chat corpus'
+        : 'nothing the league can see: no captured transactions for this league and no chat corpus';
   }
   return out;
 }

@@ -425,12 +425,37 @@ export function fitGradedAvailability(seasons, { minN = 30 } = {}) {
   const seasonList = seasons.filter(s => s !== CURRENT_SNAPSHOT_SEASON); // 2026 is in progress, not a full season
   const placeholders = seasonList.map(() => '?').join(',');
 
+  // Auditor §R19.6: fitting from `nfl_injuries` (the FINAL, upserted-in-place
+  // designation) while serving reads an AS-OF status through
+  // `nfl_feature_revisions` conditions the two on different populations. A
+  // player who was Questionable early in the week and deteriorated to Out by
+  // the final report is fit as Out (never played, drags Out's rate down and
+  // Questionable's up) but would be READ as Questionable by an early
+  // decision -- optimistic bias on exactly the bucket a decision leans on.
+  // `earliest` is each entity's FIRST recorded injury_report revision -- the
+  // earliest a decision could have known a status -- so fit and serve share
+  // one conditioning set. `entity` is `player:<gsisId>:<season>:<week>`;
+  // gsis_id is pulled out by position rather than re-parsed with a second
+  // query per row.
+  const earliest = `
+    WITH ranked AS (
+      SELECT entity, entity_season AS season, entity_week AS week,
+        json_extract(value_json, '$.report_status') AS status,
+        ROW_NUMBER() OVER (PARTITION BY entity ORDER BY observed_at ASC, published_at ASC) AS rn
+      FROM nfl_feature_revisions
+      WHERE feature = 'injury_report' AND entity_season IN (${placeholders})
+    )
+    SELECT substr(entity, 8, instr(substr(entity, 8), ':') - 1) AS gsis_id, season, week, status
+    FROM ranked WHERE rn = 1
+  `;
+
   const baseline = rows(`
     WITH active AS (
       SELECT DISTINCT player_id, season, week FROM player_week_usage
       WHERE (COALESCE(targets,0)+COALESCE(carries,0)+COALESCE(attempts,0)) > 0 AND season IN (${placeholders})
     ),
-    candidates AS (SELECT player_id, season, week+1 AS next_week FROM active)
+    candidates AS (SELECT player_id, season, week+1 AS next_week FROM active),
+    earliest_status AS (${earliest})
     SELECT
       COUNT(DISTINCT c.player_id || '|' || c.season || '|' || c.next_week) n,
       SUM(CASE WHEN pwu.player_id IS NOT NULL
@@ -438,22 +463,23 @@ export function fitGradedAvailability(seasons, { minN = 30 } = {}) {
         THEN 1 ELSE 0 END) played
     FROM candidates c
     JOIN players p ON p.id = c.player_id
-    LEFT JOIN nfl_injuries ni ON ni.gsis_id = p.gsis_id AND ni.season = c.season AND ni.week = c.next_week
+    LEFT JOIN earliest_status es ON es.gsis_id = p.gsis_id AND es.season = c.season AND es.week = c.next_week
     LEFT JOIN player_week_usage pwu ON pwu.player_id = c.player_id AND pwu.season = c.season AND pwu.week = c.next_week
-    WHERE ni.report_status IS NULL AND c.next_week <= 22
-  `, ...seasonList)[0];
+    WHERE es.status IS NULL AND c.next_week <= 22
+  `, ...seasonList, ...seasonList)[0];
   const baselineRate = baseline.n > 0 ? baseline.played / baseline.n : null;
 
   const bucketRows = rows(`
-    SELECT ni.report_status status, COUNT(*) n,
+    WITH earliest_status AS (${earliest})
+    SELECT es.status status, COUNT(*) n,
       SUM(CASE WHEN pwu.player_id IS NOT NULL
         AND (COALESCE(pwu.targets,0)+COALESCE(pwu.carries,0)+COALESCE(pwu.attempts,0)) > 0
         THEN 1 ELSE 0 END) played
-    FROM nfl_injuries ni
-    JOIN players p ON p.gsis_id = ni.gsis_id
-    LEFT JOIN player_week_usage pwu ON pwu.player_id = p.id AND pwu.season = ni.season AND pwu.week = ni.week
-    WHERE ni.report_status IS NOT NULL AND ni.season IN (${placeholders})
-    GROUP BY ni.report_status
+    FROM earliest_status es
+    JOIN players p ON p.gsis_id = es.gsis_id
+    LEFT JOIN player_week_usage pwu ON pwu.player_id = p.id AND pwu.season = es.season AND pwu.week = es.week
+    WHERE es.status IS NOT NULL
+    GROUP BY es.status
   `, ...seasonList);
 
   const buckets = {};

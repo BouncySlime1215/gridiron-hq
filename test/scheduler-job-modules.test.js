@@ -62,11 +62,11 @@ test('a run function defined in the scheduler resolves through its own import', 
 
 test('a statically imported run function resolves to the module it came from', () => {
   const jobs = build(`
-    import { refreshLines } from './mlb.js';
+    import { refreshLines } from './odds-api.js';
     export const JOBS = { nfl_lines: { run: refreshLines, tier: 'live', label: 'lines' } };
   `);
   const j = job(jobs, 'nfl_lines');
-  assert.equal(j.runModule, 'server/services/mlb.js');
+  assert.equal(j.runModule, 'server/services/odds-api.js');
   assert.equal(j.runVia, 'static-import');
 });
 
@@ -87,11 +87,11 @@ test('an import written inside the job entry still wins', () => {
       return other();
     }
     export const JOBS = {
-      direct: { run: () => import('./mlb.js').then(m => m.go()), tier: 'live', label: 'direct' },
+      direct: { run: () => import('./odds-api.js').then(m => m.go()), tier: 'live', label: 'direct' },
     };
   `);
   const j = job(jobs, 'direct');
-  assert.equal(j.runModule, 'server/services/mlb.js');
+  assert.equal(j.runModule, 'server/services/odds-api.js');
   assert.equal(j.runVia, 'inline-import');
 });
 
@@ -116,20 +116,23 @@ test('a run name that matches nothing stays null rather than guessing', () => {
 });
 
 test('the first import in a run function is the one taken, and it is named', () => {
-  // refreshMlbLogs destructures two names from one module; a body with two
-  // different modules is resolved to the first, and runImports carries both so
-  // the row can say so rather than implying there is only one.
+  // A run function whose body imports two different modules is resolved to the
+  // first, and runImports carries both so the row can say so rather than
+  // implying there is only one. (The example this was written from was
+  // refreshMlbLogs, which destructured two names from one module; MLB was
+  // removed from the product on 2026-09-22 and the fixture names a module that
+  // still exists, because resolution returns null for one that does not.)
   const jobs = build(`
     async function refreshTwo() {
-      const { a } = await import('./mlb.js');
+      const { a } = await import('./odds-api.js');
       const { b } = await import('./nflverse.js');
       return a() + b();
     }
     export const JOBS = { two: { run: refreshTwo, tier: 'heavy', label: 'two' } };
   `);
   const j = job(jobs, 'two');
-  assert.equal(j.runModule, 'server/services/mlb.js');
-  assert.deepEqual(j.runImports, ['server/services/mlb.js', 'server/services/nflverse.js']);
+  assert.equal(j.runModule, 'server/services/odds-api.js');
+  assert.deepEqual(j.runImports, ['server/services/odds-api.js', 'server/services/nflverse.js']);
 });
 
 test('a brace inside a string does not swallow the run function body', () => {
@@ -246,7 +249,11 @@ test('every job in the real scheduler resolves to something', async () => {
   const jobs = build(src);
   const unresolved = jobs.filter((j) => !j.runModule).map((j) => j.name);
   assert.equal(unresolved.length, 0, `unresolved: ${unresolved.join(', ')}`);
-  assert.ok(jobs.length >= 60, `expected the full registry, got ${jobs.length}`);
+  // 58 since MLB was removed from the product on 2026-09-22, which took five
+  // jobs (mlb_schedule, mlb_logs, mlb_boxscores, mlb_probables,
+  // mlb_tomorrow_picks) out of a registry of 63. The bound is a floor against
+  // the scan silently finding fewer than are there, not a target.
+  assert.ok(jobs.length >= 58, `expected the full registry, got ${jobs.length}`);
   assert.equal(job(jobs, 'espn_depth_chart').runModule, 'server/routes/nfldata.js');
   assert.equal(job(jobs, 'manager_archetypes').runModule, 'scripts/build-manager-archetypes.mjs');
   assert.equal(job(jobs, 'manager_signals').runModule, 'server/services/manager-signals.js');

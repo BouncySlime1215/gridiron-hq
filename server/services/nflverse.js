@@ -10,12 +10,29 @@
  * Players are joined on espn_id via nflverse's own crosswalk rather than by name —
  * the app already keys on espn_id, and name matching is what produced the duplicate
  * rows this codebase is still cleaning up.
+ *
+ * Data license: CC BY 4.0 (nflverse/nflverse-data, LICENSE.md on master:
+ * "Attribution 4.0 International"). Section 3(a)(1) asks for the creator, a link
+ * to the licence, and a note of any modification, so NFLVERSE_SOURCE carries all
+ * three and travels with the data on the API. The nflreadr package is MIT; no
+ * package code is copied or executed here.
  */
 import { db, rows, row, run } from '../db/index.js';
 import { findPlayerMatch, normalizePlayerName } from './player-identity.js';
 import { recordSync } from './scheduler.js';
 
 const RELEASE = 'https://github.com/nflverse/nflverse-data/releases/download';
+export const NFLVERSE_SOURCE = Object.freeze({
+  repo: 'nflverse/nflverse-data',
+  creator: 'nflverse',
+  release_url: RELEASE,
+  data_license: 'CC BY 4.0',
+  license_url: 'https://creativecommons.org/licenses/by/4.0/',
+  license_file: 'https://github.com/nflverse/nflverse-data/blob/master/LICENSE.md',
+  modified: true,
+  modification: 'Joined to ESPN player ids and aggregated into weekly, rolling and team-level features.',
+  code_copied: false
+});
 
 /** One player's real birth date / draft capital, by nflverse gsis_id. */
 export function nflversePlayerBio(gsisId) {

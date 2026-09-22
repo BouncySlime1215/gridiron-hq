@@ -180,12 +180,21 @@ export function saveTeams(lg, season, payload) {
  * politeness — the 2026-09-06/07 incident was a scheduled sweep using the same
  * espn_s2/SWID Nick's browser was drafting with, and this job reads the same
  * cookies from the same rows. See scheduler.js's liveDraftActive().
+ *
+ * A failure of the import or of liveDraftActive() itself is NOT "no draft" —
+ * scheduler.js's own liveDraftActive() already fails open, but only for the
+ * one case it names and justifies (a test harness with no `drafts` table).
+ * Anything else here (a real bug, a broken module) means the draft status is
+ * unknown, and unknown must read the same as "yes" to this gate: the whole
+ * reason it exists is to not guess wrong about Nick's own live cookies.
  */
 async function liveDraft() {
   try {
     const { liveDraftActive } = await import('./scheduler.js');
-    return liveDraftActive();
-  } catch { return false; }
+    return { active: !!liveDraftActive(), reason: null };
+  } catch (e) {
+    return { active: true, reason: `draft status unknown: ${String(e?.message ?? e).slice(0, 120)}` };
+  }
 }
 
 /**
@@ -198,8 +207,9 @@ export async function backfillLeagueHistory({
   leagueIds = null, seasons = null, force = false, paceMs = PACE_MS,
   checkLiveDraft = true, log = null,
 } = {}) {
-  if (checkLiveDraft && await liveDraft()) {
-    return { skipped: 'a league draft is in progress — ESPN is not touched with these cookies during one' };
+  const draft = checkLiveDraft ? await liveDraft() : { active: false, reason: null };
+  if (draft.active) {
+    return { skipped: draft.reason ?? 'a league draft is in progress — ESPN is not touched with these cookies during one' };
   }
   const leagues = historyLeagues(leagueIds);
   // `attempted` is what statusFromDetail() in scheduler.js measures `failed`

@@ -16,12 +16,23 @@ import { REAL_1PPR_ITEMS } from './fixtures/espn-scoring-items.js';
  * (cited per test) rather than invented.
  */
 
-function espnLeague({ ppr = 1, scoringItems = null, lineupSlotCounts = null, playoffTeamCount, keeperCount } = {}) {
+function espnLeague({
+  ppr = 1, scoringItems = null, lineupSlotCounts = null, playoffTeamCount, keeperCount,
+  acquisitionType, isUsingAcquisitionBudget, acquisitionBudget, tradeDeadlineDate
+} = {}) {
   const settings = {};
   if (scoringItems) settings.scoringSettings = { scoringItems };
   if (lineupSlotCounts) settings.rosterSettings = { lineupSlotCounts };
   if (playoffTeamCount != null) settings.scheduleSettings = { playoffTeamCount };
   if (keeperCount != null) settings.draftSettings = { keeperCount };
+  if (acquisitionType != null || isUsingAcquisitionBudget != null || acquisitionBudget != null) {
+    settings.acquisitionSettings = {
+      ...(acquisitionType != null && { acquisitionType }),
+      ...(isUsingAcquisitionBudget != null && { isUsingAcquisitionBudget }),
+      ...(acquisitionBudget != null && { acquisitionBudget })
+    };
+  }
+  if (tradeDeadlineDate != null) settings.tradeSettings = { deadlineDate: tradeDeadlineDate };
   return {
     platform: 'espn', ppr,
     roster_positions: lineupSlotCounts
@@ -168,10 +179,56 @@ test('ESPN redraft (keeperCount 0) is defaulted, not confirmed -- absence of the
 
 /* ------------------------------------------------------- waiver type / FAAB / trade deadline */
 
-test('ESPN never confirms waiver type, FAAB or trade deadline -- no known field mapping exists', () => {
+test('ESPN waiver type is confirmed from settings.acquisitionSettings.acquisitionType, a real field in ESPN\'s raw JSON (cwendt94/espn-api, thomaswildetech.com, 2026-09-22)', () => {
+  const report = verifyLeagueConfig(espnLeague({ scoringItems: REAL_1PPR_ITEMS, acquisitionType: 'WAIVERS_TRADITIONAL' }));
+  assert.equal(report.waiver_type.status, 'confirmed');
+  assert.equal(report.waiver_type.value, 'WAIVERS_TRADITIONAL');
+});
+
+test('ESPN waiver type is unavailable, not guessed, when acquisitionSettings is absent from the payload', () => {
   const report = verifyLeagueConfig(espnLeague({ scoringItems: REAL_1PPR_ITEMS }));
   assert.equal(report.waiver_type.status, 'unavailable');
+});
+
+test('ESPN FAAB budget is confirmed when the league actually uses an acquisition budget', () => {
+  const report = verifyLeagueConfig(espnLeague({
+    scoringItems: REAL_1PPR_ITEMS, isUsingAcquisitionBudget: true, acquisitionBudget: 150
+  }));
+  assert.equal(report.faab_budget.status, 'confirmed');
+  assert.equal(report.faab_budget.value, 150);
+});
+
+test('ESPN FAAB budget is confirmed-but-null when isUsingAcquisitionBudget is false, even though acquisitionBudget carries a stale default -- reading acquisitionBudget blindly would be wrong, not just missing', () => {
+  // A real captured ESPN payload (thomaswildetech.com) shows acquisitionType: WAIVERS_TRADITIONAL,
+  // isUsingAcquisitionBudget: false, AND acquisitionBudget: 100 all at once -- ESPN populates the
+  // budget field with a default even for a league that doesn't use it.
+  const report = verifyLeagueConfig(espnLeague({
+    scoringItems: REAL_1PPR_ITEMS, isUsingAcquisitionBudget: false, acquisitionBudget: 100
+  }));
+  assert.equal(report.faab_budget.status, 'confirmed');
+  assert.equal(report.faab_budget.value, null,
+    'acquisitionBudget must NOT be surfaced as the FAAB budget when the league does not use one');
+});
+
+test('ESPN FAAB budget is unavailable when acquisitionSettings is entirely absent', () => {
+  const report = verifyLeagueConfig(espnLeague({ scoringItems: REAL_1PPR_ITEMS }));
   assert.equal(report.faab_budget.status, 'unavailable');
+});
+
+test('ESPN trade deadline is confirmed from settings.tradeSettings.deadlineDate when a real deadline is set', () => {
+  const report = verifyLeagueConfig(espnLeague({ scoringItems: REAL_1PPR_ITEMS, tradeDeadlineDate: 1701417600000 }));
+  assert.equal(report.trade_deadline.status, 'confirmed');
+  assert.equal(report.trade_deadline.value, 1701417600000);
+});
+
+test('ESPN trade deadline is confirmed-null (not unavailable) when deadlineDate is 0 -- ESPN\'s own convention for "no deadline set"', () => {
+  const report = verifyLeagueConfig(espnLeague({ scoringItems: REAL_1PPR_ITEMS, tradeDeadlineDate: 0 }));
+  assert.equal(report.trade_deadline.status, 'confirmed');
+  assert.equal(report.trade_deadline.value, null);
+});
+
+test('ESPN trade deadline is unavailable when tradeSettings is absent entirely', () => {
+  const report = verifyLeagueConfig(espnLeague({ scoringItems: REAL_1PPR_ITEMS }));
   assert.equal(report.trade_deadline.status, 'unavailable');
 });
 

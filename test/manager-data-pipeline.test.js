@@ -557,6 +557,57 @@ test('signals: the key says WHICH absence — a table that is gone is not a tabl
   assert.equal(pricing.counterpartyDataKey(12), live, 'the table must come back exactly as it was');
 });
 
+/**
+ * The same rule on the other side of the same function. The chat DB's
+ * `negotiation_profiles` had the identical collision, and it is a separate
+ * fix because it is a separate connection: `hasTable` has to be asked of the
+ * chat handle, not of the app's.
+ */
+test('signals: the chat half of the key says WHICH absence as well', () => {
+  const live = pricing.counterpartyDataKey(11);
+  assert.ok(/\|np:\d+:/.test(live),
+    'league 11 must be the chat league with profiles built, or this pins nothing');
+
+  // openChatDb opens the file per call and closes it, so the fixture can be
+  // rewritten between calls and the next key reads the new state.
+  const withProfiles = (ddl, fn) => {
+    const c = new DatabaseSync(CHAT_PATH);
+    const sql = c.prepare(`SELECT sql FROM sqlite_master
+                           WHERE type = 'table' AND name = 'negotiation_profiles'`).get()?.sql;
+    assert.ok(sql, 'this test needs the fixture DDL to put back');
+    const saved = c.prepare('SELECT * FROM negotiation_profiles').all();
+    c.exec('DROP TABLE negotiation_profiles');
+    if (ddl) c.exec(ddl);
+    c.close();
+    try {
+      return fn();
+    } finally {
+      const back = new DatabaseSync(CHAT_PATH);
+      back.exec('DROP TABLE IF EXISTS negotiation_profiles');
+      back.exec(sql);
+      const cols = Object.keys(saved[0] ?? {});
+      if (cols.length) {
+        const ins = back.prepare(`INSERT INTO negotiation_profiles (${cols.join(', ')})
+                                  VALUES (${cols.map(() => '?').join(', ')})`);
+        for (const r of saved) ins.run(...cols.map(k => r[k]));
+      }
+      back.close();
+    }
+  };
+
+  const gone = withProfiles(null, () => pricing.counterpartyDataKey(11));
+  const unreadable = withProfiles('CREATE TABLE negotiation_profiles (name TEXT PRIMARY KEY)',
+    () => pricing.counterpartyDataKey(11));
+
+  assert.notEqual(gone, live, 'a profiles table that is not there must change the fingerprint');
+  assert.notEqual(unreadable, live, 'a profiles table that will not read must change the fingerprint');
+  assert.notEqual(unreadable, gone,
+    'a chat league whose profiles would not read must not share a cache entry with one that '
+    + 'has never had profiles built');
+
+  assert.equal(pricing.counterpartyDataKey(11), live, 'the fixture must come back exactly as it was');
+});
+
 test('signals: a chat league is never rebuilt without its chat DB (that would strip every chat read)', () => {
   const before = sigRows(11).length;
   const views = rows('SELECT COUNT(*) AS n FROM manager_player_view WHERE league_id = 11')[0].n;

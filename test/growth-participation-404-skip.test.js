@@ -51,8 +51,10 @@ for (const [team, opp] of [['BUF', 'MIA'], ['KC', 'DEN']]) {
 // Participation answers with whatever the phase sets; every other feed 503s so
 // nothing else in the cycle writes rows.
 let participation = { status: 404 };
+const participationUrls = [];
 globalThis.fetch = async url => {
   if (String(url).includes('/pbp_participation/')) {
+    participationUrls.push(String(url));
     if (participation.throws) throw new Error(participation.throws);
     return { ok: false, status: participation.status, text: async () => 'Not Found', body: null };
   }
@@ -65,6 +67,7 @@ const { ingestFormations } = await import('../server/services/nfl-formations.js'
 
 participation = { status: 404 };
 const unpublished = await runNflModelGrowthCycle({ season: SEASON, force: true });
+const unpublishedUrls = participationUrls.splice(0);
 const unpublishedRunId = rows('SELECT MAX(id) id FROM nfl_model_growth_runs')[0].id;
 participation = { status: 503 };
 const unavailable = await runNflModelGrowthCycle({ season: SEASON, force: true });
@@ -82,6 +85,14 @@ test('the cycle records the current-season participation 404 as a skip, not an e
   assert.equal(step.absence, 'not_published', 'which absence it is, as a field, not a sentence');
   assert.equal(step.http_status, 404);
   assert.equal(step.season, SEASON);
+});
+
+test('the cycle asks nflverse for its own season, once', () => {
+  // The skip rule is only right because the file requested is the season being
+  // played. Asking for season - 1 would download a published ~50 MB file on
+  // every download cycle and still be labelled with this season. Found as a
+  // surviving call-site mutant (C2) in the first mutation sweep.
+  assert.deepEqual(unpublishedUrls.map(url => url.split('/').pop()), [`pbp_participation_${SEASON}.csv`]);
 });
 
 test('cycleOutcome counts that 404 as a skip, not a failed download', () => {

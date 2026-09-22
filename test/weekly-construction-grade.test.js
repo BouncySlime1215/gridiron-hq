@@ -241,3 +241,11 @@ test('assertFitCutoff stops when a fit saw a season past its cutoff', () => {
   assert.throws(() => lib.assertFitCutoff([{ season: 2023 }, { season: 2025 }], 2024, 'fitS'), /cutoff/);
   assert.doesNotThrow(() => lib.assertFitCutoff([{ season: 2023 }, { season: 2024 }], 2024, 'fitS'));
 });
+
+test('assertContextCutoff: every fit that grades season S must end before S', () => {
+  assert.equal(lib.assertContextCutoff({ fitSThrough: 2024, fitEThrough: 2024 }, 2025), true);
+  assert.equal(lib.assertContextCutoff({ fitSThrough: 2025, fitEThrough: 2025 }, 2026), true);
+  assert.throws(() => lib.assertContextCutoff({ fitSThrough: 2025, fitEThrough: 2024 }, 2025), /cutoff/);
+  assert.throws(() => lib.assertContextCutoff({ fitSThrough: 2024, fitEThrough: 2025 }, 2025), /cutoff/);
+  assert.throws(() => lib.assertContextCutoff({ fitSThrough: 2024 }, 2025), /cutoff/);
+});

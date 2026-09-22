@@ -120,9 +120,19 @@ quoted anywhere. Run:
 
     node scripts/reach-grade.mjs server/services/<file>.js
 
-**First sweep, 2026-09-22.** Across the 319 tracked files in `server/services/`
-and `server/modeling/`: **233 `wired`, 55 `wired-betting-only`, 10
-`hand-run-script`, 21 `unreached`.**
+**First sweep, 2026-09-22. Quote this as a BRACKET, not a point.** Across the
+319 tracked files in `server/services/` and `server/modeling/`:
+
+> **220–233 `wired` · 55–68 `wired-betting-only` · 31 `unreached`
+> (10 `hand-run-script` + 21 unreached-in-code)**
+
+**The two ends are bounds, not alternatives.** The spread is the 13 files whose
+grade turns on how a `package.json` script entry point is classified (§2a), and
+it stays a bracket until all 13 are traced to the evidence bar there. The
+bracket, not either end, is what goes into the Phase A plan.
+
+The point figure the grader prints today, on the five-surface list and with
+script entry points counted as non-betting, is **233 / 55 / 10 / 21**.
 
 That is the five-surface list. On the three-surface list it was 237 / 51 / 10 /
 21; adding `wong.js` and `execution-slate.js` moved four files —
@@ -176,7 +186,67 @@ is *not* proposed as the rule — the scheduler genuinely runs jobs at boot and
 what it calls is genuinely reached — but the figure bounds the error, and two
 facts sharpen it: the edge that carries most of it is a one-function import,
 and `SCHEDULER_DISABLED=1` is set on the live app, so the jobs are not running
-there at all. **No grade has been changed on any of this.** So roughly one file in six that a
+there at all. **No grade has been changed on any of this.**
+
+*Correction, same day.* An earlier version of this paragraph said every fantasy
+path to `nfl-candidate-findings.js` runs through `scheduler.js`. **Twelve of the
+thirteen do; `routes/mlb.js` does not** — it reaches via
+`nfl-auto-picks.js <- model-intelligence.js <- routes/mlb.js`. That is MLB, not
+the fantasy product, so the conclusion is in fact stronger than the claim it
+replaces: with scheduler paths excluded, `nfl-candidate-findings.js` reaches the
+three betting routes and `/api/mlb`, **and no fantasy route at all.**
+
+## 2a. Scripts: a script's reach is what it writes (Auditor §R16)
+
+A route file's reach is its routes. **A script has no route, so its reach is
+what it writes**, and the grade follows the readers of those writes.
+
+**The header is quoted as INTENT and is explicitly not the criterion.** A script
+headed "the NFL audit" may write a table a fantasy surface reads, and a script
+that writes nothing cannot be betting-only however it describes itself.
+
+**The default is that a script is NOT betting.** A script counts as betting-only
+**only when every durable output has been traced and none is read by a fantasy
+surface**. Untraced output defaults to `wired`, because a false
+`wired-betting-only` silently removes a module from the Phase A plan's view,
+which is the more expensive error.
+
+Three sub-cases:
+
+1. **No durable output at all** — stdout does not count, because nothing reads
+   it. These go to a **third bucket, `no-surface-reach`**, reported separately
+   and **never folded into `wired-betting-only`.**
+2. **Output read only by another script** — follow it transitively. One hop is
+   not enough.
+3. **Output read by a fantasy surface** — `wired`, whatever the header says.
+
+**The evidence bar, per script, before any grade moves.** (a) the invocation
+path, `package.json` name to entry `file:line`; (b) every durable write
+enumerated with `file:line` — DB tables and filesystem paths only; (c) for each
+output, the reader at `file:line` and whether it sits on a fantasy surface,
+traced the way the route test traces; (d) an explicit "no durable writes"
+statement where that is true; (e) the header quoted as intent, marked not the
+criterion.
+
+### The six scripts behind the 13 disputed files
+
+| script | (a) invocation | (b) durable writes | (c) readers | verdict |
+|---|---|---|---|---|
+| `nfl-blind-audit.mjs` | `audit:nfl` → `:5` | `nfl-blind-audit.js` `:223` `:926` `:940` INSERT `nfl_blind_audit_runs` / `_weeks` / `_week_performance`, `:866` `_retries`, `:937` `:955` UPDATE `_runs` | `nfl-audit-overview.js`, `nfl-profitability.js`, `nfl-research-lab.js` — all `wired-betting-only`; and `nfl-candidate-findings.js:249` | **HELD** pending the joint ruling on `nfl-candidate-findings.js` |
+| `build-evidence-dataset.mjs` | `build:evidence-dataset` → `:18` | none in `data.sqlite`; files under `server/data/evidence-datasets` (`nfl-evidence-dataset.js:44`) | nothing in `server/` reads that directory except its writer | betting-only candidate, sub-case 1-adjacent |
+| `audit-passing-specialists.mjs` | `audit:nfl-passing-specialists` → `:1` | **(d) no durable writes.** Three lines; `passingSpecialistAudit()` to stdout | none possible | **`no-surface-reach`** |
+| `diagnose-passing-components.mjs` | `diagnose:nfl-passing` → `:2` | **(d) no durable writes.** `passingComponentDiagnostic(…, { useCache: false })` to stdout | none possible | **`no-surface-reach`** |
+| `run-news-event-impact.mjs` | `news:event-impact` → `:29` `:31` (dynamic, after `runMigrations`) | `nfl-news-events.js:83` `nfl_news_event_extraction_cache`, `:109` `nfl_news_events`, `:302` `:305` `:352` `:372` UPDATE `nfl_news_events`; `nfl-news-event-impact.js:324` `:325` `server/data/news-event-impact/{manifest,latest}.json` | `nfl-t60-packet.js:435` reads `nfl_news_events`; `nfl-research-lab.js:132` reads `latest.json` (`wired-betting-only`). `nfl-t60-packet.js` off the scheduler reaches the three betting routes and `/api/mlb`, **no fantasy route.** `trade-proposals.js:46` is a comment naming the cache table, not a query | betting-only candidate |
+| `build-role-scenario-lab.mjs` | `build:role-scenario-lab` → `:9` | files under `server/data/role-scenario-lab` (`role-scenario-lab.js:32`); header says read-only against `data.sqlite` | nothing in `server/` reads that directory except its writer | betting-only candidate, sub-case 1-adjacent |
+
+**Headers, as intent only, not the criterion:** "CLI for the content-addressed,
+week-at-a-time NFL audit" (`nfl-blind-audit.mjs:2`); "Build and freeze one
+evidence dataset from the quote tape (Package A)"
+(`build-evidence-dataset.mjs:3`); no header (`audit-passing-specialists.mjs`);
+no header (`diagnose-passing-components.mjs`); "CLI for Package E: typed
+news-event extraction, the impact/timing model, and the three negative
+controls" (`run-news-event-impact.mjs:3`); "Run and freeze one Package D
+role-scenario research artifact" (`build-role-scenario-lab.mjs:3`). So roughly one file in six that a
 first-path trace would have called `wired` is reachable only through a betting
 surface. That is the overstatement this grade was added to prevent, measured
 rather than asserted.

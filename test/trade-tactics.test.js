@@ -1008,3 +1008,53 @@ test('G5b a programming error in the timing query is NOT absorbed as an empty hi
       'the fixture is restored for every test after this one');
   }
 });
+
+/**
+ * Run `fn` with league_transactions_raw gone, then put it back exactly as it was.
+ *
+ * The DDL comes out of sqlite_master rather than being typed again here, because a
+ * hand-copied CREATE that drifts from the real one restores a DIFFERENT table and
+ * every test after it is measuring something else.
+ */
+function withoutRawTable(fn) {
+  const saved = rows(`SELECT * FROM league_transactions_raw`);
+  const ddl = rows(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
+    'league_transactions_raw')[0]?.sql;
+  assert.ok(ddl, 'the fixture table must exist before a test can remove it');
+  db.exec(`DROP TABLE league_transactions_raw`);
+  try {
+    return fn();
+  } finally {
+    db.exec(ddl);
+    for (const r of saved) {
+      const cols = Object.keys(r);
+      run(`INSERT OR REPLACE INTO league_transactions_raw (${cols.join(', ')})
+           VALUES (${cols.map(c => `@${c}`).join(', ')})`, r);
+    }
+    assert.equal(rows(`SELECT * FROM league_transactions_raw`).length, saved.length,
+      'the fixture is restored for every test after this one');
+  }
+}
+
+test('G5b vetoClimate says the store is absent, not that this league never vetoes', () => {
+  // The same bug as timingRead's and in the same commit, and it had no test: `n: 0`
+  // with an empty `observed` reads exactly like a league where nobody has ever
+  // voted a deal down. Replacing this branch with the plain climate broke nothing
+  // before this test existed (sweep row M29).
+  const absent = withoutRawTable(() => tactics.vetoClimate(LG, { season: SEASON }));
+  assert.equal(absent.read_state, 'source_table_absent');
+  assert.equal(absent.n, 0, 'the zero is still there; what changes is that it now says why');
+  assert.deepEqual(absent.observed, []);
+  assert.match(absent.reason, /never been created on this machine/,
+    'the empty result must arrive with the reason it is empty');
+  assert.match(absent.reason, /collect-league-transactions\.mjs/, 'and name what to run');
+  assert.match(absent.reason, /NOT a manager with no history/,
+    'and rule out the reading a consumer would otherwise reach for');
+
+  // AND THE CONTRAST IS THE POINT. With the table there, the same call says so —
+  // on every path, including the one where rows exist. Two states that need
+  // different fixes must not arrive looking identical.
+  const present = tactics.vetoClimate(LG, { season: SEASON });
+  assert.equal(present.read_state, 'present');
+  assert.equal(present.reason, null);
+});

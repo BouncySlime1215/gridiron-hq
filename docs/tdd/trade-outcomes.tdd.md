@@ -178,7 +178,56 @@ All in `test/trade-outcomes.test.js` unless named otherwise.
   them yet. ESPN's vocabulary as collected has no counter row, so a writer for it
   would be a writer against a shape nobody has seen.
 
-## 7. The check
+## 7. The second pass: 33 mutations, and the eight tests that were not there
+
+RED before GREEN proves the tests were written first. It does not prove that any
+one of them discriminates, and this unit's RED is weaker than it looks: all
+fifteen tests in `cb43b20` failed on the SAME cause, `ERR_MODULE_NOT_FOUND` for a
+module that did not exist yet. Fifteen tests asserting nothing at all would have
+produced exactly that RED.
+
+So the second pass is a mutation sweep, committed and re-runnable:
+
+```
+node docs/tdd/sweeps/trade-outcomes.mutations.mjs
+```
+
+Each row breaks ONE contract in the producer — a CHECK, an index, a guard, a gate
+— runs the suites that claim to hold it, reverts, and verifies the revert. It
+prints `git write-tree` either side and refuses its own result if the tree moved.
+
+**First run: 19 killed, 8 SURVIVED.** A survivor is the finding. All eight were
+test defects rather than production defects, in three shapes:
+
+| shape | rows | what it was |
+|---|---|---|
+| passed for the wrong reason | M7 | the status-vocabulary test inserted a row that was also missing its `espn_tx_id`, so a DIFFERENT CHECK refused it. Strip the status CHECK entirely and the test still passed. `/CHECK\|constraint/` cannot tell one constraint from another, so the discrimination has to come from the row: valid in every respect except the rule under test. |
+| mutual-masking pair | M6+M19, M4+M31 | the rule is held in both the table and the service. Remove either alone and the other still refuses the row; an assertion that accepts either refusal passes. Neither layer was pinned. A single-layer mutation **cannot** find this — only the paired row can. |
+| no test at all | M1, M3, M9, M23, M29 | two CHECKs nobody exercised, a unique index masked by the writer's own SELECT, a `counterpartyOf` that could return a guessed team id, and `vetoClimate`'s absence branch — written in the same commit as the bug class it exists to kill, with nothing behind it. |
+
+**The fixes.** Eight tests added or repaired: the vocabulary row made otherwise
+valid; direct-SQL tests for the four unexercised CHECKs and for the unique index,
+written through `run` rather than a writer because a CHECK exists for the writer
+that has not been written yet; the two service refusals pinned to their own error
+messages (`/^trade-outcomes: …/`) so the service layer is measured independently of
+the table; a slate test for the unreadable counterparty; and the `vetoClimate`
+absence test.
+
+**The one production defect, found by writing that last test.** `read_state` was
+set on the absent path and on the empty path and NOT on the populated one, so a
+consumer checking `read_state === 'present'` got `undefined` on the one path where
+the data is really there. A field that goes missing only when everything is fine is
+worse than no field. Fixed at the populated return.
+
+**Second run: 33 rows, 32 killed, 0 survivors, control clean.**
+
+Two corrections this pass forces on what is written above. §5's claim that the
+contract is asserted against the table's own CHECKs was true for three of seven;
+it is true for all of them now. And the gate table's "how it is shown" column
+described what each test intends, which is not the same as what it discriminates —
+the sweep is the only part of this file that measures the difference.
+
+## 8. The check
 
 `npm run check` — typecheck, lint, the whole suite, build, `start:smoke`.
 

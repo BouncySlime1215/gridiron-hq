@@ -136,3 +136,45 @@ test('a fit in another epoch trained past the cutoff is not an orphan either', (
     'the cutoff excluded it under every epoch; the roll changed nothing for this week');
   assert.equal(set.orphaned_fit, undefined);
 });
+
+/* ------------------------------------------------------------------ why frozen */
+
+/**
+ * `source: 'frozen'` alone cannot tell three different situations apart, and the
+ * live database is in one of them: production's active epoch holds zero promoted
+ * fits, so every request is served the 2023 constants and `weight_source` reads
+ * exactly as it would on a legitimate first boot. Nothing says the weekly learning
+ * loop has never promoted anything.
+ *
+ * `source` stays 'frozen' -- model-integrity.test.js:618 pins that contract and it
+ * is a real one. The account goes in `frozen_reason`, so a surface can carry the
+ * sentence without any consumer having to re-learn the source vocabulary.
+ */
+test('a cold start says no fit has ever been promoted, and names the epoch', () => {
+  reset();
+  const set = S.activeWeeklyWeightSet({ season: 2026, week: 2 });
+  assert.equal(set.source, 'frozen');
+  assert.match(set.frozen_reason ?? '', /never been promoted/i,
+    'the surface cannot tell this from a legitimate first boot');
+  assert.match(set.frozen_reason ?? '', /epoch 1\b/,
+    'the reason must name the epoch it looked in, or it cannot be acted on');
+});
+
+test('a cutoff-only exclusion says so, and is not confused with never having promoted', () => {
+  reset();
+  promote(1, perPosition(LIVE), [2026, 9]);   // promoted, but trained through wk 9
+  const set = S.activeWeeklyWeightSet({ season: 2026, week: 2 });
+  assert.equal(set.source, 'frozen');
+  assert.doesNotMatch(set.frozen_reason ?? '', /never been promoted/i,
+    'a fit WAS promoted; saying otherwise sends anyone debugging this to the wrong place');
+  assert.match(set.frozen_reason ?? '', /cutoff|trained through/i);
+});
+
+test('the orphan case reports the orphan, not one of the other two reasons', () => {
+  reset();
+  promote(1);
+  rollEpoch();
+  const set = S.activeWeeklyWeightSet({ season: 2026, week: 2 });
+  assert.ok(set.orphaned_fit, 'still the orphan case');
+  assert.doesNotMatch(set.frozen_reason ?? '', /never been promoted/i);
+});

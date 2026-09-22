@@ -12,7 +12,7 @@
  * Usage: GRIDIRON_DB_PATH=... node scripts/study-opportunity-volume.mjs
  */
 import {
-  buildSeasonRows, fitOpportunityModel, predictOpportunity,
+  buildOpportunityRows, fitOpportunityModel, predictOpportunity,
   fitVacatedCorrection, applyVacatedCorrection, BASELINES
 } from '../server/services/opportunity-model.js';
 
@@ -83,7 +83,7 @@ const pct = (a, b) => `${(100 * (a - b) / b).toFixed(2)}%`;
 const rowCache = new Map();
 const seasonRows = (season, positions, stat) => {
   const ck = `${season}|${positions.join('/')}|${stat}`;
-  if (!rowCache.has(ck)) rowCache.set(ck, buildSeasonRows(season, { positions, stat }));
+  if (!rowCache.has(ck)) rowCache.set(ck, buildOpportunityRows(season, { positions, stat }));
   return rowCache.get(ck);
 };
 

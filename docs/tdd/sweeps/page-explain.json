@@ -27,9 +27,9 @@
   "id": "P4",
   "file": "server/routes/betting-hub.js",
   "tests": "test/page-explain.test.js",
-  "old": "    if (!route) return res.status(400).json({ error: 'route is required' });\n",
-  "new": "",
-  "desc": "a request with no route is accepted and explained anyway, so the assistant describes a page nobody named (FOREIGN FILE \u2014 see the evidence file)"
+  "old": "    if (!route) return res.status(400).json({ error: 'route is required' });",
+  "new": "    if (!route) return res.status(200).json({ error: 'route is required' });",
+  "desc": "the no-route guard still returns early but with a 200, so a request with no route is answered as if it were fine \u2014 chosen over deleting the guard, which lets the request reach the model call and hang the runner rather than fail it (FOREIGN FILE)"
  },
  {
   "id": "P5",

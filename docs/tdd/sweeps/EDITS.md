@@ -2215,7 +2215,7 @@ after:
 (the line is removed)
 ```
 
-### P4 — a request with no route is accepted and explained anyway, so the assistant describes a page nobody named (FOREIGN FILE — see the evidence file)
+### P4 — the no-route guard still returns early but with a 200, so a request with no route is answered as if it were fine — chosen over deleting the guard, which lets the request reach the model call and hang the runner rather than fail it (FOREIGN FILE)
 
 `server/routes/betting-hub.js`, suites `test/page-explain.test.js`
 
@@ -2225,7 +2225,7 @@ before:
 ```
 after:
 ```
-(the line is removed)
+    if (!route) return res.status(200).json({ error: 'route is required' });
 ```
 
 ### P5 — the loop echoes the model's own tool arguments back as the tool result instead of running the lookup, so the answer is grounded in what the model asked for rather than in the database

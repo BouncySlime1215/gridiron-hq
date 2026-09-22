@@ -85,9 +85,17 @@ def failures(text):
             continue
         lines.append(line)
         titles.append(line.split(' - ', 1)[1] if ' - ' in line else line)
+        # Scan to the end of this test's YAML block, not a fixed number of
+        # lines: a failed deepEqual prints the whole diff between `not ok` and
+        # the stack, which for a wide object is hundreds of lines. The first
+        # parenthesised file:// frame under `stack:` is the throw site; the
+        # unparenthesised `location:` field is the test's declaration line, and
+        # the regex's required parenthesis skips it on purpose.
         where = '-'
-        for follow in out_lines[i + 1:i + 40]:
+        for follow in out_lines[i + 1:]:
             if follow.startswith('not ok') or follow.startswith('ok '):
+                break
+            if follow.rstrip() == '  ...':
                 break
             m = FRAME.search(follow)
             if m:

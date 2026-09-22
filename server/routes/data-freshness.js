@@ -3,6 +3,7 @@ import { dataFreshness, servedTablesRegistry } from '../services/data-freshness.
 import { currentNflWeek } from '../services/weekly-learning.js';
 import { NFLVERSE_SOURCE } from '../services/nflverse.js';
 import { FFOPPORTUNITY_SOURCE } from '../services/ffopportunity.js';
+import { FTN_CHARTING_SOURCE } from '../services/ftn-charting-source.js';
 
 const r = Router();
 
@@ -22,8 +23,11 @@ const r = Router();
  * ping. The unauthenticated liveness endpoint stays in `platform/health.js` and
  * still says as little as possible.
  *
- * `sources` names the CC BY 4.0 feeds these tables come from, with the licence
- * link each one requires, so the attribution travels with the report.
+ * `sources` names the openly licensed feeds these tables come from (CC BY 4.0
+ * and CC BY-SA 4.0), with the licence link each one requires, so the
+ * attribution travels with the report. The credit line the client shows on
+ * every page (`DATA_CREDITS` in DataFreshnessBanner.tsx) is held to this list
+ * by test/data-credit-line.test.js.
  */
 r.get('/', (req, res) => {
   const now = currentNflWeek();
@@ -37,7 +41,7 @@ r.get('/', (req, res) => {
     week: now.week,
     all_fresh: tables.every(t => t.status === 'fresh'),
     tables,
-    sources: [NFLVERSE_SOURCE, FFOPPORTUNITY_SOURCE]
+    sources: [NFLVERSE_SOURCE, FFOPPORTUNITY_SOURCE, FTN_CHARTING_SOURCE]
   });
 });
 

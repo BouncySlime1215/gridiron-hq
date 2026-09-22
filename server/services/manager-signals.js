@@ -39,10 +39,13 @@ import { db, rows, run } from '../db/index.js';
 import { identityMap, matchIdentities } from './manager-identity.js';
 // Aliased on purpose: this module exports an `archetypesBuilt` of its own, and the
 // two are not the same function. Theirs is the member-keyed owner of the jev
-// stamp (manager-archetypes.js:947); mine is the narrower league-season read the
-// trade path already uses. The alias keeps a reader from thinking one call is the
-// other — the collision is real and worth naming rather than hiding.
-import { archetypesBuilt as archetypeStoreStamps } from './manager-archetypes.js';
+// stamp; mine is the narrower league-season read the trade path already uses.
+// The alias keeps a reader from thinking one call is the other — the collision
+// is real and worth naming rather than hiding.
+//
+// The owner is `archetypeEvidenceBuilt` on this line (manager-archetypes.js:1074).
+// It was `archetypesBuilt` when this was written, and the rename is theirs.
+import { archetypeEvidenceBuilt as archetypeStoreStamps } from './manager-archetypes.js';
 import { PROJECT_ROOT } from '../platform/paths.js';
 
 db.exec(`CREATE TABLE IF NOT EXISTS manager_signals (

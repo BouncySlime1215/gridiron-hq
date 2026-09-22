@@ -164,5 +164,5 @@ test('the panel names every verdict, the basis and the sign convention, and hide
   for (const field of ['baseline', 'policy', 'universe', 'sign_convention', 'scoring', 'failing_weeks', 'mde80', 'forward']) {
     assert.ok(panel.includes(field), `the panel does not render ${field}`);
   }
-  assert.doesNotMatch(panel, /failing_weeks[^;\n]*\.slice\(/, 'failing weeks must never be truncated');
+  assert.doesNotMatch(panel, /\.slice\(/, 'the panel trims nothing: every failing week is shown');
 });

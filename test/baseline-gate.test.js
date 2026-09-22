@@ -74,6 +74,33 @@ test('the player-clustered interval resamples players, not decisions', () => {
     `player-clustered ${JSON.stringify(g.ci90.player.points)} vs decision-level ${JSON.stringify(iid.ci90)}`);
 });
 
+test('the dumb pick is a cluster too: a shared baseline player widens the interval just the same', () => {
+  // The mirror of the test above: 30 losses all share ONE dumb-rule pick (B), 30 wins are
+  // spread over 60 different players. Clustering only our side would miss B entirely.
+  const ds = [];
+  for (let i = 0; i < 30; i++) ds.push(d(2025, 5 + (i % 10), `p${i}`, 'B', 10, 20));
+  for (let i = 0; i < 30; i++) ds.push(d(2025, 5 + (i % 10), `q${i}`, `c${i}`, 20, 10));
+  const g = G.gradeDecisions(ds, { iterations: 2000, seed: 1 });
+  const iid = pairedBootstrapDiff(ds.map(x => x.baseline_points), ds.map(x => x.policy_points),
+    { iterations: 2000, seed: 1 });
+  const width = ([lo, hi]) => hi - lo;
+  assert.ok(width(g.ci90.player.points) > 1.5 * width(iid.ci90),
+    `player-clustered ${JSON.stringify(g.ci90.player.points)} vs decision-level ${JSON.stringify(iid.ci90)}`);
+});
+
+test('with no player recurring, the player interval is a 90% interval, conservative by about sqrt(3)', () => {
+  // Every decision has two players seen nowhere else, so there is nothing to cluster. The
+  // two-factor bootstrap then over-counts the cell noise (Owen 2007): about sqrt(3) = 1.73x
+  // the ordinary 90% interval, never narrower than it.
+  const ds = [];
+  for (let i = 0; i < 400; i++) ds.push(d(2025, 5 + (i % 14), `p${i}`, `b${i}`, 10 + ((i * 7919) % 23), 10 + ((i * 104729) % 19)));
+  const g = G.gradeDecisions(ds, { iterations: 2000, seed: 1 });
+  const iid = pairedBootstrapDiff(ds.map(x => x.baseline_points), ds.map(x => x.policy_points),
+    { iterations: 2000, seed: 1 });
+  const ratio = (g.ci90.player.points[1] - g.ci90.player.points[0]) / (iid.ci90[1] - iid.ci90[0]);
+  assert.ok(ratio >= 1.0 && ratio <= 2.2, `player/iid width ratio ${ratio.toFixed(3)}`);
+});
+
 test('the week-clustered interval is pairedBootstrapDiff itself, grouped by season-week', () => {
   const ds = mixed();
   const g = G.gradeDecisions(ds, { iterations: 500, seed: 3 });
@@ -107,8 +134,10 @@ test('every failing week is listed, none truncated', () => {
     const lose = w <= 12;                                  // 12 failing weeks, 3 winning
     for (let k = 0; k < 3; k++) ds.push(d(2024, w, `p${w}-${k}`, `b${w}-${k}`, lose ? 5 : 15, 10));
   }
+  for (let k = 0; k < 3; k++) ds.push(d(2024, 16, `p16-${k}`, `b16-${k}`, 10, 10));   // break-even: not failing
   const g = G.gradeDecisions(ds, { iterations: 200, seed: 1 });
-  assert.equal(g.per_week.length, 15);
+  assert.equal(g.per_week.length, 16);
+  assert.equal(g.per_week.find(w => w.week === 16).failing, false);
   assert.equal(g.failing_weeks.length, 12);
   assert.deepEqual(g.failing_weeks.map(w => w.week), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   for (const w of g.failing_weeks) {
@@ -117,7 +146,7 @@ test('every failing week is listed, none truncated', () => {
     assert.equal(w.points_per_decision, -5);
     assert.equal(w.win_rate, 0);
   }
-  assert.ok(g.per_week.filter(w => !w.failing).every(w => w.points_per_decision === 5));
+  assert.ok(g.per_week.filter(w => !w.failing).every(w => w.points_per_decision >= 0));
 });
 
 test('no disagreements is its own verdict, never a pass', () => {

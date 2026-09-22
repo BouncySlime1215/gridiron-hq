@@ -62,6 +62,7 @@ test('pairs are same season, week and position, with both players startable by b
     r(2025, 5, 'RB', 4, 15, 10, 5),                                     // a different position
     r(2025, 6, 'WR', 5, 13, 11, 11),                                    // a different week
     r(2024, 5, 'WR', 6, 16, 8.5, 2),                                    // a different season
+    r(2025, 5, 'WR', 7, 15, 7.9, 12),                                   // the average says 7.9: not startable
   ];
   const out = S.startSitDecisions(rows);
   assert.equal(out.pairs, 1);
@@ -110,7 +111,9 @@ function seasonRows() {
 }
 
 test("pair accuracy is startSitPairAccuracy's, on the same pairs (one definition, two call sites)", () => {
-  const rows = seasonRows();
+  // Plus projection ties on each side, which both definitions score as half.
+  const rows = [...seasonRows(), r(2025, 8, 'TE', 900, 11, 9, 14), r(2025, 8, 'TE', 901, 11, 12, 6),
+    r(2025, 8, 'TE', 902, 13, 12, 9)];
   const out = S.startSitDecisions(rows);
   const theirs = startSitPairAccuracy(
     rows.map(x => ({ week: x.week, position: x.position, preds: { policy: x.policy, baseline: x.baseline }, actual: x.actual })),
@@ -163,6 +166,9 @@ test("the default k resolver is configuration B's: an empty fit table stops the 
        VALUES (1, '2026-09-18T00:00:00Z', 2025, 2025, 1, 'fixture')`);
   run(`INSERT INTO shrinkage_k (fit_id, metric, position, k) VALUES (1, 'target_share', 'ALL', 0.1733)`);
   assert.deepEqual(S.kControl([2026]), [{ season: 2026, target_share_k: 0.1733 }]);
+  // Cutoff-safe: the stored fit is through 2025, so a 2025 replay must NOT read it; it
+  // re-fits on seasons <= 2024, and this database has no rows to re-fit on.
+  assert.throws(() => S.kControl([2025]), /K\.share = 6/);
 });
 
 test('the prediction head is the as-of champion for the week it predicts, read once per week', () => {

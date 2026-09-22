@@ -153,13 +153,16 @@ node --test test/beat-reporter-accuracy.test.js
 
 **2x-verify, guard-v3 form** (no `set -e`; `rc=0; npm run check || rc=$?`; no `| tee`; log
 outside the repo; `find . -path ./.git -prune -o -newermt "@$t0" -type f -print` afterward),
-run on the local tree only — **held short of a push** per the coordinator's 2026-09-22T11:17Z
-note (resume on non-pushing work only until Nick restores push):
+run on the local tree at commit `e189567` (this evidence commit) — **held short of a push**
+per the coordinator's 2026-09-22T11:17Z note (resume on non-pushing work only until Nick
+restores push):
 
 | pass | worktree | exit | tree hash before/after | status before/after | tests | files touched outside `client/dist/` |
 |---|---|---|---|---|---|---|
-| 1 | `/tmp/claude-0/return-verify-1` | 0 | (recorded at push time) | empty/empty | (recorded at push time) | none |
-| 2 | `/tmp/claude-0/return-verify-2` | 0 | (recorded at push time) | empty/empty | (recorded at push time) | none |
+| 1 | `/tmp/claude-0/return-verify-1` | 0 | `074371d9` / `074371d9` (unchanged) | empty/empty | 3168/3168 pass (3209 incl. 41 skipped), 0 fail | none |
+| 2 | `/tmp/claude-0/return-verify-2` | 0 | `074371d9` / `074371d9` (unchanged) | empty/empty | 3168/3168 pass (3209 incl. 41 skipped), 0 fail | none |
+
+Both passes identical. Held at `e189567` pending Nick restoring push authority.
 
 ## 7. File ownership
 

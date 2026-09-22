@@ -69,7 +69,21 @@ Both trace back to `loadRosters()` in `trade-engine.js`. Per
 `gridiron-file-allocation` memory, `trade-engine.js` and `waiver-brain.js` are
 both Feature audit's own files, not Trade Brain's — flagging that ownership
 correction to the coordinator alongside this evidence file rather than acting
-on it, since this unit's scope was the injury-data-gap fix only. Whether this
-is a real bug (production leagues always have roster data, so the crash may
-never fire live) or just an unfriendly error shape worth hardening to match
-`roster-risk.js`'s pattern is an open question for a future unit.
+on it, since this unit's scope was the injury-data-gap fix only.
+
+**Correction (struck, not a live finding):** traced before building a hardening
+unit on it. `assetUniverse`, `loadRosters` and `freeAgents` all take an
+already-resolved league *row* as their `lg` argument by design — they do not
+look one up themselves. Every real call site validates it first:
+`routes/trades.js`'s shared `league()` helper 404s on a missing league and
+400s `"league not synced yet — sync it on the My Leagues page"` on
+`!lg.payload` before ever calling these; `roster-risk.js`'s own
+`byeOutlook()`/`byePatches()` do the identical check themselves
+(`if (!lg?.payload) return { error: 'league not synced yet' }`) before calling
+`assetUniverse`/`loadRosters` internally — that is *why* they return the clean
+error, not because the functions underneath are more defensive. The probe
+above crashed these functions by calling `assetUniverse(1)`/`freeAgents(1)` —
+a bare integer where a resolved league row belongs, a call shape no real route
+or caller in the codebase produces (checked every caller of all three
+functions). This is a probe artifact, not a reachable production gap; no
+hardening unit was opened for it.

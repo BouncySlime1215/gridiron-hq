@@ -3566,6 +3566,45 @@ export function acceptGuard({ accepted = [], orphans = [], found = [] }) {
   return { accepted: accepted.filter(honour), orphanOk: new Set(orphans.filter(honour)), refused };
 }
 
+/**
+ * Which accept-list entries have outlived the reason they were written for.
+ *
+ * `annotations.json` says it itself, under `_PERMANENT_ORPHAN_REASONS._why`:
+ * "If the condition is met and the module is still listed, that is a defect in
+ * this file, not in the module." Nothing checked it, so the only thing keeping
+ * the list honest was somebody remembering.
+ *
+ * Two ways an entry goes spent, and the second is the one that actually
+ * happens: the file is gone (renamed, deleted, or the entry was written ahead
+ * of a branch that never landed), or the module got wired and the finding this
+ * entry was silencing is not in the run any more.
+ *
+ * The second condition is taken from the run's own findings, not from "does
+ * anything import it now" — that guess is wrong for a module that gained an
+ * importer and still reaches no surface, which is a different rule in the same
+ * family and still silenced by this entry.
+ *
+ * Report, never gate, and never un-silence: a spent entry is a note to a human.
+ * Turning the finding back on in the same run would fail the build for a module
+ * that is now correctly wired, which is the opposite of the point.
+ *
+ * Pure and exported, because a checker nobody has deliberately broken has not
+ * been tested. Pinned in test/wiring-map-stale-accept-entries.test.js.
+ */
+export function staleOrphanEntries({ entries = [], exists = () => true, silences = () => false }) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of entries) {
+    const entry = String(raw).replace(/^module:/, '');
+    // `table:` and `column:` entries share these lists and are not module paths.
+    if (!entry.includes('/') || seen.has(entry)) continue;
+    seen.add(entry);
+    if (!exists(entry)) { out.push({ entry, why: 'names a file that is not in this tree' }); continue; }
+    if (!silences(entry)) out.push({ entry, why: 'the module is wired now — this entry silences nothing' });
+  }
+  return out;
+}
+
 const SEVERITY = {
   'table-never-written': 1, 'client-call-without-route': 1, 'table-hand-fed': 2,
   'cache-blind-to-its-inputs': 2.5, 'table-in-another-database': 2.8, 'table-never-scheduled': 3,
@@ -4025,14 +4064,21 @@ const NEW_ORPHAN = new Set(['module-reaches-no-surface', 'module-only-tested',
      * on a merge-order accident would teach people to delete the entry rather than
      * land the file.
      */
-    const stale = [...new Set((ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []))]
-      .map(e => e.replace(/^module:/, ''))
-      .filter(e => e.includes('/') && !fs.existsSync(path.join(ROOT, e)));
+    // Both halves of the same question, answered from this run's own output
+    // rather than from a heuristic: an entry is spent when the tree no longer
+    // holds the file, or when no finding in the orphan family names it any more.
+    const orphanNamed = new Set(found.filter(f => NEW_ORPHAN.has(f.rule)).map(f => f.subject));
+    const stale = staleOrphanEntries({
+      entries: (ann.accepted_orphan_modules ?? []).concat(ann.expected_orphans ?? []),
+      exists: e => fs.existsSync(path.join(ROOT, e)),
+      silences: e => orphanNamed.has(e),
+    });
     if (stale.length) {
-      console.log(`\n${stale.length} accept-list entr(ies) name a file that is not in this tree. `
-        + 'Each is either waiting on a branch or left over from a rename or deletion; '
-        + 'an entry that outlives its file silences nothing and still reads as a decision:');
-      for (const e of stale) console.log(`  ${e}`);
+      console.log(`\n${stale.length} accept-list entr(ies) have outlived their reason. `
+        + 'Each is either waiting on a branch, left over from a rename or deletion, or naming a '
+        + 'module that is wired now; an entry that outlives its reason silences nothing and still '
+        + 'reads as a decision:');
+      for (const s of stale) console.log(`  ${s.entry} — ${s.why}`);
     }
 
     const blocking = found.filter(f =>

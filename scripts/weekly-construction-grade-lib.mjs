@@ -284,3 +284,18 @@ export function assertFitCutoff(examples, maxSeason, label) {
   if (latest > maxSeason) throw new Error(`${label}: examples reach ${latest}, past the ${maxSeason} cutoff`);
   return latest;
 }
+
+/**
+ * Every fit that grades season S must end before S (prereg §5). Checked at the grading
+ * call site, on the context the grade actually receives, because the fit-build guard
+ * (assertFitCutoff) cannot see which fit a caller later hands to which season.
+ */
+export function assertContextCutoff(ctx, season) {
+  for (const key of ['fitSThrough', 'fitEThrough']) {
+    const through = ctx?.[key];
+    if (!Number.isInteger(through) || through >= season) {
+      throw new Error(`cutoff: ${key} = ${through} may not grade ${season}`);
+    }
+  }
+  return true;
+}

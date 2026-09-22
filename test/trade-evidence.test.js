@@ -164,13 +164,19 @@ test('the offseason multiplier is never applied: the valuation is identical with
 
 /* -------------------------------------------------------------- degrade */
 
-test('a null source leaves its field absent; a throwing source is swallowed; a neutral offseason read is dropped', () => {
+test('a null source leaves its field absent; a throwing source is recorded; a neutral offseason read is dropped', () => {
   _setEvidenceSources({
     careerLine: () => null,
     preseasonProjection: () => { throw new Error('model not fitted'); },
     offseasonAdjustment: () => ({ opportunity_multiplier: 1.0, drivers: [] })
   });
-  assert.deepEqual(playerEvidence(1), {});
+  // A throw used to be swallowed outright. It still leaves its field absent —
+  // the degradation this test exists to protect — but WHICH layer failed is now
+  // recorded, because "the model is not fitted" and "this player has no
+  // projection" are different facts and the surface states one of them.
+  // See playerEvidence() and test/trade-engine-evidence-fault.test.js.
+  assert.deepEqual(playerEvidence(1), { evidence_unreadable: ['preseason'] });
+  assert.equal('preseason' in playerEvidence(1), false);
   assert.deepEqual(playerEvidence(null), {});
 
   _setEvidenceSources({ careerLine: () => null, preseasonProjection: () => stubPreseason(), offseasonAdjustment: () => null });

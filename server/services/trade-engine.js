@@ -898,12 +898,21 @@ export function playerEvidence(playerId, season = SEASON) {
   if (hit) return hit;
   const out = {};
   let career = null, preseason = null, offseason = null;
-  try { career = compactCareer(evidenceSources.careerLine?.(playerId, { season })); } catch { career = null; }
-  try { preseason = compactPreseason(evidenceSources.preseasonProjection?.(playerId, season)); } catch { preseason = null; }
-  try { offseason = compactOffseason(evidenceSources.offseasonAdjustment?.(playerId, season)); } catch { offseason = null; }
+  // A source that THREW and a source that correctly reported nothing both leave
+  // the field absent, and downstream that difference matters: "no career line
+  // for this player" is a fact about the player, "the career query failed" is a
+  // fact about us. Collapsing them let a broken layer describe a five-year
+  // starter as having no NFL record (playerRiskProfile -> describeProfile).
+  // Which layers failed is recorded; the fields stay absent either way, so
+  // pricing degrades exactly as before.
+  const unreadable = [];
+  try { career = compactCareer(evidenceSources.careerLine?.(playerId, { season })); } catch { unreadable.push('career'); }
+  try { preseason = compactPreseason(evidenceSources.preseasonProjection?.(playerId, season)); } catch { unreadable.push('preseason'); }
+  try { offseason = compactOffseason(evidenceSources.offseasonAdjustment?.(playerId, season)); } catch { unreadable.push('offseason'); }
   if (career) out.career = career;
   if (preseason) out.preseason = preseason;
   if (offseason) out.offseason = offseason;
+  if (unreadable.length) out.evidence_unreadable = unreadable;
   if (evidenceCache.size > 5000) evidenceCache.clear();
   evidenceCache.set(key, out);
   return out;
@@ -918,6 +927,8 @@ export function playerEvidence(playerId, season = SEASON) {
  *   spike        — exactly one season on record that landed top-24
  *   volatile     — swing over 35%, or a single sub-top-24 season
  *   unproven     — no NFL season on record (rookie, or unlinked)
+ *   unknown      — the career layer could not be read, so none of the above can
+ *                  be said; distinct from `unproven`, which is a finding
  * `band_pct` is this season's p20-p80 width as a share of the median.
  */
 export function playerRiskProfile(p) {
@@ -929,7 +940,10 @@ export function playerRiskProfile(p) {
   const bandPct = pre?.points && pre.p20 != null && pre.p80 != null
     ? Math.round(((pre.p80 - pre.p20) / pre.points) * 100) : null;
   let profile;
-  if (!seasons) profile = 'unproven';
+  // Unreadable outranks unproven: with no career line to read, "he has never
+  // done it" is a claim we cannot make. See playerEvidence().
+  if (p.evidence_unreadable?.includes('career')) profile = 'unknown';
+  else if (!seasons) profile = 'unproven';
   else if (seasons === 1) profile = top24 >= 1 ? 'spike' : 'volatile';
   else if (top24 >= 3 && (cv == null || cv <= 0.25)) profile = 'proven floor';
   else if (top24 >= 2 && (cv == null || cv <= 0.35)) profile = 'steady';
@@ -947,6 +961,7 @@ export function playerRiskProfile(p) {
 
 const describeProfile = r => {
   if (!r) return null;
+  if (r.profile === 'unknown') return 'a player whose record could not be read';
   if (r.profile === 'unproven') return 'a player with no NFL record';
   if (r.profile === 'spike') return 'a 1-season spike';
   if (r.top12 === r.seasons && r.seasons >= 2) return `a ${r.seasons}-year top-12 floor`;
@@ -974,7 +989,8 @@ export function packageRisk(players) {
     band_pct: avg(withBand, 'band_pct'),
     points: sum(withBand, 'points'), p20: sum(withBand, 'p20'), p80: sum(withBand, 'p80'),
     headline_profile: headline?.profile ?? null,
-    headline_read: describeProfile(headline)
+    headline_read: describeProfile(headline),
+    unreadable: profiles.filter(x => x.profile === 'unknown').length
   };
 }
 
@@ -983,6 +999,7 @@ function packageNumbers(r) {
   if (!r) return null;
   const bits = [];
   if (r.seasons) bits.push(`${r.top24_seasons}/${r.seasons} top-24 seasons`);
+  else if (r.unreadable) bits.push('record could not be read');
   else bits.push('0 seasons on record');
   if (r.swing_pct != null) bits.push(`±${r.swing_pct}% swing`);
   if (r.min_games != null) bits.push(`${r.min_games} g min`);

@@ -156,6 +156,45 @@ export function settleObservedOutcomes(leagueId, season) {
   return result;
 }
 
+/**
+ * The model's prediction, as the model actually states it.
+ *
+ * `trade-acceptance.js` returns a BAND and refuses to state a point: `fitted` is
+ * false on every path and its own served sentence says "not a calibrated
+ * probability". So the ledger stores the midpoint — a calibration needs a point
+ * to score — WITH the width the evidence bought and the basis that produced it.
+ * A midpoint stored alone would be the invented precision this project keeps
+ * finding and removing, and a later reader would have no way to tell a declared
+ * starting point from a measurement.
+ *
+ * Accepts either `acceptance` (the band object the engine attaches to a deal at
+ * trade-engine.js:1921) or the three values directly, so a caller does not have
+ * to take the band apart to record it.
+ */
+function predictionOf(o, { required = true } = {}) {
+  const band = o?.acceptance?.band ?? null;
+  const mid = o?.model_p_accept ?? band?.mid ?? null;
+  const low = o?.model_p_accept_low ?? band?.low ?? null;
+  const high = o?.model_p_accept_high ?? band?.high ?? null;
+  const basis = o?.model_basis ?? o?.acceptance?.basis ?? null;
+  if (mid == null) {
+    if (!required) return { mid: null, low: null, high: null, basis: null };
+    throw new Error('trade-outcomes: model_p_accept is required and was not given');
+  }
+  // A point with no band is a claim the model does not make. Refused here rather
+  // than written and explained away in whatever reads it next.
+  if (low == null || high == null) {
+    throw new Error('trade-outcomes: model_p_accept_low and model_p_accept_high are required — '
+      + 'the acceptance model states a band, never a point, so a midpoint alone would record '
+      + 'a precision it never claimed');
+  }
+  if (!basis) {
+    throw new Error('trade-outcomes: model_basis is required — an anchored band and a declared '
+      + 'starting point are different evidence and must not pool in one calibration curve');
+  }
+  return { mid, low, high, basis };
+}
+
 function requireFields(o, fields) {
   for (const f of fields) {
     if (o?.[f] == null) throw new Error(`trade-outcomes: ${f} is required and was not given`);
@@ -173,15 +212,17 @@ function requireFields(o, fields) {
  * stored as a gap someone will later fill with a guess.
  */
 export function recordProposedOutcome(o) {
-  requireFields(o, ['league_id', 'season', 'model_p_accept', 'model_version']);
+  requireFields(o, ['league_id', 'season', 'model_version']);
+  const p = predictionOf(o);
   const info = run(`INSERT INTO trade_outcomes
       (league_id, season, source, proposer_team_id, counterparty_team_id,
-       give_json, get_json, proposed_at, model_p_accept, model_version, status, created_at)
-    VALUES (?, ?, 'app_proposed', ?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`,
+       give_json, get_json, proposed_at, model_p_accept, model_p_accept_low,
+       model_p_accept_high, model_basis, model_version, status, created_at)
+    VALUES (?, ?, 'app_proposed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`,
   o.league_id, o.season, o.proposer_team_id ?? null, o.counterparty_team_id ?? null,
   JSON.stringify(o.give ?? []), JSON.stringify(o.get ?? []),
-  o.proposed_at ?? new Date().toISOString(), o.model_p_accept, o.model_version,
-  new Date().toISOString());
+  o.proposed_at ?? new Date().toISOString(),
+  p.mid, p.low, p.high, p.basis, o.model_version, new Date().toISOString());
   return Number(info.lastInsertRowid);
 }
 
@@ -199,14 +240,16 @@ export function recordProposedOutcome(o) {
  */
 export function recordConsideredOnly(o) {
   requireFields(o, ['league_id', 'season', 'not_proposed_reason']);
+  const p = predictionOf(o, { required: false });
   const info = run(`INSERT INTO trade_outcomes
       (league_id, season, source, proposer_team_id, counterparty_team_id,
-       give_json, get_json, proposed_at, model_p_accept, model_version,
+       give_json, get_json, proposed_at, model_p_accept, model_p_accept_low,
+       model_p_accept_high, model_basis, model_version,
        status, not_proposed_reason, created_at)
-    VALUES (?, ?, 'considered_only', ?, ?, ?, ?, ?, ?, ?, 'not_proposed', ?, ?)`,
+    VALUES (?, ?, 'considered_only', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'not_proposed', ?, ?)`,
   o.league_id, o.season, o.proposer_team_id ?? null, o.counterparty_team_id ?? null,
   JSON.stringify(o.give ?? []), JSON.stringify(o.get ?? []),
-  o.proposed_at ?? new Date().toISOString(), o.model_p_accept ?? null, o.model_version ?? null,
+  o.proposed_at ?? new Date().toISOString(), p.mid, p.low, p.high, p.basis, o.model_version ?? null,
   o.not_proposed_reason, new Date().toISOString());
   return Number(info.lastInsertRowid);
 }

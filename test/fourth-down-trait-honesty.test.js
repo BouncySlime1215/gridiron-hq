@@ -132,8 +132,15 @@ test('the trait still says something true rather than being deleted', () => {
   const t = p.traits.find(x => x.metric === 'off_fourth_down_rate');
   assert.match(t.trait, /first down/i,
     'the trait no longer describes converting fourth downs into first downs, which is what the number is');
-  // The direction still has to be right: the top team converts more, not less.
+  // The direction has to be right, and pinning it needs wording that tells the two
+  // apart. Asserting only that both mention a first down cannot see a swap, because
+  // the label and its inverse both do — a mutation that hands the top team the
+  // inverse survived exactly that assertion.
   const low = profileFor(LOW).traits.find(x => x.metric === 'off_fourth_down_rate');
+  assert.match(t.trait, /converts fourth downs/i,
+    'the team highest on the rate is not described as the one converting');
+  assert.match(low.trait, /without a first down/i,
+    'the team lowest on the rate is not described as the one failing to convert');
   assert.notEqual(t.trait, low.trait, 'the top and bottom teams read identically');
   assert.ok(t.percentile > low.percentile, 'the percentile ordering inverted');
 });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { api, useApi } from '../api';
+import { useDeployment } from '../state/deployment';
 
 /**
  * The first thing a new install asks for.
@@ -23,11 +24,17 @@ import { api, useApi } from '../api';
  * a hidden close, a fake X, a countdown — would be a dark pattern, and this is
  * the user's own machine reading the user's own league.
  *
- * The cookies never leave the machine: the bookmarklet runs on espn.com in the
- * user's browser and posts to their own localhost.
+ * Where the cookies go depends on the install, which is why the copy below asks
+ * rather than asserts. On the Mac the bookmarklet runs on espn.com in the user's
+ * browser and posts to their own localhost, so the cookies never leave the
+ * machine. On the hosted app it posts to the server (espn-connect.js#originFor
+ * derives the target from the request), so they do leave it — and telling
+ * someone otherwise while they hand over a session credential is the worst
+ * place in this app to be confidently wrong.
  */
 export default function EspnConnectGate() {
   const { data: status, refetch } = useApi<any>('/espn-connect/status');
+  const deployment = useDeployment();
   const { data: bm } = useApi<any>('/espn-connect/bookmarklet');
   const [dismissed, setDismissed] = useState(() => {
     try { return sessionStorage.getItem('espn-gate-dismissed') === '1'; } catch { return false; }
@@ -152,7 +159,10 @@ export default function EspnConnectGate() {
               <Step n={2} title="Drag this button to your bookmarks bar">
                 <p className="text-sm leading-5 text-slate-500">
                   Then click it while you are on the ESPN page. It reads the two cookies ESPN
-                  already set for you and sends them to this app on your own computer.
+                  already set for you and sends them
+                  {deployment && !deployment.local
+                    ? ' to this app on the server, where they are stored for this install.'
+                    : ' to this app on your own computer.'}
                 </p>
                 {bm?.href && (
                   <a href={bm.href} onClick={e => e.preventDefault()} draggable

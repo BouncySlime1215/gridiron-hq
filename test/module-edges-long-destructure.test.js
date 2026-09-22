@@ -65,6 +65,8 @@ test('an aliased name inside a long destructure is read under both spellings', (
     'const {',
     '  padPadPadPadPadPadPadPadPadPad, morePadMorePadMorePadMorePadMorePad,',
     '  yetMorePaddingYetMorePaddingYetMorePadding, andStillMorePaddingHereToo,',
+    '  aFifthNameLongEnoughToPushPastTheOldWindow, aSixthNameDoingTheSameJob,',
+    '  aSeventhNameSoTheFixtureClearsTwoHundredAndTwenty,',
     '  syncAll as syncNflverse',
     "} = await import('./x.js');",
   ].join('\n');
@@ -89,6 +91,25 @@ test('a dynamic import with no destructure before it still takes no names from o
 test('an object literal that is not a destructure is not read as one', () => {
   const src = "const cfg = { a: 1, b: 2 };\nawait import('./x.js');";
   assert.deepEqual(namesFor(src, './x.js'), []);
+});
+
+test('a nested destructure is read from its OUTER brace', () => {
+  // Added because a mutation survived: taking the first `{` found while
+  // walking back, instead of the one that balances, passes every flat
+  // fixture. A nested pattern separates them — the inner brace is not the
+  // start of the binding list.
+  const src = "const { alpha, beta: { gamma } } = await import('./x.js');";
+  const names = namesFor(src, './x.js');
+  assert.ok(names.includes('alpha'), 'the outer name survives');
+  assert.ok(names.includes('beta'), 'and the outer key of the nested part');
+});
+
+test('a destructuring assignment with no declaration keyword still binds names', () => {
+  // `({ a, b } = await import(x))` assigns to bindings that already exist. It
+  // imports exactly what a `const` form imports, and an earlier draft skipped
+  // it for having no keyword in front.
+  const names = namesFor("({ alpha, beta } = await import('./x.js'));", './x.js');
+  assert.deepEqual(names, ['alpha', 'beta']);
 });
 
 test('the real file that exposed this reports its fourteen names', async () => {

@@ -490,6 +490,46 @@ function namespaceMembers(codeView, binding) {
   return [...new Set([...codeView.matchAll(re)].map(x => x[1]))];
 }
 
+/**
+ * The destructuring pattern immediately before a dynamic import, if there is one.
+ *
+ * `const { a, b } = await import('./x.js')` binds names, and this is where they
+ * are read from. It was a fixed 220-character lookbehind, which is a window
+ * standing in for a balanced walk: the destructure in
+ * test/draft-abstention-audit.test.js:17 runs 231 characters over four lines,
+ * so the opening brace fell outside it, the pattern matched nothing and
+ * fourteen real imports were recorded as a file edge with no names. They then
+ * surfaced under `export-imported-by-nothing` — "exported and never imported"
+ * — instead of `export-only-tested`, which is a wrong finding rather than an
+ * absent one, and the kind somebody deletes working code on.
+ *
+ * Walking back from the `}` to its matching `{` makes the length irrelevant.
+ * Returns the `{…}` text, or null when what precedes is not a destructure —
+ * `await import(x)` on its own, or an object literal that merely sits above.
+ *
+ * It does NOT require `const`, `let` or `var` in front. A first draft did, and
+ * a mutation dropping that guard survived, which said no test justified it.
+ * Nothing could: `({ a, b } = await import('./x.js'))` is a destructuring
+ * ASSIGNMENT to existing bindings, it binds the same names, and the guard
+ * would have skipped it. A guard no test can justify is not caution, it is an
+ * untested branch, so it was removed rather than papered over with a fixture
+ * written to keep it.
+ */
+function destructureBefore(before) {
+  const tail = before.match(/\}\s*=\s*(?:await\s*)?$/);
+  if (!tail) return null;
+  const close = before.length - tail[0].length;
+  let depth = 0;
+  for (let i = close; i >= 0; i--) {
+    if (before[i] === '}') depth++;
+    else if (before[i] === '{') {
+      depth--;
+      if (depth === 0) return before.slice(i, close + 1);
+    }
+  }
+  return null;
+}
+
 function moduleEdges(code) {
   const imports = [];       // { spec, names[], dynamic }
   const exports = [];       // { name, line }
@@ -507,13 +547,18 @@ function moduleEdges(code) {
       (_, binding) => namespaceMembers(codeView, binding).join(','));
     const parts = expanded.replace(/[{}]/g, ' ').split(',').map(x => x.trim()).filter(Boolean);
     const ok = (x) => x && x !== '*' && /^[A-Za-z_$][\w$]*$/.test(x);
-    const names = parts.map(x => x.split(/\s+as\s+/)[0].trim()).filter(ok);
+    // `beta: { gamma }` in a destructured dynamic import imports `beta`; the
+    // brace-blanking above leaves `beta:   gamma`, which is not an identifier,
+    // so the name was dropped. A ':' cannot occur in a static import clause,
+    // so splitting on it here is safe for both shapes.
+    const head = (x) => x.split(':')[0].split(/\s+as\s+/)[0].trim();
+    const names = parts.map(head).filter(ok);
     // `import { syncAll as syncNflverse }` — the local alias is the only name
     // the calls are written under. Reading only the exported name made an
     // aliased import look like an export nothing ever calls.
     const aliases = parts.map(x => {
       const [imported, local] = x.split(/\s+as\s+/).map(y => y.trim());
-      return { imported, local: local ?? imported };
+      return { imported: head(x), local: (local ?? imported ?? '').trim() };
     }).filter(x => ok(x.imported) && ok(x.local));
     imports.push({ spec, names, aliases, dynamic, line: lineOf(code, idx) });
   };
@@ -528,8 +573,8 @@ function moduleEdges(code) {
   // `import('./y.js').then(m => m.fn())` forms this server leans on heavily.
   const RE_DYN = /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
   while ((m = RE_DYN.exec(code))) {
-    const before = code.slice(Math.max(0, m.index - 220), m.index);
-    const destructured = before.match(/(?:const|let|var)\s*(\{[^}]*\})\s*=\s*(?:await\s*)?$/);
+    const before = code.slice(0, m.index);
+    const destructured = destructureBefore(before);
     const after = code.slice(m.index, m.index + 400);
     const thenNames = [...after.matchAll(/\bm\.([A-Za-z_$][\w$]*)/g)].map(x => x[1]);
     // `const scheduler = await import('./scheduler.js')` and then `scheduler.fn()`.
@@ -539,7 +584,7 @@ function moduleEdges(code) {
     // including the one that exposed it, test/abandoned-run-backoff.test.js.
     const bound = destructured ? null
       : before.match(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:await\s*)?$/)?.[1];
-    add(m[1], (destructured?.[1] ?? '') + ',' + thenNames.join(',')
+    add(m[1], (destructured ?? '') + ',' + thenNames.join(',')
       + (bound ? ',' + namespaceMembers(codeView, bound).join(',') : ''), true, m.index);
   }
 

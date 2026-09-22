@@ -4,6 +4,28 @@
 its 8 call sites in `buildFitSpecs`), `test/shrinkage-fit-efficiency-
 weighting.test.js` (new). Off `main` `654ff93`.
 
+**GATE OPEN, per the Auditor's unit 17b ruling (`audit-units-17b-16b-2026-09
+-22.md`), pushed before it could be closed under a usage-slowdown order —
+next action after the reset, not before.** The correctness fix below (the
+in-file `efficiencyObservations`/`effW` wiring) is pushed and verified by
+its own RED/GREEN/mutation sweep. What is NOT yet done: reproducing the
+Explorer's independent, out-of-repo refit (`EFFW-SPEC.md`, package #22) with
+THIS in-file version, since #22 mirrored `efficiencyObservations` in its own
+harness rather than importing and calling it — nothing yet proves the
+in-file code behaves identically to what #22 measured. The reproduction run
+must match: fitted k for ypt WR ≈35.5, RB ≈32.4, TE ≈40.7, ypc RB ≈39.1, ypa
+QB ≈66.7; and both MAE deltas (effW fit vs hardcoded, via this repo's own
+`fitK`/`replaySeasonWeekly`/`pairedBootstrapDiff`): 2024 +0.0010
+`[-0.0030, 0.0053]`, 2023 +0.0150 `[0.0072, 0.0236]` — both **worse or noise**,
+confirming the Auditor's dropped "fitted k lands in 32-80" criterion was
+circular (that range describes the fit, not a prediction of it) and that
+this fix's correctness does NOT imply the efficiency k should be promoted.
+**"MAE and Spearman unchanged" ships as a build assertion in the suite, not
+as evidence claimed here** — this fix changes no shipped number today only
+because `effW` was dead code and no efficiency k has ever been active
+(`activeKVector()` returns null, confirmed by a live read below), not
+because of anything this reproduction run would add or subtract.
+
 ## The defect (Auditor-verified, relayed by the coordinator)
 
 `buildFitSpecs` (`:322`) computes `effW = efficiencyWeightFor(through)` — a

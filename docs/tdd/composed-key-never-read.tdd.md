@@ -145,7 +145,16 @@ regenerated baseline rather than against the stale committed artifact, and
 annotated against annotated rather than across the two.
 
 **How do we know?** `node --test test/composed-key-never-read.test.js` — 0/10
-at RED `84cad21`, 11/0 at GREEN. Six injections killed with the killing test
+at RED `84cad21`, 11/0 at GREEN. Whole tree: `npm run check` exit 0
+(typecheck, lint, suite, build, startup smoke), and `npm test` **3104 tests /
+3063 pass / 0 fail / 41 skipped**, up from 3091 / 3050 / 0 / 41 — the 11 tests
+here plus the 2 in `test/wiring-map.test.js`. Tree `df1ca9cf` and the
+`node_modules` mtime identical either side of the run.
+
+An earlier run of the same suite gave the same numbers and is recorded as
+**void**: commit `ceb4548` landed inside its window and changed files under
+`docs/wiring` and `docs/tdd` that ten test files read. It agreeing with the
+pinned run is corroboration, not a reading. Six injections killed with the killing test
 named, one control survived, and one misdesigned injection recorded rather than
 quietly replaced.
 

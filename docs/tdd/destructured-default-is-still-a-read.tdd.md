@@ -88,7 +88,9 @@ positives removed; every other rule's count identical across a full
 `node scripts/wiring-map.mjs` run before and after.
 
 **How do we know?** `node --test test/wiring-map.test.js` — 87/1 at RED
-`848bda2`, 87/1 at RED `cb614e2`, 88/0 at GREEN. Three injections killed with
+`848bda2`, 87/1 at RED `cb614e2`, 88/0 at GREEN. Whole tree: `npm run check`
+exit 0, `npm test` 3104 / 3063 / 0 fail / 41 skipped on tree `df1ca9cf`, pinned
+either side. Three injections killed with
 the killing test named, one control survived.
 
 **Pointed anywhere else on the platform?** Yes. `keyReads` also feeds

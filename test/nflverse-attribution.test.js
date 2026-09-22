@@ -70,7 +70,8 @@ test('every nflverse-data release URL the server fetches from is the one the des
   walk(path.join(root, 'server'));
   assert.ok(hits.length >= 2, `found the release URL in ${hits.length} server file(s); expected nflverse.js and nfl-advanced.js at least`);
   for (const [file, url] of hits) {
-    assert.ok(url.startsWith(src.release_url), `${file} fetches ${url}, which is not under ${src.release_url}`);
+    // A path boundary, not a bare prefix: `download-mirror` must not pass as `download`.
+    assert.ok(url === src.release_url || url.startsWith(`${src.release_url}/`), `${file} fetches ${url}, which is not under ${src.release_url}`);
   }
 });
 

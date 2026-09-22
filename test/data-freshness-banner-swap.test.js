@@ -35,3 +35,40 @@ test('the freshness banner shows a status word for each of the three states', ()
     assert.match(c, new RegExp(`${state}:`), `no rendering path for status "${state}"`);
   }
 });
+
+/**
+ * The banner's own failure has to be visible, or it repeats the bug it replaced.
+ *
+ * `useApi` returns `{ data, error }`. The banner's early return was
+ * `if (!report || report.all_fresh || dismissed) return null`, which collapses
+ * two opposite situations into the same blank screen: "every source is current"
+ * and "the freshness check did not run at all". On the second, the user sees no
+ * warning and reads it as the first.
+ *
+ * That is precisely the fake-healthy banner's sin, committed by silence instead
+ * of by a green tick, and it is live right now: /api/data-freshness is not
+ * mounted (server/index.js belongs to the scheduler thread), so in the running
+ * app this request 404s and the banner renders nothing at all.
+ */
+test('a failed freshness check is not rendered as an all-clear', () => {
+  const c = read('client/src/components/DataFreshnessBanner.tsx');
+  assert.match(c, /\berror\b/, 'the banner never looks at the request error');
+
+  const errorGuard = c.indexOf('if (error)');
+  const silentReturn = c.indexOf('if (!report');
+  // Both indices are checked against -1 first. `indexOf` returning -1 and being
+  // compared directly is how an assertion like this passes while testing nothing.
+  assert.ok(errorGuard >= 0, 'the banner has no branch for a failed freshness check');
+  assert.ok(silentReturn >= 0,
+    'the all-clear early return is gone; this test pins its ordering and needs rewriting');
+  assert.ok(errorGuard < silentReturn,
+    'the silent early return runs before the error branch, so a failed check renders nothing');
+});
+
+test('the failed-check message says the absence of a warning means nothing', () => {
+  const c = read('client/src/components/DataFreshnessBanner.tsx');
+  assert.match(c, /could not be checked/i,
+    'nothing tells the user the freshness check itself failed');
+  assert.match(c, /not the same as|does not mean|no warning/i,
+    'the failure message does not say that silence here is not an all-clear');
+});

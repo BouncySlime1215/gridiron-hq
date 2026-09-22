@@ -243,13 +243,15 @@ per the Evidence Auditor's `audit-pr106-effw-gate-2026-09-22.md` finding 4.)
 are doc-only wording fixes and do not change this code tree or these
 figures), isolated worktree, hard-linked `node_modules`, two independent
 runs:** exit 0 both runs, **2,989 tests, 2,948 passed, 0 failed, 41
-skipped**, identical both runs. The 41 skips are all environment-gated, the
-same categories main itself skips, none introduced by this unit: 16 need
-real `game_lines` history (≥5,000 rows — historical betting-market win-rate
-checks), 14 need real `nfl_player_week_features`/`nfl_team_week_features`
-history, 3 need `nfl_policy_audits` rows, 2 need `GRIDIRON_RESEARCH_PYTHON`
-configured, 1 needs `GRIDIRON_REAL_DB_SMOKE=1`, 5 skip on a missing audit
-fixture file. Reconciles against main's own 2,986 (per the Evidence
+skipped**, identical both runs. 36 of the 41 skips are environment-gated,
+the same categories main itself skips, none introduced by this unit: 16
+need real `game_lines` history (≥5,000 rows — historical betting-market
+win-rate checks), 14 need real `nfl_player_week_features`/
+`nfl_team_week_features` history, 3 need `nfl_policy_audits` rows, 2 need
+`GRIDIRON_RESEARCH_PYTHON` configured, 1 needs `GRIDIRON_REAL_DB_SMOKE=1`.
+The remaining 5 (`auditOverview`/`compareAuditRuns`) skip on a **missing
+audit fixture file** — a repo artifact, not an environment gate like the
+other 36. Reconciles against main's own 2,986 (per the Evidence
 Auditor's independent measurement) + 3 — this unit's three new tests (the
 original effW-weighting test, RED test 4, RED test 3). **The earlier
 "3,056/3,015" figure in this document was measured on `origin/effk` (branch

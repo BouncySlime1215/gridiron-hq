@@ -26,31 +26,55 @@ import { readFileSync } from 'node:fs';
 
 const clientSrc = name => readFileSync(new URL(`../client/src/components/${name}`, import.meta.url), 'utf8');
 
+/**
+ * `floorOf` is plain JavaScript once its one type annotation is gone, so it can
+ * be RUN rather than grepped for. It is worth the extraction: the first version
+ * of R1 asserted that the source mentioned `unreadable` and `'no record'` near
+ * each other, and a mutation sweep showed that assertion **survives** reverting
+ * the fix — `unread` is still computed for the mixed-package branch, so the
+ * tokens are all still there while the cell prints "no record" again. A test
+ * that cannot tell the fix from the defect is not a test.
+ *
+ * There is no TSX transform in this suite (see test/trade-manager-read.test.js),
+ * hence reading the declaration out and evaluating it. If the extraction ever
+ * stops matching, that is a failure, not a skip.
+ */
+function extractFloorOf(src) {
+  const m = src.match(/const floorOf = \(r: PackageRisk\) => \{[\s\S]*?\n\};/);
+  assert.ok(m, 'floorOf could not be extracted — this test must be repaired, not skipped');
+  const js = m[0].replace('(r: PackageRisk)', '(r)').replace(/^const floorOf = /, '');
+  return eval(`(${js.replace(/;$/, '')})`);
+}
+
+/** A PackageRisk in the shape packageRisk() returns, with only what floorOf reads. */
+const pkg = (over = {}) => ({ players: [{}], seasons: 0, top24_seasons: 0, unreadable: 0, ...over });
+
 test('R1: the Floor cell does not call an unreadable package "no record"', () => {
-  const src = clientSrc('trade/RiskStrip.tsx');
-  assert.match(src, /unreadable/,
-    'floorOf never looks at PackageRisk.unreadable, so a failed career query still reads as a finding');
-  // The honest-rookie string must survive — it is the correct answer when the
-  // sources worked and there genuinely is nothing. It just may not be the
-  // answer when they did not work.
-  assert.match(src, /'no record'/, 'the genuine no-record case must keep its own wording');
-  assert.match(src, /r\.unreadable[\s\S]{0,200}?'no record'|'no record'[\s\S]{0,200}?r\.unreadable/,
-    'the unreadable branch must be decided in the same expression as "no record", not somewhere else');
+  const floorOf = extractFloorOf(clientSrc('trade/RiskStrip.tsx'));
+
+  // The defect: every career on this side threw, so the sums are 0. Saying
+  // "no record" here is a claim about players nothing was read about.
+  assert.equal(floorOf(pkg({ players: [{}, {}], seasons: 0, unreadable: 2 })), 'not readable');
+
+  // The honest case must be untouched: the sources worked and there genuinely
+  // is no record. Same zero, different reason, different sentence.
+  assert.equal(floorOf(pkg({ players: [{}], seasons: 0, unreadable: 0 })), 'no record');
+
+  // And a fully readable package still reads exactly as it did.
+  assert.equal(floorOf(pkg({ players: [{}], seasons: 5, top24_seasons: 5 })), '5/5 top-24');
+  assert.equal(floorOf(pkg({ players: [] })), '—');
 });
 
 test('R2: a partly readable package is not printed as a whole one', () => {
-  const src = clientSrc('trade/RiskStrip.tsx');
+  const floorOf = extractFloorOf(clientSrc('trade/RiskStrip.tsx'));
   // packageRisk sums over players with a record, so `seasons` on a mixed
-  // package covers only part of it. Whatever the cell prints, the package's
-  // own size has to appear next to the count that does not cover it.
-  // Read the rendered strings themselves, not the function around them: the
-  // old one-liner mentions players.length in its empty-package guard, which
-  // says nothing about what the top-24 count covers.
-  const templates = src.match(/`[^`]*top24_seasons[^`]*`/g) ?? [];
-  assert.ok(templates.length, 'no template renders top24_seasons — floorOf is not where this test expects it');
-  assert.ok(templates.some(t => /players\.length/.test(t)),
-    'every string that prints top24_seasons/seasons does so with no indication of how much of '
-    + `the package that covers — rendered as: ${templates.join(' | ')}`);
+  // package covers only part of it: two players here, one career readable with
+  // five top-24 seasons and one that threw. A cell printing "5/5 top-24" is
+  // reporting one man's record as the pair's.
+  const mixed = floorOf(pkg({ players: [{}, {}], seasons: 5, top24_seasons: 5, unreadable: 1 }));
+
+  assert.notEqual(mixed, '5/5 top-24', 'the readable half is printed as the whole package');
+  assert.equal(mixed, '5/5 top-24 (1/2)');
 });
 
 test('R3: the Floor comparison is not coloured from partial sums', () => {

@@ -145,6 +145,9 @@ test('the job is registered weekly, in the growth tier, off the request thread',
   assert.equal(job.offThread, true);
   assert.equal(resolveOffThread(job), true);
   assert.match(job.label, /start\/sit gate/i);
+  // Auditor A6: the label names the plan's rule, ESPN's projection, first; the average is the floor.
+  assert.match(job.label, /ESPN's projection/);
+  assert.ok(job.label.indexOf('ESPN') < job.label.indexOf('average'), `ESPN is named first: ${job.label}`);
 });
 
 test("the job's run resolves to the gate module (the wiring map's own resolver)", () => {
@@ -166,6 +169,11 @@ test('the Lineup page shows the gate panel, and the panel reads the route', () =
   const page = read('client/src/pages/Lineup.tsx');
   assert.match(page, /import StartSitGate from '\.\.\/components\/lineup\/StartSitGate'/);
   assert.match(page, /<StartSitGate\s*\/>/);
+  // Auditor A6: the comment over the panel names ESPN's projection first.
+  const at = page.indexOf('<StartSitGate');
+  const comment = page.slice(page.lastIndexOf('{/*', at), at);
+  assert.match(comment, /ESPN's projection/, `the Lineup comment: ${comment}`);
+  assert.ok(comment.indexOf('ESPN') < comment.indexOf('average'), `ESPN is named first: ${comment}`);
   const panel = read('client/src/components/lineup/StartSitGate.tsx');
   assert.match(panel, /useApi<[^>]+>\('\/gates\/start-sit'\)/);
 });
@@ -173,14 +181,15 @@ test('the Lineup page shows the gate panel, and the panel reads the route', () =
 test('the panel names every verdict and every direction, and renders the basis', () => {
   // Rendered behaviour (every failing week, direction only) is test/start-sit-gate-panel.test.js.
   const panel = read('client/src/components/lineup/StartSitGate.tsx');
-  for (const v of ['beats_dumb', 'beats_dumb_unconfirmed_forward', 'not_distinguishable', 'loses_to_dumb',
+  for (const v of ['beats_dumb', 'not_shown', 'beats_dumb_unconfirmed_forward', 'not_distinguishable', 'loses_to_dumb',
     'no_disagreements', 'instrument_fault', 'not_run']) {
     assert.ok(panel.includes(`${v}:`) || panel.includes(`'${v}'`), `the panel has no wording for ${v}`);
   }
   for (const d of ['ours_ahead', 'dumb_ahead', 'even', 'no_disagreements', 'not_available']) {
     assert.ok(panel.includes(`${d}:`), `the panel has no wording for direction ${d}`);
   }
-  for (const field of ['baseline', 'policy', 'universe', 'scoring', 'failing_weeks', 'forward', 'served', 'vs_espn']) {
+  for (const field of ['baseline', 'policy', 'universe', 'scoring', 'failing_weeks', 'forward', 'served', 'vs_espn',
+    'plan_rule', 'average_check']) {
     assert.ok(panel.includes(field), `the panel does not render ${field}`);
   }
   assert.doesNotMatch(panel, /\.slice\(/, 'the panel trims nothing: every failing week is shown');

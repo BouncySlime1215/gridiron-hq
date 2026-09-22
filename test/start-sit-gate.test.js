@@ -322,6 +322,11 @@ test('the result names its windows, both rules, the universe, the scoring and th
   assert.match(result.forward.label, /not the projection the app served/i);
 });
 
+test('A6: the texts name the plan\'s rule and the weaker check', () => {
+  assert.match(S.ESPN_BASELINE_TEXT, /^The plan's dumb rule: /);
+  assert.match(S.BASELINE_TEXT, /^The weaker check, set before the numbers: /);
+});
+
 /* ------------------------------------------------------- the grade's values */
 
 const KNOWN_K = () => ({ target_share: { ALL: 0.2 } });

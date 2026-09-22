@@ -170,8 +170,12 @@ async function main() {
     const all = [];
     for (const week of weeks) {
       const engine = buildPlayerWeekEngine({ season, week, scoring: PPR });
-      // ---- Stop condition 2 at the grade itself: the season's fits end before it.
+      // ---- Stop condition 2 at the grade itself: the season's fits end before it. Checked
+      // twice on purpose: inside gradingContext against the season it was asked for, and
+      // here against the season this function actually builds and grades, so a wrong
+      // season argument cannot fetch later fits past both.
       const ctx = lib.gradingContext(season, fits, lambdaFor(week));
+      lib.assertContextCutoff(ctx, season);
       for (const row of lib.eligibleRows(week, engine, truth)) {
         const arms = lib.constructArms(row.proj, { season, week, scoring: PPR, ...ctx });
         // ---- Stop condition 3a: D equals Start/Sit's own week_points on the same input.

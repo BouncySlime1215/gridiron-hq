@@ -102,11 +102,28 @@ argument for showing it.
 six points for a starter" was right, and whoever wrote it deserves to know that
 a measurement now backs it.
 
+### Residual independence across a same-week pair
+
+Restored 2026-09-22. **This measurement was deleted as collateral when the
+start/sit table below was withdrawn; the deletion was an error and this is not
+part of what was retracted.** It is load-bearing for anything that compares two
+players, because it is *why* the noise on a difference is √2 a single
+projection's.
+
+Two players' residuals in the same week are **essentially independent** —
+correlation **+0.0068** over 43,200 sampled same-week pairs, against a standard
+error of 0.0048 at that n. So the noise on a *difference* is √2 times a single
+projection's: residual-difference sd **8.991**, against **9.021** for full
+independence, and `σ·√(2(1−ρ))` with `σ = 6.379` returns 8.990. **There is no
+shared-week effect to lean on**, and a comparison between two players is
+therefore about 1.41x as uncertain as either projection alone.
+
 ### The start/sit threshold table that was here is WITHDRAWN
 
 An earlier version of this section carried a decision curve and used it to argue
 that `CLEAR_THRESHOLD` should move from 4.0 to about 6.0 points. **Do not use
-it.** It was wrong twice over:
+it.** It was wrong twice over — and note that the residual-independence
+measurement above was removed in the same edit, which it should not have been:
 
 1. It was a **sample** of 43,200 pairs, and its smallest-margin bin read 48.4%,
    which implies the projection is *anti*-informative at small margins. Full

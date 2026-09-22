@@ -114,7 +114,7 @@ clear calls is wrong. That is right, and the data says something stronger:
 **There is no band where a weekly start/sit call is near-certain.** Walking the
 startable universe from the top, the win rate only reaches 85% above a margin of
 9.57 and 90% above 12.71 — by which point there are 2,617 pairs left out of
-656,705, four hundredths of a percent of the decisions anyone faces. A word like
+656,705, **0.3985%**, four tenths of a percent of the decisions anyone faces. A word like
 "clear" promises something the projection cannot deliver at any threshold.
 
 So: **showing the measured win rate beats relabelling, and relabelling beats

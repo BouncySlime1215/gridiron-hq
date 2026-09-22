@@ -9,11 +9,13 @@
 > Revision history at the end. Do not quote the old figure; it has been cited
 > elsewhere and those citations need correcting.
 >
-> **Adjudicated 2026-09-22 and settled: cite ceiling 0.3854, model at 82.7%,
-> headroom +0.0668 R².** A competing derivation used the raw 0.4548 as the
-> denominator and put the model at 70.1%; the audit accepted this document's
-> derivation after the bias term reconciled to four decimals (§2.1), and noted
-> that its own check had passed only because two errors cancelled.
+> **Adjudicated 2026-09-22 and settled.** The ceiling is **0.385-0.401** across
+> two independent methods; **carry 0.3854, the conservative end**, which puts
+> the model at **82.7%** with **+0.0668 R²** of headroom. A competing derivation
+> used the raw 0.4548 as denominator and put the model at 70.1%; the audit
+> accepted this document's derivation after the bias term reconciled to four
+> decimals (§2.1), and noted that its own check had passed only because two
+> errors cancelled.
 
 Measured 2026-09-22, after four features from Nick's deep predictive set were
 tested and all four declined. This document asks how much room those features
@@ -95,11 +97,16 @@ decomposition; scaling the leave-one-out oracle's MAE by its RMSE ratio puts the
 floor near **4.49**, giving roughly **+0.31 MAE** of headroom against the
 **+0.0895** the first version quoted — about three and a half times larger.
 
-Correspondingly the within-player share is **0.5988-0.6146**, not the 0.5452 the
-first version published. **About 60% of weekly fantasy scoring is a player
-varying against himself**, and that half of the story got *stronger*, not
-weaker, under correction. The 0.5452 was the complement of the same biased
-number.
+Correspondingly the within-player share is **61.5%** (`σ²w/(σ²b + σ²w)` =
+37.1200/60.3944; the oracle-inversion method gives 59.9%), not the 54.5% the
+first version published, which was the complement of the same biased number.
+
+**Read that as the opposite of a demotion.** The headline correction says the
+model has more room left than was claimed, which sounds like bad news about the
+model. This says the week-to-week pool is *larger* than published. **So "aim at
+the week, not the player" gets stronger, not weaker.** Nearly 62% of weekly
+fantasy scoring is a player varying against himself, and that is the part no
+amount of knowing *who* he is can reach.
 
 ## 3. The four features: the arithmetic changes, the verdicts do not
 
@@ -162,7 +169,7 @@ should be abandoned.
    — it was first on its own merits.
 
 2. **Ship the uncertainty, not just the projection. Unchanged, and
-   strengthened.** With about **60%** of weekly variance irreducible from player
+   strengthened.** With **61.5%** of weekly variance irreducible from player
    identity — more than the 54.5% first published — a model at R² 0.32 printing
    "11.4 points" is making a claim the data does not support. A range earned
    from the measured residual spread tells the truth and is more useful for a

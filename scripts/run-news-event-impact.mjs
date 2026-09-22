@@ -8,15 +8,34 @@
  * batch of `--limit` stories runs a handful of cents at typical story
  * lengths — check `usageSummary()` / the Dev Hub after a run for the exact
  * figure). Bounded by --limit on purpose; this is not a historical backfill
- * tool. Run it yourself when you want to spend that budget:
+ * tool.
  *
- *   node scripts/run-news-event-impact.mjs extract [--limit 20] [--since-days 7]
+ * BECAUSE IT SPENDS MONEY, IT REFUSES TO RUN BY DEFAULT. Set
+ * `GRIDIRON_ALLOW_PAID_RUN` to any non-empty value to accept the charge;
+ * without it the script exits 1 with a one-line reason before it opens the
+ * database. The default command is `impact`, so a bare invocation used to be a
+ * valid one — the opt-in is what separates a deliberate run from a typo. Only
+ * the variable's presence is read, never its value, because it sits in the same
+ * environment as the API keys.
+ *
+ *   GRIDIRON_ALLOW_PAID_RUN=1 node scripts/run-news-event-impact.mjs extract [--limit 20] [--since-days 7]
  *   node scripts/run-news-event-impact.mjs press   [--limit 20] [--since-days 14]
  *   node scripts/run-news-event-impact.mjs impact  [--market spreads]
  *   node scripts/run-news-event-impact.mjs controls
  */
-import { runMigrations } from '../server/db/migrate.js';
-import { rows } from '../server/db/index.js';
+import { assertPaidRunOptIn } from './paid-run-optin.mjs';
+
+// FIRST, and this is why nothing else is imported statically. `server/db/
+// index.js:19` runs `mkdirSync(path.dirname(DB_PATH), { recursive: true })` at
+// module scope and opens the database there, and a static import runs before
+// any statement in this file. A guard placed after such an import has already
+// created a directory and opened a database by the time it refuses. So the
+// database modules join the service modules below in being loaded dynamically,
+// after the opt-in is established.
+assertPaidRunOptIn();
+
+const { runMigrations } = await import('../server/db/migrate.js');
+const { rows } = await import('../server/db/index.js');
 
 // Migrations MUST run before these modules are imported, not after. Both
 // prepare statements against their own tables at module scope (see

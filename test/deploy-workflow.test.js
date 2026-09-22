@@ -91,14 +91,16 @@ test('brake re-asserted before the deploy, confirmation read after, and never re
   assert.ok(confirm !== -1, 'a step looks for the "Scheduler disabled" line');
   assert.ok(brake < deploy, 'brake is set before the deploy');
   assert.ok(deploy < confirm, 'confirmation is read after the deploy');
-  assert.doesNotMatch(text, /secrets\s+unset/, 'releasing the brake is not this workflow\'s job');
+  const code = text.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
+  assert.doesNotMatch(code, /secrets\s+unset/, 'releasing the brake is not this workflow\'s job');
 });
 
 test('the deploy is remote-only, against the right app, through flyctl-actions', () => {
   const { text, lines } = loadWorkflow();
   const deploy = steps(blockUnder(lines, 'jobs')).map((s) => s.join('\n')).find((s) => /flyctl deploy\b/.test(s));
   assert.match(deploy, /--remote-only/);
-  assert.match(deploy, /(-a|--app)\s+gridiron-hq\b/);
+  // Not \b: a hyphen is a word boundary, so \b would accept gridiron-hq-staging.
+  assert.match(deploy, /(-a|--app)\s+gridiron-hq(\s|$)/);
   assert.match(text, /uses:\s*superfly\/flyctl-actions\/setup-flyctl@/);
 });
 

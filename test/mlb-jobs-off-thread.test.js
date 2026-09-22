@@ -118,3 +118,29 @@ test("refreshInBackground's promise is now actually in the background", () => {
       + 'blocks the requests that come after the one that triggered it');
   }
 });
+
+test('the ratchet bound is not left stale after a reduction', () => {
+  // Written because a mutation survived, and it is worth being exact about
+  // what this does and does not do about it.
+  //
+  // growth-jobs-off-thread.test.js guards the count with `onThread <= 26`.
+  // Raising that literal to 99 fails nothing, and no behavioural test can make
+  // it fail: a loose upper bound has no behaviour to assert against. Its
+  // companion assertion, ON_REQUEST_THREAD.size + MAIN_THREAD_ONLY.size ===
+  // onThread, does not catch it either, because both sides move together when
+  // a job is added to a list.
+  //
+  // So this does not kill that mutation. It covers the CONSEQUENCE of it: with
+  // the bound left stale, a job quietly added to ON_REQUEST_THREAD raises the
+  // count and nothing over there notices, and an exact number here does.
+  // 26 = 13 live + 6 metered + 7 growth, measured, not read off the comment.
+  // Moving another job off-thread means editing this line AND the bound over
+  // there, and that is the intended cost -- the ratchet is only worth having
+  // if a reduction has to be claimed out loud.
+  const accountable = Object.entries(JOBS).filter(([, j]) => (j.tier ?? 'live') !== 'heavy');
+  const onThread = accountable.filter(([, j]) => !resolveOffThread(j)).length;
+  assert.equal(onThread, 26,
+    `${onThread} jobs run on the request thread, not the 26 recorded here. If a job moved `
+    + 'off-thread, lower this number and the `onThread <= 26` bound in '
+    + 'growth-jobs-off-thread.test.js in the same commit. If one was added, say why there');
+});

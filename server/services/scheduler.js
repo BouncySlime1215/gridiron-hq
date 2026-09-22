@@ -1504,8 +1504,15 @@ export const JOBS = {
    * run skipped for a live draft does not cost a whole day; a prior season
    * already stored is not re-read at all (league-history.js's seasonsToFetch),
    * which on a filled-in box makes the run one request per league.
+   *
+   * offThread: true regardless of tier — `resolveOffThread` only defaults a
+   * job off-thread when its tier is 'heavy', and this one is deliberately
+   * 'growth' (above). Without the flag it runs on the request thread with a
+   * five-minute budget, and node:sqlite is synchronous, so every one of its
+   * writes blocks every request for as long as the paced ESPN reads take.
    */
-  league_history: { run: refreshLeagueHistory, maxAgeMinutes: 12 * 60, tier: 'growth', timeoutMs: 300_000,
+  league_history: { run: refreshLeagueHistory, maxAgeMinutes: 12 * 60, tier: 'growth', offThread: true,
+    timeoutMs: 300_000,
     label: 'League history: final standings and weekly scores per league-season (ESPN, paced)' },
   manager_archetypes: { run: refreshManagerArchetypes, maxAgeMinutes: 24 * 60, tier: 'heavy', timeoutMs: 10 * 60_000,
     label: 'Manager archetypes: draft-revealed preference and all-play/luck outcomes (child process)' },

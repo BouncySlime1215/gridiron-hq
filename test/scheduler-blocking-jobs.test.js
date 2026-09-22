@@ -35,6 +35,16 @@ test('the two always-on jobs that parse megabytes do not run on the request thre
   }
 });
 
+test('league_history does not run on the request thread either (2026-09-22)', () => {
+  // Same shape as the two jobs above, found later: 'growth' tier plus a
+  // 300s timeoutMs and no offThread flag means resolveOffThread's default
+  // (job.tier === 'heavy') never applies, so the job ran on the request
+  // thread and blocked every request for as long as its paced ESPN reads
+  // took — node:sqlite is synchronous.
+  assert.equal(scheduler.JOBS.league_history.offThread, true,
+    'league_history is on the growth tier, so it always runs; on the main thread its paced ESPN reads block every request');
+});
+
 test('a completed season already held is not pulled again', () => {
   const insert = db.prepare(`INSERT INTO nfl_ffopportunity_weekly
     (season,week,player_gsis_id,player_name,team,position,expected_fantasy_points,

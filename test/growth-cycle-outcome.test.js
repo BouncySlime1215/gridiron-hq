@@ -72,3 +72,72 @@ test('the inputs are optional in the same way the cycle supplies them', () => {
   assert.equal(cycleOutcome({ finalizedWeek: 0 }).status, 'waiting');
   assert.equal(cycleOutcome({ finalizedWeek: 1 }).status, 'ok');
 });
+
+// --- a download that failed must not be reported as a clean run ----------
+//
+// `attempt()` (nfl-model-growth.js:149) catches every ingestion step
+// individually, on purpose: one late nflverse release must not abort the
+// other nine. What it writes on failure — detail.ingestion.<step>.error —
+// was then read by nothing. The verdict looked at requiredLag and at the fit
+// and at neither of those.
+//
+// requiredLag cannot stand in for it. It is computed from warehouseSnapshot's
+// `sources`, and eight of the ten ingestion steps write to tables marked
+// `required: false` (:84-99), so their failure is invisible to it by
+// construction. Two of them — formation_participation and ftn_charting — have
+// no entry in `sources` at all, so nothing anywhere in the result records that
+// they were even attempted.
+//
+// The consequence is a run that reports 'ok' and a note reading "current-season
+// features were ingested" on a cycle where a feed threw. That note is the half
+// a person reads.
+
+const failed = step => ({ ingestion: { [step]: { error: 'HTTP 404 from nflverse' } } });
+
+test('an ingestion step that failed is not reported as a clean run', () => {
+  const { status } = cycleOutcome({ finalizedWeek: 3, requiredLag: [], detail: failed('depth_charts') });
+  assert.notEqual(status, 'ok',
+    'depth_charts is required:false, so requiredLag never sees this; the verdict must');
+  assert.equal(status, 'ingest_error');
+});
+
+test('the verdict names the step that failed', () => {
+  const { note } = cycleOutcome({ finalizedWeek: 3, requiredLag: [], detail: failed('injury_reports') });
+  assert.match(note, /injury_reports/,
+    'a status without the step name sends the reader back to the log to find it');
+});
+
+test('every failed step is named, not just the first', () => {
+  const { status, note } = cycleOutcome({ finalizedWeek: 3, requiredLag: [], detail: { ingestion: {
+    snap_counts: { error: 'a' }, next_gen_stats: { rows: 12 }, ftn_charting: { error: 'b' } } } });
+  assert.equal(status, 'ingest_error');
+  assert.match(note, /ftn_charting/);
+  assert.match(note, /snap_counts/);
+  assert.doesNotMatch(note, /next_gen_stats/, 'a step that succeeded must not be listed as failed');
+});
+
+test('a step with no error key is a success, whatever else it returned', () => {
+  const { status } = cycleOutcome({ finalizedWeek: 3, requiredLag: [], detail: { ingestion: {
+    pfr_advanced: { rows: 0, seasons: [2025] } } } });
+  assert.equal(status, 'ok', 'zero rows is a separate question; only a thrown step is an ingest error');
+});
+
+test('a missing required release still outranks a failed download', () => {
+  // The order is the order of causes. If nflverse has not published the week,
+  // that explains the failed download too, and is the thing to report.
+  const { status } = cycleOutcome({ finalizedWeek: 3, requiredLag: lag, detail: failed('depth_charts') });
+  assert.equal(status, 'source_lag');
+});
+
+test('a failed download outranks a failed fit', () => {
+  // A fit built on rows a failed download left stale is not independent
+  // evidence of a broken fit, so the download is the cause to report.
+  const { status } = cycleOutcome({ finalizedWeek: 3, requiredLag: [],
+    detail: { ...failed('play_by_play'), fit: { error: 'singular matrix' } } });
+  assert.equal(status, 'ingest_error');
+});
+
+test('a run with no finalized week is still waiting, even with a failed step', () => {
+  const { status } = cycleOutcome({ finalizedWeek: 0, requiredLag: [], detail: failed('depth_charts') });
+  assert.equal(status, 'waiting');
+});
